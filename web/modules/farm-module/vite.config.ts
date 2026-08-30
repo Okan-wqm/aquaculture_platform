@@ -5,6 +5,7 @@ import { federation } from '@module-federation/vite';
 import react from '@vitejs/plugin-react';
 import { type PluginOption } from 'vite';
 import { defineConfig } from 'vitest/config';
+import createVitestTestPolicy from '@aquaculture/testing/vitest';
 
 const createReactPlugin = react as () => PluginOption[];
 
@@ -63,9 +64,6 @@ export default defineConfig(({ mode }) => {
           __dirname,
           '../../../libs/aquaculture-engines/src/index.ts',
         ),
-        // sentinelhub-js peer deps: hoisted to root node_modules but Vite can't
-        // resolve them from nested farm-module/node_modules/@sentinel-hub/sentinelhub-js/
-        'polygon-clipping': resolve(__dirname, '../../../node_modules/polygon-clipping'),
       },
     },
     server: {
@@ -82,17 +80,22 @@ export default defineConfig(({ mode }) => {
     base: farmModuleBase,
     build: {
       target: 'esnext',
+      // PERF-HIGH-004: an explicit bundle budget. With every page-level route
+      // now React.lazy code-split (Module.tsx), no single async chunk should be
+      // large; a chunk over 600 kB (minified, pre-gzip) warns at build time so a
+      // regression that re-bundles a heavy page eagerly is caught in CI output.
+      chunkSizeWarningLimit: 600,
     },
     test: {
       globals: true,
       environment: 'jsdom',
       setupFiles: ['./src/test-setup.ts'],
       include: ['src/**/*.{test,spec}.{ts,tsx}'],
-      // WHY: React 19 + @testing-library/react 16 + recharts render the heavy
-      // water-chemistry Deffeyes charts (multiple toxic-zone layers) in jsdom at
-      // ~5.5s — over vitest's 5s default, flaking several chart tests on the
-      // boundary. Assertions are correct; the render is just heavy. 20s headroom.
-      testTimeout: 20000,
+      // The timeout headroom the heavy Deffeyes chart renders need used to be
+      // a local override here. shared-ui renders the same charts and had none,
+      // so it flaked as soon as coverage instrumentation actually applied. The
+      // policy carries that headroom now, for every consumer.
+      ...createVitestTestPolicy(),
     },
   };
 });

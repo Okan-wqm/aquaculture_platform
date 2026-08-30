@@ -16,6 +16,8 @@ import { clsx } from 'clsx';
 import { Play, Pause } from 'lucide-react';
 import { useState, useRef, useCallback, useEffect, useMemo, type ReactElement } from 'react';
 
+import { IconButton } from '../ui/IconButton';
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -280,7 +282,7 @@ export function VoicePlayer({
           <span
             className={clsx(
               'text-[10px] tabular-nums',
-              isOwn ? 'text-white/60' : 'text-gray-400 dark:text-gray-500',
+              isOwn ? 'text-white/75' : 'text-gray-400 dark:text-gray-500',
             )}
           >
             {formatDuration(currentTime)}
@@ -288,7 +290,7 @@ export function VoicePlayer({
           <span
             className={clsx(
               'text-[10px] tabular-nums',
-              isOwn ? 'text-white/60' : 'text-gray-400 dark:text-gray-500',
+              isOwn ? 'text-white/75' : 'text-gray-400 dark:text-gray-500',
             )}
           >
             {formatDuration(duration)}
@@ -296,11 +298,12 @@ export function VoicePlayer({
         </div>
       </div>
 
-      {/* Speed toggle */}
-      <button
+      {/* Speed toggle — IconButton bakes in the 44px touch floor (MOB-MEDIUM-009;
+          replaces the prior 28px target that failed gloved outdoor use). */}
+      <IconButton
         onClick={handleSpeedToggle}
         className={clsx(
-          'min-w-[36px] min-h-[28px] flex items-center justify-center rounded-full text-[10px] font-bold touch-feedback transition-colors',
+          'text-[10px] font-bold transition-colors',
           isOwn
             ? 'bg-white/20 text-white hover:bg-white/30'
             : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600',
@@ -308,7 +311,7 @@ export function VoicePlayer({
         aria-label={`Playback speed ${speed}x`}
       >
         {speed}x
-      </button>
+      </IconButton>
     </div>
   );
 }

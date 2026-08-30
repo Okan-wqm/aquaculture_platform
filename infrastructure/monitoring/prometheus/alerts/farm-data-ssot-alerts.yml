@@ -71,14 +71,14 @@ spec:
           labels:
             severity: warning
           annotations:
-            summary: "Farm mutation error rate above 5%"
+            summary: 'Farm mutation error rate above 5%'
             description: >-
               farm-service GraphQL mutation error ratio is
               {{ $value | humanizePercentage }} over the last 5 minutes,
               above the 5% threshold. The traffic guard (>0.1 rps) rules out
               low-traffic false positives. Check farm_mutation_errors_total by
               error_class and the Farm Data SSOT dashboard.
-            runbook_url: "https://wiki.internal/runbooks/farm-mutation-errors"
+            runbook_url: 'https://wiki.internal/runbooks/farm-mutation-errors'
 
         - alert: FarmMutationErrorRateCritical
           expr: |
@@ -94,13 +94,13 @@ spec:
           labels:
             severity: critical
           annotations:
-            summary: "Farm mutation error rate above 10%"
+            summary: 'Farm mutation error rate above 10%'
             description: >-
               farm-service GraphQL mutation error ratio is
               {{ $value | humanizePercentage }} over the last 5 minutes,
               above the 10% critical threshold. A large fraction of farm
               writes are failing — investigate immediately.
-            runbook_url: "https://wiki.internal/runbooks/farm-mutation-errors"
+            runbook_url: 'https://wiki.internal/runbooks/farm-mutation-errors'
 
     # ========================================================================
     # Farm transactional outbox backlog (depth + age)
@@ -116,13 +116,13 @@ spec:
           labels:
             severity: warning
           annotations:
-            summary: "Farm outbox backlog above 100 pending events"
+            summary: 'Farm outbox backlog above 100 pending events'
             description: >-
               The farm-service transactional outbox has
               {{ $value }} unpublished events pending for more than 5 minutes.
               The worker is falling behind. Check NATS connectivity and the
               outbox worker logs.
-            runbook_url: "https://wiki.internal/runbooks/farm-outbox-backlog"
+            runbook_url: 'https://wiki.internal/runbooks/farm-outbox-backlog'
 
         - alert: FarmOutboxBacklogCritical
           expr: |
@@ -131,13 +131,13 @@ spec:
           labels:
             severity: critical
           annotations:
-            summary: "Farm outbox backlog above 1000 pending events"
+            summary: 'Farm outbox backlog above 1000 pending events'
             description: >-
               The farm-service transactional outbox backlog is
               {{ $value }} unpublished events — the worker is severely behind
               or NATS publishing is down. Domain events are not reaching
               downstream services. Investigate immediately.
-            runbook_url: "https://wiki.internal/runbooks/farm-outbox-backlog"
+            runbook_url: 'https://wiki.internal/runbooks/farm-outbox-backlog'
 
         - alert: FarmOutboxPublishLatencyHigh
           # No "oldest pending row age" gauge is emitted; the enqueue->publish
@@ -152,13 +152,13 @@ spec:
           labels:
             severity: warning
           annotations:
-            summary: "Farm outbox enqueue-to-publish latency p99 above 30s"
+            summary: 'Farm outbox enqueue-to-publish latency p99 above 30s'
             description: >-
               The 99th percentile time from outbox enqueue to successful NATS
               publish for farm-service is {{ $value | humanizeDuration }},
               above the 30s threshold. Events are aging in the outbox; check
               worker throughput and NATS health.
-            runbook_url: "https://wiki.internal/runbooks/farm-outbox-backlog"
+            runbook_url: 'https://wiki.internal/runbooks/farm-outbox-backlog'
 
         - alert: FarmOutboxDeadLetters
           # Any dead-lettered row means an event exceeded OUTBOX_MAX_RETRIES and
@@ -169,10 +169,189 @@ spec:
           labels:
             severity: critical
           annotations:
-            summary: "Farm outbox has dead-lettered events"
+            summary: 'Farm outbox has dead-lettered events'
             description: >-
               {{ $value }} farm-service outbox event(s) exceeded
               OUTBOX_MAX_RETRIES and were dead-lettered. They will not publish
               without operator replay. Inspect the lastError on the dead
               outbox rows and the downstream NATS subject.
-            runbook_url: "https://wiki.internal/runbooks/farm-outbox-backlog"
+            runbook_url: 'https://wiki.internal/runbooks/farm-outbox-backlog'
+
+    # ========================================================================
+    # Regulatory (Mattilsynet / Fiskeridirektoratet) submission pipeline
+    #   farm_regulatory_submission_total{report_type,outcome} (counter),
+    #   farm_regulatory_cron_runs_total{job,outcome} (counter) +
+    #   farm_regulatory_cron_last_run_timestamp_seconds{job} (gauge heartbeat)
+    #   — all emitted by farm-domain-metrics.service.ts (OBS-HIGH-001/002).
+    #   Before these, a Mattilsynet rejection returned GraphQL-200 and counted
+    #   as success everywhere, and a wedged scheduler was invisible.
+    # ========================================================================
+    - name: aquaculture.farm.regulatory
+      rules:
+        - alert: FarmRegulatorySubmissionFailuresElevated
+          # Government filings are low-volume, so an absolute count is the right
+          # sensitivity: 3+ FAILED transitions in an hour is a pattern (broken
+          # Maskinporten auth, schema drift, a stuck report) an operator must
+          # act on — not a single recovered TRANSIENT blip.
+          expr: |
+            sum(increase(farm_regulatory_submission_total{namespace="aquaculture",app="farm-service",outcome="failed"}[1h])) >= 3
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: 'Regulatory submission failures elevated'
+            description: >-
+              farm-service recorded {{ $value }} FAILED regulatory submission
+              transitions in the last hour. A Mattilsynet rejection or transport
+              failure no longer hides behind a GraphQL-200 — check
+              farm_regulatory_submission_total by report_type and the failed
+              regulatory_reports rows (feilmelding, failureClass).
+            runbook_url: 'https://wiki.internal/runbooks/farm-regulatory-submission'
+
+        - alert: FarmRegulatoryRetrySweepStalled
+          # The retry sweep runs every 30 minutes; no heartbeat for 90 minutes
+          # means the regulatory scheduler is wedged and FAILED+TRANSIENT reports
+          # are no longer being replayed.
+          expr: |
+            time() - max(farm_regulatory_cron_last_run_timestamp_seconds{namespace="aquaculture",app="farm-service",job="regulatory-retry-sweep"}) > 5400
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: 'Regulatory retry sweep has not run in 90 minutes'
+            description: >-
+              The regulatory-retry-sweep cron (30-minute cadence) has not stamped
+              a heartbeat for over 90 minutes. TRANSIENT-failed regulatory reports
+              are not being replayed. Check the farm-service scheduler and the
+              advisory-lock holder.
+            runbook_url: 'https://wiki.internal/runbooks/farm-regulatory-submission'
+
+        - alert: FarmRegulatoryCronErrored
+          # An outcome=error run means the job itself aborted (e.g. tenant
+          # discovery failed) — distinct from an absorbed per-tenant failure.
+          expr: |
+            sum(increase(farm_regulatory_cron_runs_total{namespace="aquaculture",app="farm-service",outcome="error"}[15m])) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: 'A regulatory scheduler job aborted'
+            description: >-
+              A regulatory scheduler job run aborted (outcome=error) in the last
+              15 minutes — the whole run broke, not just one tenant. Check the
+              farm-service scheduler logs for the aborting job.
+            runbook_url: 'https://wiki.internal/runbooks/farm-regulatory-submission'
+
+    # ========================================================================
+    # Canonical tenant environmental monitoring
+    # ========================================================================
+    - name: aquaculture.farm.environment
+      rules:
+        - alert: FarmEnvironmentProviderSyncStalled
+          expr: |
+            max(farm_environment_monitoring_enabled{namespace="aquaculture",app="farm-service"}) == 1
+            and on()
+            (
+              absent(farm_environment_cron_heartbeat_timestamp_seconds{namespace="aquaculture",app="farm-service",job="provider_sync"})
+              or
+              time() - max(farm_environment_cron_heartbeat_timestamp_seconds{namespace="aquaculture",app="farm-service",job="provider_sync"}) > 9000
+            )
+            and on()
+            (
+              time() - max(process_start_time_seconds{namespace="aquaculture",app="farm-service"}) > 9000
+            )
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: 'Farm environmental provider scheduler is stalled'
+            description: >-
+              Environmental monitoring is enabled, but the bounded provider
+              queue has emitted no start or completion heartbeat for 150
+              minutes. This exceeds the worst-case provider lease budget.
+            runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/farm-environment-monitoring.md'
+
+        - alert: FarmEnvironmentRetentionStalled
+          expr: |
+            (
+              absent(farm_environment_cron_last_run_timestamp_seconds{namespace="aquaculture",app="farm-service",job="retention"})
+              or
+              time() - max(farm_environment_cron_last_run_timestamp_seconds{namespace="aquaculture",app="farm-service",job="retention"}) > 129600
+            )
+            and on()
+            (
+              time() - max(process_start_time_seconds{namespace="aquaculture",app="farm-service"}) > 129600
+            )
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: 'Farm environmental retention job is stalled'
+            description: >-
+              The always-on daily retention job has not stamped a heartbeat
+              for more than 36 hours, including rollback-disabled operation.
+            runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/farm-environment-monitoring.md'
+
+        - alert: FarmEnvironmentCronFailures
+          expr: |
+            sum(increase(farm_environment_cron_runs_total{namespace="aquaculture",app="farm-service",outcome=~"partial_failure|error"}[30m])) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: 'Farm environmental scheduler reported failures'
+            description: >-
+              One or more environmental scheduler runs were partial or aborted
+              in the last 30 minutes. Inspect the bounded phase metrics and
+              farm-service structured logs.
+            runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/farm-environment-monitoring.md'
+
+        - alert: FarmEnvironmentProviderFailuresElevated
+          expr: |
+            sum by (provider) (
+              increase(farm_environment_provider_completions_total{namespace="aquaculture",app="farm-service",status=~"PARTIAL_FAILURE|PROVIDER_UNAVAILABLE|CONFIGURATION_ERROR"}[30m])
+            ) >= 3
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: 'Farm environmental provider failures elevated'
+            description: >-
+              Provider {{ $labels.provider }} produced at least three partial,
+              unavailable, or configuration-error completions in 30 minutes.
+              Check metric-scope outcomes, provider identity, and upstream status.
+            runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/farm-environment-monitoring.md'
+
+        - alert: FarmEnvironmentBacklogSloBreached
+          expr: |
+            max(farm_environment_monitoring_enabled{namespace="aquaculture",app="farm-service"}) == 1
+            and on()
+            max(farm_environment_due_backlog{namespace="aquaculture",app="farm-service"}) > 0
+            and on()
+            max(farm_environment_oldest_due_age_seconds{namespace="aquaculture",app="farm-service"}) > 1800
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: 'Farm environmental provider backlog breached its scheduling SLO'
+            description: >-
+              At least one provider lease has remained due for more than 30
+              minutes. The continuously draining worker pool is under upstream,
+              quota, or capacity pressure.
+            runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/farm-environment-monitoring.md'
+
+        - alert: FarmEnvironmentLeaseDiscardsElevated
+          expr: |
+            sum by (provider) (
+              increase(farm_environment_lease_discarded_total{namespace="aquaculture",app="farm-service"}[30m])
+            ) >= 5
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: 'Farm environmental lease discards elevated'
+            description: >-
+              Provider {{ $labels.provider }} had at least five results rejected
+              by the lease or site-revision fence in 30 minutes. Investigate
+              replica latency, lease duration, and repeated site edits.
+            runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/farm-environment-monitoring.md'

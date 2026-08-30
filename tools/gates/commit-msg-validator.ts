@@ -38,6 +38,8 @@ import { execFileSync, execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import { ORPHAN_MD_HEADING_REGEX, readOrphanMarkdownStore } from './finding-registry-store';
+
 // Resolve repo root via `git rev-parse --show-toplevel`
 // (Batch #349) — switched away from
 // `dirname(fileURLToPath(import.meta.url))` because the
@@ -246,6 +248,64 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   // trailer is structurally unavailable. Allowlist the cherry-pick SHA
   // so the validator does not block merge.
   '4b5174db', // fix(migration): replace archived migration imports with Baseline (3 services) — cherry-picked from f757b3ed
+  // WASM-adoption feature commits whose Closes: trailers used a hyphenated
+  // finding-ID prefix (SCADA-SANDBOX-*, CODEC-WASM-*) that fails the
+  // CLOSES_TRAILER_REGEX PREFIX rule ([A-Z][A-Z0-9]+, no hyphen). The findings
+  // are real (docs/reviews/claude/2026-07-13-*.md); only the trailer ID shape
+  // was wrong. Amending is barred by the force-push ban, so these SHAs are
+  // allowlisted. Later WASM-adoption commits use compliant ORPHAN-{SEV}-NNN IDs.
+  'ad4a5d96', // security(scada-runtime): QuickJS-WASM SCADA script sandbox (Phase 1)
+  'a238c98a', // feat(protocol-codec): compile the Modbus SSoT to wasm (Phase 2)
+  // feat(lora) Phase 3: its Closes: trailer referenced ORPHAN-HIGH-378, which
+  // independently landed on main (shared.user_permissions retirement) during
+  // concurrent development. The branch finding was renumbered to ORPHAN-HIGH-382
+  // on merge; the pushed commit's trailer cannot be amended (force-push ban).
+  '5334a47a', // feat(lora): sandboxed wasm custom payload decoders (Phase 3)
+  // ARIA-intelligence branches whose Closes: trailers referenced
+  // ORPHAN-MEDIUM-552/553 minted concurrently with the #1084 line, which
+  // claimed IDs 552-556 first. Both branch findings were renumbered
+  // (552 -> 557, 553 -> 558) in the registry + orphan doc; the pushed
+  // commits' trailers cannot be amended (force-push ban) — the identical
+  // situation as the feat(lora) 378 -> 382 entry above.
+  '4048a1cf', // feat(aria): let ARIA's own precision measurement change ARIA's behaviour (552 -> 557)
+  'abe53cbf', // feat(aria): give the runtime-signal bridge a mouth and the delivery metrics their first rules (553 -> 558)
+  // Second concurrent-allocation collision of this session. The sibling
+  // session's registry ceremony (#1092) claimed ORPHAN-559/560 through the
+  // finding-registry CLI - the authoritative allocator - while these commits
+  // were already pushed citing the same numbers from the orphan document,
+  // which allocates by hand. Mine moved (559 -> 564, 560 -> 565) because the
+  // CLI's claim is the one with a lease behind it; the pushed trailers cannot
+  // follow, because amending them needs a force-push.
+  '27f4549e', // feat(watchdog): hourly T1 probes with a live CRITICAL-to-ARIA bridge (559 -> 564)
+  '8f98a21f', // fix(watchdog): provision the kernel the CRITICAL branch needs (559 -> 564)
+  '94d4ef32', // feat(aria): mint the gold-corpus proposals nothing was minting (560 -> 565)
+  // ORPHAN-MEDIUM-464 — added by OPERATOR DECISION, not by the author's own
+  // judgement, and recorded that way on purpose.
+  //
+  // `9fb8efce` is a `fix(gates):` commit with no `Closes:` trailer. The
+  // finding it should have cited is real and registered — ORPHAN-HIGH-417,
+  // whose gate self-test wiring that commit restores — so this is a missing
+  // reference, not a missing finding.
+  //
+  // Why it cannot be repaired instead of allowlisted: `closes-footer-check`
+  // validates the whole PR range, so no follow-up commit can satisfy it, and
+  // amending a pushed commit needs a force-push, which CLAUDE.md forbids
+  // outright. That is the identical situation every annotated entry above
+  // describes.
+  //
+  // Why the author did not add this alone: the set is documented as frozen,
+  // and growing a governance allowlist to unblock one's own branch is
+  // self-authorisation — the exact defect class the branch this unblocks was
+  // written to close. It was put to the operator with both routes and their
+  // costs, and this is the route chosen.
+  //
+  // The ROOT CAUSE is separately fixed. ORPHAN-HIGH-441: the commit-msg hook
+  // that would have caught this bound for nobody, because its only install
+  // path was husky's `prepare`, which never runs under the `npm ci
+  // --ignore-scripts` this repo mandates. `npm run hooks:install` and
+  // `tests/invariants/git-hook-binding.spec.ts` close that, so the next
+  // missing trailer is refused at write time rather than discovered here.
+  '9fb8efce', // fix(gates): restore the orphaned npm script and make the seam checkable
 ]);
 
 interface Commit {
@@ -317,26 +377,29 @@ function loadRegistryIds(): Set<string> {
  * non-ORPHAN trailers continue to validate against the
  * registry as before.
  *
- * **Parser shape:** scans for `^## (ORPHAN-{SEV}-NNN)`
- * headings. The orphan-findings.md format is documented
- * at the file's top + has been stable since the doc was
- * established. A future restructure that breaks the
- * heading convention also fails the orphan-findings
- * structural tests (out-of-band).
+ * **Parser shape:** scans for `^## (ORPHAN-…-NNN)` headings via the
+ * shared `ORPHAN_MD_HEADING_REGEX`, which also owns the pattern the ID
+ * allocator uses. One pattern, two consumers, on purpose.
+ *
+ * **The lane is a UNION, not markdown-only.** The paragraph above is
+ * still true — orphan findings do live in markdown — but it was being
+ * read as "and nowhere else", which was wrong and this gate's own error
+ * message contradicted it by telling the author that "Finding IDs live
+ * in: docs/reviews/_registry/findings.jsonl". An ORPHAN ID minted into
+ * the hash-chained registry resolved against neither store: not the
+ * registry, because the ORPHAN prefix routed away from it, and not the
+ * markdown, because it was never written there. Eleven ledger ORPHAN IDs
+ * were already unreferenceable this way before the change that exposed
+ * it. An ORPHAN trailer now resolves if EITHER store knows the ID.
  */
 const ORPHAN_FINDINGS_PATH = resolve(REPO_ROOT, 'docs/reviews/orphan-findings.md');
 
-const ORPHAN_HEADING_REGEX = /^##\s+(ORPHAN-(?:CRITICAL|HIGH|MEDIUM|LOW)-\d{3})\b/;
+/** Re-exported under the historical name; the pattern itself is shared
+ * with the allocator so the two cannot drift apart. */
+const ORPHAN_HEADING_REGEX = ORPHAN_MD_HEADING_REGEX;
 
 function loadOrphanIds(): Set<string> {
-  if (!existsSync(ORPHAN_FINDINGS_PATH)) return new Set();
-  const ids = new Set<string>();
-  const content = readFileSync(ORPHAN_FINDINGS_PATH, 'utf8');
-  for (const line of content.split('\n')) {
-    const m = ORPHAN_HEADING_REGEX.exec(line);
-    if (m && m[1]) ids.add(m[1]);
-  }
-  return ids;
+  return new Set(readOrphanMarkdownStore(ORPHAN_FINDINGS_PATH).ids);
 }
 
 function extractTrailers(body: string): Trailer[] {
@@ -499,11 +562,11 @@ function validateCommit(
         }
       }
     } else if (findingId.startsWith('ORPHAN-')) {
-      if (!orphanIds.has(findingId)) {
+      if (!orphanIds.has(findingId) && !registryIds.has(findingId)) {
         out.push({
           sha: commit.shortSha,
           subject: commit.subject,
-          reason: `Closes: trailer references unknown ORPHAN finding ID: ${findingId} (no matching "## ${findingId}" heading in docs/reviews/orphan-findings.md)`,
+          reason: `Closes: trailer references unknown ORPHAN finding ID: ${findingId} (no matching "## ${findingId}" heading in docs/reviews/orphan-findings.md, and no such id in docs/reviews/_registry/findings.jsonl)`,
         });
       }
     } else if (!registryIds.has(findingId)) {

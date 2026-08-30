@@ -8,7 +8,9 @@
  */
 
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Optional } from '@nestjs/common';
+import { Interval } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { isCanaryTenant } from '@aquaculture/backend-common/billing';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { randomUUID } from 'crypto';
 
@@ -148,6 +150,24 @@ export interface UsageEventBatch {
   timestamp: string;
 }
 
+/**
+ * Counters describing what the meter did with what it was handed.
+ *
+ * Named and exported rather than inferred from a private field: a caller
+ * that wants to assert on `canaryEventsSkipped` should be able to say what
+ * shape it expects without casting through the type system, and a cast in a
+ * test is a claim nothing checks.
+ */
+export interface UsageMeteringMetrics {
+  totalEventsReceived: number;
+  totalEventsProcessed: number;
+  duplicateEventsSkipped: number;
+  canaryEventsSkipped: number;
+  batchesProcessed: number;
+  thresholdBreaches: number;
+  errors: number;
+}
+
 @Injectable()
 export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(UsageMeteringService.name);
@@ -159,9 +179,6 @@ export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
   private readonly maxBufferSize = 1000;
   private readonly breachedThresholds = new Map<string, Set<number>>(); // tenantId:meterType -> breached percentages
 
-  private flushInterval: NodeJS.Timeout | null = null;
-  private cleanupInterval: NodeJS.Timeout | null = null;
-  private redisWriteInterval: NodeJS.Timeout | null = null;
   private dirtyTenants = new Set<string>(); // Track which tenants need Redis sync
 
   // Exponential backoff state for failed Redis syncs — prevents tight retry loops under outages
@@ -170,10 +187,11 @@ export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
   private static readonly SYNC_RETRY_MAX_DELAY_MS = 5 * 60 * 1_000; // 5 minutes cap
 
   // Metrics
-  private metrics = {
+  private metrics: UsageMeteringMetrics = {
     totalEventsReceived: 0,
     totalEventsProcessed: 0,
     duplicateEventsSkipped: 0,
+    canaryEventsSkipped: 0,
     batchesProcessed: 0,
     thresholdBreaches: 0,
     errors: 0,
@@ -198,58 +216,76 @@ export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
 
     this.initializeDefaultConfigs();
 
-    // Load existing state from Redis
+    // Load existing state from Redis. The periodic flush / cleanup / Redis-sync
+    // timers are now Nest `@Interval` methods (registered with
+    // SchedulerRegistry via ScheduleModule), replacing the hand-rolled
+    // `setInterval` handles this service used to manage by hand — Nest owns
+    // their lifecycle and stops them on shutdown.
     await this.loadFromRedis();
-
-    // Start periodic flush
-    this.flushInterval = setInterval(
-      () => this.flushEventBuffer(),
-      5000, // Flush every 5 seconds
-    );
-
-    // Start periodic cleanup of old idempotency keys AND stale
-    // tenant states (BILLING-LOW-001 cure). Both run on the same
-    // hourly tick because they share the in-memory walk.
-    this.cleanupInterval = setInterval(
-      () => {
-        this.cleanupOldIdempotencyKeys();
-        this.cleanupStaleTenantStates();
-      },
-      3600000, // Cleanup every hour
-    );
-
-    // Start periodic Redis sync for dirty tenants
-    if (this.redisService) {
-      this.redisWriteInterval = setInterval(
-        () => this.syncToRedis(),
-        10000, // Sync every 10 seconds
-      );
-    }
 
     this.logger.log('UsageMeteringService initialized with Redis persistence');
   }
 
   async onModuleDestroy(): Promise<void> {
-    if (this.flushInterval) {
-      clearInterval(this.flushInterval);
-      this.flushInterval = null;
-    }
-    if (this.cleanupInterval) {
-      clearInterval(this.cleanupInterval);
-      this.cleanupInterval = null;
-    }
-    if (this.redisWriteInterval) {
-      clearInterval(this.redisWriteInterval);
-      this.redisWriteInterval = null;
-    }
-
-    // Final flush
+    // The periodic timers are Nest `@Interval`s, torn down automatically by
+    // ScheduleModule on shutdown; we only force a final drain of in-memory
+    // state so nothing buffered is lost.
     this.flushEventBuffer();
-
-    // Final Redis sync
     await this.syncToRedis();
 
     this.logger.log('UsageMeteringService shutdown - all data synced');
+  }
+
+  /**
+   * Periodic event-buffer flush (Billing Revival Faz E).
+   *
+   * WHY `@Interval` not `setInterval`: the billing app wires
+   * `ScheduleModule.forRoot()`; a hand-rolled `setInterval` bypassed Nest's
+   * SchedulerRegistry (unmanaged lifecycle, not discoverable, only testable via
+   * wall-clock advancement). `@Interval` makes the timer Nest-managed and lets
+   * callers drive a flush deterministically.
+   *
+   * WHAT: every 5s, drain the in-memory event buffer into per-tenant meter
+   * readings. `flushEventBuffer` is a no-op when the buffer is empty.
+   */
+  @Interval('metering-flush-events', 5000)
+  runScheduledFlush(): void {
+    this.flushEventBuffer();
+  }
+
+  /**
+   * Periodic Redis durability sync (Billing Revival Faz E).
+   *
+   * WHY `@Interval` not `setInterval`: same lifecycle/observability reasoning
+   * as {@link runScheduledFlush}. Redis is mandatory (onModuleInit fails
+   * closed without it), so this always registers; `syncToRedis` internally
+   * guards on `dirtyTenants` and returns early when there is nothing to write.
+   *
+   * WHAT: every 10s, upsert dirty tenant meter states to Redis.
+   */
+  @Interval('metering-redis-sync', 10000)
+  async runScheduledRedisSync(): Promise<void> {
+    await this.syncToRedis();
+  }
+
+  /**
+   * Periodic in-memory maintenance sweep (Billing Revival Faz E).
+   *
+   * JUDGMENT (per Faz E scope note): the old hourly `cleanupInterval` evicts
+   * aged idempotency keys AND stale tenant states (BILLING-LOW-001) — purely
+   * in-memory bookkeeping, not a billing-durability timer, so it "may
+   * legitimately stay setInterval". It is converted here anyway so that NO raw
+   * `setInterval` survives in the metering module and every periodic task is
+   * uniformly owned by Nest's scheduler. Both sweeps share one tick because
+   * they walk the same in-memory `tenantStates` map.
+   *
+   * WHAT: hourly, evict idempotency keys older than 1h and tenant states idle
+   * beyond the staleness window.
+   */
+  @Interval('metering-cleanup', 3600000)
+  runScheduledCleanup(): void {
+    this.cleanupOldIdempotencyKeys();
+    this.cleanupStaleTenantStates();
   }
 
   /**
@@ -490,6 +526,20 @@ export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
     };
 
     this.metrics.totalEventsReceived++;
+
+    // Synthetic traffic from an authorised canary tenant never becomes
+    // billable. The refusal lives HERE, at the one place usage enters the
+    // buffer, rather than as a rule each caller remembers: a canary that
+    // bills is a canary nobody keeps running, and its usage would be
+    // indistinguishable from a customer's in revenue reporting.
+    //
+    // Counted rather than dropped in silence - an exemption that leaves no
+    // trace is how a mis-set env var becomes an invisible revenue hole.
+    if (isCanaryTenant(event.tenantId)) {
+      this.metrics.canaryEventsSkipped++;
+      this.logger.debug(`Canary tenant usage not metered: ${event.meterType}`);
+      return fullEvent;
+    }
 
     // Check idempotency
     if (event.idempotencyKey) {
@@ -866,7 +916,7 @@ export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
   /**
    * Get metrics
    */
-  getMetrics(): typeof this.metrics {
+  getMetrics(): UsageMeteringMetrics {
     return { ...this.metrics };
   }
 

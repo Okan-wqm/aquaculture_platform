@@ -76,8 +76,8 @@ class Phase007cAdaptersIntegrationTests(unittest.TestCase):
         self.assertEqual(decision["metrics"]["budget_exceeded_7d"], 0)
         run = self.latest_run()
         self.assertEqual(run["status"], "ok")
-        self.assertEqual(run["emitted_observations"], [])
-        self.assertEqual(run["emitted_findings"], [])
+        self.assertEqual(run["emitted_counts"]["observations"], 0)
+        self.assertEqual(run["emitted_counts"]["findings"], 0)
         self.assertFalse(run["evidence_validation"]["repository_mutation_attempt"])
 
     def latest_run(self):

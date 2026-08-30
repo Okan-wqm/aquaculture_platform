@@ -5,12 +5,8 @@
 // the reply via msg.string(). ErrorCode/NatsError were REMOVED in favour of
 // discrete error classes — a request timeout is now `TimeoutError`.
 import { TimeoutError } from '@nats-io/nats-core';
-import type {
-  Msg,
-  NatsConnection,
-  Subscription,
-} from '@nats-io/nats-core';
-import { Injectable, Logger } from '@nestjs/common';
+import type { Msg, Subscription } from '@nats-io/nats-core';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 
 import {
   IRequestReply,
@@ -18,8 +14,38 @@ import {
   RequestReplyHandler,
   RequestReplyOptions,
   RequestReplyResponderHandle,
+  RequestReplyResponderOptions,
 } from '../interfaces/event-bus.interface';
+
 import { NatsEventBus } from './nats-event-bus';
+import type { CoreNatsConnectionSnapshot } from './nats-event-bus';
+
+const RESPONDER_RECOVERY_DEGRADED_ATTEMPT = 10;
+const RESPONDER_RECOVERY_LOG_INTERVAL = 10;
+const RESPONDER_RECOVERY_BASE_DELAY_MS = 100;
+const RESPONDER_RECOVERY_MAX_DELAY_MS = 5_000;
+const RESPONDER_STABILITY_WINDOW_MS = 30_000;
+
+interface ActiveResponder {
+  readonly subscription: Subscription;
+  readonly connectionGeneration: number;
+  readonly activationId: number;
+}
+
+interface ManagedResponderRegistration {
+  readonly key: string;
+  readonly subject: string;
+  readonly queue: string | undefined;
+  active: ActiveResponder | null;
+  activationId: number;
+  activationPromise: Promise<void> | null;
+  recoveryAttempts: number;
+  recoveryTimer: ReturnType<typeof setTimeout> | null;
+  stabilityTimer: ReturnType<typeof setTimeout> | null;
+  stopped: boolean;
+  drainPromise: Promise<void> | null;
+  activate(): Promise<void>;
+}
 
 /**
  * Base class for every request-reply failure mode. Each concrete
@@ -43,7 +69,10 @@ export abstract class NatsRequestReplyError extends Error {
  * exponential backoff then fall back to a secondary source).
  */
 export class RequestReplyTimeoutError extends NatsRequestReplyError {
-  constructor(public readonly subject: string, public readonly timeoutMs: number) {
+  constructor(
+    public readonly subject: string,
+    public readonly timeoutMs: number,
+  ) {
     super(
       `NATS request-reply to "${subject}" timed out after ${timeoutMs}ms`,
       'RequestReplyTimeoutError',
@@ -167,10 +196,18 @@ function isErrorEnvelope(v: unknown): v is RequestReplyErrorEnvelope {
  * Closes: docs/reviews/orphan-findings.md#ORPHAN-019
  */
 @Injectable()
-export class NatsRequestReply implements IRequestReply {
+export class NatsRequestReply implements IRequestReply, OnModuleDestroy {
   private readonly logger = new Logger(NatsRequestReply.name);
+  private readonly responders = new Map<string, ManagedResponderRegistration>();
+  private readonly removeConnectionLifecycleListener: () => void;
+  private lastConnectionSnapshot: CoreNatsConnectionSnapshot;
 
-  constructor(private readonly eventBus: NatsEventBus) {}
+  constructor(private readonly eventBus: NatsEventBus) {
+    this.lastConnectionSnapshot = this.eventBus.getCoreConnectionSnapshot();
+    this.removeConnectionLifecycleListener = this.eventBus.onCoreConnectionLifecycle((snapshot) => {
+      this.handleConnectionLifecycle(snapshot);
+    });
+  }
 
   async requestTyped<Req, Res>(
     subject: string,
@@ -203,10 +240,7 @@ export class NatsRequestReply implements IRequestReply {
       }
       payload = json;
     } catch (e) {
-      throw new RequestReplyEncodeError(
-        subject,
-        e instanceof Error ? e : new Error(String(e)),
-      );
+      throw new RequestReplyEncodeError(subject, e instanceof Error ? e : new Error(String(e)));
     }
 
     // ROUND-TRIP — core NATS request. noMux=true would create a
@@ -226,10 +260,7 @@ export class NatsRequestReply implements IRequestReply {
       }
       // NoResponders + every other transport-class failure land
       // here. Wrap uniformly so alert rules see one variant.
-      throw new RequestReplyTransportError(
-        subject,
-        e instanceof Error ? e : new Error(String(e)),
-      );
+      throw new RequestReplyTransportError(subject, e instanceof Error ? e : new Error(String(e)));
     }
 
     // DECODE — bytes → Res. A malformed reply (non-JSON, shape
@@ -239,10 +270,7 @@ export class NatsRequestReply implements IRequestReply {
       // v3: reply.string() replaces StringCodec.decode(reply.data) — same UTF-8 bytes.
       parsed = JSON.parse(reply.string());
     } catch (e) {
-      throw new RequestReplyDecodeError(
-        subject,
-        e instanceof Error ? e : new Error(String(e)),
-      );
+      throw new RequestReplyDecodeError(subject, e instanceof Error ? e : new Error(String(e)));
     }
 
     // Structured remote-error envelope — responder surfaced an
@@ -258,28 +286,397 @@ export class NatsRequestReply implements IRequestReply {
   async respond<Req, Res>(
     subject: string,
     handler: RequestReplyHandler<Req, Res>,
+    options?: RequestReplyResponderOptions,
   ): Promise<RequestReplyResponderHandle> {
-    const connection = this.eventBus.getRawConnection();
-    if (connection === null) {
+    const registrationKey = this.buildRegistrationKey(subject, options?.queue);
+    if (this.responders.has(registrationKey)) {
       throw new RequestReplyTransportError(
         subject,
-        new Error('NATS connection is not established'),
+        new Error(
+          'A responder for this subject and queue group is already registered in this process',
+        ),
       );
     }
 
-    const subscription = connection.subscribe(subject);
-    this.logger.log(`request-reply responder online: ${subject}`);
+    const registration: ManagedResponderRegistration = {
+      key: registrationKey,
+      subject,
+      queue: options?.queue,
+      active: null,
+      activationId: 0,
+      activationPromise: null,
+      recoveryAttempts: 0,
+      recoveryTimer: null,
+      stabilityTimer: null,
+      stopped: false,
+      drainPromise: null,
+      activate: async () => {
+        await this.activateResponder(registration, handler);
+      },
+    };
 
-    // Drive the subscription on a background task so respond()
-    // returns after setup without blocking the caller.
-    void this.consumeRequests(subject, subscription, handler);
+    this.responders.set(registrationKey, registration);
+    this.eventBus.setCoreResponderAvailability(registrationKey, false);
+    try {
+      await registration.activate();
+    } catch (error) {
+      this.responders.delete(registrationKey);
+      this.eventBus.setCoreResponderAvailability(registrationKey, true);
+      throw error;
+    }
 
     return {
       subject,
       drain: async () => {
-        await subscription.drain();
+        await this.drainResponder(registration);
       },
     };
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    this.removeConnectionLifecycleListener();
+    const results = await Promise.allSettled(
+      [...this.responders.values()].map(async (registration) => {
+        await this.drainResponder(registration);
+      }),
+    );
+    const failures = results
+      .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+      .map((result) =>
+        result.reason instanceof Error ? result.reason : new Error(String(result.reason)),
+      );
+    if (failures.length > 0) {
+      throw new AggregateError(failures, 'One or more Core NATS responders failed to drain');
+    }
+  }
+
+  private buildRegistrationKey(subject: string, queue: string | undefined): string {
+    return JSON.stringify([subject, queue ?? null]);
+  }
+
+  private handleConnectionLifecycle(snapshot: CoreNatsConnectionSnapshot): void {
+    const connectionBecameAvailable =
+      snapshot.state === 'connected' &&
+      (this.lastConnectionSnapshot.state !== 'connected' ||
+        this.lastConnectionSnapshot.generation !== snapshot.generation);
+    this.lastConnectionSnapshot = snapshot;
+
+    if (!connectionBecameAvailable) {
+      return;
+    }
+
+    for (const registration of this.responders.values()) {
+      if (
+        (registration.active !== null &&
+          registration.active.connectionGeneration === snapshot.generation) ||
+        registration.stopped
+      ) {
+        continue;
+      }
+      registration.recoveryAttempts = 0;
+      this.clearRecoveryTimer(registration);
+      void registration.activate().catch((error: unknown) => {
+        this.handleActivationFailure(registration, error);
+      });
+    }
+  }
+
+  private async activateResponder<Req, Res>(
+    registration: ManagedResponderRegistration,
+    handler: RequestReplyHandler<Req, Res>,
+  ): Promise<void> {
+    if (registration.stopped) {
+      return;
+    }
+    if (registration.activationPromise !== null) {
+      await registration.activationPromise;
+      return;
+    }
+
+    const operation = this.createResponderSubscription(registration, handler);
+    registration.activationPromise = operation;
+    try {
+      await operation;
+    } finally {
+      if (registration.activationPromise === operation) {
+        registration.activationPromise = null;
+      }
+    }
+  }
+
+  private async createResponderSubscription<Req, Res>(
+    registration: ManagedResponderRegistration,
+    handler: RequestReplyHandler<Req, Res>,
+  ): Promise<void> {
+    // Publish the single-flight activation Promise before touching the
+    // connection so concurrent lifecycle notifications cannot subscribe twice.
+    await Promise.resolve();
+    const snapshot = this.eventBus.getCoreConnectionSnapshot();
+    if (snapshot.connection === null || snapshot.state !== 'connected') {
+      throw new RequestReplyTransportError(
+        registration.subject,
+        new Error('NATS connection is not established'),
+      );
+    }
+    if (
+      registration.active !== null &&
+      registration.active.connectionGeneration === snapshot.generation
+    ) {
+      return;
+    }
+
+    const previous = registration.active;
+    if (previous !== null) {
+      try {
+        previous.subscription.unsubscribe();
+      } catch (error) {
+        throw new RequestReplyTransportError(
+          registration.subject,
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      }
+      registration.active = null;
+    }
+
+    let subscription: Subscription;
+    try {
+      subscription = snapshot.connection.subscribe(
+        registration.subject,
+        registration.queue === undefined ? undefined : { queue: registration.queue },
+      );
+    } catch (error) {
+      throw new RequestReplyTransportError(
+        registration.subject,
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    }
+
+    if (registration.stopped) {
+      subscription.unsubscribe();
+      return;
+    }
+
+    registration.activationId += 1;
+    const active: ActiveResponder = {
+      subscription,
+      connectionGeneration: snapshot.generation,
+      activationId: registration.activationId,
+    };
+    registration.active = active;
+    this.clearRecoveryTimer(registration);
+    this.scheduleStabilityReset(registration, active);
+    this.eventBus.setCoreResponderAvailability(registration.key, true);
+    this.logger.log(
+      JSON.stringify({
+        event: 'request_reply_responder_online',
+        queueGrouped: registration.queue !== undefined,
+        connectionGeneration: snapshot.generation,
+      }),
+    );
+
+    void this.superviseResponder(registration, active, handler).catch((error: unknown) => {
+      this.logger.error(
+        JSON.stringify({
+          event: 'request_reply_responder_supervisor_failed',
+          errorType: error instanceof Error ? error.name : 'UnknownError',
+        }),
+      );
+      this.handleResponderTermination(registration, active, error);
+    });
+  }
+
+  private async superviseResponder<Req, Res>(
+    registration: ManagedResponderRegistration,
+    active: ActiveResponder,
+    handler: RequestReplyHandler<Req, Res>,
+  ): Promise<void> {
+    let terminalError: unknown;
+    try {
+      await this.consumeRequests(registration.subject, active.subscription, handler);
+    } catch (error) {
+      terminalError = error;
+    }
+    this.handleResponderTermination(registration, active, terminalError);
+  }
+
+  private handleResponderTermination(
+    registration: ManagedResponderRegistration,
+    active: ActiveResponder,
+    terminalError: unknown,
+  ): void {
+    if (
+      registration.stopped ||
+      registration.active === null ||
+      registration.active.activationId !== active.activationId
+    ) {
+      return;
+    }
+
+    registration.active = null;
+    this.clearStabilityTimer(registration);
+    this.eventBus.setCoreResponderAvailability(registration.key, false);
+    this.logger.error(
+      JSON.stringify({
+        event: 'request_reply_responder_terminated',
+        termination: terminalError === undefined ? 'iterator_completed' : 'iterator_error',
+        errorType: terminalError instanceof Error ? terminalError.name : 'UnknownError',
+      }),
+    );
+    this.scheduleResponderRecovery(registration);
+    try {
+      active.subscription.unsubscribe();
+    } catch (error) {
+      this.logger.error(
+        JSON.stringify({
+          event: 'request_reply_responder_unsubscribe_failed',
+          errorType: error instanceof Error ? error.name : 'UnknownError',
+        }),
+      );
+    }
+  }
+
+  private handleActivationFailure(
+    registration: ManagedResponderRegistration,
+    error: unknown,
+  ): void {
+    if (registration.stopped) {
+      return;
+    }
+    this.eventBus.setCoreResponderAvailability(registration.key, false);
+    this.logger.error(
+      JSON.stringify({
+        event: 'request_reply_responder_activation_failed',
+        errorType: error instanceof Error ? error.name : 'UnknownError',
+      }),
+    );
+    this.scheduleResponderRecovery(registration);
+  }
+
+  private scheduleResponderRecovery(registration: ManagedResponderRegistration): void {
+    if (registration.stopped || registration.recoveryTimer !== null) {
+      return;
+    }
+    registration.recoveryAttempts += 1;
+    if (
+      registration.recoveryAttempts >= RESPONDER_RECOVERY_DEGRADED_ATTEMPT &&
+      registration.recoveryAttempts % RESPONDER_RECOVERY_LOG_INTERVAL === 0
+    ) {
+      this.logger.error(
+        JSON.stringify({
+          event: 'request_reply_responder_recovery_degraded',
+          attempts: registration.recoveryAttempts,
+        }),
+      );
+    }
+    const delayMs = Math.min(
+      RESPONDER_RECOVERY_BASE_DELAY_MS *
+        2 ** Math.min(16, Math.max(0, registration.recoveryAttempts - 1)),
+      RESPONDER_RECOVERY_MAX_DELAY_MS,
+    );
+    registration.recoveryTimer = setTimeout(() => {
+      registration.recoveryTimer = null;
+      void registration.activate().catch((error: unknown) => {
+        this.handleActivationFailure(registration, error);
+      });
+    }, delayMs);
+    registration.recoveryTimer.unref();
+  }
+
+  private clearRecoveryTimer(registration: ManagedResponderRegistration): void {
+    if (registration.recoveryTimer !== null) {
+      clearTimeout(registration.recoveryTimer);
+      registration.recoveryTimer = null;
+    }
+  }
+
+  private scheduleStabilityReset(
+    registration: ManagedResponderRegistration,
+    active: ActiveResponder,
+  ): void {
+    this.clearStabilityTimer(registration);
+    registration.stabilityTimer = setTimeout(() => {
+      registration.stabilityTimer = null;
+      if (
+        !registration.stopped &&
+        registration.active !== null &&
+        registration.active.activationId === active.activationId
+      ) {
+        registration.recoveryAttempts = 0;
+      }
+    }, RESPONDER_STABILITY_WINDOW_MS);
+    registration.stabilityTimer.unref();
+  }
+
+  private clearStabilityTimer(registration: ManagedResponderRegistration): void {
+    if (registration.stabilityTimer !== null) {
+      clearTimeout(registration.stabilityTimer);
+      registration.stabilityTimer = null;
+    }
+  }
+
+  private async drainResponder(registration: ManagedResponderRegistration): Promise<void> {
+    if (registration.drainPromise !== null) {
+      await registration.drainPromise;
+      return;
+    }
+
+    const operation = this.performResponderDrain(registration);
+    registration.drainPromise = operation;
+    await operation;
+  }
+
+  private async performResponderDrain(registration: ManagedResponderRegistration): Promise<void> {
+    registration.stopped = true;
+    this.clearRecoveryTimer(registration);
+    this.clearStabilityTimer(registration);
+
+    if (registration.activationPromise !== null) {
+      try {
+        await registration.activationPromise;
+      } catch (error) {
+        this.logger.warn(
+          JSON.stringify({
+            event: 'request_reply_responder_drain_activation_failed',
+            errorType: error instanceof Error ? error.name : 'UnknownError',
+          }),
+        );
+      }
+    }
+
+    const active = registration.active;
+    registration.active = null;
+    if (active === null) {
+      this.responders.delete(registration.key);
+      this.eventBus.setCoreResponderAvailability(registration.key, true);
+      return;
+    }
+
+    const failures: Error[] = [];
+    let stopped = false;
+    try {
+      await active.subscription.drain();
+      stopped = true;
+    } catch (error) {
+      failures.push(error instanceof Error ? error : new Error(String(error)));
+      try {
+        active.subscription.unsubscribe();
+        stopped = true;
+      } catch (unsubscribeError) {
+        failures.push(
+          unsubscribeError instanceof Error
+            ? unsubscribeError
+            : new Error(String(unsubscribeError)),
+        );
+      }
+    }
+
+    if (stopped) {
+      this.responders.delete(registration.key);
+      this.eventBus.setCoreResponderAvailability(registration.key, true);
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(failures, 'Core NATS responder drain required forced unsubscribe');
+    }
   }
 
   private async consumeRequests<Req, Res>(
@@ -292,8 +689,10 @@ export class NatsRequestReply implements IRequestReply {
         await this.handleOneRequest(subject, msg, handler);
       } catch (e) {
         this.logger.error(
-          `request-reply handler uncaught: subject=${subject}`,
-          e instanceof Error ? e.stack : String(e),
+          JSON.stringify({
+            event: 'request_reply_handler_uncaught',
+            errorType: e instanceof Error ? e.name : 'UnknownError',
+          }),
         );
       }
     }
@@ -309,9 +708,7 @@ export class NatsRequestReply implements IRequestReply {
     // quietly so a hand-fired publish cannot exhaust handler
     // threads.
     if (!msg.reply) {
-      this.logger.warn(
-        `request-reply: received message with no reply inbox on ${subject}; dropping`,
-      );
+      this.logger.warn(JSON.stringify({ event: 'request_reply_message_without_reply_dropped' }));
       return;
     }
 
@@ -325,15 +722,10 @@ export class NatsRequestReply implements IRequestReply {
       return;
     }
 
-    // Extract the authenticated identity if the transport surfaced
-    // it (mTLS cert CN on production). Not all transports populate
-    // this, so the context stays optional.
-    const headerIdentity = msg.headers?.get('authenticated-identity');
+    // Caller identity is broker-enforced by account/certificate ACLs. Never
+    // derive it from application-controlled message headers.
     const context: RequestReplyContext = {
       subject,
-      authenticatedIdentity: headerIdentity && headerIdentity.length > 0
-        ? headerIdentity
-        : undefined,
     };
 
     // INVOKE the handler. Any throw becomes a remote-error envelope
@@ -362,11 +754,7 @@ export class NatsRequestReply implements IRequestReply {
       // no StringCodec.encode(). Byte-identical wire to the v2 producer.
       msg.respond(json);
     } catch (e) {
-      this.writeErrorEnvelope(
-        msg,
-        'ENCODE_ERROR',
-        e instanceof Error ? e.message : String(e),
-      );
+      this.writeErrorEnvelope(msg, 'ENCODE_ERROR', e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -381,8 +769,10 @@ export class NatsRequestReply implements IRequestReply {
       msg.respond(JSON.stringify(envelope));
     } catch (e) {
       this.logger.error(
-        `request-reply: failed to write error envelope`,
-        e instanceof Error ? e.stack : String(e),
+        JSON.stringify({
+          event: 'request_reply_error_envelope_write_failed',
+          errorType: e instanceof Error ? e.name : 'UnknownError',
+        }),
       );
     }
   }

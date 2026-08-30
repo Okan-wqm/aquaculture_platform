@@ -41,9 +41,10 @@ describe('runtime lifecycle timer SSoT', () => {
 
   it('uses managed abort timeouts for external HTTP calls', () => {
     for (const path of [
-      'apps/notification-service/src/notification/services/notification-dispatcher.service.ts',
       'apps/notification-service/src/notification/services/sms.service.ts',
-      'apps/farm-service/src/weather/services/open-meteo.service.ts',
+      'apps/farm-service/src/weather/services/met-norway-provider.ts',
+      'apps/farm-service/src/weather/services/cmems-provider.ts',
+      'apps/farm-service/src/weather/services/cdse-sentinel.provider.ts',
     ]) {
       const source = read(path);
 
@@ -53,6 +54,23 @@ describe('runtime lifecycle timer SSoT', () => {
       expect(source).not.toMatch(/setTimeout\(\(\)\s*=>\s*controller\.abort\(\)/);
       expect(source).not.toMatch(/clearTimeout\(/);
     }
+  });
+
+  it('routes the notification webhook through the IP-pinned safeFetch (lifecycle-safe socket timeout)', () => {
+    // SENSOR-CRITICAL-002: the customer-webhook fetch moved from a raw
+    // AbortController + createAbortSignalTimeout to SsrfValidatorService.safeFetch,
+    // which validates + PINS the target IP AND owns a lifecycle-safe socket
+    // timeout (no dangling process timer). safeFetch is strictly stronger than
+    // createAbortSignalTimeout here, so the raw-timer ban still holds while the
+    // managed-helper requirement is satisfied by safeFetch instead.
+    const source = read(
+      'apps/notification-service/src/notification/services/notification-dispatcher.service.ts',
+    );
+
+    expect(source).toContain('.safeFetch(');
+    expect(source).not.toContain('new AbortController()');
+    expect(source).not.toMatch(/setTimeout\(\(\)\s*=>\s*controller\.abort\(\)/);
+    expect(source).not.toMatch(/clearTimeout\(/);
   });
 
   it('keeps notification unit tests on a deterministic Nest logger setup', () => {

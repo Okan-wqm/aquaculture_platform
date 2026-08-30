@@ -58,16 +58,20 @@ import { resolve } from 'node:path';
 
 import { bootInvariantSignalRecord } from '@aquaculture/backend-common/constants';
 import {
-  applyTenantRlsToSchema,
   applyInfrastructureLedgerRls,
-  getInfrastructureAuditLedgers,
+  applyTenantRlsToSchema,
+  assertSourceSchemaWriteGuards,
+  assertTenantSchemaPrivileges,
   convertAuditColumnsToTimestamptz,
+  getInfrastructureAuditLedgers,
   getTenantSchemaName,
   grantTenantMigrationLedgerReadAccess,
   MIGRATION_LEDGER_TABLE,
   tenantMigrationLedgerTable,
   TENANT_AWARE_SCHEMAS,
   TENANT_SCHEMA_NAME_RE,
+  verifySourceSchemaWriteGuards,
+  verifyTenantSchemaPrivileges,
 } from '@aquaculture/backend-common/database';
 import { DataSource, QueryRunner } from 'typeorm';
 import type { PostgresConnectionOptions } from 'typeorm/driver/postgres/PostgresConnectionOptions';
@@ -81,8 +85,10 @@ import {
   type RunSchemaOptions,
   type RunSchemaResult,
 } from './migration-orchestrator';
+import { reclaimPostFanoutOrphanTypes } from './orphan-type-reclamation';
 import { runPlatformBootstrap, resolvePlatformBootstrapSqlDir } from './platform-bootstrap.service';
 import { SCHEMA_REGISTRY, type SchemaPostMigrationHardening } from './schema-registry';
+import { healStrayTenantMigrationJournals } from './stray-tenant-journal-heal';
 import { runTenantSchemaProvisioner } from './tenant-schema-provisioner';
 
 /**
@@ -502,6 +508,9 @@ async function grantTenantLedgerReadAccess(
   sourceSchema: string;
   tenantLedger: string;
   serviceRole: string;
+  /** Registered per-tenant tables aligned to owner+DML this pass (2026-07-06 grant incident). */
+  alignedTables: string[];
+  absentTables: string[];
 }> {
   const dataSource = createControlDataSource(database);
   await dataSource.initialize();
@@ -509,10 +518,203 @@ async function grantTenantLedgerReadAccess(
 
   try {
     await queryRunner.connect();
-    return await grantTenantMigrationLedgerReadAccess(queryRunner, {
+    const ledgerGrant = await grantTenantMigrationLedgerReadAccess(queryRunner, {
       tenantSchema,
       sourceSchema,
     });
+    // The fan-out creates tables on the bootstrap (superuser) connection —
+    // Postgres neither copies privileges nor applies another role's default
+    // ACLs, so without this every migration-added tenant table is born
+    // owner=superuser with an empty ACL and the owning service's first query
+    // dies with "permission denied" (live incident: sensor_temperature_latest
+    // blanked mobile batchMetrics). Idempotent registry-derived alignment.
+    const privileges = await assertTenantSchemaPrivileges(queryRunner, {
+      tenantSchema,
+      sourceSchema,
+    });
+    return {
+      ...ledgerGrant,
+      alignedTables: privileges.alignedTables,
+      absentTables: privileges.absentTables,
+    };
+  } finally {
+    await queryRunner.release();
+    await dataSource.destroy();
+  }
+}
+
+/**
+ * Deploy-blocking drift gate (make-it-detectable half of the 2026-07-06 grant
+ * incident): after the full fan-out, re-read pg_catalog and fail the deploy if
+ * any registered-and-present per-tenant table still lacks its
+ * <source>_schema_owner ownership or <source>_service DML privileges.
+ * Unknown (unregistered) tenant tables are logged loudly — silence is how the
+ * class stayed invisible before.
+ */
+async function verifyTenantPrivilegesOrFail(
+  database: RunSchemaOptions['database'],
+  tenantSchemas: readonly string[],
+  log: (record: Record<string, unknown>) => void,
+): Promise<boolean> {
+  if (tenantSchemas.length === 0) {
+    return true;
+  }
+  const sources = [...TENANT_AWARE_SCHEMAS];
+  const dataSource = createControlDataSource(database);
+  await dataSource.initialize();
+  const queryRunner = dataSource.createQueryRunner();
+  let ok = true;
+
+  try {
+    await queryRunner.connect();
+    for (const tenantSchema of tenantSchemas) {
+      const verification = await verifyTenantSchemaPrivileges(queryRunner, tenantSchema, sources);
+      if (verification.unknownTables.length > 0) {
+        log({
+          level: 'warn',
+          message:
+            'Tenant schema contains tables registered by NO module — they carry no managed ' +
+            'grants and their owning service WILL fail at runtime. Register them in ' +
+            'MODULE_SCHEMAS or drop them.',
+          context: 'DbMigrate',
+          tenantSchema,
+          unknownTables: verification.unknownTables,
+        });
+      }
+      if (verification.violations.length > 0) {
+        ok = false;
+        log({
+          level: 'error',
+          message: 'Tenant-schema privilege drift detected — aborting deploy',
+          context: 'DbMigrate',
+          tenantSchema,
+          violations: verification.violations,
+        });
+      }
+    }
+  } finally {
+    await queryRunner.release();
+    await dataSource.destroy();
+  }
+  return ok;
+}
+
+/**
+ * Reconcile the source-schema `guard_source_write` triggers to the
+ * registry-derived SSoT (ORPHAN-HIGH-087; completes FARM-CRITICAL-061).
+ * Installs the guard on exactly a source schema's per-tenant DATA tables
+ * (tables − referenceDataTables − infrastructureTables) and drops it from
+ * every other table, so a stray guard on a cross-tenant ledger (the
+ * `farm.farm_audit_logs` incident) self-heals. Runs on the SOURCE schema only —
+ * tenant clones inherit no trigger (`LIKE INCLUDING ALL` skips triggers), so the
+ * legitimate tenant-scoped write path is unaffected. Bootstrap (superuser)
+ * connection, under the caller's release-wide advisory lock.
+ */
+async function reconcileSourceSchemaWriteGuards(
+  database: RunSchemaOptions['database'],
+  sourceSchema: string,
+  log: (record: Record<string, unknown>) => void,
+): Promise<void> {
+  const dataSource = createControlDataSource(database);
+  await dataSource.initialize();
+  const queryRunner = dataSource.createQueryRunner();
+  try {
+    await queryRunner.connect();
+    const report = await assertSourceSchemaWriteGuards(queryRunner, sourceSchema);
+    log({
+      level: 'info',
+      message: 'Source-schema write guards reconciled',
+      context: 'DbMigrate',
+      sourceSchema,
+      installed: report.installed.length,
+      absentTables: report.absentTables,
+      droppedMisplaced: report.droppedMisplaced,
+    });
+  } finally {
+    await queryRunner.release();
+    await dataSource.destroy();
+  }
+}
+
+/**
+ * Deploy-blocking source-schema write-guard drift gate (make-it-detectable half
+ * of ORPHAN-HIGH-087 / FARM-CRITICAL-061): re-read pg_catalog and fail the
+ * deploy if any tenant-aware source schema is missing the guard on a per-tenant
+ * data table, or carries a MISplaced guard on a reference/infrastructure table
+ * (the class that broke every farm mutation).
+ */
+async function verifySourceSchemaWriteGuardsOrFail(
+  database: RunSchemaOptions['database'],
+  log: (record: Record<string, unknown>) => void,
+): Promise<boolean> {
+  const dataSource = createControlDataSource(database);
+  await dataSource.initialize();
+  const queryRunner = dataSource.createQueryRunner();
+  let ok = true;
+  try {
+    await queryRunner.connect();
+    for (const sourceSchema of TENANT_AWARE_SCHEMAS) {
+      const verification = await verifySourceSchemaWriteGuards(queryRunner, sourceSchema);
+      if (verification.missing.length > 0 || verification.misplaced.length > 0) {
+        ok = false;
+        log({
+          level: 'error',
+          message: 'Source-schema write-guard drift detected — aborting deploy',
+          context: 'DbMigrate',
+          sourceSchema,
+          missing: verification.missing,
+          misplaced: verification.misplaced,
+        });
+      }
+    }
+  } finally {
+    await queryRunner.release();
+    await dataSource.destroy();
+  }
+  return ok;
+}
+
+/**
+ * Drop stray `migrations_<svc>` journals left inside tenant schemas by the
+ * retired runtime seeding path (ORPHAN-MEDIUM-386 — see
+ * stray-tenant-journal-heal.ts for the guard rails). Runs on its own control
+ * connection after the fan-out, BEFORE the tenant-privilege verification, so
+ * the same release that heals the stray also stops warning about it.
+ * Non-fatal: a blocked DROP (lock contention) must not fail an otherwise
+ * green deploy — the stray only feeds the unknown-table warning.
+ */
+async function healStrayTenantJournalsAfterFanout(
+  database: RunSchemaOptions['database'],
+): Promise<void> {
+  const dataSource = createControlDataSource(database);
+  await dataSource.initialize();
+  const queryRunner = dataSource.createQueryRunner();
+  try {
+    await queryRunner.connect();
+    await healStrayTenantMigrationJournals(queryRunner, log);
+  } finally {
+    await queryRunner.release();
+    await dataSource.destroy();
+  }
+}
+
+/**
+ * Reclaim shared types that a fan-out migration deliberately left orphaned
+ * (FARM-MEDIUM-170). Runs on its own control connection AFTER the whole
+ * per-service + tenant fan-out, the only point every dependent column across all
+ * schemas is guaranteed gone. Non-fatal: a still-referenced or absent orphan is
+ * logged, never a deploy-abort — a lingering harmless type is far cheaper than
+ * failing a green deploy.
+ */
+async function reclaimOrphanTypesAfterFanout(
+  database: RunSchemaOptions['database'],
+): Promise<void> {
+  const dataSource = createControlDataSource(database);
+  await dataSource.initialize();
+  const queryRunner = dataSource.createQueryRunner();
+  try {
+    await queryRunner.connect();
+    await reclaimPostFanoutOrphanTypes(queryRunner, log);
   } finally {
     await queryRunner.release();
     await dataSource.destroy();
@@ -1122,6 +1324,10 @@ async function main(): Promise<number> {
         sourceHeads.set(entry.schema, result.head);
 
         if (TENANT_AWARE_SCHEMAS.has(entry.schema)) {
+          // Reconcile source-schema write guards to the registry SSoT before the
+          // fan-out (ORPHAN-HIGH-087 / FARM-CRITICAL-061). Independent of tenant
+          // presence — the guard lives on the source template tables.
+          await reconcileSourceSchemaWriteGuards(database, entry.schema, log);
           if (tenantSchemas.length === 0) {
             log({
               level: 'info',
@@ -1157,12 +1363,14 @@ async function main(): Promise<number> {
               const grant = await grantTenantLedgerReadAccess(database, entry.schema, tenantSchema);
               log({
                 level: 'info',
-                message: 'Tenant migration ledger read grant asserted',
+                message: 'Tenant ledger read grant + table privileges asserted',
                 context: 'DbMigrate',
                 sourceSchema: entry.schema,
                 tenantSchema,
                 tenantLedger: grant.tenantLedger,
                 serviceRole: grant.serviceRole,
+                alignedTables: grant.alignedTables.length,
+                absentTables: grant.absentTables,
               });
               results.push(tenantResult);
               if (!tenantHeads.has(tenantSchema)) {
@@ -1201,6 +1409,79 @@ async function main(): Promise<number> {
         });
         return 1;
       }
+    }
+
+    // ── Phase 1.4 — Stray tenant-journal self-heal (ORPHAN-MEDIUM-386) ──────
+    // Drops `migrations_<svc>` journals inside tenant schemas whose source
+    // schema is NOT tenant-aware (journal bookkeeping the retired runtime
+    // seeding path left behind, e.g. tenant_7f6b08ab….migrations_auth). Runs
+    // before the privilege gate below so this release's unknown-table warning
+    // reflects the healed state. Non-fatal by contract.
+    if (tenantSchemas.length > 0) {
+      try {
+        await healStrayTenantJournalsAfterFanout(database);
+      } catch (err: unknown) {
+        log({
+          level: 'warn',
+          message:
+            'Stray tenant-journal self-heal failed (non-fatal) — stray journal left for a later release',
+          context: 'DbMigrateStrayJournalHeal',
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    // Deploy-blocking privilege drift gate (2026-07-06 grant incident): every
+    // registered-and-present per-tenant table must carry its schema-owner
+    // ownership + service-role DML before the deploy is allowed to proceed.
+    try {
+      const privilegesOk = await verifyTenantPrivilegesOrFail(database, tenantSchemas, log);
+      if (!privilegesOk) {
+        return 1;
+      }
+    } catch (err: unknown) {
+      log({
+        level: 'error',
+        message: 'Tenant-schema privilege verification failed — aborting deploy',
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+      return 1;
+    }
+
+    // Deploy-blocking source-schema write-guard drift gate (ORPHAN-HIGH-087 /
+    // FARM-CRITICAL-061): every tenant-aware source schema must carry the guard
+    // on exactly its per-tenant data tables and on NO reference/infra table.
+    try {
+      const guardsOk = await verifySourceSchemaWriteGuardsOrFail(database, log);
+      if (!guardsOk) {
+        return 1;
+      }
+    } catch (err: unknown) {
+      log({
+        level: 'error',
+        message: 'Source-schema write-guard verification failed — aborting deploy',
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+      return 1;
+    }
+
+    // ── Phase 1.5 — Post-fan-out orphan-type reclamation (FARM-MEDIUM-170) ──
+    // Every source + tenant pass above succeeded (a failure returns 1 before
+    // here), so every schema is at head and any shared type a source-only
+    // migration deferred dropping is now genuinely unreferenced. Reclaim it.
+    // Non-fatal: an unexpected error (e.g. lock contention) must not fail an
+    // otherwise-green migration run — the orphan is harmless.
+    try {
+      await reclaimOrphanTypesAfterFanout(database);
+    } catch (err: unknown) {
+      log({
+        level: 'warn',
+        message: 'Post-fan-out orphan-type reclamation failed (non-fatal) — orphan type left for a later release',
+        context: 'DbMigrateOrphanTypeReclamation',
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
 
     const { expectedHeads, appliedHeads } = buildHeadPayloads(sourceHeads, tenantHeads);

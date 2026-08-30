@@ -22,12 +22,12 @@ PLAN_020_WRITE_SURFACES (frozen blocks the persist).
 """
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_declared_jsonl
+from .confidence import validated_confidence
+from .ledger import append_declared_jsonl, read_jsonl
 from .runtime_profile import enforce_profile_for_write
 from .tool_registry import (
     GovernanceError,
@@ -81,10 +81,9 @@ def record_candidate(
 ) -> dict[str, Any]:
     """Record a PROPOSED candidate. NO promotion side-effect."""
     enforce_profile_for_write("instinct_candidates", base_dir=base_dir)
-    if not (0.0 <= confidence_0_to_1 <= 1.0):
-        raise GovernanceError(
-            f"confidence_0_to_1 out of range: {confidence_0_to_1!r}"
-        )
+    # ORPHAN-HIGH-541 — the range definition lives in confidence.py so this
+    # surface and the adapter-candidate surface cannot drift apart again.
+    confidence_0_to_1 = validated_confidence(confidence_0_to_1, kind="instinct_score")
     if not isinstance(evidence_refs, list):
         raise GovernanceError("evidence_refs must be a list")
     root = ensure_tools_dir(base_dir)
@@ -205,10 +204,7 @@ def list_candidates(
     path = _ledger_path(root)
     if not path.exists():
         return []
-    rows = [
-        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    rows = read_jsonl(path, expected_surface="instinct_candidates")
     if status is not None:
         rows = [r for r in rows if r.get("status") == status]
     if limit is not None and limit > 0:

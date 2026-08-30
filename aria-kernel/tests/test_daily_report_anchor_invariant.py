@@ -27,6 +27,7 @@ each new daily anchor opts in to the schema by emitting frontmatter.
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -187,6 +188,161 @@ class DailyAnchorEmitSmoke(unittest.TestCase):
                 output_path=anchor_path,
             )
             self.assertEqual(again["status"], "already_anchored")
+
+
+class StubNeverLocksOutTheRealReport(unittest.TestCase):
+    """C2/E8 — body-aware idempotence for the daily anchor.
+
+    Pre-fix the blanket "already anchored, leave it" froze whichever body
+    got there first: a stub emitted before reflection ran was locked in for
+    that date, and the real report — landing in the store minutes later —
+    could never be published. These pin the two-sided contract: a stub
+    upgrades to the reflection body the moment one exists, and a reflection
+    body is immutable.
+    """
+
+    def _store(self, tmp_path):
+        tools = tmp_path / "aria-tools"
+        tools.mkdir()
+        (tools / "governance.jsonl").write_text(
+            '{"ledger_hash":"sha256:c2","kind":"test"}\n', encoding="utf-8"
+        )
+        return tools
+
+    def _emit(self, tmp_path, tools):
+        from aria_kernel.report import emit_anchor_to_path
+
+        return emit_anchor_to_path(
+            date="2026-08-12",
+            workspace_root=tmp_path,
+            tools_root=tools,
+            output_path=tmp_path / "anchor.md",
+        )
+
+    def test_stub_upgrades_when_reflection_lands(self) -> None:
+        import tempfile
+
+        from aria_kernel.report import parse_anchor_frontmatter
+
+        with tempfile.TemporaryDirectory(prefix="aria-c2-") as tmp:
+            tmp_path = Path(tmp)
+            tools = self._store(tmp_path)
+            first = self._emit(tmp_path, tools)
+            self.assertEqual(first["report_body"], "stub")
+            self.assertEqual(
+                parse_anchor_frontmatter(tmp_path / "anchor.md")["report_body"],
+                "stub",
+            )
+            # Reflection writes the real report AFTER the stub was anchored.
+            daily = tools / "reports" / "daily"
+            daily.mkdir(parents=True)
+            (daily / "2026-08-12.md").write_text(
+                "# Real Report\n\nreal content\n", encoding="utf-8"
+            )
+            second = self._emit(tmp_path, tools)
+            self.assertEqual(second["status"], "written")
+            self.assertEqual(second["report_body"], "reflection")
+            body = (tmp_path / "anchor.md").read_text(encoding="utf-8")
+            self.assertIn("real content", body)
+
+    def test_reflection_body_is_immutable(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory(prefix="aria-c2-") as tmp:
+            tmp_path = Path(tmp)
+            tools = self._store(tmp_path)
+            daily = tools / "reports" / "daily"
+            daily.mkdir(parents=True)
+            (daily / "2026-08-12.md").write_text("# Real\n\nv1\n", encoding="utf-8")
+            first = self._emit(tmp_path, tools)
+            self.assertEqual(first["report_body"], "reflection")
+            # The store's report mutates; the anchored artifact must not.
+            (daily / "2026-08-12.md").write_text("# Real\n\nv2\n", encoding="utf-8")
+            second = self._emit(tmp_path, tools)
+            self.assertEqual(second["status"], "already_anchored")
+            self.assertEqual(second["report_body"], "reflection")
+            self.assertIn("v1", (tmp_path / "anchor.md").read_text(encoding="utf-8"))
+
+    def test_stub_without_reflection_stays_put(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory(prefix="aria-c2-") as tmp:
+            tmp_path = Path(tmp)
+            tools = self._store(tmp_path)
+            first = self._emit(tmp_path, tools)
+            self.assertEqual(first["report_body"], "stub")
+            second = self._emit(tmp_path, tools)
+            self.assertEqual(second["status"], "already_anchored")
+            self.assertEqual(second["report_body"], "stub")
+
+
+class AnchorPathsAreStageable(unittest.TestCase):
+    """ORPHAN-HIGH-434 — the anchor must be addable, not merely writable.
+
+    `.gitignore` names this file as the thing that catches a revert of the
+    `aria-tools/*` descent fix. That claim was false when it was written: this
+    module globbed already-tracked files and never invoked git's ignore
+    machinery, so reverting the pattern left it green while every anchor since
+    2026-05-08 lived only inside an expiring CI artifact.
+
+    These assertions are the positive half. `git check-ignore --no-index` is
+    used so a path that does not exist yet is still evaluated against the rules
+    — the question is whether the anchor COULD be staged, not whether one
+    happens to be on disk.
+    """
+
+    _REPO_ROOT = Path(__file__).resolve().parents[2]
+
+    def _is_ignored(self, rel_path: str) -> bool:
+        result = subprocess.run(
+            ["git", "check-ignore", "--no-index", "-q", "--", rel_path],
+            cwd=self._REPO_ROOT, capture_output=True,
+        )
+        if result.returncode not in (0, 1):
+            self.fail(
+                f"git check-ignore failed for {rel_path!r}: rc={result.returncode} "
+                f"{result.stderr.decode(errors='replace')[:200]}"
+            )
+        return result.returncode == 0
+
+    def test_every_declared_tracked_entry_is_stageable(self) -> None:
+        """The three entries `.gitignore` declares tracked must all work.
+
+        Before the ancestor re-includes were added, only reports/daily/ did:
+        `aria-tools/*` excludes the DIRECTORY `agent-evals`, so the negations
+        nested under it could never fire, and repo_identity.json had no
+        negation at all.
+        """
+        for rel_path in (
+            "aria-tools/reports/daily/2099-01-01.md",
+            "aria-tools/agent-evals/fixtures/F999_PROBE.json",
+            "aria-tools/repo_identity.json",
+        ):
+            with self.subTest(path=rel_path):
+                self.assertFalse(
+                    self._is_ignored(rel_path),
+                    msg=(
+                        f"{rel_path} is ignored, but .gitignore declares it tracked. "
+                        "git does not descend into an excluded directory, so every "
+                        "ancestor needs its own re-include."
+                    ),
+                )
+
+    def test_runtime_ledgers_remain_ignored(self) -> None:
+        """Re-including ancestors must not un-ignore the runtime state."""
+        for rel_path in (
+            "aria-tools/runs.jsonl",
+            "aria-tools/governance.jsonl",
+            "aria-tools/reports/latest.md",
+            "aria-tools/agent-evals/runs.jsonl",
+            "aria-tools/agent-invocations/claims.jsonl",
+            "aria-tools/memory/beliefs.jsonl",
+        ):
+            with self.subTest(path=rel_path):
+                self.assertTrue(
+                    self._is_ignored(rel_path),
+                    msg=f"{rel_path} became trackable; the allowlist has widened",
+                )
 
 
 if __name__ == "__main__":

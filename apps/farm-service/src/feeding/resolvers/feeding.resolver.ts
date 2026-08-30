@@ -27,6 +27,7 @@ import { UseGuards } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { runInTenantRead } from '@aquaculture/backend-common/database';
+import { DecimalScalar } from '@aquaculture/backend-common/graphql';
 import { Roles, Role, CurrentTenant, CurrentUser } from '@aquaculture/backend-common/decorators';
 import { StandardPaginationInput, StandardPaginatedResponse, fromCqrsPaginated, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
@@ -35,19 +36,14 @@ import GraphQLJSON from 'graphql-type-json';
 
 // Entities
 import { FeedingRecord, FeedingMethod, FishAppetite, FeedingEnvironment, FishBehavior } from '../entities/feeding-record.entity';
-import { FeedInventory, InventoryStatus, InventoryMovementType } from '../entities/feed-inventory.entity';
 
 // Commands
 import { CreateFeedingRecordCommand } from '../commands/create-feeding-record.command';
 import { UpdateFeedingRecordCommand } from '../commands/update-feeding-record.command';
-import { AddFeedInventoryCommand } from '../commands/add-feed-inventory.command';
-import { ConsumeFeedInventoryCommand, ConsumptionReason } from '../commands/consume-feed-inventory.command';
-import { AdjustFeedInventoryCommand, AdjustmentType } from '../commands/adjust-feed-inventory.command';
 
 // Queries
 import { GetFeedingRecordsQuery } from '../queries/get-feeding-records.query';
 import { GetDailyFeedingPlanQuery } from '../queries/get-daily-feeding-plan.query';
-import { GetFeedInventoryQuery } from '../queries/get-feed-inventory.query';
 import { GetFeedingSummaryQuery, FeedingSummaryResult } from '../queries/get-feeding-summary.query';
 
 // Services
@@ -57,16 +53,6 @@ import { FeedConsumptionForecastService, FeedForecastSummary } from '../services
 // ============================================================================
 // ENUM REGISTRATIONS
 // ============================================================================
-
-registerEnumType(ConsumptionReason, {
-  name: 'ConsumptionReason',
-  description: 'Yem tüketim nedeni',
-});
-
-registerEnumType(AdjustmentType, {
-  name: 'AdjustmentType',
-  description: 'Stok düzeltme tipi',
-});
 
 // ============================================================================
 // INPUT TYPES
@@ -267,131 +253,6 @@ export class UpdateFeedingRecordInput {
 }
 
 /**
- * Input type for adding feed inventory (purchase / stock-in).
- * Every field carries at least one class-validator decorator so that the
- * global ValidationPipe (whitelist + forbidNonWhitelisted) accepts them.
- */
-@InputType()
-export class AddFeedInventoryInput {
-  @Field(() => ID)
-  @IsUUID()
-  feedId!: string;
-
-  @Field(() => ID)
-  @IsUUID()
-  siteId!: string;
-
-  @Field(() => ID, { nullable: true })
-  @IsOptional()
-  @IsUUID()
-  departmentId?: string;
-
-  @Field(() => Float)
-  @IsNumber()
-  @Min(0.001)
-  quantityKg!: number;
-
-  @Field({ nullable: true })
-  @IsOptional()
-  lotNumber?: string;
-
-  @Field({ nullable: true })
-  @IsOptional()
-  @IsDate()
-  manufacturingDate?: Date;
-
-  @Field({ nullable: true })
-  @IsOptional()
-  @IsDate()
-  expiryDate?: Date;
-
-  @Field({ nullable: true })
-  @IsOptional()
-  @IsDate()
-  receivedDate?: Date;
-
-  @Field(() => Float, { nullable: true })
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  unitPricePerKg?: number;
-
-  @Field({ nullable: true })
-  @IsOptional()
-  currency?: string;
-
-  @Field({ nullable: true })
-  @IsOptional()
-  storageLocation?: string;
-
-  @Field({ nullable: true })
-  @IsOptional()
-  notes?: string;
-
-  @Field(() => ID)
-  @IsUUID()
-  createdBy!: string;
-}
-
-/**
- * Input type for consuming feed from inventory (usage / feeding).
- */
-@InputType()
-export class ConsumeFeedInventoryInput {
-  @Field(() => ID)
-  @IsUUID()
-  inventoryId!: string;
-
-  @Field(() => Float)
-  @IsNumber()
-  @Min(0.001)
-  quantityKg!: number;
-
-  @Field(() => ConsumptionReason, { defaultValue: ConsumptionReason.FEEDING })
-  @IsOptional()
-  @IsEnum(ConsumptionReason)
-  reason!: ConsumptionReason;
-
-  @Field(() => ID, { nullable: true })
-  @IsOptional()
-  @IsUUID()
-  feedingRecordId?: string;
-
-  @Field({ nullable: true })
-  @IsOptional()
-  notes?: string;
-}
-
-/**
- * Input type for adjusting feed inventory (correction / audit).
- */
-@InputType()
-export class AdjustFeedInventoryInput {
-  @Field(() => ID)
-  @IsUUID()
-  inventoryId!: string;
-
-  @Field(() => AdjustmentType)
-  @IsEnum(AdjustmentType)
-  adjustmentType!: AdjustmentType;
-
-  @Field(() => Float)
-  @IsNumber()
-  @IsPositive()
-  quantity!: number;
-
-  /** Human-readable reason for the adjustment. */
-  @Field(() => String)
-  @IsNotEmpty()
-  @IsString()
-  reason!: string;
-
-  @Field(() => String, { nullable: true })
-  @IsOptional()
-  notes?: string;
-}
-
-/**
  * Filter input for feeding record queries.
  */
 @InputType()
@@ -437,40 +298,6 @@ export class FeedingRecordFilterInput {
   @Field({ nullable: true })
   @IsOptional()
   hasVariance?: boolean;
-}
-
-/**
- * Filter input for feed inventory queries.
- */
-@InputType()
-export class FeedInventoryFilterInput {
-  @Field(() => ID, { nullable: true })
-  @IsOptional()
-  @IsUUID()
-  siteId?: string;
-
-  @Field(() => ID, { nullable: true })
-  @IsOptional()
-  @IsUUID()
-  feedId?: string;
-
-  @Field(() => InventoryStatus, { nullable: true })
-  @IsOptional()
-  @IsEnum(InventoryStatus)
-  status?: InventoryStatus;
-
-  @Field({ nullable: true })
-  @IsOptional()
-  includeLowStock?: boolean;
-
-  @Field({ nullable: true })
-  @IsOptional()
-  includeExpiringSoon?: boolean;
-
-  @Field(() => ID, { nullable: true })
-  @IsOptional()
-  @IsUUID()
-  departmentId?: string;
 }
 
 @InputType('FeedingPaginationInput')
@@ -569,8 +396,15 @@ export class FeedingSummaryResponse {
   @Field(() => Float)
   avgFeedingKg!: number;
 
-  @Field(() => Float)
+  @Field(() => Float, {
+    deprecationReason: 'Use totalCostDecimal (exact decimal string, ADR-0004).',
+  })
   totalCost!: number;
+
+
+  /** Exact-decimal wire form of `totalCost` (ADR-0004 / DATA-MEDIUM-009). */
+  @Field(() => DecimalScalar)
+  totalCostDecimal!: number;
 
   @Field({ nullable: true })
   currency?: string;
@@ -593,15 +427,19 @@ export class FeedTypeSummary {
   @Field(() => Float)
   percentage!: number;
 
-  @Field(() => Float)
+  @Field(() => Float, {
+    deprecationReason: 'Use costDecimal (exact decimal string, ADR-0004).',
+  })
   cost!: number;
+
+  /** Exact-decimal wire form of `cost` (ADR-0004 / DATA-MEDIUM-009). */
+  @Field(() => DecimalScalar)
+  costDecimal!: number;
 }
 
 @ObjectType()
 export class FeedingRecordConnection extends StandardPaginatedResponse(FeedingRecord) {}
 
-@ObjectType()
-export class FeedInventoryConnection extends StandardPaginatedResponse(FeedInventory) {}
 
 // ============================================================================
 // GROWTH SIMULATION TYPES
@@ -1032,6 +870,7 @@ export class FeedingResolver {
       totalFeedings: result.totalFeedingsCount,
       avgFeedingKg: result.avgDailyFeedingKg,
       totalCost: result.totalFeedCost,
+      totalCostDecimal: result.totalFeedCost,
       currency: undefined,
       byFeedType: result.feedTypeDistribution.map((feedType) => ({
         feedId: feedType.feedId,
@@ -1039,36 +878,9 @@ export class FeedingResolver {
         totalKg: feedType.totalKg,
         percentage: feedType.percentage,
         cost: feedType.cost,
+        costDecimal: feedType.cost,
       })),
     };
-  }
-
-  /**
-   * Get feed inventory
-   */
-  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
-  @Query(() => FeedInventoryConnection)
-  async feedInventory(
-    @CurrentTenant() tenantId: string,
-    @Args('filter', { nullable: true }) filter?: FeedInventoryFilterInput,
-    @Args('pagination', { nullable: true }) pagination?: FeedingPaginationInput,
-  ): Promise<IStandardPaginatedResult<FeedInventory>> {
-    const result: PaginatedQueryResult<FeedInventory> = await this.queryBus.execute(
-      new GetFeedInventoryQuery(
-        tenantId,
-        {
-          siteId: filter?.siteId,
-          feedId: filter?.feedId,
-          departmentId: filter?.departmentId,
-          status: filter?.status ? [filter.status] : undefined,
-          lowStockOnly: filter?.includeLowStock,
-          expiringWithinDays: filter?.includeExpiringSoon ? 30 : undefined,
-        },
-        pagination?.page ?? 1,
-        pagination?.limit ?? 20,
-      ),
-    );
-    return fromCqrsPaginated(result);
   }
 
   /**
@@ -1279,88 +1091,6 @@ export class FeedingResolver {
     );
   }
 
-  /**
-   * Add feed inventory
-   */
-  @Mutation(() => FeedInventory)
-  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
-  async addFeedInventory(
-    @CurrentTenant() tenantId: string,
-    @CurrentUser('sub') userId: string,
-    @Args('input') input: AddFeedInventoryInput,
-  ): Promise<FeedInventory> {
-    return this.commandBus.execute(
-      new AddFeedInventoryCommand(
-        tenantId,
-        {
-          feedId: input.feedId,
-          siteId: input.siteId,
-          departmentId: input.departmentId,
-          quantityKg: input.quantityKg,
-          lotNumber: input.lotNumber,
-          manufacturingDate: input.manufacturingDate,
-          expiryDate: input.expiryDate,
-          receivedDate: input.receivedDate,
-          unitPricePerKg: input.unitPricePerKg,
-          currency: input.currency,
-          storageLocation: input.storageLocation,
-          notes: input.notes,
-        },
-        userId,
-      ),
-    );
-  }
-
-  /**
-   * Consume feed from inventory
-   */
-  @Mutation(() => FeedInventory)
-  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
-  async consumeFeedInventory(
-    @CurrentTenant() tenantId: string,
-    @CurrentUser('sub') userId: string,
-    @Args('input') input: ConsumeFeedInventoryInput,
-  ): Promise<FeedInventory> {
-    return this.commandBus.execute(
-      new ConsumeFeedInventoryCommand(
-        tenantId,
-        {
-          inventoryId: input.inventoryId,
-          quantityKg: input.quantityKg,
-          reason: input.reason,
-          feedingRecordId: input.feedingRecordId,
-          notes: input.notes,
-        },
-        userId,
-      ),
-    );
-  }
-
-  /**
-   * Adjust feed inventory (correction)
-   */
-  @Mutation(() => FeedInventory)
-  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
-  async adjustFeedInventory(
-    @CurrentTenant() tenantId: string,
-    @CurrentUser('sub') userId: string,
-    @Args('input') input: AdjustFeedInventoryInput,
-  ): Promise<FeedInventory> {
-    return this.commandBus.execute(
-      new AdjustFeedInventoryCommand(
-        tenantId,
-        {
-          inventoryId: input.inventoryId,
-          adjustmentType: input.adjustmentType,
-          quantity: input.quantity,
-          reason: input.reason,
-          notes: input.notes,
-        },
-        userId,
-      ),
-    );
-  }
-
   // ==========================================================================
   // FIELD RESOLVERS
   // ==========================================================================
@@ -1401,52 +1131,3 @@ export class FeedingResolver {
   }
 }
 
-// ============================================================================
-// FEED INVENTORY RESOLVER
-// ============================================================================
-
-@UseGuards(GqlAuthGuard)
-@Resolver(() => FeedInventory)
-export class FeedInventoryResolver {
-  // ==========================================================================
-  // FIELD RESOLVERS
-  // ==========================================================================
-
-  /**
-   * Check if inventory is low stock
-   */
-  @ResolveField(() => Boolean)
-  isLowStock(@Parent() inventory: FeedInventory): boolean {
-    return Number(inventory.quantityKg) <= Number(inventory.minStockKg);
-  }
-
-  /**
-   * Check if inventory is expired
-   */
-  @ResolveField(() => Boolean)
-  isExpired(@Parent() inventory: FeedInventory): boolean {
-    if (!inventory.expiryDate) return false;
-    return new Date(inventory.expiryDate) < new Date();
-  }
-
-  /**
-   * Days until expiry
-   */
-  @ResolveField(() => Int, { nullable: true })
-  daysUntilExpiry(@Parent() inventory: FeedInventory): number | null {
-    if (!inventory.expiryDate) return null;
-    const now = new Date();
-    const expiry = new Date(inventory.expiryDate);
-    const diffTime = expiry.getTime() - now.getTime();
-    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  }
-
-  /**
-   * Calculate total value
-   */
-  @ResolveField(() => Float, { nullable: true })
-  totalValue(@Parent() inventory: FeedInventory): number | null {
-    if (!inventory.unitPricePerKg) return null;
-    return Number(inventory.quantityKg) * Number(inventory.unitPricePerKg);
-  }
-}

@@ -1,6 +1,6 @@
 /**
- * DailyFeedingExecutionService.recordActualFeeding — feed dual-SSoT write-path
- * correctness (Phase A)
+ * DailyFeedingExecutionService.recordActualFeeding — canonical feed-stock
+ * write-path correctness
  *
  * This is the SECOND in-transaction feeding write path (the first is
  * CreateFeedingRecordHandler). It must enforce the SAME invariants:
@@ -8,15 +8,11 @@
  *   1. assertFeedable gate: recording feed against an empty
  *      (currentQuantity ≤ 0) or non-feedable (HARVESTED / CLOSED / …) LOCKED
  *      batch is REJECTED inside the tx, before any state is mutated → rollback.
- *   2. Fail-CLOSED for a STORAGE-TRACKED feed: when the feed has storage
- *      presence but its located lot is short (recordMovement throws) the whole
- *      recording rolls back — feeding + both ledgers commit or roll back
- *      together; no silent divergence.
- *   3. Fail-OPEN SKIP for a NON-storage-tracked feed: when the feed has ZERO
- *      storage rows (a tenant that never adopted the warehouse module) the
- *      storage OUT is SKIPPED (no throw, no recordMovement) and the recording
- *      proceeds to commit on the feed_inventory-only path — this is the cliff
- *      removal that distinguishes "not tracked" from "out of stock".
+ *   2. Fail-CLOSED on the canonical storage ledger: a missing usable lot or a
+ *      short located lot rolls the whole recording back. Projection absence
+ *      cannot select the retired compatibility path.
+ *   3. A depleted projection row and a never-created projection row have the
+ *      same fail-closed result; mutable row presence never changes authority.
  *
  * The service runs everything inside a queryRunner transaction; the doubles
  * model that boundary and assert commit vs rollback. Real BatchDomainService
@@ -24,6 +20,12 @@
  * behaviour, not a stub. Doubles are built through a typed mock factory so no
  * banned casts are needed (a single `as T` per double, matching the sibling
  * create-feeding-record.handler.spec.ts).
+ *
+ * P-05/K-4: the storage legs now flow through a REAL FeedingLedgerService
+ * (single feed write path) with the same mocked StockMovementService — the
+ * invariants above are asserted through the delegated path, plus the new
+ * legs: FeedingRecord row (sourceExecutionId idempotency), Batch
+ * totalFeedConsumed/Cost, FeedingRecordedEvent outbox.
  */
 import { BadRequestException } from '@nestjs/common';
 import { DataSource, EntityManager, ObjectLiteral, QueryRunner, Repository } from 'typeorm';
@@ -41,7 +43,6 @@ import {
   ExecutionStatus,
   ExecutionCalculation,
 } from '../../entities/daily-feeding-execution.entity';
-import { FeedInventory } from '../../entities/feed-inventory.entity';
 import { TankBatch } from '../../../batch/entities/tank-batch.entity';
 import {
   FeedingProgram,
@@ -56,6 +57,10 @@ import { WaterTemperatureService } from '../../../water-quality/services/water-t
 import { StockMovementService } from '../../../storage/services/stock-movement.service';
 import { StockMovement } from '../../../storage/entities/stock-movement.entity';
 import { RecordMovementResult } from '../../../storage/services/stock-movement.service';
+import { FeedingLedgerService } from '../feeding-ledger.service';
+import { FeedingRecord } from '../../entities/feeding-record.entity';
+import { Feed } from '../../../feed/entities/feed.entity';
+import { FinanceSettingsService } from '../../../finance/services/finance-settings.service';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const EXECUTION = '66666666-6666-4666-8666-666666666666';
@@ -142,8 +147,6 @@ interface HarnessOpts {
   tankBatch?: TankBatch | null;
   /** Batch returned under the pessimistic lock for assertFeedable. */
   lockedBatch?: Batch | null;
-  /** feedHasStoragePresence result. */
-  hasStoragePresence?: boolean;
   /** resolveFeedDeductionLocation result. */
   resolveLocation?: { storageLocationId: string; lotNumber?: string } | null;
   /** Make recordMovement throw (insufficient stock for a tracked feed). */
@@ -152,12 +155,14 @@ interface HarnessOpts {
 
 interface Harness {
   service: DailyFeedingExecutionService;
-  feedHasStoragePresence: jest.Mock;
   resolveFeedDeductionLocation: jest.Mock;
   recordMovement: jest.Mock;
   enqueue: jest.Mock;
   commit: jest.Mock;
   rollback: jest.Mock;
+  /** manager.create ile üretilen FeedingRecord satırları (ledger bacağı a). */
+  createdRecords: FeedingRecord[];
+  lockedBatch: Batch | null;
 }
 
 function makeHarness(opts: HarnessOpts = {}): Harness {
@@ -168,29 +173,34 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
       : opts.tankBatch;
   const lockedBatch = opts.lockedBatch === undefined ? makeFeedableBatch() : opts.lockedBatch;
   const tank = mock({ id: TANK, currentBiomass: 0 });
-  const feedInventory = mock<FeedInventory>({
-    id: 'finv-1',
-    tenantId: TENANT,
-    feedId: FEED,
-    quantityKg: 500,
-    minStockKg: 100,
-    updateStatus: jest.fn(),
-  });
+  const feedRow = mock<Feed>({ id: FEED, code: 'GR-4', name: 'Grower 4mm', pricePerKg: 2 });
 
   // manager.findOne dispatches by entity class. TankBatch / Batch are loaded by
   // BOTH the feedability guard and the biomass-update step (the lock option is
-  // ignored by the double). Tank is the default fall-through for the biomass
-  // update's Tank lookup.
+  // ignored by the double). Feed is the ledger delegation's cost source; Tank
+  // is the default fall-through for the biomass update's Tank lookup.
   const managerFindOne = jest.fn();
   managerFindOne.mockImplementation(async (entity: unknown): Promise<unknown> => {
     if (entity === DailyFeedingExecution) return execution;
     if (entity === TankBatch) return tankBatch;
     if (entity === Batch) return lockedBatch;
-    if (entity === FeedInventory) return feedInventory;
+    if (entity === Feed) return feedRow;
     return tank;
   });
 
-  const managerSave = jest.fn().mockImplementation(async (entity: unknown) => entity);
+  // Ledger (a) bacağı: manager.create gerçek FeedingRecord instance'ı üretir
+  // (calculateVariance entity metodu çalışsın); save id damgalar.
+  const createdRecords: FeedingRecord[] = [];
+  const managerCreate = jest.fn();
+  managerCreate.mockImplementation((entityClass: new () => object, data: object): object => {
+    const instance = Object.assign(new entityClass(), data);
+    if (instance instanceof FeedingRecord) createdRecords.push(instance);
+    return instance;
+  });
+  const managerSave = jest.fn().mockImplementation(async (entity: unknown) => {
+    if (entity instanceof FeedingRecord && !entity.id) entity.id = 'fr-1';
+    return entity;
+  });
 
   // The outbox publisher requires a manager bound to an active transaction; the
   // double exposes a queryRunner with isTransactionActive=true so enqueue (if
@@ -200,6 +210,7 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
   const manager = mock<EntityManager>({
     findOne: managerFindOne,
     save: managerSave,
+    create: managerCreate,
   });
 
   const commit = jest.fn().mockResolvedValue(undefined);
@@ -220,14 +231,10 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
   });
 
   const enqueue = jest.fn().mockResolvedValue(undefined);
-  const outboxPublisher = mock<OutboxPublisher>({ enqueue });
 
   // Real domain service — production assertFeedable behaviour.
   const batchDomainService = new BatchDomainService(new BatchLifecyclePolicyService());
 
-  const feedHasStoragePresence = jest
-    .fn()
-    .mockResolvedValue(opts.hasStoragePresence === undefined ? true : opts.hasStoragePresence);
   const resolveFeedDeductionLocation = jest
     .fn()
     .mockResolvedValue(
@@ -241,14 +248,26 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
       saved: mock<StockMovement>({ id: 'mv-1' }),
       currentTotal: 0,
       idempotentHit: false,
+      lowStock: null,
       warnings: [],
     };
   });
   const stockMovementService = mock<StockMovementService>({
-    feedHasStoragePresence,
     resolveFeedDeductionLocation,
     recordMovement,
   });
+
+  // P-05/K-4: GERÇEK ledger — storage/kayıt/aggregate/outbox bacakları
+  // üretim yolundan koşar; yalnız dış bağımlılıkları mock'lu.
+  const financeSettings = mock<FinanceSettingsService>({
+    getDefaultCurrencyInTx: jest.fn().mockResolvedValue('TRY'),
+  });
+  const outboxPublisher = mock<OutboxPublisher>({ enqueue });
+  const feedingLedger = new FeedingLedgerService(
+    stockMovementService,
+    financeSettings,
+    outboxPublisher,
+  );
 
   const bilinearService = mock<BilinearInterpolationService>({});
 
@@ -275,27 +294,26 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
     {} as WaterTemperatureService,
     dataSource,
     batchDomainService,
-    stockMovementService,
-    outboxPublisher,
+    feedingLedger,
     mobileCommandReceipts,
     new SiteAuthorizationService(),
   );
 
   return {
     service,
-    feedHasStoragePresence,
     resolveFeedDeductionLocation,
     recordMovement,
     enqueue,
     commit,
     rollback,
+    createdRecords,
+    lockedBatch,
   };
 }
 
-describe('DailyFeedingExecutionService.recordActualFeeding — feed dual-SSoT write path', () => {
-  it('(a) rolls back when a STORAGE-TRACKED feed has insufficient stock', async () => {
-    const { service, feedHasStoragePresence, recordMovement, commit, rollback } = makeHarness({
-      hasStoragePresence: true,
+describe('DailyFeedingExecutionService.recordActualFeeding — canonical feed stock write path', () => {
+  it('(a) rolls back when canonical feed stock is insufficient', async () => {
+    const { service, recordMovement, commit, rollback } = makeHarness({
       recordMovementThrows: new BadRequestException(
         'Insufficient stock. Available: 5 kg, Requested: 50 kg',
       ),
@@ -305,37 +323,14 @@ describe('DailyFeedingExecutionService.recordActualFeeding — feed dual-SSoT wr
       service.recordActualFeeding(EXECUTION, 50, USER, TENANT, MANAGER_CALLER),
     ).rejects.toThrow('Insufficient stock');
 
-    expect(feedHasStoragePresence).toHaveBeenCalledTimes(1);
-    // The deduction was attempted (tracked feed) and threw → rollback.
+    // The canonical deduction was attempted and threw → rollback.
     expect(recordMovement).toHaveBeenCalledTimes(1);
     expect(commit).not.toHaveBeenCalled();
     expect(rollback).toHaveBeenCalledTimes(1);
   });
 
-  it('(b) fail-OPEN: skips the storage deduction and COMMITS when the feed has NO storage presence', async () => {
-    const {
-      service,
-      feedHasStoragePresence,
-      resolveFeedDeductionLocation,
-      recordMovement,
-      commit,
-      rollback,
-    } = makeHarness({ hasStoragePresence: false });
-
-    const result = await service.recordActualFeeding(EXECUTION, 50, USER, TENANT, MANAGER_CALLER);
-
-    expect(feedHasStoragePresence).toHaveBeenCalledTimes(1);
-    // Not storage-tracked → no resolve, no movement, NO throw.
-    expect(resolveFeedDeductionLocation).not.toHaveBeenCalled();
-    expect(recordMovement).not.toHaveBeenCalled();
-    // Proceeds on the feed_inventory-only path and commits.
-    expect(commit).toHaveBeenCalledTimes(1);
-    expect(rollback).not.toHaveBeenCalled();
-    expect(result.executionId).toBe(EXECUTION);
-  });
-
-  it('(c) assertFeedable rejects an empty LOCKED batch and rolls back before any deduction', async () => {
-    const { service, feedHasStoragePresence, recordMovement, commit, rollback } = makeHarness({
+  it('(b) assertFeedable rejects an empty LOCKED batch and rolls back before any deduction', async () => {
+    const { service, recordMovement, commit, rollback } = makeHarness({
       lockedBatch: makeFeedableBatch({ currentQuantity: 0 }),
     });
 
@@ -344,7 +339,6 @@ describe('DailyFeedingExecutionService.recordActualFeeding — feed dual-SSoT wr
     ).rejects.toBeInstanceOf(BadRequestException);
 
     // Rejected at the feedability guard — never reached the storage path.
-    expect(feedHasStoragePresence).not.toHaveBeenCalled();
     expect(recordMovement).not.toHaveBeenCalled();
     expect(commit).not.toHaveBeenCalled();
     expect(rollback).toHaveBeenCalledTimes(1);
@@ -364,9 +358,8 @@ describe('DailyFeedingExecutionService.recordActualFeeding — feed dual-SSoT wr
     expect(rollback).toHaveBeenCalledTimes(1);
   });
 
-  it('fail-CLOSED: storage-tracked feed with no usable lot → reject + rollback', async () => {
-    const { service, feedHasStoragePresence, recordMovement, commit, rollback } = makeHarness({
-      hasStoragePresence: true,
+  it('fail-CLOSED: depleted feed with no projection row rejects and rolls back', async () => {
+    const { service, recordMovement, commit, rollback } = makeHarness({
       resolveLocation: null,
     });
 
@@ -374,19 +367,23 @@ describe('DailyFeedingExecutionService.recordActualFeeding — feed dual-SSoT wr
       service.recordActualFeeding(EXECUTION, 50, USER, TENANT, MANAGER_CALLER),
     ).rejects.toBeInstanceOf(BadRequestException);
 
-    expect(feedHasStoragePresence).toHaveBeenCalledTimes(1);
-    // Presence but no lot → real shortage → no movement issued, rollback.
+    // No usable canonical row is a real shortage → no movement, rollback.
     expect(recordMovement).not.toHaveBeenCalled();
     expect(commit).not.toHaveBeenCalled();
     expect(rollback).toHaveBeenCalledTimes(1);
   });
 
-  it('happy path: storage-tracked feed deducts IN-TX (OUT) and commits', async () => {
-    const { service, recordMovement, resolveFeedDeductionLocation, commit, rollback } = makeHarness(
-      {
-        hasStoragePresence: true,
-      },
-    );
+  it('happy path: canonical feed stock deducts IN-TX (OUT) through the ledger and commits', async () => {
+    const {
+      service,
+      recordMovement,
+      resolveFeedDeductionLocation,
+      enqueue,
+      commit,
+      rollback,
+      createdRecords,
+      lockedBatch,
+    } = makeHarness();
 
     const result = await service.recordActualFeeding(EXECUTION, 50, USER, TENANT, MANAGER_CALLER);
 
@@ -403,11 +400,42 @@ describe('DailyFeedingExecutionService.recordActualFeeding — feed dual-SSoT wr
     expect(movementInput.itemId).toBe(FEED);
     expect(movementInput.quantity).toBe(50);
     expect(movementInput.fromLocationId).toBe(LOCATION);
-    expect(movementInput.idempotencyKey).toBe(`feeding-exec-deduct-${EXECUTION}`);
+    // P-05: idempotency anahtarı artık ledger'ın kayıt-bazlı anahtarı.
+    expect(movementInput.idempotencyKey).toBe('feeding-deduct-fr-1');
+
+    // K-4 bacakları: FeedingRecord satırı (sourceExecutionId idempotency),
+    // Batch aggregate'leri, FeedingRecordedEvent outbox.
+    expect(createdRecords).toHaveLength(1);
+    expect(createdRecords[0]!.sourceExecutionId).toBe(EXECUTION);
+    expect(createdRecords[0]!.batchId).toBe(BATCH);
+    expect(createdRecords[0]!.actualAmount).toBe(50);
+    expect(createdRecords[0]!.feedCost).toBe(100); // 50kg × 2/kg (C-16)
+    expect(lockedBatch!.totalFeedConsumed).toBe(50);
+    expect(lockedBatch!.totalFeedCost).toBe(100);
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    const event = enqueue.mock.calls[0]![0] as { eventType: string; actualAmountKg: number };
+    expect(event.eventType).toBe('FeedingRecorded');
+    expect(event.actualAmountKg).toBe(50);
 
     expect(commit).toHaveBeenCalledTimes(1);
     expect(rollback).not.toHaveBeenCalled();
     expect(result.executionId).toBe(EXECUTION);
+  });
+
+  it('K-4 fail-closed: tank without a primary batch REJECTS the recording (no silent unattributed feed)', async () => {
+    const { service, recordMovement, enqueue, commit, rollback, createdRecords } = makeHarness({
+      tankBatch: null,
+    });
+
+    await expect(
+      service.recordActualFeeding(EXECUTION, 50, USER, TENANT, MANAGER_CALLER),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(createdRecords).toHaveLength(0);
+    expect(recordMovement).not.toHaveBeenCalled();
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(commit).not.toHaveBeenCalled();
+    expect(rollback).toHaveBeenCalledTimes(1);
   });
 
   it('DAILY growth mode records the feed but HOLDS BACK the weight roll-up', async () => {
@@ -417,11 +445,7 @@ describe('DailyFeedingExecutionService.recordActualFeeding — feed dual-SSoT wr
       }),
     });
     const tankBatch = mock<TankBatch>({ tankId: TANK, tenantId: TENANT, primaryBatchId: BATCH });
-    const { service, commit } = makeHarness({
-      execution: dailyExecution,
-      tankBatch,
-      hasStoragePresence: true,
-    });
+    const { service, commit } = makeHarness({ execution: dailyExecution, tankBatch });
 
     await service.recordActualFeeding(EXECUTION, 50, USER, TENANT, MANAGER_CALLER);
 
@@ -436,11 +460,7 @@ describe('DailyFeedingExecutionService.recordActualFeeding — feed dual-SSoT wr
   it('PER_FEEDING (default) applies growth inline: stamps growthAppliedAt + updates the tank', async () => {
     const perFeeding = makeExecution(); // no program → PER_FEEDING default
     const tankBatch = mock<TankBatch>({ tankId: TANK, tenantId: TENANT, primaryBatchId: BATCH });
-    const { service, commit } = makeHarness({
-      execution: perFeeding,
-      tankBatch,
-      hasStoragePresence: true,
-    });
+    const { service, commit } = makeHarness({ execution: perFeeding, tankBatch });
 
     await service.recordActualFeeding(EXECUTION, 50, USER, TENANT, MANAGER_CALLER);
 

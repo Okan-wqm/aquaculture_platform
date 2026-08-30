@@ -1,9 +1,19 @@
-import { AuditedOperationModule, AuditLogEntity } from '@aquaculture/backend-common/audit';
+import {
+  AccessLogModule,
+  AccessLogEntity,
+  AuditedOperationModule,
+  AuditLogEntity,
+} from '@aquaculture/backend-common/audit';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import { createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
+import {
+  createGraphqlOperationLimitPlugin,
+  ENVIRONMENT_READ_OPERATION_FIELD_LIMITS,
+} from '@aquaculture/backend-common/graphql';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
 import { MetricsMiddleware } from '@aquaculture/backend-common/metrics';
 import {
+  AccessLogMiddleware,
   CorrelationIdMiddleware,
   RequestLoggingMiddleware,
   StripInternalHeadersMiddleware,
@@ -31,7 +41,6 @@ import { JwtService } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { StorageModule, StorageConfig } from '@platform/storage';
 import type { DocumentNode, GraphQLSchema } from 'graphql';
-import depthLimit from 'graphql-depth-limit';
 import {
   getComplexity,
   simpleEstimator,
@@ -51,8 +60,7 @@ import { AuthGuard } from './guards/auth.guard';
 import {
   TokenBlacklistStore,
   TOKEN_BLACKLIST_STORE,
-  RedisTokenBlacklistStore,
-  InMemoryTokenBlacklistStore,
+  buildGatewayTokenBlacklistStore,
 } from './guards/redis-token-blacklist.store';
 import { ApiKeyAuthStrategy } from './guards/strategies/api-key-auth.strategy';
 import { BasicAuthStrategy } from './guards/strategies/basic-auth.strategy';
@@ -68,7 +76,6 @@ import {
 import { JwtMiddleware } from './middleware/jwt.middleware';
 import { RequestValidatorMiddleware } from './middleware/request-validator.middleware';
 import { SecurityHeadersMiddleware } from './middleware/security-headers.middleware';
-import { createAliasLimitPlugin } from './plugins/graphql-alias-limit.plugin';
 import { MarineRoutesModule } from './routes/marine.routes';
 import { TenantLookupService } from './services/tenant-lookup.service';
 import { UploadModule } from './upload/upload.module';
@@ -208,17 +215,39 @@ function positiveIntConfig(
           migrations: [],
           migrationsRun: false,
           // Explicit entity list (instead of autoLoadEntities) so the
-          // gateway-api connection only ever knows about the one entity
-          // it could conceivably touch. Adding more entities here without
-          // a clear ownership story would silently re-introduce the
-          // PR #226 surface that motivated removing RlsModule.forRoot()
-          // from this AppModule (see large comment block lower down).
-          entities: [AuditLogEntity],
+          // gateway-api connection only ever knows the entities it actually
+          // writes. Adding an entity here without a clear ownership story
+          // would silently re-introduce the PR #226 surface that motivated
+          // removing RlsModule.forRoot() from this AppModule (see large
+          // comment block lower down). Both listed entities have that story:
+          //   - AuditLogEntity   → shared.audit_logs, written by the global
+          //                        AuditedOperationInterceptor.
+          //   - AccessLogEntity  → shared.access_logs, written by the
+          //                        AccessLogMiddleware mounted in configure()
+          //                        (one row per HTTP request at the single
+          //                        external ingress; AUDITTRAIL-HIGH-004).
+          // Both are cross-tenant `shared` tables the gateway_service role
+          // holds DML on (006-shared-schema-tables.sql GRANTs shared DML to
+          // PUBLIC), so the repository lookup resolves against the same
+          // search_path='shared' connection.
+          entities: [AuditLogEntity, AccessLogEntity],
         }),
     }),
 
     // AUDITTRAIL-CRITICAL-002 sweep — registers AuditedOperationInterceptor.
     AuditedOperationModule.forRoot(),
+
+    // AUDITTRAIL-HIGH-004: low-level HTTP access-log stream. Registers
+    // AccessLogService + the AccessLogEntity repository (forFeature) so the
+    // AccessLogMiddleware mounted in configure() can persist one row per
+    // request to shared.access_logs. The gateway is the single external
+    // ingress, so mounting here (not per-subgraph) yields exactly one
+    // authoritative access row per external request — including the 401/403/
+    // CSRF/throttle rejections that never reach a subgraph. 90-day retention
+    // is enforced by the canonical RetentionEnforcementService policy
+    // registered in admin-api's AdminApiRetentionBootstrapModule. Enforced
+    // mounted by tests/invariants/access-log-middleware-mounted.spec.ts.
+    AccessLogModule.forRoot(),
 
     // ARCH-GW-006: composition readiness state. Imported BEFORE GraphQLModule so
     // the CompositionStateService singleton is resolvable inside the GraphQL
@@ -295,12 +324,12 @@ function positiveIntConfig(
           // A single HTTP request with many batched operations would count as 1 request
           allowBatchedHttpRequests: false,
           /**
-           * 2026-04-30: Keep Apollo CSRF prevention explicit while Apollo Server 5
-           * migration is blocked by the Nest/Apollo peer graph.
-           * WHY: Apollo Server 4 remains in the dependency graph, so XS-Search
-           * class protections must be fail-closed at runtime.
+           * Keep Apollo CSRF prevention explicit as defense in depth against
+           * cross-site search and simple-request execution paths.
            */
           csrfPrevention: true,
+          playground: false,
+          graphiql: process.env['NODE_ENV'] !== 'production',
           // 2026-04-30: Deprecated GraphQL Playground is not enabled at runtime.
           // WHY: gateway UI exposure must not rely on deprecated Apollo Playground behavior.
           // SECURITY: Disable introspection in production to prevent schema discovery attacks
@@ -318,13 +347,11 @@ function positiveIntConfig(
                 },
               })
             : undefined,
-          // SECURITY: Depth limiting to prevent deeply nested query DoS attacks
-          // Maximum query depth of 10 prevents excessive resource consumption
-          validationRules: [depthLimit(10)],
           // SECURITY: Query complexity limiting to prevent expensive query DoS attacks
           plugins: [
-            // SECURITY: Alias brute-force protection (H-2)
-            createAliasLimitPlugin(),
+            createGraphqlOperationLimitPlugin({
+              maxOccurrencesByField: ENVIRONMENT_READ_OPERATION_FIELD_LIMITS,
+            }),
             {
               // Hoist Logger out of per-request closure to avoid re-instantiation per operation
               requestDidStart: () => Promise.resolve({
@@ -521,15 +548,23 @@ function positiveIntConfig(
         jwtService: JwtService,
         apiKeyStrategy: ApiKeyAuthStrategy,
         basicStrategy: BasicAuthStrategy,
-        tokenBlacklist?: TokenBlacklistStore,
-      ) => new AuthGuard(reflector, configService, jwtService, apiKeyStrategy, basicStrategy, tokenBlacklist),
+        tokenBlacklist: TokenBlacklistStore,
+      ) =>
+        new AuthGuard(
+          reflector,
+          configService,
+          jwtService,
+          apiKeyStrategy,
+          basicStrategy,
+          tokenBlacklist,
+        ),
       inject: [
         Reflector,
         ConfigService,
         JwtService,
         ApiKeyAuthStrategy,
         BasicAuthStrategy,
-        { token: TOKEN_BLACKLIST_STORE, optional: true },
+        TOKEN_BLACKLIST_STORE,
       ],
     },
     /**
@@ -571,18 +606,16 @@ function positiveIntConfig(
         { token: RATE_LIMIT_EDGE_CONFIG, optional: true },
       ],
     },
-    // Redis-based token blacklist store for distributed token revocation
-    // Falls back to in-memory if Redis is unavailable
-    // SECURITY: Required for proper logout and token revocation across instances
+    // Redis-backed authorization marker reader. Production boot fails if an
+    // operator attempts to select the non-distributed development fallback.
     {
       provide: TOKEN_BLACKLIST_STORE,
-      useFactory: (redisService: RedisService, configService: ConfigService) => {
-        const useRedis = configService.get<string>('TOKEN_BLACKLIST_USE_REDIS', 'true') === 'true';
-        if (useRedis && redisService) {
-          return new RedisTokenBlacklistStore(redisService);
-        }
-        return new InMemoryTokenBlacklistStore();
-      },
+      useFactory: (redisService: RedisService, configService: ConfigService) =>
+        buildGatewayTokenBlacklistStore(
+          redisService,
+          configService.get<string>('NODE_ENV'),
+          configService.get<string>('TOKEN_BLACKLIST_USE_REDIS'),
+        ),
       inject: [RedisService, ConfigService],
     },
     // Request logging interceptor
@@ -604,6 +637,24 @@ export class AppModule implements NestModule {
      */
     consumer
       .apply(SecurityHeadersMiddleware)
+      .forRoutes('*');
+
+    /**
+     * AUDITTRAIL-HIGH-004: low-level HTTP access log, one row per request.
+     *
+     * Mounted at the entry point (right after security headers, before the
+     * identity chain) so `start = Date.now()` measures the fullest request
+     * duration. The row is emitted from `res.on('finish')` — AFTER the
+     * identity chain below has populated req.user / tenantContext /
+     * correlationId — so it captures who/which-tenant without depending on
+     * middleware order at `use()` time. Fire-and-forget: a persistence blip
+     * never surfaces into the response (see AccessLogService docstring).
+     * `forRoutes('*')` deliberately includes REST + GraphQL + 404s + guard
+     * rejections — the Express layer sees every request the Nest pipeline
+     * would miss.
+     */
+    consumer
+      .apply(AccessLogMiddleware)
       .forRoutes('*');
 
     consumer

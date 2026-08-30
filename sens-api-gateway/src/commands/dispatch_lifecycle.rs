@@ -306,11 +306,19 @@ impl super::CommandHandler {
             // I/O config and output commands
             "update_io_config" => self.cmd_update_io_config(&command.params).await,
             "set_output" => self.cmd_set_output(&command.params).await,
+            // Runtime Modbus device provisioning (Slice 3.5 / SENSOR-CRITICAL-007):
+            // push a tenant-added VFD to the live edge as a Modbus device.
+            "provision_modbus_device" => self.cmd_provision_modbus_device(&command.params).await,
+            "decommission_modbus_device" => {
+                self.cmd_decommission_modbus_device(&command.params).await
+            }
             // SCADA display commands (v1.6.0)
             #[cfg(feature = "scada-display")]
             "deploy_process" => self.cmd_deploy_process(&command.params).await,
             #[cfg(feature = "scada-display")]
             "deploy_scada_package" => self.cmd_deploy_scada_package(&command.params).await,
+            #[cfg(feature = "scada-display")]
+            "undeploy_scada_package" => self.cmd_undeploy_scada_package(&command.params).await,
             // Faz 5 two-phase release bundle (takes the full command —
             // the intermediate staged ack rides the bundle's commandId)
             #[cfg(feature = "scada-display")]

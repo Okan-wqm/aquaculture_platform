@@ -1,4 +1,5 @@
 import { OUTBOX_UUID_REGEX } from './constants';
+import { OUTBOX_ROUTING_SCOPE_FIELD, OUTBOX_SYSTEM_TENANT_ID } from './outbox-routing';
 
 /**
  * Raised at the outbox WORKER dispatch boundary when a leased row's tenant of
@@ -49,8 +50,24 @@ interface TenantBearingRow {
  */
 export function assertOutboxTenantIntegrity(row: TenantBearingRow): void {
   const columnTenant = row.tenantId ?? null;
-  const payloadTenant =
-    (row.payload as { tenantId?: string | null } | null)?.tenantId ?? null;
+  const payload = row.payload as {
+    tenantId?: string | null;
+    [OUTBOX_ROUTING_SCOPE_FIELD]?: unknown;
+  } | null;
+  const payloadTenant = payload?.tenantId ?? null;
+  const routingScope = payload?.[OUTBOX_ROUTING_SCOPE_FIELD];
+
+  if (
+    columnTenant === null &&
+    payloadTenant === OUTBOX_SYSTEM_TENANT_ID &&
+    routingScope === OUTBOX_SYSTEM_TENANT_ID
+  ) {
+    return;
+  }
+
+  if (routingScope !== undefined) {
+    throw new OutboxTenantIntegrityError(row.id, columnTenant, payloadTenant);
+  }
 
   const effective = columnTenant ?? payloadTenant;
 

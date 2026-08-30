@@ -297,3 +297,402 @@ class CreditExhaustionDetectionTests(unittest.TestCase):
         self.assertIn("credit balance", claude_runtime.CREDIT_EXHAUSTION_MARKERS)
         for forbidden in ("overloaded", "429", "timeout", "network"):
             self.assertNotIn(forbidden, blob)
+
+
+class WriteContainmentTests(unittest.TestCase):
+    """ORPHAN-CRITICAL-427 — containment is applied by the spawner.
+
+    Pre-fix ``wrap_bash_in_sandbox`` had no kernel caller and returned argv
+    unchanged when no backend existed, so a write-capable agent always ran
+    unconfined and READONLY_PATHS were protected only by prose in the
+    agent's own instruction file — text addressed to the process being
+    contained.
+    """
+
+    _ARGV = ["claude", "-p", "--model", "opus"]
+
+    def test_resource_limits_are_applied_by_the_spawner(self) -> None:
+        """ORPHAN-MEDIUM-459 — the perimeter half that had no caller.
+
+        `apply_resource_limits` shipped with the sandbox work, was exported,
+        was name-pinned by an invariant, and nothing in production called it.
+        The only instruction to run it lived in
+        `.claude/agents/aria-implementer.md` — prose addressed to the process
+        being limited, which is the exact mistake ORPHAN-CRITICAL-427 fixed
+        for containment. A fork bomb or runaway allocation in a
+        write-capable agent was bounded by nothing.
+        """
+        import claude_runtime as cr
+
+        limited = cr._apply_resource_limits(["bwrap", "--", "claude"], timeout_seconds=900)
+        self.assertNotEqual(limited, ["bwrap", "--", "claude"])
+        # Whichever mechanism the host offers, the ORIGINAL argv must survive
+        # intact as the tail — limits wrap, they never replace.
+        self.assertEqual(limited[-3:], ["bwrap", "--", "claude"])
+        self.assertIn(limited[0], {"systemd-run", "timeout"})
+
+    def test_resource_limits_honour_the_callers_timeout(self) -> None:
+        """A 120s default would kill every real agent run.
+
+        `apply_resource_limits` defaults to 120 seconds; an agent invocation
+        is minutes. The spawner must pass its own `timeout_seconds` through,
+        so the limit is the one the caller chose.
+        """
+        import claude_runtime as cr
+
+        limited = cr._apply_resource_limits(["claude"], timeout_seconds=900)
+        self.assertTrue(
+            any("900" in token for token in limited),
+            msg=f"the caller's timeout did not reach the limiter: {limited}",
+        )
+
+    def test_run_claude_exec_applies_limits_after_containment(self) -> None:
+        """Order is load-bearing: `timeout`/`systemd-run` must own the whole
+        tree including bwrap, so the limits go OUTSIDE the sandbox wrapper."""
+        import ast
+
+        source = (
+            _REPO_ROOT / "tools" / "aria-poc" / "claude_runtime.py"
+        ).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        fn = next(
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == "run_claude_exec"
+        )
+        called = [
+            node.func.id
+            for node in ast.walk(fn)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        ]
+        self.assertIn("_apply_write_containment", called)
+        self.assertIn("_apply_resource_limits", called)
+        self.assertLess(
+            called.index("_apply_write_containment"),
+            called.index("_apply_resource_limits"),
+            msg="limits must wrap the sandboxed argv, not be wrapped by it",
+        )
+
+    def test_read_only_shapes_need_no_containment(self) -> None:
+        for permission_mode, skip in ((None, False), ("plan", True), ("default", True)):
+            with self.subTest(permission_mode=permission_mode, skip=skip):
+                self.assertFalse(
+                    claude_runtime._is_write_capable(
+                        skip_permissions=skip, permission_mode=permission_mode,
+                    ),
+                )
+                self.assertEqual(
+                    claude_runtime._apply_write_containment(
+                        list(self._ARGV),
+                        skip_permissions=skip,
+                        permission_mode=permission_mode,
+                        workspace_root=None,
+                    ),
+                    self._ARGV,
+                )
+
+    def test_write_capable_shapes_are_identified(self) -> None:
+        for permission_mode, skip in (
+            (None, True), ("bypassPermissions", False), ("acceptEdits", False),
+        ):
+            with self.subTest(permission_mode=permission_mode, skip=skip):
+                self.assertTrue(
+                    claude_runtime._is_write_capable(
+                        skip_permissions=skip, permission_mode=permission_mode,
+                    ),
+                )
+
+    def test_write_capable_spawn_refused_without_sandbox_backend(self) -> None:
+        from aria_kernel import implementation_safety
+
+        with patch.object(implementation_safety, "_bwrap_available", return_value=False), \
+             patch.dict(os.environ, {claude_runtime.UNCONFINED_ACK_ENV_VAR: "0"}):
+            with self.assertRaises(claude_runtime.ClaudePolicyViolation) as ctx:
+                claude_runtime._apply_write_containment(
+                    list(self._ARGV),
+                    skip_permissions=True,
+                    permission_mode=None,
+                    workspace_root=_REPO_ROOT,
+                )
+        self.assertIn("claude_write_containment_required", str(ctx.exception))
+
+    def test_write_capable_spawn_is_wrapped_when_backend_present(self) -> None:
+        from aria_kernel import implementation_safety
+
+        with patch.object(implementation_safety, "_bwrap_available", return_value=True):
+            wrapped = claude_runtime._apply_write_containment(
+                list(self._ARGV),
+                skip_permissions=True,
+                permission_mode=None,
+                workspace_root=_REPO_ROOT,
+            )
+        self.assertEqual(wrapped[0], "bwrap")
+        self.assertEqual(wrapped[-len(self._ARGV):], self._ARGV)
+        # The agent must reach the Claude API, so the network is NOT unshared —
+        # the property bought here is filesystem containment.
+        self.assertNotIn("--unshare-net", wrapped)
+        # READONLY_PATHS that exist are ro-bind, so a write under them EROFSes.
+        ro_targets = {
+            wrapped[i + 1] for i, tok in enumerate(wrapped) if tok == "--ro-bind"
+        }
+        self.assertTrue(
+            any("aria-kernel" in t for t in ro_targets),
+            msg=f"aria-kernel not ro-bind; ro targets={sorted(ro_targets)}",
+        )
+
+    def test_operator_ack_permits_unconfined_write(self) -> None:
+        """The escape hatch exists but must be named, never inferred."""
+        from aria_kernel import implementation_safety
+
+        with patch.object(implementation_safety, "_bwrap_available", return_value=False), \
+             patch.dict(os.environ, {claude_runtime.UNCONFINED_ACK_ENV_VAR: "1"}):
+            self.assertEqual(
+                claude_runtime._apply_write_containment(
+                    list(self._ARGV),
+                    skip_permissions=True,
+                    permission_mode=None,
+                    workspace_root=_REPO_ROOT,
+                ),
+                self._ARGV,
+            )
+
+    def test_sandbox_helper_raises_rather_than_returning_bare_argv(self) -> None:
+        from aria_kernel.implementation_safety import (
+            SandboxUnavailable,
+            sandbox_backend,
+            wrap_bash_in_sandbox,
+        )
+        from aria_kernel import implementation_safety
+
+        # ORPHAN-CRITICAL-451 — one patch, because bwrap is now the only
+        # backend. firejail used to be the second, and it applied none of
+        # the READONLY_PATHS while still making sandbox_backend() non-None.
+        with patch.object(implementation_safety, "_bwrap_available", return_value=False):
+            self.assertIsNone(sandbox_backend())
+            with self.assertRaises(SandboxUnavailable):
+                wrap_bash_in_sandbox(
+                    ["echo", "hi"], workspace_root=_REPO_ROOT, allow_network=False,
+                )
+
+
+def _unusable_limiter():
+    """Context managers making BOTH limiter backends unusable on this host.
+
+    ``_systemd_run_available`` is ``lru_cache``d, so it is patched by name
+    (the patch replaces the cached callable rather than trying to defeat it).
+    """
+    from aria_kernel import implementation_safety
+
+    return (
+        patch.object(implementation_safety, "_systemd_run_available", return_value=False),
+        patch.object(implementation_safety.shutil, "which", return_value=None),
+    )
+
+
+def _exception_names_handled_in(source: str, function_name: str) -> set[str]:
+    """Every name appearing in an ``except`` clause inside ``function_name``.
+
+    Read from the executor's own source rather than from a hand-maintained
+    list, because the defect being pinned is precisely a divergence between
+    what the runtime raises and what the executors were written to name.
+    """
+    import ast
+
+    tree = ast.parse(source)
+    fn = next(
+        node for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == function_name
+    )
+    names: set[str] = set()
+    for node in ast.walk(fn):
+        if not isinstance(node, ast.ExceptHandler) or node.type is None:
+            continue
+        targets = node.type.elts if isinstance(node.type, ast.Tuple) else [node.type]
+        for target in targets:
+            if isinstance(target, ast.Name):
+                names.add(target.id)
+            elif isinstance(target, ast.Attribute):
+                names.add(target.attr)
+    return names
+
+
+class RefusedSpawnReachesAnExecutorHandler(unittest.TestCase):
+    """ORPHAN-HIGH-470 follow-through — the fail-closed tail had no handler.
+
+    `implementation_safety.apply_resource_limits` was given a raising tail so
+    an unusable limiter could not fall through to an unbounded spawn. But
+    `_apply_resource_limits` translated only the ImportError arm, so
+    `ResourceLimitsUnavailable` — a KERNEL type — travelled out through
+    `run_claude_exec` to executors that name four `claude_runtime` types and
+    nothing else. `grep -c ResourceLimitsUnavailable` over both executors
+    returned 0. The refusal therefore escaped as an unhandled exception,
+    past every claim-release branch, and the fail-closed fix read to an
+    operator as a crash.
+
+    Translating at the boundary (as `_apply_write_containment` already did for
+    `SandboxUnavailable`) is the tier-2 shape: the kernel type cannot cross
+    this module, so no executor — including one written later — can fail to
+    name it.
+    """
+
+    def test_unusable_limiter_raises_a_type_the_executors_name(self) -> None:
+        systemd_patch, which_patch = _unusable_limiter()
+        with systemd_patch, which_patch:
+            with self.assertRaises(claude_runtime.ClaudePolicyViolation) as ctx:
+                claude_runtime._apply_resource_limits(["claude"], timeout_seconds=900)
+        self.assertIn("claude_resource_limits_required", str(ctx.exception))
+        # The kernel's own message survives the translation — an operator must
+        # still learn WHICH limiter was missing.
+        self.assertIn("resource_limits_unavailable", str(ctx.exception))
+
+    def test_the_kernel_exception_type_does_not_escape_this_module(self) -> None:
+        from aria_kernel.implementation_safety import ResourceLimitsUnavailable
+
+        systemd_patch, which_patch = _unusable_limiter()
+        with systemd_patch, which_patch:
+            with self.assertRaises(Exception) as ctx:
+                claude_runtime._apply_resource_limits(["claude"], timeout_seconds=900)
+        self.assertNotIsInstance(
+            ctx.exception, ResourceLimitsUnavailable,
+            msg=(
+                "the kernel perimeter exception reached a caller of "
+                "run_claude_exec; the executors name only claude_runtime "
+                "types, so this is an unhandled crash mid-claim"
+            ),
+        )
+        # ...and the cause is preserved, so the audit trail keeps the origin.
+        self.assertIsInstance(ctx.exception.__cause__, ResourceLimitsUnavailable)
+
+    def test_both_executors_catch_a_refused_spawn(self) -> None:
+        """Behavioural, not name-based: the raised object must be an instance
+        of a class each executor's dispatch handler actually names."""
+        systemd_patch, which_patch = _unusable_limiter()
+        with systemd_patch, which_patch:
+            with self.assertRaises(Exception) as ctx:
+                claude_runtime._apply_resource_limits(["claude"], timeout_seconds=900)
+        raised = ctx.exception
+
+        poc = _REPO_ROOT / "tools" / "aria-poc"
+        for filename, function_name in (
+            ("ci_executor.py", "invoke_claude_cli"),
+            ("worker_executor.py", "main"),
+        ):
+            with self.subTest(executor=filename):
+                names = _exception_names_handled_in(
+                    (poc / filename).read_text(encoding="utf-8"), function_name,
+                )
+                # Only names the executor imports FROM claude_runtime count.
+                # A nested `except Exception` elsewhere in the function must
+                # not be able to satisfy this contract.
+                handled = tuple(
+                    resolved for resolved in (
+                        getattr(claude_runtime, name, None) for name in sorted(names)
+                    )
+                    if isinstance(resolved, type) and issubclass(resolved, BaseException)
+                )
+                self.assertTrue(
+                    handled,
+                    f"{filename}:{function_name} names no claude_runtime exception",
+                )
+                self.assertIsInstance(
+                    raised, handled,
+                    msg=(
+                        f"{filename}:{function_name} handles {sorted(names)} but a "
+                        f"refused spawn raises {type(raised).__name__}, so the "
+                        "refusal escapes unhandled and the claim leaks"
+                    ),
+                )
+
+    def test_an_unusable_limiter_never_returns_bare_argv(self) -> None:
+        """Fail CLOSED. A returned argv is indistinguishable from a limited
+        one, which is the exact defect the raising tail was added to close —
+        so no env var and no fallback may make this function return here."""
+        systemd_patch, which_patch = _unusable_limiter()
+        with systemd_patch, which_patch:
+            for env in ({}, {"ARIA_ALLOW_UNCONFINED_WRITE": "1"}):
+                with self.subTest(env=env), patch.dict(os.environ, env, clear=False):
+                    with self.assertRaises(claude_runtime.ClaudePolicyViolation):
+                        claude_runtime._apply_resource_limits(
+                            ["claude"], timeout_seconds=900,
+                        )
+
+
+class UsageRecordingSeamTests(unittest.TestCase):
+    """E17-d — the per-spawn usage recording seam in run_claude_exec.
+
+    The seam's contract is BEST-EFFORT: a completed agent run is strictly
+    more valuable than its usage row, so a refused/failed record degrades
+    to a structured stderr note and never fails the spawn.
+    """
+
+    def setUp(self) -> None:
+        import shutil
+        import tempfile
+        from aria_kernel.tool_registry import ensure_tools_dir
+
+        self.tmp = Path(tempfile.mkdtemp(prefix="aria-usage-seam-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.tools = self.tmp / "aria-tools"
+        ensure_tools_dir(self.tools)
+        self.recording = claude_runtime.UsageRecording(
+            request_id="req-seam-1",
+            role="evidence_judgment",
+            target_agent="aria-evidence-judge",
+            base_dir=self.tools,
+        )
+
+    def test_records_row_on_happy_path(self) -> None:
+        import json
+
+        claude_runtime._record_usage_best_effort(
+            recording=self.recording,
+            model="opus",
+            usage={"input_tokens": 5, "output_tokens": 7,
+                   "cache_read_input_tokens": 11},
+        )
+        ledger = self.tools / "knowledge-graph" / "context-usage.jsonl"
+        row = json.loads(ledger.read_text(encoding="utf-8").splitlines()[0])
+        self.assertEqual(row["request_id"], "req-seam-1")
+        self.assertEqual(row["role"], "evidence_judgment")
+        self.assertEqual(row["model"], "opus")
+        self.assertEqual(row["cache_read_input_tokens"], 11)
+        self.assertIsNone(row["cache_creation_input_tokens"])
+
+    def test_record_failure_degrades_to_stderr_note_never_raises(self) -> None:
+        import io
+        import json
+        from contextlib import redirect_stderr
+
+        # Deliberate-break: base_dir is a FILE, so ensure_tools_dir fails at
+        # the syscall level (OSError family) — the spawn must survive it.
+        broken = self.tmp / "not-a-dir"
+        broken.write_text("x", encoding="utf-8")
+        recording = claude_runtime.UsageRecording(
+            request_id="req-seam-2",
+            role="unknown",
+            target_agent="aria-worker",
+            base_dir=broken,
+        )
+        captured = io.StringIO()
+        with redirect_stderr(captured):
+            claude_runtime._record_usage_best_effort(
+                recording=recording, model="opus", usage={"input_tokens": 1},
+            )
+        note = json.loads(captured.getvalue().splitlines()[0])
+        self.assertEqual(note["event"], "context_usage_record_skipped")
+        self.assertEqual(note["reason"], "record_failed")
+        self.assertEqual(note["request_id"], "req-seam-2")
+
+    def test_none_usage_records_nothing_and_emits_no_note(self) -> None:
+        import io
+        from contextlib import redirect_stderr
+
+        captured = io.StringIO()
+        with redirect_stderr(captured):
+            claude_runtime._record_usage_best_effort(
+                recording=self.recording, model="opus", usage=None,
+            )
+        self.assertEqual(captured.getvalue(), "")
+        self.assertFalse(
+            (self.tools / "knowledge-graph" / "context-usage.jsonl").exists()
+        )

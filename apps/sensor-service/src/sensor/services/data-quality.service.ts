@@ -6,6 +6,11 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 
+import {
+  QualityCategory,
+  QUALITY_GOOD_MIN,
+  qualityCategoryOf,
+} from '../../database/entities/sensor-metric.entity';
 import { SensorReadings } from '../../database/entities/sensor-reading.entity';
 
 /**
@@ -48,6 +53,30 @@ export interface QualityIssue {
 }
 
 /**
+ * The score ceiling a set of device-reported OPC-UA quality codes imposes.
+ *
+ * GOOD leaves the plausibility score untouched. UNCERTAIN caps it below the
+ * "looks fine" band so a questionable sample cannot be displayed as healthy.
+ * BAD floors it at zero — the device is telling us the value is unusable, and
+ * no amount of range-plausibility overrides that.
+ */
+const UNCERTAIN_SCORE_CEILING = 60;
+
+function deviceTrustCeiling(codes: ReadonlyArray<number | null>): number {
+  let ceiling = 100;
+  for (const code of codes) {
+    // A null code means the row predates per-channel quality or the writer
+    // omitted it; the column defaults to GOOD (192), so absence is GOOD.
+    const category = qualityCategoryOf(code ?? QUALITY_GOOD_MIN);
+    if (category === QualityCategory.BAD) return 0;
+    if (category === QualityCategory.UNCERTAIN) {
+      ceiling = Math.min(ceiling, UNCERTAIN_SCORE_CEILING);
+    }
+  }
+  return ceiling;
+}
+
+/**
  * Default quality configurations for aquaculture metrics
  */
 const DEFAULT_QUALITY_CONFIGS: MetricQualityConfig[] = [
@@ -81,6 +110,36 @@ export class DataQualityService {
   calculateQuality(readings: SensorReadings): number {
     const assessment = this.assess(readings);
     return assessment.score;
+  }
+
+  /**
+   * Quality score for an as-of projection, which knows something a plain
+   * reading does not: what the DEVICE said about each contributing channel.
+   *
+   * `assess()` scores plausibility — is this value inside the range the
+   * parameter can physically take. That is not the same question as "can this
+   * value be trusted". A probe that has lost comms, is running on a
+   * last-usable value, or reports a config error can still emit a perfectly
+   * in-range number, and the plausibility score alone would call that reading
+   * 100.
+   *
+   * The as-of queries already select `quality_code` per channel; the
+   * projection used to fetch it and drop it on the floor. Here it becomes a
+   * CEILING on the score: a reading can never be scored better than the trust
+   * its worst contributing channel reported. Conservative on purpose — this
+   * number drives operator-facing displays in a domain where a stale reading
+   * presented as fresh costs fish.
+   *
+   * @param readings Projected parameter values.
+   * @param deviceQualityCodes Per-channel OPC-UA `quality_code` values; a
+   *   `null` (channel wrote no code) is treated as GOOD, matching the column
+   *   default of 192.
+   */
+  calculateProjectedQuality(
+    readings: SensorReadings,
+    deviceQualityCodes: ReadonlyArray<number | null>,
+  ): number {
+    return Math.min(this.calculateQuality(readings), deviceTrustCeiling(deviceQualityCodes));
   }
 
   /**

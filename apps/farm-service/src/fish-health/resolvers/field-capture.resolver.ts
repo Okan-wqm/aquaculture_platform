@@ -23,11 +23,16 @@ import {
   RecordTreatmentApplicationInput,
   RecordWelfareAssessmentInput,
 } from '../dto/field-capture.inputs';
+import {
+  IncidentMediaUploadResponse,
+  RequestIncidentMediaUploadInput,
+} from '../dto/incident-media.dto';
 import { ListEscapeIncidentsQuery } from '../queries/list-escape-incidents.query';
 import { ListLiceCountsQuery } from '../queries/list-lice-counts.query';
 import { ListTreatmentApplicationsQuery } from '../queries/list-treatment-applications.query';
 import { ListWelfareAssessmentsQuery } from '../queries/list-welfare-assessments.query';
 import { EscapeIncidentService } from '../services/escape-incident.service';
+import { IncidentMediaService } from '../services/incident-media.service';
 import { LiceCountService } from '../services/lice-count.service';
 import { TreatmentApplicationService } from '../services/treatment-application.service';
 import { WelfareAssessmentService } from '../services/welfare-assessment.service';
@@ -42,6 +47,7 @@ export class FieldCaptureResolver {
     private readonly treatmentApplicationService: TreatmentApplicationService,
     private readonly welfareAssessmentService: WelfareAssessmentService,
     private readonly escapeIncidentService: EscapeIncidentService,
+    private readonly incidentMediaService: IncidentMediaService,
     private readonly queryBus: QueryBus,
   ) {}
 
@@ -159,6 +165,19 @@ export class FieldCaptureResolver {
   ): Promise<EscapeIncident> {
     this.logger.warn(`Escape incident being recorded for site ${input.siteId}`);
     return this.escapeIncidentService.record(tenantId, input, user.sub);
+  }
+
+  @Roles(Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN)
+  @Mutation(() => IncidentMediaUploadResponse, {
+    name: 'requestIncidentMediaUpload',
+    description: 'Mint a presigned URL to upload an incident photo (escape/welfare/lice)',
+  })
+  async requestIncidentMediaUpload(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { sub: string },
+    @Args('input') input: RequestIncidentMediaUploadInput,
+  ): Promise<IncidentMediaUploadResponse> {
+    return this.incidentMediaService.requestUpload(tenantId, input);
   }
 
   @Roles(Role.MODULE_MANAGER, Role.TENANT_ADMIN)

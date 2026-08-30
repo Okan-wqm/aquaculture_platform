@@ -244,6 +244,46 @@
       "pedagogy_tier": 2,
       "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
     },
+    "db-audit-farm-operations": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "db-audit-farm-platform": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "db-audit-farm-production": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "db-audit-identity-billing": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "db-audit-ops-infra": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "db-audit-people-messaging": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "db-audit-platform-admin": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "db-audit-sensor": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
     "deployment-runbook-writer": {
       "consequence_leak_protections": [],
       "pedagogy_tier": 3,

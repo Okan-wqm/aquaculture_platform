@@ -7,6 +7,7 @@
  * allowing legitimate public endpoints on arbitrary (industrial) ports.
  */
 import { promises as dns } from 'dns';
+import * as http from 'http';
 
 import { SsrfValidatorService } from '../ssrf-validator.service';
 
@@ -74,5 +75,125 @@ describe('SsrfValidatorService.validateHost', () => {
 
   it('rejects an empty host', async () => {
     expect((await service.validateHost('', 80)).safe).toBe(false);
+  });
+});
+
+/**
+ * SENSOR-CRITICAL-002 residual — safeFetch pins the connection to the validated
+ * IP so the connected IP cannot diverge from the validated IP (DNS-rebinding
+ * TOCTOU). It is the single outbound-HTTP path for operator-controlled URLs.
+ */
+describe('SsrfValidatorService.safeFetch', () => {
+  let service: SsrfValidatorService;
+
+  beforeEach(() => {
+    service = new SsrfValidatorService();
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  function listen(handler: http.RequestListener): Promise<{ server: http.Server; port: number }> {
+    const server = http.createServer(handler);
+    return new Promise((resolveListen) => {
+      server.listen(0, '127.0.0.1', () => {
+        const address = server.address();
+        if (address === null || typeof address === 'string') {
+          throw new Error('safeFetch test server has no port');
+        }
+        resolveListen({ server, port: address.port });
+      });
+    });
+  }
+
+  it('rejects a cloud-metadata target before connecting', async () => {
+    await expect(service.safeFetch('http://169.254.169.254/latest/meta-data/')).rejects.toThrow(
+      /Blocked unsafe request target/,
+    );
+  });
+
+  it('rejects a non-http(s) protocol', async () => {
+    await expect(service.safeFetch('ftp://vendor.example.com/x')).rejects.toThrow(
+      /protocol .* not allowed/,
+    );
+  });
+
+  it("enforces the 80/443 port allowlist under portPolicy 'standard'", async () => {
+    await expect(
+      service.safeFetch('https://vendor.example.com:8443/x', undefined, {
+        portPolicy: 'standard',
+      }),
+    ).rejects.toThrow(/port 8443 not allowed/);
+  });
+
+  it('pins the socket to the validated IP (DNS-rebinding proof) and returns the body', async () => {
+    const { server, port } = await listen((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ pinned: true }));
+    });
+    try {
+      // The host "validates" to a safe verdict whose pinned IP is our loopback
+      // test server. safeFetch MUST connect to resolvedIp (not re-resolve the
+      // hostname) — that is the closed rebinding window.
+      jest
+        .spyOn(service, 'validateHost')
+        .mockResolvedValue({ safe: true, resolvedIp: '127.0.0.1' });
+      const response = await service.safeFetch(
+        `http://vendor.example.com:${port}/data`,
+        undefined,
+        {
+          timeoutMs: 5000,
+        },
+      );
+      expect(response.ok).toBe(true);
+      expect(await response.json()).toEqual({ pinned: true });
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+  });
+
+  it('does not follow redirects (a 3xx surfaces as a non-ok response)', async () => {
+    const { server, port } = await listen((_req, res) => {
+      res.writeHead(302, { Location: 'http://169.254.169.254/' });
+      res.end();
+    });
+    try {
+      jest
+        .spyOn(service, 'validateHost')
+        .mockResolvedValue({ safe: true, resolvedIp: '127.0.0.1' });
+      const response = await service.safeFetch(`http://vendor.example.com:${port}/redirect`);
+      expect(response.status).toBe(302);
+      expect(response.ok).toBe(false);
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+  });
+
+  it('POSTs a body to the pinned target', async () => {
+    const received: string[] = [];
+    const { server, port } = await listen((req, res) => {
+      let body = '';
+      req.on('data', (c) => (body += c));
+      req.on('end', () => {
+        received.push(body);
+        res.writeHead(200);
+        res.end('ok');
+      });
+    });
+    try {
+      jest
+        .spyOn(service, 'validateHost')
+        .mockResolvedValue({ safe: true, resolvedIp: '127.0.0.1' });
+      const response = await service.safeFetch(
+        `http://vendor.example.com:${port}/token`,
+        { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: 'grant=x' },
+        { timeoutMs: 5000 },
+      );
+      expect(response.ok).toBe(true);
+      expect(received).toEqual(['grant=x']);
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+    }
   });
 });

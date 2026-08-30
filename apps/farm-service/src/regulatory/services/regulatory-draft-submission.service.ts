@@ -28,9 +28,13 @@ import { MattilsynetApiService, MattilsynetBasePayload } from '../mattilsynet-ap
 import { MattilsynetSchemaValidatorService } from './mattilsynet-schema-validator.service';
 import { MattilsynetSchemaValidationError } from './mattilsynet-schema-validator.service';
 import { RegulatorySubmissionService } from './regulatory-submission.service';
+import { RegulatoryReportStoreService } from './regulatory-report-store.service';
 import { RegulatoryReportDraftService } from './regulatory-report-draft.service';
 import { RegulatorySettingsService } from '../regulatory-settings.service';
-import { RegulatoryReportType } from '../entities/regulatory-report.entity';
+import {
+  RegulatoryReportSubmissionStatus,
+  RegulatoryReportType,
+} from '../entities/regulatory-report.entity';
 import {
   RegulatoryReportDraft,
   ReportDraftStatus,
@@ -58,6 +62,7 @@ export class RegulatoryDraftSubmissionService {
   constructor(
     private readonly draftService: RegulatoryReportDraftService,
     private readonly submissionService: RegulatorySubmissionService,
+    private readonly reportStore: RegulatoryReportStoreService,
     private readonly mattilsynetApi: MattilsynetApiService,
     private readonly schemaValidator: MattilsynetSchemaValidatorService,
     private readonly settingsService: RegulatorySettingsService,
@@ -87,7 +92,45 @@ export class RegulatoryDraftSubmissionService {
     }
     const reportType = toRestReportType(draft.reportType);
 
-    const { wire, lokalitetsnummer } = await this.buildWirePayload(tenantId, draft);
+    // Reconcile against the submission SSoT (the regulatory_reports row keyed by
+    // klientReferanse = draft.id). A draft and its report are two state machines;
+    // out-of-band transitions (a retry-sweep success after a transient failure)
+    // leave the draft stale. Reconcile here so a re-approval NEVER re-files an
+    // already-accepted report (PRODUCT-JOB-CRITICAL-002).
+    const existing = await this.reportStore.findByKlientReferanse(tenantId, reportType, draft.id);
+    if (existing) {
+      if (
+        existing.status === RegulatoryReportSubmissionStatus.SUBMITTED ||
+        existing.status === RegulatoryReportSubmissionStatus.QUEUED
+      ) {
+        // Already filed — link the draft to its receipt and return it, no re-POST.
+        if (draft.status !== ReportDraftStatus.SUBMITTED) {
+          await this.draftService.markSubmitted(tenantId, draftId, existing.id, userId);
+        }
+        return {
+          success: true,
+          reportId: existing.id,
+          referanse: existing.referanse ?? undefined,
+          klientReferanse: draft.id,
+        };
+      }
+      // A non-accepted report exists (PENDING in-flight, TRANSIENT owned by the
+      // retry sweep, or a PERMANENT rejection). An AUTOMATED submission must not
+      // re-fire it every rollover — that duplicates a transient replay or loops a
+      // permanent rejection. An explicit operator re-approval MAY retry, so it
+      // falls through to submit.
+      if (userId === AUTO_SUBMIT_ACTOR_ID) {
+        return {
+          success: false,
+          klientReferanse: draft.id,
+          feilmelding:
+            `Report already has a ${existing.status} submission (attempt ${existing.attemptCount}) — ` +
+            'auto-submit does not re-file; the retry sweep (transient) or an operator (permanent) owns it.',
+        };
+      }
+    }
+
+    const { wire, lokalitetsnummer } = await this.buildWirePayload(tenantId, reportType, draft);
 
     let validated;
     try {
@@ -130,6 +173,7 @@ export class RegulatoryDraftSubmissionService {
    */
   private async buildWirePayload(
     tenantId: string,
+    reportType: MattilsynetRestReportType,
     draft: RegulatoryReportDraft,
   ): Promise<{ wire: MattilsynetBasePayload; lokalitetsnummer: number }> {
     const [settings, orgNumber, mappings] = await Promise.all([
@@ -165,16 +209,78 @@ export class RegulatoryDraftSubmissionService {
       setByPointer(body, pointer, value);
     }
 
-    // Header LAST so it always wins over any colliding body key.
-    const wire: MattilsynetBasePayload = {
-      ...body,
+    const header = {
       klientReferanse: draft.id,
       organisasjonsnummer: orgNumber,
       lokalitetsnummer,
       kontaktperson: { navn, epost, telefonnummer },
     };
+
+    // Header LAST so it always wins over any colliding body key. The slakt types
+    // need the body's per-species arrays wrapped into the official locality
+    // wrapper (a draft is one site = one locality) — see reshapeForWire.
+    const wire = reshapeForWire(reportType, body, header);
     return { wire, lokalitetsnummer };
   }
+}
+
+/** The submission header fields common to every REST wire payload. */
+export interface WireHeader {
+  klientReferanse: string;
+  organisasjonsnummer: string;
+  lokalitetsnummer: number;
+  kontaktperson: { navn: string; epost: string; telefonnummer: string };
+}
+
+/**
+ * Shape the assembled draft body into the exact official wire payload. Most REST
+ * types submit the assembled body verbatim under the header. The two slaughter
+ * types are the exception: the assembler emits a flat, review-friendly body
+ * (per-species `arter` / `ukeplanPerArt`, plus the assembler-only `totalKgPerArt`
+ * context), but the official schema requires the species arrays nested inside a
+ * single-locality wrapper (`utførteLokaliteter` / `planlagteLokaliteter`, both
+ * `additionalProperties:false`). A draft is one site, so the wrapper carries the
+ * same organisasjonsnummer + lokalitetsnummer as the header. Without this the
+ * slaughter draft can never pass official-schema validation (FARM-HIGH-002).
+ */
+export function reshapeForWire(
+  reportType: MattilsynetRestReportType,
+  body: Record<string, unknown>,
+  header: WireHeader,
+): MattilsynetBasePayload {
+  if (reportType === RegulatoryReportType.SLAUGHTER_EXECUTED) {
+    // Drop the assembler-only arter/totalKgPerArt from the top level; nest arter.
+    const { arter, totalKgPerArt, ...rest } = body;
+    void totalKgPerArt;
+    const withWrapper = {
+      ...rest,
+      utførteLokaliteter: [
+        {
+          organisasjonsnummer: header.organisasjonsnummer,
+          lokalitetsnummer: header.lokalitetsnummer,
+          arter: Array.isArray(arter) ? arter : [],
+        },
+      ],
+    };
+    // Header via spread so its concrete types satisfy MattilsynetBasePayload while
+    // the wrapper key rides in through withWrapper (no excess-property check).
+    return { ...withWrapper, ...header };
+  }
+  if (reportType === RegulatoryReportType.SLAUGHTER_PLANNED) {
+    const { ukeplanPerArt, ...rest } = body;
+    const withWrapper = {
+      ...rest,
+      planlagteLokaliteter: [
+        {
+          organisasjonsnummer: header.organisasjonsnummer,
+          lokalitetsnummer: header.lokalitetsnummer,
+          ukeplanPerArt: Array.isArray(ukeplanPerArt) ? ukeplanPerArt : [],
+        },
+      ],
+    };
+    return { ...withWrapper, ...header };
+  }
+  return { ...body, ...header };
 }
 
 /** Resolve the draft's reportType string to a REST report type or reject it. */

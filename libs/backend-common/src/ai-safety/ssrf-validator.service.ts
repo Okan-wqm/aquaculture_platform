@@ -16,9 +16,12 @@
  *
  * @see MSG-CRITICAL-029 (SSRF finding)
  */
-import { Injectable, Logger } from '@nestjs/common';
 import { promises as dns } from 'dns';
-import { isIPv4, isIPv6 } from 'net';
+import * as http from 'http';
+import * as https from 'https';
+import { isIPv4, isIPv6, type LookupFunction } from 'net';
+
+import { Injectable, Logger } from '@nestjs/common';
 
 // ── Result Types ──
 
@@ -30,6 +33,21 @@ export interface SsrfValidationResult {
   reason?: string;
   /** The resolved IP address (if DNS resolution was performed). */
   resolvedIp?: string;
+}
+
+/** Options for {@link SsrfValidatorService.safeFetch}. */
+export interface SafeFetchOptions {
+  /** Abort the request after this many ms of socket inactivity. */
+  timeoutMs?: number;
+  /**
+   * Port policy for the target:
+   * - `'any'` (default): only the http/https protocol allowlist is enforced;
+   *   ANY port is allowed (industrial/vendor REST endpoints on non-standard
+   *   ports — matches {@link SsrfValidatorService.validateHost} semantics).
+   * - `'standard'`: additionally restrict to ports 80/443 (webhook default —
+   *   matches {@link SsrfValidatorService.validateUrl} semantics).
+   */
+  portPolicy?: 'any' | 'standard';
 }
 
 // ── Constants ──
@@ -125,6 +143,28 @@ function ipToNumber(ip: string): number {
 /** Generate a CIDR bitmask from prefix length. */
 function cidrMask(prefix: number): number {
   return prefix === 0 ? 0 : (~0 << (32 - prefix)) >>> 0;
+}
+
+/** Normalize any `HeadersInit` shape into a plain header record for a Node request. */
+function normalizeFetchHeaders(headers: HeadersInit | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!headers) {
+    return out;
+  }
+  if (headers instanceof Headers) {
+    headers.forEach((value, key) => {
+      out[key] = value;
+    });
+  } else if (Array.isArray(headers)) {
+    for (const [key, value] of headers) {
+      out[key] = value;
+    }
+  } else {
+    for (const [key, value] of Object.entries(headers)) {
+      out[key] = value;
+    }
+  }
+  return out;
 }
 
 @Injectable()
@@ -316,16 +356,138 @@ export class SsrfValidatorService {
   }
 
   /**
-   * Get fetch options with SSRF-safe defaults.
-   * Use these options when making HTTP requests to validated URLs.
+   * SSRF-safe HTTP(S) fetch that PINS the connection to the validated IP.
    *
-   * @returns Partial RequestInit with safe defaults
+   * This is the single outbound-HTTP code path for operator/tenant-controlled
+   * URLs. It closes the DNS-rebinding TOCTOU window that a plain
+   * `fetch(hostname)` leaves open: {@link validateHost} resolves + validates the
+   * hostname's A records, and this method connects the socket to that exact
+   * `resolvedIp` via the Node request `lookup` hook — while the request URL keeps
+   * the original hostname, so TLS SNI, `checkServerIdentity`, and the `Host`
+   * header all stay bound to the hostname. The validated IP and the connected IP
+   * are therefore identical by construction.
+   *
+   * SECURITY properties:
+   * - http/https protocol allowlist (always); optional 80/443 port restriction
+   *   via `options.portPolicy: 'standard'`.
+   * - private/loopback/link-local/CGNAT/metadata IP denylist (via validateHost).
+   * - Redirects are NOT followed — Node's `http(s).request` never follows a 3xx,
+   *   so a redirect toward an internal endpoint surfaces as a non-2xx Response
+   *   (callers' `response.ok` check rejects it), matching `redirect: 'error'`.
+   *
+   * @throws Error prefixed `Blocked unsafe request target:` when validation fails.
    */
-  getSafeFetchOptions(): RequestInit {
-    return {
-      // SECURITY: Never follow redirects — a safe URL could redirect to an internal one.
-      redirect: 'error',
+  async safeFetch(
+    input: string | URL,
+    init?: RequestInit,
+    options?: SafeFetchOptions,
+  ): Promise<Response> {
+    let url: URL;
+    try {
+      url = typeof input === 'string' ? new URL(input) : input;
+    } catch {
+      throw new Error('Blocked unsafe request target: invalid URL');
+    }
+
+    if (!ALLOWED_PROTOCOLS.has(url.protocol)) {
+      throw new Error(
+        `Blocked unsafe request target: protocol "${url.protocol}" not allowed (http/https only)`,
+      );
+    }
+
+    const port = url.port ? parseInt(url.port, 10) : DEFAULT_PORTS[url.protocol] ?? 0;
+    if ((options?.portPolicy ?? 'any') === 'standard' && !ALLOWED_PORTS.has(port)) {
+      throw new Error(`Blocked unsafe request target: port ${port} not allowed (80/443 only)`);
+    }
+
+    const verdict = await this.validateHost(url.hostname, port);
+    if (!verdict.safe || !verdict.resolvedIp) {
+      throw new Error(`Blocked unsafe request target: ${verdict.reason ?? 'host validation failed'}`);
+    }
+
+    const pinnedIp = verdict.resolvedIp;
+    const family = isIPv6(pinnedIp) ? 6 : 4;
+    // Return the pre-validated IP regardless of the asked hostname — this is the pin.
+    const lookup: LookupFunction = (_hostname, lookupOptions, callback) => {
+      if (lookupOptions && typeof lookupOptions === 'object' && lookupOptions.all) {
+        callback(null, [{ address: pinnedIp, family }]);
+      } else {
+        callback(null, pinnedIp, family);
+      }
     };
+
+    const method = init?.method ?? 'GET';
+    const headers = normalizeFetchHeaders(init?.headers);
+    const body = init?.body;
+    const signal = init?.signal;
+
+    return await new Promise<Response>((resolve, reject) => {
+      const requestOptions: http.RequestOptions = { method, headers, lookup };
+      if (options?.timeoutMs !== undefined) {
+        requestOptions.timeout = options.timeoutMs;
+      }
+
+      const onResponse = (res: http.IncomingMessage): void => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('end', () => {
+          const status = res.statusCode ?? 502;
+          const outHeaders = new Headers();
+          for (const [key, value] of Object.entries(res.headers)) {
+            if (Array.isArray(value)) {
+              for (const item of value) {
+                outHeaders.append(key, item);
+              }
+            } else if (value !== undefined) {
+              outHeaders.set(key, value);
+            }
+          }
+          const bodyBuffer = Buffer.concat(chunks);
+          const isNullBodyStatus = status === 204 || status === 304 || status < 200;
+          resolve(
+            new Response(isNullBodyStatus || bodyBuffer.length === 0 ? null : bodyBuffer, {
+              status,
+              statusText: res.statusMessage ?? '',
+              headers: outHeaders,
+            }),
+          );
+        });
+        res.on('error', reject);
+      };
+
+      const req =
+        url.protocol === 'https:'
+          ? https.request(url, requestOptions, onResponse)
+          : http.request(url, requestOptions, onResponse);
+
+      req.on('error', reject);
+      req.on('timeout', () => {
+        req.destroy(new Error(`safeFetch: request to ${url.hostname} timed out`));
+      });
+
+      if (signal) {
+        if (signal.aborted) {
+          req.destroy(new Error('safeFetch: request aborted'));
+        } else {
+          signal.addEventListener(
+            'abort',
+            () => req.destroy(new Error('safeFetch: request aborted')),
+            { once: true },
+          );
+        }
+      }
+
+      if (body !== undefined && body !== null) {
+        if (typeof body === 'string' || body instanceof Uint8Array) {
+          req.write(body);
+        } else {
+          req.destroy();
+          reject(new Error('safeFetch: unsupported body type (string or Uint8Array only)'));
+          return;
+        }
+      }
+      req.end();
+    });
   }
 
   /**

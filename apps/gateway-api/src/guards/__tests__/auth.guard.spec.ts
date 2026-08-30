@@ -6,7 +6,6 @@
 
 import * as crypto from 'crypto';
 
-
 import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
@@ -21,8 +20,33 @@ import {
   BASIC_AUTH_KEY,
   JwtPayload,
 } from '../auth.guard';
+import { TOKEN_BLACKLIST_STORE, TokenBlacklistStore } from '../redis-token-blacklist.store';
 import { ApiKeyAuthStrategy } from '../strategies/api-key-auth.strategy';
 import { BasicAuthStrategy } from '../strategies/basic-auth.strategy';
+
+type ModernFakeTimersConfig = Extract<
+  NonNullable<Parameters<typeof jest.useFakeTimers>[0]>,
+  { doNotFake?: unknown }
+>;
+
+// Every fakeable API except `Date`. A token-expiry test needs the instant
+// pinned, not the event loop stopped — the guard awaits real asynchronous work.
+const TIMER_APIS_LEFT_REAL: NonNullable<ModernFakeTimersConfig['doNotFake']> = [
+  'hrtime',
+  'nextTick',
+  'performance',
+  'queueMicrotask',
+  'requestAnimationFrame',
+  'cancelAnimationFrame',
+  'requestIdleCallback',
+  'cancelIdleCallback',
+  'setImmediate',
+  'clearImmediate',
+  'setInterval',
+  'clearInterval',
+  'setTimeout',
+  'clearTimeout',
+];
 
 /**
  * Interface for authenticated request
@@ -34,6 +58,7 @@ interface AuthenticatedRequest {
   path: string;
   method: string;
   user?: JwtPayload;
+  jwtAuthenticationFailure?: 'TOKEN_REVOKED' | 'INVALID_TOKEN';
   authMethod?: string;
 }
 
@@ -63,6 +88,7 @@ interface ExceptionWithResponse extends Error {
 describe('AuthGuard', () => {
   let guard: AuthGuard;
   let reflector: Reflector;
+  let tokenBlacklist: jest.Mocked<TokenBlacklistStore>;
 
   const JWT_ISSUER = 'test-issuer';
   const JWT_AUDIENCE = 'test-audience';
@@ -86,7 +112,10 @@ describe('AuthGuard', () => {
   /**
    * Create a valid RS256 JWT token for testing
    */
-  const createJwtToken = (payload: Partial<JwtPayload>, privateKey = TEST_KEYPAIR.privateKey): string => {
+  const createJwtToken = (
+    payload: Partial<JwtPayload>,
+    privateKey = TEST_KEYPAIR.privateKey,
+  ): string => {
     const header = { alg: 'RS256', typ: 'JWT' };
     const now = Math.floor(Date.now() / 1000);
 
@@ -95,6 +124,7 @@ describe('AuthGuard', () => {
       tenantId: 'tenant-123',
       roles: ['user'],
       type: 'access',
+      jti: 'test-jti',
       iat: now,
       exp: now + 3600, // 1 hour
       iss: JWT_ISSUER,
@@ -170,6 +200,11 @@ describe('AuthGuard', () => {
   };
 
   beforeEach(async () => {
+    tokenBlacklist = {
+      isBlacklisted: jest.fn().mockResolvedValue(false),
+      isValidToken: jest.fn().mockResolvedValue(true),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthGuard,
@@ -179,6 +214,7 @@ describe('AuthGuard', () => {
         { provide: JwtService, useValue: new JwtService({}) },
         ApiKeyAuthStrategy,
         BasicAuthStrategy,
+        { provide: TOKEN_BLACKLIST_STORE, useValue: tokenBlacklist },
         {
           provide: Reflector,
           useValue: {
@@ -237,6 +273,13 @@ describe('AuthGuard', () => {
 
     guard = module.get<AuthGuard>(AuthGuard);
     reflector = module.get<Reflector>(Reflector);
+  });
+
+  afterEach(() => {
+    // Restored here rather than at the end of the test that pins the clock: a
+    // failing expectation returns early, and a leaked fake clock would then
+    // decide the outcome of every expiry test after it.
+    jest.useRealTimers();
   });
 
   describe('JWT Authentication', () => {
@@ -357,7 +400,20 @@ describe('AuthGuard', () => {
       });
 
       it('should accept token expiring in 1 second', async () => {
-        const now = Math.floor(Date.now() / 1000);
+        // The property is "a token one second short of expiry is still
+        // accepted" — not "the runner got from here to canActivate in under a
+        // second". Against the real clock those are the same assertion only on
+        // an idle machine: `now` is floored to whole seconds, so the token's
+        // real remaining life is anywhere from 1000ms down to ~0ms, and this
+        // suite takes ~40s under coverage instrumentation. Any scheduling
+        // delay expires the token for real and the guard is right to reject
+        // it. Pinning the clock makes the boundary the subject of the test
+        // instead of the runner's load. Only `Date` is faked — the guard
+        // awaits real work, so the timer APIs must keep running.
+        const frozen = Date.now();
+        jest.useFakeTimers({ doNotFake: TIMER_APIS_LEFT_REAL, now: frozen });
+
+        const now = Math.floor(frozen / 1000);
         const token = createJwtToken({
           iat: now,
           exp: now + 1,
@@ -413,7 +469,10 @@ describe('AuthGuard', () => {
         const headerB64 = base64UrlEncode(JSON.stringify(header));
         const payloadB64 = base64UrlEncode(JSON.stringify(payload));
         const data = `${headerB64}.${payloadB64}`;
-        const signature = crypto.createSign('RSA-SHA256').update(data).sign(TEST_KEYPAIR.privateKey);
+        const signature = crypto
+          .createSign('RSA-SHA256')
+          .update(data)
+          .sign(TEST_KEYPAIR.privateKey);
         const signatureB64 = base64UrlEncode(signature);
         const token = `${headerB64}.${payloadB64}.${signatureB64}`;
 
@@ -483,10 +542,7 @@ describe('AuthGuard', () => {
     describe('Token Blacklisting', () => {
       it('should reject blacklisted token', async () => {
         const jti = 'token-to-blacklist';
-        const now = Math.floor(Date.now() / 1000);
-
-        // Blacklist the token
-        guard.blacklistToken(jti, now + 3600);
+        tokenBlacklist.isValidToken.mockResolvedValue(false);
 
         const token = createJwtToken({ jti });
         const context = createMockExecutionContext({
@@ -495,6 +551,11 @@ describe('AuthGuard', () => {
 
         await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
         await expectExceptionCode(() => guard.canActivate(context), 'TOKEN_REVOKED');
+        expect(tokenBlacklist.isValidToken).toHaveBeenCalledWith(
+          jti,
+          'user-123',
+          expect.any(Number),
+        );
       });
 
       it('should accept non-blacklisted token with jti', async () => {

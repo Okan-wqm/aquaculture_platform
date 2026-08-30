@@ -9,19 +9,21 @@
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint src",
-    "test": "vitest"
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@aquaculture/shared-ui": "file:../../shared-ui",
     "lucide-react": "0.469.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",
-    "react-router-dom": "6.30.3"
+    "react-router": "7.18.2",
+    "react-router-dom": "7.18.2"
   },
   "devDependencies": {
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",
-    "@module-federation/vite": "^1.16.7",
+    "@module-federation/vite": "^1.20.8",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.2.0",
@@ -29,7 +31,7 @@
     "tailwindcss": "4.3.1",
     "typescript": "5.9.3",
     "vite": "^7.3.5",
-    "vitest": "^3.2.4",
+    "vitest": "^3.2.7",
     "@tailwindcss/postcss": "4.3.1"
   }
 }

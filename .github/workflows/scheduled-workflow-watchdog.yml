@@ -1,0 +1,220 @@
+name: Scheduled Workflow Watchdog
+
+on:
+  schedule:
+    - cron: '15 * * * *'
+  workflow_dispatch: {}
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+concurrency:
+  group: scheduled-workflow-watchdog
+  cancel-in-progress: false
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout watchdog manifest
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Verify scheduled workflow freshness and persist incident
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const manifest = require(`${process.env.GITHUB_WORKSPACE}/.github/manifests/scheduled-workflows.json`);
+            const { owner, repo } = context.repo;
+            const now = Date.now();
+            const incidents = [];
+
+            for (const watched of manifest.workflows) {
+              const response = await github.rest.actions.listWorkflowRuns({
+                owner,
+                repo,
+                workflow_id: watched.workflow,
+                // No event filter, deliberately (2026-08-11). The schedule-only
+                // filter meant a lane whose ROOT FIX had merged and whose
+                // dispatch reran GREEN stayed "stale" until its next cron —
+                // weekly/monthly lanes kept the incident open (and this
+                // watchdog red, hourly) for DAYS after the lane was healthy.
+                // A rerun of an old scheduled run cannot clear it either: a
+                // rerun executes the ORIGINAL commit, without the fix. The
+                // question this watchdog answers is "is the LANE fresh and
+                // healthy" — a green completed run proves that regardless of
+                // its trigger, while a lane whose cron silently stops firing
+                // still ages out and alarms.
+                //
+                // More than one: the newest run is often still IN PROGRESS,
+                // and its conclusion is null until it completes. Judging
+                // per_page:1 turned every mid-run poll into a "missing"
+                // incident — database-wal-archive-freshness (cron */5,
+                // threshold 1h) tripped this every hour. Judge the newest
+                // COMPLETED run, not the newest run.
+                per_page: 10,
+              });
+              const completedRuns = response.data.workflow_runs.filter(
+                (candidate) => candidate.status === 'completed',
+              );
+              // A run cancelled BEFORE it ever created a job is not a verdict
+              // about the lane — it is the concurrency group evicting a
+              // duplicate. Measured 2026-08-19: aria-auto-cycle ran 02:09→05:54
+              // GREEN, a second schedule firing at 02:32 sat pending behind the
+              // shared aria-selfhosted-workspace group and was cancelled at
+              // 03:25 when the executor arrived. The evicted run completed
+              // FIRST, so it won `completedRuns[0]` and the watchdog reported a
+              // healthy 3h45m cycle as an incident. Only `cancelled` runs are
+              // probed (a success or failure always ran), and a lane where
+              // EVERY run is an eviction still alarms — it has genuinely never
+              // executed, which is exactly the state of the wal-freshness lane.
+              const ranJobs = async (candidate) => {
+                if (candidate.conclusion !== 'cancelled') return true;
+                // No per_page here: total_count comes back regardless, and the
+                // contract pin forbids a single-run fetch shape in this file.
+                const jobs = await github.rest.actions.listJobsForWorkflowRun({
+                  owner,
+                  repo,
+                  run_id: candidate.id,
+                });
+                return jobs.data.total_count > 0;
+              };
+              let run = null;
+              for (const candidate of completedRuns) {
+                if (await ranJobs(candidate)) {
+                  run = candidate;
+                  break;
+                }
+              }
+              const ageHours = run
+                ? (now - new Date(run.created_at).getTime()) / (60 * 60 * 1000)
+                : null;
+              // Some lanes can complete green while doing nothing. The backup
+              // lane resolves its DR activation and, when the capability is
+              // not activated, honestly skips the ceremony — and the run
+              // still concludes success. A watchdog that equates that green
+              // with "production is protected" is asserting something no one
+              // measured. Where the manifest names an evidence-artifact
+              // prefix, the newest completed run must also CARRY that
+              // artifact — the ceremony's own upload, which exists only when
+              // the work actually ran — or the lane is stale regardless of
+              // its color.
+              let evidenceOk = true;
+              if (run && run.conclusion === 'success' && watched.requiredArtifactPrefix) {
+                const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+                  owner,
+                  repo,
+                  run_id: run.id,
+                  per_page: 100,
+                });
+                evidenceOk = artifacts.data.artifacts.some((artifact) =>
+                  artifact.name.startsWith(watched.requiredArtifactPrefix),
+                );
+              }
+              // Z3 (2026-08-18): some lanes exit red BY CONTRACT on partial
+              // success — the executor drain reports "attempted 11, landed 3"
+              // as a non-zero exit, honestly. Alarming on every such night
+              // buries real incidents in expected ones. Where the manifest
+              // sets consecutiveFailuresForIncident, one red completed run is
+              // tolerated; the newest N completed runs must ALL be non-green
+              // before the lane is an incident. Staleness, missing runs and
+              // missing evidence still alarm on their own, unchanged.
+              let redRunTolerated = false;
+              if (
+                run &&
+                run.conclusion !== 'success' &&
+                watched.consecutiveFailuresForIncident
+              ) {
+                const executed = [];
+                for (const candidate of completedRuns) {
+                  if (await ranJobs(candidate)) executed.push(candidate);
+                  if (executed.length >= watched.consecutiveFailuresForIncident) break;
+                }
+                const newest = executed;
+                redRunTolerated =
+                  newest.length < watched.consecutiveFailuresForIncident ||
+                  newest.some((candidate) => candidate.conclusion === 'success');
+              }
+              if (
+                !run ||
+                (run.conclusion !== 'success' && !redRunTolerated) ||
+                ageHours > watched.maxAgeHours ||
+                !evidenceOk
+              ) {
+                incidents.push({
+                  workflow: watched.workflow,
+                  conclusion:
+                    run?.conclusion === 'success' && !evidenceOk
+                      ? 'success-without-evidence'
+                      : run?.conclusion ?? 'missing',
+                  ageHours: ageHours === null ? null : Math.round(ageHours * 10) / 10,
+                  maxAgeHours: watched.maxAgeHours,
+                  runUrl: run?.html_url ?? null,
+                });
+              }
+            }
+
+            const allIssues = await github.paginate(github.rest.issues.listForRepo, {
+              owner,
+              repo,
+              state: 'all',
+              per_page: 100,
+            });
+            const incidentIssue = allIssues.find(
+              issue => !issue.pull_request && issue.title === manifest.incidentTitle,
+            );
+
+            if (incidents.length === 0) {
+              if (incidentIssue?.state === 'open') {
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: incidentIssue.number,
+                  body: `Recovered-at: ${new Date(now).toISOString()}\n\nAll scheduled workflows are fresh and green.`,
+                });
+                await github.rest.issues.update({
+                  owner,
+                  repo,
+                  issue_number: incidentIssue.number,
+                  state: 'closed',
+                });
+              }
+              core.notice('All scheduled workflows are fresh and green.');
+              return;
+            }
+
+            const body = [
+              '<!-- scheduled-workflow-watchdog-incident -->',
+              `Detected-at: ${new Date(now).toISOString()}`,
+              '',
+              '| Workflow | Conclusion | Age (hours) | Maximum (hours) | Run |',
+              '|---|---:|---:|---:|---|',
+              ...incidents.map(incident =>
+                `| \`${incident.workflow}\` | ${incident.conclusion} | ${incident.ageHours ?? 'missing'} | ${incident.maxAgeHours} | ${incident.runUrl ? `[open](${incident.runUrl})` : 'none'} |`,
+              ),
+              '',
+              'Owner: repository on-call. Keep this issue open until every listed workflow is fresh and green.',
+            ].join('\n');
+
+            if (incidentIssue) {
+              await github.rest.issues.update({
+                owner,
+                repo,
+                issue_number: incidentIssue.number,
+                state: 'open',
+                body,
+                assignees: [owner],
+              });
+            } else {
+              await github.rest.issues.create({
+                owner,
+                repo,
+                title: manifest.incidentTitle,
+                body,
+                assignees: [owner],
+              });
+            }
+
+            core.setFailed(`${incidents.length} scheduled workflow(s) are stale or failing`);

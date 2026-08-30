@@ -278,9 +278,16 @@ export default [
       '**/build/**',
       '**/coverage/**',
       '**/.nx/**',
+      '**/generated/**',
       '**/*.d.ts',
       '**/*.js.map',
       '**/.archive/**',
+      // E13-C3 — adapter fixture mini-workspaces are SCAN TARGETS the
+      // semantic_regression lane feeds to the adapters via
+      // ts.createSourceFile; they deliberately carry the incomplete
+      // decorator/import shapes the cases exercise. Linting them as
+      // project code fails on exactly what they exist to contain.
+      'tools/aria-adapters/fixtures/*/workspaces/**',
     ],
   },
 
@@ -536,6 +543,26 @@ export default [
     ],
     plugins: { aquaculture },
     rules: { 'aquaculture/no-bare-graphql-query-string': 'warn' },
+  },
+
+  // ── override 14: no-unpinned-ssrf-fetch (NON-project only) ──
+  // Set to 'error' (not the usual progressive-rollout 'warn'): every existing
+  // operator/tenant-controlled fetch was migrated to SsrfValidatorService.safeFetch
+  // in the same change, so there are zero violations to burn down and the guarantee
+  // (no unpinned fetch on a dynamic URL in an adapter/webhook file; no reintroduced
+  // getSafeFetchOptions) should hold from the first commit. SENSOR-CRITICAL-002.
+  {
+    files: ['apps/**/src/**/*.ts', 'libs/**/src/**/*.ts'],
+    ignores: [
+      ...CUSTOM_LIB_IGNORES,
+      '**/*.spec.ts',
+      '**/*.test.ts',
+      '**/*.e2e.ts',
+      '**/__tests__/**',
+      '**/__mocks__/**',
+    ],
+    plugins: { aquaculture },
+    rules: { 'aquaculture/no-unpinned-ssrf-fetch': 'error' },
   },
 
   // ── override 13: JS files get @nx/javascript under eslintrc; its flat preset

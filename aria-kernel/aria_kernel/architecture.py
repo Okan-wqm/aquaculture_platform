@@ -4,7 +4,7 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -116,7 +116,7 @@ def review_architecture_decision(
             "symptom-only patching is blocked outside emergency cleanup",
         ],
     }
-    return append_jsonl(ensure_tools_dir(base_dir) / "architecture" / "reviews.jsonl", row)
+    return append_declared_jsonl(ensure_tools_dir(base_dir) / "architecture" / "reviews.jsonl", row, expected_surface="architecture_reviews")
 
 
 def generate_architecture_options(
@@ -171,7 +171,7 @@ def generate_architecture_options(
         "repo_prior_refs": normalized["repo_prior_refs"],
         "replacement_grounds": normalized["replacement_grounds"],
     }
-    return append_jsonl(ensure_tools_dir(base_dir) / "architecture" / "option-sets.jsonl", row)
+    return append_declared_jsonl(ensure_tools_dir(base_dir) / "architecture" / "option-sets.jsonl", row, expected_surface="architecture_option_sets")
 
 
 def record_architecture_evidence_pack(
@@ -210,7 +210,7 @@ def record_architecture_evidence_pack(
         "status": "complete" if not missing else "blocked",
         "blocked_by": [f"missing_{field}" for field in missing],
     }
-    return append_jsonl(ensure_tools_dir(base_dir) / "architecture" / "evidence-packs.jsonl", row)
+    return append_declared_jsonl(ensure_tools_dir(base_dir) / "architecture" / "evidence-packs.jsonl", row, expected_surface="architecture_evidence_packs")
 
 
 def draft_architecture_adr(
@@ -245,7 +245,7 @@ def draft_architecture_adr(
         "blocked_by": blockers,
         "content": content,
     }
-    return append_jsonl(ensure_tools_dir(base_dir) / "architecture" / "adr-drafts.jsonl", row)
+    return append_declared_jsonl(ensure_tools_dir(base_dir) / "architecture" / "adr-drafts.jsonl", row, expected_surface="architecture_adr_drafts")
 
 
 def list_architecture_reviews(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:

@@ -5,13 +5,16 @@ import { useMemo } from 'react';
 import { useTodaysAttendance } from './useAttendance';
 import { useAuth } from './useAuth';
 
-import { GET_TODAYS_FEEDING_PLAN, GET_TASK_STATS, GET_TODAYS_DAILY_OPS_COUNTS } from '@/graphql/operations';
+import { GET_FEEDING_DAY_PLANS, GET_TASK_STATS, GET_TODAYS_DAILY_OPS_COUNTS } from '@/graphql/operations';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { DailyOpsStats, TaskStats } from '@/types';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
-// WHY inline type: mirrors GraphQL response shape used only here.
-interface FeedingExecutionSlice { status: string }
+// WHY inline type: mirrors GraphQL response shape used only here (Faz 6 öğün
+// cutover'ı — sayım aggregate ile aynı semantik: fed|skipped / iptal-dışı).
+// Enum alanları tel üzerinde AD taşır ('FED', 'SKIPPED', 'CANCELLED').
+interface DayPlanMealSlice { status: string }
+interface FeedingDayPlanSlice { meals: DayPlanMealSlice[] }
 
 // WHY explicit shape: backend aggregate returns flat counts, not entity lists.
 interface DailyOpsCountsResponse {
@@ -40,13 +43,13 @@ export function useDailyOpsStats(): { stats: DailyOpsStats; isLoading: boolean }
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }, []);
 
-  const { data: feedingExecutions, isLoading: feedingLoading } = useQuery<FeedingExecutionSlice[]>({
-    queryKey: createTenantQueryKey(tenantId, 'feedingPlan', tenantId, todayStr),
+  const { data: dayPlans, isLoading: feedingLoading } = useQuery<FeedingDayPlanSlice[]>({
+    queryKey: createTenantQueryKey(tenantId, 'feedingDayPlans', tenantId, todayStr),
     queryFn: async () => {
-      const result = await graphqlRequest<{ dailyFeedingExecutions: FeedingExecutionSlice[] }>(
-        GET_TODAYS_FEEDING_PLAN, { date: todayStr },
+      const result = await graphqlRequest<{ feedingDayPlans: FeedingDayPlanSlice[] }>(
+        GET_FEEDING_DAY_PLANS, { planDate: todayStr },
       );
-      return result.dailyFeedingExecutions ?? [];
+      return result.feedingDayPlans ?? [];
     },
     enabled: isAuthenticated && !!tenantId,
     staleTime: 1000 * 60 * 5, // WHY 5min: feeding plan changes infrequently
@@ -84,15 +87,16 @@ export function useDailyOpsStats(): { stats: DailyOpsStats; isLoading: boolean }
     // WHY: a record with clockIn but no clockOut means the user is on shift.
     const activeRecord = todaysAttendance?.find((r) => r.clockIn && !r.clockOut);
 
-    // WHY: prefer aggregate query counts because they include all tanks. While
-    // the aggregate request is loading, the local feeding-plan query provides
-    // the same feeding-only count for the current page.
+    // WHY: prefer aggregate query counts because they include all units. While
+    // the aggregate request is loading, the local day-plan query provides the
+    // SAME meal semantics (fed|skipped / cancelled-dışı) as the backend count.
+    const meals = (dayPlans ?? []).flatMap((plan) => plan.meals ?? []);
     const feedCompleted = opsCounts?.feedingTotalCount
       ? opsCounts.feedingCompletedCount
-      : (feedingExecutions?.filter((e) => e.status === 'COMPLETED').length ?? 0);
+      : meals.filter((m) => m.status === 'FED' || m.status === 'SKIPPED').length;
     const feedTotal = opsCounts?.feedingTotalCount
       ? opsCounts.feedingTotalCount
-      : (feedingExecutions?.length ?? 0);
+      : meals.filter((m) => m.status !== 'CANCELLED').length;
 
     return {
       isClockedIn: !!activeRecord,
@@ -104,7 +108,7 @@ export function useDailyOpsStats(): { stats: DailyOpsStats; isLoading: boolean }
       todaysTasksCompleted: taskStats?.completedToday ?? 0,
       todaysTasksTotal: taskStats?.totalToday ?? 0,
     };
-  }, [todaysAttendance, feedingExecutions, taskStats, opsCounts]);
+  }, [todaysAttendance, dayPlans, taskStats, opsCounts]);
 
   return {
     stats,

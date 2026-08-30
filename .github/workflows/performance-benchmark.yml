@@ -13,7 +13,7 @@ on:
         required: false
         type: string
   pull_request:
-    branches: [ main, develop ]
+    branches: [main, develop]
     paths:
       # ARCH-CI-013: Was 'frontend/**' and 'backend/**' — project uses web/** and apps/**.
       # 2026-04-30: This PR workflow is a frontend Lighthouse benchmark only.
@@ -24,6 +24,9 @@ on:
       # has no path trigger because there is no live API target on PR runs.
       - 'web/**'
       - '.github/workflows/performance-benchmark.yml'
+      - '.github/actions/setup-rust-workspace/**'
+      - 'rust-toolchain.toml'
+      - 'tools/quality/rust-toolchain-manifest.json'
 
 jobs:
   lighthouse:
@@ -34,7 +37,7 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -51,11 +54,7 @@ jobs:
       # frontend assets. If Rust crates are affected, the pinned toolchain must
       # exist before Nx starts parallel cargo-backed targets.
       - name: Install Rust toolchain (rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # stable
-        with:
-          toolchain: 1.88.0
-          components: rustfmt,clippy,rust-src
-          targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
+        uses: ./.github/actions/setup-rust-workspace
 
       - name: Determine Nx affected refs
         id: nx-refs
@@ -142,7 +141,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.api_base_url != ''
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup k6
         # SEC-CI-002: pinned to SHA (was @v1)

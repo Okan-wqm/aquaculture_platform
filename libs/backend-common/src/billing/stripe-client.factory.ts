@@ -69,7 +69,7 @@ export const STRIPE_SECRET_KEY_ENV = 'STRIPE_SECRET_KEY';
  */
 export const BILLING_PROVIDER_ENV = 'BILLING_PROVIDER';
 
-type BillingProvider = 'mock' | 'stripe' | 'unset';
+export type BillingProvider = 'mock' | 'stripe' | 'unset';
 
 function resolveBillingProvider(config: ConfigService): BillingProvider {
   const raw = (config.get<string>(BILLING_PROVIDER_ENV) ?? '').trim().toLowerCase();
@@ -106,9 +106,7 @@ export class StripeNotConfiguredError extends Error {
   }
 }
 
-function customerId(
-  customer: string | Stripe.Customer | Stripe.DeletedCustomer | null,
-): string {
+function customerId(customer: string | Stripe.Customer | Stripe.DeletedCustomer | null): string {
   if (!customer) return '';
   return typeof customer === 'string' ? customer : customer.id;
 }
@@ -231,9 +229,7 @@ class RealStripeClient implements IStripeApiClient {
     return toStripeSubscription(sub);
   }
 
-  async retrieveSubscription(args: {
-    subscriptionId: string;
-  }): Promise<StripeSubscription> {
+  async retrieveSubscription(args: { subscriptionId: string }): Promise<StripeSubscription> {
     const sub = await this.stripe.subscriptions.retrieve(args.subscriptionId);
     return toStripeSubscription(sub);
   }
@@ -260,10 +256,9 @@ class RealStripeClient implements IStripeApiClient {
     invoiceId: string;
     idempotencyKey: StripeIdempotencyKey;
   }): Promise<StripeInvoice> {
-    const invoice = await this.stripe.invoices.finalizeInvoice(
-      args.invoiceId,
-      { idempotencyKey: args.idempotencyKey },
-    );
+    const invoice = await this.stripe.invoices.finalizeInvoice(args.invoiceId, {
+      idempotencyKey: args.idempotencyKey,
+    });
     return toStripeInvoice(invoice);
   }
 
@@ -293,7 +288,7 @@ class RealStripeClient implements IStripeApiClient {
  * is NOT gated by NODE_ENV — a production droplet with billing intentionally off
  * boots cleanly with this client.
  */
-class UnconfiguredStripeClient implements IStripeApiClient {
+export class UnconfiguredStripeClient implements IStripeApiClient {
   private fail(): never {
     throw new StripeNotConfiguredError();
   }
@@ -327,68 +322,147 @@ class UnconfiguredStripeClient implements IStripeApiClient {
 }
 
 /**
- * Factory for the canonical Stripe client (bind to STRIPE_API_CLIENT).
+ * Normalized inputs to the pure client-decision. Sourced from env by
+ * `stripeClientFactory`, or from config-service (with an env fallback) by the
+ * DynamicStripeClientProvider — the SAME decision runs on both so the runtime
+ * config path and the boot env path can never diverge in behaviour.
+ */
+export interface StripeClientSettings {
+  /** BILLING_PROVIDER intent: 'mock' short-circuits, 'stripe' implies enabled. */
+  provider: BillingProvider;
+  /** STRIPE_BILLING_ENABLED / config `billing.stripe_enabled`. */
+  billingEnabled: boolean;
+  /** The outbound Stripe credential, when present. */
+  secretKey: string | undefined;
+  /** NODE_ENV === 'production' — gates ONLY the sk_live_ safety check. */
+  isProduction: boolean;
+}
+
+/**
+ * The pure decision — mock / real / unconfigured — with the reason a caller
+ * needs to WARN + emit a SecurityEvent. sk_live_ outside production is the one
+ * hard-error (a live key against a non-prod database must never construct a
+ * real client). Everything else resolves to a client that boots cleanly.
+ */
+export type StripeClientDecision =
+  | { kind: 'mock' }
+  | { kind: 'unconfigured'; reason: 'billing-disabled' | 'enabled-but-keyless' }
+  | { kind: 'real'; secretKey: string };
+
+/**
+ * Classify the settings into a decision. Pure + side-effect-free EXCEPT the
+ * sk_live_-outside-prod hard error, which must abort loudly rather than build a
+ * live client against a non-prod database.
+ */
+export function classifyStripeSettings(settings: StripeClientSettings): StripeClientDecision {
+  // BILLING_PROVIDER=mock short-circuits to a functional local provider — no
+  // Stripe SDK/network, no secret.
+  if (settings.provider === 'mock') {
+    return { kind: 'mock' };
+  }
+
+  // Enabled when the flag is on OR BILLING_PROVIDER=stripe (an explicit real
+  // provider implies enabled even if the boot-decouple flag is unset).
+  const enabled = settings.billingEnabled || settings.provider === 'stripe';
+  if (!enabled) {
+    return { kind: 'unconfigured', reason: 'billing-disabled' };
+  }
+
+  if (!settings.secretKey) {
+    // ENABLED-BUT-KEYLESS: bind a fail-closed-at-request client and let the
+    // caller WARN + emit a SecurityEvent. This is the 2026-06 Suderra outage
+    // cure — the old code THREW here and crash-looped boot, rolling the deploy
+    // back. The service now boots; any outbound billing call fails closed with
+    // StripeNotConfiguredError until a key is present.
+    return { kind: 'unconfigured', reason: 'enabled-but-keyless' };
+  }
+
+  if (!settings.isProduction && settings.secretKey.startsWith('sk_live_')) {
+    throw new Error('Refusing to use a live Stripe key (sk_live_) outside production.');
+  }
+
+  return { kind: 'real', secretKey: settings.secretKey };
+}
+
+/** Construct the client for an already-classified decision. */
+export function buildClientFromDecision(decision: StripeClientDecision): IStripeApiClient {
+  switch (decision.kind) {
+    case 'mock':
+      return new MockBillingProvider();
+    case 'unconfigured':
+      return new UnconfiguredStripeClient();
+    case 'real': {
+      const stripe = new Stripe(decision.secretKey, {
+        apiVersion: STRIPE_API_VERSION as Stripe.LatestApiVersion,
+        typescript: true,
+      });
+      return new RealStripeClient(stripe);
+    }
+  }
+}
+
+/**
+ * Build the canonical Stripe client from settings (bind to STRIPE_API_CLIENT).
+ * The pure decision shared by the legacy env factory and the DynamicStripeClientProvider.
+ */
+export function buildStripeClient(settings: StripeClientSettings): IStripeApiClient {
+  return buildClientFromDecision(classifyStripeSettings(settings));
+}
+
+/**
+ * Resolve StripeClientSettings from environment (ConfigService). The env source
+ * for `buildStripeClient` — mirrored by the config-sourced path in the dynamic provider.
+ */
+export function stripeSettingsFromEnv(config: ConfigService): StripeClientSettings {
+  return {
+    provider: resolveBillingProvider(config),
+    billingEnabled: isStripeBillingEnabled(config),
+    secretKey: config.get<string>(STRIPE_SECRET_KEY_ENV),
+    isProduction: config.get<string>('NODE_ENV') === 'production',
+  };
+}
+
+/**
+ * Factory for the canonical Stripe client from ENV (bind to STRIPE_API_CLIENT).
  *
  * Flag-gated SSoT (see STRIPE_BILLING_ENABLED_ENV docblock above). NODE_ENV no
  * longer gates boot survival — it is consulted ONLY for the sk_live_ safety
  * check — so a production droplet with billing intentionally off boots cleanly:
- *   - STRIPE_BILLING_ENABLED off/unset (any env) → an UnconfiguredStripeClient
- *     that fails closed at REQUEST time (the service boots).
- *   - enabled + no STRIPE_SECRET_KEY             → throw at BOOT (refuse to start
- *     claiming it can bill when it cannot).
+ *   - BILLING_PROVIDER=mock (any env)            → functional local MockBillingProvider.
+ *   - STRIPE_BILLING_ENABLED off/unset           → an UnconfiguredStripeClient that
+ *     fails closed at REQUEST time (the service boots).
+ *   - enabled + no STRIPE_SECRET_KEY             → UnconfiguredStripeClient (boots;
+ *     fails closed at request). NO LONGER throws at boot (Suderra-outage cure).
  *   - enabled + `sk_live_` key outside production → throw (never let a real live
  *     key run against a non-prod database).
  *   - enabled + key present                       → the real Stripe adapter.
  */
 export function stripeClientFactory(config: ConfigService): IStripeApiClient {
   const logger = new Logger('StripeClientFactory');
+  const settings = stripeSettingsFromEnv(config);
+  const decision = classifyStripeSettings(settings);
 
-  // BILLING_PROVIDER=mock short-circuits to a functional local provider — no
-  // Stripe SDK/network, no secret. This lets a demo/test droplet (app.suderra.com)
-  // run billing for real without an outbound Stripe credential.
-  const provider = resolveBillingProvider(config);
-  if (provider === 'mock') {
+  if (decision.kind === 'mock') {
     logger.warn(
       `${BILLING_PROVIDER_ENV}=mock — binding the local no-op MockBillingProvider; ` +
         'no outbound Stripe (SDK/network), local subscriptions/receipts only. ' +
         `No ${STRIPE_SECRET_KEY_ENV} required.`,
     );
-    return new MockBillingProvider();
-  }
-
-  // Enabled when STRIPE_BILLING_ENABLED=true OR BILLING_PROVIDER=stripe (an
-  // explicit real provider implies enabled even if the boot-decouple flag is unset).
-  const enabled = isStripeBillingEnabled(config) || provider === 'stripe';
-  if (!enabled) {
+  } else if (decision.kind === 'unconfigured' && decision.reason === 'billing-disabled') {
     logger.warn(
       `${STRIPE_BILLING_ENABLED_ENV} is off or unset; binding a disabled ` +
         'Stripe client (fail-closed). The service boots, but any outbound ' +
         `billing call will throw StripeNotConfiguredError. Set ${BILLING_PROVIDER_ENV}=mock ` +
         'for a keyless local provider that actually serves billing.',
     );
-    return new UnconfiguredStripeClient();
-  }
-
-  const secretKey = config.get<string>(STRIPE_SECRET_KEY_ENV);
-  if (!secretKey) {
-    throw new Error(
+  } else if (decision.kind === 'unconfigured' && decision.reason === 'enabled-but-keyless') {
+    logger.warn(
       `billing is enabled (${STRIPE_BILLING_ENABLED_ENV}=true or ${BILLING_PROVIDER_ENV}=stripe) ` +
-        `but ${STRIPE_SECRET_KEY_ENV} is missing — refusing to boot billing with no ` +
-        `outbound Stripe credential (fail-closed). Set ${BILLING_PROVIDER_ENV}=mock for a ` +
-        'keyless local provider.',
+        `but ${STRIPE_SECRET_KEY_ENV} is missing — binding a disabled Stripe client ` +
+        '(fail-closed at request). The service BOOTS; outbound billing calls throw ' +
+        'StripeNotConfiguredError until a key is configured.',
     );
   }
 
-  const isProd = config.get<string>('NODE_ENV') === 'production';
-  if (!isProd && secretKey.startsWith('sk_live_')) {
-    throw new Error(
-      'Refusing to use a live Stripe key (sk_live_) outside production.',
-    );
-  }
-
-  const stripe = new Stripe(secretKey, {
-    apiVersion: STRIPE_API_VERSION as Stripe.LatestApiVersion,
-    typescript: true,
-  });
-  return new RealStripeClient(stripe);
+  return buildStripeClient(settings);
 }

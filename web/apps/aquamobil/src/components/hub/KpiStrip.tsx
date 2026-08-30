@@ -77,7 +77,7 @@ export function KpiStrip({ items }: KpiStripProps): ReactElement | null {
               {item.value}
             </div>
           )}
-          <div className="text-white/70 text-[10px] font-semibold mt-0.5 truncate">
+          <div className="text-white/85 text-[10px] font-semibold mt-0.5 truncate">
             {item.label}
           </div>
         </div>

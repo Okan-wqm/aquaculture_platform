@@ -61,6 +61,11 @@ on:
         required: false
         type: string
         default: ''
+      no_cache:
+        description: 'Build images without the registry buildcache (clean rebuild for suspected stale/poisoned cache layers).'
+        required: false
+        type: string
+        default: 'false'
   workflow_dispatch:
     inputs:
       services:
@@ -87,6 +92,12 @@ on:
         description: 'Required when bypass_staging_gate=true. Why is staging being skipped? (e.g. "staging droplet offline; CVE-XXXX-YYYY fix")'
         required: false
         default: ''
+      # `type: string` — same single-bash-check contract as the workflow_call
+      # inputs above (see the TRACK A note on bypass_staging_gate).
+      no_cache:
+        description: 'Build images without the registry buildcache (clean rebuild for suspected stale/poisoned cache layers).'
+        required: false
+        default: 'false'
 
 # Permissions are declared explicitly here so workflow_call invocations
 # from ci-affected.yml (which restricts to `contents: read`) can still
@@ -108,6 +119,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Production remains fail-closed while backup/restore evidence is being
+  # established. The only unlock is the protected repository variable; no
+  # workflow_dispatch input or staging bypass can override this stop-line.
+  production-deploy-lock:
+    name: Production deployment stop-line
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      enabled: ${{ steps.lock.outputs.enabled }}
+    steps:
+      - name: Evaluate protected production release switch
+        id: lock
+        env:
+          PRODUCTION_DEPLOY_ENABLED: ${{ vars.PRODUCTION_DEPLOY_ENABLED }}
+        run: |
+          if [ "${PRODUCTION_DEPLOY_ENABLED}" = "true" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Production deployment stop-line is unlocked by protected repository policy."
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Production deployment is locked. Backup and isolated restore proof are required before enabling releases."
+          fi
+
   # ===========================================================================
   # Staging Gate (WS9 / ADR-016 Phase D)
   #
@@ -127,6 +161,7 @@ jobs:
   #   when staging itself is down.
   # ===========================================================================
   staging-gate:
+    needs: [production-deploy-lock]
     # workflow_call is invoked from ci-affected.yml's `deploy` job which
     # depends on `[install, detect-changes]`. On push to main those are
     # the only jobs that run (lint/test/build/type-check are PR-gates by
@@ -135,9 +170,10 @@ jobs:
     # the actual quality assurance is the PR review gate that must have
     # passed before the commit reached main.
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      needs.production-deploy-lock.outputs.enabled == 'true' &&
+      (github.event_name == 'workflow_dispatch' ||
       github.event_name == 'push' ||
-      github.event.workflow_run.conclusion == 'success'
+      github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 60 # staging deploy typically lands in ~30 min
     steps:
@@ -290,7 +326,7 @@ jobs:
     timeout-minutes: 35
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -364,7 +400,7 @@ jobs:
       deploy_mode: ${{ steps.detect.outputs.deploy_mode }}
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -632,7 +668,7 @@ jobs:
     timeout-minutes: 30
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -689,7 +725,7 @@ jobs:
     timeout-minutes: 30
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -800,7 +836,7 @@ jobs:
         service: ${{ fromJson(needs.prepare.outputs.affected_backend) }}
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Download backend artifacts
         # SEC-CI-002: pinned to SHA
@@ -810,7 +846,7 @@ jobs:
           path: dist/
 
       # SEC-CI-002: pinned to SHA
-      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       # ORPHAN-HIGH-076 — GHCR login retry on transient network failure.
       #
@@ -866,7 +902,7 @@ jobs:
 
       - name: Build and push ${{ matrix.service }}
         # SEC-CI-002: pinned to SHA
-        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: ${{ steps.dockerfile.outputs.file }}
@@ -877,6 +913,9 @@ jobs:
           build-args: |
             SERVICE_NAME=${{ matrix.service }}
           # ARCH-CI-002: Namespaced buildcache tag to avoid collision with cd-production.yml
+          # ORPHAN-HIGH-381 tooling: operator-triggered clean rebuild when a
+          # cached layer is suspected stale/poisoned.
+          no-cache: ${{ inputs.no_cache == 'true' }}
           cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:buildcache-main-v2
           # ORPHAN-HIGH-079 — GHCR cache-write transient class.
           # `cache-to: type=registry` writes a buildcache manifest to GHCR
@@ -909,7 +948,7 @@ jobs:
         include: ${{ fromJson(needs.prepare.outputs.affected_frontend_matrix) }}
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Download frontend artifacts — upload strips common ancestor 'web/',
       # so we extract into 'web/' to restore original paths (web/shell/dist, web/modules/*/dist).
@@ -929,7 +968,7 @@ jobs:
           path: web
 
       # SEC-CI-002: pinned to SHA
-      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       # ORPHAN-HIGH-076 — GHCR login retry on transient network failure.
       #
@@ -973,7 +1012,7 @@ jobs:
 
       - name: Build and push ${{ matrix.module }}
         # SEC-CI-002: pinned to SHA
-        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: ${{ matrix.dockerfile }}
@@ -984,6 +1023,7 @@ jobs:
           build-args: |
             MODULE_PATH=${{ matrix.module_path }}
           # ARCH-CI-002: Namespaced buildcache tag to avoid collision with cd-production.yml
+          no-cache: ${{ inputs.no_cache == 'true' }}
           cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:buildcache-main-v2
           # ORPHAN-HIGH-079 — same cache-write transient class as backend matrix above.
           cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:buildcache-main-v2,mode=max,ignore-error=true
@@ -1004,15 +1044,48 @@ jobs:
       matrix:
         include: ${{ fromJson(needs.prepare.outputs.affected_infra_image_matrix) }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+      - name: Resolve immutable Postgres DR contract digest
+        id: postgres_dr_contract
+        run: |
+          set -euo pipefail
+          CONTRACT_MANIFEST=.github/manifests/postgres-dr-contract.sha256
+          test -f "${CONTRACT_MANIFEST}"
+          test ! -L "${CONTRACT_MANIFEST}"
+          EXPECTED_CONTRACT_PATHS=$(printf '%s\n' \
+            infrastructure/docker/Dockerfile.postgres-walg \
+            infrastructure/docker/scripts/postgres-ssl-entrypoint.sh \
+            infrastructure/docker/scripts/postgres-walg-healthcheck.sh \
+            infrastructure/docker/scripts/walg-archive-command.sh \
+            infrastructure/docker/scripts/walg-load-secrets.sh \
+            infrastructure/docker/scripts/walg-restore-command.sh \
+            infrastructure/docker/scripts/walg-runtime-command.sh)
+          CANONICAL_LINE_RE='^[0-9a-f]{64}  [A-Za-z0-9._/-]+$'
+          ACTUAL_CONTRACT_PATHS=
+          while IFS= read -r CONTRACT_LINE; do
+            [[ "${CONTRACT_LINE}" =~ ${CANONICAL_LINE_RE} ]]
+            CONTRACT_PATH=${CONTRACT_LINE#*  }
+            test -f "${CONTRACT_PATH}"
+            test ! -L "${CONTRACT_PATH}"
+            ACTUAL_CONTRACT_PATHS+="${CONTRACT_PATH}"$'\n'
+          done < "${CONTRACT_MANIFEST}"
+          ACTUAL_CONTRACT_PATHS=${ACTUAL_CONTRACT_PATHS%$'\n'}
+          test "${ACTUAL_CONTRACT_PATHS}" = "${EXPECTED_CONTRACT_PATHS}"
+          test "$(printf '%s\n' "${ACTUAL_CONTRACT_PATHS}" | sort -u | wc -l)" -eq 7
+          sha256sum --strict --check "${CONTRACT_MANIFEST}"
+          CONTRACT_SHA256=$(sha256sum "${CONTRACT_MANIFEST}" | awk '{print $1}')
+          [[ "${CONTRACT_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          printf 'sha256=%s\n' "${CONTRACT_SHA256}" >> "${GITHUB_OUTPUT}"
+
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       - name: Login to GHCR
         env:
           GHCR_USERNAME: ${{ github.actor }}
           GHCR_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set +x
           set +e
           for attempt in 1 2 3; do
             echo "[ghcr-login] attempt ${attempt}/3"
@@ -1027,7 +1100,7 @@ jobs:
           exit 1
 
       - name: Build and push ${{ matrix.image }}
-        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
@@ -1035,6 +1108,10 @@ jobs:
           tags: |
             ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:${{ env.TAG }}
             ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:latest
+          build-args: |
+            BUILD_MAIN_SHA=${{ github.sha }}
+            POSTGRES_DR_CONTRACT_SHA256=${{ steps.postgres_dr_contract.outputs.sha256 }}
+          no-cache: ${{ inputs.no_cache == 'true' }}
           cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:buildcache-main-v2
           cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:buildcache-main-v2,mode=max,ignore-error=true
 
@@ -1042,13 +1119,7 @@ jobs:
   # Verify immutable SHA images and build the digest manifest consumed by droplet
   # ===========================================================================
   verify-images:
-    needs:
-      [
-        prepare,
-        build-backend-images,
-        build-frontend-images,
-        build-infra-images,
-      ]
+    needs: [prepare, build-backend-images, build-frontend-images, build-infra-images]
     if: |
       always() &&
       needs.prepare.result == 'success' &&
@@ -1064,7 +1135,7 @@ jobs:
     outputs:
       digest_manifest_b64: ${{ steps.manifest.outputs.digest_manifest_b64 }}
     steps:
-      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       - name: Login to GHCR
         env:
@@ -1192,7 +1263,7 @@ jobs:
       packages: read
     steps:
       # SEC-CI-002: pinned to SHA (needed for tag update step)
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
 

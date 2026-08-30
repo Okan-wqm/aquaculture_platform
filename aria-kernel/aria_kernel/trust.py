@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .feedback import list_feedback_without_integrity
+from .batch_containment import guard_item, with_item_failures
 from .phase2_utils import record_workspace_governance_once
 from .workspace import WorkspacePaths
 
@@ -17,45 +18,77 @@ def trust_escalation_derive(paths: WorkspacePaths, *, cycle_id: str) -> dict[str
         if isinstance(gap, str) and isinstance(source, str):
             grouped.setdefault(gap, set()).add(source)
     escalated = 0
+    item_failures: list[dict[str, Any]] = []
     for gap, sources in sorted(grouped.items()):
         if len(sources) < 3:
             continue
         if any(row.get("details", {}).get("capability_gap_key") == gap for row in _governance(paths, "feedback_escalated_to_trusted")):
             continue
-        record_workspace_governance_once(
-            paths,
-            "feedback_escalated_to_trusted",
-            {
-                "capability_gap_key": gap,
-                "trusted_at_cycle": cycle_id,
-                "source_values": sorted(sources),
-            },
+        ok, _recorded = guard_item(
+            item_failures,
+            item_kind="capability_gap",
+            item_id=gap,
+            work=lambda gap=gap, sources=sources: record_workspace_governance_once(
+                paths,
+                "feedback_escalated_to_trusted",
+                {
+                    "capability_gap_key": gap,
+                    "trusted_at_cycle": cycle_id,
+                    "source_values": sorted(sources),
+                },
+            ),
         )
+        if not ok:
+            continue
         escalated += 1
-    return {"schema_version": 1, "cycle_id": cycle_id, "escalated_count": escalated}
+    return with_item_failures(
+        {"schema_version": 1, "cycle_id": cycle_id, "escalated_count": escalated},
+        item_failures,
+    )
 
 
 def ref_staleness_check(paths: WorkspacePaths, *, cycle_id: str, sample_limit: int = 100) -> dict[str, Any]:
     samples = _feedback_ref_samples(paths, sample_limit)
     counts = {"fresh": 0, "stale": 0, "missing": 0, "unknown": 0}
+    item_failures: list[dict[str, Any]] = []
     for sample in samples:
-        status = _ref_status(paths.repo_root, sample["ref"], sample.get("observed_commit"))
+        # `_ref_status` shells out to git per sample. One unreadable ref used to
+        # end the sweep, so the staleness counts reported a subset of the sample
+        # as if it were the sample.
+        ok, status = guard_item(
+            item_failures,
+            item_kind="feedback_ref",
+            item_id=str(sample.get("ref") or ""),
+            work=lambda sample=sample: _ref_status(
+                paths.repo_root, sample["ref"], sample.get("observed_commit"),
+            ),
+        )
+        if not ok or status is None:
+            continue
         counts[status] = counts.get(status, 0) + 1
         if status in {"stale", "missing", "unknown"}:
-            record_workspace_governance_once(
-                paths,
-                "ref_stale_detected",
-                {
-                    "ref": sample["ref"],
-                    "observed_commit": sample.get("observed_commit"),
-                    "current_blame_commit": _current_commit(paths.repo_root, sample["ref"]) if status == "stale" else None,
-                    "pressure_event_id": None,
-                    "feedback_event_id": sample.get("feedback_event_id"),
-                    "status": status,
-                    "cycle_id": cycle_id,
-                },
+            guard_item(
+                item_failures,
+                item_kind="ref_stale_event",
+                item_id=str(sample.get("ref") or ""),
+                work=lambda sample=sample, status=status: record_workspace_governance_once(
+                    paths,
+                    "ref_stale_detected",
+                    {
+                        "ref": sample["ref"],
+                        "observed_commit": sample.get("observed_commit"),
+                        "current_blame_commit": _current_commit(paths.repo_root, sample["ref"]) if status == "stale" else None,
+                        "pressure_event_id": None,
+                        "feedback_event_id": sample.get("feedback_event_id"),
+                        "status": status,
+                        "cycle_id": cycle_id,
+                    },
+                ),
             )
-    return {"schema_version": 1, "cycle_id": cycle_id, "sampled_count": len(samples), "counts": counts}
+    return with_item_failures(
+        {"schema_version": 1, "cycle_id": cycle_id, "sampled_count": len(samples), "counts": counts},
+        item_failures,
+    )
 
 
 def trusted_gap_keys(paths: WorkspacePaths) -> set[str]:

@@ -5,7 +5,15 @@ import { DataSource, EntityManager } from 'typeorm';
 import { OUTBOX_ENTITY_CLASS } from '../constants';
 import { OutboxEntityBase } from '../outbox-entity.base';
 import { OutboxMetricsService } from '../outbox-metrics.service';
+import {
+  OUTBOX_DELIVERY_POLICY_FIELD,
+  OUTBOX_ROUTING_SCOPE_FIELD,
+  OUTBOX_SECURITY_RECOVERY_POLICY,
+  OUTBOX_SYSTEM_TENANT_ID,
+} from '../outbox-routing';
 import { OutboxWorkerService } from '../outbox-worker.service';
+
+const TENANT_ID = '550e8400-e29b-41d4-a716-446655440000';
 
 /**
  * ORPHAN-HIGH-321 — the dispatcher is a CROSS-TENANT infrastructure
@@ -33,14 +41,19 @@ describe('OutboxWorkerService system context (ORPHAN-HIGH-321)', () => {
   let leaseRows: Array<Partial<OutboxEntityBase>>;
   let pendingCount: number;
   let oldestAgeSeconds: number | null;
+  let updateCalls: unknown[][];
 
-  const publish = jest.fn().mockResolvedValue(undefined);
+  const publish = jest.fn<Promise<void>, [Record<string, unknown>]>().mockResolvedValue(undefined);
   const metrics = {
     setPending: jest.fn(),
     setDeadLetterCount: jest.fn(),
     setOldestPendingAge: jest.fn(),
     recordPublishSuccess: jest.fn(),
     recordPublishFailure: jest.fn(),
+    // The heartbeat: every poll marks the cycle even when the queue is
+    // empty, because a dead relay behind an empty queue reads exactly like
+    // nothing-to-do (this branch's heartbeat contract).
+    markRelayCycle: jest.fn(),
   };
 
   // Cast-free EntityManager double: Object.create(prototype) yields a value
@@ -65,8 +78,11 @@ describe('OutboxWorkerService system context (ORPHAN-HIGH-321)', () => {
         // count is irrelevant to these pins.
         return Promise.resolve(pendingCount);
       },
-      update: (): Promise<{ affected: number; raw: never[]; generatedMaps: never[] }> => {
+      update: (
+        ...args: unknown[]
+      ): Promise<{ affected: number; raw: never[]; generatedMaps: never[] }> => {
         trace.statements.push('update');
+        updateCalls.push(args);
         return Promise.resolve({ affected: 1, raw: [], generatedMaps: [] });
       },
       delete: (): Promise<{ affected: number; raw: never[] }> => {
@@ -82,6 +98,7 @@ describe('OutboxWorkerService system context (ORPHAN-HIGH-321)', () => {
     leaseRows = [];
     pendingCount = 0;
     oldestAgeSeconds = null;
+    updateCalls = [];
 
     // Cast-free DataSource double — same Object.create idiom as the manager.
     const dataSource: DataSource = Object.assign(
@@ -169,9 +186,7 @@ describe('OutboxWorkerService system context (ORPHAN-HIGH-321)', () => {
     await worker.pollAndPublish();
 
     expect(metrics.setOldestPendingAge).toHaveBeenCalledWith('fake_outbox', 3 * 60 * 60);
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining('pending-age alarm'),
-    );
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('pending-age alarm'));
     errorSpy.mockRestore();
   });
 
@@ -197,7 +212,13 @@ describe('OutboxWorkerService system context (ORPHAN-HIGH-321)', () => {
       {
         id: 'row-err',
         eventType: 'BatchHarvested',
-        payload: { eventId: 'e2', eventType: 'BatchHarvested', timestamp: new Date().toISOString() },
+        tenantId: TENANT_ID,
+        payload: {
+          eventId: 'e2',
+          eventType: 'BatchHarvested',
+          tenantId: TENANT_ID,
+          timestamp: new Date().toISOString(),
+        },
         retryCount: 0,
         createdAt: new Date(),
       },
@@ -214,5 +235,75 @@ describe('OutboxWorkerService system context (ORPHAN-HIGH-321)', () => {
     }
     expect(failureTxn.statements[0]).toContain('set_config');
     expect(failureTxn.statements).toContain('update');
+  });
+
+  it('strips storage-only routing metadata before publishing a system event', async () => {
+    pendingCount = 1;
+    leaseRows = [
+      {
+        id: 'row-system',
+        eventType: 'UserAccessTokenInvalidationRequested',
+        tenantId: null,
+        payload: {
+          eventId: 'event-system',
+          eventType: 'UserAccessTokenInvalidationRequested',
+          tenantId: OUTBOX_SYSTEM_TENANT_ID,
+          timestamp: new Date().toISOString(),
+          [OUTBOX_ROUTING_SCOPE_FIELD]: OUTBOX_SYSTEM_TENANT_ID,
+          [OUTBOX_DELIVERY_POLICY_FIELD]: OUTBOX_SECURITY_RECOVERY_POLICY,
+        },
+        retryCount: 0,
+        createdAt: new Date(),
+      },
+    ];
+
+    await worker.pollAndPublish();
+
+    expect(publish).toHaveBeenCalledTimes(1);
+    const [publishCall] = publish.mock.calls;
+    if (!publishCall) {
+      throw new Error('expected the system outbox row to be published');
+    }
+    const [publishedEvent] = publishCall;
+    expect(Object.prototype.hasOwnProperty.call(publishedEvent, OUTBOX_ROUTING_SCOPE_FIELD)).toBe(
+      false,
+    );
+    expect(Object.prototype.hasOwnProperty.call(publishedEvent, OUTBOX_DELIVERY_POLICY_FIELD)).toBe(
+      false,
+    );
+    expect(publishedEvent['tenantId']).toBe(OUTBOX_SYSTEM_TENANT_ID);
+  });
+
+  it('keeps a security recovery row retryable after the ordinary retry budget', async () => {
+    pendingCount = 1;
+    leaseRows = [
+      {
+        id: 'row-security',
+        eventType: 'AccessTokenInvalidationRequested',
+        tenantId: TENANT_ID,
+        payload: {
+          eventId: 'event-security',
+          eventType: 'AccessTokenInvalidationRequested',
+          tenantId: TENANT_ID,
+          timestamp: new Date().toISOString(),
+          [OUTBOX_DELIVERY_POLICY_FIELD]: OUTBOX_SECURITY_RECOVERY_POLICY,
+        },
+        retryCount: 4,
+        createdAt: new Date(),
+      },
+    ];
+    publish.mockRejectedValueOnce(new Error('NATS still unavailable'));
+
+    await worker.pollAndPublish();
+
+    const failureUpdate = updateCalls.find(
+      (args) => typeof args[2] === 'object' && args[2] !== null && 'lastError' in args[2],
+    );
+    expect(failureUpdate?.[2]).toMatchObject({
+      retryCount: 4,
+      leasedAt: null,
+      leasedBy: null,
+    });
+    expect(failureUpdate?.[2]).not.toHaveProperty('isDeadLettered', true);
   });
 });

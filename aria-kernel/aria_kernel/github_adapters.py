@@ -147,6 +147,13 @@ class RecordingGitHubAdapter:
         self._record("get_unresolved_conversation_count", number=number)
         return {"count": 0}
 
+    def get_open_issues(self, *, labels: list[str]) -> dict[str, Any]:
+        self._record("get_open_issues", labels=list(labels))
+        # Minimal-shape stub that fails CLOSED, matching this adapter's other
+        # stubs: a recording profile never fetched the issue list, so it cannot
+        # claim there is no incident.
+        return {"readable": False, "reason": "recording_adapter_no_fetch", "issues": []}
+
     def get_pr_diff(self, number: int) -> str | None:
         self._record("get_pr_diff", number=number)
         # Empty diff → evaluate_auto_merge fails closed (Plan 023 v3
@@ -167,6 +174,32 @@ class RecordingGitHubAdapter:
             "decision": "skipped_recording_adapter",
             "reason": f"profile_{self.profile}_uses_recording_adapter",
         }
+
+    # ----- MissionObserver Protocol (Wave 2 PR 1.3) ----------------------
+    #
+    # These return ``None`` rather than a structural stub, and the difference
+    # from `get_pr` above is the whole point. `get_pr`'s consumer,
+    # `evaluate_auto_merge`, needs a shaped dict so it can fail CLOSED on it;
+    # reconciliation's consumer needs to know whether anything was observed at
+    # all, and ``None`` says exactly that. A stub here would be an answer, and
+    # `mission_reconcile` would have to decide what a fabricated answer means —
+    # which is how "not merged" becomes "closed unmerged" and every mission's
+    # retry rung burns on a lane that never called GitHub.
+    #
+    # This is also why the dry-run lane needs no soak flag: the profiles that
+    # must not act get an adapter that cannot answer.
+
+    def get_pr_lifecycle(self, number: int) -> dict[str, Any] | None:
+        self._record("get_pr_lifecycle", number=number)
+        return None
+
+    def observe_branch(self, name: str) -> bool | None:
+        self._record("observe_branch", name=name)
+        return None
+
+    def list_open_pull_requests(self) -> list[dict[str, Any]] | None:
+        self._record("list_open_pull_requests")
+        return None
 
 
 def _aria_dry_run_active() -> bool:
@@ -210,3 +243,192 @@ def select_github_adapter(
         f"unknown profile for github_adapter selection: {profile!r}; "
         f"known: {sorted(_REAL_ADAPTER_PROFILES | _RECORDING_ADAPTER_PROFILES)}"
     )
+
+
+# --- Own-PR CI checks reader (Plan "Own-PR CI Feedback", ORPHAN-HIGH-626) ---
+#
+# WHY a separate selector: the real-vs-recording split above exists for
+# WRITE safety — `standard` must not merge, comment, or push. Reading the
+# check conclusions of ARIA's OWN pull requests is observation, and the
+# standard nightly is exactly the profile that needs it: without it, ARIA
+# pushes a branch, CI goes red, and nothing ARIA runs ever learns.
+# `observe`/`frozen` stay on the recording side — those profiles promise no
+# network at all.
+
+_CHECKS_READER_REAL_PROFILES: frozenset[str] = frozenset(
+    {"strict", "autonomous", "standard"}
+)
+
+
+class RealChecksReader:
+    """Read-only: list own PRs + snapshot one PR's checks. No write verbs."""
+
+    def __init__(self, cwd: str | Path = ".") -> None:
+        self._cwd = Path(cwd)
+
+    def readable(self) -> tuple[bool, str]:
+        import shutil as _shutil
+
+        if _shutil.which("gh") is None:
+            return (False, "gh_cli_absent")
+        if not (os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")):
+            return (False, "gh_token_absent")
+        return (True, "ok")
+
+    def list_own_prs(self) -> list[dict[str, Any]]:
+        import json as _json
+        import subprocess as _subprocess
+
+        completed = _subprocess.run(
+            ["gh", "pr", "list", "--state", "open", "--limit", "100",
+             "--json", "number,headRefName"],
+            cwd=self._cwd, capture_output=True, text=True, check=False,
+        )
+        if completed.returncode != 0:
+            return []
+        try:
+            rows = _json.loads(completed.stdout or "[]")
+        except _json.JSONDecodeError:
+            return []
+        return [row for row in rows if isinstance(row, dict)]
+
+    def pr_snapshot(self, pr_number: int) -> dict[str, Any] | None:
+        from .ci import _gh_pr_snapshot
+        from .tool_registry import GovernanceError as _GovernanceError
+
+        try:
+            return _gh_pr_snapshot(pr_number=pr_number, workspace_root=self._cwd)
+        except (_GovernanceError, OSError, ValueError):
+            return None
+
+    def list_open_prs(self, *, limit: int = 30) -> list[dict[str, Any]]:
+        """ORPHAN-723 — every open PR, own or third-party (Dependabot,
+        developers). Read-only observation feed; review/merge AUTHORITY
+        over third-party PRs stays E23-gated."""
+        import json as _json
+        import subprocess as _subprocess
+
+        completed = _subprocess.run(
+            ["gh", "pr", "list", "--state", "open", "--limit", str(limit),
+             "--json", "number,headRefName,headRefOid,author"],
+            cwd=self._cwd, capture_output=True, text=True, check=False,
+        )
+        if completed.returncode != 0:
+            return []
+        try:
+            rows = _json.loads(completed.stdout or "[]")
+        except _json.JSONDecodeError:
+            return []
+        return [row for row in rows if isinstance(row, dict)]
+
+    def list_merged_own_prs(self, *, limit: int = 20) -> list[dict[str, Any]]:
+        """ORPHAN-718 — the merged tail of ARIA's own PRs.
+
+        Post-merge outcome tracking needs the squash SHA each own-PR
+        landed as; ``gh pr list --state merged`` carries it as
+        ``mergeCommit.oid``. Read-only, same trust boundary as
+        ``list_own_prs``.
+        """
+        import json as _json
+        import subprocess as _subprocess
+
+        completed = _subprocess.run(
+            ["gh", "pr", "list", "--state", "merged", "--limit", str(limit),
+             "--json", "number,headRefName,mergeCommit"],
+            cwd=self._cwd, capture_output=True, text=True, check=False,
+        )
+        if completed.returncode != 0:
+            return []
+        try:
+            rows = _json.loads(completed.stdout or "[]")
+        except _json.JSONDecodeError:
+            return []
+        return [row for row in rows if isinstance(row, dict)]
+
+    def runs_for_commit(self, sha: str) -> list[dict[str, Any]]:
+        """Workflow runs whose head commit is ``sha`` (the merge commit).
+
+        This is the "did main stay green after MY merge" read — the
+        PR-side checks answer a different question, and the two disagreed
+        for months on this repository (deploy-production red on main while
+        every PR stayed green).
+        """
+        import json as _json
+        import subprocess as _subprocess
+
+        completed = _subprocess.run(
+            ["gh", "run", "list", "--commit", str(sha), "--limit", "50",
+             "--json", "name,status,conclusion,headBranch,url"],
+            cwd=self._cwd, capture_output=True, text=True, check=False,
+        )
+        if completed.returncode != 0:
+            return []
+        try:
+            rows = _json.loads(completed.stdout or "[]")
+        except _json.JSONDecodeError:
+            return []
+        return [row for row in rows if isinstance(row, dict)]
+
+    def pr_merge_state(self, pr_number: int) -> dict[str, Any] | None:
+        """E2/F1 — merged-or-not for one PR, from GitHub truth.
+
+        The implementation reconciler asks this about plans resting in
+        IMPLEMENTATION_RECORDED: the operator (never ARIA) merges the PR
+        on GitHub, and this read is how that external fact reaches the
+        plan ledger as `implementation_merged`.
+        """
+        import json as _json
+        import subprocess as _subprocess
+
+        completed = _subprocess.run(
+            ["gh", "pr", "view", str(pr_number),
+             "--json", "state,mergedAt,mergeCommit,number"],
+            cwd=self._cwd, capture_output=True, text=True, check=False,
+        )
+        if completed.returncode != 0:
+            return None
+        try:
+            row = _json.loads(completed.stdout or "{}")
+        except _json.JSONDecodeError:
+            return None
+        return row if isinstance(row, dict) else None
+
+
+class RecordingChecksReader:
+    """The observing profiles' reader: never touches the network, says so."""
+
+    def __init__(self, profile: str) -> None:
+        self._profile = profile
+
+    def readable(self) -> tuple[bool, str]:
+        return (False, f"profile_{self._profile}_records_only")
+
+    def list_own_prs(self) -> list[dict[str, Any]]:
+        return []
+
+    def pr_snapshot(self, pr_number: int) -> dict[str, Any] | None:
+        return None
+
+    def pr_merge_state(self, pr_number: int) -> dict[str, Any] | None:
+        return None
+
+    def list_open_prs(self, *, limit: int = 30) -> list[dict[str, Any]]:
+        return []
+
+    def list_merged_own_prs(self, *, limit: int = 20) -> list[dict[str, Any]]:
+        return []
+
+    def runs_for_commit(self, sha: str) -> list[dict[str, Any]]:
+        return []
+
+
+def select_checks_reader(
+    *,
+    profile: str,
+    cwd: str | Path = ".",
+) -> Any:
+    if _aria_dry_run_active():
+        return RecordingChecksReader(profile=f"{profile}_dry_run")
+    if profile in _CHECKS_READER_REAL_PROFILES:
+        return RealChecksReader(cwd=cwd)
+    return RecordingChecksReader(profile=profile)

@@ -43,11 +43,52 @@ import { DropRegulatorySettingsSlaughterApprovalNumber1804100000000 } from './18
 import { DropSiteLocalityMappingsJsonb1804200000000 } from './1804200000000-DropSiteLocalityMappingsJsonb';
 import { DropHarvestQualityGrade1804300000000 } from './1804300000000-DropHarvestQualityGrade';
 import { DropOrphanQualityGradeEnum1804400000000 } from './1804400000000-DropOrphanQualityGradeEnum';
+// From main: heal-behind-tenant quality grade + finance tables (finance was
+// renumbered on main's own merge from 1802500000000 → 1804600000000).
 import { HealBehindTenantQualityGrade1804500000000 } from './1804500000000-HealBehindTenantQualityGrade';
-// Finance tables migration — renumbered from 1802500000000 to 1804600000000
-// on the main merge to resolve a timestamp collision with main's
-// AddSpeciesOfficialCode1802500000000 (migrations are append-only + ordered).
 import { CreateFinanceTables1804600000000 } from './1804600000000-CreateFinanceTables';
+import { AddRegulatoryAuditEnumValues1804700000000 } from './1804700000000-AddRegulatoryAuditEnumValues';
+import { AddRegulatoryReportImmutabilityTrigger1804800000000 } from './1804800000000-AddRegulatoryReportImmutabilityTrigger';
+import { AddWelfareLiceCheckConstraints1804900000000 } from './1804900000000-AddWelfareLiceCheckConstraints';
+// Renumbered from 1804500000000/1804600000000 → 1805000000000/1805100000000 on
+// this main merge to resolve a timestamp collision with main's
+// HealBehindTenantQualityGrade1804500000000 + CreateFinanceTables1804600000000
+// (migrations are append-only + ordered).
+import { ApplyRlsToRegulatoryReportDrafts1805000000000 } from './1805000000000-ApplyRlsToRegulatoryReportDrafts';
+import { AddTenantErasureRetainedColumns1805100000000 } from './1805100000000-AddTenantErasureRetainedColumns';
+import { AddFarmStockBatchSnapshotSpecies1805200000000 } from './1805200000000-AddFarmStockBatchSnapshotSpecies';
+import { DropFarmDocuments1805300000000 } from './1805300000000-DropFarmDocuments';
+import { DropTankBatchCurrentQuantityMirror1805400000000 } from './1805400000000-DropTankBatchCurrentQuantityMirror';
+import { DropFarmWorkerPlaceholderPii1805500000000 } from './1805500000000-DropFarmWorkerPlaceholderPii';
+// Renumbered from 1804700000000/1804800000000/1804900000000 →
+// 1805300000000/1805400000000/1805500000000 → 1805600000000/1805700000000/1805800000000
+// across successive main merges to resolve timestamp collisions: first with
+// main's AddRegulatoryAuditEnumValues1804700000000 group, then with main's
+// DropFarmDocuments1805300000000 / DropTankBatchCurrentQuantityMirror1805400000000 /
+// DropFarmWorkerPlaceholderPii1805500000000. Migrations are append-only + ordered;
+// this branch's migrations never merged, so no deployed DB ran the old numbers.
+import { AddFinanceEntryDeletedBy1805600000000 } from './1805600000000-AddFinanceEntryDeletedBy';
+import { AddWorkOrderEffectiveCostDateIndex1805700000000 } from './1805700000000-AddWorkOrderEffectiveCostDateIndex';
+import { FinanceEntrySoftDeletePartialIndexes1805800000000 } from './1805800000000-FinanceEntrySoftDeletePartialIndexes';
+import { AddChemicalTherapeuticTypes1805900000000 } from './1805900000000-AddChemicalTherapeuticTypes';
+// Renumbered 1805900000000 → 1806000000000 to resolve a timestamp collision with
+// AddChemicalTherapeuticTypes1805900000000 landed on main; migrations are append-only + ordered.
+import { BackfillFeedInventoryToStorageLedger1806100000000 } from './1806100000000-BackfillFeedInventoryToStorageLedger';
+import { CreateFeedingProtocolV2Tables1806200000000 } from './1806200000000-CreateFeedingProtocolV2Tables';
+import { MigrateFeedingProgramsToProtocolV21806300000000 } from './1806300000000-MigrateFeedingProgramsToProtocolV2';
+import { CreateFeedingDayPlanAndMeals1806400000000 } from './1806400000000-CreateFeedingDayPlanAndMeals';
+import { FeedingCutoverActivateAssignments1806500000000 } from './1806500000000-FeedingCutoverActivateAssignments';
+import { BackfillExecutionsToFeedingRecords1806600000000 } from './1806600000000-BackfillExecutionsToFeedingRecords';
+import { FeedingForecastFoundation1806700000000 } from './1806700000000-FeedingForecastFoundation';
+import { CreateIncidentMedia1806000000000 } from './1806000000000-CreateIncidentMedia';
+import { WidenRelatedSensorReadingIdToFederationId1806800000000 } from './1806800000000-WidenRelatedSensorReadingIdToFederationId';
+import { AddSiteMonitoringContract1806900000000 } from './1806900000000-AddSiteMonitoringContract';
+import { AddSentinelCredentialCutoverMetadata1807000000000 } from './1807000000000-AddSentinelCredentialCutoverMetadata';
+import { CreateEnvironmentalObservationFoundation1807100000000 } from './1807100000000-CreateEnvironmentalObservationFoundation';
+import { AddEnvironmentMetricSyncOutcomes1807200000000 } from './1807200000000-AddEnvironmentMetricSyncOutcomes';
+import { AddSuperAdminCrossTenantAuditAction1807900000000 } from './1807900000000-AddSuperAdminCrossTenantAuditAction';
+import { AddSatelliteCoverageProvenance1808000000000 } from './1808000000000-AddSatelliteCoverageProvenance';
+import { RestoreAuditImmutabilityContract1808500000000 } from './1808500000000-RestoreAuditImmutabilityContract';
 
 /**
  * Canonical farm-service migration class list.
@@ -105,5 +146,33 @@ export const FARM_MIGRATIONS = [
   DropOrphanQualityGradeEnum1804400000000,
   HealBehindTenantQualityGrade1804500000000,
   CreateFinanceTables1804600000000,
-
+  AddRegulatoryAuditEnumValues1804700000000,
+  AddRegulatoryReportImmutabilityTrigger1804800000000,
+  AddWelfareLiceCheckConstraints1804900000000,
+  ApplyRlsToRegulatoryReportDrafts1805000000000,
+  AddTenantErasureRetainedColumns1805100000000,
+  AddFarmStockBatchSnapshotSpecies1805200000000,
+  DropFarmDocuments1805300000000,
+  DropTankBatchCurrentQuantityMirror1805400000000,
+  DropFarmWorkerPlaceholderPii1805500000000,
+  AddFinanceEntryDeletedBy1805600000000,
+  AddWorkOrderEffectiveCostDateIndex1805700000000,
+  FinanceEntrySoftDeletePartialIndexes1805800000000,
+  AddChemicalTherapeuticTypes1805900000000,
+  CreateIncidentMedia1806000000000,
+  BackfillFeedInventoryToStorageLedger1806100000000,
+  CreateFeedingProtocolV2Tables1806200000000,
+  MigrateFeedingProgramsToProtocolV21806300000000,
+  CreateFeedingDayPlanAndMeals1806400000000,
+  FeedingCutoverActivateAssignments1806500000000,
+  BackfillExecutionsToFeedingRecords1806600000000,
+  FeedingForecastFoundation1806700000000,
+  WidenRelatedSensorReadingIdToFederationId1806800000000,
+  AddSiteMonitoringContract1806900000000,
+  AddSentinelCredentialCutoverMetadata1807000000000,
+  CreateEnvironmentalObservationFoundation1807100000000,
+  AddEnvironmentMetricSyncOutcomes1807200000000,
+  AddSuperAdminCrossTenantAuditAction1807900000000,
+  AddSatelliteCoverageProvenance1808000000000,
+  RestoreAuditImmutabilityContract1808500000000,
 ] as const;

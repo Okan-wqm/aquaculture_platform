@@ -26,7 +26,6 @@ import {
   getRlsExcludeTablesForService,
   SchemaDriftModule,
   SourceSchemaBootstrapService,
-  SourceSchemaWriteGuardService,
   TenantSchemaSyncService,
   TenantSchemaCacheModule,
 } from '@aquaculture/backend-common/database';
@@ -82,12 +81,16 @@ import { AgentConfigModule } from './tenant-config/agent-config.module';
 import { AuditModule } from './audit/audit.module';
 import { CostModule } from './cost/cost.module';
 import { ChatModule } from './chat/chat.module';
+import { SensorChannelDetectionModule } from './sensor-detection/sensor-channel-detection.module';
 import { AiOutboxModule } from './outbox/ai-outbox.module';
 
 // Entities
 import { AgentConversation } from './conversation/conversation.entity';
+import { ActionsModule } from './actions/actions.module';
+import { ProposedAction } from './actions/proposed-action.entity';
 import { TenantAgentConfig } from './tenant-config/agent-config.entity';
 import { ToolExecutionAudit } from './audit/tool-execution-audit.entity';
+import { ConversationTurn } from './cost/conversation-turn.entity';
 import { AiOutbox } from './outbox/ai-outbox.entity';
 
 // Per-process cache for GraphQL complexity results keyed by document hash.
@@ -135,7 +138,14 @@ type QueryComplexityOperationContext = {
           // metadata solely from here. Omitting it broke outbox repository DI
           // and left the outbox table out of SourceSchemaBootstrap/TenantSchemaSync
           // (messaging-service registers MessagingOutbox the same way).
-          entities: [AgentConversation, TenantAgentConfig, ToolExecutionAudit, AiOutbox],
+          entities: [
+            AgentConversation,
+            TenantAgentConfig,
+            ToolExecutionAudit,
+            ConversationTurn,
+            AiOutbox,
+            ProposedAction,
+          ],
           migrations: [__dirname + '/database/migrations/[0-9]*.{js,ts}'],
           // INFRA-CRITICAL-020 contract: env-aware migration timing.
           // - Production: DATABASE_MIGRATIONS_RUN=false (default). The
@@ -171,12 +181,12 @@ type QueryComplexityOperationContext = {
            *  defense-in-depth in case a subgraph becomes directly accessible. */
           allowBatchedHttpRequests: false,
           /**
-           * 2026-04-30: Keep Apollo CSRF prevention explicit while Apollo Server 5
-           * migration is blocked by the Nest/Apollo peer graph.
-           * WHY: Apollo Server 4 remains in the dependency graph, so XS-Search
-           * class protections must be fail-closed at runtime.
+           * Keep Apollo CSRF prevention explicit as defense in depth against
+           * cross-site search and simple-request execution paths.
            */
           csrfPrevention: true,
+          playground: false,
+          graphiql: process.env['NODE_ENV'] !== 'production',
           validationRules: [depthLimit(10)],
           plugins: [
             {
@@ -283,6 +293,12 @@ type QueryComplexityOperationContext = {
     AuditModule,
     CostModule,
     ChatModule,
+    // SENSOR-MEDIUM-070: request.ai.sensor.detectChannels — deterministic
+    // sensor channel detection for backend services (service-principal, no LLM).
+    SensorChannelDetectionModule,
+    // MOB-HIGH-001: human-in-the-loop actuation — proposal persistence +
+    // the request.ai.executeAction responder.
+    ActionsModule,
     /** SEC-M22: Audit trail infrastructure for compliance tracking. */
     AuditLogModule.forRoot(),
     // AUDITTRAIL-CRITICAL-002 sweep — registers AuditedOperationInterceptor.
@@ -352,8 +368,6 @@ type QueryComplexityOperationContext = {
     TenantConnectionBootstrap,
     // Auto-sync tenant schemas with source schema (creates missing tables/columns)
     TenantSchemaSyncService,
-    // DB-level write guards on source schema (defense-in-depth)
-    SourceSchemaWriteGuardService,
   ],
 })
 export class AppModule implements NestModule {

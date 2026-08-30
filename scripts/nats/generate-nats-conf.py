@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Generate nats.conf authorization{} users[] block from the SSoT at
-infrastructure/nats/services.yaml.
+Generate the NATS authorization and deployment identity artifacts from the
+SSoT at infrastructure/nats/services.yaml.
 
 # Why Python instead of bash+yq
 
@@ -22,7 +22,8 @@ tools chained together with fragile quoting.
 
 By default: reads infrastructure/nats/services.yaml, replaces the block
 between `# BEGIN GENERATED` / `# END GENERATED` sentinels in
-infrastructure/docker/nats/nats.conf.
+infrastructure/docker/nats/nats.conf, and writes the exact same identity
+roster to infrastructure/helm/aquaculture/files/nats-service-identities.yaml.
 
 Idempotent: re-running on an already-generated nats.conf produces identical
 output (deterministic ordering + no timestamp injection).
@@ -43,6 +44,7 @@ output (deterministic ordering + no timestamp injection).
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -61,6 +63,14 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SERVICES_YAML = REPO_ROOT / "infrastructure" / "nats" / "services.yaml"
 SERVICES_SCHEMA = REPO_ROOT / "infrastructure" / "nats" / "services.schema.json"
 NATS_CONF = REPO_ROOT / "infrastructure" / "docker" / "nats" / "nats.conf"
+HELM_IDENTITIES = (
+    REPO_ROOT
+    / "infrastructure"
+    / "helm"
+    / "aquaculture"
+    / "files"
+    / "nats-service-identities.yaml"
+)
 
 BEGIN_MARKER = "    # BEGIN GENERATED — DO NOT EDIT BY HAND (scripts/nats/generate-nats-conf.py)"
 END_MARKER = "    # END GENERATED"
@@ -93,11 +103,24 @@ def load_services() -> list[dict[str, Any]]:
         sys.exit(1)
 
     # Minimal shape validation (full JSON schema validation in CI test).
-    required_keys = {"name", "description", "publish", "subscribe"}
+    required_keys = {"name", "application", "description", "publish", "subscribe"}
     for i, svc in enumerate(services):
+        if not isinstance(svc, dict):
+            sys.stderr.write(f"error: services[{i}] is not an object\n")
+            sys.exit(1)
         missing = required_keys - set(svc.keys())
         if missing:
             sys.stderr.write(f"error: services[{i}] missing keys: {sorted(missing)}\n")
+            sys.exit(1)
+        if not isinstance(svc["name"], str) or not re.fullmatch(
+            r"[A-Za-z0-9_-]+", svc["name"]
+        ):
+            sys.stderr.write(f"error: services[{i}].name is not a safe certificate CN\n")
+            sys.exit(1)
+        if not isinstance(svc["application"], str) or not re.fullmatch(
+            r"[a-z0-9]+(?:-[a-z0-9]+)*", svc["application"]
+        ):
+            sys.stderr.write(f"error: services[{i}].application is not a runtime name\n")
             sys.exit(1)
         if not svc["publish"] or not svc["subscribe"]:
             sys.stderr.write(f"error: services[{i}].publish or .subscribe is empty\n")
@@ -107,6 +130,14 @@ def load_services() -> list[dict[str, Any]]:
     names = [s["name"] for s in services]
     if len(names) != len(set(names)):
         sys.stderr.write(f"error: duplicate service names in services.yaml\n")
+        sys.exit(1)
+
+    applications = [s["application"] for s in services]
+    if len(applications) != len(set(applications)):
+        sys.stderr.write(
+            "error: duplicate applications in services.yaml — an application "
+            "cannot be assigned multiple NATS certificate identities\n"
+        )
         sys.exit(1)
 
     return services
@@ -158,6 +189,18 @@ def render_generated_block(services: list[dict[str, Any]]) -> str:
     entries = [render_user_entry(svc) for svc in services]
     body = ",\n".join(entries)
     return f"{BEGIN_MARKER}\n{body}\n{END_MARKER}"
+
+
+def render_helm_identities(services: list[dict[str, Any]]) -> str:
+    """Render the certificate identity roster consumed by the Helm chart."""
+    identities = "\n".join(f"  - {svc['name']}" for svc in services)
+    return (
+        "# GENERATED — DO NOT EDIT BY HAND (scripts/nats/generate-nats-conf.py)\n"
+        "# Source: infrastructure/nats/services.yaml\n"
+        "version: 1\n"
+        "identities:\n"
+        f"{identities}\n"
+    )
 
 
 def splice_into_nats_conf(generated_block: str) -> tuple[str, bool]:
@@ -230,19 +273,33 @@ def splice_into_nats_conf(generated_block: str) -> tuple[str, bool]:
 def main() -> int:
     services = load_services()
     block = render_generated_block(services)
-    new_contents, modified = splice_into_nats_conf(block)
+    new_contents, nats_modified = splice_into_nats_conf(block)
+    helm_contents = render_helm_identities(services)
+    helm_modified = (
+        not HELM_IDENTITIES.exists()
+        or HELM_IDENTITIES.read_text() != helm_contents
+    )
 
-    if not modified:
+    if not nats_modified and not helm_modified:
         sys.stdout.write(
-            f"no change — {NATS_CONF.relative_to(REPO_ROOT)} already matches SSoT\n"
+            "no change — NATS authorization and Helm identities already match SSoT\n"
         )
         return 0
 
-    NATS_CONF.write_text(new_contents)
-    sys.stdout.write(
-        f"regenerated — {NATS_CONF.relative_to(REPO_ROOT)} "
-        f"(services: {len(services)})\n"
-    )
+    if nats_modified:
+        NATS_CONF.write_text(new_contents)
+        sys.stdout.write(
+            f"regenerated — {NATS_CONF.relative_to(REPO_ROOT)} "
+            f"(services: {len(services)})\n"
+        )
+
+    if helm_modified:
+        HELM_IDENTITIES.parent.mkdir(parents=True, exist_ok=True)
+        HELM_IDENTITIES.write_text(helm_contents)
+        sys.stdout.write(
+            f"regenerated — {HELM_IDENTITIES.relative_to(REPO_ROOT)} "
+            f"(identities: {len(services)})\n"
+        )
     return 0
 
 

@@ -2,8 +2,8 @@
 name: aria-worker
 description: Assignment executor for ARIA's promoted-plan dispatch lane. Claims kernel-leased aria/dispatch-request/v2 assignments minted by promotion_controller, applies the assigned change inside an isolated worktree under the compatibility lane, runs the required tests, and submits the result via worker-result submit. Spawned only by tools/aria-poc/worker_executor.py; never Agent-tool dispatched.
 tools: Read, Grep, Glob, Edit, Write, Bash
-model: fable
-effort: xhigh
+model: opus
+effort: max
 pedagogy-tier: 1
 dispatch: maintenance
 ---
@@ -12,12 +12,11 @@ dispatch: maintenance
 
 ## Canonical References (READ via the Read tool before starting)
 
-- @.claude/knowledge/layer-1-aria.md
+- @docs/aria/generated/JUDGE-DIGEST.md
 - @.claude/knowledge/layer-2-aria-canonical-envelope.md
 - @.claude/agents/_shared/aria-code-writing-standards.md
-- @docs/aria/SPEC.md
-- @docs/aria/CONTRACTS.md
-- @docs/aria/PIPELINES.md
+
+Read the FULL SPEC/CONTRACTS only when a digest pointer proves insufficient — cite the anchor you followed.
 
 ## Role boundary
 

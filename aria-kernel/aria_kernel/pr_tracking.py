@@ -19,6 +19,24 @@ from .tool_registry import GovernanceError, ensure_tools_dir, list_tools, utc_no
 
 PR_EVENTS = {"opened", "synchronize", "reopened", "closed", "merged"}
 
+# E14 — the change-intelligence agent the `change_intelligence` role always
+# named and nothing ever minted. The mechanical impact map below matches
+# evidence refs against changed paths by glob; it cannot see a coupling that is
+# not spelled as a path (a renamed symbol, a moved contract, a belief whose
+# evidence moved file). That reading is what the agent is for, and the merge
+# commit is when it is worth paying for.
+CHANGE_INTELLIGENCE_ROLE = "change_intelligence"
+CHANGE_INTELLIGENCE_AGENT = "aria-change-intelligence"
+
+# Evidence-ref budget for one change-intelligence envelope. A merge of 400
+# files must not be pasted whole into a prompt; the agent is told the full
+# count and reads the rest from the merge commit itself.
+_MAX_CHANGED_FILE_REFS = 40
+
+# Mint budget per run — see dispatch_change_intelligence for WHY a backlog
+# must not become one night's bill.
+DEFAULT_MAX_CHANGE_INTELLIGENCE_REQUESTS = 3
+
 
 _DECLARED_SURFACE_BY_JSONL_SUFFIX: dict[str, str] = {
     "pr-events.jsonl": "pr_events",
@@ -85,6 +103,147 @@ def observe_pr_event(
     if event == "merged" or row.get("merge_commit_sha"):
         append_jsonl(root / "merge-events.jsonl", row)
     return row
+
+
+def ingest_merged_pr_lifecycle(
+    *,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Feed the LIVE merge signal into this module's merge ledger.
+
+    ``observe_pr_event`` is an operator/webhook entry point and no production
+    caller ever reached it, so ``merge-events.jsonl`` stayed empty and every
+    reader below it (impact map, incremental plan, change intelligence) had
+    nothing to read. The merges ARIA performs are recorded by
+    ``auto_merge.record_pr_lifecycle`` in ``pr-lifecycle.jsonl`` — this is the
+    producer that carries them across, keyed on (pr_number, head_sha) so a
+    re-run ingests nothing twice.
+    """
+    root = ensure_tools_dir(base_dir)
+    seen = {
+        (row.get("pr_number"), row.get("head_sha"))
+        for row in load_jsonl(root / "merge-events.jsonl")
+    }
+    lifecycle_path = root / "pr-lifecycle.jsonl"
+    if not lifecycle_path.exists():
+        return {"ingested": [], "already_known": 0}
+    ingested: list[dict[str, Any]] = []
+    already_known = 0
+    for row in load_declared_jsonl(lifecycle_path, expected_surface="pr_lifecycle"):
+        if row.get("event") != "merged":
+            continue
+        key = (row.get("pr_number"), row.get("head_sha"))
+        if key in seen:
+            already_known += 1
+            continue
+        seen.add(key)
+        ingested.append(
+            observe_pr_event(
+                payload={
+                    "event": "merged",
+                    "pr_number": row.get("pr_number"),
+                    "head_sha": row.get("head_sha"),
+                    # Squash merges mint a new commit the lifecycle row does not
+                    # carry; the merged head SHA is the anchor we can prove.
+                    "merge_commit_sha": None,
+                    "changed_files": _string_list(row.get("changed_files")),
+                    "merged_at": row.get("recorded_at"),
+                    "source": "pr_lifecycle",
+                    "proposal_id": row.get("proposal_id"),
+                },
+                base_dir=root,
+            )
+        )
+    return {"ingested": ingested, "already_known": already_known}
+
+
+def change_intelligence_subject_ref(*, pr_number: Any, head_sha: Any) -> str:
+    """The stable name of WHAT a change-intelligence request is about: one
+    merged PR at one head SHA — not the cycle that happened to notice it."""
+    return f"merged-pr:{pr_number}:{head_sha}"
+
+
+def dispatch_change_intelligence(
+    *,
+    cycle_id: str | None = None,
+    base_dir: str | Path | None = None,
+    target_sha: str | None = None,
+    max_requests: int = DEFAULT_MAX_CHANGE_INTELLIGENCE_REQUESTS,
+) -> dict[str, Any]:
+    """Mint ONE change-intelligence envelope per merged PR. Idempotent.
+
+    Anchored to the merged head SHA rather than the workspace head: the
+    question is what THAT merge invalidated, and evidence grading must resolve
+    against the tree the agent is asked about.
+
+    Newest merge first, and at most ``max_requests`` per run: the first run
+    after this producer lands sees every merge ever recorded in
+    ``pr-lifecycle.jsonl``, and an unbounded mint would turn a backlog into one
+    night's LLM bill. The remainder is not lost — it is minted by later runs,
+    oldest surviving last, which is also the order in which the answers still
+    matter.
+    """
+    from .agent_invocations import create_agent_invocation_request, minted_subject_refs
+
+    root = ensure_tools_dir(base_dir)
+    # One ledger pass for the whole merge backlog: the merge list only grows,
+    # so a per-merge lookup would re-verify the request chain once per merge
+    # per cycle.
+    already_asked = minted_subject_refs(
+        role=CHANGE_INTELLIGENCE_ROLE,
+        target_agent=CHANGE_INTELLIGENCE_AGENT,
+        base_dir=root,
+    )
+    minted: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    for event in reversed(load_jsonl(root / "merge-events.jsonl")):
+        pr_number = event.get("pr_number")
+        head_sha = event.get("head_sha")
+        if pr_number is None or not head_sha:
+            skipped.append({"pr_number": pr_number, "reason": "merge_event_not_anchored"})
+            continue
+        subject = change_intelligence_subject_ref(pr_number=pr_number, head_sha=head_sha)
+        if subject in already_asked:
+            skipped.append({"pr_number": pr_number, "reason": "already_dispatched"})
+            continue
+        if len(minted) >= max_requests:
+            skipped.append({"pr_number": pr_number, "reason": "mint_budget_exhausted"})
+            continue
+        already_asked.add(subject)
+        changed_files = _string_list(event.get("changed_files"))
+        prompt = (
+            "Plan the revalidation impact of this merge. The kernel's glob "
+            "match over changed paths is already recorded in "
+            "evidence-impact.jsonl; your job is the coupling it cannot see.\n"
+            f"pr_number: {pr_number}\n"
+            f"head_sha: {head_sha}\n"
+            f"changed_file_count: {len(changed_files)}\n"
+            f"changed_files (first {_MAX_CHANGED_FILE_REFS}): "
+            f"{', '.join(changed_files[:_MAX_CHANGED_FILE_REFS]) or '(none recorded)'}\n"
+            "Return details.impact_map with beliefs_needs_revalidation, "
+            "findings_needs_revalidation, fixtures_requires_rerun and "
+            "confirmed_unchanged. Ground every entry in the merge commit, not "
+            "in the PR description."
+        )
+        request = create_agent_invocation_request(
+            target_agent=CHANGE_INTELLIGENCE_AGENT,
+            role=CHANGE_INTELLIGENCE_ROLE,
+            suggested_prompt=prompt,
+            must_satisfy=[{
+                "id": "impact-map",
+                "criterion": (
+                    "details.impact_map classifies every impacted belief, "
+                    "finding and fixture with evidence from the merge commit"
+                ),
+            }],
+            allowed_scope=["**"],
+            evidence_refs=[subject, *changed_files[:_MAX_CHANGED_FILE_REFS]],
+            cycle_id=cycle_id,
+            target_sha=str(head_sha) if head_sha else target_sha,
+            base_dir=root,
+        )
+        minted.append({"pr_number": pr_number, "request_id": request.get("request_id")})
+    return {"schema_version": 1, "minted": minted, "skipped": skipped}
 
 
 def plan_pr_impact(

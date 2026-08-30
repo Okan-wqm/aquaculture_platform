@@ -12,7 +12,7 @@ import { Role } from '@aquaculture/backend-common/decorators';
 // users). UserModuleAssignment.tenantId is required, so it uses the
 // scoped wrapper.
 import * as crypto from 'crypto';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, EntityManager } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
@@ -20,6 +20,14 @@ import { RefreshToken } from '../../authentication/entities/refresh-token.entity
 import { UserModuleAssignment } from '../../authentication/entities/user-module-assignment.entity';
 import { UserSiteAssignment } from '../../authentication/entities/user-site-assignment.entity';
 import { User } from '../../authentication/entities/user.entity';
+import {
+  isEffectiveUserSiteAssignmentAt,
+  readEffectiveUserSiteAssignments,
+} from '../../authentication/services/user-site-assignment-reader';
+import {
+  DurableUserTokenInvalidationService,
+  type UserTokenInvalidationIntent,
+} from '../../authentication/services/durable-user-token-invalidation.service';
 import { Module } from '../../system-module/entities/module.entity';
 import {
   AssignUserToModuleInput,
@@ -34,6 +42,12 @@ import {
 } from '../dto/tenant-admin.dto';
 import { TenantModule } from '../entities/tenant-module.entity';
 import { Tenant, TenantStatus } from '../entities/tenant.entity';
+import { FarmSiteAssignmentValidator } from './farm-site-assignment-validator.service';
+import {
+  createCredentialInvalidationIntent,
+  lockUserForCredentialMutation,
+  revokeActiveRefreshTokens,
+} from './user-credential-revocation';
 
 /**
  * Database query result interfaces
@@ -84,6 +98,8 @@ export class TenantAdminService {
     private readonly refreshTokenRepository: Repository<RefreshToken>,
     private readonly dataSource: DataSource,
     private readonly auditLogService: AuditLogService,
+    private readonly farmSiteAssignmentValidator: FarmSiteAssignmentValidator,
+    private readonly durableUserTokenInvalidation: DurableUserTokenInvalidationService,
   ) {}
 
   /**
@@ -180,10 +196,7 @@ export class TenantAdminService {
   /**
    * Get users assigned to a specific module in tenant
    */
-  async getModuleUsers(
-    tenantAdminId: string,
-    moduleId: string,
-  ): Promise<User[]> {
+  async getModuleUsers(tenantAdminId: string, moduleId: string): Promise<User[]> {
     const admin = await this.userRepository.findOne({
       where: { id: tenantAdminId },
     });
@@ -281,13 +294,15 @@ export class TenantAdminService {
         // Create new user via invitation flow (SEC-AUTH-004)
         // SECURITY: Do NOT accept admin-supplied passwords — require the user to set
         // their own password via the invitation link to prevent account impersonation.
-        const role =
-          input.role === 'manager' ? Role.MODULE_MANAGER : Role.MODULE_USER;
+        const role = input.role === 'manager' ? Role.MODULE_MANAGER : Role.MODULE_USER;
 
         // Generate invitation token for the new user
         const plainInvitationToken = crypto.randomBytes(32).toString('hex');
         // SECURITY: Hash invitation token with SHA-256 before storage (SEC-005)
-        const invitationTokenHash = crypto.createHash('sha256').update(plainInvitationToken).digest('hex');
+        const invitationTokenHash = crypto
+          .createHash('sha256')
+          .update(plainInvitationToken)
+          .digest('hex');
         const invitationExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
         user = userRepo.create({
@@ -352,15 +367,11 @@ export class TenantAdminService {
 
       await assignmentRepo.save(assignment);
 
-      this.logger.log(
-        `Assigned user ${user.email} to module ${tenantModule.module.name}`,
-      );
+      this.logger.log(`Assigned user ${user.email} to module ${tenantModule.module.name}`);
 
       return {
         success: true,
-        message: isNewUser
-          ? 'New user created and assigned to module'
-          : 'User assigned to module',
+        message: isNewUser ? 'New user created and assigned to module' : 'User assigned to module',
         userId: user.id,
         isNewUser,
       };
@@ -407,6 +418,89 @@ export class TenantAdminService {
   // Site assignment management (SEC-HIGH-051)
   // =========================================================
 
+  async getUserAssignedSiteIds(
+    actorId: string,
+    effectiveTenantId: string,
+    targetUserId: string,
+  ): Promise<string[]> {
+    return this.dataSource.transaction(async (manager) => {
+      await this.assertSiteAccessActor(manager, actorId, effectiveTenantId);
+      await this.lockSiteAccessTarget(manager, targetUserId, effectiveTenantId, 'pessimistic_read');
+      const snapshot = await readEffectiveUserSiteAssignments(
+        manager.withRepository(this.userSiteAssignmentRepository),
+        targetUserId,
+        effectiveTenantId,
+        new Date(),
+        { lock: 'pessimistic_read' },
+      );
+      return snapshot.siteIds;
+    });
+  }
+
+  private async assertSiteAccessActor(
+    manager: EntityManager,
+    actorId: string,
+    effectiveTenantId: string,
+  ): Promise<User> {
+    const actor = await manager.withRepository(this.userRepository).findOne({
+      where: { id: actorId, isActive: true },
+      lock: { mode: 'pessimistic_read' },
+    });
+    if (!actor) {
+      throw new NotFoundException('Admin not found');
+    }
+    if (actor.role !== Role.SUPER_ADMIN && actor.role !== Role.TENANT_ADMIN) {
+      throw new ForbiddenException('Site access management is not permitted');
+    }
+    if (actor.role !== Role.SUPER_ADMIN && actor.tenantId !== effectiveTenantId) {
+      throw new ForbiddenException('Tenant context does not match the administrator');
+    }
+    return actor;
+  }
+
+  private async lockSiteAccessTarget(
+    manager: EntityManager,
+    targetUserId: string,
+    effectiveTenantId: string,
+    lockMode: 'pessimistic_read' | 'pessimistic_write' = 'pessimistic_write',
+  ): Promise<User> {
+    const targetUser = await manager.withRepository(this.userRepository).findOne({
+      where: {
+        id: targetUserId,
+        tenantId: effectiveTenantId,
+        isActive: true,
+      },
+      lock: { mode: lockMode },
+    });
+    if (!targetUser) {
+      throw new NotFoundException('User not found');
+    }
+    if (targetUser.role !== Role.MODULE_USER) {
+      throw new BadRequestException(
+        'Explicit site assignments are only supported for module users',
+      );
+    }
+    return targetUser;
+  }
+
+  private siteAuthorizationInvalidationIntent(
+    userId: string,
+    tenantId: string,
+    assignmentId: string,
+    operation: 'assigned' | 'unassigned',
+    invalidatedAt: Date,
+  ): UserTokenInvalidationIntent {
+    return {
+      userId,
+      tenantId,
+      invalidatedAt,
+      reason: 'site_assignment_changed',
+      idempotencyKey: `site-${operation}:${assignmentId}:${Math.floor(
+        invalidatedAt.getTime() / 1000,
+      )}`,
+    };
+  }
+
   /**
    * Assign a tenant user to a farm-service Site (idempotent upsert).
    *
@@ -417,85 +511,97 @@ export class TenantAdminService {
    * reactivated). The fail-closed deny posture is NOT softened — an assignment
    * here is what GRANTS a MODULE_USER access to a site on the next token mint.
    *
-   * `siteId` is a farm-service Site id (cross-service). auth-service must not
-   * import farm tables (layering violation) and a cross-schema FK is forbidden,
-   * so there is no cheap in-service ownership check — an unknown siteId simply
-   * never matches a real site and grants nothing (fail-closed by construction).
-   * The target user IS validated to belong to the caller's tenant.
+   * `siteId` is a farm-service Site id (cross-service). Before persistence,
+   * farm-service authoritatively confirms that the live Site belongs to the
+   * effective tenant. Timeout, service outage, invalid response, missing Site,
+   * or tenant mismatch all deny the mutation; auth never imports farm tables or
+   * creates a cross-service FK. The target user is independently tenant-scoped.
    */
   async assignUserToSite(
-    tenantAdminId: string,
+    actorId: string,
+    effectiveTenantId: string,
     input: AssignUserToSiteInput,
   ): Promise<SiteAssignmentResult> {
-    const admin = await this.userRepository.findOne({
-      where: { id: tenantAdminId },
-    });
-
-    if (!admin || !admin.tenantId) {
-      throw new NotFoundException('Admin not found');
-    }
-
-    // The target user MUST exist in the caller's tenant — a cross-tenant userId
-    // resolves to null here and is rejected (no cross-tenant assignment).
-    const targetUser = await this.userRepository.findOne({
-      where: { id: input.userId, tenantId: admin.tenantId },
-    });
-
-    if (!targetUser) {
-      throw new NotFoundException('User not found');
-    }
-
-    // Idempotent upsert scoped to the admin's tenant. The UQ_user_site
-    // (userId, siteId) constraint makes the existing-row lookup authoritative.
-    const existing = await this.userSiteAssignmentRepository.findOne({
-      where: { userId: input.userId, siteId: input.siteId },
-    });
-
-    if (existing) {
-      if (!existing.isActive) {
-        existing.isActive = true;
-        existing.assignedBy = tenantAdminId;
-        existing.expiresAt = null;
-        await this.userSiteAssignmentRepository.save(existing);
-
-        await this.auditSiteAssignment(admin, 'USER_SITE_ASSIGNED', input, 'reactivated');
-
-        return {
-          success: true,
-          message: 'Site assignment reactivated',
+    const transactionResult = await this.dataSource.transaction(async (manager) => {
+      const actor = await this.assertSiteAccessActor(manager, actorId, effectiveTenantId);
+      await this.lockSiteAccessTarget(manager, input.userId, effectiveTenantId);
+      const assignmentRepository = manager.withRepository(this.userSiteAssignmentRepository);
+      const existing = await assignmentRepository.findOne({
+        where: {
           userId: input.userId,
           siteId: input.siteId,
+          tenantId: effectiveTenantId,
+        },
+        lock: { mode: 'pessimistic_write' },
+      });
+      const now = new Date();
+      if (existing && isEffectiveUserSiteAssignmentAt(existing, now)) {
+        return {
+          result: {
+            success: true,
+            message: 'User already assigned to site',
+            userId: input.userId,
+            siteId: input.siteId,
+          },
+          intent: null,
         };
       }
 
-      return {
-        success: true,
-        message: 'User already assigned to site',
-        userId: input.userId,
-        siteId: input.siteId,
-      };
-    }
+      await this.farmSiteAssignmentValidator.assertAssignable(effectiveTenantId, input.siteId);
+      const assignment =
+        existing ??
+        assignmentRepository.create({
+          userId: input.userId,
+          siteId: input.siteId,
+          tenantId: effectiveTenantId,
+        });
+      assignment.isActive = true;
+      assignment.assignedBy = actorId;
+      assignment.expiresAt = null;
+      const savedAssignment = await assignmentRepository.save(assignment);
 
-    const assignment = this.userSiteAssignmentRepository.create({
-      userId: input.userId,
-      siteId: input.siteId,
-      tenantId: admin.tenantId,
-      isActive: true,
-      assignedBy: tenantAdminId,
+      const outcome = existing ? ('reactivated' as const) : ('created' as const);
+      await this.auditSiteAssignment(
+        manager,
+        actor,
+        effectiveTenantId,
+        'USER_SITE_ASSIGNED',
+        input,
+        outcome,
+      );
+      const intent = this.siteAuthorizationInvalidationIntent(
+        input.userId,
+        effectiveTenantId,
+        savedAssignment.id,
+        'assigned',
+        now,
+      );
+      await this.durableUserTokenInvalidation.enqueue(manager, intent);
+      return {
+        result: {
+          success: true,
+          message: existing ? 'Site assignment reactivated' : 'User assigned to site',
+          userId: input.userId,
+          siteId: input.siteId,
+        },
+        intent,
+      };
     });
 
-    await this.userSiteAssignmentRepository.save(assignment);
-
-    await this.auditSiteAssignment(admin, 'USER_SITE_ASSIGNED', input, 'created');
-
-    this.logger.log(`Assigned user ${input.userId} to site ${input.siteId}`);
-
-    return {
-      success: true,
-      message: 'User assigned to site',
-      userId: input.userId,
-      siteId: input.siteId,
-    };
+    if (transactionResult.intent) {
+      const [immediate] = await Promise.allSettled([
+        this.durableUserTokenInvalidation.applyImmediately(transactionResult.intent),
+      ]);
+      if (immediate.status === 'rejected') {
+        this.logger.error(
+          JSON.stringify({
+            event: 'site_assignment_immediate_invalidation_failed',
+            errorType: immediate.reason instanceof Error ? immediate.reason.name : 'UnknownError',
+          }),
+        );
+      }
+    }
+    return transactionResult.result;
   }
 
   /**
@@ -507,64 +613,98 @@ export class TenantAdminService {
    * refresh; the user is then fail-closed denied on that site.
    */
   async unassignUserFromSite(
-    tenantAdminId: string,
+    actorId: string,
+    effectiveTenantId: string,
     userId: string,
     siteId: string,
   ): Promise<SiteAssignmentResult> {
-    const admin = await this.userRepository.findOne({
-      where: { id: tenantAdminId },
+    const transactionResult = await this.dataSource.transaction(async (manager) => {
+      const actor = await this.assertSiteAccessActor(manager, actorId, effectiveTenantId);
+      await this.lockSiteAccessTarget(manager, userId, effectiveTenantId);
+      const assignmentRepository = manager.withRepository(this.userSiteAssignmentRepository);
+      const assignment = await assignmentRepository.findOne({
+        where: { userId, siteId, tenantId: effectiveTenantId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!assignment) {
+        throw new NotFoundException('Site assignment not found');
+      }
+      const now = new Date();
+      if (!isEffectiveUserSiteAssignmentAt(assignment, now)) {
+        return {
+          result: {
+            success: true,
+            message: 'User already unassigned from site',
+            userId,
+            siteId,
+          },
+          intent: null,
+        };
+      }
+
+      assignment.isActive = false;
+      await assignmentRepository.save(assignment);
+      await this.auditSiteAssignment(
+        manager,
+        actor,
+        effectiveTenantId,
+        'USER_SITE_UNASSIGNED',
+        { userId, siteId },
+        'deactivated',
+      );
+      const intent = this.siteAuthorizationInvalidationIntent(
+        userId,
+        effectiveTenantId,
+        assignment.id,
+        'unassigned',
+        now,
+      );
+      await this.durableUserTokenInvalidation.enqueue(manager, intent);
+      return {
+        result: {
+          success: true,
+          message: 'User unassigned from site',
+          userId,
+          siteId,
+        },
+        intent,
+      };
     });
 
-    if (!admin || !admin.tenantId) {
-      throw new NotFoundException('Admin not found');
+    if (transactionResult.intent) {
+      const [immediate] = await Promise.allSettled([
+        this.durableUserTokenInvalidation.applyImmediately(transactionResult.intent),
+      ]);
+      if (immediate.status === 'rejected') {
+        this.logger.error(
+          JSON.stringify({
+            event: 'site_unassignment_immediate_invalidation_failed',
+            errorType: immediate.reason instanceof Error ? immediate.reason.name : 'UnknownError',
+          }),
+        );
+      }
     }
-
-    // Scope the lookup to the admin's tenant so a cross-tenant assignment row
-    // cannot be deactivated from another tenant.
-    const assignment = await this.userSiteAssignmentRepository.findOne({
-      where: { userId, siteId, tenantId: admin.tenantId },
-    });
-
-    if (!assignment) {
-      throw new NotFoundException('Site assignment not found');
-    }
-
-    assignment.isActive = false;
-    await this.userSiteAssignmentRepository.save(assignment);
-
-    await this.auditSiteAssignment(
-      admin,
-      'USER_SITE_UNASSIGNED',
-      { userId, siteId },
-      'deactivated',
-    );
-
-    this.logger.log(`Unassigned user ${userId} from site ${siteId}`);
-
-    return {
-      success: true,
-      message: 'User unassigned from site',
-      userId,
-      siteId,
-    };
+    return transactionResult.result;
   }
 
   /**
-   * Audit a site assignment / unassignment. Best-effort (mirrors the
-   * deactivate/activate audit calls above) — a failed audit must not roll back
-   * the membership change, which has its own log line.
+   * Audit a site assignment / unassignment on the caller's EntityManager.
+   * Fail-closed and atomic: an audit failure aborts the same transaction as the
+   * membership mutation and durable token-invalidation intent.
    */
   private async auditSiteAssignment(
-    admin: User,
+    manager: EntityManager,
+    actor: User,
+    effectiveTenantId: string,
     action: 'USER_SITE_ASSIGNED' | 'USER_SITE_UNASSIGNED',
     target: { userId: string; siteId: string },
     outcome: 'created' | 'reactivated' | 'deactivated',
   ): Promise<void> {
-    try {
-      await this.auditLogService.log({
-        tenantId: admin.tenantId!,
-        performedBy: admin.id,
-        performedByEmail: admin.email,
+    await this.auditLogService.log(
+      {
+        tenantId: effectiveTenantId,
+        performedBy: actor.id,
+        performedByEmail: actor.email,
         action,
         entityType: 'UserSiteAssignment',
         entityId: target.userId,
@@ -574,10 +714,9 @@ export class TenantAdminService {
           timestamp: new Date().toISOString(),
         },
         severity: AuditLogSeverity.INFO,
-      });
-    } catch (error) {
-      this.logger.error(`Failed to log audit event ${action}: ${(error as Error).message}`);
-    }
+      },
+      manager,
+    );
   }
 
   /**
@@ -614,52 +753,86 @@ export class TenantAdminService {
     if (!admin || !admin.tenantId) {
       throw new NotFoundException('Admin not found');
     }
+    const tenantId = admin.tenantId;
 
-    const user = await this.userRepository.findOne({
-      where: { id: userId, tenantId: admin.tenantId },
+    const transactionResult = await this.dataSource.transaction(async (manager) => {
+      // Keep the credential-wide mutation on the same canonical lock order as
+      // refresh rotation: target User FOR UPDATE, then RefreshToken locks/UPDATE.
+      const user = await lockUserForCredentialMutation(
+        manager,
+        this.userRepository,
+        userId,
+        tenantId,
+      );
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+      if (user.role === Role.TENANT_ADMIN) {
+        throw new ForbiddenException('Cannot deactivate tenant admin');
+      }
+
+      user.isActive = false;
+      const saved = await manager.withRepository(this.userRepository).save(user);
+      const invalidatedAt = new Date();
+      const refreshTokensRevoked = await revokeActiveRefreshTokens(
+        manager,
+        this.refreshTokenRepository,
+        userId,
+        invalidatedAt,
+        'User deactivated',
+      );
+      const intent = createCredentialInvalidationIntent(
+        user,
+        invalidatedAt,
+        'tenant-user-deactivate',
+        'logout_all_devices',
+      );
+      await this.durableUserTokenInvalidation.enqueue(manager, intent);
+
+      // SECURITY AUDIT: Log user deactivation on the same transaction. Audit
+      // or durable-invalidation failure aborts the entire mutation fail-closed.
+      await this.auditLogService.log(
+        {
+          tenantId,
+          performedBy: tenantAdminId,
+          performedByEmail: admin.email,
+          action: 'USER_DEACTIVATED',
+          entityType: 'User',
+          entityId: userId,
+          details: {
+            targetEmail: user.email,
+            targetRole: user.role,
+            refreshTokensRevoked,
+            timestamp: new Date().toISOString(),
+          },
+          severity: AuditLogSeverity.WARNING,
+        },
+        manager,
+      );
+      return { saved, intent, refreshTokensRevoked };
     });
 
-    if (!user) {
-      throw new NotFoundException('User not found');
+    const [immediate] = await Promise.allSettled([
+      this.durableUserTokenInvalidation.applyImmediately(transactionResult.intent),
+    ]);
+    if (immediate.status === 'rejected') {
+      this.logger.error(
+        JSON.stringify({
+          event: 'tenant_user_deactivation_immediate_invalidation_failed',
+          errorType: immediate.reason instanceof Error ? immediate.reason.name : 'UnknownError',
+        }),
+      );
     }
 
-    if (user.role === Role.TENANT_ADMIN) {
-      throw new ForbiddenException('Cannot deactivate tenant admin');
-    }
-
-    user.isActive = false;
-    const saved = await this.userRepository.save(user);
-
-    // SECURITY: Revoke all active refresh tokens for the deactivated user
-    // Without this, existing refresh tokens remain valid and can be used to obtain new access tokens.
-    await this.refreshTokenRepository.update(
-      { userId, isRevoked: false },
-      { isRevoked: true, revokedAt: new Date(), revokedReason: 'User deactivated' },
+    this.logger.log(
+      JSON.stringify({
+        event: 'tenant_user_deactivated',
+        userId,
+        tenantId,
+        refreshTokensRevoked: transactionResult.refreshTokensRevoked,
+      }),
     );
-
-    this.logger.log(`Deactivated user ${user.email} and revoked all refresh tokens`);
-
-    // SECURITY AUDIT: Log user deactivation (BULGU-016)
-    try {
-      await this.auditLogService.log({
-        tenantId: admin.tenantId,
-        performedBy: tenantAdminId,
-        performedByEmail: admin.email,
-        action: 'USER_DEACTIVATED',
-        entityType: 'User',
-        entityId: userId,
-        details: {
-          targetEmail: user.email,
-          targetRole: user.role,
-          timestamp: new Date().toISOString(),
-        },
-        severity: AuditLogSeverity.WARNING,
-      });
-    } catch (error) {
-      this.logger.error(`Failed to log audit event USER_DEACTIVATED: ${(error as Error).message}`);
-    }
-
-    return saved;
+    return transactionResult.saved;
   }
 
   /**
@@ -837,10 +1010,7 @@ export class TenantAdminService {
    * Get data from a specific table (paginated)
    * Uses row-level tenant isolation with WHERE tenant_id = ?
    */
-  async getTableData(
-    tenantAdminId: string,
-    input: GetTableDataInput,
-  ): Promise<TableDataResult> {
+  async getTableData(tenantAdminId: string, input: GetTableDataInput): Promise<TableDataResult> {
     const admin = await this.userRepository.findOne({
       where: { id: tenantAdminId },
     });
@@ -865,7 +1035,7 @@ export class TenantAdminService {
 
     // Module schemas (farm, hr, sensor, etc.)
     const moduleSchemas = tenantModules
-      .map(tm => tm.module?.code)
+      .map((tm) => tm.module?.code)
       .filter((code): code is string => !!code);
 
     // Get tenant's dedicated schema name
@@ -960,7 +1130,9 @@ export class TenantAdminService {
       if (error instanceof ForbiddenException || error instanceof NotFoundException) {
         throw error;
       }
-      this.logger.error(`Failed to get table data: ${error instanceof Error ? error.message : String(error)}`);
+      this.logger.error(
+        `Failed to get table data: ${error instanceof Error ? error.message : String(error)}`,
+      );
       // SECURITY: Generic error message — do not reflect user input (SEC-AUTH-018)
       throw new BadRequestException('Could not read the requested table');
     }
@@ -1007,9 +1179,7 @@ export class TenantAdminService {
    * Get tables from main schema (when tenant doesn't have separate schema)
    * PERF: Use Promise.allSettled for parallel count queries (HIGH-05)
    */
-  private async getMainSchemaTables(
-    tenantId: string,
-  ): Promise<TenantTableInfo[]> {
+  private async getMainSchemaTables(tenantId: string): Promise<TenantTableInfo[]> {
     // List of known tables that have tenant_id
     const tenantTables = [
       'farms',

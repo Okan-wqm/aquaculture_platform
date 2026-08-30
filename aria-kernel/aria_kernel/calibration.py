@@ -4,20 +4,19 @@ from pathlib import Path
 from typing import Any
 
 from .feedback_store import load_feedback
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_jsonl
 from .runs_reader import read_runs_rows
 from .tool_health import compute_metrics, runs_path
 from .tool_registry import ensure_tools_dir, list_tools, utc_now
 
 
-DEFAULT_PRESSURE_WEIGHTS = {
-    "belief_revalidation": 40,
-    "evidence_gone": 65,
-    "migration_surface_repeat": 30,
-    "tool_failure": 70,
-    "unknown_recurrence": 55,
-    "capability_gap": 75,
-}
+# The weight SSoT is pressure.SOURCE_WEIGHTS — the table scoring actually
+# uses. This module used to keep a private copy that had silently drifted
+# (evidence_gone 65 here vs 80 live), so its recommendations referenced
+# numbers nothing consumed. Recommendations now read the operator-EFFECTIVE
+# table, and record_weight_override (pressure.py) is the consumer that turns
+# an approved recommendation into behaviour.
+from .pressure import effective_source_weights as _effective_source_weights
 
 
 def recommend_calibration(
@@ -35,7 +34,7 @@ def recommend_calibration(
         recommendation = _tool_recommendation(tool["tool_id"], metrics)
         if recommendation:
             tool_recommendations.append(recommendation)
-    pressure_weights = _pressure_weight_recommendations(feedback_rows)
+    pressure_weights = _pressure_weight_recommendations(feedback_rows, base_dir=root)
     row = {
         "schema_version": 1,
         "recorded_at": utc_now(),
@@ -44,7 +43,7 @@ def recommend_calibration(
         "pressure_weight_recommendations": pressure_weights,
         "status": "recommendation_only",
     }
-    return append_jsonl(root / "calibration" / "recommendations.jsonl", row)
+    return append_declared_jsonl(root / "calibration" / "recommendations.jsonl", row, expected_surface="calibration_recommendations")
 
 
 def list_calibration_recommendations(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
@@ -69,7 +68,7 @@ def _tool_recommendation(tool_id: str, metrics: dict[str, Any]) -> dict[str, Any
     }
 
 
-def _pressure_weight_recommendations(feedback_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _pressure_weight_recommendations(feedback_rows: list[dict[str, Any]], *, base_dir=None) -> list[dict[str, Any]]:
     by_kind: dict[str, dict[str, int]] = {}
     for row in feedback_rows:
         kind = str(row.get("metadata", {}).get("pressure_source") or row.get("tool_id") or "unknown")
@@ -84,7 +83,7 @@ def _pressure_weight_recommendations(feedback_rows: list[dict[str, Any]]) -> lis
         total = counts["tp"] + counts["fp"]
         if total < 2:
             continue
-        current = DEFAULT_PRESSURE_WEIGHTS.get(kind, 50)
+        current = _effective_source_weights(base_dir).get(kind, 50)
         precision = counts["tp"] / total
         if precision >= 0.85:
             recommended = min(100, current + 5)

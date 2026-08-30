@@ -14,6 +14,13 @@ import { Args, ID, Int, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { CurrentTenant, CurrentUser, Role, Roles } from '@aquaculture/backend-common/decorators';
 import { CommandBus, QueryBus } from '@platform/cqrs';
 
+import { Cacheable } from '../../common/cache/cacheable.decorator';
+import { CacheEvict } from '../../common/cache/cache-evict.decorator';
+import {
+  withBatchTotalDecimals,
+  withLineItemDecimals,
+  withSummaryDecimals,
+} from './finance-decimal.mapper';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import {
   ArchiveFinanceCategoryCommand,
@@ -61,6 +68,20 @@ const MAX_LEDGER_PAGE = 200;
  */
 const MAX_LEDGER_OFFSET = 5_000;
 
+/**
+ * Finance read-model cache (PERF-HIGH-004). `financeSummary` / `financeBatchTotals`
+ * re-aggregate the high-frequency feeding/harvest/health/work-order source tables
+ * on every load (cost grows with tenant age). Read-through Redis caching via the
+ * platform `@Cacheable` SSoT bounds that to at most once per TTL per
+ * (tenant, period, granularity). Finance's OWN mutations `@CacheEvict` immediately
+ * — matching the Wave 3b FE scoped invalidation — so a manual entry / category /
+ * settings change is never stale; cross-domain cost writes (a feeding cost, a work
+ * order) surface within the TTL, an acceptable staleness for an analytics view. The
+ * `SloFinanceQueryP99High` tripwire (PERF-MEDIUM-010) still fires if a tenant
+ * outgrows even the cached path, signalling the materialized-rollup escalation.
+ */
+const FINANCE_CACHE_TTL_SECONDS = 300;
+
 @Resolver(() => FinanceExpenseEntry)
 @UseGuards(GqlAuthGuard)
 export class FinanceResolver {
@@ -102,12 +123,15 @@ export class FinanceResolver {
     scope?: FinanceCategoryScope,
     @Args('categoryId', { type: () => ID, nullable: true }) categoryId?: string,
     @Args('batchId', { type: () => ID, nullable: true }) batchId?: string,
+    // A siteId filter returns manual entries for that site plus only the
+    // derived costs that can be attributed to it; site-less derived costs
+    // (maintenance, fingerlings) are excluded, never mixed in.
     @Args('siteId', { type: () => ID, nullable: true }) siteId?: string,
     @Args('includeDerived', { defaultValue: true }) includeDerived?: boolean,
     @Args('limit', { type: () => Int, defaultValue: 50 }) limit?: number,
     @Args('offset', { type: () => Int, defaultValue: 0 }) offset?: number,
   ): Promise<FinanceLineItem[]> {
-    return this.queryBus.execute(
+    const items = await this.queryBus.execute<GetFinanceLedgerQuery, FinanceLineItem[]>(
       new GetFinanceLedgerQuery(tenantId, {
         from,
         to,
@@ -120,6 +144,7 @@ export class FinanceResolver {
         offset: Math.min(Math.max(offset ?? 0, 0), MAX_LEDGER_OFFSET),
       }),
     );
+    return withLineItemDecimals(items);
   }
 
   @Query(() => FinanceSummary, {
@@ -128,6 +153,7 @@ export class FinanceResolver {
       'rules like the 5% other-variable-cost line) and a time series at the requested granularity.',
   })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @Cacheable({ prefix: 'finance:summary', ttlSeconds: FINANCE_CACHE_TTL_SECONDS })
   async financeSummary(
     @CurrentTenant() tenantId: string,
     @Args('from') from: Date,
@@ -135,21 +161,26 @@ export class FinanceResolver {
     @Args('granularity', { type: () => FinanceGranularity, defaultValue: FinanceGranularity.MONTH })
     granularity?: FinanceGranularity,
   ): Promise<FinanceSummary> {
-    return this.queryBus.execute(
+    const summary = await this.queryBus.execute<GetFinanceSummaryQuery, FinanceSummary>(
       new GetFinanceSummaryQuery(tenantId, from, to, granularity ?? FinanceGranularity.MONTH),
     );
+    return withSummaryDecimals(summary);
   }
 
   @Query(() => [FinanceBatchTotal], {
     description: 'Expense/revenue totals per batch (manual entries + derived costs) for a period.',
   })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @Cacheable({ prefix: 'finance:batchTotals', ttlSeconds: FINANCE_CACHE_TTL_SECONDS })
   async financeBatchTotals(
     @CurrentTenant() tenantId: string,
     @Args('from') from: Date,
     @Args('to') to: Date,
   ): Promise<FinanceBatchTotal[]> {
-    return this.queryBus.execute(new GetFinanceBatchTotalsQuery(tenantId, from, to));
+    const totals = await this.queryBus.execute<GetFinanceBatchTotalsQuery, FinanceBatchTotal[]>(
+      new GetFinanceBatchTotalsQuery(tenantId, from, to),
+    );
+    return withBatchTotalDecimals(totals);
   }
 
   @Query(() => FinanceSettings, {
@@ -168,6 +199,7 @@ export class FinanceResolver {
     description: 'Book a manual finance entry (expense or revenue).',
   })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @CacheEvict({ prefixes: ['finance:summary', 'finance:batchTotals'] })
   async createFinanceEntry(
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string },
@@ -180,6 +212,7 @@ export class FinanceResolver {
     description: 'Update a manual finance entry. Derived lines are edited at their source record.',
   })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @CacheEvict({ prefixes: ['finance:summary', 'finance:batchTotals'] })
   async updateFinanceEntry(
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string },
@@ -193,6 +226,7 @@ export class FinanceResolver {
     description: 'Soft-delete a manual finance entry.',
   })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @CacheEvict({ prefixes: ['finance:summary', 'finance:batchTotals'] })
   async deleteFinanceEntry(
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string },
@@ -205,6 +239,7 @@ export class FinanceResolver {
     description: 'Create a user-defined finance category (dynamic taxonomy — data, not DDL).',
   })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @CacheEvict({ prefixes: ['finance:summary', 'finance:batchTotals'] })
   async createFinanceCategory(
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string },
@@ -217,6 +252,7 @@ export class FinanceResolver {
     description: 'Rename / reorder a finance category (activation state is admin-gated).',
   })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @CacheEvict({ prefixes: ['finance:summary', 'finance:batchTotals'] })
   async updateFinanceCategory(
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string },
@@ -233,6 +269,7 @@ export class FinanceResolver {
       'Archive a finance category (derived-bound and computed categories cannot be archived).',
   })
   @Roles(Role.TENANT_ADMIN)
+  @CacheEvict({ prefixes: ['finance:summary', 'finance:batchTotals'] })
   async archiveFinanceCategory(
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string },
@@ -245,6 +282,7 @@ export class FinanceResolver {
     description: 'Reactivate an archived finance category.',
   })
   @Roles(Role.TENANT_ADMIN)
+  @CacheEvict({ prefixes: ['finance:summary', 'finance:batchTotals'] })
   async restoreFinanceCategory(
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string },
@@ -257,6 +295,7 @@ export class FinanceResolver {
     description: 'Update tenant finance settings (default currency SSoT, fiscal year start).',
   })
   @Roles(Role.TENANT_ADMIN)
+  @CacheEvict({ prefixes: ['finance:summary', 'finance:batchTotals'] })
   async updateFinanceSettings(
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string },

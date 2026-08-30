@@ -77,32 +77,41 @@ class TestRound1Pipeline(unittest.TestCase):
                         "evaluate_plan MUST come AFTER CROSS_REVIEWED poll")
 
     def test_i_v8_1_05_cross_review_unavailable_verdict_present(self):
-        # Source contains the cross_review_unavailable arbiter_verdict
-        # for the poll-timeout case.
-        self.assertIn('arbiter_verdict="cross_review_unavailable"', self.src,
-                      "cross_review poll timeout MUST emit cross_review_unavailable verdict")
+        # CL-1 (ORPHAN-725) moved the PRODUCER, not the meaning: the
+        # verdict used to be a poll-timeout literal in the drainer; now
+        # it derives from the kernel's own terminal reason codes, which
+        # is the only honest source (the drainer never waits, so it can
+        # no longer claim first-hand knowledge that a reviewer is
+        # unavailable). Pin the derivation, not the deleted literal.
+        from aria_kernel.convergence_drainer import _derive_arbiter_verdict
+
+        self.assertEqual(
+            _derive_arbiter_verdict("HUMAN_REQUIRED", ["partial_cross_review_coverage"]),
+            "cross_review_unavailable",
+        )
 
     def test_i_v8_1_06_challenger_unavailable_verdict_present(self):
-        # Source contains the challenger_unavailable arbiter_verdict
-        # for the challenger poll-timeout case.
-        self.assertIn('arbiter_verdict="challenger_unavailable"', self.src,
-                      "challenger poll timeout MUST emit challenger_unavailable verdict")
+        from aria_kernel.convergence_drainer import _derive_arbiter_verdict
 
-    def test_i_v8_1_07_run_challenge_and_cross_review_phase_helper_extracted(self):
-        # The helper must exist as a nested function (closure) in
-        # run_convergence_drainer. Negative test: issue_cross_review_envelope
-        # appears EXACTLY ONCE in the drainer body (inside the helper),
-        # not duplicated for round-1 and round-2+.
+        self.assertEqual(
+            _derive_arbiter_verdict("HUMAN_REQUIRED", ["pending_tasks_present"]),
+            "challenger_unavailable",
+        )
+
+    def test_i_v8_1_07_single_cross_review_mint_site_survives_the_helper(self):
+        # CL-1 (ORPHAN-725): the round-loop helper this pin guarded is
+        # gone with the loop itself. The PROPERTY it protected — one
+        # cross-review mint site, never copy-pasted per round — is now a
+        # consequence of the state machine: the mint lives in the single
+        # CHALLENGER_DRAFTED branch.
         cross_review_calls = self.src.count("issue_cross_review_envelope(")
         self.assertEqual(
             cross_review_calls, 1,
-            "issue_cross_review_envelope MUST appear exactly once "
-            "(inside _run_challenge_and_cross_review_phase helper). "
-            f"Found {cross_review_calls} call sites — DRY violation (architect B2)."
+            "issue_cross_review_envelope MUST have exactly one mint site "
+            f"(the CHALLENGER_DRAFTED branch). Found {cross_review_calls}."
         )
-        # Helper name present in source
-        self.assertIn("_run_challenge_and_cross_review_phase", self.src,
-                      "Helper function MUST be defined in drainer body")
+        self.assertIn('if plan_state == "CHALLENGER_DRAFTED":', self.src)
+        self.assertNotIn("_run_challenge_and_cross_review_phase", self.src)
 
 
 if __name__ == "__main__":

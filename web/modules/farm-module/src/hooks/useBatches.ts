@@ -12,6 +12,8 @@ import {
   createTenantInvalidationKey,
 } from '@aquaculture/shared-ui';
 
+import { stableStringify } from '../utils/command-envelope';
+
 // Types - GraphQL enum KEY'leri ile uyumlu (UPPERCASE)
 export type BatchStatus =
   | 'QUARANTINE'
@@ -251,10 +253,14 @@ export interface Batch {
   harvestedQuantity?: number;
   cullCount: number;
   totalFeedConsumed: number;
+  /** @deprecated Float — use `totalFeedCostDecimal` (exact decimal string, ADR-0004). */
   totalFeedCost: number;
+  totalFeedCostDecimal: string;
   retentionRate?: number;
   sgr?: number;
+  /** @deprecated Float — use `costPerKgDecimal` (exact decimal string, ADR-0004). */
   costPerKg?: number;
+  costPerKgDecimal?: string | null;
   weight: BatchWeight;
   fcr: BatchFCR;
   stockedAt: string;
@@ -262,7 +268,9 @@ export interface Batch {
   actualHarvestDate?: string;
   supplierId?: string;
   supplierBatchNumber?: string;
+  /** @deprecated Float — use `purchaseCostDecimal` (exact decimal string, ADR-0004). */
   purchaseCost?: number;
+  purchaseCostDecimal?: string | null;
   currency?: string;
   arrivalMethod?: ArrivalMethod;
   status: BatchStatus;
@@ -350,10 +358,6 @@ export interface CreateBatchInput {
   healthCertificates?: BatchDocumentInput[];
   importDocuments?: BatchDocumentInput[];
   initialLocations: InitialLocationInput[];
-  // Feeding-protocols → batch link (Phase 1): the batch selects one active
-  // feeding protocol at creation and it follows the batch thereafter. Optional —
-  // a batch may be created without a protocol and have one assigned later.
-  protocolId?: string;
   notes?: string;
 }
 
@@ -401,9 +405,11 @@ const BATCH_CORE_FIELDS = `
   cullCount
   totalFeedConsumed
   totalFeedCost
+  totalFeedCostDecimal
   retentionRate
   sgr
   costPerKg
+  costPerKgDecimal
   weight
   fcr
   stockedAt
@@ -412,6 +418,7 @@ const BATCH_CORE_FIELDS = `
   supplierId
   supplierBatchNumber
   purchaseCost
+  purchaseCostDecimal
   currency
   arrivalMethod
   status
@@ -804,31 +811,8 @@ const CREATE_HARVEST_RECORD_MUTATION = `
 // (clientCommandId + payloadHash) on every stock-mutating mutation, matching the
 // AquaMobil offline-queue contract. The desktop web attaches it here so a
 // double-click / retried submit is deduped server-side instead of
-// double-decrementing inventory.
-/**
- * Deterministic, RECURSIVELY key-sorted stringify — the canonical form the
- * server's at-most-once payloadHash guard hashes.
- *
- * FARM-LOW-141: this MUST stay byte-identical to AquaMobil's stableStringify
- * (web/apps/aquamobil/src/pwa/offline-queue.ts) so the web and mobile clients
- * hash one dedup contract the same way. The previous web impl sorted only the
- * TOP-LEVEL keys, so a nested object would have hashed differently from mobile —
- * inert while payloads are flat, a silent drift trap the moment one nests.
- */
-function stableStringify(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map(stableStringify).join(',')}]`;
-  }
-  if (value && typeof value === 'object') {
-    const record = value as Record<string, unknown>;
-    return `{${Object.keys(record)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
-      .join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
-
+// double-decrementing inventory. The canonical stableStringify lives in
+// utils/command-envelope.ts (FARM-LOW-141/235 — web'in tek kopyası).
 async function hashPayload(payload: object): Promise<string> {
   const digest = await crypto.subtle.digest(
     'SHA-256',

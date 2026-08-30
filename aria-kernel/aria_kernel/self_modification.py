@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -46,7 +46,7 @@ def request_kernel_change(
         "decision": "authorized_for_pr_only",
         "auto_merge_allowed": False,
     }
-    return append_jsonl(ensure_tools_dir(base_dir) / "kernel-change" / "requests.jsonl", row)
+    return append_declared_jsonl(ensure_tools_dir(base_dir) / "kernel-change" / "requests.jsonl", row, expected_surface="kernel_change_requests")
 
 
 def list_kernel_change_requests(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:

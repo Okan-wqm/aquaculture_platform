@@ -34,7 +34,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
@@ -54,10 +54,6 @@ const KNOWN_ADHOC_BREAKERS: ReadonlyArray<{
   {
     path: 'apps/gateway-api/src/proxy/circuit-breaker.service.ts',
     followOn: 'W3 wave — gateway proxy migration',
-  },
-  {
-    path: 'apps/gateway-api/src/opa/opa-client.service.ts',
-    followOn: 'W3 wave — OPA client migration',
   },
   {
     path: 'apps/messaging-service/src/shared/redis.provider.ts',
@@ -93,14 +89,37 @@ describe('CIRCUIT-MEDIUM-001 — no new ad-hoc CircuitBreaker outside the grandf
     expect(mod).toMatch(/export\s+class\s+CircuitBreakerModule\b/);
   });
 
-  it('all 4 grandfathered ad-hoc breaker paths still exist (each is a W3 migration follow-on)', () => {
-    for (const { path } of KNOWN_ADHOC_BREAKERS) {
-      const src = read(path);
-      // Sanity: each path is present and has at least the
-      // failureThreshold or class-shape token that originally
-      // tripped the auditor.
-      expect(src.length).toBeGreaterThan(0);
-    }
+  it('the grandfathered list is a ceiling that only ratchets down', () => {
+    // THIS ASSERTED THE DEBT MUST PERSIST. It read "all 4 grandfathered ad-hoc
+    // breaker paths still exist" and failed when the W3 sweep DELETED
+    // `apps/gateway-api/src/opa/opa-client.service.ts` — the progression this
+    // file's own docstring calls the success condition ("eventually the list
+    // goes empty and the invariant is 'no ad-hoc breaker anywhere'"). A gate
+    // that goes red when debt is paid teaches its readers to leave debt alone,
+    // and the cheapest way to make it green again is to restore the ad-hoc
+    // breaker. That is the exact opposite of what it is for.
+    //
+    // Two properties now, in the right direction. A vanished path means the
+    // entry is STALE and must be deleted from the list — the failure names the
+    // line to remove, not a file to restore. And the ceiling can only fall:
+    // adding an entry is adding a new ad-hoc breaker, which clause 3 already
+    // forbids, so it must not be reachable by editing this list either.
+    const stale = KNOWN_ADHOC_BREAKERS.filter(
+      ({ path }) => !existsSync(resolve(REPO_ROOT, path)),
+    ).map(({ path }) => path);
+
+    expect(stale).toEqual([]);
+
+    // Ceiling, lowered as each entry is retired. Raising it is a review event.
+    // Was 5; fell to 4 when the W3 sweep removed the OPA client's breaker.
+    //
+    // STALENESS IS EXISTENCE, NOT A TOKEN SCAN, and that is a correction to my
+    // first attempt at this: `email-sender.service.ts` carries no
+    // `class …CircuitBreaker` and no `failureThreshold`, so a token heuristic
+    // read it as migrated — it is not, it hand-rolls the same thing under
+    // `isCircuitOpen()`. Retiring an entry on a heuristic would have lowered
+    // this ceiling past live debt and locked the wrong number in.
+    expect(KNOWN_ADHOC_BREAKERS.length).toBeLessThanOrEqual(4);
   });
 
   it('NO new ad-hoc CircuitBreaker class outside the grandfathered set + canonical lib', () => {

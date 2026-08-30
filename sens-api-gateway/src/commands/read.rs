@@ -77,7 +77,11 @@ impl CommandHandler {
             })
             .collect();
 
-        let modbus_connected = state.modbus_handle.is_some();
+        // "connected" reflects whether Modbus DEVICES are configured, not merely
+        // whether the (always-present) actor exists — the actor is now started
+        // unconditionally to support runtime device provisioning, so its presence
+        // no longer implies configured devices.
+        let modbus_connected = !state.config.modbus.is_empty();
         // v2.2: gpio_handle actor pattern (deprecated gpio_manager removed).
         let gpio_available = state.gpio_handle.is_some();
 

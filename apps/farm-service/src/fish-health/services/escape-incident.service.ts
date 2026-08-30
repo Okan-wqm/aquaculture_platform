@@ -7,11 +7,21 @@
  * that the rømming varsling is legally IMMEDIATE — the varsling submission
  * itself stays on the desktop regulatory path, one submission path).
  *
+ * Phase 6 (FARM-HIGH-214): recording is a plain insert AND fans out a legally
+ * significant notification, so mobile offline-queue replays are deduplicated
+ * through the farm_mobile_command_receipts ledger — a replayed
+ * clientCommandId returns the original incident instead of double-filing an
+ * escape (and double-reminding the manager).
+ *
  * @module FishHealth
  */
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import {
+  MobileCommandReceiptService,
+  mobileCommandEnvelopeFromInput,
+} from '@aquaculture/backend-common/mobile-command';
 import type { EscapeIncidentRecordedEvent } from '@platform/event-contracts';
 import { createBaseEvent, toEventIso } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
@@ -21,7 +31,9 @@ import {
   EscapeIncidentCause,
   EscapeIncidentStatus,
 } from '../entities/escape-incident.entity';
+import { IncidentMediaType } from '../entities/farm-incident-media.entity';
 import { CloseEscapeIncidentInput, RecordEscapeIncidentInput } from '../dto/field-capture.inputs';
+import { IncidentMediaService } from './incident-media.service';
 
 @Injectable()
 export class EscapeIncidentService {
@@ -30,6 +42,8 @@ export class EscapeIncidentService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly mobileCommandReceipts: MobileCommandReceiptService,
+    private readonly incidentMediaService: IncidentMediaService,
   ) {}
 
   async record(
@@ -39,6 +53,26 @@ export class EscapeIncidentService {
   ): Promise<EscapeIncident> {
     return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const repo = tenantManagerRepo(queryRunner.manager, EscapeIncident, tenantId);
+
+      const receipt = await this.mobileCommandReceipts.begin(queryRunner.manager, {
+        tableName: 'farm_mobile_command_receipts',
+        tenantId,
+        envelope: mobileCommandEnvelopeFromInput(input),
+        operationType: 'recordEscapeIncident',
+        responseType: 'EscapeIncident',
+      });
+      if (receipt.mode === 'replay') {
+        const replayed = receipt.responseId
+          ? await repo.findOne({ where: { id: receipt.responseId, tenantId } })
+          : null;
+        if (!replayed) {
+          throw new NotFoundException(
+            'Replayed escape incident no longer exists for this command receipt',
+          );
+        }
+        return replayed;
+      }
+
       const saved = await repo.save(
         repo.create({
           tenantId,
@@ -56,6 +90,15 @@ export class EscapeIncidentService {
           createdBy: userId,
           notes: input.notes,
         }),
+      );
+
+      await this.incidentMediaService.attach(
+        queryRunner.manager,
+        tenantId,
+        IncidentMediaType.ESCAPE,
+        saved.id,
+        input.mediaKeys,
+        userId,
       );
 
       const event: EscapeIncidentRecordedEvent = {
@@ -76,6 +119,14 @@ export class EscapeIncidentService {
       await this.outboxPublisher.enqueue(event, queryRunner.manager, {
         idempotencyKey: `escape-incident:${saved.id}`,
         aggregateId: saved.siteId,
+      });
+
+      await this.mobileCommandReceipts.complete(queryRunner.manager, {
+        tableName: 'farm_mobile_command_receipts',
+        receipt,
+        responseType: 'EscapeIncident',
+        responseId: saved.id,
+        responsePayload: { id: saved.id },
       });
 
       this.logger.warn(

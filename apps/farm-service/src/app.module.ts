@@ -7,12 +7,16 @@ import { APP_FILTER, APP_GUARD, Reflector } from '@nestjs/core';
 import { join } from 'path';
 import { Request } from 'express';
 import { DocumentNode, GraphQLError, GraphQLSchema } from 'graphql';
-import depthLimit from 'graphql-depth-limit';
 import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
+import { AUDIT_LOG_SERVICE, type IAuditLogService } from '@aquaculture/backend-common/audit';
 import { LegalHoldModule } from '@aquaculture/backend-common/compliance';
 import { SourceSchemaBootstrapService } from '@aquaculture/backend-common/database';
 import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
+import {
+  createGraphqlOperationLimitPlugin,
+  ENVIRONMENT_READ_OPERATION_FIELD_LIMITS,
+} from '@aquaculture/backend-common/graphql';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
 import {
   CorrelationIdMiddleware,
@@ -22,7 +26,11 @@ import {
   VerifiedUserAssertionMiddleware,
 } from '@aquaculture/backend-common/middleware';
 import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
-import { ThrottlerModule } from '@aquaculture/backend-common/security';
+import {
+  SlidingWindowStrategy,
+  ThrottlerGuard,
+  ThrottlerModule,
+} from '@aquaculture/backend-common/security';
 
 /**
  * Extended request interface for GraphQL context
@@ -47,15 +55,16 @@ type QueryComplexityOperationContext = {
 import {
   createTenantConnectionBootstrap,
   TenantSchemaSyncService,
-  SourceSchemaWriteGuardService,
   RlsModule,
   getRlsExcludeTablesForService,
   SchemaDriftModule,
   createServiceTypeOrmConfig,
   isSchemaDdlOwnedByDbMigrate,
   TenantSchemaCacheModule,
+  WatchdogRunner,
 } from '@aquaculture/backend-common/database';
 import { createTenantSchemaMiddleware } from '@aquaculture/backend-common/middleware';
+import { DataSource } from 'typeorm';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('farm');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('farm');
 /**
@@ -86,6 +95,7 @@ import { SpeciesModule } from './species/species.module';
 import { TankModule } from './tank/tank.module';
 import { BatchModule } from './batch/batch.module';
 import { FeedingModule } from './feeding/feeding.module';
+import { FeedingProtocolModule } from './feeding-protocol/feeding-protocol.module';
 import { GrowthModule } from './growth/growth.module';
 import { WaterQualityModule } from './water-quality/water-quality.module';
 import { FishHealthModule } from './fish-health/fish-health.module';
@@ -111,7 +121,6 @@ import { EventListenersModule } from './events/event-listeners.module';
 import { TaskModule } from './task/task.module';
 import { FarmStockModule } from './farm-stock/farm-stock.module';
 import { MobileDashboardModule } from './mobile-dashboard/mobile-dashboard.module';
-import { FarmDocumentModule } from './document/document.module';
 /**
  * WHY: AiInsightsModule integrates the MCP Farm Intelligence server with the
  * farm service, providing AI-powered risk assessment, anomaly detection, growth
@@ -127,10 +136,18 @@ import { GraphQLContextModule } from './common/graphql-context.module';
 // directory and the production db-migrate numeric glob. The numeric glob
 // intentionally excludes manifest.js so TypeORM does not load the same classes
 // twice via the manifest import graph.
+import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
 import { FARM_MIGRATIONS } from './database/migrations/manifest';
 
 @Module({
   imports: [
+    // AUDITTRAIL-CRITICAL-002 sweep — registers AuditedOperationInterceptor.
+    // @AuditedOperation() is only metadata; without this forRoot() the
+    // decorator is structurally inert and a labelled handler writes zero audit
+    // rows. farm-service was the last service in the required set still
+    // missing it — the invariant that says so was itself dormant, so the gap
+    // was reported by nothing (ORPHAN-HIGH-512).
+    AuditedOperationModule.forRoot(),
     // Global configuration
     ConfigModule.forRoot({
       isGlobal: true,
@@ -196,15 +213,11 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
          *  defense-in-depth in case a subgraph becomes directly accessible. */
         allowBatchedHttpRequests: false,
         /**
-         * SECURITY (H-05): depthLimit(10) prevents deeply nested query DoS attacks.
-         * Without depth limiting, an attacker can craft a deeply nested GraphQL query
-         * that causes exponential resource consumption on the server.
-         */
-        validationRules: [depthLimit(10)],
-        /**
          * Phase 5.4 of the "Farm modülü kalan kör noktalar" plan.
-         * depthLimit rejects queries that NEST too deeply but does
-         * nothing against wide queries: a single-level selection with
+         * The shared operation-admission plugin rejects excessive depth,
+         * fragment expansion, and repeated top-level fields. A separate
+         * complexity budget is still required for wide result shapes: a
+         * single-level selection with
          * 200 fields or a paginated list with `first: 10000` slips
          * through depth 1 and still exhausts the server.
          *
@@ -226,6 +239,9 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
          * can tune their queries rather than guess.
          */
         plugins: [
+          createGraphqlOperationLimitPlugin({
+            maxOccurrencesByField: ENVIRONMENT_READ_OPERATION_FIELD_LIMITS,
+          }),
           {
             requestDidStart: async () => ({
               async didResolveOperation({
@@ -268,7 +284,8 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
             }),
           },
         ],
-        playground: configService.get('NODE_ENV') !== 'production',
+        playground: false,
+        graphiql: configService.get('NODE_ENV') !== 'production',
         // SECURITY: Disable introspection in production
         introspection: configService.get('NODE_ENV') !== 'production',
         context: ({ req }: { req: GraphQLContextRequest }) => {
@@ -406,13 +423,13 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
     FarmOutboxModule,
 
     // Feature modules
-    FarmDocumentModule,
     FarmModule,
     HealthModule,
     SpeciesModule,
     TankModule,
     BatchModule,
     FeedingModule,
+    FeedingProtocolModule,
     GrowthModule,
     WaterQualityModule,
     FishHealthModule,
@@ -506,15 +523,31 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
     // Tenant guard
     {
       provide: APP_GUARD,
-      useFactory: (reflector: Reflector, configService: ConfigService): TenantGuard =>
-        new TenantGuard(reflector, undefined, configService),
-      inject: [Reflector, ConfigService],
+      useFactory: (
+        reflector: Reflector,
+        auditLogService: IAuditLogService,
+        configService: ConfigService,
+      ): TenantGuard => new TenantGuard(reflector, auditLogService, configService),
+      inject: [Reflector, AUDIT_LOG_SERVICE, ConfigService],
     },
     // SECURITY: Roles guard - enforces @Roles() decorator authorization
     {
       provide: APP_GUARD,
       useFactory: (reflector: Reflector): RolesGuard => new RolesGuard(reflector),
       inject: [Reflector],
+    },
+    // Direct-subgraph defense: gateway rate limits are not an authority
+    // boundary when a deployment accidentally exposes farm-service. Reuse the
+    // shared distributed sliding-window implementation so every direct GraphQL
+    // request is bounded, including the expensive environment read surface.
+    {
+      provide: APP_GUARD,
+      useFactory: (
+        reflector: Reflector,
+        configService: ConfigService,
+        rateLimiter: SlidingWindowStrategy,
+      ): ThrottlerGuard => new ThrottlerGuard(reflector, configService, rateLimiter),
+      inject: [Reflector, ConfigService, SlidingWindowStrategy],
     },
     // Phase 6.1.2 — fail-closed permission-matrix guard. Rejects
     // any GraphQL @Mutation / @Query whose operation name is not
@@ -533,8 +566,13 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
     TenantConnectionBootstrap,
     // Auto-sync tenant schemas with source schema (creates missing tables/columns)
     TenantSchemaSyncService,
-    // DB-level write guards on source schema (defense-in-depth)
-    SourceSchemaWriteGuardService,
+    // The watchdog runner is a provider so the cron service can be
+    // exercised without a live database — see watchdog-cron.metrics.spec.
+    {
+      provide: WatchdogRunner,
+      useFactory: (dataSource: DataSource): WatchdogRunner => new WatchdogRunner(dataSource),
+      inject: [DataSource],
+    },
     WatchdogCronService,
   ],
 })

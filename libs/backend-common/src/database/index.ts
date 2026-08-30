@@ -4,6 +4,8 @@ export * from './schema-manager.service';
 // SQL identifier validator — single canonical helper for identifier
 // interpolation (DDL paths use it instead of inlining a private regex).
 export { validateSqlIdentifier } from './sql-identifier.util';
+// Audit append-only contract SQL — one definition for all four audit tables.
+export * from './audit-immutability.sql';
 export type { SqlIdentifierKind } from './sql-identifier.util';
 
 // TypeORM driver query result normalizer — single canonical adapter for
@@ -76,6 +78,23 @@ export type {
   TenantMigrationLedgerReadGrant,
   TenantMigrationLedgerReadGrantOptions,
 } from './tenant-migration-ledger-privileges';
+// Tenant-schema table privilege SSoT (2026-07-06 grant incident): per-tenant
+// table clones must carry <source>_schema_owner ownership + <source>_service
+// DML regardless of which connection created them. assert = idempotent align;
+// verify = deploy/job-blocking drift detection.
+export {
+  assertTenantSchemaPrivileges,
+  verifyTenantSchemaPrivileges,
+  ownerRoleForTenantAwareSchema,
+  tenantTablesForSourceSchema,
+} from './tenant-schema-privileges';
+export type {
+  TenantSchemaPrivilegeExecutor,
+  TenantSchemaPrivilegeOptions,
+  TenantSchemaPrivilegeReport,
+  TenantSchemaPrivilegeVerification,
+  TenantSchemaPrivilegeViolation,
+} from './tenant-schema-privileges';
 export { grantTenantMessagingPartitionAuthority } from './messaging-partition-privileges';
 export type {
   MessagingPartitionAuthorityGrant,
@@ -138,8 +157,8 @@ export type {
 // Tenant Schema Sync (auto-provisioning)
 export * from './tenant-schema-sync.service';
 
-// Source Schema Write Guard (DB-level tenant isolation trigger)
-export * from './source-schema-write-guard';
+// Source Schema Write Guard reconciler (DB-level tenant-isolation trigger SSoT)
+export * from './source-schema-write-guard-reconciler';
 
 // Watchdog system (source contamination scanner, cross-tenant probe, drift detector)
 export * from './watchdog';

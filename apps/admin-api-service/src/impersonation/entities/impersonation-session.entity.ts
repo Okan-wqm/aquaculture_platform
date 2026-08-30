@@ -7,6 +7,17 @@ import {
   Index,
 } from 'typeorm';
 
+/**
+ * RBAC-MEDIUM-009 (M7): the ONE impersonation session-duration ceiling, in
+ * minutes. Policy: impersonation sessions are short-lived support windows —
+ * absolute cap 1 hour. Every enforcement point derives from this constant
+ * (request DTO @Max, grant DTO @Max, extend DTO @Max, and the service-side
+ * use-time clamps that neutralize historical grants stored before the cap).
+ * Raising the policy is a deliberate single-line change here, never a
+ * per-DTO edit.
+ */
+export const IMPERSONATION_MAX_SESSION_MINUTES = 60;
+
 export enum ImpersonationStatus {
   ACTIVE = 'active',
   ENDED = 'ended',
@@ -143,6 +154,39 @@ export class ImpersonationSession {
 
   @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
+}
+
+/**
+ * Secret columns on ImpersonationSession that MUST NEVER be serialized onto a
+ * read response (DB-ADMIN-HIGH-002). `originalSessionToken` is stored plaintext
+ * and `impersonationToken` is a live credential hash; both are set once at
+ * creation and consumed internally (validateSession). admin-api registers no
+ * global ClassSerializerInterceptor, so `@Exclude()` would be inert — the
+ * boundary is enforced by returning the safe view below from every read path.
+ * This array is the single source of truth for what to strip.
+ */
+export const IMPERSONATION_SESSION_SECRET_FIELDS = [
+  'originalSessionToken',
+  'impersonationToken',
+] as const;
+
+/** ImpersonationSession without its secret token columns — the read-response shape. */
+export type SafeImpersonationSession = Omit<
+  ImpersonationSession,
+  (typeof IMPERSONATION_SESSION_SECRET_FIELDS)[number]
+>;
+
+/** Strip every secret column so a session can never carry a token onto a read response. */
+export function toSafeImpersonationSession(
+  session: ImpersonationSession,
+): SafeImpersonationSession {
+  const safe: Record<string, unknown> = { ...session };
+  for (const field of IMPERSONATION_SESSION_SECRET_FIELDS) {
+    // Reflect.deleteProperty: same strip without the `delete` operator on a
+    // computed key (no-dynamic-delete) — repo-established pattern.
+    Reflect.deleteProperty(safe, field);
+  }
+  return safe as SafeImpersonationSession;
 }
 
 @Entity('impersonation_permissions', { schema: 'admin' })

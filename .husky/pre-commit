@@ -53,3 +53,41 @@ for spec in tools/*gates/*.spec.ts; do
   [ -f "$spec" ] || continue
   "$GATE_TS_NODE" $GATE_TSCONFIG "$spec" || exit 1
 done
+
+# format-scope manifesti — yeni/silinen izlenen dosya ya da üretilmiş-dosya
+# içerik hash'i değişimi manifesti bayatlatır; CI'daki banned-phrase-gate'in
+# SON adımı (npm run quality:format-scope:check) aynı kontrolü koşar. Push
+# sonrası CI kırmızısı yerine commit anında yakala (tier-3 make-it-detectable;
+# 137b4a46 ile dfb57127 bu sınıfın iki canlı örneğiydi).
+node tools/quality/quality.mjs format-scope check || {
+  echo "format-scope bayat: 'npm run quality:format-scope:generate' koşup manifesti bu commit'e ekleyin." >&2
+  exit 1
+}
+
+# Prettier sapması — yukarıdaki format-scope gate'i manifestin TAZELİĞİNİ
+# doğrular, biçimin kendisini DEĞİL. CI (`ci-full.yml`, lint-and-typecheck
+# adım 10) iki format kapısı koşar; bu hook uzun süre yalnızca ilkini
+# aynaladı, dolayısıyla `format check-changed` sapmayı push sonrasında CI'da
+# yakaladı. ORPHAN-HIGH-500: bu dalda 8 commit yeşil hook'la sapma taşıdı.
+# Staged mod, HEAD^ yerine indeksi HEAD'e karşı yargılar — commit anında
+# doğru karşılaştırma budur (tier-3 make-it-detectable).
+node tools/quality/quality.mjs format check-staged || exit 1
+
+# ARIA yetki-hash'i — bayat pin'le commit atmayı imkânsızlaştır.
+#
+# Pin, docs/aria/CURRENT_STATE.md içinde ve ARIA runtime yüzeyinin tamamını
+# (aria-kernel/, tools/aria-poc/, aria-* workflow'ları, docs/aria/) kapsıyor.
+# Bu yüzeye dokunan her commit hash'i değiştirir; repin'i insan hafızasına
+# bırakmak, aynı pinin dört zorunlu CI kontrolünü iki ayrı PR'da kırmızıya
+# boyamasıyla sonuçlandı. Yazıcı zaten vardı (aria:authority-hash:write, spec
+# ile aynı digest tanımını paylaşır); eksik olan çağıran-otomasyondu — bu
+# repoda tekrar eden "mekanizma var, çağıran yok" sınıfının hook hali.
+#
+# Yalnız ARIA yüzeyi staged'ken koşar; diğer commit'lerde maliyet tek grep.
+if git diff --cached --name-only | grep -qE '^(aria-kernel/|tools/aria-poc/|docs/aria/|\.github/workflows/aria-)'; then
+  "$GATE_TS_NODE" $GATE_TSCONFIG tools/gates/aria-authority-hash.ts --write || exit 1
+  if ! git diff --quiet -- docs/aria/CURRENT_STATE.md; then
+    git add docs/aria/CURRENT_STATE.md
+    echo "aria-authority-hash: pin bayattı — yeniden üretildi ve commit'e eklendi." >&2
+  fi
+fi

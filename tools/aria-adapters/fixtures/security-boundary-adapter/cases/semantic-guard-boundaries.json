@@ -1,0 +1,22 @@
+{
+  "name": "semantic-guard-boundaries",
+  "lane": "semantic_regression",
+  "input": {
+    "roots": [
+      "tools/aria-adapters/fixtures/security-boundary-adapter/workspaces/semantic-guard/apps/api/src"
+    ]
+  },
+  "expected": {
+    "status": "ok",
+    "required_findings": ["mutation_missing_role_boundary", "controller_missing_guard_boundary"],
+    "findings_count": 2
+  },
+  "curation": {
+    "curator": "claude/E13-C3 (judge-diagnosed FP classes, session 2026-08-12)",
+    "gold_set": {
+      "true_positive_count": 2,
+      "known_false_positive_count": 1,
+      "false_positive_classes": ["class_level_guard_composite_decorator"]
+    }
+  }
+}

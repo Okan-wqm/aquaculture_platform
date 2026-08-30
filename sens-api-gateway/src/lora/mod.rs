@@ -34,6 +34,8 @@ pub mod mac;
 pub mod session;
 pub mod sx1302;
 pub mod types;
+#[cfg(feature = "wasm-codec")]
+pub mod wasm_decoder;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -123,6 +125,12 @@ impl LoRaHandle {
     /// - `state`: Paylasilam uygulama durumu (ProcessImage + MQTT erisimi icin)
     pub fn new(lora_cfg: &LoRaWanConfig, state: Arc<RwLock<AppState>>) -> Self {
         let (sender, receiver) = mpsc::channel(LORA_CHANNEL_SIZE);
+
+        // Load custom wasm payload decoders (once) so the `CodecType::Custom`
+        // arm in `codec.rs` can dispatch to them. Absent the feature, custom
+        // codecs stay a warn+empty no-op.
+        #[cfg(feature = "wasm-codec")]
+        wasm_decoder::init(lora_cfg.wasm_decoder_dir.as_deref());
 
         let config = lora_cfg.clone();
         tokio::spawn(async move {

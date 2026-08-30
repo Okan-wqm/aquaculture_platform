@@ -24,16 +24,35 @@ import { useProcessStore } from '../../../store/processStore';
 import { useScadaPackageStore } from '../../../store/scada';
 
 // --- hoisted spies shared between the vi.mock factories and the assertions ---
-const spies = vi.hoisted(() => ({
+const spies = vi.hoisted(() => {
+  // Explicit result shape: the default factory's `automationResults: []`
+  // would otherwise infer never[], rejecting the failure-path
+  // mockResolvedValueOnce payloads at compile time.
+  interface BundleDeployResult {
+    success: boolean;
+    message?: string;
+    automationResults: Array<{ programId: string; success: boolean; message?: string }>;
+    scadaResult?: { packageId: string; success: boolean; message?: string };
+  }
+  return {
   deployProcess: vi.fn(async () => ({ success: true })),
-  deployScada: vi.fn(async () => ({ success: true, packageId: 'pkg-1', deviceId: 'device-1' })),
+  deployScada: vi.fn(
+    async (): Promise<BundleDeployResult> => ({
+      success: true,
+      message: 'Bundle staged',
+      automationResults: [],
+      scadaResult: { packageId: 'pkg-1', success: true },
+    }),
+  ),
   createPkg: vi.fn(async () => ({ id: 'new-pkg' })),
   updatePkg: vi.fn(async () => ({ id: 'pkg-1' })),
   createProcess: vi.fn(async () => ({ success: true, process: { id: 'proc-1' } })),
   updateProcess: vi.fn(async () => ({ success: true })),
-  getProcess: vi.fn(async () => ({ id: 'proc-1', name: 'Test Proc', nodes: [], edges: [] })),
+  getProcess: vi.fn(async () => ({ id: 'proc-1', name: 'Test Proc', status: 'draft', nodes: [], edges: [] })),
   linkedPackages: [] as Array<{ id: string; processId?: string; packageData: unknown }>,
-}));
+  routeProcessId: 'proc-1',
+  };
+});
 
 vi.mock('react-router-dom', () => {
   // The real useSearchParams returns a STABLE tuple across renders (the router
@@ -48,7 +67,7 @@ vi.mock('react-router-dom', () => {
     // The real route is `unified-editor/:processId` — the mock MUST use the
     // same param name the page reads (SENSOR-CRITICAL-001 was masked by this
     // mock carrying a wrong name; routeParam.test.tsx pins it unmocked).
-    useParams: () => ({ processId: 'proc-1' }),
+    useParams: () => ({ processId: spies.routeProcessId }),
     useSearchParams: () => [searchParams, setSearchParams],
     Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a>,
   };
@@ -75,7 +94,7 @@ vi.mock('../../../hooks/useScadaPackage', () => ({
   useScadaPackages: () => ({ packages: spies.linkedPackages, loading: false, error: null, refetch: vi.fn() }),
   useCreateScadaPackage: () => ({ mutateAsync: spies.createPkg }),
   useUpdateScadaPackage: () => ({ mutateAsync: spies.updatePkg }),
-  useDeployScadaPackage: () => ({ mutateAsync: spies.deployScada }),
+  useDeployScadaBundle: () => ({ mutateAsync: spies.deployScada }),
 }));
 
 vi.mock('../../../hooks/useDeployProcess', () => ({
@@ -92,6 +111,9 @@ vi.mock('../../../components/unified-editor/ModeTabBar', () => ({
 vi.mock('../../../components/unified-editor/UnifiedPropertiesPanel', () => ({
   UnifiedPropertiesPanel: () => <div data-testid="properties-panel" />,
 }));
+vi.mock('../../../components/unified-editor/HmiPropertiesPanel', () => ({
+  HmiPropertiesPanel: () => <div data-testid="hmi-properties-panel" />,
+}));
 vi.mock('../../../components/process-editor/panels/AttachmentsPanel', () => ({
   AttachmentsPanel: () => <div data-testid="attachments-panel" />,
 }));
@@ -106,8 +128,8 @@ vi.mock('../../../components/unified-editor/ScreenManager', () => ({
 vi.mock('../../../components/unified-editor/StEditorPanel', () => ({
   default: () => <div data-testid="st-editor" />,
 }));
-vi.mock('../../../components/scada-builder/WidgetPalette', () => ({
-  WidgetPalette: () => <div data-testid="widget-palette" />,
+vi.mock('../../../components/scada-builder/UnifiedLeftPanel', () => ({
+  UnifiedLeftPanel: () => <div data-testid="unified-left-panel" />,
 }));
 vi.mock('../../../components/scada-builder/ScreenCanvas', () => ({
   ScreenCanvas: ({ isPreview }: { isPreview?: boolean }) => (
@@ -115,7 +137,9 @@ vi.mock('../../../components/scada-builder/ScreenCanvas', () => ({
   ),
 }));
 vi.mock('../../../components/scada-builder/StableModeProvider', () => ({
-  StableModeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  StableModeProvider: ({ mode, children }: { mode: string; children: React.ReactNode }) => (
+    <div data-testid="stable-mode-provider" data-mode={mode}>{children}</div>
+  ),
 }));
 vi.mock('../../../components/deploy/ScadaPackagePreview', () => ({
   ScadaPackagePreview: () => <div data-testid="scada-preview" />,
@@ -191,6 +215,7 @@ describe('UnifiedEditorPage — 6b consolidation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     spies.linkedPackages = [];
+    spies.routeProcessId = 'proc-1';
     resetStores();
   });
 
@@ -205,6 +230,20 @@ describe('UnifiedEditorPage — 6b consolidation', () => {
     act(() => useEditorModeStore.getState().setMode('hmi'));
     await waitFor(() => expect(screen.getByTestId('screen-canvas')).toBeTruthy());
     expect(screen.getByTestId('screen-canvas').getAttribute('data-preview')).toBe('false');
+    expect(screen.getByTitle('Process Editor Canvas').className).toContain('hidden');
+  });
+
+  it('(SENSOR-HIGH-047) Runtime mode mounts the LIVE read-only ScreenCanvas', async () => {
+    render(<UnifiedEditorPage />);
+    await waitFor(() => expect(spies.getProcess).toHaveBeenCalled());
+
+    act(() => useEditorModeStore.getState().setMode('runtime'));
+
+    // Live canvas: read-only preview on the LIVE data plane (provider mode
+    // "preview" → LiveDeviceDataProvider), P&ID iframe hidden.
+    await waitFor(() => expect(screen.getByTestId('screen-canvas')).toBeTruthy());
+    expect(screen.getByTestId('screen-canvas').getAttribute('data-preview')).toBe('true');
+    expect(screen.getByTestId('stable-mode-provider').getAttribute('data-mode')).toBe('preview');
     expect(screen.getByTitle('Process Editor Canvas').className).toContain('hidden');
   });
 
@@ -285,6 +324,133 @@ describe('UnifiedEditorPage — 6b consolidation', () => {
     expect(spies.deployScada).not.toHaveBeenCalled();
   });
 
+  it('(popup) PLC mode opens the ST editor as a floating popup, not a bottom dock', async () => {
+    render(<UnifiedEditorPage />);
+    await waitFor(() => expect(spies.getProcess).toHaveBeenCalled());
+    expect(screen.queryByTestId('st-editor')).toBeNull();
+
+    act(() => useEditorModeStore.getState().setMode('plc'));
+    await screen.findByTestId('st-editor');
+    // Rendered inside the fixed overlay dialog, with a close control.
+    expect(screen.getByText('ST Program Editörü (PLC)')).toBeTruthy();
+
+    // Closing the popup returns to the previous editor mode.
+    fireEvent.click(screen.getByLabelText('ST editörünü kapat'));
+    await waitFor(() => expect(screen.queryByTestId('st-editor')).toBeNull());
+    expect(useEditorModeStore.getState().mode).toBe('pid');
+  });
+
+  it('(GAP-3A) a failed bundle deploy names the failing leg(s) in the dialog', async () => {
+    spies.linkedPackages = [
+      { id: 'pkg-1', processId: 'proc-1', packageData: { meta: { schemaVersion: 2, packageName: 'HMI' }, screens: [{ id: 's1', name: 'Main', isDefault: true }] } },
+    ];
+    spies.deployScada.mockResolvedValueOnce({
+      success: false,
+      message: 'Bundle aborted',
+      automationResults: [{ programId: 'prog-9', success: false, message: 'not approved' }],
+      scadaResult: { packageId: 'pkg-1', success: true },
+    });
+    render(<UnifiedEditorPage />);
+    await waitFor(() => expect(spies.getProcess).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByText('Deploy'));
+    fireEvent.click(screen.getByText(/SCADA Paketi/));
+    await screen.findByTestId('deploy-dialog-purple');
+    fireEvent.click(screen.getByTestId('deploy-confirm-purple'));
+
+    await waitFor(() => {
+      const txt = screen.getByTestId('deploy-result-purple').textContent ?? '';
+      expect(txt).toContain('Bundle aborted');
+      expect(txt).toContain('prog-9');
+    });
+  });
+
+  it('(dirty-gate) SCADA deploy is blocked when the HMI package has unsaved changes', async () => {
+    spies.linkedPackages = [
+      { id: 'pkg-1', processId: 'proc-1', packageData: { meta: { schemaVersion: 2, packageName: 'HMI' }, screens: [{ id: 's1', name: 'Main', isDefault: true }] } },
+    ];
+    render(<UnifiedEditorPage />);
+    await waitFor(() => expect(spies.getProcess).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByText('Deploy'));
+    fireEvent.click(screen.getByText(/SCADA Paketi/));
+    await screen.findByTestId('deploy-dialog-purple');
+
+    act(() => useScadaPackageStore.setState({ isDirty: true }));
+
+    fireEvent.click(screen.getByTestId('deploy-confirm-purple'));
+    await waitFor(() =>
+      expect(screen.getByTestId('deploy-result-purple').textContent).toMatch(/Kaydedilmemiş/),
+    );
+    expect(spies.deployScada).not.toHaveBeenCalled();
+  });
+
+  it('(WF-004) loading an existing process leaves the editor CLEAN', async () => {
+    render(<UnifiedEditorPage />);
+    fireCanvasReady();
+    await waitFor(() => expect(useProcessStore.getState().processId).toBe('proc-1'));
+
+    expect(useProcessStore.getState().isDirty).toBe(false);
+    expect(screen.queryByText('Unsaved')).toBeNull();
+    const saveBtn = screen.getByText('Save');
+    expect((saveBtn.closest('button') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('(WF-004) a user canvas edit (canvasEdited) dirties the process and enables Save', async () => {
+    render(<UnifiedEditorPage />);
+    fireCanvasReady();
+    await waitFor(() => expect(useProcessStore.getState().processId).toBe('proc-1'));
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          origin: window.location.origin,
+          data: { type: 'canvasEdited', source: 'process-editor-canvas', data: { plane: 'nodes' } },
+        }),
+      );
+    });
+
+    await waitFor(() => expect(useProcessStore.getState().isDirty).toBe(true));
+    expect(screen.getByText('Unsaved')).toBeTruthy();
+    const saveBtn = screen.getByText('Save');
+    expect((saveBtn.closest('button') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('(WF-004) canvasEdited outside P&ID mode never dirties the process', async () => {
+    render(<UnifiedEditorPage />);
+    fireCanvasReady();
+    await waitFor(() => expect(useProcessStore.getState().processId).toBe('proc-1'));
+
+    act(() => useEditorModeStore.getState().setMode('hmi'));
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          origin: window.location.origin,
+          data: { type: 'canvasEdited', source: 'process-editor-canvas', data: { plane: 'nodes' } },
+        }),
+      );
+    });
+
+    expect(useProcessStore.getState().isDirty).toBe(false);
+  });
+
+  it('(WF-004 dirty-gate) process deploy is blocked while the process has unsaved changes', async () => {
+    render(<UnifiedEditorPage />);
+    await waitFor(() => expect(useProcessStore.getState().processId).toBe('proc-1'));
+
+    fireEvent.click(screen.getByText('Deploy'));
+    fireEvent.click(screen.getByText(/Proses/));
+    await screen.findByTestId('deploy-dialog-cyan');
+
+    act(() => useProcessStore.getState().markDirty());
+
+    fireEvent.click(screen.getByTestId('deploy-confirm-cyan'));
+    await waitFor(() =>
+      expect(screen.getByTestId('deploy-result-cyan').textContent).toMatch(/Kaydedilmemiş/),
+    );
+    expect(spies.deployProcess).not.toHaveBeenCalled();
+  });
+
   it('(b) Deploy menu opens the automation-program modal (6c parity)', async () => {
     render(<UnifiedEditorPage />);
     await waitFor(() => expect(spies.getProcess).toHaveBeenCalled());
@@ -331,11 +497,18 @@ describe('UnifiedEditorPage — 6b consolidation', () => {
 
   it('(c) Save persists BOTH the process and the SCADA package (dual-target)', async () => {
     render(<UnifiedEditorPage />);
-    await waitFor(() => expect(spies.getProcess).toHaveBeenCalled());
     fireCanvasReady();
+    // Hydration completed: the store carries the loaded identity.
+    await waitFor(() => expect(useProcessStore.getState().processId).toBe('proc-1'));
 
-    // Save is enabled once the canvas is ready and the doc is dirty (load set the name).
+    // WF-004: loading is NOT editing — Save stays disabled until a real edit.
     const saveBtn = await screen.findByText('Save');
+    expect((saveBtn.closest('button') as HTMLButtonElement).disabled).toBe(true);
+
+    // A real user edit (rename) dirties the process and enables Save.
+    fireEvent.change(screen.getByPlaceholderText('Project Name'), {
+      target: { value: 'Test Proc v2' },
+    });
     await waitFor(() => expect((saveBtn.closest('button') as HTMLButtonElement).disabled).toBe(false));
 
     fireEvent.click(saveBtn);
@@ -357,5 +530,42 @@ describe('UnifiedEditorPage — 6b consolidation', () => {
         expect.objectContaining({ processId: 'proc-1' }),
       ),
     );
+  });
+
+  it('(SENSOR-HIGH-035) repeated saves on a NEW process update — never re-create duplicates', async () => {
+    // Route param is 'new' and stays 'new' (replaceState does not notify the
+    // router). Create-vs-update must be driven by the persisted id, so the
+    // second save updates instead of spawning a duplicate process.
+    spies.routeProcessId = 'new';
+    render(<UnifiedEditorPage />);
+    fireCanvasReady();
+
+    const dispatchState = () =>
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            origin: window.location.origin,
+            data: { type: 'state', source: 'process-editor-canvas', data: { nodes: [], edges: [] } },
+          }),
+        );
+      });
+
+    const nameInput = screen.getByPlaceholderText('Project Name') as HTMLInputElement;
+    const saveBtn = await screen.findByText('Save');
+
+    // First save → create (returns proc-1, which becomes the persisted id).
+    fireEvent.change(nameInput, { target: { value: 'Brand New Proc' } });
+    await waitFor(() => expect((saveBtn.closest('button') as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(saveBtn);
+    dispatchState();
+    await waitFor(() => expect(spies.createProcess).toHaveBeenCalledTimes(1));
+
+    // Re-dirty and save again → update, NOT a second create.
+    fireEvent.change(nameInput, { target: { value: 'Brand New Proc edited' } });
+    await waitFor(() => expect((saveBtn.closest('button') as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(saveBtn);
+    dispatchState();
+    await waitFor(() => expect(spies.updateProcess).toHaveBeenCalledTimes(1));
+    expect(spies.createProcess).toHaveBeenCalledTimes(1);
   });
 });

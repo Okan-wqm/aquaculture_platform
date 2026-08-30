@@ -1,4 +1,4 @@
-import { CurrentUser, Public, SuperAdminOnly, TenantAdminOrHigher, Role } from '@aquaculture/backend-common/decorators';
+import { CurrentUser, Public, SuperAdminOnly, TenantAdminOrHigher, RequireTenantPermission, Role } from '@aquaculture/backend-common/decorators';
 import { BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID, Int, ObjectType, Field } from '@nestjs/graphql';
 
@@ -167,9 +167,18 @@ export class TenantResolver {
   }
 
   /**
-   * Get users belonging to tenant
+   * Get users belonging to tenant.
+   *
+   * RBAC-HIGH-005: gated on the granular `users:view` capability rather than the
+   * coarse TENANT_ADMIN role. SUPER_ADMIN/TENANT_ADMIN still bypass inside
+   * TenantPermissionGuard (hasAllResourcePermissions), so this is a strict
+   * superset that additionally lets a delegate holding `users:view` load the
+   * users list — completing the end-to-end path for the capability the
+   * frontend (TenantUsers page) and the sibling getUserEffectivePermissions
+   * query already gate on. tenantId is still sourced from the caller's JWT
+   * claim, so a delegate can only ever read their own tenant's users.
    */
-  @TenantAdminOrHigher()
+  @RequireTenantPermission('users:view')
   @Query(() => [User])
   async tenantUsers(
     @CurrentUser('tenantId') tenantId: string,

@@ -38,14 +38,23 @@ from pathlib import Path
 from typing import Any
 
 from claude_runtime import (
+    CREDIT_FALLBACK_EFFORT,
+    MODEL_FALLBACK_TIER,
     CLAUDE_MOCK_ENV_VAR,
     ClaudeAuthUnavailable,
     ClaudeCliUnavailable,
     ClaudePolicyViolation,
     ClaudeRunResult,
     ClaudeUsageUnavailable,
+    UsageRecording,
     run_claude_exec,
     run_with_model_fallback,
+)
+from dispatch_failure import (
+    DispatchFailure,
+    classify_dispatch_failure,
+    emit_dispatch_result_summary,
+    resolve_dispatch_route,
 )
 
 
@@ -234,6 +243,36 @@ def main(argv: list[str] | None = None) -> int:
     from aria_kernel.agent_runtime_profile import read_agent_runtime_profile
 
     profile = read_agent_runtime_profile(parsed.target_agent, repo_root=repo)
+    # ARIA-HIGH-002 — resolve the dispatch route and the once-only summary
+    # emitter before any spawn. The assignment row carries no role field by
+    # SSoT (see worker_dispatch.create_dispatch_request), so the route's
+    # role is empty rather than fabricated from the agent name.
+    dispatch_route = resolve_dispatch_route(
+        request={
+            "target_agent": parsed.target_agent,
+            "role": str(assignment.get("role") or ""),
+        },
+        repo_root=repo,
+    )
+    _summary_emitted = False
+
+    def _emit_summary(
+        *, outcome: str, failure: DispatchFailure | None, exit_code: int | None,
+    ) -> None:
+        nonlocal _summary_emitted
+        if _summary_emitted:
+            return
+        _summary_emitted = True
+        try:
+            emit_dispatch_result_summary(
+                route=dispatch_route,
+                request_id=assignment_id,
+                outcome=outcome,
+                failure=failure,
+                exit_code=exit_code,
+            )
+        except (OSError, ValueError) as summary_exc:
+            sys.stderr.write(f"dispatch_summary_unwritable: {summary_exc}\n")
     try:
         # Model dispatch with the fable→opus fallback policy (credit +
         # refusal), applied by the claude_runtime SSoT helper — identical
@@ -245,18 +284,42 @@ def main(argv: list[str] | None = None) -> int:
                 model=model,
                 effort=effort,
                 cwd=worktree_path,
+                # E17-d — per-spawn usage accounting. role="unknown" is
+                # deliberate, not a placeholder: the aria/dispatch-request
+                # lane's assignment row carries NO role field (see
+                # worker_dispatch.create_dispatch_request), and synthesizing
+                # one from the agent name is exactly the fabricated-identity
+                # defect Plan 025 §B closed in ci_executor. When the dispatch
+                # row grows a role SSoT field, thread it here.
+                usage_recording=UsageRecording(
+                    request_id=assignment_id,
+                    role="unknown",
+                    target_agent=parsed.target_agent,
+                    base_dir=tools_dir,
+                ),
             )
+
+        # ORPHAN-HIGH-478 — derived from the ladder, not the literal
+        # fable->opus@xhigh hop, which stopped being true when the write tier
+        # moved to opus and the ladder gained its opus->sonnet rung.
+        # profile.model, NOT `model`: `model` exists only as a parameter of the
+        # nested _dispatch_attempt above, so referencing it here raised
+        # NameError at runtime. 2905 passing tests did not catch it because
+        # nothing covers this callsite — the defect class this branch is about.
+        _fallback_target = MODEL_FALLBACK_TIER.get(profile.model, "(none)")
 
         def _on_credit(marker: dict[str, Any]) -> None:
             sys.stderr.write(
                 f"model_credit_fallback assignment={assignment_id} "
-                f"marker={marker.get('matched_marker')!r} fable->opus@xhigh\n"
+                f"marker={marker.get('matched_marker')!r} "
+                f"{profile.model}->{_fallback_target}@{CREDIT_FALLBACK_EFFORT}\n"
             )
 
         def _on_refusal(refusal: dict[str, Any]) -> None:
             sys.stderr.write(
                 f"model_refusal_fallback assignment={assignment_id} "
-                f"category={refusal.get('category')!r} fable->opus\n"
+                f"category={refusal.get('category')!r} "
+                f"{profile.model}->{_fallback_target}\n"
             )
 
         completed = run_with_model_fallback(
@@ -267,6 +330,10 @@ def main(argv: list[str] | None = None) -> int:
             on_refusal=_on_refusal,
         )
         if completed.refusal is not None:
+            # ARIA-HIGH-002 — a refusal is not a build failure.
+            _emit_summary(
+                outcome="refused", failure=None, exit_code=completed.returncode,
+            )
             sys.stderr.write(
                 "model_safety_refusal_unresolved: assignment "
                 f"{assignment_id} refused (category="
@@ -274,14 +341,53 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 1
     except (ClaudeAuthUnavailable, ClaudeCliUnavailable, ClaudePolicyViolation, ClaudeUsageUnavailable) as exc:
+        # ORPHAN-HIGH-470 follow-through — this arm now also receives a
+        # refused spawn (`ResourceLimitsUnavailable` / `SandboxUnavailable`,
+        # translated to ClaudePolicyViolation at the
+        # `claude_runtime._apply_resource_limits` / `_apply_write_containment`
+        # boundary). Unlike ci_executor.main, this process owns NONE of the
+        # in-flight state, so `return 1` releases everything it holds:
+        #
+        #   * claim — minted by `worker_dispatch_hook.
+        #     dispatch_one_pending_worker_assignment` (step 3), never by this
+        #     process. That hook is the only production caller; on
+        #     `exit_code != 0` it calls `release_claim_assignment(reason=
+        #     "worker_executor_failed")`, which rolls the assignment back to
+        #     `pending` for the next daemon tick — pinned by
+        #     `aria-kernel/tests/test_worker_dispatch_hook.py::
+        #     test_executor_nonzero_exit_releases_claim`. A release from here
+        #     would race that one and lose (the second release raises
+        #     `claim ... already terminal`).
+        #   * lease — the same claim's lease, arriving read-only via
+        #     ARIA_LEASE_TOKEN and retired by that same release. There is no
+        #     separate lease object to hand back.
+        #   * worktree — created by `worker_dispatch.create_dispatch_request`
+        #     and recorded on the assignment row, deliberately NOT per-run:
+        #     the retry re-claims the same path, and `prune_worktrees` reaps
+        #     it once the assignment is terminal and past its TTL. Removing it
+        #     here would destroy the evidence of the failed attempt and the
+        #     branch the retry builds on.
+        #
+        # Non-zero exit is therefore the whole release protocol for this
+        # process; adding a release call here would be the leak.
+        _emit_summary(
+            outcome="failed",
+            failure=classify_dispatch_failure(exception=exc, phase="spawn"),
+            exit_code=None,
+        )
         sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")
         return 1
     if completed.returncode != 0:
+        _emit_summary(
+            outcome="failed",
+            failure=classify_dispatch_failure(result=completed, phase="runtime"),
+            exit_code=completed.returncode,
+        )
         sys.stderr.write(
             _redact_lease_in_message(completed.stderr, lease_token) + "\n"
         )
         return completed.returncode
-    return _submit_worker_result(
+    submit_rc = _submit_worker_result(
         assignment_id=assignment_id,
         worktree_path=worktree_path,
         tools_dir=tools_dir,
@@ -289,6 +395,20 @@ def main(argv: list[str] | None = None) -> int:
         required_tests=required_tests,
         lease_token=lease_token,
     )
+    if submit_rc == 0:
+        _emit_summary(outcome="succeeded", failure=None, exit_code=0)
+    else:
+        _emit_summary(
+            outcome="failed",
+            failure=DispatchFailure(
+                failure_class="unknown",
+                retryable=False,
+                detail_code="worker_result_submit_failed",
+                phase="submit",
+            ),
+            exit_code=None,
+        )
+    return submit_rc
 
 
 if __name__ == "__main__":

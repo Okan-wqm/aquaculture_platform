@@ -22,9 +22,9 @@
  *
  * The schema regex was therefore RELAXED (now `^\S(.*\S)?$` — non-empty,
  * no leading/trailing whitespace) so the integrity test passes for the
- * historical entries. To preserve the discipline the original regex
- * intended, this advisory invariant gates the OLD strict pattern but
- * scopes enforcement to entries with `created_at >= 2026-05-10`.
+ * historical entries. New registry writes are now fail-closed against the
+ * canonical pattern before hashing; this invariant independently checks
+ * post-cutover ledger content with that same shared contract.
  *
  * # Effect
  *
@@ -32,17 +32,14 @@
  *     enforcement, no warnings — they passed the schema then, they pass
  *     now (relaxed schema), and this advisory ignores them entirely.
  *   - Future entries (created_at >= 2026-05-10): MUST match the strict
- *     path-shape regex. CATCHER agents have a clear cutover signal: any
- *     newly raised finding whose evidence drifts from the canonical shape
- *     fails this invariant and the build is red.
+ *     path-shape contract. The writer rejects drift before the hash chain
+ *     advances and this test detects any bypass or legacy writer.
  *
  * # Tier
  *
- * Tier-3 in the architectural-approach hierarchy: detect drift at
- * build/test time. Not Tier-1 (impossible) because we cannot retroactively
- * make the historical chain match a tighter schema without rewriting
- * hashes; not Tier-2 (automatic) because the writer's schema isn't AJV
- * (CATCHER agents emit free strings then the registry CLI hashes them).
+ * The writer is the Tier-1 boundary for every new append. This companion is
+ * Tier-3 defense-in-depth for the committed ledger and any obsolete writer
+ * that did not pass through the canonical CLI.
  *
  * # When this fails
  *
@@ -76,6 +73,12 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+import {
+  findNonCanonicalFindingEvidence,
+  requiresCanonicalFindingEvidence,
+  STRICT_FINDING_EVIDENCE_CUTOVER_UTC,
+} from '../../tools/gates/finding-evidence-shape';
+
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const REGISTRY_PATH = path.join(REPO_ROOT, 'docs', 'reviews', '_registry', 'findings.jsonl');
 
@@ -87,25 +90,6 @@ const REGISTRY_PATH = path.join(REPO_ROOT, 'docs', 'reviews', '_registry', 'find
  * Picked 2026-05-10 to match the day this advisory landed. New CATCHER
  * output from this date onward MUST follow the canonical shapes.
  */
-const STRICT_PATTERN_CUTOVER_UTC = '2026-05-10T00:00:00.000Z';
-
-/**
- * The original (pre-relaxation) schema regex that the JSON schema used to
- * enforce. We re-state it here as the authoritative future-only check so
- * the schema can stay relaxed for historical compatibility while drift
- * surface remains tight at the WRITER cutover boundary.
- *
- * Anchored start-to-end. Parses one of:
- *   file
- *   file:line
- *   file:start-end
- *   file (test)            (also `file:line (test)` via the optional groups)
- *   file#anchor            (also combinable with the colon/paren groups)
- *
- * Forbids whitespace and unescaped colons inside the path or test segment.
- */
-const STRICT_PATH_SHAPE = /^[^\s:]+(:[^\s:]+(-[^\s:]+)?)?(\s*\(.*\))?(#[A-Za-z0-9._-]+)?$/;
-
 interface FindingEntry {
   id: string;
   created_at?: string;
@@ -120,10 +104,7 @@ function readEntries(): FindingEntry[] {
 }
 
 function isFutureEntry(entry: FindingEntry): boolean {
-  if (typeof entry.created_at !== 'string') return false;
-  const created = Date.parse(entry.created_at);
-  if (Number.isNaN(created)) return false;
-  return created >= Date.parse(STRICT_PATTERN_CUTOVER_UTC);
+  return requiresCanonicalFindingEvidence(entry.created_at);
 }
 
 describe('finding evidence shape — future-only Tier-3 advisory', () => {
@@ -135,23 +116,18 @@ describe('finding evidence shape — future-only Tier-3 advisory', () => {
       if (!isFutureEntry(entry)) continue;
       const evidence = entry.evidence;
       if (!Array.isArray(evidence)) continue;
-      evidence.forEach((item, index) => {
-        if (typeof item !== 'string') return;
-        if (STRICT_PATH_SHAPE.test(item)) return;
-        violations.push({ id: entry.id, index, evidence: item });
-      });
+      for (const invalid of findNonCanonicalFindingEvidence(evidence)) {
+        violations.push({ id: entry.id, index: invalid.index, evidence: invalid.evidence });
+      }
     }
     if (violations.length > 0) {
       const lines = violations
-        .map(
-          (v) =>
-            `  ${v.id} evidence[${v.index}]: ${JSON.stringify(v.evidence)}`,
-        )
+        .map((v) => `  ${v.id} evidence[${v.index}]: ${JSON.stringify(v.evidence)}`)
         .join('\n');
       throw new Error(
         `findings.jsonl contains ${violations.length} evidence string(s) on entries ` +
-          `created on or after ${STRICT_PATTERN_CUTOVER_UTC} that do not match the canonical ` +
-          `path-shape regex ${STRICT_PATH_SHAPE.toString()}.\n\n` +
+          `created on or after ${STRICT_FINDING_EVIDENCE_CUTOVER_UTC} that do not match the canonical ` +
+          `path-shape contract.\n\n` +
           `Canonical shapes: 'file', 'file:line', 'file:start-end', ` +
           `'file (test)', 'file#anchor', 'file:line (test)'. ` +
           `Move non-citation prose into the entry's 'narrative' array (see schema).\n\n` +

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -20,31 +21,144 @@ from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 MODEL_PRICING_USD_PER_MTOK: dict[str, tuple[float, float]] = {
     "claude-fable-5": (10.0, 50.0),
     "claude-mythos-5": (10.0, 50.0),
+    # ORPHAN-HIGH-473 — claude-opus-5 priced at the 4.8 tier, per operator.
+    # This row is what stops the `opus` CLI alias from recording $0.00. ARIA
+    # passes the ALIAS, and the alias means "latest opus"; the id written to the
+    # cost ledger is the full name the CLI resolved (scraped from stream-json at
+    # ci_executor.py:1154). So the moment the installed CLI's `opus` started
+    # resolving to claude-opus-5, every opus-tier dispatch fell through to the
+    # unknown-model 0.0 below — silently, because the caller's
+    # cost_pricing_unknown_model event is emitted inside a nested try/except.
+    #
+    # The key is the EXACT id. A truncated catch-all like "claude-opus" must
+    # never be added here: the matcher below returns the FIRST dict-order match,
+    # not the longest prefix, so a short key would shadow every dated entry.
+    "claude-opus-5": (5.0, 25.0),
     "claude-opus-4-8": (5.0, 25.0),
     "claude-opus-4-7": (5.0, 25.0),
     "claude-opus-4-6": (5.0, 25.0),
     "claude-sonnet-5": (3.0, 15.0),
     "claude-sonnet-4-6": (3.0, 15.0),
     "claude-haiku-4-5": (1.0, 5.0),
+    # ORPHAN-HIGH-763 — Z.ai published rates for GLM-5.3 (2026-08-14):
+    # $1.40 in / $4.40 out per MTok. Recorded as EXACT because they are the
+    # vendor's posted per-token prices, not a family estimate. Cache-read
+    # ($0.26/MTok) has no column in this pair and is deliberately not
+    # averaged in: an invented blend would be worse than a stated overcharge.
+    "glm-5.3": (1.40, 4.40),
+}
+
+# ORPHAN-HIGH-476 — per-FAMILY rates, applied when no exact id matches.
+#
+# The exact table above cannot keep up on its own: ARIA dispatches by CLI alias
+# ("opus" = latest opus), so a new generation starts flowing through the ledger
+# the day it ships, under an id nobody has added a row for yet. That is not a
+# hypothetical — it is exactly how claude-opus-5 came to record $0.00
+# (ORPHAN-HIGH-474), and hand-adding a row per release just schedules the same
+# outage for the next one.
+#
+# A family rate is an ESTIMATE and is labelled as one (PRICING_SOURCE_FAMILY),
+# never silently passed off as measured. The trade is deliberate: an
+# approximate charge that keeps the caps binding beats a $0.00 that makes them
+# inert, and the label is what lets an operator find and correct it. Keys are
+# family prefixes and are matched ONLY after every exact id has missed, so they
+# cannot shadow a dated entry — the failure mode that rules out putting a short
+# key in the table above.
+MODEL_FAMILY_PRICING_USD_PER_MTOK: dict[str, tuple[float, float]] = {
+    "claude-fable": (10.0, 50.0),
+    "claude-mythos": (10.0, 50.0),
+    "claude-opus": (5.0, 25.0),
+    "claude-sonnet": (3.0, 15.0),
+    "claude-haiku": (1.0, 5.0),
+    # Same rate as 5.2 per the vendor; a 5.4 arriving under an id nobody has
+    # added yet lands here instead of on the $0.00 path that caused
+    # ORPHAN-HIGH-474.
+    "glm-5": (1.40, 4.40),
+}
+
+# ORPHAN-HIGH-763 — the alias→id relationship, owned here instead of being
+# re-derived by an f-string inside a test.
+#
+# ARIA dispatches by ALIAS ("opus"); the id that reaches the cost ledger is
+# whatever the CLI resolved ("claude-opus-5"). The rule "prefix the alias with
+# claude-" lived in test_cost_pricing and silently encoded "every dispatchable
+# model is an Anthropic model" — true until it wasn't. A vendor model whose
+# alias IS its id (glm-5.3) needs no prefix, and the coverage pin now asks
+# this table rather than assuming a vendor.
+ALIAS_PRICING_PREFIX: dict[str, str] = {
+    "fable": "claude-fable",
+    "opus": "claude-opus",
+    "sonnet": "claude-sonnet",
+    "haiku": "claude-haiku",
+    "glm-5.3": "glm-5",
 }
 
 
-def estimate_tokens_usd(*, model: str, input_tokens: int, output_tokens: int) -> float:
-    """Notional USD for a token pair under MODEL_PRICING_USD_PER_MTOK.
+def alias_pricing_prefix(alias: str) -> str:
+    """The id prefix a dispatch on ``alias`` prices under.
 
-    Model ids may carry date suffixes (``claude-haiku-4-5-20251001``) —
-    prefix matching handles them. Unknown models return 0.0; the CALLER is
-    responsible for making that visible (governance event), because a silent
-    zero is exactly the defect class this function exists to close.
+    Unmapped aliases fall back to the alias itself rather than to a
+    Claude-shaped guess: a wrong prefix would report coverage the ledger does
+    not have, which is the $0.00 failure this table exists to prevent.
+    """
+    return ALIAS_PRICING_PREFIX.get(alias, alias)
+
+
+PRICING_SOURCE_EXACT: str = "exact"
+PRICING_SOURCE_FAMILY: str = "family"
+PRICING_SOURCE_UNKNOWN: str = "unknown"
+
+
+@dataclass(frozen=True)
+class TokenPrice:
+    """ORPHAN-HIGH-476 — the price AND how it was derived.
+
+    ``estimate_tokens_usd`` returns a bare float, so a family estimate and a
+    measured rate are indistinguishable at the callsite and an inferred number
+    would be recorded as though it were exact. Callers that persist cost must
+    persist ``source`` alongside it.
+    """
+
+    usd: float
+    source: str
+    matched_key: str | None
+
+
+def price_tokens(*, model: str, input_tokens: int, output_tokens: int) -> TokenPrice:
+    """Resolve a token pair to USD, exact id first, then family prefix.
+
+    Order is the whole contract: an exact (or dated-suffix) id always wins, so
+    adding a family rate can never override a rate someone measured.
     """
     normalized = (model or "").strip().lower()
+
+    def _usd(in_rate: float, out_rate: float) -> float:
+        return round(
+            (max(0, input_tokens) * in_rate + max(0, output_tokens) * out_rate) / 1_000_000,
+            6,
+        )
+
     for known, (in_rate, out_rate) in MODEL_PRICING_USD_PER_MTOK.items():
         if normalized == known or normalized.startswith(f"{known}-"):
-            return round(
-                (max(0, input_tokens) * in_rate + max(0, output_tokens) * out_rate) / 1_000_000,
-                6,
-            )
-    return 0.0
+            return TokenPrice(_usd(in_rate, out_rate), PRICING_SOURCE_EXACT, known)
+    for family, (in_rate, out_rate) in MODEL_FAMILY_PRICING_USD_PER_MTOK.items():
+        if normalized == family or normalized.startswith(f"{family}-"):
+            return TokenPrice(_usd(in_rate, out_rate), PRICING_SOURCE_FAMILY, family)
+    return TokenPrice(0.0, PRICING_SOURCE_UNKNOWN, None)
+
+
+def estimate_tokens_usd(*, model: str, input_tokens: int, output_tokens: int) -> float:
+    """Notional USD for a token pair. Thin wrapper over :func:`price_tokens`.
+
+    Retained because callers and tests depend on the bare-float shape, but it
+    DISCARDS the pricing source — a caller that persists the number should use
+    ``price_tokens`` and record ``source``, so a family estimate is never filed
+    as a measured rate. Returns 0.0 only when even the family is unknown, which
+    now means a genuinely new model family rather than merely a new generation.
+    """
+    return price_tokens(
+        model=model, input_tokens=input_tokens, output_tokens=output_tokens,
+    ).usd
 
 
 DEFAULT_BUDGET = {
@@ -277,6 +391,68 @@ def _per_run_remaining(base_dir: str | Path, cap: float) -> float:
             except (TypeError, ValueError):
                 continue
     return max(0.0, cap - consumed)
+
+
+# ORPHAN-HIGH-472 — the only value `usd_basis` currently takes. It is a named
+# constant rather than a bare string so that the day ARIA does run against a
+# metered API, the two bases are distinguishable in the same ledger instead of
+# silently mixed.
+USD_BASIS_NOTIONAL_API_EQUIVALENT = "notional_api_equivalent"
+
+
+class WallClockExhausted(GovernanceError):
+    """A dispatch cannot finish inside what is left of the cycle's wall clock."""
+
+
+def record_run_wall_clock(
+    *,
+    cycle_id: str,
+    seconds: float,
+    base_dir: str | Path,
+    request_id: str | None = None,
+) -> dict[str, Any]:
+    """Append what a completed agent run actually cost in wall-clock time.
+
+    ORPHAN-HIGH-472. Time, not dollars, is what binds under a Claude Code
+    subscription: there is no marginal per-run charge, so the scarce things a
+    runaway loop consumes are the shared usage quota and CI minutes, and both
+    are spent in seconds.
+    """
+    if not isinstance(seconds, (int, float)) or seconds < 0:
+        raise GovernanceError(f"seconds must be >= 0, got {seconds!r}")
+    return _per_run_append(
+        base_dir,
+        {
+            "$schema": "aria/budget-reservation/v1",
+            "kind": "run_wall_clock",
+            "cycle_id": cycle_id,
+            "request_id": request_id,
+            "wall_clock_seconds": float(seconds),
+            "recorded_at": utc_now(),
+            "schema_version": 1,
+        },
+    )
+
+
+def cycle_wall_clock_spent(*, cycle_id: str, base_dir: str | Path) -> float:
+    """Seconds already spent on agent runs in this cycle, from the ledger."""
+    spent = 0.0
+    for row in _per_run_load(base_dir):
+        if row.get("kind") != "run_wall_clock" or row.get("cycle_id") != cycle_id:
+            continue
+        try:
+            spent += float(row.get("wall_clock_seconds", 0))
+        except (TypeError, ValueError):
+            continue
+    return spent
+
+
+# ORPHAN-CRITICAL-495 — `assert_dispatch_fits_wall_clock` lived here and is
+# gone. It accounted against a per-cycle total, and the executor handles ONE
+# request per job, so the ceiling that actually matters is elapsed job time
+# (ci_executor._assert_cycle_wall_clock, derived from GITHUB_RUN_STARTED_AT).
+# Keeping a second, unreachable gate beside the real one is the exact shape
+# this branch exists to remove — so it was deleted rather than left exported.
 
 
 def reserve_cycle_budget(
@@ -523,6 +699,14 @@ def record_cost_attribution(
         "input_tokens": _non_negative_int(input_tokens, "input_tokens"),
         "output_tokens": _non_negative_int(output_tokens, "output_tokens"),
         "estimated_usd": float(estimated_usd),
+        # ORPHAN-HIGH-472 — what `estimated_usd` actually is. ARIA runs on a
+        # Claude Code subscription session, so no per-token charge is
+        # incurred: this figure prices the call at API list rates. It is a
+        # comparable, not an invoice. Labelled on the row rather than only in
+        # a docstring because the row is what a dashboard, an audit, or a
+        # future reader sees — and an unlabelled dollar figure in a ledger
+        # gets read as money spent. Nothing gates on it.
+        "usd_basis": USD_BASIS_NOTIONAL_API_EQUIVALENT,
         "pressure_source_type": pressure_source_type,
         "terminal_state": terminal_state,
         "signer_key_fp": effective_signer_fp,
@@ -591,10 +775,48 @@ def read_cost_attribution(
             shard,
             expected_surface="cost_attribution",
         ):
-            if since_iso and str(row.get("recorded_at", "")) < since_iso:
+            if since_iso and _before_instant(str(row.get("recorded_at", "")), since_iso):
                 continue
             rows.append(row)
     return rows
+
+
+def _before_instant(recorded_at: str, since_iso: str) -> bool:
+    """True when ``recorded_at`` precedes ``since_iso`` as an INSTANT.
+
+    ORPHAN-MEDIUM-482 — this was a raw string ``<`` comparison, and the two
+    sides use different ISO spellings for the same instant: rows are written by
+    ``utc_now()`` as ``2026-07-28T00:00:00+00:00`` while callers build windows as
+    ``2026-07-28T00:00:00Z``. Through the seconds the strings are identical, then
+    ``'+'`` (0x2B) sorts below ``'Z'`` (0x5A) — so a row recorded at EXACTLY the
+    window start compared as earlier than it and was dropped. One row per day and
+    per month boundary vanished from derived spend, which under-counts a safety
+    cap rather than over-counting it.
+
+    Comparing parsed instants removes the whole class instead of making two
+    spellings agree by convention. Unparseable input is treated as NOT-before, so
+    a malformed row is counted rather than silently excluded from a budget.
+    """
+    a = _parse_instant(recorded_at)
+    b = _parse_instant(since_iso)
+    if a is None or b is None:
+        return False
+    return a < b
+
+
+def _parse_instant(value: str) -> datetime | None:
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    if raw.endswith(("Z", "z")):
+        raw = raw[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
 
 
 def aggregate_cost_attribution(

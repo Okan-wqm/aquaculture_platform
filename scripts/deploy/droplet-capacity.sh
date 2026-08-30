@@ -3,7 +3,11 @@
 #
 # This script is intentionally conservative. It never removes volumes,
 # containers, networks, or build cache. Deploy-time cleanup is limited to
-# dangling images and unused old application SHA tags under IMAGE_PREFIX.
+# dangling images and, under IMAGE_PREFIX only, app tags outside the closed
+# keep-allowlist (latest/staging/buildcache-*/current DEPLOY_SHA) whose image
+# IDs no container, rollback manifest, or deploy target references — old SHA
+# tags, superseded rollback retags, and unclassified ad-hoc tags alike
+# (default-deny: an unlisted tag class cannot become immortal).
 
 set -euo pipefail
 
@@ -15,7 +19,36 @@ ROLLBACK_MANIFEST="${ROLLBACK_MANIFEST:-}"
 DEPLOY_STATE_DIR="${DEPLOY_STATE_DIR:-}"
 CAPACITY_GC_MODE="${CAPACITY_GC_MODE:-auto}" # auto | off
 CAPACITY_DISK_USAGE_MODE="${CAPACITY_DISK_USAGE_MODE:-summary}" # summary | deep | off
-CAPACITY_DU_TIMEOUT_SECONDS="${CAPACITY_DU_TIMEOUT_SECONDS:-60}"
+# One wall-clock budget owns each diagnostic snapshot. Disjoint frontier
+# workers share that deadline, rather than multiplying a per-scope timeout
+# across overlapping /, /var, /var/lib, ... scans.
+CAPACITY_DU_TIMEOUT_SECONDS="${CAPACITY_DU_TIMEOUT_SECONDS:-120}"
+CAPACITY_DU_TIMEOUT_MAX_SECONDS=120
+# timeout(1) first sends TERM, then has this fixed grace to reap a stuck du.
+# The invariant guarantees the following non-du headroom inside the OUTER SSH
+# command timeout for setup, checkout, Docker inventory/GC, threshold
+# evaluation, formatting, and teardown. It is a budget relationship, not a
+# second timer implemented by this script.
+CAPACITY_DU_KILL_GRACE_SECONDS=5
+CAPACITY_NON_DU_HEADROOM_SECONDS=300
+# Disjoint scopes run concurrently, but all workers share one wall-clock
+# deadline. These are constants rather than operator overrides so a dispatch
+# cannot turn diagnostics into an unbounded I/O fan-out.
+CAPACITY_DU_PARALLELISM=4
+CAPACITY_DU_MAX_SCOPES=512
+# No single tranche may monopolize the global deadline. A timed-out summary
+# still attributes the suspect path while freeing a slot for later families.
+CAPACITY_DU_SCOPE_TIMEOUT_SECONDS=15
+# Filesystem discovery is part of the same global deadline and all directory
+# enumerations share this smaller discovery phase. Each enumeration returns at
+# most N+1 records (the extra record proves truncation without unbounded output).
+CAPACITY_DU_DISCOVERY_TIMEOUT_SECONDS=20
+CAPACITY_DU_MAX_DISCOVERY_CALLS=64
+CAPACITY_DU_MAX_CHILDREN_PER_DIRECTORY=128
+CAPACITY_DU_MAX_UNAVAILABLE_RECORDS=64
+# `du -s --null` should emit one PATH_MAX-sized record. Cap the capture anyway
+# so a broken binary or hostile wrapper cannot fill the already-tight disk.
+CAPACITY_DU_MAX_RESULT_BYTES=8192
 
 GIB=$((1024 * 1024 * 1024))
 FULL_HARD_FREE_GIB="${FULL_HARD_FREE_GIB:-35}"
@@ -48,7 +81,7 @@ Environment:
   IMAGE_PREFIX=ghcr.io/owner/repo
   CAPACITY_GC_MODE=auto|off
   CAPACITY_DISK_USAGE_MODE=summary|deep|off
-  CAPACITY_DU_TIMEOUT_SECONDS=60
+  CAPACITY_DU_TIMEOUT_SECONDS=1..120
   GC_DRY_RUN=true|false   (gc only: enumerate removals without deleting)
 EOF
 }
@@ -106,33 +139,509 @@ df_inode_row() {
   df -Pi "${path}" 2>/dev/null | awk 'NR==2 {print $2 "\t" $4}'
 }
 
-disk_usage_paths() {
-  case "${CAPACITY_DISK_USAGE_MODE}" in
-    off)
-      return 0
-      ;;
-    deep)
-      unique_paths "/" "/var" "/var/lib" "$(docker_root)" "/var/lib/containerd" "/var/log" "/var/aqua-saas" "/tmp"
-      ;;
-    summary)
-      unique_paths "/"
-      ;;
-    *)
-      echo "::warning::unknown_capacity_disk_usage_mode mode=${CAPACITY_DISK_USAGE_MODE}; using summary" >&2
-      unique_paths "/"
-      ;;
+capacity_record_unavailable_encoded() {
+  local error_file="$1"
+  local reason="$2"
+  local detail="$3"
+  local path_base64="$4"
+  local operation_timeout_seconds="${5:-0}"
+
+  if [ "${CAPACITY_UNAVAILABLE_RECORDS:-0}" -ge \
+    "${CAPACITY_DU_MAX_UNAVAILABLE_RECORDS}" ]; then
+    CAPACITY_UNAVAILABLE_TRUNCATED=true
+    CAPACITY_FRONTIER_TRUNCATED=true
+    return 0
+  fi
+  printf '%s\t%s\t%s\t%s\n' \
+    "${reason}" "${detail}" "${operation_timeout_seconds}" "${path_base64}" >> "${error_file}"
+  CAPACITY_UNAVAILABLE_RECORDS=$((CAPACITY_UNAVAILABLE_RECORDS + 1))
+}
+
+# A scope worth measuring is one that can actually consume disk. `df` reports
+# zero total bytes for pseudo-filesystems (procfs, sysfs); every real mount —
+# ext4, overlay, even tmpfs — reports its size. An unreadable `df` is treated
+# as NOT disk-backed on purpose: the alternative is walking a filesystem we
+# could not identify, which is how this lane started failing in the first
+# place, and a skipped scope is recorded out loud rather than dropped.
+capacity_scope_is_disk_backed() {
+  local scope_path="$1"
+  local total_bytes
+  total_bytes="$(df -PB1 -- "${scope_path}" 2>/dev/null | awk 'NR==2 {print $2}')"
+  case "${total_bytes}" in
+    '' | *[!0-9]*) return 1 ;;
+  esac
+  [ "${total_bytes}" -gt 0 ]
+}
+
+capacity_record_unavailable() {
+  local error_file="$1"
+  local reason="$2"
+  local detail="$3"
+  local scope_path="$4"
+  local operation_timeout_seconds="${5:-0}"
+  local path_base64
+  path_base64="$(printf '%s' "${scope_path}" | base64 -w0)"
+  capacity_record_unavailable_encoded \
+    "${error_file}" "${reason}" "${detail}" "${path_base64}" \
+    "${operation_timeout_seconds}"
+}
+
+capacity_is_hotspot() {
+  [ "${CAPACITY_DISK_USAGE_MODE}" = "deep" ] || return 1
+  case "$1" in
+    /tmp | /var/aqua-saas | /var/suderra-os) return 0 ;;
+    *) return 1 ;;
   esac
 }
 
-du_scope_snapshot() {
-  local path="$1"
-  local snapshot_file="$2"
+capacity_target_below() {
+  local candidate_path="$1"
+  local target_path="$2"
+  [ "${candidate_path}" != "${target_path}" ] &&
+    [[ "${target_path}" == "${candidate_path}/"* ]]
+}
 
-  if command -v timeout >/dev/null 2>&1; then
-    timeout "${CAPACITY_DU_TIMEOUT_SECONDS}s" du -x -B1 -d1 "${path}" > "${snapshot_file}" 2>/dev/null
-  else
-    du -x -B1 -d1 "${path}" > "${snapshot_file}" 2>/dev/null
+capacity_add_frontier_scope() {
+  local frontier_file="$1"
+  local error_file="$2"
+  local scope_path="$3"
+  local scope_key
+
+  [ -e "${scope_path}" ] || [ -L "${scope_path}" ] || return 0
+  # Bash associative keys preserve every legal pathname byte (NUL is not a
+  # legal pathname byte), avoiding a subprocess for each discovered scope.
+  scope_key="${scope_path}"
+  if [[ -n "${CAPACITY_FRONTIER_SEEN[${scope_key}]+present}" ]]; then
+    return 0
   fi
+
+  if [ "${CAPACITY_FRONTIER_COUNT}" -ge "${CAPACITY_DU_MAX_SCOPES}" ]; then
+    CAPACITY_FRONTIER_TRUNCATED=true
+    if [ "${CAPACITY_FRONTIER_LIMIT_RECORDED}" = false ]; then
+      capacity_record_unavailable \
+        "${error_file}" scope_limit "${CAPACITY_DU_MAX_SCOPES}" "${scope_path}"
+      CAPACITY_FRONTIER_LIMIT_RECORDED=true
+    fi
+    return 0
+  fi
+
+  CAPACITY_FRONTIER_SEEN["${scope_key}"]=1
+  printf '%s\0' "${scope_path}" >> "${frontier_file}"
+  CAPACITY_FRONTIER_COUNT=$((CAPACITY_FRONTIER_COUNT + 1))
+}
+
+capacity_discover_children() {
+  local parent_path="$1"
+  local output_file="$2"
+  local error_file="$3"
+  local work_dir="$4"
+  local deadline="$5"
+  local remaining=$((deadline - SECONDS))
+  local discovery_budget
+  local raw_file
+  local find_status
+  local head_status
+  local entry_index
+  local -a pipeline_status=()
+  local -a discovered_entries=()
+
+  : > "${output_file}"
+  if [ "${CAPACITY_DISCOVERY_SEQUENCE}" -ge "${CAPACITY_DU_MAX_DISCOVERY_CALLS}" ]; then
+    CAPACITY_FRONTIER_TRUNCATED=true
+    capacity_record_unavailable \
+      "${error_file}" discovery_call_limit \
+      "${CAPACITY_DU_MAX_DISCOVERY_CALLS}" "${parent_path}"
+    return 0
+  fi
+  if [ "${remaining}" -le 0 ]; then
+    CAPACITY_FRONTIER_TRUNCATED=true
+    capacity_record_unavailable "${error_file}" discovery_deadline 0 "${parent_path}"
+    return 0
+  fi
+
+  discovery_budget="${CAPACITY_DU_DISCOVERY_TIMEOUT_SECONDS}"
+  if [ "${remaining}" -lt "${discovery_budget}" ]; then
+    discovery_budget="${remaining}"
+  fi
+
+  CAPACITY_DISCOVERY_SEQUENCE=$((CAPACITY_DISCOVERY_SEQUENCE + 1))
+  raw_file="${work_dir}/discovery.${CAPACITY_DISCOVERY_SEQUENCE}.raw"
+  set +e
+  timeout --signal=TERM \
+    --kill-after="${CAPACITY_DU_KILL_GRACE_SECONDS}s" \
+    "${discovery_budget}s" \
+    find "${parent_path}" -xdev -mindepth 1 -maxdepth 1 -print0 2>/dev/null |
+    head -z -n "$((CAPACITY_DU_MAX_CHILDREN_PER_DIRECTORY + 1))" > "${raw_file}"
+  pipeline_status=("${PIPESTATUS[@]}")
+  set -e
+  find_status="${pipeline_status[0]:-1}"
+  head_status="${pipeline_status[1]:-1}"
+
+  mapfile -d '' -t discovered_entries < "${raw_file}"
+  rm -f -- "${raw_file}"
+
+  for ((entry_index = 0;
+    entry_index < ${#discovered_entries[@]} &&
+      entry_index < CAPACITY_DU_MAX_CHILDREN_PER_DIRECTORY;
+    entry_index++)); do
+    # `find -xdev` refuses to DESCEND past a mount point but still LISTS the
+    # mount point itself, so /proc and /sys arrive here as capacity scopes.
+    # `du` then walks procfs and exits non-zero the moment a process it is
+    # reading exits — measured 2026-08-19 on this host: `du -sx /proc` -> 1,
+    # "cannot access '/proc/<pid>'", while the same command over /run, /dev
+    # and /dev/shm returns 0. The lane was therefore structurally flaky, and
+    # what it was trying to measure is meaningless: a pseudo-filesystem
+    # occupies no disk.
+    #
+    # The discriminator is a property, not a name list. A filesystem that
+    # reports ZERO total bytes cannot hold anything that fills a disk, and
+    # that is exactly what procfs and sysfs report (measured: /proc 0,
+    # /sys 0, /dev 4143394816, / 165295407104). Naming the filesystems
+    # instead would go stale the first time the host mounts one nobody
+    # listed.
+    if ! capacity_scope_is_disk_backed "${discovered_entries[entry_index]}"; then
+      capacity_record_unavailable \
+        "${error_file}" scope_not_disk_backed 0 \
+        "${discovered_entries[entry_index]}"
+      continue
+    fi
+    printf '%s\0' "${discovered_entries[entry_index]}" >> "${output_file}"
+  done
+
+  if [ "${#discovered_entries[@]}" -gt "${CAPACITY_DU_MAX_CHILDREN_PER_DIRECTORY}" ]; then
+    CAPACITY_FRONTIER_TRUNCATED=true
+    capacity_record_unavailable \
+      "${error_file}" discovery_scope_limit \
+      "${CAPACITY_DU_MAX_CHILDREN_PER_DIRECTORY}" "${parent_path}"
+  fi
+
+  case "${find_status}" in
+    0) ;;
+    124 | 137)
+      CAPACITY_FRONTIER_TRUNCATED=true
+      capacity_record_unavailable \
+        "${error_file}" discovery_timeout "${find_status}" "${parent_path}" \
+        "${discovery_budget}"
+      ;;
+    141)
+      # `head` intentionally closes the pipe after N+1 records. A SIGPIPE is
+      # expected only when that bounded record proves truncation.
+      if [ "${#discovered_entries[@]}" -le "${CAPACITY_DU_MAX_CHILDREN_PER_DIRECTORY}" ]; then
+        CAPACITY_FRONTIER_TRUNCATED=true
+        capacity_record_unavailable \
+          "${error_file}" discovery_failed "${find_status}" "${parent_path}" \
+          "${discovery_budget}"
+      fi
+      ;;
+    *)
+      CAPACITY_FRONTIER_TRUNCATED=true
+      capacity_record_unavailable \
+        "${error_file}" discovery_failed "${find_status}" "${parent_path}" \
+        "${discovery_budget}"
+      ;;
+  esac
+  if [ "${head_status}" -ne 0 ]; then
+    CAPACITY_FRONTIER_TRUNCATED=true
+    capacity_record_unavailable \
+      "${error_file}" discovery_capture_failed "${head_status}" "${parent_path}" \
+      "${discovery_budget}"
+  fi
+}
+
+emit_exclusion_safe_frontier() {
+  local candidate_path="$1"
+  local docker_path="$2"
+  local frontier_file="$3"
+  local error_file="$4"
+  local work_dir="$5"
+  local deadline="$6"
+  local containerd_path=/var/lib/containerd
+  local child_file
+  local child_path
+  local split_candidate=false
+  local hotspot_path
+
+  [ -e "${candidate_path}" ] || [ -L "${candidate_path}" ] || return 0
+  if [ "${candidate_path}" = "${docker_path}" ] ||
+    [[ "${candidate_path}" == "${docker_path}/"* ]] ||
+    [ "${candidate_path}" = "${containerd_path}" ] ||
+    [[ "${candidate_path}" == "${containerd_path}/"* ]] ||
+    capacity_is_hotspot "${candidate_path}"; then
+    return 0
+  fi
+
+  if capacity_target_below "${candidate_path}" "${docker_path}" ||
+    capacity_target_below "${candidate_path}" "${containerd_path}"; then
+    split_candidate=true
+  fi
+  if [ "${CAPACITY_DISK_USAGE_MODE}" = "deep" ]; then
+    for hotspot_path in /tmp /var/aqua-saas /var/suderra-os; do
+      if [ -e "${hotspot_path}" ] &&
+        capacity_target_below "${candidate_path}" "${hotspot_path}"; then
+        split_candidate=true
+      fi
+    done
+  fi
+
+  if [ "${split_candidate}" = false ]; then
+    capacity_add_frontier_scope "${frontier_file}" "${error_file}" "${candidate_path}"
+    return 0
+  fi
+
+  CAPACITY_CHILD_SEQUENCE=$((CAPACITY_CHILD_SEQUENCE + 1))
+  child_file="${work_dir}/children.${CAPACITY_CHILD_SEQUENCE}"
+  capacity_discover_children \
+    "${candidate_path}" "${child_file}" "${error_file}" "${work_dir}" "${deadline}"
+  while IFS= read -r -d '' child_path; do
+    emit_exclusion_safe_frontier \
+      "${child_path}" "${docker_path}" "${frontier_file}" \
+      "${error_file}" "${work_dir}" "${deadline}"
+  done < "${child_file}"
+  rm -f -- "${child_file}"
+}
+
+capacity_hotspot_frontier() {
+  local hotspot_path="$1"
+  local docker_path="$2"
+  local frontier_file="$3"
+  local error_file="$4"
+  local work_dir="$5"
+  local deadline="$6"
+  local child_file
+  local child_path
+
+  [ -e "${hotspot_path}" ] || return 0
+  if [ "${hotspot_path}" = "${docker_path}" ] ||
+    [[ "${hotspot_path}" == "${docker_path}/"* ]] ||
+    [ "${hotspot_path}" = /var/lib/containerd ] ||
+    [[ "${hotspot_path}" == /var/lib/containerd/* ]]; then
+    return 0
+  fi
+
+  CAPACITY_CHILD_SEQUENCE=$((CAPACITY_CHILD_SEQUENCE + 1))
+  child_file="${work_dir}/children.${CAPACITY_CHILD_SEQUENCE}"
+  capacity_discover_children \
+    "${hotspot_path}" "${child_file}" "${error_file}" "${work_dir}" "${deadline}"
+  while IFS= read -r -d '' child_path; do
+    emit_exclusion_safe_frontier \
+      "${child_path}" "${docker_path}" "${frontier_file}" \
+      "${error_file}" "${work_dir}" "${deadline}"
+  done < "${child_file}"
+  rm -f -- "${child_file}"
+}
+
+capacity_build_frontier() {
+  local frontier_file="$1"
+  local error_file="$2"
+  local work_dir="$3"
+  local deadline="$4"
+  local docker_path
+  local priority_path
+  local hotspot_path
+  local root_children_file
+  local root_path
+
+  docker_path="$(docker_root)"
+  CAPACITY_FRONTIER_COUNT=0
+  CAPACITY_FRONTIER_TRUNCATED=false
+  CAPACITY_FRONTIER_LIMIT_RECORDED=false
+  CAPACITY_UNAVAILABLE_RECORDS=0
+  CAPACITY_UNAVAILABLE_TRUNCATED=false
+  CAPACITY_DISCOVERY_SEQUENCE=0
+  CAPACITY_CHILD_SEQUENCE=0
+  declare -gA CAPACITY_FRONTIER_SEEN=()
+  : > "${frontier_file}"
+
+  case "${CAPACITY_DISK_USAGE_MODE}" in
+    deep)
+      # Known large paths go first so they retain a worker even if a hostile
+      # directory later hits the discovery or global scope cap.
+      for priority_path in \
+        /var/aqua-saas/target /var/aqua-saas/node_modules \
+        /var/suderra-os/target /var/suderra-os/node_modules; do
+        emit_exclusion_safe_frontier \
+          "${priority_path}" "${docker_path}" "${frontier_file}" \
+          "${error_file}" "${work_dir}" "${deadline}"
+      done
+      for hotspot_path in /tmp /var/aqua-saas /var/suderra-os; do
+        capacity_hotspot_frontier \
+          "${hotspot_path}" "${docker_path}" "${frontier_file}" \
+          "${error_file}" "${work_dir}" "${deadline}"
+      done
+      ;;
+    summary) ;;
+    *)
+      echo "::warning::unknown_capacity_disk_usage_mode mode=${CAPACITY_DISK_USAGE_MODE}; using summary" >&2
+      ;;
+  esac
+
+  # Preserve likely high-value evidence before the generic root enumeration.
+  for priority_path in /var/lib/postgresql /var/log /opt /home /root; do
+    emit_exclusion_safe_frontier \
+      "${priority_path}" "${docker_path}" "${frontier_file}" \
+      "${error_file}" "${work_dir}" "${deadline}"
+  done
+
+  CAPACITY_CHILD_SEQUENCE=$((CAPACITY_CHILD_SEQUENCE + 1))
+  root_children_file="${work_dir}/children.${CAPACITY_CHILD_SEQUENCE}"
+  capacity_discover_children / "${root_children_file}" \
+    "${error_file}" "${work_dir}" "${deadline}"
+  while IFS= read -r -d '' root_path; do
+    emit_exclusion_safe_frontier \
+      "${root_path}" "${docker_path}" "${frontier_file}" \
+      "${error_file}" "${work_dir}" "${deadline}"
+  done < "${root_children_file}"
+  rm -f -- "${root_children_file}"
+}
+
+du_frontier_snapshot() {
+  local snapshot_file="$1"
+  local error_file="$2"
+  local work_dir="$3"
+  local deadline=$((SECONDS + CAPACITY_DU_TIMEOUT_SECONDS))
+  local discovery_deadline=$((SECONDS + CAPACITY_DU_DISCOVERY_TIMEOUT_SECONDS))
+  local frontier_file="${work_dir}/frontier.paths"
+  local active=0
+  local discovered=0
+  local started=0
+  local scope_path
+  local path_base64
+  local remaining
+  local scope_timeout
+  local result_path
+  local result_index
+  local result_kind
+  local result_value
+  local result_detail
+  local result_timeout
+  local deadline_recorded=false
+
+  if [ "${discovery_deadline}" -gt "${deadline}" ]; then
+    discovery_deadline="${deadline}"
+  fi
+  capacity_build_frontier \
+    "${frontier_file}" "${error_file}" "${work_dir}" "${discovery_deadline}"
+
+  while IFS= read -r -d '' scope_path; do
+    discovered=$((discovered + 1))
+    while [ "${active}" -ge "${CAPACITY_DU_PARALLELISM}" ]; do
+      wait -n
+      active=$((active - 1))
+    done
+
+    remaining=$((deadline - SECONDS))
+    if [ "${remaining}" -le 0 ]; then
+      CAPACITY_FRONTIER_TRUNCATED=true
+      if [ "${deadline_recorded}" = false ]; then
+        capacity_record_unavailable \
+          "${error_file}" global_deadline 0 "${scope_path}"
+        deadline_recorded=true
+      fi
+      break
+    fi
+    scope_timeout="${remaining}"
+    if [ "${scope_timeout}" -gt "${CAPACITY_DU_SCOPE_TIMEOUT_SECONDS}" ]; then
+      scope_timeout="${CAPACITY_DU_SCOPE_TIMEOUT_SECONDS}"
+    fi
+
+    started=$((started + 1))
+    result_path="${work_dir}/result.${started}"
+    path_base64="$(printf '%s' "${scope_path}" | base64 -w0)"
+    (
+      set +e
+      raw_output_path="${result_path}.raw"
+      timeout --signal=TERM \
+        --kill-after="${CAPACITY_DU_KILL_GRACE_SECONDS}s" \
+        "${scope_timeout}s" du -sx -B1 --null -- "${scope_path}" 2>/dev/null |
+        head -c "${CAPACITY_DU_MAX_RESULT_BYTES}" > "${raw_output_path}"
+      local_pipeline_status=("${PIPESTATUS[@]}")
+      local_status="${local_pipeline_status[0]:-1}"
+      local_head_status="${local_pipeline_status[1]:-1}"
+      local_output_bytes="$(wc -c < "${raw_output_path}")"
+      local_record=''
+      local_record_status=1
+      if [ "${local_output_bytes}" -lt "${CAPACITY_DU_MAX_RESULT_BYTES}" ]; then
+        IFS= read -r -d '' local_record < "${raw_output_path}"
+        local_record_status=$?
+      fi
+      if [ "${local_record_status}" -eq 0 ]; then
+        local_bytes=${local_record%%$'\t'*}
+        local_path=${local_record#*$'\t'}
+        if [[ "${local_bytes}" =~ ^[0-9]+$ ]] && [ "${local_path}" != "${local_record}" ]; then
+          local_path_base64="$(printf '%s' "${local_path}" | base64 -w0)"
+          printf 'ok\t%s\t0\t0\t%s\n' "${local_bytes}" "${local_path_base64}"
+        else
+          printf 'error\tmalformed_output\t0\t%s\t%s\n' \
+            "${scope_timeout}" "${path_base64}"
+        fi
+      elif [ "${local_output_bytes}" -ge "${CAPACITY_DU_MAX_RESULT_BYTES}" ]; then
+        printf 'error\tdu_output_limit\t%s\t%s\t%s\n' \
+          "${CAPACITY_DU_MAX_RESULT_BYTES}" "${scope_timeout}" "${path_base64}"
+      elif [ "${local_status}" -eq 0 ]; then
+        printf 'error\tmalformed_output\t0\t%s\t%s\n' \
+          "${scope_timeout}" "${path_base64}"
+      fi
+      if [ "${local_head_status}" -ne 0 ]; then
+        printf 'error\tdu_capture_failed\t%s\t%s\t%s\n' \
+          "${local_head_status}" "${scope_timeout}" "${path_base64}"
+      elif [ "${local_output_bytes}" -lt "${CAPACITY_DU_MAX_RESULT_BYTES}" ] &&
+        [ "${local_status}" -ne 0 ]; then
+        case "${local_status}" in
+          124 | 137) local_reason=du_timeout ;;
+          *) local_reason=du_failed ;;
+        esac
+        printf 'error\t%s\t%s\t%s\t%s\n' \
+          "${local_reason}" "${local_status}" "${scope_timeout}" "${path_base64}"
+      fi
+      rm -f -- "${raw_output_path}"
+      exit 0
+    ) > "${result_path}" &
+    active=$((active + 1))
+  done < "${frontier_file}"
+
+  while [ "${active}" -gt 0 ]; do
+    wait -n
+    active=$((active - 1))
+  done
+
+  for ((result_index = 1; result_index <= started; result_index++)); do
+    result_path="${work_dir}/result.${result_index}"
+    if [ ! -f "${result_path}" ]; then
+      capacity_record_unavailable \
+        "${error_file}" worker_result_missing 0 "${result_path}"
+      continue
+    fi
+    if [ ! -s "${result_path}" ]; then
+      capacity_record_unavailable \
+        "${error_file}" worker_result_empty 0 "${result_path}"
+      continue
+    fi
+    while IFS=$'\t' read -r \
+      result_kind result_value result_detail result_timeout path_base64; do
+      case "${result_kind}" in
+        ok) printf '%s\t%s\n' "${result_value}" "${path_base64}" >> "${snapshot_file}" ;;
+        error)
+          capacity_record_unavailable_encoded \
+            "${error_file}" "${result_value}" "${result_detail}" "${path_base64}" \
+            "${result_timeout}"
+          ;;
+        *)
+          capacity_record_unavailable \
+            "${error_file}" malformed_worker_result 0 "${result_path}"
+          ;;
+      esac
+    done < "${result_path}"
+  done
+
+  printf '  frontier_scopes_discovered=%s started=%s records=%s unavailable_scopes=%s truncated=%s unavailable_truncated=%s parallelism=%s scope_timeout_max_seconds=%s\n' \
+    "${discovered}" \
+    "${started}" \
+    "$(awk 'END {print NR + 0}' "${snapshot_file}")" \
+    "$(awk 'END {print NR + 0}' "${error_file}")" \
+    "${CAPACITY_FRONTIER_TRUNCATED}" \
+    "${CAPACITY_UNAVAILABLE_TRUNCATED}" \
+    "${CAPACITY_DU_PARALLELISM}" \
+    "${CAPACITY_DU_SCOPE_TIMEOUT_SECONDS}"
 }
 
 disk_usage_snapshot() {
@@ -144,29 +653,92 @@ disk_usage_snapshot() {
     return 0
   fi
 
-  local snapshot_file
-  if ! snapshot_file="$(mktemp "${TMPDIR:-/tmp}/aqua-capacity-du.XXXXXX")"; then
-    echo "  disk_usage_unavailable reason=mktemp_failed"
+  local capacity_command
+  for capacity_command in timeout base64 find head wc; do
+    if ! command -v "${capacity_command}" >/dev/null 2>&1; then
+      echo "  disk_usage_unavailable reason=required_command_missing command=${capacity_command}"
+      return 0
+    fi
+  done
+
+  case "${CAPACITY_DU_TIMEOUT_SECONDS}" in
+    ''|*[!0-9]*|0|0*)
+      echo "  disk_usage_unavailable reason=invalid_timeout_seconds value=${CAPACITY_DU_TIMEOUT_SECONDS} allowed_range=1-${CAPACITY_DU_TIMEOUT_MAX_SECONDS}"
+      return 0
+      ;;
+  esac
+  if [ "${#CAPACITY_DU_TIMEOUT_SECONDS}" -gt "${#CAPACITY_DU_TIMEOUT_MAX_SECONDS}" ] ||
+    { [ "${#CAPACITY_DU_TIMEOUT_SECONDS}" -eq "${#CAPACITY_DU_TIMEOUT_MAX_SECONDS}" ] &&
+      [[ "${CAPACITY_DU_TIMEOUT_SECONDS}" > "${CAPACITY_DU_TIMEOUT_MAX_SECONDS}" ]]; }; then
+    echo "  disk_usage_unavailable reason=invalid_timeout_seconds value=${CAPACITY_DU_TIMEOUT_SECONDS} allowed_range=1-${CAPACITY_DU_TIMEOUT_MAX_SECONDS}"
     return 0
   fi
 
-  local path
-  local du_status
-  while IFS= read -r path; do
-    [ -n "${path}" ] || continue
-    [ -d "${path}" ] || continue
-    echo "  scope=${path}"
-    if du_scope_snapshot "${path}" "${snapshot_file}"; then
-      if ! sort -nr "${snapshot_file}" | awk 'NR <= 20 {printf "    bytes=%s path=%s\n", $1, $2}'; then
-        echo "    disk_usage_unavailable path=${path} reason=sort_or_format_failed"
-      fi
-    else
-      du_status=$?
-      echo "    disk_usage_unavailable path=${path} exit_status=${du_status} timeout_seconds=${CAPACITY_DU_TIMEOUT_SECONDS}"
-    fi
-  done < <(disk_usage_paths)
+  local work_dir
+  if ! work_dir="$(mktemp -d "${TMPDIR:-/tmp}/aqua-capacity-du.XXXXXX")"; then
+    echo "  disk_usage_unavailable reason=mktemp_failed"
+    return 0
+  fi
+  local snapshot_file="${work_dir}/completed.tsv"
+  local error_file="${work_dir}/unavailable.tsv"
+  local top_file="${work_dir}/top.tsv"
+  local bytes
+  local path_base64
+  local decoded_path
+  local unavailable_reason
+  local unavailable_detail
+  local unavailable_timeout
+  local timeout_label
+  local -a format_status=()
+  : > "${snapshot_file}"
+  : > "${error_file}"
 
-  rm -f "${snapshot_file}"
+  echo "  scope=disjoint_frontier excludes=$(docker_root),/var/lib/containerd"
+  echo "  global_timeout_seconds=${CAPACITY_DU_TIMEOUT_SECONDS} scope_timeout_max_seconds=${CAPACITY_DU_SCOPE_TIMEOUT_SECONDS} discovery_timeout_max_seconds=${CAPACITY_DU_DISCOVERY_TIMEOUT_SECONDS} kill_grace_seconds=${CAPACITY_DU_KILL_GRACE_SECONDS} required_non_du_headroom_seconds=${CAPACITY_NON_DU_HEADROOM_SECONDS}"
+  du_frontier_snapshot "${snapshot_file}" "${error_file}" "${work_dir}"
+
+  if [ -s "${snapshot_file}" ]; then
+    set +e
+    sort -nr -k1,1 "${snapshot_file}" | awk 'NR <= 40' > "${top_file}"
+    format_status=("${PIPESTATUS[@]}")
+    set -e
+    if [ "${format_status[0]:-1}" -ne 0 ] || [ "${format_status[1]:-1}" -ne 0 ]; then
+      echo "    disk_usage_unavailable reason=sort_or_format_failed"
+    else
+      while IFS=$'\t' read -r bytes path_base64; do
+        if ! decoded_path="$(printf '%s' "${path_base64}" | base64 --decode 2>/dev/null)"; then
+          echo "    disk_usage_unavailable reason=path_decode_failed"
+          continue
+        fi
+        printf '    bytes=%s path=%q\n' "${bytes}" "${decoded_path}"
+      done < "${top_file}"
+    fi
+  else
+    echo "    disk_usage_unavailable reason=no_frontier_scope_completed"
+  fi
+
+  if [ -s "${error_file}" ]; then
+    while IFS=$'\t' read -r \
+      unavailable_reason unavailable_detail unavailable_timeout path_base64; do
+      if ! decoded_path="$(printf '%s' "${path_base64}" | base64 --decode 2>/dev/null)"; then
+        echo "    disk_usage_unavailable reason=unavailable_path_decode_failed"
+        continue
+      fi
+      case "${unavailable_reason}" in
+        du_* | malformed_output) timeout_label=scope_timeout_seconds ;;
+        discovery_*) timeout_label=discovery_timeout_seconds ;;
+        *) timeout_label=operation_timeout_seconds ;;
+      esac
+      printf '    disk_usage_unavailable path=%q reason=%s detail=%s global_timeout_seconds=%s %s=%s\n' \
+        "${decoded_path}" "${unavailable_reason}" "${unavailable_detail}" \
+        "${CAPACITY_DU_TIMEOUT_SECONDS}" "${timeout_label}" "${unavailable_timeout}"
+    done < "${error_file}"
+  fi
+
+  rm -rf -- "${work_dir}"
+  # Diagnostics are evidence only. In particular, timeout(1)'s 124/137 must
+  # never replace the canonical capacity verdict captured by run_gate.
+  return 0
 }
 
 docker_image_inventory() {
@@ -261,8 +833,9 @@ capacity_core_snapshot() {
 }
 
 capacity_diagnostic_snapshot() {
-  disk_usage_snapshot
-  docker_image_inventory
+  disk_usage_snapshot || echo "  disk_usage_unavailable reason=unexpected_diagnostic_failure"
+  docker_image_inventory || echo "  docker_image_inventory_unavailable reason=unexpected_diagnostic_failure"
+  return 0
 }
 
 capacity_snapshot() {
@@ -413,7 +986,7 @@ gc_remove_ref() {
 
 safe_image_gc() {
   echo "=== Safe image-only GC ==="
-  echo "Policy: dangling images + unused old app SHA tags + superseded rollback retags; volumes/containers/networks/build-cache untouched."
+  echo "Policy: dangling images + unused old app SHA tags + superseded rollback retags + unclassified app tags (default-deny); volumes/containers/networks/build-cache untouched."
   local before after reclaimed
   before=$(docker system df --format '{{.Size}}' 2>/dev/null | head -1 || true)
 
@@ -456,7 +1029,7 @@ safe_image_gc() {
       removed_rollback=$((removed_rollback + 1))
   done < <(docker image ls --format '{{.Repository}} {{.Tag}} {{.ID}}' 2>/dev/null)
 
-  local removed=0 removed_untagged=0
+  local removed=0 removed_untagged=0 removed_unclassified=0
   while read -r repo tag id; do
       [ -n "${repo:-}" ] || continue
       case "${repo}" in
@@ -479,11 +1052,9 @@ safe_image_gc() {
 
       case "${tag}" in
         latest|staging|buildcache-*) continue ;;
+        rollback-*) continue ;; # retention pass above owns rollback retags
       esac
       if [ -n "${DEPLOY_SHA}" ] && [ "${tag}" = "${DEPLOY_SHA}" ]; then
-        continue
-      fi
-      if ! printf '%s' "${tag}" | grep -Eq '^[0-9a-f]{40}$'; then
         continue
       fi
       if is_protected_id "${id}" "${protected}"; then
@@ -493,9 +1064,18 @@ safe_image_gc() {
       fi
 
       ref="${repo}:${tag}"
-      echo "  remove unused old app tag ${ref} ${id}"
-      gc_remove_ref "${ref}"
-      removed=$((removed + 1))
+      if printf '%s' "${tag}" | grep -Eq '^[0-9a-f]{40}$'; then
+        echo "  remove unused old app tag ${ref} ${id}"
+        gc_remove_ref "${ref}"
+        removed=$((removed + 1))
+      else
+        # Default-deny: an app tag outside the closed keep-allowlist (e.g. an
+        # ad-hoc incident-clean-* retag) previously matched NO branch and
+        # became immortal — unclassified is a reason to reclaim, not to keep.
+        echo "  remove unclassified app tag ${ref} ${id}"
+        gc_remove_ref "${ref}"
+        removed_unclassified=$((removed_unclassified + 1))
+      fi
   done < <(docker image ls --format '{{.Repository}} {{.Tag}} {{.ID}}' 2>/dev/null)
 
   rm -f "${protected}"
@@ -508,7 +1088,86 @@ safe_image_gc() {
   fi
 
   after=$(docker system df --format '{{.Size}}' 2>/dev/null | head -1 || true)
-  echo "Safe GC complete; removed_tags=${removed:-0} removed_untagged=${removed_untagged:-0} removed_rollback_retags=${removed_rollback:-0} skipped_protected=${skipped:-0} dry_run=${GC_DRY_RUN:-false} before=${before:-unknown} after=${after:-unknown}"
+  echo "Safe GC complete; removed_tags=${removed:-0} removed_untagged=${removed_untagged:-0} removed_rollback_retags=${removed_rollback:-0} removed_unclassified=${removed_unclassified:-0} skipped_protected=${skipped:-0} dry_run=${GC_DRY_RUN:-false} before=${before:-unknown} after=${after:-unknown}"
+}
+
+# =============================================================================
+# safe_tmp_gc — reclaim REGENERABLE build caches from the temp filesystem.
+# =============================================================================
+# WHY THIS EXISTS. On 2026-08-09 the capacity gate blocked with 1.24 GB free
+# against a 37.5 GB floor while `safe_image_gc` had nothing left to take: all
+# 37 images backed running containers. The space was in /tmp, and one pattern
+# owned half the disk:
+#
+#     nx-native-file-cache-*   1,421 directories, 29.3 GB
+#
+# Nx's native module resolves its cache through `std::env::temp_dir()` — i.e.
+# TMPDIR — and creates a fresh directory per workspace-process. Nothing ever
+# removes them, so every CI invocation leaks one. The age histogram showed
+# 100-400 new directories a day since 2026-08-04. A one-off manual sweep
+# reclaimed 12.9 GB on 2026-08-08 and the disk was full again within a day,
+# which is what makes this a gate concern rather than an operator chore.
+#
+# WHY A SEPARATE FUNCTION. safe_image_gc states its own contract in its banner:
+# "volumes/containers/networks/build-cache untouched". Widening it to sweep a
+# filesystem would make that sentence false. This is the same conservatism
+# applied to a different resource, kept separate so each policy can be read
+# on its own.
+#
+# THE POLICY IS DEFAULT-DENY, and every clause below is load-bearing:
+#   * an explicit allowlist of patterns that are REGENERABLE BY CONSTRUCTION —
+#     a build cache, not a work product. Anything unlisted is never touched,
+#     which is what keeps another session's checkout safe.
+#   * an age floor, so an in-flight build's cache is never pulled out from
+#     under it.
+#   * an open-handle check per candidate; a directory any process still holds
+#     is skipped even if it is old.
+#   * `-maxdepth 1` and an absolute root, so a pattern can never match deeper
+#     than the temp directory itself.
+#
+# It does NOT touch: repository checkouts, git worktrees, ARIA state, session
+# scratchpads, or anything outside TMPDIR.
+TMP_GC_PATTERNS="nx-native-file-cache-* v8-compile-cache-* node-compile-cache jest_* pytest-of-*"
+TMP_GC_MIN_AGE_MINUTES="${TMP_GC_MIN_AGE_MINUTES:-720}"
+
+safe_tmp_gc() {
+  local root="${TMPDIR:-/tmp}"
+  echo "=== Safe temp GC (regenerable build caches only) ==="
+  echo "Policy: default-deny allowlist [${TMP_GC_PATTERNS}]; age > ${TMP_GC_MIN_AGE_MINUTES}m; open handles skipped; nothing outside ${root} is considered."
+  if [ ! -d "${root}" ]; then
+    echo "Safe temp GC: ${root} is not a directory; nothing to do."
+    return 0
+  fi
+
+  local before after removed skipped_open candidate
+  before=$(df -k --output=avail "${root}" 2>/dev/null | tail -1 | tr -d ' ')
+  removed=0
+  skipped_open=0
+
+  local pattern
+  for pattern in ${TMP_GC_PATTERNS}; do
+    while IFS= read -r candidate; do
+      [ -n "${candidate}" ] || continue
+      # A cache someone is still writing is not garbage, whatever its age.
+      if command -v fuser > /dev/null 2>&1 && fuser -s "${candidate}" 2>/dev/null; then
+        skipped_open=$((skipped_open + 1))
+        continue
+      fi
+      if [ "${GC_DRY_RUN:-false}" = "true" ]; then
+        echo "  would remove ${candidate}"
+      else
+        rm -rf -- "${candidate}" 2>/dev/null || true
+      fi
+      removed=$((removed + 1))
+    done < <(/usr/bin/find "${root}" -maxdepth 1 -name "${pattern}" -type d -mmin "+${TMP_GC_MIN_AGE_MINUTES}" 2>/dev/null)
+  done
+
+  after=$(df -k --output=avail "${root}" 2>/dev/null | tail -1 | tr -d ' ')
+  local reclaimed_mb=0
+  if [ -n "${before}" ] && [ -n "${after}" ]; then
+    reclaimed_mb=$(( (after - before) / 1024 ))
+  fi
+  echo "Safe temp GC complete; removed=${removed} skipped_open=${skipped_open} dry_run=${GC_DRY_RUN:-false} reclaimed_mb=${reclaimed_mb}"
 }
 
 run_gate() {
@@ -520,15 +1179,14 @@ run_gate() {
   local rc=$?
   set -e
 
-  if [ "${rc}" -eq 0 ]; then
-    capacity_diagnostic_snapshot
-    echo "Capacity preflight: PASS"
-    return 0
-  fi
-
-  if [ "${CAPACITY_GC_MODE}" = "auto" ]; then
+  if [ "${rc}" -ne 0 ] && [ "${CAPACITY_GC_MODE}" = "auto" ]; then
     echo "Capacity preflight: warning/failure before GC; running one safe image-only GC pass."
     safe_image_gc
+    # Images are not always where the space is. On 2026-08-09 every image
+    # backed a running container and the shortfall was entirely regenerable
+    # build caches in TMPDIR, so an image-only response reported "nothing to
+    # reclaim" beside a disk that was 98% full.
+    safe_tmp_gc
     capacity_core_snapshot
     write_capacity_json
     set +e
@@ -537,10 +1195,13 @@ run_gate() {
     set -e
   fi
 
+  # Exactly one bounded diagnostic snapshot follows the final threshold verdict.
+  # It is deliberately outside the verdict-producing section so a timeout
+  # emits unavailable evidence without changing rc.
   capacity_diagnostic_snapshot
 
   if [ "${rc}" -eq 0 ]; then
-    echo "Capacity preflight: PASS after safe GC"
+    echo "Capacity preflight: PASS"
     return 0
   fi
 

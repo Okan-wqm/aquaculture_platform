@@ -10,6 +10,7 @@ import {
   frontendPrebuildPlan,
   gatewaySubgraphs,
   imageBuildTargets,
+  infraImageBuildMatrix,
   packageBuildProjects,
   requiredRuntimeEnv,
   requiredRuntimeSecrets,
@@ -104,6 +105,56 @@ describe('platform service catalog executable views', () => {
     expect(requiredRuntimeSecrets()).toContain('EVENT_STORE_SERVICE_DB_PASS');
     expect(requiredRuntimeSecrets()).toContain('SERVICE_IDENTITY_KEYRING');
     expect(requiredRuntimeSecrets()).toContain('CONFIG_SERVICE_DB_PASS');
+  });
+
+  it('derives every production infra build from the catalog', () => {
+    expect(infraImageBuildMatrix()).toEqual([
+      {
+        image: 'postgres',
+        dockerfile: 'infrastructure/docker/Dockerfile.postgres-walg',
+        context: '.',
+      },
+      {
+        image: 'mosquitto',
+        dockerfile: 'infrastructure/mosquitto/Dockerfile',
+        context: 'infrastructure/mosquitto',
+      },
+    ]);
+
+    for (const build of infraImageBuildMatrix()) {
+      expect(existsSync(join(REPO_ROOT, build.dockerfile))).toBe(true);
+      expect(existsSync(join(REPO_ROOT, build.context))).toBe(true);
+    }
+  });
+
+  it('keeps WAL-G object-store coordinates in generated runtime configuration', () => {
+    expect(requiredRuntimeEnv()).toEqual(
+      expect.arrayContaining([
+        'SPACES_ENDPOINT',
+        'SPACES_REGION',
+        'WALG_BACKUP_EPOCH',
+        'WALG_SPACES_BUCKET',
+      ]),
+    );
+    expect(requiredRuntimeSecrets()).not.toEqual(
+      expect.arrayContaining([
+        'SPACES_ENDPOINT',
+        'SPACES_REGION',
+        'WALG_BACKUP_EPOCH',
+        'WALG_SPACES_BUCKET',
+      ]),
+    );
+  });
+
+  it('rejects docker-only entries without catalog-owned build coordinates', () => {
+    const invalid = PLATFORM_SERVICE_CATALOG.map((entry) =>
+      entry.serviceId === 'postgres' ? { ...entry, infraImageBuild: undefined } : entry,
+    );
+
+    expect(validateServiceCatalog(invalid)).toContainEqual({
+      serviceId: 'postgres',
+      message: 'docker-only service must declare imageTarget and infraImageBuild',
+    });
   });
 
   it('exposes container ports through the readiness view (INFRA-HIGH-014)', () => {

@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -42,7 +42,7 @@ def map_agent_priors(
         "agent_count": len(agents),
         "agents": agents,
     }
-    return append_jsonl(ensure_tools_dir(base_dir) / "agent-priors" / "agent-map.jsonl", row)
+    return append_declared_jsonl(ensure_tools_dir(base_dir) / "agent-priors" / "agent-map.jsonl", row, expected_surface="agent_priors_map")
 
 
 def reviewer_names(*, workspace_root: str | Path) -> set[str]:
@@ -139,9 +139,23 @@ def _extract_scope_globs(content: str) -> list[str]:
 
 def _normalize_scope(value: str) -> str:
     value = value.strip()
-    for prefix in ("/var/aqua-saas/", "./"):
-        if value.startswith(prefix):
-            value = value[len(prefix) :]
+    # Strip any absolute-path prefix down to repo-relative. The literal
+    # "/var/aqua-saas/" was a host-bound hardcode — replace with a generic
+    # "last path-segment-pair" strip that works on any clone path.
+    if value.startswith("/"):
+        # Keep only the repo-relative tail: strip everything up to and
+        # including the last "apps/", "libs/", "web/", "tools/", "aria-"
+        # boundary. If no boundary found, strip to the final two segments.
+        import re
+        m = re.search(r"(apps/|libs/|web/|tools/|aria-|platform/|tests/)", value)
+        if m:
+            value = value[m.start():]
+        else:
+            parts = value.rstrip("/").split("/")
+            value = "/".join(parts[-2:]) if len(parts) > 1 else parts[-1]
+    for prefix in ("./", "../"):
+        while value.startswith(prefix):
+            value = value[len(prefix):]
     return value
 
 

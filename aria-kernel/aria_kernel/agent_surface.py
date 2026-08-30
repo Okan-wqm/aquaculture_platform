@@ -22,7 +22,6 @@ REQUEST_ROLES: tuple[str, ...] = (
     # happens on submit.
     "completeness_critique",
     "implementation",
-    "implementation_review",
     "verification",
     "gap_finding",
     "gap_closure",
@@ -34,10 +33,24 @@ REQUEST_ROLES: tuple[str, ...] = (
     "consensus_arbitration",
     "change_intelligence",
     "goldset_curation",
-    "architectural_arbitration",
-    "auth_security_review",
-    "access_boundary_review",
-    "tenant_isolation_review",
+    # E14 — REMOVED, and deliberately not replaced: `implementation_review`,
+    # `architectural_arbitration`, `auth_security_review`,
+    # `access_boundary_review`, `tenant_isolation_review`. Plan 019 Phase 2.5
+    # added them as a contract extension for lanes that were then built
+    # differently: the auth lane became the security-boundary ADAPTER plus the
+    # architecture spine gate, and domain review became `specialist_domain_review`
+    # (specialist_review_runner's touch-map) plus expert_review_gate. Five roles
+    # a request could name, that no kernel path ever minted and no bridge ever
+    # consumed — a surface that admits a role nothing can fulfil is how a caller
+    # ends up waiting forever for an answer that was never dispatched. Removal is
+    # pinned by tests/test_role_hygiene_e14.py; ORPHAN-MEDIUM-280 closed the same
+    # defect from the agent-prompt side (a prompt claiming `implementation_review`
+    # the kernel never routes).
+    # ORPHAN-HIGH-426 — independent adjudication of a HUMAN_REQUIRED
+    # escalation. Paired with THREE distinct judge agents below so a panel
+    # is composed of distinct principals by construction rather than by
+    # hope; the fold still verifies disjointness against the claims ledger.
+    "human_required_adjudication",
 )
 
 INVOCATION_ROLES: FrozenSet[str] = frozenset({
@@ -56,6 +69,21 @@ DISPATCHABLE_ROLES: FrozenSet[str] = frozenset({
     "cross_review",
     "completeness_critique",
     "implementation",
+    "human_required_adjudication",
+    # E14 — the three roles that gained a producer. A minted envelope whose
+    # role the executor refuses to claim (`ci_executor.claim_and_dispatch_one`
+    # validates against this set) is a request that waits forever: the mint
+    # would look alive in the ledger and be dead on the lane. Minting and
+    # draining are one contract, so a role joins both sides together.
+    "consensus_arbitration",
+    "change_intelligence",
+    "goldset_curation",
+    # E9-c — adversarial re-review of a decision the pipeline already closed.
+    # Added together with the minter in `decision_questioning`, never before
+    # it: a role that can be dispatched but is never minted, and a role that
+    # is minted but can never be claimed, are the same defect from opposite
+    # ends, and this repository has now closed nineteen of them.
+    "verification",
 })
 
 DRAFTER_ROLES: FrozenSet[str] = frozenset({
@@ -102,10 +130,15 @@ DEFAULT_TARGET_AGENT_WHITELIST: tuple[str, ...] = (
     "aria-goldset-curator",
     "aria-autonomy-planner",
     "aria-worker",
+    # Kept because the kernel really does dispatch these two: the specialist
+    # touch-map routes auth-service / gateway-api / guards changes to
+    # `auth-security-expert`, and expert_review_gate + ci.produce_ci_review
+    # reach for `architectural-arbiter`. E14 dropped `access-boundary-auditor`
+    # and `tenant-isolation-auditor` with the roles that were their only
+    # kernel-side dispatch path; they remain Lane-B product-audit agents,
+    # reachable the moment the touch-map names them.
     "architectural-arbiter",
     "auth-security-expert",
-    "access-boundary-auditor",
-    "tenant-isolation-auditor",
 )
 
 ROLE_TARGET_PAIRING: dict[str, tuple[str, ...]] = {
@@ -116,12 +149,20 @@ ROLE_TARGET_PAIRING: dict[str, tuple[str, ...]] = {
     "evidence_judgment": ("aria-evidence-judge",),
     "adversarial_judgment": ("aria-adversarial-judge",),
     "consensus_arbitration": ("aria-consensus-arbiter",),
+    # Three read-only judges. The panel mints one envelope per target, so
+    # a three-member panel cannot be one agent wearing three hats.
+    "human_required_adjudication": (
+        "aria-evidence-judge",
+        "aria-adversarial-judge",
+        "aria-consensus-arbiter",
+    ),
+    # E9-c — the adversarial judge, deliberately NOT the evidence judge: the
+    # phase re-opens a decision two planners already agreed on, and the
+    # failure mode it hunts is a shared blind spot, which is what an
+    # adversary is for and what a corroborator is not.
+    "verification": ("aria-adversarial-judge",),
     "change_intelligence": ("aria-change-intelligence",),
     "goldset_curation": ("aria-goldset-curator",),
-    "architectural_arbitration": ("architectural-arbiter",),
-    "auth_security_review": ("auth-security-expert",),
-    "access_boundary_review": ("access-boundary-auditor",),
-    "tenant_isolation_review": ("tenant-isolation-auditor",),
 }
 
 DERIVED_REQUEST_STATES: tuple[str, ...] = (
@@ -138,6 +179,11 @@ DERIVED_REQUEST_STATES: tuple[str, ...] = (
     "ACCEPTED_PENDING_BRIDGE",
     "ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL",
     "EXTERNAL_OUTAGE",
+    # ORPHAN-MEDIUM-492 — the request's target_sha no longer describes the
+    # repo it would be executed against. Distinct from STALE, which is a
+    # lease-expiry and is retryable: a lease can be re-claimed, but a plan
+    # grounded at an obsolete tree cannot be made current by retrying it.
+    "ANCHOR_STALE",
 )
 
 TERMINAL_REQUEST_STATES: FrozenSet[str] = frozenset({
@@ -147,6 +193,22 @@ TERMINAL_REQUEST_STATES: FrozenSet[str] = frozenset({
     "CANCELLED",
     "HUMAN_REQUIRED",
     "ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL",
+    "ANCHOR_STALE",
+})
+
+# Y3 (ORPHAN-703) — the terminal states that mean "this request died of
+# QUEUE MECHANICS, not of an outcome". Producers that treat any existing
+# request as satisfying their idempotency check wedge forever when the match
+# is one of these: the second night's measurement showed a challenger_plan
+# round and consumed autonomy queue items permanently blocked by their own
+# dead envelopes. ACCEPTED/REJECTED stay out — they are verdicts about the
+# WORK and their consumers handle them through result folds, never re-mints.
+REMINT_ELIGIBLE_DEAD_STATES: FrozenSet[str] = frozenset({
+    "HUMAN_REQUIRED",
+    "ANCHOR_STALE",
+    "STALE",
+    "CANCELLED",
+    "EXPIRED",
 })
 
 GENESIS_LIFECYCLE_STATES: tuple[str, ...] = (

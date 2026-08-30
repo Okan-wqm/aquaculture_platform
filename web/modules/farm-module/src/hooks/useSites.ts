@@ -1,28 +1,61 @@
 /**
  * Sites hooks for farm-module
- * Handles CRUD operations for sites via GraphQL API
+ *
+ * TanStack Query wrappers over the site setup GraphQL surface. Reads go through
+ * useTenantQuery and writes through useTenantMutation — the tenant-key +
+ * auth-gate + tenant-scoped invalidation SSoT (FE-CRITICAL-014/015/016). The
+ * GraphQL operations live in ../graphql/sites.operations (FARM-HIGH-003 Phase 5:
+ * no raw operation strings or hand-rolled invalidation in the hooks).
  */
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { graphqlClient, useTenantMutation, useTenantQuery } from '@aquaculture/shared-ui';
+import type { UseQueryResult } from '@tanstack/react-query';
+
 import {
-  useAuth,
-  graphqlClient,
-  createTenantQueryKey,
-  createTenantInvalidationKey,
-} from '@aquaculture/shared-ui';
+  CREATE_SITE_MUTATION,
+  DELETE_SITE_MUTATION,
+  SITE_CONTACTS_QUERY,
+  SITE_DELETE_PREVIEW_QUERY,
+  SITE_QUERY,
+  SITES_LIST_QUERY,
+  UPDATE_SITE_MUTATION,
+  UPSERT_SITE_CONTACTS_MUTATION,
+} from '../graphql/sites.operations';
 
 // Types
+export type SiteType =
+  | 'LAND_BASED'
+  | 'SEA_CAGE'
+  | 'POND'
+  | 'RACEWAY'
+  | 'RECIRCULATING'
+  | 'HATCHERY';
+
+export type GeoJsonPosition = [longitude: number, latitude: number];
+
+export interface MonitoringPolygon {
+  type: 'Polygon';
+  coordinates: GeoJsonPosition[][];
+}
+
+export interface MonitoringMultiPolygon {
+  type: 'MultiPolygon';
+  coordinates: GeoJsonPosition[][][];
+}
+
+export type MonitoringArea = MonitoringPolygon | MonitoringMultiPolygon;
+
 export interface SiteLocation {
   latitude: number;
   longitude: number;
-  altitude?: number;
+  altitude?: number | null;
 }
 
 export interface SiteAddress {
-  street?: string;
-  city?: string;
-  state?: string;
-  postalCode?: string;
-  country?: string;
+  street?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postalCode?: string | null;
+  country?: string | null;
 }
 
 export interface Site {
@@ -30,20 +63,23 @@ export interface Site {
   name: string;
   code: string;
   /** Norwegian locality number (Akvakulturregisteret) — regulatory reports fail closed without it. */
-  lokalitetsnummer?: number;
-  organisationNumberOverride?: string;
-  type: string;
+  lokalitetsnummer?: number | null;
+  organisationNumberOverride?: string | null;
+  type: SiteType;
   status: string;
-  description?: string;
-  location?: SiteLocation;
-  address?: SiteAddress;
-  country?: string;
-  region?: string;
-  timezone?: string;
-  totalArea?: number;
-  siteManager?: string;
-  contactEmail?: string;
-  contactPhone?: string;
+  description?: string | null;
+  location?: SiteLocation | null;
+  address?: SiteAddress | null;
+  country?: string | null;
+  region?: string | null;
+  timezone?: string | null;
+  totalArea?: number | null;
+  monitoringRadiusM: number;
+  monitoringArea?: MonitoringArea | null;
+  monitoringLocationRevision: number;
+  siteManager?: string | null;
+  contactEmail?: string | null;
+  contactPhone?: string | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -54,7 +90,7 @@ export interface CreateSiteInput {
   code: string;
   lokalitetsnummer?: number;
   organisationNumberOverride?: string;
-  type?: string;
+  type: SiteType;
   status?: string;
   description?: string;
   location?: { latitude: number; longitude: number; altitude?: number };
@@ -69,279 +105,223 @@ export interface CreateSiteInput {
   region?: string;
   timezone?: string;
   totalArea?: number;
+  monitoringRadiusM: number;
+  monitoringArea?: MonitoringArea | null;
   siteManager?: string;
   contactEmail?: string;
   contactPhone?: string;
 }
 
-export interface UpdateSiteInput extends Partial<CreateSiteInput> {
+export interface UpdateSiteInput {
   id: string;
+  name?: string;
+  code?: string;
+  lokalitetsnummer?: number | null;
+  organisationNumberOverride?: string | null;
+  type?: SiteType;
+  status?: string;
+  description?: string | null;
+  location?: { latitude: number; longitude: number; altitude?: number } | null;
+  address?: {
+    street?: string;
+    city?: string;
+    state?: string;
+    postalCode?: string;
+    country?: string;
+  } | null;
+  country?: string | null;
+  region?: string | null;
+  timezone?: string;
+  totalArea?: number | null;
+  monitoringRadiusM?: number;
+  monitoringArea?: MonitoringArea | null;
+  siteManager?: string | null;
+  contactEmail?: string | null;
+  contactPhone?: string | null;
   isActive?: boolean;
 }
 
-interface PaginatedResponse {
+export interface PaginatedSitesResponse {
   items: Site[];
   total: number;
   page: number;
   limit: number;
 }
 
-// GraphQL queries
-const SITES_LIST_QUERY = `
-  query Sites($filter: SiteFilterInput, $pagination: FarmPaginationInput) {
-    sites(filter: $filter, pagination: $pagination) {
-      items {
-        id
-        name
-        code
-        lokalitetsnummer
-        type
-        status
-        description
-        location {
-          latitude
-          longitude
-          altitude
-        }
-        address {
-          street
-          city
-          state
-          postalCode
-          country
-        }
-        country
-        region
-        timezone
-        totalArea
-        siteManager
-        contactEmail
-        contactPhone
-        isActive
-        createdAt
-        updatedAt
-      }
-      total
-      page
-      limit
-    }
-  }
-`;
-
-const SITE_QUERY = `
-  query Site($id: ID!) {
-    site(id: $id) {
-      id
-      name
-      code
-      lokalitetsnummer
-      type
-      status
-      description
-      location {
-        latitude
-        longitude
-        altitude
-      }
-      address {
-        street
-        city
-        state
-        postalCode
-        country
-      }
-      country
-      region
-      timezone
-      totalArea
-      siteManager
-      contactEmail
-      contactPhone
-      isActive
-      createdAt
-      updatedAt
-    }
-  }
-`;
-
-const CREATE_SITE_MUTATION = `
-  mutation CreateSite($input: CreateSiteInput!) {
-    createSite(input: $input) {
-      id
-      name
-      code
-      lokalitetsnummer
-      status
-      isActive
-    }
-  }
-`;
-
-const UPDATE_SITE_MUTATION = `
-  mutation UpdateSite($input: UpdateSiteInput!) {
-    updateSite(input: $input) {
-      id
-      name
-      code
-      lokalitetsnummer
-      status
-      isActive
-    }
-  }
-`;
-
-const DELETE_SITE_MUTATION = `
-  mutation DeleteSite($id: ID!, $cascade: Boolean!) {
-    deleteSite(id: $id, cascade: $cascade)
-  }
-`;
-
-const SITE_DELETE_PREVIEW_QUERY = `
-  query SiteDeletePreview($id: ID!) {
-    siteDeletePreview(id: $id) {
-      site {
-        id
-        name
-        code
-        lokalitetsnummer
-      }
-      canDelete
-      blockers
-      affectedItems {
-        departments {
-          id
-          name
-          code
-          equipmentCount
-          tankCount
-        }
-        systems {
-          id
-          name
-          code
-          equipmentCount
-        }
-        equipment {
-          id
-          name
-          code
-          status
-        }
-        tanks {
-          id
-          name
-          code
-          currentBiomass
-          hasActiveBiomass
-        }
-        totalCount
-      }
-    }
-  }
-`;
-
-// graphqlClient from shared-ui handles token/tenantId automatically
-
-/**
- * Hook to fetch sites list
- */
-export function useSiteList(filter?: {
+export interface SiteListFilter {
   status?: string;
   isActive?: boolean;
   country?: string;
   region?: string;
   search?: string;
-}) {
-  const { token, tenantId } = useAuth();
+}
 
-  return useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'sites', 'list', tenantId, filter),
-    queryFn: async () => {
-      const data = await graphqlClient.request<{ sites: PaginatedResponse }>(SITES_LIST_QUERY, {
+const SITE_PAGE_SIZE = 100;
+const MAX_SITE_LIST_PAGES = 1_000;
+const SITE_LIST_TIMEOUT_MS = 30_000;
+
+function assertSitePageContract(
+  page: PaginatedSitesResponse,
+  expectedPage: number,
+  expectedTotal?: number,
+): void {
+  if (
+    !Number.isInteger(page.total) ||
+    page.total < 0 ||
+    page.page !== expectedPage ||
+    page.limit !== SITE_PAGE_SIZE ||
+    page.items.length > SITE_PAGE_SIZE
+  ) {
+    throw new Error('Site pagination response violated the API contract');
+  }
+  if (expectedTotal !== undefined && page.total !== expectedTotal) {
+    throw new Error('Site list changed while the authorized pages were loading');
+  }
+}
+
+function throwIfAborted(signal: AbortSignal): void {
+  if (signal.aborted) {
+    throw new DOMException('Site list request was aborted', 'AbortError');
+  }
+}
+
+async function loadAuthorizedSitePages(
+  filter: SiteListFilter | undefined,
+  querySignal: AbortSignal,
+): Promise<PaginatedSitesResponse> {
+  const controller = new AbortController();
+  const abortFromQuery = (): void => controller.abort(querySignal.reason);
+  if (querySignal.aborted) {
+    abortFromQuery();
+  } else {
+    querySignal.addEventListener('abort', abortFromQuery, { once: true });
+  }
+  const timeoutId = setTimeout(() => controller.abort(), SITE_LIST_TIMEOUT_MS);
+
+  const requestPage = async (page: number): Promise<PaginatedSitesResponse> => {
+    throwIfAborted(controller.signal);
+    const data = await graphqlClient.request<{ sites: PaginatedSitesResponse }>(
+      SITES_LIST_QUERY,
+      {
         filter,
-        pagination: { page: 1, limit: 100 },
-      });
-      return data.sites;
-    },
-    staleTime: 30000,
-    enabled: !!token && !!tenantId,
-  });
+        pagination: { page, limit: SITE_PAGE_SIZE },
+      },
+      { signal: controller.signal },
+    );
+    return data.sites;
+  };
+
+  try {
+    const firstPage = await requestPage(1);
+    assertSitePageContract(firstPage, 1);
+    const pageCount = Math.ceil(firstPage.total / SITE_PAGE_SIZE);
+    if (pageCount > MAX_SITE_LIST_PAGES) {
+      throw new Error('Authorized site list exceeds the supported pagination contract');
+    }
+
+    const sitesById = new Map<string, Site>();
+    for (const site of firstPage.items) {
+      if (sitesById.has(site.id)) {
+        throw new Error('Site pagination returned a duplicate authorized site');
+      }
+      sitesById.set(site.id, site);
+    }
+
+    for (let pageNumber = 2; pageNumber <= pageCount; pageNumber += 1) {
+      const page = await requestPage(pageNumber);
+      assertSitePageContract(page, pageNumber, firstPage.total);
+      for (const site of page.items) {
+        if (sitesById.has(site.id)) {
+          throw new Error('Site pagination returned a duplicate authorized site');
+        }
+        sitesById.set(site.id, site);
+      }
+    }
+
+    if (sitesById.size !== firstPage.total) {
+      throw new Error('Site pagination did not return every authorized site');
+    }
+    return {
+      items: [...sitesById.values()],
+      total: firstPage.total,
+      page: 1,
+      limit: SITE_PAGE_SIZE,
+    };
+  } finally {
+    clearTimeout(timeoutId);
+    querySignal.removeEventListener('abort', abortFromQuery);
+  }
+}
+
+// ============================================================================
+// Query hooks — useTenantQuery adds the tenant prefix + auth gating for us.
+// ============================================================================
+
+/**
+ * Hook to fetch sites list
+ */
+export function useSiteList(
+  filter?: SiteListFilter,
+): UseQueryResult<PaginatedSitesResponse, Error> {
+  return useTenantQuery<PaginatedSitesResponse>(
+    ['sites', 'list', filter],
+    async ({ signal }) => loadAuthorizedSitePages(filter, signal),
+    { staleTime: 30000 },
+  );
 }
 
 /**
  * Hook to fetch single site
  */
 export function useSite(id: string) {
-  const { token, tenantId } = useAuth();
-
-  return useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'sites', 'detail', tenantId, id),
-    queryFn: async () => {
+  return useTenantQuery<Site>(
+    ['sites', 'detail', id],
+    async () => {
       const data = await graphqlClient.request<{ site: Site }>(SITE_QUERY, { id });
       return data.site;
     },
-    staleTime: 30000,
-    enabled: !!token && !!tenantId && !!id,
-  });
+    { staleTime: 30000, enabled: !!id },
+  );
 }
+
+// ============================================================================
+// Mutation hooks — useTenantMutation invalidates the tenant-scoped prefix on
+// success (declare domain segments; the tenant prefix is added).
+// ============================================================================
 
 /**
  * Hook to create site
  */
 export function useCreateSite() {
-  const { token, tenantId } = useAuth();
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (input: CreateSiteInput) => {
-      if (!token) {
-        throw new Error('Authentication required. Please login first.');
-      }
-      if (!tenantId) {
-        throw new Error('Tenant context required. Please re-login.');
-      }
+  return useTenantMutation(
+    async (input: CreateSiteInput) => {
       const data = await graphqlClient.request<{ createSite: Site }>(CREATE_SITE_MUTATION, {
         input,
       });
       return data.createSite;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: createTenantInvalidationKey(tenantId, 'sites', 'list'),
-      });
-    },
-  });
+    { invalidate: [['sites', 'list']] },
+  );
 }
 
 /**
  * Hook to update site
  */
 export function useUpdateSite() {
-  const { token, tenantId } = useAuth();
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (input: UpdateSiteInput) => {
-      if (!token) {
-        throw new Error('Authentication required. Please login first.');
-      }
-      if (!tenantId) {
-        throw new Error('Tenant context required. Please re-login.');
-      }
+  return useTenantMutation(
+    async (input: UpdateSiteInput) => {
       const data = await graphqlClient.request<{ updateSite: Site }>(UPDATE_SITE_MUTATION, {
         input,
       });
       return data.updateSite;
     },
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: createTenantInvalidationKey(tenantId, 'sites', 'list'),
-      });
-      queryClient.invalidateQueries({
-        queryKey: createTenantInvalidationKey(tenantId, 'sites', 'detail', variables.id),
-      });
+    {
+      invalidate: [
+        ['sites', 'list'],
+        ['sites', 'detail'],
+      ],
     },
-  });
+  );
 }
 
 // Delete Preview Types
@@ -371,23 +351,21 @@ export interface SiteDeletePreviewResult {
 }
 
 /**
- * Hook to get site delete preview
+ * Hook to get site delete preview. Always fetches fresh (staleTime 0, no
+ * keep-previous) so the operator never acts on a stale blocker list.
  */
 export function useSiteDeletePreview(id: string | null) {
-  const { token, tenantId } = useAuth();
-
-  return useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'sites', 'deletePreview', tenantId, id),
-    queryFn: async () => {
+  return useTenantQuery<SiteDeletePreviewResult>(
+    ['sites', 'deletePreview', id],
+    async () => {
       const data = await graphqlClient.request<{ siteDeletePreview: SiteDeletePreviewResult }>(
         SITE_DELETE_PREVIEW_QUERY,
         { id },
       );
       return data.siteDeletePreview;
     },
-    staleTime: 0, // Always fetch fresh data for delete preview
-    enabled: !!token && !!tenantId && !!id,
-  });
+    { staleTime: 0, keepPreviousData: false, enabled: !!id },
+  );
 }
 
 /**
@@ -395,38 +373,23 @@ export function useSiteDeletePreview(id: string | null) {
  * @param cascade - If true, cascade delete all related items
  */
 export function useDeleteSite() {
-  const { token, tenantId } = useAuth();
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({ id, cascade = false }: { id: string; cascade?: boolean }) => {
-      if (!token) {
-        throw new Error('Authentication required. Please login first.');
-      }
-      if (!tenantId) {
-        throw new Error('Tenant context required. Please re-login.');
-      }
+  return useTenantMutation(
+    async ({ id, cascade = false }: { id: string; cascade?: boolean }) => {
       const data = await graphqlClient.request<{ deleteSite: boolean }>(DELETE_SITE_MUTATION, {
         id,
         cascade,
       });
       return data.deleteSite;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: createTenantInvalidationKey(tenantId, 'sites', 'list'),
-      });
-      queryClient.invalidateQueries({
-        queryKey: createTenantInvalidationKey(tenantId, 'departments', 'list'),
-      });
-      queryClient.invalidateQueries({
-        queryKey: createTenantInvalidationKey(tenantId, 'systems', 'list'),
-      });
-      queryClient.invalidateQueries({
-        queryKey: createTenantInvalidationKey(tenantId, 'equipment', 'list'),
-      });
+    {
+      invalidate: [
+        ['sites', 'list'],
+        ['departments', 'list'],
+        ['systems', 'list'],
+        ['equipment', 'list'],
+      ],
     },
-  });
+  );
 }
 
 // =============================================================================
@@ -482,40 +445,6 @@ export interface SiteContactInput {
   isPrimary?: boolean;
 }
 
-const SITE_CONTACTS_QUERY = `
-  query SiteContacts($siteId: ID!) {
-    siteContacts(siteId: $siteId) {
-      id
-      tenantId
-      siteId
-      name
-      role
-      email
-      phone
-      isPrimary
-      createdAt
-      createdBy
-    }
-  }
-`;
-
-const UPSERT_SITE_CONTACTS_MUTATION = `
-  mutation UpsertSiteContacts($siteId: ID!, $contacts: [SiteContactInput!]!) {
-    upsertSiteContacts(siteId: $siteId, contacts: $contacts) {
-      id
-      tenantId
-      siteId
-      name
-      role
-      email
-      phone
-      isPrimary
-      createdAt
-      createdBy
-    }
-  }
-`;
-
 /**
  * Fetch all contact rows for a site, primary first, then chronological.
  * `enabled` gate: query is skipped when `siteId` is undefined (the
@@ -523,10 +452,9 @@ const UPSERT_SITE_CONTACTS_MUTATION = `
  * to load).
  */
 export function useSiteContacts(siteId: string | undefined) {
-  const { token, tenantId } = useAuth();
-  return useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'sites', 'contacts', siteId ?? ''),
-    queryFn: async () => {
+  return useTenantQuery<SiteContact[]>(
+    ['sites', 'contacts', siteId ?? ''],
+    async () => {
       if (!siteId) return [] as SiteContact[];
       const data = await graphqlClient.request<{ siteContacts: SiteContact[] }>(
         SITE_CONTACTS_QUERY,
@@ -534,9 +462,8 @@ export function useSiteContacts(siteId: string | undefined) {
       );
       return data.siteContacts;
     },
-    enabled: !!token && !!tenantId && !!siteId,
-    staleTime: 60_000,
-  });
+    { enabled: !!siteId, staleTime: 60_000 },
+  );
 }
 
 /**
@@ -548,30 +475,19 @@ export function useSiteContacts(siteId: string | undefined) {
  * grows a "primary contact name" column in the future).
  */
 export function useUpsertSiteContacts() {
-  const { token, tenantId } = useAuth();
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (vars: { siteId: string; contacts: SiteContactInput[] }) => {
-      if (!token) {
-        throw new Error('Authentication required. Please login first.');
-      }
-      if (!tenantId) {
-        throw new Error('Tenant context required. Please re-login.');
-      }
+  return useTenantMutation(
+    async (vars: { siteId: string; contacts: SiteContactInput[] }) => {
       const data = await graphqlClient.request<{ upsertSiteContacts: SiteContact[] }>(
         UPSERT_SITE_CONTACTS_MUTATION,
         vars,
       );
       return data.upsertSiteContacts;
     },
-    onSuccess: (_data, vars) => {
-      queryClient.invalidateQueries({
-        queryKey: createTenantInvalidationKey(tenantId, 'sites', 'contacts', vars.siteId),
-      });
-      queryClient.invalidateQueries({
-        queryKey: createTenantInvalidationKey(tenantId, 'sites', 'list'),
-      });
+    {
+      invalidate: [
+        ['sites', 'contacts'],
+        ['sites', 'list'],
+      ],
     },
-  });
+  );
 }

@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from .confidence import confidence_in_unit_interval
 from .evidence_validator import validate_tool_output_evidence
 from .implementation_safety import BashAllowlistMiss, BashDenylistHit, verify_bash_command_allowed
 from .runtime_profile import enforce_profile_for_write
@@ -20,7 +21,12 @@ from .tool_registry import GovernanceError, ensure_tools_binding, get_tool
 
 MINIMUM_OUTPUT_FIELDS = ("observations", "findings", "read_paths", "evidence_sources")
 RAW_SAMPLE_LIMIT = 50
-STDOUT_PARSE_MAX_BYTES = 5 * 1024 * 1024
+# Measured (2026-08-13): tenant-scoping over the full repo emits 5.84 MB
+# (66 findings + 11,471 observations) — 17% over the old 5 MB cap, which
+# made every night's cycle "failed" via budget_exceeded/output_too_large.
+# 12 MB = measured reality × 2 headroom; the adapter-side per-type
+# observation cap (tenant-scoping-adapter) bounds the growth class itself.
+STDOUT_PARSE_MAX_BYTES = 12 * 1024 * 1024
 
 
 def run_tool(
@@ -73,15 +79,16 @@ def run_tool(
         raise GovernanceError(f"runner.cwd does not exist: {runner['cwd']}")
 
     input_bytes = _canonical_json_bytes(input_payload)
-    before = _workspace_snapshot(root, tool)
-    # Plan 022 §C-5 — capture an unfiltered raw snapshot alongside the
-    # scoped view. The pre-fix mutation comparison ran on the
-    # tool-scope-filtered status output, so a buggy/malicious adapter
+    # Plan 022 §C-5 — the raw view exists so a buggy/malicious adapter
     # mutating files OUTSIDE its declared scope (package.json, CI
-    # configs, registry.json) was invisible. Raw snapshots let us
-    # partition the diff into scoped vs scope_out mutations and surface
-    # the latter as a hard quarantine signal.
-    before_raw = _workspace_snapshot_raw(root)
+    # configs, registry.json) stays visible; the diff is partitioned
+    # into scoped vs scope_out mutations and the latter is a hard
+    # quarantine signal. ORPHAN-MEDIUM-526 — both views of one
+    # observation moment come from a SINGLE `git status` invocation:
+    # separate calls per view let git's racy-stat heuristic hand two
+    # witnesses of the same moment different answers, and the mutation
+    # verdict then compared internally inconsistent moments.
+    before, before_raw = _workspace_snapshots(root, tool)
     started = time.monotonic()
     stdout = ""
     stderr = ""
@@ -98,11 +105,31 @@ def run_tool(
 
     try:
         if _runner_missing_node_deps(cwd, runner["argv"]):
+            # The WORKSPACE is missing the runner's dependency; the tool never
+            # executed and this run says nothing about the tool. Its own
+            # status keeps it out of the quarantine trigger — six adapters
+            # were quarantined on 2026-08-10 for exactly this, an environment
+            # fault priced as tool guilt (the requeue counter's defect, one
+            # layer up; MISSION_SPEC M-2.5).
             stderr = "missing repo-local node dependency: node_modules/ts-node/dist/bin.js"
-            status = "tool_unhealthy"
+            status = "environment_unavailable"
             exit_code = None
             output = {}
         else:
+            # The tool's memory budget is a CONTRACT, not an accident of the
+            # host. Node's default old-space (~1 GB) OOM-crashed the two
+            # widest-scope adapters (tenant-scoping, test-gap: apps/** +
+            # libs/**) the first time they ever executed — a resource the
+            # manifest never declared, enforced by a runtime the manifest
+            # never chose. `runner.node_max_old_space_mb` (default 2048)
+            # makes the budget explicit per tool; NODE_OPTIONS is composed,
+            # not overwritten, so an operator's own flags survive.
+            run_env = dict(os.environ)
+            node_heap_mb = int(runner.get("node_max_old_space_mb") or 2048)
+            existing_node_options = run_env.get("NODE_OPTIONS", "")
+            run_env["NODE_OPTIONS"] = (
+                f"{existing_node_options} --max-old-space-size={node_heap_mb}"
+            ).strip()
             completed = subprocess.run(
                 runner["argv"],
                 cwd=cwd,
@@ -111,6 +138,7 @@ def run_tool(
                 text=True,
                 timeout=runner["timeout_ms"] / 1000,
                 shell=False,
+                env=run_env,
             )
             stdout = completed.stdout or ""
             stderr = completed.stderr or ""
@@ -135,8 +163,7 @@ def run_tool(
         status = "tool_unhealthy" if getattr(exc, "filename", None) else "crash"
 
     duration_ms = int(round((time.monotonic() - started) * 1000))
-    after = _workspace_snapshot(root, tool)
-    after_raw = _workspace_snapshot_raw(root)
+    after, after_raw = _workspace_snapshots(root, tool)
     # Plan 022 §C-5 — partition every mutated path into scoped vs
     # scope-out using the raw before/after. `mutated` retains its
     # original semantic for backward-compat with downstream consumers
@@ -172,11 +199,16 @@ def run_tool(
         "status": status,
         "input_hash": _sha256(input_bytes),
         "output_hash": _sha256(stdout.encode("utf-8")),
+        # NOTE: read_paths stays a plain array on purpose — it is a
+        # schema-owned field of the run envelope (validate_run_envelope
+        # requires an array). Its observed worst case (88 KB) sits far
+        # under the cap; the unbounded offender this finding chased was
+        # evidence_validation.
         "read_paths": _array_or_empty(output.get("read_paths")),
         "emitted_observations": _array_or_empty(raw_observations) if can_emit else [],
         "emitted_findings": _array_or_empty(raw_findings) if can_emit else [],
         "raw_findings": _array_or_empty(raw_findings),
-        "evidence_validation": evidence_validation,
+        "evidence_validation": _spill_evidence_validation(evidence_validation),
         "operator_feedback_refs": [],
         "memory_candidates": _valid_memory_candidates(memory_candidates, tool_id),
         "duration_ms": duration_ms,
@@ -348,6 +380,39 @@ def _parse_tool_output(
     if "belief_candidates" in payload and not isinstance(payload["belief_candidates"], list):
         return None, "belief_candidates_not_list"
     return payload, None
+
+
+def _workspace_snapshots(root: Path, tool: dict[str, Any] | None = None) -> tuple[Any, Any]:
+    """One observation moment, two projections: (scoped, raw).
+
+    ORPHAN-MEDIUM-526 — the scoped and raw snapshots used to come from
+    SEPARATE ``git status`` invocations, taken several statements apart.
+    Git's racy-stat heuristic can change porcelain output between two
+    back-to-back calls with no real file change, so a single observation
+    moment had two witnesses that could disagree — and the mutation
+    verdict (``before != after``) then compared internally inconsistent
+    moments, flagging phantom mutations under load. One invocation per
+    moment removes the intra-moment divergence class structurally; both
+    projections here are pure functions of the same stdout. The raw
+    projection keeps the aria-tools content-hash overlay (Plan ARIA-V2
+    §3.4) exactly as before.
+    """
+    git_dir = root / ".git"
+    if git_dir.exists():
+        completed = subprocess.run(
+            ["git", "status", "--porcelain", "-z"],
+            cwd=root,
+            capture_output=True,
+            check=False,
+        )
+        if completed.returncode == 0:
+            scoped = ("git", _normalized_git_status(completed.stdout, tool))
+            combined: list[str] = list(_normalized_git_status_raw(completed.stdout))
+            for rel, size, content_hash in _aria_tools_dir_overlay(root):
+                combined.append(f"-- {rel} size={size} {content_hash}")
+            return scoped, ("git", tuple(sorted(combined)))
+    snapshot = ("dir", _directory_snapshot(root))
+    return snapshot, snapshot
 
 
 def _workspace_snapshot(root: Path, tool: dict[str, Any] | None = None) -> Any:
@@ -535,6 +600,82 @@ def _canonical_json_bytes(payload: Any) -> bytes:
     return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
+# ARIA-HIGH-017 — the runs.jsonl row is an append-only, hash-chained
+# INDEX, not a payload store: the full parsed output already persists in
+# the run's runtime artifact (tool_health splits _runtime_artifact_payload
+# out before the row is written). Derived inline fields larger than this
+# cap are replaced by a digest stub so one verbose run can never make
+# every future reader pay for it — and never trip the snapshot line cap.
+INLINE_ROW_FIELD_MAX_BYTES = 128 * 1024
+
+
+def _spill_oversized_inline(field: str, value):
+    serialized = json.dumps(value, ensure_ascii=False, default=str)
+    size = len(serialized.encode("utf-8"))
+    if size <= INLINE_ROW_FIELD_MAX_BYTES:
+        return value
+    digest = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+    return {
+        "spilled": True,
+        "sha256": f"sha256:{digest}",
+        "size_bytes": size,
+        "total_marker": "see:size_bytes",
+        "recovery": (
+            f"{field} exceeded the inline row cap; the full value persists "
+            "in this run's runtime artifact (parsed_output)"
+        ),
+    }
+
+
+# The structural keys consumers read from every run row (readiness,
+# pressure, reflection, governance) stay inline even when the bulk of
+# the validation object spills — the row remains queryable exactly as
+# before; only the unbounded envelope blobs move to the artifact.
+_EVIDENCE_VALIDATION_STRUCTURAL_KEYS = (
+    "repository_mutation_attempt",
+    "valid",
+    "errors",
+    "evidence_sources",
+)
+
+
+def _spill_evidence_validation(validation: dict) -> dict:
+    serialized = json.dumps(validation, ensure_ascii=False, default=str)
+    if len(serialized.encode("utf-8")) <= INLINE_ROW_FIELD_MAX_BYTES:
+        return validation
+    # Structural keys stay queryable; structural LISTS are bounded to a
+    # sample plus a total/digest marker — presence, validity, and counts
+    # remain readable in the row while the full lists live in the
+    # artifact's parsed output.
+    kept: dict = {}
+    for key in _EVIDENCE_VALIDATION_STRUCTURAL_KEYS:
+        if key not in validation:
+            continue
+        value = validation[key]
+        sample = _EVIDENCE_VALIDATION_LIST_SAMPLES.get(key)
+        if sample is not None and isinstance(value, list) and len(value) > sample:
+            kept[key] = value[:sample]
+            full = json.dumps(value, ensure_ascii=False, default=str)
+            kept[f"{key}_spilled"] = {
+                "spilled_sample": True,
+                "total": len(value),
+                "sha256": "sha256:" + hashlib.sha256(
+                    full.encode("utf-8"),
+                ).hexdigest(),
+            }
+        else:
+            kept[key] = value
+    return {**kept, "spilled_bulk": _spill_oversized_inline(
+        "evidence_validation", validation,
+    )}
+
+
+_EVIDENCE_VALIDATION_LIST_SAMPLES = {
+    "evidence_sources": 100,
+    "errors": 20,
+}
+
+
 def _sha256(payload: bytes) -> str:
     return "sha256:" + hashlib.sha256(payload).hexdigest()
 
@@ -558,7 +699,11 @@ def _valid_memory_candidates(candidates: list[Any], tool_id: str) -> list[dict[s
             continue
         belief_id = candidate.get("belief_id")
         claim = candidate.get("claim")
-        confidence = _non_negative_number(candidate.get("confidence"), default=None)
+        # ORPHAN-HIGH-541 — out-of-range confidence DROPS the candidate.
+        # The previous clamp (`min(float(confidence), 1.0)`) failed open: an
+        # adapter emitting a count or a severity as `confidence` was promoted
+        # to 1.0, maximum certainty, and recorded as a belief weight.
+        confidence = confidence_in_unit_interval(candidate.get("confidence"))
         evidence_refs = candidate.get("evidence_refs")
         if (
             not isinstance(belief_id, str)
@@ -573,7 +718,7 @@ def _valid_memory_candidates(candidates: list[Any], tool_id: str) -> list[dict[s
             {
                 "belief_id": belief_id,
                 "claim": claim,
-                "confidence": min(float(confidence), 1.0),
+                "confidence": confidence,
                 "evidence_refs": [str(ref) for ref in evidence_refs if isinstance(ref, str) and ref.strip()],
                 "source_tool_id": str(candidate.get("source_tool_id") or tool_id),
             },

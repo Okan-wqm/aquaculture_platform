@@ -432,6 +432,31 @@ pub(crate) const COMMAND_CATALOG: &[CommandCatalogEntry] = &[
         AuditAction::PolicyUpdateApplied,
         AuditAction::PolicyUpdateRejected
     ),
+    // Runtime Modbus device provisioning (Slice 3.5 / SENSOR-CRITICAL-007).
+    // Defining a writable Modbus device (its connection + allowed_write_ranges)
+    // IS I/O-config management, so both provision + decommission take the same
+    // ManageIoConfig permission class + PolicyUpdate audit taxonomy + signature
+    // floor as update_io_config. Uncataloged mutating arms fall back to the WRONG
+    // RBAC class and NO audit action (EDGE-HIGH-003), so both are cataloged here
+    // and listed in MUTATING_WIRE_NAMES below.
+    entry!(
+        "provision_modbus_device",
+        "cmd_provision_modbus_device",
+        PermissionResolver::Static(StaticPermission::ManageIoConfig),
+        LegacyPolicy::DenyUnsignedInEnforcing,
+        false,
+        AuditAction::PolicyUpdateApplied,
+        AuditAction::PolicyUpdateRejected
+    ),
+    entry!(
+        "decommission_modbus_device",
+        "cmd_decommission_modbus_device",
+        PermissionResolver::Static(StaticPermission::ManageIoConfig),
+        LegacyPolicy::DenyUnsignedInEnforcing,
+        false,
+        AuditAction::PolicyUpdateApplied,
+        AuditAction::PolicyUpdateRejected
+    ),
     entry!(
         "deploy_script",
         "cmd_deploy_script",
@@ -693,6 +718,20 @@ pub(crate) const COMMAND_CATALOG: &[CommandCatalogEntry] = &[
         AuditAction::ProgramDeployApplied,
         AuditAction::ProgramDeployRequested
     ),
+    // Undeploy is the INVERSE of deploy_scada_package — it stops content
+    // running on physical screens, so it takes the identical DeployProgram
+    // permission class + ProgramDeploy audit taxonomy + legacy policy as
+    // its counterpart (EDGE-HIGH-003: a dispatch arm without a catalog
+    // entry falls back to the WRONG RBAC class and NO audit action).
+    entry!(
+        "undeploy_scada_package",
+        "cmd_undeploy_scada_package",
+        PermissionResolver::Static(StaticPermission::DeployProgram),
+        LegacyPolicy::DenyUnsignedInEnforcing,
+        false,
+        AuditAction::ProgramDeployApplied,
+        AuditAction::ProgramDeployRequested
+    ),
     // A release bundle is the transactional grouping of the SAME artifacts
     // deploy_process / deploy_scada_package / deploy_program apply, so it takes
     // the identical DeployProgram permission class and ProgramDeploy audit
@@ -836,6 +875,7 @@ pub(crate) const MUTATING_WIRE_NAMES: &[&str] = &[
     "apply_signed_manifest",
     "confirm_slot",
     "debug_step",
+    "decommission_modbus_device",
     "delete_bytecode_program",
     "delete_script",
     "deploy_auto",
@@ -861,6 +901,7 @@ pub(crate) const MUTATING_WIRE_NAMES: &[&str] = &[
     "plc_start",
     "plc_stop",
     "plc_upload",
+    "provision_modbus_device",
     "reboot",
     "refresh_license",
     "restart_agent",
@@ -868,6 +909,7 @@ pub(crate) const MUTATING_WIRE_NAMES: &[&str] = &[
     "rotate_master",
     "set_log_level",
     "set_output",
+    "undeploy_scada_package",
     "unforce_all",
     "unforce_value",
     "update_cert_pinning",

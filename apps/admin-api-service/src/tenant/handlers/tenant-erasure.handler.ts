@@ -20,6 +20,9 @@ import {
   canTransition,
   createBaseEvent,
   isTenantErasureTargetService,
+  resolveTenantErasureOutcomeEventType,
+  TENANT_ERASURE_OUTCOME_EVENT_TYPES_BY_TARGET,
+  TENANT_ERASURE_OUTCOME_KINDS,
   TENANT_ERASURE_TARGET_SERVICES,
   TENANT_ERASURE_TARGET_SERVICE_COUNT,
   TenantDataErasedEvent,
@@ -35,9 +38,7 @@ import { DataSource, EntityManager, QueryRunner } from 'typeorm';
 
 import { AuditLogService } from '../../audit/audit.service';
 import { RequestTenantErasureCommand } from '../commands/tenant.commands';
-import {
-  TenantErasureOperationAcceptedResponse,
-} from '../dto/request-tenant-erasure.dto';
+import { TenantErasureOperationAcceptedResponse } from '../dto/request-tenant-erasure.dto';
 import { Tenant } from '../entities/tenant.entity';
 
 type ErasureProofEvent =
@@ -53,13 +54,33 @@ interface TenantErasureOperationRow {
   reason: string;
   requestedAt: Date | string;
   legalHoldCheckedAt: Date | string;
+  dryRun: boolean;
   targetServices: string[];
   proofs: Record<string, unknown>;
   failures: unknown[];
   schemaDeletionJobId: string | null;
   schemaDeletionRequestedAt: Date | string | null;
   schemaDeletedAt: Date | string | null;
+  updatedAt: Date | string;
 }
+
+interface TenantErasureRecoveryRow {
+  readonly id: string;
+  readonly tenantId: string;
+  readonly requestedBy: string;
+  readonly requestedAt: Date | string;
+  readonly legalHoldCheckedAt: Date | string;
+  readonly dryRun: boolean;
+  readonly targetServices: string[];
+  readonly updatedAt: Date | string;
+}
+
+export type TenantErasureEventSubscriber = Pick<IEventBus, 'subscribeWildcard'>;
+export type TenantErasureOutboxPublisher = Pick<OutboxPublisher, 'enqueue'>;
+export type TenantErasureLegalHoldService = Pick<LegalHoldService, 'assertNoHold'>;
+export type TenantErasureAuditLogger = Pick<AuditLogService, 'log'>;
+
+export const TENANT_ERASURE_REQUEST_RECOVERY_STALE_SECONDS = 120;
 
 interface TenantSchemaDeletionState {
   readonly jobId: string;
@@ -77,20 +98,19 @@ interface TenantSchemaDeletionState {
 @Injectable()
 @CommandHandler(RequestTenantErasureCommand)
 export class RequestTenantErasureHandler
-  implements
-    ICommandHandler<
-      RequestTenantErasureCommand,
-      TenantErasureOperationAcceptedResponse
-    >
+  implements ICommandHandler<RequestTenantErasureCommand, TenantErasureOperationAcceptedResponse>
 {
   private readonly logger = new Logger(RequestTenantErasureHandler.name);
 
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    private readonly outboxPublisher: OutboxPublisher,
-    private readonly legalHoldService: LegalHoldService,
-    private readonly auditLogService: AuditLogService,
+    @Inject(OutboxPublisher)
+    private readonly outboxPublisher: TenantErasureOutboxPublisher,
+    @Inject(LegalHoldService)
+    private readonly legalHoldService: TenantErasureLegalHoldService,
+    @Inject(AuditLogService)
+    private readonly auditLogService: TenantErasureAuditLogger,
   ) {}
 
   async execute(
@@ -140,10 +160,10 @@ export class RequestTenantErasureHandler
       await queryRunner.manager.query(
         `INSERT INTO admin.tenant_erasure_operations (
            id, "tenantId", status, "requestedBy", reason, "requestedAt",
-           "legalHoldCheckedAt", "targetServices", proofs, failures,
+           "legalHoldCheckedAt", "dryRun", "targetServices", proofs, failures,
            "createdAt", "updatedAt"
          ) VALUES (
-           $1, $2, 'IN_PROGRESS', $3, $4, $5, $6, $7::text[],
+           $1, $2, 'IN_PROGRESS', $3, $4, $5, $6, $7, $8::text[],
            '{}'::jsonb, '[]'::jsonb, NOW(), NOW()
          )`,
         [
@@ -153,6 +173,7 @@ export class RequestTenantErasureHandler
           command.reason,
           requestedAt,
           legalHoldCheckedAt,
+          command.dryRun,
           [...TENANT_ERASURE_TARGET_SERVICES],
         ],
       );
@@ -196,6 +217,7 @@ export class RequestTenantErasureHandler
       details: {
         operationId,
         reason: command.reason,
+        dryRun: command.dryRun,
         targetServices: [...TENANT_ERASURE_TARGET_SERVICES],
       },
     });
@@ -218,27 +240,33 @@ export class RequestTenantErasureHandler
 }
 
 @Injectable()
-export class TenantErasureProofHandler
-  implements IEventHandler<ErasureProofEvent>, OnModuleInit
-{
+export class TenantErasureProofHandler implements IEventHandler<ErasureProofEvent>, OnModuleInit {
   private static readonly SCHEMA_DELETION_POLL_LIMIT = 25;
+  private static readonly REQUEST_RECOVERY_LIMIT = 25;
   private readonly logger = new Logger(TenantErasureProofHandler.name);
 
   constructor(
     @Inject('EVENT_BUS')
-    private readonly eventBus: IEventBus,
+    private readonly eventBus: TenantErasureEventSubscriber,
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    private readonly outboxPublisher: OutboxPublisher,
-    private readonly legalHoldService: LegalHoldService,
+    @Inject(OutboxPublisher)
+    private readonly outboxPublisher: TenantErasureOutboxPublisher,
+    @Inject(LegalHoldService)
+    private readonly legalHoldService: TenantErasureLegalHoldService,
   ) {}
 
   async onModuleInit(): Promise<void> {
-    await this.eventBus.subscribeWildcard('TenantDataErased', this);
-    await this.eventBus.subscribeWildcard('TenantDataErasureFailed', this);
-    await this.eventBus.subscribeWildcard('TenantErasureBlocked', this);
+    for (const targetService of TENANT_ERASURE_TARGET_SERVICES) {
+      for (const outcome of TENANT_ERASURE_OUTCOME_KINDS) {
+        await this.eventBus.subscribeWildcard(
+          TENANT_ERASURE_OUTCOME_EVENT_TYPES_BY_TARGET[targetService][outcome],
+          this,
+        );
+      }
+    }
     this.logger.log(
-      'Subscribed to tenant erasure proof/failure events for finalization',
+      'Subscribed to certificate-bound tenant erasure outcome events for finalization',
     );
   }
 
@@ -247,11 +275,31 @@ export class TenantErasureProofHandler
   }
 
   async handle(event: ErasureProofEvent): Promise<void> {
-    if (event.eventType === 'TenantDataErased') {
-      await this.recordServiceProof(event);
+    const resolved = resolveTenantErasureOutcomeEventType(event.eventType);
+    if (!resolved) {
+      throw new BadRequestException(
+        `Unknown or legacy tenant-erasure outcome event type: ${event.eventType}`,
+      );
+    }
+    const claimedService =
+      resolved.outcome === 'blocked'
+        ? (event as TenantErasureBlockedEvent).blockedByService
+        : (event as TenantDataErasedEvent | TenantDataErasureFailedEvent).targetService;
+    if (claimedService !== resolved.targetService) {
+      throw new BadRequestException(
+        `Tenant-erasure outcome identity mismatch: eventType ${event.eventType} ` +
+          `is bound to ${resolved.targetService}, payload claims ${claimedService}`,
+      );
+    }
+
+    if (resolved.outcome === 'erased') {
+      await this.recordServiceProof(event as TenantDataErasedEvent);
       return;
     }
-    await this.recordServiceFailure(event);
+    await this.recordServiceFailure(
+      event as TenantDataErasureFailedEvent | TenantErasureBlockedEvent,
+      resolved.outcome,
+    );
   }
 
   @Interval(30_000)
@@ -270,11 +318,7 @@ export class TenantErasureProofHandler
 
     for (const row of operations) {
       await this.dataSource.transaction(async (manager) => {
-        const operation = await this.loadOperationForUpdate(
-          manager,
-          row.id,
-          row.tenantId,
-        );
+        const operation = await this.loadOperationForUpdate(manager, row.id, row.tenantId);
         if (operation.status !== 'IN_PROGRESS') {
           return;
         }
@@ -282,6 +326,7 @@ export class TenantErasureProofHandler
         if (!this.hasEveryTargetProof(operation, proofs)) {
           return;
         }
+        this.assertProofModes(operation, proofs);
         await this.advanceAfterTargetProofs(
           manager,
           operation,
@@ -290,6 +335,83 @@ export class TenantErasureProofHandler
         );
       });
     }
+  }
+
+  /**
+   * Replays requests whose original outbox delivery never produced every
+   * target proof. The row lock makes the claim safe across replicas; the
+   * heartbeat moves only after the replacement outbox row is durable in the
+   * same transaction, so a failed enqueue remains immediately recoverable.
+   */
+  @Interval(30_000)
+  async recoverStaleErasureRequests(): Promise<void> {
+    await this.dataSource.transaction(async (manager) => {
+      const operations = queryRowsNormalized<TenantErasureRecoveryRow>(
+        await manager.query(
+          `SELECT id,
+                  "tenantId",
+                  "requestedBy",
+                  "requestedAt",
+                  "legalHoldCheckedAt",
+                  "dryRun",
+                  "targetServices",
+                  "updatedAt"
+             FROM admin.tenant_erasure_operations AS operation
+            WHERE operation.status = 'IN_PROGRESS'
+              AND operation."schemaDeletionJobId" IS NULL
+              AND operation."updatedAt" <=
+                    NOW() - ($2::double precision * INTERVAL '1 second')
+              AND EXISTS (
+                SELECT 1
+                  FROM unnest(operation."targetServices") AS target(service)
+                 WHERE NOT (operation.proofs ? target.service)
+              )
+            ORDER BY operation."updatedAt" ASC, operation.id ASC
+            LIMIT $1
+            FOR UPDATE OF operation SKIP LOCKED`,
+          [
+            TenantErasureProofHandler.REQUEST_RECOVERY_LIMIT,
+            TENANT_ERASURE_REQUEST_RECOVERY_STALE_SECONDS,
+          ],
+        ),
+      );
+
+      for (const operation of operations) {
+        if (typeof operation.dryRun !== 'boolean' || operation.targetServices.length === 0) {
+          throw new Error(
+            `Tenant erasure operation ${operation.id} has invalid durable request metadata`,
+          );
+        }
+        const recoveryGeneration = this.toIso(operation.updatedAt);
+        const event: TenantErasureRequestedEvent = {
+          ...createBaseEvent<TenantErasureRequestedEvent>(
+            'TenantErasureRequested',
+            operation.tenantId,
+            {
+              aggregateId: operation.tenantId,
+              aggregateType: 'Tenant',
+              userId: operation.requestedBy,
+            },
+          ),
+          operationId: operation.id,
+          requestedBy: operation.requestedBy,
+          requestedAt: this.toIso(operation.requestedAt),
+          legalHoldCheckedAt: this.toIso(operation.legalHoldCheckedAt),
+          dryRun: operation.dryRun,
+          targetServiceCount: operation.targetServices.length,
+        };
+        await this.outboxPublisher.enqueue(event, manager, {
+          aggregateId: operation.tenantId,
+          idempotencyKey: `tenant-erasure:${operation.id}:recovery:${recoveryGeneration}`,
+        });
+        await manager.query(
+          `UPDATE admin.tenant_erasure_operations
+              SET "updatedAt" = NOW()
+            WHERE id = $1`,
+          [operation.id],
+        );
+      }
+    });
   }
 
   private async recordServiceProof(event: TenantDataErasedEvent): Promise<void> {
@@ -316,6 +438,12 @@ export class TenantErasureProofHandler
           `Tenant erasure operation ${event.operationId} is ${operation.status}; cannot accept proof.`,
         );
       }
+      if (event.dryRun !== operation.dryRun) {
+        throw new BadRequestException(
+          `Tenant erasure operation ${event.operationId} mode mismatch: ` +
+            `expected dryRun=${operation.dryRun}, received dryRun=${event.dryRun}.`,
+        );
+      }
 
       const proofs = this.asRecord(operation.proofs);
       proofs[event.targetService] = {
@@ -327,35 +455,27 @@ export class TenantErasureProofHandler
         proofHash: event.proofHash,
         eventId: event.eventId,
       };
+      this.assertProofModes(operation, proofs);
 
       if (!this.hasEveryTargetProof(operation, proofs)) {
         await this.updateOperationProgress(manager, operation.id, proofs);
         return;
       }
 
-      await this.advanceAfterTargetProofs(
-        manager,
-        operation,
-        proofs,
-        event.eventId,
-      );
+      await this.advanceAfterTargetProofs(manager, operation, proofs, event.eventId);
     });
   }
 
   private async recordServiceFailure(
     event: TenantDataErasureFailedEvent | TenantErasureBlockedEvent,
+    outcome: 'failed' | 'blocked',
   ): Promise<void> {
     const targetService =
-      event.eventType === 'TenantDataErasureFailed'
-        ? event.targetService
-        : event.blockedByService;
-    if (
-      targetService !== 'platform-orchestrator' &&
-      !isTenantErasureTargetService(targetService)
-    ) {
-      throw new BadRequestException(
-        `Unknown tenant-erasure target service: ${targetService}`,
-      );
+      outcome === 'failed'
+        ? (event as TenantDataErasureFailedEvent).targetService
+        : (event as TenantErasureBlockedEvent).blockedByService;
+    if (targetService !== 'platform-orchestrator' && !isTenantErasureTargetService(targetService)) {
+      throw new BadRequestException(`Unknown tenant-erasure target service: ${targetService}`);
     }
 
     await this.dataSource.transaction(async (manager) => {
@@ -370,20 +490,18 @@ export class TenantErasureProofHandler
         );
       }
 
-      const failures = Array.isArray(operation.failures)
-        ? [...operation.failures]
-        : [];
+      const failures = Array.isArray(operation.failures) ? [...operation.failures] : [];
       failures.push({
         eventType: event.eventType,
         targetService,
         reason:
-          event.eventType === 'TenantDataErasureFailed'
-            ? event.errorMessage
-            : event.reason,
+          outcome === 'failed'
+            ? (event as TenantDataErasureFailedEvent).errorMessage
+            : (event as TenantErasureBlockedEvent).reason,
         occurredAt:
-          event.eventType === 'TenantDataErasureFailed'
-            ? event.failedAt
-            : event.blockedAt,
+          outcome === 'failed'
+            ? (event as TenantDataErasureFailedEvent).failedAt
+            : (event as TenantErasureBlockedEvent).blockedAt,
         eventId: event.eventId,
       });
 
@@ -393,11 +511,7 @@ export class TenantErasureProofHandler
                 failures = $3::jsonb,
                 "updatedAt" = NOW()
           WHERE id = $1`,
-        [
-          operation.id,
-          event.eventType === 'TenantErasureBlocked' ? 'BLOCKED' : 'FAILED',
-          JSON.stringify(failures),
-        ],
+        [operation.id, outcome === 'blocked' ? 'BLOCKED' : 'FAILED', JSON.stringify(failures)],
       );
     });
   }
@@ -408,15 +522,20 @@ export class TenantErasureProofHandler
     proofs: Record<string, unknown>,
     causationEventId: string,
   ): Promise<void> {
-    const schemaDeletion =
-      !operation.schemaDeletionJobId
-        ? await this.requestSchemaDeletion(manager, operation, proofs)
-        : await this.readSchemaDeletionState(manager, operation);
+    if (operation.dryRun) {
+      if (operation.schemaDeletionJobId) {
+        await this.recordDryRunSchemaDeletionContamination(manager, operation);
+        return;
+      }
+      await this.completeDryRun(manager, operation, proofs);
+      return;
+    }
 
-    if (
-      schemaDeletion.jobStatus === 'FAILED' ||
-      schemaDeletion.jobStatus === 'ABORTED'
-    ) {
+    const schemaDeletion = !operation.schemaDeletionJobId
+      ? await this.requestSchemaDeletion(manager, operation, proofs)
+      : await this.readSchemaDeletionState(manager, operation);
+
+    if (schemaDeletion.jobStatus === 'FAILED' || schemaDeletion.jobStatus === 'ABORTED') {
       await this.recordSchemaDeletionFailure(manager, operation, schemaDeletion);
       return;
     }
@@ -426,12 +545,89 @@ export class TenantErasureProofHandler
       return;
     }
 
-    await this.finalizeOperation(
-      manager,
-      operation,
-      proofs,
-      causationEventId,
-      schemaDeletion,
+    await this.finalizeOperation(manager, operation, proofs, causationEventId, schemaDeletion);
+  }
+
+  private assertProofModes(
+    operation: TenantErasureOperationRow,
+    proofs: Record<string, unknown>,
+  ): void {
+    for (const targetService of operation.targetServices) {
+      if (proofs[targetService] === undefined) {
+        continue;
+      }
+      const proof = this.asRecord(proofs[targetService]);
+      if (proof['dryRun'] !== operation.dryRun) {
+        throw new BadRequestException(
+          `Tenant erasure operation ${operation.id} has a ${targetService} proof ` +
+            `whose dryRun mode does not match the durable operation.`,
+        );
+      }
+      if (operation.dryRun && proof['erasedRecordCount'] !== 0) {
+        throw new BadRequestException(
+          `Tenant erasure dry run ${operation.id} has a destructive ${targetService} proof ` +
+            'with a non-zero erasedRecordCount.',
+        );
+      }
+    }
+  }
+
+  private async recordDryRunSchemaDeletionContamination(
+    manager: EntityManager,
+    operation: TenantErasureOperationRow,
+  ): Promise<void> {
+    const failures = Array.isArray(operation.failures) ? [...operation.failures] : [];
+    failures.push({
+      eventType: 'TenantErasureDryRunSchemaDeletionRejected',
+      targetService: 'platform-orchestrator',
+      jobId: operation.schemaDeletionJobId,
+      reason: 'Dry-run operation contains a schema deletion job and cannot be completed safely',
+      occurredAt: new Date().toISOString(),
+    });
+    await manager.query(
+      `UPDATE admin.tenant_erasure_operations
+          SET status = 'FAILED',
+              failures = $2::jsonb,
+              "updatedAt" = NOW()
+        WHERE id = $1`,
+      [operation.id, JSON.stringify(failures)],
+    );
+  }
+
+  private async completeDryRun(
+    manager: EntityManager,
+    operation: TenantErasureOperationRow,
+    proofs: Record<string, unknown>,
+  ): Promise<void> {
+    const completedAt = new Date().toISOString();
+    const targetProofs = operation.targetServices.map((targetService) => ({
+      targetService,
+      proof: proofs[targetService],
+    }));
+    const proofHash = `sha256:${createHash('sha256')
+      .update(
+        this.stableStringify({
+          operationId: operation.id,
+          tenantId: operation.tenantId,
+          mode: 'DRY_RUN',
+          requestedAt: this.toIso(operation.requestedAt),
+          legalHoldCheckedAt: this.toIso(operation.legalHoldCheckedAt),
+          completedAt,
+          targetProofs,
+          proofVersion: 1,
+        }),
+      )
+      .digest('hex')}`;
+
+    await manager.query(
+      `UPDATE admin.tenant_erasure_operations
+          SET status = 'COMPLETED',
+              proofs = $2::jsonb,
+              "proofHash" = $3,
+              "completedAt" = $4,
+              "updatedAt" = NOW()
+        WHERE id = $1`,
+      [operation.id, JSON.stringify(proofs), proofHash, completedAt],
     );
   }
 
@@ -448,9 +644,7 @@ export class TenantErasureProofHandler
     proofs: Record<string, unknown>,
   ): Promise<TenantSchemaDeletionState> {
     const schemaRow = await this.loadTenantSchemaForUpdate(manager, operation.tenantId);
-    const existingSchemas = await this.readExistingTenantSchemas(manager, [
-      schemaRow.schemaName,
-    ]);
+    const existingSchemas = await this.readExistingTenantSchemas(manager, [schemaRow.schemaName]);
     const requestedAt = new Date().toISOString();
     const legalHoldCheckedAt = await this.assertLiveLegalHold(operation.tenantId);
     const proof = createCleanupDropProof({
@@ -652,9 +846,7 @@ export class TenantErasureProofHandler
     operation: TenantErasureOperationRow,
     state: TenantSchemaDeletionState,
   ): Promise<void> {
-    const failures = Array.isArray(operation.failures)
-      ? [...operation.failures]
-      : [];
+    const failures = Array.isArray(operation.failures) ? [...operation.failures] : [];
     failures.push({
       eventType: 'TenantSchemaDeletionFailed',
       targetService: 'platform-orchestrator',
@@ -695,9 +887,7 @@ export class TenantErasureProofHandler
       );
     }
 
-    const finalLegalHoldCheckedAt = await this.assertLiveLegalHold(
-      operation.tenantId,
-    );
+    const finalLegalHoldCheckedAt = await this.assertLiveLegalHold(operation.tenantId);
     const completedAt = new Date().toISOString();
     const proofHash = this.createFinalProofHash(
       operation,
@@ -766,12 +956,14 @@ export class TenantErasureProofHandler
                 reason,
                 "requestedAt",
                 "legalHoldCheckedAt",
+                "dryRun",
                 "targetServices",
                 proofs,
                 failures,
                 "schemaDeletionJobId",
                 "schemaDeletionRequestedAt",
-                "schemaDeletedAt"
+                "schemaDeletedAt",
+                "updatedAt"
            FROM admin.tenant_erasure_operations
           WHERE id = $1 AND "tenantId" = $2
           FOR UPDATE`,

@@ -5,7 +5,7 @@
  * badged so the operator knows they came from source records; COMPUTED
  * rows (the 5% rule) are badged as calculated.
  */
-import { formatCurrency } from '@aquaculture/shared-ui';
+import { formatCurrency, parseMoney } from '@aquaculture/shared-ui';
 import React from 'react';
 
 import type { FinanceSummary } from '../../../hooks/useFinance';
@@ -23,9 +23,13 @@ interface OverviewTabProps {
  * formatCurrency so rows reconcile with their totals (a 0-decimal format
  * makes 0.50 × 3 render as "1" each yet total "2"). Booked amounts are
  * always in the tenant default currency (backend SSoT).
+ *
+ * Money now crosses the wire as an exact decimal STRING (Decimal scalar,
+ * ADR-0004 / DATA-MEDIUM-009); accept either the string form or a raw
+ * number and coerce once here at the display boundary.
  */
-export function formatMoney(amount: number, currency: string): string {
-  return formatCurrency(amount, currency);
+export function formatMoney(amount: number | string, currency: string): string {
+  return formatCurrency(parseMoney(amount), currency);
 }
 
 export const OverviewTab: React.FC<OverviewTabProps> = ({ summary, isLoading, error, period }) => {
@@ -54,7 +58,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({ summary, isLoading, er
         <div className="rounded-lg bg-white p-5 shadow">
           <p className="text-sm font-medium text-gray-500">Operational cost</p>
           <p className="mt-1 text-3xl font-semibold text-gray-900">
-            {formatMoney(summary.totalExpense, summary.currency)}
+            {formatMoney(summary.totalExpenseDecimal, summary.currency)}
           </p>
           <p className="mt-1 text-xs text-gray-500">
             {period.from} → {period.to}
@@ -63,7 +67,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({ summary, isLoading, er
         <div className="rounded-lg bg-white p-5 shadow">
           <p className="text-sm font-medium text-gray-500">Revenue</p>
           <p className="mt-1 text-3xl font-semibold text-gray-900">
-            {formatMoney(summary.totalRevenue, summary.currency)}
+            {formatMoney(summary.totalRevenueDecimal, summary.currency)}
           </p>
           <p className="mt-1 text-xs text-gray-500">Harvest sales</p>
         </div>
@@ -71,10 +75,10 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({ summary, isLoading, er
           <p className="text-sm font-medium text-gray-500">Net result</p>
           <p
             className={`mt-1 text-3xl font-semibold ${
-              summary.netResult >= 0 ? 'text-green-700' : 'text-red-700'
+              parseMoney(summary.netResultDecimal) >= 0 ? 'text-green-700' : 'text-red-700'
             }`}
           >
-            {formatMoney(summary.netResult, summary.currency)}
+            {formatMoney(summary.netResultDecimal, summary.currency)}
           </p>
           <p className="mt-1 text-xs text-gray-500">Revenue − operational cost</p>
         </div>
@@ -137,7 +141,7 @@ const CategoryTable: React.FC<{
               )}
             </td>
             <td className="px-5 py-3 text-right text-sm font-medium text-gray-900">
-              {formatMoney(row.total, currency)}
+              {formatMoney(row.totalDecimal, currency)}
             </td>
           </tr>
         ))}

@@ -32,7 +32,6 @@ import {
   getRlsExcludeTablesForService,
   SchemaDriftModule,
   SourceSchemaBootstrapService,
-  SourceSchemaWriteGuardService,
   TenantSchemaSyncService,
   TenantSchemaCacheModule,
 } from '@aquaculture/backend-common/database';
@@ -218,12 +217,12 @@ type QueryComplexityOperationContext = {
            *  defense-in-depth in case a subgraph becomes directly accessible. */
           allowBatchedHttpRequests: false,
           /**
-           * 2026-04-30: Keep Apollo CSRF prevention explicit while Apollo Server 5
-           * migration is blocked by the Nest/Apollo peer graph.
-           * WHY: Apollo Server 4 remains in the dependency graph, so XS-Search
-           * class protections must be fail-closed at runtime.
+           * Keep Apollo CSRF prevention explicit as defense in depth against
+           * cross-site search and simple-request execution paths.
            */
           csrfPrevention: true,
+          playground: false,
+          graphiql: process.env['NODE_ENV'] !== 'production',
           autoSchemaFile: {
             federation: 2,
             path: join(process.cwd(), 'dist/graphql/subgraphs/messaging.graphql'),
@@ -397,11 +396,10 @@ type QueryComplexityOperationContext = {
     // runner is the SSoT for migration execution.
     MessagingMigrationRunnerService,
 
-    // Tenant infrastructure providers (all 5 required — see ADR-012 section 6.1)
+    // Tenant infrastructure providers (all 4 required — see ADR-012 section 6.1)
     SourceSchemaBootstrapService,
     TenantConnectionBootstrap,
     TenantSchemaSyncService,
-    SourceSchemaWriteGuardService,
   ],
 })
 export class AppModule implements NestModule {

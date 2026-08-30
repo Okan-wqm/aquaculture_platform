@@ -34,6 +34,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping, Protocol
 
+# Confidence for a convention recorded from a CONVERGED plan, before any
+# outcome exists. Deliberately below knowledge_graph.MIN_PATTERN_CONFIDENCE
+# (0.7), which is the floor `lookup_pattern` serves from: a pre-outcome
+# claim must be recorded and must NOT be handed to the next planner as
+# established knowledge. Above 0.0 because convergence is real evidence —
+# a planner, a challenger and a cross-review agreed — just evidence about
+# agreement rather than about outcome.
+CONVENTION_HYPOTHESIS_CONFIDENCE: float = 0.5
+
 if TYPE_CHECKING:  # pragma: no cover
     pass
 
@@ -185,7 +194,26 @@ class MemoryHookImpl:
             pattern = Pattern(
                 pattern_id=pattern_id,
                 pattern_type="convention",
-                confidence=0.9,
+                # A plan that CONVERGED is not a plan that WORKED. This row
+                # is written when the convergent gate resolves — before the
+                # change is merged, before CI has run against it, before any
+                # outcome exists. It used to be recorded at 0.9, above
+                # MIN_PATTERN_CONFIDENCE (0.7), so `lookup_pattern` served it
+                # to the next planner as established knowledge: ARIA teaching
+                # itself its own predictions as facts.
+                #
+                # Convergence IS evidence — a planner, a challenger and a
+                # cross-review agreed — but evidence about agreement, not
+                # about outcome. The row is still recorded, because the
+                # observation is worth keeping; it is recorded BELOW the
+                # serving floor so it is not handed forward as known.
+                # Promotion on a VERIFIED outcome is Wave 10's half.
+                confidence=CONVENTION_HYPOTHESIS_CONFIDENCE,
+                outcome_status="hypothesis",
+                # M2/E12 — the promotion key: the merge reconciler finds
+                # this row by plan_id when the plan's PR actually merges
+                # (the VERIFIED outcome the comment above promises).
+                plan_id=plan_id,
                 evidence_refs=tuple(
                     plan_content.get("evidence_refs") or ()
                 ),

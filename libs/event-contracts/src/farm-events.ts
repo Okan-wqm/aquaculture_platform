@@ -515,6 +515,13 @@ export interface FeedingRecordedEvent extends BaseEvent {
   feedCost?: string;
   /** ISO 4217 currency code for feedCost. */
   currency?: string;
+  // ── Öğün motoru v2 bağları (Faz 5, additive — C-13 wire şeması güncel) ──
+  /** Döküm hangi öğüne ait (v2 motoru; manuel kayıtta boş). */
+  mealId?: string;
+  pourIndex?: number;
+  dayPlanId?: string;
+  /** Equipment.id — kanonik ünite kimliği (tankId ile aynı değer taşır). */
+  unitId?: string;
 }
 
 /**
@@ -794,6 +801,212 @@ export interface SubEquipmentDeletedEvent extends BaseEvent {
  * and invalidation only need to know which equipment's calibration set
  * changed and how many rows are now authoritative.
  */
+/**
+ * Birleşik protokol bir üniteye atandığında (feeding-protocol SSoT Faz 3).
+ * Audit + gelecekteki analytics tüketicileri için; atama transaction'ında
+ * outbox'a yazılır.
+ */
+export interface FeedingProtocolAssignedEvent extends BaseEvent {
+  eventType: 'FeedingProtocolAssigned';
+  userId?: string;
+  assignmentId: string;
+  unitId: string;
+  unitType: 'tank' | 'pond' | 'cage';
+  unitCode: string;
+  siteId: string;
+  protocolId: string;
+  protocolName: string;
+  /** Değiştirme semantiği: önceki aktif atamanın id'si (tarihçe). */
+  replacedAssignmentId?: string;
+  /** Tür uyumsuzluğunda operatörün bilinçli-devam gerekçesi (audit). */
+  speciesMismatchReason?: string;
+}
+
+/**
+ * Aktif bir atama otomatik/operatör kararıyla duraklatıldığında — protokol
+ * arşivi (D-10), boş ünite (Faz 5) veya operatör pause'u. Ünitenin plansız
+ * kaldığının görünür sinyali.
+ */
+export interface FeedingProtocolAssignmentPausedEvent extends BaseEvent {
+  eventType: 'FeedingProtocolAssignmentPaused';
+  userId?: string;
+  assignmentId: string;
+  unitId: string;
+  unitCode: string;
+  protocolId: string;
+  reason: 'protocol_archived' | 'operator_paused' | 'unit_emptied';
+}
+
+// ==================== Meal Engine Events (Faz 5 — plan §7/§10) ====================
+
+/**
+ * MealWindowUpcoming toplu girdisi — sensor-service'in aeratör ön-takviyesi
+ * (otomasyon kancası) için gereken her şeyi taşır.
+ */
+export interface MealWindowEntry {
+  unitId: string;
+  unitCode: string;
+  dayPlanId: string;
+  mealId: string;
+  mealIndex: number;
+  /** ISO timestamptz — site saat diliminden maddileşmiş mutlak an (D-4). */
+  scheduledAt: string;
+  feedId: string;
+  plannedKg: number;
+  protocolId: string;
+  minDissolvedOxygen?: number;
+  lowOxygenReductionPercent?: number;
+}
+
+/**
+ * Yaklaşan öğün penceresi — (tenant, cron-tick) başına TOPLU kanonik şekil
+ * (K-2): 500 girdi/event cap + devam event'leri (batchIndex/batchCount).
+ * 15dk cron üretir; `windowNotifiedAt` idempotency damgasıdır.
+ */
+export interface MealWindowUpcomingEvent extends BaseEvent {
+  eventType: 'MealWindowUpcoming';
+  windowStart: string;
+  windowEnd: string;
+  leadMinutes: number;
+  batchIndex: number;
+  batchCount: number;
+  meals: MealWindowEntry[];
+}
+
+/** Bir döküm kaydedildi (öğün başına değil DÖKÜM başına — D-8 granülü). */
+export interface MealFedEvent extends BaseEvent {
+  eventType: 'MealFed';
+  unitId: string;
+  mealId: string;
+  dayPlanId: string;
+  feedId: string;
+  pourIndex: number;
+  pourKg: number;
+  /** Kümülatif gerçekleşen (Σ pours). */
+  actualKg: number;
+  fedAt: string;
+  feedingMethod?: string;
+}
+
+export interface MealSkippedEvent extends BaseEvent {
+  eventType: 'MealSkipped';
+  unitId: string;
+  mealId: string;
+  dayPlanId: string;
+  reason: string;
+  skippedAt: string;
+}
+
+/**
+ * Az-atım: öğün finalize'ında (scope=meal) veya 20:00 gün-seviyesi
+ * süpürmesinde (scope=day, D-16 — öğün başına eşik altı kalan kronik açık).
+ */
+export interface MealUnderfedEvent extends BaseEvent {
+  eventType: 'MealUnderfed';
+  scope: 'meal' | 'day';
+  unitId: string;
+  unitCode: string;
+  dayPlanId: string;
+  mealId?: string;
+  plannedKg: number;
+  actualKg: number;
+  variancePercent: number;
+  thresholdPercent: number;
+}
+
+/** Penceresi geçmiş, hiç döküm görmemiş öğün (05:30 süpürmesi işaretler). */
+export interface MealMissedEvent extends BaseEvent {
+  eventType: 'MealMissed';
+  unitId: string;
+  unitCode: string;
+  mealId: string;
+  dayPlanId: string;
+  scheduledAt: string;
+}
+
+/** Ağırlık bandı geçişi — otomatik (histerezisli) veya manuel (P-12). */
+export interface FeedTypeTransitionedEvent extends BaseEvent {
+  eventType: 'FeedTypeTransitioned';
+  unitId: string;
+  unitCode: string;
+  assignmentId: string;
+  fromFeedId?: string;
+  toFeedId: string;
+  toFeedCode: string;
+  bandIndex: number;
+  avgWeightG: number;
+  automatic: boolean;
+}
+
+/**
+ * Balıklı ama etkin planı olmayan ünite (D-5 — sessiz aç kalma imkânsız):
+ * atamasız / balıklı-paused / DRAFT protokollü. 06:00 üretimi tespit eder.
+ */
+export interface UnfedUnitDetectedEvent extends BaseEvent {
+  eventType: 'UnfedUnitDetected';
+  unitId: string;
+  unitCode: string;
+  siteId: string;
+  reason: 'no_assignment' | 'assignment_paused' | 'draft_protocol';
+  fishCount: number;
+  biomassKg: number;
+}
+
+/**
+ * FeedStockoutForecast tüketicilerinin PAYLAŞTIĞI önem eşiği (plan §6):
+ * `daysOfCover <= FEED_STOCKOUT_CRITICAL_DAYS` → critical; `<= tedarik süresi`
+ * → warning; ötesi aksiyon penceresi dışıdır (incident/rozet üretilmez).
+ * alert-engine incident önemi ve warehouse-summary `coverageStatus` AYNI
+ * sabiti okur — kod-ikizi eşik yasak (tek sahip, event'in yanında yaşar).
+ */
+export const FEED_STOCKOUT_CRITICAL_DAYS = 3;
+
+/**
+ * 07:00 kapsama süpürmesi (Faz 7, plan §5): ufuk içinde tükeniş öngörülen
+ * yem — alert-engine ≤3 gün critical / ≤leadTime warning üretir.
+ */
+export interface FeedStockoutForecastEvent extends BaseEvent {
+  eventType: 'FeedStockoutForecast';
+  /** Site UUID'si ya da belgeli tenant-geneli fallback için 'tenant' (D-9). */
+  siteScopeKey: string;
+  feedId: string;
+  feedCode: string;
+  daysOfCover: number;
+  stockoutDate: string;
+  reorderDate?: string;
+  procurementLeadTimeDays: number;
+}
+
+/**
+ * Yaklaşan yem geçişi (+ varsa kapsama açığı) — "Tank 1 X gün sonra B'ye
+ * geçecek, B stoğu Y gün yeter" sinyalinin durable taşıyıcısı.
+ */
+export interface FeedTransitionUpcomingEvent extends BaseEvent {
+  eventType: 'FeedTransitionUpcoming';
+  siteScopeKey: string;
+  unitId: string;
+  unitCode: string;
+  fromFeedId: string;
+  toFeedId: string;
+  estimatedDate: string;
+  daysFromNow: number;
+  /** Hedef yemin geçiş sonrası kapsama açığı (gün) — yoksa kapsama yeterli. */
+  shortfallDays?: number;
+}
+
+/** Günlük yemleme özeti — 20:00 cron, outbox → notification-service (K-8c). */
+export interface FeedingDailySummaryEvent extends BaseEvent {
+  eventType: 'FeedingDailySummary';
+  planDate: string;
+  unitsPlanned: number;
+  unitsCompleted: number;
+  unitsSkipped: number;
+  plannedTotalKg: number;
+  actualTotalKg: number;
+  underfedUnitCount: number;
+  missedMealCount: number;
+}
+
 export interface FeederCalibrationsSavedEvent extends BaseEvent {
   eventType: 'FeederCalibrationsSaved';
   equipmentId: string;
@@ -1474,6 +1687,18 @@ export type FarmEvent =
   | SubEquipmentUpdatedEvent
   | SubEquipmentDeletedEvent
   | FeederCalibrationsSavedEvent
+  | FeedingProtocolAssignedEvent
+  | FeedingProtocolAssignmentPausedEvent
+  | MealWindowUpcomingEvent
+  | MealFedEvent
+  | MealSkippedEvent
+  | MealUnderfedEvent
+  | FeedStockoutForecastEvent
+  | FeedTransitionUpcomingEvent
+  | MealMissedEvent
+  | FeedTypeTransitionedEvent
+  | UnfedUnitDetectedEvent
+  | FeedingDailySummaryEvent
   | FeedInventoryLowEvent
   | WelfareEventReportedEvent
   | EscapeReportedEvent

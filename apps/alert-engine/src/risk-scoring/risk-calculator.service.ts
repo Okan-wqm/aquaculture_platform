@@ -87,8 +87,8 @@ const DEFAULT_WEIGHTS: Record<RiskFactorCategory, number> = {
   [RiskFactorCategory.SEVERITY]: 0.25,
   [RiskFactorCategory.IMPACT]: 0.25,
   [RiskFactorCategory.HISTORY]: 0.15,
-  [RiskFactorCategory.CONTEXT]: 0.10,
-  [RiskFactorCategory.TREND]: 0.10,
+  [RiskFactorCategory.CONTEXT]: 0.1,
+  [RiskFactorCategory.TREND]: 0.1,
 };
 
 @Injectable()
@@ -126,13 +126,16 @@ export class RiskCalculatorService {
     factors.push(severityFactor);
 
     // PE-09: Pass the already-fetched rule to avoid a second DB round-trip inside analyzeImpact.
-    const impactResult = await this.impactAnalyzer.analyzeImpact({
-      tenantId: context.tenantId,
-      ruleId: context.ruleId,
-      farmId: context.farmId,
-      sensorId: context.sensorId,
-      currentValue: context.currentValue,
-    }, rule);
+    const impactResult = await this.impactAnalyzer.analyzeImpact(
+      {
+        tenantId: context.tenantId,
+        ruleId: context.ruleId,
+        farmId: context.farmId,
+        sensorId: context.sensorId,
+        currentValue: context.currentValue,
+      },
+      rule,
+    );
     const impactFactor = this.createImpactFactor(impactResult);
     factors.push(impactFactor);
 
@@ -190,7 +193,7 @@ export class RiskCalculatorService {
     }
 
     // Normalize to 0-100
-    const score = totalWeight > 0 ? (weightedSum / totalWeight) : 0;
+    const score = totalWeight > 0 ? weightedSum / totalWeight : 0;
     return Math.min(100, Math.max(0, Math.round(score * 100) / 100));
   }
 
@@ -217,7 +220,7 @@ export class RiskCalculatorService {
       // Adjust based on recency
       if (context.lastIncidentDate) {
         const daysSinceLastIncident = Math.floor(
-          (Date.now() - context.lastIncidentDate.getTime()) / (1000 * 60 * 60 * 24)
+          (Date.now() - context.lastIncidentDate.getTime()) / (1000 * 60 * 60 * 24),
         );
 
         if (daysSinceLastIncident < 1) {
@@ -268,7 +271,11 @@ export class RiskCalculatorService {
 
     // Adjust based on threshold deviation
     // SECURITY: Check for zero to prevent division by zero
-    if (context.thresholdValue !== undefined && context.thresholdValue !== 0 && context.currentValue !== undefined) {
+    if (
+      context.thresholdValue !== undefined &&
+      context.thresholdValue !== 0 &&
+      context.currentValue !== undefined
+    ) {
       const deviation = Math.abs(context.currentValue - context.thresholdValue);
       const deviationPercent = (deviation / context.thresholdValue) * 100;
 
@@ -316,7 +323,8 @@ export class RiskCalculatorService {
     let value = 50;
 
     if (context.historicalValues && context.historicalValues.length > 0) {
-      const avg = context.historicalValues.reduce((a, b) => a + b, 0) / context.historicalValues.length;
+      const avg =
+        context.historicalValues.reduce((a, b) => a + b, 0) / context.historicalValues.length;
       const currentDeviation = Math.abs(context.currentValue - avg);
       const stdDev = this.calculateStdDev(context.historicalValues);
 
@@ -419,19 +427,28 @@ export class RiskCalculatorService {
   calculateTrend(values: number[]): number {
     if (values.length < 2) return 0;
 
-    const n = values.length;
-    const indices = values.map((_, i) => i);
+    // Online covariance keeps the regression allocation-free and reads each
+    // sample exactly once. The centered update is also more numerically stable
+    // than subtracting large raw sums after four independent array traversals.
+    let meanIndex = 0;
+    let meanValue = 0;
+    let covariance = 0;
+    let indexVariance = 0;
 
-    const sumX = indices.reduce((a, b) => a + b, 0);
-    const sumY = values.reduce((a, b) => a + b, 0);
-    const sumXY = indices.reduce((acc, x, i) => acc + x * values[i]!, 0);
-    const sumX2 = indices.reduce((acc, x) => acc + x * x, 0);
+    for (let index = 0; index < values.length; index++) {
+      const value = values[index]!;
+      const sampleCount = index + 1;
+      const indexDelta = index - meanIndex;
+      const valueDelta = value - meanValue;
 
-    const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+      meanIndex += indexDelta / sampleCount;
+      meanValue += valueDelta / sampleCount;
+      covariance += indexDelta * (value - meanValue);
+      indexVariance += indexDelta * (index - meanIndex);
+    }
 
-    // Normalize slope relative to average value
-    const avgValue = sumY / n;
-    return avgValue !== 0 ? slope / avgValue : slope;
+    const slope = indexVariance === 0 ? 0 : covariance / indexVariance;
+    return meanValue !== 0 ? slope / meanValue : slope;
   }
 
   /**
@@ -441,7 +458,7 @@ export class RiskCalculatorService {
     if (values.length === 0) return 0;
 
     const avg = values.reduce((a, b) => a + b, 0) / values.length;
-    const squareDiffs = values.map(value => Math.pow(value - avg, 2));
+    const squareDiffs = values.map((value) => Math.pow(value - avg, 2));
     const avgSquareDiff = squareDiffs.reduce((a, b) => a + b, 0) / values.length;
 
     return Math.sqrt(avgSquareDiff);
@@ -470,7 +487,7 @@ export class RiskCalculatorService {
 
     // Factor coverage — guard against division by zero when factors is empty
     if (factors.length > 0) {
-      const validFactors = factors.filter(f => f.value > 0 && f.value < 100);
+      const validFactors = factors.filter((f) => f.value > 0 && f.value < 100);
       confidence += (validFactors.length / factors.length) * 0.1;
     }
 
@@ -495,17 +512,17 @@ export class RiskCalculatorService {
     }
 
     // Factor-specific recommendations
-    const frequencyFactor = factors.find(f => f.category === RiskFactorCategory.FREQUENCY);
+    const frequencyFactor = factors.find((f) => f.category === RiskFactorCategory.FREQUENCY);
     if (frequencyFactor && frequencyFactor.value > 70) {
       recommendations.push('High incident frequency - investigate root cause');
     }
 
-    const trendFactor = factors.find(f => f.category === RiskFactorCategory.TREND);
+    const trendFactor = factors.find((f) => f.category === RiskFactorCategory.TREND);
     if (trendFactor && trendFactor.value > 75) {
       recommendations.push('Negative trend detected - implement preventive measures');
     }
 
-    const impactFactor = factors.find(f => f.category === RiskFactorCategory.IMPACT);
+    const impactFactor = factors.find((f) => f.category === RiskFactorCategory.IMPACT);
     if (impactFactor && impactFactor.value > 80) {
       recommendations.push('High business impact - escalate to management');
     }
@@ -548,7 +565,9 @@ export class RiskCalculatorService {
   /**
    * Batch risk calculation
    */
-  async calculateBatchRiskScores(contexts: RiskCalculationContext[]): Promise<Map<string, RiskScoreResult>> {
+  async calculateBatchRiskScores(
+    contexts: RiskCalculationContext[],
+  ): Promise<Map<string, RiskScoreResult>> {
     const results = new Map<string, RiskScoreResult>();
 
     await Promise.all(
@@ -559,7 +578,7 @@ export class RiskCalculatorService {
         } catch (error) {
           this.logger.error(`Failed to calculate risk for rule ${context.ruleId}: ${error}`);
         }
-      })
+      }),
     );
 
     return results;
@@ -569,7 +588,7 @@ export class RiskCalculatorService {
    * Get risk factors by category
    */
   getFactorsByCategory(factors: RiskFactor[], category: RiskFactorCategory): RiskFactor[] {
-    return factors.filter(f => f.category === category);
+    return factors.filter((f) => f.category === category);
   }
 
   /**

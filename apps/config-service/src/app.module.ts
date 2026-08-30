@@ -20,6 +20,12 @@ import {
 import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
 import { LoggingModule } from '@aquaculture/backend-common/logging';
 import { ServiceMetricsModule } from '@aquaculture/backend-common/metrics';
+// DB-INFRA-HIGH-003: config-service onboarded to the event backbone to be a GDPR
+// tenant-erasure target (EventBus + Redis + outbox + the erasure target handler).
+import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
+import { EventBusModule, buildEventBusConfig } from '@platform/event-bus';
+import { TenantErasureTargetModule } from '@aquaculture/backend-common/compliance';
+import { ConfigOutboxModule } from './outbox/config-outbox.module';
 import {
   StripInternalHeadersMiddleware,
   VerifiedUserAssertionMiddleware,
@@ -119,12 +125,12 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
        *  defense-in-depth in case a subgraph becomes directly accessible. */
       allowBatchedHttpRequests: false,
       /**
-       * 2026-04-30: Keep Apollo CSRF prevention explicit while Apollo Server 5
-       * migration is blocked by the Nest/Apollo peer graph.
-       * WHY: Apollo Server 4 remains in the dependency graph, so XS-Search
-       * class protections must be fail-closed at runtime.
+       * Keep Apollo CSRF prevention explicit as defense in depth against
+       * cross-site search and simple-request execution paths.
        */
       csrfPrevention: true,
+      playground: false,
+      graphiql: process.env['NODE_ENV'] !== 'production',
       /**
        * 2026-04-30: Deprecated GraphQL Playground is not enabled at runtime.
        * WHY: subgraphs must not depend on deprecated Apollo developer UI behavior.
@@ -145,6 +151,28 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     PlatformJwtModule,
 
     CqrsModule.forRoot(),
+
+    // DB-INFRA-HIGH-003: event-backbone participation, solely for GDPR erasure.
+    // RedisModule (outbox worker leasing) + EventBusModule (NATS) + the
+    // config_outbox module feed the TenantErasureTargetModule handler, which
+    // subscribes to TenantErasureRequested and deletes per-tenant config rows.
+    RedisModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) =>
+        // Marine credential disclosure/mutation uses Redis SET-NX as its
+        // cross-replica replay ledger. Production must fail at boot when the
+        // shared store is not configured; a pod-local fallback is unsafe.
+        buildRedisOptions(configService, 'config', 'required'),
+    }),
+    EventBusModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: buildEventBusConfig,
+    }),
+    ConfigOutboxModule,
+    TenantErasureTargetModule.forService('config-service'),
+
     ConfigurationModule,
     HealthModule,
     // OBS-HIGH-001: Prometheus GET /metrics scrape endpoint + HTTP metrics

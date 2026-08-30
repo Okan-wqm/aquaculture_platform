@@ -17,11 +17,11 @@ updates:
     schedule:
       interval: weekly
       day: monday
-      time: "06:00"
+      time: '06:00'
       timezone: Europe/Istanbul
     open-pull-requests-limit: 5
     commit-message:
-      prefix: "chore(deps)"
+      prefix: 'chore(deps)'
       include: scope
     labels:
       - dependencies
@@ -41,21 +41,24 @@ updates:
   # Cargo.toml in the monorepo. sensor-ingestion + the shared crates
   # under crates/** inherit this automation; the sens-api-gateway
   # edge tree keeps its own deny.toml allowlist and manages its own
-  # cadence, so directory: / (monorepo root Cargo.toml virtual
-  # workspace) is the single entry here. Rust advisories (RUSTSEC)
+  # cadence, so it is excluded from this authority. The monorepo root and
+  # standalone production WASM locks are updated together. Rust advisories (RUSTSEC)
   # are handled by cargo-audit in rust-ci.yml + .cargo/audit.toml;
   # dependabot handles non-advisory version bumps to keep Cargo.lock
   # from drifting into unsupported releases.
   - package-ecosystem: cargo
-    directory: /
+    directories:
+      - /
+      - /crates/alarm-core-wasm
+      - /crates/protocol-codec-wasm
     schedule:
       interval: weekly
       day: monday
-      time: "06:00"
+      time: '06:00'
       timezone: Europe/Istanbul
     open-pull-requests-limit: 5
     commit-message:
-      prefix: "chore(deps)"
+      prefix: 'chore(deps)'
       include: scope
     labels:
       - dependencies
@@ -67,6 +70,77 @@ updates:
     # risk, so review can triage per-major.
     groups:
       cargo-minor-patch:
+        update-types:
+          - minor
+          - patch
+
+  # ── npm (root workspace) ──────────────────────────────────────────
+  # Added 2026-08-06 (ORPHAN-HIGH-574). Until now this file covered only
+  # github-actions and cargo, so the entire JavaScript surface — the root
+  # package.json plus every member of the `workspaces` globs (apps/*, libs/*,
+  # platform/libs/*, web/apps/*, web/shared-ui, web/shell, web/modules/*,
+  # mcp/*, tools/executors/cargo) — received no version-update PR ever. The
+  # dependency tree that carries almost all of this repository's open
+  # advisories was the one tree Dependabot was not watching.
+  #
+  # The `directories` authority covers the root workspace and AquaMobil's
+  # standalone production lock atomically. The standalone E2E lockfile remains
+  # independently watched below.
+  #
+  # Limit and grouping are deliberately conservative. This ecosystem is far
+  # larger than the other two, and the first run after enabling always lands
+  # the accumulated backlog at once: minor+patch collapse into one PR, majors
+  # stay individual so their blast radius is visible, and 5 open PRs caps what
+  # can be in flight. Raise it once the steady-state rate is known, not before.
+  #
+  # Note for review: the root package.json carries 25 `overrides`. Dependabot
+  # does not read them as constraints, so a bump it proposes may be neutralised
+  # by an override or conflict with one. `npm audit --omit=dev
+  # --audit-level=high` in ci-full's security-scan remains the gate that
+  # decides whether the tree is acceptable, not the presence of a PR.
+  - package-ecosystem: npm
+    directories:
+      - /
+      - /web/apps/aquamobil
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Europe/Istanbul
+    open-pull-requests-limit: 5
+    versioning-strategy: increase
+    commit-message:
+      prefix: 'chore(deps)'
+      include: scope
+    labels:
+      - dependencies
+    reviewers:
+      - Okan-wqm
+    groups:
+      npm-by-dependency:
+        group-by: dependency-name
+
+  # ── npm (standalone E2E graph) ────────────────────────────────────
+  # e2e/ is intentionally outside the root npm workspace and owns an independent
+  # package-lock.json. Watching only `/` therefore leaves its CI/test dependency
+  # graph invisible even though that graph executes repository-controlled code.
+  - package-ecosystem: npm
+    directory: /e2e
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Europe/Istanbul
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: 'chore(deps-e2e)'
+      include: scope
+    labels:
+      - dependencies
+    reviewers:
+      - Okan-wqm
+    groups:
+      e2e-minor-patch:
         update-types:
           - minor
           - patch

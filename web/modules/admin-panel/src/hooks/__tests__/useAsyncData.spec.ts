@@ -12,7 +12,6 @@ import { useAsyncData, clearAsyncCache } from '../useAsyncData';
 
 describe('useAsyncData', () => {
   beforeEach(() => {
-    vi.useFakeTimers();
     clearAsyncCache();
   });
 
@@ -39,9 +38,7 @@ describe('useAsyncData', () => {
 
     it('should not fetch immediately when immediate=false', () => {
       const fetcher = vi.fn().mockResolvedValue('data');
-      const { result } = renderHook(() =>
-        useAsyncData(fetcher, { immediate: false })
-      );
+      const { result } = renderHook(() => useAsyncData(fetcher, { immediate: false }));
 
       expect(result.current.loading).toBe(false);
       expect(result.current.data).toBe(null);
@@ -51,7 +48,7 @@ describe('useAsyncData', () => {
     it('should use initialData when provided', () => {
       const fetcher = vi.fn().mockResolvedValue('new data');
       const { result } = renderHook(() =>
-        useAsyncData(fetcher, { initialData: 'initial', immediate: false })
+        useAsyncData(fetcher, { initialData: 'initial', immediate: false }),
       );
 
       expect(result.current.data).toBe('initial');
@@ -95,9 +92,7 @@ describe('useAsyncData', () => {
       const fetcher = vi.fn().mockResolvedValue(rawData);
       const transform = (data: unknown) => (data as typeof rawData).items.length;
 
-      const { result } = renderHook(() =>
-        useAsyncData(fetcher, { transform })
-      );
+      const { result } = renderHook(() => useAsyncData(fetcher, { transform }));
 
       await waitFor(() => {
         expect(result.current.loading).toBe(false);
@@ -178,23 +173,21 @@ describe('useAsyncData', () => {
     });
 
     it('should handle timeout', async () => {
-      const fetcher = vi.fn().mockImplementation(
-        () => new Promise((resolve) => setTimeout(() => resolve('data'), 60000))
-      );
+      vi.useFakeTimers();
+      const fetcher = vi
+        .fn()
+        .mockImplementation(
+          () => new Promise((resolve) => setTimeout(() => resolve('data'), 60000)),
+        );
 
-      const { result } = renderHook(() =>
-        useAsyncData(fetcher, { timeout: 1000 })
-      );
+      const { result } = renderHook(() => useAsyncData(fetcher, { timeout: 1000 }));
 
       // Fast-forward past timeout
       await act(async () => {
-        vi.advanceTimersByTime(1500);
+        await vi.advanceTimersByTimeAsync(1500);
       });
 
-      await waitFor(() => {
-        expect(result.current.loading).toBe(false);
-      });
-
+      expect(result.current.loading).toBe(false);
       expect(result.current.error).toContain('timed out');
       expect(result.current.canRetry).toBe(true);
     });
@@ -210,9 +203,7 @@ describe('useAsyncData', () => {
       const cacheKey = 'test-cache-key';
 
       // First render - fetches data
-      const { result: result1 } = renderHook(() =>
-        useAsyncData(fetcher, { cacheKey })
-      );
+      const { result: result1 } = renderHook(() => useAsyncData(fetcher, { cacheKey }));
 
       await waitFor(() => {
         expect(result1.current.loading).toBe(false);
@@ -221,9 +212,7 @@ describe('useAsyncData', () => {
       expect(fetcher).toHaveBeenCalledTimes(1);
 
       // Second render - should use cache
-      const { result: result2 } = renderHook(() =>
-        useAsyncData(fetcher, { cacheKey })
-      );
+      const { result: result2 } = renderHook(() => useAsyncData(fetcher, { cacheKey }));
 
       await waitFor(() => {
         expect(result2.current.loading).toBe(false);
@@ -234,13 +223,12 @@ describe('useAsyncData', () => {
     });
 
     it('should fetch again after cache TTL expires', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
       const fetcher = vi.fn().mockResolvedValue('data');
       const cacheKey = 'expiring-cache';
       const cacheTTL = 1000;
 
-      const { result: result1 } = renderHook(() =>
-        useAsyncData(fetcher, { cacheKey, cacheTTL })
-      );
+      const { result: result1 } = renderHook(() => useAsyncData(fetcher, { cacheKey, cacheTTL }));
 
       await waitFor(() => {
         expect(result1.current.loading).toBe(false);
@@ -249,14 +237,10 @@ describe('useAsyncData', () => {
       expect(fetcher).toHaveBeenCalledTimes(1);
 
       // Advance time past TTL
-      await act(async () => {
-        vi.advanceTimersByTime(1500);
-      });
+      vi.setSystemTime(Date.now() + 1500);
 
       // New render after TTL - should fetch again
-      const { result: result2 } = renderHook(() =>
-        useAsyncData(fetcher, { cacheKey, cacheTTL })
-      );
+      const { result: result2 } = renderHook(() => useAsyncData(fetcher, { cacheKey, cacheTTL }));
 
       await waitFor(() => {
         expect(result2.current.loading).toBe(false);
@@ -269,9 +253,7 @@ describe('useAsyncData', () => {
       const fetcher = vi.fn().mockResolvedValue('data');
       const cacheKey = 'clear-test';
 
-      const { result: result1 } = renderHook(() =>
-        useAsyncData(fetcher, { cacheKey })
-      );
+      const { result: result1 } = renderHook(() => useAsyncData(fetcher, { cacheKey }));
 
       await waitFor(() => {
         expect(result1.current.loading).toBe(false);
@@ -279,9 +261,7 @@ describe('useAsyncData', () => {
 
       clearAsyncCache(cacheKey);
 
-      const { result: result2 } = renderHook(() =>
-        useAsyncData(fetcher, { cacheKey })
-      );
+      const { result: result2 } = renderHook(() => useAsyncData(fetcher, { cacheKey }));
 
       await waitFor(() => {
         expect(result2.current.loading).toBe(false);
@@ -299,9 +279,7 @@ describe('useAsyncData', () => {
     it('should manually fetch data', async () => {
       const fetcher = vi.fn().mockResolvedValue('manual data');
 
-      const { result } = renderHook(() =>
-        useAsyncData(fetcher, { immediate: false })
-      );
+      const { result } = renderHook(() => useAsyncData(fetcher, { immediate: false }));
 
       expect(result.current.data).toBe(null);
       expect(fetcher).not.toHaveBeenCalled();
@@ -315,9 +293,16 @@ describe('useAsyncData', () => {
     });
 
     it('should refresh with loading state', async () => {
-      const fetcher = vi.fn()
+      let resolveRefresh: (value: string) => void;
+      const fetcher = vi
+        .fn()
         .mockResolvedValueOnce('first')
-        .mockResolvedValueOnce('second');
+        .mockImplementationOnce(
+          () =>
+            new Promise<string>((resolve) => {
+              resolveRefresh = resolve;
+            }),
+        );
 
       const { result } = renderHook(() => useAsyncData(fetcher));
 
@@ -325,23 +310,20 @@ describe('useAsyncData', () => {
         expect(result.current.data).toBe('first');
       });
 
-      let wasLoading = false;
       act(() => {
         result.current.refresh();
-        wasLoading = result.current.loading;
       });
 
-      expect(wasLoading).toBe(true);
+      expect(result.current.loading).toBe(true);
 
-      await waitFor(() => {
-        expect(result.current.data).toBe('second');
+      await act(async () => {
+        resolveRefresh!('second');
       });
+      expect(result.current.data).toBe('second');
     });
 
     it('should silently refresh without loading state', async () => {
-      const fetcher = vi.fn()
-        .mockResolvedValueOnce('first')
-        .mockResolvedValueOnce('second');
+      const fetcher = vi.fn().mockResolvedValueOnce('first').mockResolvedValueOnce('second');
 
       const { result } = renderHook(() => useAsyncData(fetcher));
 
@@ -364,9 +346,7 @@ describe('useAsyncData', () => {
     it('should reset to initial state', async () => {
       const fetcher = vi.fn().mockResolvedValue('data');
 
-      const { result } = renderHook(() =>
-        useAsyncData(fetcher, { initialData: 'initial' })
-      );
+      const { result } = renderHook(() => useAsyncData(fetcher, { initialData: 'initial' }));
 
       await waitFor(() => {
         expect(result.current.data).toBe('data');
@@ -422,7 +402,8 @@ describe('useAsyncData', () => {
 
   describe('Retry Functionality', () => {
     it('should retry failed request', async () => {
-      const fetcher = vi.fn()
+      const fetcher = vi
+        .fn()
         .mockRejectedValueOnce(new Error('Network error'))
         .mockResolvedValueOnce('success');
 
@@ -470,9 +451,10 @@ describe('useAsyncData', () => {
     it('should abort pending request', async () => {
       let resolvePromise: (value: string) => void;
       const fetcher = vi.fn().mockImplementation(
-        () => new Promise<string>((resolve) => {
-          resolvePromise = resolve;
-        })
+        () =>
+          new Promise<string>((resolve) => {
+            resolvePromise = resolve;
+          }),
       );
 
       const { result } = renderHook(() => useAsyncData(fetcher));
@@ -497,9 +479,10 @@ describe('useAsyncData', () => {
     it('should abort on unmount', async () => {
       let resolvePromise: (value: string) => void;
       const fetcher = vi.fn().mockImplementation(
-        () => new Promise<string>((resolve) => {
-          resolvePromise = resolve;
-        })
+        () =>
+          new Promise<string>((resolve) => {
+            resolvePromise = resolve;
+          }),
       );
 
       const { unmount } = renderHook(() => useAsyncData(fetcher));
@@ -519,17 +502,14 @@ describe('useAsyncData', () => {
 
   describe('Edge Cases', () => {
     it('should prevent concurrent fetches', async () => {
+      vi.useFakeTimers();
       let callCount = 0;
       const fetcher = vi.fn().mockImplementation(() => {
         callCount++;
-        return new Promise((resolve) =>
-          setTimeout(() => resolve(`data-${callCount}`), 100)
-        );
+        return new Promise((resolve) => setTimeout(() => resolve(`data-${callCount}`), 100));
       });
 
-      const { result } = renderHook(() =>
-        useAsyncData(fetcher, { immediate: false })
-      );
+      const { result } = renderHook(() => useAsyncData(fetcher, { immediate: false }));
 
       // Start multiple fetches simultaneously
       act(() => {
@@ -591,7 +571,8 @@ describe('useAsyncData', () => {
 
   describe('E2E Style Integration', () => {
     it('should handle complete fetch-error-retry cycle', async () => {
-      const fetcher = vi.fn()
+      const fetcher = vi
+        .fn()
         .mockRejectedValueOnce(new Error('Server unavailable'))
         .mockRejectedValueOnce(new Error('Server unavailable'))
         .mockResolvedValueOnce({ users: ['Alice', 'Bob'] });
@@ -599,9 +580,7 @@ describe('useAsyncData', () => {
       const onSuccess = vi.fn();
       const onError = vi.fn();
 
-      const { result } = renderHook(() =>
-        useAsyncData(fetcher, { onSuccess, onError })
-      );
+      const { result } = renderHook(() => useAsyncData(fetcher, { onSuccess, onError }));
 
       // Initial fetch fails
       await waitFor(() => {
@@ -661,11 +640,13 @@ describe('useAsyncData', () => {
       }
 
       let currentPage = 1;
-      const fetcher = vi.fn().mockImplementation(async (): Promise<Page> => ({
-        items: [`item-${currentPage}-1`, `item-${currentPage}-2`],
-        page: currentPage,
-        total: 100,
-      }));
+      const fetcher = vi.fn().mockImplementation(
+        async (): Promise<Page> => ({
+          items: [`item-${currentPage}-1`, `item-${currentPage}-2`],
+          page: currentPage,
+          total: 100,
+        }),
+      );
 
       const { result, rerender } = renderHook(
         ({ page }: { page: number }) => {
@@ -675,7 +656,7 @@ describe('useAsyncData', () => {
             immediate: true,
           });
         },
-        { initialProps: { page: 1 } }
+        { initialProps: { page: 1 } },
       );
 
       await waitFor(() => {

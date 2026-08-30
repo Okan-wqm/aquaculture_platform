@@ -16,11 +16,23 @@ const SYNC_INVALIDATION_SEGMENTS = {
   recordMortality: [['tanks'], ['dailyOpsCounts'], ['stockEventsSummary'], ['ai']],
   recordCull: [['tanks'], ['dailyOpsCounts'], ['stockEventsSummary'], ['ai']],
   createHarvestRecord: [['tanks'], ['dailyOpsCounts'], ['stockEventsSummary'], ['ai']],
-  recordFeeding: [['tanks'], ['feedingPlan'], ['dailyOpsCounts'], ['stockEventsSummary'], ['ai']],
+  recordFeeding: [['tanks'], ['feedingDayPlans'], ['dailyOpsCounts'], ['stockEventsSummary'], ['ai']],
+  // Faz 6 öğün cutover'ı: senkronlanan döküm gün planı kartlarını, hub
+  // sayaçlarını, tank kartlarını (biomass büyümesi) ve depo kapsamını tazeler.
+  recordMealFeeding: [['feedingDayPlans'], ['dailyOpsCounts'], ['tanks'], ['warehouseSummary']],
   recordTransfer: [['tanks'], ['dailyOpsCounts'], ['stockEventsSummary'], ['ai']],
   createWaterQuality: [['tanks'], ['equipment-params'], ['waterQuality'], ['dailyOpsCounts'], ['ai']],
   recordStockMovement: [['stockEventsSummary'], ['stock-at-location'], ['warehouseSummary']],
   transferStock: [['stockEventsSummary'], ['stock-at-location'], ['warehouseSummary']],
+  // MOB-HIGH-006: a synced offline ack must clear the unacked badge/banner
+  // read models immediately, not after staleTime.
+  acknowledgeAlert: [['alerts']],
+  // FARM-HIGH-214: synced field-capture records feed the scheduled report
+  // drafts — invalidate the mobile reports-due read models so a subsequent
+  // draft refresh/review reflects the new source rows.
+  recordLiceCount: [['reportDrafts'], ['reportDeadlines']],
+  recordWelfareAssessment: [['reportDrafts'], ['reportDeadlines']],
+  recordEscapeIncident: [['reportDrafts'], ['reportDeadlines']],
   clockIn: [['dailyOpsCounts'], ['todaysAttendance'], ['attendanceRecords'], ['attendanceSummary']],
   clockOut: [['dailyOpsCounts'], ['todaysAttendance'], ['attendanceRecords'], ['attendanceSummary']],
   createLeaveRequest: [['leaveRequests'], ['leaveBalances']],

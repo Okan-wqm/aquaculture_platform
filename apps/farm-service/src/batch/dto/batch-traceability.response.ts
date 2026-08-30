@@ -23,7 +23,11 @@ export class BatchFeedTotalResponse implements BatchFeedTotal {
   @Field({ nullable: true }) feedName?: string;
   @Field({ nullable: true }) feedCode?: string;
   @Field(() => Float) totalKg!: number;
-  @Field(() => Float, { nullable: true }) totalCost?: number;
+  @Field(() => Float, {
+    nullable: true,
+    deprecationReason: 'Use totalCostDecimal (exact decimal string, ADR-0004).',
+  })
+  totalCost?: number;
 }
 
 @ObjectType()
@@ -68,7 +72,11 @@ export class BatchTraceabilitySummaryResponse implements BatchTraceabilitySummar
   @Field(() => ID, { nullable: true }) protocolId?: string;
   @Field({ nullable: true }) protocolName?: string;
   @Field(() => Float) totalFeedKg!: number;
-  @Field(() => Float, { nullable: true }) totalFeedCost?: number;
+  @Field(() => Float, {
+    nullable: true,
+    deprecationReason: 'Use totalFeedCostDecimal (exact decimal string, ADR-0004).',
+  })
+  totalFeedCost?: number;
   @Field(() => Float, { nullable: true }) fcrActual?: number;
 }
 

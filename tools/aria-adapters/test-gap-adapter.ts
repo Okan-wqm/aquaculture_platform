@@ -1,11 +1,15 @@
 #!/usr/bin/env ts-node
 import { basename, dirname, join, relative, resolve } from 'node:path';
+
 import ts from 'typescript';
+
 import {
   collectFiles,
   filterFilesBySnapshot,
+  isArchivedWorkspacePath,
   normalizeWorkspacePath,
   readWorkspaceFile,
+  requireScanRoots,
   resolveInsideWorkspace as resolveAdapterPath,
   workspacePathExists,
 } from './adapter-fs';
@@ -96,10 +100,9 @@ interface PathAlias {
   readonly targets: readonly string[];
 }
 
-const DEFAULT_ROOTS = ['apps', 'libs', 'platform/libs', 'web'];
 
 export function analyzeTestGaps(input: AdapterInput, workspaceRoot = process.cwd()): AriaOutput {
-  const roots = input.roots ?? DEFAULT_ROOTS;
+  const roots = requireScanRoots('test-gap-adapter', input.roots);
   const allowlist = new Set((input.allowlist ?? []).map(normalizePath));
   const files = roots
     .map((root) => resolveInsideWorkspace(workspaceRoot, root))
@@ -277,8 +280,11 @@ function riskClassForPath(path: string): string {
   if (path.includes('/migrations/')) {
     return 'migration';
   }
+  // match[1] is narrowed explicitly so the file stays clean under
+  // --noUncheckedIndexedAccess (the capture group is structurally guaranteed,
+  // but the index signature cannot prove it to the compiler).
   const match = path.match(/\.([a-z-]+)\.(ts|tsx)$/);
-  if (match) {
+  if (match?.[1] !== undefined) {
     return match[1];
   }
   if (path.endsWith('.tsx')) {
@@ -426,7 +432,11 @@ function readFileUnit(path: string, workspaceRoot: string): FileUnit {
 function collectSourceAndTestFiles(root: string): readonly string[] {
   return collectFiles(root, {
     extensions: ['.ts', '.tsx'],
-    includeFile: (name) => !name.endsWith('.d.ts'),
+    // E13 FP class (2): archived corpus (e.g. migrations/.archive/<timestamp>/)
+    // is dead code — it can neither need test coverage nor PROVIDE it (an
+    // archived spec must not satisfy a live source), so it is excluded from
+    // the scan entirely rather than special-cased at finding time.
+    includeFile: (name, path) => !name.endsWith('.d.ts') && !isArchivedWorkspacePath(path),
   });
 }
 
@@ -456,8 +466,12 @@ function readStdin(): Promise<string> {
   return new Promise((resolvePromise, reject) => {
     let input = '';
     process.stdin.setEncoding('utf8');
-    process.stdin.on('data', (chunk) => {
-      input += chunk;
+    // setEncoding('utf8') makes every chunk a string at runtime, but the
+    // stream's declared chunk type stays `string | Buffer` — concatenating the
+    // union is what the type checker rejects. Narrow at the boundary rather
+    // than widening `input` (kernel-dead-wire-adapter is the converged shape).
+    process.stdin.on('data', (chunk: string | Buffer) => {
+      input += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
     });
     process.stdin.on('end', () => resolvePromise(input));
     process.stdin.on('error', reject);

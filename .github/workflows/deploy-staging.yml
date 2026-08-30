@@ -72,8 +72,8 @@ env:
   REGISTRY: ghcr.io
 
 permissions:
-  contents: write  # needed to tag `deployed/staging-<sha>` after successful deploy
-  packages: write  # GHCR push
+  contents: write # needed to tag `deployed/staging-<sha>` after successful deploy
+  packages: write # GHCR push
 
 concurrency:
   group: deploy-staging-${{ github.ref }}
@@ -137,14 +137,14 @@ jobs:
     timeout-minutes: 5
     outputs:
       image_prefix: ${{ steps.vars.outputs.image_prefix }}
-      image_tag:    ${{ steps.vars.outputs.image_tag }}
-      sha_short:    ${{ steps.vars.outputs.sha_short }}
+      image_tag: ${{ steps.vars.outputs.image_tag }}
+      sha_short: ${{ steps.vars.outputs.sha_short }}
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          persist-credentials: true  # needed to push the deployed/staging-<sha> tag later
+          persist-credentials: true # needed to push the deployed/staging-<sha> tag later
 
       - name: Compute deploy variables
         id: vars
@@ -181,7 +181,7 @@ jobs:
     timeout-minutes: 30
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -266,7 +266,7 @@ jobs:
     timeout-minutes: 30
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -399,7 +399,7 @@ jobs:
           - messaging-service
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -411,10 +411,10 @@ jobs:
           path: dist/
 
       # SEC-CI-002: pinned to SHA
-      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       # SEC-CI-002: pinned to SHA
-      - uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -422,7 +422,7 @@ jobs:
 
       - name: Build and push ${{ matrix.service }}
         # SEC-CI-002: pinned to SHA
-        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: ${{ matrix.service == 'db-migrate' && 'infrastructure/docker/Dockerfile.db-migrate' || 'infrastructure/docker/Dockerfile.backend.simple' }}
@@ -434,7 +434,7 @@ jobs:
             SERVICE_NAME=${{ matrix.service }}
           # ARCH-CI-002: staging-namespaced buildcache, distinct from prod cache.
           cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:buildcache-staging-v2
-          cache-to:   type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:buildcache-staging-v2,mode=max
+          cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:buildcache-staging-v2,mode=max
 
   # ===========================================================================
   # Build frontend Docker images, tag `staging-<sha>` + rolling `staging`.
@@ -481,7 +481,7 @@ jobs:
             module_path: web/apps/aquamobil
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -493,10 +493,10 @@ jobs:
           path: web
 
       # SEC-CI-002: pinned to SHA
-      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       # SEC-CI-002: pinned to SHA
-      - uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -504,7 +504,7 @@ jobs:
 
       - name: Build and push ${{ matrix.module }}
         # SEC-CI-002: pinned to SHA
-        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: ${{ matrix.dockerfile }}
@@ -515,7 +515,7 @@ jobs:
           build-args: |
             MODULE_PATH=${{ matrix.module_path }}
           cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:buildcache-staging-v2
-          cache-to:   type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:buildcache-staging-v2,mode=max
+          cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:buildcache-staging-v2,mode=max
 
   build-infra-images:
     needs: [staging-configured, prepare]
@@ -530,9 +530,9 @@ jobs:
             context: infrastructure/mosquitto
             dockerfile: infrastructure/mosquitto/Dockerfile
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       - name: Login to GHCR
         env:
@@ -541,7 +541,7 @@ jobs:
         run: echo "${GHCR_PASSWORD}" | docker login "${{ env.REGISTRY }}" -u "${GHCR_USERNAME}" --password-stdin
 
       - name: Build and push ${{ matrix.image }}
-        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
@@ -550,7 +550,7 @@ jobs:
             ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:${{ needs.prepare.outputs.image_tag }}
             ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:staging
           cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:buildcache-staging-v2
-          cache-to:   type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:buildcache-staging-v2,mode=max,ignore-error=true
+          cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:buildcache-staging-v2,mode=max,ignore-error=true
 
   # ===========================================================================
   # Deploy to Staging Droplet — full pre-flight + WS6 + WS7 health gate +
@@ -558,25 +558,26 @@ jobs:
   # `deployed/staging-<sha>` to authorise prod promotion.
   # ===========================================================================
   deploy:
-    needs: [staging-configured, prepare, build-backend-images, build-frontend-images, build-infra-images]
+    needs:
+      [staging-configured, prepare, build-backend-images, build-frontend-images, build-infra-images]
     if: needs.staging-configured.outputs.configured == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    environment: staging   # GitHub Environment protection (reviewers, secrets)
+    environment: staging # GitHub Environment protection (reviewers, secrets)
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
-          persist-credentials: true  # for tag push at the end
+          persist-credentials: true # for tag push at the end
 
       - name: Deploy to Staging Droplet
         # SEC-CI-002: pinned to SHA
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.0.3
         with:
-          host:     ${{ secrets.STAGING_DROPLET_HOST }}
+          host: ${{ secrets.STAGING_DROPLET_HOST }}
           username: ${{ secrets.STAGING_DROPLET_USER }}
-          key:      ${{ secrets.STAGING_DROPLET_SSH_KEY }}
+          key: ${{ secrets.STAGING_DROPLET_SSH_KEY }}
           command_timeout: 50m
           envs: IMAGE_TAG
           script: |
@@ -622,9 +623,9 @@ jobs:
             echo "=== Pre-flight: NATS SSoT drift check ==="
             if [ -f scripts/nats/generate-nats-conf.py ]; then
               python3 scripts/nats/generate-nats-conf.py
-              if ! git diff --quiet infrastructure/docker/nats/nats.conf; then
-                echo "::error::nats.conf drifted from services.yaml"
-                git diff infrastructure/docker/nats/nats.conf | head -50
+              if [ -n "$(git status --porcelain -- infrastructure/docker/nats/nats.conf infrastructure/helm/aquaculture/files/nats-service-identities.yaml)" ]; then
+                echo "::error::NATS broker ACL or Helm identity roster drifted from services.yaml"
+                git diff -- infrastructure/docker/nats/nats.conf infrastructure/helm/aquaculture/files/nats-service-identities.yaml | head -50
                 exit 1
               fi
             fi
@@ -662,6 +663,12 @@ jobs:
             # Pull new images using merged compose
             echo "=== Pulling staging images ==="
             docker compose $COMPOSE_ARGS pull
+
+            # Load certificate identities/ACL before any application connects
+            # with the new per-runtime credentials.
+            echo "=== Reloading staging NATS ACL first ==="
+            docker compose $COMPOSE_ARGS run --rm --no-deps -T nats -t -c /etc/nats/nats.conf
+            docker compose $COMPOSE_ARGS up -d --no-deps --no-build --force-recreate nats
 
             # Up with no rebuild (images pulled from GHCR)
             echo "=== Starting staging stack ==="

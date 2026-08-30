@@ -22,12 +22,27 @@ import { createTenantAdminTestQueryClient } from '../../test/query-client';
 // Mocks
 // --------------------------------------------------------------------------
 
-// Mock useAuthContext — controls role-based visibility
-const mockHasRoleOrHigher = vi.fn();
+// Mock useAuth — controls capability-based visibility (RBAC-HIGH-004). The tests
+// drive blanket true/false, which maps to "holds every users:* capability"
+// (admin-like) vs "view only".
+const mockHasPermission = vi.fn();
+const mockAuthState = vi.hoisted(() => ({
+  tenantId: 'tenant-1' as string | null,
+  token: 'test-access-token' as string | null,
+  role: 'TENANT_ADMIN',
+  epoch: 0,
+}));
 
 vi.mock('@aquaculture/shared-ui', () => ({
+  useAuth: () => ({
+    hasPermission: mockHasPermission,
+    user: { id: 'u1', email: 'admin@test.com', role: mockAuthState.role },
+    tenantId: mockAuthState.tenantId,
+    token: mockAuthState.token,
+    isAuthenticated: true,
+  }),
   useAuthContext: () => ({
-    hasRoleOrHigher: mockHasRoleOrHigher,
+    hasRoleOrHigher: mockHasPermission,
     user: { id: 'u1', email: 'admin@test.com', role: 'TENANT_ADMIN' },
     isAuthenticated: true,
   }),
@@ -37,7 +52,18 @@ vi.mock('@aquaculture/shared-ui', () => ({
     'tenant',
     tenantId,
     ...segments,
+    { __sessionEpoch: mockAuthState.epoch },
   ],
+  getSessionSnapshot: () => ({
+    effectiveTenantId: mockAuthState.tenantId,
+    sessionEpoch: mockAuthState.epoch,
+  }),
+  hasSameTenantSessionBoundary: (
+    previous: readonly unknown[],
+    current: readonly unknown[],
+  ): boolean =>
+    previous[1] === current[1] &&
+    JSON.stringify(previous.at(-1)) === JSON.stringify(current.at(-1)),
 }));
 
 const {
@@ -46,6 +72,10 @@ const {
   mockUpdateTenantUser,
   mockDeleteTenantUser,
   mockDeactivateTenantUser,
+  mockGetActiveTenantSites,
+  mockGetUserAssignedSiteIds,
+  mockAssignUserToSite,
+  mockUnassignUserFromSite,
   mockUnexpectedTenantApiCall,
 } = vi.hoisted(() => ({
   mockGetTenantUsers: vi.fn(),
@@ -53,6 +83,10 @@ const {
   mockUpdateTenantUser: vi.fn(),
   mockDeleteTenantUser: vi.fn(),
   mockDeactivateTenantUser: vi.fn(),
+  mockGetActiveTenantSites: vi.fn(),
+  mockGetUserAssignedSiteIds: vi.fn(),
+  mockAssignUserToSite: vi.fn(),
+  mockUnassignUserFromSite: vi.fn(),
   mockUnexpectedTenantApiCall: (name: string) =>
     vi.fn(() => Promise.reject(new Error(`Unexpected tenant-admin API call: ${name}`))),
 }));
@@ -76,6 +110,10 @@ vi.mock('../../lib/api', () => ({
   updateTenantUser: (...args: unknown[]) => mockUpdateTenantUser(...args),
   deleteTenantUser: (...args: unknown[]) => mockDeleteTenantUser(...args),
   deactivateTenantUser: (...args: unknown[]) => mockDeactivateTenantUser(...args),
+  getActiveTenantSites: (...args: unknown[]) => mockGetActiveTenantSites(...args),
+  getUserAssignedSiteIds: (...args: unknown[]) => mockGetUserAssignedSiteIds(...args),
+  assignUserToSite: (...args: unknown[]) => mockAssignUserToSite(...args),
+  unassignUserFromSite: (...args: unknown[]) => mockUnassignUserFromSite(...args),
   getNotificationPreferences: mockUnexpectedTenantApiCall('getNotificationPreferences'),
   updateNotificationPreferences: mockUnexpectedTenantApiCall('updateNotificationPreferences'),
   getMobileUsersSettings: mockUnexpectedTenantApiCall('getMobileUsersSettings'),
@@ -109,8 +147,26 @@ vi.mock('../../utils/error-handling', () => ({
 vi.mock('../../hooks/useTenantRoles', () => ({
   useTenantRoles: () => ({
     data: [
-      { id: 'r1', name: 'Admin', color: '#6366F1', icon: 'shield', level: 90, isSystem: true, isDefault: false, userCount: 1 },
-      { id: 'r2', name: 'User', color: '#10B981', icon: 'user', level: 10, isSystem: false, isDefault: true, userCount: 2 },
+      {
+        id: 'r1',
+        name: 'Admin',
+        color: '#6366F1',
+        icon: 'shield',
+        level: 90,
+        isSystem: true,
+        isDefault: false,
+        userCount: 1,
+      },
+      {
+        id: 'r2',
+        name: 'User',
+        color: '#10B981',
+        icon: 'user',
+        level: 10,
+        isSystem: false,
+        isDefault: true,
+        userCount: 2,
+      },
     ],
     isLoading: false,
   }),
@@ -166,7 +222,9 @@ interface TenantUserQueryOptions {
   role?: string;
 }
 
-function getApiUserStatus(apiUser: (typeof mockApiUsers)[number]): 'active' | 'inactive' | 'pending' {
+function getApiUserStatus(
+  apiUser: (typeof mockApiUsers)[number],
+): 'active' | 'inactive' | 'pending' {
   if (apiUser.isActive === false) return 'inactive';
   if (!apiUser.isEmailVerified && !apiUser.lastLoginAt) return 'pending';
   return 'active';
@@ -194,11 +252,7 @@ function renderPage() {
     React.createElement(
       QueryClientProvider,
       { client: queryClient },
-      React.createElement(
-        MemoryRouter,
-        null,
-        React.createElement(TenantUsers),
-      ),
+      React.createElement(MemoryRouter, null, React.createElement(TenantUsers)),
     ),
   );
 }
@@ -210,7 +264,11 @@ function renderPage() {
 describe('TenantUsers Page', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockHasRoleOrHigher.mockReturnValue(true); // TENANT_ADMIN by default
+    mockAuthState.tenantId = 'tenant-1';
+    mockAuthState.token = 'test-access-token';
+    mockAuthState.role = 'TENANT_ADMIN';
+    mockAuthState.epoch = 0;
+    mockHasPermission.mockReturnValue(true); // TENANT_ADMIN by default
     mockGetTenantUsers.mockImplementation((options?: TenantUserQueryOptions) =>
       Promise.resolve(getTenantUsersFixture(options)),
     );
@@ -218,6 +276,22 @@ describe('TenantUsers Page', () => {
     mockUpdateTenantUser.mockResolvedValue(mockApiUsers[0]);
     mockDeleteTenantUser.mockResolvedValue(true);
     mockDeactivateTenantUser.mockResolvedValue({ ...mockApiUsers[0], isActive: false });
+    mockGetActiveTenantSites.mockResolvedValue([
+      { id: 'site-a', name: 'Fjord Alpha', code: 'A-1' },
+    ]);
+    mockGetUserAssignedSiteIds.mockResolvedValue([]);
+    mockAssignUserToSite.mockImplementation(async (userId: string, siteId: string) => ({
+      success: true,
+      message: 'Site assigned',
+      userId,
+      siteId,
+    }));
+    mockUnassignUserFromSite.mockImplementation(async (userId: string, siteId: string) => ({
+      success: true,
+      message: 'Site removed',
+      userId,
+      siteId,
+    }));
   });
 
   afterEach(() => {
@@ -350,7 +424,7 @@ describe('TenantUsers Page', () => {
 
   describe('Role-Based Button Visibility (SEC-007)', () => {
     it('should show Add User button for TENANT_ADMIN', async () => {
-      mockHasRoleOrHigher.mockReturnValue(true);
+      mockHasPermission.mockReturnValue(true);
       renderPage();
 
       await waitFor(() => expect(screen.getByText('John Doe')).toBeInTheDocument());
@@ -358,7 +432,7 @@ describe('TenantUsers Page', () => {
     });
 
     it('should hide Add User button for MODULE_USER', async () => {
-      mockHasRoleOrHigher.mockReturnValue(false);
+      mockHasPermission.mockReturnValue(false);
       renderPage();
 
       await waitFor(() => expect(screen.getByText('John Doe')).toBeInTheDocument());
@@ -366,7 +440,7 @@ describe('TenantUsers Page', () => {
     });
 
     it('should show edit/delete buttons for TENANT_ADMIN', async () => {
-      mockHasRoleOrHigher.mockReturnValue(true);
+      mockHasPermission.mockReturnValue(true);
       renderPage();
 
       await waitFor(() => expect(screen.getByText('John Doe')).toBeInTheDocument());
@@ -379,7 +453,7 @@ describe('TenantUsers Page', () => {
     });
 
     it('should show "View only" for MODULE_USER (no edit/delete)', async () => {
-      mockHasRoleOrHigher.mockReturnValue(false);
+      mockHasPermission.mockReturnValue(false);
       renderPage();
 
       await waitFor(() => expect(screen.getByText('John Doe')).toBeInTheDocument());
@@ -390,12 +464,74 @@ describe('TenantUsers Page', () => {
       expect(viewOnlyLabels.length).toBeGreaterThan(0);
     });
 
+    it('RBAC-HIGH-004: a delegate with ONLY users:edit_permissions sees Edit but not Add/Delete', async () => {
+      // The core FE-HIGH-001 fix: gating is now per-CAPABILITY, so a delegate
+      // (not a full TENANT_ADMIN) with a single granular capability sees exactly
+      // the controls that capability authorizes — the previous role check hid ALL.
+      mockHasPermission.mockImplementation((cap: string) => cap === 'users:edit_permissions');
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText('John Doe')).toBeInTheDocument());
+
+      expect(screen.queryByRole('button', { name: /add user/i })).not.toBeInTheDocument(); // users:invite
+      expect(screen.getAllByTitle('Edit user').length).toBeGreaterThan(0); // users:edit_permissions
+      expect(screen.queryByTitle('Delete user')).not.toBeInTheDocument(); // users:deactivate
+    });
+
+    it('RBAC-HIGH-004: a delegate with ONLY users:invite sees Add User but no row edit/delete', async () => {
+      mockHasPermission.mockImplementation((cap: string) => cap === 'users:invite');
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText('John Doe')).toBeInTheDocument());
+
+      expect(screen.getByRole('button', { name: /add user/i })).toBeInTheDocument();
+      expect(screen.queryByTitle('Edit user')).not.toBeInTheDocument();
+      expect(screen.queryByTitle('Delete user')).not.toBeInTheDocument();
+    });
+
     it('should show Add User button for SUPER_ADMIN (hierarchy)', async () => {
-      mockHasRoleOrHigher.mockReturnValue(true);
+      mockHasPermission.mockReturnValue(true);
       renderPage();
 
       await waitFor(() => expect(screen.getByText('John Doe')).toBeInTheDocument());
       expect(screen.getByRole('button', { name: /add user/i })).toBeInTheDocument();
+    });
+
+    it('opens tenant-scoped site access for a MODULE_USER row', async () => {
+      const user = userEvent.setup();
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText('Jane Smith')).toBeInTheDocument());
+      expect(
+        screen.queryByRole('button', { name: 'Manage site access for John Doe' }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: 'Manage site access for Bob Wilson' }),
+      ).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: 'Manage site access for Jane Smith' }));
+
+      expect(
+        await screen.findByRole('dialog', { name: 'Site access for Jane Smith' }),
+      ).toBeInTheDocument();
+      await waitFor(() => {
+        expect(mockGetActiveTenantSites).toHaveBeenCalledTimes(1);
+        expect(mockGetUserAssignedSiteIds).toHaveBeenCalledWith('u2');
+      });
+      expect(screen.getByText('Fjord Alpha')).toBeInTheDocument();
+    });
+
+    it('fails closed for a MODULE_MANAGER even when other user capabilities are granted', async () => {
+      mockAuthState.role = 'MODULE_MANAGER';
+      mockHasPermission.mockReturnValue(true);
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText('Jane Smith')).toBeInTheDocument());
+      expect(
+        screen.queryByRole('button', { name: 'Manage site access for Jane Smith' }),
+      ).not.toBeInTheDocument();
+      expect(mockGetActiveTenantSites).not.toHaveBeenCalled();
+      expect(mockGetUserAssignedSiteIds).not.toHaveBeenCalled();
     });
   });
 
@@ -405,7 +541,7 @@ describe('TenantUsers Page', () => {
 
   describe('Bulk Deactivate Flow (SEC-011)', () => {
     it('should show bulk deactivate bar when users are selected', async () => {
-      mockHasRoleOrHigher.mockReturnValue(true);
+      mockHasPermission.mockReturnValue(true);
       const user = userEvent.setup();
       renderPage();
 
@@ -422,7 +558,7 @@ describe('TenantUsers Page', () => {
     });
 
     it('should call deactivate mutation for selected users', async () => {
-      mockHasRoleOrHigher.mockReturnValue(true);
+      mockHasPermission.mockReturnValue(true);
       mockGetTenantUsers.mockImplementation((options?: TenantUserQueryOptions) =>
         Promise.resolve(getTenantUsersFixture(options)),
       );
@@ -447,7 +583,7 @@ describe('TenantUsers Page', () => {
     });
 
     it('should hide bulk deactivate bar for MODULE_USER', async () => {
-      mockHasRoleOrHigher.mockReturnValue(false);
+      mockHasPermission.mockReturnValue(false);
       const user = userEvent.setup();
       renderPage();
 
@@ -461,7 +597,7 @@ describe('TenantUsers Page', () => {
     });
 
     it('should allow select-all toggle', async () => {
-      mockHasRoleOrHigher.mockReturnValue(true);
+      mockHasPermission.mockReturnValue(true);
       const user = userEvent.setup();
       renderPage();
 

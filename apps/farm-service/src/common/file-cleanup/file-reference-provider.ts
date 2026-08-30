@@ -17,7 +17,6 @@
  *
  *   - `BatchDocument.storagePath` — a flat VARCHAR column
  *   - `Chemical.documents` — a JSONB array `[{ url }]`
- *   - `FarmDocument.objectKey` — canonical setup document metadata
  *
  * A generic walker that handles both would need per-entity
  * configuration anyway. Making the contract explicit keeps

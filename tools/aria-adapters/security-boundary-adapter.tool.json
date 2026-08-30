@@ -15,7 +15,9 @@
     "required": ["observations", "findings", "read_paths", "evidence_sources"]
   },
   "fixture_set": "tools/aria-adapters/fixtures/security-boundary-adapter",
-  "health_thresholds": {"max_cost_units": 5000},
+  "health_thresholds": {
+    "max_cost_units": 5000
+  },
   "default_input": {
     "roots": ["apps", "libs/backend-common/src", "platform/libs", "web", "tools/eslint-rules"]
   },
@@ -27,7 +29,18 @@
     "web/**/*.tsx",
     "tools/eslint-rules/**/*.ts"
   ],
-  "forbidden_read_globs": [".claude/**", ".git/**", "agent-workspace/**", ".aria-poc/**", "aria-tools/**", "node_modules/**", "dist/**", "coverage/**", "build/**", "tmp/**"],
+  "forbidden_read_globs": [
+    ".claude/**",
+    ".git/**",
+    "agent-workspace/**",
+    ".aria-poc/**",
+    "aria-tools/**",
+    "node_modules/**",
+    "dist/**",
+    "coverage/**",
+    "build/**",
+    "tmp/**"
+  ],
   "claim_types": ["security_boundary"],
   "owner": "platform",
   "runner": {
@@ -43,5 +56,7 @@
     "timeout_ms": 180000,
     "stdin_json": true
   },
+  "freshness_window_hours": 168,
+  "parse_window_signature": "sha256:d7e53e1973827f9aecd9ca8553e0cfb2f5c40b6c446dcf9c1596144a264df18c",
   "schema_version": 1
 }

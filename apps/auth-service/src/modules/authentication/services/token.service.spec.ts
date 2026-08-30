@@ -1,12 +1,17 @@
 import { getActiveSigningKid } from '@aquaculture/backend-common/auth';
 import { Role } from '@aquaculture/backend-common/decorators';
-import { ISessionManager, SESSION_MANAGER } from '@aquaculture/backend-common/security';
+import {
+  ISessionManager,
+  IUserTokenRevocation,
+  SESSION_MANAGER,
+  USER_TOKEN_REVOCATION,
+} from '@aquaculture/backend-common/security';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
-import { DataSource } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 
 import { MobileSettingsService } from '../../tenant/services/mobile-settings.service';
 import { RefreshToken } from '../entities/refresh-token.entity';
@@ -26,17 +31,88 @@ jest.mock('bcryptjs', () => {
   const actual = jest.requireActual<typeof bcrypt>('bcryptjs');
   // Bind the promise overload explicitly — jest.fn over the raw overloaded
   // function resolves the callback overload and trips no-misused-promises.
-  const promiseHash: (data: string, saltOrRounds: string | number) => Promise<string> =
-    actual.hash;
+  const promiseHash: (data: string, saltOrRounds: string | number) => Promise<string> = actual.hash;
   return { ...actual, hash: jest.fn(promiseHash) };
 });
 
 // Typed alias over the spy-able wrapper above. The explicit type argument
 // selects hash's promise overload; jest.mocked over the raw overloaded type
 // would collapse mockResolvedValue to never.
-const mockBcryptHash = jest.mocked<(data: string, saltOrRounds: string | number) => Promise<string>>(
-  bcrypt.hash,
-);
+const mockBcryptHash = jest.mocked<
+  (data: string, saltOrRounds: string | number) => Promise<string>
+>(bcrypt.hash);
+
+function makeUserTokenRevocation(
+  isTokenValid = jest.fn().mockResolvedValue(true),
+): IUserTokenRevocation {
+  return {
+    revokeUserTokens: jest.fn().mockResolvedValue(undefined),
+    isTokenValid,
+  };
+}
+
+interface SiteAssignmentQueryBuilderDouble {
+  where: jest.Mock;
+  andWhere: jest.Mock;
+  orderBy: jest.Mock;
+  setLock: jest.Mock;
+  getMany: jest.Mock;
+}
+
+interface SiteAssignmentRepositoryDouble {
+  find: jest.Mock;
+  createQueryBuilder: jest.Mock;
+}
+
+function makeSiteAssignmentRepository(find: jest.Mock): {
+  repository: SiteAssignmentRepositoryDouble;
+  queryBuilder: SiteAssignmentQueryBuilderDouble;
+} {
+  const queryBuilder: SiteAssignmentQueryBuilderDouble = {
+    where: jest.fn(),
+    andWhere: jest.fn(),
+    orderBy: jest.fn(),
+    setLock: jest.fn(),
+    getMany: find,
+  };
+  queryBuilder.where.mockReturnValue(queryBuilder);
+  queryBuilder.andWhere.mockReturnValue(queryBuilder);
+  queryBuilder.orderBy.mockReturnValue(queryBuilder);
+  queryBuilder.setLock.mockReturnValue(queryBuilder);
+
+  return {
+    repository: {
+      find,
+      createQueryBuilder: jest.fn().mockReturnValue(queryBuilder),
+    },
+    queryBuilder,
+  };
+}
+
+function makeTransactionalDataSource(query: jest.Mock): {
+  dataSource: object;
+  userRepository: { findOne: jest.Mock };
+  lockedUserFindOne: jest.Mock;
+  transaction: jest.Mock;
+} {
+  const lockedUserFindOne = jest.fn().mockResolvedValue({ id: 'locked-user' });
+  const userRepository = { findOne: lockedUserFindOne };
+  const manager = {
+    // TypeORM's transaction-scoped repository preserves the repository API;
+    // passing the supplied double through lets the same manager scope both
+    // assignment reads and the RefreshToken INSERT.
+    withRepository: jest.fn((repository: object) => repository),
+  };
+  const transaction = jest.fn((work: (transactionManager: typeof manager) => Promise<unknown>) =>
+    work(manager),
+  );
+  return {
+    dataSource: { query, transaction },
+    userRepository,
+    lockedUserFindOne,
+    transaction,
+  };
+}
 
 /**
  * MT-MEDIUM-001 — the `planLevel` JWT claim.
@@ -84,10 +160,15 @@ describe('TokenService — planLevel JWT claim (MT-MEDIUM-001)', () => {
       }
       return Promise.resolve([]);
     });
+    const transactionHarness = makeTransactionalDataSource(query);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TokenService,
+        {
+          provide: getRepositoryToken(User),
+          useValue: transactionHarness.userRepository,
+        },
         // SEC-HIGH-051/052: TokenService now requires the site-assignment repo +
         // mobile-settings read path. Empty defaults keep this suite's claims
         // (assignedSiteIds/mobileFeatures) absent — they assert the OTHER claims.
@@ -99,7 +180,11 @@ describe('TokenService — planLevel JWT claim (MT-MEDIUM-001)', () => {
           provide: MobileSettingsService,
           // getByUserId NEVER returns null (it creates a default row); a DISABLED
           // settings object yields empty mobileFeatures, keeping this suite's claims absent.
-          useValue: { getByUserId: jest.fn().mockResolvedValue({ isMobileEnabled: false, allowedFeatures: {} }) },
+          useValue: {
+            getByUserId: jest
+              .fn()
+              .mockResolvedValue({ isMobileEnabled: false, allowedFeatures: {} }),
+          },
         },
         {
           provide: getRepositoryToken(RefreshToken),
@@ -109,7 +194,7 @@ describe('TokenService — planLevel JWT claim (MT-MEDIUM-001)', () => {
           provide: getRepositoryToken(UserModuleAssignment),
           useValue: { find: jest.fn().mockResolvedValue([]) },
         },
-        { provide: DataSource, useValue: { query } },
+        { provide: DataSource, useValue: transactionHarness.dataSource },
         { provide: JwtService, useValue: { signAsync } },
         {
           provide: ConfigService,
@@ -121,6 +206,7 @@ describe('TokenService — planLevel JWT claim (MT-MEDIUM-001)', () => {
             ),
           },
         },
+        { provide: USER_TOKEN_REVOCATION, useValue: makeUserTokenRevocation() },
       ],
     }).compile();
 
@@ -131,16 +217,13 @@ describe('TokenService — planLevel JWT claim (MT-MEDIUM-001)', () => {
     await service.generateTokens(buildUser({ role: Role.TENANT_ADMIN }));
 
     expect(capturedPayload().planLevel).toBe(2); // professional → PLAN_LEVEL 2
-    expect(query).toHaveBeenCalledWith(
-      expect.stringContaining('FROM auth.tenants'),
-      ['22222222-2222-2222-2222-222222222222'],
-    );
+    expect(query).toHaveBeenCalledWith(expect.stringContaining('FROM auth.tenants'), [
+      '22222222-2222-2222-2222-222222222222',
+    ]);
   });
 
   it('omits planLevel for a platform account with no tenant', async () => {
-    await service.generateTokens(
-      buildUser({ role: Role.SUPER_ADMIN, tenantId: null }),
-    );
+    await service.generateTokens(buildUser({ role: Role.SUPER_ADMIN, tenantId: null }));
 
     const payload = capturedPayload();
     expect('planLevel' in payload).toBe(false);
@@ -191,7 +274,7 @@ describe('TokenService — planLevel JWT claim (MT-MEDIUM-001)', () => {
  *   (B) audience + kid on signAsync (SEC-HIGH-003)
  *   (C) type === 'access' discriminator
  *   (D) getUserResourcePermissions injection guard (SEC-M13) + fail-loud (PERF-HIGH-001)
- *   (E) module LRU eviction + TTL
+ *   (E) authoritative authorization reads on every mint
  *   (F) omit-when-empty modules / resourcePermissions shaping
  *   (G) SessionManager enforce + create path
  */
@@ -202,6 +285,9 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
   let refreshSave: jest.Mock;
   let enforceSessionLimit: jest.Mock;
   let createSession: jest.Mock;
+  let isTokenValid: jest.Mock;
+  let siteSnapshotTransaction: jest.Mock;
+  let credentialUserLockFindOne: jest.Mock;
   let configValues: Record<string, unknown>;
   let lastPayload: JwtPayload | undefined;
 
@@ -237,10 +323,19 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     }>;
     plan?: string;
     onResourceQuery?: (sql: string) => Promise<unknown>;
+    // RBAC-HIGH-010: the tenant's ENABLED module codes for the entitlement
+    // intersection. Default 'farm' keeps core caps entitled; add 'ai'/'hr' to
+    // license those module-gated categories.
+    enabledModuleCodes?: string[];
   }): jest.Mock =>
     jest.fn((sql: string) => {
       if (typeof sql !== 'string') {
         return Promise.resolve([]);
+      }
+      // Entitlement query (RBAC-HIGH-010): tenant_modules JOIN modules.
+      if (sql.includes('tenant_modules') && sql.includes('"auth"."modules"')) {
+        const codes = overrides?.enabledModuleCodes ?? ['farm'];
+        return Promise.resolve(codes.map((code) => ({ code })));
       }
       if (sql.includes('user_role_assignments') && sql.includes('tenant_role_permissions')) {
         if (overrides?.onResourceQuery) {
@@ -261,22 +356,35 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
   }): Promise<TokenService> => {
     configValues = { HASH_REFRESH_TOKENS: false, ...(deps?.config ?? {}) };
     query = deps?.query ?? buildQueryRouter();
+    const siteAssignments = makeSiteAssignmentRepository(jest.fn().mockResolvedValue([]));
+    const transactionHarness = makeTransactionalDataSource(query);
+    const { dataSource } = transactionHarness;
+    siteSnapshotTransaction = transactionHarness.transaction;
+    credentialUserLockFindOne = transactionHarness.lockedUserFindOne;
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TokenService,
+        {
+          provide: getRepositoryToken(User),
+          useValue: transactionHarness.userRepository,
+        },
         // SEC-HIGH-051/052: TokenService now requires the site-assignment repo +
         // mobile-settings read path. Empty defaults keep this suite's claims
         // (assignedSiteIds/mobileFeatures) absent — they assert the OTHER claims.
         {
           provide: getRepositoryToken(UserSiteAssignment),
-          useValue: { find: jest.fn().mockResolvedValue([]) },
+          useValue: siteAssignments.repository,
         },
         {
           provide: MobileSettingsService,
           // getByUserId NEVER returns null (it creates a default row); a DISABLED
           // settings object yields empty mobileFeatures, keeping this suite's claims absent.
-          useValue: { getByUserId: jest.fn().mockResolvedValue({ isMobileEnabled: false, allowedFeatures: {} }) },
+          useValue: {
+            getByUserId: jest
+              .fn()
+              .mockResolvedValue({ isMobileEnabled: false, allowedFeatures: {} }),
+          },
         },
         {
           provide: getRepositoryToken(RefreshToken),
@@ -288,7 +396,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
             find: deps?.moduleAssignmentFind ?? jest.fn().mockResolvedValue([]),
           },
         },
-        { provide: DataSource, useValue: { query } },
+        { provide: DataSource, useValue: dataSource },
         { provide: JwtService, useValue: { signAsync } },
         {
           provide: ConfigService,
@@ -305,6 +413,10 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
             createSession,
           } as Partial<ISessionManager>,
         },
+        {
+          provide: USER_TOKEN_REVOCATION,
+          useValue: makeUserTokenRevocation(isTokenValid),
+        },
       ],
     }).compile();
 
@@ -320,6 +432,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     refreshSave = jest.fn().mockResolvedValue(undefined);
     enforceSessionLimit = jest.fn().mockResolvedValue([]);
     createSession = jest.fn().mockResolvedValue('session-id');
+    isTokenValid = jest.fn().mockResolvedValue(true);
   });
 
   // Prevent the shared signAsync/query/bcrypt mocks from bleeding across blocks
@@ -330,6 +443,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
   afterEach(() => {
     jest.restoreAllMocks();
     jest.clearAllMocks();
+    jest.useRealTimers();
     mockBcryptHash.mockReset();
   });
 
@@ -345,6 +459,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       'resourcePermissions',
       'type',
       'jti',
+      'iat',
       'mfaVerified',
     ]);
 
@@ -410,9 +525,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       // published JWKS entry. getActiveSigningKid(config) returns exactly the
       // JWT_KEY_ID value, asserted directly here.
       expect(signOptions.keyid).toBe('key-rotated-2');
-      expect(getActiveSigningKid(buildKidConfigService('key-rotated-2'))).toBe(
-        signOptions.keyid,
-      );
+      expect(getActiveSigningKid(buildKidConfigService('key-rotated-2'))).toBe(signOptions.keyid);
     });
   });
 
@@ -430,9 +543,9 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
   // (D) getUserResourcePermissions — auth-schema tenant-scoped repoint + fail-loud.
   describe('getUserResourcePermissions (auth.* tenant-scoped + PERF-HIGH-001 fail-loud)', () => {
     it('queries centralized auth.* with NO per-tenant schema interpolation (crafted tenantId is bound, not concatenated)', async () => {
-      // Post-1800500000000 the role tables live in `auth`; tenantId is a bound
-      // parameter ($2), so even a malformed value can never reach a schema name
-      // or the SQL text.
+      // Post admin-api `1800500000000-TenantProvisioningTopology` the role
+      // tables live in `auth`; tenantId is a bound parameter ($2), so even a
+      // malformed value can never reach a schema name or the SQL text.
       const malicious = 'zz; DROP TABLE users;----------------';
       service = await createService({
         query: buildQueryRouter({ resourcePermissions: [] }),
@@ -495,84 +608,54 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     });
   });
 
-  // (E) module LRU eviction + TTL.
-  describe('module LRU cache (eviction + TTL)', () => {
-    it('caps the module cache at 5000 entries and re-queries the evicted oldest user', async () => {
-      // tenant_modules JOIN drives the module read for TENANT_ADMIN users.
-      const moduleQuery = jest.fn((sql: string) => {
-        if (typeof sql === 'string' && sql.includes('FROM auth.tenants')) {
-          return Promise.resolve([{ plan: 'professional' }]);
-        }
-        return Promise.resolve([]); // tenant_modules → empty
-      });
-      service = await createService({ query: moduleQuery });
+  // (E) Authorization claims are authoritative on every mint. There is no
+  // process-local cache whose stale contents can survive an administrator's
+  // module or permission reduction on the next refresh.
+  describe('authoritative authorization reads on every mint', () => {
+    it('sees a changed module assignment on the immediately following mint', async () => {
+      const moduleAssignmentFind = jest
+        .fn()
+        .mockResolvedValueOnce([
+          {
+            isAccessible: () => true,
+            module: { code: 'farm', name: 'Farm', defaultRoute: '/farm' },
+          },
+        ])
+        .mockResolvedValueOnce([
+          {
+            isAccessible: () => true,
+            module: { code: 'sensor', name: 'Sensor', defaultRoute: '/sensor' },
+          },
+        ]);
+      service = await createService({ moduleAssignmentFind });
+      const user = buildUser({});
 
-      const userId = (n: number): string =>
-        `00000000-0000-0000-0000-${n.toString(16).padStart(12, '0')}`;
+      await service.generateTokens(user);
+      expect(capturedPayload().modules).toEqual(['farm']);
 
-      // Prime the oldest user, then fill to capacity + 1 to evict it.
-      const oldest = buildUser({
-        id: userId(0),
-        role: Role.TENANT_ADMIN,
-        tenantId: VALID_TENANT_ID,
-      });
-      await service.getUserModules(oldest);
-
-      for (let i = 1; i <= 5000; i++) {
-        await service.getUserModules(
-          buildUser({ id: userId(i), role: Role.TENANT_ADMIN, tenantId: VALID_TENANT_ID }),
-        );
-      }
-
-      const tenantModuleQueriesBefore = moduleQuery.mock.calls.filter(
-        ([sql]) => typeof sql === 'string' && sql.includes('auth.tenant_modules'),
-      ).length;
-
-      // The oldest user was evicted, so a second lookup re-queries.
-      await service.getUserModules(oldest);
-
-      const tenantModuleQueriesAfter = moduleQuery.mock.calls.filter(
-        ([sql]) => typeof sql === 'string' && sql.includes('auth.tenant_modules'),
-      ).length;
-
-      expect(tenantModuleQueriesAfter).toBe(tenantModuleQueriesBefore + 1);
+      await service.generateTokens(user);
+      expect(capturedPayload().modules).toEqual(['sensor']);
+      expect(moduleAssignmentFind).toHaveBeenCalledTimes(2);
     });
 
-    it('serves from cache within the TTL and re-queries after it expires', async () => {
-      const nowSpy = jest.spyOn(Date, 'now');
-      let clock = 1_000_000;
-      nowSpy.mockImplementation(() => clock);
-
-      const moduleQuery = jest.fn((sql: string) => {
-        if (typeof sql === 'string' && sql.includes('FROM auth.tenants')) {
-          return Promise.resolve([{ plan: 'professional' }]);
-        }
-        return Promise.resolve([]);
+    it('sees changed role permissions on the immediately following mint', async () => {
+      const permissionReads: Array<Array<{ resource_permissions: string[] }>> = [
+        [{ resource_permissions: ['sites:view'] }],
+        [{ resource_permissions: ['sites:edit'] }],
+      ];
+      service = await createService({
+        query: buildQueryRouter({
+          onResourceQuery: () => Promise.resolve(permissionReads.shift() ?? []),
+        }),
       });
-      service = await createService({ query: moduleQuery });
+      const user = buildUser({});
 
-      const user = buildUser({ role: Role.TENANT_ADMIN, tenantId: VALID_TENANT_ID });
+      await service.generateTokens(user);
+      expect(capturedPayload().resourcePermissions).toEqual(['sites:view']);
 
-      await service.getUserModules(user);
-      const after1 = moduleQuery.mock.calls.filter(
-        ([sql]) => typeof sql === 'string' && sql.includes('auth.tenant_modules'),
-      ).length;
-
-      // Within 60s TTL → served from cache, no new query.
-      clock += 30_000;
-      await service.getUserModules(user);
-      const after2 = moduleQuery.mock.calls.filter(
-        ([sql]) => typeof sql === 'string' && sql.includes('auth.tenant_modules'),
-      ).length;
-      expect(after2).toBe(after1);
-
-      // Past 60s TTL → stale, re-query.
-      clock += 61_000;
-      await service.getUserModules(user);
-      const after3 = moduleQuery.mock.calls.filter(
-        ([sql]) => typeof sql === 'string' && sql.includes('auth.tenant_modules'),
-      ).length;
-      expect(after3).toBe(after1 + 1);
+      await service.generateTokens(user);
+      expect(capturedPayload().resourcePermissions).toEqual(['sites:edit']);
+      expect(permissionReads).toHaveLength(0);
     });
   });
 
@@ -626,6 +709,111 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       expect(claim).toEqual(expect.arrayContaining(['sites:view', 'roles:view']));
       expect(claim).not.toContain('sites:edit');
     });
+
+    // RBAC-HIGH-010: the mint intersects effective permissions with the tenant's
+    // LICENSED capability set, so a stored grant for an unlicensed module (a
+    // stale grant after a plan downgrade, or the MT-HIGH-057 backfill that
+    // seeded ai_/messaging caps onto every default role) never reaches the JWT.
+    it('drops a stored capability for a module the tenant does NOT license (entitlement intersection)', async () => {
+      service = await createService({
+        query: buildQueryRouter({
+          // The role stores a core cap AND an AI cap...
+          resourcePermissions: [{ resource_permissions: ['sites:view', 'ai_settings:manage'] }],
+          // ...but the tenant only licenses the farm module.
+          enabledModuleCodes: ['farm'],
+        }),
+      });
+
+      await service.generateTokens(buildUser({}));
+
+      const claim = capturedPayload().resourcePermissions ?? [];
+      expect(claim).toContain('sites:view'); // core survives
+      expect(claim).not.toContain('ai_settings:manage'); // unlicensed dropped
+    });
+
+    it('keeps the module-gated capability once the tenant licenses that module', async () => {
+      service = await createService({
+        query: buildQueryRouter({
+          resourcePermissions: [{ resource_permissions: ['sites:view', 'ai_settings:manage'] }],
+          enabledModuleCodes: ['farm', 'ai'],
+        }),
+      });
+
+      await service.generateTokens(buildUser({}));
+
+      const claim = capturedPayload().resourcePermissions ?? [];
+      expect(claim).toEqual(expect.arrayContaining(['sites:view', 'ai_settings:manage']));
+    });
+  });
+
+  describe('authorization-revocation issuance fence', () => {
+    it('cannot insert a refresh token while deactivation owns the User fence and fails stale issuance closed', async () => {
+      service = await createService();
+      const authenticatedAt = new Date('2026-08-01T12:00:00.000Z');
+      const authenticatedSnapshot = buildUser({ updatedAt: authenticatedAt });
+      let finishCredentialFence: ((lockedUser: { id: string } | null) => void) | undefined;
+      credentialUserLockFindOne.mockImplementationOnce(
+        () =>
+          new Promise<{ id: string } | null>((resolve) => {
+            finishCredentialFence = resolve;
+          }),
+      );
+
+      const mint = service.generateTokens(authenticatedSnapshot);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(refreshSave).not.toHaveBeenCalled();
+      expect(signAsync).not.toHaveBeenCalled();
+      if (!finishCredentialFence) {
+        throw new Error('Credential-fence test gate was not initialized');
+      }
+
+      // A concurrent administrator committed deactivation/password mutation
+      // while this login waited. The authoritative snapshot predicate no
+      // longer resolves, so stale authentication cannot mint a replacement.
+      finishCredentialFence(null);
+      await expect(mint).rejects.toThrow('User credentials changed during token issuance');
+
+      expect(credentialUserLockFindOne).toHaveBeenCalledWith({
+        select: { id: true },
+        where: {
+          id: authenticatedSnapshot.id,
+          role: authenticatedSnapshot.role,
+          tenantId: authenticatedSnapshot.tenantId,
+          isActive: true,
+          updatedAt: authenticatedAt,
+        },
+        lock: { mode: 'pessimistic_write' },
+      });
+      expect(refreshSave).not.toHaveBeenCalled();
+      expect(createSession).not.toHaveBeenCalled();
+    });
+
+    it('waits for the real next clock second and performs two authoritative revocation reads', async () => {
+      const currentSecond = Date.parse('2026-08-01T12:00:00.000Z');
+      jest.useFakeTimers({ now: currentSecond + 900 });
+      isTokenValid.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+      service = await createService();
+
+      const mintPromise = service.generateTokens(buildUser({}));
+      await Promise.resolve();
+      await jest.advanceTimersByTimeAsync(101);
+      await mintPromise;
+
+      expect(isTokenValid).toHaveBeenCalledTimes(2);
+      expect(isTokenValid).toHaveBeenNthCalledWith(
+        1,
+        '11111111-1111-1111-1111-111111111111',
+        new Date(currentSecond),
+      );
+      expect(isTokenValid).toHaveBeenNthCalledWith(
+        2,
+        '11111111-1111-1111-1111-111111111111',
+        new Date(currentSecond + 1_000),
+      );
+      expect(capturedPayload().iat).toBe(currentSecond / 1_000 + 1);
+    });
   });
 
   // (G) SessionManager path.
@@ -643,11 +831,137 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         tenantId: VALID_TENANT_ID,
       });
     });
+
+    it('does not enforce or establish a session during refresh-token rotation', async () => {
+      service = await createService({ config: { MAX_SESSIONS_PER_USER: 3 } });
+
+      await service.generateTokens(buildUser({}), undefined, undefined, {
+        establishSession: false,
+      });
+
+      expect(enforceSessionLimit).not.toHaveBeenCalled();
+      expect(createSession).not.toHaveBeenCalled();
+      expect(refreshSave).toHaveBeenCalledTimes(1);
+    });
   });
 
-  // HASH_REFRESH_TOKENS=true exercises the bcrypt + userId-prefixed refresh path.
+  describe('transaction-scoped refresh-token persistence', () => {
+    it('persists the replacement row through the active EntityManager repository', async () => {
+      service = await createService();
+      const transactionDataSource = new DataSource({ type: 'postgres' });
+      const transactionManager = transactionDataSource.manager;
+      const scopedCreate = jest.fn((value: Partial<RefreshToken>) =>
+        Object.assign(new RefreshToken(), value),
+      );
+      const scopedSave = jest.fn().mockResolvedValue(new RefreshToken());
+      const scopedRepository = Object.assign(
+        new Repository<RefreshToken>(RefreshToken, transactionManager),
+        { create: scopedCreate, save: scopedSave },
+      );
+      const lockedUserFindOne = jest.fn().mockResolvedValue({ id: 'locked-user' });
+      const scopedUserRepository = Object.assign(new Repository<User>(User, transactionManager), {
+        findOne: lockedUserFindOne,
+      });
+      const withRepository = jest
+        .spyOn(transactionManager, 'withRepository')
+        .mockReturnValueOnce(scopedUserRepository)
+        .mockReturnValueOnce(scopedRepository);
+
+      await service.generateTokens(buildUser({ role: Role.TENANT_ADMIN }), undefined, undefined, {
+        manager: transactionManager,
+        establishSession: false,
+      });
+
+      expect(lockedUserFindOne).toHaveBeenCalledWith({
+        select: { id: true },
+        where: {
+          id: '11111111-1111-1111-1111-111111111111',
+          role: Role.TENANT_ADMIN,
+          tenantId: VALID_TENANT_ID,
+          isActive: true,
+        },
+        lock: { mode: 'pessimistic_write' },
+      });
+      expect(withRepository).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ findOne: expect.any(Function) }),
+      );
+      expect(withRepository).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ save: refreshSave }),
+      );
+      expect(scopedCreate).toHaveBeenCalledTimes(1);
+      expect(scopedSave).toHaveBeenCalledTimes(1);
+      expect(refreshSave).not.toHaveBeenCalled();
+      expect(enforceSessionLimit).not.toHaveBeenCalled();
+      expect(createSession).not.toHaveBeenCalled();
+    });
+
+    it('reuses the active EntityManager for the site-authorization snapshot', async () => {
+      service = await createService();
+      const transactionDataSource = new DataSource({ type: 'postgres' });
+      const transactionManager = transactionDataSource.manager;
+      const lockedUserFindOne = jest.fn().mockResolvedValue({ id: 'locked-user' });
+      const scopedUserRepository = Object.assign(new Repository<User>(User, transactionManager), {
+        findOne: lockedUserFindOne,
+      });
+      const siteAssignments = makeSiteAssignmentRepository(jest.fn().mockResolvedValue([]));
+      const scopedSiteRepository = Object.assign(
+        new Repository<UserSiteAssignment>(UserSiteAssignment, transactionManager),
+        { createQueryBuilder: siteAssignments.repository.createQueryBuilder },
+      );
+      const scopedRefreshRepository = Object.assign(
+        new Repository<RefreshToken>(RefreshToken, transactionManager),
+        {
+          create: jest.fn((value: Partial<RefreshToken>) =>
+            Object.assign(new RefreshToken(), value),
+          ),
+          save: jest.fn().mockResolvedValue(new RefreshToken()),
+        },
+      );
+      const withRepository = jest
+        .spyOn(transactionManager, 'withRepository')
+        .mockReturnValueOnce(scopedUserRepository)
+        .mockReturnValueOnce(scopedSiteRepository)
+        .mockReturnValueOnce(scopedRefreshRepository);
+
+      await service.generateTokens(buildUser({ role: Role.MODULE_USER }), undefined, undefined, {
+        manager: transactionManager,
+        establishSession: false,
+      });
+
+      expect(siteSnapshotTransaction).not.toHaveBeenCalled();
+      expect(lockedUserFindOne).toHaveBeenCalledWith({
+        select: { id: true },
+        where: {
+          id: '11111111-1111-1111-1111-111111111111',
+          role: Role.MODULE_USER,
+          tenantId: VALID_TENANT_ID,
+          isActive: true,
+        },
+        lock: { mode: 'pessimistic_write' },
+      });
+      expect(withRepository).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ findOne: expect.any(Function) }),
+      );
+      expect(withRepository).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ createQueryBuilder: expect.any(Function) }),
+      );
+      expect(withRepository).toHaveBeenNthCalledWith(
+        3,
+        expect.objectContaining({ save: refreshSave }),
+      );
+      expect(scopedRefreshRepository.save).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // HASH_REFRESH_TOKENS=true exercises the bcrypt + rolling-compatible V2
+  // two-segment transport. The opaque secret embeds the indexed tokenId while
+  // retaining the legacy `userId:secret` split consumed during rollout.
   describe('refresh-token hashing (HASH_REFRESH_TOKENS=true)', () => {
-    it('hashes the stored token and returns the userId-prefixed plaintext', async () => {
+    it('stores tokenId + hash and returns exactly userId:secret with tokenId embedded', async () => {
       mockBcryptHash.mockResolvedValue('bcrypt-hash');
       service = await createService({ config: { HASH_REFRESH_TOKENS: true } });
 
@@ -655,10 +969,19 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       const result = await service.generateTokens(user);
 
       expect(mockBcryptHash).toHaveBeenCalledTimes(1);
-      // Stored value is the bcrypt hash, transported value is userId-prefixed.
-      const savedRow = refreshSave.mock.calls[0]?.[0] as { token: string };
+      const savedRow = refreshSave.mock.calls[0]?.[0] as { token: string; tokenId: string };
+      const segments = result.refreshToken.split(':');
+      const transportedSecret = segments[1];
+
+      expect(segments).toHaveLength(2);
+      expect(segments[0]).toBe(user.id);
+      expect(transportedSecret).toBeDefined();
       expect(savedRow.token).toBe('bcrypt-hash');
-      expect(result.refreshToken.startsWith(`${user.id}:`)).toBe(true);
+      expect(savedRow.tokenId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      );
+      expect(transportedSecret?.startsWith(savedRow.tokenId.replaceAll('-', ''))).toBe(true);
+      expect(mockBcryptHash).toHaveBeenCalledWith(transportedSecret, expect.any(Number));
     });
   });
 
@@ -724,6 +1047,8 @@ describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051
   let signAsync: jest.Mock;
   let lastPayload: JwtPayload | undefined;
   let siteFind: jest.Mock;
+  let siteQueryBuilder: SiteAssignmentQueryBuilderDouble;
+  let lockedUserFindOne: jest.Mock;
   let getByUserId: jest.Mock;
 
   const TENANT = '22222222-2222-2222-2222-222222222222';
@@ -746,9 +1071,18 @@ describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051
     });
 
   const buildService = async (): Promise<TokenService> => {
+    const siteAssignments = makeSiteAssignmentRepository(siteFind);
+    siteQueryBuilder = siteAssignments.queryBuilder;
+    const query = jest.fn().mockResolvedValue([]);
+    const transactionHarness = makeTransactionalDataSource(query);
+    lockedUserFindOne = transactionHarness.lockedUserFindOne;
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TokenService,
+        {
+          provide: getRepositoryToken(User),
+          useValue: transactionHarness.userRepository,
+        },
         {
           provide: getRepositoryToken(RefreshToken),
           useValue: { create: jest.fn((x: unknown) => x), save: jest.fn() },
@@ -759,10 +1093,10 @@ describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051
         },
         {
           provide: getRepositoryToken(UserSiteAssignment),
-          useValue: { find: siteFind },
+          useValue: siteAssignments.repository,
         },
         { provide: MobileSettingsService, useValue: { getByUserId } },
-        { provide: DataSource, useValue: { query: jest.fn().mockResolvedValue([]) } },
+        { provide: DataSource, useValue: transactionHarness.dataSource },
         { provide: JwtService, useValue: { signAsync } },
         {
           provide: ConfigService,
@@ -772,6 +1106,7 @@ describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051
             ),
           },
         },
+        { provide: USER_TOKEN_REVOCATION, useValue: makeUserTokenRevocation() },
       ],
     }).compile();
     return module.get<TokenService>(TokenService);
@@ -785,8 +1120,8 @@ describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051
     });
     // Active non-expired site assignment by default.
     siteFind = jest.fn().mockResolvedValue([
-      { siteId: 'site-a', isActive: true, isAccessible: () => true },
-      { siteId: 'site-b', isActive: true, isAccessible: () => true },
+      { siteId: 'site-a', isActive: true, expiresAt: null },
+      { siteId: 'site-b', isActive: true, expiresAt: null },
     ]);
     getByUserId = jest.fn().mockResolvedValue({
       isMobileEnabled: true,
@@ -799,6 +1134,57 @@ describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051
     await service.generateTokens(buildUser({ role: Role.MODULE_USER }));
 
     expect(capturedPayload().assignedSiteIds).toEqual(['site-a', 'site-b']);
+    expect(lockedUserFindOne).toHaveBeenCalledWith({
+      select: { id: true },
+      where: {
+        id: USER,
+        role: Role.MODULE_USER,
+        tenantId: TENANT,
+        isActive: true,
+      },
+      lock: { mode: 'pessimistic_write' },
+    });
+    expect(siteQueryBuilder.where).toHaveBeenCalledWith('assignment.userId = :userId', {
+      userId: USER,
+    });
+    expect(siteQueryBuilder.andWhere).toHaveBeenCalledWith('assignment.tenantId = :tenantId', {
+      tenantId: TENANT,
+    });
+    expect(siteQueryBuilder.setLock).toHaveBeenCalledWith('pessimistic_read');
+  });
+
+  it('caps access-token TTL to the canonical earliest assignment expiry', async () => {
+    const now = Date.parse('2026-08-01T12:00:00.000Z');
+    const dateNow = jest.spyOn(Date, 'now').mockReturnValue(now);
+    siteFind.mockResolvedValue([
+      { siteId: 'site-long', isActive: true, expiresAt: new Date(now + 300_000) },
+      { siteId: 'site-short', isActive: true, expiresAt: new Date(now + 120_000) },
+    ]);
+    service = await buildService();
+
+    const result = await service.generateTokens(buildUser({ role: Role.MODULE_USER }));
+
+    expect(capturedPayload().assignedSiteIds).toEqual(['site-long', 'site-short']);
+    expect(signAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ iat: now / 1000 }),
+      expect.objectContaining({ expiresIn: 120 }),
+    );
+    expect(result.expiresIn).toBe(120);
+    dateNow.mockRestore();
+  });
+
+  it('excludes an assignment at the exact canonical expiry boundary', async () => {
+    const now = Date.parse('2026-08-01T12:00:00.000Z');
+    const dateNow = jest.spyOn(Date, 'now').mockReturnValue(now);
+    siteFind.mockResolvedValue([
+      { siteId: 'site-boundary', isActive: true, expiresAt: new Date(now + 999) },
+    ]);
+    service = await buildService();
+
+    await service.generateTokens(buildUser({ role: Role.MODULE_USER }));
+
+    expect('assignedSiteIds' in capturedPayload()).toBe(false);
+    dateNow.mockRestore();
   });
 
   it('projects ONLY the truthy allowedFeatures keys into mobileFeatures (single read path)', async () => {
@@ -834,6 +1220,14 @@ describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051
     await service.generateTokens(buildUser({ role: Role.TENANT_ADMIN }));
 
     // TENANT_ADMIN never queries the site assignment repo.
+    expect(siteFind).not.toHaveBeenCalled();
+    expect('assignedSiteIds' in capturedPayload()).toBe(false);
+  });
+
+  it('omits legacy assignedSiteIds for MODULE_MANAGER (tenant-wide bypass)', async () => {
+    service = await buildService();
+    await service.generateTokens(buildUser({ role: Role.MODULE_MANAGER }));
+
     expect(siteFind).not.toHaveBeenCalled();
     expect('assignedSiteIds' in capturedPayload()).toBe(false);
   });

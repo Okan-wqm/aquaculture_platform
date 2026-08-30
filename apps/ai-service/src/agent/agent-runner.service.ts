@@ -4,12 +4,14 @@ import {
   CircuitBreakerService,
   DEFAULT_BREAKER_OPTIONS,
 } from '@aquaculture/backend-common/resilience';
+import { ActionProposalService } from '../actions/action-proposal.service';
 import { ToolRegistryService } from '../tools/tool-registry.service';
 import { ToolExecutorService } from '../tools/core/tool-executor.service';
 import { AgentProfileService } from './agent-profile.service';
 import { ConversationService } from '../conversation/conversation.service';
 import { TokenBudgetService } from '../cost/token-budget.service';
 import { RateLimitService } from '../cost/rate-limit.service';
+import { TurnLedgerService } from '../cost/turn-ledger.service';
 import { AgentConfigService } from '../tenant-config/agent-config.service';
 import { ToolExecutionContext } from '../tools/core/tool.interface';
 import { AiSafetyMiddleware } from '../safety/ai-safety.middleware';
@@ -66,9 +68,14 @@ export interface ChatRequest {
  *   - cacheCreation       — prompt tokens written into the cache on
  *                           first use (pricing typically ~125% of input)
  *
- * `total` is the cost-weighted-equivalent count for back-compat
- * downstream consumers; the per-class fields drive the cost rollup
- * with the model-specific multiplier from cost_catalog.
+ * `total` is the BILLABLE token counter consumed by TokenBudgetService:
+ * input + output + cacheCreation. Cache creation is included because the
+ * provider bills those tokens ABOVE the input rate (~1.25x) — excluding
+ * them let cached-prompt tenants consume unbounded cache writes outside
+ * the monthly budget (DB-PEOPLE-MEDIUM-002). Cache READS stay excluded:
+ * they bill at ~0.1x input and metering them as full tokens would punish
+ * exactly the callers the prompt cache is meant to reward. The per-class
+ * USD rollup lives in cost/model-pricing.ts (TurnLedgerService).
  */
 export interface TokenUsageBreakdown {
   input: number;
@@ -87,6 +94,18 @@ export interface ChatResponse {
     result: unknown;
   }>;
   tokenUsage: TokenUsageBreakdown;
+  /**
+   * MOB-HIGH-001: a held actuation-class tool call, persisted as a proposal
+   * awaiting human confirmation. Rides the chat response metadata so the
+   * messaging bridge stores it on the AI message (status:'proposed') and the
+   * clients render a confirmation card. One per turn — the first held call.
+   */
+  proposedAction?: {
+    actionId: string;
+    actionType: string;
+    params: Record<string, unknown>;
+    description: string;
+  };
 }
 
 @Injectable()
@@ -102,10 +121,12 @@ export class AgentRunnerService {
     private readonly conversationService: ConversationService,
     private readonly tokenBudget: TokenBudgetService,
     private readonly rateLimit: RateLimitService,
+    private readonly turnLedger: TurnLedgerService,
     private readonly agentConfig: AgentConfigService,
     private readonly aiSafety: AiSafetyMiddleware,
     private readonly breaker: CircuitBreakerService,
     private readonly providerFactory: LlmProviderFactory,
+    private readonly actionProposals: ActionProposalService,
   ) {
     // FAZ1-BYOK: the process-global Anthropic client is gone. Each request runs
     // against the tenant's own decrypted key, resolved below and passed to the
@@ -256,6 +277,10 @@ export class AgentRunnerService {
 
     // 9. Run agent loop
     const toolCalls: ChatResponse['toolCalls'] = [];
+    // MOB-HIGH-001: the first held actuation of the turn becomes a persisted
+    // proposal + confirmation card. One per turn — chat metadata carries a
+    // single card, and one confirmable side effect per exchange is the safe UX.
+    let proposedAction: ChatResponse['proposedAction'];
     const totalTokens: TokenUsageBreakdown = {
       input: 0,
       output: 0,
@@ -324,9 +349,13 @@ export class AgentRunnerService {
       totalTokens.output += response.usage.output;
       totalTokens.cacheRead += response.usage.cacheRead;
       totalTokens.cacheCreation += response.usage.cacheCreation;
-      // `total` keeps the legacy semantics (input + output sum) because
-      // downstream TokenBudgetService consumes it as a single counter.
-      totalTokens.total += response.usage.input + response.usage.output;
+      // DB-PEOPLE-MEDIUM-002 cure: `total` (the TokenBudgetService counter)
+      // now includes cacheCreation — those tokens bill ABOVE the input rate
+      // (~1.25x), so leaving them out let cached-prompt turns consume
+      // unbounded cache writes outside the monthly budget. Cache READS stay
+      // excluded (billed at ~0.1x input; see TokenUsageBreakdown docblock).
+      totalTokens.total +=
+        response.usage.input + response.usage.output + response.usage.cacheCreation;
 
       // Process response content
       const textBlocks: string[] = [];
@@ -391,6 +420,45 @@ export class AgentRunnerService {
           toolContext,
         );
 
+        // MOB-HIGH-001: a held actuation (confirm_required policy) is not an
+        // error — it becomes a PERSISTED proposal whose id rides the response
+        // metadata as a confirmation card. The stored row (tool + params +
+        // requester context) is what executes on confirm; the model is told to
+        // direct the user to the card instead of retrying the tool.
+        if (!result.success && result.requiresConfirmation && !proposedAction) {
+          const proposal = await this.actionProposals.createProposal({
+            tenantId: request.tenantId,
+            toolName: toolUse.name,
+            params: toolUse.input,
+            description: this.describeAction(toolUse.name, toolUse.input),
+            requestedBy: request.userId,
+            requesterRoles: request.userRoles,
+            persona: request.persona,
+            correlationId: request.correlationId,
+          });
+          proposedAction = {
+            actionId: proposal.id,
+            actionType: proposal.toolName,
+            params: proposal.params,
+            description: proposal.description,
+          };
+          toolCalls.push({
+            name: toolUse.name,
+            input: toolUse.input,
+            result: { heldForConfirmation: true, actionId: proposal.id },
+          });
+          toolResults.push({
+            type: 'tool_result',
+            toolUseId: toolUse.id,
+            content:
+              'The action was HELD for human confirmation and a confirmation card was ' +
+              'shown to the user. Do not retry the tool — tell the user to review and ' +
+              'confirm the card to execute it.',
+            isError: false,
+          });
+          continue;
+        }
+
         toolCalls.push({
           name: toolUse.name,
           input: toolUse.input,
@@ -425,7 +493,36 @@ export class AgentRunnerService {
       );
     }
 
-    // 11. Save assistant response to conversation
+    // 11. Durable per-turn cost ledger (ORPHAN-MEDIUM-380): append one
+    // immutable conversation_turns row for this completed invocation.
+    // Placed BEFORE the mutable conversation/budget writes so the finance
+    // and safety-forensics record survives a downstream write failure — the
+    // provider has already billed these tokens either way. The write is
+    // awaited (no floating promise) but never throws: TurnLedgerService
+    // catches, logs loudly, and returns false so a ledger outage cannot
+    // break the chat path. Redis (step 13) remains the fast enforcement
+    // cache; this row is the durable SSoT.
+    const flaggedCategories: string[] = [
+      ...(safetyResult.inputFilter?.flaggedPatterns ?? []).map(
+        (pattern) => `input:${pattern}`,
+      ),
+      ...(postResult.piiRedacted ? ['output:pii_redacted'] : []),
+    ];
+    await this.turnLedger.recordTurn({
+      tenantId: request.tenantId,
+      conversationId,
+      personaId: request.persona,
+      model: profile.persona.model,
+      usage: {
+        input: totalTokens.input,
+        output: totalTokens.output,
+        cacheRead: totalTokens.cacheRead,
+        cacheCreation: totalTokens.cacheCreation,
+      },
+      flaggedCategories,
+    });
+
+    // 12. Save assistant response to conversation
     // SECURITY: addMessage requires tenantId + userId ownership check
     await this.conversationService.addMessage(
       conversationId,
@@ -439,7 +536,8 @@ export class AgentRunnerService {
       },
     );
 
-    // 12. Update token usage
+    // 13. Update token usage (total = input + output + cacheCreation — see
+    // the TokenUsageBreakdown docblock for the budget semantics)
     await this.tokenBudget.addUsage(request.tenantId, totalTokens.total);
     await this.conversationService.updateTokenCount(
       conversationId,
@@ -453,6 +551,19 @@ export class AgentRunnerService {
       message: finalMessage,
       toolCalls,
       tokenUsage: totalTokens,
+      proposedAction,
     };
+  }
+
+  /**
+   * Human-readable one-liner for the confirmation card. Uses the input's
+   * title/name when present so the user confirms WHAT, not just WHICH tool.
+   */
+  private describeAction(toolName: string, input: Record<string, unknown>): string {
+    const title = input['title'] ?? input['name'];
+    if (typeof title === 'string' && title.trim().length > 0) {
+      return `${toolName}: "${title.trim()}"`;
+    }
+    return `Run ${toolName}`;
   }
 }

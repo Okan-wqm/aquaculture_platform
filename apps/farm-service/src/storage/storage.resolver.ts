@@ -4,13 +4,25 @@
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
-import { CurrentTenant, CurrentUser, Roles, Role, RequiresMobileFeature } from '@aquaculture/backend-common/decorators';
+import {
+  CurrentTenant,
+  CurrentUser,
+  Roles,
+  Role,
+  RequiresMobileFeature,
+} from '@aquaculture/backend-common/decorators';
 import { TenantGuard, MobileFeatureGuard } from '@aquaculture/backend-common/guards';
 import { fromCqrsPaginated, CursorPaginationInput } from '@aquaculture/backend-common/pagination';
-import { StorageLocationResponse, PaginatedStorageLocationsResponse } from './dto/storage-location.response';
+import {
+  StorageLocationResponse,
+  PaginatedStorageLocationsResponse,
+} from './dto/storage-location.response';
 import { StorageInventoryResponse } from './dto/storage-inventory.response';
 import { StorageInventoryCursorConnection } from './dto/storage-inventory-cursor.response';
-import { StockMovementResponse, PaginatedStockMovementsResponse } from './dto/stock-movement.response';
+import {
+  StockMovementResponse,
+  PaginatedStockMovementsResponse,
+} from './dto/stock-movement.response';
 import { StorageOverviewResponse } from './dto/storage-overview.response';
 import { WarehouseSummaryResponse } from './dto/warehouse-summary.response';
 import { CreateStorageLocationInput } from './dto/create-storage-location.input';
@@ -22,7 +34,10 @@ import { RecordStockMovementInput } from './dto/record-stock-movement.input';
 import { TransferStockInput } from './dto/transfer-stock.input';
 import { PaginationInput } from '../site/dto/site-filter.input';
 import { CreateStorageLocationCommand } from './commands/create-storage-location.command';
-import { UpdateStorageLocationCommand, UpdateStorageLocationData } from './commands/update-storage-location.command';
+import {
+  UpdateStorageLocationCommand,
+  UpdateStorageLocationData,
+} from './commands/update-storage-location.command';
 import { DeleteStorageLocationCommand } from './commands/delete-storage-location.command';
 import { RecordStockMovementCommand } from './commands/record-stock-movement.command';
 import { TransferStockCommand } from './commands/transfer-stock.command';
@@ -35,7 +50,10 @@ import { GetStorageOverviewQuery } from './queries/get-storage-overview.query';
 import { GetWarehouseSummaryQuery } from './queries/get-warehouse-summary.query';
 import { TraceLotQuery } from './queries/trace-lot.query';
 import { StorageItemType } from './entities/storage-inventory.entity';
-import { PurchaseOrderResponse, PaginatedPurchaseOrdersResponse } from './dto/purchase-order.response';
+import {
+  PurchaseOrderResponse,
+  PaginatedPurchaseOrdersResponse,
+} from './dto/purchase-order.response';
 import { CreatePurchaseOrderInput } from './dto/create-purchase-order.input';
 import { UpdatePurchaseOrderStatusInput } from './dto/update-purchase-order-status.input';
 import { ReceiveDeliveryInput } from './dto/receive-delivery.input';
@@ -47,7 +65,10 @@ import { ListPurchaseOrdersQuery } from './queries/list-purchase-orders.query';
 import { GetPurchaseOrderQuery } from './queries/get-purchase-order.query';
 import { GetPendingDeliveriesQuery } from './queries/get-pending-deliveries.query';
 import { PurchaseOrderCategory, PurchaseOrderStatus } from './entities/purchase-order.entity';
-import { InventoryCountResponse, PaginatedInventoryCountsResponse } from './dto/inventory-count.response';
+import {
+  InventoryCountResponse,
+  PaginatedInventoryCountsResponse,
+} from './dto/inventory-count.response';
 import { CreateInventoryCountInput } from './dto/create-inventory-count.input';
 import { UpdateInventoryCountItemsInput } from './dto/update-inventory-count-items.input';
 import { CreateInventoryCountCommand } from './commands/create-inventory-count.command';
@@ -123,7 +144,12 @@ export class StorageResolver {
     // F-9: Properly typed spread — the `id` is extracted as `locationId` and the
     // remaining fields match UpdateStorageLocationData (Omit<Input, 'id'>).
     const { id, ...updateData }: UpdateStorageLocationInput = input;
-    const command = new UpdateStorageLocationCommand(id, updateData as UpdateStorageLocationData, tenantId, user.sub);
+    const command = new UpdateStorageLocationCommand(
+      id,
+      updateData as UpdateStorageLocationData,
+      tenantId,
+      user.sub,
+    );
     return this.commandBus.execute(command);
   }
 
@@ -151,12 +177,17 @@ export class StorageResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PaginatedStorageLocationsResponse)
   async storageLocations(
-    @Args('filter', { type: () => StorageLocationFilterInput, nullable: true }) filter: StorageLocationFilterInput | undefined,
-    @Args('pagination', { type: () => PaginationInput, nullable: true }) pagination: PaginationInput | undefined,
+    @Args('filter', { type: () => StorageLocationFilterInput, nullable: true })
+    filter: StorageLocationFilterInput | undefined,
+    @Args('pagination', { type: () => PaginationInput, nullable: true })
+    pagination: PaginationInput | undefined,
     @CurrentTenant() tenantId: string,
   ): Promise<PaginatedStorageLocationsResponse> {
     const query = new ListStorageLocationsQuery(tenantId, filter, pagination);
-    const result = await this.queryBus.execute<ListStorageLocationsQuery, PaginatedQueryResult<StorageLocationResponse>>(query);
+    const result = await this.queryBus.execute<
+      ListStorageLocationsQuery,
+      PaginatedQueryResult<StorageLocationResponse>
+    >(query);
     return fromCqrsPaginated(result);
   }
 
@@ -166,7 +197,8 @@ export class StorageResolver {
   @Query(() => [StorageInventoryResponse])
   async storageInventory(
     @Args('locationId', { type: () => ID, nullable: true }) locationId: string | undefined,
-    @Args('itemType', { type: () => StorageItemType, nullable: true }) itemType: StorageItemType | undefined,
+    @Args('itemType', { type: () => StorageItemType, nullable: true })
+    itemType: StorageItemType | undefined,
     @Args('limit', { type: () => Int, nullable: true }) limit: number | undefined,
     @Args('offset', { type: () => Int, nullable: true }) offset: number | undefined,
     @CurrentTenant() tenantId: string,
@@ -188,7 +220,8 @@ export class StorageResolver {
   @Query(() => StorageInventoryCursorConnection)
   async storageInventoryByCursor(
     @Args('locationId', { type: () => ID, nullable: true }) locationId: string | undefined,
-    @Args('itemType', { type: () => StorageItemType, nullable: true }) itemType: StorageItemType | undefined,
+    @Args('itemType', { type: () => StorageItemType, nullable: true })
+    itemType: StorageItemType | undefined,
     // ORPHAN-CRITICAL-067: CursorPaginationInput is declared
     // `@InputType({ isAbstract: true })` in libs/backend-common/src/pagination/cursor.ts,
     // so the schema builder will not register it as a standalone schema entry
@@ -204,29 +237,23 @@ export class StorageResolver {
     // impossible to omit (Tier-1) and pulls the input type into the schema
     // graph via the resolver's args.factory, matching the pattern set by
     // ORPHAN-CRITICAL-064 in PR #250 for CursorEdge<T>.
-    @Args('input', { type: () => CursorPaginationInput, nullable: true }) input: CursorPaginationInput | undefined,
+    @Args('input', { type: () => CursorPaginationInput, nullable: true })
+    input: CursorPaginationInput | undefined,
     @CurrentTenant() tenantId: string,
   ): Promise<StorageInventoryCursorConnection> {
     const response = await this.queryBus.execute<
       ListStorageInventoryByCursorQuery,
-      { edges: Array<{ cursor: string; node: unknown }>; pageInfo: { endCursor: string | null; hasNextPage: boolean } }
-    >(
-      new ListStorageInventoryByCursorQuery(
-        tenantId,
-        locationId,
-        itemType,
-        input ?? null,
-      ),
-    );
+      {
+        edges: Array<{ cursor: string; node: unknown }>;
+        pageInfo: { endCursor: string | null; hasNextPage: boolean };
+      }
+    >(new ListStorageInventoryByCursorQuery(tenantId, locationId, itemType, input ?? null));
     return {
       edges: response.edges.map((edge) => ({
         cursor: edge.cursor,
         node: edge.node as StorageInventoryResponse,
       })),
-      pageInfo: {
-        ...(response.pageInfo.endCursor !== null && { endCursor: response.pageInfo.endCursor }),
-        hasNextPage: response.pageInfo.hasNextPage,
-      },
+      pageInfo: response.pageInfo,
     };
   }
 
@@ -239,7 +266,13 @@ export class StorageResolver {
     @Args('input') input: RecordStockMovementInput,
     @CurrentTenant() tenantId: string,
     @CurrentUser()
-    user: { sub: string; firstName?: string; lastName?: string; roles: Role[]; assignedSiteIds?: string[] },
+    user: {
+      sub: string;
+      firstName?: string;
+      lastName?: string;
+      roles: Role[];
+      assignedSiteIds?: string[];
+    },
   ): Promise<StockMovementResponse> {
     // Construct display name from JWT payload for audit trail denormalization.
     // Shows WHO performed the movement in both web panel and mobile app history.
@@ -262,7 +295,13 @@ export class StorageResolver {
     @Args('input') input: TransferStockInput,
     @CurrentTenant() tenantId: string,
     @CurrentUser()
-    user: { sub: string; firstName?: string; lastName?: string; roles: Role[]; assignedSiteIds?: string[] },
+    user: {
+      sub: string;
+      firstName?: string;
+      lastName?: string;
+      roles: Role[];
+      assignedSiteIds?: string[];
+    },
   ): Promise<StockMovementResponse> {
     const userName = [user.firstName, user.lastName].filter(Boolean).join(' ') || undefined;
     const command = new TransferStockCommand(
@@ -279,12 +318,17 @@ export class StorageResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PaginatedStockMovementsResponse)
   async stockMovements(
-    @Args('filter', { type: () => StockMovementFilterInput, nullable: true }) filter: StockMovementFilterInput | undefined,
-    @Args('pagination', { type: () => PaginationInput, nullable: true }) pagination: PaginationInput | undefined,
+    @Args('filter', { type: () => StockMovementFilterInput, nullable: true })
+    filter: StockMovementFilterInput | undefined,
+    @Args('pagination', { type: () => PaginationInput, nullable: true })
+    pagination: PaginationInput | undefined,
     @CurrentTenant() tenantId: string,
   ): Promise<PaginatedStockMovementsResponse> {
     const query = new ListStockMovementsQuery(tenantId, filter, pagination);
-    const result = await this.queryBus.execute<ListStockMovementsQuery, PaginatedQueryResult<StockMovementResponse>>(query);
+    const result = await this.queryBus.execute<
+      ListStockMovementsQuery,
+      PaginatedQueryResult<StockMovementResponse>
+    >(query);
     return fromCqrsPaginated(result);
   }
 
@@ -292,18 +336,14 @@ export class StorageResolver {
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => StorageOverviewResponse)
-  async storageOverview(
-    @CurrentTenant() tenantId: string,
-  ): Promise<StorageOverviewResponse> {
+  async storageOverview(@CurrentTenant() tenantId: string): Promise<StorageOverviewResponse> {
     const query = new GetStorageOverviewQuery(tenantId);
     return this.queryBus.execute(query);
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => WarehouseSummaryResponse)
-  async warehouseSummary(
-    @CurrentTenant() tenantId: string,
-  ): Promise<WarehouseSummaryResponse> {
+  async warehouseSummary(@CurrentTenant() tenantId: string): Promise<WarehouseSummaryResponse> {
     return this.queryBus.execute(new GetWarehouseSummaryQuery(tenantId));
   }
 
@@ -335,7 +375,8 @@ export class StorageResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PaginatedPurchaseOrdersResponse)
   async purchaseOrders(
-    @Args('filter', { type: () => PurchaseOrderFilterInput, nullable: true }) filter: PurchaseOrderFilterInput | undefined,
+    @Args('filter', { type: () => PurchaseOrderFilterInput, nullable: true })
+    filter: PurchaseOrderFilterInput | undefined,
     @CurrentTenant() tenantId: string,
   ): Promise<PaginatedPurchaseOrdersResponse> {
     const query = new ListPurchaseOrdersQuery(
@@ -345,7 +386,10 @@ export class StorageResolver {
       filter?.page,
       filter?.limit,
     );
-    const result = await this.queryBus.execute<ListPurchaseOrdersQuery, PaginatedQueryResult<PurchaseOrderResponse>>(query);
+    const result = await this.queryBus.execute<
+      ListPurchaseOrdersQuery,
+      PaginatedQueryResult<PurchaseOrderResponse>
+    >(query);
     return fromCqrsPaginated(result);
   }
 
@@ -361,9 +405,7 @@ export class StorageResolver {
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [PurchaseOrderResponse])
-  async pendingDeliveries(
-    @CurrentTenant() tenantId: string,
-  ): Promise<PurchaseOrderResponse[]> {
+  async pendingDeliveries(@CurrentTenant() tenantId: string): Promise<PurchaseOrderResponse[]> {
     const query = new GetPendingDeliveriesQuery(tenantId);
     return this.queryBus.execute(query);
   }
@@ -410,9 +452,18 @@ export class StorageResolver {
   async receiveDelivery(
     @Args('input') input: ReceiveDeliveryInput,
     @CurrentTenant() tenantId: string,
-    @CurrentUser() user: { sub: string },
+    @CurrentUser() user: { sub: string; roles: Role[]; assignedSiteIds?: string[] },
   ): Promise<PurchaseOrderResponse> {
-    const command = new ReceiveDeliveryCommand(input, tenantId, user.sub);
+    // SEC-HIGH-051: forward the caller's authz context so the stock-movement
+    // sink can assert site assignment on the receiving location (mirrors
+    // recordStockMovement).
+    const command = new ReceiveDeliveryCommand(
+      input,
+      tenantId,
+      user.sub,
+      user.roles,
+      user.assignedSiteIds ?? [],
+    );
     return this.commandBus.execute(command);
   }
 
@@ -433,7 +484,8 @@ export class StorageResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PaginatedInventoryCountsResponse)
   async inventoryCounts(
-    @Args('filter', { type: () => InventoryCountFilterInput, nullable: true }) filter: InventoryCountFilterInput | undefined,
+    @Args('filter', { type: () => InventoryCountFilterInput, nullable: true })
+    filter: InventoryCountFilterInput | undefined,
     @CurrentTenant() tenantId: string,
   ): Promise<PaginatedInventoryCountsResponse> {
     const query = new ListInventoryCountsQuery(
@@ -443,7 +495,10 @@ export class StorageResolver {
       filter?.page,
       filter?.limit,
     );
-    const result = await this.queryBus.execute<ListInventoryCountsQuery, PaginatedQueryResult<InventoryCountResponse>>(query);
+    const result = await this.queryBus.execute<
+      ListInventoryCountsQuery,
+      PaginatedQueryResult<InventoryCountResponse>
+    >(query);
     return fromCqrsPaginated(result);
   }
 

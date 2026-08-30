@@ -159,12 +159,6 @@ export class CreateBatchInput {
   @MaxLength(100)
   strain?: string;
 
-  /** Feeding protocol assigned at creation; follows the batch, drives feed rate. */
-  @Field(() => ID, { nullable: true })
-  @IsOptional()
-  @IsUUID()
-  protocolId?: string;
-
   @Field(() => BatchInputType, { defaultValue: BatchInputType.FRY })
   @IsEnum(BatchInputType)
   inputType!: BatchInputType;

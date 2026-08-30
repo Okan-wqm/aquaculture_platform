@@ -20,6 +20,11 @@ import {
 } from '@aquaculture/backend-common/resilience';
 import { SsrfValidatorService } from '@aquaculture/backend-common/ai-safety';
 
+import {
+  extractReadingValues,
+  isMetadataFieldKey,
+} from '../../../common/payload/sensor-payload-parser';
+
 /**
  * HTTP REST Configuration
  */
@@ -115,17 +120,20 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
       throw new Error(testResult.error || 'Failed to connect');
     }
 
+    // SENSOR-HIGH-082: store the FULL configuration on the handle so readData can
+    // honor responseFormat / dataPath / dataMapping. Previously only
+    // { baseUrl, endpoint } was kept, so every read ran with the parsing config
+    // dropped even before parseResponse.
     const handle = this.createConnectionHandle(
       httpConfig.sensorId ?? 'unknown',
       httpConfig.tenantId ?? 'unknown',
-      { baseUrl: httpConfig.baseUrl, endpoint: httpConfig.endpoint }
+      { ...httpConfig },
     );
 
     this.logConnectionEvent('connect', handle, { baseUrl: httpConfig.baseUrl });
     return handle;
   }
 
-   
   async disconnect(handle: ConnectionHandle): Promise<void> {
     // Stop polling if active
     const pollingInterval = this.pollingIntervals.get(handle.id);
@@ -148,7 +156,7 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
 
       let sampleData: SensorReadingData | undefined;
       try {
-        sampleData = this.parseResponse(response, httpConfig);
+        sampleData = await this.parseResponse(response, httpConfig);
       } catch {
         // Sample data parsing is optional
       }
@@ -183,7 +191,7 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
 
     const response = await this.makeRequest(config);
     this.updateLastActivity(handle);
-    return this.parseResponse(response, config);
+    return await this.parseResponse(response, config);
   }
 
   private async makeRequest(config: HttpRestConfiguration): Promise<Response> {
@@ -231,34 +239,22 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
         failureMode: 'fail-open-degraded',
       },
       fn: async () => {
-        // SVD-CRIT-001: the destination is fully operator-controlled
-        // (baseUrl + endpoint from protocolConfiguration). Resolve + validate
-        // BEFORE connecting so a hostname cannot point at cloud-metadata,
-        // loopback, or an internal service. DNS is pinned pre-connect to
-        // close the rebinding window; redirects are refused (safe URL could
-        // 30x into an internal one). We enforce the http/https protocol
-        // allowlist explicitly but use validateHost (not validateUrl) so
-        // legitimate vendor REST endpoints on non-standard ports still work
-        // — the load-bearing SSRF control is the IP denylist, not the port.
-        await this.assertSafeHttpTarget(url.toString());
-        const controller = new AbortController();
-        const timeoutId = setTimeout(
-          () => controller.abort(),
-          config.connectTimeout || 30000,
-        );
-        try {
-          const response = await fetch(url.toString(), {
-            ...fetchOptions,
-            ...this.ssrfValidator.getSafeFetchOptions(),
-            signal: controller.signal,
-          });
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-          }
-          return response;
-        } finally {
-          clearTimeout(timeoutId);
+        // SVD-CRIT-001 + SENSOR-CRITICAL-002 residual: the destination is fully
+        // operator-controlled (baseUrl + endpoint from protocolConfiguration).
+        // safeFetch validates the host (http/https allowlist + private/metadata
+        // IP denylist) and PINS the socket to the validated IP, so a hostname
+        // cannot rebind to cloud-metadata / loopback / an internal service
+        // between validation and connect. Redirects are refused. portPolicy is
+        // left at the 'any' default so legitimate vendor REST endpoints on
+        // non-standard ports still work — the load-bearing control is the IP
+        // denylist, not the port.
+        const response = await this.ssrfValidator.safeFetch(url, fetchOptions, {
+          timeoutMs: config.connectTimeout || 30000,
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
+        return response;
       },
       fallback: () => {
         throw new Error(
@@ -270,12 +266,14 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
 
   private async addAuthentication(
     headers: Record<string, string>,
-    config: HttpRestConfiguration
+    config: HttpRestConfiguration,
   ): Promise<void> {
     switch (config.authType) {
       case 'basic':
         if (config.username && config.password) {
-          const credentials = Buffer.from(`${config.username}:${config.password}`).toString('base64');
+          const credentials = Buffer.from(`${config.username}:${config.password}`).toString(
+            'base64',
+          );
           headers['Authorization'] = `Basic ${credentials}`;
         }
         break;
@@ -299,35 +297,6 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
         }
         break;
       }
-    }
-  }
-
-  /**
-   * SVD-CRIT-001 guard: enforce the http/https protocol allowlist, then run
-   * the shared SSRF host validation (DNS-pre-resolve + private/metadata IP
-   * denylist). Throws if the target is unsafe. Kept as one helper so both
-   * the data fetch and the OAuth2 token fetch share the exact same policy.
-   */
-  private async assertSafeHttpTarget(rawUrl: string): Promise<void> {
-    let parsed: URL;
-    try {
-      parsed = new URL(rawUrl);
-    } catch {
-      throw new Error('Blocked unsafe request target: invalid URL');
-    }
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      throw new Error(
-        `Blocked unsafe request target: protocol "${parsed.protocol}" not allowed (http/https only)`,
-      );
-    }
-    const port = parsed.port
-      ? parseInt(parsed.port, 10)
-      : parsed.protocol === 'https:'
-        ? 443
-        : 80;
-    const verdict = await this.ssrfValidator.validateHost(parsed.hostname, port);
-    if (!verdict.safe) {
-      throw new Error(`Blocked unsafe request target: ${verdict.reason}`);
     }
   }
 
@@ -366,22 +335,25 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
           failureMode: 'fail-closed',
         },
         fn: async () => {
-          // SVD-CRIT-001: oauth2TokenUrl is operator-supplied — same SSRF
-          // guard as the data fetch above.
-          await this.assertSafeHttpTarget(tokenUrl);
-          return fetch(tokenUrl, {
-            method: 'POST',
-            ...this.ssrfValidator.getSafeFetchOptions(),
-            headers: {
-              'Content-Type': 'application/x-www-form-urlencoded',
+          // SVD-CRIT-001 + SENSOR-CRITICAL-002 residual: oauth2TokenUrl is
+          // operator-supplied — same IP-pinned safeFetch as the data fetch
+          // above (this also adds the request timeout the token fetch lacked).
+          return this.ssrfValidator.safeFetch(
+            tokenUrl,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: new URLSearchParams({
+                grant_type: 'client_credentials',
+                client_id: clientId,
+                client_secret: clientSecret,
+                scope,
+              }).toString(),
             },
-            body: new URLSearchParams({
-              grant_type: 'client_credentials',
-              client_id: clientId,
-              client_secret: clientSecret,
-              scope,
-            }).toString(),
-          });
+            { timeoutMs: config.connectTimeout || 30000 },
+          );
         },
       });
 
@@ -389,7 +361,7 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
         throw new Error('Failed to obtain OAuth2 token');
       }
 
-      const data = await response.json() as OAuth2TokenResponse;
+      const data = (await response.json()) as OAuth2TokenResponse;
       const expiresAt = new Date(Date.now() + (data.expires_in ?? 3600) * 1000 - 60000);
 
       this.oauth2Tokens.set(cacheKey, {
@@ -404,22 +376,27 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
     }
   }
 
-   
-  private parseResponse(_response: Response, _config: HttpRestConfiguration): SensorReadingData {
-    const timestamp = new Date();
-    const values: Record<string, number | string | boolean | null> = {};
+  /**
+   * SENSOR-HIGH-082: parse the response body into channel values using the shared
+   * sensor-payload engine — the same extraction ChannelDiscoveryService uses, so a
+   * reading's keys line up with the channels discovered at registration. Honors the
+   * operator's `responseFormat`, `dataPath`, and `dataMapping` (previously all
+   * discarded). A parse failure throws so the read surfaces an honest error rather
+   * than an empty reading.
+   */
+  private async parseResponse(
+    response: Response,
+    config: HttpRestConfiguration,
+  ): Promise<SensorReadingData> {
+    const raw = await response.text();
+    const values = extractReadingValues(raw, config.responseFormat, {
+      dataPath: config.dataPath,
+      dataMapping: config.dataMapping,
+      shouldSkip: isMetadataFieldKey,
+    });
 
-    // Placeholder implementation: response-body parsing follows the
-    // path-derived dataMapping in `_config.dataPath` /
-    // `_config.dataMapping`, which currently no protocol consumer
-    // populates (the IoT protocol catalogue ships with vendor-
-    // specific adapters that override parseResponse). When a generic
-    // dataMapping consumer is introduced (tracked under the
-    // sensor-service-protocol ADR follow-on), this method walks
-    // `dataPath` JSONPointer-style and applies `dataMapping` to
-    // produce typed channel values.
     return {
-      timestamp,
+      timestamp: new Date(),
       values,
       quality: 100,
       source: 'http_rest',
@@ -448,7 +425,9 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
 
     // Auth validation
     if (cfg.authType === 'basic' && (!cfg.username || !cfg.password)) {
-      errors.push(this.validationError('username', 'Username and password required for Basic auth'));
+      errors.push(
+        this.validationError('username', 'Username and password required for Basic auth'),
+      );
     }
 
     if (cfg.authType === 'bearer' && !cfg.bearerToken) {
@@ -473,11 +452,28 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
 
     // Warnings
     if (cfg.baseUrl?.startsWith('http://')) {
-      warnings.push(this.validationWarning('baseUrl', 'Using HTTP instead of HTTPS. Consider using HTTPS for security.'));
+      warnings.push(
+        this.validationWarning(
+          'baseUrl',
+          'Using HTTP instead of HTTPS. Consider using HTTPS for security.',
+        ),
+      );
     }
 
     if (cfg.authType === 'none') {
       warnings.push(this.validationWarning('authType', 'No authentication configured'));
+    }
+
+    // Be honest about verifySsl rather than silently ignoring it: the SSRF-safe
+    // fetch always verifies TLS and pins the connection to the validated IP, so
+    // certificate verification cannot be turned off.
+    if (cfg.verifySsl === false) {
+      warnings.push(
+        this.validationWarning(
+          'verifySsl',
+          'TLS certificate verification is always enforced and cannot be disabled; this setting is ignored.',
+        ),
+      );
     }
 
     return {
@@ -644,8 +640,16 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
       },
       'ui:groups': [
         { name: 'connection', title: 'Connection', fields: ['baseUrl', 'endpoint', 'method'] },
-        { name: 'authentication', title: 'Authentication', fields: ['authType', 'username', 'password', 'bearerToken', 'apiKey', 'apiKeyHeader'] },
-        { name: 'oauth2', title: 'OAuth2', fields: ['oauth2TokenUrl', 'oauth2ClientId', 'oauth2ClientSecret', 'oauth2Scope'] },
+        {
+          name: 'authentication',
+          title: 'Authentication',
+          fields: ['authType', 'username', 'password', 'bearerToken', 'apiKey', 'apiKeyHeader'],
+        },
+        {
+          name: 'oauth2',
+          title: 'OAuth2',
+          fields: ['oauth2TokenUrl', 'oauth2ClientId', 'oauth2ClientSecret', 'oauth2Scope'],
+        },
         { name: 'polling', title: 'Polling', fields: ['pollingEnabled', 'pollingInterval'] },
         { name: 'security', title: 'Security', fields: ['verifySsl'] },
         { name: 'data', title: 'Data Parsing', fields: ['responseFormat', 'dataPath'] },

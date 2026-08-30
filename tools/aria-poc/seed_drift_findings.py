@@ -12,8 +12,17 @@ promoted frontend dropdown drift — the seed pool is whatever is REAL at
 HEAD, never a fixed batch size.
 
 Output contract (consumed by aria_kernel.cycle_guard._open_finding_count):
-  aria-findings/F-<NNN>.json  — one finding per drift, status OPEN
-  aria-findings/_index.json   — {"findings": [...]} with per-row status
+  <repo-state-root>/aria-findings/F-<NNN>.json  — one per drift, status OPEN
+  <repo-state-root>/aria-findings/_index.json   — {"findings": [...]}
+
+The repo-state root is resolved by ``aria_kernel.workspace.repo_state_root``,
+IMPORTED rather than reimplemented (PLAN Wave 1 PR 2.6b). It used to be the
+repository root, unconditionally. After the lane cutover the kernel reads
+findings from the durable ``aria/state`` store, so a seeder with its own idea
+of where findings live would have written a full pool every night into a
+directory nothing reads — the producer still green, the consumer still empty.
+One resolver, two callers.
+
 
 Determinism: ids are assigned from a stable sort (cross_service desc,
 gate-free first, similarity desc, concept asc); content carries the scan
@@ -147,14 +156,107 @@ def write_findings(out_dir: Path, findings: list[dict[str, Any]]) -> None:
     index.write_text(json.dumps(render_index(findings), indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def findings_out_dir(repo_root: Path, out_dir: str | None) -> Path:
+    """Where the seeds go, resolved through the kernel's own seam.
+
+    ``repo_state_root`` is the ONE definition of where the ``repo``-root
+    surfaces live; it answers the repository root until a lane binds
+    ``ARIA_REPO_STATE_ROOT`` at the durable store, and the store after.
+    Imported here rather than re-deriving it from the environment, because
+    two readers of one convention is how the seeder and the consumer end up
+    pointing at different directories while both report success.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "aria-kernel"))
+    from aria_kernel.workspace import repo_state_root
+
+    base = repo_state_root(repo_root)
+    return base / (out_dir or "aria-findings")
+
+
+def mint_candidates(
+    repo_root: Path, candidates: list[dict[str, Any]],
+    *, base_dir: Path | None = None,
+) -> tuple[list[dict[str, Any]], list[str], list[dict[str, str]]]:
+    """ORPHAN-702 — every drift goes through the ONE mint path.
+
+    Chain-id dedupe keeps one durable record per drift across nights;
+    claim_type=spine_drift by definition; severity from blast radius;
+    a drift the kernel refuses is DISCLOSED as unmintable, never
+    hand-written around the gate.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "aria-kernel"))
+    from aria_kernel.finding import (
+        _evidence_chain_id,
+        emit_finding,
+        find_by_evidence_chain_id,
+    )
+    from aria_kernel.tool_registry import GovernanceError
+
+    minted: list[dict[str, Any]] = []
+    already: list[str] = []
+    unmintable: list[dict[str, str]] = []
+    for drift in candidates:
+        sides = [
+            _evidence_ref(drift.get(key)) for key in ("ts", "sql", "ui", "source")
+        ]
+        evidences = [
+            {"ref": side["reference"], "summary": f"{side.get('declared_name') or 'side'} values: {str(side.get('declared_values'))[:80]}"}
+            for side in sides if side is not None
+        ]
+        concept = str(drift.get("concept") or "unknown")
+        if len(evidences) < 2:
+            unmintable.append({"concept": concept, "reason": "fewer_than_two_evidence_sides"})
+            continue
+        chain_id = _evidence_chain_id([
+            {"ref": e["ref"], "summary": e.get("summary", "")} for e in evidences
+        ])
+        if find_by_evidence_chain_id(repo_root, chain_id) is not None:
+            already.append(concept)
+            continue
+        summary = (
+            f"{drift['drift_class']}: '{concept}' value sets diverge across "
+            f"{len(evidences)} surfaces (cross_service={bool(drift.get('cross_service'))})"
+        )
+        facts = [
+            f"missing in ts/ui: {sorted(drift.get('missing_in_ts') or drift.get('missing_in_ui') or [])[:8]}",
+            f"missing in sql: {sorted(drift.get('missing_in_sql') or [])[:8]}",
+        ]
+        try:
+            record = emit_finding(
+                repo_root=repo_root,
+                base_dir=base_dir,
+                claim_type="spine_drift",
+                claim_summary=summary,
+                severity="HIGH" if drift.get("cross_service") else "MEDIUM",
+                evidences=evidences,
+                facts=facts,
+                scope_files=sorted({e["ref"].split(":")[0] for e in evidences}),
+                originating_skill="seed:drift-scan",
+            )
+        except GovernanceError as exc:
+            unmintable.append({"concept": concept, "reason": str(exc)[:160]})
+            continue
+        minted.append(record)
+    return minted, already, unmintable
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo-root", default=".", help="Repository root (default: cwd)")
-    parser.add_argument("--out-dir", default="aria-findings", help="Findings dir relative to repo root")
+    parser.add_argument(
+        "--out-dir",
+        default=None,
+        help=(
+            "Findings dir. Relative paths resolve against the repo-state root "
+            "(the aria/state store when bound, else the repository root). "
+            "Defaults to aria-findings under that root."
+        ),
+    )
     parser.add_argument("--limit", type=int, default=20, help="Max findings to seed")
     args = parser.parse_args(argv)
 
     repo_root = Path(args.repo_root).resolve()
+    out_dir = findings_out_dir(repo_root, args.out_dir)
     head_sha = subprocess.run(
         ["git", "rev-parse", "HEAD"], check=True, cwd=repo_root,
         capture_output=True, text=True,
@@ -165,18 +267,25 @@ def main(argv: list[str] | None = None) -> int:
     total_sql = len(drifts_doc.get("drifts_above_threshold") or [])
     total_ui = len(drifts_doc.get("frontend_dropdown_drifts") or [])
     candidates = select_candidates(drifts_doc, limit=args.limit)
-    findings = [
-        render_finding(drift, finding_id=f"F-{FINDING_ID_BASE + idx}", head_sha=head_sha)
-        for idx, drift in enumerate(candidates)
-    ]
-    write_findings(repo_root / args.out_dir, findings)
+
+    # ORPHAN-702 — the seeder graduates to the ONE mint path. It used to
+    # write its own F-NNN.json files OVER the same ids every night: no
+    # events, no lifecycle, invisible to replay — the second finding
+    # format İ1 forbids. Now every drift goes through emit_finding:
+    # chain-id dedupe keeps one durable record per drift across nights,
+    # claim_type=spine_drift (a DB/TS/UI backbone divergence is that type
+    # by definition), severity from blast radius, and the kernel's own
+    # index refresh keeps cycle_guard's OPEN count working unchanged.
+    minted, already, unmintable = mint_candidates(repo_root, candidates)
 
     print(f"[seed] scan: {total_sql} sql-drifts + {total_ui} ui-drifts above threshold")
-    print(f"[seed] seeded {len(findings)} OPEN findings into {args.out_dir}/ (limit {args.limit})")
-    for finding in findings:
-        print(f"[seed]   {finding['id']}: {finding['title']}")
-    if not findings:
-        print("[seed] pool is empty at HEAD — honest zero; index written with no OPEN rows")
+    print(f"[seed] minted {len(minted)} findings via emit_finding; {len(already)} already recorded; {len(unmintable)} unmintable (limit {args.limit})")
+    for record in minted:
+        print(f"[seed]   {record['finding_id']}: {record['claim_summary'][:100]}")
+    for row in unmintable:
+        print(f"[seed]   UNMINTABLE {row['concept']}: {row['reason']}")
+    if not minted and not already:
+        print("[seed] pool is empty at HEAD — honest zero")
     return 0
 
 

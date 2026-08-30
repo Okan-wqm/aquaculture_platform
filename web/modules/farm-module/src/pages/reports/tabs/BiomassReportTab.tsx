@@ -18,7 +18,7 @@ import {
 import { BiomassSpeciesBreakdown } from '../types/reports.types';
 import { ReportWizard, ReportWizardStep } from '../components/wizard/ReportWizard';
 import { useReportPrefill, findFieldMeta, ReportPrefill } from '../../../hooks/useReportPrefill';
-import { ProvenanceBadge } from '../components/common/ProvenanceBadge';
+import { ProvenanceBadge } from '../components/common';
 import { BiomassAltinnPanel } from '../components/BiomassAltinnPanel';
 import { CREATE_BIOMASS_REPORT_MUTATION } from '../../../graphql/regulatory.operations';
 
@@ -420,7 +420,14 @@ interface BiomassStepProps {
   prefill?: ReportPrefill<BiomassReportPayload>;
 }
 
-const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, prefill }) => {
+export const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, prefill }) => {
+  // Standing stock assembled from batch/tank records (BiomassCalculatorService)
+  // is the SSoT — the per-species rows render read-only (corrections go to the
+  // batch/tank records, not the report). hydrateFormFromPayload already seeded
+  // the rows on wizard open.
+  const biomassMeta = prefill ? findFieldMeta(prefill.fields, '/currentBiomass') : undefined;
+  const biomassFromRecords = biomassMeta?.provenance === 'RECORDS';
+
   const handleLoadFromSystem = () => {
     if (!prefill) return;
     const { currentBiomass } = prefill.draftPayload;
@@ -492,7 +499,7 @@ const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, prefill }
           <p className="text-xs text-gray-500">End of month standing stock</p>
         </div>
         <div className="flex items-center gap-2">
-          {prefill && (
+          {prefill && !biomassFromRecords && (
             <button
               type="button"
               onClick={handleLoadFromSystem}
@@ -509,13 +516,15 @@ const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, prefill }
               Load from System
             </button>
           )}
-          <button
-            type="button"
-            onClick={addSpecies}
-            className="px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
-          >
-            + Add Species
-          </button>
+          {!biomassFromRecords && (
+            <button
+              type="button"
+              onClick={addSpecies}
+              className="px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
+            >
+              + Add Species
+            </button>
+          )}
         </div>
       </div>
 
@@ -531,7 +540,10 @@ const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, prefill }
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
           <span className="text-sm text-green-700">
-            Assembled from batch and tank records. You can adjust values manually.
+            Assembled from batch and tank records.
+            {biomassFromRecords
+              ? ' Corrections go to the batch/tank records, not the report.'
+              : ' You can adjust values manually.'}
           </span>
         </div>
       )}
@@ -577,20 +589,22 @@ const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, prefill }
             >
               <div className="flex items-start justify-between mb-3">
                 <span className="text-sm font-medium text-gray-700">Species #{index + 1}</span>
-                <button
-                  type="button"
-                  onClick={() => removeSpecies(index)}
-                  className="text-red-500 hover:text-red-700"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
-                </button>
+                {!biomassFromRecords && (
+                  <button
+                    type="button"
+                    onClick={() => removeSpecies(index)}
+                    className="text-red-500 hover:text-red-700"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M6 18L18 6M6 6l12 12"
+                      />
+                    </svg>
+                  </button>
+                )}
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div className="col-span-2 md:col-span-1">
@@ -599,7 +613,12 @@ const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, prefill }
                     type="text"
                     value={species.speciesName}
                     onChange={(e) => updateSpecies(index, { speciesName: e.target.value })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    disabled={biomassFromRecords}
+                    className={`w-full px-2 py-1.5 text-sm border rounded-md ${
+                      biomassFromRecords
+                        ? 'border-gray-200 bg-gray-100 text-gray-700'
+                        : 'border-gray-300'
+                    }`}
                     placeholder="e.g., Atlantic Salmon"
                   />
                 </div>
@@ -612,7 +631,12 @@ const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, prefill }
                     onChange={(e) =>
                       updateSpecies(index, { fishCount: parseInt(e.target.value) || 0 })
                     }
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    disabled={biomassFromRecords}
+                    className={`w-full px-2 py-1.5 text-sm border rounded-md ${
+                      biomassFromRecords
+                        ? 'border-gray-200 bg-gray-100 text-gray-700'
+                        : 'border-gray-300'
+                    }`}
                     placeholder="0"
                   />
                 </div>
@@ -625,7 +649,12 @@ const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, prefill }
                     onChange={(e) =>
                       updateSpecies(index, { biomassKg: parseFloat(e.target.value) || 0 })
                     }
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    disabled={biomassFromRecords}
+                    className={`w-full px-2 py-1.5 text-sm border rounded-md ${
+                      biomassFromRecords
+                        ? 'border-gray-200 bg-gray-100 text-gray-700'
+                        : 'border-gray-300'
+                    }`}
                     placeholder="0"
                   />
                 </div>
@@ -652,9 +681,16 @@ const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, prefill }
 interface StockingStepProps {
   formData: BiomassFormData;
   onChange: (data: Partial<BiomassFormData>) => void;
+  prefill?: ReportPrefill<BiomassReportPayload>;
 }
 
-const StockingStep: React.FC<StockingStepProps> = ({ formData, onChange }) => {
+export const StockingStep: React.FC<StockingStepProps> = ({ formData, onChange, prefill }) => {
+  // Stockings assembled from batches_v2 (stockedAt / initialQuantity) are the
+  // SSoT — the rows render read-only (corrections go to the batch records, not
+  // the report). hydrateFormFromPayload already seeded them on wizard open.
+  const stockingsMeta = prefill ? findFieldMeta(prefill.fields, '/stockings') : undefined;
+  const stockingsFromRecords = stockingsMeta?.provenance === 'RECORDS';
+
   const addStockingRecord = () => {
     const newRecord: StockingFormRecord = {
       id: `stk-${Date.now()}`,
@@ -681,18 +717,23 @@ const StockingStep: React.FC<StockingStepProps> = ({ formData, onChange }) => {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h4 className="text-sm font-medium text-gray-700">Stocking Records</h4>
+          <h4 className="text-sm font-medium text-gray-700 flex items-center gap-2">
+            <span>Stocking Records</span>
+            <SectionProvenance prefill={prefill} path="/stockings" />
+          </h4>
           <p className="text-xs text-gray-500">
             Fish arrivals during the reporting period (required by Fiskeridirektoratet)
           </p>
         </div>
-        <button
-          type="button"
-          onClick={addStockingRecord}
-          className="px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
-        >
-          + Add Stocking Record
-        </button>
+        {!stockingsFromRecords && (
+          <button
+            type="button"
+            onClick={addStockingRecord}
+            className="px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
+          >
+            + Add Stocking Record
+          </button>
+        )}
       </div>
 
       {/* Summary */}
@@ -726,25 +767,30 @@ const StockingStep: React.FC<StockingStepProps> = ({ formData, onChange }) => {
           </p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <fieldset
+          disabled={stockingsFromRecords}
+          className={`space-y-3 border-0 p-0 m-0 ${stockingsFromRecords ? 'opacity-75' : ''}`}
+        >
           {formData.stockings.map((record, index) => (
             <div key={record.id} className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
               <div className="flex items-start justify-between mb-3">
                 <span className="text-sm font-medium text-gray-700">Stocking #{index + 1}</span>
-                <button
-                  type="button"
-                  onClick={() => removeStockingRecord(index)}
-                  className="text-red-500 hover:text-red-700"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
-                </button>
+                {!stockingsFromRecords && (
+                  <button
+                    type="button"
+                    onClick={() => removeStockingRecord(index)}
+                    className="text-red-500 hover:text-red-700"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M6 18L18 6M6 6l12 12"
+                      />
+                    </svg>
+                  </button>
+                )}
               </div>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 <div>
@@ -816,7 +862,7 @@ const StockingStep: React.FC<StockingStepProps> = ({ formData, onChange }) => {
               </div>
             </div>
           ))}
-        </div>
+        </fieldset>
       )}
     </div>
   );
@@ -830,7 +876,14 @@ interface MortalityStepProps {
   prefill?: ReportPrefill<BiomassReportPayload>;
 }
 
-const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange, prefill }) => {
+export const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange, prefill }) => {
+  // When mortality is aggregated from mortality_records it is the SSoT and the
+  // per-cause grid renders read-only — corrections flow to the source records,
+  // never the report. hydrateFormFromPayload already seeded the counts on wizard
+  // open, so there is nothing to type.
+  const mortalityMeta = prefill ? findFieldMeta(prefill.fields, '/mortality') : undefined;
+  const mortalityFromRecords = mortalityMeta?.provenance === 'RECORDS';
+
   const handleLoadMortalityFromSystem = () => {
     if (!prefill) return;
     // Real per-cause aggregation from mortality_records — no more lumping
@@ -893,7 +946,7 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange, prefi
           </h4>
           <p className="text-xs text-gray-500">Record fish losses during the reporting period</p>
         </div>
-        {prefill && (
+        {prefill && !mortalityFromRecords && (
           <button
             type="button"
             onClick={handleLoadMortalityFromSystem}
@@ -922,6 +975,13 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange, prefi
         </div>
       </div>
 
+      {mortalityFromRecords && (
+        <p className="text-xs text-gray-500">
+          Aggregated per cause from mortality records; corrections go to the source records, not the
+          report.
+        </p>
+      )}
+
       {/* Cause Grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {MORTALITY_CAUSES.map((cause) => (
@@ -932,7 +992,12 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange, prefi
               min="0"
               value={getCauseCount(cause) || ''}
               onChange={(e) => updateByCause(cause, parseInt(e.target.value) || 0)}
-              className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+              disabled={mortalityFromRecords}
+              className={`w-full px-2 py-1.5 text-sm border rounded-md ${
+                mortalityFromRecords
+                  ? 'border-gray-200 bg-gray-100 text-gray-700'
+                  : 'border-gray-300'
+              }`}
               placeholder="0"
             />
           </div>
@@ -950,7 +1015,13 @@ interface FeedStepProps {
   prefill?: ReportPrefill<BiomassReportPayload>;
 }
 
-const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill }) => {
+export const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill }) => {
+  // Feed consumption summed from feeding_records is the SSoT — the per-feed-type
+  // rows render read-only (corrections go to the feeding records, not the
+  // report). hydrateFormFromPayload already seeded the rows on wizard open.
+  const feedMeta = prefill ? findFieldMeta(prefill.fields, '/feedConsumption') : undefined;
+  const feedFromRecords = feedMeta?.provenance === 'RECORDS';
+
   const handleLoadFeedFromSystem = () => {
     if (!prefill) return;
     // Real period sums from feeding_records — the old "daily rate × 30"
@@ -1017,7 +1088,7 @@ const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill }) => {
           <p className="text-xs text-gray-500">Total feed used during the reporting period</p>
         </div>
         <div className="flex items-center gap-2">
-          {prefill && (
+          {prefill && !feedFromRecords && (
             <button
               type="button"
               onClick={handleLoadFeedFromSystem}
@@ -1034,13 +1105,15 @@ const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill }) => {
               Load from System
             </button>
           )}
-          <button
-            type="button"
-            onClick={addFeedType}
-            className="px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
-          >
-            + Add Feed Type
-          </button>
+          {!feedFromRecords && (
+            <button
+              type="button"
+              onClick={addFeedType}
+              className="px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
+            >
+              + Add Feed Type
+            </button>
+          )}
         </div>
       </div>
 
@@ -1056,7 +1129,10 @@ const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill }) => {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
           <span className="text-sm text-green-700">
-            Summed from feeding records for the reporting period. Adjust as needed.
+            Summed from feeding records for the reporting period.
+            {feedFromRecords
+              ? ' Corrections go to the feeding records, not the report.'
+              : ' Adjust as needed.'}
           </span>
         </div>
       )}
@@ -1099,20 +1175,22 @@ const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill }) => {
             <div key={index} className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
               <div className="flex items-start justify-between mb-2">
                 <span className="text-sm font-medium text-gray-700">Feed #{index + 1}</span>
-                <button
-                  type="button"
-                  onClick={() => removeFeedType(index)}
-                  className="text-red-500 hover:text-red-700"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
-                </button>
+                {!feedFromRecords && (
+                  <button
+                    type="button"
+                    onClick={() => removeFeedType(index)}
+                    className="text-red-500 hover:text-red-700"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M6 18L18 6M6 6l12 12"
+                      />
+                    </svg>
+                  </button>
+                )}
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <div>
@@ -1121,7 +1199,12 @@ const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill }) => {
                     type="text"
                     value={feed.feedName}
                     onChange={(e) => updateFeedType(index, { feedName: e.target.value })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    disabled={feedFromRecords}
+                    className={`w-full px-2 py-1.5 text-sm border rounded-md ${
+                      feedFromRecords
+                        ? 'border-gray-200 bg-gray-100 text-gray-700'
+                        : 'border-gray-300'
+                    }`}
                     placeholder="e.g., Grower 2mm"
                   />
                 </div>
@@ -1131,7 +1214,12 @@ const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill }) => {
                     type="text"
                     value={feed.brandName}
                     onChange={(e) => updateFeedType(index, { brandName: e.target.value })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    disabled={feedFromRecords}
+                    className={`w-full px-2 py-1.5 text-sm border rounded-md ${
+                      feedFromRecords
+                        ? 'border-gray-200 bg-gray-100 text-gray-700'
+                        : 'border-gray-300'
+                    }`}
                     placeholder="e.g., Skretting"
                   />
                 </div>
@@ -1144,7 +1232,12 @@ const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill }) => {
                     onChange={(e) =>
                       updateFeedType(index, { quantityKg: parseFloat(e.target.value) || 0 })
                     }
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    disabled={feedFromRecords}
+                    className={`w-full px-2 py-1.5 text-sm border rounded-md ${
+                      feedFromRecords
+                        ? 'border-gray-200 bg-gray-100 text-gray-700'
+                        : 'border-gray-300'
+                    }`}
                     placeholder="0"
                   />
                 </div>
@@ -1162,9 +1255,16 @@ const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill }) => {
 interface TransfersStepProps {
   formData: BiomassFormData;
   onChange: (data: Partial<BiomassFormData>) => void;
+  prefill?: ReportPrefill<BiomassReportPayload>;
 }
 
-const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange }) => {
+export const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange, prefill }) => {
+  // Transfers assembled from tank_operations (TRANSFER_IN/OUT) are the SSoT — the
+  // rows render read-only (corrections go to the transfer records, not the
+  // report). hydrateFormFromPayload already seeded them on wizard open.
+  const transfersMeta = prefill ? findFieldMeta(prefill.fields, '/transfers') : undefined;
+  const transfersFromRecords = transfersMeta?.provenance === 'RECORDS';
+
   const addTransfer = () => {
     const newTransfer: TransferFormRecord = {
       id: `tr-${Date.now()}`,
@@ -1196,18 +1296,23 @@ const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange }) => 
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h4 className="text-sm font-medium text-gray-700">Transfers</h4>
+          <h4 className="text-sm font-medium text-gray-700 flex items-center gap-2">
+            <span>Transfers</span>
+            <SectionProvenance prefill={prefill} path="/transfers" />
+          </h4>
           <p className="text-xs text-gray-500">
             Record fish transfers in and out during the reporting period
           </p>
         </div>
-        <button
-          type="button"
-          onClick={addTransfer}
-          className="px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
-        >
-          + Add Transfer
-        </button>
+        {!transfersFromRecords && (
+          <button
+            type="button"
+            onClick={addTransfer}
+            className="px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
+          >
+            + Add Transfer
+          </button>
+        )}
       </div>
 
       {/* Summary */}
@@ -1247,7 +1352,10 @@ const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange }) => 
           </p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <fieldset
+          disabled={transfersFromRecords}
+          className={`space-y-3 border-0 p-0 m-0 ${transfersFromRecords ? 'opacity-75' : ''}`}
+        >
           {formData.transfers.map((transfer, index) => (
             <div key={transfer.id} className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
               <div className="flex items-start justify-between mb-3">
@@ -1263,20 +1371,22 @@ const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange }) => 
                     {transfer.direction === 'incoming' ? 'IN' : 'OUT'}
                   </span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => removeTransfer(index)}
-                  className="text-red-500 hover:text-red-700"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
-                </button>
+                {!transfersFromRecords && (
+                  <button
+                    type="button"
+                    onClick={() => removeTransfer(index)}
+                    className="text-red-500 hover:text-red-700"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M6 18L18 6M6 6l12 12"
+                      />
+                    </svg>
+                  </button>
+                )}
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div>
@@ -1374,7 +1484,7 @@ const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange }) => 
               </div>
             </div>
           ))}
-        </div>
+        </fieldset>
       )}
     </div>
   );
@@ -1867,7 +1977,7 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
         id: 'stockings',
         title: 'Stockings',
         description: 'Fish arrivals',
-        content: <StockingStep formData={formData} onChange={handleFormChange} />,
+        content: <StockingStep formData={formData} onChange={handleFormChange} prefill={prefill} />,
       },
       {
         id: 'mortality',
@@ -1888,7 +1998,9 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
         id: 'transfers',
         title: 'Transfers',
         description: 'Fish movements in/out',
-        content: <TransfersStep formData={formData} onChange={handleFormChange} />,
+        content: (
+          <TransfersStep formData={formData} onChange={handleFormChange} prefill={prefill} />
+        ),
       },
       {
         id: 'review',

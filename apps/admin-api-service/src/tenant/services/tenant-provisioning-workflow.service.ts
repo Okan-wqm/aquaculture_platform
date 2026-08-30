@@ -1,9 +1,6 @@
 import * as crypto from 'crypto';
 
-import {
-  getTenantSchemaName,
-  queryRowsNormalized,
-} from '@aquaculture/backend-common/database';
+import { getTenantSchemaName, queryRowsNormalized } from '@aquaculture/backend-common/database';
 import {
   BadRequestException,
   ConflictException,
@@ -28,7 +25,10 @@ import {
   PlanTier as ModulePlanTier,
 } from '../../billing/entities/plan-definition.entity';
 import { BillingAdminCommandClientService } from '../../billing/services/billing-admin-command-client.service';
-import { ModuleAssignmentService } from '../../modules/tenant-management/services/module-assignment.service';
+import {
+  ModuleAssignmentService,
+  type ModuleQuantities,
+} from '../../modules/tenant-management/services/module-assignment.service';
 import {
   CreateTenantAcceptedResponse,
   CreateTenantDto,
@@ -38,6 +38,7 @@ import {
 import { Tenant, TenantPlan, TenantSettings, TenantStatus } from '../entities/tenant.entity';
 
 import { AuthTenantProvisioningClientService } from './auth-tenant-provisioning-client.service';
+import { TenantProvisioningMetricsService } from './tenant-provisioning-metrics.service';
 import { TenantProvisioningService } from './tenant-provisioning.service';
 
 interface TenantProvisioningRunRow {
@@ -103,6 +104,11 @@ class DbMigrateProvisioningPendingError extends Error {
   }
 }
 
+const PROVISIONING_STEP_SELECT_SQL = `SELECT "stepName", state, "stepOrder", attempts, "lastError", "startedAt", "completedAt"
+     FROM admin.tenant_provisioning_steps
+    WHERE "runId" = $1
+    ORDER BY "stepOrder" ASC, "createdAt" ASC`;
+
 const PROVISIONING_STEPS = [
   'reserve_auth_tenant',
   'audit_create_requested',
@@ -132,6 +138,7 @@ export class TenantProvisioningWorkflowService {
     private readonly moduleAssignmentService: ModuleAssignmentService,
     private readonly authProvisioningClient: AuthTenantProvisioningClientService,
     private readonly billingCommandClient: BillingAdminCommandClientService,
+    private readonly metrics: TenantProvisioningMetricsService,
   ) {}
 
   async createTenantOperation(
@@ -175,8 +182,14 @@ export class TenantProvisioningWorkflowService {
         const responseTenant = existingTenant
           ? this.hydrateCreatedTenant(existingTenant, existingPayload)
           : this.createTenantDraft(existingRun.tenantId, existingPayload, existingRun.actorUserId);
+        // A replayed POST is a progress query in disguise: return the same step
+        // detail a poll would, so the caller sees where the run actually is.
+        const existingSteps = await this.getRunStepsInTransaction(
+          queryRunner.manager,
+          existingRun.id,
+        );
         await queryRunner.commitTransaction();
-        return this.toAcceptedResponse(existingRun, responseTenant);
+        return this.toAcceptedResponse(existingRun, responseTenant, existingSteps);
       }
 
       await this.assertNoDuplicateTenant(queryRunner.manager, payload);
@@ -217,9 +230,14 @@ export class TenantProvisioningWorkflowService {
       }
 
       await this.seedProvisioningSteps(queryRunner.manager, run.id);
+      const seededSteps = await this.getRunStepsInTransaction(queryRunner.manager, run.id);
 
       await queryRunner.commitTransaction();
-      return this.toAcceptedResponse(run, this.hydrateCreatedTenant(tenantDraft, payload));
+      return this.toAcceptedResponse(
+        run,
+        this.hydrateCreatedTenant(tenantDraft, payload),
+        seededSteps,
+      );
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error;
@@ -357,9 +375,7 @@ export class TenantProvisioningWorkflowService {
 
       const tenant = await this.findTenantById(run.tenantId);
       if (!tenant) {
-        throw new NotFoundException(
-          `Tenant '${run.tenantId}' not found after auth reservation`,
-        );
+        throw new NotFoundException(`Tenant '${run.tenantId}' not found after auth reservation`);
       }
 
       // W3.3-c: PENDING → PROVISIONING before any provisioning work, so the
@@ -390,16 +406,19 @@ export class TenantProvisioningWorkflowService {
 
       await this.runStep(run.id, leaseToken, 'publish_provisioning_requested', async () => {
         await this.requestDbMigrateTenantSchemaProvisioning(run, tenant, payload);
-        await this.enqueueEvent({
-          ...createBaseEvent('TenantProvisioningRequested', tenant.id, {
-            aggregateId: tenant.id,
-            aggregateType: 'Tenant',
-          }),
-          slug: tenant.slug,
-          name: tenant.name,
-          operationId: run.id,
-          moduleIds: payload.moduleIds,
-        }, 'tenant-provisioning-requested:' + run.id);
+        await this.enqueueEvent(
+          {
+            ...createBaseEvent('TenantProvisioningRequested', tenant.id, {
+              aggregateId: tenant.id,
+              aggregateType: 'Tenant',
+            }),
+            slug: tenant.slug,
+            name: tenant.name,
+            operationId: run.id,
+            moduleIds: payload.moduleIds,
+          },
+          'tenant-provisioning-requested:' + run.id,
+        );
       });
 
       await this.runStep(run.id, leaseToken, 'wait_for_db_migrate_provisioner', async () => {
@@ -449,16 +468,19 @@ export class TenantProvisioningWorkflowService {
       });
 
       await this.runStep(run.id, leaseToken, 'publish_onboarding_requested', async () => {
-        await this.enqueueEvent({
-          ...createBaseEvent('TenantOnboardingRequested', tenant.id, {
-            aggregateId: tenant.id,
-            aggregateType: 'Tenant',
-          }),
-          operationId: run.id,
-          slug: tenant.slug,
-          name: tenant.name,
-          moduleIds: payload.moduleIds,
-        }, 'tenant-onboarding-requested:' + run.id);
+        await this.enqueueEvent(
+          {
+            ...createBaseEvent('TenantOnboardingRequested', tenant.id, {
+              aggregateId: tenant.id,
+              aggregateType: 'Tenant',
+            }),
+            operationId: run.id,
+            slug: tenant.slug,
+            name: tenant.name,
+            moduleIds: payload.moduleIds,
+          },
+          'tenant-onboarding-requested:' + run.id,
+        );
       });
 
       await this.runStep(run.id, leaseToken, 'wait_for_onboarding_ack', async () => {
@@ -466,24 +488,30 @@ export class TenantProvisioningWorkflowService {
       });
 
       await this.runStep(run.id, leaseToken, 'publish_tenant_provisioned', async () => {
-        await this.enqueueEvent({
-          ...createBaseEvent('TenantProvisioned', tenant.id, {
-            aggregateId: tenant.id,
-            aggregateType: 'Tenant',
-          }),
-          operationId: run.id,
-          slug: tenant.slug,
-          name: tenant.name,
-        }, 'tenant-provisioned:' + run.id);
+        await this.enqueueEvent(
+          {
+            ...createBaseEvent('TenantProvisioned', tenant.id, {
+              aggregateId: tenant.id,
+              aggregateType: 'Tenant',
+            }),
+            operationId: run.id,
+            slug: tenant.slug,
+            name: tenant.name,
+          },
+          'tenant-provisioned:' + run.id,
+        );
 
-        await this.enqueueEvent({
-          ...createBaseEvent('TenantCreated', tenant.id, {
-            aggregateId: tenant.id,
-            aggregateType: 'Tenant',
-          }),
-          slug: tenant.slug,
-          name: tenant.name,
-        }, 'tenant-created-final:' + run.id);
+        await this.enqueueEvent(
+          {
+            ...createBaseEvent('TenantCreated', tenant.id, {
+              aggregateId: tenant.id,
+              aggregateType: 'Tenant',
+            }),
+            slug: tenant.slug,
+            name: tenant.name,
+          },
+          'tenant-created-final:' + run.id,
+        );
       });
 
       await this.markRunSucceeded(run.id, leaseToken);
@@ -511,6 +539,7 @@ export class TenantProvisioningWorkflowService {
 
     try {
       await this.requeueStaleRuns();
+      await this.refreshActiveRunGauges();
       const rows = await this.queryRows<IdRow>(
         `SELECT id
            FROM admin.tenant_provisioning_runs
@@ -531,6 +560,32 @@ export class TenantProvisioningWorkflowService {
       );
     } finally {
       this.processingQueue = false;
+    }
+  }
+
+  /**
+   * Publish how many runs have not reached a terminal state and how old the
+   * oldest one is.
+   *
+   * Production holds two runs in RUNNING with `attempts=3` and no lease right
+   * now; before this, nothing counted them, so "provisioning is wedged" and
+   * "nobody has created a tenant lately" produced identical telemetry.
+   */
+  private async refreshActiveRunGauges(): Promise<void> {
+    try {
+      const rows = await this.queryRows<{ active: string; oldestAgeSeconds: string | null }>(
+        `SELECT count(*)::text AS active,
+                COALESCE(EXTRACT(EPOCH FROM (now() - min("createdAt"))), 0)::text AS "oldestAgeSeconds"
+           FROM admin.tenant_provisioning_runs
+          WHERE state IN ($1, $2)`,
+        [TenantProvisioningState.QUEUED, TenantProvisioningState.RUNNING],
+      );
+      const row = rows[0];
+      this.metrics.recordActiveRuns(Number(row?.active ?? 0), Number(row?.oldestAgeSeconds ?? 0));
+    } catch (error) {
+      // A failed gauge refresh must not stop the queue from being drained:
+      // the sweeper's job is to provision, and this is its narration.
+      this.logger.warn(`Provisioning gauge refresh failed: ${(error as Error).message}`);
     }
   }
 
@@ -579,7 +634,9 @@ export class TenantProvisioningWorkflowService {
     const trimmed = idempotencyKey?.trim();
     if (trimmed && trimmed.length >= 16 && trimmed.length <= 128) return trimmed;
 
-    throw new BadRequestException('Idempotency-Key is required for tenant creation and must be 16-128 characters');
+    throw new BadRequestException(
+      'Idempotency-Key is required for tenant creation and must be 16-128 characters',
+    );
   }
 
   private hashPayload(payload: CreateTenantDto): string {
@@ -589,7 +646,11 @@ export class TenantProvisioningWorkflowService {
   private async assertTenantOnboardingAcks(operationId: string): Promise<void> {
     const requiredServices = this.requiredOnboardingServices();
 
-    const rows = await this.queryRows<{ service: string; status: 'ACK' | 'FAILED'; error: string | null }>(
+    const rows = await this.queryRows<{
+      service: string;
+      status: 'ACK' | 'FAILED';
+      error: string | null;
+    }>(
       `SELECT service, status, error
          FROM admin.tenant_onboarding_acks
         WHERE "operationId" = $1`,
@@ -649,7 +710,10 @@ export class TenantProvisioningWorkflowService {
     }
 
     if (this.isRecord(value)) {
-      return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${this.stableStringify(value[key])}`).join(',')}}`;
+      return `{${Object.keys(value)
+        .sort()
+        .map((key) => `${JSON.stringify(key)}:${this.stableStringify(value[key])}`)
+        .join(',')}}`;
     }
 
     return JSON.stringify(value);
@@ -865,19 +929,21 @@ export class TenantProvisioningWorkflowService {
   }
 
   private tenantFromSnapshot(
-    snapshot: {
-      id?: string;
-      name?: string;
-      slug?: string;
-      status?: string;
-      plan?: string;
-      customDomain?: string | null;
-      contactEmail?: string | null;
-      contactPhone?: string | null;
-      settings?: TenantSettings | null;
-      createdAt?: string;
-      updatedAt?: string;
-    } | undefined,
+    snapshot:
+      | {
+          id?: string;
+          name?: string;
+          slug?: string;
+          status?: string;
+          plan?: string;
+          customDomain?: string | null;
+          contactEmail?: string | null;
+          contactPhone?: string | null;
+          settings?: TenantSettings | null;
+          createdAt?: string;
+          updatedAt?: string;
+        }
+      | undefined,
     fallback: Tenant,
   ): Tenant {
     if (!snapshot) return fallback;
@@ -953,7 +1019,162 @@ export class TenantProvisioningWorkflowService {
       throw new BadRequestException('At least one module must be selected for tenant provisioning');
     }
 
-    const modules = moduleIds.map((moduleId) => {
+    const result = await this.moduleAssignmentService.assignModulesToTenant({
+      tenantId: tenant.id,
+      modules: this.buildModuleQuantityInputs(data),
+      assignedBy,
+      tier: this.toModulePlanTier(tenant.tier),
+      billingCycle: this.toModuleBillingCycle(data.billingCycle),
+    });
+
+    if (!result.success) {
+      throw new Error(
+        `Module assignment failed: ${result.failedModules.map((f) => `${f.moduleId}:${f.error}`).join(', ')}`,
+      );
+    }
+  }
+
+  private async createTenantSubscription(
+    run: TenantProvisioningRunRow,
+    tenant: Tenant,
+    data: CreateTenantDto,
+  ): Promise<void> {
+    // ORPHAN-CRITICAL-393 / ORPHAN-HIGH-394: resolve each module's code, name,
+    // and REAL price (admin.module_pricing via PricingCalculatorService) in
+    // admin-api — the schema owner of that data — and pass priced moduleItems in
+    // the command. billing writes the module rows directly from these values, so
+    // it never runs the schema-unqualified `modules` query that failed (no
+    // billing grant on auth.modules) and rolled the whole subscription back, and
+    // never invents $0 module prices.
+    const moduleItems = await this.moduleAssignmentService.resolveProvisioningModuleItems({
+      modules: this.buildModuleQuantityInputs(data),
+      tier: this.toModulePlanTier(tenant.tier),
+      billingCycle: this.toModuleBillingCycle(data.billingCycle),
+    });
+
+    const result = await this.billingCommandClient.provisionTenantSubscription({
+      operationId: run.id,
+      tenantId: tenant.id,
+      idempotencyKey: `${run.idempotencyKey}:ProvisionTenantSubscription:${run.requestHash}`,
+      requestPayloadHash: run.requestHash,
+      actorId: run.actorUserId,
+      tenantName: tenant.name,
+      tier: this.toBillingCommandPlanTier(tenant.tier),
+      billingCycle: this.toBillingCommandCycle(data.billingCycle),
+      moduleIds: data.moduleIds ?? [],
+      moduleQuantities: data.moduleQuantities,
+      moduleItems,
+      trialDays: data.trialDays,
+      catalogVersionId: data.catalogVersionId,
+      quoteId: data.quoteId,
+      customPlanId: data.customPlanId,
+    });
+
+    if (!result.subscriptionId || !result.receiptId) {
+      throw new Error('Billing provisioning completed without subscription receipt evidence');
+    }
+  }
+
+  /**
+   * Idempotent backfill: create the missing billing subscription for an already
+   * provisioned tenant by REUSING the fixed provisioning command path.
+   *
+   * WHY a command, not a SQL migration: the correct subscription price is the
+   * sum of module prices computed by PricingCalculatorService (admin.module_pricing).
+   * Reimplementing that in a migration's SQL would resurrect the parallel pricing
+   * model this PR deletes. Instead we resolve the tenant's assigned modules
+   * (auth.tenant_modules) into priced moduleItems and send the SAME
+   * PROVISION_TENANT_SUBSCRIPTION command tenant creation now uses.
+   *
+   * Idempotent: billing short-circuits on an existing active subscription
+   * (`findActiveSubscription` + the partial unique index UQ_subscriptions_tenantId_active)
+   * and on the command receipt, so re-invoking for a tenant that already has a
+   * subscription replays rather than duplicating. Safe to run against live money
+   * data. Invoked by the lead post-deploy (POST /admin/tenants/:id/reconcile-subscription)
+   * for the 3 pre-existing tenants that were created while the provisioning tx
+   * silently rolled back (ORPHAN-CRITICAL-393).
+   */
+  async reconcileTenantSubscription(
+    tenantId: string,
+    actorId: string,
+  ): Promise<{
+    tenantId: string;
+    subscriptionId?: string;
+    status?: string;
+    moduleItemCount?: number;
+    replayed?: boolean;
+  }> {
+    const tenant = await this.findTenantById(tenantId);
+    if (!tenant) {
+      throw new NotFoundException(`Tenant '${tenantId}' not found`);
+    }
+
+    const assignedModules =
+      await this.moduleAssignmentService.getTenantModulesWithPricing(tenantId);
+    const billingCycle: CreateTenantDto['billingCycle'] = 'monthly';
+    const moduleItems = await this.moduleAssignmentService.resolveProvisioningModuleItems({
+      modules: assignedModules.map((module) => ({
+        moduleId: module.moduleId,
+        quantities: module.quantities,
+      })),
+      tier: this.toModulePlanTier(tenant.tier),
+      billingCycle: this.toModuleBillingCycle(billingCycle),
+    });
+
+    // Deterministic operation identity so repeated reconciles converge on ONE
+    // billing command receipt (the subscription itself is deduped regardless).
+    const seed = `reconcile-subscription:${tenantId}`;
+    const operationId = this.deterministicUuid(seed);
+    const requestPayloadHash = crypto
+      .createHash('sha256')
+      .update(
+        this.stableStringify({
+          tenantId,
+          tier: tenant.tier,
+          billingCycle,
+          moduleIds: assignedModules.map((module) => module.moduleId),
+        }),
+      )
+      .digest('hex');
+
+    const result = await this.billingCommandClient.provisionTenantSubscription({
+      operationId,
+      tenantId,
+      idempotencyKey: seed,
+      requestPayloadHash,
+      actorId,
+      tenantName: tenant.name,
+      tier: this.toBillingCommandPlanTier(tenant.tier),
+      billingCycle: this.toBillingCommandCycle(billingCycle),
+      moduleIds: assignedModules.map((module) => module.moduleId),
+      moduleItems,
+    });
+
+    return {
+      tenantId,
+      subscriptionId: result.subscriptionId,
+      status: result.status,
+      moduleItemCount: result.moduleItemCount,
+      replayed: result.replayed,
+    };
+  }
+
+  private deterministicUuid(seed: string): string {
+    const hex = crypto.createHash('sha256').update(seed).digest('hex');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+  }
+
+  /**
+   * Build the per-module quantity inputs shared by the assign_modules step
+   * (auth-service module assignment + pricing) and the create_subscription step
+   * (billing module-item pricing resolution). A single builder keeps both saga
+   * steps deriving quantities identically from the same request payload.
+   */
+  private buildModuleQuantityInputs(
+    data: CreateTenantDto,
+  ): Array<{ moduleId: string; quantities: ModuleQuantities }> {
+    const moduleIds = data.moduleIds ?? [];
+    return moduleIds.map((moduleId) => {
       const quantityConfig = data.moduleQuantities?.find((q) => q.moduleId === moduleId);
       return {
         moduleId,
@@ -979,47 +1200,6 @@ export class TenantProvisioningWorkflowService {
             },
       };
     });
-
-    const result = await this.moduleAssignmentService.assignModulesToTenant({
-      tenantId: tenant.id,
-      modules,
-      assignedBy,
-      tier: this.toModulePlanTier(tenant.tier),
-      billingCycle: this.toModuleBillingCycle(data.billingCycle),
-    });
-
-    if (!result.success) {
-      throw new Error(
-        `Module assignment failed: ${result.failedModules.map((f) => `${f.moduleId}:${f.error}`).join(', ')}`,
-      );
-    }
-  }
-
-  private async createTenantSubscription(
-    run: TenantProvisioningRunRow,
-    tenant: Tenant,
-    data: CreateTenantDto,
-  ): Promise<void> {
-    const result = await this.billingCommandClient.provisionTenantSubscription({
-      operationId: run.id,
-      tenantId: tenant.id,
-      idempotencyKey: `${run.idempotencyKey}:ProvisionTenantSubscription:${run.requestHash}`,
-      requestPayloadHash: run.requestHash,
-      actorId: run.actorUserId,
-      tenantName: tenant.name,
-      tier: this.toBillingCommandPlanTier(tenant.tier),
-      billingCycle: this.toBillingCommandCycle(data.billingCycle),
-      moduleIds: data.moduleIds ?? [],
-      moduleQuantities: data.moduleQuantities,
-      trialDays: data.trialDays,
-      catalogVersionId: data.catalogVersionId,
-      quoteId: data.quoteId,
-      customPlanId: data.customPlanId,
-    });
-
-    if (!result.subscriptionId || !result.receiptId) {
-      throw new Error('Billing provisioning completed without subscription receipt evidence');
-    }
   }
 
   private async enqueueEvent<TEvent extends BaseEvent>(
@@ -1039,7 +1219,9 @@ export class TenantProvisioningWorkflowService {
     } catch (error) {
       await queryRunner.rollbackTransaction();
       if ((error as { code?: string }).code === '23505') {
-        this.logger.warn(`Outbox idempotency key already exists; treating as completed: ${idempotencyKey}`);
+        this.logger.warn(
+          `Outbox idempotency key already exists; treating as completed: ${idempotencyKey}`,
+        );
         return;
       }
       throw error;
@@ -1049,10 +1231,16 @@ export class TenantProvisioningWorkflowService {
   }
 
   private toModulePlanTier(value: string | undefined): ModulePlanTier {
+    // FREE is a first-class tier (Billing Revival Faz B) — it must pass through,
+    // NOT collapse to STARTER. The FREE multiplier is $0 in module-pricing, so a
+    // FREE tenant's resolved module items price to $0 rather than being charged
+    // at STARTER rates. CUSTOM/ENTERPRISE keep their existing mapping.
     const tierMap: Record<string, ModulePlanTier> = {
+      free: ModulePlanTier.FREE,
       starter: ModulePlanTier.STARTER,
       professional: ModulePlanTier.PROFESSIONAL,
       enterprise: ModulePlanTier.ENTERPRISE,
+      custom: ModulePlanTier.CUSTOM,
     };
     return tierMap[value?.toLowerCase() ?? 'starter'] ?? ModulePlanTier.STARTER;
   }
@@ -1068,7 +1256,13 @@ export class TenantProvisioningWorkflowService {
   }
 
   private toBillingCommandPlanTier(value: string | undefined): BillingCommandPlanTier {
+    // FREE passes through on the wire (Billing Revival Faz B): the billing
+    // command's PlanTier now legitimately accepts 'free', so a FREE tenant
+    // provisions a real plan_tier='free' subscription instead of being silently
+    // downgraded to 'starter'. (CUSTOM is not a billing-command tier — enterprise
+    // custom plans travel via customPlanId, so it is intentionally absent here.)
     const tierMap: Record<string, BillingCommandPlanTier> = {
+      free: 'free',
       starter: 'starter',
       professional: 'professional',
       enterprise: 'enterprise',
@@ -1076,7 +1270,9 @@ export class TenantProvisioningWorkflowService {
     return tierMap[value?.toLowerCase() ?? 'starter'] ?? 'starter';
   }
 
-  private toBillingCommandCycle(value: CreateTenantDto['billingCycle']): BillingCommandBillingCycle {
+  private toBillingCommandCycle(
+    value: CreateTenantDto['billingCycle'],
+  ): BillingCommandBillingCycle {
     const cycleMap: Record<string, BillingCommandBillingCycle> = {
       monthly: 'monthly',
       quarterly: 'quarterly',
@@ -1152,9 +1348,9 @@ export class TenantProvisioningWorkflowService {
       );
     }
     if (
-      schemaRow.schemaName !== expectedSchemaName
-      || schemaRow.evidenceOperationId !== operationId
-      || schemaRow.jobStatus !== 'COMMITTED'
+      schemaRow.schemaName !== expectedSchemaName ||
+      schemaRow.evidenceOperationId !== operationId ||
+      schemaRow.jobStatus !== 'COMMITTED'
     ) {
       throw new Error(
         `db-migrate tenant provisioner wrote mismatched schema evidence for operation ${operationId} tenant ${tenantId}`,
@@ -1166,9 +1362,115 @@ export class TenantProvisioningWorkflowService {
       );
     }
 
-    this.logger.log(
-      `db-migrate tenant schema ledger confirmed for tenant ${tenantId}: ${schemaRow.schemaName}`,
+    // The ledger says "provisioned". Only the database can say "true".
+    await this.assertTenantSchemaPhysicallyMatchesLedger(
+      tenantId,
+      'wait_for_db_migrate_provisioner',
     );
+
+    this.logger.log(
+      `db-migrate tenant schema ledger and physical schema confirmed for tenant ${tenantId}: ${schemaRow.schemaName}`,
+    );
+  }
+
+  /**
+   * Reconcile the provisioning ledger against the physical database.
+   *
+   * WHY: every check above this one reads a ROW that claims a schema exists —
+   * admin.tenant_schemas joined to platform.tenant_schema_jobs. Two rows agreeing
+   * with each other is not evidence that `tenant_<id>` was ever created, which is
+   * how production ended up with an ACTIVE tenant that owns no schema: the ledger
+   * was intact, the schema was not, and the saga walked straight past it to
+   * activation. Ledger-vs-reality divergence is corruption, not slowness, so this
+   * throws a plain Error (terminal FAILED) rather than
+   * DbMigrateProvisioningPendingError (retry-and-wait) — retrying cannot conjure a
+   * schema the provisioner never committed.
+   */
+  private async assertTenantSchemaPhysicallyMatchesLedger(
+    tenantId: string,
+    phase: string,
+  ): Promise<void> {
+    const expectedSchemaName = getTenantSchemaName(tenantId);
+    const ledgerRows = await this.queryRows<{ tableCount: number }>(
+      `SELECT ts."tableCount" AS "tableCount"
+         FROM admin.tenant_schemas ts
+        WHERE ts."tenantId" = $1::uuid
+          AND ts."schemaName" = $2
+          AND ts.status = 'active'
+        LIMIT 1`,
+      [tenantId, expectedSchemaName],
+    );
+    const ledgerRow = ledgerRows[0];
+    if (!ledgerRow) {
+      throw new Error(
+        `tenant schema ledger has no active row for tenant ${tenantId} schema ${expectedSchemaName} at ${phase}`,
+      );
+    }
+    const ledgerTableCount = Number(ledgerRow.tableCount ?? 0);
+
+    const physical = await this.readPhysicalTenantSchemaFacts(expectedSchemaName);
+    if (!physical.schemaExists) {
+      throw new Error(
+        `tenant schema ledger claims ${expectedSchemaName} is active for tenant ${tenantId}, but the physical schema does not exist at ${phase}`,
+      );
+    }
+    if (physical.tableCount <= 0) {
+      throw new Error(
+        `physical tenant schema ${expectedSchemaName} for tenant ${tenantId} contains no tables at ${phase}`,
+      );
+    }
+    // Only a SHORTFALL is corruption. A surplus is the normal result of later
+    // MIGRATE jobs adding tables after the PROVISION job wrote its count, so
+    // demanding exact equality would fail healthy tenants.
+    if (physical.tableCount < ledgerTableCount) {
+      throw new Error(
+        `tenant schema ${expectedSchemaName} for tenant ${tenantId} has ${physical.tableCount} tables but the ledger claims ${ledgerTableCount} at ${phase}`,
+      );
+    }
+  }
+
+  /**
+   * Read schema existence and BASE TABLE count straight from the catalog.
+   *
+   * WHY pg_catalog and NOT information_schema: information_schema.schemata and
+   * information_schema.tables are privilege-filtered views — they expose only
+   * objects the CURRENT role owns or holds a grant on. admin-api connects as the
+   * least-privilege `admin_service` role, which holds no grants inside tenant_*
+   * schemas, so an information_schema probe would report "schema missing, 0
+   * tables" for a perfectly healthy tenant and fail every provisioning run.
+   * pg_catalog.pg_namespace / pg_class are visible to every role, which is why
+   * platform.list_tenant_schema_mappings
+   * (apps/db-migrate/src/sql/platform-bootstrap/009-tenant-schema-provisioner.sql)
+   * already derives its `schema_exists` proof from pg_namespace.
+   *
+   * relkind IN ('r','p') is the exact pg_class equivalent of information_schema's
+   * `table_type = 'BASE TABLE'` (ordinary + partitioned tables), so the count is
+   * comparable with the ledger's tableCount, which db-migrate writes with that
+   * information_schema predicate under its own privileged role.
+   */
+  private async readPhysicalTenantSchemaFacts(
+    schemaName: string,
+  ): Promise<{ schemaExists: boolean; tableCount: number }> {
+    const rows = await this.queryRows<{ schemaExists: boolean; tableCount: number }>(
+      `SELECT EXISTS (
+                SELECT 1
+                  FROM pg_catalog.pg_namespace n
+                 WHERE n.nspname = $1
+              ) AS "schemaExists",
+              (
+                SELECT count(*)
+                  FROM pg_catalog.pg_class c
+                  JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+                 WHERE n.nspname = $1
+                   AND c.relkind IN ('r', 'p')
+              )::int AS "tableCount"`,
+      [schemaName],
+    );
+    const row = rows[0];
+    if (!row) {
+      throw new Error(`Physical schema probe returned no row for ${schemaName}`);
+    }
+    return { schemaExists: row.schemaExists === true, tableCount: Number(row.tableCount ?? 0) };
   }
 
   private async requestDbMigrateTenantSchemaProvisioning(
@@ -1216,10 +1518,7 @@ export class TenantProvisioningWorkflowService {
    * real, observable status and the canonical TenantStatusMachine governs the
    * lifecycle with no PENDING→ACTIVE skip. auth-service is the sole writer.
    */
-  private async beginProvisioning(
-    run: TenantProvisioningRunRow,
-    tenantId: string,
-  ): Promise<void> {
+  private async beginProvisioning(run: TenantProvisioningRunRow, tenantId: string): Promise<void> {
     await this.authProvisioningClient.beginProvisioning({
       ...this.buildAuthCommandMetadata(
         'BeginProvisioning',
@@ -1233,10 +1532,23 @@ export class TenantProvisioningWorkflowService {
     });
   }
 
+  /**
+   * ACTIVE is the promise that the tenant can serve traffic, so the schema check
+   * is re-run immediately before it — the method name is a contract, not a label.
+   *
+   * WHY re-run something wait_for_db_migrate_provisioner already proved: runStep
+   * short-circuits any step already marked SUCCEEDED, so on a retry (or after a
+   * lease handover) the verification step is SKIPPED entirely and its evidence is
+   * an old row. A schema that existed during the first attempt but was dropped or
+   * rolled back before activation would otherwise be invisible, and the tenant
+   * would be flipped ACTIVE over nothing.
+   */
   private async activateTenantAfterVerification(
     run: TenantProvisioningRunRow,
     tenantId: string,
   ): Promise<void> {
+    await this.assertTenantSchemaPhysicallyMatchesLedger(tenantId, 'activate_tenant');
+
     await this.authProvisioningClient.activateTenant({
       ...this.buildAuthCommandMetadata(
         'ActivateTenant',
@@ -1328,10 +1640,7 @@ export class TenantProvisioningWorkflowService {
     return `${process.env.HOSTNAME ?? 'admin-api'}:${process.pid}`;
   }
 
-  private async extendLease(
-    runId: string,
-    leaseToken: string | null | undefined,
-  ): Promise<void> {
+  private async extendLease(runId: string, leaseToken: string | null | undefined): Promise<void> {
     if (!leaseToken) {
       throw new Error('Provisioning run does not have a lease token');
     }
@@ -1413,8 +1722,10 @@ export class TenantProvisioningWorkflowService {
       throw new Error(`Provisioning lease lost before step ${stepName}`);
     }
 
+    const stepStartedAt = Date.now();
     try {
       await work();
+      this.metrics.recordStepOutcome(stepName, 'success', (Date.now() - stepStartedAt) / 1000);
       await this.extendLease(runId, leaseToken);
       const rows = await this.queryRows<TenantProvisioningStepRow>(
         `UPDATE admin.tenant_provisioning_steps
@@ -1437,6 +1748,7 @@ export class TenantProvisioningWorkflowService {
         throw new Error(`Provisioning lease lost before completing step ${stepName}`);
       }
     } catch (error) {
+      this.metrics.recordStepOutcome(stepName, 'failure', (Date.now() - stepStartedAt) / 1000);
       try {
         await this.extendLease(runId, leaseToken);
         await this.queryRows<TenantProvisioningStepRow>(
@@ -1469,6 +1781,7 @@ export class TenantProvisioningWorkflowService {
     runId: string,
     leaseToken: string | null | undefined,
   ): Promise<void> {
+    this.metrics.recordRunTerminal(TenantProvisioningState.SUCCEEDED);
     const rows = await this.queryRows<TenantProvisioningRunRow>(
       `UPDATE admin.tenant_provisioning_runs
           SET state = $2,
@@ -1539,12 +1852,7 @@ export class TenantProvisioningWorkflowService {
               "completedAt" = NULL,
               "updatedAt" = now()
         WHERE "runId" = $1 AND "stepName" = $2`,
-      [
-        runId,
-        'wait_for_db_migrate_provisioner',
-        TenantProvisioningState.QUEUED,
-        error.message,
-      ],
+      [runId, 'wait_for_db_migrate_provisioner', TenantProvisioningState.QUEUED, error.message],
     );
 
     this.logger.log(
@@ -1557,6 +1865,7 @@ export class TenantProvisioningWorkflowService {
     error: unknown,
     leaseToken?: string | null,
   ): Promise<boolean> {
+    this.metrics.recordRunTerminal(TenantProvisioningState.FAILED);
     const run = await this.getRun(runId);
     const rows = await this.queryRows<TenantProvisioningRunRow>(
       `UPDATE admin.tenant_provisioning_runs
@@ -1602,17 +1911,20 @@ export class TenantProvisioningWorkflowService {
     const message = this.errorMessage(error);
     this.logger.error(`Tenant provisioning operation ${run.id} failed: ${message}`);
 
-    await this.enqueueEvent({
-      ...createBaseEvent('TenantProvisioningFailed', run.tenantId, {
-        aggregateId: run.tenantId,
-        aggregateType: 'Tenant',
-        version: 4,
-      }),
-      operationId: run.id,
-      error: message,
-      currentStep: run.currentStep ?? undefined,
-      attempt: run.attempts,
-    }, 'tenant-provisioning-failed:' + run.id + ':' + run.attempts);
+    await this.enqueueEvent(
+      {
+        ...createBaseEvent('TenantProvisioningFailed', run.tenantId, {
+          aggregateId: run.tenantId,
+          aggregateType: 'Tenant',
+          version: 4,
+        }),
+        operationId: run.id,
+        error: message,
+        currentStep: run.currentStep ?? undefined,
+        attempt: run.attempts,
+      },
+      'tenant-provisioning-failed:' + run.id + ':' + run.attempts,
+    );
   }
 
   private async requeueStaleRuns(): Promise<void> {
@@ -1668,7 +1980,10 @@ export class TenantProvisioningWorkflowService {
         ),
         reason: run.lastError ?? 'Operation exceeded max attempts after worker interruption',
       });
-      await this.publishFailure(run, run.lastError ?? 'Operation exceeded max attempts after worker interruption');
+      await this.publishFailure(
+        run,
+        run.lastError ?? 'Operation exceeded max attempts after worker interruption',
+      );
     }
 
     if (retryRows.length > 0 || failedRows.length > 0) {
@@ -1692,14 +2007,23 @@ export class TenantProvisioningWorkflowService {
   }
 
   private async getRunSteps(operationId: string): Promise<TenantProvisioningStepDto[]> {
-    const rows = await this.queryRows<TenantProvisioningStepRow>(
-      `SELECT "stepName", state, "stepOrder", attempts, "lastError", "startedAt", "completedAt"
-         FROM admin.tenant_provisioning_steps
-        WHERE "runId" = $1
-        ORDER BY "stepOrder" ASC, "createdAt" ASC`,
-      [operationId],
+    return this.toStepDtos(
+      await this.queryRows<TenantProvisioningStepRow>(PROVISIONING_STEP_SELECT_SQL, [operationId]),
     );
+  }
 
+  private async getRunStepsInTransaction(
+    manager: EntityManager,
+    operationId: string,
+  ): Promise<TenantProvisioningStepDto[]> {
+    return this.toStepDtos(
+      await this.managerRows<TenantProvisioningStepRow>(manager, PROVISIONING_STEP_SELECT_SQL, [
+        operationId,
+      ]),
+    );
+  }
+
+  private toStepDtos(rows: TenantProvisioningStepRow[]): TenantProvisioningStepDto[] {
     return rows.map((row) => ({
       name: row.stepName,
       state: row.state,
@@ -1713,7 +2037,7 @@ export class TenantProvisioningWorkflowService {
   private toAcceptedResponse(
     run: TenantProvisioningRunRow,
     tenant?: Tenant,
-    _steps?: TenantProvisioningStepDto[],
+    steps: TenantProvisioningStepDto[] = [],
   ): CreateTenantAcceptedResponse {
     return {
       status: run.state,
@@ -1721,6 +2045,9 @@ export class TenantProvisioningWorkflowService {
       statusUrl: `/tenants/provisioning/${run.id}`,
       retryAfterMs: this.retryAfterMs(run.state),
       availableActions: this.availableActions(run.state),
+      // The step rows were already fetched on every poll and thrown away; an
+      // operator needs the failing step and its lastError, not just "FAILED".
+      steps,
     };
   }
 

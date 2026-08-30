@@ -17,6 +17,8 @@ import { MobileFeatureGuard } from '@aquaculture/backend-common/guards';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { Module } from '@nestjs/common';
+import { ProtocolRateService } from '../feeding-protocol/services/protocol-rate.service';
+import { DayPlanRecalcService } from '../feeding-protocol/services/day-plan-recalc.service';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
@@ -54,15 +56,18 @@ import { TankBatch } from './entities/tank-batch.entity';
 import { TankOperation } from './entities/tank-operation.entity';
 import { BatchCommandHandlers } from './handlers';
 import { BatchQueryHandlers } from './query-handlers';
+import { BatchDecimalResolvers } from './resolvers/batch-decimal.resolver';
 import { BatchResolvers } from './resolvers';
 import { BatchCostCalculatorService } from './services/batch-cost-calculator.service';
 import { BatchDomainService } from './services/batch-domain.service';
 import { BatchLifecyclePolicyService } from './services/batch-lifecycle-policy.service';
 import { BatchService } from './services/batch.service';
 import { BiomassCalculatorService } from './services/biomass-calculator.service';
+import { StockReconstructionService } from './services/stock-reconstruction.service';
 import { TankCountReconcileService } from './services/tank-count-reconcile.service';
 import { TankBatchModule } from './tank-batch.module';
 import { MortalityCullPolicyService } from './services/mortality-cull-policy.service';
+import { RemovalQuantityPolicyService } from './services/removal-quantity-policy.service';
 import { SGRCalculatorService } from './services/sgr-calculator.service';
 
 // Cross-cutting: backdate policy for mortality observations
@@ -123,8 +128,14 @@ import { SGRCalculatorService } from './services/sgr-calculator.service';
     BatchDomainService,
     BatchLifecyclePolicyService,
     MortalityCullPolicyService,
+    RemovalQuantityPolicyService,
+    // P-31 gün içi recalc — stateless servisler doğrudan sağlanır
+    // (FeedingProtocolModule import'u FeedingModule üzerinden döngü yaratırdı).
+    ProtocolRateService,
+    DayPlanRecalcService,
     SGRCalculatorService,
     BiomassCalculatorService,
+    StockReconstructionService,
     BatchCostCalculatorService,
     BatchDocumentDataLoader,  // REQUEST-scoped: one instance per GraphQL request
     BatchLocationDataLoader,  // REQUEST-scoped: eliminates N+1 for batch.locations
@@ -137,6 +148,7 @@ import { SGRCalculatorService } from './services/sgr-calculator.service';
     ...BatchCommandHandlers,
     ...BatchQueryHandlers,
     ...BatchResolvers,
+    ...BatchDecimalResolvers,
   ],
   exports: [
     TypeOrmModule,
@@ -148,6 +160,7 @@ import { SGRCalculatorService } from './services/sgr-calculator.service';
     BatchDomainService,
     SGRCalculatorService,
     BiomassCalculatorService,
+    StockReconstructionService,
     BatchCostCalculatorService,
   ],
 })

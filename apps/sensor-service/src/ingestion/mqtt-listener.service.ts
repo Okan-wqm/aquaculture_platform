@@ -1,6 +1,11 @@
-import { randomUUID } from 'crypto';
-
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject, Optional } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+  Inject,
+  Optional,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { IEventBus } from '@platform/event-bus';
@@ -25,9 +30,12 @@ import { ReleaseBundle } from '../release-bundle/entities/release-bundle.entity'
 import { ReleaseBundleService } from '../release-bundle/release-bundle.service';
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
 import { QualityCodes, SensorMetricInput } from '../database/entities/sensor-metric.entity';
-import { SensorReading } from '../database/entities/sensor-reading.entity';
 import { Sensor, SensorStatus } from '../database/entities/sensor.entity';
-import { DeviceEvent, DeviceEventType, DeviceEventSeverity } from '../edge-device/entities/device-event.entity';
+import {
+  DeviceEvent,
+  DeviceEventType,
+  DeviceEventSeverity,
+} from '../edge-device/entities/device-event.entity';
 import { DeviceIoConfig } from '../edge-device/entities/device-io-config.entity';
 import { EdgeDevice } from '../edge-device/entities/edge-device.entity';
 import { EdgeDeviceService, DeviceHeartbeat } from '../edge-device/edge-device.service';
@@ -41,8 +49,11 @@ import {
 } from '@aquaculture/backend-common/database';
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
 import { SensorServiceProfileService } from '../config/sensor-service-profile.service';
+import { VfdEdgeProvisioningService } from '../vfd/services/vfd-edge-provisioning.service';
+import { VfdEdgeReadService } from '../vfd/services/vfd-edge-read.service';
+import { VfdEdgeWriteService } from '../vfd/services/vfd-edge-write.service';
 import { SensorTopicCacheService, CachedSensorInfo } from './sensor-topic-cache.service';
-
+import { SensorMetricWriterService } from './sensor-metric-writer.service';
 
 /**
  * MQTT Topic Pattern for tenant-aware sensor data
@@ -150,7 +161,10 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   private readonly messageHandler: (topic: string, message: Buffer) => void;
 
   // Channel lookup cache: sensorId -> { channels, expiresAt }
-  private readonly channelCache = new Map<string, { channels: SensorDataChannel[]; expiresAt: number }>();
+  private readonly channelCache = new Map<
+    string,
+    { channels: SensorDataChannel[]; expiresAt: number }
+  >();
   private readonly CHANNEL_CACHE_TTL_MS = 60_000; // 60 seconds
 
   // Cache for device lookups (tenantId:deviceCode -> device entity)
@@ -184,6 +198,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     private readonly sensorRepository: Repository<Sensor>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly metricWriter: SensorMetricWriterService,
     @Optional()
     @Inject('EVENT_BUS')
     private readonly eventBus: IEventBus | null,
@@ -219,14 +234,36 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     @Optional()
     @Inject(SensorServiceProfileService)
     private readonly profile: SensorServiceProfileService | null = null,
+    // SENSOR-CRITICAL-007 — resolves the pending edge-delegated VFD write when
+    // the gateway acknowledges a write_modbus command. Optional so `new`-based
+    // test harnesses and MQTT-less boots keep working.
+    @Optional()
+    @Inject(VfdEdgeWriteService)
+    private readonly vfdEdgeWriteService: VfdEdgeWriteService | null = null,
+    // SENSOR-CRITICAL-007 — resolves the pending edge provision/decommission when
+    // the gateway acks a provision_modbus_device / decommission_modbus_device
+    // command. Optional for the same `new`-based test-harness reason as above.
+    @Optional()
+    @Inject(VfdEdgeProvisioningService)
+    private readonly vfdEdgeProvisioningService: VfdEdgeProvisioningService | null = null,
+    // SENSOR-CRITICAL-007 — resolves the pending edge-delegated VFD read when the
+    // gateway acks a read_modbus command (motor-state interlock + parameter
+    // read-back). Optional for the same `new`-based test-harness reason as above.
+    @Optional()
+    @Inject(VfdEdgeReadService)
+    private readonly vfdEdgeReadService: VfdEdgeReadService | null = null,
   ) {
     // Legacy edge/ topic flag (default: true for backward compatibility)
-    this.legacyEdgeTopicsEnabled = this.configService.get('LEGACY_EDGE_TOPICS_ENABLED', 'true') === 'true';
+    this.legacyEdgeTopicsEnabled =
+      this.configService.get('LEGACY_EDGE_TOPICS_ENABLED', 'true') === 'true';
 
     // Bind message handler to this instance
     this.messageHandler = (topic: string, message: Buffer) => {
       this.handleMessage(topic, message).catch((error: Error) => {
-        this.logger.error(`Unhandled error in message handler for topic ${topic}: ${error.message}`, error.stack);
+        this.logger.error(
+          `Unhandled error in message handler for topic ${topic}: ${error.message}`,
+          error.stack,
+        );
       });
     };
   }
@@ -264,7 +301,9 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     if (this.mqttClient.isConnectedToBroker()) {
       await this.subscribeToTopics();
     } else {
-      this.logger.log('MQTT client not yet connected, will subscribe when connection is established');
+      this.logger.log(
+        'MQTT client not yet connected, will subscribe when connection is established',
+      );
       this.mqttClient.onceConnected(() => {
         this.logger.log('MQTT client connected — subscribing to topics now');
         this.subscribeToTopics().catch((err) => {
@@ -275,8 +314,10 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
     // Start lastSeenAt flush timer
     this.lastSeenFlushTimer = setInterval(() => {
-      this.flushLastSeenUpdates().catch(err => {
-        this.logger.error(`Failed to flush lastSeenAt updates: ${err instanceof Error ? err.message : String(err)}`);
+      this.flushLastSeenUpdates().catch((err) => {
+        this.logger.error(
+          `Failed to flush lastSeenAt updates: ${err instanceof Error ? err.message : String(err)}`,
+        );
       });
     }, this.LAST_SEEN_FLUSH_INTERVAL_MS);
 
@@ -314,41 +355,41 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     // Subscribe to wildcard topic patterns
     const topics = [
       // Sensor data topics
-      'sensors/#',                    // All sensor data
-      'aquaculture/+/sensors/#',      // Tenant-specific sensors
-      '+/+/+/temperature-array',      // Array sensor pattern
+      'sensors/#', // All sensor data
+      'aquaculture/+/sensors/#', // Tenant-specific sensors
+      '+/+/+/temperature-array', // Array sensor pattern
 
       // Edge device topics - Tenant-prefixed pattern (Edge Agent v2.0 default)
       // Pattern: tenants/{tenantId}/devices/{deviceCode}/{messageType}
-      'tenants/+/devices/+/telemetry',  // Device telemetry (CPU, RAM, Disk, Temp)
-      'tenants/+/devices/+/status',     // Device status (online/offline)
-      'tenants/+/devices/+/response',   // Command response (legacy singular)
-      'tenants/+/devices/+/responses',  // Command response (plural - Edge Agent v2.0+)
-      'tenants/+/devices/+/io_data',     // I/O tag canlı değerleri (Edge Agent → Frontend bridge)
-      'tenants/+/devices/+/alarms',       // I/O alarm events (Edge Agent → Backend persist + WS bridge)
+      'tenants/+/devices/+/telemetry', // Device telemetry (CPU, RAM, Disk, Temp)
+      'tenants/+/devices/+/status', // Device status (online/offline)
+      'tenants/+/devices/+/response', // Command response (legacy singular)
+      'tenants/+/devices/+/responses', // Command response (plural - Edge Agent v2.0+)
+      'tenants/+/devices/+/io_data', // I/O tag canlı değerleri (Edge Agent → Frontend bridge)
+      'tenants/+/devices/+/alarms', // I/O alarm events (Edge Agent → Backend persist + WS bridge)
       'tenants/+/devices/+/capabilities', // v2.3: Boot-time hardware capabilities report
-      'tenants/+/devices/+/lora_events',   // LoRaWAN events (join_accept, uplink_summary)
+      'tenants/+/devices/+/lora_events', // LoRaWAN events (join_accept, uplink_summary)
     ];
 
     // Legacy edge/ topics (D04 SEC-M01): only subscribe when explicitly enabled
     // These topics lack tenant enforcement — migrate devices to tenant-prefixed topics
     if (this.legacyEdgeTopicsEnabled) {
       topics.push(
-        'edge/+/heartbeat',             // Device heartbeat (health metrics)
-        'edge/+/birth',                 // Device birth certificate
-        'edge/+/death',                 // Device death (LWT - Last Will Testament)
-        'edge/+/response',              // Command response from device (legacy singular)
-        'edge/+/responses',             // Command response from device (plural - Edge Agent v2.0+)
+        'edge/+/heartbeat', // Device heartbeat (health metrics)
+        'edge/+/birth', // Device birth certificate
+        'edge/+/death', // Device death (LWT - Last Will Testament)
+        'edge/+/response', // Command response from device (legacy singular)
+        'edge/+/responses', // Command response from device (plural - Edge Agent v2.0+)
       );
       this.logger.warn(
         'Legacy edge/ topic subscriptions are ENABLED. ' +
-        'These topics lack tenant enforcement. ' +
-        'Set LEGACY_EDGE_TOPICS_ENABLED=false after migrating all devices to tenant-prefixed topics.',
+          'These topics lack tenant enforcement. ' +
+          'Set LEGACY_EDGE_TOPICS_ENABLED=false after migrating all devices to tenant-prefixed topics.',
       );
     } else {
       this.logger.log(
         'Legacy edge/ topic subscriptions are DISABLED. ' +
-        'Only tenant-prefixed topics (tenants/{tenantId}/devices/{deviceCode}/...) are active.',
+          'Only tenant-prefixed topics (tenants/{tenantId}/devices/{deviceCode}/...) are active.',
       );
     }
 
@@ -368,7 +409,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       if (message.length > MqttListenerService.MAX_PAYLOAD_SIZE) {
         this.logger.warn(
           `Payload too large: ${message.length} bytes from topic ${topic} ` +
-          `(limit: ${MqttListenerService.MAX_PAYLOAD_SIZE} bytes). Message dropped.`,
+            `(limit: ${MqttListenerService.MAX_PAYLOAD_SIZE} bytes). Message dropped.`,
         );
         return;
       }
@@ -382,14 +423,14 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         if (!this.legacyEdgeTopicsEnabled) {
           this.logger.warn(
             `Message received on disabled legacy topic ${topic}. ` +
-            'Legacy edge/ topics are disabled (LEGACY_EDGE_TOPICS_ENABLED=false). Message dropped.',
+              'Legacy edge/ topics are disabled (LEGACY_EDGE_TOPICS_ENABLED=false). Message dropped.',
           );
           return;
         }
         this.logger.warn(
           `[DEPRECATED] Message received on legacy topic ${topic}. ` +
-          'Legacy edge/ topics lack tenant enforcement and will be removed in a future release. ' +
-          'Migrate device to tenant-prefixed topic: tenants/{tenantId}/devices/{deviceCode}/...',
+            'Legacy edge/ topics lack tenant enforcement and will be removed in a future release. ' +
+            'Migrate device to tenant-prefixed topic: tenants/{tenantId}/devices/{deviceCode}/...',
         );
         await this.handleEdgeDeviceMessage(topic, message);
         return;
@@ -430,7 +471,6 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
       // Publish real-time event for WebSocket clients
       await this.publishSensorReadingEvent(sensor, data, now);
-
     } catch (error) {
       this.logger.error(`Error handling MQTT message: ${(error as Error).message}`);
     }
@@ -467,7 +507,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       if (!legacyDevice) {
         this.logger.warn(
           `[LEGACY TENANT ENFORCEMENT] Device ${deviceCode} not found in any tenant. ` +
-          'Rejecting legacy edge/ message to prevent cross-tenant spoofing.',
+            'Rejecting legacy edge/ message to prevent cross-tenant spoofing.',
         );
         return;
       }
@@ -475,7 +515,11 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
       switch (messageType) {
         case 'heartbeat':
-          await this.handleEdgeHeartbeat(deviceCode, payload as EdgeHeartbeatPayload, resolvedTenantId);
+          await this.handleEdgeHeartbeat(
+            deviceCode,
+            payload as EdgeHeartbeatPayload,
+            resolvedTenantId,
+          );
           break;
         case 'birth':
           await this.handleEdgeBirth(deviceCode, payload as EdgeBirthPayload, resolvedTenantId);
@@ -485,7 +529,11 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           break;
         case 'response':
         case 'responses':
-          await this.handleEdgeResponse(deviceCode, payload as EdgeResponsePayload, resolvedTenantId);
+          await this.handleEdgeResponse(
+            deviceCode,
+            payload as EdgeResponsePayload,
+            resolvedTenantId,
+          );
           break;
         default:
           this.logger.debug(`Unknown edge device message type: ${messageType}`);
@@ -499,8 +547,14 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
    * Handle edge device heartbeat message
    * Updates device health metrics in database
    */
-  private async handleEdgeHeartbeat(deviceCode: string, payload: EdgeHeartbeatPayload, tenantId?: string): Promise<void> {
-    this.logger.debug(`Edge heartbeat from ${deviceCode}: CPU=${payload.cpuUsage}%, Mem=${payload.memoryUsage}%`);
+  private async handleEdgeHeartbeat(
+    deviceCode: string,
+    payload: EdgeHeartbeatPayload,
+    tenantId?: string,
+  ): Promise<void> {
+    this.logger.debug(
+      `Edge heartbeat from ${deviceCode}: CPU=${payload.cpuUsage}%, Mem=${payload.memoryUsage}%`,
+    );
 
     const heartbeat: DeviceHeartbeat = {
       deviceCode,
@@ -525,7 +579,10 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       // Publish real-time event for WebSocket clients
       if (this.eventBus) {
         await this.eventBus.publish({
-          ...createBaseEvent('EdgeDeviceHeartbeat', device.tenantId, { aggregateId: device.id, aggregateType: 'EdgeDevice' }),
+          ...createBaseEvent('EdgeDeviceHeartbeat', device.tenantId, {
+            aggregateId: device.id,
+            aggregateType: 'EdgeDevice',
+          }),
           deviceId: device.id,
           deviceCode: device.deviceCode,
           isOnline: device.isOnline,
@@ -542,7 +599,11 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
    * Handle edge device birth message (device came online)
    * @param tenantId Optional tenantId extracted from MQTT topic for boundary enforcement
    */
-  private async handleEdgeBirth(deviceCode: string, payload: EdgeBirthPayload, tenantId?: string): Promise<void> {
+  private async handleEdgeBirth(
+    deviceCode: string,
+    payload: EdgeBirthPayload,
+    tenantId?: string,
+  ): Promise<void> {
     this.logger.log(`Edge device birth: ${deviceCode}`);
 
     // Update device as online with birth certificate data
@@ -584,7 +645,11 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
    * @param payload The response payload from the edge device
    * @param tenantId Optional tenantId extracted from MQTT topic (tenant-prefixed topics)
    */
-  private async handleEdgeResponse(deviceCode: string, payload: EdgeResponsePayload, tenantId?: string): Promise<void> {
+  private async handleEdgeResponse(
+    deviceCode: string,
+    payload: EdgeResponsePayload,
+    tenantId?: string,
+  ): Promise<void> {
     this.logger.debug(`Edge response from ${deviceCode}: ${JSON.stringify(payload)}`);
 
     // Edge agent's CommandResponse does NOT include a "command" field —
@@ -600,38 +665,68 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
-    // Handle I/O config update acknowledgements from the edge agent.
-    // The agent responds after applying (or rejecting) the Modbus/GPIO
-    // config pushed by pushIoConfigToDevice().  We log the outcome and
-    // publish a real-time event so the UI can show immediate feedback.
-    if (payload.command === 'update_io_config') {
-      if (payload.success) {
-        this.logger.log(
-          `I/O config accepted by ${deviceCode} (command: ${payload.commandId})`,
-        );
-      } else {
-        this.logger.warn(
-          `I/O config rejected by ${deviceCode} (command: ${payload.commandId}): ` +
-          `${payload.error || 'unknown error'}`,
-        );
-      }
+    // SENSOR-CRITICAL-007 — resolve a pending edge-delegated VFD write. No-op
+    // unless the commandId matches a write this process published (the map is
+    // keyed by the per-write random commandId, so ping/scan/deploy acks fall
+    // straight through).
+    if (this.vfdEdgeWriteService && payload.commandId) {
+      this.vfdEdgeWriteService.handleWriteResponse(payload as Record<string, unknown>);
+    }
 
-      // Emit event so WebSocket subscribers (dashboard UI) get instant feedback
-      if (this.eventBus) {
-        await this.eventBus.publish({
-          ...createBaseEvent('IoConfigPushResult', tenantId || SYSTEM_TENANT_ID, { aggregateId: deviceCode, aggregateType: 'EdgeDevice' }),
-          deviceCode,
-          commandId: payload.commandId,
-          success: payload.success ?? false,
-          error: payload.error,
-        });
+    // SENSOR-CRITICAL-007 — resolve a pending edge provision/decommission ack.
+    // Same per-command commandId correlation; a no-op for unrelated acks.
+    if (this.vfdEdgeProvisioningService && payload.commandId) {
+      this.vfdEdgeProvisioningService.handleProvisionResponse(payload as Record<string, unknown>);
+    }
+
+    // SENSOR-CRITICAL-007 — resolve a pending edge-delegated VFD read (motor-state
+    // interlock + parameter read-back). Same commandId correlation.
+    if (this.vfdEdgeReadService && payload.commandId) {
+      this.vfdEdgeReadService.handleReadResponse(payload as Record<string, unknown>);
+    }
+
+    // SENSOR-HIGH-064 — correlate the edge's update_io_config ack back to the
+    // pending push by commandId. The edge CommandResponse carries no `command`
+    // field (see comment above), so the old `payload.command === 'update_io_config'`
+    // match never fired — the push reported unconditional green and this ack loop
+    // was dead. Routing by commandId settles the push that pushIoConfigToDevice()
+    // is awaiting; a no-op for any response that is not an awaited config push.
+    if (this.edgeDeviceService && payload.commandId) {
+      const ack = this.edgeDeviceService.handleIoConfigAckResponse(
+        deviceCode,
+        payload as Record<string, unknown>,
+      );
+      if (ack.matched) {
+        if (ack.success) {
+          this.logger.log(`I/O config accepted by ${deviceCode} (command: ${payload.commandId})`);
+        } else {
+          this.logger.warn(
+            `I/O config rejected by ${deviceCode} (command: ${payload.commandId}): ` +
+              `${ack.error ?? 'unknown error'}`,
+          );
+        }
+
+        // Emit the real-time result event exactly once, only on a real ack.
+        if (this.eventBus) {
+          await this.eventBus.publish({
+            ...createBaseEvent('IoConfigPushResult', ack.tenantId || tenantId || SYSTEM_TENANT_ID, {
+              aggregateId: ack.deviceId ?? deviceCode,
+              aggregateType: 'EdgeDevice',
+            }),
+            deviceCode,
+            commandId: payload.commandId,
+            success: ack.success ?? false,
+            error: ack.error,
+          });
+        }
       }
     }
 
     // Route deployment responses to DeploymentLogService and AutomationService
-    const isDeployCommand = payload.command === 'deploy_program'
-      || payload.command === 'deploy_to_codesys'
-      || payload.command === 'deploy_auto';
+    const isDeployCommand =
+      payload.command === 'deploy_program' ||
+      payload.command === 'deploy_to_codesys' ||
+      payload.command === 'deploy_auto';
 
     if ((isDeployCommand || payload.command === 'rollback_program') && payload.commandId) {
       try {
@@ -691,7 +786,9 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           }
         }
 
-        this.logger.log(`Deployment response processed for command ${payload.commandId}: success=${payload.success}`);
+        this.logger.log(
+          `Deployment response processed for command ${payload.commandId}: success=${payload.success}`,
+        );
       } catch (error) {
         this.logger.error(`Failed to process deployment response: ${(error as Error).message}`);
       }
@@ -708,9 +805,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
               undefined,
               tenantId,
             );
-            this.logger.log(
-              `SCADA deploy succeeded for command ${payload.commandId}`,
-            );
+            this.logger.log(`SCADA deploy succeeded for command ${payload.commandId}`);
           } else {
             await this.scadaDeployLogService.updateStatus(
               payload.commandId,
@@ -732,6 +827,40 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
+    // Route SCADA undeploy acks (WF-011): the delete flow logged an
+    // UNDEPLOY_SENT row per device; the device's ack settles it.
+    if (payload.command === 'undeploy_scada_package' && payload.commandId) {
+      try {
+        if (this.scadaDeployLogService) {
+          if (payload.success) {
+            await this.scadaDeployLogService.updateStatus(
+              payload.commandId,
+              ScadaDeployStatus.UNDEPLOYED,
+              undefined,
+              tenantId,
+            );
+            this.logger.log(`SCADA undeploy confirmed for command ${payload.commandId}`);
+          } else {
+            await this.scadaDeployLogService.updateStatus(
+              payload.commandId,
+              ScadaDeployStatus.FAILED,
+              { errorMessage: payload.error || 'SCADA undeploy failed on device' },
+              tenantId,
+            );
+            this.logger.warn(
+              `SCADA undeploy failed for command ${payload.commandId}: ${payload.error || 'unknown error'}`,
+            );
+          }
+        } else {
+          this.logger.warn(
+            `ScadaDeployLogService not available — cannot update undeploy status for command ${payload.commandId}`,
+          );
+        }
+      } catch (error) {
+        this.logger.error(`Failed to process SCADA undeploy response: ${(error as Error).message}`);
+      }
+    }
+
     // Route release-bundle acks (Faz 5): the edge publishes an
     // intermediate `staged` ack and a final `confirmed`/`failed`
     // command response, all carrying result.bundleId + result.phase
@@ -744,7 +873,10 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     // Publish response event for command tracking
     if (this.eventBus) {
       await this.eventBus.publish({
-        ...createBaseEvent('EdgeDeviceResponse', tenantId || SYSTEM_TENANT_ID, { aggregateId: deviceCode, aggregateType: 'EdgeDevice' }),
+        ...createBaseEvent('EdgeDeviceResponse', tenantId || SYSTEM_TENANT_ID, {
+          aggregateId: deviceCode,
+          aggregateType: 'EdgeDevice',
+        }),
         deviceCode,
         commandId: payload.commandId,
         success: payload.success,
@@ -807,11 +939,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         }
         case 'failed': {
           const message = edgeError || 'Bundle deploy failed on device';
-          const bundle = await this.releaseBundleService.markFailed(
-            tenantId,
-            commandId,
-            message,
-          );
+          const bundle = await this.releaseBundleService.markFailed(tenantId, commandId, message);
           this.logger.warn(
             `Bundle ${ack.bundleId} FAILED on device (command ${commandId}): ${message}`,
           );
@@ -873,10 +1001,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
             );
           }
           if (success && artifact.sourceEntityId && this.scadaPackageService) {
-            await this.scadaPackageService.markPackagePublished(
-              artifact.sourceEntityId,
-              tenantId,
-            );
+            await this.scadaPackageService.markPackagePublished(artifact.sourceEntityId, tenantId);
           }
         }
       } catch (error) {
@@ -891,7 +1016,9 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
    * Look up deployment log by commandId for program status updates
    * Returns the programId needed to call confirmDeployment/failDeployment
    */
-  private async findDeploymentLogByCommandId(commandId: string): Promise<{ programId: string } | null> {
+  private async findDeploymentLogByCommandId(
+    commandId: string,
+  ): Promise<{ programId: string } | null> {
     if (!this.deploymentLogService) return null;
 
     try {
@@ -906,7 +1033,9 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       }
       return null;
     } catch (error) {
-      this.logger.error(`Failed to look up deployment log for command ${commandId}: ${(error as Error).message}`);
+      this.logger.error(
+        `Failed to look up deployment log for command ${commandId}: ${(error as Error).message}`,
+      );
       return null;
     }
   }
@@ -960,11 +1089,19 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
       switch (messageType) {
         case 'telemetry':
-          await this.handleTenantEdgeTelemetry(tenantId, deviceCode, payload as TenantEdgeTelemetryPayload);
+          await this.handleTenantEdgeTelemetry(
+            tenantId,
+            deviceCode,
+            payload as TenantEdgeTelemetryPayload,
+          );
           break;
 
         case 'status':
-          await this.handleTenantEdgeStatus(tenantId, deviceCode, payload as TenantEdgeStatusPayload);
+          await this.handleTenantEdgeStatus(
+            tenantId,
+            deviceCode,
+            payload as TenantEdgeStatusPayload,
+          );
           break;
 
         case 'response':
@@ -1000,7 +1137,9 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           this.logger.debug(`Unknown tenant edge message type: ${messageType}`);
       }
     } catch (error) {
-      this.logger.error(`Failed to parse tenant-prefixed message on ${topic}: ${(error as Error).message}`);
+      this.logger.error(
+        `Failed to parse tenant-prefixed message on ${topic}: ${(error as Error).message}`,
+      );
     }
   }
 
@@ -1024,8 +1163,10 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       tenantId,
       isOnline: true,
       cpuUsage: m.cpu_usage_percent != null ? Math.round(m.cpu_usage_percent) : m.cpuUsage,
-      memoryUsage: m.memory_usage_percent != null ? Math.round(m.memory_usage_percent) : m.memoryUsage,
-      storageUsage: m.disk_usage_percent != null ? Math.round(m.disk_usage_percent) : m.storageUsage,
+      memoryUsage:
+        m.memory_usage_percent != null ? Math.round(m.memory_usage_percent) : m.memoryUsage,
+      storageUsage:
+        m.disk_usage_percent != null ? Math.round(m.disk_usage_percent) : m.storageUsage,
       temperatureCelsius: m.temperature_celsius ?? m.temperatureCelsius,
       uptimeSeconds: m.uptime_secs != null ? Math.round(m.uptime_secs) : m.uptimeSeconds,
       firmwareVersion: m.agent_version ?? m.firmwareVersion ?? payload.agent_version,
@@ -1038,15 +1179,18 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     if (device) {
       this.logger.debug(
         `Tenant ${tenantId} edge telemetry from ${deviceCode}: ` +
-        `CPU=${heartbeat.cpuUsage?.toFixed(1)}%, ` +
-        `RAM=${heartbeat.memoryUsage?.toFixed(1)}%, ` +
-        `Disk=${heartbeat.storageUsage?.toFixed(1)}%`
+          `CPU=${heartbeat.cpuUsage?.toFixed(1)}%, ` +
+          `RAM=${heartbeat.memoryUsage?.toFixed(1)}%, ` +
+          `Disk=${heartbeat.storageUsage?.toFixed(1)}%`,
       );
 
       // Publish real-time event for WebSocket clients
       if (this.eventBus) {
         await this.eventBus.publish({
-          ...createBaseEvent('EdgeDeviceHeartbeat', device.tenantId, { aggregateId: device.id, aggregateType: 'EdgeDevice' }),
+          ...createBaseEvent('EdgeDeviceHeartbeat', device.tenantId, {
+            aggregateId: device.id,
+            aggregateType: 'EdgeDevice',
+          }),
           deviceId: device.id,
           deviceCode: device.deviceCode,
           isOnline: device.isOnline,
@@ -1058,7 +1202,9 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         });
       }
     } else {
-      this.logger.warn(`No device found for telemetry: tenantId=${tenantId}, deviceCode=${deviceCode}`);
+      this.logger.warn(
+        `No device found for telemetry: tenantId=${tenantId}, deviceCode=${deviceCode}`,
+      );
     }
   }
 
@@ -1071,7 +1217,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     deviceCode: string,
     payload: TenantEdgeStatusPayload,
   ): Promise<void> {
-    const isOnline = payload.online ?? payload.isOnline ?? (payload.status === 'online');
+    const isOnline = payload.online ?? payload.isOnline ?? payload.status === 'online';
 
     if (isOnline) {
       this.logger.log(`Tenant ${tenantId} edge device online: ${deviceCode}`);
@@ -1085,7 +1231,8 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         isOnline: true,
         status: payload.status,
         firmwareVersion: payload.agent_version,
-        uptimeSeconds: payload.uptime_seconds != null ? Math.round(payload.uptime_seconds) : undefined,
+        uptimeSeconds:
+          payload.uptime_seconds != null ? Math.round(payload.uptime_seconds) : undefined,
       };
 
       if (!this.edgeDeviceService) return;
@@ -1202,7 +1349,11 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     if (this.eventBus) {
       // ARCH-C01: Serialize tags to JSON string — flat-object contract
       await this.eventBus.publish({
-        ...createBaseEvent('EdgeDeviceIoData', tenantId, { aggregateId: deviceCode, aggregateType: 'EdgeDevice', version: 2 }),
+        ...createBaseEvent('EdgeDeviceIoData', tenantId, {
+          aggregateId: deviceCode,
+          aggregateType: 'EdgeDevice',
+          version: 2,
+        }),
         deviceCode,
         tagsJson: JSON.stringify(tags),
       });
@@ -1250,63 +1401,36 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         not_initialized: 32,
       };
 
-      // Batch insert into sensor_metrics
+      // Build metric inputs and hand to the single sensor.sensor_metrics writer.
       const timestamp = new Date();
-      const params: (string | number | null)[] = [];
-      const valuePlaceholders: string[] = [];
-      let paramIdx = 1;
+      const inputs: SensorMetricInput[] = [];
 
       for (const [tagName, tagData] of Object.entries(tags)) {
         const config = configMap.get(tagName);
         if (!config) continue;
 
-        const numericValue = typeof tagData.value === 'boolean'
-          ? (tagData.value ? 1.0 : 0.0)
-          : Number(tagData.value);
+        const numericValue =
+          typeof tagData.value === 'boolean' ? (tagData.value ? 1.0 : 0.0) : Number(tagData.value);
 
-        // Reject NaN AND Infinity — Number("Infinity") passes isNaN() but
-        // corrupts TimescaleDB AVG/SUM continuous aggregates with Infinity values.
+        // Reject NaN AND Infinity — they corrupt TimescaleDB AVG/SUM aggregates.
         if (!Number.isFinite(numericValue)) continue;
 
-        const qualityCode = qualityMap[tagData.quality] ?? 0;
-
-        // Build parameterized value row: (time, sensor_id, channel_id, tenant_id, raw_value, value, quality_code, quality_bits, source_protocol, source_timestamp, ingestion_latency_ms, batch_id)
-        const placeholders = [];
-        for (const val of [
-          timestamp.toISOString(),  // time
-          device.id,                // sensor_id (device acts as sensor)
-          config.id,                // channel_id (ioConfig acts as channel)
-          tenantId,                 // tenant_id
-          null, null, null, null, null, null, null, // site_id .. farm_id
-          numericValue,             // raw_value
-          numericValue,             // value (no calibration on io_data)
-          qualityCode,              // quality_code
-          0,                        // quality_bits
-          'edge_io',                // source_protocol
-          timestamp.toISOString(),  // source_timestamp
-          0,                        // ingestion_latency_ms
-          null,                     // batch_id
-        ]) {
-          placeholders.push(`$${paramIdx}`);
-          params.push(val as string | number | null);
-          paramIdx++;
-        }
-        valuePlaceholders.push(`(${placeholders.join(', ')})`);
+        inputs.push({
+          time: timestamp,
+          sensorId: device.id, // device acts as sensor
+          channelId: config.id, // ioConfig acts as channel
+          tenantId,
+          rawValue: numericValue,
+          value: numericValue, // no calibration on io_data
+          qualityCode: qualityMap[tagData.quality] ?? 0,
+          qualityBits: 0,
+          sourceProtocol: 'edge_io',
+          sourceTimestamp: timestamp,
+        });
       }
 
-      if (valuePlaceholders.length > 0) {
-        await this.dataSource.query(`
-          INSERT INTO sensor_metrics (
-            time, sensor_id, channel_id, tenant_id,
-            site_id, department_id, system_id, equipment_id, tank_id, pond_id, farm_id,
-            raw_value, value, quality_code, quality_bits,
-            source_protocol, source_timestamp, ingestion_latency_ms, batch_id
-          ) VALUES ${valuePlaceholders.join(',\n')}
-          ON CONFLICT (time, sensor_id, channel_id) DO UPDATE SET
-            value = EXCLUDED.value,
-            raw_value = EXCLUDED.raw_value,
-            quality_code = EXCLUDED.quality_code
-        `, params);
+      if (inputs.length > 0) {
+        await this.metricWriter.writeImmediate(inputs);
       }
     } catch (error) {
       this.logger.error(`Failed to persist io_data for ${deviceCode}: ${(error as Error).message}`);
@@ -1315,6 +1439,14 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Get device from cache or fetch from DB.
+   *
+   * SECURITY / DATA-INTEGRITY: MQTT handlers run outside any HTTP/GraphQL
+   * request, so AsyncLocalStorage carries no tenant. edge_devices is a
+   * per-tenant table, so an unscoped findByCode resolves against the empty
+   * source-schema template and returns null — silently dropping the io_data
+   * and alarm persistence that depend on this lookup. Wrap the fetch in
+   * withTenantContext so the pool patch pins the correct tenant search_path,
+   * matching getCachedIoConfigs and the device_events save.
    */
   private async getCachedDevice(tenantId: string, deviceCode: string): Promise<EdgeDevice | null> {
     const cacheKey = `${tenantId}:${deviceCode}`;
@@ -1323,7 +1455,9 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       return cached.device;
     }
 
-    const device = await this.edgeDeviceService?.findByCode(deviceCode, tenantId);
+    const device = await withTenantContext(tenantId, async () =>
+      this.edgeDeviceService?.findByCode(deviceCode, tenantId),
+    );
     if (device) {
       this.deviceCache.set(cacheKey, { device, expiry: Date.now() + this.DEVICE_CACHE_TTL_MS });
     }
@@ -1383,7 +1517,11 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       if (this.eventBus) {
         // ARCH-C01: Serialize alarms to JSON string — flat-object contract
         await this.eventBus.publish({
-          ...createBaseEvent('EdgeDeviceAlarm', tenantId, { aggregateId: deviceCode, aggregateType: 'EdgeDevice', version: 2 }),
+          ...createBaseEvent('EdgeDeviceAlarm', tenantId, {
+            aggregateId: deviceCode,
+            aggregateType: 'EdgeDevice',
+            version: 2,
+          }),
           deviceCode,
           alarmsJson: JSON.stringify(alarms),
           alarmCount: alarms.length,
@@ -1400,7 +1538,8 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         event.deviceId = device.id;
         event.eventType = DeviceEventType.ALARM;
         event.severity = this.mapAlarmPriorityToSeverity(alarm['priority'] as string);
-        event.message = (alarm['message'] as string) ||
+        event.message =
+          (alarm['message'] as string) ||
           `Alarm ${alarm['type']} on ${alarm['tag']}: value=${alarm['value']}, setpoint=${alarm['setpoint']}`;
         event.metadata = {
           tagName: alarm['tag'],
@@ -1420,11 +1559,9 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         await withTenantContext(tenantId, async () => {
           // DeviceEvent has a tenantId column — use the scoped repo so
           // every event row carries the current tenant by construction.
-          await TenantScopedRepository.create(
-            this.dataSource,
-            DeviceEvent,
-            tenantId,
-          ).saveMany(events);
+          await TenantScopedRepository.create(this.dataSource, DeviceEvent, tenantId).saveMany(
+            events,
+          );
         });
       }
     } catch (error) {
@@ -1463,7 +1600,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
     this.logger.log(
       `Hardware capabilities from ${deviceCode}: platform=${payload['platform']}, ` +
-      `gpio_chips=${payload['gpio_chip_count']}, gpio_lines=${payload['total_gpio_lines']}`,
+        `gpio_chips=${payload['gpio_chip_count']}, gpio_lines=${payload['total_gpio_lines']}`,
     );
 
     // Build capabilities object for the JSONB column
@@ -1527,7 +1664,9 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     const devEui = payload['dev_eui'] as string;
 
     if (!eventType || !devEui) {
-      this.logger.warn(`Invalid lora_events payload from ${deviceCode}: missing event_type or dev_eui`);
+      this.logger.warn(
+        `Invalid lora_events payload from ${deviceCode}: missing event_type or dev_eui`,
+      );
       return;
     }
 
@@ -1535,7 +1674,9 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       switch (eventType) {
         case 'join_accept': {
           // Cihaz OTAA ile ağa katıldı — isJoined ve devAddr güncelle
-          this.logger.log(`LoRa join_accept: DevEUI=${devEui}, DevAddr=${payload['dev_addr']} via ${deviceCode}`);
+          this.logger.log(
+            `LoRa join_accept: DevEUI=${devEui}, DevAddr=${payload['dev_addr']} via ${deviceCode}`,
+          );
           await this.edgeDeviceService.updateLoRaDeviceStatus(devEui, {
             isJoined: true,
             joinedAt: new Date(),
@@ -1567,7 +1708,10 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       // Publish to EventBus for WebSocket bridge — frontend LoRa device listesini canlı günceller
       if (this.eventBus) {
         await this.eventBus.publish({
-          ...createBaseEvent('LoRaDeviceEvent', tenantId, { aggregateId: deviceCode, aggregateType: 'EdgeDevice' }),
+          ...createBaseEvent('LoRaDeviceEvent', tenantId, {
+            aggregateId: deviceCode,
+            aggregateType: 'EdgeDevice',
+          }),
           deviceCode,
           loraEventType: eventType,
           devEui,
@@ -1578,7 +1722,9 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         });
       }
     } catch (error) {
-      this.logger.error(`Failed to handle lora_events from ${deviceCode}: ${(error as Error).message}`);
+      this.logger.error(
+        `Failed to handle lora_events from ${deviceCode}: ${(error as Error).message}`,
+      );
     }
   }
 
@@ -1598,7 +1744,10 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
     try {
       await this.eventBus.publish({
-        ...createBaseEvent('SensorReading', sensor.tenantId, { aggregateId: sensor.id, aggregateType: 'Sensor' }),
+        ...createBaseEvent('SensorReading', sensor.tenantId, {
+          aggregateId: sensor.id,
+          aggregateType: 'Sensor',
+        }),
         timestamp: timestamp.toISOString(),
         sensorId: sensor.id,
         readings: data,
@@ -1626,7 +1775,13 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     }
 
     // Pattern: aquaculture/{tenantId}/sensors/{sensorId}
-    if (parts[0] === 'aquaculture' && parts[2] === 'sensors' && parts.length >= 4 && parts[1] && parts[3]) {
+    if (
+      parts[0] === 'aquaculture' &&
+      parts[2] === 'sensors' &&
+      parts.length >= 4 &&
+      parts[1] &&
+      parts[3]
+    ) {
       return {
         tenantId: parts[1],
         sensorId: parts[3],
@@ -1654,7 +1809,10 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
    * 2. Redis cache (1 hour TTL)
    * 3. Database fallback with cache population
    */
-  private async findSensorByTopic(topic: string, parsed: ParsedTopic | null): Promise<Sensor | null> {
+  private async findSensorByTopic(
+    topic: string,
+    parsed: ParsedTopic | null,
+  ): Promise<Sensor | null> {
     try {
       // Use cache service if available (preferred path)
       if (this.sensorTopicCache) {
@@ -1698,7 +1856,9 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       if (queryRunner.isTransactionActive) {
         await queryRunner.rollbackTransaction();
       }
-      this.logger.error(`Error loading sensor ${cachedInfo.id} from cache: ${(error as Error).message}`);
+      this.logger.error(
+        `Error loading sensor ${cachedInfo.id} from cache: ${(error as Error).message}`,
+      );
       return null;
     } finally {
       await queryRunner.release();
@@ -1712,7 +1872,10 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
    * HIGH-005: Negative cache prevents 150+ queries per message when Redis is unavailable.
    * Unknown topics are cached for 30 seconds and immediately return null without DB queries.
    */
-  private async findSensorByTopicLegacy(topic: string, parsed: ParsedTopic | null): Promise<Sensor | null> {
+  private async findSensorByTopicLegacy(
+    topic: string,
+    parsed: ParsedTopic | null,
+  ): Promise<Sensor | null> {
     // Check negative cache before issuing any DB queries
     const negativeCacheExpiry = this.topicNegativeCache.get(topic);
     if (negativeCacheExpiry && negativeCacheExpiry > Date.now()) {
@@ -1735,10 +1898,13 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           await pinTenantSchemaTransactionSearchPath(queryRunner, 'sensor', schemaName);
 
           // Check if sensors table exists in this schema
-          const tableCheck: Array<{ '1': number }> = await queryRunner.query(`
+          const tableCheck: Array<{ '1': number }> = await queryRunner.query(
+            `
             SELECT 1 FROM information_schema.tables
             WHERE table_schema = $1 AND table_name = 'sensors'
-          `, [schemaName]);
+          `,
+            [schemaName],
+          );
 
           if (tableCheck.length === 0) {
             await queryRunner.commitTransaction();
@@ -1760,7 +1926,9 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
             .getOne();
 
           if (sensorByTopic) {
-            this.logger.debug(`Found sensor ${sensorByTopic.id} in schema ${schemaName} for topic ${topic}`);
+            this.logger.debug(
+              `Found sensor ${sensorByTopic.id} in schema ${schemaName} for topic ${topic}`,
+            );
             await queryRunner.commitTransaction();
             return sensorByTopic;
           }
@@ -1777,7 +1945,9 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           for (const sensor of sensorsWithWildcard) {
             const configTopic = sensor.protocolConfiguration?.['topic'] as string;
             if (configTopic && this.topicMatches(configTopic, topic)) {
-              this.logger.debug(`Found sensor ${sensor.id} in schema ${schemaName} via wildcard for topic ${topic}`);
+              this.logger.debug(
+                `Found sensor ${sensor.id} in schema ${schemaName} via wildcard for topic ${topic}`,
+              );
               await queryRunner.commitTransaction();
               return sensor;
             }
@@ -1808,7 +1978,9 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
             await queryRunner.rollbackTransaction();
           }
           // Skip this schema if there's an error
-          this.logger.debug(`Error searching in schema ${schemaName}: ${(schemaError as Error).message}`);
+          this.logger.debug(
+            `Error searching in schema ${schemaName}: ${(schemaError as Error).message}`,
+          );
           continue;
         } finally {
           await queryRunner.release();
@@ -1817,7 +1989,9 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
       // No sensor found in any schema — populate negative cache to prevent re-querying
       this.topicNegativeCache.set(topic, Date.now() + this.NEGATIVE_CACHE_TTL_MS);
-      this.logger.warn(`No sensor found for topic ${topic} (cached negative for ${this.NEGATIVE_CACHE_TTL_MS / 1000}s)`);
+      this.logger.warn(
+        `No sensor found for topic ${topic} (cached negative for ${this.NEGATIVE_CACHE_TTL_MS / 1000}s)`,
+      );
       return null;
     } catch (error) {
       this.logger.error(`Error in cross-schema sensor lookup: ${(error as Error).message}`);
@@ -1896,73 +2070,70 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
    * Each channel value becomes a separate row in sensor_metrics
    */
   private async saveReading(sensor: Sensor, data: Record<string, unknown>): Promise<void> {
-    await runInTenantTransaction(this.dataSource, 'sensor', sensor.tenantId, async (queryRunner) => {
-      const now = new Date();
-      const channels = await this.getChannelsCached(sensor.id, queryRunner.manager);
-      const metrics: SensorMetricInput[] = [];
+    await runInTenantTransaction(
+      this.dataSource,
+      'sensor',
+      sensor.tenantId,
+      async (queryRunner) => {
+        const now = new Date();
+        const channels = await this.getChannelsCached(sensor.id, queryRunner.manager);
+        const metrics: SensorMetricInput[] = [];
 
-      for (const channel of channels) {
-        const rawValue = channel.dataPath
-          ? this.extractValue(data, channel.dataPath)
-          : data[channel.channelKey];
+        for (const channel of channels) {
+          const rawValue = channel.dataPath
+            ? this.extractValue(data, channel.dataPath)
+            : data[channel.channelKey];
 
-        if (rawValue === undefined || rawValue === null) {
-          continue;
+          if (rawValue === undefined || rawValue === null) {
+            continue;
+          }
+
+          const numericRawValue =
+            typeof rawValue === 'number' ? rawValue : parseFloat(String(rawValue));
+          if (!Number.isFinite(numericRawValue)) {
+            continue;
+          }
+
+          const calibratedValue = channel.applyCalibration(numericRawValue);
+          let qualityCode: number = QualityCodes.GOOD;
+          let qualityBits = 0;
+
+          const validation = channel.validateValue(calibratedValue);
+          if (!validation.valid) {
+            qualityCode = QualityCodes.BAD;
+            qualityBits |= 0x20; // Out of range bit
+          } else if (validation.level === 'operational') {
+            qualityCode = QualityCodes.UNCERTAIN_EU_EXCEEDED;
+          }
+
+          metrics.push({
+            time: now,
+            sensorId: sensor.id,
+            channelId: channel.id,
+            tenantId: sensor.tenantId,
+            siteId: sensor.siteId,
+            departmentId: sensor.departmentId,
+            systemId: sensor.systemId,
+            equipmentId: sensor.equipmentId,
+            tankId: sensor.tankId,
+            pondId: sensor.pondId,
+            farmId: sensor.farmId,
+            rawValue: numericRawValue,
+            value: calibratedValue,
+            qualityCode,
+            qualityBits,
+            sourceProtocol: 'mqtt',
+            sourceTimestamp: now,
+          });
         }
 
-        const numericRawValue =
-          typeof rawValue === 'number' ? rawValue : parseFloat(String(rawValue));
-        if (!Number.isFinite(numericRawValue)) {
-          continue;
+        if (metrics.length > 0) {
+          await this.metricWriter.writeManaged(metrics, queryRunner.manager);
         }
 
-        const calibratedValue = channel.applyCalibration(numericRawValue);
-        let qualityCode: number = QualityCodes.GOOD;
-        let qualityBits = 0;
-
-        const validation = channel.validateValue(calibratedValue);
-        if (!validation.valid) {
-          qualityCode = QualityCodes.BAD;
-          qualityBits |= 0x20; // Out of range bit
-        } else if (validation.level === 'operational') {
-          qualityCode = QualityCodes.UNCERTAIN_EU_EXCEEDED;
-        }
-
-        metrics.push({
-          time: now,
-          sensorId: sensor.id,
-          channelId: channel.id,
-          tenantId: sensor.tenantId,
-          siteId: sensor.siteId,
-          departmentId: sensor.departmentId,
-          systemId: sensor.systemId,
-          equipmentId: sensor.equipmentId,
-          tankId: sensor.tankId,
-          pondId: sensor.pondId,
-          farmId: sensor.farmId,
-          rawValue: numericRawValue,
-          value: calibratedValue,
-          qualityCode,
-          qualityBits,
-          sourceProtocol: 'mqtt',
-          sourceTimestamp: now,
-        });
-      }
-
-      if (metrics.length > 0) {
-        await this.batchInsertMetrics(queryRunner.manager, metrics);
-      }
-
-      const legacyEnabled = this.configService.get('LEGACY_SENSOR_READINGS_ENABLED', 'false') === 'true';
-      if (legacyEnabled) {
-        if (this.configService.get('NODE_ENV') === 'production') {
-          this.logger.warn('LEGACY_SENSOR_READINGS_ENABLED=true in production — dual write doubles I/O. Migrate to sensor_metrics and disable.');
-        }
-        await this.writeLegacyReading(queryRunner.manager, sensor, data);
-      }
-
-      this.logger.debug(`Saved ${metrics.length} metrics for sensor ${sensor.id}`);
-    });
+        this.logger.debug(`Saved ${metrics.length} metrics for sensor ${sensor.id}`);
+      },
+    );
   }
 
   /**
@@ -2013,112 +2184,18 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
       this.logger.debug(`Flushed lastSeenAt for ${ids.length} sensors`);
     } catch (error) {
-      this.logger.error(`Failed to flush lastSeenAt: ${error instanceof Error ? error.message : String(error)}`);
+      this.logger.error(
+        `Failed to flush lastSeenAt: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
-  /**
-   * Validate UUID format to prevent SQL injection
-   */
-  private isValidUUID(str: string | null | undefined): boolean {
-    if (!str) return false;
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    return uuidRegex.test(str);
-  }
-
-  /**
-   * Batch insert metrics using parameterized SQL for plan cache reuse and safety
-   */
-  private async batchInsertMetrics(
-    manager: EntityManager,
-    metrics: SensorMetricInput[],
-  ): Promise<void> {
-    if (metrics.length === 0) return;
-
-    // Validate required UUIDs
-    const validMetrics = metrics.filter(m => {
-      if (!this.isValidUUID(m.sensorId) || !this.isValidUUID(m.channelId) || !this.isValidUUID(m.tenantId)) {
-        this.logger.warn(`Skipping metric with invalid UUID - sensorId: ${m.sensorId}, channelId: ${m.channelId}`);
-        return false;
-      }
-      return true;
-    });
-
-    if (validMetrics.length === 0) return;
-
-    // Build parameterized query for plan cache reuse
-    const params: (string | number | null | Date)[] = [];
-    const valuePlaceholders: string[] = [];
-    let paramIdx = 1;
-
-    for (const m of validMetrics) {
-      const placeholders = [];
-      for (const val of [
-        m.time.toISOString(),
-        m.sensorId,
-        m.channelId,
-        m.tenantId,
-        m.siteId || null,
-        m.departmentId || null,
-        m.systemId || null,
-        m.equipmentId || null,
-        m.tankId || null,
-        m.pondId || null,
-        m.farmId || null,
-        Number.isFinite(m.rawValue) ? m.rawValue : 0,
-        Number.isFinite(m.value) ? m.value : 0,
-        Number.isInteger(m.qualityCode) ? m.qualityCode : 192,
-        Number.isInteger(m.qualityBits) ? m.qualityBits : 0,
-        'mqtt',
-        m.time.toISOString(),
-        0,
-        null,
-      ]) {
-        placeholders.push(`$${paramIdx}`);
-        params.push(val as string | number | null);
-        paramIdx++;
-      }
-      valuePlaceholders.push(`(${placeholders.join(', ')})`);
-    }
-
-    await manager.query(`
-      INSERT INTO sensor_metrics (
-        time, sensor_id, channel_id, tenant_id,
-        site_id, department_id, system_id, equipment_id, tank_id, pond_id, farm_id,
-        raw_value, value, quality_code, quality_bits,
-        source_protocol, source_timestamp, ingestion_latency_ms, batch_id
-      ) VALUES ${valuePlaceholders.join(',\n')}
-      ON CONFLICT (time, sensor_id, channel_id) DO UPDATE SET
-        value = EXCLUDED.value,
-        raw_value = EXCLUDED.raw_value,
-        quality_code = EXCLUDED.quality_code
-    `, params);
-  }
-
-  /**
-   * Write to legacy sensor_readings table for backward compatibility
-   * @deprecated Use sensor_metrics table instead. Controlled by LEGACY_SENSOR_READINGS_ENABLED env var.
-   * This method will be removed once all consumers migrate to sensor_metrics.
-   */
-  private async writeLegacyReading(
-    manager: EntityManager,
-    sensor: Sensor,
-    data: Record<string, unknown>,
-  ): Promise<void> {
-    const reading = manager.create(SensorReading, {
-      id: randomUUID(),
-      sensorId: sensor.id,
-      tenantId: sensor.tenantId,
-      timestamp: new Date().toISOString(),
-      readings: data,
-      pondId: sensor.pondId,
-      farmId: sensor.farmId,
-      quality: 100,
-      source: 'mqtt',
-    });
-
-    await manager.save(SensorReading, reading);
-  }
+  // UUID/finite validation + the sensor.sensor_metrics INSERT are owned by
+  // SensorMetricWriterService (SENSOR-MEDIUM-068). saveReading builds
+  // SensorMetricInput[] with sourceProtocol 'mqtt' and hands them to
+  // writeManaged(metrics, queryRunner.manager). SENSOR-HIGH-085: there is no
+  // legacy sensor_readings dual write — the per-reading read surface projects
+  // readings from sensor_metrics, so sensor_metrics is the only store.
 
   /**
    * Extract value from object by path

@@ -9,6 +9,8 @@ export type Scalars = {
   Float: { input: number; output: number; }
   /** A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date-time format. */
   DateTime: { input: string; output: string; }
+  /** An exact decimal number serialised as a string to avoid IEEE-754 float loss (monetary and other precision-sensitive values). ADR-0004 Shared-Kernel scalar. */
+  Decimal: { input: unknown; output: unknown; }
   /** The `JSON` scalar type represents JSON values as specified by [ECMA-404](http://www.ecma-international.org/publications/files/ECMA-ST/ECMA-404.pdf). */
   JSON: { input: Record<string, unknown>; output: Record<string, unknown>; }
   join__FieldSet: { input: unknown; output: unknown; }
@@ -34,7 +36,19 @@ export type AcknowledgeAlarmInput = {
 
 export type AcknowledgeAlertInput = {
   alertId: Scalars['ID']['input'];
+  /** Stable client command UUID generated before first submission */
+  clientCommandId?: InputMaybe<Scalars['String']['input']>;
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: InputMaybe<Scalars['String']['input']>;
+  /** Stable per-installation device identifier */
+  deviceId?: InputMaybe<Scalars['String']['input']>;
   note?: InputMaybe<Scalars['String']['input']>;
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: InputMaybe<Scalars['String']['input']>;
+  /** SHA-256 hash of the command payload before envelope fields are added */
+  payloadHash?: InputMaybe<Scalars['String']['input']>;
+  /** Optional mobile command payload schema version */
+  schemaVersion?: InputMaybe<Scalars['String']['input']>;
 };
 
 /** IEC 61131-3 action qualifier determining when/how action executes */
@@ -86,22 +100,6 @@ export type AddChemicalDocumentInput = {
   documentType: ChemicalDocumentType;
   uploadedAt: Scalars['String']['input'];
   url: Scalars['String']['input'];
-};
-
-export type AddFeedInventoryInput = {
-  createdBy: Scalars['ID']['input'];
-  currency?: InputMaybe<Scalars['String']['input']>;
-  departmentId?: InputMaybe<Scalars['ID']['input']>;
-  expiryDate?: InputMaybe<Scalars['DateTime']['input']>;
-  feedId: Scalars['ID']['input'];
-  lotNumber?: InputMaybe<Scalars['String']['input']>;
-  manufacturingDate?: InputMaybe<Scalars['DateTime']['input']>;
-  notes?: InputMaybe<Scalars['String']['input']>;
-  quantityKg: Scalars['Float']['input'];
-  receivedDate?: InputMaybe<Scalars['DateTime']['input']>;
-  siteId: Scalars['ID']['input'];
-  storageLocation?: InputMaybe<Scalars['String']['input']>;
-  unitPricePerKg?: InputMaybe<Scalars['Float']['input']>;
 };
 
 export type AddIoConfigInput = {
@@ -200,20 +198,6 @@ export type AddressInput = {
   state: Scalars['String']['input'];
   street: Scalars['String']['input'];
 };
-
-export type AdjustFeedInventoryInput = {
-  adjustmentType: AdjustmentType;
-  inventoryId: Scalars['ID']['input'];
-  notes?: InputMaybe<Scalars['String']['input']>;
-  quantity: Scalars['Float']['input'];
-  reason: Scalars['String']['input'];
-};
-
-/** Stok düzeltme tipi */
-export type AdjustmentType =
-  | 'DECREASE'
-  | 'INCREASE'
-  | 'SET_QUANTITY';
 
 export type AerationInput = {
   aerationType?: InputMaybe<Scalars['String']['input']>;
@@ -663,6 +647,15 @@ export type AssignModuleManagerInput = {
   userId: Scalars['String']['input'];
 };
 
+export type AssignProtocolToUnitInput = {
+  effectiveFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  overrides?: InputMaybe<AssignmentOverridesInput>;
+  protocolId: Scalars['ID']['input'];
+  speciesMismatchReason?: InputMaybe<Scalars['String']['input']>;
+  unitId: Scalars['ID']['input'];
+  unitType: FeedingUnitType;
+};
+
 export type AssignTicketInput = {
   assigneeId: Scalars['String']['input'];
   ticketId: Scalars['String']['input'];
@@ -687,11 +680,26 @@ export type AssignUserToSiteInput = {
   userId: Scalars['ID']['input'];
 };
 
+export type AssignmentOverridesInput = {
+  fcrOverrides?: InputMaybe<Array<FcrOverrideInput>>;
+  mealTimeOffsetMinutes?: InputMaybe<Scalars['Int']['input']>;
+  mealsPerDayOverride?: InputMaybe<Scalars['Int']['input']>;
+  rateAdjustmentPercent?: InputMaybe<Scalars['Float']['input']>;
+};
+
 export type AssignmentResult = {
   isNewUser: Scalars['Boolean']['output'];
   message: Scalars['String']['output'];
   success: Scalars['Boolean']['output'];
   userId?: Maybe<Scalars['String']['output']>;
+};
+
+export type AssignmentSuspensionInput = {
+  from: Scalars['DateTime']['input'];
+  medicatedFeedId?: InputMaybe<Scalars['ID']['input']>;
+  reason: Scalars['String']['input'];
+  to: Scalars['DateTime']['input'];
+  type: Scalars['String']['input'];
 };
 
 export type AttendanceRecord = {
@@ -968,7 +976,9 @@ export type Batch = {
   arrivalMethod?: Maybe<ArrivalMethod>;
   batchNumber: Scalars['String']['output'];
   batchType: BatchType;
+  /** @deprecated Use costPerKgDecimal (exact decimal string, ADR-0004). */
   costPerKg?: Maybe<Scalars['Float']['output']>;
+  costPerKgDecimal?: Maybe<Scalars['Decimal']['output']>;
   createdAt: Scalars['DateTime']['output'];
   createdBy?: Maybe<Scalars['String']['output']>;
   cullCount: Scalars['Int']['output'];
@@ -997,7 +1007,9 @@ export type Batch = {
   name?: Maybe<Scalars['String']['output']>;
   notes?: Maybe<Scalars['String']['output']>;
   protocolId?: Maybe<Scalars['ID']['output']>;
+  /** @deprecated Use purchaseCostDecimal (exact decimal string, ADR-0004). */
   purchaseCost?: Maybe<Scalars['Float']['output']>;
+  purchaseCostDecimal?: Maybe<Scalars['Decimal']['output']>;
   retentionRate?: Maybe<Scalars['Float']['output']>;
   sgr?: Maybe<Scalars['Float']['output']>;
   sourceLocation?: Maybe<Scalars['String']['output']>;
@@ -1013,7 +1025,9 @@ export type Batch = {
   survivalRate: Scalars['Float']['output'];
   tenantId: Scalars['String']['output'];
   totalFeedConsumed: Scalars['Float']['output'];
+  /** @deprecated Use totalFeedCostDecimal (exact decimal string, ADR-0004). */
   totalFeedCost: Scalars['Float']['output'];
+  totalFeedCostDecimal: Scalars['Decimal']['output'];
   totalMortality: Scalars['Int']['output'];
   updatedAt: Scalars['DateTime']['output'];
   updatedBy?: Maybe<Scalars['String']['output']>;
@@ -1118,7 +1132,9 @@ export type BatchFeedTotalResponse = {
   feedCode?: Maybe<Scalars['String']['output']>;
   feedId: Scalars['ID']['output'];
   feedName?: Maybe<Scalars['String']['output']>;
+  /** @deprecated Use totalCostDecimal (exact decimal string, ADR-0004). */
   totalCost?: Maybe<Scalars['Float']['output']>;
+  totalCostDecimal?: Maybe<Scalars['Decimal']['output']>;
   totalKg: Scalars['Float']['output'];
 };
 
@@ -1239,8 +1255,12 @@ export type BatchPerformanceResponse = {
   avgDailyGrowthG: Scalars['Float']['output'];
   batchId: Scalars['ID']['output'];
   batchNumber: Scalars['String']['output'];
+  /** @deprecated Use costPerFishDecimal (exact decimal string, ADR-0004). */
   costPerFish: Scalars['Float']['output'];
+  costPerFishDecimal: Scalars['Decimal']['output'];
+  /** @deprecated Use costPerKgDecimal (exact decimal string, ADR-0004). */
   costPerKg: Scalars['Float']['output'];
+  costPerKgDecimal: Scalars['Decimal']['output'];
   cullCount: Scalars['Int']['output'];
   currentAvgWeightG: Scalars['Float']['output'];
   currentBiomassKg: Scalars['Float']['output'];
@@ -1257,15 +1277,21 @@ export type BatchPerformanceResponse = {
   performanceStatus: PerformanceStatusType;
   projectedHarvestDate?: Maybe<Scalars['DateTime']['output']>;
   projectedHarvestWeightG?: Maybe<Scalars['Float']['output']>;
+  /** @deprecated Use purchaseCostDecimal (exact decimal string, ADR-0004). */
   purchaseCost: Scalars['Float']['output'];
+  purchaseCostDecimal: Scalars['Decimal']['output'];
   retentionRate: Scalars['Float']['output'];
   sgr: Scalars['Float']['output'];
   speciesName: Scalars['String']['output'];
   survivalRate: Scalars['Float']['output'];
   targetDailyGrowthG: Scalars['Float']['output'];
+  /** @deprecated Use totalCostDecimal (exact decimal string, ADR-0004). */
   totalCost: Scalars['Float']['output'];
+  totalCostDecimal: Scalars['Decimal']['output'];
   totalFeedConsumedKg: Scalars['Float']['output'];
+  /** @deprecated Use totalFeedCostDecimal (exact decimal string, ADR-0004). */
   totalFeedCost: Scalars['Float']['output'];
+  totalFeedCostDecimal: Scalars['Decimal']['output'];
   totalMortality: Scalars['Int']['output'];
   weightGainG: Scalars['Float']['output'];
   weightGainPercent: Scalars['Float']['output'];
@@ -1329,7 +1355,9 @@ export type BatchTraceabilitySummaryResponse = {
   status: Scalars['String']['output'];
   stockedAt: Scalars['DateTime']['output'];
   survivalRatePercent?: Maybe<Scalars['Float']['output']>;
+  /** @deprecated Use totalFeedCostDecimal (exact decimal string, ADR-0004). */
   totalFeedCost?: Maybe<Scalars['Float']['output']>;
+  totalFeedCostDecimal?: Maybe<Scalars['Decimal']['output']>;
   totalFeedKg: Scalars['Float']['output'];
 };
 
@@ -1633,15 +1661,24 @@ export type BulkUpdateDataChannelsResult = {
 };
 
 export type BulkUpdateMobileSettingsInput = {
+  attendance?: InputMaybe<Scalars['Boolean']['input']>;
   cull?: InputMaybe<Scalars['Boolean']['input']>;
+  escape?: InputMaybe<Scalars['Boolean']['input']>;
   feeding?: InputMaybe<Scalars['Boolean']['input']>;
   harvest?: InputMaybe<Scalars['Boolean']['input']>;
   isMobileEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  leave?: InputMaybe<Scalars['Boolean']['input']>;
+  liceCount?: InputMaybe<Scalars['Boolean']['input']>;
   mortality?: InputMaybe<Scalars['Boolean']['input']>;
+  reports?: InputMaybe<Scalars['Boolean']['input']>;
+  schedule?: InputMaybe<Scalars['Boolean']['input']>;
   storage?: InputMaybe<Scalars['Boolean']['input']>;
   tankView?: InputMaybe<Scalars['Boolean']['input']>;
+  tasks?: InputMaybe<Scalars['Boolean']['input']>;
+  transfer?: InputMaybe<Scalars['Boolean']['input']>;
   userIds: Array<Scalars['ID']['input']>;
   waterQuality?: InputMaybe<Scalars['Boolean']['input']>;
+  welfare?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
 /** Byte order for data parsing */
@@ -1653,6 +1690,29 @@ export type Co2RangeInput = {
   max: Scalars['Float']['input'];
   min: Scalars['Float']['input'];
   warning?: InputMaybe<Scalars['Float']['input']>;
+};
+
+/** Immutable record of one channel calibration */
+export type CalibrationEvent = {
+  calibratedAt: Scalars['DateTime']['output'];
+  calibrationMultiplier: Scalars['Float']['output'];
+  calibrationOffset: Scalars['Float']['output'];
+  channelId: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  intervalDays?: Maybe<Scalars['Int']['output']>;
+  nextCalibrationDue?: Maybe<Scalars['DateTime']['output']>;
+  notes?: Maybe<Scalars['String']['output']>;
+  performedBy: Scalars['String']['output'];
+  performedByEmail?: Maybe<Scalars['String']['output']>;
+  referenceValues?: Maybe<Scalars['JSON']['output']>;
+  sensorId: Scalars['String']['output'];
+  tenantId: Scalars['String']['output'];
+};
+
+export type CalibrationReferencePointInput = {
+  label?: InputMaybe<Scalars['String']['input']>;
+  raw: Scalars['Float']['input'];
+  reference: Scalars['Float']['input'];
 };
 
 export type CarryOverLeaveBalancesResult = {
@@ -1677,7 +1737,9 @@ export type CategoryTotal = {
   category: Scalars['String']['output'];
   itemCount: Scalars['Int']['output'];
   totalQuantity: Scalars['Float']['output'];
+  /** @deprecated Use totalValueDecimal (exact decimal string, ADR-0004). */
   totalValue: Scalars['Float']['output'];
+  totalValueDecimal: Scalars['Decimal']['output'];
 };
 
 export type CertificationCategory =
@@ -1987,7 +2049,9 @@ export type ChemicalResponse = {
   tenantId: Scalars['ID']['output'];
   type: ChemicalType;
   unit: Scalars['String']['output'];
+  /** @deprecated Use unitPriceDecimal (exact decimal string, ADR-0004). */
   unitPrice?: Maybe<Scalars['Float']['output']>;
+  unitPriceDecimal?: Maybe<Scalars['Decimal']['output']>;
   updatedAt: Scalars['DateTime']['output'];
   updatedBy?: Maybe<Scalars['ID']['output']>;
   usageAreas?: Maybe<Array<Scalars['String']['output']>>;
@@ -2029,14 +2093,17 @@ export type ChemicalType =
   | 'ALGAECIDE'
   | 'ANESTHETIC'
   | 'ANTIBIOTIC'
+  | 'ANTIFUNGAL'
   | 'ANTIPARASITIC'
   | 'DISINFECTANT'
   | 'MINERAL'
   | 'OTHER'
   | 'PROBIOTIC'
   | 'TREATMENT'
+  | 'VACCINE'
   | 'VITAMIN'
   | 'WATER_CONDITIONER'
+  | 'WOUND_CARE'
   | 'pH_ADJUSTER';
 
 export type ChemicalTypeResponse = {
@@ -2066,6 +2133,7 @@ export type ChildSensorType = {
   registrationStatus: SensorRegistrationStatus;
   tenantId: Scalars['String']['output'];
   type: SensorType;
+  typeDefinitionId?: Maybe<Scalars['ID']['output']>;
   unit?: Maybe<Scalars['String']['output']>;
 };
 
@@ -2405,7 +2473,9 @@ export type ConsumableResponse = {
   supplierId?: Maybe<Scalars['ID']['output']>;
   tenantId: Scalars['ID']['output'];
   unit: Scalars['String']['output'];
+  /** @deprecated Use unitPriceDecimal (exact decimal string, ADR-0004). */
   unitPrice?: Maybe<Scalars['Float']['output']>;
+  unitPriceDecimal?: Maybe<Scalars['Decimal']['output']>;
   updatedAt: Scalars['DateTime']['output'];
   updatedBy?: Maybe<Scalars['ID']['output']>;
 };
@@ -2416,22 +2486,6 @@ export type ConsumableStatus =
   | 'DISCONTINUED'
   | 'LOW_STOCK'
   | 'OUT_OF_STOCK';
-
-export type ConsumeFeedInventoryInput = {
-  feedingRecordId?: InputMaybe<Scalars['ID']['input']>;
-  inventoryId: Scalars['ID']['input'];
-  notes?: InputMaybe<Scalars['String']['input']>;
-  quantityKg: Scalars['Float']['input'];
-  reason?: ConsumptionReason;
-};
-
-/** Yem tüketim nedeni */
-export type ConsumptionReason =
-  | 'ADJUSTMENT'
-  | 'EXPIRED'
-  | 'FEEDING'
-  | 'TRANSFER'
-  | 'WASTE';
 
 export type ContactInfo = {
   email: Scalars['String']['output'];
@@ -2445,6 +2499,12 @@ export type ContactInfoInput = {
   emergencyContact?: InputMaybe<Scalars['String']['input']>;
   emergencyPhone?: InputMaybe<Scalars['String']['input']>;
   phone: Scalars['String']['input'];
+};
+
+export type CorrectMealPourInput = {
+  correctedKg: Scalars['Float']['input'];
+  mealId: Scalars['ID']['input'];
+  pourIndex: Scalars['Int']['input'];
 };
 
 export type CreateActionInput = {
@@ -2501,7 +2561,6 @@ export type CreateBatchInput = {
   inputType?: BatchInputType;
   name?: InputMaybe<Scalars['String']['input']>;
   notes?: InputMaybe<Scalars['String']['input']>;
-  protocolId?: InputMaybe<Scalars['ID']['input']>;
   purchaseCost?: InputMaybe<Scalars['Float']['input']>;
   speciesId: Scalars['String']['input'];
   stockedAt: Scalars['String']['input'];
@@ -2691,6 +2750,7 @@ export type CreateEmployeeInput = {
   firstName: Scalars['String']['input'];
   hireDate: Scalars['String']['input'];
   isFarmWorker?: InputMaybe<Scalars['Boolean']['input']>;
+  laborCategory?: InputMaybe<LaborCategory>;
   lastName: Scalars['String']['input'];
   nationalId: Scalars['String']['input'];
   position: Scalars['String']['input'];
@@ -2870,6 +2930,19 @@ export type CreateFeedingProtocolInput = {
   temperatureRanges?: InputMaybe<Array<FeedingTemperatureRangeInput>>;
 };
 
+export type CreateFeedingProtocolV2Input = {
+  bands: Array<ProtocolBandInput>;
+  defaultMealSchedule: MealScheduleInput;
+  description?: InputMaybe<Scalars['String']['input']>;
+  fcrMatrix?: InputMaybe<FcrMatrixInput>;
+  isDefault?: Scalars['Boolean']['input'];
+  name: Scalars['String']['input'];
+  settings: ProtocolSettingsInput;
+  speciesId?: InputMaybe<Scalars['ID']['input']>;
+  status?: InputMaybe<FeedingProtocolStatus>;
+  temperatureAdjustments?: InputMaybe<Array<TemperatureAdjustmentInput>>;
+};
+
 export type CreateFeedingRecordInput = {
   actualAmount: Scalars['Float']['input'];
   batchId: Scalars['ID']['input'];
@@ -2892,6 +2965,24 @@ export type CreateFeedingRecordInput = {
   tankId?: InputMaybe<Scalars['ID']['input']>;
   totalMealsToday?: Scalars['Int']['input'];
   wasteAmount?: InputMaybe<Scalars['Float']['input']>;
+};
+
+export type CreateFinanceCategoryInput = {
+  displayOrder?: InputMaybe<Scalars['Int']['input']>;
+  kind?: InputMaybe<FinanceCategoryKind>;
+  name: Scalars['String']['input'];
+  scope: FinanceCategoryScope;
+};
+
+export type CreateFinanceEntryInput = {
+  amount: Scalars['Float']['input'];
+  batchId?: InputMaybe<Scalars['ID']['input']>;
+  categoryId: Scalars['ID']['input'];
+  description?: InputMaybe<Scalars['String']['input']>;
+  entryDate: Scalars['String']['input'];
+  periodEnd?: InputMaybe<Scalars['String']['input']>;
+  periodStart?: InputMaybe<Scalars['String']['input']>;
+  siteId?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type CreateGoalInput = {
@@ -3097,6 +3188,20 @@ export type CreateHealthEventInput = {
   waterQualitySnapshot?: InputMaybe<WaterQualitySnapshotInput>;
   /** Withdrawal period in days before harvest */
   withdrawalPeriodDays?: InputMaybe<Scalars['Int']['input']>;
+};
+
+export type CreateHrFinanceCategoryInput = {
+  displayOrder?: InputMaybe<Scalars['Int']['input']>;
+  name: Scalars['String']['input'];
+};
+
+export type CreateHrFinanceEntryInput = {
+  amount: Scalars['Float']['input'];
+  categoryId: Scalars['ID']['input'];
+  departmentHrId?: InputMaybe<Scalars['ID']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  employeeId?: InputMaybe<Scalars['ID']['input']>;
+  entryDate: Scalars['String']['input'];
 };
 
 export type CreateHydroponicsConfigInput = {
@@ -3442,19 +3547,6 @@ export type CreateScadaPackageInput = {
   processId?: InputMaybe<Scalars['String']['input']>;
 };
 
-export type CreateSensorInput = {
-  farmId?: InputMaybe<Scalars['ID']['input']>;
-  firmwareVersion?: InputMaybe<Scalars['String']['input']>;
-  manufacturer?: InputMaybe<Scalars['String']['input']>;
-  model?: InputMaybe<Scalars['String']['input']>;
-  name: Scalars['String']['input'];
-  pondId?: InputMaybe<Scalars['ID']['input']>;
-  serialNumber: Scalars['String']['input'];
-  type: SensorType;
-  /** Dynamic sensor type definition ID (optional, supplements the type ENUM) */
-  typeDefinitionId?: InputMaybe<Scalars['ID']['input']>;
-};
-
 export type CreateSensorTypeInput = {
   category?: InputMaybe<Scalars['String']['input']>;
   defaultChannels?: InputMaybe<Scalars['JSON']['input']>;
@@ -3494,6 +3586,8 @@ export type CreateSiteInput = {
   description?: InputMaybe<Scalars['String']['input']>;
   location?: InputMaybe<SiteLocationInput>;
   lokalitetsnummer?: InputMaybe<Scalars['Int']['input']>;
+  monitoringArea?: InputMaybe<Scalars['JSON']['input']>;
+  monitoringRadiusM?: InputMaybe<Scalars['Int']['input']>;
   name: Scalars['String']['input'];
   organisationNumberOverride?: InputMaybe<Scalars['String']['input']>;
   region?: InputMaybe<Scalars['String']['input']>;
@@ -3502,6 +3596,7 @@ export type CreateSiteInput = {
   status?: InputMaybe<SiteStatus>;
   timezone?: InputMaybe<Scalars['String']['input']>;
   totalArea?: InputMaybe<Scalars['Float']['input']>;
+  type?: InputMaybe<SiteType>;
 };
 
 export type CreateSlaughterFacilityInput = {
@@ -3902,7 +3997,7 @@ export type CreateWaterQualityInput = {
   payloadHash?: InputMaybe<Scalars['String']['input']>;
   /** Havuz ID */
   pondId?: InputMaybe<Scalars['ID']['input']>;
-  /** Source sensor_readings row that produced this measurement */
+  /** Federation id of the sensor reading that produced this measurement */
   relatedSensorReadingId?: InputMaybe<Scalars['ID']['input']>;
   /** Optional mobile command payload schema version */
   schemaVersion?: InputMaybe<Scalars['String']['input']>;
@@ -4017,25 +4112,6 @@ export type CullReason =
   | 'QUALITY'
   | 'SICK'
   | 'SMALL_SIZE';
-
-export type CurrentWeatherResponse = {
-  cloudCover?: Maybe<Scalars['Float']['output']>;
-  fetchedAt?: Maybe<Scalars['DateTime']['output']>;
-  observedAt: Scalars['DateTime']['output'];
-  precipitation?: Maybe<Scalars['Float']['output']>;
-  pressureMsl?: Maybe<Scalars['Float']['output']>;
-  relativeHumidity?: Maybe<Scalars['Float']['output']>;
-  seaSurfaceTemperature?: Maybe<Scalars['Float']['output']>;
-  siteId: Scalars['String']['output'];
-  swellWaveHeight?: Maybe<Scalars['Float']['output']>;
-  temperature?: Maybe<Scalars['Float']['output']>;
-  waveDirection?: Maybe<Scalars['Float']['output']>;
-  waveHeight?: Maybe<Scalars['Float']['output']>;
-  wavePeriod?: Maybe<Scalars['Float']['output']>;
-  windDirection?: Maybe<Scalars['Float']['output']>;
-  windGusts?: Maybe<Scalars['Float']['output']>;
-  windSpeed?: Maybe<Scalars['Float']['output']>;
-};
 
 export type CursorPaginationInput = {
   /** Opaque cursor returned from a previous page. Pass null/omit for the first page. */
@@ -4158,6 +4234,7 @@ export type DashboardLayout = {
 export type DataChannelType = {
   alertThresholds?: Maybe<AlertThresholdsType>;
   calibrationEnabled: Scalars['Boolean']['output'];
+  calibrationIntervalDays?: Maybe<Scalars['Int']['output']>;
   calibrationMultiplier: Scalars['Float']['output'];
   calibrationOffset: Scalars['Float']['output'];
   channelKey: Scalars['String']['output'];
@@ -4175,6 +4252,7 @@ export type DataChannelType = {
   lastCalibratedAt?: Maybe<Scalars['DateTime']['output']>;
   maxValue?: Maybe<Scalars['Float']['output']>;
   minValue?: Maybe<Scalars['Float']['output']>;
+  nextCalibrationDue?: Maybe<Scalars['DateTime']['output']>;
   sampleValue?: Maybe<Scalars['JSON']['output']>;
   sensor?: Maybe<ChannelSensorInfo>;
   sensorId: Scalars['ID']['output'];
@@ -4201,12 +4279,32 @@ export type DayEntry = {
   startTime?: Maybe<Scalars['String']['output']>;
 };
 
+/** K-9 operatör aksiyonlarının sonucu — telde enum ADI (RECALCULATED | GENERATED | TRANSITIONED) taşınır. */
+export type DayPlanAdminOutcome =
+  | 'GENERATED'
+  | 'RECALCULATED'
+  | 'TRANSITIONED';
+
+export type DayPlanAdminResult = {
+  dayPlanId?: Maybe<Scalars['ID']['output']>;
+  outcome: DayPlanAdminOutcome;
+};
+
 export type DaySummary = {
   date: Scalars['String']['output'];
   dayOfWeek: WeekDay;
   leaveCount: Scalars['Int']['output'];
   offCount: Scalars['Int']['output'];
   workingCount: Scalars['Int']['output'];
+};
+
+export type DeductionsBreakdown = {
+  healthInsurance?: Maybe<Scalars['Float']['output']>;
+  otherDeductions?: Maybe<Scalars['Float']['output']>;
+  retirement?: Maybe<Scalars['Float']['output']>;
+  socialSecurity?: Maybe<Scalars['Float']['output']>;
+  tax?: Maybe<Scalars['Float']['output']>;
+  totalDeductions: Scalars['Float']['output'];
 };
 
 export type DeductionsInput = {
@@ -4774,6 +4872,15 @@ export type DissolvedOxygenInput = {
   unit?: Scalars['String']['input'];
 };
 
+export type EarningsBreakdown = {
+  allowances?: Maybe<Scalars['Float']['output']>;
+  baseSalary: Scalars['Float']['output'];
+  bonus?: Maybe<Scalars['Float']['output']>;
+  commission?: Maybe<Scalars['Float']['output']>;
+  grossPay: Scalars['Float']['output'];
+  overtime?: Maybe<Scalars['Float']['output']>;
+};
+
 export type EarningsInput = {
   allowances?: InputMaybe<Scalars['Float']['input']>;
   baseSalary: Scalars['Float']['input'];
@@ -4785,6 +4892,7 @@ export type EarningsInput = {
 export type EdgeDevice = {
   activeAlarmCount?: Maybe<Scalars['Int']['output']>;
   agentVersion?: Maybe<Scalars['String']['output']>;
+  appliedConfigHash?: Maybe<Scalars['String']['output']>;
   capabilities?: Maybe<Scalars['JSON']['output']>;
   certificateExpiresAt?: Maybe<Scalars['DateTime']['output']>;
   certificateThumbprint?: Maybe<Scalars['String']['output']>;
@@ -4806,6 +4914,7 @@ export type EdgeDevice = {
   ioConfig: Array<DeviceIoConfig>;
   ipAddress?: Maybe<Scalars['String']['output']>;
   isOnline: Scalars['Boolean']['output'];
+  lastConfigAckAt?: Maybe<Scalars['DateTime']['output']>;
   lastSeenAt?: Maybe<Scalars['DateTime']['output']>;
   lifecycleState: DeviceLifecycleState;
   memoryUsage?: Maybe<Scalars['Int']['output']>;
@@ -4897,6 +5006,14 @@ export type EffectivePermissions = {
   roleName: Scalars['String']['output'];
 };
 
+export type EffectiveUnitTemperature = {
+  celsius?: Maybe<Scalars['Float']['output']>;
+  measuredAt?: Maybe<Scalars['DateTime']['output']>;
+  sensorId?: Maybe<Scalars['ID']['output']>;
+  source: Scalars['String']['output'];
+  unitId: Scalars['ID']['output'];
+};
+
 export type Employee = {
   address: Address;
   assignedWorkAreas?: Maybe<Array<WorkAreaType>>;
@@ -4919,6 +5036,7 @@ export type Employee = {
   id: Scalars['ID']['output'];
   isDeleted: Scalars['Boolean']['output'];
   isFarmWorker: Scalars['Boolean']['output'];
+  laborCategory?: Maybe<LaborCategory>;
   lastName: Scalars['String']['output'];
   personnelCategory?: Maybe<PersonnelCategory>;
   position: Scalars['String']['output'];
@@ -5106,6 +5224,187 @@ export type EnrollmentStatus =
   | 'PASSED'
   | 'WITHDRAWN';
 
+export type EnvironmentAvailabilityStatus =
+  | 'CLOUD_OBSCURED'
+  | 'CONFIGURATION_ERROR'
+  | 'NO_DATA'
+  | 'OUT_OF_COVERAGE'
+  | 'PARTIAL_COVERAGE'
+  | 'PARTIAL_FAILURE'
+  | 'PREPARING'
+  | 'PROVIDER_UNAVAILABLE'
+  | 'READY'
+  | 'STALE';
+
+export type EnvironmentCoverageScopeResponse = {
+  completedAt: Scalars['DateTime']['output'];
+  errorCode?: Maybe<Scalars['String']['output']>;
+  metric?: Maybe<EnvironmentMetric>;
+  observationCount: Scalars['Int']['output'];
+  outcome: EnvironmentSyncScopeOutcome;
+  provider: EnvironmentProvider;
+  scopeKey: Scalars['String']['output'];
+  scopeKind: EnvironmentSyncScopeKind;
+  validFrom?: Maybe<Scalars['DateTime']['output']>;
+  validTo?: Maybe<Scalars['DateTime']['output']>;
+};
+
+export type EnvironmentCoverageSummaryResponse = {
+  expected: Scalars['Int']['output'];
+  failed: Scalars['Int']['output'];
+  noData: Scalars['Int']['output'];
+  outOfCoverage: Scalars['Int']['output'];
+  scopes: Array<EnvironmentCoverageScopeResponse>;
+  successful: Scalars['Int']['output'];
+};
+
+export type EnvironmentLayerCapability =
+  | 'FORECAST'
+  | 'HISTORY'
+  | 'IMAGERY';
+
+export type EnvironmentLayerResponse = {
+  availability: EnvironmentAvailabilityStatus;
+  availableFrom?: Maybe<Scalars['DateTime']['output']>;
+  availableTo?: Maybe<Scalars['DateTime']['output']>;
+  capabilities: Array<EnvironmentLayerCapability>;
+  coverage: EnvironmentCoverageSummaryResponse;
+  description: Scalars['String']['output'];
+  id: Scalars['String']['output'];
+  maxValue?: Maybe<Scalars['Float']['output']>;
+  metric?: Maybe<EnvironmentMetric>;
+  minValue?: Maybe<Scalars['Float']['output']>;
+  name: Scalars['String']['output'];
+  nominalResolutionM?: Maybe<Scalars['Float']['output']>;
+  resolutionLabel: Scalars['String']['output'];
+  scientificLabel: Scalars['String']['output'];
+  semanticClass: EnvironmentSemanticClass;
+  source: EnvironmentProvider;
+  sources: Array<EnvironmentProvider>;
+  supportsDepth: Scalars['Boolean']['output'];
+  unit?: Maybe<Scalars['String']['output']>;
+};
+
+export type EnvironmentMetric =
+  | 'AIR_TEMPERATURE'
+  | 'CLOUD_COVER'
+  | 'CURRENT_DIRECTION'
+  | 'CURRENT_SPEED'
+  | 'DISSOLVED_OXYGEN'
+  | 'MODEL_CHLOROPHYLL'
+  | 'PRECIPITATION'
+  | 'PRESSURE_MSL'
+  | 'RELATIVE_HUMIDITY'
+  | 'SALINITY'
+  | 'SEA_TEMPERATURE'
+  | 'WAVE_DIRECTION'
+  | 'WAVE_HEIGHT'
+  | 'WAVE_PERIOD'
+  | 'WIND_DIRECTION'
+  | 'WIND_GUST'
+  | 'WIND_SPEED';
+
+export type EnvironmentProvider =
+  | 'CDSE_SENTINEL_2'
+  | 'CMEMS'
+  | 'MET_FROST'
+  | 'MET_LOCATIONFORECAST';
+
+export type EnvironmentQualityStatus =
+  | 'CLOUD_OBSCURED'
+  | 'CONFIGURATION_ERROR'
+  | 'NO_DATA'
+  | 'OUT_OF_COVERAGE'
+  | 'PROVIDER_UNAVAILABLE'
+  | 'PROVISIONAL'
+  | 'STALE'
+  | 'VALID';
+
+export type EnvironmentSceneCursorConnection = {
+  edges: Array<EnvironmentSceneEdge>;
+  pageInfo: EnvironmentSceneCursorPageInfo;
+  siteId: Scalars['ID']['output'];
+};
+
+export type EnvironmentSceneCursorPageInfo = {
+  /** Cursor of the final edge in this page. null only when the page has no edges. */
+  endCursor?: Maybe<Scalars['String']['output']>;
+  hasNextPage: Scalars['Boolean']['output'];
+};
+
+export type EnvironmentSceneEdge = {
+  cursor: Scalars['String']['output'];
+  node: EnvironmentSceneResponse;
+};
+
+export type EnvironmentSceneResponse = {
+  acquiredAt: Scalars['DateTime']['output'];
+  cloudCoverPercent?: Maybe<Scalars['Float']['output']>;
+  collection: Scalars['String']['output'];
+  coverageMethod: Scalars['String']['output'];
+  coveragePercent?: Maybe<Scalars['Float']['output']>;
+  coverageSampleCount?: Maybe<Scalars['Int']['output']>;
+  coverageStatus: SatelliteCoverageStatus;
+  datasetId: Scalars['String']['output'];
+  fetchedAt: Scalars['DateTime']['output'];
+  id: Scalars['ID']['output'];
+  locationRevision: Scalars['Int']['output'];
+  productId: Scalars['String']['output'];
+  qualityStatus: EnvironmentQualityStatus;
+  sceneId: Scalars['String']['output'];
+};
+
+export type EnvironmentScenesInput = {
+  after?: InputMaybe<Scalars['String']['input']>;
+  first?: Scalars['Int']['input'];
+  from: Scalars['DateTime']['input'];
+  siteId: Scalars['ID']['input'];
+  to: Scalars['DateTime']['input'];
+};
+
+export type EnvironmentSemanticClass =
+  | 'ANALYSIS'
+  | 'FORECAST'
+  | 'IMAGERY'
+  | 'INDICATOR'
+  | 'OBSERVATION'
+  | 'SATELLITE_ACQUISITION';
+
+export type EnvironmentSyncScopeKind =
+  | 'METRIC_HORIZON'
+  | 'METRIC_INTERVAL'
+  | 'METRIC_SUMMARY'
+  | 'PROVIDER_RUN';
+
+export type EnvironmentSyncScopeOutcome =
+  | 'AVAILABLE'
+  | 'CONFIGURATION_ERROR'
+  | 'NO_DATA'
+  | 'OUT_OF_COVERAGE'
+  | 'PROVIDER_UNAVAILABLE';
+
+export type EnvironmentValueResponse = {
+  datasetId: Scalars['String']['output'];
+  depthM?: Maybe<Scalars['Float']['output']>;
+  fetchedAt: Scalars['DateTime']['output'];
+  gridCellDistanceM?: Maybe<Scalars['Float']['output']>;
+  issuedAt?: Maybe<Scalars['DateTime']['output']>;
+  locationRevision: Scalars['Int']['output'];
+  metric: EnvironmentMetric;
+  productId: Scalars['String']['output'];
+  qualityStatus: EnvironmentQualityStatus;
+  requestedDepthM?: Maybe<Scalars['Float']['output']>;
+  resolutionM?: Maybe<Scalars['Float']['output']>;
+  semanticClass: EnvironmentSemanticClass;
+  source: EnvironmentProvider;
+  stationDistanceKm?: Maybe<Scalars['Float']['output']>;
+  stationId?: Maybe<Scalars['String']['output']>;
+  unit: Scalars['String']['output'];
+  validAt: Scalars['DateTime']['output'];
+  value: Scalars['Float']['output'];
+  variableId: Scalars['String']['output'];
+};
+
 export type EnvironmentalImpactInput = {
   /** CO2-eq with Land Use Change (kg CO2/kg feed) */
   co2EqWithLuc?: InputMaybe<Scalars['Float']['input']>;
@@ -5276,7 +5575,9 @@ export type EquipmentResponse = {
   /** Parent equipment for nested hierarchy */
   parentEquipmentId?: Maybe<Scalars['ID']['output']>;
   purchaseDate?: Maybe<Scalars['DateTime']['output']>;
+  /** @deprecated Use purchasePriceDecimal (exact decimal string, ADR-0004). */
   purchasePrice?: Maybe<Scalars['Float']['output']>;
+  purchasePriceDecimal?: Maybe<Scalars['Decimal']['output']>;
   serialNumber?: Maybe<Scalars['String']['output']>;
   siteId?: Maybe<Scalars['ID']['output']>;
   specifications?: Maybe<Scalars['JSON']['output']>;
@@ -5601,6 +5902,8 @@ export type FarmStockBatchSnapshot = {
   isPrimary: Scalars['Boolean']['output'];
   lastMortalityAt?: Maybe<Scalars['DateTime']['output']>;
   quantity: Scalars['Int']['output'];
+  speciesId?: Maybe<Scalars['ID']['output']>;
+  speciesName?: Maybe<Scalars['String']['output']>;
   tenantId: Scalars['ID']['output'];
   totalCull: Scalars['Int']['output'];
   totalMortality: Scalars['Int']['output'];
@@ -5635,10 +5938,19 @@ export type FarmStockContainerSource =
   | 'TANK';
 
 export type FarmStockInventoryConnection = {
+  /** Whether there is a next page */
+  hasNextPage: Scalars['Boolean']['output'];
+  /** Whether there is a previous page */
+  hasPreviousPage: Scalars['Boolean']['output'];
+  /** Array of items */
   items: Array<FarmStockInventoryItem>;
+  /** Items per page */
   limit: Scalars['Int']['output'];
+  /** Current page number */
   page: Scalars['Int']['output'];
+  /** Total count of items matching the query */
   total: Scalars['Int']['output'];
+  /** Total number of pages */
   totalPages: Scalars['Int']['output'];
 };
 
@@ -5658,6 +5970,24 @@ export type FarmStockInventoryItem = {
   batches: Array<FarmStockBatchSnapshot>;
   container: FarmStockContainerSnapshot;
 };
+
+export type FcrMatrixInput = {
+  fcrValues: Array<Array<Scalars['Float']['input']>>;
+  temperatures: Array<Scalars['Float']['input']>;
+  weights: Array<Scalars['Float']['input']>;
+};
+
+export type FcrOverrideInput = {
+  expectedFcr: Scalars['Float']['input'];
+  feedId: Scalars['ID']['input'];
+};
+
+/** Beklenen FCR değerinin hangi kaynaktan çözüldüğü (provenans) */
+export type FcrResolvedSource =
+  | 'BAND'
+  | 'FEED'
+  | 'MATRIX'
+  | 'OVERRIDE';
 
 export type FeedAssignmentEntryInput = {
   /** Feed code (for display) */
@@ -5790,60 +6120,6 @@ export type FeedGrowthStage =
   | 'LARVAE'
   | 'PRE_ADULT';
 
-export type FeedInventory = {
-  createdAt: Scalars['DateTime']['output'];
-  createdBy?: Maybe<Scalars['String']['output']>;
-  currency?: Maybe<Scalars['String']['output']>;
-  daysUntilExpiry?: Maybe<Scalars['Int']['output']>;
-  departmentId?: Maybe<Scalars['String']['output']>;
-  expiryDate?: Maybe<Scalars['DateTime']['output']>;
-  feedId: Scalars['String']['output'];
-  id: Scalars['ID']['output'];
-  isExpired: Scalars['Boolean']['output'];
-  isLowStock: Scalars['Boolean']['output'];
-  lotNumber?: Maybe<Scalars['String']['output']>;
-  manufacturingDate?: Maybe<Scalars['DateTime']['output']>;
-  minStockKg: Scalars['Float']['output'];
-  notes?: Maybe<Scalars['String']['output']>;
-  quantityKg: Scalars['Float']['output'];
-  receivedDate?: Maybe<Scalars['DateTime']['output']>;
-  siteId: Scalars['String']['output'];
-  status: InventoryStatus;
-  storageLocation?: Maybe<Scalars['String']['output']>;
-  storageTemperature?: Maybe<Scalars['Float']['output']>;
-  tenantId: Scalars['String']['output'];
-  totalValue?: Maybe<Scalars['Float']['output']>;
-  unitPricePerKg?: Maybe<Scalars['Float']['output']>;
-  updatedAt: Scalars['DateTime']['output'];
-  updatedBy?: Maybe<Scalars['String']['output']>;
-};
-
-export type FeedInventoryConnection = {
-  /** Whether there is a next page */
-  hasNextPage: Scalars['Boolean']['output'];
-  /** Whether there is a previous page */
-  hasPreviousPage: Scalars['Boolean']['output'];
-  /** Array of items */
-  items: Array<FeedInventory>;
-  /** Items per page */
-  limit: Scalars['Int']['output'];
-  /** Current page number */
-  page: Scalars['Int']['output'];
-  /** Total count of items matching the query */
-  total: Scalars['Int']['output'];
-  /** Total number of pages */
-  totalPages: Scalars['Int']['output'];
-};
-
-export type FeedInventoryFilterInput = {
-  departmentId?: InputMaybe<Scalars['ID']['input']>;
-  feedId?: InputMaybe<Scalars['ID']['input']>;
-  includeExpiringSoon?: InputMaybe<Scalars['Boolean']['input']>;
-  includeLowStock?: InputMaybe<Scalars['Boolean']['input']>;
-  siteId?: InputMaybe<Scalars['ID']['input']>;
-  status?: InputMaybe<InventoryStatus>;
-};
-
 export type FeedRequirementResponse = {
   daysUsed: Scalars['Int']['output'];
   endDay: Scalars['Int']['output'];
@@ -5886,7 +6162,9 @@ export type FeedResponse = {
   pelletSize?: Maybe<Scalars['Float']['output']>;
   /** Pellet size label (e.g., "2mm", "3-5mm") */
   pelletSizeLabel?: Maybe<Scalars['String']['output']>;
+  /** @deprecated Use pricePerKgDecimal (exact decimal string, ADR-0004). */
   pricePerKg?: Maybe<Scalars['Float']['output']>;
+  pricePerKgDecimal?: Maybe<Scalars['Decimal']['output']>;
   /** Product stage */
   productStage?: Maybe<Scalars['String']['output']>;
   quantity: Scalars['Float']['output'];
@@ -5906,8 +6184,12 @@ export type FeedResponse = {
   tenantId: Scalars['ID']['output'];
   type: FeedType;
   unit: Scalars['String']['output'];
-  /** Unit price */
+  /**
+   * Unit price
+   * @deprecated Use unitPriceDecimal (exact decimal string, ADR-0004).
+   */
   unitPrice?: Maybe<Scalars['Float']['output']>;
+  unitPriceDecimal?: Maybe<Scalars['Decimal']['output']>;
   /** Unit size (e.g., "25kg bag") */
   unitSize?: Maybe<Scalars['String']['output']>;
   updatedAt: Scalars['DateTime']['output'];
@@ -5964,7 +6246,9 @@ export type FeedTypeResponse = {
 };
 
 export type FeedTypeSummary = {
+  /** @deprecated Use costDecimal (exact decimal string, ADR-0004). */
   cost: Scalars['Float']['output'];
+  costDecimal: Scalars['Decimal']['output'];
   feedId: Scalars['ID']['output'];
   feedName: Scalars['String']['output'];
   percentage: Scalars['Float']['output'];
@@ -6023,6 +6307,52 @@ export type FeedingCurvePointResponse = {
   fishWeightG: Scalars['Float']['output'];
 };
 
+export type FeedingDayPlan = {
+  assignmentId: Scalars['ID']['output'];
+  avgWeightG: Scalars['Float']['output'];
+  biomassKg: Scalars['Float']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  effectiveRatePercent: Scalars['Float']['output'];
+  expectedFcr: Scalars['Float']['output'];
+  fcrResolvedSource: FcrResolvedSource;
+  feedCode: Scalars['String']['output'];
+  feedId: Scalars['ID']['output'];
+  feedName: Scalars['String']['output'];
+  fishCount: Scalars['Int']['output'];
+  id: Scalars['ID']['output'];
+  meals?: Maybe<Array<FeedingMeal>>;
+  mealsPlanned: Scalars['Int']['output'];
+  mixedBatch: Scalars['Boolean']['output'];
+  planDate: Scalars['String']['output'];
+  plannedTotalKg: Scalars['Float']['output'];
+  protocolId: Scalars['ID']['output'];
+  recalcLog: Scalars['JSON']['output'];
+  rollupAppliedAt?: Maybe<Scalars['DateTime']['output']>;
+  siteId: Scalars['ID']['output'];
+  skipReason?: Maybe<Scalars['String']['output']>;
+  snapshot: Scalars['JSON']['output'];
+  status: FeedingDayPlanStatus;
+  temperatureSource: Scalars['String']['output'];
+  tenantId: Scalars['ID']['output'];
+  unitCode: Scalars['String']['output'];
+  unitId: Scalars['ID']['output'];
+  unitName: Scalars['String']['output'];
+  unitType: FeedingUnitType;
+  unplannedActualKg: Scalars['Float']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  usingDefaultTemperature: Scalars['Boolean']['output'];
+  waterTempC?: Maybe<Scalars['Float']['output']>;
+  weightCvPercent?: Maybe<Scalars['Float']['output']>;
+};
+
+/** Günlük yemleme planının yaşam döngüsü durumu (K-7 tam enum) */
+export type FeedingDayPlanStatus =
+  | 'CANCELLED'
+  | 'COMPLETED'
+  | 'IN_PROGRESS'
+  | 'PLANNED'
+  | 'SKIPPED';
+
 export type FeedingEnvironmentInput = {
   dissolvedOxygen?: InputMaybe<Scalars['Float']['input']>;
   visibility?: InputMaybe<Scalars['String']['input']>;
@@ -6064,6 +6394,40 @@ export type FeedingMatrix2DResponse = {
   /** Weight axis values (grams) */
   weights: Array<Scalars['Float']['output']>;
 };
+
+export type FeedingMeal = {
+  actualKg: Scalars['Float']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  dayPlanId: Scalars['ID']['output'];
+  fedAt?: Maybe<Scalars['DateTime']['output']>;
+  fedBy?: Maybe<Scalars['ID']['output']>;
+  feedId: Scalars['ID']['output'];
+  feedingMethod?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  mealIndex: Scalars['Int']['output'];
+  notes?: Maybe<Scalars['String']['output']>;
+  percentOfDaily: Scalars['Float']['output'];
+  plannedKg: Scalars['Float']['output'];
+  pours: Scalars['JSON']['output'];
+  recalculatedAt?: Maybe<Scalars['DateTime']['output']>;
+  scheduledAt: Scalars['DateTime']['output'];
+  siteId: Scalars['ID']['output'];
+  status: FeedingMealStatus;
+  tenantId: Scalars['ID']['output'];
+  unitId: Scalars['ID']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  varianceKg?: Maybe<Scalars['Float']['output']>;
+  variancePercent?: Maybe<Scalars['Float']['output']>;
+};
+
+/** Öğün yaşam döngüsü durumu (K-7 + D-8 tam enum) */
+export type FeedingMealStatus =
+  | 'CANCELLED'
+  | 'FED'
+  | 'MISSED'
+  | 'PARTIALLY_FED'
+  | 'SCHEDULED'
+  | 'SKIPPED';
 
 /** Yemleme metodu */
 export type FeedingMethod =
@@ -6253,17 +6617,64 @@ export type FeedingProtocolScheduleEntryInput = {
   time: Scalars['String']['input'];
 };
 
+/** Birleşik yemleme protokolü yaşam döngüsü durumu */
+export type FeedingProtocolStatus =
+  | 'ACTIVE'
+  | 'ARCHIVED'
+  | 'DRAFT';
+
+export type FeedingProtocolV2 = {
+  bands: Scalars['JSON']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['ID']['output']>;
+  defaultMealSchedule: Scalars['JSON']['output'];
+  description?: Maybe<Scalars['String']['output']>;
+  fcrMatrix?: Maybe<Scalars['JSON']['output']>;
+  id: Scalars['ID']['output'];
+  isDefault: Scalars['Boolean']['output'];
+  migrationNote?: Maybe<Scalars['String']['output']>;
+  name: Scalars['String']['output'];
+  settings: Scalars['JSON']['output'];
+  speciesId?: Maybe<Scalars['ID']['output']>;
+  speciesName?: Maybe<Scalars['String']['output']>;
+  status: FeedingProtocolStatus;
+  temperatureAdjustments?: Maybe<Scalars['JSON']['output']>;
+  tenantId: Scalars['ID']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['ID']['output']>;
+};
+
+export type FeedingProtocolV2Connection = {
+  /** Whether there is a next page */
+  hasNextPage: Scalars['Boolean']['output'];
+  /** Whether there is a previous page */
+  hasPreviousPage: Scalars['Boolean']['output'];
+  /** Array of items */
+  items: Array<FeedingProtocolV2>;
+  /** Items per page */
+  limit: Scalars['Int']['output'];
+  /** Current page number */
+  page: Scalars['Int']['output'];
+  /** Total count of items matching the query */
+  total: Scalars['Int']['output'];
+  /** Total number of pages */
+  totalPages: Scalars['Int']['output'];
+};
+
 export type FeedingRecord = {
   actualAmount: Scalars['Float']['output'];
   batchId: Scalars['String']['output'];
   batchLocationId?: Maybe<Scalars['String']['output']>;
   createdAt: Scalars['DateTime']['output'];
   currency?: Maybe<Scalars['String']['output']>;
+  dayPlanId?: Maybe<Scalars['ID']['output']>;
   environment?: Maybe<Scalars['JSON']['output']>;
   equipmentId?: Maybe<Scalars['String']['output']>;
   fedBy: Scalars['String']['output'];
   feedBatchNumber?: Maybe<Scalars['String']['output']>;
+  /** @deprecated Use feedCostDecimal (exact decimal string, ADR-0004). */
   feedCost?: Maybe<Scalars['Float']['output']>;
+  feedCostDecimal?: Maybe<Scalars['Decimal']['output']>;
   feedId: Scalars['String']['output'];
   feedingDate: Scalars['DateTime']['output'];
   feedingDurationMinutes?: Maybe<Scalars['Int']['output']>;
@@ -6276,9 +6687,11 @@ export type FeedingRecord = {
   isBelowPlan: Scalars['Boolean']['output'];
   /** Whether variance is within acceptable threshold (±10%) */
   isVarianceAcceptable: Scalars['Boolean']['output'];
+  mealId?: Maybe<Scalars['ID']['output']>;
   notes?: Maybe<Scalars['String']['output']>;
   plannedAmount: Scalars['Float']['output'];
   pondId?: Maybe<Scalars['String']['output']>;
+  pourIndex?: Maybe<Scalars['Int']['output']>;
   skipReason?: Maybe<Scalars['String']['output']>;
   tankId?: Maybe<Scalars['String']['output']>;
   tenantId: Scalars['String']['output'];
@@ -6374,7 +6787,9 @@ export type FeedingSummaryResponse = {
   endDate: Scalars['DateTime']['output'];
   siteId?: Maybe<Scalars['ID']['output']>;
   startDate: Scalars['DateTime']['output'];
+  /** @deprecated Use totalCostDecimal (exact decimal string, ADR-0004). */
   totalCost: Scalars['Float']['output'];
+  totalCostDecimal: Scalars['Decimal']['output'];
   totalFeedGivenKg: Scalars['Float']['output'];
   totalFeedings: Scalars['Int']['output'];
   totalPlannedKg: Scalars['Float']['output'];
@@ -6390,11 +6805,156 @@ export type FeedingTemperatureRangeInput = {
   unit?: Scalars['String']['input'];
 };
 
+/** Yemleme ünitesi türü (fiziksel yapı) */
+export type FeedingUnitType =
+  | 'CAGE'
+  | 'POND'
+  | 'TANK';
+
 export type FinalizeReviewInput = {
   calibrationNotes?: InputMaybe<Scalars['String']['input']>;
   finalRating: Scalars['Float']['input'];
   reviewId: Scalars['String']['input'];
   reviewerComments?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type FinanceBatchTotal = {
+  batchId: Scalars['ID']['output'];
+  /** @deprecated Use totalExpenseDecimal (ADR-0004). */
+  totalExpense: Scalars['Float']['output'];
+  totalExpenseDecimal: Scalars['Decimal']['output'];
+  /** @deprecated Use totalRevenueDecimal (ADR-0004). */
+  totalRevenue: Scalars['Float']['output'];
+  totalRevenueDecimal: Scalars['Decimal']['output'];
+};
+
+export type FinanceCategory = {
+  code?: Maybe<Scalars['String']['output']>;
+  computedRule?: Maybe<Scalars['JSON']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  displayOrder: Scalars['Int']['output'];
+  id: Scalars['ID']['output'];
+  isActive: Scalars['Boolean']['output'];
+  isSystem: Scalars['Boolean']['output'];
+  kind: FinanceCategoryKind;
+  name: Scalars['String']['output'];
+  scope: FinanceCategoryScope;
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+};
+
+/** Whether entries in the category are money out or money in */
+export type FinanceCategoryKind =
+  | 'EXPENSE'
+  | 'REVENUE';
+
+/** Which farm finance ledger a category belongs to */
+export type FinanceCategoryScope =
+  | 'FARM_OPEX'
+  | 'FARM_REVENUE';
+
+export type FinanceCategoryTotal = {
+  categoryCode?: Maybe<Scalars['String']['output']>;
+  categoryId: Scalars['ID']['output'];
+  categoryName: Scalars['String']['output'];
+  isComputed: Scalars['Boolean']['output'];
+  isDerived: Scalars['Boolean']['output'];
+  kind: FinanceCategoryKind;
+  scope: FinanceCategoryScope;
+  /** @deprecated Use totalDecimal (exact decimal string, ADR-0004). */
+  total: Scalars['Float']['output'];
+  totalDecimal: Scalars['Decimal']['output'];
+};
+
+export type FinanceExpenseEntry = {
+  /** @deprecated Use amountDecimal (exact decimal string, ADR-0004). */
+  amount: Scalars['Float']['output'];
+  amountDecimal: Scalars['Decimal']['output'];
+  batchId?: Maybe<Scalars['String']['output']>;
+  category?: Maybe<FinanceCategory>;
+  categoryId: Scalars['String']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  currency: Scalars['String']['output'];
+  description?: Maybe<Scalars['String']['output']>;
+  entryDate: Scalars['DateTime']['output'];
+  id: Scalars['ID']['output'];
+  periodEnd?: Maybe<Scalars['DateTime']['output']>;
+  periodStart?: Maybe<Scalars['DateTime']['output']>;
+  siteId?: Maybe<Scalars['String']['output']>;
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+};
+
+/** Time bucket size for finance aggregation */
+export type FinanceGranularity =
+  | 'DAY'
+  | 'MONTH'
+  | 'WEEK'
+  | 'YEAR';
+
+export type FinanceLineItem = {
+  /** @deprecated Use amountDecimal (exact decimal string, ADR-0004). */
+  amount: Scalars['Float']['output'];
+  amountDecimal: Scalars['Decimal']['output'];
+  batchId?: Maybe<Scalars['ID']['output']>;
+  categoryCode?: Maybe<Scalars['String']['output']>;
+  categoryId?: Maybe<Scalars['ID']['output']>;
+  categoryName: Scalars['String']['output'];
+  currency: Scalars['String']['output'];
+  description?: Maybe<Scalars['String']['output']>;
+  editable: Scalars['Boolean']['output'];
+  entryDate: Scalars['DateTime']['output'];
+  estimated: Scalars['Boolean']['output'];
+  id: Scalars['ID']['output'];
+  kind: FinanceCategoryKind;
+  origin: FinanceLineOrigin;
+  siteId?: Maybe<Scalars['ID']['output']>;
+  sourceDomain?: Maybe<Scalars['String']['output']>;
+  sourceRecordId?: Maybe<Scalars['ID']['output']>;
+};
+
+/** Whether a ledger line is a manual booking or a derived projection */
+export type FinanceLineOrigin =
+  | 'DERIVED'
+  | 'MANUAL';
+
+export type FinanceSettings = {
+  createdAt: Scalars['DateTime']['output'];
+  defaultCurrency: Scalars['String']['output'];
+  fiscalYearStartMonth: Scalars['Int']['output'];
+  id?: Maybe<Scalars['ID']['output']>;
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+};
+
+export type FinanceSummary = {
+  byCategory: Array<FinanceCategoryTotal>;
+  currency: Scalars['String']['output'];
+  /** @deprecated Use netResultDecimal (ADR-0004). */
+  netResult: Scalars['Float']['output'];
+  netResultDecimal: Scalars['Decimal']['output'];
+  series: Array<FinanceTimeBucket>;
+  /** @deprecated Use totalExpenseDecimal (ADR-0004). */
+  totalExpense: Scalars['Float']['output'];
+  totalExpenseDecimal: Scalars['Decimal']['output'];
+  /** @deprecated Use totalRevenueDecimal (ADR-0004). */
+  totalRevenue: Scalars['Float']['output'];
+  totalRevenueDecimal: Scalars['Decimal']['output'];
+};
+
+export type FinanceTimeBucket = {
+  bucketStart: Scalars['DateTime']['output'];
+  /** @deprecated Use totalExpenseDecimal (ADR-0004). */
+  totalExpense: Scalars['Float']['output'];
+  totalExpenseDecimal: Scalars['Decimal']['output'];
+  /** @deprecated Use totalRevenueDecimal (ADR-0004). */
+  totalRevenue: Scalars['Float']['output'];
+  totalRevenueDecimal: Scalars['Decimal']['output'];
 };
 
 export type FinancialProjectionInput = {
@@ -7198,7 +7758,9 @@ export type HarvestRecord = {
   createdAt: Scalars['DateTime']['output'];
   currency?: Maybe<Scalars['String']['output']>;
   customerDeliveries?: Maybe<Scalars['JSON']['output']>;
+  /** @deprecated Use harvestCostDecimal (exact decimal string, ADR-0004). */
   harvestCost?: Maybe<Scalars['Float']['output']>;
+  harvestCostDecimal?: Maybe<Scalars['Decimal']['output']>;
   harvestDate: Scalars['DateTime']['output'];
   harvestMortalityPercentage: Scalars['Float']['output'];
   harvestPlanId?: Maybe<Scalars['String']['output']>;
@@ -7234,7 +7796,9 @@ export type HarvestRecord = {
   tankId?: Maybe<Scalars['String']['output']>;
   tenantId: Scalars['String']['output'];
   totalBiomass: Scalars['Float']['output'];
+  /** @deprecated Use totalRevenueDecimal (exact decimal string, ADR-0004). */
   totalRevenue?: Maybe<Scalars['Float']['output']>;
+  totalRevenueDecimal?: Maybe<Scalars['Decimal']['output']>;
   updatedAt: Scalars['DateTime']['output'];
   /** User ID who last updated this record (regulatory audit trail) */
   updatedBy?: Maybe<Scalars['String']['output']>;
@@ -7307,7 +7871,9 @@ export type HealthEvent = {
   diseaseCategory?: Maybe<DiseaseCategory>;
   diseaseName?: Maybe<Scalars['String']['output']>;
   earliestHarvestDate?: Maybe<Scalars['DateTime']['output']>;
+  /** @deprecated Use estimatedCostDecimal (exact decimal string, ADR-0004). */
   estimatedCost?: Maybe<Scalars['Float']['output']>;
+  estimatedCostDecimal?: Maybe<Scalars['Decimal']['output']>;
   eventDate: Scalars['DateTime']['output'];
   eventTime?: Maybe<Scalars['String']['output']>;
   eventType: HealthEventType;
@@ -7463,6 +8029,131 @@ export type HealthSeverity =
   | 'MODERATE'
   | 'SEVERE';
 
+export type HrDepartmentCost = {
+  /** @deprecated Use annualSalaryTotalDecimal (exact decimal string, ADR-0004). */
+  annualSalaryTotal?: Maybe<Scalars['Float']['output']>;
+  annualSalaryTotalDecimal?: Maybe<Scalars['Decimal']['output']>;
+  departmentHrId?: Maybe<Scalars['String']['output']>;
+  departmentName: Scalars['String']['output'];
+  headcount: Scalars['Int']['output'];
+  /** @deprecated Use hrExpensesDecimal (ADR-0004). */
+  hrExpenses: Scalars['Float']['output'];
+  hrExpensesDecimal: Scalars['Decimal']['output'];
+  salarySuppressed: Scalars['Boolean']['output'];
+};
+
+export type HrFinanceCategory = {
+  code?: Maybe<Scalars['String']['output']>;
+  computedRule?: Maybe<Scalars['JSON']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  displayOrder: Scalars['Int']['output'];
+  id: Scalars['ID']['output'];
+  isActive: Scalars['Boolean']['output'];
+  isSystem: Scalars['Boolean']['output'];
+  name: Scalars['String']['output'];
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+};
+
+export type HrFinanceEntry = {
+  /** @deprecated Use amountDecimal (exact decimal string, ADR-0004). Float is removed after the coexistence window. */
+  amount: Scalars['Float']['output'];
+  /** Exact-decimal amount as a string. Coexists with the deprecated Float `amount`. */
+  amountDecimal: Scalars['Decimal']['output'];
+  category?: Maybe<HrFinanceCategory>;
+  categoryId: Scalars['String']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  currency: Scalars['String']['output'];
+  departmentHrId?: Maybe<Scalars['String']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  employeeId?: Maybe<Scalars['String']['output']>;
+  entryDate: Scalars['DateTime']['output'];
+  id: Scalars['ID']['output'];
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+};
+
+/** Time bucket size for HR finance aggregation */
+export type HrFinanceGranularity =
+  | 'DAY'
+  | 'MONTH'
+  | 'WEEK'
+  | 'YEAR';
+
+export type HrFinanceSummary = {
+  byDepartment: Array<HrDepartmentCost>;
+  currency: Scalars['String']['output'];
+  series: Array<HrFinanceTimeBucket>;
+};
+
+export type HrFinanceTimeBucket = {
+  bucketStart: Scalars['DateTime']['output'];
+  /** @deprecated Use hrExpensesDecimal (ADR-0004). */
+  hrExpenses: Scalars['Float']['output'];
+  hrExpensesDecimal: Scalars['Decimal']['output'];
+  /** @deprecated Use payrollGrossDecimal (exact decimal string, ADR-0004). */
+  payrollGross?: Maybe<Scalars['Float']['output']>;
+  payrollGrossDecimal?: Maybe<Scalars['Decimal']['output']>;
+};
+
+export type HrLabourCost = {
+  /** @deprecated Use actualGrossPayYtdDecimal (ADR-0004). */
+  actualGrossPayYtd: Scalars['Float']['output'];
+  actualGrossPayYtdDecimal: Scalars['Decimal']['output'];
+  /** @deprecated Use annualSalaryTotalDecimal (ADR-0004). */
+  annualSalaryTotal: Scalars['Float']['output'];
+  annualSalaryTotalDecimal: Scalars['Decimal']['output'];
+  currency: Scalars['String']['output'];
+  /** @deprecated Use hrExpensesYtdDecimal (ADR-0004). */
+  hrExpensesYtd: Scalars['Float']['output'];
+  hrExpensesYtdDecimal: Scalars['Decimal']['output'];
+  /** @deprecated Use medicalInsuranceFundDecimal (ADR-0004). */
+  medicalInsuranceFund: Scalars['Float']['output'];
+  medicalInsuranceFundDecimal: Scalars['Decimal']['output'];
+  /** @deprecated Use otherCostDecimal (ADR-0004). */
+  otherCost: Scalars['Float']['output'];
+  otherCostDecimal: Scalars['Decimal']['output'];
+  /** @deprecated Use pensionFundDecimal (ADR-0004). */
+  pensionFund: Scalars['Float']['output'];
+  pensionFundDecimal: Scalars['Decimal']['output'];
+  rows: Array<HrLabourCostRow>;
+  /** @deprecated Use socialInsuranceFundDecimal (ADR-0004). */
+  socialInsuranceFund: Scalars['Float']['output'];
+  socialInsuranceFundDecimal: Scalars['Decimal']['output'];
+  totalHeadcount: Scalars['Int']['output'];
+  /** @deprecated Use totalPayrollDecimal (ADR-0004). */
+  totalPayroll: Scalars['Float']['output'];
+  totalPayrollDecimal: Scalars['Decimal']['output'];
+  unclassifiedCount: Scalars['Int']['output'];
+};
+
+export type HrLabourCostRow = {
+  /** @deprecated Use annualSalaryTotalDecimal (exact decimal string, ADR-0004). */
+  annualSalaryTotal?: Maybe<Scalars['Float']['output']>;
+  annualSalaryTotalDecimal?: Maybe<Scalars['Decimal']['output']>;
+  /** @deprecated Use avgAnnualSalaryDecimal (exact decimal string, ADR-0004). */
+  avgAnnualSalary?: Maybe<Scalars['Float']['output']>;
+  avgAnnualSalaryDecimal?: Maybe<Scalars['Decimal']['output']>;
+  category?: Maybe<LaborCategory>;
+  headcount: Scalars['Int']['output'];
+  salarySuppressed: Scalars['Boolean']['output'];
+};
+
+export type HrPersonnelRow = {
+  category?: Maybe<LaborCategory>;
+  headcount: Scalars['Int']['output'];
+};
+
+export type HrPersonnelTable = {
+  rows: Array<HrPersonnelRow>;
+  totalHeadcount: Scalars['Int']['output'];
+  unclassifiedCount: Scalars['Int']['output'];
+};
+
 export type HydroponicsConfig = {
   configName: Scalars['String']['output'];
   createdAt: Scalars['DateTime']['output'];
@@ -7524,6 +8215,18 @@ export type InAppNotification = {
   isRead: Scalars['Boolean']['output'];
   readAt?: Maybe<Scalars['String']['output']>;
   title: Scalars['String']['output'];
+};
+
+/** Which field-capture incident record a media row belongs to */
+export type IncidentMediaType =
+  | 'ESCAPE'
+  | 'LICE'
+  | 'WELFARE';
+
+export type IncidentMediaUploadResponse = {
+  expiresAt: Scalars['DateTime']['output'];
+  storageKey: Scalars['String']['output'];
+  uploadUrl: Scalars['String']['output'];
 };
 
 export type IncidentTimelineEvent = {
@@ -7644,14 +8347,6 @@ export type InventoryCountStatus =
   | 'IN_PROGRESS'
   | 'PLANNED';
 
-/** Stok durumu */
-export type InventoryStatus =
-  | 'AVAILABLE'
-  | 'EXPIRED'
-  | 'LOW_STOCK'
-  | 'OUT_OF_STOCK'
-  | 'QUARANTINE';
-
 export type InvitationValidationResponse = {
   email?: Maybe<Scalars['String']['output']>;
   expired?: Maybe<Scalars['Boolean']['output']>;
@@ -7662,15 +8357,21 @@ export type InvitationValidationResponse = {
 };
 
 export type Invoice = {
+  /** @deprecated Use amountDueDecimal (exact decimal string, ADR-0004). */
   amountDue: Scalars['Float']['output'];
+  amountDueDecimal: Scalars['Decimal']['output'];
+  /** @deprecated Use amountPaidDecimal (exact decimal string, ADR-0004). */
   amountPaid: Scalars['Float']['output'];
+  amountPaidDecimal: Scalars['Decimal']['output'];
   billingAddress: BillingAddress;
   createdAt: Scalars['DateTime']['output'];
   createdBy?: Maybe<Scalars['String']['output']>;
   currency: Scalars['String']['output'];
   deletedAt?: Maybe<Scalars['DateTime']['output']>;
+  /** @deprecated Use discountDecimal (exact decimal string, ADR-0004). */
   discount?: Maybe<Scalars['Float']['output']>;
   discountCode?: Maybe<Scalars['String']['output']>;
+  discountDecimal?: Maybe<Scalars['Decimal']['output']>;
   dueDate: Scalars['DateTime']['output'];
   id: Scalars['ID']['output'];
   invoiceNumber: Scalars['String']['output'];
@@ -7684,21 +8385,29 @@ export type Invoice = {
   periodStart: Scalars['DateTime']['output'];
   status: InvoiceStatus;
   subscriptionId?: Maybe<Scalars['String']['output']>;
+  /** @deprecated Use subtotalDecimal (exact decimal string, ADR-0004). */
   subtotal: Scalars['Float']['output'];
+  subtotalDecimal: Scalars['Decimal']['output'];
   tax?: Maybe<TaxInfo>;
   tenantId: Scalars['String']['output'];
+  /** @deprecated Use totalDecimal (exact decimal string, ADR-0004). */
   total: Scalars['Float']['output'];
+  totalDecimal: Scalars['Decimal']['output'];
   updatedAt: Scalars['DateTime']['output'];
   updatedBy?: Maybe<Scalars['String']['output']>;
   version: Scalars['Int']['output'];
 };
 
 export type InvoiceLineItem = {
+  /** @deprecated Use amountDecimal (exact decimal string, ADR-0004). */
   amount: Scalars['Float']['output'];
+  amountDecimal: Scalars['Decimal']['output'];
   description: Scalars['String']['output'];
   productCode?: Maybe<Scalars['String']['output']>;
   quantity: Scalars['Float']['output'];
+  /** @deprecated Use unitPriceDecimal (exact decimal string, ADR-0004). */
   unitPrice: Scalars['Float']['output'];
+  unitPriceDecimal: Scalars['Decimal']['output'];
 };
 
 export type InvoiceLineItemInput = {
@@ -7814,6 +8523,11 @@ export type LabResultsInput = {
   /** Type of test performed */
   testType: Scalars['String']['input'];
 };
+
+export type LaborCategory =
+  | 'MANAGER'
+  | 'TECHNICAL'
+  | 'UNSKILLED';
 
 export type LaborRecordInput = {
   durationMinutes?: InputMaybe<Scalars['Int']['input']>;
@@ -8211,7 +8925,9 @@ export type MaintenanceSchedule = {
   defaultTeamId?: Maybe<Scalars['String']['output']>;
   description?: Maybe<Scalars['String']['output']>;
   endDate?: Maybe<Scalars['DateTime']['output']>;
+  /** @deprecated Use estimatedCostDecimal (exact decimal string, ADR-0004). */
   estimatedCost?: Maybe<Scalars['Float']['output']>;
+  estimatedCostDecimal?: Maybe<Scalars['Decimal']['output']>;
   estimatedDurationMinutes?: Maybe<Scalars['Int']['output']>;
   executionCount: Scalars['Int']['output'];
   generateDaysBefore: Scalars['Int']['output'];
@@ -8298,26 +9014,6 @@ export type ManualAttendanceInput = {
   shiftId?: InputMaybe<Scalars['String']['input']>;
 };
 
-export type MarineObservation = {
-  createdAt: Scalars['DateTime']['output'];
-  dataType: WeatherDataType;
-  fetchedAt: Scalars['DateTime']['output'];
-  id: Scalars['ID']['output'];
-  observedAt: Scalars['DateTime']['output'];
-  oceanCurrentDirection?: Maybe<Scalars['Float']['output']>;
-  oceanCurrentVelocity?: Maybe<Scalars['Float']['output']>;
-  seaSurfaceTemperature?: Maybe<Scalars['Float']['output']>;
-  siteId: Scalars['String']['output'];
-  swellWaveDirection?: Maybe<Scalars['Float']['output']>;
-  swellWaveHeight?: Maybe<Scalars['Float']['output']>;
-  swellWavePeriod?: Maybe<Scalars['Float']['output']>;
-  tenantId: Scalars['String']['output'];
-  updatedAt: Scalars['DateTime']['output'];
-  waveDirection?: Maybe<Scalars['Float']['output']>;
-  waveHeight?: Maybe<Scalars['Float']['output']>;
-  wavePeriod?: Maybe<Scalars['Float']['output']>;
-};
-
 export type MarkReadInput = {
   /** Channel UUID */
   channelId: Scalars['ID']['input'];
@@ -8365,6 +9061,24 @@ export type MePayload = {
   modules: Array<UserModule>;
   redirectPath: Scalars['String']['output'];
   user: User;
+};
+
+export type MealFeedingResult = {
+  actualKg: Scalars['Float']['output'];
+  id: Scalars['ID']['output'];
+  status: FeedingMealStatus;
+  varianceKg?: Maybe<Scalars['Float']['output']>;
+  variancePercent?: Maybe<Scalars['Float']['output']>;
+};
+
+export type MealScheduleEntryInput = {
+  percentOfDaily: Scalars['Float']['input'];
+  time: Scalars['String']['input'];
+};
+
+export type MealScheduleInput = {
+  entries: Array<MealScheduleEntryInput>;
+  mealsPerDay: Scalars['Int']['input'];
 };
 
 export type MeasurementConditionsInput = {
@@ -8616,7 +9330,6 @@ export type Mutation = {
   addEmployeeCertification: EmployeeCertification;
   /** Programa yem atamasi ekle */
   addFeedAssignment: FeedingProgram;
-  addFeedInventory: FeedInventory;
   addKeyResult: Goal;
   addLoRaDevice: LoRaDeviceType;
   addMilestone: Goal;
@@ -8633,7 +9346,6 @@ export type Mutation = {
   addTaskNote: Task;
   addTicketComment: TicketComment;
   addVfdChangeSetItems: VfdChangeSet;
-  adjustFeedInventory: FeedInventory;
   adjustLeaveBalance: LeaveBalance;
   allocateBatchToTank: Batch;
   anonymizeMyData: Scalars['Boolean']['output'];
@@ -8658,10 +9370,16 @@ export type Mutation = {
   approveWorkOrder: WorkOrder;
   /** Archive a channel */
   archiveChannel: Scalars['Boolean']['output'];
+  archiveFeedingProtocolV2: FeedingProtocolV2;
+  /** Archive a finance category (derived-bound and computed categories cannot be archived). */
+  archiveFinanceCategory: FinanceCategory;
+  archiveHrFinanceCategory: HrFinanceCategory;
   archiveProgram: AutomationProgram;
   archiveSupportThread: SupportMessageThread;
   assignFeedsToBatch: BatchFeedAssignmentResponse;
   assignModuleManager: TenantModule;
+  assignProtocolToBatchUnits: Array<ProtocolAssignment>;
+  assignProtocolToUnit: ProtocolAssignment;
   /** Tanka sicaklik sensoru bagla */
   assignTemperatureSensor: FeedingProgramTank;
   assignTicket: SupportTicket;
@@ -8731,8 +9449,8 @@ export type Mutation = {
   confirmBiomassReportSubmitted: BiomassReport;
   confirmSafetyTrainingAttendance: SafetyTrainingRecord;
   confirmTenantErasure: ErasureResultResponse;
-  consumeFeedInventory: FeedInventory;
   copyWeeklyPlan: WeeklyPlan;
+  correctMealPour: MealFeedingResult;
   createAlertRule: AlertRule;
   createAutoRule: AutoRule;
   createAutomationProgram: AutomationProgram;
@@ -8760,7 +9478,12 @@ export type Mutation = {
   createFeedingProgram: FeedingProgram;
   /** Create a new feeding protocol */
   createFeedingProtocol: FeedingProtocolResponse;
+  createFeedingProtocolV2: FeedingProtocolV2;
   createFeedingRecord: FeedingRecord;
+  /** Create a user-defined finance category (dynamic taxonomy — data, not DDL). */
+  createFinanceCategory: FinanceCategory;
+  /** Book a manual finance entry (expense or revenue). */
+  createFinanceEntry: FinanceExpenseEntry;
   createGoal: Goal;
   createHRDepartment: DepartmentHr;
   /** Create a new harvest plan */
@@ -8769,6 +9492,8 @@ export type Mutation = {
   createHarvestRecord: HarvestRecord;
   /** Create a new health event */
   createHealthEvent: HealthEvent;
+  createHrFinanceCategory: HrFinanceCategory;
+  createHrFinanceEntry: HrFinanceEntry;
   /** Create a hydroponics configuration */
   createHydroponicsConfiguration: HydroponicsConfig;
   createInventoryCount: InventoryCountResponse;
@@ -8793,7 +9518,6 @@ export type Mutation = {
   createRecurringTemplate: RecurringTemplate;
   createSafetyTrainingRecord: SafetyTrainingRecord;
   createScadaPackage: ScadaPackageType;
-  createSensor: Sensor;
   createSensorType: SensorTypeDefinition;
   createShift: Shift;
   createSite: SiteResponse;
@@ -8851,12 +9575,15 @@ export type Mutation = {
   deleteFeedingProgram: FeedingProgram;
   /** Delete a feeding protocol */
   deleteFeedingProtocol: Scalars['Boolean']['output'];
+  /** Soft-delete a manual finance entry. */
+  deleteFinanceEntry: Scalars['Boolean']['output'];
   /** Delete a harvest plan */
   deleteHarvestPlan: Scalars['Boolean']['output'];
   /** Delete (cancel) a harvest record and reverse quantity changes */
   deleteHarvestRecord: Scalars['Boolean']['output'];
   /** Delete a health event */
   deleteHealthEvent: Scalars['Boolean']['output'];
+  deleteHrFinanceEntry: Scalars['Boolean']['output'];
   /** Delete a hydroponics configuration */
   deleteHydroponicsConfiguration: Scalars['Boolean']['output'];
   deleteMaintenanceSchedule: DeleteMaintenanceScheduleResponse;
@@ -8873,7 +9600,6 @@ export type Mutation = {
   deleteScadaPackage: DeleteProcessResultType;
   deleteSensor: Scalars['Boolean']['output'];
   deleteSensorType: Scalars['Boolean']['output'];
-  deleteSentinelHubSettings: Scalars['Boolean']['output'];
   deleteSite: Scalars['Boolean']['output'];
   deleteSparePart: DeleteSparePartResponse;
   deleteSpecies: DeleteSpeciesResponse;
@@ -8969,6 +9695,7 @@ export type Mutation = {
   recordBulkConsent: BulkConsentResult;
   /** Toplu yemleme kaydi */
   recordBulkFeeding: BulkFeedingResult;
+  recordCalibration: DataChannelType;
   recordCleanerMortality: Batch;
   /** Record a single consent preference */
   recordConsent: RecordConsentResult;
@@ -8981,6 +9708,7 @@ export type Mutation = {
   recordGrowthSample: GrowthMeasurement;
   /** Record a lice count for a pen/date (upserts — re-recording the same pen/date corrects the row) */
   recordLiceCount: LiceCount;
+  recordMealFeeding: MealFeedingResult;
   recordMortality: Batch;
   recordPayment: Payment;
   recordSparePartStockMovement: SparePart;
@@ -8994,6 +9722,7 @@ export type Mutation = {
   refreshReportDraft: RegulatoryReportDraft;
   refreshToken: AuthPayload;
   refundPayment: Payment;
+  regenerateDayPlan: DayPlanAdminResult;
   regenerateDeviceToken: RegenerateTokenResponse;
   /** Regenerate MFA recovery codes (invalidates previous) */
   regenerateMfaRecoveryCodes: RegenerateMfaRecoveryCodesResponse;
@@ -9035,6 +9764,8 @@ export type Mutation = {
   reopenSupportThread: SupportMessageThread;
   reorderDataChannels: Array<DataChannelType>;
   reorderParameterConfigs: Array<WaterQualityParameterConfig>;
+  /** Mint a presigned URL to upload an incident photo (escape/welfare/lice) */
+  requestIncidentMediaUpload: IncidentMediaUploadResponse;
   requestMediaUpload: MediaUploadResponse;
   resetDeviceForReprovisioning: RegenerateTokenResponse;
   resetPassword: AuthPayload;
@@ -9049,6 +9780,9 @@ export type Mutation = {
   restoreFeed: FeedResponse;
   /** Soft-silinmis yemleme programini geri al */
   restoreFeedingProgram: FeedingProgram;
+  /** Reactivate an archived finance category. */
+  restoreFinanceCategory: FinanceCategory;
+  restoreHrFinanceCategory: HrFinanceCategory;
   restoreSite: SiteResponse;
   restoreSpecies: Species;
   restoreSupplier: SupplierResponse;
@@ -9057,6 +9791,7 @@ export type Mutation = {
   resubmitRegulatoryReport: ReportSubmissionResult;
   resumeMaintenanceSchedule: MaintenanceSchedule;
   resumeWorkOrder: WorkOrder;
+  retireUnifiedTag: UnifiedTagType;
   /** Reopen a READY biomass report back to DRAFT for editing. */
   revertBiomassReportToDraft: BiomassReport;
   revokeCertification: EmployeeCertification;
@@ -9070,7 +9805,6 @@ export type Mutation = {
   saveFeederCalibrations: Array<FeederCalibrationResponse>;
   /** Fill the blocking MANUAL_REQUIRED fields of a draft (RECORDS/SENSOR rejected) */
   saveReportDraftOverrides: RegulatoryReportDraft;
-  saveSentinelHubSettings: Scalars['Boolean']['output'];
   saveSystemDefaultLayout: DashboardLayout;
   scanEdgeDeviceHardware: HardwareScanResultType;
   /** Schedule a harvest plan */
@@ -9098,6 +9832,7 @@ export type Mutation = {
   setupMfa: SetupMfaResponse;
   /** Gunluk yemlemeyi atla */
   skipDailyFeeding: DailyFeedingExecution;
+  skipMeal: MealFeedingResult;
   /** Start harvest for a plan */
   startHarvestPlan: HarvestPlan;
   /** Start quarantine for a health event */
@@ -9136,7 +9871,6 @@ export type Mutation = {
   suspendSensor: RegisteredSensorType;
   suspendTenant: Tenant;
   syncProgramVariables: SyncProgramVariablesResult;
-  syncWeatherData: WeatherSyncResult;
   terminateEmployee: Employee;
   /** Test Maskinporten connection using tenant credentials */
   testMaskinportenConnection: MaskinportenConnectionTestResult;
@@ -9156,6 +9890,8 @@ export type Mutation = {
   transferStock: StockMovementResponse;
   /** Tankin yem gecisini manuel yap */
   transitionTankFeed: FeedingProgramTank;
+  transitionUnitFeed: DayPlanAdminResult;
+  unassignProtocolFromUnit: ProtocolAssignment;
   unassignUserFromSite: SiteAssignmentResult;
   unlockProgram: AutomationProgram;
   unlockTenantUser: User;
@@ -9196,7 +9932,14 @@ export type Mutation = {
   updateFeedingProgram: FeedingProgram;
   /** Update a feeding protocol */
   updateFeedingProtocol: FeedingProtocolResponse;
+  updateFeedingProtocolV2: FeedingProtocolV2;
   updateFeedingRecord: FeedingRecord;
+  /** Rename / reorder a finance category (activation state is admin-gated). */
+  updateFinanceCategory: FinanceCategory;
+  /** Update a manual finance entry. Derived lines are edited at their source record. */
+  updateFinanceEntry: FinanceExpenseEntry;
+  /** Update tenant finance settings (default currency SSoT, fiscal year start). */
+  updateFinanceSettings: FinanceSettings;
   updateGoal: Goal;
   updateGoalProgress: Goal;
   updateHRDepartment: DepartmentHr;
@@ -9206,6 +9949,8 @@ export type Mutation = {
   updateHarvestRecord: HarvestRecord;
   /** Update a health event */
   updateHealthEvent: HealthEvent;
+  updateHrFinanceCategory: HrFinanceCategory;
+  updateHrFinanceEntry: HrFinanceEntry;
   /** Update a hydroponics configuration */
   updateHydroponicsConfiguration: HydroponicsConfig;
   updateInventoryCountItems: InventoryCountResponse;
@@ -9223,6 +9968,7 @@ export type Mutation = {
   updateOnCallSchedule: EscalationPolicy;
   updateParamEquipmentMapping: WaterQualityParamEquipment;
   updateParameterConfig: WaterQualityParameterConfig;
+  updatePayrollCostSettings: PayrollCostSettings;
   updatePlan: Plan;
   updatePlanEntry: WeeklyPlanEntry;
   updatePlcConnection: PlcConnection;
@@ -9234,17 +9980,16 @@ export type Mutation = {
   updateProgramStep: ProgramStep;
   updateProgramTransition: ProgramTransition;
   updateProgramVariable: ProgramVariable;
+  updateProtocolAssignment: ProtocolAssignment;
   updatePurchaseOrderStatus: PurchaseOrderResponse;
   updateRecurringTemplate: RecurringTemplate;
   /** Update regulatory settings for the current tenant */
   updateRegulatorySettings: RegulatorySettingsOutput;
   updateScadaPackage: ScadaPackageType;
   updateSchedulingSettings: SchedulingSettings;
-  updateSensor: Sensor;
   updateSensorInfo: RegisteredSensorType;
   updateSensorProtocol: SensorRegistrationResultType;
   updateSensorType: SensorTypeDefinition;
-  updateSentinelHubInstanceId: Scalars['Boolean']['output'];
   updateShift: Shift;
   updateSite: SiteResponse;
   /** Update a slaughter facility */
@@ -9271,7 +10016,6 @@ export type Mutation = {
   updateVfdAutomationRule: VfdAutomationRule;
   updateVfdDevice: VfdDevice;
   updateWaterQualityMeasurement: WaterQualityMeasurement;
-  updateWeatherSettings: WeatherSettings;
   updateWorkArea: WorkArea;
   updateWorkOrder: WorkOrder;
   updateWorkRotation: WorkRotation;
@@ -9417,11 +10161,6 @@ export type MutationAddFeedAssignmentArgs = {
 };
 
 
-export type MutationAddFeedInventoryArgs = {
-  input: AddFeedInventoryInput;
-};
-
-
 export type MutationAddKeyResultArgs = {
   goalId: Scalars['ID']['input'];
   keyResult: KeyResultInput;
@@ -9496,11 +10235,6 @@ export type MutationAddTicketCommentArgs = {
 export type MutationAddVfdChangeSetItemsArgs = {
   changeSetId: Scalars['ID']['input'];
   items: Array<VfdChangeSetItemInput>;
-};
-
-
-export type MutationAdjustFeedInventoryArgs = {
-  input: AdjustFeedInventoryInput;
 };
 
 
@@ -9620,6 +10354,21 @@ export type MutationArchiveChannelArgs = {
 };
 
 
+export type MutationArchiveFeedingProtocolV2Args = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationArchiveFinanceCategoryArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationArchiveHrFinanceCategoryArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
 export type MutationArchiveProgramArgs = {
   id: Scalars['ID']['input'];
 };
@@ -9637,6 +10386,18 @@ export type MutationAssignFeedsToBatchArgs = {
 
 export type MutationAssignModuleManagerArgs = {
   input: AssignModuleManagerInput;
+};
+
+
+export type MutationAssignProtocolToBatchUnitsArgs = {
+  batchId: Scalars['ID']['input'];
+  protocolId: Scalars['ID']['input'];
+  speciesMismatchReason?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type MutationAssignProtocolToUnitArgs = {
+  input: AssignProtocolToUnitInput;
 };
 
 
@@ -9970,14 +10731,14 @@ export type MutationConfirmTenantErasureArgs = {
 };
 
 
-export type MutationConsumeFeedInventoryArgs = {
-  input: ConsumeFeedInventoryInput;
-};
-
-
 export type MutationCopyWeeklyPlanArgs = {
   sourceId: Scalars['ID']['input'];
   targetWeekStartDate: Scalars['String']['input'];
+};
+
+
+export type MutationCorrectMealPourArgs = {
+  input: CorrectMealPourInput;
 };
 
 
@@ -10092,8 +10853,23 @@ export type MutationCreateFeedingProtocolArgs = {
 };
 
 
+export type MutationCreateFeedingProtocolV2Args = {
+  input: CreateFeedingProtocolV2Input;
+};
+
+
 export type MutationCreateFeedingRecordArgs = {
   input: CreateFeedingRecordInput;
+};
+
+
+export type MutationCreateFinanceCategoryArgs = {
+  input: CreateFinanceCategoryInput;
+};
+
+
+export type MutationCreateFinanceEntryArgs = {
+  input: CreateFinanceEntryInput;
 };
 
 
@@ -10119,6 +10895,16 @@ export type MutationCreateHarvestRecordArgs = {
 
 export type MutationCreateHealthEventArgs = {
   input: CreateHealthEventInput;
+};
+
+
+export type MutationCreateHrFinanceCategoryArgs = {
+  input: CreateHrFinanceCategoryInput;
+};
+
+
+export type MutationCreateHrFinanceEntryArgs = {
+  input: CreateHrFinanceEntryInput;
 };
 
 
@@ -10230,11 +11016,6 @@ export type MutationCreateSafetyTrainingRecordArgs = {
 
 export type MutationCreateScadaPackageArgs = {
   input: CreateScadaPackageInput;
-};
-
-
-export type MutationCreateSensorArgs = {
-  input: CreateSensorInput;
 };
 
 
@@ -10513,6 +11294,11 @@ export type MutationDeleteFeedingProtocolArgs = {
 };
 
 
+export type MutationDeleteFinanceEntryArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
 export type MutationDeleteHarvestPlanArgs = {
   id: Scalars['ID']['input'];
 };
@@ -10524,6 +11310,11 @@ export type MutationDeleteHarvestRecordArgs = {
 
 
 export type MutationDeleteHealthEventArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationDeleteHrFinanceEntryArgs = {
   id: Scalars['ID']['input'];
 };
 
@@ -10999,6 +11790,11 @@ export type MutationRecordBulkFeedingArgs = {
 };
 
 
+export type MutationRecordCalibrationArgs = {
+  input: RecordCalibrationInput;
+};
+
+
 export type MutationRecordCleanerMortalityArgs = {
   input: RecordCleanerMortalityInput;
 };
@@ -11036,6 +11832,11 @@ export type MutationRecordGrowthSampleArgs = {
 
 export type MutationRecordLiceCountArgs = {
   input: RecordLiceCountInput;
+};
+
+
+export type MutationRecordMealFeedingArgs = {
+  input: RecordMealFeedingInput;
 };
 
 
@@ -11087,6 +11888,11 @@ export type MutationRefreshTokenArgs = {
 
 export type MutationRefundPaymentArgs = {
   input: RefundPaymentInput;
+};
+
+
+export type MutationRegenerateDayPlanArgs = {
+  unitId: Scalars['ID']['input'];
 };
 
 
@@ -11284,6 +12090,11 @@ export type MutationReorderParameterConfigsArgs = {
 };
 
 
+export type MutationRequestIncidentMediaUploadArgs = {
+  input: RequestIncidentMediaUploadInput;
+};
+
+
 export type MutationRequestMediaUploadArgs = {
   input: RequestMediaUploadInput;
 };
@@ -11345,6 +12156,16 @@ export type MutationRestoreFeedingProgramArgs = {
 };
 
 
+export type MutationRestoreFinanceCategoryArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationRestoreHrFinanceCategoryArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
 export type MutationRestoreSiteArgs = {
   id: Scalars['ID']['input'];
 };
@@ -11376,6 +12197,11 @@ export type MutationResumeMaintenanceScheduleArgs = {
 
 
 export type MutationResumeWorkOrderArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationRetireUnifiedTagArgs = {
   id: Scalars['ID']['input'];
 };
 
@@ -11434,13 +12260,6 @@ export type MutationSaveFeederCalibrationsArgs = {
 
 export type MutationSaveReportDraftOverridesArgs = {
   input: SaveReportDraftOverridesInput;
-};
-
-
-export type MutationSaveSentinelHubSettingsArgs = {
-  clientId: Scalars['String']['input'];
-  clientSecret: Scalars['String']['input'];
-  instanceId?: InputMaybe<Scalars['String']['input']>;
 };
 
 
@@ -11550,6 +12369,11 @@ export type MutationSetVfdSpeedArgs = {
 
 export type MutationSkipDailyFeedingArgs = {
   input: SkipDailyFeedingInput;
+};
+
+
+export type MutationSkipMealArgs = {
+  input: SkipMealInput;
 };
 
 
@@ -11692,11 +12516,6 @@ export type MutationSyncProgramVariablesArgs = {
 };
 
 
-export type MutationSyncWeatherDataArgs = {
-  siteId?: InputMaybe<Scalars['ID']['input']>;
-};
-
-
 export type MutationTerminateEmployeeArgs = {
   id: Scalars['ID']['input'];
   terminationDate: Scalars['String']['input'];
@@ -11776,6 +12595,17 @@ export type MutationTransitionTankFeedArgs = {
   newFeedId: Scalars['ID']['input'];
   notes?: InputMaybe<Scalars['String']['input']>;
   rangeIndex: Scalars['Int']['input'];
+};
+
+
+export type MutationTransitionUnitFeedArgs = {
+  toFeedId: Scalars['ID']['input'];
+  unitId: Scalars['ID']['input'];
+};
+
+
+export type MutationUnassignProtocolFromUnitArgs = {
+  assignmentId: Scalars['ID']['input'];
 };
 
 
@@ -11961,9 +12791,31 @@ export type MutationUpdateFeedingProtocolArgs = {
 };
 
 
+export type MutationUpdateFeedingProtocolV2Args = {
+  input: UpdateFeedingProtocolV2Input;
+};
+
+
 export type MutationUpdateFeedingRecordArgs = {
   id: Scalars['ID']['input'];
   input: UpdateFeedingRecordInput;
+};
+
+
+export type MutationUpdateFinanceCategoryArgs = {
+  id: Scalars['ID']['input'];
+  input: UpdateFinanceCategoryInput;
+};
+
+
+export type MutationUpdateFinanceEntryArgs = {
+  id: Scalars['ID']['input'];
+  input: UpdateFinanceEntryInput;
+};
+
+
+export type MutationUpdateFinanceSettingsArgs = {
+  input: UpdateFinanceSettingsInput;
 };
 
 
@@ -11995,6 +12847,18 @@ export type MutationUpdateHarvestRecordArgs = {
 export type MutationUpdateHealthEventArgs = {
   id: Scalars['ID']['input'];
   input: UpdateHealthEventInput;
+};
+
+
+export type MutationUpdateHrFinanceCategoryArgs = {
+  id: Scalars['ID']['input'];
+  input: UpdateHrFinanceCategoryInput;
+};
+
+
+export type MutationUpdateHrFinanceEntryArgs = {
+  id: Scalars['ID']['input'];
+  input: UpdateHrFinanceEntryInput;
 };
 
 
@@ -12071,6 +12935,11 @@ export type MutationUpdateParameterConfigArgs = {
 };
 
 
+export type MutationUpdatePayrollCostSettingsArgs = {
+  input: UpdatePayrollCostSettingsInput;
+};
+
+
 export type MutationUpdatePlanArgs = {
   id: Scalars['ID']['input'];
   input: UpdatePlanInput;
@@ -12122,6 +12991,11 @@ export type MutationUpdateProgramVariableArgs = {
 };
 
 
+export type MutationUpdateProtocolAssignmentArgs = {
+  input: UpdateProtocolAssignmentInput;
+};
+
+
 export type MutationUpdatePurchaseOrderStatusArgs = {
   input: UpdatePurchaseOrderStatusInput;
 };
@@ -12148,11 +13022,6 @@ export type MutationUpdateSchedulingSettingsArgs = {
 };
 
 
-export type MutationUpdateSensorArgs = {
-  input: UpdateSensorInput;
-};
-
-
 export type MutationUpdateSensorInfoArgs = {
   input: UpdateSensorInfoInput;
 };
@@ -12166,11 +13035,6 @@ export type MutationUpdateSensorProtocolArgs = {
 export type MutationUpdateSensorTypeArgs = {
   id: Scalars['ID']['input'];
   input: UpdateSensorTypeInput;
-};
-
-
-export type MutationUpdateSentinelHubInstanceIdArgs = {
-  instanceId: Scalars['String']['input'];
 };
 
 
@@ -12298,11 +13162,6 @@ export type MutationUpdateVfdDeviceArgs = {
 
 export type MutationUpdateWaterQualityMeasurementArgs = {
   input: UpdateWaterQualityInput;
-};
-
-
-export type MutationUpdateWeatherSettingsArgs = {
-  input: UpdateWeatherSettingsInput;
 };
 
 
@@ -13094,7 +13953,9 @@ export type PayPeriodType =
   | 'WEEKLY';
 
 export type Payment = {
+  /** @deprecated Use amountDecimal (exact decimal string, ADR-0004). */
   amount: Scalars['Float']['output'];
+  amountDecimal: Scalars['Decimal']['output'];
   createdAt: Scalars['DateTime']['output'];
   createdBy?: Maybe<Scalars['String']['output']>;
   currency: Scalars['String']['output'];
@@ -13108,7 +13969,9 @@ export type Payment = {
   paymentMethod: PaymentMethod;
   paymentMethodDetails?: Maybe<PaymentMethodDetails>;
   processedAt?: Maybe<Scalars['DateTime']['output']>;
+  /** @deprecated Use refundedAmountDecimal (exact decimal string, ADR-0004). */
   refundedAmount: Scalars['Float']['output'];
+  refundedAmountDecimal: Scalars['Decimal']['output'];
   refunds?: Maybe<Array<RefundInfo>>;
   status: PaymentStatus;
   tenantId: Scalars['String']['output'];
@@ -13181,22 +14044,50 @@ export type Payroll = {
   createdAt: Scalars['DateTime']['output'];
   createdBy?: Maybe<Scalars['String']['output']>;
   currency: Scalars['String']['output'];
+  deductions: DeductionsBreakdown;
+  /** @deprecated Use deductionsHealthInsuranceDecimal (exact decimal string, ADR-0004). */
   deductionsHealthInsurance?: Maybe<Scalars['Float']['output']>;
+  deductionsHealthInsuranceDecimal?: Maybe<Scalars['Decimal']['output']>;
+  /** @deprecated Use deductionsOtherDecimal (exact decimal string, ADR-0004). */
   deductionsOther?: Maybe<Scalars['Float']['output']>;
+  deductionsOtherDecimal?: Maybe<Scalars['Decimal']['output']>;
+  /** @deprecated Use deductionsRetirementDecimal (exact decimal string, ADR-0004). */
   deductionsRetirement?: Maybe<Scalars['Float']['output']>;
+  deductionsRetirementDecimal?: Maybe<Scalars['Decimal']['output']>;
+  /** @deprecated Use deductionsSocialSecurityDecimal (exact decimal string, ADR-0004). */
   deductionsSocialSecurity?: Maybe<Scalars['Float']['output']>;
+  deductionsSocialSecurityDecimal?: Maybe<Scalars['Decimal']['output']>;
+  /** @deprecated Use deductionsTaxDecimal (exact decimal string, ADR-0004). */
   deductionsTax?: Maybe<Scalars['Float']['output']>;
+  deductionsTaxDecimal?: Maybe<Scalars['Decimal']['output']>;
+  /** @deprecated Use deductionsTotalDecimal (exact decimal string, ADR-0004). */
   deductionsTotal: Scalars['Float']['output'];
+  deductionsTotalDecimal: Scalars['Decimal']['output'];
+  earnings: EarningsBreakdown;
+  /** @deprecated Use earningsAllowancesDecimal (exact decimal string, ADR-0004). */
   earningsAllowances?: Maybe<Scalars['Float']['output']>;
+  earningsAllowancesDecimal?: Maybe<Scalars['Decimal']['output']>;
+  /** @deprecated Use earningsBaseSalaryDecimal (exact decimal string, ADR-0004). */
   earningsBaseSalary: Scalars['Float']['output'];
+  earningsBaseSalaryDecimal: Scalars['Decimal']['output'];
+  /** @deprecated Use earningsBonusDecimal (exact decimal string, ADR-0004). */
   earningsBonus?: Maybe<Scalars['Float']['output']>;
+  earningsBonusDecimal?: Maybe<Scalars['Decimal']['output']>;
+  /** @deprecated Use earningsCommissionDecimal (exact decimal string, ADR-0004). */
   earningsCommission?: Maybe<Scalars['Float']['output']>;
+  earningsCommissionDecimal?: Maybe<Scalars['Decimal']['output']>;
+  /** @deprecated Use earningsGrossPayDecimal (exact decimal string, ADR-0004). */
   earningsGrossPay: Scalars['Float']['output'];
+  earningsGrossPayDecimal: Scalars['Decimal']['output'];
+  /** @deprecated Use earningsOvertimeDecimal (exact decimal string, ADR-0004). */
   earningsOvertime?: Maybe<Scalars['Float']['output']>;
+  earningsOvertimeDecimal?: Maybe<Scalars['Decimal']['output']>;
   employee: Employee;
   employeeId: Scalars['String']['output'];
   id: Scalars['ID']['output'];
+  /** @deprecated Use netPayDecimal (exact decimal string, ADR-0004). */
   netPay: Scalars['Float']['output'];
+  netPayDecimal: Scalars['Decimal']['output'];
   notes?: Maybe<Scalars['String']['output']>;
   payPeriodEnd: Scalars['DateTime']['output'];
   payPeriodStart: Scalars['DateTime']['output'];
@@ -13227,6 +14118,19 @@ export type PayrollConnection = {
   total: Scalars['Int']['output'];
   /** Total number of pages */
   totalPages: Scalars['Int']['output'];
+};
+
+export type PayrollCostSettings = {
+  createdAt: Scalars['DateTime']['output'];
+  defaultCurrency: Scalars['String']['output'];
+  id?: Maybe<Scalars['ID']['output']>;
+  medicalInsurancePct: Scalars['Float']['output'];
+  otherCostPct: Scalars['Float']['output'];
+  pensionFundPct: Scalars['Float']['output'];
+  socialInsurancePct: Scalars['Float']['output'];
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
 };
 
 export type PayrollStatus =
@@ -13396,7 +14300,9 @@ export type PinnedMessage = {
 };
 
 export type Plan = {
+  /** @deprecated Use basePriceDecimal (exact decimal string, ADR-0004). */
   basePrice: Scalars['Float']['output'];
+  basePriceDecimal: Scalars['Decimal']['output'];
   billingCycle: BillingCycle;
   createdAt: Scalars['DateTime']['output'];
   createdBy?: Maybe<Scalars['String']['output']>;
@@ -13442,11 +14348,19 @@ export type PlanLimitsInput = {
 };
 
 export type PlanPricing = {
+  /** @deprecated Use basePriceDecimal (exact decimal string, ADR-0004). */
   basePrice: Scalars['Float']['output'];
+  basePriceDecimal: Scalars['Decimal']['output'];
   currency: Scalars['String']['output'];
+  /** @deprecated Use perFarmPriceDecimal (exact decimal string, ADR-0004). */
   perFarmPrice?: Maybe<Scalars['Float']['output']>;
+  perFarmPriceDecimal?: Maybe<Scalars['Decimal']['output']>;
+  /** @deprecated Use perSensorPriceDecimal (exact decimal string, ADR-0004). */
   perSensorPrice?: Maybe<Scalars['Float']['output']>;
+  perSensorPriceDecimal?: Maybe<Scalars['Decimal']['output']>;
+  /** @deprecated Use perUserPriceDecimal (exact decimal string, ADR-0004). */
   perUserPrice?: Maybe<Scalars['Float']['output']>;
+  perUserPriceDecimal?: Maybe<Scalars['Decimal']['output']>;
 };
 
 export type PlanPricingInput = {
@@ -13460,6 +14374,7 @@ export type PlanPricingInput = {
 export type PlanTier =
   | 'CUSTOM'
   | 'ENTERPRISE'
+  | 'FREE'
   | 'PROFESSIONAL'
   | 'STARTER';
 
@@ -13930,6 +14845,63 @@ export type ProgramVariable = {
   varOrder: Scalars['Float']['output'];
 };
 
+export type ProtocolAssignment = {
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['ID']['output']>;
+  currentBandIndex?: Maybe<Scalars['Int']['output']>;
+  currentFeedId?: Maybe<Scalars['ID']['output']>;
+  effectiveFrom: Scalars['DateTime']['output'];
+  endedAt?: Maybe<Scalars['DateTime']['output']>;
+  id: Scalars['ID']['output'];
+  lastTransitionAt?: Maybe<Scalars['DateTime']['output']>;
+  overrides: Scalars['JSON']['output'];
+  protocolId: Scalars['ID']['output'];
+  siteId: Scalars['ID']['output'];
+  status: ProtocolAssignmentStatus;
+  suspensions: Scalars['JSON']['output'];
+  tenantId: Scalars['ID']['output'];
+  totalTransitions: Scalars['Int']['output'];
+  unitCode: Scalars['String']['output'];
+  unitId: Scalars['ID']['output'];
+  unitName: Scalars['String']['output'];
+  unitType: FeedingUnitType;
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['ID']['output']>;
+};
+
+export type ProtocolAssignmentConnection = {
+  /** Whether there is a next page */
+  hasNextPage: Scalars['Boolean']['output'];
+  /** Whether there is a previous page */
+  hasPreviousPage: Scalars['Boolean']['output'];
+  /** Array of items */
+  items: Array<ProtocolAssignment>;
+  /** Items per page */
+  limit: Scalars['Int']['output'];
+  /** Current page number */
+  page: Scalars['Int']['output'];
+  /** Total count of items matching the query */
+  total: Scalars['Int']['output'];
+  /** Total number of pages */
+  totalPages: Scalars['Int']['output'];
+};
+
+/** Protokol atamasının yaşam döngüsü durumu */
+export type ProtocolAssignmentStatus =
+  | 'ACTIVE'
+  | 'ENDED'
+  | 'PAUSED';
+
+export type ProtocolBandInput = {
+  expectedFcr: Scalars['Float']['input'];
+  feedId: Scalars['ID']['input'];
+  feedingRatePercent: Scalars['Float']['input'];
+  maxWeightG: Scalars['Float']['input'];
+  mealSchedule?: InputMaybe<MealScheduleInput>;
+  minWeightG: Scalars['Float']['input'];
+  notes?: InputMaybe<Scalars['String']['input']>;
+};
+
 export type ProtocolCapabilitiesType = {
   supportedDataTypes: Array<Scalars['String']['output']>;
   supportsAuthentication: Scalars['Boolean']['output'];
@@ -14008,6 +14980,66 @@ export type ProtocolDetailsType = {
   subcategory: Scalars['String']['output'];
 };
 
+/** Protokolün beklenen-FCR çözüm kaynağı ayarı */
+export type ProtocolFcrSource =
+  | 'BAND'
+  | 'FEED'
+  | 'MATRIX';
+
+export type ProtocolFeedForecast = {
+  alerts: Array<ProtocolFeedForecastAlert>;
+  computedAt: Scalars['DateTime']['output'];
+  horizonDays: Scalars['Int']['output'];
+  mortalityAssumption: ProtocolFeedForecastMortalityAssumption;
+  perFeed: Array<ProtocolFeedForecastPerFeed>;
+  perUnit: Array<ProtocolFeedForecastPerUnit>;
+  siteScopeKey: Scalars['String']['output'];
+};
+
+export type ProtocolFeedForecastAlert = {
+  days: Scalars['Int']['output'];
+  feedId: Scalars['ID']['output'];
+  type: Scalars['String']['output'];
+  unitId?: Maybe<Scalars['ID']['output']>;
+};
+
+export type ProtocolFeedForecastMortalityAssumption = {
+  applied: Scalars['Boolean']['output'];
+  source: Scalars['String']['output'];
+};
+
+export type ProtocolFeedForecastPerFeed = {
+  coverageFromAdoptionDays?: Maybe<Scalars['Int']['output']>;
+  currentStockKg: Scalars['Float']['output'];
+  dailyConsumptionSeries: Array<Scalars['Float']['output']>;
+  daysOfCover?: Maybe<Scalars['Int']['output']>;
+  feedCode: Scalars['String']['output'];
+  feedId: Scalars['ID']['output'];
+  feedName: Scalars['String']['output'];
+  firstConsumptionDate?: Maybe<Scalars['String']['output']>;
+  leadTimeSource: Scalars['String']['output'];
+  procurementLeadTimeDays: Scalars['Int']['output'];
+  remainingStockSeries: Array<Scalars['Float']['output']>;
+  reorderDate?: Maybe<Scalars['String']['output']>;
+  reorderQuantityKg?: Maybe<Scalars['Float']['output']>;
+  stockoutDate?: Maybe<Scalars['String']['output']>;
+};
+
+export type ProtocolFeedForecastPerUnit = {
+  currentFeedId?: Maybe<Scalars['ID']['output']>;
+  transitions: Array<ProtocolFeedForecastTransition>;
+  unitCode: Scalars['String']['output'];
+  unitId: Scalars['ID']['output'];
+  unitName: Scalars['String']['output'];
+};
+
+export type ProtocolFeedForecastTransition = {
+  daysFromNow: Scalars['Int']['output'];
+  estimatedDate: Scalars['String']['output'];
+  fromFeedId: Scalars['ID']['output'];
+  toFeedId: Scalars['ID']['output'];
+};
+
 export type ProtocolInfoType = {
   capabilities: ProtocolCapabilitiesType;
   category: ProtocolCategory;
@@ -14015,7 +15047,19 @@ export type ProtocolInfoType = {
   connectionType: Scalars['String']['output'];
   description: Scalars['String']['output'];
   displayName: Scalars['String']['output'];
+  implementationStatus: Scalars['String']['output'];
   subcategory: Scalars['String']['output'];
+};
+
+export type ProtocolSettingsInput = {
+  autoTransition?: Scalars['Boolean']['input'];
+  fcrSource?: ProtocolFcrSource;
+  growthApplicationMode?: Scalars['String']['input'];
+  maxFeedingRatePercent?: InputMaybe<Scalars['Float']['input']>;
+  minDissolvedOxygen?: InputMaybe<Scalars['Float']['input']>;
+  minFeedingRatePercent?: InputMaybe<Scalars['Float']['input']>;
+  transitionBufferG?: Scalars['Float']['input'];
+  underfeedAlertThresholdPercent?: Scalars['Float']['input'];
 };
 
 /** Subcategory of communication protocol */
@@ -14097,9 +15141,13 @@ export type PurchaseOrderItemResponse = {
   notes?: Maybe<Scalars['String']['output']>;
   quantity: Scalars['Float']['output'];
   quantityReceived: Scalars['Float']['output'];
+  /** @deprecated Use totalPriceDecimal (exact decimal string, ADR-0004). */
   totalPrice?: Maybe<Scalars['Float']['output']>;
+  totalPriceDecimal?: Maybe<Scalars['Decimal']['output']>;
   unit: Scalars['String']['output'];
+  /** @deprecated Use unitPriceDecimal (exact decimal string, ADR-0004). */
   unitPrice?: Maybe<Scalars['Float']['output']>;
+  unitPriceDecimal?: Maybe<Scalars['Decimal']['output']>;
 };
 
 export type PurchaseOrderResponse = {
@@ -14118,7 +15166,9 @@ export type PurchaseOrderResponse = {
   status: PurchaseOrderStatus;
   supplierContact?: Maybe<Scalars['String']['output']>;
   supplierName: Scalars['String']['output'];
+  /** @deprecated Use totalAmountDecimal (exact decimal string, ADR-0004). */
   totalAmount?: Maybe<Scalars['Float']['output']>;
+  totalAmountDecimal?: Maybe<Scalars['Decimal']['output']>;
   updatedAt: Scalars['DateTime']['output'];
 };
 
@@ -14174,6 +15224,7 @@ export type Query = {
   activePlcAlarms: Array<PlcAlarm>;
   activeProcesses: Array<ProcessType>;
   activeRotations: Array<WorkRotation>;
+  activeSiteAccessCatalog: Array<SiteAccessCatalogItemResponse>;
   activeSites: Array<SiteResponse>;
   activeSpecies: Array<Species>;
   /** Get all active tanks with fish for simulation */
@@ -14233,6 +15284,7 @@ export type Query = {
   biomassReports: Array<BiomassReport>;
   browseOpcUaNodes: Array<OpcUaNodeBrowseResult>;
   calculateLeaveDays: LeaveDaysResult;
+  calibrationHistory: Array<CalibrationEvent>;
   certificationComplianceReport: CertificationComplianceReport;
   certificationType: CertificationType;
   certificationTypes: Array<CertificationType>;
@@ -14263,7 +15315,6 @@ export type Query = {
   currentOnCallUser?: Maybe<Scalars['String']['output']>;
   currentRotation?: Maybe<RotationDetail>;
   currentUser: User;
-  currentWeather?: Maybe<CurrentWeatherResponse>;
   currentlyOffshore: Array<Employee>;
   dailyAttendanceOverview: DailyAttendanceOverview;
   /** Gunluk yemleme calistirmasi getir */
@@ -14300,6 +15351,7 @@ export type Query = {
   edgeDevices: EdgeDeviceConnection;
   effectiveConfiguration: EffectiveConfigurationDto;
   effectiveConfigurationsByService: Array<EffectiveConfigurationDto>;
+  effectiveUnitTemperatures: Array<EffectiveUnitTemperature>;
   employee: Employee;
   employeeCertificationStatus: EmployeeCertificationStatus;
   employeeCertifications: Array<EmployeeCertification>;
@@ -14307,6 +15359,8 @@ export type Query = {
   employees: EmployeeConnection;
   employeesByDepartment: Array<Employee>;
   enabledChannelsBySensor: Array<DataChannelType>;
+  environmentLayerCatalog: Array<EnvironmentLayerResponse>;
+  environmentScenes: EnvironmentSceneCursorConnection;
   equipment?: Maybe<EquipmentResponse>;
   equipmentByDepartment: Array<EquipmentResponse>;
   equipmentDeletePreview: EquipmentDeletePreviewResponse;
@@ -14333,12 +15387,12 @@ export type Query = {
   feed?: Maybe<FeedResponse>;
   /** Forecast feed consumption and stockout dates */
   feedConsumptionForecast: FeedForecastResponse;
-  feedInventory: FeedInventoryConnection;
   feedSuppliers: Array<SupplierResponse>;
   feedTypes: Array<FeedTypeResponse>;
   feederCalibrations: Array<FeederCalibrationResponse>;
   /** AI-driven feeding recommendation for a specific tank */
   feedingAdvice?: Maybe<FeedingAdvice>;
+  feedingDayPlans: Array<FeedingDayPlan>;
   feedingParameter?: Maybe<FeedingParameter>;
   feedingParameterHistory: Array<FeedingParameter>;
   feedingParameters: PaginatedFeedingParameters;
@@ -14348,10 +15402,14 @@ export type Query = {
   feedingPrograms: Array<FeedingProgram>;
   /** Get a feeding protocol by ID */
   feedingProtocol?: Maybe<FeedingProtocolResponse>;
+  /** Tek protokol (v2) */
+  feedingProtocolV2: FeedingProtocolV2;
   /** List feeding protocols with filters */
   feedingProtocols: PaginatedFeedingProtocolsResponse;
   /** Get feeding protocols for a species */
   feedingProtocolsBySpecies: Array<FeedingProtocolResponse>;
+  /** Birleşik yemleme protokolleri (v2) */
+  feedingProtocolsV2: FeedingProtocolV2Connection;
   feedingRecord?: Maybe<FeedingRecord>;
   feedingRecords: FeedingRecordConnection;
   feedingStats: FeedingStats;
@@ -14360,6 +15418,16 @@ export type Query = {
   feedsByPelletSize: Array<FeedResponse>;
   feedsByType: Array<FeedResponse>;
   feedsForSpecies: Array<FeedResponse>;
+  /** Expense/revenue totals per batch (manual entries + derived costs) for a period. */
+  financeBatchTotals: Array<FinanceBatchTotal>;
+  /** Finance category catalogue (system defaults + user-defined), display order. */
+  financeCategories: Array<FinanceCategory>;
+  /** Unified finance ledger: MANUAL entries + DERIVED cost projections (feed, fingerlings, maintenance, treatments, harvest), newest first. `limit` is clamped to 200. */
+  financeLedger: Array<FinanceLineItem>;
+  /** Tenant finance settings (default currency SSoT + fiscal year start). */
+  financeSettings: FinanceSettings;
+  /** Aggregated finance summary for a period: totals, per-category breakdown (incl. computed rules like the 5% other-variable-cost line) and a time series at the requested granularity. */
+  financeSummary: FinanceSummary;
   generateBatchNumber: Scalars['String']['output'];
   getMobileUserSettings: MobileUserSettings;
   getMobileUsersSettings: Array<MobileUserSettings>;
@@ -14408,6 +15476,11 @@ export type Query = {
   hrDashboardStats: HrDashboardStats;
   hrDepartment: DepartmentHr;
   hrDepartments: Array<DepartmentHr>;
+  hrFinanceCategories: Array<HrFinanceCategory>;
+  hrFinanceEntries: Array<HrFinanceEntry>;
+  hrFinanceSummary: HrFinanceSummary;
+  hrLabourCost: HrLabourCost;
+  hrPersonnelTable: HrPersonnelTable;
   /** Get a hydroponics configuration by ID */
   hydroponicsConfiguration: HydroponicsConfig;
   /** List hydroponics configurations */
@@ -14420,7 +15493,6 @@ export type Query = {
   invoices: Array<Invoice>;
   /** Check if user needs to update their consent preferences */
   isConsentOutdated: Scalars['Boolean']['output'];
-  isSentinelHubConfigured: Scalars['Boolean']['output'];
   latestGrowthMeasurement?: Maybe<GrowthMeasurement>;
   latestPlcTelemetry?: Maybe<PlcTelemetry>;
   latestReading?: Maybe<SensorReading>;
@@ -14444,7 +15516,6 @@ export type Query = {
   maintenanceScheduleByCode: MaintenanceSchedule;
   maintenanceSchedules: MaintenanceScheduleListResponse;
   mandatoryTrainingStatus: Array<MandatoryTrainingStatus>;
-  marineObservations: Array<MarineObservation>;
   /** Get Maskinporten configuration status */
   maskinportenStatus: MaskinportenStatus;
   /** Get Mattilsynet API configuration status */
@@ -14503,6 +15574,7 @@ export type Query = {
   parentDevice?: Maybe<ParentDeviceType>;
   parentDevices: SensorListType;
   payments: Array<Payment>;
+  payrollCostSettings: PayrollCostSettings;
   payrolls: PayrollConnection;
   pendingAttendanceApprovals: PendingAttendanceApprovalsConnection;
   pendingChannelProposals: Array<ChannelDetectionLog>;
@@ -14537,11 +15609,14 @@ export type Query = {
   programVariables: Array<ProgramVariable>;
   /** Project harvest date for target weight */
   projectHarvestDate: Scalars['DateTime']['output'];
+  /** Protokol atamaları */
+  protocolAssignments: ProtocolAssignmentConnection;
   protocolCapabilities?: Maybe<ProtocolCapabilitiesType>;
   protocolCategoryStats: CategoryStatsType;
   protocolCodes: Array<Scalars['String']['output']>;
   protocolDefaults?: Maybe<Scalars['JSON']['output']>;
   protocolDetails?: Maybe<ProtocolDetailsType>;
+  protocolFeedForecast?: Maybe<ProtocolFeedForecast>;
   protocolSchema?: Maybe<Scalars['JSON']['output']>;
   protocolSummaries: Array<ProtocolSummaryType>;
   protocols: Array<ProtocolInfoType>;
@@ -14585,6 +15660,7 @@ export type Query = {
   searchMessages: Array<Message>;
   searchTags: Array<UnifiedTagType>;
   sensor?: Maybe<Sensor>;
+  sensorParameterCatalog: Array<SensorParameterCatalogEntryType>;
   sensorRawList: Array<Sensor>;
   sensorStats: SensorStatsType;
   sensorTypes: Array<SensorTypeDefinition>;
@@ -14592,10 +15668,6 @@ export type Query = {
   sensorsByProtocol: Array<RegisteredSensorType>;
   /** Weekly aggregate sentiment trends per channel (TENANT_ADMIN only) */
   sentimentTrends: Array<SentimentTrendType>;
-  sentinelHubCredentials?: Maybe<SentinelHubCredentials>;
-  sentinelHubStatus: SentinelHubStatus;
-  sentinelHubToken?: Maybe<SentinelHubToken>;
-  sentinelHubWmtsConfig?: Maybe<SentinelHubWmtsConfig>;
   shift: Shift;
   shifts: ShiftConnection;
   /** Semantic similarity search across messages */
@@ -14603,6 +15675,9 @@ export type Query = {
   site?: Maybe<SiteResponse>;
   siteContacts: Array<SiteContactResponse>;
   siteDeletePreview: SiteDeletePreviewResponse;
+  siteEnvironmentCurrent: SiteEnvironmentValuesResponse;
+  siteEnvironmentForecast: SiteEnvironmentValuesResponse;
+  siteEnvironmentHistory: SiteEnvironmentValuesResponse;
   sites: PaginatedSitesResponse;
   /** Slaughter-facility catalog for the tenant */
   slaughterFacilities: Array<SlaughterFacility>;
@@ -14700,6 +15775,7 @@ export type Query = {
   upcomingHarvestPlans: Array<HarvestPlan>;
   upcomingMaintenanceSchedules: Array<MaintenanceSchedule>;
   upcomingRotations: Array<WorkRotation>;
+  userAssignedSiteIds: Array<Scalars['ID']['output']>;
   /** Get consent history for any user (SuperAdmin only) */
   userConsentHistory: ConsentHistoryResponse;
   /** Get consent status for any user (SuperAdmin only) */
@@ -14716,6 +15792,7 @@ export type Query = {
   vfdBrands?: Maybe<Scalars['JSON']['output']>;
   vfdChangeSet?: Maybe<VfdChangeSet>;
   vfdChangeSets: Array<VfdChangeSet>;
+  vfdCommandAuditLog: Array<VfdCommandAuditLog>;
   vfdCurrentParameterValues: Scalars['JSON']['output'];
   vfdDevice?: Maybe<VfdDevice>;
   /** Returns JSON object with status counts */
@@ -14742,9 +15819,6 @@ export type Query = {
   waterQualityMeasurements: WaterQualityListResponse;
   waterQualityStatistics: WaterQualityStatistics;
   waterQualityStatisticsBySystem: WaterQualityStatistics;
-  weatherForecast: Array<WeatherObservation>;
-  weatherObservations: Array<WeatherObservation>;
-  weatherSettings: WeatherSettings;
   weeklyPlan: WeeklyPlan;
   weeklyPlans: WeeklyPlanConnection;
   /** Welfare assessments, optionally by site/tank and date window */
@@ -15019,6 +16093,11 @@ export type QueryCalculateLeaveDaysArgs = {
 };
 
 
+export type QueryCalibrationHistoryArgs = {
+  channelId: Scalars['ID']['input'];
+};
+
+
 export type QueryCertificationComplianceReportArgs = {
   departmentId?: InputMaybe<Scalars['ID']['input']>;
 };
@@ -15102,11 +16181,6 @@ export type QueryCurrentOnCallUserArgs = {
 
 export type QueryCurrentRotationArgs = {
   employeeId: Scalars['ID']['input'];
-};
-
-
-export type QueryCurrentWeatherArgs = {
-  siteId: Scalars['ID']['input'];
 };
 
 
@@ -15255,6 +16329,11 @@ export type QueryEffectiveConfigurationsByServiceArgs = {
 };
 
 
+export type QueryEffectiveUnitTemperaturesArgs = {
+  unitIds: Array<Scalars['ID']['input']>;
+};
+
+
 export type QueryEmployeeArgs = {
   id: Scalars['ID']['input'];
 };
@@ -15293,6 +16372,16 @@ export type QueryEmployeesByDepartmentArgs = {
 
 export type QueryEnabledChannelsBySensorArgs = {
   sensorId: Scalars['ID']['input'];
+};
+
+
+export type QueryEnvironmentLayerCatalogArgs = {
+  siteId: Scalars['ID']['input'];
+};
+
+
+export type QueryEnvironmentScenesArgs = {
+  input: EnvironmentScenesInput;
 };
 
 
@@ -15394,12 +16483,6 @@ export type QueryFeedConsumptionForecastArgs = {
 };
 
 
-export type QueryFeedInventoryArgs = {
-  filter?: InputMaybe<FeedInventoryFilterInput>;
-  pagination?: InputMaybe<FeedingPaginationInput>;
-};
-
-
 export type QueryFeederCalibrationsArgs = {
   equipmentId: Scalars['ID']['input'];
 };
@@ -15407,6 +16490,12 @@ export type QueryFeederCalibrationsArgs = {
 
 export type QueryFeedingAdviceArgs = {
   tankId: Scalars['ID']['input'];
+};
+
+
+export type QueryFeedingDayPlansArgs = {
+  planDate: Scalars['String']['input'];
+  siteId?: InputMaybe<Scalars['ID']['input']>;
 };
 
 
@@ -15442,6 +16531,11 @@ export type QueryFeedingProtocolArgs = {
 };
 
 
+export type QueryFeedingProtocolV2Args = {
+  id: Scalars['ID']['input'];
+};
+
+
 export type QueryFeedingProtocolsArgs = {
   filter?: InputMaybe<FeedingProtocolFilterInput>;
   pagination?: InputMaybe<FarmPaginationInput>;
@@ -15450,6 +16544,13 @@ export type QueryFeedingProtocolsArgs = {
 
 export type QueryFeedingProtocolsBySpeciesArgs = {
   species: Scalars['String']['input'];
+};
+
+
+export type QueryFeedingProtocolsV2Args = {
+  pagination?: InputMaybe<StandardPaginationInput>;
+  speciesId?: InputMaybe<Scalars['ID']['input']>;
+  status?: InputMaybe<FeedingProtocolStatus>;
 };
 
 
@@ -15496,6 +16597,38 @@ export type QueryFeedsByTypeArgs = {
 
 export type QueryFeedsForSpeciesArgs = {
   species: Scalars['String']['input'];
+};
+
+
+export type QueryFinanceBatchTotalsArgs = {
+  from: Scalars['DateTime']['input'];
+  to: Scalars['DateTime']['input'];
+};
+
+
+export type QueryFinanceCategoriesArgs = {
+  includeArchived?: Scalars['Boolean']['input'];
+  scope?: InputMaybe<FinanceCategoryScope>;
+};
+
+
+export type QueryFinanceLedgerArgs = {
+  batchId?: InputMaybe<Scalars['ID']['input']>;
+  categoryId?: InputMaybe<Scalars['ID']['input']>;
+  from?: InputMaybe<Scalars['DateTime']['input']>;
+  includeDerived?: Scalars['Boolean']['input'];
+  limit?: Scalars['Int']['input'];
+  offset?: Scalars['Int']['input'];
+  scope?: InputMaybe<FinanceCategoryScope>;
+  siteId?: InputMaybe<Scalars['ID']['input']>;
+  to?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
+
+export type QueryFinanceSummaryArgs = {
+  from: Scalars['DateTime']['input'];
+  granularity?: FinanceGranularity;
+  to: Scalars['DateTime']['input'];
 };
 
 
@@ -15625,6 +16758,33 @@ export type QueryHrDepartmentsArgs = {
 };
 
 
+export type QueryHrFinanceCategoriesArgs = {
+  includeArchived?: Scalars['Boolean']['input'];
+};
+
+
+export type QueryHrFinanceEntriesArgs = {
+  categoryId?: InputMaybe<Scalars['ID']['input']>;
+  departmentHrId?: InputMaybe<Scalars['ID']['input']>;
+  from?: InputMaybe<Scalars['DateTime']['input']>;
+  limit?: Scalars['Int']['input'];
+  offset?: Scalars['Int']['input'];
+  to?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
+
+export type QueryHrFinanceSummaryArgs = {
+  from: Scalars['DateTime']['input'];
+  granularity?: HrFinanceGranularity;
+  to: Scalars['DateTime']['input'];
+};
+
+
+export type QueryHrLabourCostArgs = {
+  year?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
 export type QueryHydroponicsConfigurationArgs = {
   id: Scalars['ID']['input'];
 };
@@ -15748,12 +16908,6 @@ export type QueryMaintenanceSchedulesArgs = {
 
 export type QueryMandatoryTrainingStatusArgs = {
   employeeId: Scalars['ID']['input'];
-};
-
-
-export type QueryMarineObservationsArgs = {
-  filter?: InputMaybe<WeatherFilterInput>;
-  siteId: Scalars['ID']['input'];
 };
 
 
@@ -16094,6 +17248,15 @@ export type QueryProjectHarvestDateArgs = {
 };
 
 
+export type QueryProtocolAssignmentsArgs = {
+  pagination?: InputMaybe<StandardPaginationInput>;
+  protocolId?: InputMaybe<Scalars['ID']['input']>;
+  siteId?: InputMaybe<Scalars['ID']['input']>;
+  status?: InputMaybe<ProtocolAssignmentStatus>;
+  unitId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
 export type QueryProtocolCapabilitiesArgs = {
   code: Scalars['String']['input'];
 };
@@ -16106,6 +17269,13 @@ export type QueryProtocolDefaultsArgs = {
 
 export type QueryProtocolDetailsArgs = {
   code: Scalars['String']['input'];
+};
+
+
+export type QueryProtocolFeedForecastArgs = {
+  horizonDays?: InputMaybe<Scalars['Int']['input']>;
+  refresh?: InputMaybe<Scalars['Boolean']['input']>;
+  siteId?: InputMaybe<Scalars['ID']['input']>;
 };
 
 
@@ -16253,6 +17423,7 @@ export type QuerySensorRawListArgs = {
   page?: InputMaybe<Scalars['Int']['input']>;
   pondId?: InputMaybe<Scalars['ID']['input']>;
   status?: InputMaybe<SensorStatus>;
+  tankId?: InputMaybe<Scalars['ID']['input']>;
 };
 
 
@@ -16303,6 +17474,21 @@ export type QuerySiteContactsArgs = {
 
 export type QuerySiteDeletePreviewArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type QuerySiteEnvironmentCurrentArgs = {
+  siteId: Scalars['ID']['input'];
+};
+
+
+export type QuerySiteEnvironmentForecastArgs = {
+  input: SiteEnvironmentForecastInput;
+};
+
+
+export type QuerySiteEnvironmentHistoryArgs = {
+  input: SiteEnvironmentHistoryInput;
 };
 
 
@@ -16704,6 +17890,11 @@ export type QueryUpcomingRotationsArgs = {
 };
 
 
+export type QueryUserAssignedSiteIdsArgs = {
+  userId: Scalars['ID']['input'];
+};
+
+
 export type QueryUserConsentHistoryArgs = {
   limit?: InputMaybe<Scalars['Int']['input']>;
   offset?: InputMaybe<Scalars['Int']['input']>;
@@ -16767,6 +17958,12 @@ export type QueryVfdChangeSetsArgs = {
   limit?: Scalars['Int']['input'];
   offset?: Scalars['Int']['input'];
   status?: InputMaybe<VfdChangeSetStatus>;
+  vfdDeviceId: Scalars['ID']['input'];
+};
+
+
+export type QueryVfdCommandAuditLogArgs = {
+  limit?: InputMaybe<Scalars['Int']['input']>;
   vfdDeviceId: Scalars['ID']['input'];
 };
 
@@ -16887,18 +18084,6 @@ export type QueryWaterQualityStatisticsArgs = {
 export type QueryWaterQualityStatisticsBySystemArgs = {
   days?: Scalars['Int']['input'];
   systemId: Scalars['ID']['input'];
-};
-
-
-export type QueryWeatherForecastArgs = {
-  days?: InputMaybe<Scalars['Float']['input']>;
-  siteId: Scalars['ID']['input'];
-};
-
-
-export type QueryWeatherObservationsArgs = {
-  filter?: InputMaybe<WeatherFilterInput>;
-  siteId: Scalars['ID']['input'];
 };
 
 
@@ -17047,6 +18232,16 @@ export type RecordBulkConsentInput = {
   consents: Array<ConsentItemInput>;
 };
 
+export type RecordCalibrationInput = {
+  calibrationEnabled?: Scalars['Boolean']['input'];
+  calibrationMultiplier: Scalars['Float']['input'];
+  calibrationOffset: Scalars['Float']['input'];
+  channelId: Scalars['ID']['input'];
+  intervalDays?: InputMaybe<Scalars['Int']['input']>;
+  notes?: InputMaybe<Scalars['String']['input']>;
+  referenceValues?: InputMaybe<Array<CalibrationReferencePointInput>>;
+};
+
 export type RecordCleanerMortalityInput = {
   cleanerBatchId: Scalars['ID']['input'];
   detail?: InputMaybe<Scalars['String']['input']>;
@@ -17072,6 +18267,7 @@ export type RecordConsentResult = {
 export type RecordCullInput = {
   avgWeightG?: InputMaybe<Scalars['Float']['input']>;
   batchId: Scalars['ID']['input'];
+  biomassKg?: InputMaybe<Scalars['Float']['input']>;
   clientCommandId: Scalars['ID']['input'];
   /** ISO timestamp when the mobile client created the command */
   clientCreatedAt?: InputMaybe<Scalars['String']['input']>;
@@ -17117,11 +18313,24 @@ export type RecordEscapeIncidentInput = {
   batchId?: InputMaybe<Scalars['ID']['input']>;
   cause?: EscapeIncidentCause;
   causeDetails?: InputMaybe<Scalars['String']['input']>;
+  /** Stable client command UUID generated before first submission */
+  clientCommandId?: InputMaybe<Scalars['String']['input']>;
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: InputMaybe<Scalars['String']['input']>;
   /** When the escape was detected (ISO timestamp) */
   detectedAt: Scalars['String']['input'];
+  /** Stable per-installation device identifier */
+  deviceId?: InputMaybe<Scalars['String']['input']>;
   estimatedCount: Scalars['Int']['input'];
+  mediaKeys?: InputMaybe<Array<Scalars['String']['input']>>;
   notes?: InputMaybe<Scalars['String']['input']>;
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: InputMaybe<Scalars['String']['input']>;
+  /** SHA-256 hash of the command payload before envelope fields are added */
+  payloadHash?: InputMaybe<Scalars['String']['input']>;
   recoveryOngoing?: Scalars['Boolean']['input'];
+  /** Optional mobile command payload schema version */
+  schemaVersion?: InputMaybe<Scalars['String']['input']>;
   siteId: Scalars['ID']['input'];
   speciesId: Scalars['ID']['input'];
   tankId?: InputMaybe<Scalars['ID']['input']>;
@@ -17168,21 +18377,55 @@ export type RecordLiceCountInput = {
   /** Attached lice (fastsittende lus), avg per fish */
   attachedLice: Scalars['Float']['input'];
   batchId?: InputMaybe<Scalars['ID']['input']>;
+  /** Stable client command UUID generated before first submission */
+  clientCommandId?: InputMaybe<Scalars['String']['input']>;
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: InputMaybe<Scalars['String']['input']>;
   /** Counting date (yyyy-mm-dd) */
   countDate: Scalars['String']['input'];
+  /** Stable per-installation device identifier */
+  deviceId?: InputMaybe<Scalars['String']['input']>;
   /** Fish sampled (regulation: 10 or 20 per pen) */
   fishSampled: Scalars['Int']['input'];
+  mediaKeys?: InputMaybe<Array<Scalars['String']['input']>>;
   /** Mobile lice (bevegelige lus), avg per fish */
   mobileLice: Scalars['Float']['input'];
   notes?: InputMaybe<Scalars['String']['input']>;
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: InputMaybe<Scalars['String']['input']>;
+  /** SHA-256 hash of the command payload before envelope fields are added */
+  payloadHash?: InputMaybe<Scalars['String']['input']>;
+  /** Optional mobile command payload schema version */
+  schemaVersion?: InputMaybe<Scalars['String']['input']>;
   seaTemperatureC?: InputMaybe<Scalars['Float']['input']>;
   siteId: Scalars['ID']['input'];
   tankId: Scalars['ID']['input'];
 };
 
+export type RecordMealFeedingInput = {
+  /** Stable client command UUID generated before first submission */
+  clientCommandId?: InputMaybe<Scalars['String']['input']>;
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: InputMaybe<Scalars['String']['input']>;
+  /** Stable per-installation device identifier */
+  deviceId?: InputMaybe<Scalars['String']['input']>;
+  feedingMethod?: InputMaybe<Scalars['String']['input']>;
+  finalize?: Scalars['Boolean']['input'];
+  mealId: Scalars['ID']['input'];
+  notes?: InputMaybe<Scalars['String']['input']>;
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: InputMaybe<Scalars['String']['input']>;
+  /** SHA-256 hash of the command payload before envelope fields are added */
+  payloadHash?: InputMaybe<Scalars['String']['input']>;
+  pourKg: Scalars['Float']['input'];
+  /** Optional mobile command payload schema version */
+  schemaVersion?: InputMaybe<Scalars['String']['input']>;
+};
+
 export type RecordMortalityInput = {
   avgWeightG?: InputMaybe<Scalars['Float']['input']>;
   batchId: Scalars['ID']['input'];
+  biomassKg?: InputMaybe<Scalars['Float']['input']>;
   clientCommandId: Scalars['ID']['input'];
   /** ISO timestamp when the mobile client created the command */
   clientCreatedAt?: InputMaybe<Scalars['String']['input']>;
@@ -17275,12 +18518,25 @@ export type RecordWelfareAssessmentInput = {
   /** Assessment date (yyyy-mm-dd) */
   assessedAt: Scalars['String']['input'];
   batchId?: InputMaybe<Scalars['ID']['input']>;
+  /** Stable client command UUID generated before first submission */
+  clientCommandId?: InputMaybe<Scalars['String']['input']>;
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: InputMaybe<Scalars['String']['input']>;
   deformityScore: Scalars['Int']['input'];
+  /** Stable per-installation device identifier */
+  deviceId?: InputMaybe<Scalars['String']['input']>;
   finScore: Scalars['Int']['input'];
   fishSampled: Scalars['Int']['input'];
   /** 0 (healthy) .. 3 (severe) */
   gillScore: Scalars['Int']['input'];
+  mediaKeys?: InputMaybe<Array<Scalars['String']['input']>>;
   notes?: InputMaybe<Scalars['String']['input']>;
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: InputMaybe<Scalars['String']['input']>;
+  /** SHA-256 hash of the command payload before envelope fields are added */
+  payloadHash?: InputMaybe<Scalars['String']['input']>;
+  /** Optional mobile command payload schema version */
+  schemaVersion?: InputMaybe<Scalars['String']['input']>;
   siteId: Scalars['ID']['input'];
   tankId: Scalars['ID']['input'];
   woundScore: Scalars['Int']['input'];
@@ -17353,7 +18609,9 @@ export type RefreshTokenInput = {
 };
 
 export type RefundInfo = {
+  /** @deprecated Use amountDecimal (exact decimal string, ADR-0004). */
   amount: Scalars['Float']['output'];
+  amountDecimal: Scalars['Decimal']['output'];
   reason: Scalars['String']['output'];
   refundId?: Maybe<Scalars['String']['output']>;
   refundedAt: Scalars['DateTime']['output'];
@@ -17390,6 +18648,7 @@ export type RegisterChildSensorInput = {
   minValue?: InputMaybe<Scalars['Float']['input']>;
   name: Scalars['String']['input'];
   type: SensorType;
+  typeDefinitionId?: InputMaybe<Scalars['ID']['input']>;
   unit?: InputMaybe<Scalars['String']['input']>;
 };
 
@@ -17448,11 +18707,14 @@ export type RegisterSensorInput = {
   systemId?: InputMaybe<Scalars['ID']['input']>;
   tankId?: InputMaybe<Scalars['ID']['input']>;
   type: SensorType;
+  typeDefinitionId?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type RegisterVfdInput = {
   brand: Scalars['String']['input'];
   description?: InputMaybe<Scalars['String']['input']>;
+  edgeDeviceId?: InputMaybe<Scalars['ID']['input']>;
+  edgeModbusDeviceName?: InputMaybe<Scalars['String']['input']>;
   farmId?: InputMaybe<Scalars['ID']['input']>;
   location?: InputMaybe<Scalars['String']['input']>;
   model?: InputMaybe<Scalars['String']['input']>;
@@ -17498,6 +18760,7 @@ export type RegisteredSensorType = {
   tankId?: Maybe<Scalars['ID']['output']>;
   tenantId: Scalars['String']['output'];
   type: SensorType;
+  typeDefinitionId?: Maybe<Scalars['ID']['output']>;
   updatedAt: Scalars['DateTime']['output'];
 };
 
@@ -17809,6 +19072,13 @@ export type ReportValidationError = {
   melding: Scalars['String']['output'];
 };
 
+export type RequestIncidentMediaUploadInput = {
+  fileSize: Scalars['Int']['input'];
+  filename: Scalars['String']['input'];
+  incidentType: IncidentMediaType;
+  mimeType: Scalars['String']['input'];
+};
+
 export type RequestMediaUploadInput = {
   /** Channel the file belongs to */
   channelId: Scalars['ID']['input'];
@@ -18063,6 +19333,12 @@ export type SalinityInput = {
   unit?: Scalars['String']['input'];
 };
 
+export type SatelliteCoverageStatus =
+  | 'FULL'
+  | 'OUT_OF_COVERAGE'
+  | 'PARTIAL'
+  | 'UNKNOWN';
+
 export type SaveDashboardLayoutInput = {
   description?: InputMaybe<Scalars['String']['input']>;
   gridConfig?: InputMaybe<Scalars['JSON']['input']>;
@@ -18135,6 +19411,8 @@ export type ScadaDeployStatus =
   | 'ROLLED_BACK'
   | 'SENT'
   | 'SUCCESS'
+  | 'UNDEPLOYED'
+  | 'UNDEPLOY_SENT'
   | 'VERIFYING';
 
 export type ScadaDeployStepResultType = {
@@ -18340,6 +19618,7 @@ export type SensorConnectionStatusType = {
 export type SensorDataChannel = {
   alertThresholds?: Maybe<AlertThresholds>;
   calibrationEnabled: Scalars['Boolean']['output'];
+  calibrationIntervalDays?: Maybe<Scalars['Int']['output']>;
   calibrationMultiplier: Scalars['Float']['output'];
   calibrationOffset: Scalars['Float']['output'];
   calibrationPolynomial?: Maybe<Scalars['JSON']['output']>;
@@ -18413,6 +19692,16 @@ export type SensorPaginationInput = {
   sortBy?: InputMaybe<Scalars['String']['input']>;
   /** Sort direction */
   sortOrder?: InputMaybe<SortOrder>;
+};
+
+export type SensorParameterCatalogEntryType = {
+  dataType: ChannelDataType;
+  key: Scalars['String']['output'];
+  label: Scalars['String']['output'];
+  max: Scalars['Float']['output'];
+  min: Scalars['Float']['output'];
+  sensorType: SensorType;
+  unit: Scalars['String']['output'];
 };
 
 export type SensorProtocol = {
@@ -18586,31 +19875,6 @@ export type SentimentTrendsInput = {
   weeks?: Scalars['Int']['input'];
 };
 
-export type SentinelHubCredentials = {
-  clientId: Scalars['String']['output'];
-  hasClientSecret: Scalars['Boolean']['output'];
-  instanceId?: Maybe<Scalars['String']['output']>;
-  /** Indicates credentials are configured and valid */
-  isConfigured: Scalars['Boolean']['output'];
-};
-
-export type SentinelHubStatus = {
-  clientIdMasked?: Maybe<Scalars['String']['output']>;
-  instanceIdMasked?: Maybe<Scalars['String']['output']>;
-  isConfigured: Scalars['Boolean']['output'];
-  lastUsed?: Maybe<Scalars['DateTime']['output']>;
-  usageCount: Scalars['Int']['output'];
-};
-
-export type SentinelHubToken = {
-  expiresIn: Scalars['Int']['output'];
-};
-
-export type SentinelHubWmtsConfig = {
-  expiresIn: Scalars['Int']['output'];
-  instanceId: Scalars['String']['output'];
-};
-
 export type SetChecklistItemInput = {
   /** Stable client command UUID generated before first submission */
   clientCommandId?: InputMaybe<Scalars['String']['input']>;
@@ -18732,6 +19996,12 @@ export type SimilarMessagesInput = {
   query: Scalars['String']['input'];
 };
 
+export type SiteAccessCatalogItemResponse = {
+  code: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  name: Scalars['String']['output'];
+};
+
 export type SiteAddressInput = {
   city?: InputMaybe<Scalars['String']['input']>;
   country?: InputMaybe<Scalars['String']['input']>;
@@ -18791,6 +20061,24 @@ export type SiteDeletePreviewResponse = {
   site: SiteResponse;
 };
 
+export type SiteEnvironmentForecastInput = {
+  days?: Scalars['Int']['input'];
+  metrics: Array<EnvironmentMetric>;
+  siteId: Scalars['ID']['input'];
+};
+
+export type SiteEnvironmentHistoryInput = {
+  from: Scalars['DateTime']['input'];
+  metrics: Array<EnvironmentMetric>;
+  siteId: Scalars['ID']['input'];
+  to: Scalars['DateTime']['input'];
+};
+
+export type SiteEnvironmentValuesResponse = {
+  siteId: Scalars['ID']['output'];
+  values: Array<EnvironmentValueResponse>;
+};
+
 export type SiteFilterInput = {
   country?: InputMaybe<Scalars['String']['input']>;
   isActive?: InputMaybe<Scalars['Boolean']['input']>;
@@ -18837,6 +20125,9 @@ export type SiteResponse = {
   isActive: Scalars['Boolean']['output'];
   location?: Maybe<SiteLocationResponse>;
   lokalitetsnummer?: Maybe<Scalars['Int']['output']>;
+  monitoringArea?: Maybe<Scalars['JSON']['output']>;
+  monitoringLocationRevision: Scalars['Int']['output'];
+  monitoringRadiusM: Scalars['Int']['output'];
   name: Scalars['String']['output'];
   organisationNumberOverride?: Maybe<Scalars['String']['output']>;
   region?: Maybe<Scalars['String']['output']>;
@@ -18870,6 +20161,11 @@ export type SiteType =
 export type SkipDailyFeedingInput = {
   executionId: Scalars['ID']['input'];
   skipReason: Scalars['String']['input'];
+};
+
+export type SkipMealInput = {
+  mealId: Scalars['ID']['input'];
+  reason: Scalars['String']['input'];
 };
 
 export type SlaughterFacility = {
@@ -18916,7 +20212,9 @@ export type SparePart = {
   supplierId?: Maybe<Scalars['String']['output']>;
   tenantId: Scalars['String']['output'];
   unit: Scalars['String']['output'];
+  /** @deprecated Use unitPriceDecimal (exact decimal string, ADR-0004). */
   unitPrice?: Maybe<Scalars['Float']['output']>;
+  unitPriceDecimal?: Maybe<Scalars['Decimal']['output']>;
   updatedAt: Scalars['DateTime']['output'];
   updatedBy?: Maybe<Scalars['String']['output']>;
   version: Scalars['Int']['output'];
@@ -19089,6 +20387,17 @@ export type SpiBusInfo = {
   devicePath: Scalars['String']['output'];
 };
 
+export type StandardPaginationInput = {
+  /** Items per page (max 100) */
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  /** Page number (1-based) */
+  page?: InputMaybe<Scalars['Int']['input']>;
+  /** Sort field */
+  sortBy?: InputMaybe<Scalars['String']['input']>;
+  /** Sort direction */
+  sortOrder?: InputMaybe<SortOrder>;
+};
+
 export type StartWorkOrderInput = {
   id: Scalars['ID']['input'];
   notes?: InputMaybe<Scalars['String']['input']>;
@@ -19187,7 +20496,9 @@ export type StockSummaryResponse = {
   onOrderCount: Scalars['Int']['output'];
   outOfStockCount: Scalars['Int']['output'];
   totalParts: Scalars['Int']['output'];
+  /** @deprecated Use totalValueDecimal (exact decimal string, ADR-0004). */
   totalValue: Scalars['Float']['output'];
+  totalValueDecimal: Scalars['Decimal']['output'];
 };
 
 export type StorageInventoryCursorConnection = {
@@ -19196,7 +20507,7 @@ export type StorageInventoryCursorConnection = {
 };
 
 export type StorageInventoryCursorPageInfo = {
-  /** Cursor to pass as `after` for the next page. null when hasNextPage=false. */
+  /** Cursor of the final edge in this page. null only when the page has no edges. */
   endCursor?: Maybe<Scalars['String']['output']>;
   hasNextPage: Scalars['Boolean']['output'];
 };
@@ -19282,7 +20593,9 @@ export type StorageOverviewResponse = {
   lowStockAlerts: Array<LowStockAlert>;
   recentMovementsCount: Scalars['Int']['output'];
   totalItems: Scalars['Int']['output'];
+  /** @deprecated Use totalStockValueDecimal (exact decimal string, ADR-0004). */
   totalStockValue: Scalars['Float']['output'];
+  totalStockValueDecimal: Scalars['Decimal']['output'];
 };
 
 export type StyrkeEnhet =
@@ -20206,6 +21519,8 @@ export type TankBatchMetrics = {
   lastMortalityAt?: Maybe<Scalars['DateTime']['output']>;
   lastSamplingAt?: Maybe<Scalars['DateTime']['output']>;
   pieces?: Maybe<Scalars['Int']['output']>;
+  speciesId?: Maybe<Scalars['ID']['output']>;
+  speciesName?: Maybe<Scalars['String']['output']>;
 };
 
 export type TankCapacityInfo = {
@@ -20242,7 +21557,6 @@ export type TankCountReconcileRow = {
   healed: Scalars['Boolean']['output'];
   ledgerComplete: Scalars['Boolean']['output'];
   ledgerQuantity: Scalars['Int']['output'];
-  mirrorQuantity?: Maybe<Scalars['Int']['output']>;
   tankId: Scalars['ID']['output'];
 };
 
@@ -20473,7 +21787,9 @@ export type TaskStatus =
   | 'PENDING';
 
 export type TaxInfo = {
+  /** @deprecated Use taxAmountDecimal (exact decimal string, ADR-0004). */
   taxAmount: Scalars['Float']['output'];
+  taxAmountDecimal: Scalars['Decimal']['output'];
   taxId?: Maybe<Scalars['String']['output']>;
   taxName?: Maybe<Scalars['String']['output']>;
   taxRate: Scalars['Float']['output'];
@@ -20507,6 +21823,12 @@ export type TeamWeeklyOverview = {
 export type TelemetryTimeRangeInput = {
   from: Scalars['DateTime']['input'];
   to: Scalars['DateTime']['input'];
+};
+
+export type TemperatureAdjustmentInput = {
+  maxC: Scalars['Float']['input'];
+  minC: Scalars['Float']['input'];
+  rateMultiplier: Scalars['Float']['input'];
 };
 
 export type TemperatureRangeInput = {
@@ -20545,6 +21867,9 @@ export type Tenant = {
   slug: Scalars['String']['output'];
   status: TenantStatus;
   subscriptionEndsAt?: Maybe<Scalars['String']['output']>;
+  suspendedAt?: Maybe<Scalars['String']['output']>;
+  suspendedBy?: Maybe<Scalars['String']['output']>;
+  suspendedReason?: Maybe<Scalars['String']['output']>;
   taxId?: Maybe<Scalars['String']['output']>;
   trialEndsAt?: Maybe<Scalars['String']['output']>;
   updatedAt: Scalars['DateTime']['output'];
@@ -20599,7 +21924,9 @@ export type TenantExportSummary = {
 };
 
 export type TenantInvoiceDto = {
+  /** @deprecated Use amountDecimal (exact decimal string, ADR-0004). */
   amount: Scalars['Float']['output'];
+  amountDecimal: Scalars['Decimal']['output'];
   currency: Scalars['String']['output'];
   description: Scalars['String']['output'];
   dueDate: Scalars['String']['output'];
@@ -20735,7 +22062,9 @@ export type TenantSubscriptionDto = {
   currentPeriodEnd: Scalars['String']['output'];
   currentPeriodStart: Scalars['String']['output'];
   id: Scalars['ID']['output'];
+  /** @deprecated Use monthlyPriceDecimal (exact decimal string, ADR-0004). */
   monthlyPrice: Scalars['Float']['output'];
+  monthlyPriceDecimal: Scalars['Decimal']['output'];
   plan: Scalars['String']['output'];
   status: TenantSubscriptionStatus;
   trialEndDate?: Maybe<Scalars['String']['output']>;
@@ -21057,6 +22386,7 @@ export type TrainingType =
 export type TransferBatchInput = {
   avgWeightG?: InputMaybe<Scalars['Float']['input']>;
   batchId: Scalars['ID']['input'];
+  biomassKg?: InputMaybe<Scalars['Float']['input']>;
   clientCommandId: Scalars['ID']['input'];
   /** ISO timestamp when the mobile client created the command */
   clientCreatedAt?: InputMaybe<Scalars['String']['input']>;
@@ -21469,8 +22799,7 @@ export type UpdateConsumableInput = {
 export type UpdateDataChannelInput = {
   alertThresholds?: InputMaybe<AlertThresholdsInput>;
   calibrationEnabled?: InputMaybe<Scalars['Boolean']['input']>;
-  calibrationMultiplier?: InputMaybe<Scalars['Float']['input']>;
-  calibrationOffset?: InputMaybe<Scalars['Float']['input']>;
+  calibrationIntervalDays?: InputMaybe<Scalars['Int']['input']>;
   channelId: Scalars['ID']['input'];
   dataPath?: InputMaybe<Scalars['String']['input']>;
   description?: InputMaybe<Scalars['String']['input']>;
@@ -21537,6 +22866,7 @@ export type UpdateEmployeeInput = {
   hireDate?: InputMaybe<Scalars['String']['input']>;
   id: Scalars['String']['input'];
   isFarmWorker?: InputMaybe<Scalars['Boolean']['input']>;
+  laborCategory?: InputMaybe<LaborCategory>;
   lastName?: InputMaybe<Scalars['String']['input']>;
   nationalId?: InputMaybe<Scalars['String']['input']>;
   position?: InputMaybe<Scalars['String']['input']>;
@@ -21704,6 +23034,20 @@ export type UpdateFeedingProtocolInput = {
   temperatureRanges?: InputMaybe<Array<FeedingTemperatureRangeInput>>;
 };
 
+export type UpdateFeedingProtocolV2Input = {
+  bands: Array<ProtocolBandInput>;
+  defaultMealSchedule: MealScheduleInput;
+  description?: InputMaybe<Scalars['String']['input']>;
+  fcrMatrix?: InputMaybe<FcrMatrixInput>;
+  id: Scalars['ID']['input'];
+  isDefault?: Scalars['Boolean']['input'];
+  name: Scalars['String']['input'];
+  settings: ProtocolSettingsInput;
+  speciesId?: InputMaybe<Scalars['ID']['input']>;
+  status?: InputMaybe<FeedingProtocolStatus>;
+  temperatureAdjustments?: InputMaybe<Array<TemperatureAdjustmentInput>>;
+};
+
 export type UpdateFeedingRecordInput = {
   actualAmount?: InputMaybe<Scalars['Float']['input']>;
   environment?: InputMaybe<FeedingEnvironmentInput>;
@@ -21711,6 +23055,27 @@ export type UpdateFeedingRecordInput = {
   notes?: InputMaybe<Scalars['String']['input']>;
   verifiedBy?: InputMaybe<Scalars['ID']['input']>;
   wasteAmount?: InputMaybe<Scalars['Float']['input']>;
+};
+
+export type UpdateFinanceCategoryInput = {
+  displayOrder?: InputMaybe<Scalars['Int']['input']>;
+  name?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type UpdateFinanceEntryInput = {
+  amount?: InputMaybe<Scalars['Float']['input']>;
+  batchId?: InputMaybe<Scalars['ID']['input']>;
+  categoryId?: InputMaybe<Scalars['ID']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  entryDate?: InputMaybe<Scalars['String']['input']>;
+  periodEnd?: InputMaybe<Scalars['String']['input']>;
+  periodStart?: InputMaybe<Scalars['String']['input']>;
+  siteId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type UpdateFinanceSettingsInput = {
+  defaultCurrency?: InputMaybe<Scalars['String']['input']>;
+  fiscalYearStartMonth?: InputMaybe<Scalars['Int']['input']>;
 };
 
 export type UpdateGoalInput = {
@@ -21924,6 +23289,20 @@ export type UpdateHealthEventInput = {
   withdrawalPeriodDays?: InputMaybe<Scalars['Int']['input']>;
 };
 
+export type UpdateHrFinanceCategoryInput = {
+  displayOrder?: InputMaybe<Scalars['Int']['input']>;
+  name?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type UpdateHrFinanceEntryInput = {
+  amount?: InputMaybe<Scalars['Float']['input']>;
+  categoryId?: InputMaybe<Scalars['ID']['input']>;
+  departmentHrId?: InputMaybe<Scalars['ID']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  employeeId?: InputMaybe<Scalars['ID']['input']>;
+  entryDate?: InputMaybe<Scalars['String']['input']>;
+};
+
 export type UpdateHydroponicsConfigInput = {
   configName?: InputMaybe<Scalars['String']['input']>;
   id: Scalars['ID']['input'];
@@ -22019,15 +23398,24 @@ export type UpdateMeterReadingInput = {
 };
 
 export type UpdateMobileUserSettingsInput = {
+  attendance?: InputMaybe<Scalars['Boolean']['input']>;
   cull?: InputMaybe<Scalars['Boolean']['input']>;
+  escape?: InputMaybe<Scalars['Boolean']['input']>;
   feeding?: InputMaybe<Scalars['Boolean']['input']>;
   harvest?: InputMaybe<Scalars['Boolean']['input']>;
   isMobileEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  leave?: InputMaybe<Scalars['Boolean']['input']>;
+  liceCount?: InputMaybe<Scalars['Boolean']['input']>;
   mortality?: InputMaybe<Scalars['Boolean']['input']>;
+  reports?: InputMaybe<Scalars['Boolean']['input']>;
+  schedule?: InputMaybe<Scalars['Boolean']['input']>;
   storage?: InputMaybe<Scalars['Boolean']['input']>;
   tankView?: InputMaybe<Scalars['Boolean']['input']>;
+  tasks?: InputMaybe<Scalars['Boolean']['input']>;
+  transfer?: InputMaybe<Scalars['Boolean']['input']>;
   userId: Scalars['ID']['input'];
   waterQuality?: InputMaybe<Scalars['Boolean']['input']>;
+  welfare?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
 export type UpdateMyProfileInput = {
@@ -22119,6 +23507,13 @@ export type UpdateParameterConfigInput = {
   warningMax?: InputMaybe<Scalars['Float']['input']>;
   /** Warning minimum value */
   warningMin?: InputMaybe<Scalars['Float']['input']>;
+};
+
+export type UpdatePayrollCostSettingsInput = {
+  medicalInsurancePct?: InputMaybe<Scalars['Float']['input']>;
+  otherCostPct?: InputMaybe<Scalars['Float']['input']>;
+  pensionFundPct?: InputMaybe<Scalars['Float']['input']>;
+  socialInsurancePct?: InputMaybe<Scalars['Float']['input']>;
 };
 
 export type UpdatePlanEntryInput = {
@@ -22216,6 +23611,13 @@ export type UpdateProgramInput = {
   triggerConfig?: InputMaybe<Scalars['JSON']['input']>;
 };
 
+export type UpdateProtocolAssignmentInput = {
+  assignmentId: Scalars['ID']['input'];
+  overrides?: InputMaybe<AssignmentOverridesInput>;
+  status?: InputMaybe<Scalars['String']['input']>;
+  suspensions?: InputMaybe<Array<AssignmentSuspensionInput>>;
+};
+
 export type UpdatePurchaseOrderStatusInput = {
   id: Scalars['ID']['input'];
   status: PurchaseOrderStatus;
@@ -22267,7 +23669,6 @@ export type UpdateScadaPackageInput = {
   name?: InputMaybe<Scalars['String']['input']>;
   packageData?: InputMaybe<Scalars['JSON']['input']>;
   processId?: InputMaybe<Scalars['String']['input']>;
-  status?: InputMaybe<ScadaPackageStatus>;
 };
 
 export type UpdateSchedulingSettingsInput = {
@@ -22300,15 +23701,6 @@ export type UpdateSensorInfoInput = {
   systemId?: InputMaybe<Scalars['ID']['input']>;
   tankId?: InputMaybe<Scalars['ID']['input']>;
   type?: InputMaybe<SensorType>;
-};
-
-export type UpdateSensorInput = {
-  farmId?: InputMaybe<Scalars['ID']['input']>;
-  firmwareVersion?: InputMaybe<Scalars['String']['input']>;
-  name?: InputMaybe<Scalars['String']['input']>;
-  pondId?: InputMaybe<Scalars['ID']['input']>;
-  sensorId: Scalars['ID']['input'];
-  status?: InputMaybe<SensorStatus>;
 };
 
 export type UpdateSensorProtocolInput = {
@@ -22356,6 +23748,8 @@ export type UpdateSiteInput = {
   isActive?: InputMaybe<Scalars['Boolean']['input']>;
   location?: InputMaybe<SiteLocationInput>;
   lokalitetsnummer?: InputMaybe<Scalars['Int']['input']>;
+  monitoringArea?: InputMaybe<Scalars['JSON']['input']>;
+  monitoringRadiusM?: InputMaybe<Scalars['Int']['input']>;
   name?: InputMaybe<Scalars['String']['input']>;
   organisationNumberOverride?: InputMaybe<Scalars['String']['input']>;
   region?: InputMaybe<Scalars['String']['input']>;
@@ -22364,6 +23758,7 @@ export type UpdateSiteInput = {
   status?: InputMaybe<SiteStatus>;
   timezone?: InputMaybe<Scalars['String']['input']>;
   totalArea?: InputMaybe<Scalars['Float']['input']>;
+  type?: InputMaybe<SiteType>;
 };
 
 export type UpdateSlaughterFacilityInput = {
@@ -22710,6 +24105,8 @@ export type UpdateVfdAutomationRuleInput = {
 
 export type UpdateVfdInput = {
   description?: InputMaybe<Scalars['String']['input']>;
+  edgeDeviceId?: InputMaybe<Scalars['ID']['input']>;
+  edgeModbusDeviceName?: InputMaybe<Scalars['String']['input']>;
   farmId?: InputMaybe<Scalars['ID']['input']>;
   isPollingEnabled?: InputMaybe<Scalars['Boolean']['input']>;
   location?: InputMaybe<Scalars['String']['input']>;
@@ -22733,12 +24130,6 @@ export type UpdateWaterQualityInput = {
   notes?: InputMaybe<Scalars['String']['input']>;
   /** Hava durumu */
   weatherConditions?: InputMaybe<Scalars['String']['input']>;
-};
-
-export type UpdateWeatherSettingsInput = {
-  enabled?: InputMaybe<Scalars['Boolean']['input']>;
-  forecastDays?: InputMaybe<Scalars['Int']['input']>;
-  syncIntervalMinutes?: InputMaybe<Scalars['Int']['input']>;
 };
 
 export type UpdateWorkAreaInput = {
@@ -22816,6 +24207,7 @@ export type UsageProtocolInput = {
   frequency?: InputMaybe<Scalars['String']['input']>;
   notes?: InputMaybe<Scalars['String']['input']>;
   precautions?: InputMaybe<Array<Scalars['String']['input']>>;
+  prescriptionRequired?: InputMaybe<Scalars['Boolean']['input']>;
   targetConditions?: InputMaybe<Array<Scalars['String']['input']>>;
   targetSpecies?: InputMaybe<Array<Scalars['String']['input']>>;
   withdrawalPeriod?: InputMaybe<Scalars['Int']['input']>;
@@ -22829,6 +24221,7 @@ export type UsageProtocolResponse = {
   frequency?: Maybe<Scalars['String']['output']>;
   notes?: Maybe<Scalars['String']['output']>;
   precautions?: Maybe<Array<Scalars['String']['output']>>;
+  prescriptionRequired?: Maybe<Scalars['Boolean']['output']>;
   targetConditions?: Maybe<Array<Scalars['String']['output']>>;
   targetSpecies?: Maybe<Array<Scalars['String']['output']>>;
   withdrawalPeriod?: Maybe<Scalars['Int']['output']>;
@@ -23134,6 +24527,23 @@ export type VfdChangeSetStatus =
   | 'ROLLED_BACK'
   | 'VERIFIED';
 
+/** Immutable VFD runtime control-command audit log */
+export type VfdCommandAuditLog = {
+  command: VfdCommandType;
+  error?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  latencyMs?: Maybe<Scalars['Int']['output']>;
+  metadata?: Maybe<Scalars['JSON']['output']>;
+  performedBy: Scalars['String']['output'];
+  performedByEmail?: Maybe<Scalars['String']['output']>;
+  source: Scalars['String']['output'];
+  success: Scalars['Boolean']['output'];
+  tenantId: Scalars['String']['output'];
+  timestamp: Scalars['DateTime']['output'];
+  value?: Maybe<Scalars['Float']['output']>;
+  vfdDeviceId: Scalars['String']['output'];
+};
+
 export type VfdCommandInput = {
   command: Scalars['String']['input'];
   timeoutMs?: InputMaybe<Scalars['Int']['input']>;
@@ -23150,6 +24560,20 @@ export type VfdCommandResult = {
   previousValue?: Maybe<Scalars['Float']['output']>;
   success: Scalars['Boolean']['output'];
 };
+
+/** VFD command types */
+export type VfdCommandType =
+  | 'COAST_STOP'
+  | 'EMERGENCY_STOP'
+  | 'FAULT_RESET'
+  | 'JOG_FORWARD'
+  | 'JOG_REVERSE'
+  | 'QUICK_STOP'
+  | 'REVERSE'
+  | 'SET_FREQUENCY'
+  | 'SET_SPEED'
+  | 'START'
+  | 'STOP';
 
 export type VfdConnectionStatus = {
   consecutiveFailures?: Maybe<Scalars['Int']['output']>;
@@ -23191,6 +24615,8 @@ export type VfdDevice = {
   createdBy?: Maybe<Scalars['String']['output']>;
   customRegisterMappings?: Maybe<Scalars['JSON']['output']>;
   description?: Maybe<Scalars['String']['output']>;
+  edgeDeviceId?: Maybe<Scalars['ID']['output']>;
+  edgeModbusDeviceName?: Maybe<Scalars['String']['output']>;
   farmId?: Maybe<Scalars['String']['output']>;
   id: Scalars['ID']['output'];
   isPollingEnabled: Scalars['Boolean']['output'];
@@ -23579,6 +25005,15 @@ export type VirkestoffType =
   | 'IMIDAKLOPRID'
   | 'TEFLUBENZURON';
 
+export type WarehouseFeedCoverage = {
+  coverageStatus: Scalars['String']['output'];
+  daysOfCover?: Maybe<Scalars['Int']['output']>;
+  feedCode: Scalars['String']['output'];
+  feedId: Scalars['ID']['output'];
+  feedName: Scalars['String']['output'];
+  stockoutDate?: Maybe<Scalars['String']['output']>;
+};
+
 export type WarehouseLowStockItem = {
   currentQty: Scalars['Float']['output'];
   id: Scalars['ID']['output'];
@@ -23598,6 +25033,7 @@ export type WarehouseRecentMovement = {
 };
 
 export type WarehouseSummaryResponse = {
+  feedCoverage: Array<WarehouseFeedCoverage>;
   lowStockAlertCount: Scalars['Int']['output'];
   lowStockItems: Array<WarehouseLowStockItem>;
   recentMovements: Array<WarehouseRecentMovement>;
@@ -23814,54 +25250,6 @@ export type WaterType =
   | 'BRACKISH'
   | 'FRESHWATER'
   | 'SALTWATER';
-
-/** Tahmin mi geçmiş veri mi */
-export type WeatherDataType =
-  | 'FORECAST'
-  | 'HISTORICAL';
-
-export type WeatherFilterInput = {
-  dataType?: InputMaybe<WeatherDataType>;
-  from?: InputMaybe<Scalars['DateTime']['input']>;
-  to?: InputMaybe<Scalars['DateTime']['input']>;
-};
-
-export type WeatherObservation = {
-  cloudCover?: Maybe<Scalars['Float']['output']>;
-  createdAt: Scalars['DateTime']['output'];
-  dataType: WeatherDataType;
-  fetchedAt: Scalars['DateTime']['output'];
-  id: Scalars['ID']['output'];
-  observedAt: Scalars['DateTime']['output'];
-  precipitation?: Maybe<Scalars['Float']['output']>;
-  pressureMsl?: Maybe<Scalars['Float']['output']>;
-  relativeHumidity?: Maybe<Scalars['Float']['output']>;
-  siteId: Scalars['String']['output'];
-  temperature?: Maybe<Scalars['Float']['output']>;
-  tenantId: Scalars['String']['output'];
-  updatedAt: Scalars['DateTime']['output'];
-  windDirection?: Maybe<Scalars['Float']['output']>;
-  windGusts?: Maybe<Scalars['Float']['output']>;
-  windSpeed?: Maybe<Scalars['Float']['output']>;
-};
-
-export type WeatherSettings = {
-  createdAt: Scalars['DateTime']['output'];
-  enabled: Scalars['Boolean']['output'];
-  forecastDays: Scalars['Int']['output'];
-  id: Scalars['ID']['output'];
-  lastSyncedAt?: Maybe<Scalars['DateTime']['output']>;
-  syncIntervalMinutes: Scalars['Int']['output'];
-  tenantId: Scalars['String']['output'];
-  updatedAt: Scalars['DateTime']['output'];
-};
-
-export type WeatherSyncResult = {
-  sites: Scalars['Float']['output'];
-  success: Scalars['Boolean']['output'];
-  totalMarine: Scalars['Float']['output'];
-  totalWeather: Scalars['Float']['output'];
-};
 
 export type WebAuthnCredentialInfo = {
   createdAt: Scalars['DateTime']['output'];
@@ -24232,7 +25620,9 @@ export type WorkOrder = {
   currency?: Maybe<Scalars['String']['output']>;
   description?: Maybe<Scalars['String']['output']>;
   dueDate?: Maybe<Scalars['DateTime']['output']>;
+  /** @deprecated Use estimatedCostDecimal (exact decimal string, ADR-0004). */
   estimatedCost?: Maybe<Scalars['Float']['output']>;
+  estimatedCostDecimal?: Maybe<Scalars['Decimal']['output']>;
   estimatedDurationMinutes?: Maybe<Scalars['Int']['output']>;
   id: Scalars['ID']['output'];
   isRecurring: Scalars['Boolean']['output'];
@@ -24310,7 +25700,9 @@ export type WorkOrderStatisticsResponse = {
   pendingApproval: Scalars['Int']['output'];
   scheduled: Scalars['Int']['output'];
   total: Scalars['Int']['output'];
+  /** @deprecated Use totalCostDecimal (exact decimal string, ADR-0004). */
   totalCost: Scalars['Float']['output'];
+  totalCostDecimal: Scalars['Decimal']['output'];
   verified: Scalars['Int']['output'];
 };
 

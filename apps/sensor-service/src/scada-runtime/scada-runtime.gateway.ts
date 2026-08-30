@@ -22,6 +22,7 @@
 
 import { Logger, UsePipes, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { JwtService } from '@nestjs/jwt';
 import {
   ConnectedSocket,
@@ -34,7 +35,7 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import type { Algorithm } from 'jsonwebtoken';
+import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
 
 // TODO: Replace with '@aquaculture/scada-types' path alias when monorepo build supports it.
 import type { AlarmStatusSummary, HmiRole, TagValueChange } from './scada-types';
@@ -48,9 +49,22 @@ import {
   ScadaErrorPayload,
   TagSubscriptionDto,
   TagWriteDto,
+  PinVerifyDto,
 } from './dto/scada-socket.dto';
 import { TagManagerService } from './services/tag-manager.service';
+import { DaqStorageService } from './services/daq-storage.service';
 import { TagResolutionService } from '../process/services/tag-resolution.service';
+import { ScadaPackageService } from '../process/services/scada-package.service';
+import { TagDirection } from '../process/entities/unified-tag.entity';
+import {
+  SCADA_ALARM_ACK_EVENT,
+  SCADA_ALARM_ACK_ALL_EVENT,
+} from './services/alarm-ack.events';
+import {
+  SCADA_TENANT_OPERATOR_CONNECTED,
+  SCADA_TENANT_OPERATOR_DISCONNECTED,
+  type ScadaTenantOperatorEvent,
+} from './services/scada-activation.events';
 import { isTagRef } from '@platform/sensor-contracts';
 
 /* ------------------------------------------------------------------ */
@@ -109,6 +123,12 @@ interface ConnectedClient {
   tenantId: string;
   userId: string;
   role: HmiRole;
+  /** PIN elevation (SENSOR-CRITICAL-006): epoch-ms until which pin-protected writes are allowed. */
+  pinElevatedUntil?: number;
+  /** Consecutive failed PIN attempts; resets on success. */
+  pinFailCount?: number;
+  /** Brute-force lockout: epoch-ms until which PIN_VERIFY is rejected. */
+  pinLockedUntil?: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -152,6 +172,9 @@ export class ScadaRuntimeGateway
     private readonly tagManager: TagManagerService,
     private readonly configService: ConfigService,
     private readonly tagResolution: TagResolutionService,
+    private readonly eventEmitter: EventEmitter2,
+    private readonly daqStorage: DaqStorageService,
+    private readonly scadaPackageService: ScadaPackageService,
   ) {
     this.isProduction = process.env['NODE_ENV'] === 'production';
   }
@@ -185,7 +208,7 @@ export class ScadaRuntimeGateway
         return;
       }
 
-      const payload = this.validateToken(token);
+      const payload = await this.validateToken(token);
       if (!payload?.tenantId) {
         this.logger.warn(`[connect] ${client.id} — invalid or expired token`);
         this.emitError(client, ScadaSocketEvent.AUTH, SCADA_ERROR_CODES.AUTH_REQUIRED, 'Invalid or expired token');
@@ -198,7 +221,10 @@ export class ScadaRuntimeGateway
       const role: HmiRole = payload.role ?? (Array.isArray(payload.roles) ? payload.roles[0] : 'viewer') ?? 'viewer';
 
       // --- Tenant connection cap ---
-      if (this.getConnectionCountForTenant(tenantId) >= MAX_CONNECTIONS_PER_TENANT) {
+      // Count BEFORE registering this socket: 0 ⇒ this is the tenant's first
+      // operator (the lazy-activation edge, RT-011 Faz 3).
+      const priorTenantConnections = this.getConnectionCountForTenant(tenantId);
+      if (priorTenantConnections >= MAX_CONNECTIONS_PER_TENANT) {
         this.logger.warn(
           `[connect] ${client.id} — tenant ${tenantId} exceeded max connections (${MAX_CONNECTIONS_PER_TENANT})`,
         );
@@ -217,6 +243,15 @@ export class ScadaRuntimeGateway
         `[connect] ${client.id} — tenant=${tenantId} userId=${userId} role=${role}`,
       );
 
+      // First operator for this tenant → signal the activation bridge to load
+      // its PUBLISHED SCADA package into the engine (D4 lazy activation). Crosses
+      // the boundary as an event — the engine depends on this gateway (circular).
+      if (priorTenantConnections === 0) {
+        this.eventEmitter.emit(SCADA_TENANT_OPERATOR_CONNECTED, {
+          tenantId,
+        } satisfies ScadaTenantOperatorEvent);
+      }
+
       client.emit(ScadaSocketEvent.AUTH, {
         status: 'authenticated',
         userId,
@@ -231,9 +266,20 @@ export class ScadaRuntimeGateway
 
   handleDisconnect(client: Socket): void {
     try {
+      // Capture the tenant BEFORE removing the client so we can detect the
+      // tenant's last operator leaving (→0 ⇒ idle, RT-011 Faz 3).
+      const tenantId = this.clients.get(client.id)?.tenantId;
       this.tagManager.removeSocket(client.id);
       this.clients.delete(client.id);
       this.logger.log(`[disconnect] ${client.id}`);
+
+      // Last operator for this tenant → signal the activation bridge to start
+      // the idle clock (the eviction sweep deactivates it after the grace period).
+      if (tenantId && this.getConnectionCountForTenant(tenantId) === 0) {
+        this.eventEmitter.emit(SCADA_TENANT_OPERATOR_DISCONNECTED, {
+          tenantId,
+        } satisfies ScadaTenantOperatorEvent);
+      }
     } catch (error) {
       this.logger.error(`[disconnect] ${client.id} cleanup error: ${(error as Error).message}`);
     }
@@ -381,10 +427,10 @@ export class ScadaRuntimeGateway
   /* ---------------------------------------------------------------- */
 
   @SubscribeMessage(ScadaSocketEvent.TAG_WRITE)
-  handleTagWrite(
+  async handleTagWrite(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: TagWriteDto,
-  ): void {
+  ): Promise<void> {
     try {
       const clientData = this.clients.get(client.id);
       if (!clientData) {
@@ -412,23 +458,69 @@ export class ScadaRuntimeGateway
         return;
       }
 
+      const tagId = payload.tagId.trim();
+
+      // Tenant + registry ownership gate. Unlike the subscribe path — which
+      // grandfathers legacy non-TagRef keys — a control WRITE must resolve
+      // STRICTLY against THIS tenant's registry: the target must be a
+      // registered tag of clientData.tenantId, and it must be writable
+      // (an INPUT tag cannot be actuated). This closes cross-tenant actuation
+      // by a predictable deviceCode/localName (SENSOR-CRITICAL-005).
+      const resolution = await this.tagResolution.resolve(clientData.tenantId, [tagId]);
+      const binding = resolution.resolved[0];
+      if (!binding) {
+        this.logger.warn(
+          `[tag-write] SECURITY: ${client.id} (tenant=${clientData.tenantId}) denied — ` +
+            `tagId=${tagId} not registered for this tenant`,
+        );
+        this.emitError(client, ScadaSocketEvent.TAG_WRITE, SCADA_ERROR_CODES.FORBIDDEN, 'Tag is not registered for this tenant');
+        return;
+      }
+      if (binding.direction === TagDirection.INPUT) {
+        this.emitError(client, ScadaSocketEvent.TAG_WRITE, SCADA_ERROR_CODES.FORBIDDEN, 'Tag is read-only (input) and cannot be written');
+        return;
+      }
+
+      // Control-security PIN gate (SENSOR-CRITICAL-006): a tag bound to a
+      // pin-protected widget in ANY of this tenant's packages requires a
+      // server-verified PIN elevation on this socket. Keyed by TAG, not by
+      // caller-supplied package context, so a direct socket.emit cannot opt
+      // out of the widget's protection.
+      if (await this.isPinProtectedTag(clientData.tenantId, tagId)) {
+        const elevated =
+          typeof clientData.pinElevatedUntil === 'number' &&
+          clientData.pinElevatedUntil > Date.now();
+        if (!elevated) {
+          this.logger.warn(
+            `[tag-write] SECURITY: ${client.id} (tenant=${clientData.tenantId}) denied — ` +
+              `tagId=${tagId} is PIN-protected and the socket is not PIN-elevated`,
+          );
+          this.emitError(client, ScadaSocketEvent.TAG_WRITE, SCADA_ERROR_CODES.FORBIDDEN, 'PIN verification required for this control (send PIN_VERIFY first)');
+          return;
+        }
+      }
+
       const writeFunction = payload.function ?? 'set';
 
       this.tagManager.writeTagValue(
-        payload.tagId.trim(),
+        tagId,
         payload.value,
         clientData.userId,
+        clientData.tenantId,
         writeFunction,
       );
 
       this.logger.debug(
-        `[tag-write] ${client.id} — tagId=${payload.tagId} function=${writeFunction} userId=${clientData.userId}`,
+        `[tag-write] ${client.id} — tenant=${clientData.tenantId} tagId=${tagId} function=${writeFunction} userId=${clientData.userId}`,
       );
 
-      // ACK back to the originating client
+      // ACK 'queued', not 'accepted': the write is emitted as an internal event
+      // for a device-driver adapter to fulfil; the gateway has no confirmation
+      // that it reached a device, so it must not assert success (a confirmed
+      // ACK is gated on a real completion event — tracked follow-on).
       client.emit(ScadaSocketEvent.TAG_WRITE_ACK, {
         tagId: payload.tagId,
-        status: 'accepted',
+        status: 'queued',
         timestamp: Date.now(),
       });
     } catch (error) {
@@ -442,10 +534,10 @@ export class ScadaRuntimeGateway
   /* ---------------------------------------------------------------- */
 
   @SubscribeMessage(ScadaSocketEvent.DAQ_QUERY)
-  handleDaqQuery(
+  async handleDaqQuery(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: DaqQueryDto,
-  ): void {
+  ): Promise<void> {
     try {
       const clientData = this.clients.get(client.id);
       if (!clientData) {
@@ -462,13 +554,19 @@ export class ScadaRuntimeGateway
         `[daq-query] ${client.id} — queryId=${payload.queryId} tags=${payload.tagIds?.length ?? 0}`,
       );
 
-      // TODO: Inject DaqService and forward the query when available.
-      // Return an empty result so the client knows the query was received.
-      client.emit(ScadaSocketEvent.DAQ_RESULT, {
-        queryId: payload.queryId,
-        data: {},
-        hasMore: false,
-      });
+      // Real history read (SENSOR-HIGH-053): tenant-fenced against the DAQ
+      // store, chunked so long ranges stream instead of one giant frame.
+      // Previously this was a stub that emitted an empty result — trends
+      // rendered "successfully" blank.
+      await this.daqStorage.queryChunked(
+        clientData.tenantId,
+        payload.tagIds,
+        new Date(payload.from),
+        new Date(payload.to),
+        (chunk) => client.emit(ScadaSocketEvent.DAQ_RESULT, chunk),
+        payload.queryId,
+        payload.aggregation,
+      );
     } catch (error) {
       this.logger.error(`[daq-query] ${client.id} error: ${(error as Error).message}`);
       this.emitError(client, ScadaSocketEvent.DAQ_QUERY, SCADA_ERROR_CODES.INTERNAL_ERROR, 'DAQ query failed');
@@ -505,8 +603,15 @@ export class ScadaRuntimeGateway
         `[alarm-ack] ${client.id} — alarmInstanceId=${payload.alarmInstanceId} userId=${clientData.userId}`,
       );
 
-      // TODO: Forward to AlarmEngineService when available.
-      // The alarm engine will broadcast the updated AlarmStatusSummary once processed.
+      // Hand off to the alarm engine (which persists the ack and re-broadcasts
+      // the updated AlarmStatusSummary). The engine cannot be injected here —
+      // it already depends on this gateway — so acknowledgement crosses the
+      // boundary as an event.
+      this.eventEmitter.emit(SCADA_ALARM_ACK_EVENT, {
+        alarmInstanceId: payload.alarmInstanceId,
+        userId: clientData.userId,
+        tenantId: clientData.tenantId,
+      });
     } catch (error) {
       this.logger.error(`[alarm-ack] ${client.id} error: ${(error as Error).message}`);
       this.emitError(client, ScadaSocketEvent.ALARM_ACK, SCADA_ERROR_CODES.INTERNAL_ERROR, 'Alarm acknowledgement failed');
@@ -538,7 +643,10 @@ export class ScadaRuntimeGateway
         `[alarm-ack-all] ${client.id} — group=${payload?.group ?? 'all'} userId=${clientData.userId}`,
       );
 
-      // TODO: Forward to AlarmEngineService when available.
+      this.eventEmitter.emit(SCADA_ALARM_ACK_ALL_EVENT, {
+        userId: clientData.userId,
+        tenantId: clientData.tenantId,
+      });
     } catch (error) {
       this.logger.error(`[alarm-ack-all] ${client.id} error: ${(error as Error).message}`);
       this.emitError(client, ScadaSocketEvent.ALARM_ACK_ALL, SCADA_ERROR_CODES.INTERNAL_ERROR, 'Alarm acknowledgement failed');
@@ -548,6 +656,94 @@ export class ScadaRuntimeGateway
   /* ---------------------------------------------------------------- */
   /*  HEARTBEAT                                                         */
   /* ---------------------------------------------------------------- */
+
+  /* ---------------------------------------------------------------- */
+  /*  PIN_VERIFY (SENSOR-CRITICAL-006)                                  */
+  /* ---------------------------------------------------------------- */
+
+  /** PIN elevation lifetime after a successful verification. */
+  private static readonly PIN_ELEVATION_MS = 5 * 60 * 1000;
+  /** Failed attempts before the socket is locked out. */
+  private static readonly PIN_MAX_ATTEMPTS = 5;
+  /** Lockout duration once the attempt budget is exhausted. */
+  private static readonly PIN_LOCKOUT_MS = 60 * 1000;
+  /** Staleness bound for the per-tenant pin-protected tag set. */
+  private static readonly PIN_SET_TTL_MS = 60 * 1000;
+
+  /** tenantId → cached pin-protected tag keys. */
+  private readonly pinProtectedCache = new Map<string, { keys: Set<string>; expiresAt: number }>();
+
+  private async isPinProtectedTag(tenantId: string, tagId: string): Promise<boolean> {
+    const now = Date.now();
+    const cached = this.pinProtectedCache.get(tenantId);
+    if (cached && cached.expiresAt > now) return cached.keys.has(tagId);
+    const keys = await this.scadaPackageService.getPinProtectedTagKeys(tenantId);
+    this.pinProtectedCache.set(tenantId, { keys, expiresAt: now + ScadaRuntimeGateway.PIN_SET_TTL_MS });
+    return keys.has(tagId);
+  }
+
+  /**
+   * Verify a control-security PIN against the package's stored (hashed) PIN
+   * and elevate this socket for a bounded window. Brute-force is rate-limited
+   * per socket: PIN_MAX_ATTEMPTS consecutive failures lock verification for
+   * PIN_LOCKOUT_MS. The client NEVER sees the stored secret (SENSOR-CRITICAL-006
+   * — the pre-fix flow compared a plaintext pin in the browser).
+   */
+  @SubscribeMessage(ScadaSocketEvent.PIN_VERIFY)
+  async handlePinVerify(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: PinVerifyDto,
+  ): Promise<void> {
+    try {
+      const clientData = this.clients.get(client.id);
+      if (!clientData) {
+        this.emitError(client, ScadaSocketEvent.PIN_VERIFY, SCADA_ERROR_CODES.AUTH_REQUIRED, 'Client not authenticated');
+        return;
+      }
+
+      const now = Date.now();
+      if (typeof clientData.pinLockedUntil === 'number' && clientData.pinLockedUntil > now) {
+        client.emit(ScadaSocketEvent.PIN_RESULT, {
+          valid: false,
+          lockedUntil: clientData.pinLockedUntil,
+        });
+        return;
+      }
+
+      const valid = await this.scadaPackageService.verifyPackagePin(
+        payload.packageId,
+        clientData.tenantId,
+        payload.pin,
+      );
+
+      if (valid) {
+        clientData.pinFailCount = 0;
+        clientData.pinLockedUntil = undefined;
+        clientData.pinElevatedUntil = now + ScadaRuntimeGateway.PIN_ELEVATION_MS;
+        client.emit(ScadaSocketEvent.PIN_RESULT, {
+          valid: true,
+          expiresAt: clientData.pinElevatedUntil,
+        });
+        return;
+      }
+
+      clientData.pinFailCount = (clientData.pinFailCount ?? 0) + 1;
+      if (clientData.pinFailCount >= ScadaRuntimeGateway.PIN_MAX_ATTEMPTS) {
+        clientData.pinLockedUntil = now + ScadaRuntimeGateway.PIN_LOCKOUT_MS;
+        clientData.pinFailCount = 0;
+        this.logger.warn(
+          `[pin-verify] SECURITY: ${client.id} (tenant=${clientData.tenantId}, userId=${clientData.userId}) ` +
+            `locked out after repeated failed PIN attempts`,
+        );
+        client.emit(ScadaSocketEvent.PIN_RESULT, { valid: false, lockedUntil: clientData.pinLockedUntil });
+        return;
+      }
+      client.emit(ScadaSocketEvent.PIN_RESULT, { valid: false });
+    } catch (error) {
+      this.logger.error(`[pin-verify] ${client.id} error: ${(error as Error).message}`);
+      this.emitError(client, ScadaSocketEvent.PIN_VERIFY, SCADA_ERROR_CODES.INTERNAL_ERROR, 'PIN verification failed');
+    }
+  }
 
   @SubscribeMessage(ScadaSocketEvent.HEARTBEAT)
   handleHeartbeat(@ConnectedSocket() client: Socket): void {
@@ -604,6 +800,24 @@ export class ScadaRuntimeGateway
       );
     } catch (error) {
       this.logger.error(`[push-alarm-status] error: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * Forward captured script console output to the authoring tenant's HMI
+   * console panel ONLY. Scoped to `tenant:${tenantId}` so one tenant's script
+   * output can never surface in another tenant's console (RT-011: the raw
+   * `server.emit` this replaces fanned every script line to all sockets).
+   */
+  pushScriptConsole(
+    tenantId: string,
+    entry: { scriptId: string; level: 'log' | 'warn' | 'error'; message: string; timestamp: number },
+  ): void {
+    if (!this.server) return;
+    try {
+      this.server.to(`tenant:${tenantId}`).emit(ScadaSocketEvent.SCRIPT_CONSOLE, entry);
+    } catch (error) {
+      this.logger.error(`[push-script-console] error: ${(error as Error).message}`);
     }
   }
 
@@ -719,17 +933,41 @@ export class ScadaRuntimeGateway
   }
 
   /**
-   * Verify the JWT signature and return the decoded payload.
-   * Returns null if the token is invalid or expired.
+   * Verify the JWT via the shared platform verification helpers — identical
+   * policy to every HTTP guard and the sensor-readings/farm WS gateways.
+   *
+   * `getJwtVerifyOptions` enforces RS256 + issuer + audience at the
+   * jsonwebtoken library level (not a per-call `algorithms` override), which
+   * closes the RS256->HS256 algorithm-confusion hole the old hand-rolled
+   * `JWT_ALGORITHM='HS256'` default opened on the physical-actuation control
+   * plane. `enforceAccessTokenType` then rejects refresh / MFA-challenge
+   * tokens at the handshake. Returns null on any failure.
    */
-  private validateToken(token: string): TokenPayload | null {
+  private async validateToken(token: string): Promise<TokenPayload | null> {
     try {
-      // Algorithm is configurable via JWT_ALGORITHM env var to support
-      // future migration from HS256 to RS256 without code changes.
-      const jwtAlgorithm = this.configService.get<string>('JWT_ALGORITHM', 'HS256');
-      const result: unknown = this.jwtService.verify(token, {
-        algorithms: [jwtAlgorithm as Algorithm],
-      });
+      const result = await this.jwtService.verifyAsync<Record<string, unknown>>(
+        token,
+        getJwtVerifyOptions(this.configService),
+      );
+
+      if (typeof result !== 'object' || result === null) return null;
+      if (typeof result['tenantId'] !== 'string' || result['tenantId'].length === 0) {
+        return null;
+      }
+      if (typeof result['sub'] !== 'string' || result['sub'].length === 0) {
+        return null;
+      }
+
+      enforceAccessTokenType(
+        {
+          type: typeof result['type'] === 'string' ? result['type'] : undefined,
+          sub: result['sub'],
+          jti: typeof result['jti'] === 'string' ? result['jti'] : undefined,
+        },
+        this.logger,
+        this.isProduction,
+      );
+
       return result as TokenPayload;
     } catch (error) {
       this.logger.debug(`Token validation failed: ${(error as Error).message}`);

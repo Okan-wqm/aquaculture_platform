@@ -250,7 +250,7 @@ class RealModeProvenanceTests(unittest.TestCase):
             "strict",
             operator_approval_ref="test:plan-023-a8",
             base_dir=self.tools,
-            set_by="test-fixture",
+            set_by="operator",
         )
         _seed_fixture(self.tools)
 

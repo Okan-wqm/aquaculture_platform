@@ -1,16 +1,50 @@
 import { Test, TestingModule } from '@nestjs/testing';
+
+// CI-runner speed calibration (ORPHAN-MEDIUM-636). Every threshold below was
+// a wall-clock absolute tuned on a fast machine; on a loaded shared runner
+// the identical code measured 1.5x slower and failed CI-Full for whichever
+// branch drew the slow runner (run 31506624662: 154.9ms against a 100ms
+// bound, content-unrelated). A fixed busy-workload is timed once and every
+// bound scales by the measured machine-speed factor — the regression-catch
+// property survives, the runner-speed sensitivity dies. WHY min 1.0: a
+// faster-than-reference machine must not TIGHTEN bounds and invent
+// regressions the reference machine would not see.
+function measureSpeedFactor(): number {
+  const start = process.hrtime.bigint();
+  let acc = 0;
+  for (let i = 0; i < 2_000_000; i += 1) {
+    acc += Math.sqrt(i % 1000);
+  }
+  const elapsedMs = Number(process.hrtime.bigint() - start) / 1e6;
+  // Reference machine completes this workload in ~8ms.
+  const factor = Math.max(1.0, elapsedMs / 8);
+  return Number.isFinite(factor) && acc >= 0 ? factor : 1.0;
+}
+const SPEED = measureSpeedFactor();
+const scaled = (ms: number): number => ms * SPEED;
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { RulesEngineService } from '../rules-engine/rules-engine.service';
-import { RuleEvaluatorService, type EvaluationContext } from '../rules-engine/rule-evaluator.service';
-import { RiskCalculatorService, type RiskCalculationContext } from '../risk-scoring/risk-calculator.service';
+import {
+  RuleEvaluatorService,
+  type EvaluationContext,
+} from '../rules-engine/rule-evaluator.service';
+import {
+  RiskCalculatorService,
+  type RiskCalculationContext,
+} from '../risk-scoring/risk-calculator.service';
 import { ImpactAnalyzerService } from '../risk-scoring/impact-analyzer.service';
 import { SeverityClassifierService } from '../risk-scoring/severity-classifier.service';
-import { NotificationDispatcherService, type ChannelHandler } from '../notification/notification-dispatcher.service';
+import {
+  NotificationDispatcherService,
+  type ChannelHandler,
+} from '../notification/notification-dispatcher.service';
 import { ChannelRouterService } from '../notification/channel-router.service';
 import { TemplateRendererService } from '../notification/template-renderer.service';
+import { RedisService } from '@aquaculture/backend-common/redis';
+import { createRedisServiceMock } from './support/redis-service.mock';
 
 // EvaluationContext lives on rule-evaluator.service (was originally
 // re-exported from rules-engine.service). LogicalOperator was removed
@@ -34,16 +68,26 @@ describe('Alert Engine Performance', () => {
 
   let alertRuleRepository: jest.Mocked<Repository<AlertRule>>;
 
-  const createMockRule = (id: string): Partial<AlertRule> => ({
-    id,
-    tenantId: 'tenant-1',
-    name: `Rule ${id}`,
-    severity: AlertSeverity.HIGH,
-    isActive: true,
-    conditions: [
-      { parameter: 'temperature', operator: AlertOperator.GT, threshold: 30, severity: AlertSeverity.HIGH },
-    ],
-  });
+  const createMockRule = (id: string): AlertRule => {
+    const rule = new AlertRule();
+    rule.id = id;
+    rule.tenantId = 'tenant-1';
+    rule.name = `Rule ${id}`;
+    rule.severity = AlertSeverity.HIGH;
+    rule.isActive = true;
+    rule.conditions = [
+      {
+        parameter: 'temperature',
+        operator: AlertOperator.GT,
+        threshold: 30,
+        severity: AlertSeverity.HIGH,
+      },
+    ];
+    rule.cooldownMinutes = 0;
+    rule.createdAt = new Date(0);
+    rule.updatedAt = new Date(0);
+    return rule;
+  };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -61,11 +105,36 @@ describe('Alert Engine Performance', () => {
           useValue: {
             findOne: jest.fn(),
             find: jest.fn(),
+            // Rule loading moved to a tenant-scoped query builder; delegate
+            // getMany() back to the `find` mock so the existing rule seeding
+            // (find.mockResolvedValue([...])) still feeds evaluateRules.
+            createQueryBuilder: jest.fn(() => {
+              let boundTenantId: string | undefined;
+              const qb: any = {
+                where: (_sql: string, params?: Record<string, unknown>) => {
+                  if (typeof params?.tenantId === 'string') {
+                    boundTenantId = params.tenantId;
+                  }
+                  return qb;
+                },
+                andWhere: () => qb,
+                getMany: async () =>
+                  alertRuleRepository.find({
+                    where: { tenantId: boundTenantId, isActive: true },
+                  }),
+              };
+              return qb;
+            }),
           },
         },
         {
           provide: EventEmitter2,
           useValue: { emit: jest.fn() },
+        },
+        {
+          // Distributed rate-limiting moved ChannelRouterService onto RedisService.
+          provide: RedisService,
+          useValue: createRedisServiceMock(),
         },
       ],
     }).compile();
@@ -75,7 +144,9 @@ describe('Alert Engine Performance', () => {
     riskCalculator = module.get<RiskCalculatorService>(RiskCalculatorService);
     impactAnalyzer = module.get<ImpactAnalyzerService>(ImpactAnalyzerService);
     severityClassifier = module.get<SeverityClassifierService>(SeverityClassifierService);
-    notificationDispatcher = module.get<NotificationDispatcherService>(NotificationDispatcherService);
+    notificationDispatcher = module.get<NotificationDispatcherService>(
+      NotificationDispatcherService,
+    );
     channelRouter = module.get<ChannelRouterService>(ChannelRouterService);
     templateRenderer = module.get<TemplateRendererService>(TemplateRendererService);
 
@@ -90,24 +161,49 @@ describe('Alert Engine Performance', () => {
       const startTime = performance.now();
 
       for (let i = 0; i < 100; i++) {
-        ruleEvaluator.evaluate(rule as unknown as AlertRule, context);
+        ruleEvaluator.evaluate(rule, context);
       }
 
       const endTime = performance.now();
       const avgTime = (endTime - startTime) / 100;
 
-      expect(avgTime).toBeLessThan(10);
+      expect(avgTime).toBeLessThan(scaled(10));
     });
 
     it('should evaluate complex AND conditions efficiently', async () => {
-      const complexRule: Partial<AlertRule> = {
+      const complexRule: AlertRule = {
         ...createMockRule('complex-and'),
         conditions: [
-          { parameter: 'temperature', operator: AlertOperator.GT, threshold: 30, severity: AlertSeverity.HIGH },
-          { parameter: 'humidity', operator: AlertOperator.GT, threshold: 70, severity: AlertSeverity.HIGH },
-          { parameter: 'pressure', operator: AlertOperator.LT, threshold: 1000, severity: AlertSeverity.HIGH },
-          { parameter: 'windSpeed', operator: AlertOperator.GT, threshold: 20, severity: AlertSeverity.HIGH },
-          { parameter: 'salinity', operator: AlertOperator.GT, threshold: 35, severity: AlertSeverity.HIGH },
+          {
+            parameter: 'temperature',
+            operator: AlertOperator.GT,
+            threshold: 30,
+            severity: AlertSeverity.HIGH,
+          },
+          {
+            parameter: 'humidity',
+            operator: AlertOperator.GT,
+            threshold: 70,
+            severity: AlertSeverity.HIGH,
+          },
+          {
+            parameter: 'pressure',
+            operator: AlertOperator.LT,
+            threshold: 1000,
+            severity: AlertSeverity.HIGH,
+          },
+          {
+            parameter: 'windSpeed',
+            operator: AlertOperator.GT,
+            threshold: 20,
+            severity: AlertSeverity.HIGH,
+          },
+          {
+            parameter: 'salinity',
+            operator: AlertOperator.GT,
+            threshold: 35,
+            severity: AlertSeverity.HIGH,
+          },
         ],
       };
 
@@ -124,18 +220,18 @@ describe('Alert Engine Performance', () => {
       const startTime = performance.now();
 
       for (let i = 0; i < 100; i++) {
-        ruleEvaluator.evaluate(complexRule as unknown as AlertRule, context);
+        ruleEvaluator.evaluate(complexRule, context);
       }
 
       const endTime = performance.now();
       const avgTime = (endTime - startTime) / 100;
 
-      expect(avgTime).toBeLessThan(5);
+      expect(avgTime).toBeLessThan(scaled(5));
     });
 
     it('should evaluate 100 rules in under 100ms', async () => {
       const rules = Array.from({ length: 100 }, (_, i) => createMockRule(`rule-${i}`));
-      alertRuleRepository.find.mockResolvedValue(rules as unknown as AlertRule[]);
+      alertRuleRepository.find.mockResolvedValue(rules);
 
       const context: EvaluationContext = {
         tenantId: 'tenant-1',
@@ -150,37 +246,34 @@ describe('Alert Engine Performance', () => {
       const endTime = performance.now();
       const totalTime = endTime - startTime;
 
-      expect(totalTime).toBeLessThan(100);
+      expect(totalTime).toBeLessThan(scaled(100));
     });
 
-    it('should benefit from rule caching', async () => {
+    it('should serve repeated rule loads without duplicate repository I/O', async () => {
       const rules = Array.from({ length: 50 }, (_, i) => createMockRule(`rule-${i}`));
-      alertRuleRepository.find.mockResolvedValue(rules as unknown as AlertRule[]);
+      alertRuleRepository.find.mockResolvedValue(rules);
 
-      const context: EvaluationContext = {
+      const request = {
         tenantId: 'tenant-1',
-        values: { temperature: 35 },
-        timestamp: new Date(),
+        context: {
+          tenantId: 'tenant-1',
+          values: { temperature: 35 },
+          timestamp: new Date(),
+        },
       };
 
-      // First call (cache miss)
-      const startTime1 = performance.now();
-      await rulesEngine.evaluateRules({ tenantId: context.tenantId!, context: context });
-      const time1 = performance.now() - startTime1;
+      const firstLoad = await rulesEngine.getApplicableRules(request);
+      const cachedLoad = await rulesEngine.getApplicableRules(request);
 
-      // Second call (cache hit)
-      const startTime2 = performance.now();
-      await rulesEngine.evaluateRules({ tenantId: context.tenantId!, context: context });
-      const time2 = performance.now() - startTime2;
-
-      // Cached call should be faster
-      expect(time2).toBeLessThanOrEqual(time1);
+      expect(cachedLoad).toBe(firstLoad);
+      expect(alertRuleRepository.createQueryBuilder).toHaveBeenCalledTimes(1);
+      expect(alertRuleRepository.find).toHaveBeenCalledTimes(1);
     });
   });
 
   describe('Risk Calculation Performance', () => {
     it('should calculate risk score in under 50ms', async () => {
-      alertRuleRepository.findOne.mockResolvedValue(createMockRule('rule-1') as unknown as AlertRule);
+      alertRuleRepository.findOne.mockResolvedValue(createMockRule('rule-1'));
 
       const context: RiskCalculationContext = {
         tenantId: 'tenant-1',
@@ -197,11 +290,11 @@ describe('Alert Engine Performance', () => {
 
       const endTime = performance.now();
 
-      expect(endTime - startTime).toBeLessThan(50);
+      expect(endTime - startTime).toBeLessThan(scaled(50));
     });
 
     it('should calculate batch risk scores efficiently', async () => {
-      alertRuleRepository.findOne.mockResolvedValue(createMockRule('rule-1') as unknown as AlertRule);
+      alertRuleRepository.findOne.mockResolvedValue(createMockRule('rule-1'));
 
       const contexts: RiskCalculationContext[] = Array.from({ length: 50 }, (_, i) => ({
         tenantId: 'tenant-1',
@@ -217,56 +310,95 @@ describe('Alert Engine Performance', () => {
       const endTime = performance.now();
 
       // Should process 50 risk calculations in under 500ms
-      expect(endTime - startTime).toBeLessThan(500);
+      expect(endTime - startTime).toBeLessThan(scaled(500));
     });
 
-    it('should calculate trend efficiently with large datasets', () => {
-      const largeDataset = Array.from({ length: 1000 }, () => Math.random() * 100);
+    it('reads each sample once per trend calculation, however large the dataset', () => {
+      // Replaces a wall-clock assertion (avg < 5ms over 100 iterations). On a
+      // shared CI runner that measured the runner's load, not the algorithm:
+      // it went red on a busy runner and green on a rerun, which teaches
+      // everyone to rerun rather than to read. What it MEANT to pin is that
+      // the trend calculation stays linear; the count says exactly that, and
+      // it says it identically on a laptop and on a loaded runner.
+      const source = Array.from({ length: 1000 }, () => Math.random() * 100);
+      let indexedReads = 0;
+      const instrumented = new Proxy(source, {
+        get(target, property, receiver) {
+          if (typeof property === 'string' && /^\d+$/.test(property)) indexedReads++;
+          return Reflect.get(target, property, receiver);
+        },
+      });
 
-      const startTime = performance.now();
+      riskCalculator.calculateTrend(instrumented);
 
-      for (let i = 0; i < 100; i++) {
-        riskCalculator.calculateTrend(largeDataset);
-      }
-
-      const endTime = performance.now();
-      const avgTime = (endTime - startTime) / 100;
-
-      expect(avgTime).toBeLessThan(5);
+      expect(indexedReads).toBe(source.length);
     });
 
-    it('should calculate standard deviation efficiently', () => {
-      const largeDataset = Array.from({ length: 1000 }, () => Math.random() * 100);
+    it('should calculate trend with one allocation-free pass over the samples', () => {
+      const source = Array.from({ length: 1000 }, (_, index) => index * 1.5);
+      let indexedReads = 0;
+      const instrumentedDataset = new Proxy(source, {
+        get(target, property, receiver) {
+          if (typeof property === 'string' && /^\d+$/.test(property)) {
+            indexedReads++;
+          }
+          return Reflect.get(target, property, receiver);
+        },
+      });
 
-      const startTime = performance.now();
+      expect(riskCalculator.calculateTrend(instrumentedDataset)).toBeGreaterThan(0);
+      expect(indexedReads).toBe(source.length);
+    });
 
-      for (let i = 0; i < 100; i++) {
-        riskCalculator.calculateStdDev(largeDataset);
-      }
+    it('reads each sample a fixed number of times per standard deviation', () => {
+      // This is the assertion that actually went red on CI (avg < 5ms), and
+      // the algorithm had not changed — the runner was busy. calculateStdDev
+      // makes two passes over the source: the mean, then the squared
+      // deviations. Pinning 2N reads catches the regression a timing budget
+      // was reaching for (an accidental O(N^2), or a third pass) and cannot
+      // be moved by a neighbouring job.
+      const source = Array.from({ length: 1000 }, () => Math.random() * 100);
+      let indexedReads = 0;
+      const instrumented = new Proxy(source, {
+        get(target, property, receiver) {
+          if (typeof property === 'string' && /^\d+$/.test(property)) indexedReads++;
+          return Reflect.get(target, property, receiver);
+        },
+      });
 
-      const endTime = performance.now();
-      const avgTime = (endTime - startTime) / 100;
-
-      expect(avgTime).toBeLessThan(5);
+      expect(riskCalculator.calculateStdDev(instrumented)).toBeGreaterThan(0);
+      expect(indexedReads).toBe(source.length * 2);
     });
   });
 
   describe('Severity Classification Performance', () => {
-    it('should classify severity in under 1ms', () => {
-      const startTime = performance.now();
+    it('reads each criterion a fixed number of times per classification', () => {
+      // Replaces a wall-clock assertion (avg < 1ms over 1000 iterations).
+      // A sub-millisecond per-call budget on a shared runner measures the
+      // neighbouring jobs, not the classifier — the same class of defect as
+      // ORPHAN-MEDIUM-563. What the budget MEANT is that classification is
+      // O(1) in its input: a fixed number of reads per criterion, no hidden
+      // rescan. The count says that identically on a laptop and on a loaded
+      // runner.
+      const criteria = { impactScore: 80, frequencyScore: 60, trendScore: 70 };
+      const reads = new Map<string, number>();
+      const instrumented = new Proxy(criteria, {
+        get(target, property, receiver) {
+          if (typeof property === 'string') {
+            reads.set(property, (reads.get(property) ?? 0) + 1);
+          }
+          return Reflect.get(target, property, receiver);
+        },
+      });
 
-      for (let i = 0; i < 1000; i++) {
-        severityClassifier.classifyByCriteria({
-          impactScore: 80,
-          frequencyScore: 60,
-          trendScore: 70,
-        });
-      }
+      severityClassifier.classifyByCriteria(instrumented);
 
-      const endTime = performance.now();
-      const avgTime = (endTime - startTime) / 1000;
-
-      expect(avgTime).toBeLessThan(1);
+      // Three reads each: the `!== undefined` guard, the weighted
+      // contribution, and the justification string. Pinning the exact number
+      // catches a fourth read (a rescan) or a dropped justification.
+      expect(reads.get('impactScore')).toBe(3);
+      expect(reads.get('frequencyScore')).toBe(3);
+      expect(reads.get('trendScore')).toBe(3);
     });
 
     it('should batch classify efficiently', () => {
@@ -282,12 +414,12 @@ describe('Alert Engine Performance', () => {
 
       const endTime = performance.now();
 
-      expect(endTime - startTime).toBeLessThan(50);
+      expect(endTime - startTime).toBeLessThan(scaled(50));
     });
   });
 
   describe('Notification Routing Performance', () => {
-    it('should route notifications in under 5ms', () => {
+    it('routes one user with a single preference lookup, whatever the population', () => {
       // Set up multiple user preferences
       for (let i = 0; i < 100; i++) {
         channelRouter.setUserPreferences({
@@ -297,22 +429,33 @@ describe('Alert Engine Performance', () => {
         });
       }
 
-      const startTime = performance.now();
+      // Replaces a wall-clock assertion (avg < 5ms over 100 routes). The
+      // property that budget was reaching for is that routing ONE user is a
+      // keyed lookup, not a scan of everyone registered — otherwise routing
+      // degrades as the tenant grows, which is exactly when it matters. A
+      // timing budget cannot tell those apart on a loaded runner; a lookup
+      // count can, and it answers the same everywhere.
+      const preferenceStore = channelRouter['userPreferences'];
+      const realGet = preferenceStore.get.bind(preferenceStore);
+      let lookups = 0;
+      preferenceStore.get = (key: string) => {
+        lookups++;
+        return realGet(key);
+      };
 
-      for (let i = 0; i < 100; i++) {
-        channelRouter.route(`user-${i}`, AlertSeverity.HIGH);
+      try {
+        channelRouter.route('user-50', AlertSeverity.HIGH);
+      } finally {
+        preferenceStore.get = realGet;
       }
 
-      const endTime = performance.now();
-      const avgTime = (endTime - startTime) / 100;
-
-      expect(avgTime).toBeLessThan(5);
+      expect(lookups).toBe(1);
     });
 
     it('should route to many users efficiently', () => {
       const userIds = Array.from({ length: 100 }, (_, i) => `user-${i}`);
 
-      userIds.forEach(userId => {
+      userIds.forEach((userId) => {
         channelRouter.setUserPreferences({
           userId,
           enabledChannels: [NotificationChannel.EMAIL],
@@ -326,12 +469,12 @@ describe('Alert Engine Performance', () => {
 
       const endTime = performance.now();
 
-      expect(endTime - startTime).toBeLessThan(100);
+      expect(endTime - startTime).toBeLessThan(scaled(100));
     });
   });
 
   describe('Template Rendering Performance', () => {
-    it('should render email template in under 2ms', () => {
+    it('reads its context a fixed number of times per email render', () => {
       const context = {
         incident: {
           id: 'incident-1',
@@ -342,19 +485,34 @@ describe('Alert Engine Performance', () => {
         escalationLevel: 1,
       };
 
-      const startTime = performance.now();
+      // Replaces the wall-clock assertion that actually went red on CI
+      // (avg < 2ms over 100 renders) on a PR touching nothing in this
+      // service. A 2ms per-render budget is inside the noise of a shared
+      // runner. What it MEANT is that a render reads its context a fixed
+      // number of times — no accidental re-render, no per-field rescan.
+      const reads = new Map<string, number>();
+      const instrumented = new Proxy(context, {
+        get(target, property, receiver) {
+          if (typeof property === 'string') {
+            reads.set(property, (reads.get(property) ?? 0) + 1);
+          }
+          return Reflect.get(target, property, receiver);
+        },
+      });
 
-      for (let i = 0; i < 100; i++) {
-        templateRenderer.renderForEmail(context);
+      templateRenderer.renderForEmail(instrumented);
+
+      const perRenderReads = new Map(reads);
+      templateRenderer.renderForEmail(instrumented);
+
+      // A second render must cost exactly what the first did: the counts
+      // double, so nothing is accumulated or re-scanned across calls.
+      for (const [field, count] of perRenderReads) {
+        expect(reads.get(field)).toBe(count * 2);
       }
-
-      const endTime = performance.now();
-      const avgTime = (endTime - startTime) / 100;
-
-      expect(avgTime).toBeLessThan(2);
     });
 
-    it('should render all channel templates efficiently', () => {
+    it('costs exactly the sum of its channels when rendering all of them', () => {
       const context = {
         incident: {
           id: 'incident-1',
@@ -374,19 +532,31 @@ describe('Alert Engine Performance', () => {
         NotificationChannel.WEBHOOK,
       ];
 
-      const startTime = performance.now();
-
-      for (let i = 0; i < 100; i++) {
-        channels.forEach(channel => {
-          templateRenderer.render(channel, context);
+      // Replaces a wall-clock assertion (avg < 10ms for six renders). The
+      // property worth pinning is that channels do not share work in a way
+      // that grows superlinearly: rendering all six must cost exactly the sum
+      // of rendering each one, so a future template cannot start re-reading
+      // the context on behalf of its siblings.
+      const countReads = (render: (ctx: typeof context) => void): number => {
+        let reads = 0;
+        const instrumented = new Proxy(context, {
+          get(target, property, receiver) {
+            if (typeof property === 'string') reads++;
+            return Reflect.get(target, property, receiver);
+          },
         });
-      }
+        render(instrumented);
+        return reads;
+      };
 
-      const endTime = performance.now();
-      const avgTime = (endTime - startTime) / 100;
+      const perChannel = channels.map((channel) =>
+        countReads((ctx) => templateRenderer.render(channel, ctx)),
+      );
+      const allTogether = countReads((ctx) => {
+        channels.forEach((channel) => templateRenderer.render(channel, ctx));
+      });
 
-      // 6 templates per iteration should still be fast
-      expect(avgTime).toBeLessThan(10);
+      expect(allTogether).toBe(perChannel.reduce((sum, reads) => sum + reads, 0));
     });
   });
 
@@ -411,7 +581,7 @@ describe('Alert Engine Performance', () => {
       const endTime = performance.now();
 
       // Queuing 1000 notifications should be under 100ms
-      expect(endTime - startTime).toBeLessThan(100);
+      expect(endTime - startTime).toBeLessThan(scaled(100));
 
       // Clean up
       notificationDispatcher.clearQueue();
@@ -425,7 +595,7 @@ describe('Alert Engine Performance', () => {
       notificationDispatcher.registerHandler(NotificationChannel.EMAIL, mockHandler);
 
       const userIds = Array.from({ length: 50 }, (_, i) => `user-${i}`);
-      userIds.forEach(userId => {
+      userIds.forEach((userId) => {
         channelRouter.setUserPreferences({
           userId,
           enabledChannels: [NotificationChannel.EMAIL],
@@ -450,14 +620,14 @@ describe('Alert Engine Performance', () => {
       const endTime = performance.now();
 
       // Should process 50 users quickly due to parallelization
-      expect(endTime - startTime).toBeLessThan(500);
+      expect(endTime - startTime).toBeLessThan(scaled(500));
     });
   });
 
   describe('Memory Usage', () => {
     it('should not leak memory during rule evaluation', async () => {
       const rules = Array.from({ length: 100 }, (_, i) => createMockRule(`rule-${i}`));
-      alertRuleRepository.find.mockResolvedValue(rules as unknown as AlertRule[]);
+      alertRuleRepository.find.mockResolvedValue(rules);
 
       const context: EvaluationContext = {
         tenantId: 'tenant-1',
@@ -475,7 +645,7 @@ describe('Alert Engine Performance', () => {
     });
 
     it('should handle large historical datasets without issues', async () => {
-      alertRuleRepository.findOne.mockResolvedValue(createMockRule('rule-1') as unknown as AlertRule);
+      alertRuleRepository.findOne.mockResolvedValue(createMockRule('rule-1'));
 
       const context: RiskCalculationContext = {
         tenantId: 'tenant-1',
@@ -494,7 +664,7 @@ describe('Alert Engine Performance', () => {
   describe('Throughput Tests', () => {
     it('should handle high throughput of rule evaluations', async () => {
       const rules = Array.from({ length: 10 }, (_, i) => createMockRule(`rule-${i}`));
-      alertRuleRepository.find.mockResolvedValue(rules as unknown as AlertRule[]);
+      alertRuleRepository.find.mockResolvedValue(rules);
 
       const startTime = performance.now();
       const iterations = 100;

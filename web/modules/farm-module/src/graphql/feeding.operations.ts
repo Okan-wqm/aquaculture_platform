@@ -34,6 +34,7 @@ const FEEDING_RECORD_FIELDS = `
   equipmentId
   feedingDurationMinutes
   feedCost
+  feedCostDecimal
   currency
   fedBy
   verifiedBy
@@ -44,32 +45,6 @@ const FEEDING_RECORD_FIELDS = `
   updatedAt
   isBelowPlan
   isVarianceAcceptable
-`;
-
-const FEED_INVENTORY_FIELDS = `
-  id
-  tenantId
-  feedId
-  siteId
-  departmentId
-  quantityKg
-  minStockKg
-  status
-  lotNumber
-  manufacturingDate
-  expiryDate
-  receivedDate
-  unitPricePerKg
-  totalValue
-  currency
-  storageLocation
-  notes
-  createdAt
-  updatedAt
-  createdBy
-  isLowStock
-  isExpired
-  daysUntilExpiry
 `;
 
 // ============================================================================
@@ -151,6 +126,7 @@ export const FEEDING_SUMMARY_QUERY = `
       totalFeedings
       avgFeedingKg
       totalCost
+      totalCostDecimal
       currency
       byFeedType {
         feedId
@@ -165,29 +141,6 @@ export const FEEDING_SUMMARY_QUERY = `
 
 /**
  * Get feed inventory with filters and pagination
- */
-export const FEED_INVENTORY_QUERY = `
-  query FeedInventory($filter: FeedInventoryFilterInput, $pagination: FeedingPaginationInput) {
-    feedInventory(filter: $filter, pagination: $pagination) {
-      items {
-        ${FEED_INVENTORY_FIELDS}
-      }
-      total
-      page
-      limit
-      totalPages
-      hasNextPage
-      hasPreviousPage
-    }
-  }
-`;
-
-// ============================================================================
-// MUTATIONS
-// ============================================================================
-
-/**
- * Create a new feeding record
  */
 export const CREATE_FEEDING_RECORD_MUTATION = `
   mutation CreateFeedingRecord($input: CreateFeedingRecordInput!) {
@@ -211,32 +164,3 @@ export const UPDATE_FEEDING_RECORD_MUTATION = `
 /**
  * Add feed inventory (purchase)
  */
-export const ADD_FEED_INVENTORY_MUTATION = `
-  mutation AddFeedInventory($input: AddFeedInventoryInput!) {
-    addFeedInventory(input: $input) {
-      ${FEED_INVENTORY_FIELDS}
-    }
-  }
-`;
-
-/**
- * Consume feed from inventory
- */
-export const CONSUME_FEED_INVENTORY_MUTATION = `
-  mutation ConsumeFeedInventory($input: ConsumeFeedInventoryInput!) {
-    consumeFeedInventory(input: $input) {
-      ${FEED_INVENTORY_FIELDS}
-    }
-  }
-`;
-
-/**
- * Adjust feed inventory (correction)
- */
-export const ADJUST_FEED_INVENTORY_MUTATION = `
-  mutation AdjustFeedInventory($input: AdjustFeedInventoryInput!) {
-    adjustFeedInventory(input: $input) {
-      ${FEED_INVENTORY_FIELDS}
-    }
-  }
-`;

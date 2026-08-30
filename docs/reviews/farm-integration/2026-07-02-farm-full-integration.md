@@ -28,6 +28,19 @@ Required remediation:
 
 Closure criteria: all report tabs render persisted rows; mock dir deleted; invariants green (`farm-graphql-fe-be-parity`, `farm-no-mock-data-growth-ssot`, `farm-service-migration-array-completeness`, `tenant-fanout-entity-parity`). Closing commits carry `Closes: docs/reviews/farm-integration/2026-07-02-farm-full-integration.md#FARM-HIGH-125`.
 
+> **RESOLVED (2026-07-14).** All closure criteria verified against current
+> `main`: the `regulatory_reports` per-tenant entity
+> (`regulatory/entities/regulatory-report.entity.ts`, omits `schema:`) +
+> migration (registered in `manifest.ts`) + persist-first store/submission
+> services + CQRS read handlers (`regulatoryReports` / `regulatoryReport` /
+> `regulatoryReportSummary`) are shipped; the FE tabs render persisted rows via
+> `useRegulatoryReports.ts` + `SubmissionHistorySection.tsx`;
+> `web/modules/farm-module/src/pages/reports/mock/` is deleted; and the four
+> named invariants pass (18 tests). The original persistence work landed under
+> the pre-collision `#FARM-HIGH-112` trailer (see provenance note above), so
+> this narrative + the closure trailer supply the renumbered `#FARM-HIGH-125`
+> link the registry close requires post-merge.
+
 ## FARM-MEDIUM-113 — Maintenance pages built but never routed
 
 `web/modules/farm-module/src/pages/maintenance/{WorkOrdersPage,MaintenanceSchedulesPage,SparePartsPage}.tsx` + `hooks/useMaintenance.ts` are complete and contract-clean (all root fields exist in `apps/farm-service/src/maintenance/resolvers/` and in `permission-matrix.ts`), but no route in `src/Module.tsx` and no shell nav entry exposes them.

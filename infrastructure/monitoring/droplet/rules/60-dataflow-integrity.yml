@@ -1,0 +1,263 @@
+# Data-flow integrity rules (Watchdog W-A — plan tranquil-sniffing-pancake F5).
+#
+# WHY THIS FILE: the platform already EXPORTS delivery-integrity metrics —
+# outbox_oldest_pending_age_seconds, outbox_dead_letter, publish-failure
+# counters, messaging DLQ growth — but no rule read them, so a stalled relay
+# or a growing dead-letter set was invisible until a human went looking.
+# These first rules only threshold metrics that already exist; the probe
+# exporter (tools/watchdog/) adds probe_* metrics in W-B.
+#
+# Thresholds: OUTBOX_PENDING_AGE_ALARM_MS=600000 is the documented stall SLO
+# (platform/libs/outbox/src/constants.ts:60); the rules quote it rather than
+# inventing a new number.
+groups:
+  - name: aquaculture.dataflow.integrity
+    rules:
+      - alert: OutboxPendingAgeSloBreached
+        expr: |
+          max by (app) (outbox_oldest_pending_age_seconds{namespace="aquaculture"}) > 600
+        for: 10m
+        labels:
+          severity: critical
+          target_auditor: job-queue-auditor
+        annotations:
+          summary: "{{ $labels.app }} outbox oldest pending event exceeds the 10-minute stall SLO"
+          description: "outbox_oldest_pending_age_seconds={{ $value }}s on {{ $labels.app }}; the relay is stalled or dead. SLO source: platform/libs/outbox/src/constants.ts:60."
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/dataflow-integrity.md'
+
+      - alert: OutboxDeadLetterGrowing
+        expr: |
+          sum by (app) (increase(outbox_publish_failures_total{namespace="aquaculture"}[30m])) > 5
+        for: 15m
+        labels:
+          severity: warning
+          target_auditor: job-queue-auditor
+        annotations:
+          summary: "{{ $labels.app }} outbox publish failures accumulating"
+          description: "More than 5 publish failures in 30m on {{ $labels.app }}; check lastError on unpublished rows before they dead-letter."
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/dataflow-integrity.md'
+
+      - alert: MessagingDlqGrowing
+        expr: |
+          increase(messaging_dlq_growth_total{namespace="aquaculture"}[30m]) > 0
+        for: 10m
+        labels:
+          severity: warning
+          target_auditor: job-queue-auditor
+        annotations:
+          summary: "messaging-service DLQ grew in the last 30 minutes"
+          description: "messaging_dlq_growth_total increased; inspect messaging.messaging_outbox rows with isDeadLettered=true."
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/dataflow-integrity.md'
+
+      - alert: NotificationChannelFailing
+        expr: |
+          sum by (app) (increase(http_requests_total{namespace="aquaculture",app="notification-service",status=~"5.."}[15m])) > 10
+        for: 10m
+        labels:
+          severity: warning
+          target_auditor: realtime-sync-auditor
+        annotations:
+          summary: "notification-service 5xx burst"
+          description: "Delivery path erroring; join notification.notification_logs by (channel,status) for the failing channel."
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/dataflow-integrity.md'
+
+  # W-C — the tenant isolation watchdog scans every ten minutes and, until
+  # now, told only the log file. These rules read the gauges the scan
+  # publishes so a breach pages someone, and so a watchdog that stopped
+  # running is distinguishable from one reporting all-clear.
+  - name: aquaculture.tenant.isolation
+    rules:
+      - alert: TenantIsolationViolationDetected
+        expr: |
+          max by (severity, type) (farm_tenant_isolation_violations{severity="CRITICAL"}) > 0
+        for: 0m
+        labels:
+          severity: critical
+          target_auditor: tenant-isolation-auditor
+        annotations:
+          summary: 'Tenant isolation watchdog found a CRITICAL violation ({{ $labels.type }})'
+          description: 'farm_tenant_isolation_violations{severity="CRITICAL",type="{{ $labels.type }}"}={{ $value }}. One tenant can potentially read another tenant''s rows. There is no `for:` delay on purpose - a cross-tenant leak is not something to observe for ten minutes first.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/tenant-isolation-watchdog.md'
+
+      # `critical`, not `warning`: this is the deadman of a safety mechanism.
+      # A stopped scanner reports no violations, which is byte-identical to
+      # "isolation is holding" — waiting for the 12-hour digest to say the
+      # cross-tenant guard has been off is the wrong trade.
+      - alert: TenantIsolationWatchdogStale
+        expr: |
+          time() - max(farm_tenant_isolation_scan_last_run_timestamp_seconds) > 2700
+        for: 15m
+        labels:
+          severity: critical
+          target_auditor: tenant-isolation-auditor
+        annotations:
+          summary: 'Tenant isolation watchdog has not completed a scan in 45 minutes'
+          description: 'The scan runs every 10 minutes; three missed turns means the scanner is dead, and a dead scanner reports no violations - which reads exactly like safety.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/tenant-isolation-watchdog.md'
+
+      - alert: TenantIsolationScannerErrors
+        expr: |
+          max(farm_tenant_isolation_scan_errors) > 0
+        for: 30m
+        labels:
+          severity: warning
+          target_auditor: tenant-isolation-auditor
+        annotations:
+          summary: 'Tenant isolation scan is running half-blind ({{ $value }} scanner(s) failing)'
+          description: 'Individual scanners failed inside an otherwise completed scan, so the all-clear covers less ground than it appears to.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/tenant-isolation-watchdog.md'
+
+      - alert: OutboxRelayNotRunning
+        expr: |
+          time() - max by (service) (outbox_relay_last_cycle_timestamp_seconds) > 300
+        for: 5m
+        labels:
+          severity: critical
+          target_auditor: job-queue-auditor
+        annotations:
+          summary: '{{ $labels.service }} outbox relay has not completed a cycle in 5 minutes'
+          description: 'The relay polls every 5 seconds, so sixty missed cycles means the dispatcher is gone. This is the gap the queue gauges cannot show: when the relay stops, outbox_pending stops being written and holds its last value, so a dead dispatcher with an empty queue reads as perfectly healthy.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/dataflow-integrity.md'
+
+  # W-C — scheduled jobs that stop running. Ninety @Cron methods exist and
+  # five had a last-run surface, so "the job is fine" and "the job has not
+  # fired since the last restart" were the same observation. These rules
+  # read the shared heartbeat; a job appears here only once it adopts the
+  # helper, which is what keeps the alert honest about coverage.
+  - name: aquaculture.cron.heartbeat
+    rules:
+      - alert: CronJobNeverRan
+        expr: |
+          max by (cron_job) (cron_job_last_success_timestamp_seconds) == 0
+        for: 1h
+        labels:
+          severity: warning
+          target_auditor: job-queue-auditor
+        annotations:
+          summary: '{{ $labels.cron_job }} has never completed successfully since process start'
+          description: 'The job declared itself but no run has succeeded in an hour. A scheduler that failed to register produces exactly this shape - and, without the declared zero, would produce no series at all.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/cron-heartbeat.md'
+
+      - alert: CronJobFailingEveryRun
+        expr: |
+          (max by (cron_job) (cron_job_last_failure_timestamp_seconds) > max by (cron_job) (cron_job_last_success_timestamp_seconds))
+          and (time() - max by (cron_job) (cron_job_last_success_timestamp_seconds) > 3600)
+        for: 30m
+        labels:
+          severity: warning
+          target_auditor: job-queue-auditor
+        annotations:
+          summary: '{{ $labels.cron_job }} has been failing for at least an hour'
+          description: 'Every recent attempt ended in failure. A job that swallows its own errors looks healthy in its domain metrics; this is the surface that does not.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/cron-heartbeat.md'
+  # W-B — tenant provisioning had zero metrics and zero alarms, and the
+  # saga verifies only its own two ledgers, never the schema they describe.
+  # These read the parity probe (tools/watchdog/probe-runner.mjs), which asks
+  # Postgres directly. Deliberately identity-free: the probe exports counts
+  # per finding class and never a tenant id, so the scrape surface cannot be
+  # mined for the customer list.
+  - name: aquaculture.tenant.reality
+    rules:
+      - alert: TenantActiveWithoutPhysicalSchema
+        expr: |
+          max by (class) (probe_finding_count{probe_id="tenant_reality_parity",class="active_without_usable_schema"}) > 0
+        for: 0m
+        labels:
+          severity: critical
+          target_auditor: multi-tenant-saas-expert
+        annotations:
+          summary: '{{ $value }} tenant(s) are served as ACTIVE with no usable tenant schema'
+          description: 'A tenant declared ACTIVE has no tenant_<id16> schema, or one holding no tables, so every per-tenant write it makes has nowhere to land. There is no `for:` delay on purpose - this state is stable, silent and already customer-visible by the time it is measured; waiting adds nothing but exposure.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/tenant-reality-parity.md'
+
+      - alert: TenantProvisioningNeverCompleted
+        expr: |
+          max by (class) (probe_finding_count{probe_id="tenant_reality_parity",class="unprovisioned_pending"}) > 0
+        for: 30m
+        labels:
+          severity: warning
+          target_auditor: multi-tenant-saas-expert
+        annotations:
+          summary: '{{ $value }} tenant(s) have been pending with no schema for over 30 minutes'
+          description: 'Provisioning started and never finished. Half an hour is far past a healthy run, and a tenant left here becomes the CRITICAL above the moment anything flips its status to ACTIVE.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/tenant-reality-parity.md'
+
+      # Fires only once the series has been seen at least once in the last
+      # 24h and has then gone quiet. `absent()` alone would fire from the
+      # moment this file is first loaded and never clear, and a
+      # permanently-firing alert is a muted one - the safety net would be the
+      # first thing switched off.
+      - alert: TenantRealityProbeStale
+        expr: |
+          max_over_time(probe_ok{probe_id="tenant_reality_parity"}[24h])
+          and on() (time() - max(timestamp(probe_ok{probe_id="tenant_reality_parity"})) > 10800)
+        for: 30m
+        labels:
+          severity: critical
+          target_auditor: multi-tenant-saas-expert
+        annotations:
+          summary: 'The tenant reality parity probe has stopped reporting'
+          description: 'No probe_ok series for tenant_reality_parity. The two alerts above are count-based, so a probe that stopped publishes no counts - which reads exactly like every tenant being consistent.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/tenant-reality-parity.md'
+
+  # 5a — the T0 supervisor. These read the textfile it writes every two
+  # minutes; the supervisor itself needs watching, because a supervisor that
+  # stopped is indistinguishable from a healthy host by definition.
+  - name: aquaculture.runtime.supervisor
+    rules:
+      # `critical` for the same reason as TenantIsolationWatchdogStale: the
+      # supervisor is the only thing that notices a container Docker gave up
+      # on, so its silence is indistinguishable from a healthy host.
+      - alert: RuntimeSupervisorStale
+        expr: |
+          time() - max(aqua_supervisor_last_run_timestamp_seconds) > 900
+        for: 5m
+        labels:
+          severity: critical
+          target_auditor: infra-expert
+        annotations:
+          summary: 'Runtime supervisor has not run in 15 minutes'
+          description: 'The timer fires every two minutes. Seven missed passes means the supervisor is gone - and with it the only thing that notices a container Docker gave up on.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/runtime-supervisor.md'
+
+      - alert: RuntimeSupervisorCannotRevive
+        expr: |
+          max(aqua_supervisor_problems{severity="critical"}) > 0
+        for: 5m
+        labels:
+          severity: critical
+          target_auditor: infra-expert
+        annotations:
+          summary: 'Runtime supervisor found a CRITICAL condition it could not fix'
+          description: 'Either a supervised container will not start, its restart cap is exhausted, or the root filesystem is past the threshold that began the 2026-08-03 outage. The supervisor deliberately does not delete anything to free space.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/runtime-supervisor.md'
+
+  # Tenant provisioning. The saga failed on its first step for months and the
+  # only surface was a `lastError` column nobody queried; these read the
+  # counters admin-api now exports so onboarding being dead is an alarm rather
+  # than a discovery.
+  - name: aquaculture.tenant.provisioning
+    rules:
+      - alert: TenantProvisioningRunsFailing
+        expr: |
+          increase(tenant_provisioning_runs_total{state="FAILED"}[30m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+          target_auditor: multi-tenant-saas-expert
+        annotations:
+          summary: 'Tenant provisioning is failing — no new tenant can be onboarded'
+          description: 'A provisioning run reached FAILED in the last 30 minutes. Join tenant_provisioning_step_failures_total by (step) for the step that refused, then read admin.tenant_provisioning_steps.lastError for that step.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/tenant-provisioning.md'
+
+      - alert: TenantProvisioningRunStuck
+        expr: |
+          max(tenant_provisioning_oldest_active_run_age_seconds) > 3600
+        for: 15m
+        labels:
+          severity: warning
+          target_auditor: multi-tenant-saas-expert
+        annotations:
+          summary: 'A tenant provisioning run has been unfinished for over an hour'
+          description: 'A run is neither SUCCEEDED nor FAILED an hour after it was created. Production held two such runs for months with attempts=3 and no lease, which no metric counted and no alert could express.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/tenant-provisioning.md'

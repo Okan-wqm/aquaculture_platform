@@ -25,9 +25,12 @@ import {
 import { OutboxEntityBase } from './outbox-entity.base';
 import { OutboxMetricsService } from './outbox-metrics.service';
 import {
-  assertOutboxTenantIntegrity,
-  OutboxTenantIntegrityError,
-} from './tenant-integrity';
+  assertOutboxDeliveryPolicyIntegrity,
+  hasSecurityRecoveryDeliveryPolicy,
+  OutboxStorageMetadataError,
+  withoutOutboxRoutingAttestation,
+} from './outbox-routing';
+import { assertOutboxTenantIntegrity, OutboxTenantIntegrityError } from './tenant-integrity';
 
 /**
  * OutboxWorkerService
@@ -113,9 +116,7 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
     private readonly metrics: OutboxMetricsService,
   ) {
     // `FarmOutbox` → `farm_outbox` — stable, readable, Prometheus-safe.
-    this.metricsLabel = entityClass.name
-      .replace(/([a-z])([A-Z])/g, '$1_$2')
-      .toLowerCase();
+    this.metricsLabel = entityClass.name.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase();
 
     // Worker identity. Truncated to 128 chars to match the `leasedBy`
     // column constraint — hostname + pid will always fit, but the slice
@@ -132,9 +133,7 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
         await this.eventBus.connect();
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        this.logger.error(
-          `Failed to connect EventBus during outbox worker bootstrap: ${message}`,
-        );
+        this.logger.error(`Failed to connect EventBus during outbox worker bootstrap: ${message}`);
         // Do NOT throw — the worker can still poll the DB and the next
         // poll cycle will retry the publish. Throwing here would crash
         // the service if NATS is briefly unavailable at startup.
@@ -204,12 +203,11 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
               },
             }),
           ]);
-          const oldestRows: Array<{ age_seconds: string | number | null }> =
-            await manager.query(
-              `SELECT EXTRACT(EPOCH FROM (NOW() - MIN("createdAt"))) AS age_seconds
+          const oldestRows: Array<{ age_seconds: string | number | null }> = await manager.query(
+            `SELECT EXTRACT(EPOCH FROM (NOW() - MIN("createdAt"))) AS age_seconds
                FROM "${tableName}"
                WHERE "publishedAt" IS NULL AND "isDeadLettered" = false`,
-            );
+          );
           const rawAge = oldestRows[0]?.age_seconds;
           return {
             pendingCount: pending,
@@ -248,9 +246,7 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
       // workers can pick up subsequent batches in parallel. This phase
       // runs OUTSIDE any transaction so publish latency does not
       // translate into row-lock hold time.
-      const { successIds, failures } = await this.publishLeasedBatch(
-        leasedRows,
-      );
+      const { successIds, failures } = await this.publishLeasedBatch(leasedRows);
 
       // ── Phase 3: Commit outcomes ──────────────────────────────────
       // Batched UPDATE for successes (single round trip) and per-row
@@ -265,6 +261,13 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.error(`Outbox poll cycle failed: ${message}`);
     } finally {
+      // The relay completed a cycle - marked in `finally` so a cycle that
+      // threw still counts as "the relay is alive", which is the question
+      // this gauge answers. A failing relay is a different alarm from an
+      // absent one, and conflating them is how a dead dispatcher hides
+      // behind an empty queue: outbox_pending stops being written and
+      // holds zero, which reads exactly like nothing to do.
+      this.metrics.markRelayCycle(this.metricsLabel);
       this.processing = false;
     }
   }
@@ -304,9 +307,7 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
    * table access in this worker MUST go through this helper; a new raw
    * `this.repo.*` call is a regression back to the silent-stall class.
    */
-  private async runAsOutboxSystem<T>(
-    work: (manager: EntityManager) => Promise<T>,
-  ): Promise<T> {
+  private async runAsOutboxSystem<T>(work: (manager: EntityManager) => Promise<T>): Promise<T> {
     return this.dataSource.transaction(async (manager: EntityManager) => {
       await manager.query(`SELECT set_config('app.bypass_rls', 'on', true)`);
       return work(manager);
@@ -368,60 +369,46 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
    * pool is used (not per-row promises) so memory and event-loop pressure
    * stay bounded even for very large batches.
    */
-  private async publishLeasedBatch(
-    rows: OutboxEntityBase[],
-  ): Promise<{
+  private async publishLeasedBatch(rows: OutboxEntityBase[]): Promise<{
     successIds: string[];
     failures: Array<{ row: OutboxEntityBase; error: Error }>;
   }> {
     const successIds: string[] = [];
     const failures: Array<{ row: OutboxEntityBase; error: Error }> = [];
 
-    await runWithConcurrency(
-      rows,
-      OUTBOX_PUBLISH_CONCURRENCY,
-      async (row) => {
-        try {
-          // The payload was validated at enqueue time
-          // (OutboxPublisher.enqueue) and the column is typed IEvent.
-          const event: IEvent = row.payload;
+    await runWithConcurrency(rows, OUTBOX_PUBLISH_CONCURRENCY, async (row) => {
+      try {
+        // The payload was validated at enqueue time
+        // (OutboxPublisher.enqueue) and the column is typed IEvent.
+        // FARM-HIGH-083: tenant-of-record integrity gate. A tenant-scoped row
+        // whose payload tenant is missing / non-UUID / drifted from the column
+        // would be silently downgraded onto the cross-tenant events.system.*
+        // subject by deriveSubject(). Assert before publishing; a violation
+        // throws OutboxTenantIntegrityError, which markFailed dead-letters
+        // immediately (the mismatch is permanent — never published).
+        assertOutboxTenantIntegrity(row);
+        assertOutboxDeliveryPolicyIntegrity(row.payload);
+        const event: IEvent = withoutOutboxRoutingAttestation(row.payload);
+        await this.eventBus.publish(event);
 
-          // FARM-HIGH-083: tenant-of-record integrity gate. A tenant-scoped row
-          // whose payload tenant is missing / non-UUID / drifted from the column
-          // would be silently downgraded onto the cross-tenant events.system.*
-          // subject by deriveSubject(). Assert before publishing; a violation
-          // throws OutboxTenantIntegrityError, which markFailed dead-letters
-          // immediately (the mismatch is permanent — never published).
-          assertOutboxTenantIntegrity(row);
-          await this.eventBus.publish(event);
+        successIds.push(row.id);
 
-          successIds.push(row.id);
+        // Latency from enqueue (createdAt) to successful publish.
+        // Record immediately so the histogram reflects per-event
+        // latency even within a batch that has mixed outcomes.
+        const publishedAt = Date.now();
+        const latencySeconds = (publishedAt - new Date(row.createdAt).getTime()) / 1000;
+        this.metrics.recordPublishSuccess(this.metricsLabel, row.eventType, latencySeconds);
 
-          // Latency from enqueue (createdAt) to successful publish.
-          // Record immediately so the histogram reflects per-event
-          // latency even within a batch that has mixed outcomes.
-          const publishedAt = Date.now();
-          const latencySeconds =
-            (publishedAt - new Date(row.createdAt).getTime()) / 1000;
-          this.metrics.recordPublishSuccess(
-            this.metricsLabel,
-            row.eventType,
-            latencySeconds,
-          );
-
-          this.logger.debug(
-            `Published outbox row ${row.id} (${row.eventType}) to NATS in ${latencySeconds.toFixed(3)}s`,
-          );
-        } catch (error) {
-          const err = error instanceof Error ? error : new Error(String(error));
-          failures.push({ row, error: err });
-          this.metrics.recordPublishFailure(
-            this.metricsLabel,
-            row.eventType,
-          );
-        }
-      },
-    );
+        this.logger.debug(
+          `Published outbox row ${row.id} (${row.eventType}) to NATS in ${latencySeconds.toFixed(3)}s`,
+        );
+      } catch (error) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        failures.push({ row, error: err });
+        this.metrics.recordPublishFailure(this.metricsLabel, row.eventType);
+      }
+    });
 
     return { successIds, failures };
   }
@@ -460,20 +447,22 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
    * and it drops out of the `outbox_pending` gauge into
    * `outbox_dead_letter_count` automatically.
    */
-  private async markFailed(failure: {
-    row: OutboxEntityBase;
-    error: Error;
-  }): Promise<void> {
+  private async markFailed(failure: { row: OutboxEntityBase; error: Error }): Promise<void> {
     const { row, error } = failure;
-    const newRetryCount = row.retryCount + 1;
+    const securityRecovery = hasSecurityRecoveryDeliveryPolicy(row.payload);
+    const attemptedRetryCount = row.retryCount + 1;
+    const newRetryCount = securityRecovery
+      ? Math.min(attemptedRetryCount, OUTBOX_MAX_RETRIES - 1)
+      : attemptedRetryCount;
     const message = error.message;
 
     // A tenant-integrity violation is PERMANENT — a retry re-reads the same
     // mismatched payload — so dead-letter it immediately instead of consuming the
     // retry budget and re-leasing a row that can never publish (FARM-HIGH-083).
-    const permanent = error instanceof OutboxTenantIntegrityError;
+    const permanent =
+      error instanceof OutboxTenantIntegrityError || error instanceof OutboxStorageMetadataError;
 
-    if (permanent || newRetryCount >= OUTBOX_MAX_RETRIES) {
+    if (permanent || (!securityRecovery && newRetryCount >= OUTBOX_MAX_RETRIES)) {
       this.logger.error(
         `Outbox row ${row.id} (${row.eventType}) DEAD-LETTERED ` +
           (permanent
@@ -496,7 +485,8 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
       );
       // Exponential backoff: base 2s * 2^retryCount + random jitter (0-1s).
       // Prevents thundering herd when multiple workers retry simultaneously.
-      const backoffMs = 2000 * Math.pow(2, row.retryCount) + Math.floor(Math.random() * 1000);
+      const retryExponent = Math.min(row.retryCount, OUTBOX_MAX_RETRIES - 1);
+      const backoffMs = 2000 * Math.pow(2, retryExponent) + Math.floor(Math.random() * 1000);
       const nextAttemptAt = new Date(Date.now() + backoffMs);
       await this.runAsOutboxSystem((manager) =>
         manager.update(this.entityClass, row.id, {
@@ -532,9 +522,7 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
       );
 
       if (result.affected && result.affected > 0) {
-        this.logger.log(
-          `Cleaned up ${result.affected} published outbox events older than 7 days`,
-        );
+        this.logger.log(`Cleaned up ${result.affected} published outbox events older than 7 days`);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

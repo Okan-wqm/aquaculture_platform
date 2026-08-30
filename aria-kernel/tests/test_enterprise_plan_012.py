@@ -10,38 +10,50 @@ from aria_kernel import (
     fetch_research_source,
     generate_architecture_options,
     generate_fitness_report,
-    list_code_change_plans,
     record_architecture_evidence_pack,
-    record_code_change_plan,
     record_research_policy,
     run_validation_commands,
     verify_integrity,
 )
 from aria_kernel.tool_health import runs_path
 from aria_kernel.tool_registry import GovernanceError
-from tests._helpers.declared_fixtures import append_declared_fixture
+from tests._helpers.declared_fixtures import (
+    append_declared_fixture,
+    seed_validation_provenance,
+)
+from tests._helpers.git_fixtures import make_local_git_repo
 
 
 class EnterprisePlan012Tests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name) / "workspace"
-        self.root.mkdir()
+        # E21-a — a validation run must name a resolvable commit, so the
+        # fixture workspace is a real repository rather than a bare dir.
+        self.root = make_local_git_repo(Path(self.tmp.name), name="workspace")
         self.tools_dir = Path(self.tmp.name) / "aria-tools"
 
     def tearDown(self):
         self.tmp.cleanup()
 
     def test_validation_compare_blocks_worktree_regression(self):
+        change_id, commit_sha = seed_validation_provenance(
+            workspace_root=self.root, base_dir=self.tools_dir,
+        )
         baseline = run_validation_commands(
             commands=["python3 -m unittest --help"],
             workspace_root=self.root,
+            change_id=change_id,
+            commit_sha=commit_sha,
+            runner_identity="ci-executor:plan-012",
             base_dir=self.tools_dir,
             validation_plan_id="baseline",
         )
         worktree = run_validation_commands(
             commands=["python3 -m unittest missing_module_for_aria_plan_012"],
             workspace_root=self.root,
+            change_id=change_id,
+            commit_sha=commit_sha,
+            runner_identity="ci-executor:plan-012",
             base_dir=self.tools_dir,
             validation_plan_id="worktree",
         )
@@ -149,43 +161,9 @@ class EnterprisePlan012Tests(unittest.TestCase):
         self.assertGreaterEqual(second["trend"]["window"], 1)
         self.assertIn("action", second["recommended_next_action"])
 
-    def test_codegen_plan_blocks_forbidden_or_out_of_scope_files(self):
-        blocked = record_code_change_plan(
-            proposal_id="proposal-1",
-            worktree_path="/tmp/worktree",
-            intended_files=["apps/api/src/app.ts", ".github/workflows/ci.yml", "aria-kernel/aria_kernel/cli.py"],
-            allowed_globs=["apps/api/**"],
-            pre_hashes={
-                "apps/api/src/app.ts": "sha256:before",
-                ".github/workflows/ci.yml": "sha256:before",
-                "aria-kernel/aria_kernel/cli.py": "sha256:before",
-            },
-            post_hashes={
-                "apps/api/src/app.ts": "sha256:after",
-                ".github/workflows/ci.yml": "sha256:after",
-                "aria-kernel/aria_kernel/cli.py": "sha256:after",
-            },
-            validation_refs=["validation:ok"],
-            base_dir=self.tools_dir,
-        )
-        self.assertEqual(blocked["status"], "blocked")
-        self.assertTrue(any(item.startswith("forbidden_path:") for item in blocked["blocked_by"]))
-        self.assertIn(".github/**", blocked["forbidden_globs"])
-
-        ready = record_code_change_plan(
-            proposal_id="proposal-1",
-            worktree_path="/tmp/worktree",
-            intended_files=["apps/api/src/app.ts"],
-            allowed_globs=["apps/api/**"],
-            pre_hashes={"apps/api/src/app.ts": "sha256:before"},
-            post_hashes={"apps/api/src/app.ts": "sha256:after"},
-            validation_refs=["validation:ok"],
-            base_dir=self.tools_dir,
-        )
-        self.assertEqual(ready["status"], "ready_for_review")
-        self.assertEqual(list_code_change_plans(base_dir=self.tools_dir)[-1]["code_change_plan_id"], ready["code_change_plan_id"])
-        self.assertTrue(verify_integrity(base_dir=self.tools_dir)["valid"])
-
+    # E14-b (ORPHAN-697) — the codegen/executor packet lane was DISMANTLED
+    # (superseded twin of the worker/implementation lane; İ1 forbids two
+    # parallel apply paths). Its scope tests left with it.
 
 if __name__ == "__main__":
     unittest.main()

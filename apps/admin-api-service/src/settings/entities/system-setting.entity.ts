@@ -5,7 +5,6 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
-  VersionColumn,
 } from 'typeorm';
 
 /**
@@ -37,63 +36,15 @@ export enum SettingValueType {
 }
 
 /**
- * System-wide settings entity
- * Persisted to database with caching support
+ * NOTE: the former `SystemSetting` class (and its `admin.system_settings`
+ * table) is RETIRED — config-service owns system configuration now. The class
+ * was UNdecorated (no `@Entity`, mapped to no table) and its write paths return
+ * 410 Gone (`SystemSettingService`); migration 1801400000000 archived the
+ * legacy rows into `admin.retired_config_backups` and dropped the table
+ * (ORPHAN-HIGH-364). The two enums above remain because the retired-but-present
+ * DTO/controller surface still types against them, and DEFAULT_SYSTEM_SETTINGS
+ * below is the code-side seed source for the config-service migration.
  */
-@Index(['key'], { unique: true })
-@Index(['category'])
-export class SystemSetting {
-  @PrimaryGeneratedColumn('uuid')
-  id!: string;
-
-  @Column({ unique: true })
-  key!: string;
-
-  @Column('text')
-  value!: string; // Stored as string, parsed based on valueType
-
-  @Column({ type: 'enum', enum: SettingValueType, default: SettingValueType.STRING })
-  valueType!: SettingValueType;
-
-  @Column({ type: 'enum', enum: SettingCategory })
-  category!: SettingCategory;
-
-  @Column({ type: 'text', nullable: true })
-  description?: string;
-
-  @Column({ nullable: true })
-  displayName?: string;
-
-  @Column({ default: false })
-  isPublic!: boolean; // Can be read without admin privileges
-
-  @Column({ default: false })
-  isReadOnly!: boolean; // Cannot be changed via API
-
-  @Column({ default: false })
-  requiresRestart!: boolean; // System restart needed after change
-
-  @Column({ type: 'text', nullable: true })
-  defaultValue?: string;
-
-  @Column({ type: 'text', nullable: true })
-  validationRule?: string; // JSON schema or regex for validation
-
-  @Column({ type: 'int', default: 0 })
-  sortOrder!: number;
-
-  @CreateDateColumn()
-  createdAt!: Date;
-
-  @UpdateDateColumn()
-  updatedAt!: Date;
-
-  @Column({ nullable: true })
-  updatedBy?: string;
-
-  @VersionColumn()
-  version!: number;
-}
 
 /**
  * Email template entity

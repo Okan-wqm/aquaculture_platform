@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `61ff33cc74fd000693c5041866b44bac3f8a5ae47a1df998270726055d2dce84`
+Registry tip: `d4b7399848f7b593343feced2be48c37ea0c3117d0c547213b669e3543a7e207`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -27,6 +27,124 @@ post-merge close ceremony records a main-reachable closing commit (PROC-HIGH-001
 by the W1 network-security workstream) and `SENSOR-CRITICAL-003` (VFD tab
 visibility, closed by the W5 frontend workstream). Both are `already-fixed-needs-close`.
 
+Updated 2026-07-11: the reporting-line post-merge close ceremony (PRs #929/#937
+merged; ceremony commit records main-reachable closing commits) RESOLVED six of
+the audit-era criticals that sat in `already-fixed-needs-close` —
+`FARM-CRITICAL-161`, `-163`, `-165`, `-168`, `-169`, `-171` — so their rows leave
+the active table below (the table mirrors `active_critical_ids` exactly; the
+contract invariant enforces the bijection). 8 active CRITICALs remain.
+
+Updated 2026-07-12: reconciling the unified-SCADA-editor audit entries (PR #941)
+onto the chain temporarily added three active CRITICALs
+(`SENSOR-CRITICAL-004/005/006`) as `already-fixed-needs-close` while their
+registry rows awaited the post-merge close ceremony.
+
+Updated 2026-07-12 (close ceremony): PR #941 merged to main
+(merge `f8974ea3`, a true merge — every fix commit is main-reachable), and the
+post-merge close ceremony recorded a main-reachable closing commit for each of
+the 42 findings that PR fixed. `SENSOR-CRITICAL-004` (68299d3d),
+`SENSOR-CRITICAL-005` (a5edc846), and `SENSOR-CRITICAL-006` (ed3685e8) are now
+RESOLVED and leave the active table below (the table mirrors
+`active_critical_ids` exactly; the contract invariant enforces the bijection).
+9 active CRITICALs remain.
+
+Updated 2026-07-15: the control-plane stop-line reconciliation registered nineteen
+new IN-PROGRESS findings and one OPEN frontend test-baseline finding without
+changing the active CRITICAL set. The backup/DR audit then registered one OPEN,
+two IN-PROGRESS, and one BLOCKED HIGH finding, again without changing the active
+CRITICAL set. At that historical checkpoint the registry contained 950 entries;
+later updates below supersede that snapshot and the header reflects the current
+registry tip.
+
+Updated 2026-07-15 (backup/DR closure reconstruction): the registry now contains
+980 entries. `INFRA-CRITICAL-040` remains blocked on an independently trusted DR
+notary; `INFRA-CRITICAL-041` and `INFRA-CRITICAL-042` have local fixes and tests
+but remain IN-PROGRESS until their closing commit is merged and the post-merge
+registry ceremony records a main-reachable SHA.
+
+Updated 2026-07-16 (adversarial backup execution-boundary review): the registry
+now contains 991 entries. `INFRA-CRITICAL-043` has a local exact-commit runner
+bundle fix and remains IN-PROGRESS until merge/close ceremony.
+`INFRA-CRITICAL-044` remains an OPEN production blocker: an absolute sanitized
+inner shell cannot secure the earlier sshd/login-shell startup boundary, so a
+dedicated root-owned backup account and forced-command broker must be proven on
+the target before production closure.
+
+Updated 2026-07-16 (protected-job authority review): seven additional findings
+were registered IN-PROGRESS, bringing the registry to 998 entries.
+`INFRA-CRITICAL-045` has local job-level main guards, exact-SHA checkout and
+parsed workflow invariants, but remains IN-PROGRESS until merge and the
+post-merge close ceremony records a main-reachable closing commit.
+
+Updated 2026-07-17 (control-plane and DR close ceremony): PR #1003 merged to
+main as `ccce62224`. PRs #1002 and #1006 subsequently added 24 farm/feed and
+capacity-review records, so the ceremony was rebuilt on `main@7e2be9b0b` and
+retained all 1,022 entries. The registry CLI verified the exact `Closes:`
+trailer and main reachability for 62 findings, including
+`INFRA-CRITICAL-041/042/043/045`, then re-chained the ledger. Those four
+CRITICAL rows are RESOLVED and leave the active table. The independent notary
+(`INFRA-CRITICAL-040`) and production forced-command broker cutover
+(`INFRA-CRITICAL-044`) remain blocked by external operator evidence;
+production deployment remains locked.
+
+Updated 2026-08-16 (codex worktree rescue, slice 1): `FARM-CRITICAL-237` is
+RESOLVED by `550a72311` (#1244) — the `feedHasStoragePresence` fail-open branch
+is deleted, so a missing storage projection row is a real shortage rather than
+an authority-mode switch. Its truth-table row is removed with the finding; the
+other three single-ledger CRITICALs stay `real-open`.
+
+Updated 2026-07-17 (farm/feed cutover adversarial review): five concrete
+single-ledger blockers were registered IN-PROGRESS, bringing the registry to
+1,028 entries. Four are active CRITICALs: depleted feed can fail open without a
+movement (`FARM-CRITICAL-237`), the legacy-balance backfill lacks row-level
+reconciliation provenance (`FARM-CRITICAL-238`), concurrent NULL-lot receipts
+can split the canonical projection (`FARM-CRITICAL-240`), and migration rollback
+can erase live drain writes (`FARM-CRITICAL-241`). They remain `real-open` until
+the implementation wave supplies PostgreSQL concurrency, rerun, rollback, and
+parity evidence.
+
+Updated 2026-07-18 (sensor device industrial-protocol audit): the 102-finding
+sensor `/sensor/devices` audit added 103 registry entries (the 102 findings plus
+SENSOR-MEDIUM-080). Merged onto main's farm/feed cutover chain and re-chained,
+the registry stands at 1136 entries with three new active CRITICALs from the
+sensor audit. `SENSOR-CRITICAL-007` (6 of 7 VFD adapters fake the write path —
+`EMERGENCY_STOP` returns success without transmitting) and `SENSOR-CRITICAL-009`
+(manual approve→apply never writes to the drive — `vfd.changeset.approved` has no
+consumer) are `real-open`: the edge-delegated VFD write path is the tracked fix
+(binding + write primitive + command/apply rewire have landed; telemetry reads
+are edge-delegated). `SENSOR-CRITICAL-008` (25 protocol adapters fake connection
+success — a never-contacted device is flipped ACTIVE) is
+`already-fixed-needs-close`: the `ProtocolImplementationStatus` SSoT hides
+unsupported adapters and `ConnectionTesterService` fails honestly for any
+non-`cloud-real` protocol before an adapter runs — OPEN only until the post-merge
+close ceremony records a main-reachable closing commit (PROC-HIGH-001).
+
+Updated 2026-07-18 (production host control-plane recurrence review): exact-main
+capacity evidence registered four new active findings and closed the already
+merged default-deny image-tag gap. Two findings are CRITICAL and enter the
+active table: `INFRA-CRITICAL-077` covers the missing host-global lock between
+DR recovery and capacity/deploy mutation; `INFRA-CRITICAL-078` covers the
+production deploy/capacity recurrence of opaque, unpinned SSH and mutable
+target-host Git authority. Both remain `real-open` until native fingerprinted
+transport, hermetic release material, the shared lock, and adversarial recovery
+tests merge.
+
+Updated 2026-08-06 (torn-ledger close ceremony): PR #1104 merged to main as
+`5cfdc81e`, and the post-merge ceremony recorded that main-reachable closing
+commit for `ORPHAN-CRITICAL-561` (one torn write bricked a governed ledger —
+`_verify_jsonl_from_text` treated an unparseable LAST line the same as a damaged
+line mid-file, so an interrupted process ended the mission layer until a human
+repaired the JSONL by hand). It is RESOLVED and leaves the active table (the
+table mirrors `active_critical_ids` exactly; the contract invariant enforces the
+bijection). 46 active CRITICALs remain.
+
+Updated 2026-08-22 (ARIA autonomy closure authority reconciliation): the
+narrative importer registered `ORPHAN-CRITICAL-776` as OPEN while preserving
+its historical main-reachable fix provenance, so it is
+`already-fixed-needs-close`. The closure-plan audit also registered three new
+ARIA control-plane gaps as `real-open`; Tasks 10, 12, and 19 own their live
+proof predicates.
+
 Allowed truth buckets:
 
 - `real-open`
@@ -36,19 +154,60 @@ Allowed truth buckets:
 - `stale`
 - `new-finding-required`
 
-| Finding              | Registry state | First sprint | Owner        | Truth bucket |
-| -------------------- | --------------- | ------------ | ------------ | ------------ |
-| `INFRA-CRITICAL-029` | OPEN            | 1.1          | data-expert  | real-open    |
-| `FARM-CRITICAL-061`  | OPEN            | 1.1          | farm-expert  | real-open    |
-| `AISAFETY-CRITICAL-003` | OPEN         | —            | ai-safety-auditor | already-fixed-needs-close |
-| `SENSOR-CRITICAL-002` | OPEN           | —            | sensor-expert | already-fixed-needs-close |
-| `SENSOR-CRITICAL-003` | OPEN           | —            | sensor-expert | already-fixed-needs-close |
-| `DATA-CRITICAL-001`  | OPEN           | —            | data-expert  | real-open    |
-| `FARM-CRITICAL-153`  | OPEN           | 4.1          | farm-expert  | already-fixed-needs-close |
-| `EDGE-CRITICAL-002`  | OPEN           | 5.1          | edge-expert  | already-fixed-needs-close |
-| `EDGE-CRITICAL-003`  | OPEN           | 5.1          | edge-expert  | already-fixed-needs-close |
-| `EDGE-CRITICAL-004`  | OPEN           | 5.1          | edge-expert  | already-fixed-needs-close |
-| `EDGE-CRITICAL-001-R1` | OPEN         | 5.1          | edge-expert  | real-open |
+| Finding                 | Registry state | First sprint | Owner                      | Truth bucket              |
+| ----------------------- | -------------- | ------------ | -------------------------- | ------------------------- |
+| `INFRA-CRITICAL-029`    | OPEN           | 1.1          | data-expert                | real-open                 |
+| `FARM-CRITICAL-061`     | OPEN           | 1.1          | farm-expert                | real-open                 |
+| `AISAFETY-CRITICAL-003` | OPEN           | —            | ai-safety-auditor          | already-fixed-needs-close |
+| `SENSOR-CRITICAL-003`   | OPEN           | —            | sensor-expert              | already-fixed-needs-close |
+| `DATA-CRITICAL-001`     | OPEN           | —            | data-expert                | real-open                 |
+| `INFRA-CRITICAL-039`    | OPEN           | —            | infra-expert               | already-fixed-needs-close |
+| `RBAC-CRITICAL-001`     | OPEN           | 1.2          | auth-security-expert       | already-fixed-needs-close |
+| `RBAC-CRITICAL-002`     | OPEN           | 1.2          | auth-security-expert       | already-fixed-needs-close |
+| `RBAC-CRITICAL-003`     | OPEN           | 1.2          | auth-security-expert       | already-fixed-needs-close |
+| `INFRA-CRITICAL-040`    | IN-PROGRESS    | —            | infra-expert               | blocked                   |
+| `INFRA-CRITICAL-044`    | OPEN           | —            | infra-expert               | blocked                   |
+| `FARM-CRITICAL-238`     | IN-PROGRESS    | 4.1          | data-expert                | real-open                 |
+| `FARM-CRITICAL-240`     | IN-PROGRESS    | 4.1          | data-expert                | real-open                 |
+| `FARM-CRITICAL-241`     | IN-PROGRESS    | 4.1          | data-expert                | real-open                 |
+| `SENSOR-CRITICAL-007`   | OPEN           | —            | sensor-expert              | real-open                 |
+| `SENSOR-CRITICAL-008`   | OPEN           | —            | sensor-expert              | already-fixed-needs-close |
+| `SENSOR-CRITICAL-009`   | OPEN           | —            | sensor-expert              | real-open                 |
+| `INFRA-CRITICAL-077`    | IN-PROGRESS    | 1.1          | infra-expert               | real-open                 |
+| `INFRA-CRITICAL-078`    | IN-PROGRESS    | 1.1          | security-reviewer          | real-open                 |
+| `DATA-CRITICAL-010`     | OPEN           | —            | data-expert                | real-open                 |
+| `ORPHAN-CRITICAL-418`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-419`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-420`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-427`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-428`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-439`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-440`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-446`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-451`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-460`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-461`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-469`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-479`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-484`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-485`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-488`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-494`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-495`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-497`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-503`   | OPEN           | 2026-08-13   | aria-acceptance-gap-fixer  | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-506`   | OPEN           | 2026-08-13   | aria-acceptance-gap-fixer  | real-open                 |
+| `ORPHAN-CRITICAL-513`   | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
+| `ORPHAN-CRITICAL-516`   | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
+| `ORPHAN-CRITICAL-517`   | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
+| `ORPHAN-CRITICAL-549`   | OPEN           | 2026-08-06   | aria-acceptance-gap-fixer  | real-open                 |
+| `ORPHAN-CRITICAL-776`   | OPEN           | Task 1       | platform-autonomy          | already-fixed-needs-close |
+| `ARIA-CRITICAL-007`     | OPEN           | Task 10      | platform-autonomy          | real-open                 |
+| `ARIA-CRITICAL-009`     | OPEN           | Task 12      | platform-autonomy          | real-open                 |
+| `ARIA-CRITICAL-015`     | OPEN           | Task 19      | platform-autonomy          | real-open                 |
+| `EDGE-CRITICAL-002`     | OPEN           | 5.1          | edge-expert                | already-fixed-needs-close |
+| `EDGE-CRITICAL-003`     | OPEN           | 5.1          | edge-expert                | already-fixed-needs-close |
+| `EDGE-CRITICAL-004`     | OPEN           | 5.1          | edge-expert                | already-fixed-needs-close |
 
 ## Mutation Rules
 
@@ -155,21 +314,6 @@ tests/invariants/orchestrator-routing-coverage.spec.ts --runInBand` passed on
 tests/invariants/agent-frontmatter-schema.spec.ts --runInBand` passed 421/421,
   proving every discovered active agent carries `tools:` frontmatter from the
   allowed token set.
-- `EDGE-CRITICAL-004`: moved `real-open` → `already-fixed-needs-close` on
-  2026-07-12. The offline-replay idempotency fix landed in commit `da33f906`
-  (telemetry envelope stamped with a persisted `(device_id, edge_seq)` key),
-  which carries the `Closes:` trailer; the registry close ceremony runs
-  post-merge. NOTE: the 2026-07-12 PR #935 review found a residual power-loss
-  durability hole in the sequence allocator, tracked as the SEPARATE finding
-  `PR935-HIGH-004` — it does not reopen the original replay finding.
-- `EDGE-CRITICAL-001-R1`: append-only re-open of `EDGE-CRITICAL-001`
-  (`override_of: EDGE-CRITICAL-001`, SEC-REVIEW-005 pattern). The original row
-  closed `RESOLVED` on 2026-06-18 (required-status-checks control-plane work,
-  closing commit `d792f74ac` — see below), but the 2026-07-11 edge audit
-  re-scoped the anchored SQLCipher key-derivation weakness as still open. The
-  registry carried no transition; this row + the `-R1` registry entry are that
-  transition. `real-open`: residual key-derivation hardening beyond
-  `EDGE-CRITICAL-002`'s scada_db keystore-resolver fix.
 - `EDGE-CRITICAL-001`: registry state is `RESOLVED` with closing commit
   `d792f74ac`. Repository-local CI coverage exists in
   `.github/workflows/ci-affected.yml`; the required-check SSOT is
@@ -320,7 +464,7 @@ src/hooks/__tests__/useFirebaseMessaging-sw-scope.spec.tsx` passed 28/28 on
   matching migration DDL, entity ownership, module registration, and
   `MODULE_SCHEMAS[farm].tables` alignment. Current validation passed
   `npx jest --config tests/invariants/jest.config.ts
-  tests/invariants/tenant-fanout-entity-parity.spec.ts --runInBand`, proving
+tests/invariants/tenant-fanout-entity-parity.spec.ts --runInBand`, proving
   every tenant-scoped entity has exactly one fan-out declaration and every
   `MODULE_SCHEMAS.tables` entry has a backing entity.
 - `INFRA-CRITICAL-020`: registry state is `RESOLVED` with closing commit
@@ -332,7 +476,7 @@ src/hooks/__tests__/useFirebaseMessaging-sw-scope.spec.tsx` passed 28/28 on
   `invariants-fast`, `validate-closes`, `banned-phrase-gate`, and
   `merge-gate` on 2026-06-19. Local validation passed
   `npx jest --config tests/invariants/jest.config.ts
-  tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
+tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
   the paired messaging migration runner invariant, and `git diff --check`.
 - `INFRA-CRITICAL-011`: registry state is `RESOLVED` with closing commit
   `1264a3060042861dd2e29fd145223a1211651323`. PR #544 passed GitHub Actions on
@@ -374,3 +518,21 @@ src/hooks/__tests__/useFirebaseMessaging-sw-scope.spec.tsx` passed 28/28 on
   `109563f`. The messaging-service Jest run above passed the
   `SendMessageInput` envelope regression, proving offline `sendMessage` accepts
   the mobile command envelope while rejecting unknown fields.
+- `SENSOR-CRITICAL-004` (WS control-plane RS256→HS256 algorithm-confusion
+  bypass): PR #941 routes SCADA socket JWT verification through the platform
+  RS256-only path and broadens `tests/invariants/jwt-rs256-only.spec.ts`.
+  Reproducible proof: the sensor-service scada-runtime auth specs + the JWT
+  invariant pass on the branch. The row stays IN-PROGRESS until the post-merge
+  close ceremony records the main-reachable closing commit.
+- `SENSOR-CRITICAL-005` (WS `TAG_WRITE` accepted without a tenant fence):
+  PR #941 tenant-fences TAG_WRITE, resolves targets against the unified tag
+  registry, and replaces the fake ack with an honest `queued` result.
+  Reproducible proof: `apps/sensor-service/src/scada-runtime` gateway specs on
+  the branch. IN-PROGRESS until the post-merge close ceremony.
+- `SENSOR-CRITICAL-006` (control-security PINs stored plaintext and compared
+  client-side): PR #941 moves the secret server-side (scrypt `pinHash` at save,
+  read-path redaction, `PIN_VERIFY` socket verification with lockout, tag-keyed
+  TAG_WRITE elevation). Reproducible proof:
+  `apps/sensor-service/src/process/services/__tests__/pin-control-security.spec.ts`
+  - gateway elevation specs on the branch. IN-PROGRESS until the post-merge
+    close ceremony.

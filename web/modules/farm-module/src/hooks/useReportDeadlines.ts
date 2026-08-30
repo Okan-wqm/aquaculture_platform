@@ -24,7 +24,10 @@ import type { ReportFieldMeta } from './useReportPrefill';
 // TYPES (mirror apps/farm-service dto/regulatory-report-draft.dto.ts)
 // ============================================================================
 
-export type ReportDraftStatusValue = 'draft' | 'ready' | 'approved' | 'submitted' | 'dismissed';
+// GraphQL enum WIRE names — the ReportDraftStatus SDL enum serializes to its
+// KEYS (uppercase), not the backend's lowercase column values. Comparing against
+// lowercase here silently never matches (e.g. the Approve & Submit affordance).
+export type ReportDraftStatusValue = 'DRAFT' | 'READY' | 'APPROVED' | 'SUBMITTED' | 'DISMISSED';
 
 export interface ReportDeadline {
   id: string;

@@ -52,8 +52,13 @@ class TargetShaGrading(unittest.TestCase):
             )
             self.assertEqual(env.trust_grade, "repo_verified")
 
-    def test_no_target_sha_leaves_ref_as_worktree_candidate(self) -> None:
-        # This is the LIVE bug: no target_sha => real, valid file => rejected.
+    def test_no_target_sha_is_reported_as_a_missing_baseline(self) -> None:
+        # This test was written to DOCUMENT the live bug — its original comment
+        # read "no target_sha => real, valid file => rejected" — not to bless
+        # it. The rejection is still correct (nothing was verified), but the
+        # grade no longer accuses the agent of evidence that disagrees with the
+        # committed tree when no comparison was ever attempted. See
+        # ORPHAN-HIGH-594: a blameless agent had 44 refs rejected this way.
         with tempfile.TemporaryDirectory() as tmp:
             repo, _ = self._repo_with_committed_file(Path(tmp))
             env = classify_evidence_ref(
@@ -61,7 +66,7 @@ class TargetShaGrading(unittest.TestCase):
                 workspace_root=repo,
                 target_sha=None,
             )
-            self.assertEqual(env.trust_grade, "worktree_candidate")
+            self.assertEqual(env.trust_grade, "baseline_unavailable")
 
     def test_resolve_workspace_head_sha(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -89,8 +94,17 @@ class EnvelopesForwardTargetSha(unittest.TestCase):
         from aria_kernel import convergence_drainer
         src = inspect.getsource(convergence_drainer.run_convergence_drainer)
         self.assertIn("target_sha = _resolve_workspace_head_sha(workspace_root)", src)
-        # every envelope mint forwards it.
-        self.assertEqual(src.count("target_sha=target_sha"), 4)
+        # CL-1 (ORPHAN-725): the resumable step has one mint per state
+        # branch — the invariant is DERIVED, not a magic number: every
+        # issue_* envelope mint in the source forwards target_sha.
+        mint_count = sum(src.count(f"{name}(") for name in (
+            "issue_challenger_envelope",
+            "issue_cross_review_envelope",
+            "issue_primary_envelope",
+            "issue_completeness_critic_envelope",
+        ))
+        self.assertGreaterEqual(mint_count, 4)
+        self.assertEqual(src.count("target_sha=target_sha"), mint_count)
 
 
 if __name__ == "__main__":

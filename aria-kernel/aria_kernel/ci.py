@@ -181,12 +181,14 @@ def evaluate_pr_ci_gate(
     ]
     blockers.extend(f"failed workflow requires review: {name}" for name in unknown_failures if name)
     status = "ready_for_human_merge" if not blockers else "blocked"
+    pr_number = pr.get("number")
+    head_sha = _first_string(pr, "head_sha", "headRefOid", "head")
     row = {
         "schema_version": 1,
         "recorded_at": utc_now(),
         "cycle_id": cycle_id,
-        "pr_number": pr.get("number"),
-        "head_sha": _first_string(pr, "head_sha", "headRefOid", "head"),
+        "pr_number": pr_number,
+        "head_sha": head_sha,
         "status": status,
         "ready_for_human_merge": status == "ready_for_human_merge",
         "blocked_by": sorted(set(blockers)),
@@ -194,6 +196,14 @@ def evaluate_pr_ci_gate(
         "check_result": auto.get("check_result"),
         "protected_workflow_gates": protected_gates,
     }
+    # F5-a — WHY: gate rows become source_ledger_ref targets for the
+    # readiness-claim chain, which needs row_id + row_type on the source
+    # row. WHAT: identity is (pr, head-sha prefix); stamped only when both
+    # halves exist so a snapshot lacking either cannot mint a fake or
+    # colliding identity. Readers tolerate absence (legacy rows).
+    if pr_number is not None and head_sha:
+        row["row_id"] = f"ci-pr-gate:{pr_number}:{head_sha[:12]}"
+        row["row_type"] = "ci_pr_gate"
     return append_jsonl(ensure_tools_dir(base_dir) / "ci" / "pr-ci-gates.jsonl", row)
 
 
@@ -414,18 +424,29 @@ def _workflow_runs(github: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _workflow_run_row(run: dict[str, Any], pr: dict[str, Any], cycle_id: str | None) -> dict[str, Any]:
-    return {
+    workflow_run_id = run.get("id") or run.get("databaseId")
+    row = {
         "schema_version": 1,
         "recorded_at": utc_now(),
         "cycle_id": cycle_id,
         "pr_number": pr.get("number"),
         "head_sha": run.get("head_sha") or _first_string(pr, "head_sha", "headRefOid", "head"),
-        "workflow_run_id": run.get("id") or run.get("databaseId"),
+        "workflow_run_id": workflow_run_id,
         "name": run.get("name") or run.get("workflow_name") or run.get("workflow"),
         "status": run.get("status"),
         "conclusion": run.get("conclusion"),
         "url": run.get("url") or run.get("html_url"),
     }
+    # F5-a — WHY: enterprise readiness proofs must target this row through
+    # ledger_refs.find_row_by_source_ledger_ref, which requires a stable
+    # row_id + row_type on the SOURCE row. WHAT: stamp the identity pair
+    # only when the run actually carries an id — a row without a run id has
+    # no stable identity, and stamping "ci-workflow-run:None" would mint
+    # colliding fake identities. Readers tolerate absence (legacy rows).
+    if workflow_run_id is not None:
+        row["row_id"] = f"ci-workflow-run:{workflow_run_id}"
+        row["row_type"] = "ci_workflow_run"
+    return row
 
 
 def _failures_for_run(
@@ -887,3 +908,37 @@ def _hash_text(text: str) -> str:
 def _hash_json(payload: dict[str, Any]) -> str:
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def record_ci_source_attestation(
+    *,
+    label: str,
+    payload: dict[str, Any],
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """F5-g (ORPHAN-694) — the ``ci_source`` surface's first production writer.
+
+    The surface was declared and consumed (readiness bindings cite its
+    rows) but only tests ever wrote it. Claim-time attestations — e.g.
+    "the waiver ledger was swept at assembly and held N expired-open
+    rows" — need a resolvable row; this is that writer. ``payload`` is
+    hashed into the row so the attested content is tamper-evident.
+    """
+    import hashlib as _hashlib
+
+    if not isinstance(label, str) or not label.strip():
+        raise GovernanceError("ci_source_label_required")
+    root = ensure_tools_dir(base_dir)
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "row_id": f"source-{label}",
+        "row_type": "ci_source",
+        "label": label,
+        "payload": payload,
+        "content_hash": "sha256:" + _hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+    }
+    return append_declared_jsonl(
+        root / "ci" / "source.jsonl", row, expected_surface="ci_source",
+    )

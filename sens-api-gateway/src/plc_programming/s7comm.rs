@@ -40,6 +40,14 @@ use tracing::{debug, info, warn};
 /// Default S7 port (ISO-on-TCP)
 pub const DEFAULT_S7_PORT: u16 = 102;
 
+/// SENSOR-HIGH-078 (ICS-safety): S7 ST→MC7 compilation is not implemented.
+/// Emitting and downloading placeholder bytecode to a live Siemens PLC can trip
+/// the CPU to STOP or corrupt the running program, so both `compile` and
+/// `upload_program` fail closed with this message instead of shipping garbage.
+const S7_MC7_UNSUPPORTED: &str = "S7 ST→MC7 compilation is not implemented; \
+refusing to download uncompiled bytecode to a live PLC. A real ST→MC7 compiler \
+or a TIA Portal Openness bridge is required.";
+
 /// Maximum S7 packet size (TPKT max is 65535 but we limit for safety)
 const MAX_S7_PACKET_SIZE: usize = 65536;
 
@@ -954,47 +962,16 @@ impl S7Client {
         Ok(())
     }
 
-    /// Convert ST program to S7 AWL/MC7 format
+    /// Convert an ST program to S7 MC7 bytecode.
+    ///
+    /// SENSOR-HIGH-078 (ICS-safety): real ST→MC7 compilation is NOT implemented —
+    /// it requires the Siemens compiler or a reverse-engineered MC7 encoder / TIA
+    /// Portal Openness bridge. The previous implementation emitted a structurally
+    /// invalid OB1 (NOP padding) and let `upload_program` download it to a live
+    /// PLC, which can trip the CPU to STOP or corrupt the running program. This
+    /// gate fails closed: no MC7 is produced, so no download can occur.
     fn compile_to_mc7(&self, _program: &PlcProgram) -> Result<Vec<u8>> {
-        // In a real implementation, this would compile ST to MC7 bytecode.
-        // This placeholder demonstrates the structure until full
-        // ST→MC7 compilation lands.
-        //
-        // NOTE: Full ST->MC7 compilation requires Siemens compiler or
-        // reverse-engineered MC7 encoding.
-
-        let mut mc7 = Vec::new();
-
-        // Block header
-        mc7.extend_from_slice(&[0x70, 0x70]); // PP (block signature)
-
-        // Block type and number
-        mc7.push(0x08); // Version
-        mc7.push(0x01); // Block type (OB)
-
-        // Block number (OB1 = 0x0001)
-        mc7.extend_from_slice(&1u16.to_be_bytes());
-
-        // Length placeholder
-        mc7.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
-
-        // MC7 code would go here
-        // For demonstration, just add NOPs
-        mc7.extend_from_slice(&[
-            0x65, 0x00, // NOP 0
-            0x65, 0x00, // NOP 0
-            0xBE, 0x00, // Block end
-        ]);
-
-        // Update length
-        let len = mc7.len() as u32;
-        mc7[6..10].copy_from_slice(&len.to_be_bytes());
-
-        warn!(
-            "S7 MC7 compilation is simplified - full ST compilation requires TIA Portal Openness"
-        );
-
-        Ok(mc7)
+        Err(anyhow!(S7_MC7_UNSUPPORTED))
     }
 
     /// Build an S7 Read Var request for the given addresses
@@ -1524,15 +1501,15 @@ impl PlcProgrammer for S7Client {
 
     async fn compile(&self, program: &PlcProgram) -> Result<UploadResult> {
         validate_program_source(&program.source)?;
-        let _ = self.compile_to_mc7(program)?;
 
+        // SENSOR-HIGH-078: ST→MC7 compilation is not implemented. Report an honest
+        // compile failure instead of a fake success with a soft "simplified"
+        // warning — a caller must not believe a downloadable artifact exists.
         Ok(UploadResult {
-            success: true,
+            success: false,
             program_id: None,
-            warnings: vec![
-                "MC7 compilation is simplified - full compilation requires TIA Portal".to_string(),
-            ],
-            errors: Vec::new(),
+            warnings: Vec::new(),
+            errors: vec![S7_MC7_UNSUPPORTED.to_string()],
             timestamp: chrono::Utc::now().to_rfc3339(),
             plc_response: HashMap::new(),
         })
@@ -1670,7 +1647,56 @@ impl PlcProgrammer for S7Client {
 
 #[cfg(test)]
 mod tests {
+    use super::super::ProgramLanguage;
     use super::*;
+
+    fn sample_st_program() -> PlcProgram {
+        PlcProgram {
+            name: "ob1".to_string(),
+            language: ProgramLanguage::St,
+            source: "PROGRAM main VAR x : BOOL; END_VAR x := TRUE; END_PROGRAM".to_string(),
+            variables: Vec::new(),
+            function_blocks: Vec::new(),
+            metadata: HashMap::new(),
+        }
+    }
+
+    /// SENSOR-HIGH-078 — compilation must fail closed rather than emit placeholder
+    /// bytecode that `upload_program` would ship to a live PLC.
+    #[test]
+    fn compile_to_mc7_refuses_to_emit_placeholder_bytecode() {
+        let client = S7Client::new(S7Config::default());
+        let err = client.compile_to_mc7(&sample_st_program()).unwrap_err();
+        assert!(
+            err.to_string().contains("not implemented"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn upload_program_fails_closed_before_touching_the_plc() {
+        // The client is not connected: had upload reached the S7 download sequence
+        // it would fail with a connection error. It must fail earlier, at
+        // compilation, so no MC7 is ever sent to a live PLC (SENSOR-HIGH-078).
+        let client = S7Client::new(S7Config::default());
+        let err = client
+            .upload_program(&sample_st_program())
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("not implemented"),
+            "expected compile-gate error before any PLC I/O, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn compile_reports_honest_failure_not_fake_success() {
+        let client = S7Client::new(S7Config::default());
+        let result = client.compile(&sample_st_program()).await.unwrap();
+        assert!(!result.success);
+        assert!(result.warnings.is_empty());
+        assert!(result.errors.iter().any(|e| e.contains("not implemented")));
+    }
 
     #[test]
     fn test_config_default() {

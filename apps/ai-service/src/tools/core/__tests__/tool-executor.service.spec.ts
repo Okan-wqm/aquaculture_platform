@@ -96,19 +96,49 @@ describe('ToolExecutorService (AISAFETY-MEDIUM-017)', () => {
     expect(result.error).toMatch(/blocked/i);
   });
 
-  it("executes an actuation tool under 'allowed' (autonomous supervisor)", async () => {
+  it("executes an actuation tool under 'allowed' (autonomous supervisor) with a STRICT audit write", async () => {
     registry.getTool.mockReturnValue(makeTool({ requiresConfirmation: true }));
 
     const result = await service.executeTool('dose_reagent', {}, ctx('allowed'));
 
     expect(execute).toHaveBeenCalledTimes(1);
     expect(result.success).toBe(true);
+    expect(result.auditFailed).toBeUndefined();
+    // DB-PEOPLE-MEDIUM-003: actuation audit is written STRICTLY (6th arg = true).
     expect(logToolExecution).toHaveBeenCalledWith(
       'dose_reagent',
       expect.any(Object),
       okResult,
       expect.objectContaining({ actuationPolicy: 'allowed' }),
+      undefined,
+      true,
     );
+  });
+
+  it('surfaces auditFailed (not swallow) when an actuation audit write fails, without a false failure', async () => {
+    registry.getTool.mockReturnValue(makeTool({ requiresConfirmation: true }));
+    // Simulate the strict audit write re-throwing (audit store down).
+    logToolExecution.mockRejectedValueOnce(new Error('audit db down'));
+
+    const result = await service.executeTool('dose_reagent', {}, ctx('allowed'));
+
+    // The actuation already ran — we must NOT return a false failure (that would
+    // risk a double-actuation); instead the audit gap is surfaced.
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(result.success).toBe(true);
+    expect(result.auditFailed).toBe(true);
+  });
+
+  it('keeps read-only tool audit best-effort (strict flag not set)', async () => {
+    registry.getTool.mockReturnValue(makeTool({ name: 'read_ph', requiresConfirmation: false }));
+
+    await service.executeTool('read_ph', {}, ctx('allowed'));
+
+    // Read-only path calls logToolExecution WITHOUT the strict flag.
+    const calls = logToolExecution.mock.calls as unknown[][];
+    const call = calls.find((c) => c[0] === 'read_ph');
+    expect(call).toBeDefined();
+    expect(call![5]).toBeUndefined();
   });
 
   it('executes a read-only tool (no confirmation) regardless of policy, and audits it', async () => {
@@ -149,5 +179,68 @@ describe('ToolExecutorService (AISAFETY-MEDIUM-017)', () => {
       expect.objectContaining({ success: false }),
       expect.objectContaining({ tenantId: 't1' }),
     );
+  });
+
+  // SENSOR-MEDIUM-070: a first-class internal service principal authorizes a
+  // fixed read-only tool allowlist WITHOUT fabricating user roles.
+  describe('service principal (SENSOR-MEDIUM-070)', () => {
+    const svcCtx = (grant: string[]): ToolExecutionContext => ({
+      tenantId: 't1',
+      schemaName: 'tenant_t1',
+      userId: 'service:sensor-service',
+      userRoles: [], // no user roles — the service grant is the sole authority
+      correlationId: 'corr-1',
+      persona: 'service',
+      actuationPolicy: 'blocked',
+      servicePrincipal: { name: 'sensor-service', grantedToolNames: grant },
+    });
+
+    it('authorizes a granted read-only tool with no user roles', async () => {
+      registry.getTool.mockReturnValue(
+        makeTool({ name: 'analyze_sensor_data', requiresConfirmation: false }),
+      );
+
+      const result = await service.executeTool(
+        'analyze_sensor_data',
+        { samples: [] },
+        svcCtx(['analyze_sensor_data']),
+      );
+
+      expect(execute).toHaveBeenCalledTimes(1);
+      expect(result.success).toBe(true);
+    });
+
+    it('refuses a granted actuation tool — service principals are read-only by construction', async () => {
+      registry.getTool.mockReturnValue(
+        makeTool({ name: 'dose_reagent', requiresConfirmation: true }),
+      );
+
+      const result = await service.executeTool('dose_reagent', {}, svcCtx(['dose_reagent']));
+
+      expect(execute).not.toHaveBeenCalled();
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/may not run actuation/i);
+    });
+
+    it('does NOT authorize a tool absent from the grant (no user roles to fall back on)', async () => {
+      registry.getTool.mockReturnValue(
+        makeTool({
+          name: 'suggest_sensor_channels',
+          requiredPermissions: ['operator'],
+          requiresConfirmation: false,
+        }),
+      );
+
+      // Grants a DIFFERENT tool — the requested one is not covered.
+      const result = await service.executeTool(
+        'suggest_sensor_channels',
+        {},
+        svcCtx(['analyze_sensor_data']),
+      );
+
+      expect(execute).not.toHaveBeenCalled();
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/permission denied/i);
+    });
   });
 });

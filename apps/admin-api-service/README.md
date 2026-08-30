@@ -119,7 +119,8 @@ const canView = await userPermissionsService.hasPermission(
 
 ```
 PostgreSQL
-├── public              # Shared tables (tenants, users, user_permissions)
+├── admin               # Service-owned tables (ADR-011)
+├── shared              # Canonical cross-service tables (audit_logs, gdpr_data_requests, user_consents, access_logs)
 └── tenant_{uuid16}     # Per-tenant isolated data
     ├── farms           # Farm data
     ├── batches         # Batch data
@@ -139,26 +140,11 @@ PostgreSQL
 
 ### Entities
 
-**User Permissions** (public schema):
-```typescript
-@Entity('user_permissions', { schema: 'public' })
-export class UserPermissions {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
-
-  @Column('uuid')
-  userId: string;
-
-  @Column('uuid')
-  tenantId: string;
-
-  @Column('jsonb')
-  permissions: PanelPermissions;
-
-  @Column({ default: true })
-  isActive: boolean;
-}
-```
+> **Retired (2026-07-12, ADR-042):** the `UserPermissions` entity and the
+> `shared.user_permissions` table were a dead parallel permission catalog and
+> have been removed. User permissions are owned by the auth-service tenant
+> RBAC (`auth.tenant_role_permissions.panel_permissions`); archived rows live
+> in `admin.retired_config_backups`.
 
 ## API Endpoints
 

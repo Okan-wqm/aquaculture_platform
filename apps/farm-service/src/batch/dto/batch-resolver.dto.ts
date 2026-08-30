@@ -79,6 +79,10 @@ export class RecordMortalityInput extends MobileCommandEnvelopeInput {
   @Field({ defaultValue: () => new Date() }) @IsOptional() observedAt!: Date;
   @Field({ nullable: true }) @IsOptional() @IsString() observedBy?: string;
   @Field(() => Float, { nullable: true }) @IsOptional() @IsNumber() @Min(0) avgWeightG?: number;
+  /** D-3 mod (b): tane + kg birlikte — verilen kg AYNEN düşer, kalanın
+   *  ortalaması kayar (büyük balık kaybı). Boşsa mod (a): kg güncel
+   *  ortalamadan türetilir, ortalama değişmez. */
+  @Field(() => Float, { nullable: true }) @IsOptional() @IsNumber() @Min(0.001) biomassKg?: number;
   @Field({ nullable: true }) @IsOptional() @IsString() notes?: string;
 }
 
@@ -93,6 +97,10 @@ export class RecordCullInput extends MobileCommandEnvelopeInput {
   @Field({ nullable: true }) @IsOptional() @IsString() detail?: string;
   @Field({ defaultValue: () => new Date() }) @IsOptional() culledAt!: Date;
   @Field(() => Float, { nullable: true }) @IsOptional() @IsNumber() @Min(0) avgWeightG?: number;
+  /** D-3 mod (b): tane + kg birlikte — verilen kg AYNEN düşer, kalanın
+   *  ortalaması kayar (büyük balık kaybı). Boşsa mod (a): kg güncel
+   *  ortalamadan türetilir, ortalama değişmez. */
+  @Field(() => Float, { nullable: true }) @IsOptional() @IsNumber() @Min(0.001) biomassKg?: number;
   @Field({ nullable: true }) @IsOptional() @IsString() notes?: string;
 }
 
@@ -118,6 +126,10 @@ export class TransferBatchInput extends MobileCommandEnvelopeInput {
   @Field(() => ID) @IsNotEmpty() @IsUUID() destinationTankId!: string;
   @Field(() => Int) @IsNotEmpty() @IsInt() @Min(1) quantity!: number;
   @Field(() => Float, { nullable: true }) @IsOptional() @IsNumber() @Min(0) avgWeightG?: number;
+  /** D-3 mod (b): tane + kg birlikte — verilen kg AYNEN düşer, kalanın
+   *  ortalaması kayar (büyük balık kaybı). Boşsa mod (a): kg güncel
+   *  ortalamadan türetilir, ortalama değişmez. */
+  @Field(() => Float, { nullable: true }) @IsOptional() @IsNumber() @Min(0.001) biomassKg?: number;
   @Field({ nullable: true }) @IsOptional() transferredAt?: Date;
   @Field({ nullable: true }) @IsOptional() @IsString() transferReason?: string;
   @Field({ nullable: true }) @IsOptional() @IsString() notes?: string;
@@ -226,12 +238,12 @@ export class BatchPerformanceResponse {
   @Field(() => Float) targetDailyGrowthG!: number;
   @Field(() => Float) growthVariancePercent!: number;
   @Field(() => Float) totalFeedConsumedKg!: number;
-  @Field(() => Float) totalFeedCost!: number;
+  @Field(() => Float, { deprecationReason: 'Use totalFeedCostDecimal (exact decimal string, ADR-0004).' }) totalFeedCost!: number;
   @Field(() => Float) avgDailyFeedKg!: number;
-  @Field(() => Float) purchaseCost!: number;
-  @Field(() => Float) totalCost!: number;
-  @Field(() => Float) costPerKg!: number;
-  @Field(() => Float) costPerFish!: number;
+  @Field(() => Float, { deprecationReason: 'Use purchaseCostDecimal (exact decimal string, ADR-0004).' }) purchaseCost!: number;
+  @Field(() => Float, { deprecationReason: 'Use totalCostDecimal (exact decimal string, ADR-0004).' }) totalCost!: number;
+  @Field(() => Float, { deprecationReason: 'Use costPerKgDecimal (exact decimal string, ADR-0004).' }) costPerKg!: number;
+  @Field(() => Float, { deprecationReason: 'Use costPerFishDecimal (exact decimal string, ADR-0004).' }) costPerFish!: number;
   @Field({ nullable: true }) projectedHarvestDate?: Date;
   @Field(() => Float, { nullable: true }) projectedHarvestWeightG?: number;
   @Field(() => Int, { nullable: true }) daysToHarvest?: number;

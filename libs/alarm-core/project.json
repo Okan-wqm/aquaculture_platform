@@ -1,0 +1,29 @@
+{
+  "name": "alarm-core",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/alarm-core/src",
+  "projectType": "library",
+  "tags": ["scope:platform", "type:lib"],
+  "targets": {
+    "build-wasm": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": [
+        "{workspaceRoot}/crates/alarm-core/src/**/*.rs",
+        "{workspaceRoot}/crates/alarm-core-wasm/src/**/*.rs",
+        "{workspaceRoot}/crates/alarm-core-wasm/Cargo.toml",
+        "{workspaceRoot}/crates/alarm-core-wasm/Cargo.lock"
+      ],
+      "outputs": ["{projectRoot}/src/generated"],
+      "options": {
+        "command": "bash libs/alarm-core/scripts/build-wasm.sh"
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": { "jestConfig": "libs/alarm-core/jest.config.ts" }
+    },
+    "lint": { "executor": "@nx/eslint:lint" }
+  }
+}

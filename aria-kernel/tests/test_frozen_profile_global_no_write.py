@@ -212,11 +212,15 @@ class ObservePermissionRegressionTests(unittest.TestCase):
 
 
 class SurfaceCountInvariantTests(unittest.TestCase):
-    def test_plan_020_write_surfaces_extended_to_40(self) -> None:
+    def test_plan_020_write_surfaces_extended_to_42(self) -> None:
         # Original Plan 020 set had 14 surfaces; §A.4 adds 8 legacy
         # mutators, and enterprise autonomy hardening adds the lifecycle,
-        # dispatch, registry, promotion, and CI surfaces. Total = 40.
-        self.assertEqual(len(PLAN_020_WRITE_SURFACES), 40)
+        # dispatch, registry, promotion, and CI surfaces (total 40).
+        # E21-a adds `experiment_bench`, the experiment bench's own write
+        # surface, so a frozen profile can stop the bench without also
+        # freezing the validation matrix it runs through. Total = 41.
+        self.assertEqual(len(PLAN_020_WRITE_SURFACES), 42)
+        self.assertIn("experiment_bench", PLAN_020_WRITE_SURFACES)
         for new_surface in (
             "finding", "debt", "governance", "observation",
             "agent_genesis", "tool_governance",

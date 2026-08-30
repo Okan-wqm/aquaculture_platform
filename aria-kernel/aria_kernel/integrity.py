@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .ledger import LedgerIntegrityError, file_hash, load_jsonl, load_index, verify_jsonl
+from .ledger import LedgerIntegrityError, file_hash, load_jsonl, load_index, tools_index_group_ledgers, verify_jsonl
 from .runtime_artifacts import verify_runtime_artifacts
 from .tool_registry import covered_tool_ledgers, ensure_tools_dir, tools_contract_version, tools_dir
 from .workspace import ensure_workspace, workspace_contract_version, workspace_paths, repo_hash
@@ -44,6 +44,23 @@ def verify_integrity(
         "cycle_lifecycle": lifecycle,
         "runtime_artifacts": artifact_integrity,
     }
+
+
+def cycle_lifecycle_status(base_dir: str | Path | None = None) -> dict[str, Any]:
+    """ORPHAN-HIGH-424 — public reader for the started-without-terminal set.
+
+    ``verify_integrity`` has always computed this, but the number was
+    reachable only by running the whole verifier. ``cycle.py`` therefore
+    reported a literal ``0`` for ``incomplete_lifecycle_count``, and
+    ``runtime_artifacts.autonomy_output_summary`` summed that zero across
+    cycles — so an abandoned cycle was invisible in every operator-facing
+    summary while the verifier could see it.
+
+    Returns ``{"valid", "incomplete_count", "incomplete_cycles"}``; a
+    ``ledger_integrity_error`` key is present when ``cycles.jsonl``
+    could not be read, in which case ``valid`` is False.
+    """
+    return _verify_cycle_lifecycle(_integrity_tools_root(base_dir))
 
 
 def _verify_cycle_lifecycle(root: Path) -> dict[str, Any]:
@@ -102,7 +119,35 @@ def _integrity_tools_root(base_dir: str | Path | None) -> Path:
 
 def _verify_workspace(repo_root: Path, workspace_base: Path | None, tools_root: Path) -> dict[str, Any]:
     paths = workspace_paths(repo_root, workspace_base)
-    if not paths.identity_file.exists() and not any(path.exists() and path.stat().st_size for path in paths.ledgers.values()):
+    if not paths.identity_file.exists():
+        # BOOTSTRAP ON A MISSING IDENTITY, whatever the ledgers hold.
+        #
+        # The `and not any(ledger)` half was correct while the identity and the
+        # ledgers were always born together on one machine: a workspace with
+        # rows but no identity could only be a half-migrated v1 tree, and
+        # bootstrapping over it would have hidden that.
+        #
+        # The lane cutover made that conjunction false. The workspace ledgers
+        # now travel on the `aria/state` branch; the identity does not, and
+        # must not — it records this HOST's repo_root, and the branch is shared
+        # by every runner. So the ordinary shape of a restored workspace is
+        # exactly "rows present, identity absent", and the old condition
+        # skipped the bootstrap, left `workspace_contract_version` reading a
+        # file that was not there, and reported `workspace_migration_required`
+        # on a healthy tree. Both lanes gate publication on
+        # `state_valid == 'true'`, so a restored store did its night's work and
+        # was then refused permission to persist it.
+        #
+        # Bootstrapping unconditionally is safe because the workspace PATH
+        # already carries the binding: `workspace_paths` keys the directory by
+        # the repository hash, so a workspace at `<base>/<hash>` cannot belong
+        # to another repository. `ensure_workspace` still refuses an identity
+        # that disagrees; what changes is that an ABSENT one is re-derived
+        # rather than read as damage.
+        #
+        # This is the same defect the tools root had (`ambiguous_tools_root`,
+        # fixed by binding in the restore action) — one root got its fix and
+        # its sibling did not.
         ensure_workspace(paths)
     issues: list[dict[str, Any]] = []
     ledgers = []
@@ -146,7 +191,12 @@ def _verify_tools(root: Path, repo_root: Path | None) -> dict[str, Any]:
         if result.get("valid") is not True:
             issues.append({"code": "tools_ledger_invalid", "ledger": name, "details": result})
     if not legacy_read_only:
-        issues.extend(_index_issues(root / "integrity_index.json", covered_tool_ledgers(root), "tools"))
+        # Index staleness is checked against the index's OWN membership
+        # (the set the grouped refresh maintains), while the chain loop
+        # above verifies EVERY declared ledger surface. Comparing the
+        # wider covered set here would demand entries the refresh
+        # replaces away on each append (ORPHAN-HIGH-525).
+        issues.extend(_index_issues(root / "integrity_index.json", tools_index_group_ledgers(root), "tools"))
     return {"index_path": (root / "integrity_index.json").as_posix(), "ledgers": ledgers, "issues": issues}
 
 

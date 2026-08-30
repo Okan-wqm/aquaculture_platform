@@ -37,12 +37,27 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import { migrationCorpus } from './lib/migration-corpus';
+
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
 const ENTITY_PATH = 'libs/backend-common/src/audit/access-log.entity.ts';
 const SERVICE_PATH = 'libs/backend-common/src/audit/access-log.service.ts';
-const MIGRATION_PATH =
-  'apps/admin-api-service/src/migrations/1788400000000-CreateSharedAccessLogs.ts';
+/**
+ * The DB layer is the migration set admin-api-service ACTUALLY APPLIES, not a
+ * named file.
+ *
+ * This spec used to read
+ * `apps/admin-api-service/src/migrations/1788400000000-CreateSharedAccessLogs.ts`
+ * directly. The 2026-05-18 squash moved that file to `.archive/`, where no
+ * migration runs, so the suite stopped even LOADING — an ENOENT naming a file,
+ * where the truth was that `shared.access_logs` had stopped being created while
+ * the entity, the DTO, the middleware, `protected-tables.ts` and the RLS
+ * infrastructure ledger all still declared it (ORPHAN-CRITICAL-516). Reading the
+ * corpus means the next squash re-expresses the DDL without breaking this, and
+ * a squash that DROPS it fails here instead of hiding.
+ */
+const MIGRATION_SOURCE = (): string => migrationCorpus('admin-api-service').source;
 const MIDDLEWARE_PATH =
   'libs/backend-common/src/middleware/access-log.middleware.ts';
 
@@ -142,7 +157,7 @@ describe('access-log stream coherence (AUDITTRAIL-HIGH-004)', () => {
   });
 
   describe('CreateSharedAccessLogs migration', () => {
-    const src = read(MIGRATION_PATH);
+    const src = MIGRATION_SOURCE();
 
     it.each(MANDATORY_FIELDS.filter((f) => f !== 'createdAt'))(
       'CREATE TABLE includes "%s" column',
@@ -156,8 +171,17 @@ describe('access-log stream coherence (AUDITTRAIL-HIGH-004)', () => {
       expect(src).toMatch(/"createdAt"\s+timestamptz\s+NOT NULL\s+DEFAULT\s+now\(\)/);
     });
 
-    it('uses transaction:none and CONCURRENTLY for indexes', () => {
-      expect(src).toMatch(/transaction:\s*'none'\s*=\s*'none'/);
+    it('runs outside a transaction, because CONCURRENTLY cannot run inside one', () => {
+      // THE PROPERTY, NOT ONE SPELLING OF IT. This asserted
+      // `transaction: 'none' = 'none'` — a form TypeORM accepts and this
+      // repository uses ZERO times; the canonical spelling here is
+      // `transaction = false`, used by all nine non-transactional migrations
+      // including the one this spec was written for. So the assertion could
+      // never have passed against any migration the repo has ever contained,
+      // which is presumably why the spec was parked as dormant rather than
+      // fixed. Both spellings disable the wrapping transaction, so both satisfy
+      // the requirement that CREATE INDEX CONCURRENTLY has.
+      expect(src).toMatch(/transaction\s*(?:=\s*false|:\s*'none'\s*=\s*'none')/);
       expect(src).toMatch(/CREATE\s+INDEX\s+CONCURRENTLY/);
     });
 

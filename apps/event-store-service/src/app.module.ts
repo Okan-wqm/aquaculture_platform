@@ -7,6 +7,13 @@ import {
 } from '@aquaculture/backend-common/database';
 import { LoggingModule } from '@aquaculture/backend-common/logging';
 import { ServiceMetricsModule } from '@aquaculture/backend-common/metrics';
+// DB-INFRA-HIGH-003: event-backbone participation to be a GDPR erasure target.
+import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
+import { TenantErasureTargetModule } from '@aquaculture/backend-common/compliance';
+import { EventBusModule, buildEventBusConfig } from '@platform/event-bus';
+import { EventStoreOutboxModule } from './outbox/event-store-outbox.module';
+import { CryptoShredModule } from './crypto-shred/crypto-shred.module';
+import { StoredEventsCryptoShredHook } from './crypto-shred/stored-events-crypto-shred.hook';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
@@ -14,6 +21,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { EventStoreModule } from './event-store/event-store.module';
+import { FindingRegistryModule } from './finding-registry/finding-registry.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { EventStoreServiceIdentityGuard } from './guards/event-store-service-identity.guard';
 import { HealthModule } from './health/health.module';
@@ -57,7 +65,40 @@ const EventStoreSchemaVersionGate = createSchemaVersionGate('event_store');
     }),
     // Schedule module — single forRoot() for the entire service
     ScheduleModule.forRoot(),
+
+    // DB-INFRA-HIGH-003: event-backbone participation, solely for GDPR erasure.
+    // The TenantErasureTargetModule handler subscribes to TenantErasureRequested
+    // and deletes the tenant-column projection tables (event_streams, snapshots,
+    // projection_*); stored_events is excluded (awaits crypto-shred).
+    RedisModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) =>
+        buildRedisOptions(configService, 'event-store', 'optional'),
+    }),
+    EventBusModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: buildEventBusConfig,
+    }),
+    EventStoreOutboxModule,
+    // Crypto-shred rollout step 2 (design doc): stored_events cannot be
+    // row-deleted (immutable log, registry excludedTables), so its GDPR
+    // treatment is the post-erasure hook below — TenantErasureRequested
+    // execution crypto-shreds the tenant's payload key inside the same
+    // fail-closed erasure flow (a shred failure emits TenantDataErasureFailed,
+    // never a success proof).
+    TenantErasureTargetModule.forService('event-store-service', {
+      imports: [CryptoShredModule],
+      postErasureHooks: [StoredEventsCryptoShredHook],
+    }),
+    // DB-INFRA-HIGH-003 Part B: per-tenant payload crypto-shred core (key store +
+    // service + erasure hook). The append/read-path wiring (rollout steps 3-4)
+    // is gated on the security review (design doc).
+    CryptoShredModule,
+
     EventStoreModule,
+    FindingRegistryModule,
     ProjectionsModule,
     HealthModule,
     // OBS-HIGH-001: Prometheus GET /metrics scrape endpoint + HTTP metrics

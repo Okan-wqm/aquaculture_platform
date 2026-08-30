@@ -234,6 +234,14 @@ export class Feed {
   @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, transformer: new DecimalTransformer() })
   minStock!: number;
 
+  /**
+   * Tedarik süresi (gün) — forecast geçiş-kapsama boşluğu girdisi (K-17).
+   * Nullable: set edilmemişse servis katmanı BELGELİ default 7 uygular ve
+   * çıktıda kaynağı işaretler (sessiz DB default'u yok).
+   */
+  @Column({ type: 'int', nullable: true })
+  procurementLeadTimeDays?: number;
+
   @Column({ length: 20, default: 'kg' })
   unit!: string;
 

@@ -44,6 +44,7 @@ import { RecordCullHandler } from '../../batch/handlers/record-cull.handler';
 import { RecordMortalityHandler } from '../../batch/handlers/record-mortality.handler';
 import { BatchService } from '../../batch/services/batch.service';
 import { MortalityCullPolicyService } from '../../batch/services/mortality-cull-policy.service';
+import { RemovalQuantityPolicyService } from '../../batch/services/removal-quantity-policy.service';
 import {
   Department,
   DepartmentStatus,
@@ -238,6 +239,10 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
     // specs cover them) while the policy guards run for real against the DB rows.
     const auditLogService = { logWithManager: jest.fn().mockResolvedValue(undefined) };
     const mortalityCullPolicy = new MortalityCullPolicyService();
+    // Gün-içi recalc (P-31) mock — bu e2e tenant-izolasyon davranışına odaklı;
+    // giriş modu politikası (D-3) gerçek (saf servis).
+    const dayPlanRecalc = { recalcForUnit: jest.fn().mockResolvedValue(null) };
+    const removalQuantityPolicy = new RemovalQuantityPolicyService();
     const farmStockProjection = { refreshContainers: jest.fn().mockResolvedValue(undefined) };
     const mobileCommandReceipts = {
       // A non-legacy 'started' receipt lets the stock-mutating handler proceed
@@ -255,6 +260,8 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       tankRepository,
       equipmentTypeRepository,
       outboxPublisher,
+      dayPlanRecalc as never,
+      removalQuantityPolicy,
       backdatePolicy as never,
       auditLogService as never,
       // SEC-HIGH-051: the real fail-closed SSoT; commands below pass
@@ -272,6 +279,8 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       tankBatchRepository,
       equipmentRepository,
       outboxPublisher,
+      dayPlanRecalc as never,
+      removalQuantityPolicy,
       auditLogService as never,
       new SiteAuthorizationService(),
       { applyBatchDelta: jest.fn().mockResolvedValue({}) } as never,
@@ -286,6 +295,7 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
     createHarvest = new CreateHarvestRecordHandler(
       dataSource,
       outboxPublisher,
+      dayPlanRecalc as never,
       commandBus as never,
       harvestEligibility as never,
       backdatePolicy as never,

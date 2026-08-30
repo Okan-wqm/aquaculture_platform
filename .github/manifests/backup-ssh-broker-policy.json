@@ -1,0 +1,67 @@
+{
+  "$schema": "aqua/backup-ssh-broker-policy/v1",
+  "schema_version": 1,
+  "finding_ids": ["INFRA-CRITICAL-044"],
+  "environment": "production-backup",
+  "release": {
+    "workflow": ".github/workflows/backup-ssh-broker-release.yml",
+    "event": "push",
+    "ref": "refs/heads/main",
+    "signing_environment": "production-backup-release",
+    "signing_environment_protection": {
+      "can_admins_bypass": false,
+      "prevent_self_review": true,
+      "minimum_reviewers": 2,
+      "deployment_branch": "main"
+    },
+    "required_checks_manifest": ".github/manifests/main-required-status-checks.json",
+    "provenance_predicate_type": "aqua.protected-ssh-broker-build/v1",
+    "authority_predicate_type": "aqua.protected-ssh-broker-release-authority/v1"
+  },
+  "broker": {
+    "source": "tools/backup-ssh-broker/main.rs",
+    "build_script": "tools/scripts/ci/build-protected-ssh-broker.sh",
+    "install_path": "/usr/local/sbin/aqua-protected-ssh-broker",
+    "attestation_protocol": "aqua-protected-ssh-attestation-v1",
+    "source_sha256": "521254074489c5d70df3b6ee054a4de3b4c534530e4e0575c06245758855735e"
+  },
+  "shared_secrets": ["DROPLET_HOST", "DROPLET_SSH_FINGERPRINT"],
+  "operations": [
+    {
+      "operation": "backup",
+      "account": "aqua-backup",
+      "forced_command": "aqua-backup-v1",
+      "private_key_secret": "BACKUP_BROKER_SSH_KEY",
+      "public_key_fingerprint_variable": "BACKUP_BROKER_SSH_KEY_FINGERPRINT"
+    },
+    {
+      "operation": "pitr",
+      "account": "aqua-pitr",
+      "forced_command": "aqua-pitr-v1",
+      "private_key_secret": "PITR_BROKER_SSH_KEY",
+      "public_key_fingerprint_variable": "PITR_BROKER_SSH_KEY_FINGERPRINT"
+    },
+    {
+      "operation": "archive-freshness",
+      "account": "aqua-wal-freshness",
+      "forced_command": "aqua-wal-freshness-v1",
+      "private_key_secret": "WAL_FRESHNESS_BROKER_SSH_KEY",
+      "public_key_fingerprint_variable": "WAL_FRESHNESS_BROKER_SSH_KEY_FINGERPRINT"
+    }
+  ],
+  "cutover": {
+    "enabled": false,
+    "legacy_environment_secrets": ["DROPLET_USER", "DROPLET_SSH_KEY"],
+    "required_before_enable": [
+      "signed broker release from protected main",
+      "main-only signing environment with administrator bypass disabled, self-review prevention, and at least two eligible reviewers",
+      "signed release authority proving every required check succeeded on the exact merged pull request head SHA no later than its merge timestamp",
+      "signed executable policy materials byte-identical to current protected main",
+      "root-owned target installation",
+      "three operation-specific public keys with pairwise-distinct fingerprints",
+      "three successful diagonal attestations",
+      "complete off-diagonal, arbitrary-command, interactive, PTY, subsystem, and forwarding denial matrix",
+      "attestation evidence bound to the immutable release run, artifact digest, main SHA, host key, and operation key"
+    ]
+  }
+}

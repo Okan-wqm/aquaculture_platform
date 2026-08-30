@@ -1,14 +1,16 @@
 /**
  * AlarmEngineService
  *
- * Server-side alarm evaluation loop (FUXA pattern).
+ * Server-side alarm evaluation loop (FUXA pattern), multi-tenant (RT-011).
  *
  * Architecture
  * ─────────────
- * • 1-second evaluation tick (setInterval).
- * • For each enabled AlarmRuleRuntime: read tag value from TagManagerService,
- *   apply bitmask if configured, compare against threshold.
- * • 4-state machine per rule:
+ * • ONE 1-second evaluation tick (setInterval) drives EVERY active tenant.
+ * • Per-tenant state lives in `tenants: Map<tenantId, TenantAlarmState>`; a
+ *   tenant is ACTIVE iff it has an entry. The loop iterates each active tenant
+ *   and, for each of its enabled AlarmRuleRuntime, reads the tenant-qualified
+ *   tag value from TagManagerService, applies bitmask, compares to threshold.
+ * • 4-state machine per rule (per tenant):
  *     INACTIVE → ACTIVE (condition true for ≥ timeDelay seconds)
  *              → CLEARED (condition false + outside deadband)
  *              → ACKNOWLEDGED (operator acked)
@@ -19,12 +21,21 @@
  *     ackPassive — can only ack when CLEARED
  * • Alarm actions executed on ACTIVE transition:
  *     toastMessage, popup, setView → pushed as pendingActions via gateway
- *     setValue → written to TagManagerService
+ *     setValue → written to TagManagerService (under the owning tenant)
  *     runScript → TODO stub (emits internal event for script engine)
- * • AlarmStatusSummary pushed to all tenant clients via gateway every tick.
- * • Alarm rules are loaded from the store via setAlarmRules() called
- *   externally (e.g., from a project-load event); this service does not
+ * • AlarmStatusSummary pushed to each tenant's clients via the gateway every
+ *   tick, scoped to that tenant's room.
+ * • Rules/configs are injected per tenant via setAlarmRules(tenantId, …) /
+ *   setNotificationConfigs(tenantId, …); the activation bridge that calls them
+ *   is owned elsewhere (project-load / package-publish). This service does not
  *   own the rule definitions.
+ *
+ * Tenant isolation (DB-SENSOR-CRITICAL-001, RT-011)
+ * ─────────────────────────────────────────────────
+ * There is no shared/default bucket: every read, persist, and broadcast is
+ * keyed by the tenant that owns the rule being evaluated. A tenant with no
+ * entry is simply not evaluated — cross-tenant alarm state is structurally
+ * impossible rather than defended against at each call site.
  *
  * Separation of concerns
  * ──────────────────────
@@ -35,7 +46,15 @@
  */
 
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import { randomUUID } from 'crypto';
+
+import {
+  SCADA_ALARM_ACK_EVENT,
+  SCADA_ALARM_ACK_ALL_EVENT,
+  type AlarmAckRequest,
+  type AlarmAckAllRequest,
+} from './alarm-ack.events';
 
 import type {
   AlarmRuleRuntime,
@@ -46,9 +65,16 @@ import type {
   NotificationConfig,
 } from '../scada-types';
 
+import {
+  evaluateCondition as coreEvaluateCondition,
+  isOutsideDeadband as coreIsOutsideDeadband,
+  delayElapsed as coreDelayElapsed,
+} from '@platform/alarm-core';
+
 import { ScadaRuntimeGateway } from '../scada-runtime.gateway';
 import { TagManagerService } from './tag-manager.service';
 import { AlarmStorageService } from './alarm-storage.service';
+import type { ScadaAlarmWriteBatch } from './alarm-storage.service';
 import { NotificationService } from './notification.service';
 import type { ScadaAlarm, ScadaAlarmChronicle } from '../entities/alarm.entity';
 
@@ -66,6 +92,39 @@ interface RuleEvalState {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Per-tenant evaluation state                                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A tenant's coalesced persistence buffer. Per tick the engine accumulates
+ * write-intents here (upserts deduped by id, chronicle appends, deletes); the
+ * whole buffer is flushed in ONE tenant-context transaction (RT-011 Faz 2), so
+ * the 1 Hz loop never opens a per-write transaction storm. `flushInFlight`
+ * guards against overlapping flushes for the same tenant — the buffer keeps
+ * accumulating and the in-flight flush re-drains it on completion.
+ */
+interface TenantWriteBuffer {
+  upserts: Map<string, ScadaAlarm>;
+  chronicles: ScadaAlarmChronicle[];
+  deleteIds: Set<string>;
+  flushInFlight: boolean;
+}
+
+/** All in-memory alarm evaluation state owned by one active tenant. */
+interface TenantAlarmState {
+  /** Alarm rules loaded for this tenant. */
+  rules: AlarmRuleRuntime[];
+  /** Notification configs loaded for this tenant. */
+  notificationConfigs: NotificationConfig[];
+  /** ruleId → per-rule evaluation state. */
+  evalState: Map<string, RuleEvalState>;
+  /** Action commands queued for this tenant's next status push. */
+  pendingActions: AlarmActionCommand[];
+  /** Coalesced persistence buffer flushed once per tick (tenant-context tx). */
+  pending: TenantWriteBuffer;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Constants                                                           */
 /* ------------------------------------------------------------------ */
 
@@ -79,22 +138,16 @@ const EVAL_INTERVAL_MS = 1_000;
 export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AlarmEngineService.name);
 
-  /** Alarm rules loaded from the project. */
-  private rules: AlarmRuleRuntime[] = [];
-
-  /** Notification configs loaded from the project. */
-  private notificationConfigs: NotificationConfig[] = [];
-
-  /** Per-rule evaluation state. */
-  private readonly evalState = new Map<string, RuleEvalState>();
-
-  /** Tenant ID used for gateway broadcasts. */
-  private tenantId: string = 'default';
+  /**
+   * Per-tenant evaluation state. A tenant is ACTIVE iff it has an entry here.
+   * The single 1 Hz loop iterates every active tenant; an empty map means the
+   * engine evaluates for no one — there is no default/shared bucket any tenant
+   * could collide in, so cross-tenant alarm state is structurally impossible
+   * (DB-SENSOR-CRITICAL-001 preserved by construction).
+   */
+  private readonly tenants = new Map<string, TenantAlarmState>();
 
   private evalInterval: ReturnType<typeof setInterval> | null = null;
-
-  /** Pending action commands to attach to the next alarm status push. */
-  private pendingActions: AlarmActionCommand[] = [];
 
   constructor(
     private readonly tagManager: TagManagerService,
@@ -136,30 +189,116 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
   }
 
   /* ---------------------------------------------------------------- */
-  /*  Configuration injection                                           */
+  /*  Configuration injection (per tenant)                              */
   /* ---------------------------------------------------------------- */
 
-  /** Called by the project-load handler to inject alarm rules. */
-  setAlarmRules(rules: AlarmRuleRuntime[]): void {
-    this.rules = rules;
+  /** Get-or-create the evaluation-state bucket for a tenant. */
+  private getOrCreateTenant(tenantId: string): TenantAlarmState {
+    if (typeof tenantId !== 'string' || tenantId.trim().length === 0) {
+      throw new Error('AlarmEngineService: a non-empty tenantId is required');
+    }
+    let state = this.tenants.get(tenantId);
+    if (!state) {
+      state = {
+        rules: [],
+        notificationConfigs: [],
+        evalState: new Map(),
+        pendingActions: [],
+        pending: {
+          upserts: new Map(),
+          chronicles: [],
+          deleteIds: new Set(),
+          flushInFlight: false,
+        },
+      };
+      this.tenants.set(tenantId, state);
+    }
+    return state;
+  }
+
+  /** Inject a tenant's alarm rules (activates the tenant if not already active). */
+  setAlarmRules(tenantId: string, rules: AlarmRuleRuntime[]): void {
+    const state = this.getOrCreateTenant(tenantId);
+    state.rules = rules;
     // Remove stale eval state for rules that no longer exist
     const ruleIds = new Set(rules.map((r) => r.id));
-    for (const [id] of this.evalState) {
+    for (const [id] of state.evalState) {
       if (!ruleIds.has(id)) {
-        this.evalState.delete(id);
+        state.evalState.delete(id);
       }
     }
-    this.logger.log(`AlarmEngineService: loaded ${rules.length} alarm rule(s)`);
+    this.logger.log(`AlarmEngineService: tenant=${tenantId} loaded ${rules.length} alarm rule(s)`);
   }
 
-  /** Called by the project-load handler to inject notification configs. */
-  setNotificationConfigs(configs: NotificationConfig[]): void {
-    this.notificationConfigs = configs;
+  /** Inject a tenant's notification configs. */
+  setNotificationConfigs(tenantId: string, configs: NotificationConfig[]): void {
+    this.getOrCreateTenant(tenantId).notificationConfigs = configs;
   }
 
-  /** Set tenant context for gateway broadcasts. */
-  setTenantId(tenantId: string): void {
-    this.tenantId = tenantId;
+  /** Deactivate a tenant: stop evaluating it and drop all its in-memory state. */
+  deactivateTenant(tenantId: string): void {
+    if (this.tenants.delete(tenantId)) {
+      this.logger.log(`AlarmEngineService: tenant=${tenantId} deactivated`);
+    }
+  }
+
+  /** True if the tenant currently has active evaluation state. */
+  isTenantActive(tenantId: string): boolean {
+    return this.tenants.has(tenantId);
+  }
+
+  /* ---------------------------------------------------------------- */
+  /*  Coalesced persistence buffer (RT-011 Faz 2)                       */
+  /* ---------------------------------------------------------------- */
+
+  /** Queue an active-alarm upsert (deduped by id; supersedes a pending delete). */
+  private bufferUpsert(state: TenantAlarmState, alarm: AlarmInstance): void {
+    state.pending.deleteIds.delete(alarm.id);
+    state.pending.upserts.set(alarm.id, this.instanceToEntity(alarm));
+  }
+
+  /** Queue a resolve: append to chronicle + delete from the active table. */
+  private bufferResolve(state: TenantAlarmState, alarm: AlarmInstance): void {
+    state.pending.upserts.delete(alarm.id);
+    state.pending.chronicles.push(this.instanceToChronicle(alarm));
+    state.pending.deleteIds.add(alarm.id);
+  }
+
+  /**
+   * Flush a tenant's buffered writes in ONE tenant-context transaction, unless
+   * one is already in flight. Returns the flush promise: the 1 Hz tick calls it
+   * fire-and-forget (`void`) so it never blocks on DB latency, while the
+   * low-frequency ACK path `await`s it for durable acknowledgement. The
+   * per-tenant in-flight guard bounds concurrency to one flush per tenant and
+   * re-drains anything buffered while a flush was running.
+   */
+  private scheduleFlush(tenantId: string, state: TenantAlarmState): Promise<void> {
+    const p = state.pending;
+    if (p.flushInFlight) return Promise.resolve();
+    if (p.upserts.size === 0 && p.chronicles.length === 0 && p.deleteIds.size === 0) {
+      return Promise.resolve();
+    }
+
+    const batch: ScadaAlarmWriteBatch = {
+      upserts: [...p.upserts.values()],
+      chronicles: [...p.chronicles],
+      deleteIds: [...p.deleteIds],
+    };
+    p.upserts.clear();
+    p.chronicles = [];
+    p.deleteIds.clear();
+    p.flushInFlight = true;
+
+    return this.storage
+      .flushTenantBatch(tenantId, batch)
+      .catch((err: Error) => {
+        this.logger.error(`flushTenantBatch failed tenant=${tenantId} — ${err.message}`);
+      })
+      .finally(() => {
+        p.flushInFlight = false;
+        // Drain anything buffered while this flush was running (fire-and-forget).
+        void this.scheduleFlush(tenantId, state);
+      });
   }
 
   /* ---------------------------------------------------------------- */
@@ -169,23 +308,33 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
   private evaluateTick(): void {
     const now = Date.now();
 
-    for (const rule of this.rules) {
-      if (!rule.enabled) continue;
-      this.evaluateRule(rule, now);
+    // One loop drives every active tenant. No tenants ⇒ no work — the engine
+    // evaluates for no one rather than defaulting to a shared bucket.
+    for (const [tenantId, state] of this.tenants) {
+      for (const rule of state.rules) {
+        if (!rule.enabled) continue;
+        this.evaluateRule(tenantId, state, rule, now);
+      }
+      // Push status summary to this tenant's clients only.
+      this.pushStatusSummary(tenantId, state);
+      // Flush this tenant's coalesced writes in one tenant-context transaction
+      // (fire-and-forget — the tick must not block on DB latency).
+      void this.scheduleFlush(tenantId, state);
     }
-
-    // Push status summary to all clients
-    this.pushStatusSummary();
   }
 
-  private evaluateRule(rule: AlarmRuleRuntime, now: number): void {
-    // Get tag value from cache
-    const tagChange = this.tagManager.getTagValue(rule.tagId);
+  private evaluateRule(
+    tenantId: string,
+    state: TenantAlarmState,
+    rule: AlarmRuleRuntime,
+    now: number,
+  ): void {
+    // Get tag value from the tenant-qualified cache
+    const tagChange = this.tagManager.getTagValue(tenantId, rule.tagId);
     if (!tagChange) return; // no data yet
 
-    let rawValue = typeof tagChange.value === 'number'
-      ? tagChange.value
-      : parseFloat(String(tagChange.value));
+    let rawValue =
+      typeof tagChange.value === 'number' ? tagChange.value : parseFloat(String(tagChange.value));
 
     if (isNaN(rawValue)) return;
 
@@ -198,55 +347,56 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
     const conditionMet = this.evaluateCondition(rawValue, rule.condition, rule.threshold);
 
     // Ensure eval state exists
-    let state = this.evalState.get(rule.id);
-    if (!state) {
-      state = { conditionTrueAt: null, alarm: null, actionsExecuted: false };
-      this.evalState.set(rule.id, state);
+    let ruleState = state.evalState.get(rule.id);
+    if (!ruleState) {
+      ruleState = { conditionTrueAt: null, alarm: null, actionsExecuted: false };
+      state.evalState.set(rule.id, ruleState);
     }
 
-    const currentAlarm = state.alarm;
+    const currentAlarm = ruleState.alarm;
 
     if (conditionMet) {
       if (currentAlarm == null || currentAlarm.status === 'inactive') {
         // Condition just became true — start delay timer
-        if (state.conditionTrueAt == null) {
-          state.conditionTrueAt = now;
+        if (ruleState.conditionTrueAt == null) {
+          ruleState.conditionTrueAt = now;
         }
 
-        const delay = (rule.timeDelay ?? 0) * 1000;
-        const elapsed = now - state.conditionTrueAt;
+        const delayMs = (rule.timeDelay ?? 0) * 1000;
+        const elapsedMs = now - ruleState.conditionTrueAt;
 
-        if (elapsed >= delay) {
+        // Shared alarm-core kernel: `elapsedMs >= delayMs` (ms precision).
+        if (coreDelayElapsed(elapsedMs, delayMs)) {
           // Delay satisfied — activate alarm
-          this.activateAlarm(rule, rawValue, now, state);
+          this.activateAlarm(tenantId, state, rule, rawValue, now, ruleState);
         }
-      } else if (
-        currentAlarm.status === 'cleared' ||
-        currentAlarm.status === 'acknowledged'
-      ) {
+      } else if (currentAlarm.status === 'cleared' || currentAlarm.status === 'acknowledged') {
         // Re-activation: condition became true again
-        this.reactivateAlarm(currentAlarm, rawValue, now, state);
+        this.reactivateAlarm(tenantId, state, currentAlarm, rawValue, ruleState);
       }
-      // else: already ACTIVE — update current value
+      // else: already ACTIVE — update the in-memory current value ONLY. The DB
+      // record tracks alarm LIFECYCLE (activate/clear/ack/resolve), not per-tick
+      // value drift — the live value reaches the HMI over the WS fan-out, so
+      // re-persisting an unchanged active alarm every second is pure write
+      // amplification (RT-011 Faz 2: dirty-check → persist on transitions only).
       else if (currentAlarm.status === 'active') {
         currentAlarm.currentValue = rawValue;
-        void this.storage.saveAlarm(this.instanceToEntity(currentAlarm)).catch(() => undefined);
       }
     } else {
       // Condition not met — reset delay timer
-      state.conditionTrueAt = null;
+      ruleState.conditionTrueAt = null;
 
       if (currentAlarm == null) return;
 
       if (currentAlarm.status === 'active' || currentAlarm.status === 'acknowledged') {
         // Check deadband: must leave [threshold ± deadband] before clearing
         if (this.isOutsideDeadband(rawValue, rule)) {
-          this.clearAlarm(currentAlarm, rawValue, now, rule, state);
+          this.clearAlarm(tenantId, state, currentAlarm, rawValue, now, rule, ruleState);
         }
       } else if (currentAlarm.status === 'cleared') {
         // Auto-resolve float alarms with no ack required
         if (rule.ackMode === 'float') {
-          this.resolveAlarm(currentAlarm, state);
+          this.resolveAlarm(tenantId, state, currentAlarm, ruleState);
         }
       }
     }
@@ -257,10 +407,12 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
   /* ---------------------------------------------------------------- */
 
   private activateAlarm(
+    tenantId: string,
+    state: TenantAlarmState,
     rule: AlarmRuleRuntime,
     value: number,
     now: number,
-    state: RuleEvalState,
+    ruleState: RuleEvalState,
   ): void {
     const alarm: AlarmInstance = {
       id: randomUUID(),
@@ -276,58 +428,55 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
       colors: rule.colors,
     };
 
-    state.alarm = alarm;
-    state.actionsExecuted = false;
+    ruleState.alarm = alarm;
+    ruleState.actionsExecuted = false;
 
     this.logger.log(
-      `ALARM ACTIVE: rule=${rule.name} severity=${rule.severity} value=${value} threshold=${rule.threshold}`,
+      `ALARM ACTIVE: tenant=${tenantId} rule=${rule.name} severity=${rule.severity} value=${value} threshold=${rule.threshold}`,
     );
 
-    // Persist
-    void this.storage.saveAlarm(this.instanceToEntity(alarm)).catch((err: Error) => {
-      this.logger.error(`activateAlarm: persist failed — ${err.message}`);
-    });
+    // Queue the upsert for this tenant's coalesced flush.
+    this.bufferUpsert(state, alarm);
 
     // Execute alarm actions
-    if (rule.actions && rule.actions.length > 0 && !state.actionsExecuted) {
-      this.executeActions(rule, alarm);
-      state.actionsExecuted = true;
+    if (rule.actions && rule.actions.length > 0 && !ruleState.actionsExecuted) {
+      this.executeActions(tenantId, state, rule, alarm);
+      ruleState.actionsExecuted = true;
     }
 
     // Notifications
-    void this.notification
-      .processAlarm(alarm, this.notificationConfigs)
-      .catch((err: Error) => {
-        this.logger.error(`activateAlarm: notification failed — ${err.message}`);
-      });
+    void this.notification.processAlarm(alarm, state.notificationConfigs).catch((err: Error) => {
+      this.logger.error(`activateAlarm: notification failed — ${err.message}`);
+    });
   }
 
   private reactivateAlarm(
+    tenantId: string,
+    state: TenantAlarmState,
     alarm: AlarmInstance,
     value: number,
-    now: number,
-    state: RuleEvalState,
+    ruleState: RuleEvalState,
   ): void {
     alarm.status = 'active';
     alarm.currentValue = value;
     alarm.offTime = undefined;
     alarm.ackTime = undefined;
     alarm.ackUserId = undefined;
-    state.actionsExecuted = false;
+    ruleState.actionsExecuted = false;
 
-    this.logger.log(`ALARM REACTIVATED: id=${alarm.id} rule=${alarm.ruleName}`);
+    this.logger.log(`ALARM REACTIVATED: tenant=${tenantId} id=${alarm.id} rule=${alarm.ruleName}`);
 
-    void this.storage.saveAlarm(this.instanceToEntity(alarm)).catch((err: Error) => {
-      this.logger.error(`reactivateAlarm: persist failed — ${err.message}`);
-    });
+    this.bufferUpsert(state, alarm);
   }
 
   private clearAlarm(
+    tenantId: string,
+    state: TenantAlarmState,
     alarm: AlarmInstance,
     value: number,
     now: number,
     rule: AlarmRuleRuntime,
-    state: RuleEvalState,
+    ruleState: RuleEvalState,
   ): void {
     alarm.currentValue = value;
     alarm.offTime = now;
@@ -335,52 +484,67 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
     if (rule.ackMode === 'float') {
       // Auto-clear — no ack needed
       alarm.status = 'inactive';
-      this.resolveAlarm(alarm, state);
+      this.resolveAlarm(tenantId, state, alarm, ruleState);
     } else {
       alarm.status = 'cleared';
-      void this.storage.saveAlarm(this.instanceToEntity(alarm)).catch((err: Error) => {
-        this.logger.error(`clearAlarm: persist failed — ${err.message}`);
-      });
-      this.logger.log(`ALARM CLEARED: id=${alarm.id} rule=${alarm.ruleName}`);
+      this.bufferUpsert(state, alarm);
+      this.logger.log(`ALARM CLEARED: tenant=${tenantId} id=${alarm.id} rule=${alarm.ruleName}`);
     }
   }
 
-  private resolveAlarm(alarm: AlarmInstance, state: RuleEvalState): void {
-    this.logger.log(`ALARM RESOLVED: id=${alarm.id} rule=${alarm.ruleName}`);
+  private resolveAlarm(
+    tenantId: string,
+    state: TenantAlarmState,
+    alarm: AlarmInstance,
+    ruleState: RuleEvalState,
+  ): void {
+    this.logger.log(`ALARM RESOLVED: tenant=${tenantId} id=${alarm.id} rule=${alarm.ruleName}`);
 
-    // Archive to chronicle
-    void this.storage.saveToChronicle(this.instanceToChronicle(alarm)).catch((err: Error) => {
-      this.logger.error(`resolveAlarm: chronicle failed — ${err.message}`);
-    });
-
-    // Remove from active table
-    void this.storage.deleteAlarm(alarm.id).catch((err: Error) => {
-      this.logger.error(`resolveAlarm: delete failed — ${err.message}`);
-    });
+    // Archive to chronicle + remove from the active table, atomically in the
+    // tenant's next coalesced flush.
+    this.bufferResolve(state, alarm);
 
     // Clear notification rate-limit records
     this.notification.clearAlarmRecords(alarm.id);
 
-    state.alarm = null;
-    state.actionsExecuted = false;
-    state.conditionTrueAt = null;
+    ruleState.alarm = null;
+    ruleState.actionsExecuted = false;
+    ruleState.conditionTrueAt = null;
   }
 
   /* ---------------------------------------------------------------- */
   /*  Public ACK methods                                                */
   /* ---------------------------------------------------------------- */
 
-  async acknowledgeAlarm(alarmId: string, userId: string): Promise<void> {
+  /** Operator acknowledged a single alarm (from the SCADA gateway). */
+  @OnEvent(SCADA_ALARM_ACK_EVENT)
+  async handleAlarmAckEvent(req: AlarmAckRequest): Promise<void> {
+    await this.acknowledgeAlarm(req.tenantId, req.alarmInstanceId, req.userId);
+  }
+
+  /** Operator acknowledged all alarms (from the SCADA gateway). */
+  @OnEvent(SCADA_ALARM_ACK_ALL_EVENT)
+  async handleAlarmAckAllEvent(req: AlarmAckAllRequest): Promise<void> {
+    await this.acknowledgeAll(req.tenantId, req.userId);
+  }
+
+  async acknowledgeAlarm(tenantId: string, alarmId: string, userId: string): Promise<void> {
+    const state = this.tenants.get(tenantId);
+    if (!state) {
+      this.logger.warn(`acknowledgeAlarm: tenant=${tenantId} not active — ack ignored`);
+      return;
+    }
+
     const now = Date.now();
     let found = false;
 
-    for (const [, state] of this.evalState) {
-      if (!state.alarm || state.alarm.id !== alarmId) continue;
+    for (const [, ruleState] of state.evalState) {
+      if (!ruleState.alarm || ruleState.alarm.id !== alarmId) continue;
 
-      const alarm = state.alarm;
+      const alarm = ruleState.alarm;
 
       // Validate ACK mode
-      const rule = this.rules.find((r) => r.id === alarm.ruleId);
+      const rule = state.rules.find((r) => r.id === alarm.ruleId);
       if (!rule) break;
 
       if (rule.ackMode === 'ackPassive' && alarm.status !== 'cleared') {
@@ -396,38 +560,46 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
       found = true;
 
       this.logger.log(
-        `ALARM ACKNOWLEDGED: id=${alarmId} userId=${userId} rule=${alarm.ruleName}`,
+        `ALARM ACKNOWLEDGED: tenant=${tenantId} id=${alarmId} userId=${userId} rule=${alarm.ruleName}`,
       );
 
-      await this.storage.saveAlarm(this.instanceToEntity(alarm)).catch((err: Error) => {
-        this.logger.error(`acknowledgeAlarm: persist failed — ${err.message}`);
-      });
+      this.bufferUpsert(state, alarm);
 
       // If condition is already clear, resolve immediately
       if (alarm.offTime != null) {
-        this.resolveAlarm(alarm, state);
+        this.resolveAlarm(tenantId, state, alarm, ruleState);
       }
 
       break;
     }
 
     if (!found) {
-      this.logger.warn(`acknowledgeAlarm: alarm id=${alarmId} not found in active set`);
+      this.logger.warn(
+        `acknowledgeAlarm: alarm id=${alarmId} not found in tenant=${tenantId} active set`,
+      );
     }
 
-    this.pushStatusSummary();
+    this.pushStatusSummary(tenantId, state);
+    // ACK is low-frequency + user-facing — await the flush for durable persistence.
+    await this.scheduleFlush(tenantId, state);
   }
 
-  async acknowledgeAll(userId: string): Promise<void> {
+  async acknowledgeAll(tenantId: string, userId: string): Promise<void> {
+    const state = this.tenants.get(tenantId);
+    if (!state) {
+      this.logger.warn(`acknowledgeAll: tenant=${tenantId} not active — ack ignored`);
+      return;
+    }
+
     const now = Date.now();
     let count = 0;
 
-    for (const [, state] of this.evalState) {
-      if (!state.alarm) continue;
-      if (state.alarm.status === 'acknowledged') continue;
+    for (const [, ruleState] of state.evalState) {
+      if (!ruleState.alarm) continue;
+      if (ruleState.alarm.status === 'acknowledged') continue;
 
-      const alarm = state.alarm;
-      const rule = this.rules.find((r) => r.id === alarm.ruleId);
+      const alarm = ruleState.alarm;
+      const rule = state.rules.find((r) => r.id === alarm.ruleId);
       if (!rule) continue;
 
       // ackPassive requires alarm to be cleared first
@@ -438,28 +610,33 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
       alarm.status = 'acknowledged';
       count++;
 
-      await this.storage.saveAlarm(this.instanceToEntity(alarm)).catch((err: Error) => {
-        this.logger.error(`acknowledgeAll: persist failed id=${alarm.id} — ${err.message}`);
-      });
+      this.bufferUpsert(state, alarm);
 
       if (alarm.offTime != null) {
-        this.resolveAlarm(alarm, state);
+        this.resolveAlarm(tenantId, state, alarm, ruleState);
       }
     }
 
-    this.logger.log(`acknowledgeAll: acknowledged ${count} alarm(s) by userId=${userId}`);
-    this.pushStatusSummary();
+    this.logger.log(
+      `acknowledgeAll: tenant=${tenantId} acknowledged ${count} alarm(s) by userId=${userId}`,
+    );
+    this.pushStatusSummary(tenantId, state);
+    // ACK is low-frequency + user-facing — await the flush for durable persistence.
+    await this.scheduleFlush(tenantId, state);
   }
 
   /* ---------------------------------------------------------------- */
   /*  Query methods                                                     */
   /* ---------------------------------------------------------------- */
 
-  getActiveAlarms(): AlarmInstance[] {
+  getActiveAlarms(tenantId: string): AlarmInstance[] {
+    const state = this.tenants.get(tenantId);
+    if (!state) return [];
+
     const alarms: AlarmInstance[] = [];
-    for (const [, state] of this.evalState) {
-      if (state.alarm && state.alarm.status !== 'inactive') {
-        alarms.push({ ...state.alarm });
+    for (const [, ruleState] of state.evalState) {
+      if (ruleState.alarm && ruleState.alarm.status !== 'inactive') {
+        alarms.push({ ...ruleState.alarm });
       }
     }
     return alarms.sort((a, b) => {
@@ -475,9 +652,9 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
   /*  Gateway push                                                      */
   /* ---------------------------------------------------------------- */
 
-  private pushStatusSummary(): void {
-    const activeAlarms = this.getActiveAlarms();
-    const actions = this.pendingActions.splice(0);
+  private pushStatusSummary(tenantId: string, state: TenantAlarmState): void {
+    const activeAlarms = this.getActiveAlarms(tenantId);
+    const actions = state.pendingActions.splice(0);
 
     const summary: AlarmStatusSummary = {
       critical: activeAlarms.filter((a) => a.severity === 'critical').length,
@@ -489,7 +666,7 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
     };
 
     try {
-      this.gateway.pushAlarmStatus(this.tenantId, summary);
+      this.gateway.pushAlarmStatus(tenantId, summary);
     } catch (error) {
       this.logger.error(`pushStatusSummary: gateway push failed — ${(error as Error).message}`);
     }
@@ -499,7 +676,12 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
   /*  Alarm actions                                                     */
   /* ---------------------------------------------------------------- */
 
-  private executeActions(rule: AlarmRuleRuntime, alarm: AlarmInstance): void {
+  private executeActions(
+    tenantId: string,
+    state: TenantAlarmState,
+    rule: AlarmRuleRuntime,
+    alarm: AlarmInstance,
+  ): void {
     if (!rule.actions) return;
 
     for (const action of rule.actions) {
@@ -512,7 +694,7 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
               severity: alarm.severity,
               toastType: this.severityToToastType(alarm.severity),
             };
-            this.pendingActions.push(cmd);
+            state.pendingActions.push(cmd);
             break;
           }
 
@@ -522,7 +704,7 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
               message: String(action.params['message'] ?? alarm.message),
               severity: alarm.severity,
             };
-            this.pendingActions.push(cmd);
+            state.pendingActions.push(cmd);
             break;
           }
 
@@ -533,7 +715,7 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
                 type: 'setView',
                 viewId,
               };
-              this.pendingActions.push(cmd);
+              state.pendingActions.push(cmd);
             }
             break;
           }
@@ -542,7 +724,9 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
             const tagId = String(action.params['tagId'] ?? '');
             const value = action.params['value'];
             if (tagId && value !== undefined) {
-              this.tagManager.writeTagValue(tagId, value, 'alarm-engine');
+              // The write is routed to the tenant that owns the rule — an
+              // alarm action can never actuate another tenant's device.
+              this.tagManager.writeTagValue(tagId, value, 'alarm-engine', tenantId);
             }
             break;
           }
@@ -575,39 +759,18 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
     condition: AlarmRuleRuntime['condition'],
     threshold: number,
   ): boolean {
-    switch (condition) {
-      case '>':  return value > threshold;
-      case '<':  return value < threshold;
-      case '>=': return value >= threshold;
-      case '<=': return value <= threshold;
-      case '==': return Math.abs(value - threshold) < 0.0001;
-      case '!=': return Math.abs(value - threshold) >= 0.0001;
-      default:   return false;
-    }
+    // Delegates to the drift-zero alarm-core kernel (shared with the Rust edge
+    // engine via WebAssembly). `==`/`!=` use the canonical 1e-4 epsilon.
+    return coreEvaluateCondition(condition, value, threshold);
   }
 
   /**
    * Returns true if the value is far enough from the threshold to
-   * allow the alarm to clear (deadband hysteresis).
+   * allow the alarm to clear (deadband hysteresis) — delegated to the shared
+   * alarm-core kernel (exclusive boundaries, no hidden floor, deadband 0 clears).
    */
   private isOutsideDeadband(value: number, rule: AlarmRuleRuntime): boolean {
-    const deadband = rule.deadband ?? 0;
-    if (deadband === 0) return true;
-
-    switch (rule.condition) {
-      case '>':
-      case '>=':
-        return value < rule.threshold - deadband;
-      case '<':
-      case '<=':
-        return value > rule.threshold + deadband;
-      case '==':
-        return Math.abs(value - rule.threshold) > deadband;
-      case '!=':
-        return Math.abs(value - rule.threshold) <= deadband;
-      default:
-        return true;
-    }
+    return coreIsOutsideDeadband(rule.condition, value, rule.threshold, rule.deadband ?? 0);
   }
 
   /* ---------------------------------------------------------------- */
@@ -659,11 +822,16 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
     severity: AlarmInstance['severity'],
   ): 'error' | 'warning' | 'success' | 'info' {
     switch (severity) {
-      case 'critical': return 'error';
-      case 'high':     return 'error';
-      case 'warning':  return 'warning';
-      case 'info':     return 'info';
-      default:         return 'info';
+      case 'critical':
+        return 'error';
+      case 'high':
+        return 'error';
+      case 'warning':
+        return 'warning';
+      case 'info':
+        return 'info';
+      default:
+        return 'info';
     }
   }
 }

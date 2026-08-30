@@ -1,0 +1,58 @@
+{
+  "agent_surface_request_role": {
+    "gap_closure": {
+      "expires_on": "2026-09-13",
+      "finding_id": "ORPHAN-MEDIUM-688",
+      "owner": "okan",
+      "reason": "Budgeted at 0.45 in the executors tier (context_budget_gate.py:88) alongside `implementation`, which IS minted (cross_review_bridge.py:468). The pair is the tell: the tier was designed for two executors and only one was ever wired."
+    },
+    "gap_finding": {
+      "expires_on": "2026-09-13",
+      "finding_id": "ORPHAN-MEDIUM-688",
+      "owner": "okan",
+      "reason": "Budgeted at 0.40 (context_budget_gate.py:102) and minted by nothing. The acceptance-lane gap hunt runs as an operator-driven Agent dispatch outside the kernel, so the role exists to describe work the kernel does not schedule. Either the kernel schedules it or the role and its budget entry go."
+    }
+  },
+  "genesis_lifecycle_forward_transition": {
+    "ACTIVE": {
+      "expires_on": "2026-09-13",
+      "finding_id": "ORPHAN-HIGH-689",
+      "owner": "okan",
+      "reason": "The top rung of the genesis ladder. validate_transition guards it hardest of all - two reviewers plus a kernel-computed eval-window superiority proof - and no production path arrives to be judged. C4-d wired the chain as far as SHADOW (shadow_eval_bridge.py:301); EVAL_WINDOW and ACTIVE are the remainder of that arc, not an oversight this gate discovered."
+    },
+    "EVAL_WINDOW": {
+      "expires_on": "2026-09-13",
+      "finding_id": "ORPHAN-HIGH-689",
+      "owner": "okan",
+      "reason": "The rung between SHADOW and ACTIVE, and the reason ACTIVE is unreachable: ALLOWED_TRANSITIONS admits ACTIVE only from EVAL_WINDOW, so an unproduced EVAL_WINDOW makes the ACTIVE gate unreachable regardless of how good its proof requirements are. Listed separately so wiring the window does not leave the promotion silently unwired."
+    }
+  },
+  "plan_convergence_event_type": {
+    "lock_reaped": {
+      "expires_on": "2026-09-13",
+      "finding_id": "ORPHAN-MEDIUM-690",
+      "owner": "okan",
+      "reason": "EVENT_TYPES member with a payload validator (plan_convergence.py:2405) and no emitter. EVENT_TYPES is documented in that module as a one-way door because every row is content-hashed, so this is a permanent entry in a closed vocabulary that describes an event the reducer will never fold. Either _plan_lock's reaper records its work under this kind or the member is retired before the door closes on more history."
+    }
+  },
+  "tool_registry_status": {
+    "ARCHIVED": {
+      "expires_on": "2026-09-13",
+      "finding_id": "ORPHAN-MEDIUM-691",
+      "owner": "okan",
+      "reason": "A declared lifecycle status that transition_tool accepts and nothing ever targets. Every production mention is a FILTER over it - tool_health.py:246 skips tools already archived, tool_registry.py:1162 lists it as a forbidden source for ACTIVE - so the kernel knows how to read an archived tool and has no way to archive one. Tool retirement is currently done by hand-editing the registry, which is the state this status existed to replace."
+    },
+    "DRAFT": {
+      "expires_on": "2026-09-13",
+      "finding_id": "ANALYSIS-LOW-692",
+      "owner": "okan",
+      "reason": "NOT A DORMANCY CLAIM - a limit of the walk, recorded so it cannot be mistaken for one. DRAFT is an INITIAL_LIFECYCLE_STATES member reached through register_tool, whose status arrives inside a manifest dict (adapter_portfolio.py:94, cycle.py:1770, cli.py:2854 from operator JSON). literal_provenance returns None for a dict-valued argument by design, so no evidence exists either way. Closing this needs a dict-field binding in the resolver, not a change to the kernel."
+    },
+    "SANDBOX": {
+      "expires_on": "2026-09-13",
+      "finding_id": "ANALYSIS-LOW-692",
+      "owner": "okan",
+      "reason": "Same limit as DRAFT: an INITIAL_LIFECYCLE_STATES member supplied through register_tool's manifest dict. Listed separately so a resolver that learns to read one dict field does not leave the other silently waived."
+    }
+  }
+}

@@ -1,11 +1,21 @@
 /**
  * Field-capture inputs for the regulatory operational entities: lice counts,
  * treatment applications, welfare assessments and escape incidents.
- * All accept the optional mobile-command envelope fields via composition at
- * the resolver level in Phase 6 (offline queue idempotency).
+ *
+ * Phase 6 (FARM-HIGH-214): the three field-recordable inputs extend
+ * MobileCommandEnvelopeInput so AquaMobil's offline queue can stamp its
+ * at-most-once command envelope (clientCommandId + payloadHash + deviceId)
+ * onto the SAME wire input desktop uses. The envelope stays nullable —
+ * desktop callers omit it (legacy mode) — and each service decides the
+ * idempotency mechanism: lice counts are naturally idempotent (upsert on
+ * (tenant, tank, countDate)); welfare + escape are plain inserts and run
+ * through the farm_mobile_command_receipts ledger.
  */
+import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common/mobile-command';
 import { Field, Float, ID, InputType, Int } from '@nestjs/graphql';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsBoolean,
   IsDateString,
   IsEnum,
@@ -23,7 +33,7 @@ import { EscapeIncidentCause } from '../entities/escape-incident.entity';
 import { TreatmentCategory } from '../entities/treatment-application.entity';
 
 @InputType()
-export class RecordLiceCountInput {
+export class RecordLiceCountInput extends MobileCommandEnvelopeInput {
   @Field(() => ID)
   @IsUUID()
   siteId!: string;
@@ -71,6 +81,13 @@ export class RecordLiceCountInput {
   @IsString()
   @MaxLength(2000)
   notes?: string;
+
+  @Field(() => [String], { nullable: true })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMaxSize(10)
+  mediaKeys?: string[];
 }
 
 @InputType()
@@ -177,7 +194,7 @@ export class RecordTreatmentApplicationInput {
 }
 
 @InputType()
-export class RecordWelfareAssessmentInput {
+export class RecordWelfareAssessmentInput extends MobileCommandEnvelopeInput {
   @Field(() => ID)
   @IsUUID()
   siteId!: string;
@@ -229,10 +246,17 @@ export class RecordWelfareAssessmentInput {
   @IsString()
   @MaxLength(2000)
   notes?: string;
+
+  @Field(() => [String], { nullable: true })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMaxSize(10)
+  mediaKeys?: string[];
 }
 
 @InputType()
-export class RecordEscapeIncidentInput {
+export class RecordEscapeIncidentInput extends MobileCommandEnvelopeInput {
   @Field(() => ID)
   @IsUUID()
   siteId!: string;
@@ -287,6 +311,13 @@ export class RecordEscapeIncidentInput {
   @IsString()
   @MaxLength(2000)
   notes?: string;
+
+  @Field(() => [String], { nullable: true })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMaxSize(10)
+  mediaKeys?: string[];
 }
 
 @InputType()

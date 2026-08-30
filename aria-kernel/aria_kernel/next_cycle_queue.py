@@ -38,7 +38,8 @@ from pathlib import Path
 from typing import Any
 
 from .ledger import load_declared_jsonl, state_transaction
-from .tool_registry import append_tools_governance, ensure_tools_dir, utc_now
+from .tool_registry import disclosure_fingerprint, ensure_tools_dir, utc_now
+from .workspace import governance_event
 
 
 __all__ = [
@@ -125,57 +126,140 @@ def append_pending(
     The depth check and append run in the same transaction so two cycle
     starters cannot both observe spare capacity and overfill the queue.
     """
-    path = queue_path(base_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
     root = ensure_tools_dir(base_dir)
-    with state_transaction([path]) as txn:
-        pending = _pending_from_rows(
-            txn.load_declared_jsonl(
-                path,
-                expected_surface="next_cycle_queue",
-            ),
+    path = root / "queues" / "next_cycle_queue.jsonl"
+    governance_path = root / "governance.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    # The overflow identity must survive a crash between the governance and
+    # queue appends.  A random queue id made a retry look like a second
+    # overflow, duplicating both evidence and the terminal blocked row.
+    overflow_kind = "next_cycle_queue_overflow_blocked"
+    overflow_claim = {
+        "source_cycle_id": source_cycle_id,
+        "pressure_id": pressure_id,
+    }
+    overflow_fingerprint = disclosure_fingerprint(
+        overflow_kind,
+        overflow_claim,
+    )
+    overflow_queue_item_id = f"qi-{overflow_fingerprint}"
+    pending_queue_item_id = f"qi-{uuid.uuid4().hex[:12]}"
+    candidate_tool_rows = list(candidate_tools or [])
+
+    # Validate the queue write authority before acquiring the transaction and
+    # before constructing any row that could be persisted.  The held append
+    # validates again; this early check guarantees profile refusal has zero
+    # ledger side effects.
+    from .runtime_profile import enforce_profile_for_write
+
+    enforce_profile_for_write("plan_promotion_dispatch", base_dir=root)
+
+    # Governance and queue are one lock domain for this operation.  Passing
+    # both surfaces up front lets state_transaction acquire the global lexical
+    # group order (governance -> queue) and prevents the former queue ->
+    # governance nested-writer inversion with recovery.
+    with state_transaction([governance_path, path]) as txn:
+        queue_rows = txn.load_declared_jsonl(
+            path,
+            expected_surface="next_cycle_queue",
         )
+        governance_rows = txn.load_declared_jsonl(
+            governance_path,
+            expected_surface="tools_governance",
+        )
+        pending = _pending_from_rows(
+            queue_rows,
+        )
+        # C10/E8 — pressure_id IS the queue's idempotency key (reflection.py
+        # names it so), but every row was keyed on a fresh uuid, so a
+        # persistent pressure re-enqueued a NEW pending row every cycle until
+        # the depth cap "blocked" it — bloat surfaced as overflow, never
+        # deduped, and the blocked report read as capacity pressure when it
+        # was really the same item N times. An already-pending pressure needs
+        # no second request: return the standing row unchanged (append-only,
+        # no mutation), before the depth check so a self-duplicating pressure
+        # can never consume a slot twice.
+        for row in pending:
+            if row.get("pressure_id") == pressure_id:
+                return row
         depth = queue_depth()
         if len(pending) >= depth:
-            queue_item_id = f"qi-{uuid.uuid4().hex[:12]}"
-            row = {
+            existing_blocked = next(
+                (
+                    row
+                    for row in queue_rows
+                    if row.get("state") == "blocked"
+                    and row.get("queue_item_id") == overflow_queue_item_id
+                    and row.get("source_cycle_id") == source_cycle_id
+                    and row.get("pressure_id") == pressure_id
+                ),
+                None,
+            )
+            blocked_row = {
                 "schema_version": 1,
-                "queue_item_id": queue_item_id,
+                "queue_item_id": overflow_queue_item_id,
                 "source_cycle_id": source_cycle_id,
                 "pressure_id": pressure_id,
                 "recommended_action": recommended_action,
-                "candidate_tools": list(candidate_tools or []),
+                "candidate_tools": candidate_tool_rows,
                 "state": "blocked",
                 "reason": "queue_depth_exceeded",
                 "queue_depth": depth,
                 "pending_count": len(pending),
+                "overflow_fingerprint": overflow_fingerprint,
                 "recorded_at": utc_now(),
             }
-            stored = txn.append_declared_jsonl(
+            governance_details = {
+                "queue_item_id": overflow_queue_item_id,
+                "source_cycle_id": source_cycle_id,
+                "pressure_id": pressure_id,
+                "queue_depth": depth,
+                "pending_count": len(pending),
+                "disclosure_fingerprint": overflow_fingerprint,
+            }
+            prepared_governance = governance_event(
+                kind=overflow_kind,
+                details=governance_details,
+            )
+
+            # Governance has the stricter profile.  Check it only once the
+            # strict reads prove this is an overflow, but still before either
+            # append.  A refusal or append failure therefore leaves no
+            # terminal blocked row behind.
+            enforce_profile_for_write("tool_governance", base_dir=root)
+            governance_exists = any(
+                row.get("kind") == overflow_kind
+                and isinstance(row.get("details"), dict)
+                and row["details"].get("disclosure_fingerprint")
+                == overflow_fingerprint
+                for row in governance_rows
+            )
+            if not governance_exists:
+                txn.append_declared_jsonl(
+                    governance_path,
+                    prepared_governance,
+                    expected_surface="tools_governance",
+                )
+            if existing_blocked is not None:
+                return existing_blocked
+
+            # Terminal row is deliberately last.  If the process dies after
+            # governance, retry observes the fingerprint above and appends
+            # this row exactly once; if governance fails, no blocked row can
+            # have escaped.
+            return txn.append_declared_jsonl(
                 path,
-                row,
+                blocked_row,
                 expected_surface="next_cycle_queue",
             )
-            append_tools_governance(
-                root,
-                "next_cycle_queue_overflow_blocked",
-                {
-                    "queue_item_id": queue_item_id,
-                    "source_cycle_id": source_cycle_id,
-                    "pressure_id": pressure_id,
-                    "queue_depth": depth,
-                    "pending_count": len(pending),
-                },
-            )
-            return stored
-        queue_item_id = f"qi-{uuid.uuid4().hex[:12]}"
         row: dict[str, Any] = {
             "schema_version": 1,
-            "queue_item_id": queue_item_id,
+            "queue_item_id": pending_queue_item_id,
             "source_cycle_id": source_cycle_id,
             "pressure_id": pressure_id,
             "recommended_action": recommended_action,
-            "candidate_tools": list(candidate_tools or []),
+            "candidate_tools": candidate_tool_rows,
             "state": "pending",
             "recorded_at": utc_now(),
         }

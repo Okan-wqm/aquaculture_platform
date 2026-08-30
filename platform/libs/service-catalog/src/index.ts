@@ -1,3 +1,10 @@
+// Platform schema topology SSoT — WHICH schemas exist + their role flags.
+// Consumers (db-migrate bootstrap writer, boot gate, migration runner, RLS,
+// tenant-fanout) DERIVE their subset from here instead of hand-copying it.
+import { tenantAwareSchemas } from './topology';
+
+export * from './topology';
+
 export type DeployTarget = 'droplet' | 'staging' | 'unsupported';
 export type DeploymentStatus = 'active' | 'inactive';
 export type ServiceClassification =
@@ -65,6 +72,16 @@ export interface GatewaySubgraphCatalogEntry {
   schemaArtifactPath: string;
 }
 
+/**
+ * Build coordinates for an infrastructure image produced directly from a
+ * Dockerfile. Keeping these coordinates on the catalog entry makes affected
+ * selection, the workflow matrix, and the runtime service one atomic model.
+ */
+export interface InfraImageBuildContract {
+  dockerfile: string;
+  context: string;
+}
+
 export interface ServiceCatalogEntry {
   serviceId: string;
   composeServiceName: string;
@@ -72,6 +89,7 @@ export interface ServiceCatalogEntry {
   buildKind: BuildKind;
   imageTarget?: string;
   imageName?: string;
+  infraImageBuild?: InfraImageBuildContract;
   serviceVisibility: ServiceVisibility;
   gatewayParticipation: GatewayParticipation;
   deployProfiles: readonly DeployProfile[];
@@ -290,6 +308,12 @@ function subgraph(
 export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
   buildEntry({
     serviceId: 'postgres',
+    imageTarget: 'postgres',
+    buildKind: 'docker-only',
+    infraImageBuild: {
+      dockerfile: 'infrastructure/docker/Dockerfile.postgres-walg',
+      context: '.',
+    },
     deploymentStatus: 'active',
     deployTarget: 'droplet',
     criticality: 'critical',
@@ -300,7 +324,13 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     startupBudgetSeconds: 30,
     privilegeMode: 'none',
     requiredSignals: [],
-    requiredEnv: ['POSTGRES_PASSWORD'],
+    requiredEnv: [
+      'POSTGRES_PASSWORD',
+      'SPACES_ENDPOINT',
+      'SPACES_REGION',
+      'WALG_BACKUP_EPOCH',
+      'WALG_SPACES_BUCKET',
+    ],
   }),
   buildEntry({
     serviceId: 'redis',
@@ -447,7 +477,7 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     // (entity metadata + migrations check) and the current SLA-defining max.
     startupBudgetSeconds: 120,
     requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
-    requiredEnv: ['FARM_SERVICE_DB_PASS', 'ENCRYPTION_KEY'],
+    requiredEnv: ['FARM_SERVICE_DB_PASS', 'ENCRYPTION_KEY', 'SENTINEL_HUB_ENCRYPTION_KEY'],
     gatewaySubgraph: subgraph(
       'farm',
       'farm-service',
@@ -662,7 +692,14 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     // Matches compose start_period: 60s.
     startupBudgetSeconds: 60,
     requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
-    requiredEnv: ['BILLING_SERVICE_DB_PASS'],
+    // Faz C (SEC-LOW-002): billing now SIGNS config-runtime reads, so the
+    // ServiceIdentity keyring + signing kid are hard runtime dependencies (both
+    // already present in the droplet compose + required-secrets.yaml).
+    requiredEnv: [
+      'BILLING_SERVICE_DB_PASS',
+      'SERVICE_IDENTITY_KEYRING',
+      'SERVICE_IDENTITY_SIGNING_KID',
+    ],
     gatewaySubgraph: subgraph(
       'billing',
       'billing-service',
@@ -743,7 +780,10 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     gatewayParticipation: 'apollo-subgraph',
     // Matches compose start_period: 60s.
     startupBudgetSeconds: 60,
-    requiredSignals: ['schema_drift_clean'],
+    // DB-INFRA-HIGH-003: config-service joined the NATS event backbone
+    // (EventBusModule for the GDPR tenant-erasure cascade) — boot must prove
+    // the mTLS-cert NATS identity like every other bus participant.
+    requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
     requiredEnv: [
       'CONFIG_SERVICE_DB_PASS',
       'SERVICE_IDENTITY_KEYRING',
@@ -780,7 +820,9 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     classification: 'internal-service',
     // Matches compose start_period: 60s.
     startupBudgetSeconds: 60,
-    requiredSignals: ['schema_drift_clean'],
+    // DB-INFRA-HIGH-003: event-store-service joined the NATS event backbone
+    // (EventBusModule for the GDPR tenant-erasure cascade) — same mTLS proof.
+    requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
     eventStoreTenantScopePolicy: 'none',
     requiredEnv: ['EVENT_STORE_SERVICE_DB_PASS', 'SERVICE_IDENTITY_KEYRING'],
   }),
@@ -953,6 +995,13 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
             ? 'dockerfile-self-build'
             : 'prebuilt-artifact',
         buildKind: serviceId === 'mosquitto' ? 'docker-only' : undefined,
+        infraImageBuild:
+          serviceId === 'mosquitto'
+            ? {
+                dockerfile: 'infrastructure/mosquitto/Dockerfile',
+                context: 'infrastructure/mosquitto',
+              }
+            : undefined,
         deploymentStatus: 'active',
         deployTarget: 'droplet',
         // Startup budgets for the infra + frontend tail, aligned with each
@@ -962,8 +1011,7 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
         // healthcheck, so 30s is a generous liveness budget. None of these
         // are CRITICAL backends (nginx is the only critical entry here and
         // sits at 30s ≤ SLA), so they never raise the readiness SLA.
-        startupBudgetSeconds:
-          serviceId === 'mosquitto' ? 10 : serviceId === 'minio' ? 15 : 30,
+        startupBudgetSeconds: serviceId === 'mosquitto' ? 10 : serviceId === 'minio' ? 15 : 30,
         criticality:
           serviceId === 'nginx'
             ? 'critical'
@@ -1026,10 +1074,28 @@ export function frontendImageBuildTargets(): readonly string[] {
 }
 
 export function infraImageBuildTargets(): readonly string[] {
+  return infraImageBuildMatrix().map((entry) => entry.image);
+}
+
+export interface InfraImageBuildMatrixEntry extends InfraImageBuildContract {
+  image: string;
+}
+
+export function infraImageBuildMatrix(): readonly InfraImageBuildMatrixEntry[] {
   return activeDropletServices()
     .filter((entry) => entry.buildKind === 'docker-only')
-    .map((entry) => entry.imageTarget)
-    .filter((target): target is string => typeof target === 'string');
+    .map((entry) => {
+      if (!entry.imageTarget || !entry.infraImageBuild) {
+        throw new Error(
+          `docker-only service ${entry.serviceId} must declare imageTarget and infraImageBuild`,
+        );
+      }
+      return {
+        image: entry.imageTarget,
+        dockerfile: entry.infraImageBuild.dockerfile,
+        context: entry.infraImageBuild.context,
+      };
+    });
 }
 
 export interface FrontendPrebuildModule {
@@ -1083,6 +1149,23 @@ export function serviceDbRolePrefixes(): readonly string[] {
     .filter((role): role is string => Boolean(role))
     .map((role) => role.replace(/_service$/, '').toUpperCase())
     .sort();
+}
+
+/**
+ * Migration glob patterns for every TENANT-AWARE service, derived from the
+ * catalog's own `migrationGlobs`. This is the SSoT for "which migration files
+ * fan out into tenant_<uuid> clones" — the set the unguarded-DROP-TYPE gate
+ * must scan. WHY derived, not hand-listed: the gate previously hard-coded
+ * `src/database/migrations` and was 100% blind to messaging-service, whose 11
+ * live migrations live in `src/migrations` (ORPHAN-HIGH-406). The catalog
+ * already carries messaging's dual-path globs, so deriving from it can never
+ * miss a service's real migration directory again.
+ */
+export function tenantAwareMigrationGlobs(): readonly string[] {
+  const tenantSchemas = new Set(tenantAwareSchemas());
+  return PLATFORM_SERVICE_CATALOG.filter(
+    (entry) => entry.dbSchema !== undefined && tenantSchemas.has(entry.dbSchema),
+  ).flatMap((entry) => entry.migrationGlobs ?? []);
 }
 
 export function readinessServices(): readonly { serviceId: string; port: number }[] {
@@ -1257,6 +1340,18 @@ export function validateServiceCatalog(
 
     if (entry.dbSchema && entry.dbSchema !== entry.schema) {
       errors.push({ serviceId: entry.serviceId, message: 'schema and dbSchema must match' });
+    }
+    if (entry.buildKind === 'docker-only' && (!entry.imageTarget || !entry.infraImageBuild)) {
+      errors.push({
+        serviceId: entry.serviceId,
+        message: 'docker-only service must declare imageTarget and infraImageBuild',
+      });
+    }
+    if (entry.buildKind !== 'docker-only' && entry.infraImageBuild) {
+      errors.push({
+        serviceId: entry.serviceId,
+        message: 'infraImageBuild is only valid for docker-only services',
+      });
     }
     if (entry.migrationGlobs && entry.migration && entry.migrationGlobs !== entry.migration.globs) {
       errors.push({

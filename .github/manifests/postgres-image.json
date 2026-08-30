@@ -1,14 +1,45 @@
 {
   "$schema": "aqua/postgres-image/v1",
-  "schema_version": 1,
+  "schema_version": 2,
   "finding_ids": ["INFRA-CRITICAL-010", "INFRA-CRITICAL-017", "INFRA-CRITICAL-018"],
   "image": "timescale/timescaledb-ha:pg16@sha256:b3d038d0a0757df8a5ec0a94ba68d9ad57b0e16100a024cf4b370c77ad5645f7",
+  "production_image": "ghcr.io/okan-wqm/aquaculture_platform/postgres:${TAG:?TAG required}",
+  "production_image_family": "aquaculture_platform/postgres",
+  "dockerfile": "infrastructure/docker/Dockerfile.postgres-walg",
+  "build_context": ".",
   "image_family": "timescale/timescaledb-ha",
   "postgres_major": 16,
   "runtime_user": "postgres",
   "pgdata": "/var/lib/postgresql/data",
   "ssl_entrypoint": "infrastructure/docker/scripts/postgres-ssl-entrypoint.sh",
+  "dr_contract": {
+    "manifest_path": ".github/manifests/postgres-dr-contract.sha256",
+    "image_label": "io.aquaculture.postgres.dr-contract-sha256"
+  },
+  "wal_g": {
+    "version": "v3.0.8",
+    "revision": "f81943e64bdf97aa66f6c52fec55114703f97af7",
+    "asset": "wal-g-pg-22.04-amd64",
+    "asset_sha256": "f30544c5ce93cf83b87578e3c4a2e9c0e0ffc3d160ef89ecddaf75f397d98deb",
+    "binary_path": "/usr/local/bin/wal-g"
+  },
   "required_capabilities": ["timescaledb", "pgvector", "hnsw_vector_cosine_ops"],
+  "production_required_capabilities": [
+    "timescaledb",
+    "pgvector",
+    "hnsw_vector_cosine_ops",
+    "wal-g"
+  ],
+  "base_consumers": [
+    ".github/workflows/ci-full.yml",
+    ".github/workflows/db-migration-check.yml",
+    ".github/workflows/e2e-messaging.yml",
+    "docker-compose.dev.yml",
+    "docker-compose.infra.yml",
+    "docker-compose.prod.yml",
+    "docker-compose.yml"
+  ],
+  "production_consumers": ["docker-compose.droplet.yml"],
   "consumers": [
     ".github/workflows/ci-full.yml",
     ".github/workflows/db-migration-check.yml",

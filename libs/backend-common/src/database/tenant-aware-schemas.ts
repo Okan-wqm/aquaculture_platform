@@ -1,5 +1,10 @@
+import { tenantAwareSchemas } from '@platform/service-catalog';
+
 /**
- * TENANT_AWARE_SCHEMAS — Single Source of Truth (MA6)
+ * TENANT_AWARE_SCHEMAS — runtime `Set` view, DERIVED from the platform-topology
+ * SSoT (@platform/service-catalog `tenantAware` flag). The membership lives in
+ * ONE place (the topology registry) so this set, the four hand-copied spec
+ * copies, and the migration-runner fan-out can never drift (ORPHAN-HIGH-411).
  * ============================================================================
  *
  * Enumerates the source schemas whose services own per-tenant schema
@@ -37,15 +42,7 @@
  *     tables, strictOwnership flags. Consulted by tenant provisioning.
  */
 
-export const TENANT_AWARE_SCHEMAS: ReadonlySet<string> = new Set([
-  'farm',
-  'sensor',
-  'hr',
-  'messaging',
-  'alert',
-  'ai',
-  'hydroponics',
-]);
+export const TENANT_AWARE_SCHEMAS: ReadonlySet<string> = new Set(tenantAwareSchemas());
 
 /**
  * Regex matching per-tenant schema names. Used by consumers that iterate

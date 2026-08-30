@@ -45,9 +45,10 @@ import {
 import { DeploymentLog } from './automation/entities/deployment-log.entity';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { DashboardLayout } from './dashboard/entities/dashboard-layout.entity';
+import { CalibrationEvent } from './calibration/calibration-event.entity';
+import { CalibrationModule } from './calibration/calibration.module';
 import { SensorDataChannel } from './database/entities/sensor-data-channel.entity';
 import { SensorProtocol } from './database/entities/sensor-protocol.entity';
-import { SensorReading } from './database/entities/sensor-reading.entity';
 import { ChannelDetectionLog } from './database/entities/channel-detection-log.entity';
 import { IndustryTemplate } from './database/entities/industry-template.entity';
 import { Sensor } from './database/entities/sensor.entity';
@@ -68,13 +69,14 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { HealthModule } from './health/health.module';
 import { IngestionModule } from './ingestion/ingestion.module';
 import { SensorMetricsModule } from './metrics/metrics.module';
+import { TimescaleModule } from './timescale/timescale.module';
+import { ScadaRuntimeModule } from './scada-runtime/scada-runtime.module';
 import { SensorOutboxModule } from './outbox/sensor-outbox.module';
 import { SensorOutbox } from './outbox/sensor-outbox.entity';
 import {
   createTenantConnectionBootstrap,
   createSchemaVersionGate,
   TenantSchemaSyncService,
-  SourceSchemaWriteGuardService,
   SchemaDriftModule,
   TenantSchemaCacheModule,
 } from '@aquaculture/backend-common/database';
@@ -191,9 +193,9 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
             // ("No metadata for SensorOutbox"), crash-looping sensor-service boot.
             SensorOutbox,
             Sensor,
-            SensorReading,
             SensorProtocol,
             SensorDataChannel,
+            CalibrationEvent,
             VfdDevice,
             VfdReading,
             VfdRegisterMapping,
@@ -273,12 +275,12 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
            *  defense-in-depth in case a subgraph becomes directly accessible. */
           allowBatchedHttpRequests: false,
           /**
-           * 2026-04-30: Keep Apollo CSRF prevention explicit while Apollo Server 5
-           * migration is blocked by the Nest/Apollo peer graph.
-           * WHY: Apollo Server 4 remains in the dependency graph, so XS-Search
-           * class protections must be fail-closed at runtime.
+           * Keep Apollo CSRF prevention explicit as defense in depth against
+           * cross-site search and simple-request execution paths.
            */
           csrfPrevention: true,
+          playground: false,
+          graphiql: process.env['NODE_ENV'] !== 'production',
           buildSchemaOptions: {
             // VFD entities and their nested types are registered via @ObjectType decorators
             // This ensures proper schema composition in Apollo Federation
@@ -403,6 +405,9 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
     ProtocolModule.forRoot(),
     RegistrationModule,
 
+    // Calibration aggregate (recordCalibration + calibration history)
+    CalibrationModule,
+
     // VFD (Variable Frequency Drive) module
     VfdModule,
 
@@ -411,6 +416,18 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
 
     // Data ingestion module (MQTT listener, data processing)
     IngestionModule,
+
+    // TimescaleDB lifecycle: creates the sensor.metrics_1min/1hour/1day
+    // continuous aggregates over sensor_metrics at bootstrap (the rollup views
+    // the >1h read tiers depend on) and owns their refresh/retention policies
+    // (SENSOR-MEDIUM-066/068, OPEN-ADR-030-CAGG).
+    TimescaleModule,
+
+    // SCADA operator runtime: the /scada WebSocket gateway (tag subscribe /
+    // write / alarm ack), tag manager, alarm engine, DAQ storage. Without
+    // this import the entire control plane is dead code — the gateway never
+    // mounts and operator screens connect to nothing (SENSOR-HIGH-045).
+    ScadaRuntimeModule,
 
     // Process module for equipment connection diagrams
     ProcessModule,
@@ -492,8 +509,6 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
     TenantConnectionBootstrap,
     // Auto-sync tenant schemas with source schema (creates missing tables/columns)
     TenantSchemaSyncService,
-    // DB-level write guards on source schema (defense-in-depth)
-    SourceSchemaWriteGuardService,
   ],
 })
 export class AppModule implements NestModule {

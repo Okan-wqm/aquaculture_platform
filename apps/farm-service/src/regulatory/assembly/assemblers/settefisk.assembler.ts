@@ -20,6 +20,7 @@ import { DataSource } from 'typeorm';
 import { ProduksjonsenhetSettefiskPayload } from '../../mattilsynet-api.service';
 import { AssembledDraft, fromRecords, manualRequired } from '../provenance.types';
 import { monthRange, round2 } from '../period.util';
+import { OFFICIAL_ARTSKODE_PATTERN } from '../../../species/data/official-species-codes';
 
 /** Data portion of the settefisk wire payload (identity is a form concern). */
 export interface SettefiskPrefillPayload {
@@ -39,7 +40,7 @@ interface UnitRow {
   flyttetEksternt: string | null;
 }
 
-const OFFICIAL_ARTSKODE = /^[A-Z]{2,5}$/;
+const OFFICIAL_ARTSKODE = OFFICIAL_ARTSKODE_PATTERN;
 
 @Injectable()
 export class SettefiskReportAssembler {
@@ -115,15 +116,21 @@ export class SettefiskReportAssembler {
              JOIN departments d ON d.id = t."departmentId"
             WHERE t."tenantId" = $1 AND d."siteId" = $2
          ),
+         -- PERF-HIGH-002: each aggregation is scoped to the site's tanks via
+         -- site_tanks so it uses the (tankId, recordDate/operationDate) index for a
+         -- handful of tanks, instead of scanning the tenant's whole mortality /
+         -- operations history once per site and discarding the non-site rows.
          mortality AS (
            SELECT mr."tankId" AS tank_id, SUM(mr.count)::bigint AS selvdod
              FROM mortality_records mr
+             JOIN site_tanks st ON st.id = mr."tankId"
             WHERE mr."tenantId" = $1 AND mr."recordDate" BETWEEN $3 AND $4
             GROUP BY mr."tankId"
          ),
          culls AS (
            SELECT o."tankId" AS tank_id, SUM(o.quantity)::bigint AS avlivet
              FROM tank_operations o
+             JOIN site_tanks st ON st.id = o."tankId"
             WHERE o."tenantId" = $1
               AND o."operationType" = 'cull'
               AND o."operationDate"::date BETWEEN $3 AND $4
@@ -132,6 +139,7 @@ export class SettefiskReportAssembler {
          external_out AS (
            SELECT o."tankId" AS tank_id, SUM(o.quantity)::bigint AS flyttet
              FROM tank_operations o
+             JOIN site_tanks st ON st.id = o."tankId"
              LEFT JOIN tanks dt ON dt.id = o."destinationTankId"
              LEFT JOIN departments dd ON dd.id = dt."departmentId"
             WHERE o."tenantId" = $1

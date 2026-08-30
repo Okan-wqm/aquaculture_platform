@@ -1,0 +1,64 @@
+name: Backup DR - Verify Enterprise Closure
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: verify-backup-dr-closure
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: production-backup
+      deployment: false
+    steps:
+      - name: Checkout verifier from exact main run SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Require protected main authority
+        run: |
+          set +x
+          set -euo pipefail
+          test "${GITHUB_REF}" = 'refs/heads/main'
+          test "${GITHUB_SHA}" = "$(git rev-parse HEAD)"
+
+      - name: Assert read-only evidence verifier profile
+        env:
+          BACKUP_SECRET_PROFILE: evidence-verifier
+          SPACES_ENDPOINT: ${{ secrets.SPACES_ENDPOINT }}
+          SPACES_REGION: ${{ secrets.SPACES_REGION }}
+          EVIDENCE_SPACES_BUCKET: ${{ secrets.EVIDENCE_SPACES_BUCKET }}
+          EVIDENCE_VERIFIER_SPACES_ACCESS_KEY_ID: ${{ secrets.EVIDENCE_VERIFIER_SPACES_ACCESS_KEY_ID }}
+          EVIDENCE_VERIFIER_SPACES_SECRET_ACCESS_KEY: ${{ secrets.EVIDENCE_VERIFIER_SPACES_SECRET_ACCESS_KEY }}
+        run: |
+          set +x
+          bash tools/scripts/database/assert-backup-secrets.sh
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Verify GitHub/Rekor authority, mirror parity, and DR bounds
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SPACES_ENDPOINT: ${{ secrets.SPACES_ENDPOINT }}
+          EVIDENCE_SPACES_BUCKET: ${{ secrets.EVIDENCE_SPACES_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.EVIDENCE_VERIFIER_SPACES_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.EVIDENCE_VERIFIER_SPACES_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.SPACES_REGION }}
+          AWS_DEFAULT_REGION: ${{ secrets.SPACES_REGION }}
+          CLOSURE_MAIN_SHA: ${{ github.sha }}
+        run: |
+          set +x
+          bash tools/scripts/database/verify-walg-github-evidence.sh

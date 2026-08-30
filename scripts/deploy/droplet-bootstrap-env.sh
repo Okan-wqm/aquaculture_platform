@@ -2,7 +2,7 @@
 # =============================================================================
 # scripts/deploy/droplet-bootstrap-env.sh
 #
-# Idempotently populates /var/aqua-saas/.env with any REQUIRED_ENV_SECRETS
+# Idempotently populates /var/aqua-saas/.env from REQUIRED_ENV_SECRET_SPECS
 # that are currently missing. For each required secret the script greps
 # for an existing `^NAME=` line and skips if present — a pre-existing
 # PASSWORD_PEPPER or INTERNAL_SERVICE_SECRET is NEVER overwritten. On a
@@ -32,7 +32,7 @@
 #   0 — all required secrets are present (either pre-existing or just
 #       generated). A subsequent droplet-up.sh preflight will pass.
 #   1 — invocation error (ENV_FILE unreadable or SSoT lib missing, or
-#       a generator command itself failed).
+#       a generator function itself failed).
 # =============================================================================
 
 set -euo pipefail
@@ -64,12 +64,13 @@ if [ ! -r "${ENV_FILE}" ]; then
 fi
 
 info "Bootstrapping required secrets into ${ENV_FILE}"
-info "Required set: ${#REQUIRED_ENV_SECRETS[@]} secrets (SSoT: scripts/deploy/lib/required-env-secrets.sh)"
+REQUIRED_SECRET_COUNT="$(required_env_secret_count)"
+info "Required set: ${REQUIRED_SECRET_COUNT} secrets (SSoT: scripts/deploy/lib/required-env-secrets.sh)"
 
 ADDED=0
-for entry in "${REQUIRED_ENV_SECRETS[@]}"; do
-  name="${entry%%:*}"
-  generator="${entry#*:}"
+for ((secret_index = 0; secret_index < ${#REQUIRED_ENV_SECRET_SPECS[@]}; secret_index += 2)); do
+  name="${REQUIRED_ENV_SECRET_SPECS[secret_index]}"
+  generator="${REQUIRED_ENV_SECRET_SPECS[secret_index + 1]}"
 
   if grep -q "^${name}=" "${ENV_FILE}" 2>/dev/null; then
     skip "${name}"
@@ -79,7 +80,7 @@ for entry in "${REQUIRED_ENV_SECRETS[@]}"; do
   gen "${name}  (via: ${generator})"
   # Generate into a temp var first so a generator crash doesn't
   # half-append an invalid line.
-  if ! value="$(eval "${generator}")"; then
+  if ! value="$("${generator}")"; then
     echo "::error::Generator failed for ${name}: ${generator}"
     exit 1
   fi

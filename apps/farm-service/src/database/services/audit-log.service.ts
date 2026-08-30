@@ -9,6 +9,10 @@
  */
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import type {
+  CreateAuditEntryDto,
+  IAuditLogService,
+} from '@aquaculture/backend-common/audit';
 import { EntityManager, Repository } from 'typeorm';
 import { AuditLog, AuditAction, AuditChanges, AuditMetadata } from '../entities/audit-log.entity';
 import { AuditRedactionService } from './audit-redaction.service';
@@ -39,7 +43,7 @@ export interface AuditLogQuery {
 }
 
 @Injectable()
-export class AuditLogService {
+export class AuditLogService implements IAuditLogService {
   private readonly logger = new Logger(AuditLogService.name);
 
   /**
@@ -97,6 +101,56 @@ export class AuditLogService {
     this.redactionService = redactionService ?? new AuditRedactionService();
   }
 
+  /** Best-effort adapter for non-blocking common audit consumers. */
+  record(dto: CreateAuditEntryDto): void {
+    void this.recordAwait(dto).catch((error: unknown) => {
+      this.logger.error(
+        JSON.stringify({
+          event: 'farm_audit_record_failed',
+          errorType: error instanceof Error ? error.name : 'UnknownError',
+        }),
+      );
+    });
+  }
+
+  /**
+   * Fail-closed adapter used by TenantGuard for privileged cross-tenant access.
+   * Unlike legacy `log()`, this method deliberately propagates repository
+   * failures so the guard cannot authorize an unaudited operation.
+   */
+  async recordAwait(dto: CreateAuditEntryDto): Promise<void> {
+    const tenantId = dto.actedOnTenantId ?? dto.tenantId;
+    if (!tenantId) {
+      throw new Error('Farm audit records require an acted-on tenant');
+    }
+    const entityId = dto.resourceId ?? tenantId;
+    const auditLog = this.buildAuditLog({
+      tenantId,
+      entityType: dto.resource,
+      entityId,
+      action: AuditAction.SUPER_ADMIN_CROSS_TENANT_ACCESS,
+      userId: dto.userId ?? undefined,
+      changes: {
+        after: {
+          ...(dto.metadata ?? {}),
+          actorHomeTenantId: dto.actorHomeTenantId ?? null,
+          actedOnTenantId: tenantId,
+          method: dto.method ?? null,
+          mfaVerified: dto.mfaVerified ?? null,
+          result: dto.result ?? null,
+        },
+      },
+      metadata: {
+        ipAddress: dto.ip ?? undefined,
+        userAgent: dto.userAgent ?? undefined,
+        correlationId: dto.correlationId ?? undefined,
+        source: 'TENANT_GUARD',
+      },
+      summary: 'SUPER_ADMIN cross-tenant access authorized',
+    });
+    await this.auditLogRepository.save(auditLog);
+  }
+
   /**
    * Audit log kaydı oluştur
    *
@@ -106,34 +160,25 @@ export class AuditLogService {
    * land in `farm.farm_audit_logs`.
    */
   async log(params: LogAuditParams): Promise<AuditLog> {
-    const redactedChanges = this.redactionService.redactChanges(params.changes);
-    const redactedMetadata = this.redactionService.redactMetadata(params.metadata);
-
-    const auditLog = this.auditLogRepository.create({
-      tenantId: params.tenantId,
-      entityType: params.entityType,
-      entityId: params.entityId,
-      action: params.action,
-      userId: params.userId,
-      userName: params.userName,
-      changes: redactedChanges,
-      metadata: redactedMetadata,
-      entityVersion: params.entityVersion,
-      summary: params.summary || this.generateSummary(params),
-    });
+    const auditLog = this.buildAuditLog(params);
 
     try {
       const saved = await this.auditLogRepository.save(auditLog);
       this.logger.debug(
-        `Audit log created: ${params.action} on ${params.entityType}:${params.entityId}`,
+        JSON.stringify({
+          event: 'farm_audit_record_created',
+          action: params.action,
+          entityType: params.entityType,
+        }),
       );
       return saved;
     } catch (error) {
       // Audit log errors must not affect the main operation (fire-and-forget)
-      const err = error instanceof Error ? error : new Error(String(error));
       this.logger.error(
-        `Failed to create audit log: ${err.message}`,
-        err.stack,
+        JSON.stringify({
+          event: 'farm_audit_record_failed',
+          errorType: error instanceof Error ? error.name : 'UnknownError',
+        }),
       );
       return auditLog;
     }
@@ -467,6 +512,24 @@ export class AuditLogService {
     return changedFields;
   }
 
+  private buildAuditLog(params: LogAuditParams): AuditLog {
+    const redactedChanges = this.redactionService.redactChanges(params.changes);
+    const redactedMetadata = this.redactionService.redactMetadata(params.metadata);
+
+    return this.auditLogRepository.create({
+      tenantId: params.tenantId,
+      entityType: params.entityType,
+      entityId: params.entityId,
+      action: params.action,
+      userId: params.userId,
+      userName: params.userName,
+      changes: redactedChanges,
+      metadata: redactedMetadata,
+      entityVersion: params.entityVersion,
+      summary: params.summary || this.generateSummary(params),
+    });
+  }
+
   /**
    * Özet metin oluştur
    */
@@ -480,6 +543,12 @@ export class AuditLogService {
       [AuditAction.CAPACITY_BLOCKED]: 'over-capacity (admin override)',
       [AuditAction.MORTALITY_RECORDED]: 'mortality recorded',
       [AuditAction.CULL_RECORDED]: 'cull recorded',
+      [AuditAction.REGULATORY_SUBMITTED]: 'submitted to the regulator',
+      [AuditAction.REGULATORY_FAILED]: 'regulatory submission failed',
+      [AuditAction.REGULATORY_APPROVED]: 'regulatory draft approved',
+      [AuditAction.REGULATORY_DISMISSED]: 'regulatory draft dismissed',
+      [AuditAction.REGULATORY_OVERRIDDEN]: 'regulatory draft field overridden',
+      [AuditAction.SUPER_ADMIN_CROSS_TENANT_ACCESS]: 'authorized for cross-tenant access',
     };
 
     const changedFields = params.changes?.changedFields;

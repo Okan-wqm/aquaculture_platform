@@ -80,5 +80,22 @@ export class AdminApiRetentionBootstrapModule implements OnModuleInit {
       retentionDays: 7 * 365,
       legalHoldClause: '"legalHold" = true',
     });
+
+    // AUDITTRAIL-HIGH-004: the low-level HTTP access stream. Unlike the two
+    // semantic-action audit_logs above (7y SOC 2 CC4 evidence), access_logs is
+    // a request-level observability stream with a 90-day forensic horizon (see
+    // AccessLogEntity docstring) and no legal-hold semantics — so no
+    // legalHoldClause. Now that AccessLogMiddleware is mounted at the gateway
+    // (one row per request), this policy prevents the previously-empty table
+    // from growing without bound. Same shared entity + created_at column name
+    // as shared.audit_logs above.
+    registerRetentionPolicy({
+      id: 'shared.access_logs.90d',
+      ownerTag: 'access-log-observability',
+      schema: 'shared',
+      tableName: 'access_logs',
+      timestampColumn: 'created_at',
+      retentionDays: 90,
+    });
   }
 }

@@ -30,9 +30,16 @@ const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 
 const mockRun = jest.fn().mockImplementation((_ctx: any, fn: () => any) => fn());
 
-jest.mock('@aquaculture/backend-common', () => ({
+// The handler imports from the subpath entrypoints
+// (`@aquaculture/backend-common/logging` + `/database`), so the mocks must
+// target those exact specifiers — mocking the package root would not intercept
+// the subpath imports and the real requestContextStorage would run instead.
+jest.mock('@aquaculture/backend-common/logging', () => ({
   requestContextStorage: { run: mockRun },
   getRequestContext: jest.fn().mockReturnValue({}),
+}));
+
+jest.mock('@aquaculture/backend-common/database', () => ({
   isValidUUID: (id: string) => UUID_V4_RE.test(id),
   getTenantSchemaName: (tenantId: string) => {
     const cleanId = tenantId.replace(/-/g, '').substring(0, 16).toLowerCase();
@@ -217,7 +224,12 @@ describe('SensorReadingEventHandler', () => {
         timestamp: new Date(),
         tenantId: TEST_TENANT_ID,
         sensorId: 'sensor-1',
-        readings: { temperature: 25, ph: 7.2 },
+        // Readings are flat event fields (mapped via the PARAMETER_BY_READING_FIELD
+        // SSoT), not a nested object — the flat-event contract per ADR-006. The
+        // handler's extractor rebuilds the { temperature, ph } map the evaluation
+        // service receives.
+        readingTemperature: 25,
+        readingPh: 7.2,
         farmId: 'farm-1',
         pondId: 'pond-1',
       } as any);

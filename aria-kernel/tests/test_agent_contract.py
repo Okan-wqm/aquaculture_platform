@@ -256,94 +256,27 @@ class WhitelistTests(unittest.TestCase):
         ):
             self.assertIn(agent, DEFAULT_TARGET_AGENT_WHITELIST)
 
-    def test_whitelist_includes_plan_019_domain_review_agents(self) -> None:
-        # Plan 019 Phase 2.5 adds 4 domain-review agents the auth lane
-        # (Phase 6) + Architecture Spine Gate (Phase 5.5) + CI executor
-        # (Phase 8) need to dispatch through the strict v1 envelope.
-        for agent in (
-            "architectural-arbiter",
-            "auth-security-expert",
-            "access-boundary-auditor",
-            "tenant-isolation-auditor",
-        ):
+    def test_whitelist_keeps_the_domain_agents_the_kernel_dispatches(self) -> None:
+        # E14 — Plan 019 Phase 2.5 put four domain agents here for lanes that
+        # were then built differently. Two are genuinely dispatched today
+        # (specialist touch-map / expert-review top-up) and stay; the other two
+        # left with the roles that were their only kernel dispatch path. The
+        # removal itself is pinned in tests/test_role_hygiene_e14.py.
+        for agent in ("architectural-arbiter", "auth-security-expert"):
             self.assertIn(
                 agent, DEFAULT_TARGET_AGENT_WHITELIST,
                 f"{agent} missing from DEFAULT_TARGET_AGENT_WHITELIST",
             )
 
 
-class DomainRoleTests(unittest.TestCase):
-    """Plan 019 Phase 2.5 — domain review role + ROLE_TARGET_PAIRING tests.
+class RolePairingTests(unittest.TestCase):
+    """Plan 019 Phase 2.5 — ROLE_TARGET_PAIRING is strict 1:1 where declared.
 
-    The 4 new roles each pair strictly with one domain agent. A request
-    using the new role must target the paired agent; cross-routing is
-    rejected before the agent ever sees the envelope.
+    A request using a paired role must target the paired agent; cross-routing
+    is rejected before the agent ever sees the envelope. The four per-domain
+    roles this class also covered were removed by E14 (no producer, no
+    consumer); what remains is the judge pairing and the open-role behaviour.
     """
-
-    def test_request_roles_includes_4_domain_roles(self) -> None:
-        for role in (
-            "architectural_arbitration",
-            "auth_security_review",
-            "access_boundary_review",
-            "tenant_isolation_review",
-        ):
-            self.assertIn(role, REQUEST_ROLES, f"{role} missing from REQUEST_ROLES")
-
-    def test_pairing_map_covers_4_domain_roles(self) -> None:
-        pairing = ROLE_TARGET_PAIRING
-        self.assertEqual(pairing["architectural_arbitration"], ("architectural-arbiter",))
-        self.assertEqual(pairing["auth_security_review"], ("auth-security-expert",))
-        self.assertEqual(pairing["access_boundary_review"], ("access-boundary-auditor",))
-        self.assertEqual(pairing["tenant_isolation_review"], ("tenant-isolation-auditor",))
-
-    def test_architectural_arbitration_with_correct_target_passes(self) -> None:
-        validate_request(_good_request(
-            role="architectural_arbitration",
-            target_agent="architectural-arbiter",
-        ))
-
-    def test_auth_security_review_with_correct_target_passes(self) -> None:
-        validate_request(_good_request(
-            role="auth_security_review",
-            target_agent="auth-security-expert",
-        ))
-
-    def test_access_boundary_review_with_correct_target_passes(self) -> None:
-        validate_request(_good_request(
-            role="access_boundary_review",
-            target_agent="access-boundary-auditor",
-        ))
-
-    def test_tenant_isolation_review_with_correct_target_passes(self) -> None:
-        validate_request(_good_request(
-            role="tenant_isolation_review",
-            target_agent="tenant-isolation-auditor",
-        ))
-
-    def test_architectural_arbitration_with_wrong_target_rejected(self) -> None:
-        # Cross-routing: architectural_arbitration role pointed at the
-        # evidence judge. The whitelist accepts both agents individually
-        # but the strict pairing rejects the role/target mismatch.
-        with self.assertRaisesRegex(
-            GovernanceError,
-            r"role 'architectural_arbitration' requires target_agent in "
-            r"\('architectural-arbiter',\); got 'aria-evidence-judge'",
-        ):
-            validate_request(_good_request(
-                role="architectural_arbitration",
-                target_agent="aria-evidence-judge",
-            ))
-
-    def test_auth_security_review_with_unrelated_target_rejected(self) -> None:
-        with self.assertRaisesRegex(
-            GovernanceError,
-            r"role 'auth_security_review' requires target_agent in "
-            r"\('auth-security-expert',\); got 'tenant-isolation-auditor'",
-        ):
-            validate_request(_good_request(
-                role="auth_security_review",
-                target_agent="tenant-isolation-auditor",
-            ))
 
     def test_existing_evidence_judgment_pairing_preserved(self) -> None:
         # Plan 016 Faz C4 judges already had implicit 1:1 pairing via

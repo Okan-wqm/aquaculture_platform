@@ -60,7 +60,7 @@ describe('farm-realtime-invalidation', () => {
     await invalidateAllFarmQueries(client, TENANT);
     const segments = keys().map((k) => k.slice(2));
     expect(segments).toContainEqual(['tanks']);
-    expect(segments).toContainEqual(['feedingPlan']);
+    expect(segments).toContainEqual(['feedingDayPlans']);
     expect(segments).toContainEqual(['equipment-params']);
     // the union is de-duplicated
     expect(keys().length).toBe(FARM_REALTIME_ALL_SEGMENTS.length);
@@ -71,5 +71,27 @@ describe('farm-realtime-invalidation', () => {
     for (const required of ['mortalityRecorded', 'cullRecorded', 'batchTransferred', 'batchAllocatedToTank', 'feedingRecorded', 'tankUpdated']) {
       expect(mapped).toContain(required);
     }
+  });
+
+  it('the map covers the v2 meal engine events (C-2 cutover)', async () => {
+    const mapped = Object.keys(FARM_REALTIME_INVALIDATION_SEGMENTS);
+    for (const required of [
+      'mealFed',
+      'mealSkipped',
+      'mealMissed',
+      'mealUnderfed',
+      'feedTypeTransitioned',
+      'unfedUnitDetected',
+    ]) {
+      expect(mapped).toContain(required);
+    }
+
+    // Bir öğün dökümü öğün planını, tank kartlarını ve gün sayaçlarını tazeler.
+    const { client, keys } = mockClient();
+    await invalidateFarmEventQueries(client, TENANT, 'mealFed');
+    const segments = keys().map((k) => k.slice(2));
+    expect(segments).toContainEqual(['feedingDayPlans']);
+    expect(segments).toContainEqual(['tanks']);
+    expect(segments).toContainEqual(['dailyOpsCounts']);
   });
 });

@@ -80,7 +80,7 @@ export function ImagePreview({ file, previewUrl, onSend, onCancel }: ImagePrevie
         </button>
         <div className="text-right">
           <p className="text-sm font-medium text-white truncate max-w-[200px]">{file.name}</p>
-          <p className="text-xs text-white/60">{formatFileSize(file.size)}</p>
+          <p className="text-xs text-white/75">{formatFileSize(file.size)}</p>
         </div>
       </div>
 

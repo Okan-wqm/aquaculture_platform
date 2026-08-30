@@ -1,4 +1,3 @@
-import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import { ObjectType, Field, ID, registerEnumType } from '@nestjs/graphql';
 import {
   Entity,
@@ -105,16 +104,15 @@ export class Module {
   features!: string[];
 
   /**
-   * Base price for this module (pricing details in module_pricing table)
-   */
-  @Field(() => Number, { nullable: true })
-  // DecimalTransformer: module price is used in subscription plan composition.
-  // Billing resolver sums module prices to compute total plan cost; string sum produces concatenation.
-  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0, nullable: true, transformer: new DecimalTransformer() })
-  price?: number | null;
-
-  /**
-   * Whether this is a core module included in all plans
+   * Whether this is a core module included in all plans.
+   *
+   * WHY this stays while `price` left: isCore is catalogue metadata (an
+   * enablement/classification flag consumed by the admin module catalogue
+   * UI), not a price input. All subscription pricing is billing-owned
+   * (platform rule D14): per-module prices live in the module-pricing
+   * catalog (admin.module_pricing) and plan/subscription pricing in
+   * billing.plans / billing.subscriptions. auth.modules carries catalogue
+   * metadata only — see migration 1807200000000-DropModulePriceFromAuthModules.
    */
   @Field(() => Boolean, { nullable: true })
   @Column({ type: 'boolean', default: false, name: 'is_core', nullable: true })

@@ -24,7 +24,15 @@ import {
   MAX_SHORT_CODE_LENGTH,
   UUID_SCHEMA,
 } from './common.schema';
-import { TENANT_ERASURE_TARGET_SERVICES } from '../tenant-erasure-targets';
+import {
+  TENANT_ERASURE_OUTCOME_EVENT_TYPES_BY_TARGET,
+  TENANT_ERASURE_OUTCOME_KINDS,
+  TENANT_ERASURE_TARGET_SERVICES,
+  type TenantDataErasedEventType,
+  type TenantDataErasureFailedEventType,
+  type TenantErasureBlockedEventType,
+  type TenantErasureOutcomeEventType,
+} from '../tenant-erasure-targets';
 
 export type TenantEventType =
   | 'TenantCreated'
@@ -36,13 +44,10 @@ export type TenantEventType =
   | 'TenantActivated'
   | 'TenantArchived'
   | 'TenantErasureRequested'
-  | 'TenantDataErased'
-  | 'TenantDataErasureFailed'
-  | 'TenantErasureBlocked'
+  | TenantErasureOutcomeEventType
   | 'TenantErased'
   | 'TenantProvisioningFailed'
   | 'TenantSubscriptionChanged'
-  | 'TenantSubscriptionRequested'
   | 'TenantModulesAssigned';
 
 const STRING = {
@@ -100,33 +105,6 @@ const TENANT_ERASURE_BLOCK_SOURCE = {
   enum: [...TENANT_ERASURE_TARGET_SERVICES, 'platform-orchestrator'],
 } as const;
 
-// Per-module quantity configuration carried by TenantSubscriptionRequested.
-const MODULE_QUANTITY_CONFIG = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    moduleId: UUID_SCHEMA,
-    users: NON_NEGATIVE_INT,
-    farms: NON_NEGATIVE_INT,
-    ponds: NON_NEGATIVE_INT,
-    sensors: NON_NEGATIVE_INT,
-    employees: NON_NEGATIVE_INT,
-    devices: NON_NEGATIVE_INT,
-    storageGb: NON_NEGATIVE_INT,
-    apiCalls: NON_NEGATIVE_INT,
-    alerts: NON_NEGATIVE_INT,
-    reports: NON_NEGATIVE_INT,
-    integrations: NON_NEGATIVE_INT,
-  },
-  required: ['moduleId'],
-} as const;
-
-const MODULE_QUANTITY_ARRAY = {
-  type: 'array',
-  items: MODULE_QUANTITY_CONFIG,
-  maxItems: 1000,
-} as const;
-
 function tenantEventSchema(
   eventType: TenantEventType,
   properties: Record<string, unknown>,
@@ -144,6 +122,78 @@ function tenantEventSchema(
     required,
   } as const;
 }
+
+function tenantDataErasedSchema(eventType: TenantDataErasedEventType): Record<string, unknown> {
+  return tenantEventSchema(
+    eventType,
+    {
+      operationId: UUID_SCHEMA,
+      targetService: TENANT_ERASURE_TARGET_SERVICE,
+      erasedAt: ISO_DATE_TIME,
+      dryRun: BOOLEAN,
+      matchedRecordCount: NON_NEGATIVE_INT,
+      erasedRecordCount: NON_NEGATIVE_INT,
+      proofHash: STRING,
+    },
+    [
+      'operationId',
+      'targetService',
+      'erasedAt',
+      'dryRun',
+      'matchedRecordCount',
+      'erasedRecordCount',
+      'proofHash',
+    ],
+  );
+}
+
+function tenantDataErasureFailedSchema(
+  eventType: TenantDataErasureFailedEventType,
+): Record<string, unknown> {
+  return tenantEventSchema(
+    eventType,
+    {
+      operationId: UUID_SCHEMA,
+      targetService: TENANT_ERASURE_TARGET_SERVICE,
+      failedAt: ISO_DATE_TIME,
+      errorCode: STRING,
+      errorMessage: LONG_STRING,
+      retryable: BOOLEAN,
+    },
+    ['operationId', 'targetService', 'failedAt', 'errorCode', 'errorMessage', 'retryable'],
+  );
+}
+
+function tenantErasureBlockedSchema(
+  eventType: TenantErasureBlockedEventType,
+): Record<string, unknown> {
+  return tenantEventSchema(
+    eventType,
+    {
+      operationId: UUID_SCHEMA,
+      blockedAt: ISO_DATE_TIME,
+      blockedByService: TENANT_ERASURE_BLOCK_SOURCE,
+      reason: LONG_STRING,
+      legalMatterId: STRING,
+    },
+    ['operationId', 'blockedAt', 'blockedByService', 'reason'],
+  );
+}
+
+const TENANT_ERASURE_OUTCOME_SCHEMAS = Object.fromEntries(
+  TENANT_ERASURE_TARGET_SERVICES.flatMap((targetService) =>
+    TENANT_ERASURE_OUTCOME_KINDS.map((outcome) => {
+      const eventType = TENANT_ERASURE_OUTCOME_EVENT_TYPES_BY_TARGET[targetService][outcome];
+      const schema =
+        outcome === 'erased'
+          ? tenantDataErasedSchema(eventType as TenantDataErasedEventType)
+          : outcome === 'failed'
+            ? tenantDataErasureFailedSchema(eventType as TenantDataErasureFailedEventType)
+            : tenantErasureBlockedSchema(eventType as TenantErasureBlockedEventType);
+      return [eventType, schema] as const;
+    }),
+  ),
+) as Record<TenantErasureOutcomeEventType, Record<string, unknown>>;
 
 export const TENANT_EVENT_SCHEMAS = {
   TenantCreated: tenantEventSchema(
@@ -197,50 +247,7 @@ export const TENANT_EVENT_SCHEMAS = {
       'targetServiceCount',
     ],
   ),
-  TenantDataErased: tenantEventSchema(
-    'TenantDataErased',
-    {
-      operationId: UUID_SCHEMA,
-      targetService: TENANT_ERASURE_TARGET_SERVICE,
-      erasedAt: ISO_DATE_TIME,
-      dryRun: BOOLEAN,
-      matchedRecordCount: NON_NEGATIVE_INT,
-      erasedRecordCount: NON_NEGATIVE_INT,
-      proofHash: STRING,
-    },
-    [
-      'operationId',
-      'targetService',
-      'erasedAt',
-      'dryRun',
-      'matchedRecordCount',
-      'erasedRecordCount',
-      'proofHash',
-    ],
-  ),
-  TenantDataErasureFailed: tenantEventSchema(
-    'TenantDataErasureFailed',
-    {
-      operationId: UUID_SCHEMA,
-      targetService: TENANT_ERASURE_TARGET_SERVICE,
-      failedAt: ISO_DATE_TIME,
-      errorCode: STRING,
-      errorMessage: LONG_STRING,
-      retryable: BOOLEAN,
-    },
-    ['operationId', 'targetService', 'failedAt', 'errorCode', 'errorMessage', 'retryable'],
-  ),
-  TenantErasureBlocked: tenantEventSchema(
-    'TenantErasureBlocked',
-    {
-      operationId: UUID_SCHEMA,
-      blockedAt: ISO_DATE_TIME,
-      blockedByService: TENANT_ERASURE_BLOCK_SOURCE,
-      reason: LONG_STRING,
-      legalMatterId: STRING,
-    },
-    ['operationId', 'blockedAt', 'blockedByService', 'reason'],
-  ),
+  ...TENANT_ERASURE_OUTCOME_SCHEMAS,
   TenantErased: tenantEventSchema(
     'TenantErased',
     {
@@ -285,20 +292,6 @@ export const TENANT_EVENT_SCHEMAS = {
       subscriptionStatus: STRING,
     },
     ['previousPlan', 'newPlan', 'effectiveDate'],
-  ),
-  TenantSubscriptionRequested: tenantEventSchema(
-    'TenantSubscriptionRequested',
-    {
-      tenantName: LONG_STRING,
-      moduleIds: UUID_ARRAY,
-      moduleQuantities: MODULE_QUANTITY_ARRAY,
-      trialDays: NON_NEGATIVE_INT,
-      tier: STRING,
-      billingCycle: STRING,
-      billingEmail: STRING,
-      createdBy: UUID_SCHEMA,
-    },
-    ['tenantName', 'moduleIds', 'tier', 'billingCycle', 'createdBy'],
   ),
   TenantModulesAssigned: tenantEventSchema(
     'TenantModulesAssigned',

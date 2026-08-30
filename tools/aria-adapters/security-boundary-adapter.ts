@@ -1,11 +1,14 @@
 #!/usr/bin/env ts-node
 import { relative } from 'node:path';
+
 import ts from 'typescript';
+
 import {
   collectFiles,
   filterFilesBySnapshot,
   normalizeWorkspacePath,
   readWorkspaceFile,
+  requireScanRoots,
   resolveInsideWorkspace as resolveAdapterPath,
   workspacePathExists,
 } from './adapter-fs';
@@ -83,7 +86,6 @@ interface SecurityContext {
   readonly serviceGuards: ReadonlyMap<string, readonly string[]>;
 }
 
-const DEFAULT_ROOTS = ['apps', 'libs/backend-common/src', 'platform/libs', 'web', 'tools/eslint-rules'];
 const ROUTE_DECORATORS = new Set(['Get', 'Post', 'Put', 'Patch', 'Delete', 'Query', 'Mutation']);
 const WRITE_DECORATORS = new Set(['Post', 'Put', 'Patch', 'Delete', 'Mutation']);
 const SECURITY_DECORATORS = new Set(['UseGuards', 'Roles', 'Permissions', 'Public', 'SkipTenantGuard']);
@@ -93,7 +95,7 @@ const SAFE_RAW_IMPORT_ALLOWLIST = [
 ];
 
 export function analyzeSecurityBoundaries(input: AdapterInput, workspaceRoot = process.cwd()): AriaOutput {
-  const roots = input.roots ?? DEFAULT_ROOTS;
+  const roots = requireScanRoots('security-boundary-adapter', input.roots);
   const allowlist = new Set((input.allowlist ?? []).map(normalizePath));
   const files = roots
     .map((root) => resolveInsideWorkspace(workspaceRoot, root))
@@ -331,7 +333,14 @@ function analyzeDangerousHtml(unit: SourceUnit, result: AnalysisResult, allowlis
 function dangerousHtmlSinks(unit: SourceUnit): Array<{ readonly line: number; readonly hasLocalSanitizer: boolean }> {
   const sinks: Array<{ readonly line: number; readonly hasLocalSanitizer: boolean }> = [];
   visit(unit.sourceFile, (node) => {
-    if (ts.isJsxAttribute(node) && node.name.text === 'dangerouslySetInnerHTML') {
+    // `JsxAttributeName` is Identifier | JsxNamespacedName since TS 5.1;
+    // only the identifier form can be this sink, and `.text` exists only
+    // on it — the narrowing is the type fix, not a behavioural change.
+    if (
+      ts.isJsxAttribute(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === 'dangerouslySetInnerHTML'
+    ) {
       sinks.push({
         line: lineOf(unit.sourceFile, node),
         hasLocalSanitizer: node.initializer ? hasRuntimeSanitizerCall(node.initializer) : false,
@@ -494,8 +503,12 @@ function readStdin(): Promise<string> {
   return new Promise((resolvePromise, reject) => {
     let input = '';
     process.stdin.setEncoding('utf8');
-    process.stdin.on('data', (chunk) => {
-      input += chunk;
+    // setEncoding('utf8') makes every chunk a string at runtime, but the
+    // stream's declared chunk type stays `string | Buffer` — concatenating the
+    // union is what the type checker rejects. Narrow at the boundary rather
+    // than widening `input` (kernel-dead-wire-adapter is the converged shape).
+    process.stdin.on('data', (chunk: string | Buffer) => {
+      input += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
     });
     process.stdin.on('end', () => resolvePromise(input));
     process.stdin.on('error', reject);

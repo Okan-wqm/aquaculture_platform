@@ -12,6 +12,7 @@
   - `TEST-*` — test-runner
   - `ARCH-*` — architectural-arbiter
   - `PRODUCT-{AGENT-PREFIX}-*` — Lane-B product-audit agents
+  - `DB-{AREA}-*` — Lane-D db-audit agents; AREA ∈ FARMPROD | FARMOPS | FARMPLAT | SENSOR | ADMIN | IDENT | PEOPLE | INFRA (one per partition auditor under `.claude/agents/db-audit/`)
   - `PLAT-*` — platform-kernel-expert only; retired platform service aliases are invalid
   - `BILLING-*` — billing-expert
   - `ALERT-*` — alert-engine-expert
@@ -100,6 +101,42 @@ PASS | CONDITIONAL (with listed conditions) | BLOCK
 - ADR cites
 - Prior cycle findings this one supersedes (if any)
 ```
+
+## The Verdict section is MANDATORY, especially on a clean review
+
+`ORPHAN-HIGH-462` — a specialist report with zero findings and no `## Verdict`
+section is treated by the kernel as **non-delivery**, not as a clean review,
+and it blocks the cycle.
+
+The reason is that the two are otherwise indistinguishable.
+`specialist_review_runner.transform_specialist_output` extracts findings from
+markdown by pattern, and returns an empty list both for "reviewed, found
+nothing" and for any output it cannot parse — including
+*"I ran out of context and could not complete this review"*. Reading an empty
+list as a clean review meant a degraded or hostile agent got a **better
+outcome by submitting garbage than by not submitting at all**, because
+non-delivery already blocked.
+
+So a zero-finding review must ASSERT itself. Any of these satisfies the
+kernel, in decreasing order of preference:
+
+```
+## Verdict
+PASS
+```
+
+```
+VERDICT: PASS
+```
+
+```
+RULING: no architectural conflict
+```
+
+A report that carries findings needs no separate assertion — the findings are
+themselves evidence that a review happened. The word "verdict" appearing
+mid-sentence in prose does not count; the kernel requires the heading or the
+`VERDICT:` / `RULING:` line form.
 
 ## Conciseness discipline
 

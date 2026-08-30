@@ -7,7 +7,12 @@ Six clauses locked here:
      `paths-ignore` is allowed because it's the opt-out form for the
      INFRA-MED-001 doc-only fanout case).
   2. Every `uses: actions/*` SHA-pinned with a comment tag.
-  3. `aria-kernel-fast.yml` covers both pull_request AND push.
+  3. `aria-kernel-fast.yml` is PR-ONLY: the push: trigger was removed
+     (ORPHAN-MEDIUM-769) because aria-kernel.yml already runs on every
+     main push unfiltered — fast re-firing on push duplicated the
+     always-on suite at ~90% overlap. aria-kernel-full.yml was deleted
+     outright (a strict subset of aria-kernel.yml, never a required
+     context).
   4. Every `npm ci` invocation carries `--ignore-scripts`
      (INFRA-CRITICAL-001 supply-chain).
   5. Every `actions/checkout` carries `persist-credentials: false`
@@ -40,7 +45,6 @@ _WORKFLOWS = _REPO_ROOT / ".github" / "workflows"
 # checkout persist-credentials false, top-level permissions, etc.).
 _GOVERNED_WORKFLOWS: frozenset[str] = frozenset({
     "aria-kernel.yml",
-    "aria-kernel-full.yml",
     "aria-kernel-fast.yml",
     "aria-daily-report.yml",
     "aria-agent-executor.yml",
@@ -67,6 +71,13 @@ _MUTATING_ARIA_WORKFLOWS: frozenset[str] = frozenset({
 })
 
 _SHA_PATTERN = re.compile(r"uses:\s*actions/[\w-]+@([0-9a-f]{40})\s*#\s*\S+")
+_USES_TARGET = re.compile(r"uses:\s*(\S+)")
+
+
+def _uses_target(line: str) -> str:
+    """The reference a `uses:` line points at, or '' if the line is malformed."""
+    match = _USES_TARGET.search(line)
+    return match.group(1) if match else ""
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -134,18 +145,38 @@ class CIWorkflowInvariants(unittest.TestCase):
                     continue
                 if "actions/" not in stripped:
                     continue
+                # A local composite action (`uses: ./.github/actions/x`) is
+                # this repository's own code, reviewed in the same pull
+                # request and moving with the same commit. There is no
+                # third-party ref to pin — the clause this invariant
+                # enforces is supply-chain provenance for actions fetched
+                # from elsewhere, and demanding a SHA for a path that has
+                # none would make extracting a shared step impossible.
+                if _uses_target(stripped).startswith("./"):
+                    continue
                 if not _SHA_PATTERN.search(stripped):
                     violations.append(f"{name}: not SHA-pinned: {stripped}")
         self.assertEqual(violations, [], msg="\n".join(violations))
 
-    def test_fast_workflow_covers_pr_and_push(self) -> None:
-        # Clause 3.
+    def test_fast_workflow_is_pr_only(self) -> None:
+        # Clause 3 — ORPHAN-MEDIUM-769. aria-kernel.yml owns the push lane
+        # unfiltered (ARIA-V-007); a push trigger here would re-run ~90% of
+        # the always-on suite on every non-docs merge.
         fast = self.workflows.get("aria-kernel-fast.yml")
         self.assertIsNotNone(fast, "aria-kernel-fast.yml missing")
         on = fast.get("on") if "on" in fast else fast.get(True)
         self.assertIsInstance(on, dict, msg="aria-kernel-fast.yml has no `on:` block")
         self.assertIn("pull_request", on, msg="aria-kernel-fast.yml missing pull_request")
-        self.assertIn("push", on, msg="aria-kernel-fast.yml missing push trigger")
+        self.assertNotIn("push", on, msg="aria-kernel-fast.yml must not carry a push trigger (ORPHAN-MEDIUM-769)")
+
+    def test_deleted_kernel_full_stays_deleted(self) -> None:
+        # ORPHAN-MEDIUM-769 — aria-kernel-full.yml ran a strict subset of
+        # aria-kernel.yml on the same push and was never a required context.
+        # Its return would silently re-introduce the triple fire.
+        self.assertFalse(
+            (_WORKFLOWS / "aria-kernel-full.yml").exists(),
+            "aria-kernel-full.yml was deleted for cause (ORPHAN-MEDIUM-769); do not re-add it",
+        )
 
     def test_every_npm_ci_has_ignore_scripts(self) -> None:
         # Clause 4 — INFRA-CRITICAL-001.
@@ -206,8 +237,17 @@ class CIWorkflowInvariants(unittest.TestCase):
             text = (_WORKFLOWS / name).read_text(encoding="utf-8")
             if "open-report-pr.sh" not in text:
                 continue
-            if "secrets.ARIA_GITHUB_APP_TOKEN" not in text:
-                violations.append(f"{name}: automation PR does not use ARIA_GITHUB_APP_TOKEN")
+            # ORPHAN-HIGH-798 era: the sweep mints an installation token
+            # from the configured App (dynamic, correct — installation
+            # tokens expire, you cannot store them as static secrets).
+            # Accept either the static secret reference or the dynamic
+            # mint step; both are "not the default GITHUB_TOKEN".
+            has_app_token = (
+                "secrets.ARIA_GITHUB_APP_TOKEN" in text
+                or "mint_installation_token" in text
+            )
+            if not has_app_token:
+                violations.append(f"{name}: automation PR does not use App token (static secret or dynamic mint)")
             if "secrets.GITHUB_TOKEN" in text:
                 violations.append(f"{name}: automation PR still references default GITHUB_TOKEN")
         self.assertEqual(violations, [], msg="\n".join(violations))

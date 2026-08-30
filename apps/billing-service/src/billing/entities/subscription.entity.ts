@@ -11,7 +11,15 @@ import {
   BeforeUpdate,
 } from 'typeorm';
 import { ObjectType, Field, HideField, ID, registerEnumType, Float, Int } from '@nestjs/graphql';
+// Billing's plan-tier enum is the canonical `BillingPlanTier` SSoT
+// (@platform/event-contracts). Re-exported under the historical name `PlanTier`
+// so every downstream billing import (dto, resolver, scheduler, handlers) is
+// unchanged, and registered as the GraphQL `PlanTier` enum below. Faz D (D8)
+// collapsed six hand-copied tier enums onto that one definition.
+import { BillingPlanTier as PlanTier } from '@platform/event-contracts';
 // forwardRef removed - not needed with string-based lazy loading
+
+export { PlanTier };
 
 export enum SubscriptionStatus {
   TRIAL = 'trial',
@@ -27,13 +35,6 @@ export enum BillingCycle {
   QUARTERLY = 'quarterly',
   SEMI_ANNUAL = 'semi_annual',
   ANNUAL = 'annual',
-}
-
-export enum PlanTier {
-  STARTER = 'starter',
-  PROFESSIONAL = 'professional',
-  ENTERPRISE = 'enterprise',
-  CUSTOM = 'custom',
 }
 
 registerEnumType(SubscriptionStatus, { name: 'SubscriptionStatus' });
@@ -72,16 +73,27 @@ export class PlanLimits {
 
 @ObjectType()
 export class PlanPricing {
-  @Field(() => Float)
+  @Field(() => Float, {
+    deprecationReason: 'Use basePriceDecimal (exact decimal string, ADR-0004).',
+  })
   basePrice!: number;
 
-  @Field(() => Float, { nullable: true })
+  @Field(() => Float, {
+    nullable: true,
+    deprecationReason: 'Use perFarmPriceDecimal (exact decimal string, ADR-0004).',
+  })
   perFarmPrice?: number;
 
-  @Field(() => Float, { nullable: true })
+  @Field(() => Float, {
+    nullable: true,
+    deprecationReason: 'Use perSensorPriceDecimal (exact decimal string, ADR-0004).',
+  })
   perSensorPrice?: number;
 
-  @Field(() => Float, { nullable: true })
+  @Field(() => Float, {
+    nullable: true,
+    deprecationReason: 'Use perUserPriceDecimal (exact decimal string, ADR-0004).',
+  })
   perUserPrice?: number;
 
   @Field()

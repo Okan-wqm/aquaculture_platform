@@ -122,7 +122,7 @@ interface Rule {
   readonly message: string;
 }
 
-interface Violation {
+export interface Violation {
   readonly file: string;
   readonly line: number;
   readonly ruleId: string;
@@ -143,6 +143,263 @@ function collectMatches(sql: string, regex: RegExp): readonly { start: number; s
   return out;
 }
 
+interface SqlStructuralToken {
+  readonly kind: 'word' | 'quoted-identifier' | 'symbol';
+  readonly value: string;
+  readonly start: number;
+}
+
+/**
+ * Tokenise only SQL structure that can participate in a CREATE routine
+ * declaration. String literals, dollar-quoted routine bodies, and comments are
+ * deliberately skipped: text inside them is not a declaration option.
+ */
+function tokenizeSqlStructure(sql: string): readonly SqlStructuralToken[] {
+  const tokens: SqlStructuralToken[] = [];
+  let i = 0;
+
+  while (i < sql.length) {
+    const ch = sql.charAt(i);
+    const next = sql.charAt(i + 1);
+
+    if (/\s/.test(ch)) {
+      i++;
+      continue;
+    }
+
+    if (ch === '-' && next === '-') {
+      const eol = sql.indexOf('\n', i + 2);
+      i = eol === -1 ? sql.length : eol + 1;
+      continue;
+    }
+
+    if (ch === '/' && next === '*') {
+      let depth = 1;
+      i += 2;
+      while (i < sql.length && depth > 0) {
+        if (sql.charAt(i) === '/' && sql.charAt(i + 1) === '*') {
+          depth++;
+          i += 2;
+        } else if (sql.charAt(i) === '*' && sql.charAt(i + 1) === '/') {
+          depth--;
+          i += 2;
+        } else {
+          i++;
+        }
+      }
+      continue;
+    }
+
+    if (ch === "'") {
+      i++;
+      while (i < sql.length) {
+        if (sql.charAt(i) === "'" && sql.charAt(i + 1) === "'") {
+          i += 2;
+        } else if (sql.charAt(i) === "'") {
+          i++;
+          break;
+        } else if (sql.charAt(i) === '\\' && i + 1 < sql.length) {
+          i += 2;
+        } else {
+          i++;
+        }
+      }
+      continue;
+    }
+
+    if (ch === '$') {
+      const delimiter = sql.slice(i).match(/^\$[A-Za-z_][A-Za-z0-9_]*\$|^\$\$/)?.[0];
+      if (delimiter !== undefined) {
+        const closing = sql.indexOf(delimiter, i + delimiter.length);
+        i = closing === -1 ? sql.length : closing + delimiter.length;
+        continue;
+      }
+    }
+
+    if (ch === '"') {
+      const start = i;
+      let value = '';
+      i++;
+      while (i < sql.length) {
+        if (sql.charAt(i) === '"' && sql.charAt(i + 1) === '"') {
+          value += '"';
+          i += 2;
+        } else if (sql.charAt(i) === '"') {
+          i++;
+          break;
+        } else {
+          value += sql.charAt(i);
+          i++;
+        }
+      }
+      tokens.push({ kind: 'quoted-identifier', value: value.toLowerCase(), start });
+      continue;
+    }
+
+    if (/[A-Za-z_]/.test(ch)) {
+      const start = i;
+      i++;
+      while (i < sql.length && /[A-Za-z0-9_$]/.test(sql.charAt(i))) i++;
+      tokens.push({ kind: 'word', value: sql.slice(start, i).toLowerCase(), start });
+      continue;
+    }
+
+    tokens.push({ kind: 'symbol', value: ch, start: i });
+    i++;
+  }
+
+  return tokens;
+}
+
+function isSqlWord(token: SqlStructuralToken | undefined, value: string): boolean {
+  return token?.kind === 'word' && token.value === value;
+}
+
+function isSearchPathIdentifier(token: SqlStructuralToken | undefined): boolean {
+  return (
+    (token?.kind === 'word' || token?.kind === 'quoted-identifier') && token.value === 'search_path'
+  );
+}
+
+function routineConfigurationSetOffsets(sql: string): ReadonlySet<number> {
+  const tokens = tokenizeSqlStructure(sql);
+  const allowedOffsets = new Set<number>();
+  let statementStart = 0;
+
+  for (let boundary = 0; boundary <= tokens.length; boundary++) {
+    if (boundary < tokens.length && tokens[boundary]?.value !== ';') continue;
+
+    const statement = tokens.slice(statementStart, boundary);
+    statementStart = boundary + 1;
+    if (!isSqlWord(statement[0], 'create')) continue;
+
+    let routineKeywordIndex = 1;
+    if (
+      isSqlWord(statement[routineKeywordIndex], 'or') &&
+      isSqlWord(statement[routineKeywordIndex + 1], 'replace')
+    ) {
+      routineKeywordIndex += 2;
+    }
+    if (
+      !isSqlWord(statement[routineKeywordIndex], 'function') &&
+      !isSqlWord(statement[routineKeywordIndex], 'procedure')
+    ) {
+      continue;
+    }
+
+    const argumentsOpenIndex = statement.findIndex(
+      (token, index) => index > routineKeywordIndex && token.value === '(',
+    );
+    if (argumentsOpenIndex === -1) continue;
+
+    let parenthesisDepth = 0;
+    let argumentsCloseIndex = -1;
+    for (let index = argumentsOpenIndex; index < statement.length; index++) {
+      if (statement[index]?.value === '(') parenthesisDepth++;
+      if (statement[index]?.value === ')') {
+        parenthesisDepth--;
+        if (parenthesisDepth === 0) {
+          argumentsCloseIndex = index;
+          break;
+        }
+      }
+    }
+    if (argumentsCloseIndex === -1) continue;
+
+    parenthesisDepth = 0;
+    for (let index = argumentsCloseIndex + 1; index < statement.length; index++) {
+      const token = statement[index];
+      if (token === undefined) continue;
+      if (token?.value === '(') {
+        parenthesisDepth++;
+        continue;
+      }
+      if (token?.value === ')') {
+        parenthesisDepth--;
+        continue;
+      }
+      if (parenthesisDepth !== 0) continue;
+
+      // SQL-standard routine bodies are structural rather than quoted. Their
+      // first RETURN or BEGIN ATOMIC token ends the declaration-option region.
+      if (
+        isSqlWord(token, 'return') ||
+        (isSqlWord(token, 'begin') && isSqlWord(statement[index + 1], 'atomic'))
+      ) {
+        break;
+      }
+
+      if (
+        isSqlWord(token, 'set') &&
+        isSearchPathIdentifier(statement[index + 1]) &&
+        (statement[index + 2]?.value === '=' || isSqlWord(statement[index + 2], 'to'))
+      ) {
+        allowedOffsets.add(token.start);
+      }
+    }
+  }
+
+  return allowedOffsets;
+}
+
+/**
+ * Offsets where `TRUNCATE` is the verb of a statement — i.e. the destructive
+ * form `TRUNCATE [TABLE] <name>`.
+ *
+ * The word appears in three other places where it destroys nothing, and a bare
+ * `\bTRUNCATE\b` match cannot tell them apart:
+ *
+ *   - a privilege name in `GRANT`/`REVOKE ... TRUNCATE ON <table>` — the REVOKE
+ *     form is the exact opposite of destructive, it takes the ability away;
+ *   - a trigger event in `CREATE TRIGGER ... BEFORE TRUNCATE ON <table>`, which
+ *     is how a table is made un-truncatable;
+ *   - a string literal such as `IF TG_OP = 'TRUNCATE'` inside a trigger body.
+ *
+ * The first two are decided structurally here. The third needs no rule: the
+ * tokeniser skips string literals, dollar-quoted bodies and comments, so a
+ * regex hit with no matching `word` token at its offset came from text, not
+ * from SQL structure, and is excluded by construction.
+ *
+ * Without this, a migration whose whole purpose is to make a table immutable is
+ * rejected for naming the operation it forbids, and the only way through is to
+ * mark a non-destructive statement `-- DESTRUCTIVE:` — which would make the
+ * marker meaningless for the statements that really are.
+ */
+function destructiveTruncateOffsets(sql: string): ReadonlySet<number> {
+  const tokens = tokenizeSqlStructure(sql);
+  const destructiveOffsets = new Set<number>();
+  let statementStart = 0;
+
+  for (let boundary = 0; boundary <= tokens.length; boundary++) {
+    if (boundary < tokens.length && tokens[boundary]?.value !== ';') continue;
+
+    const statement = tokens.slice(statementStart, boundary);
+    statementStart = boundary + 1;
+
+    // A privilege list: every TRUNCATE in it names a privilege, not an action.
+    if (isSqlWord(statement[0], 'grant') || isSqlWord(statement[0], 'revoke')) continue;
+
+    for (let index = 0; index < statement.length; index++) {
+      const token = statement[index];
+      if (!isSqlWord(token, 'truncate') || !token) continue;
+
+      // A trigger event list: `BEFORE TRUNCATE`, `AFTER TRUNCATE`, `OR TRUNCATE`.
+      const previous = statement[index - 1];
+      if (
+        isSqlWord(previous, 'before') ||
+        isSqlWord(previous, 'after') ||
+        isSqlWord(previous, 'or')
+      ) {
+        continue;
+      }
+
+      destructiveOffsets.add(token.start);
+    }
+  }
+
+  return destructiveOffsets;
+}
+
 /**
  * Rule registry. Each rule's regex is tuned to minimise false positives
  * on the existing 66 migrations' sample corpus; changes here should be
@@ -155,10 +412,13 @@ const RULES: readonly Rule[] = [
     // DROP COLUMN / DROP TABLE (not IF EXISTS) / TRUNCATE / DROP SCHEMA CASCADE
     // without an adjacent `-- DESTRUCTIVE:` comment on the same statement.
     scan: (sql) => {
+      const truncateVerbOffsets = destructiveTruncateOffsets(sql);
       const hits = [
         ...collectMatches(sql, /\bDROP\s+COLUMN\b(?![^\n;]*\bIF\s+EXISTS\b)/i),
         ...collectMatches(sql, /\bDROP\s+TABLE\b(?!\s+IF\s+EXISTS\b)/i),
-        ...collectMatches(sql, /\bTRUNCATE\b/i),
+        ...collectMatches(sql, /\bTRUNCATE\b/i).filter(({ start }) =>
+          truncateVerbOffsets.has(start),
+        ),
         ...collectMatches(sql, /\bDROP\s+SCHEMA\b[^;]*\bCASCADE\b/i),
       ];
       // Filter out hits that have a same-statement DESTRUCTIVE marker.
@@ -205,10 +465,7 @@ const RULES: readonly Rule[] = [
     // The chunk-with-CREATE-TABLE exemption is preserved (the table is
     // empty + the chunk runs once at initial-schema time).
     scan: (sql) => {
-      const hits = collectMatches(
-        sql,
-        /\bCREATE\s+(?:UNIQUE\s+)?INDEX\b/i,
-      );
+      const hits = collectMatches(sql, /\bCREATE\s+(?:UNIQUE\s+)?INDEX\b/i);
       return hits.filter(({ start, snippet }) => {
         // Tail of the snippet immediately after CREATE INDEX
         if (/CONCURRENTLY/i.test(snippet)) return false;
@@ -236,14 +493,19 @@ const RULES: readonly Rule[] = [
     severity: 'CRITICAL',
     // Bare `SET search_path = ...` (not LOCAL) in a migration body. LOCAL
     // form is permitted; session scope contaminates the pooled connection.
-    scan: (sql) =>
-      collectMatches(
+    // CREATE FUNCTION/PROCEDURE uses the same spelling for a declaration
+    // option that pins the routine's execution environment. That option is
+    // local to the routine and must not be confused with a standalone SET.
+    scan: (sql) => {
+      const routineConfigurationOffsets = routineConfigurationSetOffsets(sql);
+      return collectMatches(
         sql,
-        /\bSET\s+(?!LOCAL\b)(?:SESSION\s+)?search_path\s*(?:=|TO)\s/i,
-      ),
+        /\bSET\s+(?!LOCAL\b)(?:SESSION\s+)?(?:"search_path"|search_path)\s*(?:=|TO)\s/i,
+      ).filter(({ start }) => !routineConfigurationOffsets.has(start));
+    },
     message:
       'session-scoped `SET search_path` in migration body. Use `SET LOCAL ' +
-      'search_path = \'<schema>\', public;` — LOCAL scope releases on COMMIT. ' +
+      "search_path = '<schema>', public;` — LOCAL scope releases on COMMIT. " +
       'The session-scoped form is the 2026-04-07 split-brain incident class ' +
       '(DATA-HIGH-003 precedent).',
   },
@@ -251,11 +513,7 @@ const RULES: readonly Rule[] = [
     id: 'R5-overbroad-exception-catch',
     severity: 'HIGH',
     // EXCEPTION WHEN others THEN NULL — swallows security failures.
-    scan: (sql) =>
-      collectMatches(
-        sql,
-        /\bEXCEPTION\s+WHEN\s+others\s+THEN\s+NULL\b/i,
-      ),
+    scan: (sql) => collectMatches(sql, /\bEXCEPTION\s+WHEN\s+others\s+THEN\s+NULL\b/i),
     message:
       'overbroad PL/pgSQL EXCEPTION catch — `WHEN others THEN NULL` masks ' +
       'security failures, timeouts, and deadlocks alike. Narrow to the ' +
@@ -291,10 +549,7 @@ const RULES: readonly Rule[] = [
     // THEN NULL; END $$`. Match every CREATE TYPE then exclude the ones
     // wrapped in a same-statement DO block.
     scan: (sql) => {
-      const hits = collectMatches(
-        sql,
-        /\bCREATE\s+TYPE\s+["\w.]+\s+AS\s+ENUM\b/i,
-      );
+      const hits = collectMatches(sql, /\bCREATE\s+TYPE\s+["\w.]+\s+AS\s+ENUM\b/i);
       return hits.filter(({ start }) => {
         // Walk backwards from the match looking for a DO $$ BEGIN within
         // the most recent block boundary (no intervening END $$).
@@ -317,11 +572,7 @@ const RULES: readonly Rule[] = [
     // ADD COLUMN <name> without IF NOT EXISTS. Same partial-replay class
     // as R6 but on column-evolution migrations. Match-then-filter so we
     // also accept `ADD COLUMN IF NOT EXISTS "..."` with quoted identifier.
-    scan: (sql) =>
-      collectMatches(
-        sql,
-        /\bADD\s+COLUMN\s+(?!IF\s+NOT\s+EXISTS\b)["\w]+/i,
-      ),
+    scan: (sql) => collectMatches(sql, /\bADD\s+COLUMN\s+(?!IF\s+NOT\s+EXISTS\b)["\w]+/i),
     message:
       'ADD COLUMN without IF NOT EXISTS is non-idempotent. On replay (the ' +
       'migration runner re-runs migrations until the ledger logs success) ' +
@@ -375,10 +626,7 @@ const RULES: readonly Rule[] = [
       );
       return hits.filter(({ start }) => {
         const guardWindow = sql.slice(Math.max(0, start - 800), start);
-        if (
-          /\bpg_constraint\b/i.test(guardWindow) &&
-          /\bconname\b/i.test(guardWindow)
-        ) {
+        if (/\bpg_constraint\b/i.test(guardWindow) && /\bconname\b/i.test(guardWindow)) {
           return false;
         }
         const window = sql.slice(Math.max(0, start - 400), start);
@@ -402,8 +650,7 @@ const RULES: readonly Rule[] = [
     // authors see a clearer "you forgot IF EXISTS" hint distinct from
     // "you forgot the DESTRUCTIVE marker". Both fire on the same row —
     // intentional belt-and-suspenders.
-    scan: (sql) =>
-      collectMatches(sql, /\bDROP\s+TABLE\s+(?!IF\s+EXISTS\b)["\w.]+/i),
+    scan: (sql) => collectMatches(sql, /\bDROP\s+TABLE\s+(?!IF\s+EXISTS\b)["\w.]+/i),
     message:
       'DROP TABLE without IF EXISTS — non-idempotent and combines poorly ' +
       'with partial-replay scenarios. Use `DROP TABLE IF EXISTS <name>` AND ' +
@@ -501,16 +748,12 @@ function offsetToLine(source: string, offset: number): number {
   return line;
 }
 
-function scanMigrationFile(relPath: string): Violation[] {
-  const abs = resolve(REPO_ROOT, relPath);
-  if (!existsSync(abs)) return [];
-  const source = readFileSync(abs, 'utf8');
+function scanSqlChunks(
+  relPath: string,
+  source: string,
+  chunks: readonly { sql: string; offset: number }[],
+): Violation[] {
   const violations: Violation[] = [];
-
-  const chunks: { sql: string; offset: number }[] = relPath.toLowerCase().endsWith('.sql')
-    ? [{ sql: source, offset: 0 }]
-    : [...extractSqlChunks(source)];
-
   for (const { sql, offset } of chunks) {
     for (const rule of RULES) {
       for (const hit of rule.scan(sql)) {
@@ -526,6 +769,21 @@ function scanMigrationFile(relPath: string): Violation[] {
     }
   }
   return violations;
+}
+
+/** Scan an in-memory SQL migration through the same rules used by the CLI. */
+export function scanMigrationSql(sql: string): readonly Violation[] {
+  return scanSqlChunks('<inline migration>', sql, [{ sql, offset: 0 }]);
+}
+
+function scanMigrationFile(relPath: string): Violation[] {
+  const abs = resolve(REPO_ROOT, relPath);
+  if (!existsSync(abs)) return [];
+  const source = readFileSync(abs, 'utf8');
+  const chunks: { sql: string; offset: number }[] = relPath.toLowerCase().endsWith('.sql')
+    ? [{ sql: source, offset: 0 }]
+    : [...extractSqlChunks(source)];
+  return scanSqlChunks(relPath, source, chunks);
 }
 
 function isMigrationFile(relPath: string): boolean {
@@ -641,4 +899,4 @@ function main(): void {
   process.exit(1);
 }
 
-main();
+if (require.main === module) main();

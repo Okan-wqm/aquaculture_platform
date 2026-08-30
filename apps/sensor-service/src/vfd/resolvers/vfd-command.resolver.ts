@@ -1,15 +1,21 @@
 import { UseGuards } from '@nestjs/common';
-import { Resolver, Query, Mutation, Args, ID, Float, ObjectType, Field } from '@nestjs/graphql';
-import { Roles, Role, Tenant } from '@aquaculture/backend-common/decorators';
+import { Resolver, Query, Mutation, Args, ID, Int, Float, ObjectType, Field } from '@nestjs/graphql';
+import { Roles, Role, Tenant, CurrentUser, CurrentUserPayload } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
 import { ThrottleSensitive } from '@aquaculture/backend-common/security';
 import { GraphQLJSON } from 'graphql-scalars';
 
 import { VFD_BRAND_COMMANDS } from '../brand-configs';
 import { VfdCommandDto, VfdCommandResultDto } from '../dto/vfd-command.dto';
+import { VfdCommandAuditLog } from '../entities/vfd-command-audit-log.entity';
 import { VfdRegisterMapping } from '../entities/vfd-register-mapping.entity';
 import { VfdBrand, VfdProtocol, VfdParameterCategory, VfdCommandType } from '../entities/vfd.enums';
-import { VfdCommandService } from '../services/vfd-command.service';
+import { VfdCommandService, VfdCommandActor } from '../services/vfd-command.service';
+
+/** Build the audit actor from the authenticated user (DB-SENSOR-HIGH-003). */
+function toActor(user: CurrentUserPayload): VfdCommandActor {
+  return { userId: user.sub, email: user.email };
+}
 import { VfdConnectionTesterService } from '../services/vfd-connection-tester.service';
 import { VfdRegisterMappingService } from '../services/vfd-register-mapping.service';
 
@@ -51,9 +57,10 @@ export class VfdCommandResolver {
   async sendCommand(
     @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
     @Args('command') command: VfdCommandDto,
-    @Tenant() tenantId: string
+    @Tenant() tenantId: string,
+    @CurrentUser() user: CurrentUserPayload
   ): Promise<VfdCommandResultDto> {
-    return this.commandService.executeCommand(vfdDeviceId, tenantId, command);
+    return this.commandService.executeCommand(vfdDeviceId, tenantId, command, toActor(user));
   }
 
   /**
@@ -65,11 +72,12 @@ export class VfdCommandResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async startVfd(
     @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
-    @Tenant() tenantId: string
+    @Tenant() tenantId: string,
+    @CurrentUser() user: CurrentUserPayload
   ): Promise<VfdCommandResultDto> {
     return this.commandService.executeCommand(vfdDeviceId, tenantId, {
       command: VfdCommandType.START,
-    });
+    }, toActor(user));
   }
 
   /**
@@ -81,11 +89,12 @@ export class VfdCommandResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async stopVfd(
     @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
-    @Tenant() tenantId: string
+    @Tenant() tenantId: string,
+    @CurrentUser() user: CurrentUserPayload
   ): Promise<VfdCommandResultDto> {
     return this.commandService.executeCommand(vfdDeviceId, tenantId, {
       command: VfdCommandType.STOP,
-    });
+    }, toActor(user));
   }
 
   /**
@@ -98,12 +107,13 @@ export class VfdCommandResolver {
   async setFrequency(
     @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
     @Args('frequencyHz', { type: () => Float }) frequencyHz: number,
-    @Tenant() tenantId: string
+    @Tenant() tenantId: string,
+    @CurrentUser() user: CurrentUserPayload
   ): Promise<VfdCommandResultDto> {
     return this.commandService.executeCommand(vfdDeviceId, tenantId, {
       command: VfdCommandType.SET_FREQUENCY,
       value: frequencyHz,
-    });
+    }, toActor(user));
   }
 
   /**
@@ -116,12 +126,13 @@ export class VfdCommandResolver {
   async setSpeed(
     @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
     @Args('speedPercent', { type: () => Float }) speedPercent: number,
-    @Tenant() tenantId: string
+    @Tenant() tenantId: string,
+    @CurrentUser() user: CurrentUserPayload
   ): Promise<VfdCommandResultDto> {
     return this.commandService.executeCommand(vfdDeviceId, tenantId, {
       command: VfdCommandType.SET_SPEED,
       value: speedPercent,
-    });
+    }, toActor(user));
   }
 
   /**
@@ -133,11 +144,12 @@ export class VfdCommandResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async resetFault(
     @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
-    @Tenant() tenantId: string
+    @Tenant() tenantId: string,
+    @CurrentUser() user: CurrentUserPayload
   ): Promise<VfdCommandResultDto> {
     return this.commandService.executeCommand(vfdDeviceId, tenantId, {
       command: VfdCommandType.FAULT_RESET,
-    });
+    }, toActor(user));
   }
 
   /**
@@ -149,11 +161,28 @@ export class VfdCommandResolver {
   @Mutation(() => VfdCommandResultDto, { name: 'emergencyStopVfd' })
   async emergencyStop(
     @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
-    @Tenant() tenantId: string
+    @Tenant() tenantId: string,
+    @CurrentUser() user: CurrentUserPayload
   ): Promise<VfdCommandResultDto> {
     return this.commandService.executeCommand(vfdDeviceId, tenantId, {
       command: VfdCommandType.EMERGENCY_STOP,
-    });
+    }, toActor(user));
+  }
+
+  // ============ COMMAND AUDIT QUERY ============
+
+  /**
+   * Read the immutable runtime control-command audit trail for a device
+   * (DB-SENSOR-HIGH-003) — surfaces who/when/what/result to operators.
+   */
+  @Query(() => [VfdCommandAuditLog], { name: 'vfdCommandAuditLog' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async getCommandAuditLog(
+    @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
+    @Tenant() tenantId: string,
+    @Args('limit', { type: () => Int, nullable: true }) limit?: number
+  ): Promise<VfdCommandAuditLog[]> {
+    return this.commandService.getCommandAuditLog(vfdDeviceId, tenantId, limit ?? 100);
   }
 
   // ============ CONFIGURATION QUERIES ============

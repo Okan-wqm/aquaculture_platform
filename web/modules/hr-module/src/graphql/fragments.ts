@@ -532,7 +532,14 @@ export const PERFORMANCE_REVIEW_FRAGMENT = gql`
     managerAssessment
     managerRating
     finalRating
-    competencyRatings
+    competencyRatings {
+      competencyId
+      competencyName
+      selfRating
+      managerRating
+      finalRating
+      comments
+    }
     strengths
     areasForImprovement
     developmentPlan
@@ -566,10 +573,23 @@ export const GOAL_FRAGMENT = gql`
     targetDate
     completedDate
     progressPercent
-    keyResults
+    keyResults {
+      id
+      description
+      targetValue
+      currentValue
+      unit
+      isCompleted
+    }
     alignedReviewId
     parentGoalId
-    milestones
+    milestones {
+      id
+      title
+      targetDate
+      completedDate
+      isCompleted
+    }
     createdAt
     updatedAt
   }
@@ -600,23 +620,12 @@ export const PAYROLL_FRAGMENT = gql`
       sickLeaveHours
       vacationHours
     }
-    earnings {
-      baseSalary
-      overtime
-      bonus
-      commission
-      allowances
-      grossPay
-    }
-    deductions {
-      tax
-      socialSecurity
-      healthInsurance
-      retirement
-      otherDeductions
-      totalDeductions
-    }
+    earningsGrossPay
+    earningsGrossPayDecimal
+    deductionsTotal
+    deductionsTotalDecimal
     netPay
+    netPayDecimal
     currency
     status
     approvedBy

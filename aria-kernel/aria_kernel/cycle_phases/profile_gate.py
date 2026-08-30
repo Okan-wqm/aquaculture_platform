@@ -15,8 +15,10 @@ V3.1-E hardens the profile + preflight + budget SSoT:
 
 V3.1-0 ships ONLY the Protocol + NoOp variant. The real ProfileGate
 implementation lands in V3.1-E and reuses the existing
-`_autonomous_preflight` helper (currently at
-`autonomy_orchestrator._autonomous_preflight:196`).
+`_cycle_preflight` helper (`autonomy_orchestrator._cycle_preflight`;
+renamed from `_autonomous_preflight` by ORPHAN-CRITICAL-420 S2 when the
+failure-breaker check stopped being autonomous-only). Deliberately cited
+without a line number — the previous `:196` locator was stale.
 """
 from __future__ import annotations
 
@@ -79,10 +81,10 @@ class ProfileGate(Protocol):
 class NoOpProfileGate:
     """Plan ARIA-V3.1-0 — default. Returns `permitted=True` regardless
     of profile so the orchestrator's V8 behavior (preflight is
-    handled inline via `_autonomous_preflight`) is preserved exactly
+    handled inline via `_cycle_preflight`) is preserved exactly
     when injection is absent.
 
-    V3.1-E replaces the inline `_autonomous_preflight` call with a
+    V3.1-E replaces the inline `_cycle_preflight` call with a
     `ProfileGate.evaluate(...)` invocation; the NoOp keeps current
     semantics during the v3.1-0 scaffolding commit.
     """

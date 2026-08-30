@@ -1,195 +1,153 @@
 /**
- * Fish Health Chemicals Tab Component
- * Manage fish health chemicals and treatments with CRUD operations (mock data)
+ * Fish Health Chemicals Tab
+ *
+ * Therapeutic-substance setup, backed by the Chemical master (FARM-HIGH-003
+ * Phase 4.2). This tab is a therapeutic-focused VIEW over the canonical
+ * `chemicals` aggregate — create/edit/delete route through the Phase-3-compliant
+ * Chemical resolver (tenant transaction + audit + outbox), NOT a client-side
+ * mock. Therapeutic-only attributes (withdrawal period, target conditions,
+ * prescription requirement) ride in the chemical's `usageProtocol`.
  */
 import React, { useState } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, useToast } from '@aquaculture/shared-ui';
+
+import {
+  useChemicalList,
+  useCreateChemical,
+  useUpdateChemical,
+  useDeleteChemical,
+  Chemical,
+  ChemicalType,
+  ChemicalStatus,
+  CreateChemicalInput,
+  UpdateChemicalInput,
+  UsageProtocol,
+} from '../../../hooks/useChemicals';
+import { useSupplierList, SupplierType } from '../../../hooks/useSuppliers';
+import { useSiteList } from '../../../hooks/useSites';
 
 // ============================================================================
-// TYPES & CONSTANTS
+// CONSTANTS
 // ============================================================================
 
-interface FishHealthItem {
-  id: string;
+/**
+ * The therapeutic subset of ChemicalType surfaced by this tab. The Chemicals
+ * tab shows every type; this tab is the therapeutic-substance view of the same
+ * Chemical master. Values map 1:1 to the backend `chemicals_type_enum`
+ * (antifungal/vaccine/wound_care were added in migration 1805900000000).
+ */
+const THERAPEUTIC_CATEGORIES: { value: ChemicalType; label: string }[] = [
+  { value: ChemicalType.ANTIPARASITIC, label: 'Antiparasitic' },
+  { value: ChemicalType.ANTIBIOTIC, label: 'Antibiotic' },
+  { value: ChemicalType.ANTIFUNGAL, label: 'Antifungal' },
+  { value: ChemicalType.VACCINE, label: 'Vaccine' },
+  { value: ChemicalType.ANESTHETIC, label: 'Anesthetic' },
+  { value: ChemicalType.DISINFECTANT, label: 'Disinfectant' },
+  { value: ChemicalType.PROBIOTIC, label: 'Probiotic' },
+  { value: ChemicalType.VITAMIN, label: 'Vitamin' },
+  { value: ChemicalType.WOUND_CARE, label: 'Wound Care' },
+  { value: ChemicalType.OTHER, label: 'Other' },
+];
+
+const THERAPEUTIC_TYPES = new Set<ChemicalType>(THERAPEUTIC_CATEGORIES.map((c) => c.value));
+
+const CATEGORY_LABELS: Record<string, string> = Object.fromEntries(
+  THERAPEUTIC_CATEGORIES.map((c) => [c.value, c.label]),
+);
+
+const categoryColors: Record<string, string> = {
+  [ChemicalType.ANTIPARASITIC]: 'bg-orange-100 text-orange-800',
+  [ChemicalType.ANTIBIOTIC]: 'bg-red-100 text-red-800',
+  [ChemicalType.ANTIFUNGAL]: 'bg-purple-100 text-purple-800',
+  [ChemicalType.VACCINE]: 'bg-blue-100 text-blue-800',
+  [ChemicalType.ANESTHETIC]: 'bg-pink-100 text-pink-800',
+  [ChemicalType.DISINFECTANT]: 'bg-green-100 text-green-800',
+  [ChemicalType.PROBIOTIC]: 'bg-indigo-100 text-indigo-800',
+  [ChemicalType.VITAMIN]: 'bg-yellow-100 text-yellow-800',
+  [ChemicalType.WOUND_CARE]: 'bg-rose-100 text-rose-800',
+  [ChemicalType.OTHER]: 'bg-gray-100 text-gray-800',
+};
+
+const statusColors: Record<string, string> = {
+  [ChemicalStatus.AVAILABLE]: 'bg-green-100 text-green-800',
+  [ChemicalStatus.LOW_STOCK]: 'bg-yellow-100 text-yellow-800',
+  [ChemicalStatus.OUT_OF_STOCK]: 'bg-red-100 text-red-800',
+  [ChemicalStatus.EXPIRED]: 'bg-gray-100 text-gray-800',
+  [ChemicalStatus.DISCONTINUED]: 'bg-gray-100 text-gray-800',
+};
+
+const statusLabels: Record<string, string> = {
+  [ChemicalStatus.AVAILABLE]: 'Available',
+  [ChemicalStatus.LOW_STOCK]: 'Low Stock',
+  [ChemicalStatus.OUT_OF_STOCK]: 'Out of Stock',
+  [ChemicalStatus.EXPIRED]: 'Expired',
+  [ChemicalStatus.DISCONTINUED]: 'Discontinued',
+};
+
+const UNIT_OPTIONS = [
+  { value: 'kg', label: 'Kilograms' },
+  { value: 'L', label: 'Liters' },
+  { value: 'ml', label: 'Milliliters' },
+  { value: 'g', label: 'Grams' },
+  { value: 'dose', label: 'Doses' },
+  { value: 'pcs', label: 'Pieces' },
+];
+
+const FORMULATION_OPTIONS = [
+  'Liquid',
+  'Powder',
+  'Premix',
+  'Tablet',
+  'Injectable',
+  'Gel',
+  'Emulsion',
+];
+
+const STORAGE_OPTIONS = [
+  'Room temperature',
+  'Cool & dry',
+  'Cool & dry, below 25°C',
+  'Refrigerated 2-8°C',
+  'Room temperature, dark',
+  'Hazmat storage',
+];
+
+// ============================================================================
+// FORM STATE
+// ============================================================================
+
+interface FormData {
   name: string;
   code: string;
-  category: string;
+  type: ChemicalType | '';
+  siteId: string;
+  supplierId: string;
   activeIngredient: string;
   concentration: string;
   formulation: string;
   unit: string;
-  supplierName: string;
   withdrawalPeriodDays: number;
   prescriptionRequired: boolean;
-  targetConditions: string[];
+  targetConditionsText: string;
   storageRequirements: string;
-  status: string;
-  isActive: boolean;
+  status: ChemicalStatus;
 }
-
-const CATEGORIES = [
-  { value: 'ANTIPARASITIC', label: 'Antiparasitic' },
-  { value: 'ANTIBIOTIC', label: 'Antibiotic' },
-  { value: 'ANTIFUNGAL', label: 'Antifungal' },
-  { value: 'VACCINE', label: 'Vaccine' },
-  { value: 'ANESTHETIC', label: 'Anesthetic' },
-  { value: 'DISINFECTANT', label: 'Disinfectant' },
-  { value: 'PROBIOTIC', label: 'Probiotic' },
-  { value: 'VITAMIN', label: 'Vitamin' },
-  { value: 'WOUND_CARE', label: 'Wound Care' },
-  { value: 'OTHER', label: 'Other' },
-];
-
-const categoryColors: Record<string, string> = {
-  ANTIPARASITIC: 'bg-orange-100 text-orange-800',
-  ANTIBIOTIC: 'bg-red-100 text-red-800',
-  ANTIFUNGAL: 'bg-purple-100 text-purple-800',
-  VACCINE: 'bg-blue-100 text-blue-800',
-  ANESTHETIC: 'bg-pink-100 text-pink-800',
-  DISINFECTANT: 'bg-green-100 text-green-800',
-  PROBIOTIC: 'bg-indigo-100 text-indigo-800',
-  VITAMIN: 'bg-yellow-100 text-yellow-800',
-  WOUND_CARE: 'bg-rose-100 text-rose-800',
-  OTHER: 'bg-gray-100 text-gray-800',
-};
-
-const statusColors: Record<string, string> = {
-  AVAILABLE: 'bg-green-100 text-green-800',
-  LOW_STOCK: 'bg-yellow-100 text-yellow-800',
-  OUT_OF_STOCK: 'bg-red-100 text-red-800',
-  EXPIRED: 'bg-gray-100 text-gray-800',
-};
-
-const statusLabels: Record<string, string> = {
-  AVAILABLE: 'Available',
-  LOW_STOCK: 'Low Stock',
-  OUT_OF_STOCK: 'Out of Stock',
-  EXPIRED: 'Expired',
-};
-
-const INITIAL_DATA: FishHealthItem[] = [
-  {
-    id: '1',
-    name: 'SLICE Premix',
-    code: 'FH-001',
-    category: 'ANTIPARASITIC',
-    activeIngredient: 'Emamectin Benzoate',
-    concentration: '0.2%',
-    formulation: 'Premix',
-    unit: 'kg',
-    supplierName: 'MSD Animal Health',
-    withdrawalPeriodDays: 175,
-    prescriptionRequired: true,
-    targetConditions: ['Sea lice'],
-    storageRequirements: 'Cool & dry, below 25°C',
-    status: 'AVAILABLE',
-    isActive: true,
-  },
-  {
-    id: '2',
-    name: 'Alphamax',
-    code: 'FH-002',
-    category: 'ANTIPARASITIC',
-    activeIngredient: 'Deltamethrin',
-    concentration: '10 mg/ml',
-    formulation: 'Liquid',
-    unit: 'L',
-    supplierName: 'PHARMAQ',
-    withdrawalPeriodDays: 7,
-    prescriptionRequired: true,
-    targetConditions: ['Sea lice'],
-    storageRequirements: 'Room temperature',
-    status: 'AVAILABLE',
-    isActive: true,
-  },
-  {
-    id: '3',
-    name: 'Aqui-S',
-    code: 'FH-003',
-    category: 'ANESTHETIC',
-    activeIngredient: 'Isoeugenol',
-    concentration: '50%',
-    formulation: 'Liquid',
-    unit: 'L',
-    supplierName: 'Aqui-S NZ',
-    withdrawalPeriodDays: 1,
-    prescriptionRequired: false,
-    targetConditions: ['Sedation', 'Anesthesia'],
-    storageRequirements: 'Room temperature, dark',
-    status: 'AVAILABLE',
-    isActive: true,
-  },
-  {
-    id: '4',
-    name: 'Oxytetracycline 20%',
-    code: 'FH-004',
-    category: 'ANTIBIOTIC',
-    activeIngredient: 'OTC',
-    concentration: '200 mg/g',
-    formulation: 'Powder',
-    unit: 'kg',
-    supplierName: 'PHARMAQ',
-    withdrawalPeriodDays: 80,
-    prescriptionRequired: true,
-    targetConditions: ['Furunculosis', 'Vibriosis'],
-    storageRequirements: 'Cool & dry',
-    status: 'AVAILABLE',
-    isActive: true,
-  },
-  {
-    id: '5',
-    name: 'PHARMAQ Alpha Ject',
-    code: 'FH-005',
-    category: 'VACCINE',
-    activeIngredient: 'Inactivated A. salmonicida',
-    concentration: 'Standard',
-    formulation: 'Injectable',
-    unit: 'dose',
-    supplierName: 'PHARMAQ',
-    withdrawalPeriodDays: 450,
-    prescriptionRequired: true,
-    targetConditions: ['Furunculosis'],
-    storageRequirements: 'Refrigerated 2-8°C',
-    status: 'AVAILABLE',
-    isActive: true,
-  },
-  {
-    id: '6',
-    name: 'Bronopol 50%',
-    code: 'FH-006',
-    category: 'ANTIFUNGAL',
-    activeIngredient: 'Bronopol',
-    concentration: '50%',
-    formulation: 'Liquid',
-    unit: 'L',
-    supplierName: 'Novartis',
-    withdrawalPeriodDays: 0,
-    prescriptionRequired: false,
-    targetConditions: ['Saprolegnia'],
-    storageRequirements: 'Room temperature',
-    status: 'AVAILABLE',
-    isActive: true,
-  },
-];
-
-type FormData = Omit<FishHealthItem, 'id'> & { targetConditionsText: string };
 
 const emptyForm: FormData = {
   name: '',
   code: '',
-  category: '',
+  type: '',
+  siteId: '',
+  supplierId: '',
   activeIngredient: '',
   concentration: '',
   formulation: '',
   unit: 'kg',
-  supplierName: '',
   withdrawalPeriodDays: 0,
   prescriptionRequired: false,
-  targetConditions: [],
   targetConditionsText: '',
   storageRequirements: '',
-  status: 'AVAILABLE',
-  isActive: true,
+  status: ChemicalStatus.AVAILABLE,
 };
 
 // ============================================================================
@@ -197,74 +155,200 @@ const emptyForm: FormData = {
 // ============================================================================
 
 export const FishHealthChemicalsTab: React.FC = () => {
-  const [items, setItems] = useState<FishHealthItem[]>(INITIAL_DATA);
+  const { toast } = useToast();
+
+  const { data: chemicalsData, isLoading, error } = useChemicalList();
+  const { data: suppliersData } = useSupplierList({ type: SupplierType.CHEMICAL });
+  const { data: sitesData } = useSiteList();
+  const createChemical = useCreateChemical();
+  const updateChemical = useUpdateChemical();
+  const deleteChemical = useDeleteChemical();
+
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editing, setEditing] = useState<Chemical | null>(null);
   const [formData, setFormData] = useState<FormData>(emptyForm);
+  const [isSaving, setIsSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Chemical | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const suppliers = suppliersData?.items ?? [];
+  const sites = sitesData?.items ?? [];
+
+  // Therapeutic-substance view over the Chemical master.
+  const items = (chemicalsData?.items ?? []).filter((c) => THERAPEUTIC_TYPES.has(c.type));
 
   const filtered = items.filter((item) => {
+    const term = searchTerm.toLowerCase();
     const matchesSearch =
-      item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.activeIngredient.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCat = selectedCategory === 'all' || item.category === selectedCategory;
-    return matchesSearch && matchesCat;
+      item.name.toLowerCase().includes(term) ||
+      item.code.toLowerCase().includes(term) ||
+      (item.activeIngredient?.toLowerCase().includes(term) ?? false);
+    const matchesCategory = selectedCategory === 'all' || item.type === selectedCategory;
+    return matchesSearch && matchesCategory;
   });
 
-  const getCategoryLabel = (cat: string) => CATEGORIES.find((c) => c.value === cat)?.label || cat;
+  const getCategoryLabel = (type: string): string => CATEGORY_LABELS[type] ?? type;
+  const getSiteName = (siteId?: string): string =>
+    (siteId && sites.find((s) => s.id === siteId)?.name) || '-';
 
-  const openCreate = () => {
-    setEditingId(null);
+  const updateField = <K extends keyof FormData>(key: K, value: FormData[K]): void => {
+    setFormData((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const openCreate = (): void => {
+    setEditing(null);
     setFormData(emptyForm);
     setIsModalOpen(true);
   };
 
-  const openEdit = (item: FishHealthItem) => {
-    setEditingId(item.id);
-    const { id, ...rest } = item;
-    setFormData({ ...rest, targetConditionsText: rest.targetConditions.join(', ') });
+  const openEdit = (item: Chemical): void => {
+    setEditing(item);
+    setFormData({
+      name: item.name,
+      code: item.code,
+      type: item.type,
+      siteId: item.siteId ?? '',
+      supplierId: item.supplierId ?? '',
+      activeIngredient: item.activeIngredient ?? '',
+      concentration: item.concentration ?? '',
+      formulation: item.formulation ?? '',
+      unit: item.unit || 'kg',
+      withdrawalPeriodDays: item.usageProtocol?.withdrawalPeriod ?? 0,
+      prescriptionRequired: item.usageProtocol?.prescriptionRequired ?? false,
+      targetConditionsText: (item.usageProtocol?.targetConditions ?? []).join(', '),
+      storageRequirements: item.storageRequirements ?? '',
+      status: item.status,
+    });
     setIsModalOpen(true);
   };
 
-  const handleDelete = (id: string) => {
-    if (confirm('Are you sure you want to delete this therapeutic substance?')) {
-      setItems((prev) => prev.filter((i) => i.id !== id));
-    }
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formData.name || !formData.code) {
-      alert('Name and code are required.');
-      return;
-    }
-
+  const buildUsageProtocol = (): UsageProtocol | undefined => {
     const targetConditions = formData.targetConditionsText
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
-    const { targetConditionsText, ...rest } = formData;
-    const itemData = { ...rest, targetConditions };
-
-    if (editingId) {
-      setItems((prev) =>
-        prev.map((i) => (i.id === editingId ? { ...itemData, id: editingId } : i)),
-      );
-    } else {
-      setItems((prev) => [...prev, { ...itemData, id: Date.now().toString() }]);
+    const usageProtocol: UsageProtocol = {
+      prescriptionRequired: formData.prescriptionRequired,
+    };
+    if (formData.withdrawalPeriodDays > 0) {
+      usageProtocol.withdrawalPeriod = formData.withdrawalPeriodDays;
     }
-    setIsModalOpen(false);
+    if (targetConditions.length > 0) {
+      usageProtocol.targetConditions = targetConditions;
+    }
+    return usageProtocol;
   };
 
-  const updateField = <K extends keyof FormData>(key: K, value: FormData[K]) => {
-    setFormData((prev) => ({ ...prev, [key]: value }));
+  const handleSubmit = async (e: React.FormEvent): Promise<void> => {
+    e.preventDefault();
+    if (!formData.name || !formData.code) {
+      toast({
+        title: 'Missing fields',
+        description: 'Name and code are required.',
+        variant: 'error',
+      });
+      return;
+    }
+    if (!formData.type) {
+      toast({
+        title: 'Missing fields',
+        description: 'Please select a category.',
+        variant: 'error',
+      });
+      return;
+    }
+    if (!editing && !formData.siteId) {
+      toast({ title: 'Missing fields', description: 'Please select a site.', variant: 'error' });
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      if (editing) {
+        const input: UpdateChemicalInput = {
+          id: editing.id,
+          name: formData.name,
+          code: formData.code,
+          type: formData.type,
+          unit: formData.unit,
+          supplierId: formData.supplierId || undefined,
+          activeIngredient: formData.activeIngredient || undefined,
+          concentration: formData.concentration || undefined,
+          formulation: formData.formulation || undefined,
+          storageRequirements: formData.storageRequirements || undefined,
+          usageProtocol: buildUsageProtocol(),
+          status: formData.status,
+        };
+        await updateChemical.mutateAsync(input);
+      } else {
+        const input: CreateChemicalInput = {
+          name: formData.name,
+          code: formData.code,
+          type: formData.type,
+          siteId: formData.siteId,
+          unit: formData.unit,
+          supplierId: formData.supplierId || undefined,
+          activeIngredient: formData.activeIngredient || undefined,
+          concentration: formData.concentration || undefined,
+          formulation: formData.formulation || undefined,
+          storageRequirements: formData.storageRequirements || undefined,
+          usageProtocol: buildUsageProtocol(),
+        };
+        await createChemical.mutateAsync(input);
+      }
+      toast({
+        title: editing ? 'Substance updated' : 'Substance added',
+        description: `${formData.name} was saved.`,
+        variant: 'success',
+      });
+      setIsModalOpen(false);
+      setEditing(null);
+      setFormData(emptyForm);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      const isDuplicate =
+        message.toLowerCase().includes('duplicate') ||
+        message.toLowerCase().includes('already exists') ||
+        message.includes('409');
+      toast({
+        title: isDuplicate ? 'Duplicate substance' : 'Error',
+        description: isDuplicate
+          ? 'A substance with this name or code already exists. Use a different name or code.'
+          : 'Failed to save the therapeutic substance. Please try again.',
+        variant: 'error',
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const confirmDelete = async (): Promise<void> => {
+    if (!deleteTarget) return;
+    setIsDeleting(true);
+    try {
+      await deleteChemical.mutateAsync(deleteTarget.id);
+      toast({
+        title: 'Substance removed',
+        description: `${deleteTarget.name} was deleted.`,
+        variant: 'success',
+      });
+      setDeleteTarget(null);
+    } catch {
+      toast({
+        title: 'Error',
+        description: 'Failed to delete the substance. Please try again.',
+        variant: 'error',
+      });
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   return (
     <div>
-      {/* BUG-13 FIX: Sticky toolbar keeps the Add button visible when scrolling long tables */}
+      {/* Toolbar */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 sticky top-0 z-10 bg-white pb-4 -mt-4 pt-4">
         <div className="flex flex-1 gap-4">
           <div className="relative flex-1 max-w-md">
@@ -295,7 +379,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
             className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
             <option value="all">All Categories</option>
-            {CATEGORIES.map((c) => (
+            {THERAPEUTIC_CATEGORIES.map((c) => (
               <option key={c.value} value={c.value}>
                 {c.label}
               </option>
@@ -355,22 +439,24 @@ export const FishHealthChemicalsTab: React.FC = () => {
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <span
-                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${categoryColors[item.category] || 'bg-gray-100 text-gray-800'}`}
+                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${categoryColors[item.type] || 'bg-gray-100 text-gray-800'}`}
                   >
-                    {getCategoryLabel(item.category)}
+                    {getCategoryLabel(item.type)}
                   </span>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                  {item.activeIngredient}
+                  {item.activeIngredient || '-'}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                  {item.withdrawalPeriodDays > 0 ? `${item.withdrawalPeriodDays} days` : '-'}
+                  {item.usageProtocol?.withdrawalPeriod
+                    ? `${item.usageProtocol.withdrawalPeriod} days`
+                    : '-'}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <span
-                    className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${item.prescriptionRequired ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-600'}`}
+                    className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${item.usageProtocol?.prescriptionRequired ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-600'}`}
                   >
-                    {item.prescriptionRequired ? 'Yes' : 'No'}
+                    {item.usageProtocol?.prescriptionRequired ? 'Yes' : 'No'}
                   </span>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
@@ -388,7 +474,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
                     Edit
                   </button>
                   <button
-                    onClick={() => handleDelete(item.id)}
+                    onClick={() => setDeleteTarget(item)}
                     className="text-red-600 hover:text-red-900"
                   >
                     Delete
@@ -398,21 +484,21 @@ export const FishHealthChemicalsTab: React.FC = () => {
             ))}
           </tbody>
         </table>
-        {filtered.length === 0 && (
+
+        {isLoading && (
+          <div className="text-center py-12 text-sm text-gray-500">
+            Loading therapeutic substances…
+          </div>
+        )}
+
+        {error && !isLoading && (
+          <div className="text-center py-12 text-sm text-red-600">
+            Failed to load therapeutic substances. Please retry.
+          </div>
+        )}
+
+        {!isLoading && !error && filtered.length === 0 && (
           <div className="text-center py-12">
-            <svg
-              className="mx-auto h-12 w-12 text-gray-400"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"
-              />
-            </svg>
             <h3 className="mt-2 text-sm font-medium text-gray-900">
               No therapeutic substances found
             </h3>
@@ -423,17 +509,16 @@ export const FishHealthChemicalsTab: React.FC = () => {
         )}
       </div>
 
-      {/* Modal */}
+      {/* Create / Edit modal */}
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        title={editingId ? 'Edit Therapeutic Substance' : 'Add Therapeutic Substance'}
+        title={editing ? 'Edit Therapeutic Substance' : 'Add Therapeutic Substance'}
         size="md"
       >
         <form onSubmit={handleSubmit}>
           <div className="max-h-[70vh] overflow-y-auto">
             <div className="space-y-4">
-              {/* Basic Info */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Name *</label>
@@ -456,17 +541,18 @@ export const FishHealthChemicalsTab: React.FC = () => {
                   />
                 </div>
               </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Category *</label>
                   <select
                     required
-                    value={formData.category}
-                    onChange={(e) => updateField('category', e.target.value)}
+                    value={formData.type}
+                    onChange={(e) => updateField('type', e.target.value as ChemicalType)}
                     className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                   >
                     <option value="">Select</option>
-                    {CATEGORIES.map((c) => (
+                    {THERAPEUTIC_CATEGORIES.map((c) => (
                       <option key={c.value} value={c.value}>
                         {c.label}
                       </option>
@@ -480,23 +566,58 @@ export const FishHealthChemicalsTab: React.FC = () => {
                     onChange={(e) => updateField('unit', e.target.value)}
                     className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                   >
-                    <option value="kg">Kilograms</option>
-                    <option value="L">Liters</option>
-                    <option value="ml">Milliliters</option>
-                    <option value="g">Grams</option>
-                    <option value="dose">Doses</option>
-                    <option value="pcs">Pieces</option>
+                    {UNIT_OPTIONS.map((u) => (
+                      <option key={u.value} value={u.value}>
+                        {u.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Supplier</label>
-                <input
-                  type="text"
-                  value={formData.supplierName}
-                  onChange={(e) => updateField('supplierName', e.target.value)}
-                  className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-                />
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Site {editing ? '' : '*'}
+                  </label>
+                  {editing ? (
+                    <input
+                      type="text"
+                      disabled
+                      value={getSiteName(formData.siteId)}
+                      className="mt-1 block w-full border border-gray-200 bg-gray-50 rounded-md py-2 px-3 text-gray-500"
+                    />
+                  ) : (
+                    <select
+                      required
+                      value={formData.siteId}
+                      onChange={(e) => updateField('siteId', e.target.value)}
+                      className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="">Select site</option>
+                      {sites.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Supplier</label>
+                  <select
+                    value={formData.supplierId}
+                    onChange={(e) => updateField('supplierId', e.target.value)}
+                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="">Select supplier</option>
+                    {suppliers.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               {/* Composition */}
@@ -533,13 +654,11 @@ export const FishHealthChemicalsTab: React.FC = () => {
                     className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                   >
                     <option value="">Select</option>
-                    <option value="Liquid">Liquid</option>
-                    <option value="Powder">Powder</option>
-                    <option value="Premix">Premix</option>
-                    <option value="Tablet">Tablet</option>
-                    <option value="Injectable">Injectable</option>
-                    <option value="Gel">Gel</option>
-                    <option value="Emulsion">Emulsion</option>
+                    {FORMULATION_OPTIONS.map((f) => (
+                      <option key={f} value={f}>
+                        {f}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -557,7 +676,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
                       min="0"
                       value={formData.withdrawalPeriodDays}
                       onChange={(e) =>
-                        updateField('withdrawalPeriodDays', parseInt(e.target.value) || 0)
+                        updateField('withdrawalPeriodDays', parseInt(e.target.value, 10) || 0)
                       }
                       className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                     />
@@ -578,7 +697,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
                 </div>
               </div>
 
-              {/* Target Conditions */}
+              {/* Target conditions */}
               <div className="border-t pt-4 mt-4">
                 <h4 className="text-sm font-medium text-gray-700 mb-3">Target Conditions</h4>
                 <input
@@ -590,38 +709,44 @@ export const FishHealthChemicalsTab: React.FC = () => {
                 />
               </div>
 
-              {/* Storage & Safety */}
+              {/* Storage & status */}
               <div className="border-t pt-4 mt-4">
-                <h4 className="text-sm font-medium text-gray-700 mb-3">Storage & Safety</h4>
-                <select
-                  value={formData.storageRequirements}
-                  onChange={(e) => updateField('storageRequirements', e.target.value)}
-                  className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="">Select</option>
-                  <option value="Room temperature">Room Temperature</option>
-                  <option value="Cool & dry">Cool & Dry</option>
-                  <option value="Cool & dry, below 25°C">Cool & Dry, below 25°C</option>
-                  <option value="Refrigerated 2-8°C">Refrigerated 2-8°C</option>
-                  <option value="Room temperature, dark">Room Temperature, Dark</option>
-                  <option value="Hazmat storage">Hazmat Storage</option>
-                </select>
-              </div>
-
-              {/* Status */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Status</label>
-                <select
-                  value={formData.status}
-                  onChange={(e) => updateField('status', e.target.value)}
-                  className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  {Object.entries(statusLabels).map(([v, l]) => (
-                    <option key={v} value={v}>
-                      {l}
-                    </option>
-                  ))}
-                </select>
+                <h4 className="text-sm font-medium text-gray-700 mb-3">Storage &amp; Status</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">
+                      Storage Requirements
+                    </label>
+                    <select
+                      value={formData.storageRequirements}
+                      onChange={(e) => updateField('storageRequirements', e.target.value)}
+                      className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="">Select</option>
+                      {STORAGE_OPTIONS.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {editing && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">Status</label>
+                      <select
+                        value={formData.status}
+                        onChange={(e) => updateField('status', e.target.value as ChemicalStatus)}
+                        className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                      >
+                        {Object.entries(statusLabels).map(([v, l]) => (
+                          <option key={v} value={v}>
+                            {l}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -636,12 +761,43 @@ export const FishHealthChemicalsTab: React.FC = () => {
             </button>
             <button
               type="submit"
-              className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700"
+              disabled={isSaving}
+              className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-60"
             >
-              {editingId ? 'Update' : 'Create'}
+              {isSaving ? 'Saving…' : editing ? 'Update' : 'Create'}
             </button>
           </div>
         </form>
+      </Modal>
+
+      {/* Delete confirmation modal (replaces browser confirm) */}
+      <Modal
+        isOpen={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete Therapeutic Substance"
+        size="sm"
+      >
+        <p className="text-sm text-gray-700">
+          Are you sure you want to delete <span className="font-medium">{deleteTarget?.name}</span>?
+          This removes the substance from the Chemical master.
+        </p>
+        <div className="mt-6 flex justify-end gap-3">
+          <button
+            type="button"
+            onClick={() => setDeleteTarget(null)}
+            className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void confirmDelete()}
+            disabled={isDeleting}
+            className="px-4 py-2 bg-red-600 text-white rounded-md text-sm font-medium hover:bg-red-700 disabled:opacity-60"
+          >
+            {isDeleting ? 'Deleting…' : 'Delete'}
+          </button>
+        </div>
       </Modal>
     </div>
   );

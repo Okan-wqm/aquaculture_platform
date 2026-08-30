@@ -19,9 +19,11 @@
  *      contract preserved, raised INSIDE the boundary).
  *   6. Biomass blocker still triggers `canDelete = false`.
  */
-import { NotFoundException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { EntityTarget, ObjectLiteral } from 'typeorm';
 
+import { Role } from '@aquaculture/backend-common/decorators';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { createMockDataSource } from '@aquaculture/testing';
 
 import { GetSiteDeletePreviewHandler } from '../handlers/get-site-delete-preview.handler';
@@ -35,6 +37,10 @@ import { Tank } from '../../tank/entities/tank.entity';
 
 const SITE_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const MANAGER = {
+  sub: 'manager-1',
+  roles: [Role.MODULE_MANAGER],
+};
 
 interface Qb {
   where: jest.Mock;
@@ -68,9 +74,7 @@ function makeHandler(opts: {
   // by entity so call-order independence holds.
   (mockManager.findOne as jest.Mock).mockResolvedValue(opts.site);
 
-  const equipmentSystemFind = jest
-    .fn()
-    .mockResolvedValue(opts.equipmentSystemLinks);
+  const equipmentSystemFind = jest.fn().mockResolvedValue(opts.equipmentSystemLinks);
 
   (mockManager.find as jest.Mock).mockImplementation(
     (entity: EntityTarget<ObjectLiteral>, options?: unknown) => {
@@ -99,7 +103,7 @@ function makeHandler(opts: {
       return makeQb([]);
     }) as typeof mockManager.createQueryBuilder;
 
-  const handler = new GetSiteDeletePreviewHandler(mockDataSource);
+  const handler = new GetSiteDeletePreviewHandler(mockDataSource, new SiteAuthorizationService());
   return { handler, equipmentSystemFind };
 }
 
@@ -115,8 +119,24 @@ describe('GetSiteDeletePreviewHandler', () => {
     });
 
     await expect(
-      handler.execute(new GetSiteDeletePreviewQuery(SITE_ID, TENANT)),
+      handler.execute(new GetSiteDeletePreviewQuery(SITE_ID, TENANT, MANAGER)),
     ).rejects.toThrow(NotFoundException);
+  });
+
+  it('rejects an unassigned MODULE_USER before reading the site or its children', async () => {
+    const { mockDataSource } = createMockDataSource();
+    const handler = new GetSiteDeletePreviewHandler(mockDataSource, new SiteAuthorizationService());
+
+    await expect(
+      handler.execute(
+        new GetSiteDeletePreviewQuery(SITE_ID, TENANT, {
+          sub: 'user-1',
+          roles: [Role.MODULE_USER],
+          assignedSiteIds: ['another-site'],
+        }),
+      ),
+    ).rejects.toThrow(ForbiddenException);
+    expect(mockDataSource.createQueryRunner).not.toHaveBeenCalled();
   });
 
   it('reports per-system equipment counts via the equipment_systems junction', async () => {
@@ -140,9 +160,7 @@ describe('GetSiteDeletePreviewHandler', () => {
       ],
     });
 
-    const response = await handler.execute(
-      new GetSiteDeletePreviewQuery(SITE_ID, TENANT),
-    );
+    const response = await handler.execute(new GetSiteDeletePreviewQuery(SITE_ID, TENANT, MANAGER));
 
     // Query scoped to the target tenant + the systems list — no
     // cross-tenant bleed.
@@ -174,9 +192,7 @@ describe('GetSiteDeletePreviewHandler', () => {
       ],
     });
 
-    const response = await handler.execute(
-      new GetSiteDeletePreviewQuery(SITE_ID, TENANT),
-    );
+    const response = await handler.execute(new GetSiteDeletePreviewQuery(SITE_ID, TENANT, MANAGER));
     const byCode = Object.fromEntries(
       response.affectedItems.systems.map((s) => [s.code, s.equipmentCount]),
     );
@@ -193,9 +209,7 @@ describe('GetSiteDeletePreviewHandler', () => {
       equipmentSystemLinks: [],
     });
 
-    const response = await handler.execute(
-      new GetSiteDeletePreviewQuery(SITE_ID, TENANT),
-    );
+    const response = await handler.execute(new GetSiteDeletePreviewQuery(SITE_ID, TENANT, MANAGER));
     expect(response.affectedItems.systems).toHaveLength(1);
     expect(response.affectedItems.systems[0]!.equipmentCount).toBe(0);
     expect(equipmentSystemFind).toHaveBeenCalledTimes(1);
@@ -211,7 +225,7 @@ describe('GetSiteDeletePreviewHandler', () => {
       equipmentSystemLinks: [],
     });
 
-    await handler.execute(new GetSiteDeletePreviewQuery(SITE_ID, TENANT));
+    await handler.execute(new GetSiteDeletePreviewQuery(SITE_ID, TENANT, MANAGER));
     // Avoids an empty-IN query — match the handler's guard.
     expect(equipmentSystemFind).not.toHaveBeenCalled();
   });
@@ -234,9 +248,7 @@ describe('GetSiteDeletePreviewHandler', () => {
       equipmentSystemLinks: [],
     });
 
-    const response = await handler.execute(
-      new GetSiteDeletePreviewQuery(SITE_ID, TENANT),
-    );
+    const response = await handler.execute(new GetSiteDeletePreviewQuery(SITE_ID, TENANT, MANAGER));
     expect(response.canDelete).toBe(false);
     expect(response.blockers[0]).toContain('450.00 kg');
   });

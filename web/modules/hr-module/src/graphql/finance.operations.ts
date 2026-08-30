@@ -21,6 +21,7 @@ const HR_FINANCE_ENTRY_FIELDS = `
   categoryId
   entryDate
   amount
+  amountDecimal
   currency
   description
   departmentHrId
@@ -43,6 +44,19 @@ const PAYROLL_COST_SETTINGS_FIELDS = `
 // QUERIES
 // ============================================================================
 
+export const GET_HR_PERSONNEL_TABLE = `
+  query GetHrPersonnelTable {
+    hrPersonnelTable {
+      rows {
+        category
+        headcount
+      }
+      totalHeadcount
+      unclassifiedCount
+    }
+  }
+`;
+
 export const GET_HR_LABOUR_COST = `
   query GetHrLabourCost($year: Int) {
     hrLabourCost(year: $year) {
@@ -50,19 +64,20 @@ export const GET_HR_LABOUR_COST = `
       rows {
         category
         headcount
-        annualSalaryTotal
-        avgAnnualSalary
+        annualSalaryTotalDecimal
+        avgAnnualSalaryDecimal
+        salarySuppressed
       }
       totalHeadcount
       unclassifiedCount
-      annualSalaryTotal
-      pensionFund
-      socialInsuranceFund
-      medicalInsuranceFund
-      otherCost
-      totalPayroll
-      actualGrossPayYtd
-      hrExpensesYtd
+      annualSalaryTotalDecimal
+      pensionFundDecimal
+      socialInsuranceFundDecimal
+      medicalInsuranceFundDecimal
+      otherCostDecimal
+      totalPayrollDecimal
+      actualGrossPayYtdDecimal
+      hrExpensesYtdDecimal
     }
   }
 `;
@@ -73,15 +88,16 @@ export const GET_HR_FINANCE_SUMMARY = `
       currency
       series {
         bucketStart
-        payrollGross
-        hrExpenses
+        payrollGrossDecimal
+        hrExpensesDecimal
       }
       byDepartment {
         departmentHrId
         departmentName
         headcount
-        annualSalaryTotal
-        hrExpenses
+        annualSalaryTotalDecimal
+        salarySuppressed
+        hrExpensesDecimal
       }
     }
   }

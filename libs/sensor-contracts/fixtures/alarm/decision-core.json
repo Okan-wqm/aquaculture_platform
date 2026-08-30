@@ -1,0 +1,226 @@
+{
+  "description": "Shared conformance suite for the alarm decision core (crates/alarm-core). The Rust golden test (crates/alarm-core/tests/fixtures.rs) and the TypeScript twin (libs/alarm-core/src/decision-core.spec.ts) both consume this file and MUST produce identical results, so the edge and SCADA-runtime engines can never drift on the canonical semantics. Each case is one pure-function assertion.",
+  "epsilon": 0.0001,
+  "condition": [
+    { "name": "lt_true", "operator": "<", "value": 1.0, "threshold": 2.0, "expected": true },
+    {
+      "name": "lt_false_at_threshold",
+      "operator": "<",
+      "value": 2.0,
+      "threshold": 2.0,
+      "expected": false
+    },
+    { "name": "gt_true", "operator": ">", "value": 3.0, "threshold": 2.0, "expected": true },
+    {
+      "name": "gt_false_at_threshold",
+      "operator": ">",
+      "value": 2.0,
+      "threshold": 2.0,
+      "expected": false
+    },
+    {
+      "name": "le_true_at_threshold",
+      "operator": "<=",
+      "value": 2.0,
+      "threshold": 2.0,
+      "expected": true
+    },
+    {
+      "name": "ge_true_at_threshold",
+      "operator": ">=",
+      "value": 2.0,
+      "threshold": 2.0,
+      "expected": true
+    },
+    {
+      "name": "eq_within_epsilon",
+      "operator": "==",
+      "value": 5.00005,
+      "threshold": 5.0,
+      "expected": true
+    },
+    {
+      "name": "eq_outside_epsilon",
+      "operator": "==",
+      "value": 5.001,
+      "threshold": 5.0,
+      "expected": false
+    },
+    {
+      "name": "eq_exact_not_required",
+      "operator": "==",
+      "value": 5.0,
+      "threshold": 5.0,
+      "expected": true
+    },
+    {
+      "name": "ne_within_epsilon_false",
+      "operator": "!=",
+      "value": 5.00005,
+      "threshold": 5.0,
+      "expected": false
+    },
+    {
+      "name": "ne_outside_epsilon_true",
+      "operator": "!=",
+      "value": 5.001,
+      "threshold": 5.0,
+      "expected": true
+    },
+    {
+      "name": "eq_at_epsilon_edge_exclusive",
+      "operator": "==",
+      "value": 0.0001,
+      "threshold": 0.0,
+      "expected": false
+    },
+    {
+      "name": "ne_at_epsilon_edge_true",
+      "operator": "!=",
+      "value": 0.0001,
+      "threshold": 0.0,
+      "expected": true
+    },
+    {
+      "name": "unknown_operator_false",
+      "operator": "><",
+      "value": 1.0,
+      "threshold": 2.0,
+      "expected": false
+    }
+  ],
+  "deadband": [
+    {
+      "name": "zero_deadband_allows_clear_gt",
+      "operator": ">",
+      "value": 100.0,
+      "threshold": 50.0,
+      "deadband": 0.0,
+      "expected": true
+    },
+    {
+      "name": "zero_deadband_allows_clear_eq",
+      "operator": "==",
+      "value": 50.0,
+      "threshold": 50.0,
+      "deadband": 0.0,
+      "expected": true
+    },
+    {
+      "name": "gt_at_edge_stays_latched",
+      "operator": ">",
+      "value": 48.0,
+      "threshold": 50.0,
+      "deadband": 2.0,
+      "expected": false
+    },
+    {
+      "name": "gt_strictly_past_clears",
+      "operator": ">",
+      "value": 47.9,
+      "threshold": 50.0,
+      "deadband": 2.0,
+      "expected": true
+    },
+    {
+      "name": "ge_at_edge_stays_latched",
+      "operator": ">=",
+      "value": 48.0,
+      "threshold": 50.0,
+      "deadband": 2.0,
+      "expected": false
+    },
+    {
+      "name": "lt_at_edge_stays_latched",
+      "operator": "<",
+      "value": 52.0,
+      "threshold": 50.0,
+      "deadband": 2.0,
+      "expected": false
+    },
+    {
+      "name": "lt_strictly_past_clears",
+      "operator": "<",
+      "value": 52.1,
+      "threshold": 50.0,
+      "deadband": 2.0,
+      "expected": true
+    },
+    {
+      "name": "le_at_edge_stays_latched",
+      "operator": "<=",
+      "value": 52.0,
+      "threshold": 50.0,
+      "deadband": 2.0,
+      "expected": false
+    },
+    {
+      "name": "eq_outside_band_clears",
+      "operator": "==",
+      "value": 53.0,
+      "threshold": 50.0,
+      "deadband": 2.0,
+      "expected": true
+    },
+    {
+      "name": "eq_at_edge_stays_latched",
+      "operator": "==",
+      "value": 52.0,
+      "threshold": 50.0,
+      "deadband": 2.0,
+      "expected": false
+    },
+    {
+      "name": "ne_within_band_clears",
+      "operator": "!=",
+      "value": 51.0,
+      "threshold": 50.0,
+      "deadband": 2.0,
+      "expected": true
+    },
+    {
+      "name": "ne_at_edge_stays_latched",
+      "operator": "!=",
+      "value": 52.0,
+      "threshold": 50.0,
+      "deadband": 2.0,
+      "expected": false
+    },
+    {
+      "name": "small_deadband_no_hidden_floor",
+      "operator": "==",
+      "value": 50.005,
+      "threshold": 50.0,
+      "deadband": 0.001,
+      "expected": true
+    },
+    {
+      "name": "small_deadband_within_honoured",
+      "operator": "==",
+      "value": 50.0005,
+      "threshold": 50.0,
+      "deadband": 0.001,
+      "expected": false
+    },
+    {
+      "name": "unknown_operator_allows_clear",
+      "operator": "><",
+      "value": 1.0,
+      "threshold": 2.0,
+      "deadband": 1.0,
+      "expected": true
+    }
+  ],
+  "delay": [
+    { "name": "not_yet_elapsed", "elapsed_ms": 1500, "delay_ms": 2000, "expected": false },
+    { "name": "exactly_elapsed", "elapsed_ms": 2000, "delay_ms": 2000, "expected": true },
+    { "name": "past_elapsed", "elapsed_ms": 2001, "delay_ms": 2000, "expected": true },
+    {
+      "name": "sub_second_precision_no_truncation",
+      "elapsed_ms": 1900,
+      "delay_ms": 2000,
+      "expected": false
+    },
+    { "name": "zero_delay_always_elapsed", "elapsed_ms": 0, "delay_ms": 0, "expected": true }
+  ]
+}

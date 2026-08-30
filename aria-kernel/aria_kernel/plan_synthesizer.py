@@ -43,6 +43,8 @@ import subprocess
 from pathlib import Path
 from typing import Any, Mapping, Protocol
 
+from .strict_jsonl_reader import read_strict_jsonl
+
 
 __all__ = [
     "PlanSynthesizer",
@@ -574,7 +576,13 @@ def scan_f_findings(workspace_root: str | Path) -> list[dict[str, Any]]:
     (perf HIGH-006 lazy-parse contract). Returns candidates oldest-first
     (older = higher priority).
     """
-    findings_dir = Path(workspace_root) / "aria-findings"
+    # D3 — resolve through the writer's own accessor: under a redirected
+    # state root the hand-built `workspace_root / "aria-findings"` pointed
+    # at a directory the emitter never writes, so aging F-findings could
+    # never become plan candidates on the runner.
+    from .finding import findings_dir as _findings_dir_accessor
+
+    findings_dir = _findings_dir_accessor(workspace_root)
     if not findings_dir.is_dir():
         return []
     candidates: list[dict[str, Any]] = []
@@ -781,31 +789,29 @@ def scan_operator_feedback(workspace_root: str | Path) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
     rejected: list[str] = []
     try:
-        with path.open("r", encoding="utf-8") as f:
-            for lineno, line in enumerate(f, start=1):
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    row = json.loads(line)
-                except json.JSONDecodeError:
-                    rejected.append(f"line-{lineno}-malformed-json")
-                    continue
-                if row.get("status") != "unaddressed":
-                    continue
-                if not _verify_operator_feedback_signature(row):
-                    rejected.append(row.get("id") or f"line-{lineno}-unsigned")
-                    continue
-                candidates.append({
-                    "source_type": PlanCandidateSource.OPERATOR_FEEDBACK.value,
-                    "candidate_id": row["id"],
-                    "priority": row["priority"],
-                    "request": row["request"],
-                    "authored_at": row["authored_at"],
-                    "signature_kid": row["signature_kid"],
-                    "title_hint": f"Operator request {row['id']}",
-                    "rejected_rows_in_scan": rejected,
-                })
+        for lineno, row in enumerate(
+            read_strict_jsonl(
+                path,
+                on_corruption="tolerant",
+                base_dir=path.parent,
+            ),
+            start=1,
+        ):
+            if row.get("status") != "unaddressed":
+                continue
+            if not _verify_operator_feedback_signature(row):
+                rejected.append(row.get("id") or f"line-{lineno}-unsigned")
+                continue
+            candidates.append({
+                "source_type": PlanCandidateSource.OPERATOR_FEEDBACK.value,
+                "candidate_id": row["id"],
+                "priority": row["priority"],
+                "request": row["request"],
+                "authored_at": row["authored_at"],
+                "signature_kid": row["signature_kid"],
+                "title_hint": f"Operator request {row['id']}",
+                "rejected_rows_in_scan": rejected,
+            })
     except OSError:
         return []
     priority_rank = {"high": 0, "medium": 1, "low": 2}

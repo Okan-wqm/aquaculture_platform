@@ -8,15 +8,13 @@
  * - Slaughter facility with approval number
  * - Regulatory metadata from settings
  */
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   useRegulatorySettings,
   useSubmitPlannedSlaughterReport,
-  useSubmitExecutedSlaughterReport,
 } from '../../../hooks/useRegulatory';
 import type {
   SubmitPlannedSlaughterInput,
-  SubmitExecutedSlaughterInput,
   ReportSubmissionResult,
 } from '../../../hooks/useRegulatory';
 import { PlannedSlaughter, CompletedSlaughter, SlaughterReportType } from '../types/reports.types';
@@ -24,6 +22,7 @@ import { ReportWizard, ReportWizardStep } from '../components/wizard/ReportWizar
 import { SubmissionHistorySection } from '../components/SubmissionHistorySection';
 import { useStableClientReference } from '../../../hooks/useStableClientReference';
 import { useTanksList, Tank } from '../../../hooks/useTanks';
+import { useSlaughterFacilities } from '../../../hooks/useSlaughterFacilities';
 
 // ============================================================================
 // Types
@@ -71,7 +70,7 @@ interface DayPlanEntry {
   batchNumber: string;
 }
 
-interface SlaughterFormData {
+export interface SlaughterFormData {
   reportType: SlaughterReportType;
   // Week/year selection
   weekNumber: number;
@@ -214,7 +213,7 @@ function extractBatchOptions(tanks: Tank[] | undefined): BatchOption[] {
   return options;
 }
 
-function getInitialFormData(): SlaughterFormData {
+export function getInitialFormData(): SlaughterFormData {
   const now = new Date();
   return {
     reportType: 'planned',
@@ -356,18 +355,18 @@ const ReportTypeStep: React.FC<ReportTypeStepProps> = ({ formData, onChange, sit
             <div className="text-xs text-gray-500">Planlagt Slakt</div>
             <div className="text-xs text-gray-400 mt-1">Weekly schedule by day</div>
           </button>
-          <button
-            type="button"
-            onClick={() => onChange({ reportType: 'completed' })}
-            className={`p-4 border-2 rounded-lg text-center ${
-              formData.reportType === 'completed'
-                ? 'border-green-500 bg-green-50'
-                : 'border-gray-200 hover:border-gray-300'
-            }`}
+          {/* Executed (utført) slaughter is filed from harvest records via the
+              records-based "Scheduled reports due" review-and-approve draft — the
+              manual grade-percentage form cannot compute per-species gutted kg, so
+              it is disabled here to prevent a fabricated filing. */}
+          <div
+            className="p-4 border-2 border-gray-200 rounded-lg text-center opacity-60 cursor-not-allowed"
+            aria-disabled="true"
+            title="Executed slaughter is filed from harvest records — see “Scheduled reports due”."
           >
-            <div className="p-3 bg-green-100 rounded-lg inline-block mb-2">
+            <div className="p-3 bg-gray-100 rounded-lg inline-block mb-2">
               <svg
-                className="w-6 h-6 text-green-600"
+                className="w-6 h-6 text-gray-500"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -381,9 +380,11 @@ const ReportTypeStep: React.FC<ReportTypeStepProps> = ({ formData, onChange, sit
               </svg>
             </div>
             <div className="font-medium text-gray-900">Executed Slaughter</div>
-            <div className="text-xs text-gray-500">Utfort Slakt</div>
-            <div className="text-xs text-gray-400 mt-1">Record actual harvests</div>
-          </button>
+            <div className="text-xs text-gray-500">Utført Slakt</div>
+            <div className="text-xs text-gray-400 mt-1">
+              Filed from records — see “Scheduled reports due”
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -399,10 +400,38 @@ interface FacilityStepProps {
   onChange: (data: Partial<SlaughterFormData>) => void;
 }
 
-const FacilityStep: React.FC<FacilityStepProps> = ({ formData, onChange }) => {
+export const FacilityStep: React.FC<FacilityStepProps> = ({ formData, onChange }) => {
+  // The slaughter-facility catalog is the SSoT for godkjenningsnummer (Phase 2 /
+  // RPT-007): the report binds an approved facility from Setup rather than
+  // accepting free text, so the approval number cannot drift from the catalog
+  // the server-side slakt assembler reads.
+  const { data: facilities = [], isLoading: facilitiesLoading } = useSlaughterFacilities();
+
   const updateFacility = (updates: Partial<SlaughterFacility>) => {
     onChange({ facility: { ...formData.facility, ...updates } });
   };
+
+  // Seed the default facility once the catalog resolves and none is chosen yet.
+  // The empty-approvalNumber guard makes this idempotent: after onChange sets the
+  // facility, formData.facility changes and the effect re-runs into a no-op, so
+  // declaring the real deps (no exhaustive-deps suppression) cannot loop.
+  useEffect(() => {
+    if (!formData.facility.approvalNumber && facilities.length > 0) {
+      const preferred = facilities.find((f) => f.isDefault) ?? facilities[0];
+      if (preferred) {
+        onChange({
+          facility: {
+            ...formData.facility,
+            facilityName: preferred.name,
+            approvalNumber: preferred.godkjenningsnummer,
+          },
+        });
+      }
+    }
+  }, [facilities, formData.facility, onChange]);
+
+  const selectedFacilityId =
+    facilities.find((f) => f.godkjenningsnummer === formData.facility.approvalNumber)?.id ?? '';
 
   const updateRegulatory = (updates: Partial<RegulatoryMetadata>) => {
     onChange({ regulatory: { ...formData.regulatory, ...updates } });
@@ -504,33 +533,51 @@ const FacilityStep: React.FC<FacilityStepProps> = ({ formData, onChange }) => {
             Required
           </span>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        {facilitiesLoading ? (
+          <p className="text-xs text-gray-400">Loading facilities…</p>
+        ) : facilities.length === 0 ? (
+          <p className="text-xs text-amber-600">
+            No slaughter facilities registered. Add one under Setup → Slaughter Facilities — the
+            catalog is the source of the approval number (godkjenningsnummer) the report submits.
+          </p>
+        ) : (
           <div>
-            <label className="block text-xs text-gray-500 mb-1">
-              Facility Name (godkjenningsnavn)
-            </label>
-            <input
-              type="text"
-              value={formData.facility.facilityName}
-              onChange={(e) => updateFacility({ facilityName: e.target.value })}
+            <label className="block text-xs text-gray-500 mb-1">Facility (slakteri) *</label>
+            <select
+              value={selectedFacilityId}
+              onChange={(e) => {
+                const picked = facilities.find((f) => f.id === e.target.value);
+                if (picked) {
+                  updateFacility({
+                    facilityName: picked.name,
+                    approvalNumber: picked.godkjenningsnummer,
+                  });
+                }
+              }}
+              aria-label="Slaughter facility"
               className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-              placeholder="Marine Harvest Processing AS"
-            />
+            >
+              <option value="" disabled>
+                Select a facility…
+              </option>
+              {facilities.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name} — {f.godkjenningsnummer}
+                  {f.isDefault ? ' (default)' : ''}
+                </option>
+              ))}
+            </select>
+            {formData.facility.approvalNumber && (
+              <p className="text-xs text-gray-500 mt-1">
+                Approval number (godkjenningsnummer):{' '}
+                <span className="font-medium text-gray-700">
+                  {formData.facility.approvalNumber}
+                </span>{' '}
+                — from the facility catalog; corrections go to Setup.
+              </p>
+            )}
           </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">
-              Approval Number (godkjenningsnummer) *
-            </label>
-            <input
-              type="text"
-              value={formData.facility.approvalNumber}
-              onChange={(e) => updateFacility({ approvalNumber: e.target.value })}
-              className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-              placeholder="H-001234"
-            />
-            <p className="text-xs text-gray-400 mt-1">Required by Mattilsynet</p>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );
@@ -1481,7 +1528,6 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
   // Regulatory settings & submit mutations
   const { data: regulatorySettings } = useRegulatorySettings();
   const submitPlannedMutation = useSubmitPlannedSlaughterReport();
-  const submitExecutedMutation = useSubmitExecutedSlaughterReport();
   const clientRef = useStableClientReference();
   const [submissionResult, setSubmissionResult] = useState<ReportSubmissionResult | null>(null);
 
@@ -1565,37 +1611,20 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
       }
 
       if (formData.reportType === 'completed') {
-        const executedInput: SubmitExecutedSlaughterInput = {
-          klientReferanse: clientRef.get(),
-          organisasjonsnummer: orgNr,
-          lokalitetsnummer: lokNr,
-          kontaktperson: kontakt,
-          slakteuke: formData.weekNumber,
-          slakteaar: formData.year,
-          godkjenningsnummer: formData.facility.approvalNumber,
-          utforteLokaliteter: [
-            {
-              organisasjonsnummer: orgNr,
-              lokalitetsnummer: lokNr,
-              arter: [
-                {
-                  art: 'SAL',
-                  superiorKg: formData.gradeDistribution.superior,
-                  ordinaerKg: formData.gradeDistribution.ordinary,
-                  produksjonsfiskKg: formData.gradeDistribution.production,
-                  utkastKg: formData.gradeDistribution.discard,
-                },
-              ],
-            },
-          ],
-        };
-        const result = await submitExecutedMutation.mutateAsync(executedInput);
-        setSubmissionResult(result);
-        if (!result.success) {
-          setError(result.feilmelding || 'Executed slaughter submission failed');
-          setIsSubmitting(false);
-          return;
-        }
+        // FARM-CRITICAL: executed slaughter is filed from harvest records
+        // (per-species gutted kg) via the records-based "Scheduled reports due"
+        // review-and-approve draft. This manual grade-percentage form cannot
+        // produce a correct per-species absolute-kg filing — it has no species
+        // breakdown and its grade values are PERCENTAGES — so it must NEVER submit
+        // fabricated figures (percentages-as-kg under a hard-coded species) to
+        // Mattilsynet. Fail closed and route the operator to the correct path.
+        setError(
+          'Executed slaughter is now filed from harvest records. Open “Scheduled reports due” ' +
+            'above to review and submit the assembled weekly report — this manual form no longer ' +
+            'submits executed slaughter because it cannot compute per-species gutted weights.',
+        );
+        setIsSubmitting(false);
+        return;
       }
 
       // FARM-HIGH-126: rotate the stable client reference only on success.
@@ -1608,14 +1637,7 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
     } finally {
       setIsSubmitting(false);
     }
-  }, [
-    formData,
-    regulatorySettings,
-    siteId,
-    clientRef,
-    submitPlannedMutation,
-    submitExecutedMutation,
-  ]);
+  }, [formData, regulatorySettings, siteId, clientRef, submitPlannedMutation]);
 
   // Wizard steps
   const steps: ReportWizardStep[] = useMemo(

@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
@@ -69,35 +69,39 @@ describe('INVARIANT: sites setup remediation plan is durable and registry-backed
     expect(inventory).toContain('Removal gate');
   });
 
-  it('keeps canonical farm_documents registered in schema authority surfaces', () => {
-    const entity = read('apps/farm-service/src/document/entities/farm-document.entity.ts');
+  it('keeps the farm_documents drop complete across every authority surface (ORPHAN-HIGH-369)', () => {
+    // Owner decision (FARMPLAT-HIGH-001): farm_documents was a fully built but
+    // UNWIRED document-management surface — no resolver/controller, no
+    // frontend. This invariant used to pin the surface as registered; it now
+    // pins the DROP as complete, so a partial resurrection (entity without
+    // module, registry entry without table, …) fails loudly.
     const migration = read(
-      'apps/farm-service/src/database/migrations/1800800000000-CreateFarmDocuments.ts',
+      'apps/farm-service/src/database/migrations/1805300000000-DropFarmDocuments.ts',
     );
     const manifest = read('apps/farm-service/src/database/migrations/manifest.ts');
     const schemaManager = read('libs/backend-common/src/database/schema-manager.service.ts');
     const appModule = read('apps/farm-service/src/app.module.ts');
-    const cleanupProvider = read(
-      'apps/farm-service/src/common/file-cleanup/farm-document-path.provider.ts',
-    );
     const cleanupModule = read('apps/farm-service/src/common/file-cleanup/file-cleanup.module.ts');
 
-    expect(entity).toContain("@Entity('farm_documents')");
-    expect(entity).toContain('PENDING_UPLOAD');
-    expect(entity).toContain('UPLOADED_UNVERIFIED');
-    expect(entity).toContain('ACTIVE');
-    expect(entity).toContain('QUARANTINED');
-    expect(entity).toContain('DELETE_PENDING');
-    expect(entity).toContain('DELETED');
-    expect(entity).toContain('legalHold');
-    expect(entity).toContain('retentionUntil');
-    expect(migration).toContain('CREATE TABLE IF NOT EXISTS farm_documents');
-    expect(migration).toContain('applyTenantRlsToSchema');
-    expect(manifest).toContain('CreateFarmDocuments1800800000000');
-    expect(schemaManager).toContain("'farm_documents'");
-    expect(appModule).toContain('FarmDocumentModule');
-    expect(cleanupProvider).toContain('FarmDocument.objectKey');
-    expect(cleanupModule).toContain('FarmDocumentPathProvider');
+    // The code surface is gone…
+    expect(existsSync(resolve(REPO_ROOT, 'apps/farm-service/src/document'))).toBe(false);
+    expect(
+      existsSync(
+        resolve(
+          REPO_ROOT,
+          'apps/farm-service/src/common/file-cleanup/farm-document-path.provider.ts',
+        ),
+      ),
+    ).toBe(false);
+    expect(appModule).not.toContain('FarmDocumentModule');
+    expect(cleanupModule).not.toContain('FarmDocumentPathProvider');
+    expect(schemaManager).not.toContain("'farm_documents'");
+
+    // …and the physical drop is registered, guarded, and per-schema scoped.
+    expect(manifest).toContain('DropFarmDocuments1805300000000');
+    expect(migration).toContain('RAISE EXCEPTION');
+    expect(migration).toContain('DROP TABLE IF EXISTS %I.farm_documents');
+    expect(migration).toContain('current_schema()');
   });
 
   it('keeps farm setup events bound to canonical outbox_events for new writes', () => {
@@ -257,6 +261,66 @@ describe('INVARIANT: sites setup remediation plan is durable and registry-backed
     expect(farmGateway).toContain('broadcastSubEquipmentCreated');
     expect(farmGateway).toContain('broadcastSupplierApprovedSitesChanged');
     expect(farmGateway).toContain('broadcastFeederCalibrationsSaved');
+  });
+
+  it('routes tank-like equipment writes through the Tank aggregate, not generic equipment persistence (FARM-HIGH-003 Phase 4.3)', () => {
+    const createEquipment = read(
+      'apps/farm-service/src/equipment/handlers/create-equipment.handler.ts',
+    );
+    const updateEquipment = read(
+      'apps/farm-service/src/equipment/handlers/update-equipment.handler.ts',
+    );
+    const deleteEquipment = read(
+      'apps/farm-service/src/equipment/handlers/delete-equipment.handler.ts',
+    );
+    const adapter = read(
+      'apps/farm-service/src/equipment/services/tank-equipment-adapter.service.ts',
+    );
+
+    // Every equipment write path must delegate tank-like categories to the Tank
+    // aggregate via TankEquipmentAdapterService — tank/pond/cage identity is
+    // canonical in `tanks`, so a tank-like row must never be persisted as a
+    // generic equipment row. This pins the already-correct routing so a
+    // reintroduction of a direct tank-like equipment write fails loudly.
+    for (const source of [createEquipment, updateEquipment, deleteEquipment]) {
+      expect(source).toContain('TankEquipmentAdapterService');
+      expect(source).toContain('tankEquipmentAdapter');
+    }
+    expect(createEquipment).toContain('isTankLike');
+    expect(createEquipment).toContain('createFromEquipment');
+    expect(updateEquipment).toContain('updateFromEquipment');
+    expect(deleteEquipment).toContain('deleteFromEquipment');
+
+    // The adapter dispatches Tank commands through the CommandBus (which run the
+    // tenant-transaction + audit + outbox contract), never a direct equipment
+    // write for tank-like categories.
+    expect(adapter).toContain('CreateTankCommand');
+    expect(adapter).toContain('UpdateTankCommand');
+    expect(adapter).toContain('DeleteTankCommand');
+    expect(adapter).toContain('commandBus.execute');
+    expect(adapter).toMatch(/EquipmentCategory\.TANK/);
+    expect(adapter).toMatch(/EquipmentCategory\.POND/);
+    expect(adapter).toMatch(/EquipmentCategory\.CAGE/);
+  });
+
+  it('routes the fish-health therapeutic-substances tab through the Chemical master, not a client-side mock (FARM-HIGH-003 Phase 4.2)', () => {
+    const fishHealthTab = read(
+      'web/modules/farm-module/src/pages/setup/tabs/FishHealthChemicalsTab.tsx',
+    );
+
+    // The therapeutic-substances setup tab must read/write the canonical Chemical
+    // master (tenant-persisted through the Phase-3 write contract), not a local
+    // seed array — so therapeutic substances stop being a duplicate authority.
+    expect(fishHealthTab).toContain('useChemicalList');
+    expect(fishHealthTab).toContain('useCreateChemical');
+    expect(fishHealthTab).toContain('useUpdateChemical');
+    expect(fishHealthTab).toContain('useDeleteChemical');
+
+    // No mock seed data and no native browser dialogs — the tab uses the shared
+    // Modal + useToast. Guards against re-introducing the removed mock CRUD.
+    expect(fishHealthTab).not.toContain('INITIAL_DATA');
+    expect(fishHealthTab).not.toMatch(/\balert\(/);
+    expect(fishHealthTab).not.toMatch(/\bconfirm\(/);
   });
 
   it('keeps existing-tenant runtime DDL repair fail-closed outside explicit test bootstrap', () => {

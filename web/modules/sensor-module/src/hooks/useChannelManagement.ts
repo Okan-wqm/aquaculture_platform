@@ -155,6 +155,9 @@ export interface CreateChannelInput {
   displayOrder?: number;
 }
 
+// SENSOR-HIGH-083: calibration coefficients are NOT part of the channel-update
+// contract — they are owned by the calibration aggregate (recordCalibration),
+// which stamps lastCalibratedAt/nextCalibrationDue so the status stays truthful.
 export interface UpdateChannelInput {
   displayLabel?: string;
   dataType?: string;
@@ -162,9 +165,6 @@ export interface UpdateChannelInput {
   unitSymbol?: string;
   operationalMin?: number;
   operationalMax?: number;
-  calibrationEnabled?: boolean;
-  calibrationMultiplier?: number;
-  calibrationOffset?: number;
   alertThresholds?: Record<string, unknown>;
   displaySettings?: Record<string, unknown>;
   isEnabled?: boolean;

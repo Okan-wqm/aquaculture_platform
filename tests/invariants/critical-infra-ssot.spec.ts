@@ -145,15 +145,19 @@ describe('INVARIANT (INFRA-CRITICAL-026): shared cross-tenant tables stay canoni
 
   it('platform bootstrap creates the canonical shared tables in shared schema', () => {
     const bootstrap = repoFile('apps/db-migrate/src/sql/platform-bootstrap/006-shared-schema-tables.sql');
+    // user_permissions retired 2026-07-12 (ADR-042, ORPHAN-HIGH-378) — stage
+    // 006 must no longer create it.
     for (const table of [
       'audit_logs',
       'gdpr_data_requests',
       'user_consents',
-      'user_permissions',
       'access_logs',
     ] as const) {
       expect(bootstrap).toMatch(new RegExp(`CREATE\\s+TABLE\\s+IF\\s+NOT\\s+EXISTS\\s+shared\\.${table}`, 'i'));
     }
+    // Retirement lock: recreating the retired catalog in bootstrap would
+    // resurrect the parallel-RBAC drift ADR-042 removed.
+    expect(bootstrap).not.toMatch(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?shared\.user_permissions/i);
   });
 });
 
@@ -241,7 +245,17 @@ describe('INVARIANT (INFRA-CRITICAL-029/032): admin and HR drift closure has own
     const validator = repoFile('libs/backend-common/src/database/schema-drift-validator.service.ts');
     const appModule = repoFile('apps/admin-api-service/src/app.module.ts');
 
-    expect(jestConfig).toContain("'<rootDir>/admin-api-schema-boundaries.spec.ts'");
+    // The property is "this boundary invariant RUNS", and it used to be spelled
+    // as "the config text contains this filename" — true only while shard
+    // membership was an enumeration. Membership is a glob now, so the filename
+    // is correctly absent and the property is unchanged; asserting the spelling
+    // would have made a coverage improvement look like a coverage regression.
+    // Reachability is the dormancy manifest's complement, so that is what is
+    // read.
+    const dormant = JSON.parse(
+      repoFile('tests/invariants/invariant-reachability.dormant.json'),
+    ) as Record<string, unknown>;
+    expect(Object.keys(dormant)).not.toContain('admin-api-schema-boundaries.spec.ts');
     expect(boundarySpec).toContain("const WRITE_ALLOWED: ReadonlySet<string> = new Set(['admin', 'auth', 'shared'])");
     expect(boundarySpec).toContain('must declare synchronize: false');
     expect(validator).toContain('if (entity.synchronize === false)');

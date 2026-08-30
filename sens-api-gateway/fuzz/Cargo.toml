@@ -2,11 +2,15 @@
 name = "suderra-agent-fuzz"
 version = "0.0.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 publish = false
 
 [package.metadata]
 cargo-fuzz = true
+
+# Keep cargo-fuzz resolution independent from ancestor workspaces, including
+# repositories whose isolated git worktrees live below the checkout root.
+[workspace]
 
 [dependencies]
 libfuzzer-sys = "0.4"
@@ -23,6 +27,12 @@ serde = { version = "1.0", features = ["derive"] }
 
 [dependencies.suderra-agent]
 path = ".."
+
+# The parent edge workspace patches rumqttc to remove vulnerable
+# rustls-webpki/rustls-pemfile versions. This standalone fuzz workspace must
+# repeat that root-level patch because Cargo patches are not inherited.
+[patch.crates-io]
+rumqttc = { path = "../../crates/local-rumqttc" }
 
 # Fuzz targets
 [[bin]]

@@ -21,15 +21,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import {
-  Repository,
-  Between,
-  LessThanOrEqual,
-  MoreThanOrEqual,
-  In,
-  DataSource,
-  QueryRunner,
-} from 'typeorm';
+import { Repository, Between, MoreThanOrEqual, In, DataSource, QueryRunner } from 'typeorm';
 import {
   listTenantSchemas,
   tenantManagerRepo,
@@ -50,10 +42,11 @@ import {
   FeedingMethod,
   FishAppetite,
 } from '../feeding/entities/feeding-record.entity';
+import { legacyFeedingEngineEnabled } from '../feeding/constants';
 import { FeedingTable, FeedingTableStatus } from '../feeding/entities/feeding-table.entity';
 import { Batch, BatchStatus } from '../batch/entities/batch.entity';
 import { Feed, FeedStatus } from '../feed/entities/feed.entity';
-import { FeedInventory, InventoryStatus } from '../feeding/entities/feed-inventory.entity';
+import { StorageInventory, StorageItemType } from '../storage/entities/storage-inventory.entity';
 
 // ============================================================================
 // INTERFACES
@@ -180,8 +173,8 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     private readonly batchRepository: Repository<Batch>,
     @InjectRepository(Feed)
     private readonly feedRepository: Repository<Feed>,
-    @InjectRepository(FeedInventory)
-    private readonly feedInventoryRepository: Repository<FeedInventory>,
+    @InjectRepository(Feed)
+    private readonly feedStockRepository: Repository<Feed>,
     private readonly schedulerRegistry: SchedulerRegistry,
     private readonly eventEmitter: EventEmitter2,
     private readonly dataSource: DataSource,
@@ -772,6 +765,10 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     timeZone: 'Europe/Istanbul',
   })
   async generateDailyFeedingPlan(): Promise<void> {
+    if (!legacyFeedingEngineEnabled()) {
+      this.logger.log('K-5 cutover: legacy plan generation gated off.');
+      return;
+    }
     this.logger.log('Starting daily feeding plan generation');
     const startTime = Date.now();
 
@@ -831,6 +828,10 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     timeZone: 'Europe/Istanbul',
   })
   async sendFeedingReminders(): Promise<void> {
+    if (!legacyFeedingEngineEnabled()) {
+      this.logger.log('K-5 cutover: legacy feeding reminders gated off.');
+      return;
+    }
     this.logger.log('Checking for feeding reminders');
 
     await this.loadTenantConfigs();
@@ -901,6 +902,12 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     timeZone: 'Europe/Istanbul',
   })
   async dailyFeedingSummary(): Promise<void> {
+    if (!legacyFeedingEngineEnabled()) {
+      this.logger.log(
+        'K-5 cutover: legacy daily summary (v2 20:00 FeedingDailySummary owns it) gated off.',
+      );
+      return;
+    }
     this.logger.log('Generating daily feeding summary');
     const startTime = Date.now();
 
@@ -969,6 +976,12 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     timeZone: 'Europe/Istanbul',
   })
   async analyzeFCR(): Promise<void> {
+    if (!legacyFeedingEngineEnabled()) {
+      this.logger.log(
+        'K-5 cutover: legacy FCR analysis (v2 18:00 durable FCRAlert owns it) gated off.',
+      );
+      return;
+    }
     this.logger.log('Starting FCR analysis');
     const startTime = Date.now();
 
@@ -1041,6 +1054,10 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     timeZone: 'Europe/Istanbul',
   })
   async checkFeedStock(): Promise<void> {
+    if (!legacyFeedingEngineEnabled()) {
+      this.logger.log('K-5 cutover: legacy stock check (LowStockDetected sink owns it) gated off.');
+      return;
+    }
     this.logger.log('Checking feed stock levels');
     const startTime = Date.now();
 
@@ -1437,23 +1454,24 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     tenantId: string,
     queryRunner?: QueryRunner,
   ): Promise<{ feedId: string; feedName: string; currentStock: number; minStock: number }[]> {
+    // Stock SSoT Phase 2: read the storage-ledger roll-up on feeds (quantity +
+    // status maintained by StockMovementService.updateItemTotalQuantity), not
+    // the frozen legacy feed_inventory table.
     const repo = queryRunner
-      ? tenantManagerRepo(queryRunner.manager, FeedInventory, tenantId)
-      : TenantScopedRepository.fromRepository(this.feedInventoryRepository, tenantId);
+      ? tenantManagerRepo(queryRunner.manager, Feed, tenantId)
+      : TenantScopedRepository.fromRepository(this.feedStockRepository, tenantId);
 
-    // Check feed inventory
-    const lowStockInventory = await repo.find({
+    const lowStockFeeds = await repo.find({
       where: {
-        status: In([InventoryStatus.LOW_STOCK, InventoryStatus.OUT_OF_STOCK]),
+        status: In([FeedStatus.LOW_STOCK, FeedStatus.OUT_OF_STOCK]),
       },
-      relations: ['feed'],
     });
 
-    return lowStockInventory.map((inv) => ({
-      feedId: inv.feedId,
-      feedName: inv.feed?.name || 'Unknown',
-      currentStock: Number(inv.quantityKg),
-      minStock: Number(inv.minStockKg),
+    return lowStockFeeds.map((feed) => ({
+      feedId: feed.id,
+      feedName: feed.name,
+      currentStock: Number(feed.quantity),
+      minStock: Number(feed.minStock),
     }));
   }
 
@@ -1467,29 +1485,38 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     days: number,
     queryRunner?: QueryRunner,
   ): Promise<{ feedId: string; feedName: string; expiryDate: Date; quantity: number }[]> {
-    const repo = queryRunner
-      ? tenantManagerRepo(queryRunner.manager, FeedInventory, tenantId)
-      : TenantScopedRepository.fromRepository(this.feedInventoryRepository, tenantId);
-
+    // Stock SSoT Phase 2: expiry lives on storage-ledger LOTS (lot-level
+    // expiry_date), not the frozen legacy feed_inventory rows.
+    if (!queryRunner) {
+      return [];
+    }
     const expiryThreshold = new Date();
     expiryThreshold.setDate(expiryThreshold.getDate() + days);
 
-    const expiringInventory = await repo.find({
-      where: {
-        expiryDate: LessThanOrEqual(expiryThreshold),
-        status: In([InventoryStatus.AVAILABLE, InventoryStatus.LOW_STOCK]),
-      },
-      relations: ['feed'],
-    });
+    const rows: Array<{ feedId: string; feedName: string; expiryDate: Date; quantity: string }> =
+      await queryRunner.manager
+        .createQueryBuilder(StorageInventory, 'inv')
+        .innerJoin(Feed, 'feed', 'feed.id = inv.itemId')
+        .select('inv.itemId', 'feedId')
+        .addSelect('feed.name', 'feedName')
+        .addSelect('inv.expiryDate', 'expiryDate')
+        .addSelect('SUM(inv.quantity)', 'quantity')
+        .where('inv.tenantId = :tenantId', { tenantId })
+        .andWhere('inv.itemType = :itemType', { itemType: StorageItemType.FEED })
+        .andWhere('inv.quantity > 0')
+        .andWhere('inv.expiryDate IS NOT NULL')
+        .andWhere('inv.expiryDate <= :threshold', { threshold: expiryThreshold })
+        .groupBy('inv.itemId')
+        .addGroupBy('feed.name')
+        .addGroupBy('inv.expiryDate')
+        .getRawMany();
 
-    return expiringInventory
-      .filter((inv) => inv.expiryDate != null)
-      .map((inv) => ({
-        feedId: inv.feedId,
-        feedName: inv.feed?.name || 'Unknown',
-        expiryDate: inv.expiryDate as Date,
-        quantity: Number(inv.quantityKg),
-      }));
+    return rows.map((row) => ({
+      feedId: row.feedId,
+      feedName: row.feedName,
+      expiryDate: new Date(row.expiryDate),
+      quantity: Number(row.quantity),
+    }));
   }
 
   /**
@@ -1511,9 +1538,9 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
       ? tenantManagerRepo(queryRunner.manager, FeedingTable, tenantId)
       : TenantScopedRepository.fromRepository(this.feedingTableRepository, tenantId);
 
-    const invRepo = queryRunner
-      ? tenantManagerRepo(queryRunner.manager, FeedInventory, tenantId)
-      : TenantScopedRepository.fromRepository(this.feedInventoryRepository, tenantId);
+    const stockRepo = queryRunner
+      ? tenantManagerRepo(queryRunner.manager, Feed, tenantId)
+      : TenantScopedRepository.fromRepository(this.feedStockRepository, tenantId);
 
     const feedRequirements = new Map<
       string,
@@ -1555,15 +1582,14 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    // Get current stock
-    const inventory = await invRepo.find({
+    // Get current stock from the storage-ledger roll-up (single stock truth).
+    const feedsInStock = await stockRepo.find({
       where: {
-        tenantId,
-        status: In([InventoryStatus.AVAILABLE, InventoryStatus.LOW_STOCK]),
+        status: In([FeedStatus.AVAILABLE, FeedStatus.LOW_STOCK]),
       },
     });
 
-    const currentStock = inventory.reduce((sum, inv) => sum + Number(inv.quantityKg), 0);
+    const currentStock = feedsInStock.reduce((sum, feed) => sum + Number(feed.quantity), 0);
 
     const shortfall = Math.max(0, totalRequired - currentStock);
 

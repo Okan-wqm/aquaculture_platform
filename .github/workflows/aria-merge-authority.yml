@@ -16,14 +16,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
 
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: '3.12'
+      - uses: ./.github/actions/setup-aria-kernel
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -33,19 +31,48 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund --prefer-offline
 
-      - name: Install aria-kernel dependencies
+      # ORPHAN-HIGH-763 — the lane is the PR-head evidence producer for the
+      # readiness-claim chain, so its shape is governed by a full
+      # WorkflowJobContract (workflow_contract_registry.py). The preflight
+      # binds this run to that contract before any check mutates anything.
+      - name: Persist enterprise workflow preflight
+        env:
+          PYTHONPATH: aria-kernel
         run: |
-          python3 -m pip install --upgrade pip
+          set -euo pipefail
           python3 - <<'PY'
-          import subprocess
-          import sys
-          import tomllib
+          import os
           from pathlib import Path
 
-          with Path("aria-kernel/pyproject.toml").open("rb") as fh:
-              dependencies = tomllib.load(fh).get("project", {}).get("dependencies", [])
-          if dependencies:
-              subprocess.check_call([sys.executable, "-m", "pip", "install", *dependencies])
+          from aria_kernel.preflight import verify_workflow_preflight
+
+          runner_temp = Path(os.environ["RUNNER_TEMP"]).resolve()
+          verdict = verify_workflow_preflight(
+              workflow_id="aria-merge-authority",
+              job_id="aria-merge-authority",
+              profile="standard",
+              workspace_root=os.environ["GITHUB_WORKSPACE"],
+              # The declared write root must match the contract's single
+              # allowed pattern exactly (the normalized preflight artifact
+              # file) — declaring the whole temp dir reads as a write reach
+              # the contract never granted.
+              allowed_write_roots=["runner-temp/aria-merge-authority-preflight.json"],
+              path_allowlist=["runner-temp/aria-merge-authority-preflight.json"],
+              network_policy=["github_artifact"],
+              network_enforcement_evidence=(
+                  "assert-only lane: repository checkout plus artifact upload; "
+                  "no git push, no PR mutation"
+              ),
+              token_provenance="github_actions_artifact_token",
+              require_github_app=False,
+              dlp_mode="fail_closed",
+              dlp_scan_clean=True,
+              audit_reason="assert ARIA merge authority on a PR head",
+              audit_artifact_path=runner_temp / "aria-merge-authority-preflight.json",
+              external_root_allowlist=[str(runner_temp)],
+          )
+          if not verdict.valid:
+              raise SystemExit(";".join(verdict.reasons))
           PY
 
       - name: Assert ARIA merge authority
@@ -57,3 +84,13 @@ jobs:
             aria-kernel/tests/test_auto_merge.py
           npm run gates:required-status-checks
           npm run aria:docs:ssot
+
+      # The evidence artifact the readiness claim cites by id + digest:
+      # produced_by_workflow_run_id on the claim names THIS run.
+      - name: Upload merge-authority preflight proof
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: aria-merge-authority-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/aria-merge-authority-preflight.json
+          if-no-files-found: error
+          retention-days: 7

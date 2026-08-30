@@ -33,6 +33,22 @@ describe('MattilsynetSchemaValidatorService', () => {
     expect(validated).toBe(seaLiceFixture);
   });
 
+  it('coerces a numeric-string operator override to the schema type (FARM-MEDIUM-006)', () => {
+    // A draft operator override arrives as a JSON string ("12.5"); the official
+    // schema declares sjøtemperatur as a number. coerceTypes fixes the scalar to
+    // the declared type instead of rejecting the whole filing. The generic
+    // infers the loose payload type from the argument (no cast needed).
+    const payload = { ...seaLiceFixture, sjøtemperatur: '12.5' };
+    const validated = service.validate(RegulatoryReportType.SEA_LICE, payload);
+    expect(typeof validated.sjøtemperatur).toBe('number');
+    expect(Number(validated.sjøtemperatur)).toBe(12.5);
+  });
+
+  it('still rejects a non-numeric string where a number is required (coercion is not a bypass)', () => {
+    const payload = { ...seaLiceFixture, sjøtemperatur: 'not-a-number' };
+    expect(() => service.validate(RegulatoryReportType.SEA_LICE, payload)).toThrow();
+  });
+
   it('reports a missing required field with its dotted path', () => {
     const { lusetelling: _dropped, ...rest } = seaLiceFixture;
     const error = expectValidationError(() =>

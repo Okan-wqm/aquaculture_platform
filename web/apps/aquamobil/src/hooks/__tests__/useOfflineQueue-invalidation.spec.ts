@@ -23,7 +23,7 @@ describe('offline queue synced operation invalidation', () => {
 
     expect(getSyncedOperationInvalidationKeys('tenant-1', operationTypes)).toEqual([
       ['tenant', 'tenant-1', 'tanks'],
-      ['tenant', 'tenant-1', 'feedingPlan'],
+      ['tenant', 'tenant-1', 'feedingDayPlans'],
       ['tenant', 'tenant-1', 'dailyOpsCounts'],
       ['tenant', 'tenant-1', 'stockEventsSummary'],
       ['tenant', 'tenant-1', 'ai'],
@@ -35,7 +35,7 @@ describe('offline queue synced operation invalidation', () => {
   it('deduplicates shared invalidation keys across synced operation types', () => {
     expect(getSyncedOperationInvalidationKeys('tenant-1', ['recordFeeding', 'recordMortality'])).toEqual([
       ['tenant', 'tenant-1', 'tanks'],
-      ['tenant', 'tenant-1', 'feedingPlan'],
+      ['tenant', 'tenant-1', 'feedingDayPlans'],
       ['tenant', 'tenant-1', 'dailyOpsCounts'],
       ['tenant', 'tenant-1', 'stockEventsSummary'],
       ['tenant', 'tenant-1', 'ai'],

@@ -25,7 +25,7 @@ const DEADLINES = [
     periodYear: 2026,
     periodWeek: 27,
     periodMonth: null,
-    status: 'ready',
+    status: 'READY',
     dueAt: '2026-07-07',
     overdue: false,
     daysUntilDue: 1,
@@ -37,7 +37,7 @@ const DEADLINES = [
     periodYear: 2026,
     periodWeek: null,
     periodMonth: 6,
-    status: 'draft',
+    status: 'DRAFT',
     dueAt: '2026-07-04',
     overdue: true,
     daysUntilDue: -2,
@@ -52,7 +52,7 @@ const DRAFTS = [
     periodYear: 2026,
     periodWeek: 27,
     periodMonth: null,
-    status: 'ready',
+    status: 'READY',
     schemaValid: true,
     dueAt: '2026-07-07',
     assembledPayload: { sjøtemperatur: 12.4, godkjenningsnummer: null },
@@ -77,7 +77,7 @@ function routeGraphql(overrides?: { approve?: unknown }): void {
       return Promise.resolve({
         saveReportDraftOverrides: {
           id: 'draft-ready',
-          status: 'ready',
+          status: 'READY',
           schemaValid: true,
           manualOverrides: { '/godkjenningsnummer': 'A12345' },
         },
@@ -95,13 +95,13 @@ function routeGraphql(overrides?: { approve?: unknown }): void {
       });
     }
     if (query.includes('dismissReportDraft')) {
-      return Promise.resolve({ dismissReportDraft: { id: 'draft-ready', status: 'dismissed' } });
+      return Promise.resolve({ dismissReportDraft: { id: 'draft-ready', status: 'DISMISSED' } });
     }
     if (query.includes('refreshReportDraft')) {
       return Promise.resolve({
         refreshReportDraft: {
           id: 'draft-ready',
-          status: 'ready',
+          status: 'READY',
           schemaValid: true,
           dueAt: '2026-07-07',
         },

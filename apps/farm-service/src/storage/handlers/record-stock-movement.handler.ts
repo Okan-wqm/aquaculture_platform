@@ -1,13 +1,12 @@
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { DataSource, EntityManager } from 'typeorm';
 import { Logger } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { OutboxPublisher } from '@platform/outbox';
-import type { StockMovementRecordedEvent, LowStockDetectedEvent } from '@platform/event-contracts';
+import type { StockMovementRecordedEvent } from '@platform/event-contracts';
 import { createBaseEvent } from '@platform/event-contracts';
 import { RecordStockMovementCommand } from '../commands/record-stock-movement.command';
-import { StorageItemType } from '../entities/storage-inventory.entity';
-import { StockMovement, MovementType } from '../entities/stock-movement.entity';
-import { Feed } from '../../feed/entities/feed.entity';
+import { StockMovement } from '../entities/stock-movement.entity';
 import { ConditionWarning } from '../dto/stock-movement.response';
 import { StockMovementService, RecordMovementInput } from '../services/stock-movement.service';
 
@@ -42,6 +41,7 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
     // OutboxPublisher is provided app-wide by the @Global() FarmOutboxModule,
     // so no module import is needed here.
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async execute(command: RecordStockMovementCommand): Promise<StockMovement & { warnings?: ConditionWarning[] }> {
@@ -82,45 +82,56 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
         },
       });
 
-      // Enqueue the domain events to the outbox INSIDE this transaction so the
-      // outbox rows commit atomically with the movement write (at-least-once).
-      // Idempotent replay returns the existing movement without re-enqueuing —
-      // the original execution already enqueued them.
+      // Enqueue the StockMovementRecorded event to the outbox INSIDE this
+      // transaction so the outbox row commits atomically with the movement
+      // write (at-least-once). Idempotent replay returns the existing
+      // movement without re-enqueuing — the original execution already did.
+      // LowStockDetected is NOT enqueued here anymore: the single low-stock
+      // sink lives inside StockMovementService.recordMovement so feeding
+      // deductions and PO receipts emit the same signal without this wrapper.
       if (!movementResult.idempotentHit) {
-        await this.enqueueMovementEvents(
-          manager,
-          movementResult.saved,
-          movementResult.currentTotal,
-          tenantId,
-          userId,
-          itemType as StorageItemType,
-          movementType,
-        );
+        await this.enqueueMovementRecorded(manager, movementResult.saved, tenantId, userId);
       }
 
       return movementResult;
     });
 
-    const { saved, warnings } = result;
+    const { saved, warnings, lowStock } = result;
+
+    // POST-COMMIT in-process signal for the STOCK_LOW auto-task trigger
+    // (task/services/auto-rule-trigger.service.ts). Emitted only after the
+    // transaction committed so a rolled-back movement can never spawn a task.
+    // NOTE: this extends the STOCK_LOW trigger to storage items — previously
+    // only the spare-parts cron emitted `inventory.lowStock` (documented as
+    // new behavior; the AutoRule UI already advertises feed stock as the
+    // example use case).
+    if (lowStock && !result.idempotentHit) {
+      this.eventEmitter.emit('inventory.lowStock', {
+        tenantId,
+        outOfStock:
+          lowStock.severity === 'out_of_stock'
+            ? [{ id: saved.itemId, name: saved.itemName, itemType: saved.itemType, currentQuantity: result.currentTotal }]
+            : [],
+        lowStock:
+          lowStock.severity === 'low_stock'
+            ? [{ id: saved.itemId, name: saved.itemName, itemType: saved.itemType, currentQuantity: result.currentTotal, minimumThreshold: lowStock.minimumThreshold }]
+            : [],
+      });
+    }
 
     return Object.assign(saved, { warnings: warnings.length > 0 ? warnings : undefined });
   }
 
   /**
-   * Enqueue the universal StockMovementRecorded event plus, for stock-reducing
-   * movements, a LowStockDetected alert when the post-op aggregate crosses the
-   * item's threshold — both to the outbox, inside the caller's transaction, so
-   * an enqueue failure rolls the movement back rather than silently dropping
-   * the event.
+   * Enqueue the universal StockMovementRecorded event to the outbox, inside
+   * the caller's transaction, so an enqueue failure rolls the movement back
+   * rather than silently dropping the event.
    */
-  private async enqueueMovementEvents(
+  private async enqueueMovementRecorded(
     manager: EntityManager,
     saved: StockMovement,
-    currentTotal: number,
     tenantId: string,
     userId: string,
-    itemType: StorageItemType,
-    movementType: MovementType,
   ): Promise<void> {
     const movementEvent: StockMovementRecordedEvent = {
       ...createBaseEvent<StockMovementRecordedEvent>('StockMovementRecorded', tenantId),
@@ -137,34 +148,5 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
       lotNumber: saved.lotNumber,
     };
     await this.outboxPublisher.enqueue(movementEvent, manager);
-
-    if (saved.fromLocationId && (movementType === MovementType.OUT || movementType === MovementType.WASTE)) {
-      let severity: 'low_stock' | 'out_of_stock' | null = null;
-      let minimumThreshold: number | undefined;
-
-      if (currentTotal <= 0) {
-        severity = 'out_of_stock';
-      } else if (itemType === StorageItemType.FEED) {
-        const feed = await manager.findOne(Feed, { where: { id: saved.itemId, tenantId } });
-        if (feed && feed.minStock > 0 && currentTotal <= Number(feed.minStock)) {
-          severity = 'low_stock';
-          minimumThreshold = Number(feed.minStock);
-        }
-      }
-
-      if (severity) {
-        const lowStockEvent: LowStockDetectedEvent = {
-          ...createBaseEvent<LowStockDetectedEvent>('LowStockDetected', tenantId),
-          itemType,
-          itemId: saved.itemId,
-          itemName: saved.itemName,
-          currentQuantity: currentTotal,
-          unit: saved.unit,
-          minimumThreshold,
-          severity,
-        };
-        await this.outboxPublisher.enqueue(lowStockEvent, manager);
-      }
-    }
   }
 }

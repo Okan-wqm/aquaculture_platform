@@ -32,6 +32,7 @@ function makeTraceability(): BatchTraceability {
       protocolName: 'Trout Grower 2026',
       totalFeedKg: 3120.5,
       totalFeedCost: 5430.25,
+      totalFeedCostDecimal: '5430.25',
       fcrActual: 1.19,
     },
     residencies: [
@@ -59,6 +60,7 @@ function makeTraceability(): BatchTraceability {
             feedCode: 'SP-1',
             totalKg: 820.5,
             totalCost: 1400.75,
+            totalCostDecimal: '1400.75',
           },
         ],
         feedTotalKg: 820.5,
@@ -90,6 +92,7 @@ function makeTraceability(): BatchTraceability {
         feedName: 'Grower Pellet',
         feedCode: 'GP-2',
         totalKg: 2300,
+        totalCostDecimal: '4029.5',
         totalCost: 4029.5,
       },
     ],

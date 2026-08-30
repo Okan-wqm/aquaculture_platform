@@ -202,6 +202,10 @@ interface WireFeedingRecorded extends WireBaseEvent {
   variance: number;
   feedCost?: string;
   currency?: string;
+  mealId?: string;
+  pourIndex?: number;
+  dayPlanId?: string;
+  unitId?: string;
 }
 
 interface WireFeedInventoryLow extends WireBaseEvent {
@@ -213,6 +217,192 @@ interface WireFeedInventoryLow extends WireBaseEvent {
   currentQuantityKg: number;
   reorderPointKg: number;
   status: 'low_stock' | 'critical';
+}
+
+/**
+ * Storage-ledger low-stock signal (stock SSoT Phase 1). Emitted by the
+ * single inventory-mutation sink (`StockMovementService.recordMovement`)
+ * whenever an OUT/WASTE movement leaves the item's aggregate quantity at
+ * or below its `minStock` — regardless of which caller (manual movement,
+ * feeding deduction, adjustment) triggered the movement. Successor of the
+ * legacy `FeedInventoryLow` (which only fired from the feed_inventory
+ * branch); both are bridged during the migration window.
+ */
+interface WireLowStockDetected extends WireBaseEvent {
+  eventType: 'LowStockDetected';
+  itemType: 'feed' | 'chemical' | 'consumable' | 'healthcare';
+  itemId: string;
+  itemName: string;
+  currentQuantity: number;
+  unit: string;
+  minimumThreshold?: number;
+  severity: 'low_stock' | 'out_of_stock';
+}
+
+interface WireFeedingProtocolAssigned extends WireBaseEvent {
+  eventType: 'FeedingProtocolAssigned';
+  userId?: string;
+  assignmentId: string;
+  unitId: string;
+  unitType: 'tank' | 'pond' | 'cage';
+  unitCode: string;
+  siteId: string;
+  protocolId: string;
+  protocolName: string;
+  replacedAssignmentId?: string;
+  speciesMismatchReason?: string;
+}
+
+interface WireFeedingProtocolAssignmentPaused extends WireBaseEvent {
+  eventType: 'FeedingProtocolAssignmentPaused';
+  userId?: string;
+  assignmentId: string;
+  unitId: string;
+  unitCode: string;
+  protocolId: string;
+  reason: 'protocol_archived' | 'operator_paused' | 'unit_emptied';
+}
+
+// ── Meal engine wire shapes (Faz 5 — plan §7/§10) ──────────────────────────
+
+interface WireMealWindowEntry {
+  unitId: string;
+  unitCode: string;
+  dayPlanId: string;
+  mealId: string;
+  mealIndex: number;
+  scheduledAt: string;
+  feedId: string;
+  plannedKg: number;
+  protocolId: string;
+  minDissolvedOxygen?: number;
+  lowOxygenReductionPercent?: number;
+}
+
+interface WireMealWindowUpcoming extends WireBaseEvent {
+  eventType: 'MealWindowUpcoming';
+  windowStart: string;
+  windowEnd: string;
+  leadMinutes: number;
+  batchIndex: number;
+  batchCount: number;
+  meals: WireMealWindowEntry[];
+}
+
+interface WireMealFed extends WireBaseEvent {
+  eventType: 'MealFed';
+  unitId: string;
+  mealId: string;
+  dayPlanId: string;
+  feedId: string;
+  pourIndex: number;
+  pourKg: number;
+  actualKg: number;
+  fedAt: string;
+  feedingMethod?: string;
+}
+
+interface WireMealSkipped extends WireBaseEvent {
+  eventType: 'MealSkipped';
+  unitId: string;
+  mealId: string;
+  dayPlanId: string;
+  reason: string;
+  skippedAt: string;
+}
+
+interface WireMealUnderfed extends WireBaseEvent {
+  eventType: 'MealUnderfed';
+  scope: 'meal' | 'day';
+  unitId: string;
+  unitCode: string;
+  dayPlanId: string;
+  mealId?: string;
+  plannedKg: number;
+  actualKg: number;
+  variancePercent: number;
+  thresholdPercent: number;
+}
+
+interface WireMealMissed extends WireBaseEvent {
+  eventType: 'MealMissed';
+  unitId: string;
+  unitCode: string;
+  mealId: string;
+  dayPlanId: string;
+  scheduledAt: string;
+}
+
+interface WireFeedTypeTransitioned extends WireBaseEvent {
+  eventType: 'FeedTypeTransitioned';
+  unitId: string;
+  unitCode: string;
+  assignmentId: string;
+  fromFeedId?: string;
+  toFeedId: string;
+  toFeedCode: string;
+  bandIndex: number;
+  avgWeightG: number;
+  automatic: boolean;
+}
+
+interface WireFeedStockoutForecast extends WireBaseEvent {
+  eventType: 'FeedStockoutForecast';
+  siteScopeKey: string;
+  feedId: string;
+  feedCode: string;
+  daysOfCover: number;
+  stockoutDate: string;
+  reorderDate?: string;
+  procurementLeadTimeDays: number;
+}
+
+interface WireFeedTransitionUpcoming extends WireBaseEvent {
+  eventType: 'FeedTransitionUpcoming';
+  siteScopeKey: string;
+  unitId: string;
+  unitCode: string;
+  fromFeedId: string;
+  toFeedId: string;
+  estimatedDate: string;
+  daysFromNow: number;
+  shortfallDays?: number;
+}
+
+interface WireUnfedUnitDetected extends WireBaseEvent {
+  eventType: 'UnfedUnitDetected';
+  unitId: string;
+  unitCode: string;
+  siteId: string;
+  reason: 'no_assignment' | 'assignment_paused' | 'draft_protocol';
+  fishCount: number;
+  biomassKg: number;
+}
+
+/**
+ * FCRAlert bugüne dek yalnız in-process yayılıyordu (doğrulandı — C-1);
+ * 18:00 cron'u Faz 5'te İLK KEZ outbox'a yazar → tel şeması burada başlar.
+ */
+interface WireFCRAlert extends WireBaseEvent {
+  eventType: 'FCRAlert';
+  batchId: string;
+  currentFCR: number;
+  targetFCR: number;
+  variancePercent: number;
+  trend: 'improving' | 'stable' | 'declining';
+  alertLevel: 'warning' | 'critical';
+}
+
+interface WireFeedingDailySummary extends WireBaseEvent {
+  eventType: 'FeedingDailySummary';
+  planDate: string;
+  unitsPlanned: number;
+  unitsCompleted: number;
+  unitsSkipped: number;
+  plannedTotalKg: number;
+  actualTotalKg: number;
+  underfedUnitCount: number;
+  missedMealCount: number;
 }
 
 // ── Harvest / mortality follow-up wire shapes ──────────────────────────────
@@ -770,6 +960,12 @@ export const feedingRecordedSchema: JSONSchemaType<WireFeedingRecorded> = {
       nullable: true,
     },
     currency: { type: 'string', pattern: '^[A-Z]{3}$', nullable: true },
+    // Öğün motoru v2 bağları (Faz 5, additive) — additionalProperties:false
+    // olduğundan wire şemasına AÇIKÇA eklenir (C-13); upcaster gerekmez.
+    mealId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
+    pourIndex: { type: 'integer', minimum: 0, maximum: Number.MAX_SAFE_INTEGER, nullable: true },
+    dayPlanId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
+    unitId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
   },
   required: [
     ...BASE_EVENT_REQUIRED,
@@ -804,6 +1000,384 @@ export const feedInventoryLowSchema: JSONSchemaType<WireFeedInventoryLow> = {
     'currentQuantityKg',
     'reorderPointKg',
     'status',
+  ],
+};
+
+export const lowStockDetectedSchema: JSONSchemaType<WireLowStockDetected> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...BASE_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'LowStockDetected' },
+    itemType: {
+      type: 'string',
+      enum: ['feed', 'chemical', 'consumable', 'healthcare'],
+    },
+    itemId: UUID_SCHEMA,
+    itemName: FREE_TEXT,
+    currentQuantity: NON_NEGATIVE_NUMBER,
+    unit: SHORT_CODE,
+    minimumThreshold: { ...NON_NEGATIVE_NUMBER, nullable: true },
+    severity: { type: 'string', enum: ['low_stock', 'out_of_stock'] },
+  },
+  required: [
+    ...BASE_EVENT_REQUIRED,
+    'itemType',
+    'itemId',
+    'itemName',
+    'currentQuantity',
+    'unit',
+    'severity',
+  ],
+};
+
+export const feedingProtocolAssignedSchema: JSONSchemaType<WireFeedingProtocolAssigned> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...BASE_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'FeedingProtocolAssigned' },
+    userId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
+    assignmentId: UUID_SCHEMA,
+    unitId: UUID_SCHEMA,
+    unitType: { type: 'string', enum: ['tank', 'pond', 'cage'] },
+    unitCode: SHORT_CODE,
+    siteId: UUID_SCHEMA,
+    protocolId: UUID_SCHEMA,
+    protocolName: FREE_TEXT,
+    replacedAssignmentId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
+    speciesMismatchReason: { ...FREE_TEXT, nullable: true },
+  },
+  required: [
+    ...BASE_EVENT_REQUIRED,
+    'assignmentId',
+    'unitId',
+    'unitType',
+    'unitCode',
+    'siteId',
+    'protocolId',
+    'protocolName',
+  ],
+};
+
+export const feedingProtocolAssignmentPausedSchema: JSONSchemaType<WireFeedingProtocolAssignmentPaused> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...BASE_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'FeedingProtocolAssignmentPaused' },
+    userId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
+    assignmentId: UUID_SCHEMA,
+    unitId: UUID_SCHEMA,
+    unitCode: SHORT_CODE,
+    protocolId: UUID_SCHEMA,
+    reason: { type: 'string', enum: ['protocol_archived', 'operator_paused', 'unit_emptied'] },
+  },
+  required: [
+    ...BASE_EVENT_REQUIRED,
+    'assignmentId',
+    'unitId',
+    'unitCode',
+    'protocolId',
+    'reason',
+  ],
+};
+
+// ── Meal engine schemas (Faz 5 — hepsi farm→NATS trust boundary, C-13) ─────
+
+/** Toplu pencere event'inin girdi cap'i (K-2 — şekil kararının parçası). */
+const MEAL_WINDOW_MAX_ENTRIES = 500;
+
+export const mealWindowUpcomingSchema: JSONSchemaType<WireMealWindowUpcoming> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...BASE_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'MealWindowUpcoming' },
+    windowStart: ISO_DATE_STRING,
+    windowEnd: ISO_DATE_STRING,
+    leadMinutes: NON_NEGATIVE_INT,
+    batchIndex: NON_NEGATIVE_INT,
+    batchCount: { type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
+    meals: {
+      type: 'array',
+      maxItems: MEAL_WINDOW_MAX_ENTRIES,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          unitId: UUID_SCHEMA,
+          unitCode: SHORT_CODE,
+          dayPlanId: UUID_SCHEMA,
+          mealId: UUID_SCHEMA,
+          mealIndex: NON_NEGATIVE_INT,
+          scheduledAt: ISO_DATE_STRING,
+          feedId: UUID_SCHEMA,
+          plannedKg: NON_NEGATIVE_NUMBER,
+          protocolId: UUID_SCHEMA,
+          minDissolvedOxygen: { ...NON_NEGATIVE_NUMBER, nullable: true },
+          lowOxygenReductionPercent: { ...NON_NEGATIVE_NUMBER, nullable: true },
+        },
+        required: [
+          'unitId',
+          'unitCode',
+          'dayPlanId',
+          'mealId',
+          'mealIndex',
+          'scheduledAt',
+          'feedId',
+          'plannedKg',
+          'protocolId',
+        ],
+      },
+    },
+  },
+  required: [
+    ...BASE_EVENT_REQUIRED,
+    'windowStart',
+    'windowEnd',
+    'leadMinutes',
+    'batchIndex',
+    'batchCount',
+    'meals',
+  ],
+};
+
+export const mealFedSchema: JSONSchemaType<WireMealFed> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...BASE_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'MealFed' },
+    unitId: UUID_SCHEMA,
+    mealId: UUID_SCHEMA,
+    dayPlanId: UUID_SCHEMA,
+    feedId: UUID_SCHEMA,
+    pourIndex: NON_NEGATIVE_INT,
+    pourKg: NON_NEGATIVE_NUMBER,
+    actualKg: NON_NEGATIVE_NUMBER,
+    fedAt: ISO_DATE_STRING,
+    feedingMethod: { ...SHORT_CODE, nullable: true },
+  },
+  required: [
+    ...BASE_EVENT_REQUIRED,
+    'unitId',
+    'mealId',
+    'dayPlanId',
+    'feedId',
+    'pourIndex',
+    'pourKg',
+    'actualKg',
+    'fedAt',
+  ],
+};
+
+export const mealSkippedSchema: JSONSchemaType<WireMealSkipped> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...BASE_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'MealSkipped' },
+    unitId: UUID_SCHEMA,
+    mealId: UUID_SCHEMA,
+    dayPlanId: UUID_SCHEMA,
+    reason: FREE_TEXT,
+    skippedAt: ISO_DATE_STRING,
+  },
+  required: [...BASE_EVENT_REQUIRED, 'unitId', 'mealId', 'dayPlanId', 'reason', 'skippedAt'],
+};
+
+export const mealUnderfedSchema: JSONSchemaType<WireMealUnderfed> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...BASE_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'MealUnderfed' },
+    scope: { type: 'string', enum: ['meal', 'day'] },
+    unitId: UUID_SCHEMA,
+    unitCode: SHORT_CODE,
+    dayPlanId: UUID_SCHEMA,
+    mealId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
+    plannedKg: NON_NEGATIVE_NUMBER,
+    actualKg: NON_NEGATIVE_NUMBER,
+    variancePercent: { type: 'number' },
+    thresholdPercent: NON_NEGATIVE_NUMBER,
+  },
+  required: [
+    ...BASE_EVENT_REQUIRED,
+    'scope',
+    'unitId',
+    'unitCode',
+    'dayPlanId',
+    'plannedKg',
+    'actualKg',
+    'variancePercent',
+    'thresholdPercent',
+  ],
+};
+
+export const feedStockoutForecastSchema: JSONSchemaType<WireFeedStockoutForecast> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...BASE_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'FeedStockoutForecast' },
+    siteScopeKey: { type: 'string', minLength: 1, maxLength: 100 },
+    feedId: UUID_SCHEMA,
+    feedCode: SHORT_CODE,
+    daysOfCover: NON_NEGATIVE_NUMBER,
+    stockoutDate: { type: 'string', minLength: 10, maxLength: 10 },
+    reorderDate: { type: 'string', minLength: 10, maxLength: 10, nullable: true },
+    procurementLeadTimeDays: NON_NEGATIVE_NUMBER,
+  },
+  required: [
+    ...BASE_EVENT_REQUIRED,
+    'siteScopeKey',
+    'feedId',
+    'feedCode',
+    'daysOfCover',
+    'stockoutDate',
+    'procurementLeadTimeDays',
+  ],
+};
+
+export const feedTransitionUpcomingSchema: JSONSchemaType<WireFeedTransitionUpcoming> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...BASE_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'FeedTransitionUpcoming' },
+    siteScopeKey: { type: 'string', minLength: 1, maxLength: 100 },
+    unitId: UUID_SCHEMA,
+    unitCode: SHORT_CODE,
+    fromFeedId: UUID_SCHEMA,
+    toFeedId: UUID_SCHEMA,
+    estimatedDate: { type: 'string', minLength: 10, maxLength: 10 },
+    daysFromNow: NON_NEGATIVE_NUMBER,
+    shortfallDays: { type: 'number', nullable: true },
+  },
+  required: [
+    ...BASE_EVENT_REQUIRED,
+    'siteScopeKey',
+    'unitId',
+    'unitCode',
+    'fromFeedId',
+    'toFeedId',
+    'estimatedDate',
+    'daysFromNow',
+  ],
+};
+
+export const mealMissedSchema: JSONSchemaType<WireMealMissed> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...BASE_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'MealMissed' },
+    unitId: UUID_SCHEMA,
+    unitCode: SHORT_CODE,
+    mealId: UUID_SCHEMA,
+    dayPlanId: UUID_SCHEMA,
+    scheduledAt: ISO_DATE_STRING,
+  },
+  required: [
+    ...BASE_EVENT_REQUIRED,
+    'unitId',
+    'unitCode',
+    'mealId',
+    'dayPlanId',
+    'scheduledAt',
+  ],
+};
+
+export const feedTypeTransitionedSchema: JSONSchemaType<WireFeedTypeTransitioned> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...BASE_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'FeedTypeTransitioned' },
+    unitId: UUID_SCHEMA,
+    unitCode: SHORT_CODE,
+    assignmentId: UUID_SCHEMA,
+    fromFeedId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
+    toFeedId: UUID_SCHEMA,
+    toFeedCode: SHORT_CODE,
+    bandIndex: NON_NEGATIVE_INT,
+    avgWeightG: NON_NEGATIVE_NUMBER,
+    automatic: { type: 'boolean' },
+  },
+  required: [
+    ...BASE_EVENT_REQUIRED,
+    'unitId',
+    'unitCode',
+    'assignmentId',
+    'toFeedId',
+    'toFeedCode',
+    'bandIndex',
+    'avgWeightG',
+    'automatic',
+  ],
+};
+
+export const unfedUnitDetectedSchema: JSONSchemaType<WireUnfedUnitDetected> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...BASE_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'UnfedUnitDetected' },
+    unitId: UUID_SCHEMA,
+    unitCode: SHORT_CODE,
+    siteId: UUID_SCHEMA,
+    reason: { type: 'string', enum: ['no_assignment', 'assignment_paused', 'draft_protocol'] },
+    fishCount: NON_NEGATIVE_INT,
+    biomassKg: NON_NEGATIVE_NUMBER,
+  },
+  required: [
+    ...BASE_EVENT_REQUIRED,
+    'unitId',
+    'unitCode',
+    'siteId',
+    'reason',
+    'fishCount',
+    'biomassKg',
+  ],
+};
+
+export const fcrAlertSchema: JSONSchemaType<WireFCRAlert> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...BASE_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'FCRAlert' },
+    batchId: UUID_SCHEMA,
+    currentFCR: NON_NEGATIVE_NUMBER,
+    targetFCR: NON_NEGATIVE_NUMBER,
+    variancePercent: { type: 'number' },
+    trend: { type: 'string', enum: ['improving', 'stable', 'declining'] },
+    alertLevel: { type: 'string', enum: ['warning', 'critical'] },
+  },
+  required: [
+    ...BASE_EVENT_REQUIRED,
+    'batchId',
+    'currentFCR',
+    'targetFCR',
+    'variancePercent',
+    'trend',
+    'alertLevel',
+  ],
+};
+
+export const feedingDailySummarySchema: JSONSchemaType<WireFeedingDailySummary> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...BASE_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'FeedingDailySummary' },
+    planDate: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
+    unitsPlanned: NON_NEGATIVE_INT,
+    unitsCompleted: NON_NEGATIVE_INT,
+    unitsSkipped: NON_NEGATIVE_INT,
+    plannedTotalKg: NON_NEGATIVE_NUMBER,
+    actualTotalKg: NON_NEGATIVE_NUMBER,
+    underfedUnitCount: NON_NEGATIVE_INT,
+    missedMealCount: NON_NEGATIVE_INT,
+  },
+  required: [
+    ...BASE_EVENT_REQUIRED,
+    'planDate',
+    'unitsPlanned',
+    'unitsCompleted',
+    'unitsSkipped',
+    'plannedTotalKg',
+    'actualTotalKg',
+    'underfedUnitCount',
+    'missedMealCount',
   ],
 };
 
@@ -1293,6 +1867,8 @@ export const feederCalibrationsSavedSchema: JSONSchemaType<WireFeederCalibration
  */
 export type FarmEventType =
   | 'BatchCreated'
+  | 'FeedStockoutForecast'
+  | 'FeedTransitionUpcoming'
   | 'BatchHarvested'
   | 'BatchStatusChanged'
   | 'BatchClosed'
@@ -1302,6 +1878,18 @@ export type FarmEventType =
   | 'BatchTransferred'
   | 'FeedingRecorded'
   | 'FeedInventoryLow'
+  | 'LowStockDetected'
+  | 'FeedingProtocolAssigned'
+  | 'FeedingProtocolAssignmentPaused'
+  | 'MealWindowUpcoming'
+  | 'MealFed'
+  | 'MealSkipped'
+  | 'MealUnderfed'
+  | 'MealMissed'
+  | 'FeedTypeTransitioned'
+  | 'UnfedUnitDetected'
+  | 'FeedingDailySummary'
+  | 'FCRAlert'
   | 'SiteCreated'
   | 'SiteUpdated'
   | 'SiteDeleted'
@@ -1353,6 +1941,20 @@ export const FARM_EVENT_SCHEMAS: Record<FarmEventType, object> = {
   BatchTransferred: batchTransferredSchema,
   FeedingRecorded: feedingRecordedSchema,
   FeedInventoryLow: feedInventoryLowSchema,
+  LowStockDetected: lowStockDetectedSchema,
+  FeedingProtocolAssigned: feedingProtocolAssignedSchema,
+  FeedingProtocolAssignmentPaused: feedingProtocolAssignmentPausedSchema,
+  MealWindowUpcoming: mealWindowUpcomingSchema,
+  MealFed: mealFedSchema,
+  MealSkipped: mealSkippedSchema,
+  MealUnderfed: mealUnderfedSchema,
+  FeedStockoutForecast: feedStockoutForecastSchema,
+  FeedTransitionUpcoming: feedTransitionUpcomingSchema,
+  MealMissed: mealMissedSchema,
+  FeedTypeTransitioned: feedTypeTransitionedSchema,
+  UnfedUnitDetected: unfedUnitDetectedSchema,
+  FeedingDailySummary: feedingDailySummarySchema,
+  FCRAlert: fcrAlertSchema,
   SiteCreated: siteCreatedSchema,
   SiteUpdated: siteUpdatedSchema,
   SiteDeleted: siteDeletedSchema,

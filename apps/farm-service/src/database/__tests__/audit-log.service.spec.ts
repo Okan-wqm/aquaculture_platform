@@ -1,8 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { AUDIT_LOG_SERVICE } from '@aquaculture/backend-common/audit';
 import { Repository } from 'typeorm';
 import { AuditLogService, LogAuditParams } from '../services/audit-log.service';
 import { AuditLog, AuditAction } from '../entities/audit-log.entity';
+import { DatabaseModule } from '../database.module';
 
 describe('AuditLogService', () => {
   let service: AuditLogService;
@@ -98,6 +100,80 @@ describe('AuditLogService', () => {
           summary: expect.stringContaining('Site'),
         }),
       );
+    });
+  });
+
+  describe('canonical TenantGuard audit port', () => {
+    it('persists the complete cross-tenant forensic context', async () => {
+      mockRepository.create.mockImplementation((data) => data);
+      mockRepository.save.mockImplementation((data) => Promise.resolve({ id: 'audit-1', ...data }));
+
+      await service.recordAwait({
+        action: 'SUPER_ADMIN_CROSS_TENANT_ACCESS',
+        resource: 'TenantGuard',
+        resourceId: '22222222-2222-4222-8222-222222222222',
+        userId: '11111111-1111-4111-8111-111111111111',
+        tenantId: '22222222-2222-4222-8222-222222222222',
+        actorHomeTenantId: null,
+        actedOnTenantId: '22222222-2222-4222-8222-222222222222',
+        mfaVerified: true,
+        metadata: { endpoint: 'POST /graphql' },
+        correlationId: 'correlation-1',
+        ip: '198.51.100.44',
+        userAgent: 'signed-client-agent',
+      });
+
+      expect(mockRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AuditAction.SUPER_ADMIN_CROSS_TENANT_ACCESS,
+          tenantId: '22222222-2222-4222-8222-222222222222',
+          entityType: 'TenantGuard',
+          entityId: '22222222-2222-4222-8222-222222222222',
+          userId: '11111111-1111-4111-8111-111111111111',
+          changes: expect.objectContaining({
+            after: expect.objectContaining({
+              endpoint: 'POST /graphql',
+              actorHomeTenantId: null,
+              mfaVerified: true,
+            }),
+          }),
+          metadata: expect.objectContaining({
+            ipAddress: '198.51.100.0/24',
+            userAgent: 'Other',
+            correlationId: 'correlation-1',
+            source: 'TENANT_GUARD',
+          }),
+        }),
+      );
+      expect(mockRepository.save).toHaveBeenCalledTimes(1);
+    });
+
+    it('propagates persistence failure so privileged access fails closed', async () => {
+      mockRepository.create.mockImplementation((data) => data);
+      mockRepository.save.mockRejectedValueOnce(new Error('audit unavailable'));
+
+      await expect(
+        service.recordAwait({
+          action: 'SUPER_ADMIN_CROSS_TENANT_ACCESS',
+          resource: 'TenantGuard',
+          resourceId: '22222222-2222-4222-8222-222222222222',
+          userId: '11111111-1111-4111-8111-111111111111',
+          tenantId: '22222222-2222-4222-8222-222222222222',
+        }),
+      ).rejects.toThrow('audit unavailable');
+    });
+
+    it('exports the same service singleton under AUDIT_LOG_SERVICE', () => {
+      const providers: unknown = Reflect.getMetadata('providers', DatabaseModule);
+      const exports: unknown = Reflect.getMetadata('exports', DatabaseModule);
+      if (!Array.isArray(providers) || !Array.isArray(exports)) {
+        throw new Error('DatabaseModule audit provider metadata is missing');
+      }
+      expect(providers).toContainEqual({
+        provide: AUDIT_LOG_SERVICE,
+        useExisting: AuditLogService,
+      });
+      expect(exports).toContain(AUDIT_LOG_SERVICE);
     });
   });
 

@@ -1,36 +1,25 @@
 /**
- * Pre-configured BrowserRouter with React Router v7 future flags
+ * Shared BrowserRouter wrapper for federated web applications.
  *
- * This component centralizes the future flag configuration to avoid
- * deprecation warnings across all microfrontends using Module Federation.
+ * React Router 7 makes the former v7 future behavior the default, so this
+ * wrapper only centralizes the router boundary and its standard props.
  */
 
 import React from 'react';
-import { BrowserRouter, BrowserRouterProps } from 'react-router-dom';
+import { BrowserRouter, type BrowserRouterProps } from 'react-router-dom';
 
-export interface ConfiguredBrowserRouterProps extends Omit<BrowserRouterProps, 'future'> {
+export interface ConfiguredBrowserRouterProps extends BrowserRouterProps {
   children: React.ReactNode;
 }
 
 /**
- * BrowserRouter with React Router v7 future flags enabled
- * Use this instead of BrowserRouter from react-router-dom to opt-in to v7 behavior
+ * Use this instead of BrowserRouter to keep one declarative router boundary.
  */
 export const ConfiguredBrowserRouter: React.FC<ConfiguredBrowserRouterProps> = ({
   children,
   ...props
 }) => {
-  return (
-    <BrowserRouter
-      {...props}
-      future={{
-        v7_startTransition: true,
-        v7_relativeSplatPath: true,
-      }}
-    >
-      {children}
-    </BrowserRouter>
-  );
+  return <BrowserRouter {...props}>{children}</BrowserRouter>;
 };
 
 export default ConfiguredBrowserRouter;

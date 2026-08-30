@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from .feedback_store import (
+    _judgment_key,
+    consensus_judge_count,
     load_feedback,
     mark_findings_need_revalidation,
     record_findings_for_run,
@@ -36,6 +38,11 @@ RUN_STATUSES = (
     "budget_exceeded",
     "tool_unhealthy",
     "integrity_failed",
+    # An environment fault: the workspace could not run the tool at all.
+    # Deliberately NOT in the quarantine trigger — it is the harness's
+    # failure, and repetition escalates through the uncertainty ledger
+    # instead (uncertainty_repeat).
+    "environment_unavailable",
 )
 REQUIRED_RUN_FIELDS = (
     "run_id",
@@ -155,11 +162,28 @@ def record_run(
                 runner.pop("raw_findings_sample", None)
     else:
         envelope["artifact_status"] = "legacy_inline_or_sample_only"
+    # ORPHAN-HIGH-798 — the runs.jsonl row carried emitted_observations and
+    # emitted_findings arrays inline. In v2/v2-shadow (the formats that write
+    # an artifact above), the artifact already contains the full payload via
+    # _runtime_artifact_payload; the row only needs the counts. v1 writes NO
+    # artifact, so stripping the arrays there would lose the observation
+    # content entirely (adversarial review caught this) — v1 keeps them.
+    # Copy the arrays for record_findings_for_run (which reads them from the
+    # envelope AFTER the append — popping before line 169 starves
+    # findings.jsonl), then strip from the row only when the artifact exists.
+    _saved_emitted_findings = list(envelope.get("emitted_findings") or [])
+    envelope["emitted_counts"] = {
+        "observations": _count(envelope.get("emitted_observations")),
+        "findings": _count(envelope.get("emitted_findings")),
+    }
+    if ledger_format in ("v2-shadow", "v2"):
+        envelope.pop("emitted_observations", None)
+        envelope.pop("emitted_findings", None)
     run_row = append_jsonl(runs_path(base_dir), {"recorded_at": utc_now(), **envelope})
     if ledger_format in ("v2-shadow", "v2"):
         append_run_by_cycle(base_dir=base_dir, cycle_uid=envelope["cycle_id"], run_row=run_row)
     record_raw_findings_for_run(envelope, raw_findings, base_dir=base_dir)
-    record_findings_for_run(envelope, base_dir=base_dir)
+    record_findings_for_run(envelope, emitted_findings=_saved_emitted_findings, base_dir=base_dir)
     decision = evaluate_health(envelope["tool_id"], base_dir=base_dir, latest_run=envelope)
     append_jsonl(health_path(base_dir), decision)
     if envelope["status"] == "tool_unhealthy":
@@ -340,6 +364,9 @@ def immediate_quarantine_reason(tool: dict[str, Any], run: dict[str, Any]) -> st
         return "crash corrupted ledger state"
     if run["status"] == "tool_unhealthy":
         return "tool runner unhealthy"
+    # environment_unavailable is intentionally absent from this trigger:
+    # quarantine prices the TOOL, and a workspace that cannot run any tool
+    # is not evidence about one.
     if run["status"] == "integrity_failed":
         return "runtime artifact integrity failed"
     if has_critical_false_positive(run):
@@ -368,6 +395,42 @@ def auto_calibrate_reason(
     return None
 
 
+def _fold_consensus_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One settled judgment = one consensus row, whatever the ledger holds.
+
+    JJ-1 made a group RE-SETTLEABLE: the anchor upgrade appends a second
+    consensus row over its own 2-judge predecessor (and a judge trickling in
+    later can append a third). Counting rows then counts one settled question
+    two or three times, and the number it inflates is `judged_samples` /
+    `true_positive` — i.e. `precision`, the number the ACTIVE gate compares
+    to `precision_min`. Anchored findings would weigh more than un-anchored
+    ones for no reason anybody chose.
+
+    Folds on the (run, finding, group) identity every judgment lane already
+    keys on (`feedback_store._judgment_key`), keeping the row with the most
+    judges; later rows win ties, so the freshest settlement is the one that
+    counts. Non-consensus rows are untouched: an operator verdict and a
+    consensus about the same finding are two independent judgments and the
+    precision lane is meant to see both.
+    """
+    best: dict[tuple[str, str, str], int] = {}
+    keep: dict[tuple[str, str, str], int] = {}
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict) or row.get("source_type") != "ai_consensus":
+            continue
+        key = _judgment_key(row)
+        count = consensus_judge_count(row)
+        if key not in best or count >= best[key]:
+            best[key] = count
+            keep[key] = index
+    kept = set(keep.values())
+    return [
+        row for index, row in enumerate(rows)
+        if not (isinstance(row, dict) and row.get("source_type") == "ai_consensus")
+        or index in kept
+    ]
+
+
 def compute_metrics(
     tool: dict[str, Any],
     runs: list[dict[str, Any]],
@@ -381,7 +444,9 @@ def compute_metrics(
     non_critical_30d = 0
     human_judged = 0
     ai_consensus_judged = 0
-    feedback_rows = load_feedback(tool_id=tool["tool_id"], base_dir=base_dir)
+    feedback_rows = _fold_consensus_rows(
+        load_feedback(tool_id=tool["tool_id"], base_dir=base_dir),
+    )
     feedback_by_run: dict[str, list[dict[str, Any]]] = {}
     for feedback in feedback_rows:
         feedback_by_run.setdefault(str(feedback.get("run_id")), []).append(feedback)
@@ -420,8 +485,24 @@ def compute_metrics(
     )
 
     precision = 0.0 if judged == 0 else true_positive / max(true_positive + false_positive, 1)
+    # ORPHAN-HIGH-798 — use the same counts-first helper as every other
+    # reader: post-798 rows carry emitted_counts (the arrays moved to the
+    # artifact payload), pre-798 rows carry the arrays. Without this,
+    # new rows silently contribute 0 to raw_findings and precision_status
+    # misclassifies tools as no_findings_to_judge.
+    def _emitted_count(run: dict[str, Any], kind: str) -> int:
+        counts = run.get("emitted_counts")
+        if isinstance(counts, dict):
+            return int(counts.get(kind, 0))
+        legacy = run.get(f"emitted_{kind}")
+        if isinstance(legacy, list):
+            return len(legacy)
+        if isinstance(legacy, int):
+            return legacy
+        return 0
+
     raw_findings = sum(
-        _count(run.get("emitted_findings")) + int(run.get("runner", {}).get("raw_findings_count") or 0)
+        _emitted_count(run, "findings") + int(run.get("runner", {}).get("raw_findings_count") or 0)
         for run in runs
     )
     return {
@@ -542,6 +623,11 @@ def append_jsonl(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
         return append_declared_jsonl(path, payload, expected_surface="health")
     if path.name == "cycles.jsonl":
         return append_declared_jsonl(path, payload, expected_surface="cycles")
+    # ORPHAN-670 — per-run tool calibration joined the declared roster so
+    # it survives the nightly publish; a declared surface refuses the
+    # legacy chained append, so the store-level wrapper routes it.
+    if path.name == "calibration.jsonl":
+        return append_declared_jsonl(path, payload, expected_surface="tool_calibration")
     return append_chained_jsonl(path, payload)
 
 

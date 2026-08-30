@@ -195,3 +195,166 @@ describe('AgentIoConfigV2 transform', () => {
     });
   });
 });
+
+/**
+ * SENSOR-HIGH-064 — the I/O config push must reflect the device's real ack, not
+ * report unconditional green on publish. These tests pin that the push blocks on
+ * a commandId-correlated edge ack, persists the confirmed applied state only on
+ * success, and fails honestly on rejection or timeout.
+ */
+describe('pushIoConfigToDevice ack correlation (SENSOR-HIGH-064)', () => {
+  function setupAckService(
+    ioConfigs: DeviceIoConfig[],
+    opts: { isOnline?: boolean } = {},
+  ): {
+    service: EdgeDeviceService;
+    deviceRepository: { findOne: jest.Mock; update: jest.Mock };
+    mqttClient: ReturnType<typeof makeMqttClient>;
+  } {
+    const device = {
+      id: DEVICE_ID,
+      tenantId: TENANT_ID,
+      deviceCode: DEVICE_CODE,
+      isOnline: opts.isOnline ?? true,
+      ipAddress: '10.0.0.10',
+    };
+    const deviceRepository = {
+      findOne: jest.fn().mockResolvedValue(device),
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
+    };
+    const ioConfigRepository = { find: jest.fn().mockResolvedValue(ioConfigs) };
+    const loraDeviceRepository = { find: jest.fn().mockResolvedValue([]) };
+    const mqttClient = makeMqttClient();
+    const service = new EdgeDeviceService(
+      deviceRepository as never,
+      ioConfigRepository as never,
+      loraDeviceRepository as never,
+      {} as never,
+      mqttClient as never,
+      {} as never,
+      { get: jest.fn() } as never,
+    );
+    return { service, deviceRepository, mqttClient };
+  }
+
+  function validConfig(): DeviceIoConfig {
+    return cfg({ tagName: 'relay', ioType: IoType.DO, dataType: IoDataType.BOOL, gpioPin: 17 });
+  }
+
+  function commandIdFor(
+    mqttClient: ReturnType<typeof makeMqttClient>,
+    command: string,
+  ): string {
+    const calls = mqttClient.publish.mock.calls as readonly (readonly unknown[])[];
+    for (const call of calls) {
+      const payload = call[1] as Record<string, unknown>;
+      if (payload['command'] === command) {
+        return payload['commandId'] as string;
+      }
+    }
+    throw new Error(`no ${command} command was published`);
+  }
+
+  it('confirms + persists applied state only after a real success ack', async () => {
+    const { service, deviceRepository, mqttClient } = setupAckService([validConfig()]);
+
+    const pushPromise = service.pushIoConfigToDevice(DEVICE_ID, TENANT_ID);
+    await flushAsync();
+
+    // Awaiting the ack: not resolved, nothing persisted yet.
+    expect(deviceRepository.update).not.toHaveBeenCalled();
+
+    const commandId = commandIdFor(mqttClient, 'update_io_config');
+    const routing = service.handleIoConfigAckResponse(DEVICE_CODE, { commandId, success: true });
+    expect(routing).toMatchObject({ matched: true, success: true, deviceId: DEVICE_ID });
+
+    await expect(pushPromise).resolves.toEqual({ success: true });
+    expect(deviceRepository.update).toHaveBeenCalledWith(
+      { id: DEVICE_ID, tenantId: TENANT_ID },
+      expect.objectContaining({
+        appliedConfigHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+        lastConfigAckAt: expect.any(Date),
+      }),
+    );
+
+    service.onModuleDestroy();
+  });
+
+  it('reports failure and does NOT persist when the edge rejects the config', async () => {
+    const { service, deviceRepository, mqttClient } = setupAckService([validConfig()]);
+
+    const pushPromise = service.pushIoConfigToDevice(DEVICE_ID, TENANT_ID);
+    await flushAsync();
+
+    const commandId = commandIdFor(mqttClient, 'update_io_config');
+    service.handleIoConfigAckResponse(DEVICE_CODE, {
+      commandId,
+      success: false,
+      error: 'GPIO 17 already claimed',
+    });
+
+    await expect(pushPromise).resolves.toEqual({ success: false, error: 'GPIO 17 already claimed' });
+    expect(deviceRepository.update).not.toHaveBeenCalled();
+
+    service.onModuleDestroy();
+  });
+
+  it('times out honestly when no ack arrives (never fake green)', async () => {
+    jest.useFakeTimers({ doNotFake: ['setImmediate', 'nextTick'] });
+    try {
+      const { service, deviceRepository, mqttClient } = setupAckService([validConfig()]);
+
+      const pushPromise = service.pushIoConfigToDevice(DEVICE_ID, TENANT_ID);
+      await flushAsync();
+      expect(commandIdFor(mqttClient, 'update_io_config')).toEqual(expect.any(String));
+
+      jest.advanceTimersByTime(15001);
+      const result = await pushPromise;
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/not acknowledged/);
+      expect(deviceRepository.update).not.toHaveBeenCalled();
+
+      service.onModuleDestroy();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('refuses to push to an offline device without publishing or awaiting', async () => {
+    const { service, mqttClient } = setupAckService([], { isOnline: false });
+
+    const result = await service.pushIoConfigToDevice(DEVICE_ID, TENANT_ID);
+
+    expect(result).toEqual({ success: false, error: 'Device is offline' });
+    expect(mqttClient.publish).not.toHaveBeenCalled();
+
+    service.onModuleDestroy();
+  });
+
+  it('is a no-op for an unrelated commandId', () => {
+    const { service } = setupAckService([]);
+    expect(
+      service.handleIoConfigAckResponse(DEVICE_CODE, { commandId: 'not-a-pending-id', success: true }),
+    ).toEqual({ matched: false });
+    service.onModuleDestroy();
+  });
+
+  it('ignores an ack whose device identifier does not match the pending push', async () => {
+    const { service, mqttClient } = setupAckService([validConfig()]);
+
+    const pushPromise = service.pushIoConfigToDevice(DEVICE_ID, TENANT_ID);
+    await flushAsync();
+    const commandId = commandIdFor(mqttClient, 'update_io_config');
+
+    expect(
+      service.handleIoConfigAckResponse('some-other-device', { commandId, success: true }).matched,
+    ).toBe(false);
+
+    // The correct device's ack still settles the push.
+    service.handleIoConfigAckResponse(DEVICE_CODE, { commandId, success: true });
+    await expect(pushPromise).resolves.toEqual({ success: true });
+
+    service.onModuleDestroy();
+  });
+});

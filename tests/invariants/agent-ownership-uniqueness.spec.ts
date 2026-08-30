@@ -248,6 +248,9 @@ function extractRoutingRows(label: string, content: string): RoutingRow[] {
     const primaryMatch = primaryCell.match(/^([a-z][a-z0-9-]+)/i);
     if (!primaryMatch) continue;
     const primary = primaryMatch[1];
+    // ORPHAN-HIGH-507 — guarded, not asserted: a capture the regex matched
+    // but did not bind must skip the row, never crash the invariant.
+    if (primary === undefined) continue;
     for (const g of globTokens) {
       if (!g) continue;
       rows.push({ source: label, glob: g, primary, rawLine: line });

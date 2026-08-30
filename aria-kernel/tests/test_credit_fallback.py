@@ -22,15 +22,20 @@ _POC = Path(__file__).resolve().parents[2] / "tools" / "aria-poc"
 if str(_POC) not in sys.path:
     sys.path.insert(0, str(_POC))
 
-from claude_runtime import ClaudeRunResult, run_with_model_fallback  # noqa: E402
+from claude_runtime import (  # noqa: E402
+    ClaudeAuthFailure,
+    ClaudeCreditExhausted,
+    ClaudeRunResult,
+    run_with_model_fallback,
+)
 
 _CI = (_POC / "ci_executor.py").read_text(encoding="utf-8")
 _WORKER = (_POC / "worker_executor.py").read_text(encoding="utf-8")
 
 
-def _result(*, credit=None, refusal=None, tag="") -> ClaudeRunResult:
+def _result(*, credit=None, refusal=None, auth=None, tag="") -> ClaudeRunResult:
     return ClaudeRunResult(
-        returncode=0 if credit is None else 1,
+        returncode=0 if (credit is None and auth is None) else 1,
         stdout=tag,
         stderr="",
         final_message=tag,
@@ -38,6 +43,7 @@ def _result(*, credit=None, refusal=None, tag="") -> ClaudeRunResult:
         events=(),
         refusal=refusal,
         credit_exhaustion=credit,
+        auth_failure=auth,
     )
 
 
@@ -61,7 +67,7 @@ class RunWithModelFallbackBehavior(unittest.TestCase):
         out = run_with_model_fallback(
             run=run, model="fable", effort="high", on_credit=seen.append,
         )
-        self.assertEqual(run.calls, [("fable", "high"), ("opus", "xhigh")])
+        self.assertEqual(run.calls, [("fable", "high"), ("opus", "max")])
         self.assertEqual(out.final_message, "opus")
         self.assertEqual(seen, [credit])  # hook fired exactly once with the marker
 
@@ -70,11 +76,14 @@ class RunWithModelFallbackBehavior(unittest.TestCase):
         run = _ScriptedRun(_result(refusal=refusal, tag="fable"), _result(tag="opus"))
         seen_r: list[dict] = []
         seen_c: list[dict] = []
+        # Deliberately NOT the policy default: a refusal retry must preserve
+        # whatever effort the caller passed, and an input equal to the default
+        # would pass even if the code substituted the default.
         out = run_with_model_fallback(
-            run=run, model="fable", effort="xhigh",
+            run=run, model="fable", effort="high",
             on_credit=seen_c.append, on_refusal=seen_r.append,
         )
-        self.assertEqual(run.calls, [("fable", "xhigh"), ("opus", "xhigh")])
+        self.assertEqual(run.calls, [("fable", "high"), ("opus", "high")])
         self.assertEqual(out.final_message, "opus")
         self.assertEqual(seen_r, [refusal])
         self.assertEqual(seen_c, [])
@@ -94,15 +103,94 @@ class RunWithModelFallbackBehavior(unittest.TestCase):
         self.assertEqual(out.final_message, "opus-refused")
         self.assertEqual(seen_r, [])  # refusal hook never fired (credit path returned first)
 
-    def test_opus_primary_never_falls_back(self) -> None:
-        run = _ScriptedRun(_result(credit={"matched_marker": "credit balance"}, tag="opus"))
+    def test_a_tier_with_no_fallback_raises_instead_of_returning_the_notice(self) -> None:
+        """ORPHAN-HIGH-473 — replaces test_opus_primary_never_falls_back.
+
+        That test asserted opus + credit exhaustion returns the result. The
+        no-fallback part is still correct and still asserted (one call, no
+        retry), but RETURNING it was the defect: per extract_credit_exhaustion
+        the CLI delivers its usage-limit notice as assistant content on a clean
+        exit, and neither executor inspects .credit_exhaustion, so "You've
+        reached your limit" was persisted as the agent's answer.
+        """
+        # haiku is the CREDIT-LADDER TERMINUS with genuinely nowhere left to
+        # fall (fable -> opus -> sonnet continues across providers, but haiku
+        # was never given a rung). Before ARIA-HIGH-023 this role belonged to
+        # sonnet; the cross-provider rungs gave it somewhere to go.
+        run = _ScriptedRun(_result(credit={"matched_marker": "credit balance"}, tag="haiku"))
+        seen: list[dict] = []
+        with self.assertRaises(ClaudeCreditExhausted) as ctx:
+            run_with_model_fallback(
+                run=run, model="haiku", effort="medium", on_credit=seen.append,
+            )
+        self.assertEqual(run.calls, [("haiku", "medium")])  # still exactly one call
+        self.assertIn("no fallback tier", str(ctx.exception))
+        # The audit hook fires BEFORE the refusal, so the exhaustion is recorded.
+        self.assertEqual(len(seen), 1)
+
+    def test_a_clean_run_on_a_tier_with_no_fallback_still_passes_through(self) -> None:
+        """Only the exhausted case changed; a healthy opus run is untouched."""
+        run = _ScriptedRun(_result(tag="sonnet-clean"))
+        out = run_with_model_fallback(run=run, model="sonnet", effort="medium")
+        self.assertEqual(run.calls, [("sonnet", "medium")])
+        self.assertEqual(out.final_message, "sonnet-clean")
+
+    def test_an_exhausted_implementer_falls_from_opus_to_sonnet(self) -> None:
+        """The rung the operator added. Before it, opus was a leaf and an
+        exhausted implementer raised with nowhere to go."""
+        credit = {"matched_marker": "credit balance", "returncode": 1}
+        run = _ScriptedRun(_result(credit=credit, tag="opus"), _result(tag="sonnet"))
         seen: list[dict] = []
         out = run_with_model_fallback(
-            run=run, model="opus", effort="medium", on_credit=seen.append,
+            run=run, model="opus", effort="max", on_credit=seen.append,
         )
-        self.assertEqual(run.calls, [("opus", "medium")])  # one call, no fallback
-        self.assertEqual(out.final_message, "opus")
-        self.assertEqual(seen, [])
+        self.assertEqual(run.calls, [("opus", "max"), ("sonnet", "max")])
+        self.assertEqual(out.final_message, "sonnet")
+        self.assertEqual(seen, [credit])
+
+    def test_an_exhausted_fallback_tier_also_raises(self) -> None:
+        """The retry's own exhaustion is terminal too — the pre-fix docstring
+        claimed the caller escalates it, but no caller reads the field."""
+        run = _ScriptedRun(
+            _result(credit={"matched_marker": "quota exceeded"}, tag="fable"),
+            _result(credit={"matched_marker": "credit balance"}, tag="opus-also-dry"),
+        )
+        with self.assertRaises(ClaudeCreditExhausted) as ctx:
+            run_with_model_fallback(run=run, model="fable", effort="high")
+        self.assertEqual(len(run.calls), 2)  # still exactly one retry
+        self.assertIn("also exhausted", str(ctx.exception))
+
+    def test_the_fallback_topology_is_data_not_a_literal_model_test(self) -> None:
+        """The gate was `if model != "fable"`, so moving the primary tier off
+        fable would have disabled the fallback with nothing failing."""
+        from claude_runtime import MODEL_FALLBACK_TIER
+
+        # The operator ladder: planning falls fable -> opus, implementation
+        # falls opus -> sonnet. opus having a fallback is what makes running
+        # the write tier on it safe — before sonnet was added, opus was a leaf
+        # and an exhausted implementer raised terminally (ORPHAN-HIGH-475).
+        self.assertEqual(MODEL_FALLBACK_TIER.get("fable"), "opus")
+        self.assertEqual(MODEL_FALLBACK_TIER.get("opus"), "sonnet")
+        # ARIA-HIGH-023 — the cross-provider rungs. The ladder is deliberately
+        # CYCLIC now (opus -> sonnet -> glm-5.3 -> opus): the credit/refusal
+        # paths walk exactly one rung per call so a cycle cannot loop them,
+        # and the auth path's cross-provider walk is visited-set bounded. The
+        # property to pin is TERMINATION OF THE WALK, not acyclicity of the map.
+        self.assertEqual(MODEL_FALLBACK_TIER.get("sonnet"), "glm-5.3")
+        self.assertEqual(MODEL_FALLBACK_TIER.get("glm-5.3"), "opus")
+        for primary, target in MODEL_FALLBACK_TIER.items():
+            with self.subTest(primary=primary):
+                self.assertNotEqual(primary, target, "a tier cannot fall back to itself")
+        from claude_runtime import _cross_provider_auth_fallback
+
+        for start in MODEL_FALLBACK_TIER:
+            with self.subTest(walk_from=start):
+                # Bounded by construction (visited set); the pin is that it
+                # RETURNS at all — every tier resolves or honestly reports
+                # None, never loops.
+                resolved = _cross_provider_auth_fallback(start)
+                if resolved is not None:
+                    self.assertNotEqual(resolved, start)
 
     def test_clean_fable_run_passes_through(self) -> None:
         run = _ScriptedRun(_result(tag="fable-clean"))
@@ -122,9 +210,71 @@ class RunWithModelFallbackBehavior(unittest.TestCase):
             run=run, model="fable", effort="high",
             on_credit=seen_c.append, on_refusal=seen_r.append,
         )
-        self.assertEqual(run.calls[1], ("opus", "xhigh"))
+        self.assertEqual(run.calls[1], ("opus", "max"))
         self.assertEqual(len(seen_c), 1)
         self.assertEqual(seen_r, [])
+
+    # ------------------------------------------------------------------
+    # ARIA-HIGH-023 — cross-provider auth failover. An auth failure is a fact
+    # about the vendor's credential; same-vendor rungs share that dead
+    # credential and must be skipped, the cross-vendor rung retried, and both
+    # vendors down is terminal. No mock verdict exists on this path.
+    # ------------------------------------------------------------------
+
+    def test_auth_failure_on_opus_retries_on_glm_at_original_effort(self) -> None:
+        run = _ScriptedRun(
+            _result(auth={"marker": "invalid api key", "remedy": "login"}, tag="opus"),
+            _result(tag="glm-5.3"),
+        )
+        out = run_with_model_fallback(run=run, model="opus", effort="high")
+        # Same-vendor rung (sonnet) is SKIPPED — burning a spawn to relearn a
+        # dead credential is the failure mode this walk exists to prevent.
+        self.assertEqual(run.calls, [("opus", "high"), ("glm-5.3", "high")])
+        self.assertEqual(out.final_message, "glm-5.3")
+
+    def test_auth_failure_on_glm_retries_on_opus(self) -> None:
+        run = _ScriptedRun(
+            _result(auth={"marker": "unauthorized", "remedy": "key"}, tag="glm-5.3"),
+            _result(tag="opus"),
+        )
+        out = run_with_model_fallback(run=run, model="glm-5.3", effort="medium")
+        self.assertEqual(run.calls, [("glm-5.3", "medium"), ("opus", "medium")])
+        self.assertEqual(out.final_message, "opus")
+
+    def test_auth_failure_on_fable_walks_past_same_vendor_rungs(self) -> None:
+        run = _ScriptedRun(
+            _result(auth={"marker": "no credentials", "remedy": "login"}, tag="fable"),
+            _result(tag="glm-5.3"),
+        )
+        out = run_with_model_fallback(run=run, model="fable", effort="low")
+        # fable -> opus -> sonnet are all the Anthropic credential: the walk
+        # lands on glm-5.3 in ONE retry, not three.
+        self.assertEqual(run.calls, [("fable", "low"), ("glm-5.3", "low")])
+        self.assertEqual(out.final_message, "glm-5.3")
+
+    def test_both_providers_failing_auth_is_terminal_and_names_both(self) -> None:
+        run = _ScriptedRun(
+            _result(auth={"marker": "invalid api key", "remedy": "login"}, tag="opus"),
+            _result(auth={"marker": "unauthorized", "remedy": "zai key"}, tag="glm-5.3"),
+        )
+        with self.assertRaises(ClaudeAuthFailure) as raised:
+            run_with_model_fallback(run=run, model="opus", effort="high")
+        message = str(raised.exception)
+        self.assertIn("opus", message)
+        self.assertIn("glm-5.3", message)
+        self.assertIn("both providers", message)
+        self.assertEqual(len(run.calls), 2)
+
+    def test_cross_provider_walk_is_cycle_terminating(self) -> None:
+        # The map is a cycle (opus -> sonnet -> glm-5.3 -> opus); the walk
+        # must resolve, not loop — pinned end-to-end through the helper.
+        from claude_runtime import _cross_provider_auth_fallback
+
+        self.assertEqual(_cross_provider_auth_fallback("opus"), "glm-5.3")
+        self.assertEqual(_cross_provider_auth_fallback("sonnet"), "glm-5.3")
+        self.assertEqual(_cross_provider_auth_fallback("fable"), "glm-5.3")
+        self.assertEqual(_cross_provider_auth_fallback("glm-5.3"), "opus")
+        self.assertIsNone(_cross_provider_auth_fallback("haiku"))
 
 
 class ExecutorWiringPins(unittest.TestCase):
@@ -145,11 +295,64 @@ class ExecutorWiringPins(unittest.TestCase):
         # The "ultra" effort + single-retry semantics are owned by the helper,
         # not duplicated in the executors.
         helper_src = (_POC / "claude_runtime.py").read_text(encoding="utf-8")
-        self.assertIn('return run("opus", "xhigh")', helper_src)
-        self.assertIn('return run("opus", effort)', helper_src)
+        # ORPHAN-HIGH-473 — the literals became a topology map, so the pin is
+        # on the map + the escalated-effort constant rather than on two
+        # hardcoded call expressions.
+        self.assertIn("MODEL_FALLBACK_TIER", helper_src)
+        self.assertIn('CREDIT_FALLBACK_EFFORT: str = "max"', helper_src)
+        self.assertIn("run(fallback_model, CREDIT_FALLBACK_EFFORT)", helper_src)
+        self.assertIn("run(fallback_model, effort)", helper_src)
         self.assertNotIn("_fell_back_to_opus", _CI)
         self.assertNotIn("_fell_back_to_opus", _WORKER)
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CreditExhaustionReleasesTheClaim(unittest.TestCase):
+    """ORPHAN-HIGH-489 — a raise added without a handler leaks the claim.
+
+    ClaudeCreditExhausted was introduced by ORPHAN-HIGH-475 so a usage-limit
+    notice could not be returned as the agent's answer. It was then left out of
+    every except tuple, so it escaped ci_executor.main() with the claim still
+    CLAIMED — blocking the request for the full lease window. That is the same
+    defect as ResourceLimitsUnavailable one release earlier, in the code that
+    fixed the previous one.
+
+    Found by the review panel while attacking a different fix, which is the
+    argument for reviewing with many hands: the writer was looking at
+    ResourceLimitsUnavailable and the sibling raise was invisible from there.
+    """
+
+    def test_the_executor_handler_covers_both_refusal_families(self) -> None:
+        src = (_POC / "ci_executor.py").read_text(encoding="utf-8")
+        self.assertIn("except (ClaudeCliUnavailable, ClaudeCreditExhausted)", src)
+        # The arm must RELEASE, not merely log — a caught exception that leaves
+        # the claim held is the same outage with a tidier traceback.
+        # Slice by INDENTATION, not by text. The first version cut the arm at
+        # the literal "return 1" — which appears inside the arm's own comment
+        # ("It used to `return 1` with the claim still CLAIMED"), truncating the
+        # body before the assertion target. Fourth time this session a test of
+        # mine matched prose instead of code; a structural slice cannot.
+        lines = src.splitlines()
+        start = next(
+            i for i, l in enumerate(lines)
+            if l.strip().startswith("except (ClaudeCliUnavailable, ClaudeCreditExhausted)")
+        )
+        indent = len(lines[start]) - len(lines[start].lstrip())
+        body = []
+        for line in lines[start + 1:]:
+            if line.strip() and (len(line) - len(line.lstrip())) <= indent:
+                break
+            body.append(line)
+        arm = "\n".join(body)
+        self.assertIn("_release_claim(", arm)
+        self.assertIn('reason="claude_spawn_refused"', arm)
+
+    def test_the_exception_is_imported_not_shadowed(self) -> None:
+        """A NameError here would make the except arm unreachable at runtime
+        while the source-level assertion above still passed."""
+        src = (_POC / "ci_executor.py").read_text(encoding="utf-8")
+        header = src[: src.index("except (ClaudeCliUnavailable, ClaudeCreditExhausted)")]
+        self.assertIn("ClaudeCreditExhausted,", header)

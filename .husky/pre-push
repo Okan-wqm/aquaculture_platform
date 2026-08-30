@@ -8,6 +8,26 @@
 # `cargo clippy` invocation resolves.
 export PATH="$HOME/.cargo/bin:$PATH"
 
+# ARIA authority pin — the last gate before CI sees it.
+#
+# post-merge regenerates and stages the pin, but a staged file is not a
+# committed one, and a merge commit never ran pre-commit to catch it. This
+# refuses the push in a second rather than letting three required checks go red
+# thirty minutes later on a single assertion (measured three times on
+# 2026-08-19). It is a check, not a write: the push is already composed, so the
+# only honest move is to stop and name the command that fixes it.
+#
+# A guard that cannot run must SAY so. Skipping in silence is the same class of
+# defect this hook exists to close: an unknown read as a green.
+if [ -x ./node_modules/.bin/ts-node ]; then
+  ./node_modules/.bin/ts-node --project tools/gates/tsconfig.json \
+    tools/gates/aria-authority-hash.ts --check || exit 1
+else
+  echo "pre-push: ts-node missing — the ARIA authority pin was NOT checked." >&2
+  echo "  this push goes out unverified on that gate; CI will be its first" >&2
+  echo "  reader. Run 'npm ci', or link node_modules into this worktree." >&2
+fi
+
 # Pre-push gates — Batch #347 (closes ORPHAN-LOW-035 — operations
 # completion of the Batch #343/#346 clippy-affected gate landing,
 # now using git's pre-push stdin protocol for the correct
@@ -44,3 +64,40 @@ GATE_TS_NODE="./node_modules/.bin/ts-node"
 GATE_TSCONFIG="--project tools/gates/tsconfig.json"
 
 "$GATE_TS_NODE" $GATE_TSCONFIG tools/gates/clippy-affected.ts --mode=prepush || exit 1
+
+# ORPHAN-HIGH-507 sibling — TypeScript'in yerel aynası. Bu hook'ta bugüne kadar
+# yalnızca Rust clippy vardı; hiçbir yerel kapı tip kontrolü yapmıyordu
+# (pre-commit staged-only gate'ler koşar). Sonuç: jest tam tip kontrolü
+# yapmadığı için süit yeşilken `tsc --noEmit` kırmızı olabiliyordu ve
+# noUncheckedIndexedAccess hatası ancak CI'da görünüyordu (#1024).
+#
+# NEDEN platform çapında `npm run type-check` DEĞİL: o ~2.5 dakika ve her
+# push'a eklenirse insanlar hook'u atlamanın yolunu arar. Aynaladığımız kapı,
+# bu sınıfı CI'da fiilen yakalayan kapı: ci-affected'ın değişen-dosya
+# muhafızı. Maliyeti değişiklik boyutuyla orantılı, kapsamı ise tam olarak
+# riskli olan küme.
+#
+# origin/main çözülemezse GÜRÜLTÜLÜ atlar: taban hesaplanamıyorsa "değişen"
+# tanımlanamaz, ve çevrimdışı bir dalı push etmeyi bloklamak yanlış olur.
+# Sessizce atlamak ise bu oturumda düzelttiğim kör-test hatasının kendisi
+# olurdu — o yüzden sebebi yazar. CI otorite olarak kalır.
+if git rev-parse --verify --quiet origin/main >/dev/null; then
+  node scripts/ci/type-check-changed-files.mjs --base origin/main --head HEAD || exit 1
+else
+  echo "pre-push: origin/main çözülemedi, değişen-dosya tip kontrolü ATLANDI (CI yine koşacak)." >&2
+fi
+
+# ORPHAN-HIGH-510 — ARIA çekirdek süitinin yerel aynası. `npm run aria:test:unit`
+# CI'da aria-operational-proof.yml içinde koşar ve YEREL bir karşılığı hiç yoktu:
+# pre-commit biçim kapılarını, pre-push ise değişen-dosya tip kapısını aynalar,
+# dolayısıyla ikisi de dört Python testi kırmızıyken yeşil verir. RC-9'da tam
+# olarak bu oldu — jest koştum, çekirdek süitini koşmadım ve kırmızı commit
+# push edildi. "Kırmızı testle commit yok" kuralı yalnızca niyetle korunuyordu.
+#
+# Kapsamlı: yalnızca bu push'un eklediği commit'ler bir ARIA yüzeyine
+# dokunuyorsa koşar (5,000+ test; hosted ölçümde >45m). Koşulsuz olsaydı
+# insanlar hook'u atlamanın yolunu arardı; bu, kapının olmamasından kötüdür.
+# Tetikleyici küme aria-kernel/'den geniştir çünkü süitin kendisi öyle:
+# .github/workflows ve .github/actions üzerinde de sözleşme doğruluyor — RC-9
+# tek satır Python'a dokunmadan onu kırmıştı.
+node scripts/ci/aria-suite-changed.mjs || exit 1

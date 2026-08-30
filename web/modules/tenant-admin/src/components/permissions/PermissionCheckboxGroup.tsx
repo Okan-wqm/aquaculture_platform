@@ -174,10 +174,14 @@ const ResourceRow = React.memo<ResourceRowProps>(({
       <div className="w-40 flex items-center gap-2">
         <button
           type="button"
+          role="checkbox"
+          aria-checked={allSelected ? 'true' : someSelected ? 'mixed' : 'false'}
+          aria-label={`Select all ${formatResourceName(resource.name)} permissions`}
           onClick={() => !disabled && !readOnly && onSelectAll(resource.name, !allSelected)}
           disabled={disabled || readOnly}
           className={`
             flex items-center justify-center w-5 h-5 rounded border transition-all
+            focus:outline-hidden focus:ring-2 focus:ring-tenant-500
             ${disabled || readOnly ? 'cursor-not-allowed' : 'cursor-pointer'}
             ${
               allSelected
@@ -188,8 +192,8 @@ const ResourceRow = React.memo<ResourceRowProps>(({
             }
           `}
         >
-          {allSelected && <Check className="w-3 h-3 text-white" />}
-          {someSelected && <Minus className="w-3 h-3 text-tenant-600" />}
+          {allSelected && <Check className="w-3 h-3 text-white" aria-hidden="true" />}
+          {someSelected && <Minus className="w-3 h-3 text-tenant-600" aria-hidden="true" />}
         </button>
         <span className="text-sm font-medium text-gray-700">
           {formatResourceName(resource.name)}
@@ -265,62 +269,64 @@ const CategoryAccordion = React.memo<CategoryAccordionProps>(({
 
   return (
     <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
-      {/* Category Header */}
-      <button
-        type="button"
-        className={`
-          w-full flex items-center justify-between px-4 py-3
-          bg-gradient-to-r from-gray-50 to-white
-          ${!disabled && !readOnly ? 'cursor-pointer' : 'cursor-default'}
-          focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:ring-inset
-        `}
-        onClick={() => setIsExpanded(!isExpanded)}
-        aria-expanded={isExpanded}
-        aria-controls={contentId}
-      >
-        <div className="flex items-center gap-3">
-          <span
-            role="checkbox"
-            aria-checked={allResourcesSelected ? 'true' : someResourcesSelected ? 'mixed' : 'false'}
-            aria-label={`Select all permissions in ${category.name}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              if (disabled || readOnly) return;
-              onSelectAllCategory(!allResourcesSelected);
-            }}
-            className={`
-              flex items-center justify-center w-5 h-5 rounded border transition-all
-              ${disabled || readOnly ? 'cursor-not-allowed' : 'cursor-pointer'}
-              ${
-                allResourcesSelected
-                  ? 'bg-tenant-600 border-tenant-600'
-                  : someResourcesSelected
-                  ? 'bg-tenant-100 border-tenant-400'
-                  : 'bg-white border-gray-300 hover:border-tenant-400'
-              }
-            `}
-          >
-            {allResourcesSelected && <Check className="w-3 h-3 text-white" aria-hidden="true" />}
-            {someResourcesSelected && (
-              <Minus className="w-3 h-3 text-tenant-600" aria-hidden="true" />
+      {/* Category Header.
+          RBAC-MEDIUM-007 (M16): the select-all used to be a click-only
+          <span role="checkbox"> NESTED inside the expand <button> — invalid
+          interactive-inside-interactive (WCAG 4.1.2) and unreachable by
+          keyboard (WCAG 2.1.1). It is now a real sibling <button
+          role="checkbox">, so Tab reaches it and Space/Enter toggle natively;
+          the expand trigger is its own button covering the rest of the row. */}
+      <div className="w-full flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-gray-50 to-white">
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={allResourcesSelected ? 'true' : someResourcesSelected ? 'mixed' : 'false'}
+          aria-label={`Select all permissions in ${category.name}`}
+          disabled={disabled || readOnly}
+          onClick={() => onSelectAllCategory(!allResourcesSelected)}
+          className={`
+            flex items-center justify-center w-5 h-5 rounded border transition-all
+            focus:outline-hidden focus:ring-2 focus:ring-tenant-500
+            ${disabled || readOnly ? 'cursor-not-allowed' : 'cursor-pointer'}
+            ${
+              allResourcesSelected
+                ? 'bg-tenant-600 border-tenant-600'
+                : someResourcesSelected
+                ? 'bg-tenant-100 border-tenant-400'
+                : 'bg-white border-gray-300 hover:border-tenant-400'
+            }
+          `}
+        >
+          {allResourcesSelected && <Check className="w-3 h-3 text-white" aria-hidden="true" />}
+          {someResourcesSelected && (
+            <Minus className="w-3 h-3 text-tenant-600" aria-hidden="true" />
+          )}
+        </button>
+        <button
+          type="button"
+          className="flex-1 flex items-center justify-between cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:ring-inset"
+          onClick={() => setIsExpanded(!isExpanded)}
+          aria-expanded={isExpanded}
+          aria-controls={contentId}
+        >
+          <span className="flex items-center gap-3">
+            <span className="flex items-center gap-2 text-gray-600" aria-hidden="true">
+              {getCategoryIcon(category.categoryKey)}
+            </span>
+            <span className="font-semibold text-gray-900">{category.name}</span>
+            <span className="text-xs text-gray-500">
+              ({selectedPermissions}/{totalPermissions})
+            </span>
+          </span>
+          <span className="flex items-center gap-2" aria-hidden="true">
+            {isExpanded ? (
+              <ChevronDown className="w-5 h-5 text-gray-500" />
+            ) : (
+              <ChevronRight className="w-5 h-5 text-gray-500" />
             )}
           </span>
-          <span className="flex items-center gap-2 text-gray-600" aria-hidden="true">
-            {getCategoryIcon(category.categoryKey)}
-          </span>
-          <span className="font-semibold text-gray-900">{category.name}</span>
-          <span className="text-xs text-gray-500">
-            ({selectedPermissions}/{totalPermissions})
-          </span>
-        </div>
-        <span className="flex items-center gap-2" aria-hidden="true">
-          {isExpanded ? (
-            <ChevronDown className="w-5 h-5 text-gray-500" />
-          ) : (
-            <ChevronRight className="w-5 h-5 text-gray-500" />
-          )}
-        </span>
-      </button>
+        </button>
+      </div>
 
       {/* Category Content */}
       {isExpanded && (

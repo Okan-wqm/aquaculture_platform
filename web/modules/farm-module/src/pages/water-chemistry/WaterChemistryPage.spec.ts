@@ -27,9 +27,9 @@ function renderWaterChemistryPage(route = '/water-chemistry'): ReturnType<typeof
   return render(
     React.createElement(
       MemoryRouter,
-      { initialEntries: [route], future: { v7_startTransition: true, v7_relativeSplatPath: true } },
-      React.createElement(WaterChemistryPage)
-    )
+      { initialEntries: [route] },
+      React.createElement(WaterChemistryPage),
+    ),
   );
 }
 
@@ -64,7 +64,9 @@ describe('WaterChemistryPage Deffeyes (legacy ALK/DIC, single chart)', () => {
 
     vi.useFakeTimers();
     fireEvent.click(screen.getByRole('button', { name: /print report/i }));
-    const frame = document.querySelector<HTMLIFrameElement>('iframe[title="Water Chemistry Report"]');
+    const frame = document.querySelector<HTMLIFrameElement>(
+      'iframe[title="Water Chemistry Report"]',
+    );
     expect(frame).toBeInTheDocument();
     if (frame?.contentWindow) {
       Object.defineProperty(frame.contentWindow, 'focus', { value: vi.fn(), configurable: true });
@@ -83,7 +85,7 @@ describe('WaterChemistryPage Deffeyes (legacy ALK/DIC, single chart)', () => {
 
     vi.advanceTimersByTime(0);
     vi.advanceTimersByTime(1000);
-  }, 30000);
+  });
 
   it('uses the single realtime pH for H₂S — no separate H₂S measurement pH input or readout', async () => {
     renderWaterChemistryPage();
@@ -93,7 +95,7 @@ describe('WaterChemistryPage Deffeyes (legacy ALK/DIC, single chart)', () => {
     // measurement-pH knob and its readout row are gone.
     expect(screen.queryByLabelText('H₂S pH')).not.toBeInTheDocument();
     expect(screen.queryByText('H₂S measured at pH')).not.toBeInTheDocument();
-  }, 15000);
+  });
 
   it('prints through the iframe without reporting a fallback diagnostic', async () => {
     const diagnosticEvents: CustomEvent<WaterChemistryDiagnosticDetail>[] = [];
@@ -106,17 +108,23 @@ describe('WaterChemistryPage Deffeyes (legacy ALK/DIC, single chart)', () => {
 
     vi.useFakeTimers();
     fireEvent.click(screen.getByRole('button', { name: /print report/i }));
-    const frame = document.querySelector<HTMLIFrameElement>('iframe[title="Water Chemistry Report"]');
+    const frame = document.querySelector<HTMLIFrameElement>(
+      'iframe[title="Water Chemistry Report"]',
+    );
     expect(frame).toBeInTheDocument();
     if (frame?.contentWindow) {
       Object.defineProperty(frame.contentWindow, 'focus', { value: vi.fn(), configurable: true });
       Object.defineProperty(frame.contentWindow, 'print', { value: vi.fn(), configurable: true });
     }
-    expect(diagnosticEvents.some(event => event.detail.code === 'report-print-fallback')).toBe(false);
+    expect(diagnosticEvents.some((event) => event.detail.code === 'report-print-fallback')).toBe(
+      false,
+    );
 
     vi.advanceTimersByTime(0);
     vi.advanceTimersByTime(1000);
-    expect(document.querySelector('iframe[title="Water Chemistry Report"]')).not.toBeInTheDocument();
+    expect(
+      document.querySelector('iframe[title="Water Chemistry Report"]'),
+    ).not.toBeInTheDocument();
     vi.useRealTimers();
-  }, 15000);
+  });
 });

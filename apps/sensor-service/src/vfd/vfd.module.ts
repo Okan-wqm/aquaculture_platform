@@ -1,13 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
-import { VfdBacnetAdapter } from './adapters/vfd-bacnet.adapter';
-import { VfdCanopenAdapter } from './adapters/vfd-canopen.adapter';
-import { VfdEthernetIpAdapter } from './adapters/vfd-ethernet-ip.adapter';
-import { VfdModbusRtuAdapter } from './adapters/vfd-modbus-rtu.adapter';
-import { VfdModbusTcpAdapter } from './adapters/vfd-modbus-tcp.adapter';
-import { VfdProfibusAdapter } from './adapters/vfd-profibus-dp.adapter';
-import { VfdProfinetAdapter } from './adapters/vfd-profinet.adapter';
+import { VfdCommandAuditLog } from './entities/vfd-command-audit-log.entity';
 import { VfdDevice } from './entities/vfd-device.entity';
 import { VfdReading } from './entities/vfd-reading.entity';
 import { VfdRegisterMapping } from './entities/vfd-register-mapping.entity';
@@ -16,6 +10,9 @@ import { VfdCommandService } from './services/vfd-command.service';
 import { VfdConnectionTesterService } from './services/vfd-connection-tester.service';
 import { VfdDataReaderService } from './services/vfd-data-reader.service';
 import { VfdDeviceService } from './services/vfd-device.service';
+import { VfdEdgeProvisioningService } from './services/vfd-edge-provisioning.service';
+import { VfdEdgeReadService } from './services/vfd-edge-read.service';
+import { VfdEdgeWriteService } from './services/vfd-edge-write.service';
 import { VfdRegisterMappingService } from './services/vfd-register-mapping.service';
 
 /**
@@ -23,19 +20,16 @@ import { VfdRegisterMappingService } from './services/vfd-register-mapping.servi
  *
  * Provides comprehensive VFD device management including:
  * - Device registration and management
- * - Multi-protocol communication (Modbus RTU/TCP, PROFIBUS, PROFINET, EtherNet/IP, CANopen, BACnet)
+ * - Edge-delegated Modbus communication (all drive I/O runs on the edge gateway via
+ *   `read_modbus` / `write_modbus`; the cloud opens no sockets)
  * - Multi-brand support (Danfoss, ABB, Siemens, Schneider, Yaskawa, Delta, Mitsubishi, Rockwell)
  * - Real-time parameter reading
  * - Control commands (Start, Stop, Speed Control, Fault Reset)
- * - Connection testing and validation
+ * - Connection testing and validation (edge-delegated; `protocol-config` SSoT)
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([
-      VfdDevice,
-      VfdRegisterMapping,
-      VfdReading,
-    ]),
+    TypeOrmModule.forFeature([VfdDevice, VfdRegisterMapping, VfdReading, VfdCommandAuditLog]),
   ],
   providers: [
     // Resolvers
@@ -49,15 +43,9 @@ import { VfdRegisterMappingService } from './services/vfd-register-mapping.servi
     VfdDataReaderService,
     VfdCommandService,
     VfdConnectionTesterService,
-
-    // Protocol Adapters
-    VfdModbusRtuAdapter,
-    VfdModbusTcpAdapter,
-    VfdProfibusAdapter,
-    VfdProfinetAdapter,
-    VfdEthernetIpAdapter,
-    VfdCanopenAdapter,
-    VfdBacnetAdapter,
+    VfdEdgeWriteService,
+    VfdEdgeReadService,
+    VfdEdgeProvisioningService,
   ],
   exports: [
     // Export services for use in other modules
@@ -66,7 +54,9 @@ import { VfdRegisterMappingService } from './services/vfd-register-mapping.servi
     VfdDataReaderService,
     VfdCommandService,
     VfdConnectionTesterService,
+    VfdEdgeWriteService,
+    VfdEdgeReadService,
+    VfdEdgeProvisioningService,
   ],
 })
- 
 export class VfdModule {}

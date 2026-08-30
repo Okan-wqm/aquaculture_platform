@@ -29,10 +29,11 @@ import { User } from './user.entity';
  * other context), so it DECLARES `schema: 'auth'` explicitly per ADR-011 —
  * it is NOT a per-tenant table and is never cloned into tenant schemas.
  *
- * Role coverage mirrors the user_module_assignments precedent:
+ * Role coverage follows the site-authorization hierarchy:
  * - SUPER_ADMIN / TENANT_ADMIN: no entries needed — they bypass site checks via
  *   the canonical `roleHasPermission(role, MODULE_MANAGER)` hierarchy.
- * - MODULE_MANAGER / MODULE_USER: have explicit rows for each assigned site.
+ * - MODULE_MANAGER: no entries needed — managers have tenant-wide site access.
+ * - MODULE_USER: has explicit rows for each assigned site.
  *
  * `siteId` is a farm-service Site id — a CROSS-SERVICE identifier. There is
  * deliberately NO `@ManyToOne`/FK to a farm entity: auth must not import farm
@@ -44,6 +45,7 @@ import { User } from './user.entity';
 @Unique('UQ_user_site', ['userId', 'siteId'])
 @Index('IDX_user_site_assignments_user', ['userId'])
 @Index('IDX_user_site_assignments_tenant', ['tenantId'])
+@Index('IDX_user_site_assignments_user_tenant', ['userId', 'tenantId'])
 export class UserSiteAssignment {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
@@ -96,7 +98,10 @@ export class UserSiteAssignment {
   // ============================================
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'userId' })
+  @JoinColumn([
+    { name: 'userId', referencedColumnName: 'id' },
+    { name: 'tenantId', referencedColumnName: 'tenantId' },
+  ])
   user!: User;
 
   // ============================================

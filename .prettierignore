@@ -26,3 +26,15 @@ pnpm-lock.yaml
 # Documentation
 CHANGELOG.md
 /.nx/workspace-data
+# Generated wasm-bindgen bindings (protocol-codec) — do not reformat
+libs/**/src/generated/
+
+# Compiled eslint-rule artifacts — byte-identical to main, format gate false-positives on merge adds
+tools/eslint-rules/dist/rules/*.js
+tools/eslint-rules/dist/rules/*.d.ts
+
+# Compiled eslint-rule artifact — prettier non-convergent on tsc output
+tools/eslint-rules/dist/rules/no-unpinned-ssrf-fetch.js
+tools/eslint-rules/dist/rules/no-unpinned-ssrf-fetch.d.ts
+no-unpinned-ssrf-fetch.js
+no-unpinned-ssrf-fetch.d.ts

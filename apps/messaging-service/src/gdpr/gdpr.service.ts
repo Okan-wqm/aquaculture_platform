@@ -1,3 +1,5 @@
+import { randomUUID } from 'crypto';
+
 import { Injectable, Inject, Logger, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -5,7 +7,13 @@ import { ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom, timeout } from 'rxjs';
 import Redis from 'ioredis';
 import { OutboxPublisher } from '@platform/outbox';
-import { createBaseEvent, AUTH_CREDENTIAL_SUBJECTS, type VerifyPasswordQuery } from '@platform/event-contracts';
+import {
+  createBaseEvent,
+  AUTH_CREDENTIAL_SUBJECTS,
+  type GdprAnonymizeRequestedEvent,
+  type UserDataAnonymizedEvent,
+  type VerifyPasswordQuery,
+} from '@platform/event-contracts';
 import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { Message } from '../message/entities/message.entity';
 import { REDIS_CLIENT } from '../shared/redis.provider';
@@ -23,6 +31,13 @@ const EXPORT_COOLDOWN_SECONDS = 86400;
 
 /** Timeout for cross-service NATS requests in ms. */
 const NATS_TIMEOUT_MS = 10_000;
+
+/**
+ * GDPR Art 12(3) fulfilment window for cascaded erasure requests: data-subject
+ * requests must be fulfilled without undue delay and within one month.
+ * Carried on GdprAnonymizeRequestedEvent.fulfilByIso (ADR-044).
+ */
+const GDPR_FULFILMENT_WINDOW_DAYS = 30;
 
 interface ExportedMessage {
   content: string | null;
@@ -238,7 +253,10 @@ export class GdprService {
    *
    * After the transaction commits, purges the attachment MinIO objects captured
    * in step 2 (MSG-CRITICAL-058) so the binary PII is actually erased, not just
-   * its DB row. Publishes a `UserDataAnonymized` event via the outbox.
+   * its DB row. Publishes `UserDataAnonymized` plus a `GdprAnonymizeRequested`
+   * cascade event via the outbox — ai-service consumes the latter and erases its
+   * own `agent_conversations` runner-context blob (ADR-044); messaging never
+   * writes ai-service tables directly.
    *
    * @returns `true` on success.
    */
@@ -390,49 +408,59 @@ export class GdprService {
       );
 
       // ── 10. Cascade anonymization to AgentConversation records (ai-service) ──
-      // SECURITY: GDPR Article 17 requires erasure of ALL personal data, including
-      // AI chat history. Since AgentConversation lives in ai-service, we publish a
-      // GdprAnonymizeRequested event via the outbox so ai-service can clean up.
-      // Also attempt direct DB cleanup for shared-DB deployments.
-      // @see MSG-CRITICAL-024
+      // WHY (ADR-044 / INC-MSG-1): `agent_conversations` is ai-service-owned runner
+      // working context; messaging.messages is the compliance owner of AI in-channel
+      // content. The erasure crosses the service boundary by EVENT only — ai-service's
+      // ConversationPrivacyEventHandler consumes GdprAnonymizeRequested and erases its
+      // own blob. The former direct cross-service `UPDATE agent_conversations` (inside
+      // a broad swallow-all catch) is removed: a cross-service SQL write violates
+      // schema ownership and a swallowed failure faked coverage.
+      //
+      // Both events are enqueued INSIDE the erasure transaction, so a messaging-side
+      // erasure can never commit without the cascade request being durably queued.
+      // An enqueue failure is FAIL-LOUD: error log + metric + rethrow (transaction
+      // rolls back). The outbox relay owns at-least-once delivery from here; the
+      // ai-side delete is idempotent.
+      const anonymizedAt = new Date().toISOString();
+      // WHAT: requestId correlates the cascade across services; it is recorded in the
+      // same-transaction compliance_audit_log row below, which is the request-of-record
+      // for this self-service erasure flow (no shared.gdpr_data_requests row exists).
+      const cascadeRequestId = randomUUID();
+      // WHY: GDPR Art 12(3) grants one month to fulfil a data-subject request; the
+      // event contract carries that obligation as fulfilByIso.
+      const fulfilByIso = new Date(
+        Date.now() + GDPR_FULFILMENT_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+      ).toISOString();
+      // WHAT: both payloads are annotated with their contract types so the compiler
+      // rejects missing/extra fields (the pre-fix emission shipped off-contract
+      // fields and omitted required ones — schemas validate additionalProperties:false).
+      const userDataAnonymizedEvent: UserDataAnonymizedEvent = {
+        ...createBaseEvent<UserDataAnonymizedEvent>('UserDataAnonymized', tenantId),
+        userId,
+        method: 'pii-fields-nulled',
+        initiatedBy: 'user',
+      };
+      // SECURITY: Cross-service cascade event for ai-service AgentConversation
+      // cleanup (ADR-044).
+      const gdprAnonymizeRequestedEvent: GdprAnonymizeRequestedEvent = {
+        ...createBaseEvent<GdprAnonymizeRequestedEvent>('GdprAnonymizeRequested', tenantId),
+        userId,
+        requestId: cascadeRequestId,
+        fulfilByIso,
+      };
       try {
-        await queryRunner.query(
-          `UPDATE agent_conversations
-           SET messages = $1::jsonb,
-               title = '[ANONYMIZED]',
-               "isActive" = false
-           WHERE "userId" = $2 AND "tenantId" = $3`,
-          [
-            JSON.stringify([{ role: 'system', content: '[ANONYMIZED]', timestamp: new Date().toISOString() }]),
-            userId,
-            tenantId,
-          ],
+        await this.outboxPublisher.enqueue(userDataAnonymizedEvent, queryRunner.manager);
+        await this.outboxPublisher.enqueue(gdprAnonymizeRequestedEvent, queryRunner.manager);
+      } catch (error) {
+        this.metricsService.incrementGdprCascadeEmitFailure(tenantId);
+        this.logger.error(
+          `GDPR erasure cascade event enqueue failed for user ${userId} (tenant ${tenantId}); ` +
+            'rolling back erasure so no anonymisation commits without its cascade request',
         );
-      } catch {
-        // Table may not exist in this DB (separate-db deployment) -- event handles it
-        this.logger.warn(
-          'agent_conversations table not found in messaging DB; relying on GdprAnonymizeRequested event for ai-service cascade',
-        );
+        throw error;
       }
 
-      // 11. Log to outbox for event publication (UserDataAnonymized + GdprAnonymizeRequested)
-      const anonymizedAt = new Date().toISOString();
-      await this.outboxPublisher.enqueue({
-        ...createBaseEvent('UserDataAnonymized', tenantId),
-        userId,
-        anonymizedAt,
-      },  queryRunner.manager);
-
-      // SECURITY: Cross-service cascade event for ai-service AgentConversation cleanup
-      await this.outboxPublisher.enqueue({
-        ...createBaseEvent('GdprAnonymizeRequested', tenantId),
-        userId,
-        anonymizedAt,
-        targetService: 'ai-service',
-        targetEntity: 'AgentConversation',
-      },  queryRunner.manager);
-
-      // 12. SECURITY: Compliance audit log INSIDE transaction (before commit)
+      // 11. SECURITY: Compliance audit log INSIDE transaction (before commit)
       // BEFORE: audit log was written AFTER commit, so if audit write failed,
       // anonymization happened with no audit trail.
         await queryRunner.query(
@@ -444,7 +472,7 @@ export class GdprService {
             ComplianceAction.DATA_ANONYMIZE,
             'user',
             userId,
-            JSON.stringify({ anonymizedAt }),
+            JSON.stringify({ anonymizedAt, cascadeRequestId, cascadeFulfilBy: fulfilByIso }),
           ],
         );
       });

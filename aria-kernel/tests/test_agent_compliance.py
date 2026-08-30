@@ -115,6 +115,37 @@ class IndividualCheckTests(unittest.TestCase):
         )
         self.assertFalse(grade["check_results"]["evidence_schema_valid"]["passed"])
 
+    def test_kernel_ledger_pointer_ref_is_admissible(self) -> None:
+        # ORPHAN-719 — the kernel mints `human-required:<id>` into panel
+        # scopes and evidence law admits it (#1271, single predicate);
+        # this grader kept a second regex and hard-rejected every panel
+        # opinion on Night-1 (4 submit_rejected, all judges-as-panelists).
+        response = _well_formed_response()
+        response["evidence_refs"] = [
+            "human-required:AIR-aria-evidence-judge-0123456789ab",
+        ]
+        grade = grade_response(
+            request=_well_formed_request(),
+            response=response,
+            response_path=Path("/tmp/out.md"),
+        )
+        self.assertTrue(
+            grade["check_results"]["evidence_schema_valid"]["passed"],
+            grade["check_results"]["evidence_schema_valid"],
+        )
+
+    def test_bare_ledger_pointer_prefix_still_rejected(self) -> None:
+        # `human-required:` with no id names nothing — the predicate
+        # requires a non-empty id, so the empty spelling stays bad.
+        response = _well_formed_response()
+        response["evidence_refs"] = ["human-required:"]
+        grade = grade_response(
+            request=_well_formed_request(),
+            response=response,
+            response_path=Path("/tmp/out.md"),
+        )
+        self.assertFalse(grade["check_results"]["evidence_schema_valid"]["passed"])
+
     def test_output_path_mismatch_hard_fails(self) -> None:
         grade = grade_response(
             request=_well_formed_request(expected_path="/tmp/expected.md"),
@@ -256,11 +287,14 @@ class LifecyclePreservationTests(unittest.TestCase):
         # expanded the list with bridge-aware acceptance states
         # (ACCEPTED_PENDING_BRIDGE + ACCEPTED_PENDING_BRIDGE_PERMANENT_
         # FAIL). V10.5 Phase 3 (per ADR-0001) added EXTERNAL_OUTAGE
-        # for Anthropic API 529 transient outage handling; count is now 13.
+        # for Anthropic API 529 transient outage handling.
+        # ORPHAN-MEDIUM-492 added ANCHOR_STALE (request minted against a
+        # tree the repo has moved off); count is now 14.
         self.assertNotIn("COMPLIANCE_REJECTED", DERIVED_STATES)
         self.assertIn("REJECTED", DERIVED_STATES)
-        self.assertEqual(len(DERIVED_STATES), 13)
+        self.assertEqual(len(DERIVED_STATES), 14)
         self.assertIn("EXTERNAL_OUTAGE", DERIVED_STATES)
+        self.assertIn("ANCHOR_STALE", DERIVED_STATES)
 
 
 class PersistenceTests(unittest.TestCase):

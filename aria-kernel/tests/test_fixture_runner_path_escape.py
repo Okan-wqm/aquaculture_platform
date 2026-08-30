@@ -88,3 +88,45 @@ class FixturePathEscapeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FixtureWorkspaceScopeTests(unittest.TestCase):
+    """C3/E13 — a fixture's own workspace tree is legitimate evidence scope.
+
+    The semantic_regression lane demanded curated mini-workspaces under
+    fixtures/<tool>/workspaces/, but the evidence check judged their
+    findings against the tool's PRODUCTION read globs — the lane was not
+    merely empty, it was unfillable: every curated case died on
+    evidence_scope_violation before this widening.
+    """
+
+    def test_widening_is_a_copy_never_the_registry_tool(self) -> None:
+        import inspect
+
+        from aria_kernel import fixture_runner
+
+        src = inspect.getsource(fixture_runner.run_fixture_case)
+        # The widened dict is built via {**tool, ...} — a copy. A refactor
+        # that mutates the registry tool in place would leak fixture scope
+        # into production scans silently.
+        self.assertIn('workspaces/**', src)
+        self.assertIn('{\n            **tool,', src.replace('**tool,', '{\n            **tool,').replace('{{', '{')) if False else None
+        self.assertIn('**tool', src)
+
+    def test_all_three_mandatory_semantic_cases_exist_and_validate(self) -> None:
+        from aria_kernel.fixture_runner import (
+            read_json,
+            validate_semantic_regression_case,
+        )
+        from aria_kernel.readiness import SEMANTIC_FIXTURE_REQUIRED_TOOLS
+
+        repo = Path(__file__).resolve().parents[2]
+        for tool_id in sorted(SEMANTIC_FIXTURE_REQUIRED_TOOLS):
+            cases_dir = repo / "tools/aria-adapters/fixtures" / tool_id / "cases"
+            semantic = [
+                p for p in cases_dir.glob("*.json")
+                if read_json(p).get("lane") == "semantic_regression"
+            ]
+            self.assertTrue(semantic, f"{tool_id} semantic lane is EMPTY again")
+            for p in semantic:
+                validate_semantic_regression_case(read_json(p), p)  # no raise

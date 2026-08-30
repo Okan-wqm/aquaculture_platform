@@ -1,6 +1,11 @@
-import { BaseEvent, PlanTier, BillingCycle } from './base-event';
+import { BaseEvent } from './base-event';
 import { TenantStatus } from './enums/tenant-status.enum';
-import type { TenantErasureTargetService } from './tenant-erasure-targets';
+import type {
+  TenantDataErasedEventType,
+  TenantDataErasureFailedEventType,
+  TenantErasureBlockedEventType,
+  TenantErasureTargetService,
+} from './tenant-erasure-targets';
 
 /**
  * Tenant Created Event
@@ -145,7 +150,7 @@ export interface TenantErasureRequestedEvent extends BaseEvent {
  * Service-scoped proof that one target completed its tenant erasure.
  */
 export interface TenantDataErasedEvent extends BaseEvent {
-  eventType: 'TenantDataErased';
+  eventType: TenantDataErasedEventType;
   operationId: string;
   targetService: TenantErasureTargetService;
   erasedAt: string;
@@ -160,7 +165,7 @@ export interface TenantDataErasedEvent extends BaseEvent {
  * withholds the final TenantErased proof until all targets succeed.
  */
 export interface TenantDataErasureFailedEvent extends BaseEvent {
-  eventType: 'TenantDataErasureFailed';
+  eventType: TenantDataErasureFailedEventType;
   operationId: string;
   targetService: TenantErasureTargetService;
   failedAt: string;
@@ -173,7 +178,7 @@ export interface TenantDataErasureFailedEvent extends BaseEvent {
  * Durable block proof for legal-hold or policy denial.
  */
 export interface TenantErasureBlockedEvent extends BaseEvent {
-  eventType: 'TenantErasureBlocked';
+  eventType: TenantErasureBlockedEventType;
   operationId: string;
   blockedAt: string;
   blockedByService: TenantErasureTargetService | 'platform-orchestrator';
@@ -263,49 +268,6 @@ export interface TenantSubscriptionChangedEvent extends BaseEvent {
 }
 
 /**
- * Module quantity configuration for pricing
- */
-export interface ModuleQuantityConfig {
-  moduleId: string;
-  users?: number;
-  farms?: number;
-  ponds?: number;
-  sensors?: number;
-  employees?: number;
-  devices?: number;
-  storageGb?: number;
-  apiCalls?: number;
-  alerts?: number;
-  reports?: number;
-  integrations?: number;
-}
-
-/**
- * Tenant Subscription Requested Event
- * Published when a new tenant needs subscription created.
- * The billing service should listen to this event and create the subscription.
- */
-export interface TenantSubscriptionRequestedEvent extends BaseEvent {
-  eventType: 'TenantSubscriptionRequested';
-  /** Tenant's name for display purposes */
-  tenantName: string;
-  /** Module IDs to include in subscription */
-  moduleIds: string[];
-  /** Optional quantity configuration per module */
-  moduleQuantities?: ModuleQuantityConfig[];
-  /** Trial period in days (if applicable) */
-  trialDays?: number;
-  /** Plan tier */
-  tier: PlanTier;
-  /** Billing cycle */
-  billingCycle: BillingCycle;
-  /** Billing email address */
-  billingEmail?: string;
-  /** User who created the tenant */
-  createdBy: string;
-}
-
-/**
  * Tenant Modules Assigned Event
  * Published when modules are bulk-assigned to a tenant with pricing
  */
@@ -363,6 +325,5 @@ export type TenantEvent =
   | TenantErasedEvent
   | TenantProvisioningFailedEvent
   | TenantSubscriptionChangedEvent
-  | TenantSubscriptionRequestedEvent
   | TenantModulesAssignedEvent
   | ModuleRemovedFromTenantEvent;

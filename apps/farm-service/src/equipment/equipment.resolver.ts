@@ -19,6 +19,7 @@ import { CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-co
 import { TenantGuard } from '@aquaculture/backend-common/guards';
 import { fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
 import { TenantContextError } from '@aquaculture/backend-common/database';
+import { DecimalScalar } from '@aquaculture/backend-common/graphql';
 import { getTenantSchemaName } from '../common/utils/schema-sanitizer';
 import { FarmGraphQLContext } from '../common/types/graphql-context.types';
 import {
@@ -221,6 +222,15 @@ export class EquipmentResolver {
    * Note: For list queries, department is already loaded via JOIN in ListEquipmentHandler.
    * This resolver only makes a separate query if department is not already loaded.
    */
+  /**
+   * Exact-decimal wire form of `purchasePrice` (ADR-0004 / DATA-MEDIUM-009).
+   * The Decimal scalar serialises the number to an exact decimal string.
+   */
+  @ResolveField(() => DecimalScalar, { nullable: true })
+  purchasePriceDecimal(@Parent() equipment: EquipmentResponse): number | null {
+    return equipment.purchasePrice ?? null;
+  }
+
   @ResolveField(() => DepartmentResponse, { nullable: true })
   async department(@Parent() equipment: Equipment): Promise<DepartmentResponse | null> {
     // If department is already loaded (e.g., from JOIN in list query), return it directly
@@ -399,6 +409,7 @@ export class EquipmentResolver {
             avgWeightG,
             biomassKg,
             waterTempC,
+            equipment.id,
           );
           const feedResult = await loaders.feedSelectionLoader.load(tankBatch.primaryBatchId);
           if (feedResult) {
@@ -441,7 +452,11 @@ export class EquipmentResolver {
     return {
       batchNumber: tankBatch.primaryBatchNumber,
       batchId: tankBatch.primaryBatchId,
-      pieces: tankBatch.currentQuantity ?? tankBatch.totalQuantity,
+      // COUNT SSoT read (DB-FARMPROD-HIGH-001): the fish count is `totalQuantity`
+      // (batchDetails-derived); reading the redundant currentQuantity mirror here
+      // was a second channel of the 900-vs-719 web/mobile divergence. Biomass
+      // (biomassKg above) keeps the currentBiomassKg-first read — growth-tracked.
+      pieces: tankBatch.totalQuantity,
       avgWeight: avgWeightG || undefined,
       biomass: biomassKg || undefined,
       density: Number(tankBatch.densityKgM3) || undefined,

@@ -77,8 +77,8 @@ async function getDeviceId(): Promise<string> {
 }
 
 // FARM-LOW-141: this MUST stay byte-identical to the web client's stableStringify
-// (web/modules/farm-module/src/hooks/useBatches.ts) — both feed one server-side
-// at-most-once payloadHash dedup contract.
+// (web/modules/farm-module/src/utils/command-envelope.ts — the web's single copy)
+// — both feed one server-side at-most-once payloadHash dedup contract.
 function stableStringify(value: unknown): string {
   if (Array.isArray(value)) {
     return `[${value.map(stableStringify).join(',')}]`;
@@ -347,7 +347,11 @@ export async function queueOperation(
   // present. An unauthenticated background sync attempt would fail with 401
   // and incorrectly increment retryCount, eventually permanently discarding
   // the operation even though the failure was due to auth, not bad data.
-  if (hasValidAuth && 'serviceWorker' in navigator && 'SyncManager' in window) {
+  // MOB-MEDIUM-002: `globalThis`, not `window` — this module is shared with the
+  // SW sub-build (sw-replay.ts imports it), where `window` does not exist. The
+  // registration path itself only ever runs in the window context (queueOperation
+  // is called by the app), and the SyncManager presence check gates it there.
+  if (hasValidAuth && 'serviceWorker' in navigator && 'SyncManager' in globalThis) {
     try {
       const registration = await navigator.serviceWorker.ready;
       if (hasBackgroundSync(registration)) {
@@ -698,15 +702,14 @@ export async function clearCache(tenantId?: string): Promise<void> {
 // scoped clear drops just that tenant's — mirroring the queue's isolation model.
 //
 // TRACKED LIMITATION (MSG-MEDIUM-055, not faked): the upload-and-send replay is
-// a 3-call presign → PUT → send sequence. The static injectManifest service
-// worker can only re-POST /graphql for Background Sync, so it CANNOT replay a
-// presigned multipart PUT while the app is CLOSED. Therefore a blob queued while
-// the app is closed syncs on the NEXT FOREGROUND (the in-app reconnect lane in
-// useOfflineQueue.syncNow), exactly like every other queued op when the app is
-// open. The in-app lane is the real fix that lands here; closing the
-// background-while-closed gap requires teaching the SW the multipart PUT flow and
-// is tracked as a separate finding (server-side reaper + SW upload support), not
-// implemented in this PR.
+// a 3-call presign → PUT → send sequence needing the foreground media plumbing.
+// MOB-MEDIUM-002 clarified the real split: PLAIN queued ops ARE replayed by the
+// SW while the app is closed (sw-replay.ts — cookie refresh + /graphql re-POST,
+// listed in its SW_REPLAY_SKIP_TYPES exception set), but BLOB ops are skipped by
+// that lane and sync on the NEXT FOREGROUND (the in-app reconnect lane in
+// useOfflineQueue.syncNow). Closing the blob-while-closed gap requires teaching
+// the SW the presigned multipart PUT flow and is tracked as a separate finding
+// (server-side reaper + SW upload support).
 
 interface EncryptedBlobEntry {
   _enc: { iv: string; ciphertext: string };
@@ -899,10 +902,15 @@ function isRetryableError(errorMessage?: string): boolean {
  *
  * @param tenantId - Tenant UUID whose operations should be synced
  * @param executeGraphQL - Function that executes the GraphQL mutation
+ * @param options.skipTypes - Operation types this drain lane cannot execute
+ *   (MOB-MEDIUM-002: the SW replay lane skips the blob lane). Skipped ops are
+ *   left completely untouched — not attempted, not counted failed, retryCount
+ *   unchanged — so they drain intact on the next lane that CAN run them.
  */
 export async function syncAllOperations(
   tenantId: string,
-  executeGraphQL: GraphQLExecutor
+  executeGraphQL: GraphQLExecutor,
+  options?: { skipTypes?: readonly OperationType[] },
 ): Promise<{ success: number; failed: number }> {
   // SECURITY (C11): tenantId is mandatory for sync isolation
   if (!tenantId) {
@@ -924,11 +932,24 @@ export async function syncAllOperations(
   );
   await Promise.all(retryableFailed.map((op) => updateOperation(op.tenantId, op.id, { status: 'pending' })));
 
-  const operations = await getPendingOperations(tenantId);
+  const pendingOps = await getPendingOperations(tenantId);
+  // FARM-HIGH-214 priority drain: escape incidents are legally time-critical
+  // (the rømming varsling is immediate), so a reconnect flushes them BEFORE the
+  // rest of the backlog. Stable partition — relative order within each group
+  // is preserved, so the established FIFO semantics hold for everything else.
+  const operations = [
+    ...pendingOps.filter((op) => op.type === 'recordEscapeIncident'),
+    ...pendingOps.filter((op) => op.type !== 'recordEscapeIncident'),
+  ];
   let success = 0;
   let failed = 0;
 
   for (const op of operations) {
+    // MOB-MEDIUM-002: types this lane cannot execute are left untouched (not
+    // failed, not retried) so the capable lane drains them later.
+    if (options?.skipTypes?.includes(op.type)) {
+      continue;
+    }
     // Skip permanently failed operations (exceeded max retries or non-retryable error).
     // Also skip 'failed' operations that were NOT promoted to 'pending' -- these have
     // non-retryable errors (validation, 4xx) and should not be re-attempted.

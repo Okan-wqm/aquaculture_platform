@@ -1,23 +1,33 @@
 {
   "tool_id": "typeorm-entity-schema-adapter",
   "kind": "adapter",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "status": "SHADOW",
-  "declared_scope": [
-    "apps/farm-service/src/**/*.ts",
-    "libs/backend-common/src/database/schema-manager.service.ts"
-  ],
+  "declared_scope": ["apps/**/*.ts", "libs/backend-common/src/database/schema-manager.service.ts"],
   "output_schema": {
     "type": "object",
     "required": ["observations", "findings", "read_paths", "evidence_sources"]
   },
   "fixture_set": "tools/aria-adapters/fixtures/typeorm-entity-schema-adapter",
-  "health_thresholds": {"max_cost_units": 250},
+  "health_thresholds": {
+    "max_cost_units": 2000
+  },
   "allowed_read_globs": [
-    "apps/farm-service/src/**/*.ts",
+    "apps/**/*.ts",
     "libs/backend-common/src/database/schema-manager.service.ts"
   ],
-  "forbidden_read_globs": [".claude/**", ".git/**", "agent-workspace/**", ".aria-poc/**", "aria-tools/**", "node_modules/**", "dist/**", "coverage/**", "build/**", "tmp/**"],
+  "forbidden_read_globs": [
+    ".claude/**",
+    ".git/**",
+    "agent-workspace/**",
+    ".aria-poc/**",
+    "aria-tools/**",
+    "node_modules/**",
+    "dist/**",
+    "coverage/**",
+    "build/**",
+    "tmp/**"
+  ],
   "claim_types": ["schema_drift"],
   "owner": "platform",
   "runner": {
@@ -33,5 +43,7 @@
     "timeout_ms": 180000,
     "stdin_json": true
   },
+  "freshness_window_hours": 168,
+  "parse_window_signature": "sha256:279526798279a75e61ea430aa99d506ab91e3f547eacbed66c03e3fbaf085035",
   "schema_version": 1
 }

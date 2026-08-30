@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@tanstack/react-query": "5.90.10",
+    "@tanstack/react-virtual": "^3.14.6",
     "clsx": "^2.1.0",
     "firebase": "^12.12.1",
     "graphql": "^16.12.0",
@@ -24,7 +25,8 @@
     "lucide-react": "0.469.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",
-    "react-router-dom": "6.30.3",
+    "react-router": "7.18.2",
+    "react-router-dom": "7.18.2",
     "socket.io-client": "^4.8.3",
     "tailwind-merge": "^3.4.0",
     "workbox-core": "^7.0.0",
@@ -35,14 +37,14 @@
     "workbox-window": "^7.0.0"
   },
   "devDependencies": {
+    "@graphql-typed-document-node/core": "3.2.0",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",
-    "@graphql-typed-document-node/core": "3.2.0",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.2.0",
     "autoprefixer": "^10.4.16",
-    "postcss": "^8.4.32",
+    "postcss": "^8.5.23",
     "tailwindcss": "^3.4.0",
     "typescript": "5.9.3",
     "vite": "^7.3.5",
@@ -50,6 +52,11 @@
     "workbox-build": "^7.0.0"
   },
   "overrides": {
-    "serialize-javascript": "7.0.5"
+    "esbuild": "^0.28.1",
+    "fast-uri": "3.1.5",
+    "nanoid": "3.3.18",
+    "protobufjs": "7.6.5",
+    "serialize-javascript": "7.0.5",
+    "socket.io-parser": "4.2.7"
   }
 }

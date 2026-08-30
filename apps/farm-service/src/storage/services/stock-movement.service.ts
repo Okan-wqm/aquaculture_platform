@@ -29,16 +29,20 @@
  * ...)` INSIDE their own feeding transaction — so an insufficient-stock
  * `BadRequestException` ROLLS BACK the feeding instead of being swallowed.
  *
- * Phase A is write-path only: no table merge, no `feed_inventory` drop, no
- * read re-points. The feeding callers KEEP maintaining `feed_inventory`
- * (the GetFeedInventory read path still depends on it) and ADD this atomic
- * fail-closed storage deduction alongside it.
+ * Phase A was write-path only. Phase 2 (stock SSoT) completed the read
+ * re-point: the legacy `feed_inventory` writers and the GetFeedInventory
+ * read path are GONE — this ledger (+ the Feed.quantity roll-up) is the
+ * single feed stock truth. The frozen `feed_inventory` table is dropped in
+ * the retirement phase.
  *
  * @module Storage/Services
  */
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 import { tenantManagerRepo, TenantScopedRepository } from '@aquaculture/backend-common/database';
+import { OutboxPublisher } from '@platform/outbox';
+import type { LowStockDetectedEvent } from '@platform/event-contracts';
+import { createBaseEvent } from '@platform/event-contracts';
 
 import { StorageLocation } from '../entities/storage-location.entity';
 import { StorageInventory, StorageItemType } from '../entities/storage-inventory.entity';
@@ -110,6 +114,15 @@ export interface RecordMovementResult {
   /** True when the idempotency key matched an existing movement (no-op replay). */
   idempotentHit: boolean;
   warnings: ConditionWarning[];
+  /**
+   * Set when this OUT/WASTE movement left the item's aggregate at or below
+   * its minStock. The matching durable `LowStockDetectedEvent` has already
+   * been enqueued to the outbox INSIDE the caller's transaction by this
+   * service (single low-stock sink); callers use this field only for
+   * POST-COMMIT side effects (e.g. the in-process `inventory.lowStock`
+   * auto-task trigger), never to re-emit the durable event.
+   */
+  lowStock: { severity: 'low_stock' | 'out_of_stock'; minimumThreshold?: number } | null;
 }
 
 @Injectable()
@@ -119,6 +132,11 @@ export class StockMovementService {
   constructor(
     private readonly lotMixService: LotMixService,
     private readonly siteAuth: SiteAuthorizationService,
+    // OutboxPublisher is provided app-wide by the @Global() FarmOutboxModule.
+    // The low-stock signal is enqueued HERE (single sink) so EVERY writer —
+    // manual movement, feeding deduction, PO receipt, adjustment — emits it
+    // on the same transactional manager; no caller can forget it.
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   /**
@@ -159,7 +177,7 @@ export class StockMovementService {
       });
       if (existing) {
         this.logger.log(`Idempotent hit: movement ${existing.id} for key ${input.idempotencyKey}`);
-        return { saved: existing, currentTotal: 0, idempotentHit: true, warnings: [] };
+        return { saved: existing, currentTotal: 0, idempotentHit: true, warnings: [], lowStock: null };
       }
     }
 
@@ -270,6 +288,7 @@ export class StockMovementService {
     // read inside the tx so it reflects the just-applied mutation. Used for
     // low-stock detection on stock-reducing movements only.
     let currentTotal = 0;
+    let lowStock: RecordMovementResult['lowStock'] = null;
     if (fromLocation && (movementType === MovementType.OUT || movementType === MovementType.WASTE)) {
       const stockResult = await tenantManagerRepo(manager, StorageInventory, tenantId)
         .createQueryBuilder('inv')
@@ -278,46 +297,36 @@ export class StockMovementService {
         .andWhere('inv.itemId = :itemId', { itemId })
         .getRawOne();
       currentTotal = parseFloat(stockResult?.total ?? '0');
+
+      // Single low-stock sink: threshold detection + the durable event live
+      // at the mutation core, so a feeding deduction and a manual OUT emit
+      // the SAME signal on the SAME transactional manager. Previously the
+      // detection lived only in RecordStockMovementHandler, so feeding-driven
+      // depletion never raised LowStockDetected (findings register
+      // FARM-HIGH-217 leg of the dead alert chain).
+      const minStock = Number(itemDetails.minStock ?? 0);
+      if (currentTotal <= 0) {
+        lowStock = { severity: 'out_of_stock', minimumThreshold: minStock > 0 ? minStock : undefined };
+      } else if (minStock > 0 && currentTotal <= minStock) {
+        lowStock = { severity: 'low_stock', minimumThreshold: minStock };
+      }
+
+      if (lowStock) {
+        const lowStockEvent: LowStockDetectedEvent = {
+          ...createBaseEvent<LowStockDetectedEvent>('LowStockDetected', tenantId),
+          itemType,
+          itemId,
+          itemName: itemDetails.name,
+          currentQuantity: currentTotal,
+          unit: itemDetails.unit,
+          minimumThreshold: lowStock.minimumThreshold,
+          severity: lowStock.severity,
+        };
+        await this.outboxPublisher.enqueue(lowStockEvent, manager);
+      }
     }
 
-    return { saved, currentTotal, idempotentHit: false, warnings };
-  }
-
-  /**
-   * Does the tenant track this feed in the storage ledger AT ALL?
-   *
-   * # Why this distinction is architecturally load-bearing (Phase A)
-   *
-   * Feed stock is populated by TWO independent operator workflows that write
-   * to TWO different ledgers: `feed_inventory` (via add-feed-inventory) and
-   * `storage_inventory` (via receive-delivery). A tenant that uses feeding +
-   * feed_inventory but never adopted the storage/warehouse module has ZERO
-   * `storage_inventory` rows for its feeds. For such a tenant, "no usable lot
-   * for this feed" does NOT mean "out of stock" — it means "this tenant does
-   * not manage this feed in storage", and the feed_inventory-only deduction
-   * is the correct (pre-existing) behaviour.
-   *
-   * This method answers exactly that question: is there ANY
-   * `storage_inventory` row for `(itemType=FEED, itemId=feedId)` in the
-   * tenant — regardless of quantity (even 0), expiry, or as-of scoping? A
-   * `true` answer means the feed is storage-managed, so a missing usable lot
-   * is a REAL shortage that MUST fail-closed. A `false` answer means the feed
-   * is not storage-tracked, so the caller skips the storage OUT deduction and
-   * proceeds on the feed_inventory-only path (emitting an observable signal,
-   * never a swallowed catch).
-   *
-   * Counts on the SAME caller-provided (locked / in-tx) manager so the
-   * presence decision is consistent with the deduction that follows it.
-   */
-  async feedHasStoragePresence(
-    manager: EntityManager,
-    tenantId: string,
-    feedId: string,
-  ): Promise<boolean> {
-    const presence = await tenantManagerRepo(manager, StorageInventory, tenantId).count({
-      where: { itemType: StorageItemType.FEED, itemId: feedId },
-    });
-    return presence > 0;
+    return { saved, currentTotal, idempotentHit: false, warnings, lowStock };
   }
 
   /**
@@ -354,10 +363,10 @@ export class StockMovementService {
    *      arrived after the feeding occurred)
    *
    * Returns `null` when NO storage location stocks a usable lot of the feed
-   * (or of the supplied lot). The CALLER decides the policy: in Phase A the
-   * feeding callers fail-closed ONLY when the feed is storage-tracked
-   * (`feedHasStoragePresence`), so a storage-managed feed can no longer be
-   * fed while its deduction silently fails.
+   * (or of the supplied lot). After the single-ledger cutover, callers always
+   * treat that result as an actual shortage and fail closed. Mutable projection
+   * presence is never an authority-mode switch: a depleted row may be removed,
+   * but that cannot revive the retired feed_inventory compatibility path.
    */
   async resolveFeedDeductionLocation(
     manager: EntityManager,
@@ -365,30 +374,59 @@ export class StockMovementService {
     feedId: string,
     asOf: Date,
     lotNumber?: string,
-  ): Promise<{ storageLocationId: string; lotNumber?: string } | null> {
-    const query = tenantManagerRepo(manager, StorageInventory, tenantId)
-      .createQueryBuilder('inv')
-      .andWhere('inv.itemType = :itemType', { itemType: StorageItemType.FEED })
-      .andWhere('inv.itemId = :itemId', { itemId: feedId })
-      .andWhere('inv.quantity > 0')
-      .andWhere('(inv.expiryDate IS NULL OR inv.expiryDate > :today)', { today: new Date() })
-      .andWhere('(inv.receivedDate IS NULL OR inv.receivedDate <= :asOf)', { asOf });
+    /**
+     * D-9 site kapsamı: verilirse önce ÜNİTENİN SİTESİNİN lokasyonlarındaki
+     * lotlar denenir (düşüm + forecast aynı kapsamı okur); site'ta uygun lot
+     * yoksa belgeli tenant-geneli fallback (`usedSiteFallback=true`) uygulanır.
+     */
+    siteId?: string,
+  ): Promise<{ storageLocationId: string; lotNumber?: string; usedSiteFallback: boolean } | null> {
+    const buildQuery = (scopeSiteId?: string) => {
+      const query = tenantManagerRepo(manager, StorageInventory, tenantId)
+        .createQueryBuilder('inv')
+        .andWhere('inv.itemType = :itemType', { itemType: StorageItemType.FEED })
+        .andWhere('inv.itemId = :itemId', { itemId: feedId })
+        .andWhere('inv.quantity > 0')
+        .andWhere('(inv.expiryDate IS NULL OR inv.expiryDate > :today)', { today: new Date() })
+        .andWhere('(inv.receivedDate IS NULL OR inv.receivedDate <= :asOf)', { asOf });
+      if (scopeSiteId) {
+        query.innerJoin(
+          StorageLocation,
+          'loc',
+          'loc.id = inv."storageLocationId" AND loc."siteId" = :scopeSiteId',
+          { scopeSiteId },
+        );
+      }
+      // Supplied-lot binding: when a concrete feed batch is named, resolve the
+      // location of THAT lot only, so the OUT deduction hits the physical lot
+      // the operator declared (and never a different FEFO lot).
+      if (lotNumber) {
+        query.andWhere('inv.lotNumber = :lotNumber', { lotNumber });
+      }
+      return query
+        .orderBy('inv.expiryDate', 'ASC', 'NULLS LAST')
+        .addOrderBy('inv.receivedDate', 'ASC', 'NULLS LAST')
+        .addOrderBy('inv.lotNumber', 'ASC')
+        .getOne();
+    };
 
-    // Supplied-lot binding: when a concrete feed batch is named, resolve the
-    // location of THAT lot only, so the OUT deduction hits the physical lot
-    // the operator declared (and never a different FEFO lot).
-    if (lotNumber) {
-      query.andWhere('inv.lotNumber = :lotNumber', { lotNumber });
+    if (siteId) {
+      const siteScoped = await buildQuery(siteId);
+      if (siteScoped) {
+        return {
+          storageLocationId: siteScoped.storageLocationId,
+          lotNumber: siteScoped.lotNumber,
+          usedSiteFallback: false,
+        };
+      }
     }
-
-    const inventory = await query
-      .orderBy('inv.expiryDate', 'ASC', 'NULLS LAST')
-      .addOrderBy('inv.receivedDate', 'ASC', 'NULLS LAST')
-      .addOrderBy('inv.lotNumber', 'ASC')
-      .getOne();
-
+    const inventory = await buildQuery(undefined);
     if (!inventory) return null;
-    return { storageLocationId: inventory.storageLocationId, lotNumber: inventory.lotNumber };
+    return {
+      storageLocationId: inventory.storageLocationId,
+      lotNumber: inventory.lotNumber,
+      usedSiteFallback: !!siteId,
+    };
   }
 
   /**
@@ -444,12 +482,12 @@ export class StockMovementService {
   private async getItemDetails(
     manager: EntityManager,
     itemType: StorageItemType, itemId: string, tenantId: string,
-  ): Promise<{ name: string; unit: string; manufacturer?: string; storageTempMin?: number; storageTempMax?: number; storageHumidityMin?: number; storageHumidityMax?: number } | null> {
+  ): Promise<{ name: string; unit: string; minStock?: number; manufacturer?: string; storageTempMin?: number; storageTempMax?: number; storageHumidityMin?: number; storageHumidityMax?: number } | null> {
     switch (itemType) {
       case StorageItemType.FEED: {
         const feed = await tenantManagerRepo(manager, Feed, tenantId).findOne({ where: { id: itemId, tenantId } });
         return feed
-          ? { name: feed.name, unit: feed.unit, manufacturer: feed.manufacturer, storageTempMin: feed.storageTempMin, storageTempMax: feed.storageTempMax, storageHumidityMin: feed.storageHumidityMin, storageHumidityMax: feed.storageHumidityMax }
+          ? { name: feed.name, unit: feed.unit, minStock: feed.minStock, manufacturer: feed.manufacturer, storageTempMin: feed.storageTempMin, storageTempMax: feed.storageTempMax, storageHumidityMin: feed.storageHumidityMin, storageHumidityMax: feed.storageHumidityMax }
           : null;
       }
       case StorageItemType.CHEMICAL: {
@@ -458,6 +496,7 @@ export class StockMovementService {
           ? {
               name: chem.name,
               unit: chem.unit,
+              minStock: chem.minStock,
               storageTempMin: chem.storageTempMin,
               storageTempMax: chem.storageTempMax,
               storageHumidityMin: chem.storageHumidityMin,
@@ -474,6 +513,7 @@ export class StockMovementService {
           ? {
               name: cons.name,
               unit: cons.unit,
+              minStock: cons.minStock,
               storageTempMin: cons.storageTempMin,
               storageTempMax: cons.storageTempMax,
               storageHumidityMin: cons.storageHumidityMin,

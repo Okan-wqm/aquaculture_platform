@@ -27,16 +27,18 @@ jobs:
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
+      docs_changed: ${{ steps.changes.outputs.docs }}
       has_changes: ${{ steps.check.outputs.has_changes }}
+      deploy_changes: ${{ steps.check.outputs.deploy_changes }}
       infra_image_changed: ${{ steps.changes.outputs.infra_image }}
       is_pr: ${{ github.event_name == 'pull_request' }}
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       # SEC-CI-002/SEC-CI-019: Migrated from unmaintained @v2 to @v3, pinned to SHA
-      - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: changes
         with:
           filters: |
@@ -47,6 +49,8 @@ jobs:
               - 'platform/libs/**'
             web:
               - 'web/**'
+            docs:
+              - 'docs/**/*.md'
             infra_image:
               - 'infrastructure/mosquitto/**'
             # Deploy-pipeline infrastructure. Changes here affect how the
@@ -70,10 +74,15 @@ jobs:
               - '.github/workflows/deploy-staging.yml'
               - '.github/workflows/production-post-deploy-verify.yml'
               - '.github/workflows/ci-affected.yml'
+              # Required-check and protected-release workflows are executable
+              # control-plane code. Any workflow-only PR must run the real
+              # dependency chain rather than a has_changes=false summary.
+              - '.github/workflows/**'
               - '.github/actions/**'
               - '.github/manifests/**'
               - 'infrastructure/deploy/**'
               - 'infrastructure/apollo-router/**'
+              - 'infrastructure/scripts/**'
               - 'docker-compose.droplet.yml'
               - 'docker-compose.prod.yml'
               - '.gitignore'
@@ -91,11 +100,13 @@ jobs:
               # has_changes=false. Architectural fix: treat CI-consumed
               # tooling as deploy-config for path-filter purposes.
               - 'tools/eslint-rules/**'
+              - 'tools/backup-ssh-broker/**'
               - 'tools/gates/**'
               - 'tools/lint-gates/**'
               - 'tools/scripts/**'
               - 'eslint.config.mjs'
               - 'tsconfig.base.json'
+              - 'tests/**'
               # Root manifest + lockfile. Any change here rewires the
               # workspace graph OR the dependency tree — both invalidate
               # every downstream build. Missing these from the filter
@@ -106,17 +117,29 @@ jobs:
               - '.npmrc'
               - 'package.json'
               - 'package-lock.json'
+            # Standalone E2E owns an independent lockfile. Its Dependabot PRs
+            # must enter the security-audit job even when no workspace source
+            # changed, otherwise the E2E audit contract cannot enforce itself.
+            audit_only:
+              - 'e2e/**'
       - id: check
         run: |
+          deploy_changes=false
           if [ "${{ steps.changes.outputs.apps }}" = "true" ] || \
              [ "${{ steps.changes.outputs.libs }}" = "true" ] || \
              [ "${{ steps.changes.outputs.web }}" = "true" ] || \
              [ "${{ steps.changes.outputs.infra_image }}" = "true" ] || \
              [ "${{ steps.changes.outputs.deploy-config }}" = "true" ]; then
-            echo "has_changes=true" >> $GITHUB_OUTPUT
-          else
-            echo "has_changes=false" >> $GITHUB_OUTPUT
+            deploy_changes=true
           fi
+
+          has_changes="$deploy_changes"
+          if [ "${{ steps.changes.outputs.audit_only }}" = "true" ]; then
+            has_changes=true
+          fi
+
+          echo "has_changes=$has_changes" >> "$GITHUB_OUTPUT"
+          echo "deploy_changes=$deploy_changes" >> "$GITHUB_OUTPUT"
 
   # ---------------------------------------------------------------------------
   # Shared setup: install + cache (reusable via needs + cache restore)
@@ -127,7 +150,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -170,7 +193,7 @@ jobs:
     # BEFORE: lint errors showed green in GitHub — no signal to reviewers or authors.
     # WHY: A CI gate that never fails provides false confidence and is worse than no gate.
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -180,27 +203,35 @@ jobs:
 
       - name: Restore node_modules
         id: cache-nm
-        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: node_modules
           key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
 
+      # The restored .npm-cache can carry a torn _cacache tmp entry, and npm's
+      # extraction then dies with EEXIST/ENOENT rename races (observed twice on
+      # 2026-08-11: runs 31493430731, 31499733901). One purge of the cache's
+      # tmp area + a single retry converts that recurring red into a footnote;
+      # a second failure is a real problem and still fails the job.
       - name: Fallback install if cache missed
         if: steps.cache-nm.outputs.cache-hit != 'true'
-        run: npm ci --ignore-scripts --no-audit
+        run: |
+          set -euo pipefail
+          if ! npm ci --ignore-scripts --no-audit; then
+            echo "npm ci failed once; purging torn cacache tmp entries and retrying" >&2
+            rm -rf .npm-cache/_cacache/tmp
+            npm cache verify --cache .npm-cache >/dev/null 2>&1 || true
+            npm ci --ignore-scripts --no-audit
+          fi
 
       # 2026-05-05: Nx builds Rust crates in parallel. Installing the pinned
       # toolchain once before Nx starts prevents competing cargo/rustup
       # processes from mutating ~/.rustup concurrently.
       - name: Install Rust toolchain (rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # stable
-        with:
-          toolchain: 1.88.0
-          components: rustfmt,clippy,rust-src
-          targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
+        uses: ./.github/actions/setup-rust-workspace
 
       - name: Restore Nx cache
-        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .nx/cache
           key: nx-ci-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
@@ -234,7 +265,7 @@ jobs:
     # continue-on-error removed: TypeScript errors must block PR merge.
     # BEFORE: type errors merged silently — caught only at runtime or in production.
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -244,26 +275,34 @@ jobs:
 
       - name: Restore node_modules
         id: cache-nm
-        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: node_modules
           key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
 
+      # The restored .npm-cache can carry a torn _cacache tmp entry, and npm's
+      # extraction then dies with EEXIST/ENOENT rename races (observed twice on
+      # 2026-08-11: runs 31493430731, 31499733901). One purge of the cache's
+      # tmp area + a single retry converts that recurring red into a footnote;
+      # a second failure is a real problem and still fails the job.
       - name: Fallback install if cache missed
         if: steps.cache-nm.outputs.cache-hit != 'true'
-        run: npm ci --ignore-scripts --no-audit
+        run: |
+          set -euo pipefail
+          if ! npm ci --ignore-scripts --no-audit; then
+            echo "npm ci failed once; purging torn cacache tmp entries and retrying" >&2
+            rm -rf .npm-cache/_cacache/tmp
+            npm cache verify --cache .npm-cache >/dev/null 2>&1 || true
+            npm ci --ignore-scripts --no-audit
+          fi
 
       # 2026-05-05: Type-check targets can include Rust-backed crates. Prepare the exact
       # pinned toolchain before Nx starts parallel cargo-backed tasks.
       - name: Install Rust toolchain (rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # stable
-        with:
-          toolchain: 1.88.0
-          components: rustfmt,clippy,rust-src
-          targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
+        uses: ./.github/actions/setup-rust-workspace
 
       - name: Restore Nx cache
-        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .nx/cache
           key: nx-ci-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
@@ -291,8 +330,18 @@ jobs:
     timeout-minutes: 40
     # continue-on-error removed: failing tests must block PR merge.
     # BEFORE: broken unit tests were invisible to reviewers — PRs merged with red tests.
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -302,26 +351,34 @@ jobs:
 
       - name: Restore node_modules
         id: cache-nm
-        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: node_modules
           key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
 
+      # The restored .npm-cache can carry a torn _cacache tmp entry, and npm's
+      # extraction then dies with EEXIST/ENOENT rename races (observed twice on
+      # 2026-08-11: runs 31493430731, 31499733901). One purge of the cache's
+      # tmp area + a single retry converts that recurring red into a footnote;
+      # a second failure is a real problem and still fails the job.
       - name: Fallback install if cache missed
         if: steps.cache-nm.outputs.cache-hit != 'true'
-        run: npm ci --ignore-scripts --no-audit
+        run: |
+          set -euo pipefail
+          if ! npm ci --ignore-scripts --no-audit; then
+            echo "npm ci failed once; purging torn cacache tmp entries and retrying" >&2
+            rm -rf .npm-cache/_cacache/tmp
+            npm cache verify --cache .npm-cache >/dev/null 2>&1 || true
+            npm ci --ignore-scripts --no-audit
+          fi
 
       # 2026-05-05: Test targets include Rust crates. Prepare the exact
       # pinned toolchain before Nx starts parallel cargo-backed tasks.
       - name: Install Rust toolchain (rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # stable
-        with:
-          toolchain: 1.88.0
-          components: rustfmt,clippy,rust-src
-          targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
+        uses: ./.github/actions/setup-rust-workspace
 
       - name: Restore Nx cache
-        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .nx/cache
           key: nx-ci-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
@@ -389,6 +446,16 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
           NODE_OPTIONS: '--max-old-space-size=4096'
 
+      - name: Run admin route contract (affected, strict)
+        run: |
+          BASE_REF="origin/${{ github.base_ref || 'main' }}"
+          bash scripts/ci/affected-target-policy.sh --target test:contract --base "$BASE_REF" --parallel 1
+        timeout-minutes: 10
+        env:
+          NX_DAEMON: 'false'
+          NX_NO_CLOUD: 'true'
+          NODE_OPTIONS: '--max-old-space-size=4096'
+
       # FE-CRITICAL-050-SW: the AquaMobil service-worker build-artifact invariant
       # (src/pwa/__tests__/sw-build-artifact.invariant.spec.ts) runs a REAL
       # `vite build` and asserts the deployed dist/messaging-sw.js still carries the
@@ -442,7 +509,7 @@ jobs:
           # scenario matrix collapses to one.
           - scenario: legacy
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -452,14 +519,26 @@ jobs:
 
       - name: Restore node_modules
         id: cache-nm
-        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: node_modules
           key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
 
+      # The restored .npm-cache can carry a torn _cacache tmp entry, and npm's
+      # extraction then dies with EEXIST/ENOENT rename races (observed twice on
+      # 2026-08-11: runs 31493430731, 31499733901). One purge of the cache's
+      # tmp area + a single retry converts that recurring red into a footnote;
+      # a second failure is a real problem and still fails the job.
       - name: Fallback install if cache missed
         if: steps.cache-nm.outputs.cache-hit != 'true'
-        run: npm ci --ignore-scripts --no-audit
+        run: |
+          set -euo pipefail
+          if ! npm ci --ignore-scripts --no-audit; then
+            echo "npm ci failed once; purging torn cacache tmp entries and retrying" >&2
+            rm -rf .npm-cache/_cacache/tmp
+            npm cache verify --cache .npm-cache >/dev/null 2>&1 || true
+            npm ci --ignore-scripts --no-audit
+          fi
 
       - name: Install e2e smoke dependencies
         run: |
@@ -541,7 +620,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -551,26 +630,34 @@ jobs:
 
       - name: Restore node_modules
         id: cache-nm
-        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: node_modules
           key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
 
+      # The restored .npm-cache can carry a torn _cacache tmp entry, and npm's
+      # extraction then dies with EEXIST/ENOENT rename races (observed twice on
+      # 2026-08-11: runs 31493430731, 31499733901). One purge of the cache's
+      # tmp area + a single retry converts that recurring red into a footnote;
+      # a second failure is a real problem and still fails the job.
       - name: Fallback install if cache missed
         if: steps.cache-nm.outputs.cache-hit != 'true'
-        run: npm ci --ignore-scripts --no-audit
+        run: |
+          set -euo pipefail
+          if ! npm ci --ignore-scripts --no-audit; then
+            echo "npm ci failed once; purging torn cacache tmp entries and retrying" >&2
+            rm -rf .npm-cache/_cacache/tmp
+            npm cache verify --cache .npm-cache >/dev/null 2>&1 || true
+            npm ci --ignore-scripts --no-audit
+          fi
 
       # 2026-05-05: Build targets include Rust crates. Prepare the exact
       # pinned toolchain before Nx starts parallel cargo-backed tasks.
       - name: Install Rust toolchain (rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # stable
-        with:
-          toolchain: 1.88.0
-          components: rustfmt,clippy,rust-src
-          targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
+        uses: ./.github/actions/setup-rust-workspace
 
       - name: Restore Nx cache
-        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .nx/cache
           key: nx-ci-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
@@ -603,19 +690,31 @@ jobs:
     timeout-minutes: 20
     continue-on-error: false
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Restore node_modules
         id: cache-nm
-        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: node_modules
           key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+      # The restored .npm-cache can carry a torn _cacache tmp entry, and npm's
+      # extraction then dies with EEXIST/ENOENT rename races (observed twice on
+      # 2026-08-11: runs 31493430731, 31499733901). One purge of the cache's
+      # tmp area + a single retry converts that recurring red into a footnote;
+      # a second failure is a real problem and still fails the job.
       - name: Fallback install if cache missed
         if: steps.cache-nm.outputs.cache-hit != 'true'
-        run: npm ci --ignore-scripts --no-audit
+        run: |
+          set -euo pipefail
+          if ! npm ci --ignore-scripts --no-audit; then
+            echo "npm ci failed once; purging torn cacache tmp entries and retrying" >&2
+            rm -rf .npm-cache/_cacache/tmp
+            npm cache verify --cache .npm-cache >/dev/null 2>&1 || true
+            npm ci --ignore-scripts --no-audit
+          fi
       - name: Validate pagination schema types
         run: node scripts/validate-pagination-schema.js
 
@@ -651,7 +750,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # persist-credentials:false — this job never pushes; default-true
           # leaks a write-scoped token into bash subshells for no benefit.
@@ -659,7 +758,7 @@ jobs:
           fetch-depth: 1
 
       - name: Setup Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
 
@@ -691,9 +790,7 @@ jobs:
         run: node scripts/ci/check-auth-db-ownership.mjs
 
       - name: Setup Helm
-        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
-        with:
-          version: 'v3.16.3'
+        uses: ./.github/actions/setup-helm
 
       # ── Phase A2 — compose interpolation validation ──────────────────────
       # `docker compose config --quiet` expands every `${VAR:?...}` in the
@@ -715,7 +812,7 @@ jobs:
             docker-compose.prod.yml \
             docker-compose.yml
 
-      # ── Phase A3 — NATS SSoT drift check (services.yaml ↔ nats.conf) ────
+      # ── Phase A3 — NATS SSoT drift check (broker + Helm identities) ─────
       # ADR-015: `infrastructure/nats/services.yaml` is the single source
       # of truth for NATS authorization. `scripts/nats/generate-nats-conf.py`
       # regenerates the `authorization.users[]` block in nats.conf between
@@ -723,16 +820,16 @@ jobs:
       # generator and asserting `git diff --quiet` catches the most common
       # drift pattern (operator edits services.yaml but forgets to run the
       # generator, OR hand-edits the generated block).
-      - name: Phase A3 — NATS SSoT drift (services.yaml to nats.conf)
+      - name: Phase A3 — NATS SSoT drift (broker ACL and certificate roster)
         run: |
           python3 scripts/nats/generate-nats-conf.py
-          if ! git diff --quiet infrastructure/docker/nats/nats.conf; then
-            echo "::error::nats.conf drifted from infrastructure/nats/services.yaml"
+          if [ -n "$(git status --porcelain -- infrastructure/docker/nats/nats.conf infrastructure/helm/aquaculture/files/nats-service-identities.yaml)" ]; then
+            echo "::error::NATS generated artifacts drifted from infrastructure/nats/services.yaml"
             echo "Run 'python3 scripts/nats/generate-nats-conf.py' locally and commit the diff."
-            git diff infrastructure/docker/nats/nats.conf | head -100
+            git diff -- infrastructure/docker/nats/nats.conf infrastructure/helm/aquaculture/files/nats-service-identities.yaml | head -100
             exit 1
           fi
-          echo "OK: nats.conf matches services.yaml"
+          echo "OK: broker ACL and Helm certificate roster match services.yaml"
 
       # ── Phase A3 — cert CN list structural SSoT check ────────────────────
       # WS1 landed 2026-04-14 (commit 0d249dd0): generate-internal-certs.sh
@@ -766,12 +863,9 @@ jobs:
       #   - struct/list type mismatches
       # Both staging and production values files are rendered so neither
       # environment's manifest shape can regress silently.
-      # Helm template dummy values — these are rendering-stage placeholders
-      # so `{{ required ... }}` template directives pass; real values live
-      # in a Kubernetes Secret / ExternalSecret at install time. The values
-      # here deliberately do NOT match any real credential and would fail at
-      # container runtime — exactly as intended (same design contract as the
-      # auto-derived dummy env in Phase A2 above).
+      # Helm template dummy values are owned by values-ci.yaml beside the
+      # chart. Both render paths consume that one overlay so a new required
+      # chart value cannot drift across parallel workflow-local flag lists.
 
       # Tier-2 Make-Automatic: the chart's `dependencies:` block in Chart.yaml
       # is the SSoT for postgresql / redis / nats subchart versions and source
@@ -783,16 +877,26 @@ jobs:
       #   You may need to run `helm dependency build` to fetch missing
       #   dependencies: found in Chart.yaml, but missing in charts/ directory:
       #   postgresql, redis, nats
-      # Mirrors the equivalent step in infra-helm-lint.yml. Why `update` and
-      # not `build`: `build` reads Chart.lock and fetches exactly those
-      # versions but requires the dependency repos to be pre-registered via
-      # `helm repo add`; `update` reads Chart.yaml directly and resolves the
-      # declared repository URLs without prior local registration. Chart.lock
-      # is not committed in this repo (the SSoT lives in Chart.yaml's pinned
-      # version strings), so on a fresh CI checkout `update` is the form
-      # that works without an extra `helm repo add` per declared subchart.
+      # Why `update` and not `build`: `build` reads Chart.lock and fetches
+      # exactly those versions but requires the dependency repos to be
+      # pre-registered via `helm repo add`; `update` reads Chart.yaml directly
+      # and resolves the declared repository URLs without prior local
+      # registration. Chart.lock is not committed in this repo (the SSoT lives
+      # in Chart.yaml's pinned version strings), so on a fresh CI checkout
+      # `update` is the form that works without an extra `helm repo add` per
+      # declared subchart.
+      #
+      # The resolver lives in a composite action rather than in this line
+      # because it also runs in infra-helm-lint.yml, and because a single-shot
+      # network fetch inside a REQUIRED check is a coin flip the gate has to win
+      # every time — one connection reset from charts.bitnami.com failed this
+      # step, and `build-status` with it, on a pull request that touched no
+      # infrastructure. The action's header records that incident and what it
+      # does and does not tolerate.
       - name: Phase A4 — helm dependency update (Chart.yaml SSoT to charts/)
-        run: helm dependency update infrastructure/helm/aquaculture
+        uses: ./.github/actions/helm-dependency-update
+        with:
+          chart-dir: infrastructure/helm/aquaculture
 
       - name: Phase A4 — helm chart template (values-production.yaml)
         run: |
@@ -800,45 +904,21 @@ jobs:
             infrastructure/helm/aquaculture \
             --values infrastructure/helm/aquaculture/values.yaml \
             --values infrastructure/helm/aquaculture/values-production.yaml \
-            --set-string secrets.databaseUrl=postgres://ci:dummy@localhost:5432/ci \
-            --set-string secrets.redisUrl=redis://:dummy@localhost:6379 \
-            --set-string secrets.natsUrl=tls://nats:4222 \
-            --set-string secrets.jwtPrivateKey=ci-dummy-jwt-private-key \
-            --set-string secrets.jwtPublicKey=ci-dummy-jwt-public-key \
-            --set-string secrets.passwordPepper=ci-dummy-password-pepper \
-            --set-string secrets.mfaEncryptionKey=ci-dummy-mfa-encryption-key-not-for-runtime \
-            --set-string secrets.stripeWebhookSecret=ci-dummy-stripe-webhook \
-            --set-string secrets.stripeApiKey=ci-dummy-stripe-api-key \
+            --values infrastructure/helm/aquaculture/values-ci.yaml \
             --skip-tests \
             > /tmp/helm-prod.yaml
           echo "OK: helm template (production) rendered $(wc -l < /tmp/helm-prod.yaml) lines"
 
-      # Staging-only dummy passwords: values-staging.yaml sets
-      # `postgresql.enabled: true` and `redis.enabled: true` (in-cluster
-      # subcharts), so the chart's validatePasswords helper requires both
-      # `postgresql.auth.password` and `redis.auth.password` at template
-      # time. Production overlay disables both subcharts (RDS + ElastiCache),
-      # so the production step above does not need these set. The dummies
-      # are rendering-stage placeholders only — the chart's required
-      # guards bypass at runtime via the externalSecrets path or operator-
-      # supplied --set values. Same design contract as the secrets.* dummies.
+      # values-ci.yaml also owns the in-cluster PostgreSQL and Redis dummy
+      # passwords required by staging. Production disables those subcharts,
+      # so the same overlay is harmless on its ExternalSecret render path.
       - name: Phase A4 — helm chart template (values-staging.yaml)
         run: |
           helm template aquaculture \
             infrastructure/helm/aquaculture \
             --values infrastructure/helm/aquaculture/values.yaml \
             --values infrastructure/helm/aquaculture/values-staging.yaml \
-            --set-string secrets.databaseUrl=postgres://ci:dummy@localhost:5432/ci \
-            --set-string secrets.redisUrl=redis://:dummy@localhost:6379 \
-            --set-string secrets.natsUrl=tls://nats:4222 \
-            --set-string secrets.jwtPrivateKey=ci-dummy-jwt-private-key \
-            --set-string secrets.jwtPublicKey=ci-dummy-jwt-public-key \
-            --set-string secrets.passwordPepper=ci-dummy-password-pepper \
-            --set-string secrets.mfaEncryptionKey=ci-dummy-mfa-encryption-key-not-for-runtime \
-            --set-string secrets.stripeWebhookSecret=ci-dummy-stripe-webhook \
-            --set-string secrets.stripeApiKey=ci-dummy-stripe-api-key \
-            --set-string postgresql.auth.password=ci-dummy-postgres-pw \
-            --set-string redis.auth.password=ci-dummy-redis-pw \
+            --values infrastructure/helm/aquaculture/values-ci.yaml \
             --skip-tests \
             > /tmp/helm-staging.yaml
           echo "OK: helm template (staging) rendered $(wc -l < /tmp/helm-staging.yaml) lines"
@@ -889,7 +969,7 @@ jobs:
     if: >-
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
-      needs.detect-changes.outputs.has_changes == 'true' &&
+      needs.detect-changes.outputs.deploy_changes == 'true' &&
       needs.install.result == 'success' &&
       needs.lint.result == 'success' &&
       needs.type-check.result == 'success' &&
@@ -917,7 +997,7 @@ jobs:
     if: >-
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
-      needs.detect-changes.outputs.has_changes == 'true' &&
+      needs.detect-changes.outputs.deploy_changes == 'true' &&
       needs.install.result == 'success' &&
       needs.lint.result == 'success' &&
       needs.type-check.result == 'success' &&
@@ -960,12 +1040,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       - name: Build Mosquitto infrastructure image (no push)
-        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: infrastructure/mosquitto
           file: infrastructure/mosquitto/Dockerfile
@@ -981,48 +1061,131 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Restore node_modules
         id: cache-nm
-        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: node_modules
           key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+      # The restored .npm-cache can carry a torn _cacache tmp entry, and npm's
+      # extraction then dies with EEXIST/ENOENT rename races (observed twice on
+      # 2026-08-11: runs 31493430731, 31499733901). One purge of the cache's
+      # tmp area + a single retry converts that recurring red into a footnote;
+      # a second failure is a real problem and still fails the job.
       - name: Fallback install if cache missed
         if: steps.cache-nm.outputs.cache-hit != 'true'
-        run: npm ci --ignore-scripts --no-audit
+        run: |
+          set -euo pipefail
+          if ! npm ci --ignore-scripts --no-audit; then
+            echo "npm ci failed once; purging torn cacache tmp entries and retrying" >&2
+            rm -rf .npm-cache/_cacache/tmp
+            npm cache verify --cache .npm-cache >/dev/null 2>&1 || true
+            npm ci --ignore-scripts --no-audit
+          fi
       - name: Validate dependency graph contracts
         run: npm ls typeorm uuid @nestjs/apollo @apollo/server @apollo/gateway @opentelemetry/api @opentelemetry/sdk-node
+      - name: Validate standalone npm locks
+        run: |
+          npm --prefix web/apps/aquamobil ci --package-lock-only --ignore-scripts --no-audit --no-fund
+          npm --prefix e2e ci --package-lock-only --ignore-scripts --no-audit --no-fund
       - name: Run npm audit
         run: |
           set +e
-          npm audit --audit-level=high --omit=dev --json > npm-audit-root.json
-          AUDIT_STATUS=$?
-          node scripts/ci/audit-source-map.mjs npm-audit-root.json npm-audit-source-map.md
-          exit "$AUDIT_STATUS"
+          npm audit --audit-level=moderate --omit=dev --json > npm-audit-root-production.json
+          ROOT_PRODUCTION_AUDIT_STATUS=$?
+          node scripts/ci/audit-source-map.mjs npm-audit-root-production.json npm-audit-root-production.md
+          ROOT_PRODUCTION_MAP_STATUS=$?
+          npm audit --audit-level=high --json > npm-audit-root-full.json
+          ROOT_FULL_AUDIT_STATUS=$?
+          node scripts/ci/audit-source-map.mjs npm-audit-root-full.json npm-audit-root-full.md
+          ROOT_FULL_MAP_STATUS=$?
+          npm --prefix web/apps/aquamobil audit --audit-level=moderate --omit=dev --json > npm-audit-aquamobil-production.json
+          AQUAMOBIL_PRODUCTION_AUDIT_STATUS=$?
+          node scripts/ci/audit-source-map.mjs npm-audit-aquamobil-production.json npm-audit-aquamobil-production.md
+          AQUAMOBIL_PRODUCTION_MAP_STATUS=$?
+          npm --prefix web/apps/aquamobil audit --audit-level=high --json > npm-audit-aquamobil-full.json
+          AQUAMOBIL_FULL_AUDIT_STATUS=$?
+          node scripts/ci/audit-source-map.mjs npm-audit-aquamobil-full.json npm-audit-aquamobil-full.md
+          AQUAMOBIL_FULL_MAP_STATUS=$?
+          npm --prefix e2e audit --audit-level=moderate --omit=dev --json > npm-audit-e2e-production.json
+          E2E_PRODUCTION_AUDIT_STATUS=$?
+          node scripts/ci/audit-source-map.mjs npm-audit-e2e-production.json npm-audit-e2e-production.md
+          E2E_PRODUCTION_MAP_STATUS=$?
+          npm --prefix e2e audit --audit-level=high --json > npm-audit-e2e-full.json
+          E2E_FULL_AUDIT_STATUS=$?
+          node scripts/ci/audit-source-map.mjs npm-audit-e2e-full.json npm-audit-e2e-full.md
+          E2E_FULL_MAP_STATUS=$?
+          set -e
+          if [ "$ROOT_PRODUCTION_AUDIT_STATUS" -ne 0 ]; then
+            exit "$ROOT_PRODUCTION_AUDIT_STATUS"
+          fi
+          if [ "$ROOT_PRODUCTION_MAP_STATUS" -ne 0 ]; then
+            exit "$ROOT_PRODUCTION_MAP_STATUS"
+          fi
+          if [ "$ROOT_FULL_AUDIT_STATUS" -ne 0 ]; then
+            exit "$ROOT_FULL_AUDIT_STATUS"
+          fi
+          if [ "$ROOT_FULL_MAP_STATUS" -ne 0 ]; then
+            exit "$ROOT_FULL_MAP_STATUS"
+          fi
+          if [ "$AQUAMOBIL_PRODUCTION_AUDIT_STATUS" -ne 0 ]; then
+            exit "$AQUAMOBIL_PRODUCTION_AUDIT_STATUS"
+          fi
+          if [ "$AQUAMOBIL_PRODUCTION_MAP_STATUS" -ne 0 ]; then
+            exit "$AQUAMOBIL_PRODUCTION_MAP_STATUS"
+          fi
+          if [ "$AQUAMOBIL_FULL_AUDIT_STATUS" -ne 0 ]; then
+            exit "$AQUAMOBIL_FULL_AUDIT_STATUS"
+          fi
+          if [ "$AQUAMOBIL_FULL_MAP_STATUS" -ne 0 ]; then
+            exit "$AQUAMOBIL_FULL_MAP_STATUS"
+          fi
+          if [ "$E2E_PRODUCTION_AUDIT_STATUS" -ne 0 ]; then
+            exit "$E2E_PRODUCTION_AUDIT_STATUS"
+          fi
+          if [ "$E2E_PRODUCTION_MAP_STATUS" -ne 0 ]; then
+            exit "$E2E_PRODUCTION_MAP_STATUS"
+          fi
+          if [ "$E2E_FULL_AUDIT_STATUS" -ne 0 ]; then
+            exit "$E2E_FULL_AUDIT_STATUS"
+          fi
+          if [ "$E2E_FULL_MAP_STATUS" -ne 0 ]; then
+            exit "$E2E_FULL_MAP_STATUS"
+          fi
       - name: Upload npm audit source map
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: npm-audit-source-map-${{ github.run_number }}
           path: |
-            npm-audit-root.json
-            npm-audit-source-map.md
+            npm-audit-root-production.json
+            npm-audit-root-production.md
+            npm-audit-root-full.json
+            npm-audit-root-full.md
+            npm-audit-aquamobil-production.json
+            npm-audit-aquamobil-production.md
+            npm-audit-aquamobil-full.json
+            npm-audit-aquamobil-full.md
+            npm-audit-e2e-production.json
+            npm-audit-e2e-production.md
+            npm-audit-e2e-full.json
+            npm-audit-e2e-full.md
+          if-no-files-found: error
           retention-days: 14
 
   docs-check:
     needs: detect-changes
-    if: |
-      always() &&
-      contains(github.event.head_commit.modified, 'docs/') ||
-      contains(github.event.head_commit.added, 'docs/')
+    if: needs.detect-changes.outputs.docs_changed == 'true'
     runs-on: ubuntu-latest
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         # SEC-CI-002: pinned to SHA
@@ -1034,7 +1197,13 @@ jobs:
         run: npm install -g markdownlint-cli@0.45.0 --ignore-scripts --no-audit --no-fund
 
       - name: Check markdown files
-        run: markdownlint 'docs/**/*.md' --ignore node_modules
+        run: node scripts/ci/markdownlint-changed.mjs
+        env:
+          MARKDOWNLINT_BASE_REF: ${{ github.event.pull_request.base.sha || (github.event.before != '0000000000000000000000000000000000000000' && github.event.before) || 'HEAD^' }}
+          # A pull_request checkout is GitHub's synthetic merge commit. Lint the
+          # immutable event head instead, otherwise unrelated base-branch
+          # advances become false "changed docs" while a queued job is waiting.
+          MARKDOWNLINT_HEAD_REF: ${{ github.event.pull_request.head.sha || github.sha }}
 
   sensor-service-gates:
     needs: [install, detect-changes]
@@ -1042,7 +1211,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -1050,13 +1219,25 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
       - name: Restore node_modules
         id: cache-nm
-        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: node_modules
           key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+      # The restored .npm-cache can carry a torn _cacache tmp entry, and npm's
+      # extraction then dies with EEXIST/ENOENT rename races (observed twice on
+      # 2026-08-11: runs 31493430731, 31499733901). One purge of the cache's
+      # tmp area + a single retry converts that recurring red into a footnote;
+      # a second failure is a real problem and still fails the job.
       - name: Fallback install if cache missed
         if: steps.cache-nm.outputs.cache-hit != 'true'
-        run: npm ci --ignore-scripts --no-audit
+        run: |
+          set -euo pipefail
+          if ! npm ci --ignore-scripts --no-audit; then
+            echo "npm ci failed once; purging torn cacache tmp entries and retrying" >&2
+            rm -rf .npm-cache/_cacache/tmp
+            npm cache verify --cache .npm-cache >/dev/null 2>&1 || true
+            npm ci --ignore-scripts --no-audit
+          fi
       - name: Run sensor enterprise gate fixtures
         run: >
           npx jest --config apps/sensor-service/jest.config.ts --runInBand
@@ -1071,13 +1252,36 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - name: Install Rust toolchain (rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # stable
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # stable
         with:
           toolchain: 1.88.0
+      - name: Install cargo-audit (precompiled)
+        uses: taiki-e/install-action@6c6fd71fe4fb72c3697d269963d0e15df8adedad # v2.85.10
+        with:
+          tool: cargo-audit
+      - name: Audit root lockfile
+        run: cargo audit --deny warnings
+      - name: Audit gateway lockfile
+        working-directory: sens-api-gateway
+        run: |
+          cargo audit --deny warnings \
+            --ignore RUSTSEC-2023-0071 \
+            --ignore RUSTSEC-2025-0141 \
+            --ignore RUSTSEC-2024-0388 \
+            --ignore RUSTSEC-2023-0089 \
+            --ignore RUSTSEC-2026-0173 \
+            --ignore RUSTSEC-2024-0436
+      - name: Audit fuzz lockfile
+        working-directory: sens-api-gateway
+        run: cargo audit --file fuzz/Cargo.lock
+      - name: Audit alarm-core WASM lockfile
+        run: cargo audit --file crates/alarm-core-wasm/Cargo.lock --deny warnings
+      - name: Audit protocol-codec WASM lockfile
+        run: cargo audit --file crates/protocol-codec-wasm/Cargo.lock --deny warnings
       - name: Install TPM build dependencies
         uses: ./.github/actions/install-tpm-build-dependencies
       - name: Cargo check locked curated CI features
@@ -1090,7 +1294,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -1098,13 +1302,25 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
       - name: Restore node_modules
         id: cache-nm
-        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: node_modules
           key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+      # The restored .npm-cache can carry a torn _cacache tmp entry, and npm's
+      # extraction then dies with EEXIST/ENOENT rename races (observed twice on
+      # 2026-08-11: runs 31493430731, 31499733901). One purge of the cache's
+      # tmp area + a single retry converts that recurring red into a footnote;
+      # a second failure is a real problem and still fails the job.
       - name: Fallback install if cache missed
         if: steps.cache-nm.outputs.cache-hit != 'true'
-        run: npm ci --ignore-scripts --no-audit
+        run: |
+          set -euo pipefail
+          if ! npm ci --ignore-scripts --no-audit; then
+            echo "npm ci failed once; purging torn cacache tmp entries and retrying" >&2
+            rm -rf .npm-cache/_cacache/tmp
+            npm cache verify --cache .npm-cache >/dev/null 2>&1 || true
+            npm ci --ignore-scripts --no-audit
+          fi
       - name: Run Sens enterprise validation
         run: npm run gates:sens-enterprise-validation
       - name: Upload Sens enterprise validation artifacts

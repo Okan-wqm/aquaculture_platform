@@ -47,10 +47,32 @@ export class ToolExecutorService {
 
     const metadata = tool.getMetadata();
 
+    // SENSOR-MEDIUM-070: a first-class internal service principal is authorized
+    // for exactly the tools it declares in `grantedToolNames` — no user-role
+    // fabrication. Read-only by construction: an actuation tool (requires
+    // confirmation) is refused even when granted, so a service principal can
+    // never actuate. A human request has no servicePrincipal and falls through
+    // to the user-RBAC check below unchanged.
+    const serviceGrant = ctx.servicePrincipal?.grantedToolNames.includes(toolName) ?? false;
+    if (serviceGrant && metadata.requiresConfirmation) {
+      this.logger.warn(
+        `Service principal ${ctx.servicePrincipal?.name} denied actuation tool ${toolName} — ` +
+          `service principals are read-only by construction`,
+      );
+      const denied: ToolResult = {
+        success: false,
+        error: `Service principals may not run actuation tool ${toolName}`,
+        durationMs: 0,
+        cacheable: false,
+      };
+      await this.audit(toolName, inputRecord, denied, ctx);
+      return denied;
+    }
+
     // Permission check
-    const hasPermission = metadata.requiredPermissions.some((perm) =>
-      ctx.userRoles.includes(perm),
-    );
+    const hasPermission =
+      serviceGrant ||
+      metadata.requiredPermissions.some((perm) => ctx.userRoles.includes(perm));
     if (!hasPermission) {
       this.logger.warn(
         `Permission denied: ${ctx.userId} (roles: ${ctx.userRoles.join(',')}) attempted ${toolName}`,
@@ -94,12 +116,26 @@ export class ToolExecutorService {
     // Execute the tool
     const result = await tool.execute(input, ctx);
 
-    // Persist every execution to the audit trail. Awaited (not fire-and-forget)
-    // so audit ordering is deterministic. NOTE: AuditService logs loudly and
-    // then SWALLOWS a storage failure so a broken audit write can't break the
-    // chat flow — so this orders but does not by itself GUARANTEE durability; a
-    // hard durability guarantee (outbox/transaction) is tracked separately.
-    await this.audit(toolName, inputRecord, result, ctx);
+    // Persist every execution to the audit trail (DB-PEOPLE-MEDIUM-003).
+    // Read-only tools: best-effort — a broken audit write must never break the
+    // chat flow. Actuation-class tools (requiresConfirmation): the row is
+    // safety-load-bearing, so we write it STRICTLY and, on failure, SURFACE the
+    // gap (auditFailed flag + CRITICAL log) instead of swallowing it silently.
+    // We surface-and-continue rather than refuse post-hoc: the actuation has
+    // already run, so returning a false failure would risk a double-actuation.
+    if (metadata.requiresConfirmation) {
+      try {
+        await this.auditService.logToolExecution(toolName, inputRecord, result, ctx, undefined, true);
+      } catch (auditError) {
+        this.logger.error(
+          `AUDIT GAP (actuation): ${toolName} executed but its audit write failed — ` +
+            `${auditError instanceof Error ? auditError.message : String(auditError)}`,
+        );
+        return { ...result, auditFailed: true };
+      }
+    } else {
+      await this.audit(toolName, inputRecord, result, ctx);
+    }
 
     return result;
   }

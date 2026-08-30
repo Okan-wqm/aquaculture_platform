@@ -62,8 +62,7 @@ const SAFE_IDENT_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
  * The `shared` schema is the ONE designated cross-service write surface.
  * Every service that imports `AuditLogModule` from
  * `@aquaculture/backend-common` writes to `shared.audit_logs`; auth-service
- * writes/reads `shared.gdpr_data_requests` + `shared.user_consents`;
- * admin-api-service writes/reads `shared.user_permissions`.
+ * writes/reads `shared.gdpr_data_requests` + `shared.user_consents`.
  *
  * SchemaDriftValidator runs per-service-role queries against
  * `information_schema.columns`. PostgreSQL filters that view by privilege
@@ -74,7 +73,7 @@ const SAFE_IDENT_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
  * entity emits a false-positive drift block for `shared.*`.
  *
  * Mirrors `SHARED_SCHEMA_TABLES` in
- * `e2e/tests/integration/schema-invariants.spec.ts:51-56`. Adding a 6th
+ * `e2e/tests/integration/schema-invariants.spec.ts`. Adding a new
  * shared table requires updating BOTH constants in the same PR; the
  * invariant test catches drift between them.
  *
@@ -83,12 +82,18 @@ const SAFE_IDENT_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
  * schema (admin-api migration 1788400-CreateSharedAccessLogs) and is
  * declared in protected-tables.ts as a compliance-critical surface;
  * its absence here would create a SSoT drift the next reset cycle.
+ *
+ * 2026-07-12 (ADR-042, ORPHAN-HIGH-378): `user_permissions` RETIRED from
+ * the canonical list. It was a dead parallel permission catalog owned by
+ * admin-api; the live RBAC SSoT is the auth-service tenant RBAC
+ * (auth.tenant_role_permissions.panel_permissions). Archived into
+ * admin.retired_config_backups + dropped by admin-api migration
+ * 1801500000000-DropRetiredUserPermissions.
  */
 const SHARED_SCHEMA_TABLES = [
   'audit_logs',
   'gdpr_data_requests',
   'user_consents',
-  'user_permissions',
   'access_logs',
 ] as const;
 
@@ -175,9 +180,7 @@ function buildGeneratedBlock(): string {
   // metadata visible AND matches what services actually need at runtime
   // (every service that imports AuditLogModule writes to shared.audit_logs).
   //
-  // user_permissions is included with the same grant level — admin-api +
-  // auth both write to it; other services SELECT it for permission checks
-  // via the shared TenantGuard infrastructure. Granting uniformly is
+  // Grants are uniform across service roles — uniform granting is
   // simpler than per-service slicing AND matches the "shared schema is by
   // design cross-service" architectural premise.
   //

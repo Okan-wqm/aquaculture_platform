@@ -63,11 +63,7 @@ import { relative, resolve } from 'node:path';
 // farm-service-enterprise-guardrails.ts consume the same parser, so a
 // hunk-header edge case can no longer be fixed in one gate and stay
 // broken in another).
-import {
-  addedLinesByFile,
-  collectRangeAddedLines,
-  stagedChangedFiles,
-} from './git-diff-ranges';
+import { addedLinesByFile, collectRangeAddedLines, stagedChangedFiles } from './git-diff-ranges';
 
 const REPO_ROOT = (() => {
   try {
@@ -90,7 +86,25 @@ function writeStderr(message = ''): void {
 interface BannedPhraseRule {
   phrase: RegExp;
   allowIf: RegExp | null;
+  allowMatch?: (line: string, matchIndex: number) => boolean;
   label: string;
+}
+
+/**
+ * PostgreSQL uses this exact clause to select deferred constraint checking.
+ * The final token is SQL grammar, not architectural prose, so the phrase gate
+ * must recognise the clause without exempting the surrounding file or any
+ * other occurrence on the same line.
+ */
+function isSqlConstraintTimingClause(line: string, matchIndex: number): boolean {
+  for (const clause of line.matchAll(/\bDEFERRABLE\s+INITIALLY\s+DEFERRED\b/gi)) {
+    const clauseIndex = clause.index ?? -1;
+    const keywordOffset = clause[0].toLowerCase().lastIndexOf('deferred');
+    if (clauseIndex + keywordOffset === matchIndex) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -188,6 +202,7 @@ const BANNED_PHRASES: readonly BannedPhraseRule[] = [
   {
     phrase: /\bdeferred\b/i,
     allowIf: TRACKED_DEFERRAL_ALLOW_IF,
+    allowMatch: isSqlConstraintTimingClause,
     label: 'deferred (without plan phase / W-N / Faz-N / § / finding ID reference)',
   },
   {
@@ -409,6 +424,7 @@ function scanContent(content: string, sourceLabel: string, allowIfWindow: number
       const match = rule.phrase.exec(line);
       if (!match) continue;
       if (isInsideLiteralRegion(line, match.index)) continue;
+      if (rule.allowMatch?.(line, match.index)) continue;
       if (rule.allowIf) {
         let windowText: string;
         if (allowIfWindow === Infinity) {
@@ -526,6 +542,7 @@ const PRE_GATE_SHAS = new Set<string>([
   // follow-up commit SHA.
   'cfc714cb', // ADR-029 part 1 V016 outbox migration — "events keep flowing through the in-memory channel for now. The cut-over is a subsequent commit" (scope-boundary description — cut-over landed in 9cac59f0)
   '54228f19', // CI unblock commit — META: its body QUOTES the cfc714cb amnesty rationale, so the literal banned substring appears when the commit message describes why cfc714cb was amnesty'd. Meta-mention, not deferral.
+  '8f5d9fed', // Finance PERF-HIGH-004 debt-refinement commit — META: its body QUOTES the OLD vague debt text ("self-contained caching subsystem, out of scope") to explain why it is being REPLACED with a concrete prerequisite. Meta-mention of a removed hedge, not advocacy. Immutable (no-force-push); same shape as 54228f19.
   '70efe9d7', // Snowball historical gate-hardening commit — meta text enumerates the banned phrase vocabulary
   '22c60810', // Snowball historical ARIA handoff commit — pre-main-range enforcement language
   '0f5ae29a', // Snowball historical ARIA verification commit — pre-main-range enforcement language

@@ -58,7 +58,11 @@ export class GetTankBatchesHandler implements IQueryHandler<GetTankBatchesQuery,
         if (tankBatch.primaryBatchId) {
           const hasPrimaryInDetails = batchDetails.some(b => b.batchId === tankBatch.primaryBatchId);
           if (!hasPrimaryInDetails && tankBatch.primaryBatchNumber) {
-            const primaryQuantity = (tankBatch.currentQuantity ?? tankBatch.totalQuantity) - batchDetails.reduce((sum, b) => sum + b.quantity, 0);
+            // COUNT SSoT read (DB-FARMPROD-HIGH-001): totalQuantity is the
+            // batchDetails-derived truth; the redundant currentQuantity mirror is
+            // being retired. Biomass keeps the currentBiomassKg-first read — that
+            // is the growth-tracked live value, not a stale mirror.
+            const primaryQuantity = tankBatch.totalQuantity - batchDetails.reduce((sum, b) => sum + b.quantity, 0);
             const primaryBiomass = (tankBatch.currentBiomassKg ?? tankBatch.totalBiomassKg) - batchDetails.reduce((sum, b) => sum + b.biomassKg, 0);
             batchDetails.unshift({
               batchId: tankBatch.primaryBatchId,

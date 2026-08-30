@@ -12,8 +12,9 @@ import { billingPlanLimitsFor } from '../plan-limits.util';
  * Uses upsert semantics: existing plans (matched by name) are NOT overwritten,
  * so manual edits via the admin CRUD API are preserved.
  *
- * This replaces the hardcoded DEFAULT_PRICING / DEFAULT_LIMITS constants
- * in the TenantSubscriptionRequestedHandler with database-driven plan definitions.
+ * Plans are database-driven; provisioning resolves subscription pricing from
+ * admin-api's PricingCalculatorService (admin.module_pricing), not from any
+ * hardcoded per-tier constants.
  */
 @Injectable()
 export class PlanSeedService implements OnModuleInit {
@@ -32,6 +33,32 @@ export class PlanSeedService implements OnModuleInit {
 
     const defaultPlans: Partial<Plan>[] = [
       {
+        // FREE — permanent $0 tier (Billing Revival Faz B). The provisioning
+        // handler resolves the catalog plan by tier+cycle, so a FREE tenant
+        // needs a real billing.plans row: $0 base and $0 per-metric so the
+        // subscription total is $0. Limits project from PLAN_CATALOG FREE
+        // (maxUsers 3 / maxFarms 1 / maxPonds 5 / maxSensors 10) via the SSoT.
+        name: 'Free',
+        tier: PlanTier.FREE,
+        basePrice: new Decimal(0),
+        currency: 'USD',
+        billingCycle: BillingCycle.MONTHLY,
+        limits: billingPlanLimitsFor(TenantPlan.FREE),
+        pricing: {
+          basePrice: 0,
+          perFarmPrice: 0,
+          perSensorPrice: 0,
+          perUserPrice: 0,
+          currency: 'USD',
+        },
+        features: ['basic_monitoring', 'alerts'],
+        isActive: true,
+        isPublic: true,
+        sortOrder: 0,
+        createdBy: 'system',
+        updatedBy: 'system',
+      },
+      {
         name: 'Starter',
         tier: PlanTier.STARTER,
         basePrice: new Decimal(49),
@@ -45,11 +72,7 @@ export class PlanSeedService implements OnModuleInit {
           perUserPrice: 5,
           currency: 'USD',
         },
-        features: [
-          'basic_monitoring',
-          'alerts',
-          'dashboard',
-        ],
+        features: ['basic_monitoring', 'alerts', 'dashboard'],
         isActive: true,
         isPublic: true,
         sortOrder: 1,

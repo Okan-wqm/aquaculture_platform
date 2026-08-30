@@ -8,6 +8,8 @@
 import { createMockDataSource } from '@aquaculture/testing';
 
 import { OperationType } from '../../batch/entities/tank-operation.entity';
+import { FeedingDayPlan } from '../../feeding-protocol/entities/feeding-day-plan.entity';
+import { FeedingMealStatus } from '../../feeding-protocol/entities/feeding-meal.entity';
 import { GetTodaysDailyOpsCountsHandler } from '../handlers/get-todays-daily-ops-counts.handler';
 import { GetTodaysDailyOpsCountsQuery } from '../queries/get-todays-daily-ops-counts.query';
 import { GetStockEventsSummaryHandler } from '../handlers/get-stock-events-summary.handler';
@@ -16,6 +18,7 @@ import { GetStockEventsSummaryQuery } from '../queries/get-stock-events-summary.
 interface QbStub {
   select: jest.Mock;
   addSelect: jest.Mock;
+  innerJoin: jest.Mock;
   where: jest.Mock;
   andWhere: jest.Mock;
   setParameter: jest.Mock;
@@ -27,6 +30,7 @@ function makeQb(rawOne: unknown, count = 0): QbStub {
   const qb: Partial<QbStub> = {};
   qb.select = jest.fn().mockReturnValue(qb);
   qb.addSelect = jest.fn().mockReturnValue(qb);
+  qb.innerJoin = jest.fn().mockReturnValue(qb);
   qb.where = jest.fn().mockReturnValue(qb);
   qb.andWhere = jest.fn().mockReturnValue(qb);
   qb.setParameter = jest.fn().mockReturnValue(qb);
@@ -59,12 +63,8 @@ describe('GetTodaysDailyOpsCountsHandler (fail-closed tenant boundary)', () => {
 
   it('returns a distinct cullCount and keeps mortality mortality-only (FARM-MEDIUM-053)', async () => {
     const cullQb = makeQb({ cullCount: '7' });
-    const ds = wire(
-      makeQb({ mortalityCount: '12' }),
-      cullQb,
-      makeQb(null, 3),
-      makeQb({ feedingTotalCount: '5', feedingCompletedCount: '4' }),
-    );
+    const feedingQb = makeQb({ feedingTotalCount: '5', feedingCompletedCount: '4' });
+    const ds = wire(makeQb({ mortalityCount: '12' }), cullQb, makeQb(null, 3), feedingQb);
 
     const result = await new GetTodaysDailyOpsCountsHandler(ds).execute(
       new GetTodaysDailyOpsCountsQuery(TENANT),
@@ -80,6 +80,23 @@ describe('GetTodaysDailyOpsCountsHandler (fail-closed tenant boundary)', () => {
       ([, params]) => params && (params as { cull?: string }).cull === OperationType.CULL,
     );
     expect(cullParam).toBeDefined();
+
+    // Faz 6 cutover: yemleme sayacı öğün motorundan gelir — day-plan join'i,
+    // CANCELLED dışlaması ve fed|skipped "tamamlandı" kümesi pinlenir.
+    expect(feedingQb.innerJoin).toHaveBeenCalledWith(
+      FeedingDayPlan,
+      'plan',
+      'plan.id = meal.dayPlanId',
+    );
+    const cancelledParam = feedingQb.andWhere.mock.calls.find(
+      ([, params]) =>
+        params && (params as { cancelled?: string }).cancelled === FeedingMealStatus.CANCELLED,
+    );
+    expect(cancelledParam).toBeDefined();
+    expect(feedingQb.setParameter).toHaveBeenCalledWith('handled', [
+      FeedingMealStatus.FED,
+      FeedingMealStatus.SKIPPED,
+    ]);
   });
 
   it('resolves the day from a valid clientDate for all sub-queries (FARM-MEDIUM-056)', async () => {

@@ -46,11 +46,19 @@ export interface Tank {
   currentBiomass: number;
   maxBiomass: number;
   batchMetrics: BatchMetrics | null;
+  /** FARM-HIGH-214: the tank's siteId (from the inventory container snapshot) —
+   * the regulatory field-capture inputs (lice/welfare/escape) are site-scoped,
+   * so the site is resolved from the selected tank, never asked of the operator. */
+  siteId: string | null;
 }
 
 export interface BatchMetrics {
   batchId: string | null;
   batchNumber: string | null;
+  /** FARM-HIGH-214: primary batch species from the tank-composition ledger —
+   * escape incidents are recorded against the species actually in the pen. */
+  speciesId: string | null;
+  speciesName: string | null;
   pieces: number | null;
   avgWeight: number | null;
   biomass: number | null;
@@ -128,12 +136,99 @@ export interface HarvestInput {
   notes?: string;
 }
 
+// ============================================================================
+// Regulatory field-capture types (FARM-HIGH-214 / RPT-019)
+// ============================================================================
+
+/**
+ * Matches backend RecordLiceCountInput exactly (fish-health field capture).
+ * The lice_counts SSoT upserts on (tenant, tank, countDate) — a replayed or
+ * re-submitted count for the same pen/day corrects the row, never duplicates.
+ */
+export interface LiceCountInput {
+  siteId: string;
+  tankId: string;
+  batchId?: string;
+  /** Counting date, yyyy-mm-dd. */
+  countDate: string;
+  adultFemaleLice: number;
+  mobileLice: number;
+  attachedLice: number;
+  fishSampled: number;
+  seaTemperatureC?: number;
+  notes?: string;
+  /** MinIO storageKeys of incident evidence photos uploaded at capture. */
+  mediaKeys?: string[];
+}
+
+/** Matches backend RecordWelfareAssessmentInput exactly (scores 0–3). */
+export interface WelfareAssessmentInput {
+  siteId: string;
+  tankId: string;
+  batchId?: string;
+  /** Assessment date, yyyy-mm-dd. */
+  assessedAt: string;
+  fishSampled: number;
+  gillScore: number;
+  finScore: number;
+  woundScore: number;
+  deformityScore: number;
+  notes?: string;
+  /** MinIO storageKeys of incident evidence photos uploaded at capture. */
+  mediaKeys?: string[];
+}
+
+/** GraphQL EscapeIncidentCause enum KEYS (wire names, FARM-MEDIUM-166 parity). */
+export type EscapeIncidentCause =
+  | 'HOLE_IN_NET'
+  | 'HANDLING'
+  | 'PREDATOR'
+  | 'STRUCTURAL_FAILURE'
+  | 'OPERATIONAL'
+  | 'UNKNOWN'
+  | 'OTHER';
+
+/** Matches backend RecordEscapeIncidentInput exactly. */
+export interface EscapeIncidentInput {
+  siteId: string;
+  tankId?: string;
+  batchId?: string;
+  /** ISO timestamp of detection. */
+  detectedAt: string;
+  speciesId: string;
+  estimatedCount: number;
+  avgWeightG?: number;
+  cause?: EscapeIncidentCause;
+  causeDetails?: string;
+  recoveryOngoing?: boolean;
+  notes?: string;
+  /** MinIO storageKeys of incident evidence photos uploaded at capture. */
+  mediaKeys?: string[];
+}
+
 // Feeding types
+// Drain penceresi yükü: cutover ÖNCESİ kuyruğa alınmış recordFeeding op'ları
+// eski execution'lara karşı replay olmaya devam eder (Faz 8'de execution
+// stack'iyle birlikte ölür). YENİ kayıtlar recordMealFeeding kullanır.
 export interface FeedingInput {
   executionId: string;
   actualKg: number;
   feedingMethod?: string;
   feederEquipmentId?: string;
+  notes?: string;
+}
+
+/**
+ * Faz 6 öğün cutover'ı — tek döküm kaydı (D-8). Backend zarfı ZORUNLU kılar
+ * (C-17); kuyruk zarfı enqueue'da damgalar, dolayısıyla payload yalnız domain
+ * alanlarını taşır. `finalize=true` operatörün "öğün bitti" onayıdır (varyans
+ * + büyüme + kalan öğün recalc'ı finalize'da koşar).
+ */
+export interface RecordMealFeedingPayload {
+  mealId: string;
+  pourKg: number;
+  finalize: boolean;
+  feedingMethod?: string;
   notes?: string;
 }
 
@@ -251,7 +346,7 @@ export interface CreateLeaveRequestInput {
 // a reference to a recorded/selected Blob persisted in the dedicated binary
 // store. Its in-app sync replay runs the 3-step online flow that cannot happen
 // offline: requestMediaUpload (presign) → PUT blob → sendMessage(storageKey).
-export type OperationType = 'recordMortality' | 'recordCull' | 'createHarvestRecord' | 'recordFeeding' | 'clockIn' | 'clockOut' | 'createLeaveRequest' | 'completeTask' | 'startTask' | 'setChecklistItem' | 'recordTransfer' | 'createWaterQuality' | 'recordStockMovement' | 'transferStock' | 'sendMessage' | 'editMessage' | 'deleteMessage' | 'markMessagesRead' | 'uploadAndSendMessage';
+export type OperationType = 'recordMortality' | 'recordCull' | 'createHarvestRecord' | 'recordFeeding' | 'recordMealFeeding' | 'clockIn' | 'clockOut' | 'createLeaveRequest' | 'completeTask' | 'startTask' | 'setChecklistItem' | 'recordTransfer' | 'createWaterQuality' | 'recordStockMovement' | 'transferStock' | 'recordLiceCount' | 'recordWelfareAssessment' | 'recordEscapeIncident' | 'acknowledgeAlert' | 'sendMessage' | 'editMessage' | 'deleteMessage' | 'markMessagesRead' | 'uploadAndSendMessage';
 
 /**
  * FARM-HIGH-057 — offline payload for an idempotent checklist SET.
@@ -308,8 +403,19 @@ export interface UploadAndSendMessageOfflinePayload {
   parentId?: string;
 }
 
+/**
+ * MOB-HIGH-006 — offline payload for an alert acknowledgement. Naturally
+ * idempotent on replay (re-acking converges); AcknowledgeAlertInput extends
+ * MobileCommandEnvelopeInput on the backend so the injected envelope passes
+ * validation.
+ */
+export interface AcknowledgeAlertInputPayload {
+  alertId: string;
+  note?: string;
+}
+
 export type OperationPayload = (
-  MortalityInput | CullInput | HarvestInput | FeedingInput | ClockInInput | ClockOutInput | CreateLeaveRequestInput | { id: string } | ChecklistItemSetInput | TransferInput | CreateWaterQualityInput | StockMovementInput | StockTransferInput | MessagingOfflinePayload | UploadAndSendMessageOfflinePayload
+  MortalityInput | CullInput | HarvestInput | FeedingInput | RecordMealFeedingPayload | ClockInInput | ClockOutInput | CreateLeaveRequestInput | { id: string } | ChecklistItemSetInput | TransferInput | CreateWaterQualityInput | StockMovementInput | StockTransferInput | LiceCountInput | WelfareAssessmentInput | EscapeIncidentInput | AcknowledgeAlertInputPayload | MessagingOfflinePayload | UploadAndSendMessageOfflinePayload
 ) & MobileCommandEnvelope;
 
 export interface QueuedOperation {
@@ -569,6 +675,20 @@ export interface WarehouseSummary {
   todaysMovementCount: number;
   lowStockItems: LowStockItem[];
   recentMovements: RecentStockMovement[];
+  feedCoverage: WarehouseFeedCoverage[];
+}
+
+/**
+ * Feed başına stok-kapsama (Faz 7, P-27) — günlük forecast snapshot'ının
+ * ucuz satır okuması: "kaç gün yeter" cevabı. Seri/grafik web'de kalır.
+ */
+export interface WarehouseFeedCoverage {
+  feedId: string;
+  feedCode: string;
+  feedName: string;
+  daysOfCover: number | null;
+  stockoutDate: string | null;
+  coverageStatus: 'critical' | 'warning' | 'ok';
 }
 
 /** An item below its minimum stock threshold. */

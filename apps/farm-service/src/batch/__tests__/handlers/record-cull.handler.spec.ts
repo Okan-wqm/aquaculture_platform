@@ -20,6 +20,7 @@ import { Batch, BatchStatus } from '../../entities/batch.entity';
 import { TankBatch } from '../../entities/tank-batch.entity';
 import { RecordCullHandler } from '../../handlers/record-cull.handler';
 import { MortalityCullPolicyService } from '../../services/mortality-cull-policy.service';
+import { RemovalQuantityPolicyService } from '../../services/removal-quantity-policy.service';
 
 const ENVELOPE = { clientCommandId: 'cmd-1', payloadHash: 'hash-1' };
 
@@ -52,6 +53,10 @@ describe('RecordCullHandler', () => {
       createMockRepository(),
       createMockRepository(),
       mockOutboxPublisher,
+      // P-31 recalc — mocked (day-plan-recalc.service.spec kapsıyor).
+      { recalcForUnit: jest.fn().mockResolvedValue(null) } as never,
+      // D-3 miktar çözümü — GERÇEK stateless politika (üretim davranışı).
+      new RemovalQuantityPolicyService(),
       mockAuditLogService,
       // SEC-HIGH-051: the real fail-closed SSoT; commands below default to
       // MODULE_MANAGER so site authz bypasses for these domain-logic tests.

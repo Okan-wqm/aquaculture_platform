@@ -11,8 +11,9 @@
         "cwd": ".",
         "parallel": false,
         "commands": [
-          "eslint e2e/global-setup.ts e2e/global-teardown.ts e2e/jest.config.ts e2e/playwright.config.ts e2e/playwright.water-chemistry.config.ts e2e/fixtures/**/*.ts e2e/helpers/**/*.ts e2e/tests/*.ts",
+          "eslint e2e/global-setup.ts e2e/global-teardown.ts e2e/jest.config.ts e2e/playwright.config.ts e2e/playwright.water-chemistry.config.ts e2e/playwright.aquamobil.config.ts e2e/fixtures/**/*.ts e2e/helpers/**/*.ts e2e/tests/*.ts",
           "eslint e2e/tests/integration/**/*.ts",
+          "eslint e2e/tests/mobile/**/*.ts",
           "eslint e2e/tests/modules/farm/**/*.ts",
           "eslint e2e/tests/modules/hr/**/*.ts",
           "eslint e2e/tests/modules/sensor/**/*.ts",

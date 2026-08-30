@@ -8,7 +8,7 @@
  * Enforces 3-way hash/ID consistency across the three sources of truth
  * for review findings:
  *
- *   1. `docs/reviews/_registry/findings.jsonl` (the ledger)
+ *   1. `docs/reviews/_registry/findings.jsonl` (current authority)
  *      — hash-chained append-only log. The `finding-registry-integrity`
  *        spec already verifies chain integrity internally; this spec
  *        treats it as authoritative for (state, closing_commits,
@@ -23,9 +23,11 @@
  *      — the `review_file` path recorded against each finding must
  *        exist on disk AND contain the finding's id as an anchor.
  *
- * When Phase 12.1 lands the PostgreSQL `event_store.findings` table,
- * this spec pivots to sourcing the ledger from the table (configured
- * via env var, jsonl remains the mirror for workstation tooling).
+ * PostgreSQL `event_store.finding_events` is the immutable candidate ledger.
+ * Authority does not move until full replay and two distinct protected-main
+ * parity cycles pass. After that explicit cutover, JSONL becomes a generated
+ * audit mirror; this invariant must then read the selected authority rather
+ * than silently switching based on environment.
  *
  * # Why this spec exists
  *
@@ -62,6 +64,561 @@ import {
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const REGISTRY_PATH = resolve(REPO_ROOT, 'docs/reviews/_registry/findings.jsonl');
+const AUTONOMY_CLOSURE_FINDINGS_PATH = resolve(
+  REPO_ROOT,
+  'docs/aria/policy/autonomy-closure-findings.json',
+);
+
+const SCOPED_ORPHAN_FINDING_IDS = [
+  'ORPHAN-HIGH-775',
+  'ORPHAN-CRITICAL-776',
+  'ORPHAN-HIGH-777',
+  'ORPHAN-HIGH-778',
+  'ORPHAN-HIGH-779',
+  'ORPHAN-HIGH-780',
+  'ORPHAN-HIGH-781',
+  'ORPHAN-HIGH-782',
+  'ORPHAN-MEDIUM-783',
+  'ORPHAN-HIGH-784',
+  'ORPHAN-MEDIUM-785',
+  'ORPHAN-HIGH-786',
+  'ORPHAN-HIGH-787',
+  'ORPHAN-HIGH-788',
+  'ORPHAN-MEDIUM-789',
+  'ORPHAN-HIGH-790',
+  'ORPHAN-HIGH-791',
+  'ORPHAN-MEDIUM-792',
+] as const;
+
+const EXPECTED_ARIA_TASK_FINDING_IDS = [
+  'ARIA-HIGH-001',
+  'ARIA-HIGH-002',
+  'ARIA-HIGH-003',
+  'ARIA-HIGH-017',
+  'ARIA-HIGH-004',
+  'ARIA-HIGH-005',
+  'ARIA-HIGH-006',
+  'ARIA-CRITICAL-007',
+  'ARIA-HIGH-008',
+  'ARIA-CRITICAL-009',
+  'ARIA-HIGH-010',
+  'ARIA-HIGH-011',
+  'ARIA-HIGH-012',
+  'ARIA-HIGH-013',
+  'ARIA-HIGH-014',
+  'ARIA-CRITICAL-015',
+  'ARIA-HIGH-016',
+] as const;
+
+const EXPECTED_CLOSURE_SCOPE = [...SCOPED_ORPHAN_FINDING_IDS, ...EXPECTED_ARIA_TASK_FINDING_IDS];
+
+type ExpectedClosureSemantic = readonly [
+  taskId: string,
+  ownerTask: string,
+  requiredPredicate: string,
+  closureMode: 'historical_main' | 'task_commit' | 'task_commit_and_live',
+  closingShaRule: 'last_historical_fix' | 'task_commit',
+  historicalFixShas: readonly string[],
+];
+
+const EXPECTED_CLOSURE_SEMANTICS = {
+  'ORPHAN-HIGH-775': [
+    'task-1-orphan-775',
+    'task-1',
+    'branch_protection_proof_producer_code_proven',
+    'task_commit',
+    'task_commit',
+    ['84404283f64ef15487fac8e7a7d7aa683feeae94'],
+  ],
+  'ORPHAN-CRITICAL-776': [
+    'task-1-orphan-776',
+    'task-1',
+    'executor_unbound_name_detector_code_proven',
+    'historical_main',
+    'last_historical_fix',
+    ['a16977a968d72a0957b271e3609ff398b6d9c85b'],
+  ],
+  'ORPHAN-HIGH-777': [
+    'task-1-orphan-777',
+    'task-1',
+    'multi_vendor_model_vocabulary_code_proven',
+    'task_commit',
+    'task_commit',
+    ['b2e8ea6241d7b5f6ef5bd212c43cf9f95a4a4585', 'd7fa539ea03a52ff2cf5e21a9253d4d7cb84f311'],
+  ],
+  'ORPHAN-HIGH-778': [
+    'task-1-orphan-778',
+    'task-1',
+    'provider_process_boundary_code_proven',
+    'task_commit',
+    'task_commit',
+    ['260620fbbcf289c75135b635d970f2134256164c', 'd7fa539ea03a52ff2cf5e21a9253d4d7cb84f311'],
+  ],
+  'ORPHAN-HIGH-779': [
+    'task-7',
+    'task-7',
+    'learning_funnel_scheduled_path_live_proven',
+    'task_commit_and_live',
+    'task_commit',
+    ['620683fc9a089790b18bc96b91e0f180fb2c7b63'],
+  ],
+  'ORPHAN-HIGH-780': [
+    'task-1-orphan-780',
+    'task-1',
+    'workflow_launch_failure_ledger_code_proven',
+    'historical_main',
+    'last_historical_fix',
+    [
+      '960b8902b9ec11d5c97dd022c52e38928628f257',
+      'b048624cd76054efb4fa7c7a8e67d2ea3b7f76d9',
+      '2d9f672d74f559c7163a2e649000cbaa79b259fb',
+    ],
+  ],
+  'ORPHAN-HIGH-781': [
+    'task-1-orphan-781',
+    'task-1',
+    'dispatch_model_identity_code_proven',
+    'historical_main',
+    'last_historical_fix',
+    ['a7f375ec18e81e3ebf3a71d078e7d4b5332cb886'],
+  ],
+  'ORPHAN-HIGH-782': [
+    'task-1-orphan-782',
+    'task-1',
+    'calibration_reporter_all_exits_code_proven',
+    'historical_main',
+    'last_historical_fix',
+    ['2e9a6929e6a14717aa1725d9511ae0267b3d288c'],
+  ],
+  'ORPHAN-MEDIUM-783': [
+    'task-1-orphan-783',
+    'task-1',
+    'fixture_phase_result_telemetry_code_proven',
+    'historical_main',
+    'last_historical_fix',
+    ['7a49ebfca19fb175d95cfebac8e9ba8fd19fcacb'],
+  ],
+  'ORPHAN-HIGH-784': [
+    'task-1-orphan-784',
+    'task-1',
+    'same_cycle_judge_weights_code_proven',
+    'historical_main',
+    'last_historical_fix',
+    ['f19264a48ccb67d989c3db01982904497bb5cf52'],
+  ],
+  'ORPHAN-MEDIUM-785': [
+    'task-1-orphan-785',
+    'task-1',
+    'judgment_sampler_recency_window_code_proven',
+    'historical_main',
+    'last_historical_fix',
+    ['16f8ba624729a3d427a3d5ff59f784e4cee4dbca'],
+  ],
+  'ORPHAN-HIGH-786': [
+    'task-1-orphan-786',
+    'task-1',
+    'anchor_sweep_and_drain_topology_code_proven',
+    'historical_main',
+    'last_historical_fix',
+    ['61632372ef765d1dbb0b9cd46673eb98fa2d0815'],
+  ],
+  'ORPHAN-HIGH-787': [
+    'task-1-orphan-787',
+    'task-1',
+    'auto_promote_token_consumer_hmac_code_proven',
+    'historical_main',
+    'last_historical_fix',
+    ['bd605b5cba516d44e5f879a90ade8adbe6d7b26c'],
+  ],
+  'ORPHAN-HIGH-788': [
+    'task-1-orphan-788',
+    'task-1',
+    'readiness_workflow_env_binding_code_proven',
+    'historical_main',
+    'last_historical_fix',
+    ['b19fee8b4fd7ee84caa530aa06b76784557ef044'],
+  ],
+  'ORPHAN-MEDIUM-789': [
+    'task-18',
+    'task-18',
+    'mode_a_signed_readiness_live_proven',
+    'task_commit_and_live',
+    'task_commit',
+    [],
+  ],
+  'ORPHAN-HIGH-790': [
+    'task-1-orphan-790',
+    'task-1',
+    'agent_refusal_vocabulary_code_proven',
+    'historical_main',
+    'last_historical_fix',
+    ['8daedd72ff6c83460b0631a513e5c1585dac75e4'],
+  ],
+  'ORPHAN-HIGH-791': [
+    'task-1-orphan-791',
+    'task-1',
+    'authority_date_utc_normalization_code_proven',
+    'historical_main',
+    'last_historical_fix',
+    ['80f92eb6f15520b505bdf6f3b4e6c486784b094b'],
+  ],
+  'ORPHAN-MEDIUM-792': [
+    'task-3',
+    'task-3',
+    'server_merge_safe_authority_hash_code_proven',
+    'task_commit',
+    'task_commit',
+    [],
+  ],
+  'ARIA-HIGH-001': [
+    'task-2',
+    'task-2',
+    'autonomy_evidence_status_code_proven',
+    'task_commit',
+    'task_commit',
+    [],
+  ],
+  'ARIA-HIGH-002': [
+    'task-4',
+    'task-4',
+    'executor_failure_contract_code_proven',
+    'task_commit',
+    'task_commit',
+    [],
+  ],
+  'ARIA-HIGH-003': [
+    'task-5',
+    'task-5',
+    'three_classified_live_drains',
+    'task_commit_and_live',
+    'task_commit',
+    [],
+  ],
+  'ARIA-HIGH-017': [
+    'task-5-live-unblock',
+    'task-5',
+    'state_publish_line_cap_code_proven',
+    'task_commit',
+    'task_commit',
+    [],
+  ],
+  'ARIA-HIGH-004': [
+    'task-6',
+    'task-6',
+    'learning_funnel_code_proven',
+    'task_commit',
+    'task_commit',
+    [],
+  ],
+  'ARIA-HIGH-005': [
+    'task-8',
+    'task-8',
+    'pre_merge_snapshot_code_proven',
+    'task_commit',
+    'task_commit',
+    [],
+  ],
+  'ARIA-HIGH-006': [
+    'task-9',
+    'task-9',
+    'branch_and_file_claim_checks_code_proven',
+    'task_commit',
+    'task_commit',
+    [],
+  ],
+  'ARIA-CRITICAL-007': [
+    'task-10',
+    'task-10',
+    'operator_feedback_signature_code_proven',
+    'task_commit',
+    'task_commit',
+    [],
+  ],
+  'ARIA-HIGH-008': [
+    'task-11',
+    'task-11',
+    'budget_and_content_checks_code_proven',
+    'task_commit',
+    'task_commit',
+    [],
+  ],
+  'ARIA-CRITICAL-009': [
+    'task-12',
+    'task-12',
+    'seven_pre_merge_checks_live_proven',
+    'task_commit_and_live',
+    'task_commit',
+    [],
+  ],
+  'ARIA-HIGH-010': [
+    'task-13',
+    'task-13',
+    'rust_observation_shadow_proven',
+    'task_commit',
+    'task_commit',
+    [],
+  ],
+  'ARIA-HIGH-011': [
+    'task-14',
+    'task-14',
+    'migration_observation_shadow_proven',
+    'task_commit',
+    'task_commit',
+    [],
+  ],
+  'ARIA-HIGH-012': [
+    'task-15',
+    'task-15',
+    'infrastructure_observation_shadow_proven',
+    'task_commit',
+    'task_commit',
+    [],
+  ],
+  'ARIA-HIGH-013': [
+    'task-16',
+    'task-16',
+    'workflow_shell_observation_shadow_proven',
+    'task_commit',
+    'task_commit',
+    [],
+  ],
+  'ARIA-HIGH-014': [
+    'task-17',
+    'task-17',
+    'whole_repo_observation_and_vertical_slice_live_proven',
+    'task_commit_and_live',
+    'task_commit',
+    [],
+  ],
+  'ARIA-CRITICAL-015': [
+    'task-19',
+    'task-19',
+    'staged_autonomy_ladder_live_proven',
+    'task_commit_and_live',
+    'task_commit',
+    [],
+  ],
+  'ARIA-HIGH-016': [
+    'task-20a',
+    'task-20a',
+    'closure_verifier_code_proven',
+    'task_commit',
+    'task_commit',
+    [],
+  ],
+} as const satisfies Readonly<
+  Record<(typeof EXPECTED_CLOSURE_SCOPE)[number], ExpectedClosureSemantic>
+>;
+
+type ExpectedClosureReferences = readonly [
+  reviewAnchor: string,
+  narrativeAnchor: string | null,
+  regressionTestRefs: readonly string[],
+];
+
+const EXPECTED_CLOSURE_REFERENCES = {
+  'ORPHAN-HIGH-775': [
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-775',
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-775',
+    [
+      'aria-kernel/tests/test_readiness_claim_lane.py',
+      'aria-kernel/tests/test_workflow_enterprise_preflight.py',
+    ],
+  ],
+  'ORPHAN-CRITICAL-776': [
+    'docs/reviews/orphan-findings.md#ORPHAN-CRITICAL-776',
+    'docs/reviews/orphan-findings.md#ORPHAN-CRITICAL-776',
+    ['aria-kernel/tests/test_executor_unbound_names.py'],
+  ],
+  'ORPHAN-HIGH-777': [
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-777',
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-777',
+    [
+      'aria-kernel/tests/test_glm_model_admission.py',
+      'aria-kernel/tests/test_model_tier_protection.py',
+    ],
+  ],
+  'ORPHAN-HIGH-778': [
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-778',
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-778',
+    ['aria-kernel/tests/test_provider_redirect.py'],
+  ],
+  'ORPHAN-HIGH-779': [
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-779',
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-779',
+    [
+      'aria-kernel/tests/test_fixture_dir_state_store_layout.py',
+      'aria-kernel/tests/test_learning_funnel_scheduled_path.py',
+    ],
+  ],
+  'ORPHAN-HIGH-780': [
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-780',
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-780',
+    [
+      'aria-kernel/tests/test_workflow_kernel_cli_contract.py',
+      'aria-kernel/tests/test_cli_launch_failure_ledger.py',
+    ],
+  ],
+  'ORPHAN-HIGH-781': [
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-781',
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-781',
+    ['aria-kernel/tests/test_dispatch_model_stamping.py'],
+  ],
+  'ORPHAN-HIGH-782': [
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-782',
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-782',
+    ['aria-kernel/tests/invariants/v7/test_phase_v7_6_calibration_reporter.py'],
+  ],
+  'ORPHAN-MEDIUM-783': [
+    'docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-783',
+    'docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-783',
+    ['aria-kernel/tests/test_judgment_pipeline_phases.py'],
+  ],
+  'ORPHAN-HIGH-784': [
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-784',
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-784',
+    ['aria-kernel/tests/test_judgment_pipeline_phases.py'],
+  ],
+  'ORPHAN-MEDIUM-785': [
+    'docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-785',
+    'docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-785',
+    ['aria-kernel/tests/test_sampler_recency_window.py'],
+  ],
+  'ORPHAN-HIGH-786': [
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-786',
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-786',
+    ['aria-kernel/tests/test_anchor_sweep.py', 'aria-kernel/tests/test_x1_drain_topology.py'],
+  ],
+  'ORPHAN-HIGH-787': [
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-787',
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-787',
+    [
+      'aria-kernel/tests/invariants/v6/test_phase_v6_4_auto_promotion.py',
+      'aria-kernel/tests/test_auto_promote_token_verification.py',
+    ],
+  ],
+  'ORPHAN-HIGH-788': [
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-788',
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-788',
+    ['aria-kernel/tests/test_workflow_env_binding.py'],
+  ],
+  'ORPHAN-MEDIUM-789': [
+    'docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-789',
+    'docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-789',
+    [
+      'aria-kernel/tests/test_workflow_mode_a_transport.py',
+      'aria-kernel/tests/test_signed_readiness_snapshot.py',
+    ],
+  ],
+  'ORPHAN-HIGH-790': [
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-790',
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-790',
+    ['aria-kernel/tests/test_agent_refusal_vocabulary.py'],
+  ],
+  'ORPHAN-HIGH-791': [
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-791',
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-791',
+    ['tests/invariants/aria-doc-runtime-ssot.spec.ts'],
+  ],
+  'ORPHAN-MEDIUM-792': [
+    'docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-792',
+    'docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-792',
+    ['tools/gates/aria-authority-hash.spec.ts', 'tests/invariants/aria-doc-runtime-ssot.spec.ts'],
+  ],
+  'ARIA-HIGH-001': [
+    'docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-001',
+    null,
+    ['aria-kernel/tests/test_autonomy_evidence_status.py'],
+  ],
+  'ARIA-HIGH-002': [
+    'docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-002',
+    null,
+    ['aria-kernel/tests/test_executor_failure_classification.py'],
+  ],
+  'ARIA-HIGH-003': [
+    'docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-003',
+    null,
+    ['aria-kernel/tests/test_executor_drain_breaker.py'],
+  ],
+  'ARIA-HIGH-017': [
+    'docs/reviews/aria/2026-08-23-state-publish-line-cap-regression.md#ARIA-HIGH-017',
+    null,
+    [
+      'aria-kernel/tests/test_state_snapshot.py',
+      'aria-kernel/tests/test_agent_submit_result_e2e.py',
+    ],
+  ],
+  'ARIA-HIGH-004': [
+    'docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-004',
+    null,
+    ['aria-kernel/tests/test_promotion_funnel_e2e.py'],
+  ],
+  'ARIA-HIGH-005': [
+    'docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-005',
+    null,
+    ['aria-kernel/tests/test_pre_merge_evidence.py'],
+  ],
+  'ARIA-HIGH-006': [
+    'docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-006',
+    null,
+    [
+      'aria-kernel/tests/test_file_claim_atomic_acquire.py',
+      'aria-kernel/tests/test_pre_merge_file_claims.py',
+    ],
+  ],
+  'ARIA-CRITICAL-007': [
+    'docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-CRITICAL-007',
+    null,
+    ['aria-kernel/tests/test_operator_feedback_signature.py'],
+  ],
+  'ARIA-HIGH-008': [
+    'docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-008',
+    null,
+    ['aria-kernel/tests/test_pre_merge_budget_and_content.py'],
+  ],
+  'ARIA-CRITICAL-009': [
+    'docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-CRITICAL-009',
+    null,
+    ['aria-kernel/tests/test_pre_merge_consensus_and_coverage.py'],
+  ],
+  'ARIA-HIGH-010': [
+    'docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-010',
+    null,
+    ['tools/aria-adapters/rust-runtime-safety-adapter.test.ts'],
+  ],
+  'ARIA-HIGH-011': [
+    'docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-011',
+    null,
+    ['tools/aria-adapters/sql-migration-safety-adapter.test.ts'],
+  ],
+  'ARIA-HIGH-012': [
+    'docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-012',
+    null,
+    ['tools/aria-adapters/infrastructure-policy-adapter.test.ts'],
+  ],
+  'ARIA-HIGH-013': [
+    'docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-013',
+    null,
+    ['tools/aria-adapters/workflow-shell-safety-adapter.test.ts'],
+  ],
+  'ARIA-HIGH-014': [
+    'docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-014',
+    null,
+    ['aria-kernel/tests/test_vertical_slice_evidence.py'],
+  ],
+  'ARIA-CRITICAL-015': [
+    'docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-CRITICAL-015',
+    null,
+    ['aria-kernel/tests/test_autonomy_stage_progression.py'],
+  ],
+  'ARIA-HIGH-016': [
+    'docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-016',
+    null,
+    ['aria-kernel/tests/test_autonomy_closure.py'],
+  ],
+} as const satisfies Readonly<
+  Record<(typeof EXPECTED_CLOSURE_SCOPE)[number], ExpectedClosureReferences>
+>;
 
 interface Finding {
   id: string;
@@ -85,17 +642,71 @@ interface Finding {
   content_hash: string;
 }
 
+interface AutonomyClosureFinding {
+  task_id: string;
+  finding_id: string;
+  owner_task: string;
+  required_predicate: string;
+  operator_prerequisite?: {
+    capability: string;
+    blocker: string;
+  };
+  closure_mode: 'historical_main' | 'task_commit' | 'task_commit_and_live';
+  review_anchor: string;
+  narrative_anchor?: string;
+  historical_fix_shas?: string[];
+  closing_sha_rule: 'last_historical_fix' | 'task_commit';
+  regression_test_refs: string[];
+}
+
+interface AutonomyClosureFindingsPolicy {
+  $schema: string;
+  schema_version: number;
+  policy_id: string;
+  entries: AutonomyClosureFinding[];
+}
+
 function loadRegistry(): Finding[] {
   if (!existsSync(REGISTRY_PATH)) return [];
   const raw = readFileSync(REGISTRY_PATH, 'utf8').trim();
   if (!raw) return [];
-  return raw.split('\n').filter(Boolean).map((line) => JSON.parse(line) as Finding);
+  return raw
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as Finding);
+}
+
+function loadAutonomyClosureFindings(): AutonomyClosureFindingsPolicy {
+  return JSON.parse(
+    readFileSync(AUTONOMY_CLOSURE_FINDINGS_PATH, 'utf8'),
+  ) as AutonomyClosureFindingsPolicy;
 }
 
 function commitExists(sha: string): boolean {
   try {
     execSync(`git cat-file -e ${sha}^{commit}`, { cwd: REPO_ROOT, stdio: 'ignore' });
     return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A shallow clone (CI `fetch-depth` limited, or a fresh remote-execution
+ * checkout) does not contain deep historical commits — a Phase-0 closing SHA
+ * from months ago is legitimately absent, not lost. The SHA-existence check
+ * must stay STRICT on a full clone (where absence means a genuinely lost
+ * commit) but tolerant on a shallow one (where absence is a clone-depth
+ * limitation). `git rev-parse --is-shallow-repository` distinguishes the two.
+ */
+function isShallowClone(): boolean {
+  try {
+    return (
+      execSync('git rev-parse --is-shallow-repository', {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+      }).trim() === 'true'
+    );
   } catch {
     return false;
   }
@@ -113,8 +724,8 @@ function commitMessage(sha: string): string {
 // Known legacy drift (explicit allowlist — do not grow)
 // ---------------------------------------------------------------------------
 //
-// Each entry documents a pre-Phase-6 drift the Phase 12.1 registry
-// migration cleans up. The invariant stays STRICT for every
+// Each entry documents a pre-Phase-6 drift the registry truth-freeze wave
+// cleans up. The invariant stays STRICT for every
 // non-allowlisted (finding-id, sha) pair — new fix commits MUST carry
 // canonical `Closes: … #{PREFIX}-{SEVERITY}-{NNN}` trailers and the
 // registry MUST cite existing anchors.
@@ -128,7 +739,7 @@ function commitMessage(sha: string): string {
 // `// PHASE-12.1-FIX:` comment describing the remediation step.
 //
 // Do not add new entries without an accompanying plan item. Drift
-// introduced AFTER Phase 12.1 is a strict test failure.
+// introduced after authority cutover is a strict test failure.
 
 /** (finding-id, short-sha) pairs whose trailer pre-dates strict ID form. */
 const LEGACY_TRAILER_DRIFT: ReadonlyArray<[string, string]> = [
@@ -265,6 +876,19 @@ const LEGACY_TRAILER_DRIFT: ReadonlyArray<[string, string]> = [
   // commits but the strict trailer was on the principal finding only.
   ['AUDIT-MEDIUM-013', '2cd0a7bb'],
   ['AUDIT-LOW-001', '77660392'],
+  // ORPHAN-MEDIUM-314/321/322: the untracked-worktree remediation batch
+  // 8d1b342ed (PR #830) fixed all three, but its strict Closes: trailers
+  // cite the PRE-RENUMBERING ids ORPHAN-MEDIUM-309 (→314), 312 (→321), and
+  // 313 (→322). The findings were renumbered during merge-train collision
+  // resolution AFTER that commit merged — main independently claimed
+  // 309/312/313 for unrelated ARIA findings (documented in each entry's
+  // notes + docs/reviews/orphan-findings.md headings). Same sibling/
+  // renumbered-trailer shape as ORPHAN-MEDIUM-016 / RUST-CVE-001 above;
+  // the commit is the genuine closer and stays as-is.
+  // PHASE-12.1-FIX: re-annotate registry entry; commit stays as-is.
+  ['ORPHAN-MEDIUM-314', '8d1b342ed7538d4bc9fbc4074881eb34b079402c'],
+  ['ORPHAN-MEDIUM-321', '8d1b342ed7538d4bc9fbc4074881eb34b079402c'],
+  ['ORPHAN-MEDIUM-322', '8d1b342ed7538d4bc9fbc4074881eb34b079402c'],
 ];
 
 const LEGACY_DRIFT_SET: ReadonlySet<string> = new Set(
@@ -450,6 +1074,143 @@ describe('three-store invariants', () => {
     expect(entries.length).toBeGreaterThan(0);
   });
 
+  it('registers every finding in the ARIA closure policy', () => {
+    const policy = loadAutonomyClosureFindings();
+    const narrative = readFileSync(resolve(REPO_ROOT, 'docs/reviews/orphan-findings.md'), 'utf8');
+    const registryIds = new Set(entries.map((row) => row.id));
+    const policyIds = new Set(policy.entries.map((entry) => entry.finding_id));
+    const registryRowsById = new Map<string, Finding[]>();
+    for (const row of entries) {
+      const rows = registryRowsById.get(row.id) ?? [];
+      rows.push(row);
+      registryRowsById.set(row.id, rows);
+    }
+
+    expect(policy.$schema).toBe('aria/autonomy-closure-findings/v1');
+    expect(policy.schema_version).toBe(1);
+    expect(policy.policy_id).toBe('aria-end-to-end-autonomy-closure');
+    expect(policy.entries).toHaveLength(EXPECTED_CLOSURE_SCOPE.length);
+    expect([...policyIds].sort()).toEqual([...EXPECTED_CLOSURE_SCOPE].sort());
+    expect(Object.keys(EXPECTED_CLOSURE_SEMANTICS).sort()).toEqual(
+      [...EXPECTED_CLOSURE_SCOPE].sort(),
+    );
+    expect(new Set(policy.entries.map((entry) => entry.task_id)).size).toBe(policy.entries.length);
+    expect(policyIds.size).toBe(policy.entries.length);
+    const operatorPrerequisites = policy.entries.filter(
+      (entry) => entry.operator_prerequisite !== undefined,
+    );
+    expect(operatorPrerequisites).toHaveLength(1);
+    expect(operatorPrerequisites[0]?.finding_id).toBe('ORPHAN-MEDIUM-789');
+    expect(operatorPrerequisites[0]?.required_predicate).toBe(
+      'mode_a_signed_readiness_live_proven',
+    );
+    expect(operatorPrerequisites[0]?.operator_prerequisite).toEqual({
+      capability: 'enterprise_readiness',
+      blocker: 'github_app_mode_a_unconfigured',
+    });
+    expect(
+      policy.entries.find((entry) => entry.finding_id === 'ARIA-HIGH-001')?.operator_prerequisite,
+    ).toBeUndefined();
+
+    for (const entry of policy.entries) {
+      const findingId = entry.finding_id as keyof typeof EXPECTED_CLOSURE_SEMANTICS;
+      const expectedSemantic = EXPECTED_CLOSURE_SEMANTICS[findingId];
+      const expectedReferences = EXPECTED_CLOSURE_REFERENCES[findingId];
+      const expectedHistory = expectedSemantic?.[5] ?? [];
+      const expectedPolicyKeys = [
+        'task_id',
+        'finding_id',
+        'owner_task',
+        'required_predicate',
+        'closure_mode',
+        'review_anchor',
+        'closing_sha_rule',
+        'regression_test_refs',
+      ];
+      for (const optionalKey of [
+        'operator_prerequisite',
+        'narrative_anchor',
+        'historical_fix_shas',
+      ] as const) {
+        if (Object.prototype.hasOwnProperty.call(entry, optionalKey)) {
+          expectedPolicyKeys.push(optionalKey);
+        }
+      }
+
+      expect(expectedSemantic).toBeDefined();
+      expect(expectedReferences).toBeDefined();
+      expect(Object.keys(entry).sort()).toEqual(expectedPolicyKeys.sort());
+      expect([
+        entry.task_id,
+        entry.owner_task,
+        entry.required_predicate,
+        entry.closure_mode,
+        entry.closing_sha_rule,
+        entry.historical_fix_shas ?? [],
+      ]).toEqual(expectedSemantic);
+      const hasNarrativeAnchor = Object.prototype.hasOwnProperty.call(entry, 'narrative_anchor');
+      expect([
+        entry.review_anchor,
+        hasNarrativeAnchor ? entry.narrative_anchor : null,
+        entry.regression_test_refs,
+      ]).toEqual(expectedReferences);
+      expect(hasNarrativeAnchor).toBe(expectedReferences[1] !== null);
+      expect(Object.prototype.hasOwnProperty.call(entry, 'historical_fix_shas')).toBe(
+        expectedHistory.length > 0,
+      );
+
+      if (entry.closure_mode === 'historical_main') {
+        expect(entry.closing_sha_rule).toBe('last_historical_fix');
+        expect(expectedHistory.length).toBeGreaterThan(0);
+      } else {
+        expect(entry.closing_sha_rule).toBe('task_commit');
+      }
+      if (entry.finding_id === 'ORPHAN-MEDIUM-789') {
+        expect(entry.operator_prerequisite).toEqual({
+          capability: 'enterprise_readiness',
+          blocker: 'github_app_mode_a_unconfigured',
+        });
+      } else {
+        expect(entry.operator_prerequisite).toBeUndefined();
+      }
+
+      expect(entry.finding_id).not.toMatch(/PLACEHOLDER|TBD|TODO/i);
+      expect(entry.owner_task).toMatch(/^task-(?:[1-9]|1\d|20a)$/);
+      expect(entry.required_predicate).toMatch(/^[a-z][a-z0-9_]+$/);
+      expect(['historical_main', 'task_commit', 'task_commit_and_live']).toContain(
+        entry.closure_mode,
+      );
+      expect(['last_historical_fix', 'task_commit']).toContain(entry.closing_sha_rule);
+      expect(entry.regression_test_refs.length).toBeGreaterThan(0);
+      for (const regressionRef of entry.regression_test_refs) {
+        expect(regressionRef).toMatch(/(?:^|\/)(?:tests?|[^/]*\.(?:spec|test)\.)/);
+      }
+      for (const sha of entry.historical_fix_shas ?? []) {
+        expect(sha).toMatch(/^[a-f0-9]{40}$/);
+      }
+
+      expect(registryIds.has(entry.finding_id)).toBe(true);
+      const registryRows = registryRowsById.get(entry.finding_id) ?? [];
+      expect(registryRows).toHaveLength(1);
+      expect(registryRows[0]).toMatchObject({
+        id: entry.finding_id,
+        severity: entry.finding_id.split('-')[1],
+        state: 'OPEN',
+        owner_agent: 'platform-autonomy',
+        closing_commits: [],
+      });
+      if (entry.narrative_anchor) {
+        expect(narrative).toContain(`## ${entry.finding_id} `);
+      }
+
+      const [reviewFile, reviewFindingId] = entry.review_anchor.split('#');
+      expect(reviewFindingId).toBe(entry.finding_id);
+      expect(reviewFile).toBeDefined();
+      const review = readFileSync(resolve(REPO_ROOT, reviewFile as string), 'utf8');
+      expect(review).toContain(`## ${entry.finding_id} `);
+    }
+  });
+
   describe('store-2: commit trailers match registry', () => {
     const resolved = entries.filter((e) => e.state === 'RESOLVED');
 
@@ -473,6 +1234,10 @@ describe('three-store invariants', () => {
           // registry edits that haven't been rechained yet.
           if (sha === 'pending' || sha.length < 7) continue;
           if (!commitExists(sha)) {
+            // On a shallow clone the SHA may be deep history that was never
+            // fetched — absence there is a clone-depth limitation, not a lost
+            // commit, so skip. Stay strict on a full clone.
+            if (isShallowClone()) continue;
             throw new Error(
               `Registry entry ${e.id} references closing_commit SHA ${sha} which is NOT in git history. ` +
                 `Either the commit was lost (rebase?) or the SHA is stale.`,
@@ -482,7 +1247,7 @@ describe('three-store invariants', () => {
       }
     });
 
-    it('every closing_commits SHA\'s message contains a Closes: trailer referencing the finding id', () => {
+    it("every closing_commits SHA's message contains a Closes: trailer referencing the finding id", () => {
       for (const e of resolved) {
         for (const sha of e.closing_commits) {
           if (sha === 'pending' || sha.length < 7) continue;

@@ -106,6 +106,16 @@ class GitHubAdapter(Protocol):
         """
         ...
 
+    def get_open_issues(self, *, labels: list[str]) -> dict[str, Any]:
+        """Open issues carrying every one of ``labels``.
+
+        Returns ``{"readable": bool, "issues": [...]}``. `readable` is explicit
+        rather than inferred from an empty list, because "no incidents" and "I
+        could not ask" must not look alike to `watchdog_freeze`, which fails
+        closed on the second.
+        """
+        ...
+
     def merge_pr(self, number: int, *, method: str, expected_head_sha: str) -> dict[str, Any]:
         ...
 
@@ -316,6 +326,30 @@ def evaluate_auto_merge(
     elif check_result["not_success"]:
         reasons.append("required checks not successful: " + ", ".join(check_result["not_success"]))
 
+    # 2026-08-18 operator directive (ORPHAN-717) — the FULL battery, not
+    # just branch protection's short required list. Main requires only two
+    # checks; lint/format/typecheck run as non-required check runs, and the
+    # required-only gate above merged a PR whose optional lint was RED
+    # (operator-measured on the Y-union train). Every check run on the head
+    # SHA must be completed and non-red before auto-merge — this is what
+    # makes CI's whole battery (prettier, lint, build, invariants)
+    # load-bearing for an ARIA merge instead of decorative.
+    all_runs = _all_check_runs_result(github, head_sha)
+    if not all_runs["readable"]:
+        reasons.append("full check-run battery unreadable")
+    elif not all_runs["total"]:
+        reasons.append("no check runs found for head SHA — full battery cannot be proven green")
+    else:
+        if all_runs["pending"]:
+            reasons.append(
+                "check runs still pending: " + ", ".join(all_runs["pending"])
+            )
+        if all_runs["red"]:
+            reasons.append(
+                "check runs red (including non-required): "
+                + ", ".join(all_runs["red"])
+            )
+
     review_result = _review_result(pr, github)
     if not review_result["readable"]:
         reasons.append("review state unreadable")
@@ -345,6 +379,7 @@ def evaluate_auto_merge(
         "risk": risk,
         "required_checks": required,
         "check_result": check_result,
+        "all_check_runs": all_runs,
         "review_result": review_result,
         "conversation_result": conversation_result,
         "policy": {
@@ -432,6 +467,31 @@ def record_pr_lifecycle(
     )
 
 
+# The three universal dimensions and the command substrings that prove
+# them. Commands come from validation.run_validation_commands' closed
+# allowlist, so the substrings match structured commands, not free text.
+_HYGIENE_DIMENSIONS: dict[str, tuple[str, ...]] = {
+    "format": ("format:check",),
+    "typecheck": ("type-check",),
+    "test": ("--target=test", "npm run test"),
+}
+
+
+def _hygiene_battery_result(runs: list[dict[str, Any]]) -> dict[str, Any]:
+    satisfied: dict[str, str] = {}
+    for run in runs:
+        if not isinstance(run, dict) or run.get("status") != "ok":
+            continue
+        cmd = str(run.get("cmd") or "")
+        for dimension, needles in _HYGIENE_DIMENSIONS.items():
+            if dimension not in satisfied and any(n in cmd for n in needles):
+                satisfied[dimension] = str(run.get("validation_run_id") or "")
+    return {
+        "satisfied": satisfied,
+        "missing": [d for d in _HYGIENE_DIMENSIONS if d not in satisfied],
+    }
+
+
 def _evaluate_triple_gate(
     *,
     pr_number: int,
@@ -500,10 +560,47 @@ def _evaluate_triple_gate(
                 f"triple_gate_validation_run_unverified: "
                 f"{run_id}: {exc}"
             )
+    # Gate 5 (ORPHAN-721) — implementation completeness, defense in depth.
+    # The writer refuses undeclared shortfalls at emit time; this re-check
+    # covers rows written before the contract (or by a bypassed writer):
+    # a committed row whose uncovered_intended files lack dispositions is
+    # not a complete implementation and must not merge as one.
+    if committed is not None:
+        legacy_uncovered = committed.get("uncovered_intended")
+        if legacy_uncovered is None:
+            planned_files = set()
+            from .change_ledger import _find_planned
+            planned_row = _find_planned(tools_root, change_id)
+            if planned_row is not None:
+                planned_files = set(planned_row.get("intended_affected_files") or [])
+            legacy_uncovered = sorted(
+                planned_files - set(committed.get("actual_affected_files") or [])
+            )
+        declared = committed.get("uncovered_intended_dispositions") or {}
+        undeclared = [
+            f for f in legacy_uncovered if not str(declared.get(f, "")).strip()
+        ]
+        if undeclared:
+            reasons.append(
+                "triple_gate_implementation_incomplete: intended files "
+                f"untouched with no declared disposition: {undeclared}"
+            )
+
+    # Gate 4 (2026-08-18 operator directive, ORPHAN-717) — universal
+    # hygiene battery. The risk-type matrix proves the DOMAIN tests ran;
+    # nothing proved the repo's own hygiene commands did. CI cannot carry
+    # this alone: ~16 projects are unit-test-quarantined on CI (the SSoT is
+    # scripts/ci/affected-target-policy.json), so a CI-green PR does not
+    # prove local tests pass. Every autonomous merge must therefore carry
+    # verified exit-0 validation_runs for format, typecheck and tests.
+    hygiene = _hygiene_battery_result(runs)
+    for dimension in hygiene["missing"]:
+        reasons.append(f"triple_gate_hygiene_run_missing:{dimension}")
     return {
         "passed": not reasons,
         "change_id": change_id,
         "reasons": reasons,
+        "hygiene": hygiene,
     }
 
 
@@ -637,6 +734,12 @@ class SnapshotGitHubAdapter:
             self.payload.get("github", {}).get("conversations", {"readable": True, "unresolved_count": 0}),
         )
 
+    def get_open_issues(self, *, labels: list[str]) -> dict[str, Any]:
+        _ = labels
+        return deepcopy(
+            self.payload.get("github", {}).get("open_issues", {"readable": True, "issues": []}),
+        )
+
     def get_pr_diff(self, number: int) -> str | None:
         """Plan 023 v3 §P-6 — read pre-seeded diff from the snapshot
         payload. Returns None when the fixture didn't supply a diff so
@@ -672,6 +775,27 @@ class GhCliGitHubAdapter:
     def clear_merge_authority(self, token: str) -> None:
         if self._merge_authority_token == token:
             self._merge_authority_token = None
+
+    def get_open_issues(self, *, labels: list[str]) -> dict[str, Any]:
+        """Open issues carrying every label, via `gh issue list`."""
+        args = ["issue", "list", "--state", "open", "--limit", "50",
+                "--json", "number,title,labels"]
+        for label in labels:
+            args.extend(["--label", label])
+        try:
+            payload = self._gh_json(args)
+        except Exception as exc:  # an unreadable alarm is not an absent alarm
+            return {"readable": False, "reason": f"{exc.__class__.__name__}: {exc}", "issues": []}
+        if not isinstance(payload, list):
+            return {"readable": False, "reason": "gh_issue_list_not_a_list", "issues": []}
+        return {
+            "readable": True,
+            "issues": [
+                {"number": row.get("number"), "title": row.get("title")}
+                for row in payload
+                if isinstance(row, dict)
+            ],
+        }
 
     def get_pr(self, number: int) -> dict[str, Any]:
         payload = self._gh_json(
@@ -823,12 +947,70 @@ class GhCliGitHubAdapter:
             raise GovernanceError(completed.stderr.strip() or completed.stdout.strip() or "gh pr merge failed")
         return {"merged": True, "method": "squash", "expected_head_sha": expected_head_sha}
 
+    # ----- MissionObserver Protocol (Wave 2 PR 1.3) ----------------------
+    #
+    # `get_pr` above cannot answer reconciliation's question: it requests
+    # `number,baseRefName,headRefName,headRefOid,files,reviews,reviewDecision`
+    # and never asks for `state` or `merged`, so `get_pr(n)["state"]` is
+    # absent here and a *stub string* on the recording adapter. A reconciler
+    # built on it would read every real PR as unobserved and never transition
+    # anything — machinery written and never able to fire, which is the defect
+    # class this programme exists to close. Hence a purpose-built call.
+
+    def get_pr_lifecycle(self, number: int) -> dict[str, Any] | None:
+        payload = self._gh_json(
+            [
+                "pr",
+                "view",
+                str(number),
+                "--json",
+                "number,state,merged,mergeCommit,headRefName,body",
+            ],
+        )
+        merge_commit = payload.get("mergeCommit")
+        return {
+            "number": payload.get("number"),
+            "state": payload.get("state"),
+            "merged": payload.get("merged"),
+            "merge_commit_sha": (
+                merge_commit.get("oid") if isinstance(merge_commit, dict) else None
+            ),
+            "head_ref": payload.get("headRefName"),
+            "body": payload.get("body"),
+        }
+
+    def observe_branch(self, name: str) -> bool | None:
+        """``True``/``False`` when the remote answered, ``None`` when it did not.
+
+        `git ls-remote` and not `gh api` because the two outcomes that must
+        not be confused — "the branch is gone" and "I could not ask" — are an
+        exit code apart here, where over HTTP they are both a non-zero `gh`
+        exit whose difference lives in stderr text. A branch-absence rule that
+        depends on parsing an error message is a rule that sends missions back
+        to PLANNING the day GitHub rewords a 404.
+        """
+        completed = subprocess.run(
+            ["git", "ls-remote", "--heads", "origin", f"refs/heads/{name}"],
+            cwd=self.cwd,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if completed.returncode != 0:
+            return None
+        return bool(completed.stdout.strip())
+
+    def list_open_pull_requests(self) -> list[dict[str, Any]] | None:
+        return self._gh_json_list(
+            ["pr", "list", "--state", "open", "--limit", "100", "--json", "number,headRefName,body"],
+        )
+
     def _gh_api_json(self, args: list[str]) -> dict[str, Any]:
         if args and is_gh_api_path_forbidden(str(args[0])):
             raise GovernanceError(f"forbidden gh api path: {args[0]}")
         return self._gh_json(["api", *args])
 
-    def _gh_json(self, args: list[str]) -> dict[str, Any]:
+    def _gh_stdout(self, args: list[str]) -> str:
         completed = subprocess.run(
             ["gh", *args],
             cwd=self.cwd,
@@ -838,9 +1020,22 @@ class GhCliGitHubAdapter:
         )
         if completed.returncode != 0:
             raise GovernanceError(completed.stderr.strip() or completed.stdout.strip() or "gh command failed")
-        if not completed.stdout.strip():
+        return completed.stdout
+
+    def _gh_json(self, args: list[str]) -> dict[str, Any]:
+        stdout = self._gh_stdout(args)
+        if not stdout.strip():
             return {}
-        return json.loads(completed.stdout)
+        return json.loads(stdout)
+
+    def _gh_json_list(self, args: list[str]) -> list[dict[str, Any]]:
+        """`gh ... --json` on a list subcommand returns a JSON ARRAY, which
+        `_gh_json`'s `dict` annotation would be lying about."""
+        stdout = self._gh_stdout(args)
+        if not stdout.strip():
+            return []
+        payload = json.loads(stdout)
+        return payload if isinstance(payload, list) else []
 
 
 def _required_checks(github: dict[str, Any]) -> dict[str, Any]:
@@ -908,6 +1103,64 @@ def _required_checks_result(github: dict[str, Any], required: list[str], head_sh
     missing = [name for name in required if name not in by_name]
     not_success = [name for name in required if name in by_name and not _check_success(by_name[name])]
     return {"readable": True, "missing": missing, "not_success": not_success}
+
+
+# Conclusions that do not block the full battery: neutral is informational
+# and skipped is a conditional job that chose not to run. Everything else
+# non-success (failure, cancelled, timed_out, action_required, stale) is red.
+_NONBLOCKING_CONCLUSIONS = frozenset({"success", "neutral", "skipped"})
+
+
+def _all_check_runs_result(github: dict[str, Any], head_sha: str | None) -> dict[str, Any]:
+    """ORPHAN-717 — every check run on the head SHA, required or not.
+
+    Same payload parse as ``_required_checks_result`` but iterating ALL
+    runs: any run still pending or concluded red blocks. Legacy commit
+    statuses (``state`` field) map: success→green, pending→pending,
+    anything else→red.
+    """
+    checks_payload = github.get("checks", github.get("check_runs", {}))
+    if isinstance(checks_payload, list):
+        readable = True
+        runs = checks_payload
+    elif isinstance(checks_payload, dict):
+        readable = checks_payload.get("readable", True) is True
+        runs = checks_payload.get("runs", checks_payload.get("check_runs", checks_payload.get("statuses", [])))
+    else:
+        readable = False
+        runs = []
+    if not readable:
+        return {"readable": False, "total": 0, "pending": [], "red": []}
+    pending: list[str] = []
+    red: list[str] = []
+    total = 0
+    for run in runs if isinstance(runs, list) else []:
+        if not isinstance(run, dict):
+            continue
+        run_head = run.get("head_sha") or run.get("sha")
+        if run_head and head_sha and run_head != head_sha:
+            continue
+        total += 1
+        name = str(run.get("name") or run.get("context") or "unnamed-check")
+        state = str(run.get("state", "")).lower()
+        status = str(run.get("status", "")).lower()
+        conclusion = str(run.get("conclusion", "")).lower()
+        if state:
+            if state == "success":
+                continue
+            (pending if state == "pending" else red).append(name)
+            continue
+        if status and status != "completed":
+            pending.append(name)
+            continue
+        if conclusion not in _NONBLOCKING_CONCLUSIONS:
+            red.append(name)
+    return {
+        "readable": True,
+        "total": total,
+        "pending": sorted(pending),
+        "red": sorted(red),
+    }
 
 
 def _review_result(pr: dict[str, Any], github: dict[str, Any]) -> dict[str, Any]:

@@ -64,8 +64,21 @@ vi.mock('../../utils/api-client', () => {
 });
 
 // Import after mocking
-import { AuthProvider, useAuthContext, type UserRole, type AuthUser, type LoginResult } from '../AuthContext';
-import { setTokens, clearSession, getAccessToken, silentRefresh, graphqlClient, setTenantId } from '../../utils/api-client';
+import {
+  AuthProvider,
+  useAuthContext,
+  type UserRole,
+  type AuthUser,
+  type LoginResult,
+} from '../AuthContext';
+import {
+  setTokens,
+  clearSession,
+  getAccessToken,
+  silentRefresh,
+  graphqlClient,
+  setTenantId,
+} from '../../utils/api-client';
 import { tokenLifecycle } from '../../utils/token-lifecycle';
 
 // ============================================================================
@@ -93,7 +106,10 @@ function createMockUser(overrides: Partial<AuthUser> = {}): AuthUser {
   };
 }
 
-function createMeResponse(user: AuthUser, modules = [{ code: 'sensor', name: 'Sensor', defaultRoute: '/sensor' }]) {
+function createMeResponse(
+  user: AuthUser,
+  modules = [{ code: 'sensor', name: 'Sensor', defaultRoute: '/sensor' }],
+) {
   return {
     me: {
       user,
@@ -106,6 +122,17 @@ function createMeResponse(user: AuthUser, modules = [{ code: 'sensor', name: 'Se
 function createLoginResponse(user: AuthUser, redirectUrl = '/dashboard') {
   return {
     login: {
+      accessToken: 'new-access-token',
+      refreshToken: 'new-refresh-token',
+      redirectUrl,
+      user,
+    },
+  };
+}
+
+function createVerifyMfaLoginResponse(user: AuthUser, redirectUrl = '/dashboard') {
+  return {
+    verifyMfaLogin: {
       accessToken: 'new-access-token',
       refreshToken: 'new-refresh-token',
       redirectUrl,
@@ -273,7 +300,7 @@ describe('AuthContext', () => {
             email: 'test@example.com',
             password: 'password',
           });
-        })
+        }),
       ).rejects.toThrow('Invalid server response');
     });
 
@@ -294,7 +321,7 @@ describe('AuthContext', () => {
             email: 'test@example.com',
             password: 'password',
           });
-        })
+        }),
       ).rejects.toThrow('Session verification failed');
 
       await waitFor(() => {
@@ -475,7 +502,7 @@ describe('AuthContext', () => {
         });
 
         expect(result.current.hasRoleOrHigher(checkRole)).toBe(expected);
-      }
+      },
     );
 
     it('should return false when no user is logged in', () => {
@@ -543,7 +570,9 @@ describe('AuthContext', () => {
 
       mockGraphqlRequest
         .mockResolvedValueOnce(createLoginResponse(user))
-        .mockResolvedValueOnce(createMeResponse(user, [{ code: 'sensor', name: 'Sensor', defaultRoute: '/sensor' }]));
+        .mockResolvedValueOnce(
+          createMeResponse(user, [{ code: 'sensor', name: 'Sensor', defaultRoute: '/sensor' }]),
+        );
 
       const { result } = renderHook(() => useAuthContext(), {
         wrapper: createWrapper(false),
@@ -776,6 +805,51 @@ describe('AuthContext', () => {
 
       expect(getRedirectPath(loginResult)).not.toContain('evil.com');
       expect(getRedirectPath(loginResult)).toBe('/tenant');
+    });
+
+    it.each(['/\\evil.example/steal', '/%5cevil.example/steal', '/%2f%2fevil.example/steal'])(
+      'should reject browser-normalizable external URL %s',
+      async (redirectUrl) => {
+        const user = createMockUser({ role: 'TENANT_ADMIN' });
+
+        mockGraphqlRequest
+          .mockResolvedValueOnce(createLoginResponse(user, redirectUrl))
+          .mockResolvedValueOnce(createMeResponse(user));
+
+        const { result } = renderHook(() => useAuthContext(), {
+          wrapper: createWrapper(false),
+        });
+
+        let loginResult: LoginResult | undefined;
+        await act(async () => {
+          loginResult = await result.current.login({ email: 'a@b.com', password: 'p' });
+        });
+
+        expect(getRedirectPath(loginResult)).toBe('/tenant');
+      },
+    );
+
+    it('should reject an encoded control-character redirect after MFA verification', async () => {
+      const user = createMockUser({ role: 'TENANT_ADMIN' });
+
+      mockGraphqlRequest
+        .mockResolvedValueOnce(createVerifyMfaLoginResponse(user, '/%09/evil.example'))
+        .mockResolvedValueOnce(createMeResponse(user));
+
+      const { result } = renderHook(() => useAuthContext(), {
+        wrapper: createWrapper(false),
+      });
+
+      let redirectPath: string | undefined;
+      await act(async () => {
+        const verifyResult = await result.current.verifyMfaLogin({
+          mfaToken: 'signed-challenge',
+          code: '123456',
+        });
+        redirectPath = verifyResult.redirectPath;
+      });
+
+      expect(redirectPath).toBe('/tenant');
     });
 
     it('should reject URLs with colon (javascript:alert(1))', async () => {

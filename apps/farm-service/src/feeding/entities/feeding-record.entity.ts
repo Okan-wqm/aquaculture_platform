@@ -24,6 +24,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import { DecimalScalar } from '@aquaculture/backend-common/graphql';
 import {
   ObjectType,
   Field,
@@ -224,6 +225,28 @@ export class FeedingRecord {
   wasteAmount?: number;            // Yenilmeyen/atık miktar (kg)
 
   // -------------------------------------------------------------------------
+  // ÖĞÜN MOTORU v2 BAĞLARI (Faz 5 — soft ref'ler, FK yok [K-16])
+  // Bir döküm = bir kayıt; tekillik (mealId, pourIndex) unique partial
+  // indeksle YAPISAL (P-05). sourceExecutionId Faz 6 tarihsel backfill'inin
+  // idempotency anahtarıdır.
+  // -------------------------------------------------------------------------
+
+  @Field(() => ID, { nullable: true })
+  @Column('uuid', { nullable: true })
+  mealId?: string;
+
+  @Field(() => Int, { nullable: true })
+  @Column({ type: 'int', nullable: true })
+  pourIndex?: number;
+
+  @Field(() => ID, { nullable: true })
+  @Column('uuid', { nullable: true })
+  dayPlanId?: string;
+
+  @Column('uuid', { nullable: true })
+  sourceExecutionId?: string;
+
+  // -------------------------------------------------------------------------
   // ÇEVRESEL KOŞULLAR
   // -------------------------------------------------------------------------
 
@@ -263,9 +286,19 @@ export class FeedingRecord {
   // MALİYET
   // -------------------------------------------------------------------------
 
-  @Field(() => Float, { nullable: true })
+  @Field(() => Float, {
+    nullable: true,
+    deprecationReason: 'Use feedCostDecimal (exact decimal string, ADR-0004).',
+  })
   @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   feedCost?: number;               // Yem maliyeti (TL)
+
+  /** Same value as `feedCost`, on the wire as an exact decimal string (ADR-0004 /
+   *  DATA-MEDIUM-009). A getter (not a column) so TypeORM ignores it. */
+  @Field(() => DecimalScalar, { nullable: true })
+  get feedCostDecimal(): number | null {
+    return this.feedCost ?? null;
+  }
 
   @Field({ nullable: true })
   @Column({ length: 3, nullable: true })

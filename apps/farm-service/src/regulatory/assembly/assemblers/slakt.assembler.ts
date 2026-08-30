@@ -320,9 +320,12 @@ export class SlaktReportAssembler {
       // Site scope resolves through the plan's batch → current tank
       // allocation (harvest plans carry no tank/site column).
       return queryRunner.query(
+        // estimatedBiomass lives inside the estimates jsonb (no top-level column);
+        // artskode is COALESCE(officialCode, code) so it must be the GROUP BY key
+        // (grouping on the non-PK s.code alone is an illegal aggregate — 42803).
         `SELECT COALESCE(s."officialCode", s.code) AS artskode,
                 EXTRACT(ISODOW FROM hp."plannedDate")::int::text AS weekday,
-                SUM(hp."estimatedBiomass")::numeric AS "totalKg"
+                SUM((hp.estimates->>'estimatedBiomass')::numeric)::numeric AS "totalKg"
            FROM harvest_plans hp
            JOIN batches_v2 b ON b.id = hp."batchId" AND b."tenantId" = hp."tenantId"
            JOIN species s ON s.id = b."speciesId"
@@ -338,8 +341,8 @@ export class SlaktReportAssembler {
                  AND tb."primaryBatchId" = hp."batchId"
                  AND d."siteId" = $2
             )
-          GROUP BY s.code, weekday
-          ORDER BY s.code, weekday`,
+          GROUP BY COALESCE(s."officialCode", s.code), weekday
+          ORDER BY COALESCE(s."officialCode", s.code), weekday`,
         [tenantId, siteId, fromDate, toDate],
       );
     });

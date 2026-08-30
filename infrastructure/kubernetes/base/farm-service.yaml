@@ -49,6 +49,12 @@ spec:
                 name: aquaculture-config
             - secretRef:
                 name: aquaculture-secrets
+          env:
+            - name: SENTINEL_HUB_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: farm-environment-secrets
+                  key: SENTINEL_HUB_ENCRYPTION_KEY
           resources:
             requests:
               cpu: "100m"

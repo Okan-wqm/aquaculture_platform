@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 from dataclasses import dataclass
 from importlib import resources
@@ -222,6 +223,39 @@ def canonical_repo_root(repo_root: Path) -> Path:
     return canonical
 
 
+REPO_STATE_ROOT_ENV = "ARIA_REPO_STATE_ROOT"
+
+
+def repo_state_root(repo_root: Path) -> Path:
+    """Where the manifest's ``repo``-root surfaces actually live.
+
+    ``aria-findings/`` and ``aria-debts/`` are declared surfaces, but both
+    are gitignored in the checkout BY DESIGN — a runtime cycle must not
+    dirty the discovery tree. The consequence was that they died with the
+    runner: ``_allocate_finding_id`` restarted at ``F-001`` on every
+    bootstrap, so finding identity meant nothing across runs.
+
+    This is the one seam that redirects them into the durable state store,
+    mirroring ``ARIA_WORKSPACE_BASE`` for the ``workspace`` root. Both
+    ``finding.py`` and ``debt.py`` resolve through here so the two cannot
+    drift apart the way two hand-copied restore heredocs did
+    (ORPHAN-CRITICAL-513).
+
+    DELIBERATELY NOT USED BY ``gh_token_factory._keys_dir``. That writes
+    per-cycle ed25519 PRIVATE keys and scoped tokens under
+    ``aria-debts/keys/``; they are runtime credentials, not state, and
+    they have no declared surface. Keeping them on the ephemeral checkout
+    is the point — dying with the runner is the correct lifetime for a
+    per-cycle key. (The store also stages only attested surfaces, so a key
+    could not be committed even if it did land there; that is the second
+    lock, not the first.)
+    """
+    override = os.environ.get(REPO_STATE_ROOT_ENV)
+    if override:
+        return Path(override).expanduser().resolve()
+    return Path(repo_root)
+
+
 def workspace_paths(repo_root: Path, workspace_base: Path | None = None) -> WorkspacePaths:
     # Plan 020 Phase 0 — operator gap #6: sandbox /root/.aria/... read-only
     # nedeniyle test env'de workspace creation fail oluyordu. ARIA_WORKSPACE_BASE
@@ -275,8 +309,41 @@ def ensure_workspace(paths: WorkspacePaths) -> None:
         if workspace_contract_version(paths) < 2:
             return
     else:
+        # AN ABSENT IDENTITY IS NOT A MIGRATION SIGNAL ANY MORE.
+        #
+        # This used to raise `workspace_migration_required` whenever the
+        # workspace held content without an identity, and that was right while
+        # the two were always born together on one machine: content without
+        # identity could only be a half-migrated v1 tree, and bootstrapping
+        # over it would have hidden that.
+        #
+        # The lane cutover made it the ORDINARY shape. Workspace ledgers now
+        # travel on the `aria/state` branch; the identity does not, and must
+        # not — it records this HOST's `repo_root`, and the branch is shared by
+        # every runner. So every restored store arrived here with rows and no
+        # identity, and this refusal aborted the cycle before its first row.
+        # There was no command to repair it either: the tools root got a
+        # governed migration (`migrate_tools_bootstrap`) for the identical
+        # `ambiguous_tools_root` shape, and its sibling got nothing.
+        #
+        # Re-deriving is safe because the workspace PATH already carries the
+        # binding — `workspace_paths` keys the directory by the repository
+        # hash, so a workspace at `<base>/<hash>` cannot belong to another
+        # repository, and the branch above still refuses an identity that
+        # disagrees. What the refusal actually protected against — content this
+        # kernel cannot read — is caught downstream and more precisely, by
+        # `_verify_workspace`'s per-ledger `verify_jsonl`, which names the
+        # offending ledger instead of refusing the whole workspace.
         if _workspace_has_covered_state(paths):
-            raise RuntimeError("workspace_migration_required")
+            record_workspace_governance(
+                paths,
+                "workspace_identity_rederived",
+                {
+                    "workspace_root": paths.workspace_root.as_posix(),
+                    "repo_hash": paths.workspace_root.name,
+                    "reason": "restored_store_identity_is_host_local",
+                },
+            )
         _prepare_workspace_dirs(paths)
         _atomic_write_json(paths.identity_file, identity)
         record_workspace_governance(

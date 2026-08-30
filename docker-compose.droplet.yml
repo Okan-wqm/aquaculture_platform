@@ -73,6 +73,15 @@ x-nats-gateway-env: &nats-gateway-env
   NATS_TLS_KEY: /etc/ssl/nats-clients/gateway_service-key.pem
   NATS_TLS_ENABLED: 'true'
 
+x-nats-admin-api-env: &nats-admin-api-env
+  NATS_URL: tls://nats:4222
+  NATS_TLS_CA: /etc/ssl/nats-ca.pem
+  # Dedicated CN: admin erasure proofs and tenant lifecycle operations cannot
+  # be forged by the public gateway runtime.
+  NATS_TLS_CERT: /etc/ssl/nats-clients/admin_api_service-cert.pem
+  NATS_TLS_KEY: /etc/ssl/nats-clients/admin_api_service-key.pem
+  NATS_TLS_ENABLED: 'true'
+
 x-nats-notification-env: &nats-notification-env
   NATS_URL: tls://nats:4222
   NATS_TLS_CA: /etc/ssl/nats-ca.pem
@@ -115,6 +124,19 @@ x-nats-ai-env: &nats-ai-env
   NATS_TLS_KEY: /etc/ssl/nats-clients/ai_service-key.pem
   NATS_TLS_ENABLED: 'true'
 
+# event-store publishes GDPR erasure-proof + outbox events (INFRA-HIGH-003
+# onboarding) but never received NATS wiring — the gap stayed latent until the
+# event-bus config SSoT fail-fast (correctly) refused the localhost default in
+# production and the service crash-looped (ORPHAN-HIGH-391). CN is already
+# minted in infrastructure/nats/services.yaml (event_store_service) and the
+# client cert pair ships with the deploy checkout like every other service.
+x-nats-event-store-env: &nats-event-store-env
+  NATS_URL: tls://nats:4222
+  NATS_TLS_CA: /etc/ssl/nats-ca.pem
+  NATS_TLS_CERT: /etc/ssl/nats-clients/event_store_service-cert.pem
+  NATS_TLS_KEY: /etc/ssl/nats-clients/event_store_service-key.pem
+  NATS_TLS_ENABLED: 'true'
+
 x-nats-hydroponics-env: &nats-hydroponics-env
   NATS_URL: tls://nats:4222
   NATS_TLS_CA: /etc/ssl/nats-ca.pem
@@ -137,18 +159,68 @@ x-nats-observability-env: &nats-observability-env
   NATS_TLS_KEY: /etc/ssl/nats-clients/observability_service-key.pem
   NATS_TLS_ENABLED: 'true'
 
+x-nats-config-env: &nats-config-env
+  NATS_URL: tls://nats:4222
+  NATS_TLS_CA: /etc/ssl/nats-ca.pem
+  NATS_TLS_CERT: /etc/ssl/nats-clients/config_service-cert.pem
+  NATS_TLS_KEY: /etc/ssl/nats-clients/config_service-key.pem
+  NATS_TLS_ENABLED: 'true'
+
 x-nats-ca-mount: &nats-ca-mount ./certs/nats/ca-cert.pem:/etc/ssl/nats-ca.pem:ro
-# SECURITY (HIGH-002 / V4): per-service mTLS client certs.
-# NATS runs `verify_and_map: true` — cert CN maps directly to NATS user.
-# Each service mounts the entire per-service certs/clients dir read-only;
-# its NATS_TLS_CERT / NATS_TLS_KEY env vars point to its specific files
-# (e.g. farm_service-cert.pem, CN=farm_service, mapped to user farm_service).
-# The legacy shared client cert mount is kept for transitional deploys.
-x-nats-clients-mount: &nats-clients-mount ./certs/nats/clients:/etc/ssl/nats-clients:ro
-x-nats-client-cert-mount: &nats-client-cert-mount ./certs/nats/client-cert.pem:/etc/ssl/nats-client-cert.pem:ro
-x-nats-client-key-mount: &nats-client-key-mount ./certs/nats/client-key.pem:/etc/ssl/nats-client-key.pem:ro
+# SECURITY (HIGH-002 / V4): cert-is-identity is an isolation boundary only if
+# each runtime can read its own private key and no other identity's key. Never
+# mount the clients directory or the legacy shared key into an application.
+x-nats-auth-cert-mount: &nats-auth-cert-mount ./certs/nats/clients/auth_service-cert.pem:/etc/ssl/nats-clients/auth_service-cert.pem:ro
+x-nats-auth-key-mount: &nats-auth-key-mount ./certs/nats/clients/auth_service-key.pem:/etc/ssl/nats-clients/auth_service-key.pem:ro
+x-nats-farm-cert-mount: &nats-farm-cert-mount ./certs/nats/clients/farm_service-cert.pem:/etc/ssl/nats-clients/farm_service-cert.pem:ro
+x-nats-farm-key-mount: &nats-farm-key-mount ./certs/nats/clients/farm_service-key.pem:/etc/ssl/nats-clients/farm_service-key.pem:ro
+x-nats-sensor-cert-mount: &nats-sensor-cert-mount ./certs/nats/clients/sensor_service-cert.pem:/etc/ssl/nats-clients/sensor_service-cert.pem:ro
+x-nats-sensor-key-mount: &nats-sensor-key-mount ./certs/nats/clients/sensor_service-key.pem:/etc/ssl/nats-clients/sensor_service-key.pem:ro
+x-nats-gateway-cert-mount: &nats-gateway-cert-mount ./certs/nats/clients/gateway_service-cert.pem:/etc/ssl/nats-clients/gateway_service-cert.pem:ro
+x-nats-gateway-key-mount: &nats-gateway-key-mount ./certs/nats/clients/gateway_service-key.pem:/etc/ssl/nats-clients/gateway_service-key.pem:ro
+x-nats-admin-api-cert-mount: &nats-admin-api-cert-mount ./certs/nats/clients/admin_api_service-cert.pem:/etc/ssl/nats-clients/admin_api_service-cert.pem:ro
+x-nats-admin-api-key-mount: &nats-admin-api-key-mount ./certs/nats/clients/admin_api_service-key.pem:/etc/ssl/nats-clients/admin_api_service-key.pem:ro
+x-nats-notification-cert-mount: &nats-notification-cert-mount ./certs/nats/clients/notification_service-cert.pem:/etc/ssl/nats-clients/notification_service-cert.pem:ro
+x-nats-notification-key-mount: &nats-notification-key-mount ./certs/nats/clients/notification_service-key.pem:/etc/ssl/nats-clients/notification_service-key.pem:ro
+x-nats-billing-cert-mount: &nats-billing-cert-mount ./certs/nats/clients/billing_service-cert.pem:/etc/ssl/nats-clients/billing_service-cert.pem:ro
+x-nats-billing-key-mount: &nats-billing-key-mount ./certs/nats/clients/billing_service-key.pem:/etc/ssl/nats-clients/billing_service-key.pem:ro
+x-nats-alert-cert-mount: &nats-alert-cert-mount ./certs/nats/clients/alert_engine-cert.pem:/etc/ssl/nats-clients/alert_engine-cert.pem:ro
+x-nats-alert-key-mount: &nats-alert-key-mount ./certs/nats/clients/alert_engine-key.pem:/etc/ssl/nats-clients/alert_engine-key.pem:ro
+x-nats-hr-cert-mount: &nats-hr-cert-mount ./certs/nats/clients/hr_service-cert.pem:/etc/ssl/nats-clients/hr_service-cert.pem:ro
+x-nats-hr-key-mount: &nats-hr-key-mount ./certs/nats/clients/hr_service-key.pem:/etc/ssl/nats-clients/hr_service-key.pem:ro
+x-nats-messaging-cert-mount: &nats-messaging-cert-mount ./certs/nats/clients/messaging_service-cert.pem:/etc/ssl/nats-clients/messaging_service-cert.pem:ro
+x-nats-messaging-key-mount: &nats-messaging-key-mount ./certs/nats/clients/messaging_service-key.pem:/etc/ssl/nats-clients/messaging_service-key.pem:ro
+x-nats-ai-cert-mount: &nats-ai-cert-mount ./certs/nats/clients/ai_service-cert.pem:/etc/ssl/nats-clients/ai_service-cert.pem:ro
+x-nats-ai-key-mount: &nats-ai-key-mount ./certs/nats/clients/ai_service-key.pem:/etc/ssl/nats-clients/ai_service-key.pem:ro
+x-nats-event-store-cert-mount: &nats-event-store-cert-mount ./certs/nats/clients/event_store_service-cert.pem:/etc/ssl/nats-clients/event_store_service-cert.pem:ro
+x-nats-event-store-key-mount: &nats-event-store-key-mount ./certs/nats/clients/event_store_service-key.pem:/etc/ssl/nats-clients/event_store_service-key.pem:ro
+x-nats-hydroponics-cert-mount: &nats-hydroponics-cert-mount ./certs/nats/clients/hydroponics_service-cert.pem:/etc/ssl/nats-clients/hydroponics_service-cert.pem:ro
+x-nats-hydroponics-key-mount: &nats-hydroponics-key-mount ./certs/nats/clients/hydroponics_service-key.pem:/etc/ssl/nats-clients/hydroponics_service-key.pem:ro
+x-nats-observability-cert-mount: &nats-observability-cert-mount ./certs/nats/clients/observability_service-cert.pem:/etc/ssl/nats-clients/observability_service-cert.pem:ro
+x-nats-observability-key-mount: &nats-observability-key-mount ./certs/nats/clients/observability_service-key.pem:/etc/ssl/nats-clients/observability_service-key.pem:ro
+x-nats-config-cert-mount: &nats-config-cert-mount ./certs/nats/clients/config_service-cert.pem:/etc/ssl/nats-clients/config_service-cert.pem:ro
+x-nats-config-key-mount: &nats-config-key-mount ./certs/nats/clients/config_service-key.pem:/etc/ssl/nats-clients/config_service-key.pem:ro
 x-jwt-public-key-mount: &jwt-public-key-mount ./certs/jwt/public.pem:/etc/ssl/jwt/public.pem:ro
 x-jwt-private-key-mount: &jwt-private-key-mount ./certs/jwt/private.pem:/etc/ssl/jwt/private.pem:ro
+
+# Container logs are the third unbounded disk consumer on this droplet, after
+# the two ORPHAN-HIGH-417 named. Docker's default json-file driver performs no
+# rotation whatsoever, and no daemon.json ever set one: measured 2026-08-06,
+# the running stack held 2.0 GB of *-json.log with aqua-auth alone at 658 MB
+# and still growing, on a host at 94% with 11 GB free and a capacity gate that
+# wants 37.6 GB. Nothing would ever have stopped that except the disk filling.
+#
+# One anchor bounds every service, so the ceiling is a property of the file
+# rather than of whoever remembered: 20 MB x 3 files = 60 MB per container, so
+# all 37 services together can hold at most ~2.2 GB no matter how long they
+# run. The value that matters here is not the number, it is that a number
+# exists at all; tests/invariants/container-log-rotation.spec.ts refuses a
+# service that declares none.
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: '20m'
+    max-file: '3'
 
 networks:
   aqua-network:
@@ -156,6 +228,13 @@ networks:
   aqua-internal:
     driver: bridge
     internal: true
+  # INFRA-HIGH-042 remains OPEN: this dedicated bridge removes PostgreSQL
+  # from the application egress path and disables peer-to-peer traffic, but
+  # host firewall allowlisting is still required to constrain destinations.
+  aqua-backup-egress:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_icc: 'false'
 
 volumes:
   postgres_data:
@@ -174,6 +253,7 @@ services:
   # ===========================================================================
 
   postgres:
+    logging: *default-logging
     # Pinned to the exact version running on this droplet's data volume.
     # NEVER change this to a lower version — PostgreSQL will refuse to start
     # if the data was created with a newer TimescaleDB version.
@@ -185,7 +265,7 @@ services:
     # vector_cosine_ops (apps/messaging-service/src/migrations/1800700000000-AddMessagesEmbeddingColumn.ts:38).
     # Single source of truth — same digest across CI workflows + every compose file.
     # Operator action: docker compose pull && docker compose up -d after this lands.
-    image: timescale/timescaledb-ha:pg16@sha256:b3d038d0a0757df8a5ec0a94ba68d9ad57b0e16100a024cf4b370c77ad5645f7
+    image: ghcr.io/okan-wqm/aquaculture_platform/postgres:${TAG:?TAG required}
     container_name: aqua-postgres
     restart: unless-stopped
     environment:
@@ -209,9 +289,31 @@ services:
       NOTIFICATION_SERVICE_DB_PASS: ${NOTIFICATION_SERVICE_DB_PASS:-}
       HYDROPONICS_SERVICE_DB_PASS: ${HYDROPONICS_SERVICE_DB_PASS:-}
       MESSAGING_SERVICE_DB_PASS: ${MESSAGING_SERVICE_DB_PASS:-}
-      # IP-1: PostgreSQL SSL — entrypoint wrapper copies certs to $PGDATA
-      # with correct postgres:postgres ownership + chmod 600 on key.
+      # IP-1 / INFRA-MEDIUM-054: PostgreSQL identity material is staged in
+      # container-lifetime tmpfs, never inside the physically backed-up PGDATA.
       POSTGRES_SSL: 'on'
+      POSTGRES_SSL_RUNTIME_DIR: /run/aqua-postgres-tls
+      # INFRA-HIGH-039/040/056/061: only non-secret WAL-G coordinates are
+      # present in Compose. Credential files live in a dedicated host tree
+      # outside the PostgreSQL TLS parent and are installed atomically from
+      # their one exact bind directly into tmpfs; there is no PGDATA symlink.
+      WALG_ENABLED: 'on'
+      WALG_BACKUP_EPOCH: ${WALG_BACKUP_EPOCH:?WALG_BACKUP_EPOCH required}
+      WALG_S3_PREFIX: s3://${WALG_SPACES_BUCKET:?WALG_SPACES_BUCKET required}/postgres/wal-g/${WALG_BACKUP_EPOCH:?WALG_BACKUP_EPOCH required}
+      WALG_S3_ENDPOINT: ${SPACES_ENDPOINT:?SPACES_ENDPOINT required}
+      WALG_S3_REGION: ${SPACES_REGION:?SPACES_REGION required}
+      AWS_S3_FORCE_PATH_STYLE: 'true'
+      # INFRA-HIGH-059: one five-minute RPO budget covers the forced WAL
+      # switch, bounded upload, and Docker failure-detection windows. The
+      # runtime healthcheck rejects allocations that do not add up exactly or
+      # that exceed 300 seconds.
+      WALG_RPO_BUDGET_SECONDS: ${WALG_RPO_BUDGET_SECONDS:-300}
+      WALG_ARCHIVE_SWITCH_BUDGET_SECONDS: ${WALG_ARCHIVE_SWITCH_BUDGET_SECONDS:-225}
+      WALG_WAL_PUSH_BUDGET_SECONDS: ${WALG_WAL_PUSH_BUDGET_SECONDS:-45}
+      WALG_HEALTH_DETECTION_BUDGET_SECONDS: ${WALG_HEALTH_DETECTION_BUDGET_SECONDS:-30}
+      WALG_SECRET_SOURCE_DIR: /var/lib/postgresql/wal-g-secrets-source
+      WALG_SECRET_RUNTIME_DIR: /run/aqua-walg-secrets
+      WALG_SECRET_DIR: /run/aqua-walg-secrets
       # INFRA-CRITICAL-018: image-family default-PGDATA divergence.
       # Old image (timescale/timescaledb:Alpine): PGDATA=/var/lib/postgresql/data
       # HA image (timescale/timescaledb-ha:Ubuntu): PGDATA=/home/postgres/pgdata/data
@@ -228,23 +330,38 @@ services:
       -c max_connections=300
       -c search_path=public,auth,admin
       -c ssl=on
+      -c ssl_cert_file=/run/aqua-postgres-tls/server.crt
+      -c ssl_key_file=/run/aqua-postgres-tls/server.key
+      -c ssl_ca_file=/run/aqua-postgres-tls/root.crt
+      -c archive_mode=on
+      -c "archive_command=/usr/local/bin/walg-archive-command.sh %p %f"
+      -c archive_timeout=${WALG_ARCHIVE_SWITCH_BUDGET_SECONDS:-225}s
+    tmpfs:
+      - /run/aqua-postgres-tls:rw,noexec,nosuid,nodev,size=1m,mode=0700
+      - /run/aqua-walg-secrets:rw,noexec,nosuid,nodev,size=1m,mode=0700
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./infrastructure/docker/init-scripts:/docker-entrypoint-initdb.d:ro
-      - ./certs/postgres:/var/lib/postgresql/ssl:ro
-      - ./infrastructure/docker/scripts/postgres-ssl-entrypoint.sh:/usr/local/bin/postgres-ssl-entrypoint.sh:ro
+      # INFRA-HIGH-064: TLS inputs are exact-file mounts. Only the private-key
+      # mount is writable so the root entrypoint can force root:root/0600 on
+      # the source inode before staging a postgres-owned copy in tmpfs.
+      - ./certs/postgres/postgres-cert.pem:/var/lib/postgresql/ssl/server.crt:ro
+      - ./certs/postgres/postgres-key.pem:/var/lib/postgresql/ssl/server.key:rw
+      - ./certs/postgres/ca-cert.pem:/var/lib/postgresql/ssl/root.crt:ro
+      - ./certs/wal-g/postgres:/var/lib/postgresql/wal-g-secrets-source:ro
     networks:
       - aqua-internal
+      - aqua-backup-egress
     deploy:
       resources:
         limits:
           memory: 1536M
           cpus: '1.0'
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-aquaculture}']
+      test: ['CMD', '/usr/local/bin/postgres-walg-healthcheck.sh']
       interval: 15s
       timeout: 5s
-      retries: 5
+      retries: 1
 
   # ---------------------------------------------------------------------------
   # db-init: REMOVED 2026-05-18 by ADR-031 (Platform Bootstrap Atom).
@@ -284,6 +401,7 @@ services:
   #     other backend service).
   # ---------------------------------------------------------------------------
   db-migrate:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/db-migrate:${TAG:?TAG required}
     container_name: aqua-db-migrate
     restart: 'no'
@@ -340,6 +458,7 @@ services:
           cpus: '1.0'
 
   tenant-schema-provisioner:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/db-migrate:${TAG:?TAG required}
     container_name: aqua-tenant-schema-provisioner
     restart: unless-stopped
@@ -371,6 +490,7 @@ services:
           cpus: '1.0'
 
   redis:
+    logging: *default-logging
     # Pinned 2026-04-05. To update: verify changelog at https://github.com/redis/redis/releases, test in staging first.
     image: redis:7-alpine
     container_name: aqua-redis
@@ -423,6 +543,7 @@ services:
       retries: 5
 
   nats:
+    logging: *default-logging
     # Pinned 2026-04-05. To update: verify changelog at https://github.com/nats-io/nats-server/releases, test in staging first.
     image: nats:2.10.24-alpine
     container_name: aqua-nats
@@ -461,6 +582,7 @@ services:
       retries: 6
 
   mosquitto:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/mosquitto:${TAG:?TAG required}
     container_name: aqua-mosquitto
     restart: unless-stopped
@@ -491,6 +613,7 @@ services:
       start_period: 10s
 
   minio:
+    logging: *default-logging
     # Pinned 2026-04-05. To update: verify changelog at https://github.com/minio/minio/releases, test in staging first.
     image: quay.io/minio/minio:RELEASE.2025-04-03T14-56-28Z
     container_name: aqua-minio
@@ -519,6 +642,7 @@ services:
   # ===========================================================================
 
   gateway-api:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/gateway-api:${TAG:?TAG required}
     container_name: aqua-gateway
     restart: unless-stopped
@@ -620,9 +744,8 @@ services:
         condition: service_started
     volumes:
       - *nats-ca-mount
-      - *nats-clients-mount
-      - *nats-client-cert-mount
-      - *nats-client-key-mount
+      - *nats-gateway-cert-mount
+      - *nats-gateway-key-mount
       - *jwt-public-key-mount
     networks:
       - aqua-network
@@ -649,6 +772,7 @@ services:
       start_period: 60s
 
   auth-service:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/auth-service:${TAG:?TAG required}
     container_name: aqua-auth
     restart: unless-stopped
@@ -668,7 +792,13 @@ services:
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DB_MIGRATE_AUTHORITATIVE: 'true'
       DATABASE_MIGRATIONS_RUN: 'false'
-      DATABASE_LOGGING: 'true'
+      # Per-statement SQL logging is operator-controlled, not baked in. Hard-wiring
+      # 'true' here made auth-service echo every query the outbox poller ran:
+      # ~1.9 lines/second, ~164k lines a day, a 960 MB container log and a host
+      # disk at 99% on 2026-08-15. Set DATABASE_LOGGING in the environment when
+      # debugging (production additionally requires
+      # DATABASE_QUERY_LOGGING_ALLOW_IN_PRODUCTION — see resolveDatabaseLogging).
+      DATABASE_LOGGING: ${DATABASE_LOGGING:-false}
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-auth-env
@@ -699,6 +829,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      nats:
+        condition: service_healthy
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by the
       # aqua-db-migrate container; per-service createMigrationRunnerService
       # stays as a safety-net fallback (Phase 1 backward-compat).
@@ -706,9 +838,8 @@ services:
         condition: service_completed_successfully
     volumes:
       - *nats-ca-mount
-      - *nats-clients-mount
-      - *nats-client-cert-mount
-      - *nats-client-key-mount
+      - *nats-auth-cert-mount
+      - *nats-auth-key-mount
       - *jwt-private-key-mount
       - *jwt-public-key-mount
     networks:
@@ -726,6 +857,7 @@ services:
       start_period: 60s
 
   farm-service:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/farm-service:${TAG:?TAG required}
     container_name: aqua-farm
     restart: unless-stopped
@@ -761,6 +893,13 @@ services:
       <<: *nats-farm-env
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
+      # Legacy provider credentials are decrypted during the blocking startup
+      # cutover; all ongoing provider reads come from config-service.
+      SENTINEL_HUB_ENCRYPTION_KEY: ${SENTINEL_HUB_ENCRYPTION_KEY:?SENTINEL_HUB_ENCRYPTION_KEY is required during credential cutover}
+      FARM_ENVIRONMENT_MONITORING_ENABLED: ${FARM_ENVIRONMENT_MONITORING_ENABLED:-false}
+      MET_NORWAY_APPLICATION_NAME: ${MET_NORWAY_APPLICATION_NAME:-}
+      MET_NORWAY_CONTACT: ${MET_NORWAY_CONTACT:-}
+      MET_NORWAY_FROST_CLIENT_ID: ${MET_NORWAY_FROST_CLIENT_ID:-}
       SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
       SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
     depends_on:
@@ -770,14 +909,15 @@ services:
         condition: service_healthy
       nats:
         condition: service_healthy
+      config-service:
+        condition: service_healthy
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
       db-migrate:
         condition: service_completed_successfully
     volumes:
       - *nats-ca-mount
-      - *nats-clients-mount
-      - *nats-client-cert-mount
-      - *nats-client-key-mount
+      - *nats-farm-cert-mount
+      - *nats-farm-key-mount
       - *jwt-public-key-mount
     networks:
       - aqua-internal
@@ -798,6 +938,7 @@ services:
       start_period: 120s
 
   sensor-service:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/sensor-service:${TAG:?TAG required}
     container_name: aqua-sensor
     restart: unless-stopped
@@ -848,6 +989,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      nats:
+        condition: service_healthy
       mosquitto:
         condition: service_healthy
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
@@ -855,9 +998,8 @@ services:
         condition: service_completed_successfully
     volumes:
       - *nats-ca-mount
-      - *nats-clients-mount
-      - *nats-client-cert-mount
-      - *nats-client-key-mount
+      - *nats-sensor-cert-mount
+      - *nats-sensor-key-mount
       - *jwt-public-key-mount
     networks:
       - aqua-internal
@@ -880,6 +1022,7 @@ services:
       start_period: 90s
 
   admin-api-service:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/admin-api-service:${TAG:?TAG required}
     container_name: aqua-admin-api
     restart: unless-stopped
@@ -912,8 +1055,8 @@ services:
       MINIO_SECRET_KEY: ${MINIO_PASSWORD:?MINIO_PASSWORD is required}
       MINIO_BUCKET: ${MINIO_BUCKET:-aquaculture}
       MINIO_REGION: us-east-1
-      # SEC-015 (CRITICAL-002): Per-service NATS credentials — admin uses gateway account
-      <<: *nats-gateway-env
+      # SEC-015 (CRITICAL-002): dedicated admin certificate identity.
+      <<: *nats-admin-api-env
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
       SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
@@ -931,6 +1074,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      nats:
+        condition: service_healthy
       minio:
         condition: service_healthy
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
@@ -938,9 +1083,8 @@ services:
         condition: service_completed_successfully
     volumes:
       - *nats-ca-mount
-      - *nats-clients-mount
-      - *nats-client-cert-mount
-      - *nats-client-key-mount
+      - *nats-admin-api-cert-mount
+      - *nats-admin-api-key-mount
       - *jwt-public-key-mount
     networks:
       - aqua-internal
@@ -958,6 +1102,7 @@ services:
       start_period: 60s
 
   alert-engine:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/alert-engine:${TAG:?TAG required}
     container_name: aqua-alert
     restart: unless-stopped
@@ -988,14 +1133,15 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      nats:
+        condition: service_healthy
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
       db-migrate:
         condition: service_completed_successfully
     volumes:
       - *nats-ca-mount
-      - *nats-clients-mount
-      - *nats-client-cert-mount
-      - *nats-client-key-mount
+      - *nats-alert-cert-mount
+      - *nats-alert-key-mount
       - *jwt-public-key-mount
     networks:
       - aqua-internal
@@ -1012,6 +1158,7 @@ services:
       start_period: 60s
 
   billing-service:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/billing-service:${TAG:?TAG required}
     container_name: aqua-billing
     restart: unless-stopped
@@ -1078,14 +1225,15 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      nats:
+        condition: service_healthy
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
       db-migrate:
         condition: service_completed_successfully
     volumes:
       - *nats-ca-mount
-      - *nats-clients-mount
-      - *nats-client-cert-mount
-      - *nats-client-key-mount
+      - *nats-billing-cert-mount
+      - *nats-billing-key-mount
       - *jwt-public-key-mount
     networks:
       - aqua-internal
@@ -1102,6 +1250,7 @@ services:
       start_period: 60s
 
   hr-service:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/hr-service:${TAG:?TAG required}
     container_name: aqua-hr
     restart: unless-stopped
@@ -1132,14 +1281,15 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      nats:
+        condition: service_healthy
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
       db-migrate:
         condition: service_completed_successfully
     volumes:
       - *nats-ca-mount
-      - *nats-clients-mount
-      - *nats-client-cert-mount
-      - *nats-client-key-mount
+      - *nats-hr-cert-mount
+      - *nats-hr-key-mount
       - *jwt-public-key-mount
     networks:
       - aqua-internal
@@ -1156,6 +1306,7 @@ services:
       start_period: 60s
 
   hydroponics-service:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/hydroponics-service:${TAG:?TAG required}
     container_name: aqua-hydroponics
     restart: unless-stopped
@@ -1186,14 +1337,15 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      nats:
+        condition: service_healthy
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
       db-migrate:
         condition: service_completed_successfully
     volumes:
       - *nats-ca-mount
-      - *nats-clients-mount
-      - *nats-client-cert-mount
-      - *nats-client-key-mount
+      - *nats-hydroponics-cert-mount
+      - *nats-hydroponics-key-mount
       - *jwt-public-key-mount
     networks:
       - aqua-internal
@@ -1210,6 +1362,7 @@ services:
       start_period: 60s
 
   notification-service:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/notification-service:${TAG:?TAG required}
     container_name: aqua-notification
     restart: unless-stopped
@@ -1253,9 +1406,8 @@ services:
         condition: service_completed_successfully
     volumes:
       - *nats-ca-mount
-      - *nats-clients-mount
-      - *nats-client-cert-mount
-      - *nats-client-key-mount
+      - *nats-notification-cert-mount
+      - *nats-notification-key-mount
       - *jwt-public-key-mount
     networks:
       - aqua-internal
@@ -1273,6 +1425,7 @@ services:
       start_period: 60s
 
   observability-service:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/observability-service:${TAG:?TAG required}
     container_name: aqua-observability
     restart: unless-stopped
@@ -1306,6 +1459,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      nats:
+        condition: service_healthy
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
       db-migrate:
         condition: service_completed_successfully
@@ -1318,9 +1473,8 @@ services:
     # aligned with the same pattern so the env paths actually resolve.
     volumes:
       - *nats-ca-mount
-      - *nats-clients-mount
-      - *nats-client-cert-mount
-      - *nats-client-key-mount
+      - *nats-observability-cert-mount
+      - *nats-observability-key-mount
     # Attached to aqua-internal only — no published ports, not reachable from external network
     networks:
       - aqua-internal
@@ -1337,6 +1491,7 @@ services:
       start_period: 60s
 
   config-service:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/config-service:${TAG:?TAG required}
     container_name: aqua-config
     restart: unless-stopped
@@ -1368,8 +1523,8 @@ services:
       DB_MIGRATE_AUTHORITATIVE: 'true'
       DATABASE_MIGRATIONS_RUN: 'false'
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
-      # SEC-015 (CRITICAL-002): Per-service NATS credentials — config uses gateway account
-      <<: *nats-gateway-env
+      # SEC-015 (CRITICAL-002): dedicated CN=config_service.
+      <<: *nats-config-env
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       CONFIG_ENCRYPTION_KEY: ${CONFIG_ENCRYPTION_KEY:?CONFIG_ENCRYPTION_KEY is required}
       SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
@@ -1379,14 +1534,15 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      nats:
+        condition: service_healthy
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
       db-migrate:
         condition: service_completed_successfully
     volumes:
       - *nats-ca-mount
-      - *nats-clients-mount
-      - *nats-client-cert-mount
-      - *nats-client-key-mount
+      - *nats-config-cert-mount
+      - *nats-config-key-mount
       - *jwt-public-key-mount
     networks:
       - aqua-internal
@@ -1403,6 +1559,7 @@ services:
       start_period: 60s
 
   event-store-service:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/event-store-service:${TAG:?TAG required}
     container_name: aqua-event-store
     restart: unless-stopped
@@ -1422,8 +1579,22 @@ services:
       DATABASE_MIGRATIONS_RUN: 'false'
       SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING is required}
       SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
+      # ORPHAN-MEDIUM-392: app.module registers RedisModule ('optional' mode);
+      # without this URL the client fell back to localhost and retried forever
+      # (ECONNREFUSED spam, Redis-backed paths silently degraded) — the second
+      # under-provisioned-block gap after the NATS one (ORPHAN-HIGH-391).
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
+      <<: *nats-event-store-env
+    volumes:
+      - *nats-ca-mount
+      - *nats-event-store-cert-mount
+      - *nats-event-store-key-mount
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
         condition: service_healthy
       db-migrate:
         condition: service_completed_successfully
@@ -1442,6 +1613,7 @@ services:
       start_period: 60s
 
   messaging-service:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/messaging-service:${TAG:?TAG required}
     container_name: aqua-messaging
     restart: unless-stopped
@@ -1486,9 +1658,8 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-https://aquamonitoring.net}
     volumes:
       - *nats-ca-mount
-      - *nats-clients-mount
-      - *nats-client-cert-mount
-      - *nats-client-key-mount
+      - *nats-messaging-cert-mount
+      - *nats-messaging-key-mount
       - *jwt-public-key-mount
     networks:
       - aqua-internal
@@ -1498,7 +1669,7 @@ services:
       redis:
         condition: service_healthy
       nats:
-        condition: service_started
+        condition: service_healthy
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
       db-migrate:
         condition: service_completed_successfully
@@ -1530,6 +1701,7 @@ services:
   # backend shape; AI deltas: per-tenant BYOK key decryption + no MinIO.
   # ---------------------------------------------------------------------------
   ai-service:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/ai-service:${TAG:?TAG required}
     container_name: aqua-ai
     restart: unless-stopped
@@ -1563,7 +1735,8 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-https://aquamonitoring.net}
     volumes:
       - *nats-ca-mount
-      - *nats-clients-mount
+      - *nats-ai-cert-mount
+      - *nats-ai-key-mount
       - *jwt-public-key-mount
     networks:
       - aqua-internal
@@ -1573,7 +1746,7 @@ services:
       redis:
         condition: service_healthy
       nats:
-        condition: service_started
+        condition: service_healthy
       db-migrate:
         condition: service_completed_successfully
     deploy:
@@ -1593,6 +1766,7 @@ services:
   # ===========================================================================
 
   shell:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/shell:${TAG:?TAG required}
     container_name: aqua-shell
     restart: unless-stopped
@@ -1608,6 +1782,7 @@ services:
           memory: 64M
 
   dashboard:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/dashboard:${TAG:?TAG required}
     container_name: aqua-dashboard
     restart: unless-stopped
@@ -1624,6 +1799,7 @@ services:
           memory: 64M
 
   farm-module:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/farm-module:${TAG:?TAG required}
     container_name: aqua-farm-module
     restart: unless-stopped
@@ -1640,6 +1816,7 @@ services:
           memory: 64M
 
   sensor-module:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/sensor-module:${TAG:?TAG required}
     container_name: aqua-sensor-module
     restart: unless-stopped
@@ -1656,6 +1833,7 @@ services:
           memory: 64M
 
   admin-panel:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/admin-panel:${TAG:?TAG required}
     container_name: aqua-admin-panel
     restart: unless-stopped
@@ -1672,6 +1850,7 @@ services:
           memory: 64M
 
   tenant-admin:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/tenant-admin:${TAG:?TAG required}
     container_name: aqua-tenant-admin
     restart: unless-stopped
@@ -1688,6 +1867,7 @@ services:
           memory: 64M
 
   hr-module:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/hr-module:${TAG:?TAG required}
     container_name: aqua-hr-module
     restart: unless-stopped
@@ -1704,6 +1884,7 @@ services:
           memory: 64M
 
   hydroponics-module:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/hydroponics-module:${TAG:?TAG required}
     container_name: aqua-hydroponics-module
     restart: unless-stopped
@@ -1720,6 +1901,7 @@ services:
           memory: 64M
 
   messaging-module:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/messaging-module:${TAG:?TAG required}
     container_name: aqua-messaging-module
     restart: unless-stopped
@@ -1736,6 +1918,7 @@ services:
           memory: 64M
 
   aquamobil:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/aquamobil:${TAG:?TAG required}
     container_name: aqua-mobile
     restart: unless-stopped
@@ -1755,6 +1938,7 @@ services:
   # Reverse Proxy (Nginx)
   # ===========================================================================
   nginx:
+    logging: *default-logging
     # Pinned 2026-04-05. To update: verify changelog at https://nginx.org/en/CHANGES, test in staging first.
     image: nginx:1.27.5-alpine
     container_name: aqua-nginx
@@ -1800,6 +1984,7 @@ services:
   #   - observability-service /metrics is INTERNAL_API_KEY-gated; its scrape job is
   #     intentionally NOT enabled until that auth header is wired into prometheus.yml.
   prometheus:
+    logging: *default-logging
     image: prom/prometheus:v2.54.1
     container_name: aqua-prometheus
     restart: unless-stopped
@@ -1821,6 +2006,7 @@ services:
           memory: 512M
 
   cadvisor:
+    logging: *default-logging
     image: gcr.io/cadvisor/cadvisor:v0.49.1
     container_name: aqua-cadvisor
     restart: unless-stopped
@@ -1837,13 +2023,20 @@ services:
           memory: 256M
 
   node-exporter:
+    logging: *default-logging
     image: prom/node-exporter:v1.8.2
     container_name: aqua-node-exporter
     restart: unless-stopped
     command:
       - '--path.rootfs=/host'
+      # Without this collector the probe and supervisor textfiles are written
+      # and never read: the metrics exist on disk, no series ever reaches
+      # Prometheus, and every rule that depends on them is decorative.
+      - '--collector.textfile.directory=/var/lib/node_exporter/textfile'
     volumes:
       - /:/host:ro,rslave
+      # Same host path the T0 supervisor and the hourly probe runner write to.
+      - /var/lib/node_exporter/textfile:/var/lib/node_exporter/textfile:ro
     networks:
       - aqua-internal
     deploy:
@@ -1852,6 +2045,7 @@ services:
           memory: 128M
 
   alertmanager:
+    logging: *default-logging
     image: prom/alertmanager:v0.27.0
     container_name: aqua-alertmanager
     restart: unless-stopped

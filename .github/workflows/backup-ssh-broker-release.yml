@@ -1,0 +1,789 @@
+name: Backup SSH Broker Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/backup-ssh-broker/**'
+      - 'tools/scripts/ci/build-protected-ssh-broker.sh'
+      - 'infrastructure/scripts/provision-backup-ssh-broker.sh'
+      - '.github/manifests/backup-ssh-broker-policy.json'
+      - '.github/manifests/main-required-status-checks.json'
+      - '.github/workflows/backup-ssh-broker-release.yml'
+
+permissions: {}
+
+concurrency:
+  group: backup-ssh-broker-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  RUST_TOOLCHAIN: '1.88.0'
+
+jobs:
+  build:
+    name: Build protected SSH broker
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      binary_sha256: ${{ steps.provenance.outputs.binary_sha256 }}
+      source_sha256: ${{ steps.provenance.outputs.source_sha256 }}
+    steps:
+      - name: Checkout exact release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Require protected main authority
+        run: |
+          set -euo pipefail
+          test "${GITHUB_EVENT_NAME}" = 'push'
+          test "${GITHUB_REF}" = 'refs/heads/main'
+          test "${GITHUB_REF_PROTECTED}" = 'true'
+          test "${GITHUB_SHA}" = "$(git rev-parse --verify HEAD^{commit})"
+          test "${GITHUB_WORKFLOW_REF}" = \
+            "${GITHUB_REPOSITORY}/.github/workflows/backup-ssh-broker-release.yml@refs/heads/main"
+          test -z "$(git status --porcelain --untracked-files=all)"
+
+      - name: Install pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - name: Build broker and create provenance
+        id: provenance
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p \
+            release-staging/repository/.github/manifests \
+            release-staging/repository/.github/workflows \
+            release-staging/repository/infrastructure/scripts \
+            release-staging/repository/tools/backup-ssh-broker \
+            release-staging/repository/tools/scripts/ci
+          OUTPUT_PATH="${GITHUB_WORKSPACE}/release-staging/aqua-protected-ssh-broker" \
+            bash tools/scripts/ci/build-protected-ssh-broker.sh
+
+          SOURCE_PATH='tools/backup-ssh-broker/main.rs'
+          BUILD_SCRIPT_PATH='tools/scripts/ci/build-protected-ssh-broker.sh'
+          POLICY_PATH='.github/manifests/backup-ssh-broker-policy.json'
+          REQUIRED_CHECKS_PATH='.github/manifests/main-required-status-checks.json'
+          RELEASE_WORKFLOW_PATH='.github/workflows/backup-ssh-broker-release.yml'
+          PROVISIONER_PATH='infrastructure/scripts/provision-backup-ssh-broker.sh'
+          BINARY_PATH='release-staging/aqua-protected-ssh-broker'
+          SOURCE_SHA256=$(sha256sum --binary "${SOURCE_PATH}" | awk '{print $1}')
+          BUILD_SCRIPT_SHA256=$(sha256sum --binary "${BUILD_SCRIPT_PATH}" | awk '{print $1}')
+          POLICY_SHA256=$(sha256sum --binary "${POLICY_PATH}" | awk '{print $1}')
+          REQUIRED_CHECKS_SHA256=$(sha256sum --binary "${REQUIRED_CHECKS_PATH}" | awk '{print $1}')
+          RELEASE_WORKFLOW_SHA256=$(sha256sum --binary "${RELEASE_WORKFLOW_PATH}" | awk '{print $1}')
+          PROVISIONER_SHA256=$(sha256sum --binary "${PROVISIONER_PATH}" | awk '{print $1}')
+          BINARY_SHA256=$(sha256sum --binary "${BINARY_PATH}" | awk '{print $1}')
+          RUNNER_MACHINE_ARCH=$(uname -m)
+          RUSTC_VERBOSE=$(rustc --version --verbose)
+
+          for digest in \
+            "${SOURCE_SHA256}" \
+            "${BUILD_SCRIPT_SHA256}" \
+            "${POLICY_SHA256}" \
+            "${REQUIRED_CHECKS_SHA256}" \
+            "${RELEASE_WORKFLOW_SHA256}" \
+            "${PROVISIONER_SHA256}" \
+            "${BINARY_SHA256}"; do
+            [[ "${digest}" =~ ^[0-9a-f]{64}$ ]]
+          done
+          test "${SOURCE_SHA256}" = \
+            "$(jq --raw-output '.broker.source_sha256' "${POLICY_PATH}")"
+
+          install -m 0644 "${SOURCE_PATH}" \
+            "release-staging/repository/${SOURCE_PATH}"
+          install -m 0755 "${BUILD_SCRIPT_PATH}" \
+            "release-staging/repository/${BUILD_SCRIPT_PATH}"
+          install -m 0644 "${POLICY_PATH}" \
+            "release-staging/repository/${POLICY_PATH}"
+          install -m 0644 "${REQUIRED_CHECKS_PATH}" \
+            "release-staging/repository/${REQUIRED_CHECKS_PATH}"
+          install -m 0644 "${RELEASE_WORKFLOW_PATH}" \
+            "release-staging/repository/${RELEASE_WORKFLOW_PATH}"
+          install -m 0755 "${PROVISIONER_PATH}" \
+            "release-staging/repository/${PROVISIONER_PATH}"
+
+          {
+            printf '%s  %s\n' "${BINARY_SHA256}" 'aqua-protected-ssh-broker'
+            printf '%s  %s\n' "${POLICY_SHA256}" "repository/${POLICY_PATH}"
+            printf '%s  %s\n' "${REQUIRED_CHECKS_SHA256}" \
+              "repository/${REQUIRED_CHECKS_PATH}"
+            printf '%s  %s\n' "${RELEASE_WORKFLOW_SHA256}" \
+              "repository/${RELEASE_WORKFLOW_PATH}"
+            printf '%s  %s\n' "${PROVISIONER_SHA256}" "repository/${PROVISIONER_PATH}"
+            printf '%s  %s\n' "${SOURCE_SHA256}" "repository/${SOURCE_PATH}"
+            printf '%s  %s\n' "${BUILD_SCRIPT_SHA256}" "repository/${BUILD_SCRIPT_PATH}"
+          } > release-staging/SHA256SUMS
+          CHECKSUM_MANIFEST_SHA256=$(sha256sum --binary release-staging/SHA256SUMS | awk '{print $1}')
+
+          jq --sort-keys --null-input \
+            --arg repository "${GITHUB_REPOSITORY}" \
+            --arg ref "${GITHUB_REF}" \
+            --arg commit "${GITHUB_SHA}" \
+            --arg workflow "${GITHUB_WORKFLOW}" \
+            --arg workflow_ref "${GITHUB_WORKFLOW_REF}" \
+            --arg run_id "${GITHUB_RUN_ID}" \
+            --arg run_attempt "${GITHUB_RUN_ATTEMPT}" \
+            --arg runner_os "${RUNNER_OS}" \
+            --arg runner_arch "${RUNNER_ARCH}" \
+            --arg runner_machine_arch "${RUNNER_MACHINE_ARCH}" \
+            --arg rustc "${RUSTC_VERBOSE}" \
+            --arg source_path "${SOURCE_PATH}" \
+            --arg source_sha256 "${SOURCE_SHA256}" \
+            --arg build_script_path "${BUILD_SCRIPT_PATH}" \
+            --arg build_script_sha256 "${BUILD_SCRIPT_SHA256}" \
+            --arg policy_path "${POLICY_PATH}" \
+            --arg policy_sha256 "${POLICY_SHA256}" \
+            --arg required_checks_path "${REQUIRED_CHECKS_PATH}" \
+            --arg required_checks_sha256 "${REQUIRED_CHECKS_SHA256}" \
+            --arg release_workflow_path "${RELEASE_WORKFLOW_PATH}" \
+            --arg release_workflow_sha256 "${RELEASE_WORKFLOW_SHA256}" \
+            --arg provisioner_path "${PROVISIONER_PATH}" \
+            --arg provisioner_sha256 "${PROVISIONER_SHA256}" \
+            --arg binary_sha256 "${BINARY_SHA256}" \
+            --arg checksum_manifest_sha256 "${CHECKSUM_MANIFEST_SHA256}" \
+            '{
+              schema_version: 1,
+              predicate_type: "aqua.protected-ssh-broker-build/v1",
+              source: {
+                repository: $repository,
+                ref: $ref,
+                commit: $commit,
+                path: $source_path,
+                sha256: $source_sha256
+              },
+              policy: {
+                path: $policy_path,
+                sha256: $policy_sha256
+              },
+              materials: [
+                {
+                  role: "broker-source",
+                  path: $source_path,
+                  sha256: $source_sha256
+                },
+                {
+                  role: "broker-build-script",
+                  path: $build_script_path,
+                  sha256: $build_script_sha256
+                },
+                {
+                  role: "broker-policy",
+                  path: $policy_path,
+                  sha256: $policy_sha256
+                },
+                {
+                  role: "required-checks-manifest",
+                  path: $required_checks_path,
+                  sha256: $required_checks_sha256
+                },
+                {
+                  role: "release-workflow",
+                  path: $release_workflow_path,
+                  sha256: $release_workflow_sha256
+                },
+                {
+                  role: "target-provisioner",
+                  path: $provisioner_path,
+                  sha256: $provisioner_sha256
+                }
+              ],
+              build: {
+                workflow: $workflow,
+                workflow_ref: $workflow_ref,
+                run_id: $run_id,
+                run_attempt: $run_attempt,
+                runner_os: $runner_os,
+                runner_arch: $runner_arch,
+                runner_machine_arch: $runner_machine_arch,
+                rustc: $rustc
+              },
+              subject: {
+                name: "aqua-protected-ssh-broker",
+                sha256: $binary_sha256
+              },
+              checksum_manifest: {
+                name: "SHA256SUMS",
+                sha256: $checksum_manifest_sha256
+              }
+            }' > release-staging/provenance.json
+
+          chmod 0755 "${BINARY_PATH}"
+          chmod 0644 release-staging/provenance.json release-staging/SHA256SUMS
+          jq --exit-status . release-staging/provenance.json >/dev/null
+          (
+            cd release-staging
+            sha256sum --strict --check SHA256SUMS
+          )
+          cmp --silent "${SOURCE_PATH}" "release-staging/repository/${SOURCE_PATH}"
+          cmp --silent "${BUILD_SCRIPT_PATH}" "release-staging/repository/${BUILD_SCRIPT_PATH}"
+          cmp --silent "${POLICY_PATH}" "release-staging/repository/${POLICY_PATH}"
+          cmp --silent "${REQUIRED_CHECKS_PATH}" \
+            "release-staging/repository/${REQUIRED_CHECKS_PATH}"
+          cmp --silent "${RELEASE_WORKFLOW_PATH}" \
+            "release-staging/repository/${RELEASE_WORKFLOW_PATH}"
+          cmp --silent "${PROVISIONER_PATH}" "release-staging/repository/${PROVISIONER_PATH}"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          printf 'source_sha256=%s\n' "${SOURCE_SHA256}" >> "${GITHUB_OUTPUT}"
+          printf 'binary_sha256=%s\n' "${BINARY_SHA256}" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload run-scoped unsigned build
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: backup-ssh-broker-unsigned-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-staging/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+          overwrite: false
+          # The allowlisted bundle contains repository/.github/manifests/backup-ssh-broker-policy.json.
+          include-hidden-files: true
+
+  sign:
+    name: Sign and verify protected SSH broker
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment:
+      name: production-backup-release
+      deployment: false
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      deployments: read
+      id-token: write
+      pull-requests: read
+    steps:
+      - name: Checkout exact release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Require protected main authority
+        run: |
+          set -euo pipefail
+          test "${GITHUB_EVENT_NAME}" = 'push'
+          test "${GITHUB_REF}" = 'refs/heads/main'
+          test "${GITHUB_REF_PROTECTED}" = 'true'
+          test "${GITHUB_SHA}" = "$(git rev-parse --verify HEAD^{commit})"
+          test "${GITHUB_WORKFLOW_REF}" = \
+            "${GITHUB_REPOSITORY}/.github/workflows/backup-ssh-broker-release.yml@refs/heads/main"
+          test -z "$(git status --porcelain --untracked-files=all)"
+
+      - name: Download this run's unsigned build
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: backup-ssh-broker-unsigned-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-signed
+
+      - name: Verify build provenance before signing
+        env:
+          EXPECTED_BINARY_SHA256: ${{ needs.build.outputs.binary_sha256 }}
+          EXPECTED_SOURCE_SHA256: ${{ needs.build.outputs.source_sha256 }}
+        run: |
+          set -euo pipefail
+          export LC_ALL=C
+          mapfile -t RELEASE_FILES < <(
+            cd release-signed
+            find . -type f -printf '%P\n' | sort
+          )
+          EXPECTED_FILES=(
+            SHA256SUMS
+            aqua-protected-ssh-broker
+            provenance.json
+            repository/.github/manifests/backup-ssh-broker-policy.json
+            repository/.github/manifests/main-required-status-checks.json
+            repository/.github/workflows/backup-ssh-broker-release.yml
+            repository/infrastructure/scripts/provision-backup-ssh-broker.sh
+            repository/tools/backup-ssh-broker/main.rs
+            repository/tools/scripts/ci/build-protected-ssh-broker.sh
+          )
+          test "${#RELEASE_FILES[@]}" -eq "${#EXPECTED_FILES[@]}"
+          for index in "${!EXPECTED_FILES[@]}"; do
+            test "${RELEASE_FILES[${index}]}" = "${EXPECTED_FILES[${index}]}"
+          done
+          test -z "$(find release-signed -mindepth 1 -type l -print -quit)"
+
+          (
+            cd release-signed
+            sha256sum --strict --check SHA256SUMS
+          )
+          test "${EXPECTED_SOURCE_SHA256}" = \
+            "$(sha256sum --binary tools/backup-ssh-broker/main.rs | awk '{print $1}')"
+          test "${EXPECTED_BINARY_SHA256}" = \
+            "$(sha256sum --binary release-signed/aqua-protected-ssh-broker | awk '{print $1}')"
+          test "${EXPECTED_SOURCE_SHA256}" = \
+            "$(jq --raw-output '.source.sha256' release-signed/provenance.json)"
+          test "${EXPECTED_BINARY_SHA256}" = \
+            "$(jq --raw-output '.subject.sha256' release-signed/provenance.json)"
+          test "${GITHUB_REPOSITORY}" = \
+            "$(jq --raw-output '.source.repository' release-signed/provenance.json)"
+          test "${GITHUB_REF}" = \
+            "$(jq --raw-output '.source.ref' release-signed/provenance.json)"
+          test "${GITHUB_SHA}" = \
+            "$(jq --raw-output '.source.commit' release-signed/provenance.json)"
+          test "${GITHUB_WORKFLOW_REF}" = \
+            "$(jq --raw-output '.build.workflow_ref' release-signed/provenance.json)"
+          test "${GITHUB_RUN_ID}" = \
+            "$(jq --raw-output '.build.run_id' release-signed/provenance.json)"
+          test "${GITHUB_RUN_ATTEMPT}" = \
+            "$(jq --raw-output '.build.run_attempt' release-signed/provenance.json)"
+          test "$(sha256sum --binary release-signed/SHA256SUMS | awk '{print $1}')" = \
+            "$(jq --raw-output '.checksum_manifest.sha256' release-signed/provenance.json)"
+          test "$(sha256sum --binary .github/manifests/backup-ssh-broker-policy.json | awk '{print $1}')" = \
+            "$(jq --raw-output '.policy.sha256' release-signed/provenance.json)"
+          test "$(sha256sum --binary .github/manifests/main-required-status-checks.json | awk '{print $1}')" = \
+            "$(jq --raw-output '.materials[] | select(.role == "required-checks-manifest") | .sha256' \
+              release-signed/provenance.json)"
+          test "$(sha256sum --binary .github/workflows/backup-ssh-broker-release.yml | awk '{print $1}')" = \
+            "$(jq --raw-output '.materials[] | select(.role == "release-workflow") | .sha256' \
+              release-signed/provenance.json)"
+          test "$(jq '[.materials[].role] | length' release-signed/provenance.json)" -eq 6
+          test "$(jq '[.materials[].role] | unique | length' release-signed/provenance.json)" -eq 6
+          jq --exit-status \
+            --arg source_sha256 "${EXPECTED_SOURCE_SHA256}" \
+            --arg policy_sha256 "$(sha256sum --binary .github/manifests/backup-ssh-broker-policy.json | awk '{print $1}')" \
+            --arg required_checks_sha256 "$(sha256sum --binary .github/manifests/main-required-status-checks.json | awk '{print $1}')" \
+            --arg release_workflow_sha256 "$(sha256sum --binary .github/workflows/backup-ssh-broker-release.yml | awk '{print $1}')" \
+            --arg provisioner_sha256 "$(sha256sum --binary infrastructure/scripts/provision-backup-ssh-broker.sh | awk '{print $1}')" \
+            --arg build_script_sha256 "$(sha256sum --binary tools/scripts/ci/build-protected-ssh-broker.sh | awk '{print $1}')" \
+            '
+              .schema_version == 1 and
+              .predicate_type == "aqua.protected-ssh-broker-build/v1" and
+              .materials == [
+                {
+                  role: "broker-source",
+                  path: "tools/backup-ssh-broker/main.rs",
+                  sha256: $source_sha256
+                },
+                {
+                  role: "broker-build-script",
+                  path: "tools/scripts/ci/build-protected-ssh-broker.sh",
+                  sha256: $build_script_sha256
+                },
+                {
+                  role: "broker-policy",
+                  path: ".github/manifests/backup-ssh-broker-policy.json",
+                  sha256: $policy_sha256
+                },
+                {
+                  role: "required-checks-manifest",
+                  path: ".github/manifests/main-required-status-checks.json",
+                  sha256: $required_checks_sha256
+                },
+                {
+                  role: "release-workflow",
+                  path: ".github/workflows/backup-ssh-broker-release.yml",
+                  sha256: $release_workflow_sha256
+                },
+                {
+                  role: "target-provisioner",
+                  path: "infrastructure/scripts/provision-backup-ssh-broker.sh",
+                  sha256: $provisioner_sha256
+                }
+              ]
+            ' release-signed/provenance.json >/dev/null
+          cmp --silent tools/backup-ssh-broker/main.rs \
+            release-signed/repository/tools/backup-ssh-broker/main.rs
+          cmp --silent tools/scripts/ci/build-protected-ssh-broker.sh \
+            release-signed/repository/tools/scripts/ci/build-protected-ssh-broker.sh
+          cmp --silent .github/manifests/backup-ssh-broker-policy.json \
+            release-signed/repository/.github/manifests/backup-ssh-broker-policy.json
+          cmp --silent .github/manifests/main-required-status-checks.json \
+            release-signed/repository/.github/manifests/main-required-status-checks.json
+          cmp --silent .github/workflows/backup-ssh-broker-release.yml \
+            release-signed/repository/.github/workflows/backup-ssh-broker-release.yml
+          cmp --silent infrastructure/scripts/provision-backup-ssh-broker.sh \
+            release-signed/repository/infrastructure/scripts/provision-backup-ssh-broker.sh
+
+      - name: Prove the merge commit and every required PR check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          umask 077
+          export LC_ALL=C
+          REQUIRED_CHECKS_MANIFEST='.github/manifests/main-required-status-checks.json'
+          CHECK_PAGES="${RUNNER_TEMP}/broker-release-check-pages.json"
+          CHECK_RUNS="${RUNNER_TEMP}/broker-release-check-runs.json"
+          VERIFIED_CHECK_LINES="${RUNNER_TEMP}/broker-release-verified-checks.jsonl"
+          VERIFIED_CHECKS="${RUNNER_TEMP}/broker-release-verified-checks.json"
+          COMMIT_JSON="${RUNNER_TEMP}/broker-release-commit.json"
+          PULL_PAGES="${RUNNER_TEMP}/broker-release-pull-pages.json"
+          PULLS_JSON="${RUNNER_TEMP}/broker-release-pulls.json"
+          MERGED_PULL="${RUNNER_TEMP}/broker-release-merged-pull.json"
+          ENVIRONMENT_JSON="${RUNNER_TEMP}/broker-release-environment.json"
+          ENVIRONMENT_BRANCHES_JSON="${RUNNER_TEMP}/broker-release-environment-branches.json"
+          ENVIRONMENT_AUTHORITY_JSON="${RUNNER_TEMP}/broker-release-environment-authority.json"
+          DETAILS_PREFIX="https://github.com/${GITHUB_REPOSITORY}/actions/runs/"
+
+          jq --exit-status \
+            --arg repository "${GITHUB_REPOSITORY}" \
+            '
+              .schema_version == 1 and
+              .repository == $repository and
+              .branch == "main" and
+              .branch_protection.enforce_admins == true and
+              .required_status_checks.strict == true and
+              .required_status_checks.contexts == [
+                "sens-enterprise-summary",
+                "merge-gate",
+                "aria-merge-authority"
+              ]
+            ' "${REQUIRED_CHECKS_MANIFEST}" >/dev/null
+          jq --exit-status \
+            '
+              .release.workflow == ".github/workflows/backup-ssh-broker-release.yml" and
+              .release.event == "push" and
+              .release.ref == "refs/heads/main" and
+              .release.signing_environment == "production-backup-release" and
+              .release.signing_environment_protection == {
+                can_admins_bypass: false,
+                prevent_self_review: true,
+                minimum_reviewers: 2,
+                deployment_branch: "main"
+              } and
+              .release.required_checks_manifest == ".github/manifests/main-required-status-checks.json" and
+              .cutover.enabled == false
+            ' .github/manifests/backup-ssh-broker-policy.json >/dev/null
+
+          gh api \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${GITHUB_REPOSITORY}/environments/production-backup-release" \
+            > "${ENVIRONMENT_JSON}"
+          gh api \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${GITHUB_REPOSITORY}/environments/production-backup-release/deployment-branch-policies?per_page=100" \
+            > "${ENVIRONMENT_BRANCHES_JSON}"
+          jq --exit-status \
+            '
+              .name == "production-backup-release" and
+              .can_admins_bypass == false and
+              .deployment_branch_policy == {
+                protected_branches: false,
+                custom_branch_policies: true
+              } and
+              ([.protection_rules[] | select(.type == "required_reviewers")] | length) == 1 and
+              ([.protection_rules[] | select(.type == "required_reviewers")][0] |
+                .prevent_self_review == true and
+                (.reviewers | length) >= 2
+              )
+            ' "${ENVIRONMENT_JSON}" >/dev/null
+          jq --exit-status \
+            '[.branch_policies[] | {name, type}] == [{name: "main", type: "branch"}]' \
+            "${ENVIRONMENT_BRANCHES_JSON}" >/dev/null
+          jq --sort-keys \
+            --slurpfile branches "${ENVIRONMENT_BRANCHES_JSON}" \
+            '
+              ([.protection_rules[] | select(.type == "required_reviewers")][0]) as $review_rule |
+              {
+                name: .name,
+                can_admins_bypass: .can_admins_bypass,
+                prevent_self_review: $review_rule.prevent_self_review,
+                reviewers: (
+                  [$review_rule.reviewers[] | {
+                    type: .type,
+                    id: .reviewer.id,
+                    name: (.reviewer.login // .reviewer.slug)
+                  }] | sort_by(.type, .id)
+                ),
+                deployment_branch_policies: (
+                  [$branches[0].branch_policies[] | {name, type}] | sort_by(.type, .name)
+                )
+              }
+            ' "${ENVIRONMENT_JSON}" > "${ENVIRONMENT_AUTHORITY_JSON}"
+
+          gh api \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}" > "${COMMIT_JSON}"
+          gh api --paginate --slurp \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls?per_page=100" \
+            > "${PULL_PAGES}"
+          jq '[.[] | .[]]' "${PULL_PAGES}" > "${PULLS_JSON}"
+          jq \
+            --arg repository "${GITHUB_REPOSITORY}" \
+            --arg merge_sha "${GITHUB_SHA}" \
+            '[.[] |
+              select(
+                .state == "closed" and
+                .merged_at != null and
+                .merge_commit_sha == $merge_sha and
+                .base.ref == "main" and
+                .base.repo.full_name == $repository and
+                .head.repo.full_name == $repository
+              )
+            ]' "${PULLS_JSON}" > "${MERGED_PULL}"
+          test "$(jq 'length' "${MERGED_PULL}")" -eq 1
+          PR_NUMBER=$(jq --raw-output '.[0].number' "${MERGED_PULL}")
+          PR_BASE_SHA=$(jq --raw-output '.[0].base.sha' "${MERGED_PULL}")
+          PR_HEAD_SHA=$(jq --raw-output '.[0].head.sha' "${MERGED_PULL}")
+          PR_MERGED_AT=$(jq --raw-output '.[0].merged_at' "${MERGED_PULL}")
+          [[ "${PR_NUMBER}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${PR_BASE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${PR_HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          jq --exit-status --null-input --arg merged_at "${PR_MERGED_AT}" \
+            '$merged_at | fromdateiso8601 | type == "number"' >/dev/null
+          test "${PR_HEAD_SHA}" != "${GITHUB_SHA}"
+          jq --exit-status \
+            --arg merge_sha "${GITHUB_SHA}" \
+            --arg base_sha "${PR_BASE_SHA}" \
+            --arg head_sha "${PR_HEAD_SHA}" \
+            '
+              .sha == $merge_sha and
+              (.parents | length) == 2 and
+              .parents[0].sha == $base_sha and
+              .parents[1].sha == $head_sha
+            ' "${COMMIT_JSON}" >/dev/null
+
+          mapfile -t REQUIRED_CONTEXTS < <(
+            jq --raw-output '.required_status_checks.contexts[]' "${REQUIRED_CHECKS_MANIFEST}"
+          )
+          test "${#REQUIRED_CONTEXTS[@]}" -eq 3
+          deadline=$((SECONDS + 120))
+          while :; do
+            gh api --paginate --slurp \
+              --header 'Accept: application/vnd.github+json' \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              "/repos/${GITHUB_REPOSITORY}/commits/${PR_HEAD_SHA}/check-runs?filter=all&per_page=100" \
+              > "${CHECK_PAGES}"
+            jq '[.[] | .check_runs[]]' "${CHECK_PAGES}" > "${CHECK_RUNS}"
+
+            all_required_checks_succeeded=true
+            for context in "${REQUIRED_CONTEXTS[@]}"; do
+              if ! jq --exit-status \
+                --arg context "${context}" \
+                --arg sha "${PR_HEAD_SHA}" \
+                --arg details_prefix "${DETAILS_PREFIX}" \
+                --arg merged_at "${PR_MERGED_AT}" \
+                '
+                  any(.[];
+                    .name == $context and
+                    .head_sha == $sha and
+                    .app.slug == "github-actions" and
+                    .status == "completed" and
+                    .conclusion == "success" and
+                    .completed_at != null and
+                    ((.completed_at | fromdateiso8601) <= ($merged_at | fromdateiso8601)) and
+                    (.details_url | startswith($details_prefix))
+                  )
+                ' "${CHECK_RUNS}" >/dev/null; then
+                all_required_checks_succeeded=false
+              fi
+            done
+            if [ "${all_required_checks_succeeded}" = true ]; then
+              break
+            fi
+            if [ "${SECONDS}" -ge "${deadline}" ]; then
+              printf 'FATAL: required checks did not all succeed on merged PR head %s.\n' \
+                "${PR_HEAD_SHA}" >&2
+              exit 1
+            fi
+            sleep 10
+          done
+
+          : > "${VERIFIED_CHECK_LINES}"
+          for context in "${REQUIRED_CONTEXTS[@]}"; do
+            case "${context}" in
+              sens-enterprise-summary | merge-gate)
+                expected_workflow_path='.github/workflows/ci-affected.yml'
+                ;;
+              aria-merge-authority)
+                expected_workflow_path='.github/workflows/aria-merge-authority.yml'
+                ;;
+              *)
+                printf 'FATAL: required context has no workflow authority: %s\n' "${context}" >&2
+                exit 1
+                ;;
+            esac
+            CANDIDATE_JSON="${RUNNER_TEMP}/broker-release-check-${context}.json"
+            WORKFLOW_RUN_JSON="${RUNNER_TEMP}/broker-release-workflow-${context}.json"
+            jq \
+              --arg context "${context}" \
+              --arg sha "${PR_HEAD_SHA}" \
+              --arg details_prefix "${DETAILS_PREFIX}" \
+              --arg merged_at "${PR_MERGED_AT}" \
+              '[.[] |
+                select(
+                  .name == $context and
+                  .head_sha == $sha and
+                  .app.slug == "github-actions" and
+                  .status == "completed" and
+                  .conclusion == "success" and
+                  .completed_at != null and
+                  ((.completed_at | fromdateiso8601) <= ($merged_at | fromdateiso8601)) and
+                  (.details_url | startswith($details_prefix))
+                )
+              ] | sort_by(.id) | last' "${CHECK_RUNS}" > "${CANDIDATE_JSON}"
+            jq --exit-status 'type == "object"' "${CANDIDATE_JSON}" >/dev/null
+            details_url=$(jq --raw-output '.details_url' "${CANDIDATE_JSON}")
+            workflow_run_id=${details_url#"${DETAILS_PREFIX}"}
+            workflow_run_id=${workflow_run_id%%/*}
+            [[ "${workflow_run_id}" =~ ^[1-9][0-9]*$ ]]
+            gh api \
+              --header 'Accept: application/vnd.github+json' \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              "/repos/${GITHUB_REPOSITORY}/actions/runs/${workflow_run_id}" \
+              > "${WORKFLOW_RUN_JSON}"
+            jq --exit-status \
+              --arg repository "${GITHUB_REPOSITORY}" \
+              --arg head_sha "${PR_HEAD_SHA}" \
+              --arg path "${expected_workflow_path}" \
+              --argjson run_id "${workflow_run_id}" \
+              '
+                .id == $run_id and
+                .event == "pull_request" and
+                .head_sha == $head_sha and
+                .head_repository.full_name == $repository and
+                .path == $path and
+                .status == "completed" and
+                .conclusion == "success"
+              ' "${WORKFLOW_RUN_JSON}" >/dev/null
+            jq --compact-output \
+              --arg workflow_path "${expected_workflow_path}" \
+              --argjson workflow_run_id "${workflow_run_id}" \
+              --argjson workflow_run_attempt "$(jq '.run_attempt' "${WORKFLOW_RUN_JSON}")" \
+              '{
+                context: .name,
+                check_run_id: .id,
+                check_suite_id: .check_suite.id,
+                head_sha: .head_sha,
+                status: .status,
+                conclusion: .conclusion,
+                completed_at: .completed_at,
+                details_url: .details_url,
+                workflow_path: $workflow_path,
+                workflow_run_id: $workflow_run_id,
+                workflow_run_attempt: $workflow_run_attempt
+              }' "${CANDIDATE_JSON}" >> "${VERIFIED_CHECK_LINES}"
+          done
+          jq --slurp '.' "${VERIFIED_CHECK_LINES}" > "${VERIFIED_CHECKS}"
+          test "$(jq 'length' "${VERIFIED_CHECKS}")" -eq 3
+
+          REQUIRED_CHECKS_SHA256=$(sha256sum --binary "${REQUIRED_CHECKS_MANIFEST}" | awk '{print $1}')
+          jq --sort-keys --null-input \
+            --arg repository "${GITHUB_REPOSITORY}" \
+            --arg ref "${GITHUB_REF}" \
+            --arg commit "${GITHUB_SHA}" \
+            --arg event "${GITHUB_EVENT_NAME}" \
+            --arg workflow_ref "${GITHUB_WORKFLOW_REF}" \
+            --arg run_id "${GITHUB_RUN_ID}" \
+            --arg run_attempt "${GITHUB_RUN_ATTEMPT}" \
+            --arg pr_base_sha "${PR_BASE_SHA}" \
+            --arg pr_head_sha "${PR_HEAD_SHA}" \
+            --arg pr_merged_at "${PR_MERGED_AT}" \
+            --argjson pr_number "${PR_NUMBER}" \
+            --arg signing_environment 'production-backup-release' \
+            --arg manifest_path "${REQUIRED_CHECKS_MANIFEST}" \
+            --arg manifest_sha256 "${REQUIRED_CHECKS_SHA256}" \
+            --slurpfile checks "${VERIFIED_CHECKS}" \
+            --slurpfile signing_environment_protection "${ENVIRONMENT_AUTHORITY_JSON}" \
+            '{
+              schema_version: 1,
+              predicate_type: "aqua.protected-ssh-broker-release-authority/v1",
+              repository: $repository,
+              ref: $ref,
+              commit: $commit,
+              event: $event,
+              workflow_ref: $workflow_ref,
+              run_id: $run_id,
+              run_attempt: $run_attempt,
+              signing_environment: $signing_environment,
+              signing_environment_protection: $signing_environment_protection[0],
+              pull_request: {
+                number: $pr_number,
+                base_sha: $pr_base_sha,
+                head_sha: $pr_head_sha,
+                merge_commit_sha: $commit,
+                merged_at: $pr_merged_at
+              },
+              required_checks_manifest: {
+                path: $manifest_path,
+                sha256: $manifest_sha256
+              },
+              required_checks: $checks[0]
+            }' > release-signed/release-authority.json
+          chmod 0644 release-signed/release-authority.json
+          jq --exit-status . release-signed/release-authority.json >/dev/null
+
+      - name: Install pinned cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign and verify release blobs with GitHub OIDC
+        run: |
+          set -euo pipefail
+          IDENTITY="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/backup-ssh-broker-release.yml@refs/heads/main"
+          for SUBJECT in \
+            release-signed/aqua-protected-ssh-broker \
+            release-signed/provenance.json \
+            release-signed/release-authority.json; do
+            cosign sign-blob --yes \
+              --bundle "${SUBJECT}.sigstore.json" \
+              "${SUBJECT}"
+            cosign verify-blob \
+              --bundle "${SUBJECT}.sigstore.json" \
+              --certificate-identity "${IDENTITY}" \
+              --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+              --certificate-github-workflow-repository "${GITHUB_REPOSITORY}" \
+              --certificate-github-workflow-ref 'refs/heads/main' \
+              --certificate-github-workflow-sha "${GITHUB_SHA}" \
+              --certificate-github-workflow-trigger "${GITHUB_EVENT_NAME}" \
+              --certificate-github-workflow-name "${GITHUB_WORKFLOW}" \
+              "${SUBJECT}"
+          done
+
+          export LC_ALL=C
+          mapfile -t SIGNED_RELEASE_FILES < <(
+            cd release-signed
+            find . -type f -printf '%P\n' | sort
+          )
+          EXPECTED_SIGNED_RELEASE_FILES=(
+            SHA256SUMS
+            aqua-protected-ssh-broker
+            aqua-protected-ssh-broker.sigstore.json
+            provenance.json
+            provenance.json.sigstore.json
+            release-authority.json
+            release-authority.json.sigstore.json
+            repository/.github/manifests/backup-ssh-broker-policy.json
+            repository/.github/manifests/main-required-status-checks.json
+            repository/.github/workflows/backup-ssh-broker-release.yml
+            repository/infrastructure/scripts/provision-backup-ssh-broker.sh
+            repository/tools/backup-ssh-broker/main.rs
+            repository/tools/scripts/ci/build-protected-ssh-broker.sh
+          )
+          test "${#SIGNED_RELEASE_FILES[@]}" -eq "${#EXPECTED_SIGNED_RELEASE_FILES[@]}"
+          for index in "${!EXPECTED_SIGNED_RELEASE_FILES[@]}"; do
+            test "${SIGNED_RELEASE_FILES[${index}]}" = \
+              "${EXPECTED_SIGNED_RELEASE_FILES[${index}]}"
+          done
+          test -z "$(find release-signed -mindepth 1 -type l -print -quit)"
+
+      - name: Upload immutable signed broker release
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: backup-ssh-broker-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-signed/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+          overwrite: false
+          # The verified signed bundle preserves the exact policy path under repository/.github.
+          include-hidden-files: true

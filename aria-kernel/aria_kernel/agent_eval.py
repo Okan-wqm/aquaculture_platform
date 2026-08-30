@@ -129,6 +129,14 @@ def _validate_fixture(fixture: dict[str, Any]) -> dict[str, Any]:
     return fixture
 
 
+# Keys a fixture's content hash must never cover. `recorded_at` is a timestamp,
+# so including it would make every re-add look like a mutation. `fixture_hash`
+# is the digest itself: a hash that covers its own output can be reproduced
+# only from an input that lacks it, which is precisely the round trip the
+# persisted file breaks — it comes back WITH the field.
+_HASH_EXCLUDED_KEYS = frozenset({"recorded_at", "fixture_hash"})
+
+
 def add_fixture(
     *,
     fixture: dict[str, Any],
@@ -139,6 +147,10 @@ def add_fixture(
     Idempotent on (fixture_id, sha256(canonical fixture JSON)) — re-adding
     the same fixture content returns the existing row; a content-changed
     re-add raises GovernanceError so accidental fixture mutation is caught.
+
+    The canonical form excludes `_HASH_EXCLUDED_KEYS`. Keeping the digest out
+    of its own input is what makes the idempotent path reachable at all for a
+    fixture read back off disk.
     """
     enforce_profile_for_write("agent_evals", base_dir=base_dir)
     fixture = _validate_fixture(dict(fixture))
@@ -152,7 +164,7 @@ def add_fixture(
     path = fixtures_dir / f"{fixture['fixture_id']}.json"
 
     canonical = json.dumps(
-        {k: v for k, v in fixture.items() if k != "recorded_at"},
+        {k: v for k, v in fixture.items() if k not in _HASH_EXCLUDED_KEYS},
         sort_keys=True, separators=(",", ":"),
     ).encode("utf-8")
     fixture_hash = hashlib.sha256(canonical).hexdigest()[:16]
@@ -162,7 +174,16 @@ def add_fixture(
         existing = json.loads(path.read_text(encoding="utf-8"))
         if existing.get("fixture_hash") == fixture_hash:
             ledger = _find_fixture_row(root, fixture_id=str(fixture["fixture_id"]))
-            return ledger or existing
+            if ledger is not None:
+                return ledger
+            # The ledger row is DERIVED from the persisted file, so a missing
+            # row is a gap to close, not a result to hand back. Returning
+            # `existing` here reads as success and leaves `run` to fail later
+            # with "ledger row not found" — the exact state the five committed
+            # fixtures are in today: files in git, no ledger beside them. The
+            # file is the authority for the reconstruction, not the argument,
+            # so a re-add cannot rewrite history through this path.
+            return _append_fixture_ledger_row(root, existing)
         raise GovernanceError(
             f"fixture {fixture['fixture_id']} already exists with different "
             f"content hash; refusing accidental fixture mutation"
@@ -643,7 +664,27 @@ def aggregate_eval_metrics(
             continue
         if ra >= cutoff:
             in_window.append(row)
-    if not in_window:
+    return _metrics_for_rows(
+        target_agent=target_agent, rows=in_window,
+        window_days=window_days, mock_mode=mock_mode,
+    )
+
+
+def _metrics_for_rows(
+    *,
+    target_agent: str,
+    rows: list[dict[str, Any]],
+    window_days: int,
+    mock_mode: bool | None,
+) -> dict[str, Any]:
+    """The six-key summary for an already-selected set of runs.
+
+    Extracted so window selection and metric computation stop being one
+    function: `compare_eval_windows` needs the identical arithmetic over a
+    DIFFERENT slice, and a second copy of the consistency formula is exactly
+    how the variance bug would come back on one of the two paths.
+    """
+    if not rows:
         return {
             "target_agent": target_agent,
             "window_days": window_days,
@@ -658,26 +699,31 @@ def aggregate_eval_metrics(
             "false_negative_rate": 0.0,
             "consistency_score": 1.0,
         }
-    pass_count = sum(1 for r in in_window if r.get("passed"))
-    fail_count = len(in_window) - pass_count
-    pass_rate = pass_count / len(in_window)
-    mean_rounds = sum(int(r.get("rounds_used", 0)) for r in in_window) / len(in_window)
-    mean_tokens = sum(int(r.get("tokens_used", 0)) for r in in_window) / len(in_window)
-    fp = sum(1 for r in in_window if r.get("passed") and not r.get("verdict_match"))
-    fn = sum(1 for r in in_window
+    pass_count = sum(1 for r in rows if r.get("passed"))
+    fail_count = len(rows) - pass_count
+    pass_rate = pass_count / len(rows)
+    mean_rounds = sum(int(r.get("rounds_used", 0)) for r in rows) / len(rows)
+    mean_tokens = sum(int(r.get("tokens_used", 0)) for r in rows) / len(rows)
+    fp = sum(1 for r in rows if r.get("passed") and not r.get("verdict_match"))
+    fn = sum(1 for r in rows
              if not r.get("passed") and not r.get("missing_evidence_refs"))
-    fp_rate = fp / len(in_window)
-    fn_rate = fn / len(in_window)
+    fp_rate = fp / len(rows)
+    fn_rate = fn / len(rows)
     # Consistency: 1 - sample stdev of pass-flag (0..0.5 binary stdev).
     mean_pass = pass_rate
-    variance = sum((1.0 if r.get("passed") else 0.0 - mean_pass) ** 2
-                   for r in in_window) / len(in_window)
-    consistency = max(0.0, 1.0 - variance)
+    # WHY the parentheses: the original `(1.0 if passed else 0.0 - mean) ** 2`
+    # bound the conditional over the whole expression, so every PASSING run
+    # contributed a constant 1.0 to the variance - a perfectly consistent
+    # agent scored consistency ~0. Latent while runs.jsonl was empty; fixed
+    # before the first real eval. stdev (not variance) per the docstring.
+    variance = sum(((1.0 if r.get("passed") else 0.0) - mean_pass) ** 2
+                   for r in rows) / len(rows)
+    consistency = max(0.0, 1.0 - variance ** 0.5)
     return {
         "target_agent": target_agent,
         "window_days": window_days,
         "mock_mode": mock_mode,
-        "run_count": len(in_window),
+        "run_count": len(rows),
         "pass_count": pass_count,
         "fail_count": fail_count,
         "pass_rate": round(pass_rate, 6),
@@ -686,6 +732,116 @@ def aggregate_eval_metrics(
         "false_positive_rate": round(fp_rate, 6),
         "false_negative_rate": round(fn_rate, 6),
         "consistency_score": round(consistency, 6),
+    }
+
+
+#: Below this many runs in EITHER window, a difference between windows is
+#: sampling noise wearing a trend's clothes. Five is the smallest count at
+#: which one flipped run moves pass_rate by less than the quarter the
+#: verdict treats as meaningful; the gate exists because the first real
+#: baseline is five runs and the temptation to read a trend out of two is
+#: real.
+MIN_RUNS_FOR_TREND = 5
+
+
+def compare_eval_windows(
+    *,
+    target_agent: str,
+    base_dir: str | Path | None = None,
+    window_days: int = 30,
+    mock_mode: bool | None = None,
+    min_runs: int = MIN_RUNS_FOR_TREND,
+) -> dict[str, Any]:
+    """Is round N+1 better than round N? - the program's own success test.
+
+    The intelligence plan defines improvement as a MEASURED difference
+    between consecutive windows, not a felt one. `aggregate_eval_metrics`
+    could only ever describe one window, so "did it get better" had no
+    answer except a human comparing two printouts.
+
+    Windows are [now-2W, now-W) and [now-W, now]: adjacent, non-overlapping,
+    half-open at the seam so a run on the boundary is counted once, in the
+    current window.
+
+    The verdict refuses to speak when either side is thin. That refusal is
+    the point: a pass_rate that moved because a five-run baseline became a
+    six-run one is noise, and a loop that celebrates noise never stops for
+    the reason it should.
+    """
+    if window_days <= 0:
+        raise GovernanceError("window_days must be positive")
+    if min_runs < 1:
+        raise GovernanceError("min_runs must be at least 1")
+
+    now = datetime.now(timezone.utc)
+    current_start = now - timedelta(days=window_days)
+    previous_start = now - timedelta(days=2 * window_days)
+
+    rows = list_eval_runs(base_dir=base_dir, target_agent=target_agent, mock_mode=mock_mode)
+    current_rows: list[dict[str, Any]] = []
+    previous_rows: list[dict[str, Any]] = []
+    undated = 0
+    for row in rows:
+        try:
+            recorded = datetime.fromisoformat(
+                str(row.get("recorded_at", "")).replace("Z", "+00:00")
+            )
+        except (TypeError, ValueError):
+            undated += 1
+            continue
+        if recorded >= current_start:
+            current_rows.append(row)
+        elif recorded >= previous_start:
+            previous_rows.append(row)
+
+    current = _metrics_for_rows(
+        target_agent=target_agent, rows=current_rows,
+        window_days=window_days, mock_mode=mock_mode,
+    )
+    previous = _metrics_for_rows(
+        target_agent=target_agent, rows=previous_rows,
+        window_days=window_days, mock_mode=mock_mode,
+    )
+
+    tracked = (
+        "pass_rate",
+        "consistency_score",
+        "false_negative_rate",
+        "mean_rounds",
+        "mean_tokens",
+    )
+    deltas = {key: round(current[key] - previous[key], 6) for key in tracked}
+
+    if current["run_count"] < min_runs or previous["run_count"] < min_runs:
+        verdict = "insufficient_evidence"
+        reason = (
+            f"need {min_runs} runs per window, have "
+            f"{previous['run_count']} then {current['run_count']}"
+        )
+    elif deltas["pass_rate"] > 0 or (
+        deltas["pass_rate"] == 0 and deltas["consistency_score"] > 0
+    ):
+        verdict = "improved"
+        reason = "pass_rate rose" if deltas["pass_rate"] > 0 else "pass_rate held, consistency rose"
+    elif deltas["pass_rate"] < 0 or deltas["consistency_score"] < 0:
+        verdict = "regressed"
+        reason = "pass_rate fell" if deltas["pass_rate"] < 0 else "pass_rate held, consistency fell"
+    else:
+        verdict = "flat"
+        reason = "no measured movement between windows"
+
+    return {
+        "schema_version": 1,
+        "target_agent": target_agent,
+        "window_days": window_days,
+        "mock_mode": mock_mode,
+        "min_runs": min_runs,
+        "previous_window": previous,
+        "current_window": current,
+        "deltas": deltas,
+        "verdict": verdict,
+        "reason": reason,
+        "undated_run_count": undated,
     }
 
 
@@ -851,6 +1007,8 @@ __all__ = [
     "run_agent_eval",
     "list_eval_runs",
     "aggregate_eval_metrics",
+    "compare_eval_windows",
+    "MIN_RUNS_FOR_TREND",
     "count_eval_runs_by_mode",
     "sample_shadow_raw_findings",
 ]

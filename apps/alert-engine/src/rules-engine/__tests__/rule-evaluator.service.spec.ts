@@ -391,13 +391,15 @@ describe('RuleEvaluatorService', () => {
       const condition = createCondition('rate_of_change_temperature', AlertOperator.GT, 10);
       const rule = createMockRule([condition]);
       const context: EvaluationContext = {
-        values: { temperature: 33 },
+        // (34 - 30) / 30 = 13.3% increase, which clears the strict `> 10%`
+        // threshold (an exactly-10% change would NOT — GT is strict).
+        values: { temperature: 34 },
         previousValues: { temperature: 30 },
       };
 
       const result = await service.evaluate(rule, context);
 
-      expect(result.matched).toBe(true); // 10% increase
+      expect(result.matched).toBe(true);
     });
   });
 

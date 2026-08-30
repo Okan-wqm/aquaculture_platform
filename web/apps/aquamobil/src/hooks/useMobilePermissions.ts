@@ -6,7 +6,7 @@ import { useAuth } from './useAuth';
 import { authenticatedFetch } from '@/services/authenticated-fetch';
 import { readGraphQLResponse } from '@/utils/graphql-response';
 
-export type MobileFeature = 'mortality' | 'cull' | 'harvest' | 'feeding' | 'waterQuality' | 'tankView' | 'schedule' | 'attendance' | 'leave' | 'tasks' | 'transfer' | 'storage';
+export type MobileFeature = 'mortality' | 'cull' | 'harvest' | 'feeding' | 'waterQuality' | 'tankView' | 'schedule' | 'attendance' | 'leave' | 'tasks' | 'transfer' | 'storage' | 'liceCount' | 'welfare' | 'escape' | 'reports';
 
 interface MobileAllowedFeatures {
   mortality: boolean;
@@ -21,6 +21,11 @@ interface MobileAllowedFeatures {
   tasks: boolean;
   transfer: boolean;
   storage: boolean;
+  /** FARM-HIGH-214: regulatory field capture + report review (Phase 6). */
+  liceCount: boolean;
+  welfare: boolean;
+  escape: boolean;
+  reports: boolean;
 }
 
 interface MobileSettings {
@@ -78,6 +83,10 @@ const DEFAULT_SETTINGS: MobileSettings = {
     tasks: false,
     transfer: false,
     storage: false,
+    liceCount: false,
+    welfare: false,
+    escape: false,
+    reports: false,
   },
 };
 
@@ -99,6 +108,10 @@ const FALLBACK_SETTINGS: MobileSettings = {
     tasks: false,
     transfer: false,
     storage: false,
+    liceCount: false,
+    welfare: false,
+    escape: false,
+    reports: false,
   },
 };
 

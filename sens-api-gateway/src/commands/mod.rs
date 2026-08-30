@@ -36,6 +36,7 @@ mod audit_emit;
 pub(crate) mod bundle_deploy;
 pub(crate) mod catalog;
 mod cert_pinning;
+mod command_acceptance;
 mod confirm_slot;
 mod deploy_bytecode_program;
 mod diagnostic;
@@ -50,6 +51,10 @@ mod lora;
 pub mod ping_handler;
 mod plc;
 mod program;
+// Runtime Modbus device provisioning (Slice 3.5 / SENSOR-CRITICAL-007):
+// cmd_provision_modbus_device / cmd_decommission_modbus_device hot-add/remove a
+// tenant-added VFD on the live Modbus actor + persist it into config.modbus.
+mod provision;
 mod rbac;
 mod read;
 mod refresh_license;
@@ -78,6 +83,10 @@ mod watch_commands;
 // commands module boundary so external callers compile unchanged.
 mod program_def;
 pub use program_def::{ProgramDefinition, ProgramState};
+// WF-011: params struct re-exported so the shared-fixture parity test
+// (contract_fixtures_tests.rs) deserializes the exact handler contract.
+#[cfg(test)]
+pub(crate) use system::UndeployScadaPackageParams;
 mod config_dispatch;
 mod dispatch_lifecycle;
 mod mqtt_dispatch;

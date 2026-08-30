@@ -1,6 +1,12 @@
 import { Injectable, Logger, OnModuleInit, BadRequestException } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
-import { UsageAggregatorService, AggregatedUsage, AggregationPeriod } from './usage-aggregator.service';
+import { TenantPlan, resolvePlanLimits } from '@platform/event-contracts';
+import {
+  UsageAggregatorService,
+  AggregatedUsage,
+  AggregationPeriod,
+} from './usage-aggregator.service';
 import { MeterType } from './usage-metering.service';
 import { BillingCycle, PlanTier } from '../../billing/entities/subscription.entity';
 
@@ -139,7 +145,10 @@ export class MeteredBillingService implements OnModuleInit {
   private readonly baseCurrency = 'USD';
 
   // Cache for billing calculations (bounded size with TTL eviction)
-  private readonly calculationCache = new Map<string, { calculation: BillingCalculation; expiresAt: Date }>();
+  private readonly calculationCache = new Map<
+    string,
+    { calculation: BillingCalculation; expiresAt: Date }
+  >();
   private static readonly MAX_CACHE_SIZE = 1000;
 
   constructor(
@@ -153,21 +162,33 @@ export class MeteredBillingService implements OnModuleInit {
     await this.initializeTaxRates();
     await this.initializeExchangeRates();
 
-    // Periodically warn when hardcoded exchange rates have gone stale.
-    // Rates should be replaced with a live feed (e.g. Open Exchange Rates) in production.
-    setInterval(() => {
-      const now = Date.now();
-      for (const [pair, rate] of this.exchangeRates) {
-        const ageHours = (now - rate.updatedAt.getTime()) / (1000 * 60 * 60);
-        if (ageHours > 24) {
-          this.logger.warn(
-            `Exchange rate ${pair} is ${Math.floor(ageHours)}h old — update via updateExchangeRate() or integrate a live FX feed.`,
-          );
-        }
-      }
-    }, 60 * 60 * 1000); // check every hour
-
     this.logger.log('MeteredBillingService initialized successfully');
+  }
+
+  /**
+   * Periodically warn when hardcoded exchange rates have gone stale (Billing
+   * Revival Faz E).
+   *
+   * WHY `@Cron` not `setInterval`: the previous `setInterval` was created in
+   * `onModuleInit` but its handle was never stored and never cleared — a timer
+   * leak that outlived the module. `@Cron` registers with Nest's
+   * SchedulerRegistry, so the billing app owns its lifecycle and stops it on
+   * shutdown.
+   *
+   * WHAT: hourly, warn for any exchange rate older than 24h. Rates should be
+   * replaced with a live feed (e.g. Open Exchange Rates) in production.
+   */
+  @Cron(CronExpression.EVERY_HOUR, { name: 'metered-billing-stale-fx-warn' })
+  warnOnStaleExchangeRates(): void {
+    const now = Date.now();
+    for (const [pair, rate] of this.exchangeRates) {
+      const ageHours = (now - rate.updatedAt.getTime()) / (1000 * 60 * 60);
+      if (ageHours > 24) {
+        this.logger.warn(
+          `Exchange rate ${pair} is ${Math.floor(ageHours)}h old — update via updateExchangeRate() or integrate a live FX feed.`,
+        );
+      }
+    }
   }
 
   /**
@@ -385,9 +406,7 @@ export class MeteredBillingService implements OnModuleInit {
       unit: 'calls',
       includedUnits: 1000000,
       currency: 'USD',
-      tiers: [
-        { minUnits: 0, maxUnits: null, pricePerUnit: 0.00005 },
-      ],
+      tiers: [{ minUnits: 0, maxUnits: null, pricePerUnit: 0.00005 }],
     });
 
     enterprisePricing.set(MeterType.DATA_STORAGE, {
@@ -397,9 +416,7 @@ export class MeteredBillingService implements OnModuleInit {
       unit: 'GB',
       includedUnits: 500,
       currency: 'USD',
-      tiers: [
-        { minUnits: 0, maxUnits: null, pricePerUnit: 0.01 },
-      ],
+      tiers: [{ minUnits: 0, maxUnits: null, pricePerUnit: 0.01 }],
     });
 
     enterprisePricing.set(MeterType.SENSOR_READINGS, {
@@ -409,9 +426,7 @@ export class MeteredBillingService implements OnModuleInit {
       unit: 'readings',
       includedUnits: 10000000,
       currency: 'USD',
-      tiers: [
-        { minUnits: 0, maxUnits: null, pricePerUnit: 0.000005 },
-      ],
+      tiers: [{ minUnits: 0, maxUnits: null, pricePerUnit: 0.000005 }],
     });
 
     enterprisePricing.set(MeterType.ALERTS_SENT, {
@@ -421,9 +436,7 @@ export class MeteredBillingService implements OnModuleInit {
       unit: 'alerts',
       includedUnits: 10000,
       currency: 'USD',
-      tiers: [
-        { minUnits: 0, maxUnits: null, pricePerUnit: 0.005 },
-      ],
+      tiers: [{ minUnits: 0, maxUnits: null, pricePerUnit: 0.005 }],
     });
 
     enterprisePricing.set(MeterType.REPORTS_GENERATED, {
@@ -433,9 +446,7 @@ export class MeteredBillingService implements OnModuleInit {
       unit: 'reports',
       includedUnits: 1000,
       currency: 'USD',
-      tiers: [
-        { minUnits: 0, maxUnits: null, pricePerUnit: 0.05 },
-      ],
+      tiers: [{ minUnits: 0, maxUnits: null, pricePerUnit: 0.05 }],
     });
 
     enterprisePricing.set(MeterType.USERS_ACTIVE, {
@@ -445,9 +456,7 @@ export class MeteredBillingService implements OnModuleInit {
       unit: 'users',
       includedUnits: 100,
       currency: 'USD',
-      tiers: [
-        { minUnits: 0, maxUnits: null, pricePerUnit: 1 },
-      ],
+      tiers: [{ minUnits: 0, maxUnits: null, pricePerUnit: 1 }],
     });
 
     enterprisePricing.set(MeterType.PONDS_ACTIVE, {
@@ -457,12 +466,96 @@ export class MeteredBillingService implements OnModuleInit {
       unit: 'ponds',
       includedUnits: 200,
       currency: 'USD',
-      tiers: [
-        { minUnits: 0, maxUnits: null, pricePerUnit: 1 },
-      ],
+      tiers: [{ minUnits: 0, maxUnits: null, pricePerUnit: 1 }],
     });
 
     this.pricingModels.set(PlanTier.ENTERPRISE, enterprisePricing);
+
+    // FREE Plan Pricing (Billing Revival Faz B) — permanent $0 tier.
+    // Every meter is priced at 0 on a single open-ended tier so NO usage can
+    // ever produce a charge (FREE = fully free). `includedUnits` is sourced from
+    // the canonical PLAN_CATALOG FREE entry so the free allowance surfaced to the
+    // UI stays in lockstep with the SSoT. Without this entry `calculateBilling`
+    // would throw "No pricing model found for plan tier: free".
+    const freeLimits = resolvePlanLimits(TenantPlan.FREE);
+    const freePricing = new Map<MeterType, MeterPricingModel>();
+    const freeMeter = (
+      meterType: MeterType,
+      meterId: string,
+      displayName: string,
+      unit: string,
+      includedUnits: number,
+    ): MeterPricingModel => ({
+      meterId,
+      meterType,
+      displayName,
+      unit,
+      includedUnits,
+      minimumCharge: 0,
+      currency: 'USD',
+      tiers: [{ minUnits: 0, maxUnits: null, pricePerUnit: 0 }],
+    });
+
+    freePricing.set(
+      MeterType.API_CALLS,
+      freeMeter(
+        MeterType.API_CALLS,
+        'api-calls-free',
+        'API Calls',
+        'calls',
+        freeLimits.maxApiRequests,
+      ),
+    );
+    freePricing.set(
+      MeterType.DATA_STORAGE,
+      freeMeter(
+        MeterType.DATA_STORAGE,
+        'data-storage-free',
+        'Data Storage',
+        'GB',
+        freeLimits.maxStorageGb,
+      ),
+    );
+    freePricing.set(
+      MeterType.SENSOR_READINGS,
+      freeMeter(
+        MeterType.SENSOR_READINGS,
+        'sensor-readings-free',
+        'Sensor Readings',
+        'readings',
+        0,
+      ),
+    );
+    freePricing.set(
+      MeterType.ALERTS_SENT,
+      freeMeter(MeterType.ALERTS_SENT, 'alerts-sent-free', 'Alerts Sent', 'alerts', 0),
+    );
+    freePricing.set(
+      MeterType.REPORTS_GENERATED,
+      freeMeter(MeterType.REPORTS_GENERATED, 'reports-free', 'Reports Generated', 'reports', 0),
+    );
+    freePricing.set(
+      MeterType.USERS_ACTIVE,
+      freeMeter(
+        MeterType.USERS_ACTIVE,
+        'active-users-free',
+        'Active Users',
+        'users',
+        freeLimits.maxUsers,
+      ),
+    );
+    freePricing.set(
+      MeterType.PONDS_ACTIVE,
+      freeMeter(
+        MeterType.PONDS_ACTIVE,
+        'ponds-free',
+        'Ponds Managed',
+        'ponds',
+        freeLimits.maxPonds,
+      ),
+    );
+
+    this.pricingModels.set(PlanTier.FREE, freePricing);
 
     this.logger.log(`Initialized pricing models for ${this.pricingModels.size} plan tiers`);
   }
@@ -655,7 +748,9 @@ export class MeteredBillingService implements OnModuleInit {
     region: string,
     targetCurrency: string = 'USD',
   ): Promise<BillingCalculation> {
-    this.logger.log(`Calculating billing for subscription ${subscriptionId}, period ${periodStart.toISOString()} - ${periodEnd.toISOString()}`);
+    this.logger.log(
+      `Calculating billing for subscription ${subscriptionId}, period ${periodStart.toISOString()} - ${periodEnd.toISOString()}`,
+    );
 
     // BILLING-MEDIUM-006 cure: tenant-scoped cache key. Even
     // though calculationCache is in-process today, the
@@ -765,14 +860,19 @@ export class MeteredBillingService implements OnModuleInit {
       periodEnd,
     });
 
-    this.logger.log(`Billing calculated for ${subscriptionId}: ${targetCurrency} ${finalTotal.toFixed(2)}`);
+    this.logger.log(
+      `Billing calculated for ${subscriptionId}: ${targetCurrency} ${finalTotal.toFixed(2)}`,
+    );
     return calculation;
   }
 
   /**
    * Calculate billing for a single meter
    */
-  private calculateMeterBilling(pricing: MeterPricingModel, totalUnits: number): MeterBillingBreakdown {
+  private calculateMeterBilling(
+    pricing: MeterPricingModel,
+    totalUnits: number,
+  ): MeterBillingBreakdown {
     const billableUnits = Math.max(0, totalUnits - pricing.includedUnits);
     const tierBreakdown: MeterBillingBreakdown['tierBreakdown'] = [];
 
@@ -806,7 +906,11 @@ export class MeteredBillingService implements OnModuleInit {
 
     // Apply minimum charge if applicable
     let minimumApplied = false;
-    if (pricing.minimumCharge !== undefined && subtotal < pricing.minimumCharge && billableUnits > 0) {
+    if (
+      pricing.minimumCharge !== undefined &&
+      subtotal < pricing.minimumCharge &&
+      billableUnits > 0
+    ) {
       subtotal = pricing.minimumCharge;
       minimumApplied = true;
     }
@@ -847,7 +951,9 @@ export class MeteredBillingService implements OnModuleInit {
     const actualDays = this.daysBetween(actualStart, actualEnd);
     const proRataFactor = actualDays / fullPeriodDays;
 
-    this.logger.debug(`Pro-rata factor: ${proRataFactor.toFixed(4)} (${actualDays}/${fullPeriodDays} days)`);
+    this.logger.debug(
+      `Pro-rata factor: ${proRataFactor.toFixed(4)} (${actualDays}/${fullPeriodDays} days)`,
+    );
 
     // Calculate billing for the actual partial period only.
     // Usage is queried for actualStart-actualEnd, so metered charges already reflect the shorter period.
@@ -1037,7 +1143,9 @@ export class MeteredBillingService implements OnModuleInit {
     };
     adjustedCalculation.finalTotal = this.roundCurrency(calculation.finalTotal - creditToApply);
 
-    this.logger.log(`Applied credit of ${creditToApply} to calculation, new total: ${adjustedCalculation.finalTotal}`);
+    this.logger.log(
+      `Applied credit of ${creditToApply} to calculation, new total: ${adjustedCalculation.finalTotal}`,
+    );
     return adjustedCalculation;
   }
 
@@ -1075,7 +1183,7 @@ export class MeteredBillingService implements OnModuleInit {
 
     // Recalculate tax on discounted amount
     let newTotalTax = 0;
-    const newTaxes = calculation.taxes.map(tax => {
+    const newTaxes = calculation.taxes.map((tax) => {
       const newTaxAmount = this.roundCurrency(discountedSubtotal * (tax.rate / 100));
       newTotalTax += newTaxAmount;
       return { ...tax, amount: newTaxAmount };
@@ -1095,7 +1203,9 @@ export class MeteredBillingService implements OnModuleInit {
       adjustedCalculation.finalTotal = newTotal;
     }
 
-    this.logger.log(`Applied discount ${discountCode}: ${discountAmount}, new total: ${adjustedCalculation.finalTotal}`);
+    this.logger.log(
+      `Applied discount ${discountCode}: ${discountAmount}, new total: ${adjustedCalculation.finalTotal}`,
+    );
     return adjustedCalculation;
   }
 
@@ -1144,7 +1254,9 @@ export class MeteredBillingService implements OnModuleInit {
     }
 
     if (ageHours > 24) {
-      this.logger.warn(`Exchange rate ${from}->${to} is ${Math.floor(ageHours)}h old. Rates should be refreshed.`);
+      this.logger.warn(
+        `Exchange rate ${from}->${to} is ${Math.floor(ageHours)}h old. Rates should be refreshed.`,
+      );
     }
 
     return rate.rate;
@@ -1193,11 +1305,15 @@ export class MeteredBillingService implements OnModuleInit {
     const subscriptionId = event.subscriptionId ?? event.id;
     if (subscriptionId) {
       this.clearCache(subscriptionId);
-      this.logger.log(`Billing cache invalidated for subscription ${subscriptionId} on subscription change`);
+      this.logger.log(
+        `Billing cache invalidated for subscription ${subscriptionId} on subscription change`,
+      );
     } else {
       // Clear all if no specific subscription ID is available
       this.clearCache();
-      this.logger.log('Billing cache fully invalidated on subscription change event with no subscriptionId');
+      this.logger.log(
+        'Billing cache fully invalidated on subscription change event with no subscriptionId',
+      );
     }
   }
 
@@ -1214,7 +1330,7 @@ export class MeteredBillingService implements OnModuleInit {
   }): Promise<void> {
     this.logger.warn(
       `Usage threshold breached for tenant ${event.tenantId}: ` +
-      `${event.meterType} at ${event.percentage.toFixed(1)}% (${event.currentUsage}/${event.threshold})`,
+        `${event.meterType} at ${event.percentage.toFixed(1)}% (${event.currentUsage}/${event.threshold})`,
     );
 
     // Emit billing-specific event for potential overages
@@ -1250,13 +1366,21 @@ export class MeteredBillingService implements OnModuleInit {
    */
   clearCache(subscriptionId?: string): void {
     if (subscriptionId) {
+      // The cache key is the tenant-scoped shape built in calculateBilling:
+      //   cache:metered-billing:<tenant>:billing-calculation:<subscriptionId>-<start>-<end>
+      // so the subscriptionId is NOT the key prefix — matching on the exact
+      // `:billing-calculation:<subscriptionId>-` segment is required. (A prior
+      // `key.startsWith(subscriptionId)` match silently cleared nothing after
+      // the BILLING-MEDIUM-006 key reshape, so the MED-02 subscription-change
+      // invalidation @OnEvent path never actually flushed stale calculations.)
+      const marker = `:billing-calculation:${subscriptionId}-`;
       const keysToDelete: string[] = [];
       for (const key of this.calculationCache.keys()) {
-        if (key.startsWith(subscriptionId)) {
+        if (key.includes(marker)) {
           keysToDelete.push(key);
         }
       }
-      keysToDelete.forEach(key => this.calculationCache.delete(key));
+      keysToDelete.forEach((key) => this.calculationCache.delete(key));
       this.logger.log(`Cleared ${keysToDelete.length} cached calculations for ${subscriptionId}`);
     } else {
       const count = this.calculationCache.size;

@@ -6,14 +6,33 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .apply_engine import list_apply_actions
+from .apply_engine import list_apply_actions, verify_plan_converged_approval
 from .auto_merge import record_pr_lifecycle
+from .implementation_safety import (
+    GATE_PRE_PR_OPEN,
+    HardFailContext,
+    observe_perimeter,
+    run_hard_fail_checks,
+)
 from .ledger import append_declared_jsonl, load_jsonl
-from .proposal import get_proposal
+from .proposal import (
+    approval_source_of,
+    get_proposal,
+    require_operator_approval,
+)
 from .runtime_profile import enforce_profile_for_action
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 from .validation import list_validation_plans
+from .worker_dispatch import mission_for_assignment
 
+
+# ORPHAN-CRITICAL-420 — the marker cycle.py matches to tell a perimeter refusal
+# apart from the other GovernanceErrors open_pr_for_action raises (missing
+# change_id, wrong base, unresolvable branch). Exported as a constant rather than
+# left as an inline literal so the observer and the raiser cannot drift: a
+# renamed message would otherwise silently stop counting toward the breaker,
+# which is the failure shape this whole wave exists to remove.
+PERIMETER_REFUSED_PREFIX = "open_pr_hard_fail_perimeter_refused"
 
 REQUIRED_PR_SECTIONS = (
     "Problem",
@@ -26,10 +45,54 @@ REQUIRED_PR_SECTIONS = (
 )
 
 
-def build_pr_body(*, proposal: dict[str, Any], action: dict[str, Any]) -> str:
+def _diff_text_for_action(
+    *,
+    workspace_path: Path,
+    base_sha: Any,
+    head_sha: str,
+) -> str | None:
+    """The diff the secret scan inspects, or None when it cannot be produced.
+
+    ORPHAN-CRITICAL-428 — returning None on any failure is deliberate:
+    ``_check_secret_scan_diff_clean`` treats an absent diff as UNVERIFIED and
+    refuses, so a git error here blocks the PR rather than waving it through
+    with an empty string. An empty string is a valid clean diff and would
+    pass, which is why the two cases must not be conflated.
+    """
+    if not isinstance(base_sha, str) or not base_sha.strip():
+        return None
+    completed = subprocess.run(
+        ["git", "diff", f"{base_sha.strip()}..{head_sha}"],
+        cwd=workspace_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return None
+    return completed.stdout
+
+
+def build_pr_body(
+    *,
+    proposal: dict[str, Any],
+    action: dict[str, Any],
+    mission_id: str | None = None,
+) -> str:
+    """Render the PR body, and — when the work belongs to a mission — the
+    trailer `mission_reconcile` adopts on.
+
+    PLAN Wave 2 PR 1.5. The trailer is appended as a BARE LINE after the
+    provenance section rather than as a bullet inside it: the pattern is
+    anchored with MULTILINE, so an indented trailer would never match, and
+    `format_mission_trailer` refuses to produce a line the pattern misses.
+    """
+    from .mission_reconcile import format_mission_trailer
+
     evidence = "\n".join(f"- `{item}`" for item in proposal.get("evidence", []))
     validation = "\n".join(f"- `{item}`" for item in action.get("validation_commands", []))
     validation_refs = "\n".join(f"- `{item}`" for item in action.get("validation_run_refs", []))
+    trailer = [format_mission_trailer(mission_id), ""] if mission_id else []
     return "\n".join(
         [
             "## Problem",
@@ -58,6 +121,7 @@ def build_pr_body(*, proposal: dict[str, Any], action: dict[str, Any]) -> str:
             f"- Proposal: `{proposal.get('proposal_id')}`",
             f"- Worktree: `{action.get('worktree_path')}`",
             "",
+            *trailer,
         ],
     )
 
@@ -113,6 +177,34 @@ def open_pr_for_action(
     # but not auto-PR, observe must not PR at all, frozen must not PR at all.
     enforce_profile_for_action("pr_create", base_dir=base_dir)
     proposal = get_proposal(proposal_id=proposal_id, base_dir=base_dir)
+    # ORPHAN-CRITICAL-727 — a MACHINE approval has to be traceable to the
+    # convergence event it names. Staging approves its own proposal with an
+    # `aria:plan-converged:<plan_id>:<content_hash>` ref, which is only an
+    # authorisation because the plan ledger says the gate granted it; the ref
+    # itself is a string, and `approve_proposal` writes whatever it is given.
+    # Checked HERE because this is where an approval is spent: an audit that
+    # only ran after the fact would find the untraceable approval attached to
+    # a PR that already exists. Operator refs are a different population and
+    # return None from the verifier untouched.
+    # ORPHAN-CRITICAL-728 — the discrimination is on the COLUMN now, not on
+    # a string convention. A machine approval must survive the traceability
+    # join; an operator approval must actually carry an operator's ref.
+    approval_source = approval_source_of(proposal)
+    if approval_source is None:
+        raise GovernanceError(
+            f"open_pr_approval_source_unknown: proposal {proposal_id!r} is "
+            f"approved_for_apply but names neither an operator nor a machine "
+            f"grant; an approval nobody is recorded as having given is not one"
+        )
+    approval_violation = verify_plan_converged_approval(
+        proposal=proposal, base_dir=base_dir,
+    )
+    if approval_violation is not None:
+        raise GovernanceError(
+            f"open_pr_machine_approval_untraceable:{approval_violation}: "
+            f"proposal {proposal_id!r} carries a plan-converged approval ref "
+            f"that does not resolve to a CONVERGED plan_evaluated event"
+        )
     action = _latest_action_for_proposal(proposal_id, base_dir)
     if not action:
         raise GovernanceError("no apply action exists for proposal")
@@ -126,7 +218,15 @@ def open_pr_for_action(
         action["validation_plan_ref"] = latest_validation.get("ledger_hash")
         action["validation_plan_status"] = latest_validation.get("status")
         action["validation_run_refs"] = latest_validation.get("run_refs", [])
-    body = build_pr_body(proposal=proposal, action=action)
+    # PLAN Wave 2 PR 1.5 — the mission is DERIVED from the assignment, never
+    # supplied by the caller. `open_pr_for_action` takes no mission_id
+    # parameter, so the PR's mission and the dispatch row's mission cannot
+    # disagree: there is only one of them, and it is the one promotion wrote.
+    body = build_pr_body(
+        proposal=proposal,
+        action=action,
+        mission_id=mission_for_assignment(assignment_id=assignment_id, base_dir=base_dir),
+    )
     _validate_pr_body(body)
 
     # Plan 022 §C-4 — head_sha is the proposal commit (action.branch HEAD),
@@ -161,6 +261,113 @@ def open_pr_for_action(
             f"produced empty stdout"
         )
 
+    # ORPHAN-CRITICAL-428 / ORPHAN-HIGH-437 — the pre-PR-open half of the
+    # hard-fail perimeter gets its production caller here.
+    #
+    # Until this call existed, run_hard_fail_checks had ZERO production
+    # callers: ten implemented checks, an invariant test pinning their
+    # count, and nothing on a live path that ran them. `grep -rn
+    # 'run_hard_fail_checks(' aria-kernel` returned exactly one line — the
+    # definition. That is the defect class this whole audit wave is about,
+    # and a registry nobody iterates is documentation, not a gate.
+    #
+    # WHY HERE, and not one line earlier or later:
+    #   * after every existing precondition, so a caller that was already
+    #     going to be refused (missing change_id, wrong base, unresolvable
+    #     branch) still fails with its own specific error rather than a
+    #     generic perimeter refusal;
+    #   * before the `dry_run` branch, so the gate runs on BOTH paths. Gating
+    #     only the live-open path would have re-created the original defect in
+    #     a new shape: an unreachable gate that looks wired.
+    #
+    #     CORRECTED (ORPHAN-CRITICAL-498). This comment used to state that the
+    #     only production route here was "the cycle's pr_lifecycle phase with
+    #     dry_run=True (cycle.py:_run_pr_lifecycle_phase ← _run_extended_phases
+    #     ← run_enterprise_cycle ← autonomy orchestrator ← aria-auto-cycle.yml)".
+    #     That chain does not execute: `_run_extended_phases` is entered only
+    #     when a caller passes `run_phases` / `pre_tool_phases`, and no
+    #     production caller passes either. The live route is `cli.py` `pr open`
+    #     — an operator typing a command. The equivalent claim was corrected in
+    #     test_pr_open_perimeter_callsite.py and missed here, which is the same
+    #     defect one file over: a comment asserting a dead route as production
+    #     fact is what let 498 survive review in the first place.
+    #
+    # A dry run is refused too. Its purpose is to answer "would this PR be
+    # openable", so a preview reporting `ok` while the perimeter would
+    # block is a false green — the exact failure mode this wave keeps
+    # finding. The phase catches GovernanceError per proposal and
+    # aggregates, so a refusal surfaces as that proposal's `fail` rather
+    # than aborting the cycle.
+    #
+    # Every context field is populated from data already resolved above;
+    # nothing is invented. The three that the checks fail closed on when
+    # absent (envelope, validation_commands, diff_text) are exactly the
+    # three worth stating provenance for:
+    #   envelope.affected_surfaces — action.changed_files, the surfaces this
+    #     action actually touches, which is what the mint-time
+    #     self-modification check compares against READONLY_PATHS.
+    #   validation_commands — action.validation_commands, the same field
+    #     build_pr_body renders above, sourced from the proposal's
+    #     validation_scope by apply_engine.
+    #   diff_text — computed base_sha..head_sha below; None when base_sha is
+    #     absent, which the secret scan treats as unverified and refuses.
+    perimeter_context = HardFailContext(
+        workspace_root=workspace_path,
+        diff_text=_diff_text_for_action(
+            workspace_path=workspace_path,
+            base_sha=action.get("base_sha"),
+            head_sha=resolved_head_sha,
+        ),
+        envelope={"affected_surfaces": list(action.get("changed_files", []))},
+        affected_paths=tuple(action.get("changed_files", [])),
+        validation_commands=tuple(action.get("validation_commands", [])),
+        base_branch=base,
+        pr_body=body,
+    )
+
+    # RC-2 — the two modes, chosen by whether this call MUTATES anything, and
+    # returning two different types so the choice cannot be undone downstream.
+    #
+    # Both branches still refuse a genuine refusal. Two correct arguments were in
+    # tension here and neither is discarded:
+    #
+    #   * the pre-RC-2 design ran the authorising gate before the `dry_run`
+    #     branch so a preview could not report `ok` while the perimeter would
+    #     block — a false green is the failure mode this wave keeps finding;
+    #   * RC-2 requires that a dry run not be counted as a rejected
+    #     implementation, because it has no changed_files, no base_sha and no
+    #     diff, so checks needing those refuse on data that cannot exist yet.
+    #
+    # `PerimeterVerdict.evaluable` separates them: a preview is still REFUSED
+    # when a check that could run refused (self-modification, secret in diff,
+    # unsigned commit), and is NOT refused when the only refusals name inputs
+    # this stage cannot supply. Those are reported as
+    # `not_evaluable_at_this_stage` instead — visible, and not a refusal.
+    if dry_run:
+        observation = observe_perimeter(perimeter_context, gate=GATE_PRE_PR_OPEN)
+        if observation.refused:
+            raise GovernanceError(
+                PERIMETER_REFUSED_PREFIX
+                + ": "
+                + "; ".join(
+                    f"{verdict.name}:{verdict.reason}"
+                    for verdict in observation.refused
+                )
+            )
+        perimeter_summary: dict[str, Any] | None = observation.summary
+    else:
+        hard_fail_report = run_hard_fail_checks(perimeter_context, gate=GATE_PRE_PR_OPEN)
+        if not hard_fail_report.passed:
+            raise GovernanceError(
+                PERIMETER_REFUSED_PREFIX
+                + ": "
+                + "; ".join(
+                    f"{failure.name}:{failure.reason}"
+                    for failure in hard_fail_report.failures
+                )
+            )
+        perimeter_summary = None
+
     payload = {
         "number": None,
         "base_branch": ARIA_PR_BASE,
@@ -184,6 +391,7 @@ def open_pr_for_action(
         "title": proposal.get("title"),
         "body": body,
         "dry_run": dry_run,
+        "perimeter_observation": perimeter_summary,
     }
     if dry_run:
         row = record_pr_lifecycle(
@@ -254,6 +462,10 @@ def prepare_branch(
     proposal = get_proposal(proposal_id=proposal_id, base_dir=base_dir)
     if proposal.get("status") != "approved_for_apply":
         raise GovernanceError("proposal must be approved_for_apply before branch preparation")
+    # ORPHAN-CRITICAL-728 — the manual branch lane acts on an operator's
+    # decision; the convergence lane's agent does its own git and never
+    # reaches here.
+    require_operator_approval(proposal, action="prepare_branch")
     action = _latest_action_for_proposal(proposal_id, base_dir)
     if not action or action.get("status") != "ready_for_pr":
         raise GovernanceError("branch preparation requires a ready_for_pr apply action")
@@ -299,6 +511,10 @@ def commit_prepared_branch(
     proposal = get_proposal(proposal_id=proposal_id, base_dir=base_dir)
     if proposal.get("status") != "approved_for_apply":
         raise GovernanceError("proposal must be approved_for_apply before commit")
+    # ORPHAN-CRITICAL-728 — the manual branch lane acts on an operator's
+    # decision; the convergence lane's agent does its own git and never
+    # reaches here.
+    require_operator_approval(proposal, action="commit_prepared_branch")
     branch_row = _latest_pr_action(proposal_id, "prepare_branch", base_dir)
     if not branch_row:
         raise GovernanceError("prepare-branch must run before commit")

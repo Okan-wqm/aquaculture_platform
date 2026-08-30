@@ -21,7 +21,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { IsString, IsOptional, IsArray, IsBoolean, IsNumber, IsObject } from 'class-validator';
 
 import { CurrentUser, CurrentUserData } from '../../decorators/current-user.decorator';
-import { AllowTenantAdmin } from '../../decorators/roles.decorator';
+import { PlatformAdminOnly } from '../../decorators/roles.decorator';
 import { PaginationQueryDto } from '../../shared/pagination-query.dto';
 import { TicketPriority, TicketStatus, TicketCategory, TicketAttachment } from '../entities/support.entity';
 import { TicketService } from '../services/ticket.service';
@@ -217,19 +217,19 @@ export class TicketController {
   }
 
   @Get(':id')
-  @AllowTenantAdmin()
+  @PlatformAdminOnly()
   async getTicket(@Param('id') id: string) {
     return this.ticketService.getTicket(id);
   }
 
   @Get('number/:ticketNumber')
-  @AllowTenantAdmin()
+  @PlatformAdminOnly()
   async getTicketByNumber(@Param('ticketNumber') ticketNumber: string) {
     return this.ticketService.getTicketByNumber(ticketNumber);
   }
 
   @Get('tenant/:tenantId')
-  @AllowTenantAdmin()
+  @PlatformAdminOnly()
   async getTicketsForTenant(
     @Param('tenantId') tenantId: string,
     @Query('status') status?: TicketStatus,
@@ -256,7 +256,7 @@ export class TicketController {
   }
 
   @Post()
-  @AllowTenantAdmin()
+  @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
   async createTicket(@Body() dto: CreateTicketDto) {
     if (!dto.tenantId || !dto.subject || !dto.description || !dto.createdByName) {
@@ -350,7 +350,7 @@ export class TicketController {
   // ============================================================================
 
   @Get(':id/comments')
-  @AllowTenantAdmin()
+  @PlatformAdminOnly()
   async getComments(
     @Param('id') id: string,
     @Query('includeInternal') includeInternal?: string,
@@ -364,7 +364,7 @@ export class TicketController {
   }
 
   @Post(':id/comments')
-  @AllowTenantAdmin()
+  @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
   async addComment(
     @Param('id') id: string,
@@ -390,7 +390,7 @@ export class TicketController {
   // ============================================================================
 
   @Get(':id/replies')
-  @AllowTenantAdmin()
+  @PlatformAdminOnly()
   async getReplies(
     @Param('id') id: string,
     @Query('includeInternal') includeInternal?: string,
@@ -405,7 +405,7 @@ export class TicketController {
   }
 
   @Post(':id/replies')
-  @AllowTenantAdmin()
+  @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
   async addReply(
     @Param('id') id: string,
@@ -431,7 +431,7 @@ export class TicketController {
   // ============================================================================
 
   @Post(':id/satisfaction')
-  @AllowTenantAdmin()
+  @PlatformAdminOnly()
   async submitSatisfactionRating(
     @Param('id') id: string,
     @Body() dto: SatisfactionRatingDto,

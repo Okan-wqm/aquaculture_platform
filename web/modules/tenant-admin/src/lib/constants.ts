@@ -30,6 +30,8 @@ export const MODULE_REGISTRY: Record<string, ModuleRegistryEntry> = {
       'maintenance_schedules', 'work_orders', 'spare_parts',
       'feed_types', 'feed_type_species', 'feeds', 'feed_inventory', 'feed_sites', 'feeding_protocols', 'feeding_records',
       'feeding_tables', 'feeding_programs', 'feeding_program_tanks', 'daily_feeding_executions',
+      'feeding_protocols_v2', 'feeding_protocol_assignments',
+      'feeding_day_plans', 'feeding_meals', 'feeding_forecast_snapshots',
       'chemical_types', 'chemicals', 'chemical_sites',
       'growth_measurements', 'mortality_records', 'water_quality_measurements', 'health_events', 'harvest_plans', 'harvest_records',
       'supplier_types', 'suppliers',

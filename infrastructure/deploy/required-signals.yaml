@@ -1,8 +1,8 @@
 # Generated from platform service catalog.
 # source: platform/libs/service-catalog/src/index.ts
 # generator: scripts/service-catalog/generate-artifacts.ts
-# generatorVersion: 2
-# catalogHash: 3ecb0b77bbfa7abee6999df31022cbefc6fa5a6edf3310ea024cc499cd87d393
+# generatorVersion: 3
+# catalogHash: b314e8353e82369711981b1beff7d5e51b4624753693371e9dc0ea08f5178a2a
 # do not edit by hand
 schema_version: 2
 # window_seconds is the MAX time a service has to emit each required boot signal
@@ -83,9 +83,11 @@ services:
       - schema_drift_clean
   - name: config-service
     signals:
+      - nats_auth_mode_mtls
       - schema_drift_clean
   - name: event-store-service
     signals:
+      - nats_auth_mode_mtls
       - schema_drift_clean
   - name: observability-service
     signals:

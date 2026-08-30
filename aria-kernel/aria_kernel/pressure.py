@@ -26,7 +26,113 @@ SOURCE_WEIGHTS = {
     # investigating promptly, below tool_quarantine (a confirmed in-repo
     # violation) but above evidence_gone.
     "runtime_signal": 85,
+    # A repeated advisory that nothing escalated — below shadow_raw_delta on
+    # weight because the advisory channel is by definition lower-signal, but
+    # present at all because nine identical rows producing zero escalation is
+    # this repository's recurring defect class.
+    "uncertainty_repeat": 55,
+    # ORPHAN-HIGH-626 — a red check on a PR ARIA itself pushed. Weighted at
+    # the top of the table: it is confirmed (CI ran the code), it is OURS
+    # (nobody else will fix it), and every cycle it stays red is a cycle the
+    # merge gate silently blocks work that was already paid for.
+    "own_pr_ci": 90,
+    # ORPHAN-723 — a third-party PR (Dependabot, a developer branch) that
+    # cannot pass CI. Lowest weight in the table on purpose: ARIA has no
+    # authority over these PRs until the E23 gate opens, so the row exists
+    # to make the repo's PR weather VISIBLE in the nightly report, never to
+    # pull work toward something ARIA may not touch.
+    "repo_pr_health": 20,
+    # SI-1 (ORPHAN-741) — ARIA's OWN pipeline has stopped moving. Highest
+    # weight in the table: every other pressure describes work ARIA could
+    # do, and this one says the machinery that would do it is stuck. The
+    # 2026-08-19 measurement is the argument — 597 requests minted, ZERO
+    # plans ever CONVERGED, a wedge two days old that only a human
+    # reading ledgers ever noticed.
+    "pipeline_stalled": 100,
+    # ORPHAN-HIGH-758 — emitted by the post-merge red scan since ORPHAN-718
+    # and registered in neither table until the reachability gate learned to
+    # look in this direction. Weighted above open-PR reds: the defect is
+    # already on the default branch, so the action is fix-forward.
+    "post_merge_ci": 95.0,
 }
+
+# ─── operator-approved weight overrides (Plan tranquil-sniffing-pancake F4.1) ──
+# calibration.recommend_calibration computes per-source precision and proposes
+# weight changes; until now nothing consumed them — ARIA measured its own
+# precision and threw the number away. Overrides close that loop, with the
+# same ceremony as the breaker verbs: append-only ledger, operator approval
+# ref, and the LIVE table as the base. (calibration's old private copy of the
+# defaults had already drifted from SOURCE_WEIGHTS — evidence_gone 65 vs 80 —
+# which is exactly why the SSoT for "current" must be this module.)
+WEIGHT_OVERRIDES_PATH = ("calibration", "weight-overrides.jsonl")
+
+
+def load_weight_overrides(base_dir=None) -> dict[str, int]:
+    """Latest operator-approved weight per source. Missing ledger -> {}."""
+    from .tool_registry import ensure_tools_dir_readonly
+    root = ensure_tools_dir_readonly(base_dir)
+    if root is None:
+        return {}
+    path = root.joinpath(*WEIGHT_OVERRIDES_PATH)
+    if not path.exists():
+        return {}
+    import json as _json
+    out: dict[str, int] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = _json.loads(line)
+        except ValueError:
+            continue
+        src, w = row.get("source"), row.get("weight")
+        if isinstance(src, str) and src in SOURCE_WEIGHTS and isinstance(w, int):
+            out[src] = w  # last-write-wins: ledger is append-only history
+    return out
+
+
+def effective_source_weights(base_dir=None) -> dict[str, int]:
+    """SOURCE_WEIGHTS overlaid by operator-approved overrides."""
+    merged = dict(SOURCE_WEIGHTS)
+    merged.update(load_weight_overrides(base_dir))
+    return merged
+
+
+def record_weight_override(
+    *, source: str, weight: int, reason: str, operator_approval_ref: str,
+    base_dir=None,
+) -> dict:
+    """Append one approved override. Refuses unknown sources and non-positive
+    weights — an override must adjust a real dial, not invent one."""
+    from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+    if source not in SOURCE_WEIGHTS:
+        raise GovernanceError(
+            f"unknown pressure source {source!r}; valid: {sorted(SOURCE_WEIGHTS)}"
+        )
+    if not isinstance(weight, int) or not (1 <= weight <= 100):
+        raise GovernanceError("weight must be an int in [1, 100]")
+    if len(reason.strip()) < 10:
+        raise GovernanceError("reason must carry at least 10 non-whitespace characters")
+    if not operator_approval_ref.strip():
+        raise GovernanceError("operator_approval_ref is required")
+    root = ensure_tools_dir(base_dir)
+    path = root.joinpath(*WEIGHT_OVERRIDES_PATH)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    import json as _json
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "source": source,
+        "weight": weight,
+        "previous_effective": effective_source_weights(base_dir)[source],
+        "reason": reason.strip(),
+        "operator_approval_ref": operator_approval_ref.strip(),
+    }
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(_json.dumps(row, sort_keys=True) + "\n")
+    return row
+
 
 # Plan S4 (ORPHAN-MEDIUM-298) — every pressure source maps to exactly one
 # drift class so the operator's genesis-policy `drift_class_weights` block
@@ -43,6 +149,27 @@ DRIFT_CLASS_BY_SOURCE = {
     "belief_revalidation": "belief_decay",
     "shadow_raw_delta": "adapter_shadow",
     "migration_surface_repeat": "schema_drift",
+    # The escalated-advisory source: repetition of what was already recorded,
+    # so it biases with the process-health class rather than any code class.
+    "uncertainty_repeat": "process_health",
+    # Own red CI is a process-health signal about ARIA's own delivery loop,
+    # not a new code-drift class — reusing the class keeps
+    # genesis_policy_default.json untouched (parity test pins the two tables).
+    "own_pr_ci": "process_health",
+    # Third-party PR CI is process health about the REPOSITORY, the same
+    # class as ARIA's own delivery loop; no new drift class, so the policy
+    # parity test keeps passing without a genesis_policy_default.json edit.
+    "repo_pr_health": "process_health",
+    # A stalled funnel is process health about ARIA ITSELF — same class,
+    # so genesis_policy_default.json needs no new drift class and the
+    # parity test keeps passing.
+    "pipeline_stalled": "process_health",
+    # ORPHAN-HIGH-758 — see SOURCE_WEIGHTS. `process_health`, the same class
+    # as its sibling `own_pr_ci`: both are ARIA's own delivery pipeline
+    # reporting on itself, and a class invented for one member would have
+    # needed a neutral weight in the default policy that nothing would ever
+    # tune (the parity test caught exactly that on the first attempt).
+    "post_merge_ci": "process_health",
 }
 
 PRESSURE_STATES = {"active", "faded", "sleeping", "archived", "closed", "satisfied"}
@@ -94,6 +221,33 @@ def run_pressure(
     drift_class_weights: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     root = ensure_tools_dir(base_dir)
+    # Resolve once per compute: every _pressure() in this run scores against
+    # the operator-effective table, so an approved override changes the next
+    # cycle's targeting — the first loop where ARIA's own precision
+    # measurement changes ARIA's behaviour.
+    _weights = effective_source_weights(root)
+    # ORPHAN-HIGH-627 — Beta-Binomial calibration over the operator-feedback
+    # ledger: each source's hand-set weight is scaled by the ratio of its
+    # labelled-precision posterior to the prior, clamped. Zero labels →
+    # multiplier exactly 1.0 (the table above stays authoritative until
+    # evidence exists), and an operator override is never second-guessed.
+    # Deterministic and recomputable from the ledger — the only kind of
+    # "smart" this kernel admits. Failure costs calibration, never pressure.
+    _calibration_detail: dict[str, Any] = {}
+    try:
+        from .calibrated_intelligence import calibrate_source_weights
+        from .feedback_store import load_feedback
+
+        _calibration_detail = calibrate_source_weights(
+            _weights,
+            load_feedback(base_dir=root),
+            operator_overridden=frozenset(load_weight_overrides(root)),
+        )
+        _weights = {
+            source: detail["weight"] for source, detail in _calibration_detail.items()
+        }
+    except (OSError, ValueError, KeyError, TypeError):
+        _calibration_detail = {}
     discovery_dir = root / "discovery" / cycle_id
     fingerprint = _read_json(discovery_dir / "REPO_FINGERPRINT.json")
     completion = _read_json(discovery_dir / "COMPLETION_PROOF.json")
@@ -102,6 +256,7 @@ def run_pressure(
     if completion.get("complete") is not True:
         pressures.append(
             _pressure(
+                weights=_weights,
                 cycle_id=cycle_id,
                 source="discovery_incomplete",
                 pressure_type="UNKNOWN",
@@ -120,6 +275,7 @@ def run_pressure(
     if migration_count >= 5 and isinstance(migration_evidence_paths, list) and migration_evidence_paths:
         pressures.append(
             _pressure(
+                weights=_weights,
                 cycle_id=cycle_id,
                 source="migration_surface_repeat",
                 pressure_type="REPETITION",
@@ -138,6 +294,7 @@ def run_pressure(
         if status == "stale":
             pressures.append(
                 _pressure(
+                    weights=_weights,
                     cycle_id=cycle_id,
                     source="belief_stale",
                     pressure_type="CONTRADICTION",
@@ -155,6 +312,7 @@ def run_pressure(
             source = "evidence_gone" if state.get("missing_concrete_refs") or state.get("empty_glob_refs") else "belief_revalidation"
             pressures.append(
                 _pressure(
+                    weights=_weights,
                     cycle_id=cycle_id,
                     source=source,
                     pressure_type="UNKNOWN",
@@ -175,6 +333,7 @@ def run_pressure(
     if contradictions:
         pressures.append(
             _pressure(
+                weights=_weights,
                 cycle_id=cycle_id,
                 source="contradiction",
                 pressure_type="CONTRADICTION",
@@ -191,11 +350,145 @@ def run_pressure(
     # ARIA's repo-evidence machinery at the referenced area; the recommended
     # action makes the unverified status explicit so a lead is never mistaken
     # for a confirmed finding.
+    # ORPHAN-HIGH-626 — own-PR CI reds, from the bridge the pr_ci_scan phase
+    # writes. A PR that went green wrote a `cleared` row, so its pressure
+    # retires the same way the red minted it.
+    from .own_pr_ci import load_open_own_pr_reds
+    for red in load_open_own_pr_reds(base_dir=root):
+        red_jobs = _array_of_strings(red.get("red_jobs"))
+        pressures.append(
+            _pressure(
+                weights=_weights,
+                cycle_id=cycle_id,
+                source="own_pr_ci",
+                pressure_type="UNKNOWN",
+                severity="high",
+                reason=(
+                    f"ARIA's own PR #{red.get('pr_number')} "
+                    f"({red.get('head_ref')}) is RED in CI: "
+                    f"{', '.join(red_jobs) or 'failed checks'}"
+                ),
+                # The truthful pointer: the PR head the checks ran against.
+                # Free-form by design (pressure evidence is a lead, not the
+                # agent-envelope's admissible-evidence contract).
+                evidence=[f"pr-{red.get('pr_number')}:{red.get('head_sha') or 'HEAD'}"],
+                occurrence_count=1,
+                candidate_tools=[],
+                recommended_action=(
+                    "read the failing check's log, fix forward on the same "
+                    "branch, and let the merge gate re-evaluate — a red own-PR "
+                    "is paid-for work the gate is silently blocking"
+                ),
+                discriminator=f"pr-{red.get('pr_number')}",
+            ),
+        )
+    # ORPHAN-718 (2026-08-18 operator directive) — post-merge reds. A red
+    # main AFTER an ARIA merge outranks a red open PR: the defect already
+    # shipped to the default branch, so the severity is critical and the
+    # action is fix-forward, not wait-for-the-gate. A later green outcome
+    # row retires the pressure the same way open-PR reds clear.
+    from .own_pr_ci import load_post_merge_reds
+    for red in load_post_merge_reds(base_dir=root):
+        red_jobs = _array_of_strings(red.get("red_jobs"))
+        pressures.append(
+            _pressure(
+                weights=_weights,
+                cycle_id=cycle_id,
+                source="post_merge_ci",
+                pressure_type="UNKNOWN",
+                severity="critical",
+                reason=(
+                    f"main went RED after ARIA's merge of PR "
+                    f"#{red.get('pr_number')} ({red.get('merge_sha')}): "
+                    f"{', '.join(red_jobs) or 'failed workflow runs'}"
+                ),
+                evidence=[f"pr-{red.get('pr_number')}:{red.get('merge_sha') or 'main'}"],
+                occurrence_count=1,
+                candidate_tools=[],
+                recommended_action=(
+                    "read the failing main-branch run's log, root-cause it, and "
+                    "author a fix-forward change; a red main after our own merge "
+                    "is the highest-priority debt this repository can carry"
+                ),
+                discriminator=f"post-merge-{red.get('pr_number')}",
+            ),
+        )
+    # ORPHAN-723 — third-party PR reds, observation-only. Low severity by
+    # design: ARIA has NO authority over these PRs (E23 gate); the
+    # pressure exists so the nightly report can say "4 Dependabot
+    # branches cannot pass CI" instead of not knowing.
+    from .own_pr_ci import load_third_party_pr_reds
+    for red in load_third_party_pr_reds(base_dir=root):
+        red_jobs = _array_of_strings(red.get("red_jobs"))
+        pressures.append(
+            _pressure(
+                weights=_weights,
+                cycle_id=cycle_id,
+                source="repo_pr_health",
+                pressure_type="UNKNOWN",
+                severity="low",
+                reason=(
+                    f"third-party PR #{red.get('pr_number')} "
+                    f"({red.get('head_ref')}, author {red.get('author')}) "
+                    f"is RED in CI: {', '.join(red_jobs) or 'failed checks'}"
+                ),
+                evidence=[f"pr-{red.get('pr_number')}:{red.get('head_ref')}"],
+                occurrence_count=1,
+                candidate_tools=[],
+                recommended_action=(
+                    "OBSERVE ONLY — surface in the nightly report; ARIA holds "
+                    "no review or merge authority over third-party PRs until "
+                    "the E23 gate opens"
+                ),
+                discriminator=f"repo-pr-{red.get('pr_number')}",
+            ),
+        )
+    # SI-1 (ORPHAN-741) — the funnel's own counters, finally read by
+    # something that can act. `rank_pressure_sources` already folds the
+    # cumulative snapshots and verifies the ledger's hash chain; the
+    # detector below only asks which stage takes work in and lets none
+    # out. Conservative by construction: a stage with little upstream
+    # volume is idle, not stalled (MIN_UPSTREAM_FOR_STALL).
+    from .funnel_health import detect_funnel_stalls
+    from .knowledge_graph import rank_pressure_sources
+
+    try:
+        # The effectiveness ledger lives under <workspace>/aria-tools/, and
+        # `root` IS that tools directory — deriving the workspace from it
+        # keeps one resolution rule instead of threading a second root
+        # through a function that already knows where the store is.
+        _funnel_rows = rank_pressure_sources(workspace_root=root.parent)
+    except Exception:  # noqa: BLE001 — an unreadable ledger is not a stall
+        _funnel_rows = []
+    for stall in detect_funnel_stalls(_funnel_rows):
+        pressures.append(
+            _pressure(
+                weights=_weights,
+                cycle_id=cycle_id,
+                source="pipeline_stalled",
+                pressure_type="UNKNOWN",
+                severity="critical",
+                reason=stall.summary,
+                evidence=[
+                    f"knowledge-graph/pressure-source-effectiveness.jsonl:"
+                    f"{stall.source_type}"
+                ],
+                occurrence_count=stall.upstream,
+                candidate_tools=[],
+                recommended_action=(
+                    f"diagnose why {stall.stage} converts nothing from "
+                    f"{stall.source_type} — this pressure is about ARIA's own "
+                    "machinery, and every other pressure waits behind it"
+                ),
+                discriminator=f"funnel-{stall.stage}-{stall.source_type}",
+            ),
+        )
     from .runtime_signal_bridge import load_open_runtime_signals
     for signal in load_open_runtime_signals(base_dir=root):
         severity = signal.get("severity") if signal.get("severity") in ("low", "medium", "high", "critical") else "high"
         pressures.append(
             _pressure(
+                weights=_weights,
                 cycle_id=cycle_id,
                 source="runtime_signal",
                 pressure_type="UNKNOWN",
@@ -221,6 +514,7 @@ def run_pressure(
         if status in ("evidence_error", "scope_violation") or run.get("evidence_validation", {}).get("repository_mutation_attempt"):
             pressures.append(
                 _pressure(
+                    weights=_weights,
                     cycle_id=cycle_id,
                     source="tool_quarantine",
                     pressure_type="CONTRADICTION",
@@ -237,6 +531,7 @@ def run_pressure(
         if run.get("status") == "ok" and delta > 0:
             pressures.append(
                 _pressure(
+                    weights=_weights,
                     cycle_id=cycle_id,
                     source="shadow_raw_delta",
                     pressure_type="REPETITION",
@@ -250,6 +545,7 @@ def run_pressure(
                 ),
             )
 
+    pressures.extend(_uncertainty_repeat_pressures(root, weights=_weights, cycle_id=cycle_id))
     _apply_drift_class_weights(pressures, drift_class_weights)
     _filter_candidate_tools(root, pressures)
     pressures.sort(key=lambda item: (-float(item["score"]), str(item["pressure_id"])))
@@ -258,6 +554,11 @@ def run_pressure(
         "generated_at": utc_now(),
         "cycle_id": cycle_id,
         "pressures": pressures,
+        # ORPHAN-HIGH-627 — the evidence-scaled weights this run actually
+        # scored with, per source: base, multiplier, tp/fp, posterior. Every
+        # number recomputable from the feedback ledger; the report renders it
+        # so the operator sees WHY a source's standing moved.
+        "calibrated_weights": _calibration_detail,
         "summary": {
             "unknown": sum(1 for item in pressures if item["type"] == "UNKNOWN"),
             "repetition": sum(1 for item in pressures if item["type"] == "REPETITION"),
@@ -301,6 +602,69 @@ def _apply_drift_class_weights(
         pressure["score"] = round(min(100.0, float(pressure["score"]) * multiplier), 3)
 
 
+# A repeated advisory is not advice, it is an unread alarm. The uncertainty
+# ledger is the kernel's "worth noting, not blocking" channel, and it held
+# NINE identical pressure_candidate_tools_unreachable rows while the failure
+# they described re-scheduled unrunnable work every cycle — zero escalation,
+# because nothing ever read the ledger back (the same
+# mechanism-without-a-caller class as the claim reaper and the registry
+# compiler). This threshold is the reader: the same (kind, subject) recorded
+# UNCERTAINTY_REPEAT_THRESHOLD times or more becomes an operator-facing
+# pressure, and it self-extinguishes through ordinary decay once the
+# underlying cause stops producing rows.
+UNCERTAINTY_REPEAT_THRESHOLD = 3
+
+# The identifying field per row, tried in order. Kept short deliberately:
+# a row with none of these still groups by kind alone, which errs toward
+# escalating, not toward silence.
+_UNCERTAINTY_SUBJECT_FIELDS: tuple[str, ...] = ("pressure_id", "tool_id", "belief_id")
+
+
+def _uncertainty_repeat_pressures(
+    root: Path,
+    *,
+    weights: dict[str, Any],
+    cycle_id: str,
+) -> list[dict[str, Any]]:
+    rows = load_jsonl(root / "memory" / "uncertainties.jsonl")
+    groups: dict[tuple[str, str], int] = {}
+    for row in rows:
+        kind = str(row.get("kind") or "")
+        if not kind:
+            continue
+        subject = next(
+            (str(row[f]) for f in _UNCERTAINTY_SUBJECT_FIELDS if row.get(f)), "",
+        )
+        groups[(kind, subject)] = groups.get((kind, subject), 0) + 1
+    escalations: list[dict[str, Any]] = []
+    for (kind, subject), count in sorted(groups.items()):
+        if count < UNCERTAINTY_REPEAT_THRESHOLD:
+            continue
+        subject_note = f" for {subject}" if subject else ""
+        escalations.append(
+            _pressure(
+                weights=weights,
+                cycle_id=cycle_id,
+                source="uncertainty_repeat",
+                discriminator=f"{kind}-{subject}" if subject else kind,
+                pressure_type="REPETITION",
+                severity="medium",
+                reason=(
+                    f"uncertainty '{kind}'{subject_note} recorded {count} times "
+                    "with no escalation — an advisory nobody reads is not advice"
+                ),
+                evidence=["aria-tools/memory/uncertainties.jsonl"],
+                occurrence_count=count,
+                candidate_tools=[],
+                recommended_action=(
+                    f"read the repeated '{kind}' rows{subject_note} and fix the "
+                    "producer or the condition; the pressure decays when the rows stop"
+                ),
+            ),
+        )
+    return escalations
+
+
 def _filter_candidate_tools(root: Path, pressures: list[dict[str, Any]]) -> None:
     known_tool_ids = {str(tool.get("tool_id")) for tool in list_tools(base_dir=root)}
     for pressure in pressures:
@@ -315,6 +679,19 @@ def _filter_candidate_tools(root: Path, pressures: list[dict[str, Any]]) -> None
         pressure["candidate_tools"] = filtered
         missing = sorted(set(original) - set(filtered))
         if missing and not filtered:
+            # A stripped tool binding is a BLOCK, not an aside. This branch
+            # used to record only the advisory row below, so a pressure whose
+            # every candidate tool had vanished from the registry stayed
+            # fully schedulable: it scored, won a next_cycle_plan slot, was
+            # enqueued, and could never run — nine identical advisory rows
+            # and zero escalation, every cycle, self-sustaining. `blocked_by`
+            # is minted empty on every pressure precisely so states like
+            # this one have somewhere structural to live; the queue writer
+            # refuses items that carry it (see reflection.py), which makes
+            # the unrunnable state unschedulable rather than merely logged.
+            pressure["blocked_by"] = [
+                f"candidate_tool_unregistered:{tool_id}" for tool_id in missing
+            ]
             append_jsonl(
                 root / "memory" / "uncertainties.jsonl",
                 {
@@ -582,13 +959,33 @@ def _pressure(
     recommended_action: str,
     belief_id: str | None = None,
     tool_id: str | None = None,
+    weights: dict[str, int] | None = None,
+    discriminator: str | None = None,
 ) -> dict[str, Any]:
     recency_decay = 1.0
-    base_weight = SOURCE_WEIGHTS[source]
+    # ORPHAN-CRITICAL-733 — a source missing from the weight table used to
+    # raise a bare KeyError deep inside the pressure phase, and the phase's
+    # error surfaced as the opaque string "'repo_pr_health'" while the whole
+    # cycle failed (2026-08-18 evening run). The vocabulary is CLOSED by
+    # design; the fix is to say so at the boundary, in the producer's own
+    # language, so the next unregistered source names itself and its two
+    # registration sites.
+    table = weights or SOURCE_WEIGHTS
+    if source not in table:
+        raise GovernanceError(
+            f"unregistered_pressure_source: {source!r} — add it to "
+            "pressure.SOURCE_WEIGHTS and pressure.DRIFT_CLASS_BY_SOURCE "
+            "(both tables are closed vocabularies; the drift-class parity "
+            "test pins the pair)"
+        )
+    base_weight = table[source]
     count = max(1, occurrence_count)
     raw_score = base_weight * recency_decay * (1 + math.log10(count))
     score = round(min(100.0, raw_score), 3)
-    pressure_id_parts = [source, belief_id or tool_id or pressure_type.lower()]
+    # `discriminator` exists for sources that fan out by subject (one
+    # uncertainty kind per pressure) without polluting belief_id/tool_id,
+    # whose fields carry semantics downstream.
+    pressure_id_parts = [source, discriminator or belief_id or tool_id or pressure_type.lower()]
     return {
         "schema_version": 1,
         "pressure_id": "pressure:" + ":".join(_slug(part) for part in pressure_id_parts if part),

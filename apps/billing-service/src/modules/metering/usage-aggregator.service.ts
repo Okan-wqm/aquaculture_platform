@@ -8,7 +8,8 @@
  */
 
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
-import { DataSource, Repository, In, MoreThanOrEqual, Not } from 'typeorm';
+import { Cron, CronExpression, Interval } from '@nestjs/schedule';
+import { DataSource, Repository, Between, In, MoreThanOrEqual, Not } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { MeterType, UsageMeteringService, MeterReading } from './usage-metering.service';
 import { UsageAggregation, UsageHourlyData } from './entities/usage-aggregation.entity';
@@ -103,6 +104,23 @@ export interface RollupConfig {
 }
 
 /**
+ * Month-to-date usage summary for one meter, read from the PERSISTED
+ * usage_aggregations rows (not the per-instance in-memory cache).
+ *
+ * WHY two numbers: cumulative counters (api_calls, sensor_readings) are
+ * answered by the month's summed totalUsage, while gauge meters
+ * (data_storage, users/farms/sensors active) record absolute levels — for
+ * those the most recent hourly bucket's maxUsage is the current level.
+ */
+export interface MeterMonthUsage {
+  meterType: MeterType;
+  /** Σ totalUsage across the month window — correct for cumulative counters. */
+  cumulativeTotal: number;
+  /** maxUsage of the most recent hourly bucket — current level for gauges. */
+  latestLevel: number;
+}
+
+/**
  * Usage trend data point
  */
 export interface UsageTrendPoint {
@@ -146,7 +164,6 @@ export class UsageAggregatorService implements OnModuleInit, OnModuleDestroy {
   // Dirty tracking for batch persistence
   private readonly dirtyAggregations = new Set<string>();
   private readonly dirtyHourlyData = new Set<string>();
-  private persistenceInterval: ReturnType<typeof setInterval> | null = null;
 
   // Metrics
   private metrics = {
@@ -166,10 +183,10 @@ export class UsageAggregatorService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleInit(): Promise<void> {
     // Initialize repositories at module init — this service is a cross-
-    // tenant aggregator (runs a 30s persistence interval + periodic
-    // rollups across ALL tenants in one pass). tenantManagerRepo is
-    // not applicable because no single tenantId holds for the service's
-    // lifetime; every downstream query pins tenantId explicitly.
+    // tenant aggregator (Nest-scheduled persistence + rollup passes run
+    // across ALL tenants in one pass). tenantManagerRepo is not applicable
+    // because no single tenantId holds for the service's lifetime; every
+    // downstream query pins tenantId explicitly.
     // eslint-disable-next-line no-restricted-syntax -- cross-tenant aggregator
     this.aggregationRepository = this.dataSource.getRepository(UsageAggregation);
     // eslint-disable-next-line no-restricted-syntax -- cross-tenant aggregator
@@ -178,29 +195,127 @@ export class UsageAggregatorService implements OnModuleInit, OnModuleDestroy {
     this.initializeDefaultRollupConfigs();
     this.setupEventListeners();
 
-    // Load existing data from database
+    // Load existing data from database. Periodic persistence and rollups are
+    // now driven by the Nest `@Interval`/`@Cron` methods below (registered
+    // with SchedulerRegistry via ScheduleModule) rather than a hand-rolled
+    // setInterval — Nest owns their lifecycle, discovery, and shutdown.
     await this.loadFromDatabase();
-
-    // Setup periodic persistence (every 30 seconds)
-    this.persistenceInterval = setInterval(() => {
-      this.persistDirtyData().catch(err => {
-        this.logger.error(`Failed to persist dirty data: ${err.message}`);
-      });
-    }, 30000);
 
     this.logger.log('UsageAggregatorService initialized with database persistence');
   }
 
   async onModuleDestroy(): Promise<void> {
-    // Clear persistence interval
-    if (this.persistenceInterval) {
-      clearInterval(this.persistenceInterval);
-      this.persistenceInterval = null;
-    }
-
-    // Final persistence before shutdown
+    // Final persistence before shutdown. The periodic flush timer is a Nest
+    // `@Interval`, so ScheduleModule stops it automatically on shutdown; we
+    // only need to force one last drain of any still-dirty in-memory state.
     await this.persistDirtyData();
     this.logger.log('UsageAggregatorService shutdown - all data persisted');
+  }
+
+  /**
+   * Periodic durability flush (Billing Revival Faz E).
+   *
+   * WHY `@Interval` not `setInterval`: the billing app already wires
+   * `ScheduleModule.forRoot()`. A hand-rolled `setInterval` in `onModuleInit`
+   * bypassed Nest's SchedulerRegistry — the timer was invisible to the
+   * scheduler, unmanaged on shutdown, and untestable without wall-clock
+   * advancement. `@Interval` registers the timer with Nest so it is
+   * discoverable and torn down cleanly.
+   *
+   * WHAT: every 30s, upsert dirty in-memory aggregations / hourly rows to the
+   * database. `persistDirtyData` is a no-op when nothing is dirty and catches
+   * its own DB errors, so this can never throw an unhandled rejection.
+   */
+  @Interval('metering-aggregator-persist', 30000)
+  async flushDirtyDataOnInterval(): Promise<void> {
+    await this.persistDirtyData();
+  }
+
+  /**
+   * Scheduled rollup driver (Billing Revival Faz E).
+   *
+   * WHY: `performRollup` previously had ZERO callers and the
+   * `aggregateOnSchedule` flag on each `RollupConfig` was written but never
+   * read — the hourly→daily→weekly/monthly rollup chain never ran, so no
+   * coarser-granularity `usage_aggregations` rows were ever materialised. This
+   * `@Cron` reads the configured rollups and builds each coarser aggregation
+   * from its finer source.
+   *
+   * WHAT: hourly, for every configured rollup with `aggregateOnSchedule=true`,
+   * for every tenant that has recorded aggregations and every meter active for
+   * that tenant, it rebuilds BOTH the in-progress target period (so the current
+   * bucket stays fresh as new source rows arrive) and the immediately-previous
+   * target period (so a period that closed since the last tick is finalised).
+   * Configs are processed in declared order (HOURLY→DAILY first) so a freshly
+   * materialised DAILY row is available before the DAILY→MONTHLY step consumes
+   * it within the SAME pass.
+   *
+   * IDEMPOTENT: `performRollup` rebuilds a target aggregation by SUMMING its
+   * sources and OVERWRITING (never accumulating) the keyed row, so repeated
+   * runs converge to identical values. It is safe to run before any usage has
+   * been ingested — every call simply returns `null` and no rows are written.
+   */
+  @Cron(CronExpression.EVERY_HOUR, { name: 'metering-aggregator-rollup' })
+  runScheduledRollups(): void {
+    const now = new Date();
+    let rollupsWritten = 0;
+
+    for (const config of this.rollupConfigs) {
+      if (!config.aggregateOnSchedule) {
+        continue;
+      }
+
+      for (const tenantId of this.tenantAggregationIndex.keys()) {
+        for (const meterType of this.activeMeterTypesForTenant(tenantId)) {
+          // In-progress target period — keeps the current bucket fresh.
+          if (
+            this.performRollup(tenantId, meterType, config.sourcePeriod, config.targetPeriod, now)
+          ) {
+            rollupsWritten++;
+          }
+
+          // Previous (now-closed) target period — finalises it exactly once
+          // it has rolled over, even if no tick fired on the boundary.
+          const previousTargetStart = this.subtractPeriods(now, config.targetPeriod, 1);
+          if (
+            this.performRollup(
+              tenantId,
+              meterType,
+              config.sourcePeriod,
+              config.targetPeriod,
+              previousTargetStart,
+            )
+          ) {
+            rollupsWritten++;
+          }
+        }
+      }
+    }
+
+    if (rollupsWritten > 0) {
+      this.logger.debug(`Scheduled rollup pass created/updated ${rollupsWritten} aggregations`);
+    }
+  }
+
+  /**
+   * Active meter types for one tenant, resolved via the secondary tenant
+   * index (O(tenant-record-count)) rather than scanning every tenant's
+   * aggregations — the same CRITICAL-002 discipline used by
+   * `getAggregationsInRange`/`performRollup`.
+   */
+  private activeMeterTypesForTenant(tenantId: string): MeterType[] {
+    const tenantKeys = this.tenantAggregationIndex.get(tenantId);
+    if (!tenantKeys) {
+      return [];
+    }
+    const meterTypes = new Set<MeterType>();
+    for (const key of tenantKeys) {
+      const aggregation = this.aggregations.get(key);
+      if (aggregation) {
+        meterTypes.add(aggregation.meterType);
+      }
+    }
+    return Array.from(meterTypes);
   }
 
   /**
@@ -633,6 +748,54 @@ export class UsageAggregatorService implements OnModuleInit, OnModuleDestroy {
     );
 
     return rollup;
+  }
+
+  /**
+   * Month-to-date persisted usage summary for one tenant.
+   *
+   * WHY: `billing.tenant_usage_metrics` was retired (A6 / DB-IDENT-MEDIUM-002)
+   * — `usage_aggregations` is the single persisted usage model. Tenant-facing
+   * billing reads (GetTenantBillingHandler) need a month summary that is
+   * correct across service instances, so this reads the PERSISTED rows rather
+   * than the per-instance in-memory cache above.
+   *
+   * WHAT: aggregates the tenant's HOURLY rows inside the month containing
+   * `reference`. HOURLY is the granularity the live event path writes
+   * (`handleUsageRecorded` → `updateAggregation(HOURLY)`); rollup periods are
+   * derived views, so summing hourly buckets never double-counts.
+   */
+  async getPersistedMonthUsage(
+    tenantId: string,
+    reference: Date,
+  ): Promise<Map<MeterType, MeterMonthUsage>> {
+    const bounds = this.getPeriodBounds(AggregationPeriod.MONTHLY, reference);
+
+    // This service is a cross-tenant aggregator (see onModuleInit); per its
+    // contract every downstream query pins tenantId explicitly in the WHERE.
+    const rows = await this.aggregationRepository.find({
+      where: {
+        tenantId,
+        period: AggregationPeriod.HOURLY,
+        periodStart: Between(bounds.start, bounds.end),
+      },
+      order: { periodStart: 'ASC' },
+    });
+
+    const summary = new Map<MeterType, MeterMonthUsage>();
+    for (const row of rows) {
+      const entry = summary.get(row.meterType) ?? {
+        meterType: row.meterType,
+        cumulativeTotal: 0,
+        latestLevel: 0,
+      };
+      entry.cumulativeTotal += row.totalUsage;
+      // Rows arrive periodStart-ASC, so the last row seen per meter is the
+      // most recent bucket — its maxUsage is the level a gauge meter reached
+      // in that bucket (gauges record absolute levels as event quantities).
+      entry.latestLevel = row.maxUsage;
+      summary.set(row.meterType, entry);
+    }
+    return summary;
   }
 
   /**

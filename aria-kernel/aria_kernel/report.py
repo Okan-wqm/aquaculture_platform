@@ -35,6 +35,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .strict_jsonl_reader import read_strict_jsonl
+
 
 def _safe_read_lines(path: Path) -> list[str]:
     """Read a JSONL file, return list of non-blank lines. Missing → []."""
@@ -67,15 +69,66 @@ def _count_events(path: Path) -> int:
     return len(_safe_read_lines(path))
 
 
+# FAZ 5c — the governance kinds that mean "the night could not run for an
+# environment reason". The pre-claim gate (ci_executor) and the orchestrator
+# preflight are the producers; the anchor is where the operator reads the
+# WHY without opening the ledger.
+_BLOCKED_REASON_KINDS = frozenset({
+    "claude_auth_unavailable",
+    "sandbox_unavailable",
+    "env_deps_missing",
+    "autonomy_orchestrator_refused",
+    "preflight_standard_warnings",
+    # E18-b — a mid-run disk-full append now names itself (ledger.py
+    # environment_failure:disk_full); the anchor's blocked-reason surface
+    # carries it instead of a phase stack trace.
+    "environment_failure_disk_full",
+})
+
+
+def _blocked_reasons(governance_path: Path, date: str) -> list[dict[str, Any]]:
+    """The environment refusals recorded on ``date``, newest last.
+
+    Derived from the ledger rather than passed by the caller (tier 2:
+    automatic) — a night that could not run always leaves its governance
+    row, so the anchor carries the cause with zero caller cooperation.
+    """
+    reasons: list[dict[str, Any]] = []
+    for row in read_strict_jsonl(
+        governance_path,
+        on_corruption="tolerant",
+        base_dir=governance_path.parent,
+    ):
+        if not isinstance(row, dict):
+            continue
+        kind = str(row.get("kind") or "")
+        if kind not in _BLOCKED_REASON_KINDS:
+            continue
+        # governance_event rows stamp `ts` (aria/governance-event/v2).
+        recorded_at = str(row.get("ts") or row.get("recorded_at") or "")
+        if not recorded_at.startswith(date):
+            continue
+        details = row.get("details") if isinstance(row.get("details"), dict) else {}
+        detail = details.get("detail") or details.get("reason")
+        if not detail and isinstance(details.get("reasons"), list):
+            detail = "; ".join(str(item) for item in details["reasons"])
+        reasons.append({
+            "kind": kind,
+            "detail": str(detail or ""),
+            "recorded_at": recorded_at,
+        })
+    return reasons
+
+
 def _read_sealed_cycle_ids(cycles_path: Path) -> list[str]:
     """Return cycle_ids whose latest row carries a terminal status."""
     terminal = {"completed", "failed", "stopped", "aborted"}
     state: dict[str, str] = {}
-    for line in _safe_read_lines(cycles_path):
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    for row in read_strict_jsonl(
+        cycles_path,
+        on_corruption="tolerant",
+        base_dir=cycles_path.parent,
+    ):
         if not isinstance(row, dict):
             continue
         cycle_id = row.get("cycle_id")
@@ -153,11 +206,11 @@ def _roi_metrics(tools_root: Path, date: str) -> dict[str, Any]:
     day_cost = mtd_cost = 0.0
     day_calls = 0
     day_cycles: set[str] = set()
-    for line in _safe_read_lines(shard):
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    for row in read_strict_jsonl(
+        shard,
+        on_corruption="tolerant",
+        base_dir=tools_root,
+    ):
         recorded = str(row.get("recorded_at") or "")
         if not recorded.startswith(month):
             continue
@@ -172,11 +225,11 @@ def _roi_metrics(tools_root: Path, date: str) -> dict[str, Any]:
             if row.get("cycle_id"):
                 day_cycles.add(str(row["cycle_id"]))
     day_merged = mtd_merged = 0
-    for line in _safe_read_lines(tools_root / "pr-lifecycle.jsonl"):
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    for row in read_strict_jsonl(
+        tools_root / "pr-lifecycle.jsonl",
+        on_corruption="tolerant",
+        base_dir=tools_root,
+    ):
         if row.get("event") != "merged":
             continue
         recorded = str(row.get("recorded_at") or "")
@@ -195,11 +248,39 @@ def _roi_metrics(tools_root: Path, date: str) -> dict[str, Any]:
     }
 
 
+def _state_snapshot_anchor(path: Path | None) -> tuple[str | None, str | None]:
+    """Wave 1 §2.2 — the snapshot's identity + tree-level continuity root.
+
+    The anchor is the one audit record that lands in git on the daily
+    report PR, so pinning ``manifest_root`` here is what carries
+    tree-level continuity into a store nobody can rewrite in place:
+    a later reader can take any snapshot claiming to precede today's
+    state and check it against a root that was committed at the time.
+    Best-effort like every other field — no snapshot yet reads as None,
+    never as a zero that a consumer would sum.
+    """
+    if path is None or not path.is_file():
+        return None, None
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None, None
+    if not isinstance(manifest, dict):
+        return None, None
+    snapshot_id = manifest.get("snapshot_id")
+    manifest_root = manifest.get("manifest_root")
+    return (
+        snapshot_id if isinstance(snapshot_id, str) else None,
+        manifest_root if isinstance(manifest_root, str) else None,
+    )
+
+
 def build_daily_anchor(
     *,
     date: str,
     workspace_root: Path,
     tools_root: Path,
+    state_snapshot_path: Path | None = None,
 ) -> dict[str, Any]:
     """Plan ARIA-V2 §3.9 + I-26 — assemble the daily anchor payload.
 
@@ -215,6 +296,7 @@ def build_daily_anchor(
     governance_path = tools_root / "governance.jsonl"
     cycles_path = tools_root / "cycles.jsonl"
     integrity_index_path = tools_root / "integrity_index.json"
+    snapshot_id, manifest_root = _state_snapshot_anchor(state_snapshot_path)
 
     return {
         "date": date,
@@ -226,16 +308,30 @@ def build_daily_anchor(
         # Plan S6 (ORPHAN-MEDIUM-299) — additive key; the I-26 invariant
         # only constrains the pre-existing fields.
         "roi": _roi_metrics(tools_root, date),
+        # Wave 1 §2.2 — additive, same contract: the state snapshot's id
+        # and tree-level continuity root, committed with the anchor so
+        # continuity has a witness outside the state store itself.
+        "state_snapshot_id": snapshot_id,
+        "state_manifest_root": manifest_root,
+        # FAZ 5c — additive: when the night could not run, the anchor says
+        # WHY (environment refusals recorded on this date). Empty list on a
+        # healthy night; the I-26 invariant constrains only the
+        # pre-existing fields.
+        "blocked_reason": _blocked_reasons(governance_path, date),
     }
 
 
-def render_anchor_markdown(anchor: dict[str, Any]) -> str:
+def render_anchor_markdown(
+    anchor: dict[str, Any], *, body_markdown: str | None = None
+) -> str:
     """Render the anchor as YAML frontmatter + markdown body.
 
-    The body is intentionally minimal — the load-bearing payload is the
-    frontmatter. Operators or downstream tooling can extend the body in
-    follow-up commits without breaking the I-26 parseability invariant
-    (which only reads frontmatter).
+    FAZ 6a — when ``body_markdown`` is supplied (the reflection daily
+    report from the durable store), the anchor becomes that report's
+    FRONTMATTER instead of a competing document: one path, one artifact,
+    the two-writers-one-filename class dies. Without a body the pre-FAZ-6
+    minimal stub renders unchanged, so the I-26 parseability invariant
+    (which only reads frontmatter) holds in both shapes.
     """
     import yaml  # type: ignore[import-untyped]
 
@@ -245,6 +341,8 @@ def render_anchor_markdown(anchor: dict[str, Any]) -> str:
         default_flow_style=False,
         allow_unicode=True,
     )
+    if body_markdown is not None:
+        return "---\n" + front + "---\n\n" + body_markdown.strip() + "\n"
     return (
         "---\n"
         + front
@@ -278,30 +376,79 @@ def emit_anchor_to_path(
     workspace_root: Path,
     tools_root: Path,
     output_path: Path,
+    state_snapshot_path: Path | None = None,
 ) -> dict[str, Any]:
     """Plan ARIA-V2 §3.9 CLI handler — assemble + write the anchor.
 
     Idempotent: if ``output_path`` already exists AND already has a
     parseable Plan ARIA-V2 frontmatter, leave it unchanged. New anchors
     (and pre-existing legacy stubs without frontmatter) get rewritten.
+
+    ``state_snapshot_path`` reaches ``build_daily_anchor`` through here so
+    the committed anchor pins the state store's ``manifest_root``. The
+    parameter existed one level down with nothing forwarding to it — a
+    capability with no caller, which is the same shape as the defect the
+    anchor exists to catch.
     """
     anchor = build_daily_anchor(
         date=date,
         workspace_root=workspace_root,
         tools_root=tools_root,
+        state_snapshot_path=state_snapshot_path,
     )
+    # FAZ 6a — the anchor was a SECOND writer of the daily-report filename:
+    # the lane committed this stub while reflection wrote the real report to
+    # the durable store, so the published PR carried three empty lines and
+    # the operator-facing report was never published anywhere. When the
+    # store holds the reflection report for this date, the anchor becomes
+    # its frontmatter and the published artifact IS the report.
+    reflection_report = tools_root / "reports" / "daily" / f"{date}.md"
+    body_markdown: str | None = None
+    if reflection_report.is_file() and reflection_report.resolve() != output_path.resolve():
+        try:
+            body_markdown = reflection_report.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            body_markdown = None
     if output_path.exists() and _has_v2_frontmatter(output_path):
-        return {
-            "status": "already_anchored",
-            "path": output_path.as_posix(),
-            "anchor": anchor,
-        }
+        # C2/E8 — idempotence is body-aware, not blanket. The blanket
+        # "already anchored, leave it" locked in whichever body got there
+        # first: a stub emitted before reflection ran was FROZEN for that
+        # date — the real report could land in the store minutes later and
+        # never be published. Reflection bodies stay immutable (the anchor
+        # must never overwrite the real report); a stub upgrades to the
+        # reflection body the moment one exists.
+        existing = parse_anchor_frontmatter(output_path) or {}
+        existing_body = existing.get("report_body")
+        if existing_body != "stub" and existing_body is not None:
+            return {
+                "status": "already_anchored",
+                "path": output_path.as_posix(),
+                "anchor": anchor,
+                "report_body": str(existing_body),
+            }
+        # Legacy anchors predate the report_body field; treat them as
+        # stubs (they were — the field was born with this upgrade path).
+        if body_markdown is None:
+            return {
+                "status": "already_anchored",
+                "path": output_path.as_posix(),
+                "anchor": anchor,
+                "report_body": "stub",
+            }
+    # The body kind travels IN the frontmatter so the next emission (and
+    # any auditor) can tell a stub from the real report without diffing
+    # bodies — that is what makes the stub→reflection upgrade decidable.
+    anchor["report_body"] = "reflection" if body_markdown is not None else "stub"
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(render_anchor_markdown(anchor), encoding="utf-8")
+    output_path.write_text(
+        render_anchor_markdown(anchor, body_markdown=body_markdown),
+        encoding="utf-8",
+    )
     return {
         "status": "written",
         "path": output_path.as_posix(),
         "anchor": anchor,
+        "report_body": anchor["report_body"],
     }
 
 

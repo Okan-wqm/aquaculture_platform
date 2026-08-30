@@ -1,6 +1,9 @@
 import { Injectable, Logger, OnApplicationBootstrap, Type } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { bootstrapSignalSchemas, platformFunctions } from '@platform/service-catalog';
 import { DataSource } from 'typeorm';
+
+import { PROTECTED_TABLES } from '../constants/protected-tables';
 
 import { resolveDbMigrateAuthoritativeFromConfig } from './db-migrate-authority.util';
 import { MIGRATION_LEDGER_TABLE, tenantMigrationLedgerTable } from './migration-ledger';
@@ -288,12 +291,29 @@ export function createSchemaVersionGate(
         );
       }
 
-      // Light sanity check on counts — a fully-applied bootstrap installs
-      // exactly 16 platform schemas, 4 platform functions, and 5 shared
-      // tables. Anything below means partial-apply state.
-      const EXPECTED_SCHEMA_COUNT = 16;
-      const EXPECTED_FUNCTION_COUNT = 4;
-      const EXPECTED_SHARED_TABLE_COUNT = 5;
+      // Count expectations are DERIVED from the platform-topology SSoT
+      // (@platform/service-catalog) + PROTECTED_TABLES — never hand-copied
+      // literals. WHY: on 2026-07-13 a hand-copied `EXPECTED_SHARED_TABLE_COUNT
+      // = 5` crash-looped EVERY backend service when ADR-042 retired
+      // shared.user_permissions (bootstrap honestly recorded 4, the gate still
+      // demanded 5 — ORPHAN-HIGH-387). Its siblings `= 16` / `= 4` were the
+      // same latent class (ORPHAN-HIGH-405); all three now derive from a
+      // single source so a schema/function/table retirement can never leave a
+      // stale literal behind.
+      //
+      // NOTE — this count check does NOT detect a real partial-apply: the
+      // bootstrap writer refuses to write `bootstrap_signal` unless its counts
+      // already equal its own expectation, so a present row is always complete
+      // and `observed < EXPECTED` only ever fires on a stale gate literal (the
+      // crash class above) or cross-image version skew. Genuine partial-apply
+      // is caught by the writer's post-conditions + the replay DDL guard. The
+      // value of deriving these is removing the stale-literal crash, not
+      // strengthening detection.
+      const EXPECTED_SCHEMA_COUNT = bootstrapSignalSchemas().length;
+      const EXPECTED_FUNCTION_COUNT = platformFunctions().length;
+      const EXPECTED_SHARED_TABLE_COUNT = PROTECTED_TABLES.filter((table) =>
+        table.startsWith('shared.'),
+      ).length;
       const observedSchema = row.schema_count ?? 0;
       const observedFn = row.function_count ?? 0;
       const observedSharedTbl = row.shared_table_count ?? 0;
@@ -409,11 +429,15 @@ export function createSchemaVersionGate(
           release_id: string;
           expected_ts: string | null;
           expected_name: string | null;
+          source_ts: string | null;
+          source_name: string | null;
           fanout_evidence: unknown;
         }> = await this.dataSource.query(
           `SELECT release_id,
                   expected_heads #>> ARRAY['tenants', $1, $2, 'timestamp'] AS expected_ts,
                   expected_heads #>> ARRAY['tenants', $1, $2, 'name'] AS expected_name,
+                  expected_heads #>> ARRAY['schemas', $2, 'timestamp'] AS source_ts,
+                  expected_heads #>> ARRAY['schemas', $2, 'name'] AS source_name,
                   tenant_fanout #> ARRAY[$2, 'tenants', $1] AS fanout_evidence
              FROM platform.release_ledger
             WHERE status = ANY($3::text[])
@@ -431,11 +455,41 @@ export function createSchemaVersionGate(
           );
         }
         if (!row.expected_ts || !row.expected_name) {
-          throw new Error(
-            `[SchemaVersionGate:${sourceSchema}] Release ${row.release_id} does not declare an expected ` +
-              `tenant head for "${tenantSchema}" source schema "${sourceSchema}". Service boot refused.`,
+          // ORPHAN-HIGH-410 — a tenant onboarded AFTER the newest release was
+          // provisioned by the runtime tenant-schema-provisioner, so that
+          // release row carries no per-tenant head for it. Refusing boot here
+          // crash-loops every tenant-aware service on the next restart (OOM,
+          // reschedule, reboot) until the following full deploy re-enumerates
+          // all tenants. Instead DEGRADE: the provisioner replays the SAME
+          // migrations as the source schema, so validate the tenant against the
+          // release's SOURCE head. If it matches, the tenant is at the release's
+          // migration level (correctly provisioned post-release) and boot is
+          // allowed; a real lag still fails below. We deliberately do NOT write
+          // this tenant into release_ledger from this runtime path — a non-deploy
+          // context mutating the deployment SSoT could shadow the gate's
+          // newest-row selection and crash-loop the fleet (the writer approach
+          // rejected in review).
+          if (!row.source_ts || !row.source_name) {
+            throw new Error(
+              `[SchemaVersionGate:${sourceSchema}] Release ${row.release_id} declares no source head for ` +
+                `"${sourceSchema}", so a post-release tenant "${tenantSchema}" cannot be validated. Service boot refused.`,
+            );
+          }
+          if (row.source_ts !== actual.timestamp || row.source_name !== actual.name) {
+            throw new Error(
+              `[SchemaVersionGate:${sourceSchema}] Post-release tenant "${tenantSchema}" is behind the release ` +
+                `source head. release=${row.release_id} source-expected=${row.source_name}@${row.source_ts} ` +
+                `actual=${actual.name}@${actual.timestamp}. Run aqua-db-migrate tenant fan-out for this tenant.`,
+            );
+          }
+          this.logger.log(
+            `Tenant "${tenantSchema}" was onboarded after release ${row.release_id}; validated against the ` +
+              `source head ${row.source_name}@${row.source_ts} (no per-tenant head in the release row is expected).`,
           );
+          return;
         }
+        // Deploy-provisioned tenant: enforce the strict per-tenant head +
+        // fan-out-evidence contract the deploy recorded.
         if (row.fanout_evidence === null || row.fanout_evidence === undefined) {
           throw new Error(
             `[SchemaVersionGate:${sourceSchema}] Release ${row.release_id} does not declare tenant fan-out ` +

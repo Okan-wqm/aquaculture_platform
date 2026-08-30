@@ -7,11 +7,17 @@ export * from './enums/tenant-plan.enum';
 // Per-plan resource limits SSoT (SSOT-C-13 cure) — the single catalog every
 // service projects its plan limits from; replaces 5 hand-copied catalogs.
 export * from './billing/plan-catalog';
+// Billing/admin sellable-tier enum SSoT (Faz D — D8 cure). Distinct from the
+// entitlement `TenantPlan`: no `trial`, plus a negotiated `custom` tier. The
+// billing + admin entities re-export this; the FE literals are pinned to it.
+export * from './billing/billing-plan-tier';
 export * from './enums/tenant-status.enum';
 // Tenant lifecycle transition authority (auth-audit HIGH-007). Pure,
 // dependency-free logic that gates every status change + login + erasure.
 export * from './enums/tenant-status.machine';
 export * from './tenant-erasure-targets';
+// Config-runtime RPC subjects + ConfigurationChanged signal (Billing Revival Faz C).
+export * from './config-runtime';
 
 // Domain events by module
 export * from './auth-events';
@@ -19,6 +25,7 @@ export * from './tenant-events';
 export * from './tenant-commands';
 export * from './farm-events';
 export * from './sensor-events';
+export * from './sensor-reading-parameters';
 export * from './alert-events';
 export * from './notification-events';
 export * from './notification-commands';
@@ -65,6 +72,7 @@ export * from './upcasters';
 // Runtime JSON Schema validators for trust-boundary crossing (H-3)
 export * from './auth-user-queries';
 export * from './auth-credential-queries';
+export * from './farm-site-access-queries';
 export * from './schemas';
 
 // Re-export all domain union types for convenience

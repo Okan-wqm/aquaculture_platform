@@ -9,6 +9,7 @@ import {
   backendImageBuildTargets,
   frontendImageBuildTargets,
   imageBuildTargets,
+  infraImageBuildMatrix,
   infraImageBuildTargets,
   readinessServices,
   gatewaySubgraphs,
@@ -48,6 +49,7 @@ interface GeneratedServiceCatalog {
     backendImageTargets: string[];
     frontendImageTargets: string[];
     infraImageTargets: string[];
+    infraImageMatrix: Array<{ image: string; dockerfile: string; context: string }>;
     applicationImageServices: string[];
     serviceDbRolePrefixes: string[];
     readinessServices: Array<{ serviceId: string; port: number }>;
@@ -94,7 +96,9 @@ describe('platform service catalog parity', () => {
     const catalogSchemas = SCHEMA_REGISTRY.map((entry) => {
       const catalogEntry = catalog.get(entry.service);
       if (!catalogEntry) {
-        throw new Error(`service catalog has no entry for schema-registry service ${entry.service}`);
+        throw new Error(
+          `service catalog has no entry for schema-registry service ${entry.service}`,
+        );
       }
       return [
         catalogEntry.serviceId,
@@ -117,9 +121,9 @@ describe('platform service catalog parity', () => {
     const compose = readFileSync('docker-compose.droplet.yml', 'utf8');
     for (const entry of readinessServices()) {
       const block =
-        new RegExp(
-          `\\n  ${entry.serviceId}:\\n[\\s\\S]*?(?=\\n  [a-zA-Z0-9_-]+:\\n|$)`,
-        ).exec(`\n${compose}`)?.[0] ?? '';
+        new RegExp(`\\n  ${entry.serviceId}:\\n[\\s\\S]*?(?=\\n  [a-zA-Z0-9_-]+:\\n|$)`).exec(
+          `\n${compose}`,
+        )?.[0] ?? '';
       expect(block).toContain(`${entry.serviceId}:`);
       const portMatch = /\n\s+PORT:\s*["']?(\d+)["']?/.exec(block);
       const composePort = portMatch ? Number(portMatch[1]) : 3000;
@@ -167,6 +171,7 @@ describe('platform service catalog parity', () => {
       [...frontendImageBuildTargets()].sort(),
     );
     expect(generated.deploy.infraImageTargets.sort()).toEqual([...infraImageBuildTargets()].sort());
+    expect(generated.deploy.infraImageMatrix).toEqual([...infraImageBuildMatrix()]);
     expect(generated.deploy.applicationImageServices.sort()).toEqual(
       [...imageBuildTargets()].sort(),
     );
@@ -257,7 +262,7 @@ describe('platform service catalog parity', () => {
     );
   });
 
-  it('requires config and event-store runtime boundaries in the deploy env manifest', () => {
+  it('requires cataloged runtime boundaries in the deploy env manifest', () => {
     const manifest = readYaml<RequiredSecretsManifest>(
       'infrastructure/deploy/required-secrets.yaml',
     );
@@ -270,6 +275,10 @@ describe('platform service catalog parity', () => {
       'CONFIG_SERVICE_DB_PASS',
       'EVENT_STORE_SERVICE_DB_PASS',
       'SERVICE_IDENTITY_KEYRING',
+      'SPACES_ENDPOINT',
+      'SPACES_REGION',
+      'WALG_BACKUP_EPOCH',
+      'WALG_SPACES_BUCKET',
     ]) {
       expect(declared.has(name)).toBe(true);
     }

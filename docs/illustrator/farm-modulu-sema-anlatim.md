@@ -1,8 +1,17 @@
 # Farm Modülü — Frontend'den Veritabanına Veri Akışı (Detaylı Teknik Anlatım)
 
+> **Tarihsel envanter:** Bu dosya 2026 ilkbaharındaki farm modülünü anlatır;
+> güncel API veya runtime sözleşmesi değildir. Eski `MapViewPage`, tenant
+> Sentinel credential formu, weather settings ve point/AOI/tile proxy
+> anlatımları emekliye ayrılmıştır. Güncel çevresel izleme sözleşmesi için
+> `apps/farm-service/schema.graphql`,
+> `docs/api/openapi/farm-service.yaml` ve
+> `docs/runbooks/monitoring/farm-environment-monitoring.md` kaynak alınır.
+
 Bu doküman farm modülünün tamamını, ekrandan veritabanına kadar olan veri akışını her alan ve her tablo için açıklayan resmi bir teknik referanstır. Modülü hiç bilmeyen bir okuyucunun takip edebileceği şekilde yazılmıştır; hiçbir teknik terim varsayılmadan tanımlanır. Tablo-bazlı hızlı başvuru için bkz: [`farm-modulu-sema-gorsel.md`](./farm-modulu-sema-gorsel.md).
 
 **Doküman kapsamı:**
+
 - 70 veritabanı tablosu (69 `farm` şeması + 1 `public` şeması)
 - 36 GraphQL resolver (~80 mutation, ~60 query)
 - 3 REST controller, 1 ana event handler
@@ -61,12 +70,14 @@ Sistem beş ayrı katmandan oluşur. Bir form verisi "Kaydet" butonundan Postgre
 İki alt katman:
 
 **GraphQL**
+
 - 36 resolver dosyası
 - Yaklaşık 80 mutation (yazma işlemleri), 60 query (okuma)
 - Her resolver'ın karşılığı bir veya birden fazla tablodur
 - Tenant bilgisi JWT'den çıkartılır (`@CurrentTenant()` dekoratörü)
 
 **REST**
+
 - Sadece 3 controller: `BatchController` (gerçek domain), `HealthController` (liveness/readiness), `SentinelHubProxyController` (uydu proxy)
 - BatchController, GraphQL ile aynı komut handler'ları çağırır — iki kanal da aynı yere yazar. Kullanımı: harici sistem entegrasyonu, SCADA, toplu veri aktarımı.
 
@@ -158,22 +169,23 @@ Ana ekran: `web/modules/farm-module/src/pages/setup/SetupPage.tsx`
 
 SetupPage sekmeli bir arayüzdür. Her sekme bir alt sisteme karşılık gelir:
 
-| Sekme | Dosya | Yazdığı Tablolar |
-|-------|-------|------------------|
-| Sites | `setup/tabs/SitesTab.tsx` | `farm.sites` |
-| Departments | `setup/tabs/DepartmentsTab.tsx` | `farm.departments` |
-| Systems | `setup/tabs/SystemsTab.tsx` | `farm.systems`, `farm.sub_systems` |
-| Equipment | `setup/tabs/EquipmentTab.tsx` | `farm.equipment`, `farm.sub_equipment`, `public.feeder_calibrations` |
-| Species | `setup/tabs/SpeciesTab.tsx` | `farm.species` |
-| Feeds | `setup/tabs/FeedsTab.tsx` | `farm.feeds`, `farm.feed_type_species`, `farm.feed_sites` |
-| Chemicals | `setup/tabs/ChemicalsTab.tsx` | `farm.chemicals`, `farm.chemical_sites` |
-| Suppliers | `setup/tabs/SuppliersTab.tsx` | `farm.suppliers`, `farm.supplier_sites` |
+| Sekme       | Dosya                           | Yazdığı Tablolar                                                     |
+| ----------- | ------------------------------- | -------------------------------------------------------------------- |
+| Sites       | `setup/tabs/SitesTab.tsx`       | `farm.sites`                                                         |
+| Departments | `setup/tabs/DepartmentsTab.tsx` | `farm.departments`                                                   |
+| Systems     | `setup/tabs/SystemsTab.tsx`     | `farm.systems`, `farm.sub_systems`                                   |
+| Equipment   | `setup/tabs/EquipmentTab.tsx`   | `farm.equipment`, `farm.sub_equipment`, `public.feeder_calibrations` |
+| Species     | `setup/tabs/SpeciesTab.tsx`     | `farm.species`                                                       |
+| Feeds       | `setup/tabs/FeedsTab.tsx`       | `farm.feeds`, `farm.feed_type_species`, `farm.feed_sites`            |
+| Chemicals   | `setup/tabs/ChemicalsTab.tsx`   | `farm.chemicals`, `farm.chemical_sites`                              |
+| Suppliers   | `setup/tabs/SuppliersTab.tsx`   | `farm.suppliers`, `farm.supplier_sites`                              |
 
 ### 4.3 Site Oluşturma — Adım Adım
 
 **Açılan modal:** `SiteFormModal.tsx`. Sekmeli bir form (Temel / Konum / İletişim).
 
 **Kullanıcı girişi:**
+
 1. "Site Adı" alanına örneğin `"Ege Deniz Tesisi 1"` yazılır.
 2. "Site Kodu" alanına örneğin `"EDT-01"` yazılır. Form `toUpperCase()` uygular.
 3. "Durum" açılır menüsünden ACTIVE / MAINTENANCE / INACTIVE / CLOSED seçilir.
@@ -185,11 +197,13 @@ SetupPage sekmeli bir arayüzdür. Her sekme bir alt sisteme karşılık gelir:
 **"Kaydet" basıldığında:**
 
 `useMutation(createSite, ...)` çalışır. GraphQL mutation payload'u `CreateSiteInput` şemasına göre doğrulanır:
+
 - `name`: min 1 karakter, zorunlu
 - `code`: min 2 karakter, alfanümerik, zorunlu
 - `contactEmail`: `/^[^\s@]+@[^\s@]+\.[^\s@]+$/` regex
 
 **Backend'de:**
+
 1. `SiteResolver.createSite` (dosya: `site/site.resolver.ts`) tetiklenir.
 2. `CreateSiteCommand` dispatch edilir.
 3. Command handler bir transaction açar.
@@ -200,24 +214,24 @@ SetupPage sekmeli bir arayüzdür. Her sekme bir alt sisteme karşılık gelir:
 
 **Alan → sütun haritası:**
 
-| Form alanı | `sites` sütunu | Not |
-|-----------|----------------|-----|
-| Site Adı | `name` (varchar 255) | UNIQUE per tenant |
-| Site Kodu | `code` (varchar 50) | UNIQUE per tenant, uppercase |
-| Durum | `status` (enum) | ACTIVE/MAINTENANCE/INACTIVE/CLOSED |
-| Açıklama | `description` (text) | — |
-| Ülke | `country` (varchar) | — |
-| Bölge / State | — | ⚠ `metadata` JSONB içine gömülür (ayrı sütun değil) |
-| Sokak Adresi | `address` (text) | — |
-| Şehir | `city` (varchar) | — |
-| Posta Kodu | — | ⚠ `metadata` JSONB içine gömülür |
-| Zaman Dilimi | `timezone` (varchar) | IANA zone |
-| Toplam Alan (m²) | `total_area_m2` (decimal) | — |
-| Enlem | `latitude` (decimal) | — |
-| Boylam | `longitude` (decimal) | — |
-| Site Yöneticisi | — | ⚠ `metadata` JSONB içine gömülür |
-| İletişim E-posta | `contact_email` (varchar 150) | ✅ ayrı sütun |
-| İletişim Telefon | `contact_phone` (varchar 50) | ✅ ayrı sütun |
+| Form alanı       | `sites` sütunu                | Not                                                  |
+| ---------------- | ----------------------------- | ---------------------------------------------------- |
+| Site Adı         | `name` (varchar 255)          | UNIQUE per tenant                                    |
+| Site Kodu        | `code` (varchar 50)           | UNIQUE per tenant, uppercase                         |
+| Durum            | `status` (enum)               | ACTIVE/MAINTENANCE/INACTIVE/CLOSED                   |
+| Açıklama         | `description` (text)          | —                                                    |
+| Ülke             | `country` (varchar)           | —                                                    |
+| Bölge / State    | —                             | ⚠ `metadata` JSONB içine gömülür (ayrı sütun değil) |
+| Sokak Adresi     | `address` (text)              | —                                                    |
+| Şehir            | `city` (varchar)              | —                                                    |
+| Posta Kodu       | —                             | ⚠ `metadata` JSONB içine gömülür                    |
+| Zaman Dilimi     | `timezone` (varchar)          | IANA zone                                            |
+| Toplam Alan (m²) | `total_area_m2` (decimal)     | —                                                    |
+| Enlem            | `latitude` (decimal)          | —                                                    |
+| Boylam           | `longitude` (decimal)         | —                                                    |
+| Site Yöneticisi  | —                             | ⚠ `metadata` JSONB içine gömülür                    |
+| İletişim E-posta | `contact_email` (varchar 150) | ✅ ayrı sütun                                        |
+| İletişim Telefon | `contact_phone` (varchar 50)  | ✅ ayrı sütun                                        |
 
 > **Önemli not:** Bazı kaynaklarda "contact_email metadata'ya gömülür" iddiası vardı. Entity incelendiğinde (`site.entity.ts:225,229`) iki alanın da ayrı sütun olduğu doğrulandı. JSONB'ye gömülen yalnızca `region`, `postalCode` ve `siteManager`'dır.
 
@@ -236,6 +250,7 @@ Aynı desenle çalışırlar. Her biri bir sekmede listelenir, modal ile eklenir
 Farm modülünün özel bir tasarım kararı: **tanklar ayrı bir tablo değildir**. Tanklar `farm.equipment` tablosunda `is_tank = true` bayrağı ile işaretlenir. Bunun sebebi, tankın diğer ekipmanlarla (pompa, ısıtıcı, oksijenmetre) aynı özelliklere sahip olmasıdır (üretici, seri no, kurulum tarihi, bakım, vs.). Tank'a özgü alanlar (`volume_m3`, `diameter_m`, `max_biomass_kg` gibi) `specifications` JSONB sütununa `TankSpecifications` yapısıyla gömülür.
 
 **Sonuç:**
+
 - `TankResolver.createTank` → `farm.equipment` (is_tank=true) ve `farm.tanks` alias'lı view olarak görülür.
 - `EquipmentResolver.createEquipment` → aynı tabloya `is_tank=false` ile yazar.
 - Tank özel sorguları `WHERE is_tank = true` filtresi uygular.
@@ -259,6 +274,7 @@ Tür oluşturulduktan sonra her batch `species_id` ile buna bağlanır.
 ### 4.9 Yem Kataloğu (Feeds)
 
 `farm.feeds` master kataloğudur. Bir yem:
+
 - Kodu, adı, markası, üreticisi
 - Tedarikçi referansı (`supplier_id`)
 - Türü (PELLET / GRANULE / LARVAL / BROODSTOCK / OTHER)
@@ -271,6 +287,7 @@ Tür oluşturulduktan sonra her batch `species_id` ile buna bağlanır.
 - Yemleme eğrisi / 2D matrisi (`feeding_curve`, `feeding_matrix_2d` JSONB — sıcaklık × ağırlık → rasyon %)
 
 Ek iki junction tablo:
+
 - `farm.feed_type_species` — hangi yem hangi türe, hangi büyüme aşamasında uygun
 - `farm.feed_sites` — hangi yem hangi tesiste onaylı
 
@@ -279,6 +296,7 @@ Tüm bu tabloları tek bir `useFeedsApi()` custom hook'u REST (fetch) ile yönet
 ### 4.10 Kimyasal Kataloğu (Chemicals)
 
 `farm.chemicals` — ilaç, dezenfektan, pH ayarlayıcı gibi kimyasalları tutar. Alanlar yem kataloğuna benzer ancak:
+
 - `requires_approval` (boolean) — bazı kimyasallar onay gerektirir
 - `withdrawal_period_days` — ilaç verildikten sonra hasat yapılamayacak gün sayısı
 - `usage_protocol` JSONB — dozaj, uygulama yöntemi
@@ -310,24 +328,25 @@ Kullanıcı "Yeni Parti" butonuna bastığında açılan bu modal, temel bilgile
 
 **Sekme 1 — Temel Bilgiler (11 alan):**
 
-| Alan | Açıklama |
-|------|----------|
-| Parti Adı | İsteğe bağlı, kullanıcı tanımlı etiket |
-| Tür | Select; `farm.species` tablosundan gelir |
-| Tedarikçi | Select; `farm.suppliers` tablosundan |
-| Tedarikçi Parti No | Tedarikçinin kendi iç referans numarası |
-| Irk / Strain | Tür içindeki ırk varyantı |
-| Giriş Tipi | Enum: EGGS / LARVAE / POST_LARVAE / FRY / FINGERLINGS / JUVENILES / ADULTS / BROODSTOCK |
-| Başlangıç Adedi | Pozitif tam sayı |
-| Ortalama Ağırlık (g) | Min 0.001 g, virgül sonrası 3 basamak |
-| Stoklama Tarihi | Zorunlu, tarih |
-| Beklenen Hasat Tarihi | Opsiyonel, tarih |
-| Hedef FCR | Feed Conversion Ratio; 0.5–5.0 aralığında |
-| Geliş Yöntemi | Enum: AIR_CARGO / TRUCK / BOAT / RAIL / LOCAL_PICKUP / OTHER |
+| Alan                  | Açıklama                                                                                |
+| --------------------- | --------------------------------------------------------------------------------------- |
+| Parti Adı             | İsteğe bağlı, kullanıcı tanımlı etiket                                                  |
+| Tür                   | Select; `farm.species` tablosundan gelir                                                |
+| Tedarikçi             | Select; `farm.suppliers` tablosundan                                                    |
+| Tedarikçi Parti No    | Tedarikçinin kendi iç referans numarası                                                 |
+| Irk / Strain          | Tür içindeki ırk varyantı                                                               |
+| Giriş Tipi            | Enum: EGGS / LARVAE / POST_LARVAE / FRY / FINGERLINGS / JUVENILES / ADULTS / BROODSTOCK |
+| Başlangıç Adedi       | Pozitif tam sayı                                                                        |
+| Ortalama Ağırlık (g)  | Min 0.001 g, virgül sonrası 3 basamak                                                   |
+| Stoklama Tarihi       | Zorunlu, tarih                                                                          |
+| Beklenen Hasat Tarihi | Opsiyonel, tarih                                                                        |
+| Hedef FCR             | Feed Conversion Ratio; 0.5–5.0 aralığında                                               |
+| Geliş Yöntemi         | Enum: AIR_CARGO / TRUCK / BOAT / RAIL / LOCAL_PICKUP / OTHER                            |
 
 **Sekme 2 — Belgeler (dosya yükleme dizileri):**
 
 İki dizi: `healthCertificates[]` (zorunlu, en az 1, en fazla 5) ve `importDocuments[]` (opsiyonel, en fazla 5). Her belge için:
+
 - Dosya seçilir → `useUploadBatchDocument()` MinIO'ya yükler → `{storagePath, storageUrl, documentId}` döner
 - Ek meta veriler girilir: belge adı, belge numarası, düzenleme tarihi, son geçerlilik tarihi, düzenleyen kurum
 
@@ -367,6 +386,7 @@ Partinin yaşamı boyunca uygulanan işlemler. Her biri ayrı bir modal açar, a
 **Dosya:** `production/components/MortalityModal.tsx`. Kullanım: bir tankta ölü balık bulunduğunda açılır.
 
 **Alanlar:**
+
 - Miktar: kaç adet ölü balık bulundu
 - Ortalama Ağırlık (g): display için (batch'in son bilinen ağırlığı önerilir, düzenlenebilir)
 - Sebep: enum — DISEASE (hastalık), STARVATION (açlık), WATER_QUALITY (su kalitesi), PREDATION (yırtıcı saldırısı), UNKNOWN (bilinmiyor)
@@ -375,6 +395,7 @@ Partinin yaşamı boyunca uygulanan işlemler. Her biri ayrı bir modal açar, a
 - Notlar: zorunlu
 
 **`recordMortality` mutation'ı çalıştığında:**
+
 1. `farm.mortality_records` — yeni satır (detay kayıt)
 2. `farm.tank_operations` — yeni satır (operation_type=MORTALITY)
 3. `farm.batches_v2` — UPDATE: `current_quantity -= quantity`, `total_mortality += quantity`
@@ -390,6 +411,7 @@ Mortality ile benzer ama "sebep" farklıdır. Cull, balıkların kasıtlı olara
 #### TransferModal — Tanktan Tanka Transfer
 
 Bir partinin belirli bir miktarı bir tanktan başka bir tanka taşındığında kullanılır. `transferBatch` mutation'ı:
+
 1. `farm.tank_batches` (kaynak tank) — decrement
 2. `farm.tank_batches` (hedef tank) — increment (veya yeni kayıt)
 3. `farm.tank_operations` × 2 — TRANSFER_OUT + TRANSFER_IN (iki ayrı satır)
@@ -410,6 +432,7 @@ Batch detay sayfasındaki bir sekme. `assignFeedsToBatch` mutation'ı, bir parti
 `BatchController` (`apps/farm-service/src/batch/controllers/batch.controller.ts:141`) batch CRUD işlemlerini REST üzerinden de expose eder. Harici entegrasyonlar (SCADA, üçüncü parti yazılımlar, toplu veri aktarımı) bu kanalı kullanabilir.
 
 Endpoint'ler:
+
 - `POST /api/batches` — batch oluştur
 - `GET/PUT/DELETE /api/batches/:id` — CRUD
 - `POST /api/batches/:id/allocate` — tanka tahsis
@@ -463,6 +486,7 @@ Transaction commit edilir, response döner.
 **Asenkron yan etki:**
 
 Saniyeler sonra `OutboxWorkerService` event'i NATS'e basar. `FeedingStorageEventHandler` event'i dinler ve:
+
 1. FEFO kuralı ile uygun `farm.feed_inventory` satırını bulur (en erken tarihli)
 2. `RecordStockMovementCommand` dispatch eder
 3. Komut handler:
@@ -479,6 +503,7 @@ Bu otomatik düşüm **başarısız olursa feeding record kaydı bozulmaz**. Han
 Bir program, belirli bir tesisteki tanklar için uzun vadeli yemleme planıdır. `createFeedingProgram` mutation'ı yazar.
 
 Alanlar:
+
 - `siteId` — hangi tesis
 - `code` — program kodu (UNIQUE per tenant)
 - `feedAssignments` — JSONB array, ağırlık aralığı bazlı yem zinciri
@@ -487,6 +512,7 @@ Alanlar:
 - `settings` — default parametreler (öğün sayısı, rasyon hesaplama yöntemi vb.)
 
 **Tablolar:**
+
 - `farm.feeding_programs` — ana kayıt
 - `farm.feeding_program_tanks` — programa dahil tanklar (junction)
 - `farm.daily_feeding_executions` — programın günlük planlanan/gerçekleşen değerleri
@@ -496,6 +522,7 @@ Program aktive edildiğinde scheduled job her gün `daily_feeding_executions`'a 
 ### 6.4 Yemleme Protokolü
 
 Tür ve aşamaya göre genel kurallardır. `farm.feeding_protocols` tablosunda:
+
 - Tür ve aşama (EGG/LARVAE/FRY/JUVENILE/ADULT)
 - Sıcaklık aralıkları (JSONB)
 - Büyüme aşaması protokolleri (JSONB)
@@ -529,6 +556,7 @@ Balıkların büyüme hızını izlemek kritiktir. Beklenenden yavaş büyüme b
 `recordGrowthSample` mutation'ı yazar. Hedef tablo: `farm.growth_measurements`.
 
 Alanlar:
+
 - Ölçüm tarihi, tipi (SAMPLE / FULL_COUNT / ESTIMATION), yöntemi (INDIVIDUAL_WEIGHING / GROUP_WEIGHING / LENGTH_MEASUREMENT)
 - Örneklem büyüklüğü (kaç balık tartıldı), populasyon büyüklüğü, örneklem yüzdesi
 - Bireysel ölçümler — her balığın ağırlığı (JSONB array)
@@ -543,6 +571,7 @@ Alanlar:
 - `update_batch_weight` bayrağı — true ise `batches_v2.weight_actual_*` de güncellenir
 
 **Mutation adımları:**
+
 1. `farm.growth_measurements` — yeni satır
 2. Opsiyonel: `farm.batches_v2` — UPDATE `weight_actual_avg_g`, `weight_actual_total_kg`, `sgr`
 3. `farm.farm_outbox` — `GrowthSampleRecordedEvent`
@@ -568,6 +597,7 @@ Kullanıcı hangi parametreleri izleyeceğini, her birinin birimini, optimum / u
 Tablo: `farm.water_quality_parameter_configs`.
 
 Alanlar:
+
 - Kod, ad, birim, veri tipi (NUMBER/TEXT/BOOLEAN)
 - Grup (BASIC/ADVANCED/CUSTOM)
 - Hassasiyet (ondalık basamak)
@@ -588,6 +618,7 @@ Form dinamiktir — sistemde tanımlı her parametre için bir input gelir. `rec
 Tablo: `farm.water_quality_measurements`.
 
 Alanlar:
+
 - Tank, sistem, batch referansları (opsiyonel)
 - Ölçüm tarihi, ölçen kişi, kullanılan ekipman
 - **Tüm parametre değerleri** → `parameter_values` JSONB sütunu
@@ -597,9 +628,11 @@ Alanlar:
 Avantaj: Yeni parametre eklemek migration gerektirmez.
 
 Dezavantaj: Filtreleme ve indexleme zor. "pH > 8.0 olan ölçümleri göster" sorgusu için:
+
 ```sql
 WHERE (parameter_values->>'pH')::numeric > 8.0
 ```
+
 Normal sütun indexine göre daha yavaştır.
 
 ---
@@ -625,6 +658,7 @@ Sipariş durumları: DRAFT → PENDING → RECEIVED → (veya CANCELLED). Durum 
 **Ekran:** `storage/components/ReceiveDeliveryModal.tsx`
 
 `receiveDelivery` mutation'ı. Bir PO teslim alındığında dört tabloya birden yazar:
+
 1. `farm.purchase_orders` — status = DELIVERED, delivery_date dolar
 2. `farm.storage_inventory` — yeni lot ise INSERT, mevcut lot ise quantity UPDATE
 3. `farm.stock_movements` — IN hareketi (lot tracking ile: lot_number, manufacturing_date, expiry_date, reference="PO: {purchaseOrderId}")
@@ -635,6 +669,7 @@ Sipariş durumları: DRAFT → PENDING → RECEIVED → (veya CANCELLED). Durum 
 **Ekran:** `storage/components/RecordStockMovementModal.tsx`
 
 `recordStockMovement` mutation'ı. Dört hareket tipi:
+
 - INBOUND — manuel giriş (PO dışı teslim vb.)
 - OUTBOUND — manuel çıkış
 - TRANSFER — iki depo arası transfer (iki `stock_movements` satırı: OUT + IN)
@@ -649,6 +684,7 @@ Transfer için özel mutation: `transferStock` — iki hareket satırı atomik y
 **Ekranlar:** `storage/components/StartInventoryCountModal.tsx`, `InventoryCountDetailModal.tsx`
 
 Sayım süreci:
+
 1. `createInventoryCount` → `farm.inventory_counts` (status=DRAFT), `farm.inventory_count_items` (her kalem için bir satır, beklenen miktar doldurulur)
 2. Kullanıcı fiziksel sayım yapar, her kalem için gerçek miktarı girer. `updateInventoryCountItems` → `farm.inventory_count_items` UPDATE (recorded_quantity, variance).
 3. `submitInventoryCount` → status=SUBMITTED, onay bekler
@@ -719,33 +755,40 @@ Balık sağlığıyla ilgili her tür olayın kaydı: hastalık, yaralanma, para
 Alanlar temel kategorilere ayrılır:
 
 **Tanımlayıcı bilgiler:**
+
 - Başlık, açıklama, olay tipi (DISEASE/INJURY/PARASITE/ENVIRONMENTAL/OTHER), tarih, saat
 - İlişkili parti, tank (opsiyonel)
 
 **Hastalık spesifik:**
+
 - Hastalık kategorisi, hastalık adı, şiddet (MINOR/MODERATE/SEVERE/CRITICAL)
 - Semptomlar (JSONB array)
 - Etkilenen populasyon (JSONB — sayı, yüzde, ağırlık tahmini)
 
 **Tedavi:**
+
 - Tedavi bilgisi (JSONB — ilaç, dozaj, uygulama yöntemi)
 - Tedavi altında mı, tedavi bitiş tarihi
 - İlaç arınma süresi (gün), bu süre geçmeden hasat yapılamaz (`earliest_harvest_date` hesaplanır)
 
 **Karantina:**
+
 - Karantina altında mı, başlangıç, bitiş, karantina tankı
 
 **Lab ve Veteriner:**
+
 - Lab sonuçları (JSONB), lab_confirmed bayrağı
 - Veteriner danışma bilgisi (JSONB), vet_notified bayrağı
 
 **Bağlantılar:**
+
 - Su kalitesi snapshot (JSONB — olay anındaki değerler)
 - İlişkili `water_quality_measurement_id`
 - Parent olay (follow-up olaylar için)
 - Alarm olayı referansı (SCADA entegrasyonundan)
 
 **Durum ve takip:**
+
 - Durum (ACTIVE/RESOLVED/MONITORING), çözülme tarihi, çözüm notu
 - Takip gerekli mi, sonraki takip tarihi
 - Tahmini maliyet, para birimi
@@ -754,6 +797,7 @@ Alanlar temel kategorilere ayrılır:
 ### 11.3 Tedavi ve Karantina Başlatma / Bitirme
 
 Olay içindeki alanları güncellemek için özel mutation'lar:
+
 - `recordTreatment` — tedavi bilgisini günceller
 - `startQuarantine` / `endQuarantine` — karantina bayraklarını ve tarihlerini günceller
 
@@ -766,6 +810,7 @@ Tüm yazımlar aynı `farm.health_events` satırını günceller.
 ### 12.1 Ne İşe Yarar
 
 Operasyonel görevlerin yönetimi. Üç ana konsept:
+
 1. **Task** — tek seferlik görev (örn "Tank 5'i temizle")
 2. **Auto Rule** — otomatik kural (örn "pH < 6.5 olursa su kalitesi kontrolü görevi oluştur")
 3. **Recurring Template** — tekrarlayan görev şablonu (örn "her Pazartesi filtre kontrolü")
@@ -777,6 +822,7 @@ Operasyonel görevlerin yönetimi. Üç ana konsept:
 `createTask` mutation'ı. Yazdığı tablolar: `farm.tasks`, `farm.task_assignments` (junction).
 
 Alanlar:
+
 - Başlık (zorunlu), açıklama
 - Kategori (GENERAL/CLEANING/FEEDING/HEALTH/MAINTENANCE)
 - Öncelik (LOW/MEDIUM/HIGH/URGENT)
@@ -793,6 +839,7 @@ Alanlar:
 `createAutoRule` mutation'ı. Tablo: `farm.auto_task_rules`.
 
 Alanlar:
+
 - Ad, koşul (örn `"water.ph < 6.5"` — text veya JSONB)
 - Aksiyon (CREATE_TASK / SEND_ALERT / LOG_EVENT)
 - Görev kategorisi, öncelik, atama (aksiyon CREATE_TASK ise)
@@ -808,6 +855,7 @@ Kural etkinken sistem koşulu sürekli değerlendirir (sensor readings, batch me
 `createTemplate` mutation'ı. Tablo: `farm.recurring_task_templates`.
 
 Alanlar:
+
 - Şablon adı, görev başlığı, görev açıklaması
 - Kategori, öncelik, atama
 - Sıklık (DAILY/WEEKLY/MONTHLY/CUSTOM)
@@ -831,6 +879,7 @@ Hasat iki aşamadır: önce **plan** yapılır (tahmini miktar, biyokütle, tari
 `createHarvestPlan` mutation'ı. Tablo: `farm.harvest_plans`.
 
 Alanlar (48 civarı — yoğun bir form):
+
 - Plan kodu (UNIQUE), ad, açıklama
 - İlişkili parti
 - Durum (DRAFT/PLANNED/APPROVED/SCHEDULED/IN_PROGRESS/COMPLETED/CANCELLED/POSTPONED)
@@ -852,6 +901,7 @@ Alanlar (48 civarı — yoğun bir form):
 Tablo: `farm.harvest_records`. Bağlantılı: `farm.batches_v2` (harvest_date ve harvested_quantity güncellemesi), `farm.tank_batches` (currentQuantity azaltımı), `farm.tank_operations` (HARVEST operation satırı).
 
 Alanlar:
+
 - Kayıt kodu (UNIQUE), lot numarası (UNIQUE — izlenebilirlik için)
 - Parti, plan, tank referansları
 - Hasat tarihi, yöntemi
@@ -879,22 +929,23 @@ Aquaculture endüstrisi sıkı regüle edilir. Norveç örneğinde **FDIR** (Fis
 
 **Ekran:** `reports/ReportsPage.tsx` (sekmeli)
 
-| Rapor | Modal/Tab | Zorunluluk |
-|-------|-----------|------------|
+| Rapor                               | Modal/Tab                  | Zorunluluk                       |
+| ----------------------------------- | -------------------------- | -------------------------------- |
 | Disease Outbreak (Hastalık Salgını) | `DiseaseOutbreakModal.tsx` | Kategori A/C: anında, F: 24 saat |
-| Escape Report (Kaçış) | `EscapeReportModal.tsx` | 24 saat |
-| Welfare Event (Refah İhlali) | `WelfareEventModal.tsx` | FDIR |
-| Biomass Report | `BiomassReportTab.tsx` | ⚠ şu an stub |
-| Slaughter Report | `SlaughterReportTab.tsx` | Gıda güvenliği |
-| Sea Lice Report | `SeaLiceReportTab.tsx` | FDIR |
-| Smolt Report | `SmoltReportTab.tsx` | Migration tracking |
-| Cleaner Fish Report | `CleanerFishReportTab.tsx` | Sağlık takibi |
+| Escape Report (Kaçış)               | `EscapeReportModal.tsx`    | 24 saat                          |
+| Welfare Event (Refah İhlali)        | `WelfareEventModal.tsx`    | FDIR                             |
+| Biomass Report                      | `BiomassReportTab.tsx`     | ⚠ şu an stub                    |
+| Slaughter Report                    | `SlaughterReportTab.tsx`   | Gıda güvenliği                   |
+| Sea Lice Report                     | `SeaLiceReportTab.tsx`     | FDIR                             |
+| Smolt Report                        | `SmoltReportTab.tsx`       | Migration tracking               |
+| Cleaner Fish Report                 | `CleanerFishReportTab.tsx` | Sağlık takibi                    |
 
 ### 14.3 Disease Outbreak — Detaylı Örnek
 
-`createDiseaseOutbreak` mutation'ı. İki tabloya yazar: `farm.health_events` (detay kayıt) ve ~~`farm.regulatory_events`~~ *(⚠ 2026-04-22 düzeltmesi: bu tablo yok. Regulatory rapor modal'ları aslında `health_events`'e yazar ve — Mattilsynet API entegrasyonu olan 5 rapor tipi için — otomatik olarak Mattilsynet'e submit eder)* (yasal bildirim).
+`createDiseaseOutbreak` mutation'ı. İki tabloya yazar: `farm.health_events` (detay kayıt) ve ~~`farm.regulatory_events`~~ _(⚠ 2026-04-22 düzeltmesi: bu tablo yok. Regulatory rapor modal'ları aslında `health_events`'e yazar ve — Mattilsynet API entegrasyonu olan 5 rapor tipi için — otomatik olarak Mattilsynet'e submit eder)_ (yasal bildirim).
 
 Alanlar:
+
 - Hastalık kategorisi: A (egzotik), C (yerli), F (diğer)
 - Hastalık kodu — kategoriye göre filtrelenmiş enum
 - Şüpheli mi, laboratuvar doğrulamalı mı
@@ -911,7 +962,7 @@ Regülatör iletişim: `varsling.akva@mattilsynet.no`. Sistem otomatik e-posta g
 
 ### 14.4 Regulatory Events
 
-~~`farm.regulatory_events`~~ *(⚠ 2026-04-22 düzeltmesi: bu tablo yok. Regulatory rapor modal'ları aslında `health_events`'e yazar ve — Mattilsynet API entegrasyonu olan 5 rapor tipi için — otomatik olarak Mattilsynet'e submit eder)* — genel yasal bildirim kayıtları (`recordComplianceEvent` mutation). Alanlar: tip, otorite, bildirilen tarih, durum, doküman referansı.
+~~`farm.regulatory_events`~~ _(⚠ 2026-04-22 düzeltmesi: bu tablo yok. Regulatory rapor modal'ları aslında `health_events`'e yazar ve — Mattilsynet API entegrasyonu olan 5 rapor tipi için — otomatik olarak Mattilsynet'e submit eder)_ — genel yasal bildirim kayıtları (`recordComplianceEvent` mutation). Alanlar: tip, otorite, bildirilen tarih, durum, doküman referansı.
 
 `farm.inspections` — otorite denetim kayıtları (`recordInspection`).
 
@@ -934,6 +985,7 @@ Kullanıcı yalnızca entegrasyon ayarlarını yönetir:
 **WeatherSettingsPage** — hava API kaynağı, API anahtarı, alarm eşikleri (JSONB). Yazdığı tablo: `farm.weather_settings`.
 
 **SentinelHubSettingsPage** (`settings/SentinelHubSettingsPage.tsx`) — uydu görüntüleri için:
+
 - API anahtarı (masked input, şifrelenmiş saklanır)
 - İlgi alanı geometrisi (GeoJSON polygon, harita widget'ı ile çizilir)
 - Bulut örtüsü maksimum eşiği (%)
@@ -956,13 +1008,13 @@ Somon yetiştiriciliğinde **sea lice** (deniz biti) parazitiyle mücadele için
 
 ### 16.3 Operasyonlar
 
-| Mutation | Ekran | Yazdığı Tablolar |
-|----------|-------|------------------|
-| `createCleanerFishBatch` | CleanerFishPage > CreateBatchModal | `batches_v2` (cleaner), `tank_batches` |
-| `deployCleanerFish` | DeployModal | `tank_batches` (cleanerFishQuantity ++), `tank_operations` (CLEANER_DEPLOY) |
-| `recordCleanerMortality` | MortalityModal | `batches_v2`, `tank_operations` (CLEANER_MORTALITY) |
-| `transferCleanerFish` | TransferModal | `tank_batches` × 2, `tank_operations` × 2 |
-| `removeCleanerFish` | RemoveModal | `tank_batches` (cleanerFishQuantity --) |
+| Mutation                 | Ekran                              | Yazdığı Tablolar                                                            |
+| ------------------------ | ---------------------------------- | --------------------------------------------------------------------------- |
+| `createCleanerFishBatch` | CleanerFishPage > CreateBatchModal | `batches_v2` (cleaner), `tank_batches`                                      |
+| `deployCleanerFish`      | DeployModal                        | `tank_batches` (cleanerFishQuantity ++), `tank_operations` (CLEANER_DEPLOY) |
+| `recordCleanerMortality` | MortalityModal                     | `batches_v2`, `tank_operations` (CLEANER_MORTALITY)                         |
+| `transferCleanerFish`    | TransferModal                      | `tank_batches` × 2, `tank_operations` × 2                                   |
+| `removeCleanerFish`      | RemoveModal                        | `tank_batches` (cleanerFishQuantity --)                                     |
 
 `tank_batches` tablosunda `cleaner_fish_quantity`, `cleaner_fish_biomass_kg`, `cleaner_fish_details` (JSONB) ayrı sütunlar tutulur — böylece bir tankta hem somon batch'i hem cleaner fish aynı anda var olabilir.
 
@@ -1021,6 +1073,7 @@ Tesis haritası. Gerçek implementasyon: **Leaflet tabanı + Sentinel Hub uydu t
 ### 20.1 farm_audit_logs
 
 Her kritik yazma işlemi `farm.farm_audit_logs` tablosuna bir satır düşürür. Alanlar:
+
 - `entity_type` (Batch, Tank, Site vb.)
 - `entity_id`
 - `action` (CREATE/UPDATE/DELETE/SOFT_DELETE/RESTORE)
@@ -1035,6 +1088,7 @@ Her kritik yazma işlemi `farm.farm_audit_logs` tablosuna bir satır düşürür
 ### 20.2 farm_outbox
 
 Her command handler transaction'ında ana yazımın yanı sıra `farm.farm_outbox`'a bir event satırı ekler. Alanlar:
+
 - `event_type` (FarmCreated, BatchCreated, FeedingRecorded vb.)
 - `aggregate_id`, `aggregate_type`
 - `payload` (JSONB — event detayı)
@@ -1101,15 +1155,15 @@ Raporu "kaydet" butonu `setTimeout` ile sahte başarı döner. Gerçek persisten
 
 ### 21.5 Tablolar için Yazar Bulunmayanlar
 
-| Tablo | Sebep |
-|-------|-------|
-| `weather_observations`, `marine_observations` | Dış API worker besler, UI yazmaz |
-| `sentinel_hub_settings` | Ayar formu var ama mutation seyrek kullanılır |
-| `water_quality_parameter_configs` (system entries) | Seed verisi, admin-only |
-| `equipment_types`, `sub_equipment_types`, `supplier_types`, `chemical_types` | Referans tablolar, sistem-yönetimli seed |
-| `farms` (legacy) | FarmFormPage stub olduğu için veri gelmiyor |
-| `ponds` (legacy) | `createPond` mutation var ama UI çağrısı görünmüyor |
-| `farm_outbox` | Handler'lar implicit yazar, API'den erişim yok |
+| Tablo                                                                        | Sebep                                               |
+| ---------------------------------------------------------------------------- | --------------------------------------------------- |
+| `weather_observations`, `marine_observations`                                | Dış API worker besler, UI yazmaz                    |
+| `sentinel_hub_settings`                                                      | Ayar formu var ama mutation seyrek kullanılır       |
+| `water_quality_parameter_configs` (system entries)                           | Seed verisi, admin-only                             |
+| `equipment_types`, `sub_equipment_types`, `supplier_types`, `chemical_types` | Referans tablolar, sistem-yönetimli seed            |
+| `farms` (legacy)                                                             | FarmFormPage stub olduğu için veri gelmiyor         |
+| `ponds` (legacy)                                                             | `createPond` mutation var ama UI çağrısı görünmüyor |
+| `farm_outbox`                                                                | Handler'lar implicit yazar, API'den erişim yok      |
 
 ---
 
@@ -1139,19 +1193,20 @@ Bu kontrol kritik — aksi takdirde kötü niyetli bir event tenantlar arası ve
 
 Aşağıdaki tablolarda bazı alanlar ayrı sütun değil, JSONB içinde:
 
-| Tablo | Sütun | Gömülü alanlar | Etki |
-|-------|-------|----------------|------|
-| `sites` | `metadata` | region, postalCode, siteManager | Bu alanlara göre filtreleme JSONB path query gerektirir |
-| `water_quality_measurements` | `parameter_values` | 25+ su parametresi | Her parametre için index yok; büyük veri setlerinde yavaş |
-| `feeding_records` | `environment`, `fish_behavior` | waterTemp, weather, appetite vb. | Davranış trendi analizi JSONB aggregation ister |
-| `batches_v2` | `weight`, `fcr`, `feeding_summary`, `growth_metrics`, `mortality_summary` | çok boyutlu özetler | Normalize edilmediği için raporlama karmaşık |
-| `health_events` | `symptoms`, `treatment`, `lab_results`, `water_quality_snapshot` | semptom listesi vb. | Tutarlı vocabulary yok; serbest metinler karışabilir |
+| Tablo                        | Sütun                                                                     | Gömülü alanlar                   | Etki                                                      |
+| ---------------------------- | ------------------------------------------------------------------------- | -------------------------------- | --------------------------------------------------------- |
+| `sites`                      | `metadata`                                                                | region, postalCode, siteManager  | Bu alanlara göre filtreleme JSONB path query gerektirir   |
+| `water_quality_measurements` | `parameter_values`                                                        | 25+ su parametresi               | Her parametre için index yok; büyük veri setlerinde yavaş |
+| `feeding_records`            | `environment`, `fish_behavior`                                            | waterTemp, weather, appetite vb. | Davranış trendi analizi JSONB aggregation ister           |
+| `batches_v2`                 | `weight`, `fcr`, `feeding_summary`, `growth_metrics`, `mortality_summary` | çok boyutlu özetler              | Normalize edilmediği için raporlama karmaşık              |
+| `health_events`              | `symptoms`, `treatment`, `lab_results`, `water_quality_snapshot`          | semptom listesi vb.              | Tutarlı vocabulary yok; serbest metinler karışabilir      |
 
 ### 22.4 Foreign Key Constraint Durumu
 
 Entity decorator'ları `@ManyToOne`, `@JoinColumn` ilişkilerini tanımlar. Ancak TypeORM `synchronize()` ile oluşan tablolarda fiziksel FK constraint'lerinin eksik olabileceği not edildi. Migration dosyalarıyla oluşan çekirdek tablolar FK'lara sahip; runtime sync ile oluşanlar kontrol edilmeli.
 
 Silme davranışları:
+
 - CASCADE: batch → batch_documents, batch → batch_locations, batch → mortality_records
 - SET NULL: opsiyonel bağlar (örneğin `mortality_records.tank_id`)
 - RESTRICT: kritik referanslar (species, feed)
@@ -1163,6 +1218,7 @@ Kritik entity'ler soft delete uygular ama `restore` / `undelete` mutation'ı exp
 ### 22.6 Rate Limiting Eksikliği
 
 Mutation'larda `@RateLimit` decorator'ı kullanılmamış. Yüksek etkili mutation'lar için potansiyel risk:
+
 - `createBatch` — büyük allocation array'leri ile yoğun yazım tetikleyebilir
 - `recordMortality` — spam edilirse büyüme modellerini ve alarm sistemlerini bozabilir
 - `receiveDelivery` — toplu stok değişikliği
@@ -1171,11 +1227,11 @@ Mutation'larda `@RateLimit` decorator'ı kullanılmamış. Yüksek etkili mutati
 
 ### 22.7 Legacy Tablo Çiftleri
 
-| Eski | Yeni | Durum |
-|------|------|-------|
-| `farms` | `sites` | Yeni akışlar `sites` kullanır. `farms` tablosu duruyor ama yeni veri gelmiyor (FarmFormPage stub). |
-| `batches` | `batches_v2` | Yeni akışlar `batches_v2` kullanır. `batches` tablosu duruyor. |
-| `ponds` | `tanks` (equipment with is_tank) | Yeni akışlar `tanks` kullanır. `ponds` tablosu ve `createPond` mutation'ı legacy. |
+| Eski      | Yeni                             | Durum                                                                                              |
+| --------- | -------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `farms`   | `sites`                          | Yeni akışlar `sites` kullanır. `farms` tablosu duruyor ama yeni veri gelmiyor (FarmFormPage stub). |
+| `batches` | `batches_v2`                     | Yeni akışlar `batches_v2` kullanır. `batches` tablosu duruyor.                                     |
+| `ponds`   | `tanks` (equipment with is_tank) | Yeni akışlar `tanks` kullanır. `ponds` tablosu ve `createPond` mutation'ı legacy.                  |
 
 ### 22.8 Public Şema Anomalisi
 
@@ -1184,10 +1240,12 @@ Mutation'larda `@RateLimit` decorator'ı kullanılmamış. Yüksek etkili mutati
 ### 22.9 Dosya Yükleme Güvenliği
 
 `batch_documents` ve `chemical_documents` için dosya yükleme iki adımlı:
+
 1. İstemci MinIO'ya multipart upload → signed URL + documentId
 2. GraphQL mutation metadata yazar (`storage_path`, `storage_url`, `mime_type`, `file_size`)
 
 Bu ayrım arbitrary upload ve SQL injection risklerini ayrıştırır. Ancak:
+
 - MinIO URL TTL doğru yapılandırılmalı (örneğin 1 saat)
 - Tenant prefix bucket yolu zorunlu olmalı (cross-tenant file access engellenmeli)
 - Mime type whitelist uygulanmalı

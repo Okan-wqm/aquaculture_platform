@@ -9,6 +9,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan, Between, In } from 'typeorm';
+import { safeSortField, safeSortOrder } from '@aquaculture/backend-common/pagination';
 
 import {
   ActivityLog,
@@ -17,6 +18,11 @@ import {
   RetentionPolicyEntity,
   ComplianceType,
 } from '../entities/security.entity';
+import {
+  ACTIVITY_LOG_SORT_FIELDS,
+  AUDIT_TRAIL_SORT_COLUMNS,
+  ActivityLogSortField,
+} from '../sorting/activity-log-sort';
 
 // ============================================================================
 // Interfaces
@@ -280,7 +286,12 @@ export class AuditTrailService {
     }
 
     // Sorting and pagination
-    qb.orderBy(`log.${sortBy}`, sortOrder);
+    const normalizedSortField = safeSortField(
+      sortBy,
+      ACTIVITY_LOG_SORT_FIELDS,
+      'createdAt',
+    ) as ActivityLogSortField;
+    qb.orderBy(AUDIT_TRAIL_SORT_COLUMNS[normalizedSortField], safeSortOrder(sortOrder));
     qb.skip((page - 1) * limit);
     qb.take(limit);
 

@@ -5,21 +5,38 @@
  * grandfathering + scope logic.
  */
 
-// `export {}` keeps strict-tsc treating this file as a MODULE so its
-// top-level declarations stay file-scoped (PROC-MEDIUM-010 invariant).
-export {};
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const {
-  main: attestationMain,
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+import {
+  main as attestationMain,
   runCoverageCheck,
-} = require('../../../../../../tools/gates/compliance-attestation-coverage') as {
-  main: (argv: readonly string[]) => number;
-  runCoverageCheck: (args: { cutoffIso: string }) => {
-    totalInScope: number;
-    missing: readonly string[];
-    cutoffIso: string;
-  };
-};
+} from '../../../../../../tools/gates/compliance-attestation-coverage';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function registrySeverityById(): ReadonlyMap<string, string> {
+  const registryPath = resolve(
+    __dirname,
+    '../../../../../../docs/reviews/_registry/findings.jsonl',
+  );
+  const entries = new Map<string, string>();
+  for (const line of readFileSync(registryPath, 'utf8').split('\n')) {
+    if (line.trim() === '') continue;
+    const parsed: unknown = JSON.parse(line);
+    if (
+      !isRecord(parsed) ||
+      typeof parsed['id'] !== 'string' ||
+      typeof parsed['severity'] !== 'string'
+    ) {
+      throw new Error('findings registry contains an invalid severity record');
+    }
+    entries.set(parsed['id'], parsed['severity']);
+  }
+  return entries;
+}
 
 describe('compliance-attestation-coverage gate', () => {
   let stdoutSpy: jest.SpyInstance;
@@ -29,10 +46,10 @@ describe('compliance-attestation-coverage gate', () => {
     stdoutChunks = [];
     stdoutSpy = jest
       .spyOn(process.stdout, 'write')
-      .mockImplementation(((chunk: string | Uint8Array) => {
+      .mockImplementation((chunk: string | Uint8Array) => {
         stdoutChunks.push(chunk.toString());
         return true;
-      }) as never);
+      });
   });
 
   afterEach(() => {
@@ -59,18 +76,17 @@ describe('compliance-attestation-coverage gate', () => {
     // CRITICAL/HIGH, and 20 are RESOLVED). Past cutoff should surface
     // ONLY RESOLVED ones — not every CRITICAL/HIGH entry.
     const r = runCoverageCheck({ cutoffIso: '2026-04-15T00:00:00Z' });
-    // Exact count may change as the registry grows; assert the ID
-    // pattern is CRITICAL or HIGH (severity check) rather than a
-    // brittle count equality.
+    // Severity is registry data, not an ID naming convention. Legacy IDs such
+    // as RUST-CVE-001 are valid HIGH findings even though the severity is not
+    // embedded in the identifier.
+    const severityById = registrySeverityById();
     for (const id of r.missing) {
-      expect(id).toMatch(/-(CRITICAL|HIGH)-/);
+      expect(['CRITICAL', 'HIGH']).toContain(severityById.get(id));
     }
   });
 
   it('throws on invalid cutoff ISO string', () => {
-    expect(() => runCoverageCheck({ cutoffIso: 'not-a-date' })).toThrow(
-      /invalid cutoff/,
-    );
+    expect(() => runCoverageCheck({ cutoffIso: 'not-a-date' })).toThrow(/invalid cutoff/);
   });
 
   it('main() with --json emits machine-readable report', () => {
@@ -104,10 +120,10 @@ describe('compliance-attestation-coverage gate', () => {
     const stderr: string[] = [];
     const stderrSpy = jest
       .spyOn(process.stderr, 'write')
-      .mockImplementation(((chunk: string | Uint8Array) => {
+      .mockImplementation((chunk: string | Uint8Array) => {
         stderr.push(chunk.toString());
         return true;
-      }) as never);
+      });
     try {
       const code = attestationMain(['--cutoff', 'not-a-date']);
       expect(code).toBe(2);

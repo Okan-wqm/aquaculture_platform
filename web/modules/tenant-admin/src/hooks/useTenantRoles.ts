@@ -13,7 +13,7 @@ import {
   type UseQueryResult,
   type UseMutationResult,
 } from '@tanstack/react-query';
-import { createTenantQueryKey, getTenantId } from '@aquaculture/shared-ui';
+import { createTenantQueryKey, createTenantInvalidationKey, getTenantId } from '@aquaculture/shared-ui';
 import {
   getTenantRoles,
   getTenantRole,
@@ -31,6 +31,7 @@ import {
   type PanelPermissions,
 } from '../services/tenant-api.service';
 import { processError, logError, type AppError } from '../utils/error-handling';
+import { tenantKeys } from './useTenantData';
 
 // ============================================================================
 // Error Types
@@ -145,24 +146,19 @@ export type UseSeedTenantRolesMutationResult = UseMutationResult<
 >;
 
 // ============================================================================
-// Constants
-// ============================================================================
-
-/** Key for user queries - used for invalidation after role changes */
-// Tenant-scoped via createTenantQueryKey (['tenant', tenantId, …]) so cache never
-// leaks across a tenant switch (web/CLAUDE.md FE-CRITICAL-014/015/016). `all` is a
-// FUNCTION (not a static array) because the tenantId is only known at call time.
-export const userKeys = {
-  all: () => createTenantQueryKey(getTenantId(), 'tenant-users'),
-  lists: () => createTenantQueryKey(getTenantId(), 'tenant-users', 'list'),
-};
-
-// ============================================================================
 // Query Keys
 // ============================================================================
 
+// RBAC-HIGH-006 (H9/M13): this factory follows the tenant-query-keys RULE —
+//   `useQuery`/`setQueryData`/`getQueryData` → the epoch'd `createTenantQueryKey`
+//   builders (exact stored keys);
+//   `invalidate/remove/cancelQueries`       → the `invalidate*` prefix builders
+//   (`createTenantInvalidationKey`, NO epoch, NO args).
+// An epoch'd key used as a filter left-prefix-mismatches every stored key (the
+// trailing `{__sessionEpoch}` lands where the stored key holds 'list'/args), so
+// the invalidation silently no-ops and the UI shows stale data. The previous
+// `roleKeys.all()`/`userKeys.lists()` filters matched ZERO queries.
 export const roleKeys = {
-  all: () => createTenantQueryKey(getTenantId(), 'tenant-roles'),
   lists: () => createTenantQueryKey(getTenantId(), 'tenant-roles', 'list'),
   list: (filters?: Record<string, unknown>) =>
     createTenantQueryKey(getTenantId(), 'tenant-roles', 'list', filters),
@@ -171,6 +167,13 @@ export const roleKeys = {
     createTenantQueryKey(getTenantId(), 'tenant-roles', 'detail', roleId),
   default: () => createTenantQueryKey(getTenantId(), 'tenant-roles', 'default'),
   categories: () => createTenantQueryKey(getTenantId(), 'tenant-roles', 'categories'),
+  // Invalidation prefixes (filters) — match every stored key under the segment
+  // regardless of trailing args or epoch generation.
+  invalidateAll: () => createTenantInvalidationKey(getTenantId(), 'tenant-roles'),
+  invalidateLists: () => createTenantInvalidationKey(getTenantId(), 'tenant-roles', 'list'),
+  invalidateDetail: (roleId: string) =>
+    createTenantInvalidationKey(getTenantId(), 'tenant-roles', 'detail', roleId),
+  invalidateDefault: () => createTenantInvalidationKey(getTenantId(), 'tenant-roles', 'default'),
 };
 
 // ============================================================================
@@ -243,7 +246,7 @@ export function useCreateTenantRole(): UseCreateTenantRoleMutationResult {
     // Optimistically add the new role to the list
     onMutate: async (input: CreateTenantRoleInput): Promise<OptimisticContext> => {
       // Cancel any outgoing refetches to avoid overwriting optimistic update
-      await queryClient.cancelQueries({ queryKey: roleKeys.lists() });
+      await queryClient.cancelQueries({ queryKey: roleKeys.invalidateLists() });
 
       // Snapshot previous value for rollback
       const previousRoles = queryClient.getQueryData<TenantRole[]>(roleKeys.lists());
@@ -322,7 +325,7 @@ export function useCreateTenantRole(): UseCreateTenantRoleMutationResult {
       // Add the real role to detail cache
       queryClient.setQueryData(roleKeys.detail(newRole.id), newRole);
       // Invalidate to ensure fresh data
-      queryClient.invalidateQueries({ queryKey: roleKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: roleKeys.invalidateLists() });
       // If this role is now default, update default query
       if (newRole.isDefault) {
         queryClient.setQueryData(roleKeys.default(), newRole);
@@ -344,8 +347,8 @@ export function useUpdateTenantRole() {
     // Optimistically update the role
     onMutate: async ({ roleId, input }): Promise<OptimisticContext> => {
       // Cancel any outgoing refetches
-      await queryClient.cancelQueries({ queryKey: roleKeys.lists() });
-      await queryClient.cancelQueries({ queryKey: roleKeys.detail(roleId) });
+      await queryClient.cancelQueries({ queryKey: roleKeys.invalidateLists() });
+      await queryClient.cancelQueries({ queryKey: roleKeys.invalidateDetail(roleId) });
 
       // Snapshot previous values
       const previousRoles = queryClient.getQueryData<TenantRole[]>(roleKeys.lists());
@@ -433,14 +436,16 @@ export function useUpdateTenantRole() {
       // Update detail cache
       queryClient.setQueryData(roleKeys.detail(updatedRole.id), updatedRole);
       // Invalidate to ensure fresh data
-      queryClient.invalidateQueries({ queryKey: roleKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: roleKeys.invalidateLists() });
       // Update default role if needed
       if (updatedRole.isDefault) {
         queryClient.setQueryData(roleKeys.default(), updatedRole);
-        queryClient.invalidateQueries({ queryKey: roleKeys.default() });
+        queryClient.invalidateQueries({ queryKey: roleKeys.invalidateDefault() });
       }
-      // Invalidate user queries since role permissions may have changed
-      queryClient.invalidateQueries({ queryKey: userKeys.lists() });
+      // Invalidate user queries since role permissions may have changed —
+      // the users list is stored under the tenantKeys 'users' domain
+      // (useTenantData), NOT a role-local key.
+      queryClient.invalidateQueries({ queryKey: tenantKeys.invalidateUsers() });
     },
   });
 }
@@ -457,8 +462,8 @@ export function useDeleteTenantRole() {
     // Optimistically remove the role from the list
     onMutate: async (roleId: string): Promise<OptimisticContext> => {
       // Cancel any outgoing refetches
-      await queryClient.cancelQueries({ queryKey: roleKeys.lists() });
-      await queryClient.cancelQueries({ queryKey: roleKeys.detail(roleId) });
+      await queryClient.cancelQueries({ queryKey: roleKeys.invalidateLists() });
+      await queryClient.cancelQueries({ queryKey: roleKeys.invalidateDetail(roleId) });
 
       // Snapshot previous values
       const previousRoles = queryClient.getQueryData<TenantRole[]>(roleKeys.lists());
@@ -470,7 +475,7 @@ export function useDeleteTenantRole() {
       );
 
       // Remove from detail cache
-      queryClient.removeQueries({ queryKey: roleKeys.detail(roleId) });
+      queryClient.removeQueries({ queryKey: roleKeys.invalidateDetail(roleId) });
 
       return { previousRoles, previousRole };
     },
@@ -496,13 +501,14 @@ export function useDeleteTenantRole() {
     // On success, ensure cache is updated
     onSuccess: (_, roleId) => {
       // Invalidate roles list to refetch
-      queryClient.invalidateQueries({ queryKey: roleKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: roleKeys.invalidateLists() });
       // Remove from cache
-      queryClient.removeQueries({ queryKey: roleKeys.detail(roleId) });
+      queryClient.removeQueries({ queryKey: roleKeys.invalidateDetail(roleId) });
       // Invalidate default role query in case the deleted role was default
-      queryClient.invalidateQueries({ queryKey: roleKeys.default() });
-      // Invalidate user queries since users may have had this role assigned
-      queryClient.invalidateQueries({ queryKey: userKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: roleKeys.invalidateDefault() });
+      // Invalidate user queries since users may have had this role assigned —
+      // stored under the tenantKeys 'users' domain (useTenantData).
+      queryClient.invalidateQueries({ queryKey: tenantKeys.invalidateUsers() });
     },
   });
 }
@@ -516,8 +522,11 @@ export function useSeedTenantRoles() {
   return useMutation({
     mutationFn: seedTenantRoles,
     onSuccess: () => {
-      // Invalidate all role queries to refetch
-      queryClient.invalidateQueries({ queryKey: roleKeys.all() });
+      // Invalidate ALL role queries (list/detail/default/categories) to refetch.
+      // MUST be the epoch-less prefix: the previous epoch'd `roleKeys.all()`
+      // filter matched zero stored keys, so a successful seed never refreshed
+      // the list and the page kept showing "No roles defined" (RBAC-H9).
+      queryClient.invalidateQueries({ queryKey: roleKeys.invalidateAll() });
     },
     onError: (error) => {
       // Log error with context

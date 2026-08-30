@@ -1,15 +1,18 @@
 /**
- * Canonical schema for the `deploy_scada_package` command params — the full
- * ScadaPackageDocV2 document plus the server-stamped deploy meta fields
- * (version, deployedAt, edgeDeviceId, artifact checksum/signature).
+ * Canonical schema for the `deploy_scada_package` command params — the
+ * STRICT edge-deploy document (CONTRACT-H-002: closed widgetType/
+ * screenType/severity sets the Rust structs actually parse; the payload
+ * must have passed `transformScadaDocForEdgeDeploy` first) plus the
+ * server-stamped deploy meta fields (version, deployedAt, edgeDeviceId,
+ * artifact checksum/signature).
  */
 
-import { SCADA_PACKAGE_DOC_V2_SCHEMA } from '../scada-package-doc/scada-package-doc.schema';
+import { EDGE_SCADA_PACKAGE_DOC_SCHEMA } from '../scada-package-doc/edge-scada-package-doc.schema';
 
 export const DEPLOY_SCADA_PACKAGE_PARAMS_SCHEMA = {
   type: 'object',
   properties: {
-    ...SCADA_PACKAGE_DOC_V2_SCHEMA.properties,
+    ...EDGE_SCADA_PACKAGE_DOC_SCHEMA.properties,
     meta: {
       type: 'object',
       properties: {

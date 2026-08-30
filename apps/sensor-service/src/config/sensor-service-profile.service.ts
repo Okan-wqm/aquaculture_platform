@@ -8,14 +8,14 @@ import { ConfigService } from '@nestjs/config';
  *
  *   - **legacy** (default): the historical NestJS path. Subscribes to
  *     MQTT, parses payloads via the in-process protocol adapters,
- *     persists via `BatchProcessorService`, publishes typed
+ *     persists via `SensorMetricWriterService`, publishes typed
  *     `SensorReadingEvent`s.
  *
  *   - **control-plane**: the post-Faz-2 split. The Rust ingestion
  *     sidecar (ADR-025) owns MQTT subscribe + protocol parse +
  *     TimescaleDB COPY. NestJS receives `SensorMetricIngested` events
  *     via NATS, enriches with sensor-meta, calls
- *     `BatchProcessorService.enqueue`, re-emits the typed
+ *     `SensorMetricWriterService.enqueue`, re-emits the typed
  *     `SensorReadingEvent` for downstream consumers (alert-engine,
  *     AI, audit). The MQTT listener + per-sensor data-collection task
  *     is skipped.

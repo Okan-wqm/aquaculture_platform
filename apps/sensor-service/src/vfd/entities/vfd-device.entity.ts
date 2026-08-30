@@ -177,6 +177,21 @@ export class VfdDevice {
   @Column({ type: 'uuid', name: 'pump_id', nullable: true })
   pumpId?: string;
 
+  // SENSOR-CRITICAL-007: edge-delegated write binding. The production write path
+  // is the edge Rust gateway — the cloud publishes a signed `write_modbus`
+  // command envelope to the owning edge device rather than opening a socket to
+  // the drive. `edgeDeviceId` is the edge_devices.id that fronts this drive (the
+  // MQTT command-topic addressee); `edgeModbusDeviceName` is the Modbus `device`
+  // name that gateway's I/O config exposes for it (the write_modbus
+  // `params.device`). Nullable until the drive is bound to a gateway.
+  @Field(() => ID, { nullable: true })
+  @Column({ type: 'uuid', name: 'edge_device_id', nullable: true })
+  edgeDeviceId?: string;
+
+  @Field({ nullable: true })
+  @Column({ type: 'varchar', length: 255, name: 'edge_modbus_device_name', nullable: true })
+  edgeModbusDeviceName?: string;
+
   @Field(() => [String], { nullable: true })
   @Column({ type: 'jsonb', nullable: true })
   tags?: string[];

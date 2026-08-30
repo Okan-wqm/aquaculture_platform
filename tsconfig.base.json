@@ -55,6 +55,9 @@
         "libs/backend-common/src/bootstrap/index.ts"
       ],
       "@aquaculture/backend-common/config": ["libs/backend-common/src/config/index.ts"],
+      "@aquaculture/backend-common/config-client": [
+        "libs/backend-common/src/config-client/index.ts"
+      ],
       "@aquaculture/backend-common/constants": [
         "libs/backend-common/src/constants/index.ts"
       ],
@@ -77,6 +80,7 @@
         "libs/backend-common/src/finding-registry/index.ts"
       ],
       "@aquaculture/backend-common/gdpr": ["libs/backend-common/src/security/gdpr/index.ts"],
+      "@aquaculture/backend-common/graphql": ["libs/backend-common/src/graphql/index.ts"],
       "@aquaculture/backend-common/guards": [
         "libs/backend-common/src/guards/index.ts"
       ],
@@ -123,6 +127,9 @@
       "@aquaculture/backend-common/security": [
         "libs/backend-common/src/security/index.ts"
       ],
+      "@aquaculture/backend-common/sensor": [
+        "libs/backend-common/src/sensor/index.ts"
+      ],
       "@aquaculture/backend-common/compliance": [
         "libs/backend-common/src/compliance/index.ts"
       ],
@@ -143,6 +150,8 @@
       "@platform/sensor-automation-types": [
         "libs/sensor-automation-types/src/index.ts"
       ],
+      "@platform/alarm-core": ["libs/alarm-core/src/index.ts"],
+      "@platform/protocol-codec": ["libs/protocol-codec/src/index.ts"],
       "@platform/sensor-contracts": ["libs/sensor-contracts/src/index.ts"],
       "@platform/sensor-contracts/validators": [
         "libs/sensor-contracts/src/validators.ts"
@@ -151,6 +160,7 @@
       "@platform/sdk": ["libs/sdk/typescript/src/index.ts"],
       "@platform/testing": ["libs/testing/src/index.ts"],
       "@aquaculture/testing": ["libs/testing/src/index.ts"],
+      "@aquaculture/testing/vitest": ["libs/testing/src/vitest-test-policy.d.ts"],
       "@platform/event-bus": ["platform/libs/event-bus/src/index.ts"],
       "@platform/outbox": ["platform/libs/outbox/src/index.ts"],
       "@platform/cqrs": ["platform/libs/cqrs/src/index.ts"],

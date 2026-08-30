@@ -3,7 +3,7 @@
  * Displays list of feeds with comprehensive feed management form
  */
 import React, { useState, useMemo } from 'react';
-import { Modal, formatCurrency, DEFAULT_CURRENCY } from '@aquaculture/shared-ui';
+import { Modal, formatCurrency, parseMoney, DEFAULT_CURRENCY } from '@aquaculture/shared-ui';
 import {
   useFeedList,
   useCreateFeed,
@@ -625,7 +625,10 @@ export const FeedsTab: React.FC = () => {
                     <div className="text-right">
                       <p className="text-sm text-gray-500">Price</p>
                       <p className="text-lg font-semibold text-green-600">
-                        {formatCurrency(feed.pricePerKg ?? feed.unitPrice ?? 0, DEFAULT_CURRENCY)}
+                        {formatCurrency(
+                          parseMoney(feed.pricePerKgDecimal ?? feed.unitPriceDecimal),
+                          DEFAULT_CURRENCY,
+                        )}
                       </p>
                     </div>
                     <svg

@@ -1,0 +1,12 @@
+{
+  "name": "@apollo/server-plugin-landing-page-graphql-playground",
+  "version": "4.0.1",
+  "description": "Fail-closed compatibility shim for Nest Apollo; deprecated Playground is disabled.",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "license": "UNLICENSED",
+  "private": true,
+  "peerDependencies": {
+    "@apollo/server": "^5.0.0"
+  }
+}

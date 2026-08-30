@@ -14,6 +14,7 @@ from .auto_merge import (
 )
 from .autonomy_unlock import assert_autonomy_unlocked
 from .enterprise_readiness import verify_enterprise_readiness
+from .implementation_safety import GATE_PRE_MERGE, HardFailContext, run_hard_fail_checks
 from .incident_ledger import (
     ensure_pre_merge_incident_row,
     finalize_merge_incident,
@@ -25,6 +26,7 @@ from .rollback_bundle import verify_rollback_bundle
 from .runtime_profile import enforce_profile_for_action
 from .runner_attestation import verify_runner_attestation
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
+from .watchdog_freeze import assert_merge_not_watchdog_frozen
 
 
 def merge_pr_if_ready(
@@ -47,6 +49,13 @@ def merge_pr_if_ready(
     immediately before invoking ``adapter.merge_pr``.
     """
     profile = enforce_profile_for_action("pr_merge", base_dir=base_dir)
+    # ORPHAN-MEDIUM-562 — the external watchdog reports a stalled ARIA memory
+    # and cannot freeze anything itself, because freezing needs the kernel it
+    # is watching. The alarm is read HERE, at the single real-merge authority:
+    # it stops ARIA merging on state nobody can attest to, while leaving the
+    # cycle free to publish the state that closes the incident and leaving
+    # human pull requests alone.
+    assert_merge_not_watchdog_frozen(adapter=adapter)
     if not readiness_claim_id or not readiness_claim_id.strip():
         raise GovernanceError("merge_authority_requires_readiness_claim_id")
     live_pr = adapter.get_pr(pr_number)
@@ -189,61 +198,104 @@ def merge_pr_if_ready(
                 )
                 _append_decision(base_dir, result)
             else:
-                merge_kwargs: dict[str, Any] = {
-                    "method": "squash",
-                    "expected_head_sha": head_sha,
-                }
-                authority_token = f"merge-authority:{pr_number}:{head_sha}"
-                armed = False
-                if hasattr(adapter, "arm_merge_authority"):
-                    adapter.arm_merge_authority(authority_token)  # type: ignore[attr-defined]
-                    merge_kwargs["authority_token"] = authority_token
-                    armed = True
-                try:
-                    merge_result = adapter.merge_pr(pr_number, **merge_kwargs)
-                except Exception as exc:  # pragma: no cover - exercised by adapter fakes
-                    record_merge_failed_incident(
-                        pr=fresh_pr,
-                        readiness_claim_id=readiness_claim_id,
-                        reason=str(exc),
-                        base_dir=base_dir,
-                    )
+                # ORPHAN-HIGH-764 — ADR-041 decision 3's "fresh pre-merge
+                # re-check", as code instead of prose. The hard-fail perimeter
+                # runs at the freshest point that exists: after the live
+                # re-evaluation and the head-SHA stability check, immediately
+                # before adapter.merge_pr. Every GATE_PRE_MERGE check currently
+                # binds _not_implemented, which FAILS by design — so this gate
+                # refuses every merge until each declared check is built. That
+                # is fail-closed, not a regression: the lane is inactive
+                # regardless (profile, unlock and master switch all refuse
+                # first), and the moment a check gains an implementation it is
+                # load-bearing here without anyone remembering to wire it.
+                # Context fields the merge-authority stage genuinely does not
+                # have (workspace_root, pr_body) stay absent: a check that
+                # needs one fails on its absence rather than passing vacuously.
+                perimeter_context = HardFailContext(
+                    diff_text=fresh_diff,
+                    envelope={
+                        "affected_surfaces": list(fresh_pr.get("changed_files") or []),
+                    },
+                    base_branch=_base_branch(fresh_pr),
+                )
+                hard_fail_report = run_hard_fail_checks(
+                    perimeter_context, gate=GATE_PRE_MERGE,
+                )
+                if not hard_fail_report.passed:
                     result = dict(decision)
                     result.update(
                         {
                             "recorded_at": utc_now(),
-                            "decision": "failed",
+                            "decision": "blocked",
                             "eligible": False,
-                            "reasons": [str(exc)],
+                            "reasons": [
+                                "pre_merge_perimeter_blocked",
+                                *[
+                                    f"{failure.name}:{failure.reason}"
+                                    for failure in hard_fail_report.failures
+                                ],
+                            ],
+                            "stage": "pre_merge_perimeter",
                         },
                     )
                     _append_decision(base_dir, result)
                 else:
-                    result = dict(decision)
-                    result.update(
-                        {
-                            "recorded_at": utc_now(),
-                            "decision": "merged",
-                            "eligible": True,
-                            "merge_result": merge_result,
-                        },
-                    )
-                    _append_decision(base_dir, result)
-                    finalize_merge_incident(
-                        pr=fresh_pr,
-                        readiness_claim_id=readiness_claim_id,
-                        merge_result=merge_result,
-                        base_dir=base_dir,
-                    )
-                    record_pr_lifecycle(
-                        fresh_pr,
-                        event="merged",
-                        base_dir=base_dir,
-                        cycle_id=cycle_id,
-                    )
-                finally:
-                    if armed and hasattr(adapter, "clear_merge_authority"):
-                        adapter.clear_merge_authority(authority_token)  # type: ignore[attr-defined]
+                    merge_kwargs: dict[str, Any] = {
+                        "method": "squash",
+                        "expected_head_sha": head_sha,
+                    }
+                    authority_token = f"merge-authority:{pr_number}:{head_sha}"
+                    armed = False
+                    if hasattr(adapter, "arm_merge_authority"):
+                        adapter.arm_merge_authority(authority_token)  # type: ignore[attr-defined]
+                        merge_kwargs["authority_token"] = authority_token
+                        armed = True
+                    try:
+                        merge_result = adapter.merge_pr(pr_number, **merge_kwargs)
+                    except Exception as exc:  # pragma: no cover - exercised by adapter fakes
+                        record_merge_failed_incident(
+                            pr=fresh_pr,
+                            readiness_claim_id=readiness_claim_id,
+                            reason=str(exc),
+                            base_dir=base_dir,
+                        )
+                        result = dict(decision)
+                        result.update(
+                            {
+                                "recorded_at": utc_now(),
+                                "decision": "failed",
+                                "eligible": False,
+                                "reasons": [str(exc)],
+                            },
+                        )
+                        _append_decision(base_dir, result)
+                    else:
+                        result = dict(decision)
+                        result.update(
+                            {
+                                "recorded_at": utc_now(),
+                                "decision": "merged",
+                                "eligible": True,
+                                "merge_result": merge_result,
+                            },
+                        )
+                        _append_decision(base_dir, result)
+                        finalize_merge_incident(
+                            pr=fresh_pr,
+                            readiness_claim_id=readiness_claim_id,
+                            merge_result=merge_result,
+                            base_dir=base_dir,
+                        )
+                        record_pr_lifecycle(
+                            fresh_pr,
+                            event="merged",
+                            base_dir=base_dir,
+                            cycle_id=cycle_id,
+                        )
+                    finally:
+                        if armed and hasattr(adapter, "clear_merge_authority"):
+                            adapter.clear_merge_authority(authority_token)  # type: ignore[attr-defined]
     append_tools_governance(
         ensure_tools_dir(base_dir),
         "merge_authority_decision",
@@ -273,6 +325,14 @@ def _head_sha(pr: dict[str, Any]) -> str:
         if isinstance(value, str) and value.strip():
             return value
     return ""
+
+
+def _base_branch(pr: dict[str, Any]) -> str | None:
+    for key in ("base_branch", "baseRefName", "base"):
+        value = pr.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
 
 
 __all__ = ["merge_pr_if_ready"]

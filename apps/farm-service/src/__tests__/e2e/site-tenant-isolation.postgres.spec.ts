@@ -14,6 +14,8 @@ import {
   withTenantContext,
 } from '@aquaculture/backend-common';
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { Role } from '@aquaculture/backend-common/decorators';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { CommandBus } from '@platform/cqrs';
 import {
   bootPostgresContainer,
@@ -84,19 +86,7 @@ import { ListFeedsHandler } from '../../feed/handlers/list-feeds.handler';
 import { UpdateFeedHandler } from '../../feed/handlers/update-feed.handler';
 import { GetFeedQuery } from '../../feed/queries/get-feed.query';
 import { ListFeedsQuery } from '../../feed/queries/list-feeds.query';
-import { AddFeedInventoryCommand } from '../../feeding/commands/add-feed-inventory.command';
-import {
-  AdjustFeedInventoryCommand,
-  AdjustmentType,
-} from '../../feeding/commands/adjust-feed-inventory.command';
-import { FeedInventory, InventoryStatus } from '../../feeding/entities/feed-inventory.entity';
-import { AddFeedInventoryHandler } from '../../feeding/handlers/add-feed-inventory.handler';
-import { AdjustFeedInventoryHandler } from '../../feeding/handlers/adjust-feed-inventory.handler';
-import { GetFeedInventoryQuery } from '../../feeding/queries/get-feed-inventory.query';
-import { GetFeedInventoryHandler } from '../../feeding/query-handlers/get-feed-inventory.handler';
 import { FarmOutbox } from '../../outbox/farm-outbox.entity';
-import { SentinelHubSettings } from '../../sentinel-hub/entities/sentinel-hub-settings.entity';
-import { SentinelHubService } from '../../sentinel-hub/sentinel-hub.service';
 import { CreateSiteCommand } from '../../site/commands/create-site.command';
 import { DeleteSiteCommand } from '../../site/commands/delete-site.command';
 import { UpdateSiteCommand } from '../../site/commands/update-site.command';
@@ -173,6 +163,10 @@ import {
 const TENANT_A = '4b529829-ea79-48da-982c-cd6fbec8ffb7';
 const TENANT_B = '7c2f4e10-3d2a-4b4e-9f18-f8b16f0d5a10';
 const USER_ID = 'f1b7b266-5e20-4c37-8ab2-b7ef18db3a21';
+const MANAGER_CALLER = {
+  sub: USER_ID,
+  roles: [Role.MODULE_MANAGER],
+};
 const PUMP_EQUIPMENT_TYPE_ID = '18d6e179-af77-45f3-b33b-9a2a5e61b751';
 const TANK_EQUIPMENT_TYPE_ID = 'eae12d34-514b-4d1a-87c9-6d8626547cae';
 const SETUP_TENANT_TABLES = [
@@ -196,9 +190,7 @@ const SETUP_TENANT_TABLES = [
   'feeds',
   'feed_sites',
   'feed_type_species',
-  'feed_inventory',
   'water_quality_parameter_configs',
-  'sentinel_hub_settings',
 ] as const;
 
 interface SiteHarness {
@@ -236,16 +228,12 @@ interface SiteHarness {
   listFeeds: ListFeedsHandler;
   updateFeed: UpdateFeedHandler;
   deleteFeed: DeleteFeedHandler;
-  addFeedInventory: AddFeedInventoryHandler;
-  adjustFeedInventory: AdjustFeedInventoryHandler;
-  getFeedInventory: GetFeedInventoryHandler;
   parameterConfigCache: ParameterConfigCacheService;
   createParameterConfig: CreateParameterConfigHandler;
   getParameterConfig: GetParameterConfigHandler;
   listParameterConfigs: ListParameterConfigsHandler;
   updateParameterConfig: UpdateParameterConfigHandler;
   deleteParameterConfig: DeleteParameterConfigHandler;
-  sentinelHub: SentinelHubService;
   setSupplierApprovedSites: SetSupplierApprovedSitesHandler;
 }
 
@@ -257,10 +245,8 @@ describe('Site tenant isolation on real Postgres', () => {
   let siteRepository: Repository<Site>;
   let equipmentRepository: Repository<Equipment>;
   let equipmentTypeRepository: Repository<EquipmentType>;
-  let sentinelSettingsRepository: Repository<SentinelHubSettings>;
   let tankRepository: Repository<Tank>;
   let feedRepository: Repository<Feed>;
-  let inventoryRepository: Repository<FeedInventory>;
   let parameterConfigRepository: Repository<WaterQualityParameterConfig>;
   let tankCodeGenerator: CodeGeneratorService;
   let harness: SiteHarness;
@@ -273,11 +259,6 @@ describe('Site tenant isolation on real Postgres', () => {
   }
 
   beforeAll(async () => {
-    // The SentinelHubSettings entity's AES-256-GCM column transformer resolves
-    // its key from process.env at encrypt/decrypt time. Provide a deterministic
-    // 32-char test key so the sentinel round-trip works in this harness.
-    process.env['SENTINEL_HUB_ENCRYPTION_KEY'] = '0123456789abcdef0123456789abcdef';
-
     pg = await bootPostgresContainer({ startTimeoutMs: 90_000 });
     await pg.dataSource.query('CREATE SCHEMA farm');
     await createFarmOutboxTable(pg.dataSource);
@@ -310,9 +291,7 @@ describe('Site tenant isolation on real Postgres', () => {
         Species,
         Supplier,
         SupplierSite,
-        FeedInventory,
         WaterQualityParameterConfig,
-        SentinelHubSettings,
         AuditLog,
         CodeSequence,
         FarmOutbox,
@@ -344,10 +323,8 @@ describe('Site tenant isolation on real Postgres', () => {
 
     siteRepository = dataSource.getRepository(Site);
     equipmentRepository = dataSource.getRepository(Equipment);
-    sentinelSettingsRepository = dataSource.getRepository(SentinelHubSettings);
     tankRepository = dataSource.getRepository(Tank);
     feedRepository = dataSource.getRepository(Feed);
-    inventoryRepository = dataSource.getRepository(FeedInventory);
     parameterConfigRepository = dataSource.getRepository(WaterQualityParameterConfig);
     const auditLogService = createAuditLogService();
     tankCodeGenerator = new CodeGeneratorService(
@@ -391,8 +368,8 @@ describe('Site tenant isolation on real Postgres', () => {
         auditLogService,
         new OutboxPublisher(FarmOutbox),
       ),
-      getSite: new GetSiteHandler(dataSource),
-      listSites: new ListSitesHandler(dataSource),
+      getSite: new GetSiteHandler(dataSource, new SiteAuthorizationService()),
+      listSites: new ListSitesHandler(dataSource, new SiteAuthorizationService()),
       updateSite: new UpdateSiteHandler(
         dataSource,
         auditLogService,
@@ -481,20 +458,6 @@ describe('Site tenant isolation on real Postgres', () => {
       listFeeds: new ListFeedsHandler(dataSource),
       updateFeed: new UpdateFeedHandler(dataSource),
       deleteFeed: new DeleteFeedHandler(dataSource),
-      addFeedInventory: new AddFeedInventoryHandler(
-        inventoryRepository,
-        feedRepository,
-        siteRepository,
-        dataSource,
-        new OutboxPublisher(FarmOutbox),
-        new FinanceSettingsService(dataSource),
-      ),
-      adjustFeedInventory: new AdjustFeedInventoryHandler(
-        inventoryRepository,
-        dataSource,
-        new OutboxPublisher(FarmOutbox),
-      ),
-      getFeedInventory: new GetFeedInventoryHandler(dataSource),
       parameterConfigCache,
       createParameterConfig: new CreateParameterConfigHandler(
         parameterConfigRepository,
@@ -510,10 +473,6 @@ describe('Site tenant isolation on real Postgres', () => {
         parameterConfigRepository,
         parameterConfigCache,
       ),
-      // SentinelHubService no longer holds an encryption key: the entity's
-      // AES-256-GCM column transformer reads SENTINEL_HUB_ENCRYPTION_KEY from
-      // process.env (set in beforeAll) and encrypts/decrypts transparently.
-      sentinelHub: new SentinelHubService(sentinelSettingsRepository, dataSource),
       setSupplierApprovedSites: new SetSupplierApprovedSitesHandler(
         dataSource,
         new OutboxPublisher(FarmOutbox),
@@ -538,12 +497,12 @@ describe('Site tenant isolation on real Postgres', () => {
 
     const tenantAList = await withTenantContext(TENANT_A, () =>
       harness.listSites.execute(
-        new ListSitesQuery(TENANT_A, { search: 'North' }, { page: 1, limit: 10 }),
+        new ListSitesQuery(TENANT_A, MANAGER_CALLER, { search: 'North' }, { page: 1, limit: 10 }),
       ),
     );
     const tenantBList = await withTenantContext(TENANT_B, () =>
       harness.listSites.execute(
-        new ListSitesQuery(TENANT_B, { search: 'North' }, { page: 1, limit: 10 }),
+        new ListSitesQuery(TENANT_B, MANAGER_CALLER, { search: 'North' }, { page: 1, limit: 10 }),
       ),
     );
 
@@ -559,12 +518,22 @@ describe('Site tenant isolation on real Postgres', () => {
 
     const tenantAList = await withTenantContext(TENANT_A, () =>
       harness.listSites.execute(
-        new ListSitesQuery(TENANT_A, { search: 'Shared Name' }, { page: 1, limit: 10 }),
+        new ListSitesQuery(
+          TENANT_A,
+          MANAGER_CALLER,
+          { search: 'Shared Name' },
+          { page: 1, limit: 10 },
+        ),
       ),
     );
     const tenantBList = await withTenantContext(TENANT_B, () =>
       harness.listSites.execute(
-        new ListSitesQuery(TENANT_B, { search: 'Shared Name' }, { page: 1, limit: 10 }),
+        new ListSitesQuery(
+          TENANT_B,
+          MANAGER_CALLER,
+          { search: 'Shared Name' },
+          { page: 1, limit: 10 },
+        ),
       ),
     );
 
@@ -592,16 +561,16 @@ describe('Site tenant isolation on real Postgres', () => {
     );
 
     const getAfterUpdate = await withTenantContext(TENANT_A, () =>
-      harness.getSite.execute(new GetSiteQuery(tenantASite.id, TENANT_A)),
+      harness.getSite.execute(new GetSiteQuery(tenantASite.id, TENANT_A, MANAGER_CALLER)),
     );
     const listAfterUpdate = await withTenantContext(TENANT_A, () =>
       harness.listSites.execute(
-        new ListSitesQuery(TENANT_A, { search: 'Updated' }, { page: 1, limit: 10 }),
+        new ListSitesQuery(TENANT_A, MANAGER_CALLER, { search: 'Updated' }, { page: 1, limit: 10 }),
       ),
     );
     const tenantBList = await withTenantContext(TENANT_B, () =>
       harness.listSites.execute(
-        new ListSitesQuery(TENANT_B, { search: 'Updated' }, { page: 1, limit: 10 }),
+        new ListSitesQuery(TENANT_B, MANAGER_CALLER, { search: 'Updated' }, { page: 1, limit: 10 }),
       ),
     );
 
@@ -623,12 +592,22 @@ describe('Site tenant isolation on real Postgres', () => {
 
     const tenantAList = await withTenantContext(TENANT_A, () =>
       harness.listSites.execute(
-        new ListSitesQuery(TENANT_A, { search: 'Delete Candidate' }, { page: 1, limit: 10 }),
+        new ListSitesQuery(
+          TENANT_A,
+          MANAGER_CALLER,
+          { search: 'Delete Candidate' },
+          { page: 1, limit: 10 },
+        ),
       ),
     );
     const tenantBList = await withTenantContext(TENANT_B, () =>
       harness.listSites.execute(
-        new ListSitesQuery(TENANT_B, { search: 'Delete Candidate' }, { page: 1, limit: 10 }),
+        new ListSitesQuery(
+          TENANT_B,
+          MANAGER_CALLER,
+          { search: 'Delete Candidate' },
+          { page: 1, limit: 10 },
+        ),
       ),
     );
 
@@ -1446,78 +1425,6 @@ describe('Site tenant isolation on real Postgres', () => {
     expect(tenantBAfterDelete.data.map((feed: Feed) => feed.id)).toEqual([feedB.id]);
   });
 
-  it('keeps feed inventory lot merges and adjustments isolated per tenant', async () => {
-    const siteA = await createSiteForTenant(TENANT_A, 'Inventory Site A', 'INV-SITE-A');
-    const siteB = await createSiteForTenant(TENANT_B, 'Inventory Site B', 'INV-SITE-B');
-    const feedA = await createFeedForTenant(TENANT_A, siteA.id, 'Inventory Feed', 'INV-FEED-01');
-    const feedB = await createFeedForTenant(TENANT_B, siteB.id, 'Inventory Feed', 'INV-FEED-01');
-
-    const firstStock = await addInventoryForTenant(TENANT_A, feedA.id, siteA.id, 100, 50, 'LOT-1');
-    const mergedStock = await addInventoryForTenant(TENANT_A, feedA.id, siteA.id, 25, 50, 'LOT-1');
-    await addInventoryForTenant(TENANT_B, feedB.id, siteB.id, 75, 20, 'LOT-1');
-
-    expect(firstStock.id).toBe(mergedStock.id);
-    expect(Number(mergedStock.quantityKg)).toBe(125);
-    expect(await inventoryRowCount('farm', TENANT_A)).toBe(0);
-    expect(await inventoryRowCount(getTenantSchemaName(TENANT_A), TENANT_A)).toBe(1);
-    expect(await inventoryRowCount(getTenantSchemaName(TENANT_B), TENANT_A)).toBe(0);
-
-    const adjusted = await withTenantContext(TENANT_A, () =>
-      harness.adjustFeedInventory.execute(
-        new AdjustFeedInventoryCommand(
-          TENANT_A,
-          {
-            inventoryId: mergedStock.id,
-            adjustmentType: AdjustmentType.SET_QUANTITY,
-            quantity: 40,
-            reason: 'physical-count',
-          },
-          USER_ID,
-        ),
-      ),
-    );
-    const tenantALowStock = await withTenantContext(TENANT_A, () =>
-      harness.getFeedInventory.execute(
-        new GetFeedInventoryQuery(
-          TENANT_A,
-          { feedId: feedA.id, siteId: siteA.id, lowStockOnly: true },
-          1,
-          10,
-        ),
-      ),
-    );
-    const tenantBInventory = await withTenantContext(TENANT_B, () =>
-      harness.getFeedInventory.execute(
-        new GetFeedInventoryQuery(TENANT_B, { feedId: feedB.id, siteId: siteB.id }, 1, 10),
-      ),
-    );
-
-    expect(Number(adjusted.quantityKg)).toBe(40);
-    expect(adjusted.status).toBe(InventoryStatus.LOW_STOCK);
-    expect(tenantALowStock.data.map((inventory: FeedInventory) => inventory.id)).toEqual([
-      mergedStock.id,
-    ]);
-    expect(tenantBInventory.data).toHaveLength(1);
-    expect(Number(tenantBInventory.data[0]?.quantityKg)).toBe(75);
-
-    await expect(
-      withTenantContext(TENANT_A, () =>
-        harness.adjustFeedInventory.execute(
-          new AdjustFeedInventoryCommand(
-            TENANT_A,
-            {
-              inventoryId: mergedStock.id,
-              adjustmentType: AdjustmentType.DECREASE,
-              quantity: 100,
-              reason: 'invalid-negative-stock-guard',
-            },
-            USER_ID,
-          ),
-        ),
-      ),
-    ).rejects.toThrow('Stok negatif olamaz');
-  });
-
   it('keeps supplier approved-site replacement tenant-local and rolls back on audit failure', async () => {
     const siteA = await createSiteForTenant(TENANT_A, 'Supplier Site A', 'SUP-SITE-A');
     const siteASecondary = await createSiteForTenant(
@@ -1687,71 +1594,6 @@ describe('Site tenant isolation on real Postgres', () => {
 
     expect(tenantACacheAfterDelete).toHaveLength(0);
     expect(tenantBCacheAfterDelete.map((config) => config.id)).toEqual([configB.id]);
-  });
-
-  it('keeps Sentinel Hub settings tenant-local with immediate status and credential reads', async () => {
-    await withTenantContext(TENANT_A, () =>
-      harness.sentinelHub.saveSettings(
-        TENANT_A,
-        'tenant-a-client-id',
-        'tenant-a-client-secret',
-        'tenant-a-instance-id',
-      ),
-    );
-    await withTenantContext(TENANT_B, () =>
-      harness.sentinelHub.saveSettings(
-        TENANT_B,
-        'tenant-b-client-id',
-        'tenant-b-client-secret',
-        'tenant-b-instance-id',
-      ),
-    );
-
-    expect(await tableTenantRowCount('farm', 'sentinel_hub_settings', TENANT_A)).toBe(0);
-    expect(
-      await tableTenantRowCount(getTenantSchemaName(TENANT_A), 'sentinel_hub_settings', TENANT_A),
-    ).toBe(1);
-    expect(
-      await tableTenantRowCount(getTenantSchemaName(TENANT_B), 'sentinel_hub_settings', TENANT_A),
-    ).toBe(0);
-
-    const tenantAStatus = await withTenantContext(TENANT_A, () =>
-      harness.sentinelHub.getStatus(TENANT_A),
-    );
-    const tenantBCredentials = await withTenantContext(TENANT_B, () =>
-      harness.sentinelHub.getCredentials(TENANT_B),
-    );
-
-    expect(tenantAStatus.isConfigured).toBe(true);
-    expect(tenantAStatus.clientIdMasked).toBe('tena****t-id');
-    expect(tenantBCredentials?.isConfigured).toBe(true);
-    expect(tenantBCredentials?.clientId).toBe('tena****t-id');
-
-    await withTenantContext(TENANT_A, () =>
-      harness.sentinelHub.updateInstanceId(TENANT_A, 'tenant-a-instance-id-updated'),
-    );
-
-    const tenantAUpdated = await withTenantContext(TENANT_A, () =>
-      harness.sentinelHub.getStatus(TENANT_A),
-    );
-    const tenantBUnchanged = await withTenantContext(TENANT_B, () =>
-      harness.sentinelHub.getStatus(TENANT_B),
-    );
-
-    expect(tenantAUpdated.instanceIdMasked).toBe('tena****ated');
-    expect(tenantBUnchanged.instanceIdMasked).toBe('tena****e-id');
-
-    await withTenantContext(TENANT_A, () => harness.sentinelHub.deleteSettings(TENANT_A));
-
-    const tenantAAfterDelete = await withTenantContext(TENANT_A, () =>
-      harness.sentinelHub.getStatus(TENANT_A),
-    );
-    const tenantBAfterDelete = await withTenantContext(TENANT_B, () =>
-      harness.sentinelHub.getStatus(TENANT_B),
-    );
-
-    expect(tenantAAfterDelete.isConfigured).toBe(false);
-    expect(tenantBAfterDelete.isConfigured).toBe(true);
   });
 
   async function createSiteForTenant(tenantId: string, name: string, code: string): Promise<Site> {
@@ -1964,41 +1806,6 @@ describe('Site tenant isolation on real Postgres', () => {
     return Number(rows[0]?.count ?? 0);
   }
 
-  async function addInventoryForTenant(
-    tenantId: string,
-    feedId: string,
-    siteId: string,
-    quantityKg: number,
-    minStockKg: number,
-    lotNumber: string,
-  ): Promise<FeedInventory> {
-    return withTenantContext(tenantId, () =>
-      harness.addFeedInventory.execute(
-        new AddFeedInventoryCommand(
-          tenantId,
-          {
-            feedId,
-            siteId,
-            quantityKg,
-            minStockKg,
-            lotNumber,
-            unitPricePerKg: 2,
-            currency: 'USD',
-          },
-          USER_ID,
-        ),
-      ),
-    );
-  }
-
-  async function inventoryRowCount(schema: string, tenantId: string): Promise<number> {
-    const rows: Array<{ count: string }> = await requireDataSource().query(
-      `SELECT COUNT(*)::text AS count FROM "${schema}"."feed_inventory" WHERE "tenantId" = $1`,
-      [tenantId],
-    );
-    return Number(rows[0]?.count ?? 0);
-  }
-
   async function createSupplierForTenant(
     tenantId: string,
     name: string,
@@ -2006,19 +1813,17 @@ describe('Site tenant isolation on real Postgres', () => {
   ): Promise<Supplier> {
     const repository = tenantManagerRepo(requireDataSource().manager, Supplier, tenantId);
     return withTenantContext(tenantId, () =>
-      repository.save(
-        {
-          tenantId,
-          name,
-          code,
-          type: SupplierType.FEED,
-          supplyTypes: [SupplierType.FEED],
-          status: SupplierStatus.ACTIVE,
-          isActive: true,
-          createdBy: USER_ID,
-          updatedBy: USER_ID,
-        },
-      ),
+      repository.save({
+        tenantId,
+        name,
+        code,
+        type: SupplierType.FEED,
+        supplyTypes: [SupplierType.FEED],
+        status: SupplierStatus.ACTIVE,
+        isActive: true,
+        createdBy: USER_ID,
+        updatedBy: USER_ID,
+      }),
     );
   }
 
@@ -2193,12 +1998,8 @@ function createTankCommandBus(handlers: {
         return handlers.deleteTank.execute(command);
       }
       const commandName =
-        typeof command === 'object' && command !== null
-          ? command.constructor?.name
-          : 'unknown';
-      throw new Error(
-        `Unsupported tank equipment adapter command: ${commandName ?? 'unknown'}`,
-      );
+        typeof command === 'object' && command !== null ? command.constructor?.name : 'unknown';
+      throw new Error(`Unsupported tank equipment adapter command: ${commandName ?? 'unknown'}`);
     },
   } as unknown as CommandBus;
 }

@@ -1,5 +1,6 @@
 import { ConflictException } from '@nestjs/common';
 import { createMockDataSource, createMockRepository } from '@aquaculture/testing';
+import { getTenantSchemaName } from '@aquaculture/backend-common/database';
 
 import { CreateWorkerCommand } from '../commands/create-worker.command';
 import { CreateWorkerHandler } from '../handlers/create-worker.handler';
@@ -74,6 +75,21 @@ describe('CreateWorkerHandler', () => {
       employeeNumber: `EMP-${year}-00001`,
     }));
     expect(mockManager.save).toHaveBeenCalledTimes(1);
+
+    // ORPHAN-MEDIUM-379 regression guard: the placeholder-PII columns
+    // (address/dateOfBirth/nationalId/employmentType/baseSalary) were dropped —
+    // deep worker PII lives in hr.employees. The handler must not resurrect
+    // the placeholder synthesis that only existed to satisfy NOT NULL.
+    const createArg = (mockManager.create as jest.Mock).mock.calls[0][1] as Record<string, unknown>;
+    for (const droppedColumn of [
+      'address',
+      'dateOfBirth',
+      'nationalId',
+      'employmentType',
+      'baseSalary',
+    ]) {
+      expect(createArg).not.toHaveProperty(droppedColumn);
+    }
   });
 
   it('increments the employee number from the locked max row', async () => {
@@ -82,12 +98,15 @@ describe('CreateWorkerHandler', () => {
 
     const year = new Date().getFullYear();
     // queryRunner.query drives BOTH the boundary's pin/GUC/readback calls AND the
-    // handler's FOR UPDATE select. The boundary issues 3 calls first (all []), then
-    // the 4th call — the handler's FOR UPDATE — returns the existing max row.
+    // handler's FOR UPDATE select. The boundary pins search_path, owns both RLS
+    // GUCs, and verifies the live context before the handler may query a worker.
     (mockQueryRunner.query as jest.Mock).mockResolvedValue([]);
     (mockQueryRunner.query as jest.Mock).mockResolvedValueOnce([]); // pin search_path
-    (mockQueryRunner.query as jest.Mock).mockResolvedValueOnce([]); // GUC set_config
-    (mockQueryRunner.query as jest.Mock).mockResolvedValueOnce([]); // GUC readback
+    (mockQueryRunner.query as jest.Mock).mockResolvedValueOnce([]); // tenant GUC
+    (mockQueryRunner.query as jest.Mock).mockResolvedValueOnce([]); // bypass GUC
+    (mockQueryRunner.query as jest.Mock).mockResolvedValueOnce([
+      { schema: getTenantSchemaName(tenantId), tenant: tenantId, bypass: 'off' },
+    ]); // schema/GUC readback
     (mockQueryRunner.query as jest.Mock).mockResolvedValueOnce([
       { employeeNumber: `EMP-${year}-00041` },
     ]);

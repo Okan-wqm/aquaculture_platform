@@ -249,4 +249,35 @@ describe('PlcConnectionService OPC UA writes', () => {
     expect(connect).not.toHaveBeenCalled();
     expect(writeData).not.toHaveBeenCalled();
   });
+
+  // SENSOR-HIGH-072: a PLC endpoint pointed at internal infrastructure must be
+  // rejected on save, before any connection is opened, so it cannot become an
+  // internal port-scan oracle. (The connect path is additionally guarded by
+  // the OPC UA adapter's DNS-resolving SSRF check.)
+  describe('endpoint SSRF validation', () => {
+    it.each([
+      'opc.tcp://127.0.0.1:4840',
+      'opc.tcp://localhost:4840',
+      'opc.tcp://10.0.0.5:4840',
+      'opc.tcp://192.168.1.10:4840',
+      'opc.tcp://172.16.0.9:4840',
+      'opc.tcp://169.254.169.254:4840',
+    ])(
+      'rejects a private/loopback/metadata endpoint before touching the repository: %s',
+      async (endpointUrl) => {
+        await expect(
+          service.create({ name: 'plc', endpointUrl, siteId: 'site-1' }, tenantId),
+        ).rejects.toThrow(ForbiddenException);
+      },
+    );
+
+    it('rejects a non-opc.tcp scheme', async () => {
+      await expect(
+        service.create(
+          { name: 'plc', endpointUrl: 'http://10.0.0.1:80', siteId: 'site-1' },
+          tenantId,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
 });

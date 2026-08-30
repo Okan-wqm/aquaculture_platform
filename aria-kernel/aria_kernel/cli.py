@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -11,6 +12,12 @@ from typing import Any
 
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+
+def _full_git_sha(value: str) -> str:
+    if len(value) != 40 or any(character not in "0123456789abcdef" for character in value):
+        raise argparse.ArgumentTypeError("target SHA must be 40 lowercase hexadecimal characters")
+    return value
 
 from aria_kernel.cycle import run_cycle
 from aria_kernel.agent_invocations import (
@@ -40,6 +47,7 @@ from aria_kernel.capability_gap import detect_capability_gaps
 from aria_kernel.discovery import run_discovery
 from aria_kernel.feedback import add_feedback, build_feedback_event, import_feedback, list_feedback
 from aria_kernel.integrity import verify_integrity
+from aria_kernel.tools_binding import bind_tools_root
 from aria_kernel.migration import (
     migrate_tools_bootstrap,
     migrate_tools_v1_to_v2,
@@ -50,8 +58,19 @@ from aria_kernel.migration import (
     rollback_workspace_v2_to_v1,
 )
 from aria_kernel.memory import rebuild_fates, reset_memory, withdraw_belief
+from aria_kernel.mission import (
+    assert_cycle_closure,
+    bind_mission,
+    fold_mission,
+    list_open_missions,
+    open_mission,
+    rebuild_mission_index,
+    set_closure_contract,
+    transition_mission,
+)
 from aria_kernel.plan_round_controller import advance_plan_rounds
 from aria_kernel.promotion_controller import promote_converged_plan_to_dispatch
+from aria_kernel.state_store import STATE_BRANCH
 from aria_kernel.plan_convergence import (
     evaluate_plan,
     force_plan_human_required,
@@ -124,6 +143,7 @@ from aria_kernel.runtime_artifacts import (
 from aria_kernel.runtime_profile import (
     PROFILES,
     get_profile,
+    get_scheduler_profile_ceiling,
     list_profile_history,
     set_profile,
 )
@@ -169,6 +189,7 @@ _TOOL_RUN_EXIT_CODES: dict[str, int] = {
     "output_unparseable": 1,
     "budget_exceeded": 2,
     "tool_unhealthy": 3,
+    "environment_unavailable": 1,
 }
 
 
@@ -233,6 +254,7 @@ _TOOLS_DIR_REQUIRED_COMMANDS: frozenset[tuple[str, ...]] = frozenset({
     # ``--tools-dir is required`` error instead of the downstream
     # ``tools_root_unresolvable`` GovernanceError.
     ("integrity", "migrate-tools-bootstrap"),
+    ("integrity", "bind-tools-root"),
     ("integrity", "migrate-tools-v2-to-v3"),
     ("integrity", "rollback-tools-v3-to-v2"),
     ("runtime", "promotion", "approve-v2"),
@@ -306,6 +328,7 @@ def _command_path(args: argparse.Namespace) -> tuple[str, ...]:
         "worker_result_command",
         "verification_command",
         "cycle_command",
+        "readiness_command",
     ):
         sub = getattr(args, attr, None)
         if sub:
@@ -386,9 +409,251 @@ def _validate_reason(text: str) -> str:
     return stripped
 
 
+def _handle_state_command(args: argparse.Namespace) -> int:
+    """Wave 1 §2.2 — operator entry to the state-snapshot primitives.
+
+    Imported lazily so the CLI's import cost does not grow for every
+    other subcommand, matching how the heavier integrity surfaces are
+    already wired.
+    """
+    from .ledger import canonical_json
+    from .state_snapshot import (
+        build_snapshot,
+        sign_snapshot,
+        snapshot_continuity,
+        verify_snapshot_signature,
+    )
+    from .tool_registry import tools_dir
+
+    if args.state_command == "snapshot":
+        roots: dict[str, Path] = {"tools": tools_dir(args.tools_dir)}
+        if args.workspace_base:
+            roots["workspace"] = Path(args.workspace_base)
+        if args.repo_root:
+            roots["repo"] = Path(args.repo_root)
+        previous = None
+        if args.previous:
+            previous = json.loads(Path(args.previous).read_text(encoding="utf-8"))
+        manifest = build_snapshot(
+            snapshot_id=args.snapshot_id,
+            cycle_id=args.cycle_id,
+            # Derived from the entry point, never from an argument.
+            lane="operator",
+            roots=roots,
+            parent_commit=args.parent_commit,
+            previous=previous,
+        )
+        result: dict[str, Any] = {
+            "snapshot_id": manifest["snapshot_id"],
+            "manifest_root": manifest["manifest_root"],
+            "surface_count": len(manifest["surfaces"]),
+            "artifact_only_count": len(manifest["artifact_only_surfaces"]),
+            "continuity": snapshot_continuity(manifest, previous),
+        }
+        if args.sign_with and not args.out_dir:
+            raise GovernanceError("state_snapshot_sign_requires_out_dir")
+        if args.out_dir:
+            out_dir = Path(args.out_dir)
+            if args.sign_with:
+                private = Path(args.sign_with)
+                signed = sign_snapshot(
+                    manifest,
+                    out_dir=out_dir,
+                    private_key_path=private,
+                    public_key_path=private.with_suffix(".pub"),
+                    signer_fingerprint=args.cycle_id,
+                )
+                result["signed"] = True
+                result["signature_path"] = signed.signature_path.as_posix()
+                result["manifest_path"] = signed.manifest_path.as_posix()
+            else:
+                out_dir.mkdir(parents=True, exist_ok=True)
+                path = out_dir / "snapshot.json"
+                path.write_text(canonical_json(manifest) + "\n", encoding="utf-8")
+                result["signed"] = False
+                result["manifest_path"] = path.as_posix()
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["continuity"]["status"] in {"ok", "genesis"} else 1
+
+    if args.state_command in {"checkout", "publish", "verify-store"}:
+        return _handle_state_store_command(args)
+
+    report = verify_snapshot_signature(
+        manifest_path=Path(args.snapshot),
+        signature_path=Path(args.signature),
+        public_key_path=Path(args.public_key),
+    )
+    print(json.dumps(report, indent=2, sort_keys=True))
+    return 0 if report["valid"] else 1
+
+
+def _handle_state_store_command(args: argparse.Namespace) -> int:
+    """Wave 1 §2.3 — operator entry to the ``aria/state`` store.
+
+    Both the store's lanes and this command reach the branch through
+    ``state_store.publish_state``, so the ancestry proof that closes
+    ORPHAN-CRITICAL-484/513 is not something a caller can be written
+    without: there is no second way in for it to be missing from.
+    """
+    from .workspace import canonical_identity
+    from .state_store import (
+        StateStoreRefusal,
+        _read_commit_ref,
+        build_publishable_snapshot,
+        checkout_state_store,
+        findings_root,
+        open_state_store,
+        publish_state,
+        store_environment,
+        read_published_snapshot,
+        read_snapshot_at_worktree_head,
+        tools_root,
+        verify_state_store,
+        workspace_root,
+    )
+
+    # ORPHAN-HIGH-798 compact half — shrink bloated ledgers in-place.
+    if getattr(args, "state_command", None) == "compact":
+        from .state_compact import compact_state
+        result = compact_state(
+            base_dir=getattr(args, "tools_dir", None) or os.environ.get("ARIA_TOOLS_DIR"),
+            retain_days=getattr(args, "retain_days", 7),
+            dry_run=getattr(args, "dry_run", False),
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    # Every refusal in this command is a VERDICT, not a crash — an
+    # unacknowledged bootstrap and an unproven ancestry both mean "the
+    # state does not permit this write". Reported as structured output on
+    # exit code 3 so a lane can distinguish it from a transport failure
+    # (exit 1) and decline to retry a refusal into a success.
+    repo_hash = args.repo_hash or canonical_identity(Path(args.repo_root))
+
+    try:
+        if args.state_command == "checkout":
+            # Establishes the store at the remote tip. Refuses over
+            # uncommitted writes, which is why it is a SEPARATE command
+            # from publish rather than publish's first step.
+            store = checkout_state_store(
+                args.repo_root,
+                branch=args.branch,
+                remote=args.remote,
+                store_dir=args.store_dir,
+            )
+            published = read_published_snapshot(store)
+            print(json.dumps({
+                "store_root": store.root.as_posix(),
+                "branch": store.branch,
+                "bootstrapped": store.bootstrapped,
+                "published_snapshot_id": (published or {}).get("snapshot_id"),
+                "published_manifest_root": (published or {}).get("manifest_root"),
+                "tools_root": tools_root(store).as_posix(),
+                "workspace_root": workspace_root(store, repo_hash).as_posix(),
+                "repo_hash": repo_hash,
+                "findings_root": findings_root(store).as_posix(),
+                # The binding a lane must adopt, emitted so the workflow
+                # reads it rather than restating the path convention —
+                # a second copy of that convention is how two roots drift.
+                "environment": store_environment(store, repo_hash),
+            }, indent=2, sort_keys=True))
+            return 0
+
+        store = open_state_store(
+            args.repo_root,
+            branch=args.branch,
+            remote=args.remote,
+            store_dir=args.store_dir,
+        )
+
+        if args.state_command == "verify-store":
+            verdict = verify_state_store(store, repo_hash=repo_hash)
+            print(json.dumps(verdict, indent=2, sort_keys=True))
+            return 0 if verdict["valid"] else 1
+
+        base_head = _read_commit_ref(store.root, "HEAD")
+        if base_head is None:
+            raise StateStoreRefusal(
+                "state_publish_base_head_unavailable: operator publish HEAD is "
+                "not an exact commit"
+            )
+        base = read_snapshot_at_worktree_head(
+            store,
+            expected_head=base_head,
+        )
+        snapshot = build_publishable_snapshot(
+            store,
+            snapshot_id=args.snapshot_id,
+            cycle_id=args.cycle_id,
+            # Derived from the entry point, never from an argument — the
+            # same rule the snapshot command follows (Plan ARIA-V3 §2c).
+            lane="operator",
+            repo_hash=repo_hash,
+            parent_commit=args.parent_commit,
+            previous=base,
+        )
+        result = publish_state(
+            store,
+            snapshot=snapshot,
+            cycle_id=args.cycle_id,
+            repo_hash=repo_hash,
+            expected_base_head=base_head,
+        )
+    except StateStoreRefusal as exc:
+        print(json.dumps({"published": False, "refusal": str(exc)}, indent=2, sort_keys=True))
+        return 3
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0
+
+
+def _record_launch_failure(argv: list[str] | None) -> None:
+    """ORPHAN-HIGH-780 — an argv the CLI rejects kills the night BEFORE any
+    cycle row exists, so the death never enters the burn-in denominator:
+    the ledger gap between cyc-20260819T022108Z and cyc-20260821T024646Z
+    is two ORPHAN-754 nights that consumed calendar time as if they never
+    happened. Recording the launch failure in the bound store makes every
+    stop a recorded stop — the mission's own rule.
+
+    Tools root comes from the ARIA_TOOLS_DIR lane binding, not from argv:
+    when argparse refuses the argv there is no parsed --tools-dir to read,
+    and the walk-up default would bind to whatever tree is on the ancestor
+    chain. Unbound (operator shell) stays unrecorded — there is no store
+    to be honest to.
+
+    Best-effort BY DESIGN: the recorder must not become a second failure
+    mode on a night that is already dying. A refusal (e.g. the frozen
+    profile's no-write containment) or an unwritable store is printed to
+    stderr and swallowed; governance events are observation-class, so
+    observe and standard nights — the lanes that feed burn-in — record.
+    """
+    tools_dir = os.environ.get("ARIA_TOOLS_DIR")
+    if not tools_dir:
+        return
+    try:
+        from .tool_registry import append_tools_governance
+
+        append_tools_governance(
+            tools_dir,
+            "cycle_launch_failed",
+            {
+                "argv": list(argv) if argv is not None else sys.argv[1:],
+                "exit_code": 2,
+                "recorded_via": "cli.main",
+            },
+        )
+    except Exception as exc:  # noqa: BLE001 — post-mortem telemetry, see docstring
+        print(f"cycle_launch_failed could not be recorded: {exc}", file=sys.stderr)
+
+
 def main(argv: list[str] | None = None) -> int:
     try:
         return _main(argv)
+    except SystemExit as exc:
+        # argparse exits 2 on a usage error — a caller/callee disagreement
+        # that killed the night before the kernel could record anything.
+        if exc.code == 2:
+            _record_launch_failure(argv)
+        raise
     except (GovernanceError, RuntimeError) as exc:
         message = str(exc)
         if message in ERROR_EXIT_CODES:
@@ -397,13 +662,15 @@ def main(argv: list[str] | None = None) -> int:
         raise
 
 
-def _main(argv: list[str] | None = None) -> int:
-    # Plan 024 §F — root parser inherits --tools-dir via parents=[_TOOLS_DIR_PARENT].
-    # The previous explicit add_argument("--tools-dir", default=None) was a
-    # second registration site that drifted the help text and required
-    # operators to type the flag BEFORE the subcommand. The parents-based
-    # approach delivers a single SSoT and accepts the flag at every nesting
-    # level. Required-validation moves to _TOOLS_DIR_REQUIRED_COMMANDS.
+def build_parser() -> argparse.ArgumentParser:
+    """Construct the full CLI parser without executing anything.
+
+    Extracted from _main so callers can verify an argv against the real
+    contract. tests/test_workflow_kernel_cli_contract.py uses it to prove
+    every `python3 -m aria_kernel ...` line in .github/workflows/ parses;
+    the lane cutover shipped `state publish` without --snapshot-id and
+    nothing could catch it while the parser was unreachable.
+    """
     parser = argparse.ArgumentParser(prog="aria-kernel", parents=[_TOOLS_DIR_PARENT])
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -427,6 +694,23 @@ def _main(argv: list[str] | None = None) -> int:
 
     feedback_parser = add_subparser(sub, "feedback")
     feedback_sub = feedback_parser.add_subparsers(dest="feedback_command", required=True)
+
+    # The verbs the kernel has been PRINTING into every judgment sample's
+    # operator instructions since Plan 016 — and never implemented. The
+    # sample said `aria-kernel feedback record …`; the parser knew only
+    # add/import/list/migrate. The documented label channel was a phantom,
+    # and judge calibration's human ground truth stayed empty partly for it.
+    fb_record = add_subparser(feedback_sub, "record")
+    fb_record.add_argument("--tool-id", required=True)
+    fb_record.add_argument("--run-id", required=True)
+    fb_record.add_argument("--finding-id", required=True)
+    fb_record.add_argument("--verdict", required=True, choices=["true_positive", "false_positive"])
+    fb_record.add_argument("--severity", default="medium", choices=["low", "medium", "high", "critical"])
+    fb_record.add_argument("--note", required=True)
+    fb_record.add_argument("--finding-fingerprint", default=None)
+    fb_batch = add_subparser(feedback_sub, "record-batch")
+    fb_batch.add_argument("--sample-id", required=True)
+    fb_batch.add_argument("--file", required=True)
 
     add_parser = add_subparser(feedback_sub, "add")
     add_workspace_args(add_parser)
@@ -471,6 +755,95 @@ def _main(argv: list[str] | None = None) -> int:
     discovery_run.add_argument("--cycle-id", required=True)
     discovery_run.add_argument("--snapshot-mode", default="committed", choices=["committed", "working_tree", "working-tree"])
 
+    # Wave 1 §2.2 — state snapshots: the tree-level continuity root.
+    # Under `integrity` rather than a new top-level command because a
+    # snapshot IS an integrity artefact; the operator verb set stays one
+    # tree instead of two that each know half the story.
+    state_parser = add_subparser(sub, "state")
+    state_sub = state_parser.add_subparsers(dest="state_command", required=True)
+    state_compact = add_subparser(
+        state_sub, "compact",
+        help="Shrink bloated state ledgers (runs, raw-findings, beliefs, learning-events).",
+    )
+    state_compact.add_argument("--retain-days", type=int, default=7,
+                               help="Keep rows newer than this many days (default 7).")
+    state_compact.add_argument("--dry-run", action="store_true",
+                               help="Report what would be compacted without writing.")
+    state_snapshot = add_subparser(
+        state_sub, "snapshot",
+        help="Build (and optionally sign) a state snapshot manifest.",
+    )
+    state_snapshot.add_argument("--snapshot-id", required=True)
+    state_snapshot.add_argument("--cycle-id", required=True)
+    # No --lane flag: Plan ARIA-V3 §2c locks the lane as kernel-derived,
+    # and this entry point IS the operator lane — a caller-supplied value
+    # would let an operator label their own run as a scheduled one.
+    state_snapshot.add_argument("--workspace-base", default=None,
+                                help="Workspace root holding aria-memory/ + aria-state/.")
+    state_snapshot.add_argument("--repo-root", default=None,
+                                help="Repo root holding aria-findings/ + aria-debts/.")
+    state_snapshot.add_argument("--out-dir", default=None,
+                                help="Write snapshot.json here; omit to print only.")
+    state_snapshot.add_argument("--previous", default=None,
+                                help="Path to the predecessor snapshot.json (chains the manifest).")
+    state_snapshot.add_argument("--sign-with", default=None,
+                                help="Private key path; requires --out-dir. Refuses if ssh-keygen is absent.")
+    state_snapshot.add_argument("--parent-commit", default=None)
+    state_verify = add_subparser(
+        state_sub, "verify-snapshot",
+        help="Verify a snapshot's signature AND that its manifest_root still matches.",
+    )
+    state_verify.add_argument("--snapshot", required=True)
+    state_verify.add_argument("--signature", required=True)
+    state_verify.add_argument("--public-key", required=True)
+
+    # Wave 1 §2.3 — the aria/state store. `publish` refuses unless the
+    # snapshot it builds names the published tip as its parent; there is
+    # no flag to skip that, because a skippable ancestry proof is what
+    # ORPHAN-CRITICAL-484/513 already cost once.
+    for name, helptext in (
+        ("checkout", "Materialise the state branch as a worktree at the remote tip."),
+        ("publish", "Build a snapshot from the state store and fast-forward-publish it."),
+        ("verify-store", "Re-derive the store's surfaces and compare against its snapshot."),
+    ):
+        store_parser = add_subparser(state_sub, name, help=helptext)
+        store_parser.add_argument("--repo-root", required=True)
+        # Derived from the repository by default. An operator computing
+        # this by hand can compute it WRONG, and a wrong value silently
+        # writes workspace state into a sibling subtree that no later
+        # snapshot mentions — loss that looks exactly like a clean run.
+        store_parser.add_argument("--repo-hash", default=None,
+                                  help="Workspace subtree key; defaults to the repo's canonical identity.")
+        store_parser.add_argument("--branch", default=STATE_BRANCH)
+        store_parser.add_argument("--remote", default="origin")
+        store_parser.add_argument("--store-dir", default=None,
+                                  help="Store worktree path; defaults to <repo-root>/.aria-state-store.")
+        if name == "publish":
+            store_parser.add_argument("--snapshot-id", required=True)
+            store_parser.add_argument("--cycle-id", required=True)
+            store_parser.add_argument("--parent-commit", default=None)
+            # No --no-push. A "rehearsal" that commits without pushing
+            # manufactures the exact state the re-checkout guard exists to
+            # refuse — a local commit the remote does not have — and it had
+            # no caller. Publishing is one indivisible act here.
+
+    # Wave 3 Twin-lite — the repository map (twin.py). `context` is the
+    # operator/agent consumer: a compact slice read INSTEAD of a repo walk.
+    twin_parser = add_subparser(sub, "twin")
+    twin_sub = twin_parser.add_subparsers(dest="twin_command", required=True)
+    for name, helptext in (
+        ("build", "Full build of the twin map at HEAD."),
+        ("refresh", "Incremental refresh since the map's indexed_sha."),
+        ("status", "Freshness + layer stats for the stored map."),
+        ("context", "Compact context slice for --files, read from the map."),
+    ):
+        twin_cmd = add_subparser(twin_sub, name, help=helptext)
+        twin_cmd.add_argument("--workspace-root", default=".")
+        if name in ("build", "refresh"):
+            twin_cmd.add_argument("--nx-graph-file", default=None)
+        if name == "context":
+            twin_cmd.add_argument("--files", nargs="+", required=True)
+
     integrity_parser = add_subparser(sub, "integrity")
     integrity_sub = integrity_parser.add_subparsers(dest="integrity_command", required=True)
     verify_parser = add_subparser(integrity_sub, "verify")
@@ -498,9 +871,71 @@ def _main(argv: list[str] | None = None) -> int:
     migrate_tools_boot.add_argument("--workspace-root", required=True)
     migrate_tools_boot.add_argument("--acknowledge", action="store_true")
     migrate_tools_boot.add_argument("--reason", required=True, type=_validate_reason)
+    # ORPHAN-HIGH-556 — binding a restored tree is NOT a migration, and the
+    # restore lane now says which one it wants. No `--acknowledge`: this runs
+    # unattended every night, and a flag nobody is present to set is not an
+    # acknowledgement. The delegated migration still requires one.
+    bind_tools = add_subparser(integrity_sub, "bind-tools-root")
+    bind_tools.add_argument("--workspace-root", required=True)
+    bind_tools.add_argument("--reason", required=True, type=_validate_reason)
     rollback_tools_v3 = add_subparser(integrity_sub, "rollback-tools-v3-to-v2")
     rollback_tools_v3.add_argument("--acknowledge", action="store_true")
     rollback_tools_v3.add_argument("--reason", required=True, type=_validate_reason)
+
+    # ORPHAN-CRITICAL-420 S4 — the failure circuit breaker's operator surface.
+    #
+    # circuit_breaker.py has defined evaluate_breaker/current_state/reset_breaker
+    # since Plan ARIA-V3 §B2, and `grep -n breaker cli.py` returned NOTHING: no
+    # status, no reset, no command group at all. The breaker's own ledger lives
+    # under aria-tools/, which .gitignore excludes, so a tripped breaker could
+    # only be cleared by hand-deleting an untracked artifact on whichever runner
+    # happened to write it.
+    #
+    # That is why this lands WITH the producer and not after it. Wiring a
+    # producer first would convert a transient failure into an unrecoverable
+    # halt — trading a fail-open breaker for a fail-closed one nobody can reopen,
+    # which is not an improvement.
+    #
+    # `reset` deliberately mirrors the migration commands' operator contract
+    # (--acknowledge + --reason, validated by _validate_reason) because it is the
+    # same class of action: a human overriding a governance stop. The underlying
+    # reset_breaker() truncates the 24h window, so the reason string is the only
+    # durable record of why the window was discarded.
+    # ORPHAN-HIGH-466 — the B0 cost breaker's operator surface, the exact
+    # counterpart to `breaker` below. cost_budget.reset_breaker has existed
+    # since Plan ARIA-V3 §B0 with no CLI, so a tripped cost breaker had the
+    # same unrecoverable shape the failure breaker had before ORPHAN-HIGH-465:
+    # clearable only by hand-editing a gitignored artifact. It lands with the
+    # counter fix rather than after it, for the same reason.
+    # Named `cost-breaker`, not `budget`: `budget` is already the Plan 016
+    # D6 check/record/list group for a different ledger. Parallel to the
+    # `breaker` group below, which owns the B2 failure breaker.
+    cost_parser = add_subparser(sub, "cost-breaker")
+    cost_sub = cost_parser.add_subparsers(dest="cost_breaker_command", required=True)
+    add_subparser(cost_sub, "status")
+    cost_reset = add_subparser(cost_sub, "reset")
+    cost_reset.add_argument("--acknowledge", action="store_true")
+    cost_reset.add_argument("--reason", required=True, type=_validate_reason)
+    cost_reset.add_argument("--operator-approval-ref", required=True)
+
+    breaker_parser = add_subparser(sub, "breaker")
+    breaker_sub = breaker_parser.add_subparsers(dest="breaker_command", required=True)
+    add_subparser(breaker_sub, "status")
+    breaker_reset = add_subparser(breaker_sub, "reset")
+    breaker_reset.add_argument("--acknowledge", action="store_true")
+    breaker_reset.add_argument("--reason", required=True, type=_validate_reason)
+    breaker_reset.add_argument("--operator-approval-ref", required=True)
+    # RC-6 — `quarantine` is a DIFFERENT verb from `reset`, not a flag on it,
+    # because the guarantees differ: reset discards the whole window and clears
+    # the state, quarantine preserves every decodable row and clears nothing.
+    # Collapsing them into one command with a flag is how an operator reaching
+    # for "make the breaker evaluable" would end up discarding the evidence.
+    # It gets a CLI at all because ORPHAN-HIGH-465 was exactly this: an
+    # operator-recovery function that existed with no command surface.
+    breaker_quarantine = add_subparser(breaker_sub, "quarantine")
+    breaker_quarantine.add_argument("--acknowledge", action="store_true")
+    breaker_quarantine.add_argument("--reason", required=True, type=_validate_reason)
+    breaker_quarantine.add_argument("--operator-approval-ref", required=True)
 
     tool_parser = add_subparser(sub, "tool")
     tool_sub = tool_parser.add_subparsers(dest="tool_command", required=True)
@@ -511,11 +946,62 @@ def _main(argv: list[str] | None = None) -> int:
     tool_quarantine = add_subparser(tool_sub, "quarantine")
     tool_quarantine.add_argument("--tool-id", required=True)
     tool_quarantine.add_argument("--reason", required=True, type=_validate_reason)
+    # The audited way back. unquarantine_tool has existed since Plan 022 and
+    # was API-only — so when six adapters were quarantined by an environment
+    # fault, there was no operator-reachable path to lift it. Mechanism
+    # without a caller, CLI edition.
+    tool_unquarantine = add_subparser(tool_sub, "unquarantine")
+    tool_unquarantine.add_argument("--tool-id", required=True)
+    tool_unquarantine.add_argument("--reason", required=True, type=_validate_reason)
+    tool_unquarantine.add_argument("--operator-approval-ref", required=True)
+    tool_unquarantine.add_argument("--root-cause-note", required=True)
+    tool_unquarantine.add_argument("--fixture-update-ref", required=True)
     tool_run = add_subparser(tool_sub, "run")
     tool_run.add_argument("--tool-id", required=True)
     tool_run.add_argument("--input", default="{}")
     tool_run.add_argument("--cycle-id", required=True)
     tool_run.add_argument("--workspace-root", default=".")
+    # C1 (E4) — the promotion verb the registry never had. promote_tool has
+    # existed with every gate (fixture pass, readiness, operator approval)
+    # and ZERO command surface, so no adapter could ever leave SHADOW and
+    # every finding was suppressed (687 produced, 0 operator-facing).
+    # Mechanism without a caller, promotion edition — the same class as
+    # unquarantine above. CALIBRATE->SHADOW needs no approval ref (fixture
+    # pass suffices); SHADOW->ACTIVE requires it (promotion.py enforces).
+    tool_promote = add_subparser(tool_sub, "promote")
+    tool_promote.add_argument("--tool-id", required=True)
+    tool_promote.add_argument("--target-status", required=True, choices=("SHADOW", "ACTIVE"))
+    tool_promote.add_argument("--reason", required=True, type=_validate_reason)
+    tool_promote.add_argument("--operator-approval-ref", default=None)
+    # JJ-2b (ORPHAN-HIGH-732) — the panel authority's command surface. The
+    # ref is a RESOLVED human-required adjudication id, and the kernel
+    # RESOLVES it (promotion_veto.resolve_panel_approval): a ref that names
+    # no panel-resolved tool_promotion record for this tool refuses here
+    # exactly as it refuses inside the cycle, so the CLI is not a softer
+    # door into the same authority. promote_tool arms a 24h operator veto
+    # window instead of transitioning.
+    tool_promote.add_argument(
+        "--panel-approval-ref", default=None,
+        help="request_id of a RESOLVED agent-panel tool_promotion adjudication",
+    )
+
+    # JJ-2b — the operator's one move, and only if he disagrees. Silence for
+    # 24h activates the promotion; this verb is how that silence is broken.
+    tool_veto = add_subparser(tool_sub, "veto-promotion")
+    tool_veto.add_argument("--tool-id", required=True)
+    tool_veto.add_argument("--reason", required=True, type=_validate_reason)
+    tool_veto.add_argument("--operator-ref", default=None)
+
+    # FAZ 5a — the merge gate's attestation ledger finally gets a producer
+    # verb. verify_runner_attestation was MANDATORY at merge and NOTHING
+    # wrote a row; mechanism without a caller, ledger edition.
+    attestation_parser = add_subparser(sub, "runner-attestation")
+    attestation_sub = attestation_parser.add_subparsers(
+        dest="attestation_command", required=True
+    )
+    attestation_probe = add_subparser(attestation_sub, "probe")
+    attestation_probe.add_argument("--repo", required=True)
+    attestation_probe.add_argument("--target-ref", required=True)
 
     registry_parser = add_subparser(sub, "registry")
     registry_sub = registry_parser.add_subparsers(dest="registry_command", required=True)
@@ -530,8 +1016,10 @@ def _main(argv: list[str] | None = None) -> int:
     matrix_check = add_subparser(matrix_sub, "check")
     matrix_check.add_argument("--change-id", required=True)
     matrix_check.add_argument("--repo-root", default=".")
-    matrix_check.add_argument("--validation-run-ref-json", default=None,
-        help="Path to JSON list of structured validation_run_refs (cmd, exit_code, log_path, ran_at).")
+    # ORPHAN-696 — the hand-written evidence flag is GONE (twin of the
+    # pattern ORPHAN-675 removed): refs now derive from the validation-runs
+    # ledger itself, so a ref claiming a command that never ran cannot be
+    # typed into existence.
     matrix_check.add_argument("--validation-mode", choices=["enforced", "historical_attestation"],
         default="enforced")
     matrix_required = add_subparser(matrix_sub, "list-required")
@@ -593,6 +1081,14 @@ def _main(argv: list[str] | None = None) -> int:
     eval_aggregate.add_argument("--target-agent", required=True)
     eval_aggregate.add_argument("--window-days", type=int, default=30)
     eval_aggregate.add_argument("--mock-mode", choices=["true", "false", "all"], default="all")
+    # F4.3 — the comparison the program's success test needs: window N+1
+    # against window N, with a verdict that refuses to speak on thin data.
+    eval_delta = add_subparser(eval_sub, "delta")
+    eval_delta.add_argument("--target-agent", required=True)
+    eval_delta.add_argument("--window-days", type=int, default=30)
+    eval_delta.add_argument("--mock-mode", choices=["true", "false", "all"], default="all")
+    eval_delta.add_argument("--min-runs", type=int, default=None,
+        help="Runs required in BOTH windows before a verdict is given.")
     eval_list = add_subparser(eval_sub, "list")
     eval_list.add_argument("--target-agent", default=None)
     eval_list.add_argument("--fixture-id", default=None)
@@ -666,6 +1162,18 @@ def _main(argv: list[str] | None = None) -> int:
     profile_set.add_argument("--profile", required=True, choices=list(PROFILES))
     profile_set.add_argument("--operator-approval-ref", required=True)
     profile_set.add_argument("--set-by", default="operator")
+    # ORPHAN-HIGH-728 — the operator gesture ADR-033/ADR-041 reserve for a
+    # human, given a verb. Omitted means "leave the grant where it is": a
+    # flag that silently reset the ceiling on every profile change would make
+    # the grant a thing operators have to re-assert instead of a thing they
+    # recorded once.
+    profile_set.add_argument(
+        "--scheduler-ceiling", default=None, choices=list(PROFILES),
+        help=(
+            "maximum profile an UNATTENDED lane may resolve for itself "
+            "(default standard; omit to leave the recorded ceiling unchanged)"
+        ),
+    )
     profile_get = add_subparser(profile_sub, "get")
     profile_history = add_subparser(profile_sub, "history")
 
@@ -691,6 +1199,38 @@ def _main(argv: list[str] | None = None) -> int:
     runtime_retention_apply.add_argument("--reason", required=True, type=_validate_reason)
     runtime_retention_apply.add_argument("--operator-approval-ref", required=True)
     runtime_retention_apply.add_argument("--acknowledge", action="store_true")
+    runtime_signal = add_subparser(runtime_sub, "signal")
+    runtime_signal_sub = runtime_signal.add_subparsers(dest="runtime_signal_command", required=True)
+    rs_ingest = add_subparser(runtime_signal_sub, "ingest")
+    rs_ingest.add_argument("--source", required=True)
+    rs_ingest.add_argument("--service", required=True)
+    rs_ingest.add_argument("--summary", required=True)
+    rs_ingest.add_argument("--code-ref", action="append", required=True, dest="code_refs")
+    rs_ingest.add_argument("--severity", default="high")
+    rs_resolve = add_subparser(runtime_signal_sub, "resolve")
+    rs_resolve.add_argument("--signal-id", required=True)
+    rs_resolve.add_argument("--resolution-note", required=True)
+    rs_list = add_subparser(runtime_signal_sub, "list")
+
+    # F4.2 of the ARIA intelligence program: the gold corpus ceremony. The
+    # proposal side is machine work (count labelled feedback), so the cycle
+    # mints proposals on its own; PROMOTION is an operator act and stays a
+    # named-curator verb here, never automatic.
+    goldset_parser = add_subparser(sub, "goldset")
+    goldset_sub = goldset_parser.add_subparsers(dest="goldset_command", required=True)
+    gs_propose = add_subparser(goldset_sub, "propose")
+    gs_propose.add_argument("--tool-id", required=True)
+    gs_propose.add_argument("--cycle-id")
+    gs_propose.add_argument("--target-true-positives", type=int, default=None)
+    gs_propose.add_argument("--target-known-false-positives", type=int, default=None)
+    gs_list = add_subparser(goldset_sub, "list")
+    gs_list.add_argument("--tool-id")
+    gs_promote = add_subparser(goldset_sub, "promote")
+    gs_promote.add_argument("--tool-id", required=True)
+    gs_promote.add_argument("--curator", required=True)
+    gs_show = add_subparser(goldset_sub, "show")
+    gs_show.add_argument("--tool-id", required=True)
+
     runtime_restore = add_subparser(runtime_sub, "restore-artifact")
     runtime_restore.add_argument("--artifact-ref", required=True)
     runtime_restore.add_argument("--workspace-root", required=True)
@@ -741,6 +1281,15 @@ def _main(argv: list[str] | None = None) -> int:
     pressure_list.add_argument("--include-archived", action="store_true")
     pressure_list.add_argument("--include-closed", action="store_true")
     pressure_list.add_argument("--include-satisfied", action="store_true")
+    pressure_weights_cmd = add_subparser(pressure_sub, "weights")
+    add_workspace_args(pressure_weights_cmd)
+    pressure_override = add_subparser(pressure_sub, "weight-override")
+    add_workspace_args(pressure_override)
+    pressure_override.add_argument("--source", required=True)
+    pressure_override.add_argument("--weight", required=True, type=int)
+    pressure_override.add_argument("--acknowledge", action="store_true", required=True)
+    pressure_override.add_argument("--reason", required=True)
+    pressure_override.add_argument("--operator-approval-ref", required=True)
     pressure_explain = add_subparser(pressure_sub, "explain")
     add_workspace_args(pressure_explain)
     pressure_explain.add_argument("pressure_event_id", nargs="?")
@@ -975,6 +1524,10 @@ def _main(argv: list[str] | None = None) -> int:
     plan_promote.add_argument("--impact-ref", required=True)
     plan_promote.add_argument("--validation-ref", required=True)
     plan_promote.add_argument("--target-agent", default=None)
+    # PLAN Wave 2 PR 1.5 — bind this dispatch to the mission that owns the
+    # work. Optional so promotions predating the mission layer keep working;
+    # an id naming no open mission is refused rather than written through.
+    plan_promote.add_argument("--mission-id", default=None)
     plan_promote.add_argument("--acknowledge", action="store_true")
     plan_force = add_subparser(plan_sub, "force-human-required")
     plan_force.add_argument("--plan-id", required=True)
@@ -982,6 +1535,179 @@ def _main(argv: list[str] | None = None) -> int:
     plan_force.add_argument("--reason-code", action="append", required=True)
     plan_status_parser = add_subparser(plan_sub, "status")
     plan_status_parser.add_argument("--plan-id", required=True)
+
+    mission_parser = add_subparser(sub, "mission")
+    mission_sub = mission_parser.add_subparsers(dest="mission_command", required=True)
+    mission_open = add_subparser(mission_sub, "open")
+    mission_open.add_argument("--source-kind", required=True)
+    mission_open.add_argument("--source-id", required=True)
+    mission_open.add_argument("--repo-hash", required=True)
+    mission_open.add_argument("--title", required=True)
+    # ORPHAN-MEDIUM-730 — REQUIRED, exactly as at every other producer: the
+    # operator mints under the same closure contract the seeder does, so the
+    # CLI cannot be the one door that still admits a mission nothing can move.
+    mission_open.add_argument("--next-action", required=True)
+    mission_open.add_argument(
+        "--wake-file",
+        required=True,
+        help="Path to a JSON wake_condition object ({kind, key, not_before?}).",
+    )
+    mission_open.add_argument("--capability", default=None)
+    mission_open.add_argument("--priority", type=int, default=None)
+    mission_contract = add_subparser(
+        mission_sub, "set-contract",
+        help="Install next_action + wake_condition on a mission opened before the mint required them.",
+    )
+    mission_contract.add_argument("--mission-id", required=True)
+    mission_contract.add_argument("--next-action", required=True)
+    mission_contract.add_argument("--step-id", required=True)
+    mission_contract.add_argument(
+        "--wake-file",
+        required=True,
+        help="Path to a JSON wake_condition object ({kind, key, not_before?}).",
+    )
+    mission_transition = add_subparser(mission_sub, "transition")
+    mission_transition.add_argument("--mission-id", required=True)
+    mission_transition.add_argument("--to-state", required=True)
+    mission_transition.add_argument("--reason-code", required=True)
+    mission_transition.add_argument("--step-id", required=True)
+    mission_transition.add_argument("--target-sha", default="")
+    mission_transition.add_argument("--retry-rung", default=None)
+    # ORPHAN-MEDIUM-730 — these two stay argparse-OPTIONAL because their
+    # requirement depends on the destination: a non-terminal move must carry
+    # both, a terminal move must carry neither (a finished mission owes no
+    # next action). argparse cannot express "required unless --to-state is
+    # terminal", and re-deriving the terminal set here would put a second
+    # copy of `mission.TERMINAL_STATES` in the CLI — the exact split that
+    # lets two doors disagree. `transition_mission` refuses both wrong
+    # shapes, so the operator gets the refusal from the module that owns the
+    # rule; the CLI cannot open a door the kernel closed.
+    mission_transition.add_argument(
+        "--next-action",
+        default=None,
+        help="Required for a non-terminal --to-state; refused for a terminal one.",
+    )
+    mission_transition.add_argument(
+        "--wake-file",
+        default=None,
+        help=(
+            "Path to a JSON wake_condition object ({kind, key, not_before?}). "
+            "Required for a non-terminal --to-state; refused for a terminal one."
+        ),
+    )
+    mission_transition.add_argument("--evidence-ref", action="append", default=None)
+    # Wave 2 PR 1.6 — the scheduler. `--dry-run` reads the decision WITHOUT
+    # recording it, because an operator asking "what would you pick?" must not
+    # thereby write a decision into the governance ledger.
+    mission_next = add_subparser(
+        mission_sub, "next",
+        help="Select the mission that gets the WIP slot, and say why the others did not.",
+    )
+    mission_next.add_argument("--dry-run", action="store_true")
+    mission_bind = add_subparser(mission_sub, "bind")
+    mission_bind.add_argument("--mission-id", required=True)
+    mission_bind.add_argument("--step-id", required=True)
+    mission_bind.add_argument(
+        "--bindings-file",
+        required=True,
+        help="Path to a JSON object keyed by the closed binding vocabulary.",
+    )
+    mission_show = add_subparser(mission_sub, "show")
+    mission_show.add_argument("--mission-id", required=True)
+    add_subparser(mission_sub, "list")
+    add_subparser(mission_sub, "rebuild-index")
+    add_subparser(mission_sub, "closure")
+
+    # F5-a — first production entry point into the enterprise readiness
+    # proof chain. WHY a dedicated family: no readiness-adjacent verb
+    # family existed (record_workflow_run_proof had zero production
+    # callers), and burying proof production under `ci` would hide the
+    # readiness-claim ownership of these ledgers.
+    readiness_parser = add_subparser(sub, "readiness")
+    readiness_sub = readiness_parser.add_subparsers(dest="readiness_command", required=True)
+    readiness_produce = add_subparser(
+        readiness_sub,
+        "produce-workflow-proofs",
+        help="Record enterprise workflow-run proofs for a PR head's successful ci/workflow-runs.jsonl rows.",
+    )
+    readiness_produce.add_argument("--pr-number", type=int, required=True)
+    readiness_produce.add_argument("--repo", required=True)
+    readiness_produce.add_argument("--target-ref", required=True)
+    readiness_produce.add_argument("--head-ref", required=True)
+    readiness_produce.add_argument("--head-sha", required=True)
+    readiness_produce.add_argument(
+        "--readiness-claim-id",
+        default=None,
+        help="Optional claim binding; omit when proofs are produced before the claim row is minted.",
+    )
+    # F5-b (ORPHAN-694) — measured branch-protection proof.
+    readiness_bp = add_subparser(
+        readiness_sub,
+        "produce-branch-protection-proof",
+        help="Probe gh-api branch protection, snapshot it, and record a measured proof row.",
+    )
+    readiness_bp.add_argument("--pr-number", type=int, required=True)
+    readiness_bp.add_argument("--repo", required=True)
+    readiness_bp.add_argument("--target-ref", required=True)
+    readiness_bp.add_argument("--head-ref", required=True)
+    readiness_bp.add_argument("--head-sha", required=True)
+    readiness_bp.add_argument("--readiness-claim-id", default=None)
+    # ORPHAN-HIGH-763 — the two lane-side verbs the claim chain was missing.
+    # `produce-claim` had NO command entry at all (half of why the F5-g
+    # assembler had zero production callers), and `record-ci-report` exposes
+    # the existing ci.py ingestion so a lane can record its OWN completed run
+    # as the ci_workflow_run evidence row the claim guard demands — recorded
+    # post-completion from the GitHub API payload, never self-declared
+    # mid-run.
+    readiness_ci = add_subparser(
+        readiness_sub,
+        "record-ci-report",
+        help="Ingest a completed run + PR payload as ci/ ledger rows (workflow-runs, failures, report).",
+    )
+    readiness_ci.add_argument(
+        "--github-file", required=True,
+        help="JSON file with the completed run payload under workflow_runs (GitHub Actions API shape).",
+    )
+    readiness_ci.add_argument(
+        "--pr-file", required=True,
+        help="JSON file with the PR payload (number, head_sha/headRefOid, base/head refs).",
+    )
+    readiness_ci.add_argument("--cycle-id", default=None)
+    readiness_claim = add_subparser(
+        readiness_sub,
+        "produce-claim",
+        help="Assemble and record the enterprise readiness claim for one PR head.",
+    )
+    readiness_claim.add_argument("--pr-number", type=int, required=True)
+    readiness_claim.add_argument("--repo", required=True)
+    readiness_claim.add_argument("--target-ref", required=True)
+    readiness_claim.add_argument("--head-ref", required=True)
+    readiness_claim.add_argument("--head-sha", required=True)
+    readiness_claim.add_argument("--workflow-id", required=True)
+    readiness_claim.add_argument("--job-id", required=True)
+    readiness_claim.add_argument("--workflow-run-id", required=True)
+    readiness_claim.add_argument("--cycle-id", required=True)
+    readiness_claim.add_argument(
+        "--artifact-file", required=True,
+        help="JSON file: {artifact_id, uri, sha256, content_type} of the lane's uploaded evidence artifact.",
+    )
+    readiness_claim.add_argument(
+        "--surfaces-file", required=True,
+        help="JSON file: DLP surface name -> list of file paths (diff/prompt/transcript/logs/artifacts).",
+    )
+    readiness_claim.add_argument("--workspace-root", required=True)
+    readiness_claim.add_argument("--owner", default=None)
+    # ORPHAN-HIGH-766 — closure-reachability gate (ratcheted). --write pins
+    # or shrinks the baseline; without it the command is check-only and
+    # exits nonzero on NEW unreachable closures.
+    closure_reach = add_subparser(
+        sub,
+        "closure-reachability",
+        help="Verify that findings closed by adding a producer added a REACHED producer.",
+    )
+    closure_reach.add_argument("--write", action="store_true")
+    closure_reach.add_argument("--owner", default="operator")
+    closure_reach.add_argument("--reason", default="ratchet update")
 
     inv_parser = add_subparser(sub, "agent-invocations")
     inv_sub = inv_parser.add_subparsers(dest="agent_invocation_command", required=True)
@@ -1042,6 +1768,10 @@ def _main(argv: list[str] | None = None) -> int:
     )
     a_next.add_argument("--role", default=None)
     a_next.add_argument("--target-agent", default=None)
+    # E3/F10 — repeatable exclusion so a drain can step past a request it
+    # already attempted tonight instead of head-of-lining the queue.
+    a_next.add_argument("--exclude", action="append", default=None,
+                        help="Request id to skip (repeatable).")
 
     a_claim = add_subparser(agent_sub, 
         "claim",
@@ -1111,6 +1841,17 @@ def _main(argv: list[str] | None = None) -> int:
     a_submit.add_argument("--prompt-hash", required=True)
     a_submit.add_argument("--transcript-hash", required=True)
     a_submit.add_argument("--transcript-artifact-ref", required=True)
+    a_submit.add_argument(
+        "--evidence-target-sha",
+        required=False,
+        default=None,
+        help=(
+            "Ground evidence verification at the AGENT's committed HEAD instead of "
+            "the request's base (ARIA-HIGH-022): implementer agents cite post-fix "
+            "lines, which can never match the pre-edit blob. Must descend from the "
+            "request base; verified fail-closed."
+        ),
+    )
 
     a_reap = add_subparser(agent_sub, 
         "reap-stale",
@@ -1129,14 +1870,15 @@ def _main(argv: list[str] | None = None) -> int:
     b_record.add_argument("--action", required=True)
     b_record.add_argument("--note", default="")
     b_list = add_subparser(budget_sub, "list")
-    adapter_parser = add_subparser(sub, 
+    adapter_parser = add_subparser(sub,
         "adapter-portfolio",
-        help="Plan 016 Faz F1+F2 — MVP adapter registration + parse-window signature backfill.",
+        # E13-C11 — the backfill-window-metadata subcommand is gone: freshness
+        # metadata is manifest-owned and derived by validate_tool_definition,
+        # so there is nothing left to patch at runtime.
+        help="Plan 016 Faz F1 — MVP adapter registration + status.",
     )
     adapter_sub = adapter_parser.add_subparsers(dest="adapter_portfolio_command", required=True)
     ap_register = add_subparser(adapter_sub, "register-mvp")
-    ap_backfill = add_subparser(adapter_sub, "backfill-window-metadata")
-    ap_backfill.add_argument("--freshness-hours", type=int, default=None)
     ap_status = add_subparser(adapter_sub, "status")
     review_parser = add_subparser(sub, 
         "review",
@@ -1171,6 +1913,14 @@ def _main(argv: list[str] | None = None) -> int:
     arch_review.add_argument("--migration-plan", default="")
     arch_review.add_argument("--rollback-plan", default="")
     arch_review.add_argument("--cycle-id", default=None)
+    # E14-b (ORPHAN-697) — the ADR renderer gains its operator verb; the
+    # option-set/evidence-pack producers run nightly (service threshold),
+    # the DRAFT stays a deliberate act.
+    arch_draft = add_subparser(arch_sub, "draft-adr")
+    arch_draft.add_argument("--option-set-ref", required=True)
+    arch_draft.add_argument("--evidence-pack-ref", required=True)
+    arch_draft.add_argument("--cycle-id", default=None)
+    arch_list_packs = add_subparser(arch_sub, "list-packs")
     arch_list = add_subparser(arch_sub, "list")
     research_parser = add_subparser(sub, 
         "research",
@@ -1188,7 +1938,85 @@ def _main(argv: list[str] | None = None) -> int:
     rs_policy = add_subparser(research_sub, "set-policy")
     rs_policy.add_argument("--allowed-domain", action="append", required=True)
 
-    co_parser = add_subparser(sub, 
+    # M15/E12-c (ORPHAN-677) — operator-SIGNED anti-pattern mint. The
+    # writer existed with zero callers and kernel auto-write is FORBIDDEN
+    # (arb HIGH-008: an avoid-rule SKIPS work, so only a signed operator
+    # may mint one). This verb is the missing human-gated producer.
+    ap_parser = add_subparser(sub,
+        "anti-pattern",
+        help="M15 — operator-signed avoid-rule mint into the knowledge graph.",
+    )
+    ap_sub = ap_parser.add_subparsers(dest="anti_pattern_command", required=True)
+    ap_record = add_subparser(ap_sub, "record")
+    ap_record.add_argument("--pattern-id", required=True)
+    ap_record.add_argument("--reason-class", required=True,
+                           choices=["architecture_class", "scope_decision", "tool_design"])
+    ap_record.add_argument("--evidence-ref", action="append", required=True)
+    ap_record.add_argument("--cycle-id", required=True)
+    ap_record.add_argument("--operator-signature", required=True)
+    ap_record.add_argument("--workspace-root", default=".")
+
+    # C4-a (ORPHAN-674) — operator-approval mint for the genesis proof
+    # chain (verify_shadow_eval_proof resolves refs against this ledger).
+    opprov_parser = add_subparser(sub,
+        "operator-provenance",
+        help="C4-a — mint/list operator-approval rows for genesis shadow-eval proofs.",
+    )
+    opprov_sub = opprov_parser.add_subparsers(dest="operator_provenance_command", required=True)
+    opprov_record = add_subparser(opprov_sub, "record")
+    opprov_record.add_argument("--ref", required=True,
+                               help="The exact operator_provenance_ref the shadow-eval proof will carry.")
+    opprov_record.add_argument("--expires-at", required=True,
+                               help="ISO-8601 expiry; must be in the future at mint.")
+    opprov_record.add_argument("--target-agent", default=None)
+    opprov_record.add_argument("--note", default="")
+    opprov_list = add_subparser(opprov_sub, "list")
+
+    # E21-c (ORPHAN-693) — the Deney Masası's operator surface: declare a
+    # finding-bound experiment, run it, and promote its observations into
+    # finding events (reproduction / fix-verification / status change).
+    # `experiment run` is run_experiment's FIRST production caller — the
+    # E21-a residue "no scheduled/CLI caller" closes here; the nightly
+    # phase (E21-d) joins as the second.
+    exp_parser = add_subparser(sub,
+        "experiment",
+        help="E21 Deney Masası — register/run experiments and fold results into findings.",
+    )
+    exp_sub = exp_parser.add_subparsers(dest="experiment_command", required=True)
+    exp_register = add_subparser(exp_sub, "register")
+    exp_register.add_argument("--experiment-id", required=True)
+    exp_register.add_argument("--hypothesis", required=True)
+    exp_register.add_argument("--recipe-ref", required=True)
+    exp_register.add_argument("--contract-json", required=True,
+                              help='Observation contract, e.g. {"comparator":"status_equals","expected":"failed"}')
+    exp_register.add_argument("--finding-ref", default=None,
+                              help="Bind to a finding (F-xxx) so reproduce/verify-fix can promote it.")
+    exp_register.add_argument("--cycle-id", default=None)
+    exp_run = add_subparser(exp_sub, "run")
+    add_workspace_args(exp_run)
+    exp_run.add_argument("--experiment-id", required=True)
+    exp_run.add_argument("--change-id", required=True)
+    exp_run.add_argument("--commit-sha", required=True)
+    exp_run.add_argument("--runner-identity", required=True)
+    exp_run.add_argument("--cycle-id", default=None)
+    exp_reproduce = add_subparser(exp_sub, "reproduce")
+    add_workspace_args(exp_reproduce)
+    exp_reproduce.add_argument("--finding-id", required=True)
+    exp_reproduce.add_argument("--validation-run-id", required=True)
+    exp_verify = add_subparser(exp_sub, "verify-fix")
+    add_workspace_args(exp_verify)
+    exp_verify.add_argument("--finding-id", required=True)
+    exp_verify.add_argument("--validation-run-id", required=True)
+    exp_status = add_subparser(exp_sub, "finding-status")
+    add_workspace_args(exp_status)
+    exp_status.add_argument("--finding-id", required=True)
+    exp_status.add_argument("--to-status", required=True)
+    exp_status.add_argument("--reason", required=True)
+    exp_status.add_argument("--actor", required=True)
+    exp_bindings = add_subparser(exp_sub, "regression-bindings")
+    add_workspace_args(exp_bindings)
+
+    co_parser = add_subparser(sub,
         "critical-observation",
         help="Plan 016 Faz E3 — critical observation persistence + escalation surface.",
     )
@@ -1280,6 +2108,49 @@ def _main(argv: list[str] | None = None) -> int:
         help="Run the suppression-scanner against a unified-diff file.",
     )
     a_scan.add_argument("--diff-file", required=True)
+    # ORPHAN-CRITICAL-727 — the reachable apply gate. `pr create` refuses an
+    # action that is not ready_for_pr with a validation_gate_ref, and the only
+    # promoter (apply_engine.gate_apply_action) had no command surface at all,
+    # so the implementer lane could be told to open a PR and had no way to
+    # earn one. Bound into the implementer's Bash allowlist next to the
+    # `pr create` row (implementation_safety.ALLOWED_BASH_COMMANDS).
+    a_gate = add_subparser(apply_sub,
+        "gate",
+        help=(
+            "Run the candidate validation for a staged proposal, compare it "
+            "against the staged baseline, and promote the apply action to "
+            "ready_for_pr (exit 1 when the gate blocks)."
+        ),
+    )
+    a_gate.add_argument("--proposal-id", required=True)
+    a_gate.add_argument(
+        "--change-id",
+        required=True,
+        help=(
+            "The change_id the staging opened for this proposal; the gate "
+            "refuses a change_id the staged action does not name."
+        ),
+    )
+    a_gate.add_argument(
+        "--runner-identity",
+        default=None,
+        help=(
+            "Who executed the validation. Defaults to the GitHub run "
+            "(ci-executor:gha-<run_id>) on the executor lane, else a "
+            "kernel-scoped identity."
+        ),
+    )
+    a_gate.add_argument("--cycle-id", default=None)
+    a_gate.add_argument(
+        "--workspace-root",
+        default=None,
+        help=(
+            "Where the implementation branch is checked out. Defaults to the "
+            "path the staging recorded; its sibling `pr create` has always "
+            "taken one, and without it the gate could only run on the machine "
+            "staging ran on (ORPHAN-CRITICAL-728)."
+        ),
+    )
 
     # Plan 019 Phase 3 — pr sub-command surface delegating to pr_manager.
     # Why argparser-only: pr_manager.py already carries the load-bearing
@@ -1420,6 +2291,12 @@ def _main(argv: list[str] | None = None) -> int:
     )
     # Plan ARIA-V7 §3 V7.7 — cycle deadline watchdog CLI flag.
     auto_run.add_argument(
+        "--phase-filter", default=None,
+        help="Only run phases whose name contains this substring (e.g. --phase-filter judge "
+             "runs only judge phases). Skipped phases are recorded, not silent. Use for "
+             "splitting a long cycle across multiple shorter workflow runs.",
+    )
+    auto_run.add_argument(
         "--cycle-deadline-seconds", type=float, default=1800.0,
         help="Per-cycle wall-clock deadline (default 1800s = 30 min). "
              "When exceeded, orchestrator emits cycle_deadline_exceeded "
@@ -1513,21 +2390,10 @@ def _main(argv: list[str] | None = None) -> int:
              "transition still produces an audit row (closes C-2 "
              "SOC2 gap; matches set_profile() control-plane contract).",
     )
-    # Plan ARIA-V3.1-E (E1) + B-9 — distinct V9 implementer poll
-    # budget. Separate from --challenger-timeout-seconds (which
-    # gates the convergence_drainer round-poll wait); the V9
-    # implementation phase has its own wall-clock budget
-    # (CONVERGED → PR-merge typically <30min).
-    auto_run.add_argument(
-        "--implementer-poll-seconds", type=float, default=1800.0,
-        help="V9 implementer phase wall-clock budget in seconds "
-             "(default 1800s = 30 min). Distinct from "
-             "--challenger-timeout-seconds (which gates the inner "
-             "convergence_drainer round-poll). Used by the V3.1-B "
-             "AutonomousV9ImplementationRunner to bound the "
-             "CONVERGED→PR-merge polling window. Closes HIGH-13 "
-             "poll-budget conflation.",
-    )
+    # K6 (ORPHAN-CRITICAL-727) — the `--implementer-poll-seconds` budget that
+    # stood here is gone with the poll it bounded. The V9 implementation phase
+    # mints its envelope and returns; the executor lane delivers in a later
+    # run, so there is no wall-clock window for this lane to bound.
     auto_run.add_argument(
         "--output", choices=["summary", "full"], default="summary",
         help="Print bounded v2 summary by default; full requires --artifact.",
@@ -1573,6 +2439,17 @@ def _main(argv: list[str] | None = None) -> int:
         autonomy_sub, "status",
         help="Print the canonical AutonomyState derived from autonomy_state.jsonl.",
     )
+    auto_status.add_argument(
+        "--evidence",
+        action="store_true",
+        help="Derive immutable target-bound autonomy evidence status.",
+    )
+    auto_status.add_argument(
+        "--target-sha",
+        type=_full_git_sha,
+        default=None,
+        help="Full target commit SHA (valid only with --evidence; defaults to HEAD).",
+    )
     auto_project_queue = add_subparser(autonomy_sub, "project-queue")
     auto_project_queue.add_argument("--limit", type=int, default=None)
     # No additional args — reducer reads from the bound tools dir.
@@ -1606,6 +2483,14 @@ def _main(argv: list[str] | None = None) -> int:
     ch_commit.add_argument("--commit-sha", required=True)
     ch_commit.add_argument("--actual-file", action="append", required=True)
     ch_commit.add_argument("--claim-id", default=None)
+    # ORPHAN-721 — repeatable `path=reason`: the declared disposition for
+    # every intended file the diff did not touch. The emitter refuses an
+    # undeclared shortfall, so a partial implementation must say so here.
+    ch_commit.add_argument(
+        "--uncovered-disposition", action="append", default=[],
+        metavar="PATH=REASON",
+        help="Intended-but-untouched file with why it needs no change (repeatable).",
+    )
     ch_validate = add_subparser(change_sub, "validate", help="Close a change chain with validation refs.")
     ch_validate.add_argument("--change-id", required=True)
     ch_validate.add_argument("--validation-ref", action="append", required=True)
@@ -1654,6 +2539,10 @@ def _main(argv: list[str] | None = None) -> int:
     hr_resolve = add_subparser(hr_sub, "resolve")
     hr_resolve.add_argument("--request-id", required=True)
     hr_resolve.add_argument("--resolution-note", required=True)
+    # The ONE wired human-verdict path into calibration ground truth
+    # (Plan 024 §B fan-out in resolve_human_required) — and the CLI never
+    # exposed the parameter, so the fan-out was dead from every keyboard.
+    hr_resolve.add_argument("--verdict", default=None, choices=["true_positive", "false_positive"])
     hr_sweep = add_subparser(hr_sub, "sweep")
     consensus_parser = add_subparser(sub, 
         "consensus",
@@ -1763,9 +2652,16 @@ def _main(argv: list[str] | None = None) -> int:
     agent_genesis_sub = agent_genesis_parser.add_subparsers(dest="agent_genesis_command", required=True)
     ag_draft = add_subparser(agent_genesis_sub, "draft")
     ag_draft.add_argument("--gap-id", required=True)
+    ag_draft.add_argument("--operator-approval-ref", default=None,
+                          help="C4-c: operator-provenance ref; with it the draft records its lifecycle chain (PRESSURE→…→DRAFT).")
     ag_sandbox = add_subparser(agent_genesis_sub, "sandbox")
     ag_sandbox.add_argument("--draft-id", required=True)
-    ag_sandbox.add_argument("--fixture-results-file", required=True)
+    # C4-b (ORPHAN-675) — exactly one evidence source: a ledger-derived
+    # suite (preferred; assembler) or the legacy operator JSON file.
+    ag_sandbox_src = ag_sandbox.add_mutually_exclusive_group(required=True)
+    ag_sandbox_src.add_argument("--fixture-results-file")
+    ag_sandbox_src.add_argument("--from-suite", metavar="EXECUTION_RUN_ID",
+                                help="Assemble fixture_results from the fixture-runs.jsonl suite row.")
     ag_approve = add_subparser(agent_genesis_sub, "approve")
     ag_approve.add_argument("--draft-id", required=True)
     ag_approve.add_argument("--operator-approval-ref", required=True)
@@ -1788,6 +2684,14 @@ def _main(argv: list[str] | None = None) -> int:
     )
     ag_materialize.add_argument("--operator-synthetic-override", action="store_true")
     ag_materialize.add_argument("--run-invariants", action="store_true")
+    # C4-d — real-mode bridge: one completed invocation → real eval →
+    # DRAFT→REAL_SANDBOX→SHADOW with the verify_shadow_eval_proof chain.
+    ag_shadow_bridge = add_subparser(agent_genesis_sub, "shadow-bridge")
+    ag_shadow_bridge.add_argument("--invocation-id", required=True)
+    ag_shadow_bridge.add_argument("--fixture-id", required=True)
+    ag_shadow_bridge.add_argument("--fixture-run-id", required=True)
+    ag_shadow_bridge.add_argument("--operator-approval-ref", required=True)
+    ag_shadow_bridge.add_argument("--repo-root", default=None)
     ag_list = add_subparser(agent_genesis_sub, "list")
     ag_list.add_argument("--materializations", action="store_true")
 
@@ -1895,6 +2799,17 @@ def _main(argv: list[str] | None = None) -> int:
     curate_parser.add_argument("--reason", default=None)
     curate_parser.add_argument("--cycle-id", default=None)
 
+    return parser
+
+
+def _main(argv: list[str] | None = None) -> int:
+    # Plan 024 §F — root parser inherits --tools-dir via parents=[_TOOLS_DIR_PARENT].
+    # The previous explicit add_argument("--tools-dir", default=None) was a
+    # second registration site that drifted the help text and required
+    # operators to type the flag BEFORE the subcommand. The parents-based
+    # approach delivers a single SSoT and accepts the flag at every nesting
+    # level. Required-validation moves to _TOOLS_DIR_REQUIRED_COMMANDS.
+    parser = build_parser()
     args = parser.parse_args(argv)
 
     # Plan 024 §F + Plan ARIA-V3.3 §2a — post-parse path resolution +
@@ -1979,6 +2894,30 @@ def _main(argv: list[str] | None = None) -> int:
             print(json.dumps(run_cycle(legacy_paths), indent=2, sort_keys=True))
         return 0
 
+    if args.command == "feedback" and args.feedback_command == "record":
+        from aria_kernel.feedback_store import record_operator_feedback
+        print(json.dumps(record_operator_feedback(
+            tool_id=args.tool_id,
+            run_id=args.run_id,
+            finding_id=args.finding_id,
+            verdict=args.verdict,
+            severity=args.severity,
+            note=args.note,
+            finding_fingerprint=args.finding_fingerprint,
+            base_dir=args.tools_dir,
+        ), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "feedback" and args.feedback_command == "record-batch":
+        from aria_kernel.feedback_store import record_operator_feedback_batch
+        payload = json.loads(Path(args.file).read_text(encoding="utf-8"))
+        print(json.dumps(record_operator_feedback_batch(
+            sample_id=args.sample_id,
+            verdict_payload=payload,
+            base_dir=args.tools_dir,
+        ), indent=2, sort_keys=True))
+        return 0
+
     if args.command == "feedback" and args.feedback_command == "add":
         require_workspace_v2(paths)
         event = build_feedback_event(args, cycle_id=args.cycle_id, paths=paths)
@@ -2034,6 +2973,232 @@ def _main(argv: list[str] | None = None) -> int:
         )
         return 0
 
+    if args.command == "cost-breaker" and args.cost_breaker_command == "status":
+        # Spend is DERIVED from the cost-attribution ledger, so status cannot
+        # disagree with what the gate enforces — both call derived_usage.
+        from aria_kernel.cost_budget import (
+            _load_caps,
+            current_state as _cost_current_state,
+            derived_usage,
+        )
+
+        daily_usd, monthly_usd = derived_usage(args.tools_dir)
+        caps = _load_caps(args.tools_dir)
+        state = _cost_current_state(args.tools_dir)
+        print(
+            json.dumps(
+                {
+                    "state": state,
+                    "daily_usd": round(daily_usd, 6),
+                    "monthly_usd": round(monthly_usd, 6),
+                    "caps": caps,
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+        )
+        return 0 if state == "ok" else 1
+
+    if args.command == "cost-breaker" and args.cost_breaker_command == "reset":
+        from aria_kernel.cost_budget import reset_breaker as _cost_reset
+
+        if not args.acknowledge:
+            print(
+                "cost-breaker reset requires --acknowledge: it clears a cost "
+                "stop without changing the caps that produced it",
+            )
+            return 2
+        result = _cost_reset(
+            base_dir=args.tools_dir,
+            operator_approval_ref=args.operator_approval_ref,
+            reason=args.reason,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "breaker" and args.breaker_command == "status":
+        # ORPHAN-CRITICAL-420 S4 — evaluate_breaker returns the verdict rather
+        # than current_state's bare string, because an operator deciding whether
+        # to reset needs the failure rows and the threshold that produced the
+        # verdict, not just "tripped".
+        from aria_kernel.circuit_breaker import evaluate_breaker
+
+        verdict = evaluate_breaker(args.tools_dir)
+        print(
+            json.dumps(
+                {
+                    "state": verdict.state,
+                    "reason": verdict.reason,
+                    "sliding_count": verdict.sliding_count,
+                    "threshold": verdict.threshold,
+                    "window_hours": verdict.window_hours,
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+        )
+        # Exit 1 on tripped so a shell caller can gate on it without parsing
+        # JSON; a tripped breaker is a non-zero condition by construction.
+        return 0 if verdict.state == "ok" else 1
+
+    if args.command == "breaker" and args.breaker_command == "reset":
+        from aria_kernel.circuit_breaker import reset_breaker
+
+        if not args.acknowledge:
+            print(
+                "breaker reset requires --acknowledge: it truncates the 24h "
+                "failure window, discarding the evidence that tripped it",
+            )
+            return 2
+        result = reset_breaker(
+            base_dir=args.tools_dir,
+            operator_approval_ref=args.operator_approval_ref,
+            reason=args.reason,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "breaker" and args.breaker_command == "quarantine":
+        from aria_kernel.circuit_breaker import quarantine_breaker_evidence
+
+        if not args.acknowledge:
+            print(
+                "breaker quarantine requires --acknowledge: it moves undecodable "
+                "ledger rows to a sidecar. Every decodable row is KEPT and the "
+                "breaker is NOT cleared — it re-derives from the survivors and "
+                "stays tripped if they still exceed the threshold.",
+            )
+            return 2
+        result = quarantine_breaker_evidence(
+            base_dir=args.tools_dir,
+            operator_approval_ref=args.operator_approval_ref,
+            reason=args.reason,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        # A no-op is not a failure, but a still-tripped breaker must not exit 0
+        # as though recovery finished: the operator has more to do.
+        if result.get("breaker_state_after") == "tripped":
+            return 1
+        return 0
+
+    if args.command == "mission" and args.mission_command == "next":
+        from .mission_scheduler import select_next_mission
+
+        decision = select_next_mission(base_dir=args.tools_dir, record=not args.dry_run)
+        print(json.dumps(decision.as_event(), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "readiness" and args.readiness_command == "produce-workflow-proofs":
+        from .readiness_proofs import produce_workflow_run_proofs
+
+        result = produce_workflow_run_proofs(
+            pr_number=args.pr_number,
+            repo=args.repo,
+            target_ref=args.target_ref,
+            head_ref=args.head_ref,
+            head_sha=args.head_sha,
+            readiness_claim_id=args.readiness_claim_id,
+            base_dir=args.tools_dir,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "readiness" and args.readiness_command == "produce-branch-protection-proof":
+        from .readiness_proofs import produce_branch_protection_proof
+
+        result = produce_branch_protection_proof(
+            pr_number=args.pr_number,
+            repo=args.repo,
+            target_ref=args.target_ref,
+            head_ref=args.head_ref,
+            head_sha=args.head_sha,
+            readiness_claim_id=args.readiness_claim_id,
+            base_dir=args.tools_dir,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "readiness" and args.readiness_command == "record-ci-report":
+        from .ci import record_ci_report
+
+        github = json.loads(Path(args.github_file).read_text(encoding="utf-8"))
+        pr = json.loads(Path(args.pr_file).read_text(encoding="utf-8"))
+        result = record_ci_report(
+            pr=pr, github=github, cycle_id=args.cycle_id, base_dir=args.tools_dir,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "readiness" and args.readiness_command == "produce-claim":
+        from .readiness_proofs import produce_readiness_claim
+
+        artifact = json.loads(Path(args.artifact_file).read_text(encoding="utf-8"))
+        surfaces = json.loads(Path(args.surfaces_file).read_text(encoding="utf-8"))
+        result = produce_readiness_claim(
+            pr_number=args.pr_number,
+            repo=args.repo,
+            target_ref=args.target_ref,
+            head_ref=args.head_ref,
+            head_sha=args.head_sha,
+            workflow_id=args.workflow_id,
+            job_id=args.job_id,
+            workflow_run_id=args.workflow_run_id,
+            cycle_id=args.cycle_id,
+            artifact=artifact,
+            surface_paths=surfaces,
+            workspace_root=args.workspace_root,
+            owner=args.owner,
+            base_dir=args.tools_dir,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "closure-reachability":
+        from .closure_reachability import scan_closure_reachability, write_baseline
+
+        if args.write:
+            payload = write_baseline(".", owner=args.owner, reason=args.reason)
+            print(json.dumps(payload, indent=2, sort_keys=True))
+            return 0
+        report = scan_closure_reachability(".")
+        print(json.dumps(report.as_dict(), indent=2, sort_keys=True))
+        # A pinned baseline entry that became reachable is good news, not a
+        # failure — the shrink lands with the next --write.
+        return 1 if report.violations else 0
+
+    if args.command == "state":
+        return _handle_state_command(args)
+
+    if args.command == "twin":
+        from .twin import build_twin_map, read_twin_map, refresh_twin_map, twin_context_for_files, twin_status
+
+        if args.twin_command == "build":
+            result = build_twin_map(
+                workspace_root=args.workspace_root,
+                base_dir=args.tools_dir,
+                nx_graph_file=args.nx_graph_file,
+            )
+            print(json.dumps({"indexed_sha": result["indexed_sha"], "stats": result["stats"]}, indent=2, sort_keys=True))
+            return 0
+        if args.twin_command == "refresh":
+            result = refresh_twin_map(
+                workspace_root=args.workspace_root,
+                base_dir=args.tools_dir,
+                nx_graph_file=args.nx_graph_file,
+            )
+            print(json.dumps({"indexed_sha": result["indexed_sha"], "refresh": result.get("refresh"), "stats": result["stats"]}, indent=2, sort_keys=True))
+            return 0
+        if args.twin_command == "status":
+            print(json.dumps(twin_status(workspace_root=args.workspace_root, base_dir=args.tools_dir), indent=2, sort_keys=True))
+            return 0
+        if args.twin_command == "context":
+            twin = read_twin_map(base_dir=args.tools_dir)
+            if twin is None:
+                print(json.dumps({"error": "twin_map_absent", "hint": "run `twin build` first"}, sort_keys=True))
+                return 1
+            print(json.dumps(twin_context_for_files(twin, list(args.files)), indent=2, sort_keys=True))
+            return 0
+
     if args.command == "integrity" and args.integrity_command == "verify":
         result = verify_integrity(
             workspace_root=args.workspace_root,
@@ -2073,6 +3238,15 @@ def _main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
 
+    if args.command == "integrity" and args.integrity_command == "bind-tools-root":
+        result = bind_tools_root(
+            tools_dir=args.tools_dir,
+            workspace_root=args.workspace_root,
+            reason=args.reason,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
     if args.command == "integrity" and args.integrity_command == "rollback-tools-v3-to-v2":
         result = rollback_tools_v3_to_v2(
             tools_dir=args.tools_dir,
@@ -2095,6 +3269,40 @@ def _main(argv: list[str] | None = None) -> int:
         print(json.dumps(quarantine_tool(args.tool_id, args.reason, base_dir=args.tools_dir), indent=2, sort_keys=True))
         return 0
 
+    if args.command == "tool" and args.tool_command == "unquarantine":
+        from aria_kernel.tool_registry import unquarantine_tool
+        print(json.dumps(unquarantine_tool(
+            args.tool_id,
+            operator_approval_ref=args.operator_approval_ref,
+            reason=args.reason,
+            root_cause_note=args.root_cause_note,
+            fixture_update_ref=args.fixture_update_ref,
+            base_dir=args.tools_dir,
+        ), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "tool" and args.tool_command == "promote":
+        from aria_kernel.promotion import promote_tool
+        print(json.dumps(promote_tool(
+            args.tool_id,
+            args.target_status,
+            reason=args.reason,
+            operator_approval_ref=args.operator_approval_ref,
+            panel_approval_ref=args.panel_approval_ref,
+            base_dir=args.tools_dir,
+        ), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "tool" and args.tool_command == "veto-promotion":
+        from aria_kernel.promotion_veto import veto_promotion
+        print(json.dumps(veto_promotion(
+            tool_id=args.tool_id,
+            reason=args.reason,
+            operator_ref=args.operator_ref,
+            base_dir=args.tools_dir,
+        ), indent=2, sort_keys=True))
+        return 0
+
     if args.command == "tool" and args.tool_command == "run":
         payload = json.loads(args.input)
         result = run_tool(
@@ -2108,6 +3316,20 @@ def _main(argv: list[str] | None = None) -> int:
         # can pattern-match exit code for failure detection.
         envelope_status = (result.get("envelope") or {}).get("status", "ok")
         return _TOOL_RUN_EXIT_CODES.get(envelope_status, 1)
+
+    if args.command == "runner-attestation" and args.attestation_command == "probe":
+        # FAZ 5a — lane-start producer: one probed attestation row per
+        # recorded readiness claim, keyed exactly as the merge gate reads.
+        from aria_kernel.runner_attestation import (
+            probe_runner_attestations_for_claims,
+        )
+        result = probe_runner_attestations_for_claims(
+            base_dir=args.tools_dir,
+            repo=args.repo,
+            target_ref=args.target_ref,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
 
     if args.command == "registry" and args.registry_command == "compile":
         try:
@@ -2129,9 +3351,22 @@ def _main(argv: list[str] | None = None) -> int:
 
     # Plan 020 Phase 8.C — validation matrix CLI dispatch.
     if args.command == "validation-matrix" and args.validation_matrix_command == "check":
-        candidate_refs: list[Any] = []
-        if args.validation_run_ref_json:
-            candidate_refs = json.loads(Path(args.validation_run_ref_json).read_text(encoding="utf-8"))
+        # ORPHAN-696 — candidate refs come from the LEDGER, never a file an
+        # operator typed. Only rows the single writer stamped `ok` qualify
+        # as pass evidence; the gate still decides whether the required
+        # commands are among them.
+        from aria_kernel.validation_runs_ledger import list_validation_runs_for_change
+
+        candidate_refs = [
+            {
+                "cmd": row.get("cmd"),
+                "exit_code": row.get("exit_code"),
+                "log_path": row.get("log_path"),
+                "ran_at": row.get("recorded_at"),
+            }
+            for row in list_validation_runs_for_change(args.change_id, base_dir=args.tools_dir)
+            if row.get("status") == "ok"
+        ]
         try:
             result = enforce_validation_matrix(
                 change_id=args.change_id,
@@ -2231,6 +3466,25 @@ def _main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
+    if args.command == "agent-eval" and args.agent_eval_command == "delta":
+        from .agent_eval import MIN_RUNS_FOR_TREND, compare_eval_windows
+        delta_mock: Any = None
+        if args.mock_mode == "true":
+            delta_mock = True
+        elif args.mock_mode == "false":
+            delta_mock = False
+        result = compare_eval_windows(
+            target_agent=args.target_agent,
+            base_dir=args.tools_dir,
+            window_days=args.window_days,
+            mock_mode=delta_mock,
+            min_runs=args.min_runs if args.min_runs is not None else MIN_RUNS_FOR_TREND,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        # A regression is not a crash, but it must not read as success to a
+        # workflow that only checks the exit code.
+        return 1 if result["verdict"] == "regressed" else 0
+
     if args.command == "agent-eval" and args.agent_eval_command == "list":
         mock_filter = None
         if args.mock_mode == "true":
@@ -2317,14 +3571,87 @@ def _main(argv: list[str] | None = None) -> int:
             operator_approval_ref=args.operator_approval_ref,
             base_dir=args.tools_dir,
             set_by=args.set_by,
+            scheduler_ceiling=args.scheduler_ceiling,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
     if args.command == "profile" and args.profile_command == "get":
-        print(json.dumps({"active_profile": get_profile(base_dir=args.tools_dir)}, indent=2, sort_keys=True))
+        # ORPHAN-HIGH-728 — the ceiling is reported beside the active profile
+        # because they are one answer to "how much may ARIA do": an operator
+        # reading only `active_profile` cannot tell whether tonight's lane is
+        # standard because the ladder is short or because they capped it.
+        print(json.dumps({
+            "active_profile": get_profile(base_dir=args.tools_dir),
+            "scheduler_profile_ceiling": get_scheduler_profile_ceiling(
+                base_dir=args.tools_dir,
+            ),
+        }, indent=2, sort_keys=True))
         return 0
     if args.command == "profile" and args.profile_command == "history":
         print(json.dumps(list_profile_history(base_dir=args.tools_dir), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "runtime" and args.runtime_command == "signal":
+        # W-A of the dataflow-integrity watchdog: the bridge existed since
+        # Plan 029 but had NO CLI, so no probe or workflow could feed it
+        # without importing the kernel. These verbs are the missing mouth.
+        from .runtime_signal_bridge import (
+            ingest_runtime_signal,
+            load_open_runtime_signals,
+            resolve_runtime_signal,
+        )
+        if args.runtime_signal_command == "ingest":
+            row = ingest_runtime_signal(
+                source=args.source, service=args.service,
+                summary=args.summary, code_refs=args.code_refs,
+                severity=args.severity, base_dir=args.tools_dir,
+            )
+        elif args.runtime_signal_command == "resolve":
+            row = resolve_runtime_signal(
+                signal_id=args.signal_id,
+                resolution_note=args.resolution_note,
+                base_dir=args.tools_dir,
+            )
+        else:
+            row = load_open_runtime_signals(base_dir=args.tools_dir)
+        print(json.dumps(row, indent=2, sort_keys=True, default=str))
+        return 0
+
+    if args.command == "goldset":
+        from .goldset import (
+            DEFAULT_TARGET_KNOWN_FALSE_POSITIVES,
+            DEFAULT_TARGET_TRUE_POSITIVES,
+            list_goldset_proposals,
+            load_active_goldset,
+            promote_goldset_proposal,
+            propose_goldset,
+        )
+        if args.goldset_command == "propose":
+            result = propose_goldset(
+                tool_id=args.tool_id,
+                cycle_id=args.cycle_id,
+                target_true_positives=(
+                    args.target_true_positives
+                    if args.target_true_positives is not None
+                    else DEFAULT_TARGET_TRUE_POSITIVES
+                ),
+                target_known_false_positives=(
+                    args.target_known_false_positives
+                    if args.target_known_false_positives is not None
+                    else DEFAULT_TARGET_KNOWN_FALSE_POSITIVES
+                ),
+                base_dir=args.tools_dir,
+            )
+        elif args.goldset_command == "list":
+            rows = list_goldset_proposals(base_dir=args.tools_dir)
+            result = [r for r in rows if args.tool_id is None or r.get("tool_id") == args.tool_id]
+        elif args.goldset_command == "promote":
+            result = promote_goldset_proposal(
+                tool_id=args.tool_id, curator=args.curator, base_dir=args.tools_dir,
+            )
+        else:
+            result = load_active_goldset(tool_id=args.tool_id, base_dir=args.tools_dir)
+        print(json.dumps(result, indent=2, sort_keys=True, default=str))
         return 0
 
     if args.command == "runtime" and args.runtime_command == "verify-artifacts":
@@ -2431,6 +3758,29 @@ def _main(argv: list[str] | None = None) -> int:
             acknowledge=args.acknowledge,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "pressure" and args.pressure_command == "weights":
+        from .pressure import SOURCE_WEIGHTS, effective_source_weights, load_weight_overrides
+        eff = effective_source_weights(args.tools_dir)
+        ov = load_weight_overrides(args.tools_dir)
+        print(json.dumps({
+            "effective": eff,
+            "overridden_sources": sorted(ov),
+            "base": SOURCE_WEIGHTS,
+        }, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "pressure" and args.pressure_command == "weight-override":
+        from .pressure import record_weight_override
+        row = record_weight_override(
+            source=args.source,
+            weight=args.weight,
+            reason=args.reason,
+            operator_approval_ref=args.operator_approval_ref,
+            base_dir=args.tools_dir,
+        )
+        print(json.dumps(row, indent=2, sort_keys=True))
         return 0
 
     if args.command == "pressure" and args.pressure_command == "explain":
@@ -2677,11 +4027,19 @@ def _main(argv: list[str] | None = None) -> int:
             tools_root = Path(args.tools_dir).resolve()
         else:
             tools_root = workspace_root / "aria-tools"
+        # Derived, not flagged: when the state store is checked out its
+        # published manifest_root belongs in the anchor, and when it is
+        # not there is nothing to pin. An operator deciding this per run
+        # is an operator who can forget, and the anchor is the record
+        # that stands in for git history.
+        from aria_kernel.state_store import SNAPSHOT_FILENAME, STORE_DIRNAME
+        store_snapshot = workspace_root / STORE_DIRNAME / SNAPSHOT_FILENAME
         result = emit_anchor_to_path(
             date=args.date,
             workspace_root=workspace_root,
             tools_root=tools_root,
             output_path=Path(args.output_path).resolve(),
+            state_snapshot_path=store_snapshot if store_snapshot.is_file() else None,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
@@ -2793,6 +4151,7 @@ def _main(argv: list[str] | None = None) -> int:
                 impact_ref=args.impact_ref,
                 validation_ref=args.validation_ref,
                 acknowledge=args.acknowledge,
+                mission_id=args.mission_id,
             )
         elif args.plan_command == "force-human-required":
             result = force_plan_human_required(plan_id=args.plan_id, round_number=args.round_number, reason_codes=args.reason_code, base_dir=args.tools_dir)
@@ -2802,6 +4161,72 @@ def _main(argv: list[str] | None = None) -> int:
             parser.error("unknown plan command")
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result.get("status") != "rejected" else 1
+
+    if args.command == "mission":
+        if args.mission_command == "open":
+            result = open_mission(
+                source_kind=args.source_kind,
+                source_id=args.source_id,
+                repo_hash=args.repo_hash,
+                title=args.title,
+                next_action=args.next_action,
+                wake_condition=json.loads(
+                    Path(args.wake_file).read_text(encoding="utf-8")
+                ),
+                capability=args.capability,
+                priority=args.priority,
+                base_dir=args.tools_dir,
+            )
+        elif args.mission_command == "set-contract":
+            result = set_closure_contract(
+                mission_id=args.mission_id,
+                next_action=args.next_action,
+                wake_condition=json.loads(
+                    Path(args.wake_file).read_text(encoding="utf-8")
+                ),
+                step_id=args.step_id,
+                base_dir=args.tools_dir,
+            )
+        elif args.mission_command == "transition":
+            wake = (
+                json.loads(Path(args.wake_file).read_text(encoding="utf-8"))
+                if args.wake_file
+                else None
+            )
+            result = transition_mission(
+                mission_id=args.mission_id,
+                to_state=args.to_state,
+                reason_code=args.reason_code,
+                step_id=args.step_id,
+                target_sha=args.target_sha,
+                retry_rung=args.retry_rung,
+                next_action=args.next_action,
+                wake_condition=wake,
+                evidence_refs=args.evidence_ref,
+                base_dir=args.tools_dir,
+            )
+        elif args.mission_command == "bind":
+            result = bind_mission(
+                mission_id=args.mission_id,
+                bindings=json.loads(Path(args.bindings_file).read_text(encoding="utf-8")),
+                step_id=args.step_id,
+                base_dir=args.tools_dir,
+            )
+        elif args.mission_command == "show":
+            result = fold_mission(mission_id=args.mission_id, base_dir=args.tools_dir)
+        elif args.mission_command == "list":
+            result = {
+                "schema_version": 1,
+                "missions": list_open_missions(base_dir=args.tools_dir),
+            }
+        elif args.mission_command == "rebuild-index":
+            result = rebuild_mission_index(base_dir=args.tools_dir)
+        elif args.mission_command == "closure":
+            result = assert_cycle_closure(base_dir=args.tools_dir)
+        else:
+            parser.error("unknown mission command")
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
 
     if args.command == "agent-invocations":
         if args.agent_invocation_command == "request":
@@ -2855,7 +4280,10 @@ def _main(argv: list[str] | None = None) -> int:
     if args.command == "agent":
         if args.agent_command == "next-pending":
             row = next_pending_request(
-                role=args.role, target_agent=args.target_agent, base_dir=args.tools_dir
+                role=args.role,
+                target_agent=args.target_agent,
+                base_dir=args.tools_dir,
+                exclude_request_ids=set(args.exclude or []) or None,
             )
             print(json.dumps(row, indent=2, sort_keys=True))
             return 0 if row is not None else 0
@@ -2945,6 +4373,19 @@ def _main(argv: list[str] | None = None) -> int:
                     file=sys.stderr,
                 )
                 return 2
+            _evidence_target = args.evidence_target_sha
+            if _evidence_target == "auto":
+                # ARIA-HIGH-022 — resolve the AGENT worktree's HEAD here; the
+                # kernel-side descent proof in submit_claim_result decides
+                # whether it is a valid stronger anchor. Unresolvable or
+                # malformed output degrades to the legacy base-anchored check
+                # (fail-closed, never fail-open).
+                _head_proc = subprocess.run(
+                    ["git", "-C", str(workspace), "rev-parse", "HEAD"],
+                    capture_output=True, text=True, check=False,
+                )
+                _head = _head_proc.stdout.strip()
+                _evidence_target = _head if len(_head) == 40 and all(c in "0123456789abcdef" for c in _head) else None
             result = submit_claim_result(
                 claim_id=args.claim_id,
                 agent_id=args.agent_id,
@@ -2956,6 +4397,7 @@ def _main(argv: list[str] | None = None) -> int:
                 prompt_hash=args.prompt_hash,
                 transcript_hash=args.transcript_hash,
                 transcript_artifact_ref=args.transcript_artifact_ref,
+                evidence_target_sha=_evidence_target,
             )
             print(json.dumps(result, indent=2, sort_keys=True))
             return 0 if result.get("status") == "accepted" else 1
@@ -2987,19 +4429,12 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.command == "adapter-portfolio":
         from aria_kernel.adapter_portfolio import (
-            DEFAULT_FRESHNESS_WINDOW_HOURS,
-            backfill_window_metadata,
             list_mvp_status,
             register_mvp_adapters,
         )
 
         if args.adapter_portfolio_command == "register-mvp":
             result = register_mvp_adapters(base_dir=args.tools_dir)
-            print(json.dumps(result, indent=2, sort_keys=True))
-            return 0
-        if args.adapter_portfolio_command == "backfill-window-metadata":
-            freshness = args.freshness_hours if args.freshness_hours is not None else DEFAULT_FRESHNESS_WINDOW_HOURS
-            result = backfill_window_metadata(base_dir=args.tools_dir, freshness_hours=freshness)
             print(json.dumps(result, indent=2, sort_keys=True))
             return 0
         if args.adapter_portfolio_command == "status":
@@ -3057,7 +4492,140 @@ def _main(argv: list[str] | None = None) -> int:
         if args.architecture_command == "list":
             print(json.dumps(list_architecture_reviews(base_dir=args.tools_dir), indent=2, sort_keys=True))
             return 0
+        if args.architecture_command == "draft-adr":
+            from aria_kernel.architecture import draft_architecture_adr
+
+            row = draft_architecture_adr(
+                option_set_ref=args.option_set_ref,
+                evidence_pack_ref=args.evidence_pack_ref,
+                cycle_id=args.cycle_id,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.architecture_command == "list-packs":
+            from aria_kernel.architecture import (
+                list_architecture_evidence_packs,
+                list_architecture_option_sets,
+            )
+
+            print(json.dumps({
+                "option_sets": list_architecture_option_sets(base_dir=args.tools_dir),
+                "evidence_packs": list_architecture_evidence_packs(base_dir=args.tools_dir),
+            }, indent=2, sort_keys=True))
+            return 0
         parser.error("unknown architecture command")
+
+    if args.command == "anti-pattern":
+        from aria_kernel.knowledge_graph import Pattern, record_anti_pattern
+        from aria_kernel.tool_registry import utc_now as _utc_now
+
+        if args.anti_pattern_command == "record":
+            pattern = Pattern(
+                pattern_id=args.pattern_id,
+                pattern_type="anti_pattern",
+                confidence=1.0,
+                evidence_refs=tuple(args.evidence_ref),
+                discovered_by_cycle_id=args.cycle_id,
+                observed_at=_utc_now(),
+            )
+            path = record_anti_pattern(
+                pattern,
+                workspace_root=args.workspace_root,
+                reason_class=args.reason_class,
+                operator_signature=args.operator_signature,
+            )
+            print(json.dumps({"written": str(path), "pattern_id": args.pattern_id}, indent=2))
+            return 0
+
+    if args.command == "operator-provenance":
+        from aria_kernel.operator_provenance import (
+            list_operator_approvals,
+            record_operator_approval,
+        )
+
+        if args.operator_provenance_command == "record":
+            row = record_operator_approval(
+                ref=args.ref,
+                expires_at=args.expires_at,
+                target_agent=args.target_agent,
+                note=args.note,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.operator_provenance_command == "list":
+            print(json.dumps(list_operator_approvals(base_dir=args.tools_dir), indent=2, sort_keys=True))
+            return 0
+
+    if args.command == "experiment":
+        from aria_kernel.experiment import register_experiment, run_experiment
+        from aria_kernel.finding import (
+            list_fix_verified_bindings,
+            record_finding_fix_verification,
+            record_finding_reproduction,
+            record_finding_status_change,
+        )
+
+        if args.experiment_command == "register":
+            row = register_experiment(
+                experiment_id=args.experiment_id,
+                hypothesis=args.hypothesis,
+                recipe_ref=args.recipe_ref,
+                observation_contract=json.loads(args.contract_json),
+                finding_ref=args.finding_ref,
+                cycle_id=args.cycle_id,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.experiment_command == "run":
+            row = run_experiment(
+                experiment_id=args.experiment_id,
+                workspace_root=Path(args.workspace_root).resolve(),
+                change_id=args.change_id,
+                commit_sha=args.commit_sha,
+                runner_identity=args.runner_identity,
+                cycle_id=args.cycle_id,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.experiment_command == "reproduce":
+            row = record_finding_reproduction(
+                Path(args.workspace_root).resolve(),
+                finding_id=args.finding_id,
+                validation_run_id=args.validation_run_id,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.experiment_command == "verify-fix":
+            row = record_finding_fix_verification(
+                Path(args.workspace_root).resolve(),
+                finding_id=args.finding_id,
+                validation_run_id=args.validation_run_id,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.experiment_command == "finding-status":
+            row = record_finding_status_change(
+                Path(args.workspace_root).resolve(),
+                finding_id=args.finding_id,
+                to_status=args.to_status,
+                reason=args.reason,
+                actor=args.actor,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.experiment_command == "regression-bindings":
+            print(json.dumps(
+                list_fix_verified_bindings(Path(args.workspace_root).resolve()),
+                indent=2, sort_keys=True,
+            ))
+            return 0
 
     if args.command == "research":
         from aria_kernel.research import (
@@ -3206,6 +4774,23 @@ def _main(argv: list[str] | None = None) -> int:
         print(json.dumps(plan, indent=2, sort_keys=True))
         return 0
 
+    if args.command == "apply" and args.apply_command == "gate":
+        from aria_kernel.apply_engine import run_apply_gate
+
+        row = run_apply_gate(
+            proposal_id=args.proposal_id,
+            change_id=args.change_id,
+            base_dir=args.tools_dir,
+            runner_identity=args.runner_identity,
+            cycle_id=args.cycle_id,
+            workspace_root=args.workspace_root,
+        )
+        print(json.dumps(row, indent=2, sort_keys=True))
+        # Exit code carries the verdict, like `apply scan-diff` above: the
+        # implementer runs this from Bash and must not proceed to `pr create`
+        # on a blocked gate.
+        return 0 if row.get("status") == "ready_for_pr" else 1
+
     if args.command == "apply" and args.apply_command == "scan-diff":
         from aria_kernel.suppression_scanner import scan_unified_diff_text
 
@@ -3331,11 +4916,20 @@ def _main(argv: list[str] | None = None) -> int:
             print(json.dumps(row, indent=2, sort_keys=True))
             return 0
         if args.change_command == "commit":
+            dispositions: dict[str, str] = {}
+            for pair in args.uncovered_disposition:
+                path_part, sep, reason = str(pair).partition("=")
+                if not sep or not path_part.strip() or not reason.strip():
+                    parser.error(
+                        f"--uncovered-disposition must be PATH=REASON, got {pair!r}"
+                    )
+                dispositions[path_part.strip()] = reason.strip()
             row = emit_change_committed(
                 change_id=args.change_id,
                 commit_sha=args.commit_sha,
                 actual_affected_files=args.actual_file,
                 claim_id=args.claim_id,
+                uncovered_intended_dispositions=dispositions or None,
                 base_dir=args.tools_dir,
             )
             print(json.dumps(row, indent=2, sort_keys=True))
@@ -3474,6 +5068,7 @@ def _main(argv: list[str] | None = None) -> int:
             row = resolve_human_required(
                 request_id=args.request_id,
                 resolution_note=args.resolution_note,
+                verdict=args.verdict,
                 base_dir=args.tools_dir,
             )
             print(json.dumps(row, indent=2, sort_keys=True))
@@ -3611,11 +5206,23 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.command == "agent-genesis":
         if args.agent_genesis_command == "draft":
-            result = draft_agent_from_gap(gap_id=args.gap_id, base_dir=args.tools_dir)
+            result = draft_agent_from_gap(
+                gap_id=args.gap_id,
+                operator_approval_ref=args.operator_approval_ref,
+                base_dir=args.tools_dir,
+            )
         elif args.agent_genesis_command == "sandbox":
+            if args.from_suite:
+                from aria_kernel.agent_genesis import assemble_fixture_results_from_suite
+
+                fixture_results = assemble_fixture_results_from_suite(
+                    execution_run_id=args.from_suite, base_dir=args.tools_dir
+                )
+            else:
+                fixture_results = json.loads(Path(args.fixture_results_file).read_text(encoding="utf-8"))
             result = evaluate_genesis_sandbox(
                 draft_id=args.draft_id,
-                fixture_results=json.loads(Path(args.fixture_results_file).read_text(encoding="utf-8")),
+                fixture_results=fixture_results,
                 base_dir=args.tools_dir,
             )
         elif args.agent_genesis_command == "approve":
@@ -3664,6 +5271,17 @@ def _main(argv: list[str] | None = None) -> int:
                 run_invariants=args.run_invariants,
                 ack_id=args.ack_token,
                 operator_synthetic_override=args.operator_synthetic_override,
+            )
+        elif args.agent_genesis_command == "shadow-bridge":
+            from aria_kernel.shadow_eval_bridge import bridge_shadow_eval_from_invocation
+
+            result = bridge_shadow_eval_from_invocation(
+                invocation_id=args.invocation_id,
+                fixture_id=args.fixture_id,
+                fixture_run_id=args.fixture_run_id,
+                operator_approval_ref=args.operator_approval_ref,
+                base_dir=args.tools_dir,
+                repo_root=args.repo_root,
             )
         elif args.agent_genesis_command == "list":
             result = list_agent_materializations(base_dir=args.tools_dir) if args.materializations else list_agent_drafts(base_dir=args.tools_dir)
@@ -3948,25 +5566,10 @@ def _main(argv: list[str] | None = None) -> int:
             ),
             readiness_claim_resolver=resolve_readiness_claim_id_from_claims,
         )
-        # Plan ARIA-V8 §4 Phase 8.0 (B-V2-13) — fail-fast validation:
-        # cycle_deadline must accommodate at least 3 envelope-mint
-        # waits × max_rounds × challenger_timeout. Otherwise the
-        # watchdog kills cycles before they can converge — silent
-        # primary_silent regression. The lower bound is computed
-        # against the round-2+ worst case (3 envelopes per round).
-        _v8_min_cycle_deadline = (
-            args.max_rounds * 3 * args.challenger_timeout_seconds
-        )
-        if args.cycle_deadline_seconds < _v8_min_cycle_deadline:
-            print(
-                f"error: --cycle-deadline-seconds {args.cycle_deadline_seconds} "
-                f"< max_rounds × 3 envelopes × challenger_timeout "
-                f"({args.max_rounds} × 3 × {args.challenger_timeout_seconds} "
-                f"= {_v8_min_cycle_deadline}). Increase deadline OR "
-                f"decrease max_rounds OR decrease challenger_timeout.",
-                file=sys.stderr,
-            )
-            return 2
+        # CL-1 (ORPHAN-725) — the B-V2-13 deadline floor is retired with
+        # the waits it was sized for: the resumable step function never
+        # blocks on challenger_timeout, so a cycle deadline no longer
+        # needs to fit max_rounds × envelopes × timeout inside one run.
         # Plan ARIA-V8 §4 Phase 8.0 (B-V2-11) — surface the per-run
         # budget cap to the orchestrator environment so child ci_executor
         # subprocesses read it via MAX_BUDGET_USD_PER_RUN env var.
@@ -4012,10 +5615,9 @@ def _main(argv: list[str] | None = None) -> int:
             daemon_id=args.daemon_id,
             cycle_deadline_seconds=args.cycle_deadline_seconds,
             challenger_timeout_seconds=args.challenger_timeout_seconds,
-            # Plan ARIA-V3.1-E — explicit profile + distinct
-            # implementer poll budget threaded to the orchestrator.
+            # Plan ARIA-V3.1-E — explicit profile threaded to the
+            # orchestrator (the poll budget beside it died with K6's poll).
             profile=profile,
-            implementer_poll_seconds=args.implementer_poll_seconds,
             # Plan ARIA-V3.1-D2 — production MemoryHook +
             # CostTelemetryHook factories. observe/frozen profiles
             # get NoOp variants; standard/strict/autonomous get the
@@ -4025,14 +5627,18 @@ def _main(argv: list[str] | None = None) -> int:
             # Plan ARIA-V10.5 Phase 7 — F-027 closure. Wire the V9
             # implementation runner per profile so the orchestrator's
             # post-CONVERGED phase actually mints aria-implementer
-            # subprocess. observe/standard/frozen → NoOp (V8 backward-
-            # compat); strict → policy_strict_no_implementation refusal;
-            # autonomous → production AutonomousV9ImplementationRunner
-            # (mint_signing_key + mint_installation_token + issue_
-            # implementation_envelope + poll + record_outcome + cleanup).
-            # Pre-F-027 the CLI never installed this factory's return
-            # value so the orchestrator always fell back to NoOp; the
-            # V9 implementation phase was structurally unreachable.
+            # subprocess. Pre-F-027 the CLI never installed this
+            # factory's return value so the orchestrator always fell
+            # back to NoOp; the V9 implementation phase was
+            # structurally unreachable.
+            #
+            # ORPHAN-HIGH-728 — the mapping is no longer restated here.
+            # The factory reads `runtime_profile.ACTION_PERMISSIONS`:
+            # a profile holding `pr_create` (strict, autonomous) gets
+            # AutonomousV9ImplementationRunner, everything else NoOp.
+            # This comment used to enumerate a third `strict →
+            # policy_strict_no_implementation` arm that contradicted the
+            # profile table it was describing.
             v9_implementation_runner=select_v9_implementation_runner(profile=profile),
             max_budget_usd_per_cycle=args.max_budget_usd_per_cycle,
         )
@@ -4166,6 +5772,18 @@ def _main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "autonomy" and args.autonomy_command == "status":
+        if args.target_sha is not None and not args.evidence:
+            parser.error("autonomy status --target-sha requires --evidence")
+        if args.evidence:
+            from .autonomy_evidence import derive_autonomy_evidence_status
+
+            status = derive_autonomy_evidence_status(
+                base_dir=args.tools_dir,
+                repo_root=Path.cwd(),
+                target_sha=args.target_sha,
+            )
+            print(json.dumps(status.to_dict(), indent=2, sort_keys=True))
+            return 0
         # Plan 026R §F.3 — canonical state via the reducer.
         from .autonomy_state import AutonomyStateReducer
         state = AutonomyStateReducer.derive_current(args.tools_dir)

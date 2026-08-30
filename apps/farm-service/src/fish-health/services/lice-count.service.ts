@@ -20,7 +20,9 @@ import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-
 import { isoWeekOf } from '../../regulatory/assembly/period.util';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
 import { LiceCount } from '../entities/lice-count.entity';
+import { IncidentMediaType } from '../entities/farm-incident-media.entity';
 import { RecordLiceCountInput } from '../dto/field-capture.inputs';
+import { IncidentMediaService } from './incident-media.service';
 
 @Injectable()
 export class LiceCountService {
@@ -29,6 +31,7 @@ export class LiceCountService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly waterTemperature: WaterTemperatureService,
+    private readonly incidentMediaService: IncidentMediaService,
   ) {}
 
   async record(tenantId: string, input: RecordLiceCountInput, userId: string): Promise<LiceCount> {
@@ -75,12 +78,28 @@ export class LiceCountService {
       if (existing) {
         Object.assign(existing, values);
         const updated = await repo.save(existing);
+        await this.incidentMediaService.attach(
+          queryRunner.manager,
+          tenantId,
+          IncidentMediaType.LICE,
+          updated.id,
+          input.mediaKeys,
+          userId,
+        );
         this.logger.log(`Corrected lice count ${updated.id} (tank ${input.tankId}, ${countDate})`);
         return updated;
       }
 
       const saved = await repo.save(
         repo.create({ ...values, tenantId, tankId: input.tankId, countDate }),
+      );
+      await this.incidentMediaService.attach(
+        queryRunner.manager,
+        tenantId,
+        IncidentMediaType.LICE,
+        saved.id,
+        input.mediaKeys,
+        userId,
       );
       this.logger.log(
         `Recorded lice count ${saved.id} (tank ${input.tankId}, ${countDate}, ISO ${isoYear}/W${isoWeek})`,

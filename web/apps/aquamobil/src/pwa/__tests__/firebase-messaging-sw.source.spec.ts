@@ -148,3 +148,36 @@ describe('MSG-HIGH-069: firebase-messaging-sw.js notificationRef deep-link', () 
     expect(click).toMatch(/type: 'NAVIGATE_TO_NOTIFICATION_REF', notificationRef/);
   });
 });
+
+describe('MOB-MEDIUM-007: firebase-messaging-sw.js alarm-grade alert presentation', () => {
+  it('escalates CRITICAL/HIGH alert pushes: persistent, vibrating, with ack/view actions', () => {
+    const helper = source.slice(source.indexOf('function alertNotificationOptions'));
+    // Only alert-typed pushes get the escalation — chat pushes stay untouched.
+    expect(helper).toMatch(/data\.type !== 'alert'/);
+    // Life-safety severities persist on screen and vibrate with the alarm pattern.
+    expect(helper).toMatch(/requireInteraction = true/);
+    expect(helper).toMatch(/vibrate = \[200, 100, 200, 100, 200\]/);
+    // The Acknowledge/View actions are offered on the notification itself.
+    expect(helper).toMatch(/action: 'ack'/);
+    expect(helper).toMatch(/action: 'view'/);
+    // Re-triggers of the same alert replace + re-alert, never stack duplicates.
+    expect(helper).toMatch(/alert-\$\{data\.alertId\}/);
+    expect(helper).toMatch(/renotify: true/);
+  });
+
+  it('applies the severity options in the showNotification call', () => {
+    const obm = source.slice(source.indexOf('messaging.onBackgroundMessage'));
+    expect(obm).toMatch(/\.\.\.alertNotificationOptions\(notificationData\)/);
+  });
+
+  it("routes the notification's Acknowledge action to the authenticated app, never acking from the SW", () => {
+    const click = source.slice(source.indexOf("addEventListener('notificationclick'"));
+    // The ack deep-link carries the validated alertId; the app performs the ack.
+    expect(click).toMatch(/\/alerts\?ack=\$\{encodeURIComponent\(alertId\)\}/);
+    expect(click).toMatch(/UUID_PATTERN\.test\(data\.alertId\)/);
+    // A focused window is messaged instead of opening a duplicate.
+    expect(click).toMatch(/type: 'NAVIGATE_TO_ALERTS'/);
+    // No credentials in this worker: no Authorization header anywhere.
+    expect(source).not.toMatch(/Authorization/);
+  });
+});

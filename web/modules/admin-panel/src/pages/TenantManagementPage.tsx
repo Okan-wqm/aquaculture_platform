@@ -17,18 +17,13 @@ import {
   formatDate,
 } from '@aquaculture/shared-ui';
 import type { TableColumn } from '@aquaculture/shared-ui';
-import { tenantsApi, type Tenant, TenantTier, TenantStatus } from '../services/adminApi';
-
-// ============================================================================
-// Types
-// ============================================================================
-
-interface TenantStats {
-  totalTenants: number;
-  activeTenants: number;
-  suspendedTenants: number;
-  pendingTenants: number;
-}
+import {
+  tenantsApi,
+  type Tenant,
+  type TenantStats,
+  TenantTier,
+  TenantStatus,
+} from '../services/adminApi';
 
 // ============================================================================
 // Tenant Management Page
@@ -98,18 +93,21 @@ const TenantManagementPage: React.FC = () => {
   }, [searchTerm, statusFilter, tierFilter, page, limit]);
 
   // Cache stats — they're aggregate values, only fetch once per session (PERF-009)
-  const statsCacheRef = useRef<{ data: ReturnType<typeof tenantsApi.getStats> extends Promise<infer U> ? U : never; fetchedAt: number } | null>(null);
+  const statsCacheRef = useRef<{
+    data: ReturnType<typeof tenantsApi.getStats> extends Promise<infer U> ? U : never;
+    fetchedAt: number;
+  } | null>(null);
   const STATS_CACHE_TTL = 2 * 60 * 1000; // 2 minutes
 
   const fetchInitialData = useCallback(async () => {
     try {
       const now = Date.now();
       if (statsCacheRef.current && now - statsCacheRef.current.fetchedAt < STATS_CACHE_TTL) {
-        setStats(statsCacheRef.current.data as Parameters<typeof setStats>[0]);
+        setStats(statsCacheRef.current.data);
         return;
       }
       const statsResult = await tenantsApi.getStats();
-      statsCacheRef.current = { data: statsResult as never, fetchedAt: Date.now() };
+      statsCacheRef.current = { data: statsResult, fetchedAt: Date.now() };
       setStats(statsResult);
     } catch (err) {
       console.error('Failed to fetch stats:', err);
@@ -223,7 +221,9 @@ const TenantManagementPage: React.FC = () => {
     }
   };
 
-  const getStatusVariant = (status: TenantStatus | string): 'success' | 'warning' | 'error' | 'default' => {
+  const getStatusVariant = (
+    status: TenantStatus | string,
+  ): 'success' | 'warning' | 'error' | 'default' => {
     const s = String(status).toLowerCase();
     if (s === 'active') return 'success';
     if (s === 'pending' || s === 'provisioning') return 'warning';
@@ -231,7 +231,9 @@ const TenantManagementPage: React.FC = () => {
     return 'default';
   };
 
-  const getTierVariant = (tier: TenantTier | string): 'success' | 'warning' | 'info' | 'default' => {
+  const getTierVariant = (
+    tier: TenantTier | string,
+  ): 'success' | 'warning' | 'info' | 'default' => {
     const t = String(tier).toLowerCase();
     if (t === 'enterprise') return 'success';
     if (t === 'professional') return 'warning';
@@ -245,6 +247,7 @@ const TenantManagementPage: React.FC = () => {
       header: (
         <input
           type="checkbox"
+          aria-label="Select all tenants"
           checked={selectedIds.size === tenants.length && tenants.length > 0}
           onChange={toggleSelectAll}
           className="w-4 h-4 rounded border-gray-300"
@@ -253,6 +256,7 @@ const TenantManagementPage: React.FC = () => {
       render: (tenant) => (
         <input
           type="checkbox"
+          aria-label={`Select ${tenant.name}`}
           checked={selectedIds.has(tenant.id)}
           onChange={() => toggleSelect(tenant.id)}
           className="w-4 h-4 rounded border-gray-300"
@@ -271,9 +275,7 @@ const TenantManagementPage: React.FC = () => {
         >
           <div className="flex items-center space-x-2">
             <p className="font-medium text-gray-900">{tenant.name}</p>
-            {tenant.isTrialActive && (
-              <Badge variant="warning">Trial</Badge>
-            )}
+            {tenant.isTrialActive && <Badge variant="warning">Trial</Badge>}
           </div>
           <p className="text-sm text-gray-500">{tenant.slug}</p>
         </div>
@@ -283,17 +285,13 @@ const TenantManagementPage: React.FC = () => {
       key: 'tier',
       header: 'Tier',
       sortable: true,
-      render: (tenant) => (
-        <Badge variant={getTierVariant(tenant.tier)}>{tenant.tier}</Badge>
-      ),
+      render: (tenant) => <Badge variant={getTierVariant(tenant.tier)}>{tenant.tier}</Badge>,
     },
     {
       key: 'status',
       header: 'Status',
       sortable: true,
-      render: (tenant) => (
-        <Badge variant={getStatusVariant(tenant.status)}>{tenant.status}</Badge>
-      ),
+      render: (tenant) => <Badge variant={getStatusVariant(tenant.status)}>{tenant.status}</Badge>,
     },
     {
       key: 'stats',
@@ -311,9 +309,7 @@ const TenantManagementPage: React.FC = () => {
       header: 'Last Activity',
       render: (tenant) => (
         <span className="text-sm text-gray-600">
-          {tenant.lastActivityAt
-            ? formatDate(new Date(tenant.lastActivityAt), 'short')
-            : '-'}
+          {tenant.lastActivityAt ? formatDate(new Date(tenant.lastActivityAt), 'short') : '-'}
         </span>
       ),
     },
@@ -329,11 +325,7 @@ const TenantManagementPage: React.FC = () => {
       align: 'right',
       render: (tenant) => (
         <div className="flex items-center justify-end space-x-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => navigate(`/admin/tenants/${tenant.id}`)}
-          >
+          <Button variant="ghost" size="sm" onClick={() => navigate(`/admin/tenants/${tenant.id}`)}>
             Details
           </Button>
         </div>
@@ -347,27 +339,22 @@ const TenantManagementPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Tenant Management</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Total {totalTenants} tenants
-          </p>
+          <p className="mt-1 text-sm text-gray-500">Total {totalTenants} tenants</p>
         </div>
         <div className="mt-4 sm:mt-0 flex flex-wrap gap-2">
           {selectedIds.size > 0 && (
             <>
-              {tenants.filter((tenant) => selectedIds.has(tenant.id)).every((tenant) => tenant.status === TenantStatus.SUSPENDED) && (
-                <Button
-                  variant="outline"
-                  onClick={handleBulkActivate}
-                  disabled={saving}
-                >
+              {tenants
+                .filter((tenant) => selectedIds.has(tenant.id))
+                .every((tenant) => tenant.status === TenantStatus.SUSPENDED) && (
+                <Button variant="outline" onClick={handleBulkActivate} disabled={saving}>
                   Activate Selected ({selectedIds.size})
                 </Button>
               )}
-              {tenants.filter((tenant) => selectedIds.has(tenant.id)).every((tenant) => tenant.status === TenantStatus.ACTIVE) && (
-                <Button
-                  variant="danger"
-                  onClick={() => setIsBulkSuspendModalOpen(true)}
-                >
+              {tenants
+                .filter((tenant) => selectedIds.has(tenant.id))
+                .every((tenant) => tenant.status === TenantStatus.ACTIVE) && (
+                <Button variant="danger" onClick={() => setIsBulkSuspendModalOpen(true)}>
                   Suspend Selected ({selectedIds.size})
                 </Button>
               )}
@@ -414,17 +401,34 @@ const TenantManagementPage: React.FC = () => {
             <Input
               placeholder="Search tenants..."
               value={searchTerm}
-              onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setPage(1);
+              }}
               leftIcon={
-                <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                <svg
+                  className="w-5 h-5 text-gray-500"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                  />
                 </svg>
               }
             />
           </div>
           <Select
+            aria-label="Status"
             value={statusFilter}
-            onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+            onChange={(e) => {
+              setStatusFilter(e.target.value);
+              setPage(1);
+            }}
             options={[
               { value: '', label: 'All Statuses' },
               { value: TenantStatus.ACTIVE, label: 'Active' },
@@ -435,8 +439,12 @@ const TenantManagementPage: React.FC = () => {
             ]}
           />
           <Select
+            aria-label="Tier"
             value={tierFilter}
-            onChange={(e) => { setTierFilter(e.target.value); setPage(1); }}
+            onChange={(e) => {
+              setTierFilter(e.target.value);
+              setPage(1);
+            }}
             options={[
               { value: '', label: 'All Tiers' },
               { value: TenantTier.FREE, label: 'Free' },
@@ -466,13 +474,23 @@ const TenantManagementPage: React.FC = () => {
       {/* Pagination */}
       {totalTenants > limit && (
         <div className="flex justify-center space-x-2">
-          <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(page - 1)}>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={page === 1}
+            onClick={() => setPage(page - 1)}
+          >
             Previous
           </Button>
           <span className="py-2 px-4 text-sm text-gray-600">
             Page {page} / {Math.ceil(totalTenants / limit)}
           </span>
-          <Button variant="outline" size="sm" disabled={page >= Math.ceil(totalTenants / limit)} onClick={() => setPage(page + 1)}>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={page >= Math.ceil(totalTenants / limit)}
+            onClick={() => setPage(page + 1)}
+          >
             Next
           </Button>
         </div>
@@ -498,7 +516,9 @@ const TenantManagementPage: React.FC = () => {
               </div>
               <div>
                 <p className="text-xs text-gray-500">Status</p>
-                <Badge variant={getStatusVariant(selectedTenant.status)}>{selectedTenant.status}</Badge>
+                <Badge variant={getStatusVariant(selectedTenant.status)}>
+                  {selectedTenant.status}
+                </Badge>
               </div>
               <div>
                 <p className="text-xs text-gray-500">Users</p>
@@ -510,7 +530,9 @@ const TenantManagementPage: React.FC = () => {
               </div>
               <div>
                 <p className="text-xs text-gray-500">Created</p>
-                <p className="font-medium">{formatDate(new Date(selectedTenant.createdAt), 'long')}</p>
+                <p className="font-medium">
+                  {formatDate(new Date(selectedTenant.createdAt), 'long')}
+                </p>
               </div>
             </div>
 
@@ -548,10 +570,13 @@ const TenantManagementPage: React.FC = () => {
       >
         <div className="space-y-4">
           <Alert type="warning">
-            {selectedIds.size} tenant(s) will be suspended. This action will block all their users' access.
+            {selectedIds.size} tenant(s) will be suspended. This action will block all their users'
+            access.
           </Alert>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Suspension Reason</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Suspension Reason
+            </label>
             <textarea
               className="w-full border rounded-lg p-3 min-h-[100px]"
               value={bulkSuspendReason}
@@ -583,18 +608,15 @@ const TenantManagementPage: React.FC = () => {
       >
         <div className="space-y-4">
           <Alert type="warning">
-            You are about to activate {selectedIds.size} tenant(s). This will restore access for any tenants that were suspended for policy violations. Please confirm this is intentional.
+            You are about to activate {selectedIds.size} tenant(s). This will restore access for any
+            tenants that were suspended for policy violations. Please confirm this is intentional.
           </Alert>
         </div>
         <div className="flex justify-end space-x-2 mt-6 pt-4 border-t">
           <Button variant="outline" onClick={() => setIsBulkActivateModalOpen(false)}>
             Cancel
           </Button>
-          <Button
-            variant="primary"
-            onClick={handleConfirmBulkActivate}
-            loading={saving}
-          >
+          <Button variant="primary" onClick={handleConfirmBulkActivate} loading={saving}>
             Activate ({selectedIds.size})
           </Button>
         </div>
@@ -603,12 +625,16 @@ const TenantManagementPage: React.FC = () => {
       {/* Individual Suspend Reason Modal */}
       <Modal
         isOpen={isSuspendReasonModalOpen}
-        onClose={() => { setIsSuspendReasonModalOpen(false); setTenantToSuspend(null); }}
+        onClose={() => {
+          setIsSuspendReasonModalOpen(false);
+          setTenantToSuspend(null);
+        }}
         title="Suspend Tenant"
       >
         <div className="space-y-4">
           <Alert type="warning">
-            Suspending tenant: <strong>{tenantToSuspend?.name}</strong>. Please provide a reason for this action — it will be recorded in the audit log.
+            Suspending tenant: <strong>{tenantToSuspend?.name}</strong>. Please provide a reason for
+            this action — it will be recorded in the audit log.
           </Alert>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -623,14 +649,16 @@ const TenantManagementPage: React.FC = () => {
           </div>
         </div>
         <div className="flex justify-end space-x-2 mt-6 pt-4 border-t">
-          <Button variant="outline" onClick={() => { setIsSuspendReasonModalOpen(false); setTenantToSuspend(null); }}>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setIsSuspendReasonModalOpen(false);
+              setTenantToSuspend(null);
+            }}
+          >
             Cancel
           </Button>
-          <Button
-            variant="danger"
-            onClick={handleConfirmSuspend}
-            disabled={!suspendReason.trim()}
-          >
+          <Button variant="danger" onClick={handleConfirmSuspend} disabled={!suspendReason.trim()}>
             Suspend Tenant
           </Button>
         </div>

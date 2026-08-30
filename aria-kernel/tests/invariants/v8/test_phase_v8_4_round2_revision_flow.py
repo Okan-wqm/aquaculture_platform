@@ -43,19 +43,22 @@ class TestRound2RevisionFlow(unittest.TestCase):
         # Raises BridgeContractViolation
         self.assertIn("BridgeContractViolation", src)
 
-    def test_i_v8_4_03_round_n_polls_for_revised_after_primary_revision(self):
-        """Round-2+ body polls for REVISED state after primary REVISION mint."""
-        # In the round-2+ branch (round_n > 1), source contains REVISED poll target
-        self.assertIn('"REVISED"', self.src)
-        # primary_revision_failed verdict present
-        self.assertIn('arbiter_verdict="primary_revision_failed"', self.src)
+    def test_i_v8_4_03_revised_state_resumes_the_challenge_round(self):
+        """CL-1 (ORPHAN-725): the revision round no longer POLLS for
+        REVISED — the executor folds the primary's revision between
+        cycles and the next step observes REVISED as its entry state.
+        The verdict for a refused revision mint survives unchanged."""
+        self.assertIn('if plan_state == "REVISED":', self.src)
+        self.assertIn('_result("primary_revision_failed"', self.src)
 
-    def test_i_v8_4_04_next_round_required_advances_round_n(self):
-        """The for-loop iterates rounds 1..max_rounds; NEXT_ROUND_REQUIRED
-        persists and loops back. Source structure preserved from V5.1."""
-        self.assertIn("for round_n in range(starting_round, max_rounds + 1):", self.src)
-        # The persistence write for next round bump
-        self.assertIn('"round": round_n + 1', self.src)
+    def test_i_v8_4_04_next_round_required_advances_the_round(self):
+        """The round bump is now a state transition plus a carry file,
+        not a for-loop iteration: NEXT_ROUND_REQUIRED persists the next
+        round's coverage obligations and mints the primary revision
+        envelope for the executor."""
+        self.assertNotIn("for round_n in range(", self.src)
+        self.assertIn('"round": current_round + 1', self.src)
+        self.assertIn("issue_primary_envelope(", self.src)
 
     def test_i_v8_4_05_issue_cross_review_envelope_exactly_once(self):
         """DRY enforcement: cross_review minted inside helper only.

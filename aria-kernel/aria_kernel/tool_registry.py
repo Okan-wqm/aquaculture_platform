@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from copy import deepcopy
@@ -7,7 +8,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_declared_jsonl, append_jsonl, file_hash, rewrite_declared_json, write_index
+from .ledger import (
+    StateTransaction,
+    append_declared_jsonl,
+    append_jsonl,
+    file_hash,
+    load_jsonl,
+    rewrite_declared_json,
+    tools_index_group_ledgers,
+    write_index,
+)
 from .workspace import canonical_identity, canonical_identity_source, canonical_repo_root, governance_event, repo_hash
 from .implementation_safety import verify_bash_command_allowed
 
@@ -59,6 +69,28 @@ DEFAULT_HEALTH_THRESHOLDS = {
     "crash_rate_last_10": 0.2,
 }
 
+# E13-C11 — freshness metadata is manifest-owned, validator-defaulted.
+# WHY here and not adapter_portfolio: pre-E13-C11 these fields were patched
+# onto registry rows at RUNTIME (adapter_portfolio.backfill_window_metadata)
+# and silently deleted by every manifest recompile (registry_compiler) and
+# per-cycle manifest re-registration (cycle.py -> register_tool) — a
+# Potemkin metadata layer with zero readers. validate_tool_definition is the
+# single write gate every registry row passes through, so owning the default
+# and the derived signature HERE makes the fields survive every recompile by
+# construction (Tier 1: the deleting path is the producing path).
+DEFAULT_FRESHNESS_WINDOW_HOURS = 168  # Plan 016 §Recursive impact and freshness gates (7 days).
+
+# The declaration fields that define a tool's parse window; the tuple
+# parse_window_signature hashes over AND the trigger set for signature
+# recomputation in update_tool.
+PARSE_WINDOW_FIELDS: tuple[str, ...] = (
+    "declared_scope",
+    "claim_types",
+    "default_input",
+    "allowed_read_globs",
+    "forbidden_read_globs",
+)
+
 
 class GovernanceError(ValueError):
     """Raised when a tool governance rule rejects an operation."""
@@ -66,6 +98,30 @@ class GovernanceError(ValueError):
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def parse_utc_stamp(raw: str) -> datetime | None:
+    """Read a stamp this module minted, or None when it cannot be read.
+
+    ORPHAN-HIGH-729 — one parser, living beside the writer. There were two
+    private copies (`autonomy_unlock._parse_stamp`,
+    `plan_convergence._older_than_hours`) and they disagreed about the
+    important case: one returned None so the caller could SEE that a row was
+    undateable, the other folded the failure into a bool, where "unparseable"
+    became indistinguishable from "recent" and a corrupt stamp bought a plan
+    immortality.
+
+    None is the only honest answer for a stamp that cannot be read, and
+    returning it forces every caller to decide what to do about that rather
+    than inheriting a default. A naive stamp is read as UTC because UTC is
+    what `utc_now` writes; that is the ledger's declared timezone, not a
+    guess.
+    """
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except (AttributeError, ValueError):
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
 def _walk_up_to_bound_identity(start_cwd: str | os.PathLike[str]) -> Path | None:
@@ -164,6 +220,51 @@ def registry_path(base_dir: str | os.PathLike[str] | None = None) -> Path:
     return tools_dir(base_dir) / "registry.json"
 
 
+TOOLS_CONTRACT_FILENAME = "tools_contract.json"
+
+# ORPHAN-HIGH-556 — the fields of ``repo_identity.json`` that describe the
+# TREE and the REPOSITORY rather than the HOST.
+#
+# ``repo_identity.json`` mixes three scopes: the contract version (a property
+# of the tree), the canonical identity (a property of the repository, and
+# environment-independent by ARIA-V2 §3.2), and ``bound_repo_root`` (an
+# ABSOLUTE PATH on the machine that wrote it). The last one is why the file
+# cannot be published to the shared ``aria/state`` branch — and one
+# unpublishable field was making the whole file unpublishable, so a restored
+# tree arrived unable to state its own contract version, ``tools_contract_version``
+# read 0, and every nightly bind re-migrated a healthy v3 tree from nothing.
+#
+# Splitting the publishable subset into its own declared surface is what lets
+# a restored tree say what it already is. ONE definition of the subset, called
+# from every place that writes the identity, because five copies of "which
+# fields may travel" is five chances for one of them to leak a host path.
+PUBLISHABLE_IDENTITY_FIELDS: tuple[str, ...] = (
+    "aria_tools_contract_version",
+    "schema_version",
+    "bound_canonical_identity",
+)
+
+
+def sync_tools_contract(root: Path) -> dict[str, Any]:
+    """Mirror the publishable half of ``repo_identity.json`` beside it."""
+    identity = _read_identity(root)
+    contract = {
+        field: identity[field]
+        for field in PUBLISHABLE_IDENTITY_FIELDS
+        if identity.get(field) is not None
+    }
+    _atomic_write_json(root / TOOLS_CONTRACT_FILENAME, contract)
+    return contract
+
+
+def _read_identity(root: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads((root / "repo_identity.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
 def ensure_tools_dir(base_dir: str | os.PathLike[str] | None = None) -> Path:
     root = tools_dir(base_dir)
     root.mkdir(parents=True, exist_ok=True)
@@ -180,6 +281,7 @@ def ensure_tools_dir(base_dir: str | os.PathLike[str] | None = None) -> Path:
         }
         _prepare_tools_dirs(root)
         _atomic_write_json(identity_file, identity)
+        sync_tools_contract(root)
         if not registry_path(root).exists():
             _atomic_write_json(registry_path(root), {"schema_version": SCHEMA_VERSION, "tools": []})
         append_tools_governance(
@@ -258,6 +360,7 @@ def ensure_tools_binding(
         identity["aria_tools_contract_version"] = SCHEMA_VERSION
         identity["schema_version"] = SCHEMA_VERSION
         _atomic_write_json(identity_file, identity)
+        sync_tools_contract(root)
         append_tools_governance(
             root,
             "tools_root_bound",
@@ -290,6 +393,7 @@ def ensure_tools_binding(
             identity["aria_tools_contract_version"] = SCHEMA_VERSION
             identity["schema_version"] = SCHEMA_VERSION
             _atomic_write_json(identity_file, identity)
+            sync_tools_contract(root)
             append_tools_governance(
                 root,
                 "tools_root_canonical_identity_backfilled",
@@ -332,12 +436,30 @@ def ensure_tools_binding(
 
 
 def tools_contract_version(base_dir: str | os.PathLike[str] | None = None) -> int:
-    identity_file = tools_dir(base_dir) / "repo_identity.json"
-    if not identity_file.exists():
-        return 0
-    try:
-        identity = json.loads(identity_file.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    """The contract version of the TREE, whether or not this host is bound.
+
+    ORPHAN-HIGH-556 — the published contract is consulted FIRST. Reading only
+    ``repo_identity.json`` meant a restored ``aria/state`` tree, which
+    deliberately does not carry that host-local file, reported version 0 — so
+    a healthy v3 tree looked to ``migrate_tools_bootstrap`` like a v0 tree
+    needing a full migration, every single night. The identity file remains
+    the fallback so a tree written before the split still answers.
+    """
+    root = tools_dir(base_dir)
+    contract_file = root / TOOLS_CONTRACT_FILENAME
+    if contract_file.exists():
+        try:
+            contract = json.loads(contract_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            contract = {}
+        if isinstance(contract, dict) and (
+            contract.get("aria_tools_contract_version") or contract.get("schema_version")
+        ):
+            return int(
+                contract.get("aria_tools_contract_version") or contract.get("schema_version")
+            )
+    identity = _read_identity(root)
+    if not identity:
         return 0
     return int(identity.get("aria_tools_contract_version") or identity.get("schema_version") or 1)
 
@@ -347,49 +469,57 @@ def require_tools_v2(base_dir: str | os.PathLike[str] | None = None) -> None:
         raise GovernanceError("tools_migration_required")
 
 
+# The four surfaces every tools root has from its first cycle. They stay
+# in coverage even when the file is missing, so an empty or gutted root
+# fails verification instead of passing vacuously (fail-closed).
+CORE_TOOL_LEDGER_SURFACES: frozenset[str] = frozenset(
+    {"runs", "health", "cycles", "tools_governance"}
+)
+
+
 def covered_tool_ledgers(root: Path) -> dict[str, Path]:
-    ledgers = {
-        "runs": root / "runs.jsonl",
-        "health": root / "health.jsonl",
-        "cycles": root / "cycles.jsonl",
-        "governance": root / "governance.jsonl",
-    }
-    optional = {
-        "problem_clusters": root / "problem_clusters.jsonl",
-        "triage_decisions": root / "triage" / "decisions.jsonl",
-        "dispatch_requests": root / "dispatch" / "requests.jsonl",
-        "worker_results": root / "dispatch" / "worker-results.jsonl",
-        "verification_results": root / "dispatch" / "verification-results.jsonl",
-        "agent_fitness": root / "fitness" / "agent-fitness.jsonl",
-        "goldset_proposals": root / "goldsets" / "proposals.jsonl",
-        "proposals": root / "proposals" / "proposals.jsonl",
-        "impact_graphs": root / "impact" / "impact-graphs.jsonl",
-        "impact_plans": root / "impact" / "impact-plans.jsonl",
-        "executor_registry": root / "executor" / "registry.jsonl",
-        "executor_packets": root / "executor" / "packets.jsonl",
-        "executor_diff_reviews": root / "executor" / "diff-reviews.jsonl",
-        "executor_prompts": root / "executor" / "prompts.jsonl",
-        "executor_applications": root / "executor" / "applications.jsonl",
-        "executor_locks": root / "executor" / "locks.jsonl",
-        "executor_retries": root / "executor" / "retries.jsonl",
-        "executor_operator_takeovers": root / "executor" / "operator-takeovers.jsonl",
-        "executor_flaky_fingerprints": root / "executor" / "flaky-fingerprints.jsonl",
-        "plans_events": root / "plans" / "events.jsonl",
-        "agent_invocations_requests": root / "agent-invocations" / "requests.jsonl",
-        "agent_invocations_results": root / "agent-invocations" / "results.jsonl",
-        "runtime_artifact_index": root / "run-artifacts" / "artifact-index.jsonl",
-        "runtime_artifact_manifest": root / "run-artifacts" / "manifest.jsonl",
-        "runtime_retention_events": root / "retention" / "events.jsonl",
-        "runtime_observability_alerts": root / "observability" / "alerts.jsonl",
-        "runtime_artifact_inventory": root / "observability" / "artifact-inventory.jsonl",
-    }
-    for name, path in optional.items():
-        if path.exists():
-            ledgers[name] = path
+    """Every declared tools-root ledger surface, DERIVED from the manifest.
+
+    ORPHAN-HIGH-433: this used to be a hand list — 4 required + 28
+    optional entries — while ``state_manifest`` declared ~129 tools-root
+    ledger surfaces. memory/*, enterprise/*, change-ledger/*,
+    validation/*, queues/* were written with full hash-chain discipline
+    and never verified: a surface had to be REMEMBERED here to be
+    covered, and the list was the blind-spot generator. Deriving from the
+    manifest makes coverage automatic — declaring a surface IS enrolling
+    it — and the projection test pins that a hand list cannot come back.
+
+    Keys are the manifest surface names (glob surfaces contribute one
+    entry per existing match, keyed ``name:relative/path``). Ledgers that
+    have not been created yet are skipped — most appear lazily on first
+    write — except the core set above, which is unconditional.
+    ``integrity_index.json`` written before this derivation carries the
+    old key names; the first grouped index refresh rewrites it, and until
+    then ``verify`` reports the drift instead of hiding it.
+    """
+    from .state_manifest import iter_surfaces
+
+    ledgers: dict[str, Path] = {}
+    for surface in iter_surfaces():
+        if surface.root_kind != "tools" or surface.state_class != "ledger":
+            continue
+        if "*" in surface.path_pattern:
+            for match in sorted(root.glob(surface.path_pattern)):
+                if match.is_file():
+                    key = f"{surface.name}:{match.relative_to(root).as_posix()}"
+                    ledgers[key] = match
+            continue
+        path = root / surface.path_pattern
+        if surface.name in CORE_TOOL_LEDGER_SURFACES or path.exists():
+            ledgers[surface.name] = path
     return ledgers
 
 
-def update_tools_index(root: Path) -> None:
+def update_tools_index(
+    root: Path,
+    *,
+    transaction: StateTransaction | None = None,
+) -> None:
     index: dict[str, Any] = {}
     file_hashes: dict[str, str] = {}
     state_path = root / "migration_state.json"
@@ -400,7 +530,17 @@ def update_tools_index(root: Path) -> None:
         file_hashes["since_migration_events.jsonl"] = file_hash(since_path)
     if file_hashes:
         index["file_hashes"] = file_hashes
-    write_index(root / "integrity_index.json", index, covered_tool_ledgers(root))
+    # The index tracks its GROUP membership, not the whole covered set:
+    # the grouped refresh replaces ledger_hashes with the group on every
+    # indexed append, so writing a wider set here would plant entries the
+    # next append silently discards (ORPHAN-HIGH-525). Chain verification
+    # of the full covered set is integrity's job, not this index's.
+    index_path = root / "integrity_index.json"
+    ledgers = tools_index_group_ledgers(root)
+    if transaction is None:
+        write_index(index_path, index, ledgers)
+    else:
+        transaction.write_index(index_path, index, ledgers)
 
 
 def append_tools_governance(
@@ -409,6 +549,8 @@ def append_tools_governance(
     details: dict[str, Any],
     *,
     bypass_profile_gate: bool = False,
+    transaction: StateTransaction | None = None,
+    prepared_event: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Plan 026R §A.2 — append a governance row and rely on A.1's grouped
     index refresh to keep ``integrity_index.json`` current.
@@ -434,18 +576,86 @@ def append_tools_governance(
     Removing the duplicate eliminates both the race and the extra fcntl
     pair per governance event.
     """
-    if not bypass_profile_gate:
+    if prepared_event is None and not bypass_profile_gate:
         # Late import avoids a module-load cycle: runtime_profile imports
         # tool_registry for ensure_tools_dir + append_tools_governance.
         from .runtime_profile import enforce_profile_for_write
         enforce_profile_for_write("tool_governance", base_dir=base_dir)
-    root = ensure_tools_dir(base_dir)
+    event = prepared_event or governance_event(kind=kind, details=details)
+    root = tools_dir(base_dir) if transaction is not None else ensure_tools_dir(base_dir)
+    governance_path = root / "governance.jsonl"
+    if transaction is not None:
+        return transaction.append_declared_jsonl(
+            governance_path,
+            event,
+            expected_surface="tools_governance",
+            bypass_profile_gate=bypass_profile_gate,
+        )
     return append_declared_jsonl(
-        root / "governance.jsonl",
-        governance_event(kind=kind, details=details),
+        governance_path,
+        event,
         expected_surface="tools_governance",
         bypass_profile_gate=bypass_profile_gate,
     )
+
+
+def disclosure_fingerprint(kind: str, claim: dict[str, Any]) -> str:
+    """The identity of what a disclosure ASSERTS, ignoring when it was said.
+
+    Canonical JSON so key order cannot fork the fingerprint, and the kind is
+    part of it so two different disclosures that happen to share a claim
+    shape stay distinguishable.
+    """
+    canonical = json.dumps(
+        {"kind": kind, "claim": claim}, sort_keys=True, separators=(",", ":")
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+
+
+def append_tools_governance_once(
+    base_dir: str | os.PathLike[str] | Path,
+    kind: str,
+    details: dict[str, Any],
+    *,
+    claim_keys: tuple[str, ...],
+) -> dict[str, Any]:
+    """Disclose a standing fact ONCE, and again only when the fact changes.
+
+    ORPHAN-MEDIUM-730. A governance row is evidence; a governance row an
+    unattended lane re-appends verbatim every night is noise that buries
+    evidence. Measured: four identical evidence-free cycles wrote 16
+    ``service_mission_refused`` rows — 4 per cycle, byte-identical apart from
+    the cycle id — and with an empty findings ledger that is what the nightly
+    would do forever. The class this whole train exists to end is "a gate
+    reporting the same weather every night"; a refusal doing it in a second
+    ledger is the same defect wearing the other ledger's name.
+
+    ``claim_keys`` names the fields that ARE the claim (project + reason +
+    census, not the cycle id or the timestamp). A row whose claim matches one
+    already on `governance.jsonl` is not appended and the caller is told so;
+    a changed claim — new reason, new counts, evidence that arrived — is a
+    NEW fact and gets its own row. Callers that must never be silenced keep
+    using `append_tools_governance`; this is opt-in per callsite.
+
+    The fingerprint is stored ON the row (``disclosure_fingerprint``) rather
+    than in a side index, so the ledger stays the only thing that has to be
+    read to know what has been said, and losing a projection costs nothing.
+
+    Returns ``{"appended": bool, "fingerprint": str}``.
+    """
+    root = ensure_tools_dir(base_dir)
+    claim = {key: details.get(key) for key in claim_keys}
+    fingerprint = disclosure_fingerprint(kind, claim)
+    for row in load_jsonl(root / "governance.jsonl"):
+        if row.get("kind") != kind:
+            continue
+        recorded = row.get("details")
+        if isinstance(recorded, dict) and recorded.get("disclosure_fingerprint") == fingerprint:
+            return {"appended": False, "fingerprint": fingerprint}
+    append_tools_governance(
+        root, kind, {**details, "disclosure_fingerprint": fingerprint}
+    )
+    return {"appended": True, "fingerprint": fingerprint}
 
 
 def _prepare_tools_dirs(root: Path) -> None:
@@ -481,7 +691,15 @@ def _guard_tools_lock(root: Path) -> None:
     age = (datetime.now(timezone.utc) - started.astimezone(timezone.utc)).total_seconds()
     pid = int(payload.get("pid") or 0)
     operation = str(payload.get("operation") or "")
-    if pid == os.getpid() and operation in {"tools_migration", "tools_rollback"}:
+    # RE-ENTRANCY IS A PROPERTY OF HOLDING THE LOCK, not of appearing on a
+    # list. This used to also require `operation in {"tools_migration",
+    # "tools_rollback"}` — a hardcoded roster of the operations allowed to
+    # write while holding their own lock, which silently refused the next
+    # operation anyone added. `tools_binding` (ORPHAN-HIGH-556) was that next
+    # operation: it took the lock correctly and then could not write its own
+    # governance row. The pid check is the whole of the safety question; the
+    # operation name added no protection and one more thing to remember.
+    if pid == os.getpid():
         return
     if age >= 120 and (pid <= 0 or not _pid_exists(pid)):
         try:
@@ -531,6 +749,50 @@ def save_registry(
     )
 
 
+def parse_window_signature(declaration: dict[str, Any]) -> str:
+    """Stable SHA-256 hash of the parser-declaration tuple.
+
+    The signature changes ONLY when the parser's declared scope, claim
+    types, or input roots change — not when the underlying repo content
+    changes. This is what the kernel uses to decide whether a recorded
+    SHADOW run still matches the current adapter declaration.
+
+    Moved here from adapter_portfolio (E13-C11) because the validator is
+    now the single producer/verifier of the derived field; adapter_portfolio
+    importing it back from here would be the only alternative and would
+    invert the dependency direction it already has on this module.
+
+    Returns: "sha256:<hex>" of a canonical JSON over (declared_scope,
+    claim_types, default_input.roots, allowed_read_globs,
+    forbidden_read_globs).
+    """
+    fields = {
+        "declared_scope": sorted(declaration.get("declared_scope", []) or []),
+        "claim_types": sorted(declaration.get("claim_types", []) or []),
+        "default_input_roots": sorted(
+            (declaration.get("default_input") or {}).get("roots", []) or []
+        ),
+        "allowed_read_globs": sorted(declaration.get("allowed_read_globs", []) or []),
+        "forbidden_read_globs": sorted(declaration.get("forbidden_read_globs", []) or []),
+    }
+    canonical = json.dumps(fields, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def effective_freshness_window_hours(tool: dict[str, Any]) -> float:
+    """Freshness window for a tool row, defaulting for legacy rows.
+
+    Rows written through validate_tool_definition always carry the field;
+    rows persisted before E13-C11 may not. This is the single defaulting
+    point shared by readers (readiness) so the read-side default can never
+    drift from the write-side DEFAULT_FRESHNESS_WINDOW_HOURS constant.
+    """
+    raw = tool.get("freshness_window_hours")
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool) and raw > 0:
+        return float(raw)
+    return float(DEFAULT_FRESHNESS_WINDOW_HOURS)
+
+
 def validate_tool_definition(tool: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(tool, dict):
         raise GovernanceError("tool definition must be a JSON object")
@@ -566,6 +828,34 @@ def validate_tool_definition(tool: dict[str, Any]) -> dict[str, Any]:
         raise GovernanceError("claim_types must be a non-empty array")
     if "default_input" in candidate and not isinstance(candidate["default_input"], dict):
         raise GovernanceError("default_input must be a JSON object when provided")
+
+    # E13-C11 — freshness metadata (see DEFAULT_FRESHNESS_WINDOW_HOURS
+    # comment for the full WHY). Optional in the manifest; defaulted when
+    # absent (same pattern as health_thresholds), type-checked when present.
+    freshness = candidate.get("freshness_window_hours")
+    if freshness is None:
+        candidate["freshness_window_hours"] = DEFAULT_FRESHNESS_WINDOW_HOURS
+    elif isinstance(freshness, bool) or not isinstance(freshness, (int, float)) or freshness <= 0:
+        raise GovernanceError(
+            f"freshness_window_hours must be a positive number, got {freshness!r}"
+        )
+    # parse_window_signature is DERIVED from the declaration; when a
+    # manifest carries it, it MUST match the recomputation — a mismatch
+    # means the declaration changed without acknowledging that recorded
+    # SHADOW evidence no longer covers the new parse window. Silent
+    # correction would recreate the decorative-field defect this closes.
+    declared_sig = candidate.get("parse_window_signature")
+    computed_sig = parse_window_signature(candidate)
+    if declared_sig is None:
+        candidate["parse_window_signature"] = computed_sig
+    elif not isinstance(declared_sig, str) or not declared_sig.strip():
+        raise GovernanceError("parse_window_signature must be a non-empty string")
+    elif declared_sig != computed_sig:
+        raise GovernanceError(
+            f"parse_window_signature_mismatch: tool_id={candidate.get('tool_id')!r} "
+            f"declares {declared_sig!r} but the declaration-derived signature is "
+            f"{computed_sig!r}; recompute it after changing any of {PARSE_WINDOW_FIELDS}"
+        )
 
     thresholds = dict(DEFAULT_HEALTH_THRESHOLDS)
     thresholds.update(candidate["health_thresholds"])
@@ -605,6 +895,12 @@ def validate_runner_definition(runner: Any) -> dict[str, Any]:
     timeout_ms = candidate.get("timeout_ms")
     if not isinstance(timeout_ms, int) or timeout_ms <= 0:
         raise GovernanceError("runner.timeout_ms must be a positive integer")
+    # Optional memory budget for node runners; the tool_runner defaults to
+    # 2048 MB when absent. Declared here so a wide-scope adapter can raise
+    # its ceiling in the manifest instead of inheriting the host's accident.
+    node_heap = candidate.get("node_max_old_space_mb")
+    if node_heap is not None and (not isinstance(node_heap, int) or node_heap <= 0):
+        raise GovernanceError("runner.node_max_old_space_mb must be a positive integer")
     if not isinstance(candidate.get("stdin_json"), bool):
         raise GovernanceError("runner.stdin_json must be a boolean")
     return candidate
@@ -914,6 +1210,17 @@ def update_tool(
 
     # Merge + re-validate.
     pre = get_tool(tool_id, base_dir)
+    # E13-C11 — parse_window_signature is DERIVED from the parse-window
+    # declaration. When an operator-approved update changes any declaration
+    # field without explicitly supplying a matching signature, recompute it
+    # here (mirroring the updated_at refresh) instead of letting the stored
+    # stale hash trip the validator's mismatch gate. An explicitly supplied
+    # signature is still verified strictly by validate_tool_definition.
+    if set(PARSE_WINDOW_FIELDS) & set(updates) and "parse_window_signature" not in updates:
+        merged_declaration = dict(pre)
+        merged_declaration.update(updates)
+        updates = dict(updates)
+        updates["parse_window_signature"] = parse_window_signature(merged_declaration)
     merged_for_validation = dict(pre)
     merged_for_validation.update(updates)
     validate_tool_definition(merged_for_validation)
@@ -979,6 +1286,7 @@ def transition_tool(
     fixture_suite_passed: bool = False,
     operator_approval: bool = False,
     auto_promote_token: str | None = None,
+    panel_approval_token: str | None = None,
     precision: float | None = None,
     critical_false_positives: int = 0,
     evidence_chains_valid: bool = False,
@@ -995,13 +1303,36 @@ def transition_tool(
     which inspects the precision_history ledger; tamper-evident hash
     over (tool_id, last_N runs, base_dir contract hash).
 
+    JJ-2b (ORPHAN-HIGH-732) — ``panel_approval_token`` is the THIRD
+    authority. Operator directive 2026-08-18: promotion to ACTIVE is
+    PANEL-APPROVED with a 24-hour operator VETO window, not operator-
+    approved. The token is minted by ``promotion_veto.compute_panel_
+    approval_token`` ONLY after the kernel has re-derived the panel approval
+    from the human-required adjudication record (exists, resolved, resolved_
+    by=agent_panel, kind=tool_promotion, context.tool_id matches) AND the
+    veto window elapsed with no veto recorded. A kernel-scoped adapter can
+    never obtain one — that exception is enforced at mint time, where the
+    scope is readable, and kernel scope is decided by the runtime glob
+    evaluator, not by how the manifest spells its globs.
+
+    What the token is NOT: a value this function verifies. Like the auto-
+    promote token it is a workspace-bound HMAC — but unlike the auto-
+    promote token (whose consume-time MAC verification is wired since
+    ORPHAN-HIGH-787), the panel token's verification lives at its MINT:
+    ``promotion_veto.compute_panel_approval_token`` re-derives the panel
+    approval from the human-required adjudication record before signing,
+    so the kernel-side mint IS the check. Calling the panel token
+    "unforgeable HERE" would describe a consume-time check that does not
+    exist; its load-bearing gates are upstream, at mint.
+
     The literal predicate (I-V6.4-04 source-substring invariant pins):
 
-        if (not operator_approval and not auto_promote_token) or not evidence_chains_valid:
+        if (not operator_approval and not _auto_promote_verified and not panel_approval_token) or not evidence_chains_valid:
 
-    preserves V5's evidence_chains_valid check unchanged; auto-promote
-    can never bypass evidence chain integrity. Precision + FP thresholds
-    above this line are also UNCHANGED.
+    preserves V5's evidence_chains_valid check unchanged; no authority
+    can bypass evidence chain integrity — it is still the LAST clause and
+    still short-circuits independently of who vouched. Precision + FP
+    thresholds above this line are also UNCHANGED.
     """
     if target_status not in TOOL_STATUSES:
         raise GovernanceError(f"unknown lifecycle state: {target_status}")
@@ -1046,13 +1377,33 @@ def transition_tool(
             # I-V6.4-04 source-substring invariant. The order of the
             # boolean clauses is load-bearing: evidence_chains_valid
             # is checked LAST so it short-circuits independently of
-            # the operator_approval / auto_promote_token path. A
-            # refactor that reorders OR drops either clause silently
-            # weakens the SHADOW -> ACTIVE gate.
-            if (not operator_approval and not auto_promote_token) or not evidence_chains_valid:
+            # the operator_approval / auto_promote_token /
+            # panel_approval_token path. A refactor that reorders OR
+            # drops any clause silently weakens the SHADOW -> ACTIVE
+            # gate. JJ-2b added the panel clause; the pin was rewritten
+            # with it, never deleted to make a test pass.
+            # ORPHAN-HIGH-787 — the auto-promote token is VERIFIED, not
+            # counted: verify_auto_promote_token recomputes the
+            # workspace-bound HMAC over the envelope's payload and its
+            # tool binding, so a fabricated string, a cross-workspace
+            # replay or a cross-tool replay all read as "no token".
+            # Late import: adapter_calibration reads tool_registry at
+            # module level, so a top-level import would be a cycle.
+            _auto_promote_verified = False
+            if auto_promote_token:
+                from .adapter_calibration import verify_auto_promote_token
+
+                _auto_promote_verified = (
+                    verify_auto_promote_token(
+                        auto_promote_token, tool_id=tool_id, base_dir=base_dir
+                    )
+                    is not None
+                )
+            if (not operator_approval and not _auto_promote_verified and not panel_approval_token) or not evidence_chains_valid:
                 raise GovernanceError(
                     "SHADOW -> ACTIVE requires valid evidence chains and "
-                    "(operator_approval OR auto_promote_token under safe conditions)",
+                    "(operator_approval OR auto_promote_token OR "
+                    "panel_approval_token under safe conditions)",
                 )
 
     # Plan 022 §C-2b — transition_tool is the audited state machine;

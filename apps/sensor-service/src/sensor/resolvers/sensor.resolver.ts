@@ -1,4 +1,4 @@
-import { Logger, NotFoundException, ConflictException } from '@nestjs/common';
+import { Logger, NotFoundException } from '@nestjs/common';
 import {
   Resolver,
   Query,
@@ -9,7 +9,7 @@ import {
   ResolveReference,
 } from '@nestjs/graphql';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
+import { Tenant, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { Repository } from 'typeorm';
 
 import { SensorReading } from '../../database/entities/sensor-reading.entity';
@@ -18,21 +18,9 @@ import {
   AggregationInterval,
   AggregatedReadingsResponse,
 } from '../dto/aggregated-reading.dto';
-import { CreateSensorInput, UpdateSensorInput } from '../dto/create-sensor.dto';
 import { IngestReadingInput, BatchIngestInput } from '../dto/ingest-reading.dto';
-import { SensorTypeService } from '../../sensor-type/sensor-type.service';
 import { SensorIngestionService } from '../services/sensor-ingestion.service';
 import { SensorQueryService } from '../services/sensor-query.service';
-
-/**
- * User context interface
- */
-interface UserContext {
-  sub: string;
-  email: string;
-  tenantId: string;
-  roles: string[];
-}
 
 /**
  * Sensor Resolver
@@ -48,7 +36,6 @@ export class SensorResolver {
     private readonly sensorRepository: Repository<Sensor>,
     private readonly ingestionService: SensorIngestionService,
     private readonly queryService: SensorQueryService,
-    private readonly sensorTypeService: SensorTypeService,
   ) {}
 
   /**
@@ -118,6 +105,11 @@ export class SensorResolver {
     pondId?: string,
     @Args('status', { type: () => SensorStatus, nullable: true })
     status?: SensorStatus,
+    // MOB-MEDIUM-008: mobile tank screens join sensors by the FARM container
+    // UUID stored in sensor.tank_id (indexed) — a resolver-level filter, not a
+    // client-side heuristic over the free-form pondId field.
+    @Args('tankId', { type: () => ID, nullable: true })
+    tankId?: string,
   ): Promise<Sensor[]> {
     // SECURITY: Clamp page and limit BEFORE computing skip to prevent
     // tenant-level query DoS via large OFFSET values.
@@ -129,6 +121,7 @@ export class SensorResolver {
     const where: Record<string, unknown> = { tenantId };
     if (pondId) where['pondId'] = pondId;
     if (status) where['status'] = status;
+    if (tankId) where['tankId'] = tankId;
 
     return await this.sensorRepository.find({
       where,
@@ -216,88 +209,14 @@ export class SensorResolver {
     );
   }
 
-  /**
-   * Create a new sensor
-   */
-  @Mutation(() => Sensor, { name: 'createSensor' })
-  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
-  async createSensor(
-    @Args('input') input: CreateSensorInput,
-    @Tenant() tenantId: string,
-    @CurrentUser() user: UserContext,
-  ): Promise<Sensor> {
-    this.logger.log(`Creating sensor ${input.name}`);
-
-    // Check for duplicate serial number within tenant
-    const existing = await this.sensorRepository.findOne({
-      where: { serialNumber: input.serialNumber, tenantId },
-    });
-
-    if (existing) {
-      throw new ConflictException(
-        `Sensor with serial number ${input.serialNumber} already exists`,
-      );
-    }
-
-    const { typeDefinitionId, ...sensorInput } = input;
-
-    const sensor = this.sensorRepository.create({
-      ...sensorInput,
-      typeDefinitionId: typeDefinitionId || undefined,
-      tenantId,
-      status: SensorStatus.ACTIVE,
-      createdBy: user.sub,
-    });
-
-    const saved = await this.sensorRepository.save(sensor);
-
-    // If a dynamic type definition was provided, create default channels
-    if (typeDefinitionId) {
-      try {
-        await this.sensorTypeService.createChannelsFromTypeDefinition(
-          saved.id,
-          tenantId,
-          typeDefinitionId,
-        );
-      } catch (error) {
-        // Channel creation is non-critical — sensor is still valid
-        this.logger.warn(
-          `Failed to create channels from type definition ${typeDefinitionId} for sensor ${saved.id}: ${error}`,
-        );
-      }
-    }
-
-    return saved;
-  }
-
-  /**
-   * Update a sensor
-   */
-  @Mutation(() => Sensor, { name: 'updateSensor' })
-  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
-  async updateSensor(
-    @Args('input') input: UpdateSensorInput,
-    @Tenant() tenantId: string,
-  ): Promise<Sensor> {
-    const sensor = await this.sensorRepository.findOne({
-      where: { id: input.sensorId, tenantId },
-    });
-
-    if (!sensor) {
-      throw new NotFoundException(
-        `Sensor with ID ${input.sensorId} not found`,
-      );
-    }
-
-    // Update fields
-    if (input.name) sensor.name = input.name;
-    if (input.status) sensor.status = input.status;
-    if (input.firmwareVersion) sensor.firmwareVersion = input.firmwareVersion;
-    if (input.pondId !== undefined) sensor.pondId = input.pondId;
-    if (input.farmId !== undefined) sensor.farmId = input.farmId;
-
-    return await this.sensorRepository.save(sensor);
-  }
+  // SENSOR-MEDIUM-064: the createSensor and updateSensor mutations were deleted.
+  // They were an unused GraphQL back door that inserted a Sensor with status
+  // ACTIVE directly — bypassing the per-plan maxSensors quota, protocol
+  // validation, the DRAFT→test→ACTIVE lifecycle, and the SensorRegistered outbox
+  // events that farm/alert consume. registerSensor (registration/) is now the
+  // single write path for new sensors; updateSensorInfo/updateSensorProtocol own
+  // updates. The createSensor-only typeDefinitionId capability is revived on the
+  // canonical registration path under SENSOR-MEDIUM-071.
 
   /**
    * Ingest a sensor reading

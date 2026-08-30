@@ -56,7 +56,9 @@ export class TenantSubscriptionDto {
   @Field(() => String, { nullable: true })
   trialEndDate!: string | null;
 
-  @Field(() => Float)
+  @Field(() => Float, {
+    deprecationReason: 'Use monthlyPriceDecimal (exact decimal string, ADR-0004).',
+  })
   monthlyPrice!: number;
 
   @Field()
@@ -75,7 +77,9 @@ export class TenantInvoiceDto {
   @Field()
   invoiceNumber!: string;
 
-  @Field(() => Float)
+  @Field(() => Float, {
+    deprecationReason: 'Use amountDecimal (exact decimal string, ADR-0004).',
+  })
   amount!: number;
 
   @Field()

@@ -1,8 +1,10 @@
 import { RedisService } from '@aquaculture/backend-common/redis';
-import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, FindOptionsWhere } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 
+import { runInRlsScopedSnapshotRead } from '../../database/rls-scoped-session';
 import { SYSTEM_TENANT_ID } from '../configuration.constants';
 import {
   Configuration,
@@ -18,6 +20,20 @@ interface CacheEntry {
   lastAccessed: number;
 }
 
+interface EffectiveConfiguration {
+  value: string;
+  isSecret: boolean;
+  sourceTenantId: string;
+  configVersion: number;
+}
+
+export type ConfigurationEncryption = Pick<
+  EncryptionService,
+  'isAvailable' | 'isEncrypted' | 'decrypt'
+>;
+
+export type ConfigurationCache = Pick<RedisService, 'get' | 'set' | 'del' | 'deletePattern'>;
+
 const MAX_CACHE_SIZE = 1000;
 const CACHE_TTL_MS = 60_000; // 1 minute
 /** Redis cache TTL in seconds — longer than in-memory because Redis is shared across pods */
@@ -32,9 +48,13 @@ export class ConfigurationService implements OnModuleInit {
   constructor(
     @InjectRepository(Configuration)
     private readonly configRepository: Repository<Configuration>,
-    private readonly encryptionService: EncryptionService,
+    private readonly dataSource: DataSource,
+    @Inject(EncryptionService)
+    private readonly encryptionService: ConfigurationEncryption,
     /** L2 Redis cache (shared across pods). @Optional to allow graceful degradation. */
-    @Optional() private readonly redisService?: RedisService,
+    @Optional()
+    @Inject(RedisService)
+    private readonly redisService?: ConfigurationCache,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -51,13 +71,66 @@ export class ConfigurationService implements OnModuleInit {
     key: string,
     defaultValue?: T,
   ): Promise<T> {
+    const config = await this.resolveActiveConfig(tenantId, service, key);
+    if (!config) {
+      if (defaultValue !== undefined) {
+        return defaultValue;
+      }
+      throw new Error(`Configuration not found: ${service}/${key}`);
+    }
+    return this.getDecryptedTypedValue<T>(config);
+  }
+
+  /**
+   * Resolve the effective value AND its secret classification in one call
+   * (SEC-MEDIUM-001). The config-runtime GET (non-secret) handler uses the
+   * `isSecret` flag to STRUCTURALLY refuse to return a secret over the
+   * non-secret path — independent of any key allowlist. Returns null when the
+   * row is absent/inactive (never throws for not-found).
+   */
+  async getEffectiveWithMeta(
+    tenantId: string,
+    service: string,
+    key: string,
+  ): Promise<EffectiveConfiguration | null> {
+    const config = await this.resolveActiveConfig(tenantId, service, key);
+    return config ? this.toEffectiveConfiguration(config) : null;
+  }
+
+  /**
+   * Resolve the effective value directly from the database.
+   *
+   * Rotation-sensitive consumers use this path after an authenticated
+   * credential update so a stale L1/L2 generation can never be returned.
+   * The read is deliberately observational: it neither reads nor mutates the
+   * normal caches.
+   */
+  async getEffectiveWithMetaFresh(
+    tenantId: string,
+    service: string,
+    key: string,
+  ): Promise<EffectiveConfiguration | null> {
+    const config = await this.resolveActiveConfigFromDatabase(tenantId, service, key);
+    return config ? this.toEffectiveConfiguration(config) : null;
+  }
+
+  /**
+   * Resolve the active Configuration ENTITY (L1 → L2 → L3 with tenant/system
+   * fallback + tombstone), or null when absent/inactive. The single lookup path
+   * shared by `get()` and `getEffectiveWithMeta()` so the two can never drift.
+   */
+  private async resolveActiveConfig(
+    tenantId: string,
+    service: string,
+    key: string,
+  ): Promise<Configuration | null> {
     const cacheKey = this.cacheKey(tenantId, service, key, ConfigEnvironment.ALL);
 
     // ── L1: in-memory cache ──
     const cached = this.cache.get(cacheKey);
     if (cached && cached.expiry > Date.now()) {
       cached.lastAccessed = Date.now();
-      return this.getDecryptedTypedValue<T>(cached.value);
+      return cached.value;
     }
 
     // ── L2: Redis cache (cross-pod) ──
@@ -69,7 +142,7 @@ export class ConfigurationService implements OnModuleInit {
           const config = JSON.parse(redisValue) as Configuration;
           // Promote to L1
           this.setCacheEntry(cacheKey, config);
-          return this.getDecryptedTypedValue<T>(config);
+          return config;
         }
       } catch (err) {
         // Redis unavailable: fall through to DB — graceful degradation
@@ -78,40 +151,62 @@ export class ConfigurationService implements OnModuleInit {
     }
 
     // ── L3: Database ──
-    // Single query with tenant + system fallback
-    const whereConditions: FindOptionsWhere<Configuration>[] = [
-      { tenantId, service, key },
-      ...(tenantId !== SYSTEM_TENANT_ID
-        ? [{ tenantId: SYSTEM_TENANT_ID, service, key, isActive: true }]
-        : []),
-    ];
-
-    const configs = await this.configRepository.find({
-      where: whereConditions,
-      take: 2,
-    });
-
-    // Prefer tenant-specific over system fallback.
-    const tenantConfig = configs.find((c) => c.tenantId === tenantId);
-    const systemConfig = configs.find((c) => c.tenantId === SYSTEM_TENANT_ID);
-    const config =
-      tenantConfig?.isActive === false && tenantConfig.suppressFallback
-        ? tenantConfig
-        : tenantConfig?.isActive === true
-          ? tenantConfig
-          : systemConfig;
-
-    if (!config || config.isActive === false) {
-      if (defaultValue !== undefined) {
-        return defaultValue;
-      }
-      throw new Error(`Configuration not found: ${service}/${key}`);
-    }
+    const config = await this.resolveActiveConfigFromDatabase(tenantId, service, key);
+    if (!config) return null;
 
     // Update cache with LRU eviction
     this.setCacheEntry(cacheKey, config);
 
-    return this.getDecryptedTypedValue<T>(config);
+    return config;
+  }
+
+  /**
+   * Read tenant override and SYSTEM fallback inside one repeatable-read
+   * snapshot. FORCE RLS means each partition requires its own transaction-local
+   * GUC value, but both decisions must observe the same database generation.
+   */
+  private async resolveActiveConfigFromDatabase(
+    tenantId: string,
+    service: string,
+    key: string,
+  ): Promise<Configuration | null> {
+    return runInRlsScopedSnapshotRead(this.dataSource, tenantId, async (manager, pinScope) => {
+      const tenantConfig = await tenantManagerRepo(manager, Configuration, tenantId).findOne({
+        where: { tenantId, service, key, environment: ConfigEnvironment.ALL },
+      });
+
+      let systemConfig: Configuration | null = tenantConfig;
+      if (tenantId !== SYSTEM_TENANT_ID) {
+        await pinScope(SYSTEM_TENANT_ID);
+        systemConfig = await tenantManagerRepo(manager, Configuration, SYSTEM_TENANT_ID).findOne({
+          where: {
+            tenantId: SYSTEM_TENANT_ID,
+            service,
+            key,
+            environment: ConfigEnvironment.ALL,
+            isActive: true,
+          },
+        });
+      }
+
+      const config =
+        tenantConfig?.isActive === false && tenantConfig.suppressFallback
+          ? tenantConfig
+          : tenantConfig?.isActive === true
+            ? tenantConfig
+            : systemConfig;
+
+      return config?.isActive === true ? config : null;
+    });
+  }
+
+  private toEffectiveConfiguration(config: Configuration): EffectiveConfiguration {
+    return {
+      value: this.getDecryptedTypedValue<string>(config),
+      isSecret: this.isSecretConfig(config),
+      sourceTenantId: config.tenantId,
+      configVersion: config.version,
+    };
   }
 
   /**
@@ -130,12 +225,14 @@ export class ConfigurationService implements OnModuleInit {
         ...(environment && { environment }),
       },
       ...(tenantId !== SYSTEM_TENANT_ID
-        ? [{
-            tenantId: SYSTEM_TENANT_ID,
-            service,
-            isActive: true,
-            ...(environment && { environment }),
-          }]
+        ? [
+            {
+              tenantId: SYSTEM_TENANT_ID,
+              service,
+              isActive: true,
+              ...(environment && { environment }),
+            },
+          ]
         : []),
     ];
 
@@ -211,13 +308,19 @@ export class ConfigurationService implements OnModuleInit {
 
       if (tenantId === SYSTEM_TENANT_ID) {
         // Purge all tenant-specific Redis entries for this service:key
-        this.redisService.deletePattern(`config:*:${service}:${key}:${ConfigEnvironment.ALL}`).catch((err) => {
-          this.logger.warn(`Failed to invalidate Redis pattern for ${service}:${key}: ${err}`);
-        });
+        this.redisService
+          .deletePattern(`config:*:${service}:${key}:${ConfigEnvironment.ALL}`)
+          .catch((err) => {
+            this.logger.warn(`Failed to invalidate Redis pattern for ${service}:${key}: ${err}`);
+          });
       } else {
-        this.redisService.del(`config:${this.cacheKey(SYSTEM_TENANT_ID, service, key, ConfigEnvironment.ALL)}`).catch((err) => {
-          this.logger.warn(`Failed to invalidate Redis system cache for ${service}:${key}: ${err}`);
-        });
+        this.redisService
+          .del(`config:${this.cacheKey(SYSTEM_TENANT_ID, service, key, ConfigEnvironment.ALL)}`)
+          .catch((err) => {
+            this.logger.warn(
+              `Failed to invalidate Redis system cache for ${service}:${key}: ${err}`,
+            );
+          });
       }
     }
   }
@@ -289,8 +392,13 @@ export class ConfigurationService implements OnModuleInit {
   private getDecryptedTypedValue<T = unknown>(config: Configuration): T {
     let rawValue = config.value;
 
-    // Decrypt if secret and encryption is available
-    if (this.isSecretConfig(config) && this.encryptionService.isAvailable() && this.encryptionService.isEncrypted(rawValue)) {
+    // A secret row must never degrade into a plaintext configuration read.
+    // Fail closed if encryption is unavailable or the persisted value is not
+    // an authenticated ciphertext written by EncryptionService.
+    if (this.isSecretConfig(config)) {
+      if (!this.encryptionService.isAvailable() || !this.encryptionService.isEncrypted(rawValue)) {
+        throw new Error(`Secret configuration is unavailable: ${config.service}/${config.key}`);
+      }
       try {
         // PLAT-HIGH-003: AAD binding validates tenant + key context
         rawValue = this.encryptionService.decrypt(rawValue, config.tenantId, config.key);

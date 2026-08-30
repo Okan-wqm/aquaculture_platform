@@ -6,17 +6,14 @@
  * is available when Apollo Gateway's willSendRequest forwards headers.
  */
 
-import { Injectable, NestMiddleware, Logger, Inject, Optional } from '@nestjs/common';
+import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
+import { Inject, Injectable, Logger, NestMiddleware } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { Request, Response, NextFunction } from 'express';
+import { NextFunction, Request, Response } from 'express';
 
-import { JwtPayload, AuthenticatedRequest } from '../types/index';
-import {
-  TokenBlacklistStore,
-  TOKEN_BLACKLIST_STORE,
-} from '../guards/redis-token-blacklist.store';
-import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
+import { TOKEN_BLACKLIST_STORE, TokenBlacklistStore } from '../guards/redis-token-blacklist.store';
+import { AuthenticatedRequest, JwtPayload } from '../types/index';
 
 @Injectable()
 export class JwtMiddleware implements NestMiddleware {
@@ -26,14 +23,14 @@ export class JwtMiddleware implements NestMiddleware {
   constructor(
     @Inject(JwtService) private readonly jwtService: JwtService,
     @Inject(ConfigService) private readonly configService: ConfigService,
-    @Optional()
     @Inject(TOKEN_BLACKLIST_STORE)
-    private readonly tokenBlacklist?: TokenBlacklistStore,
+    private readonly tokenBlacklist: TokenBlacklistStore,
   ) {
     this.isProduction = this.configService.get<string>('NODE_ENV', 'development') === 'production';
   }
 
-  async use(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async use(req: Request, _res: Response, next: NextFunction): Promise<void> {
+    const request = req as AuthenticatedRequest;
     const authHeader = req.headers['authorization'];
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -44,8 +41,8 @@ export class JwtMiddleware implements NestMiddleware {
 
     try {
       // SECURITY: Use getJwtVerifyOptions() to enforce algorithm, issuer, and audience
-      // at library level — prevents algorithm confusion attacks and accepts tokens
-      // without iss/aud claims.
+      // at library level — prevents algorithm confusion and rejects tokens that
+      // omit the required issuer/audience claims.
       const payload = await this.jwtService.verifyAsync<JwtPayload>(
         token,
         getJwtVerifyOptions(this.configService),
@@ -54,27 +51,56 @@ export class JwtMiddleware implements NestMiddleware {
       // SEC-COMPAT: Centralized legacy token validation (type check + jti warning)
       enforceAccessTokenType(payload, this.logger, this.isProduction);
 
-      // SECURITY: Composite validity check BEFORE setting req.user — covers both
-      // per-token blacklist and user-level invalidation (e.g. logout-all / password reset).
-      if (this.tokenBlacklist) {
-        const valid = await this.tokenBlacklist.isValidToken(
-          payload.jti!,
-          payload.sub,
-          payload.iat,
-        );
-        if (!valid) {
-          this.logger.warn(`Invalid/revoked token used: ${payload.jti?.substring(0, 8)}...`);
-          return next();
+      let hasValidRevocationState = false;
+      if (
+        typeof payload.jti === 'string' &&
+        payload.jti.trim().length > 0 &&
+        typeof payload.sub === 'string' &&
+        payload.sub.trim().length > 0 &&
+        Number.isSafeInteger(payload.iat) &&
+        payload.iat > 0
+      ) {
+        try {
+          hasValidRevocationState = await this.tokenBlacklist.isValidToken(
+            payload.jti,
+            payload.sub,
+            payload.iat,
+          );
+        } catch (error) {
+          this.logger.error(
+            JSON.stringify({
+              event: 'gateway_composite_token_validity_check_failed',
+              errorType: error instanceof Error ? error.name : 'UnknownError',
+            }),
+          );
         }
       }
 
-      // Set user on request - this will be available in GraphQL context
-      (req as AuthenticatedRequest).user = payload;
+      // SECURITY: Composite validity is mandatory before req.user is populated.
+      // This single read covers the per-JTI marker and the user invalidation epoch.
+      if (!hasValidRevocationState) {
+        request.user = undefined;
+        request.jwtAuthenticationFailure = 'TOKEN_REVOKED';
+        this.logger.warn(JSON.stringify({ event: 'gateway_jwt_revoked' }));
+        next();
+        return;
+      }
 
-      this.logger.debug(`JWT decoded: user=${payload.sub}, tenant=${payload.tenantId}`);
+      // Set user on request - this will be available in GraphQL context
+      request.user = payload;
+      request.jwtAuthenticationFailure = undefined;
+
+      this.logger.debug(JSON.stringify({ event: 'gateway_jwt_authenticated' }));
     } catch (error) {
       // Don't fail the request - let AuthGuard handle unauthorized access
-      this.logger.debug(`JWT decode failed in middleware: ${(error as Error).message}`);
+      request.user = undefined;
+      request.jwtAuthenticationFailure = 'INVALID_TOKEN';
+      this.logger.debug(
+        JSON.stringify({
+          event: 'gateway_jwt_verification_failed',
+          errorType: error instanceof Error ? error.name : 'UnknownError',
+        }),
+      );
     }
 
     next();

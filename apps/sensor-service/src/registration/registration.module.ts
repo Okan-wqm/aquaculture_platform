@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
 import { Sensor } from '../database/entities/sensor.entity';
+import { SensorTypeModule } from '../sensor-type/sensor-type.module';
 
 import { ChannelResolver } from './resolvers/channel.resolver';
 import { RegistrationResolver } from './resolvers/registration.resolver';
@@ -13,6 +14,9 @@ import { SensorRegistrationService } from './services/sensor-registration.servic
 @Module({
   imports: [
     TypeOrmModule.forFeature([Sensor, SensorDataChannel]),
+    // SENSOR-MEDIUM-071: registerSensor bootstraps a custom type-definition's
+    // channels via SensorTypeService inside the registration transaction.
+    SensorTypeModule,
   ],
   providers: [
     SensorRegistrationService,

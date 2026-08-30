@@ -4,13 +4,109 @@
  */
 import React, { useState, useMemo } from 'react';
 import { useRegulatorySettings, useSubmitWelfareEvent } from '../../../hooks/useRegulatory';
+import { useReportPrefill, findFieldMeta, ReportPrefill } from '../../../hooks/useReportPrefill';
 import { buildRegulatoryIdentity } from '../utils/regulatoryIdentity';
 import { useStableClientReference } from '../../../hooks/useStableClientReference';
-import { WelfareEventReport } from '../types/reports.types';
+import { useEffectiveReportSite } from '../hooks/useEffectiveReportSite';
+import { WelfareEventReport, WelfareEventType, WelfareEventSeverity } from '../types/reports.types';
 import { REGULATORY_CONTACTS, MORTALITY_THRESHOLDS } from '../utils/thresholds';
 import { WelfareEventModal } from '../components/modals';
 import { SubmissionHistorySection } from '../components/SubmissionHistorySection';
+import { ProvenanceBadge } from '../components/common';
 import { useTanksList } from '../../../hooks/useTanks';
+
+/**
+ * Map the modal's internal domain values to the GraphQL enum WIRE names (the
+ * SDL exposes the enum KEYS, not the lowercase values). Sending the lowercase
+ * form fails enum coercion before the resolver, so the varsling never files.
+ */
+const WELFARE_EVENT_TYPE_WIRE: Record<
+  WelfareEventType,
+  'MORTALITY_THRESHOLD' | 'EQUIPMENT_FAILURE' | 'WELFARE_IMPACT'
+> = {
+  mortality_threshold: 'MORTALITY_THRESHOLD',
+  equipment_failure: 'EQUIPMENT_FAILURE',
+  welfare_impact: 'WELFARE_IMPACT',
+};
+const WELFARE_SEVERITY_WIRE: Record<WelfareEventSeverity, 'HIGH' | 'CRITICAL'> = {
+  high: 'HIGH',
+  critical: 'CRITICAL',
+};
+
+/** Data portion of the server-assembled welfare varsling (see WelfareReportAssembler). */
+interface WelfarePrefillPayload {
+  assessmentId: string | null;
+  assessedAt: string | null;
+  fishSampled: number;
+  gillScore: number | null;
+  finScore: number | null;
+  woundScore: number | null;
+  deformityScore: number | null;
+  worstScore: number | null;
+  severity: string;
+  welfareEventType: string;
+  mortalityRate: number | null;
+  affectedUnits: string[];
+}
+
+/**
+ * Review-and-approve card (RPT-010): the welfare varsling assembles from the
+ * site's latest welfare_assessment. The indicator scores and the derived
+ * severity render READ-ONLY with provenance — corrections flow to the assessment
+ * in Fish Health. The regulatory welfareEventType stays a required manual entry
+ * (the scores cannot classify it), surfaced here via its badge.
+ */
+export const WelfareAssembledReview: React.FC<{
+  prefill?: ReportPrefill<WelfarePrefillPayload>;
+}> = ({ prefill }) => {
+  if (!prefill) return null;
+  const p = prefill.draftPayload;
+  const meta = (path: string): ReturnType<typeof findFieldMeta> => findFieldMeta(prefill.fields, path);
+
+  if (!p.assessmentId) {
+    return (
+      <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
+        No welfare assessment on record for this site. Record one in Fish Health (or the mobile app)
+        before filing the welfare varsling — the report assembles from the assessment.
+      </div>
+    );
+  }
+
+  const rows: Array<{ label: string; path: string; value: React.ReactNode }> = [
+    { label: 'Assessed at', path: '/assessedAt', value: p.assessedAt },
+    { label: 'Fish sampled', path: '/fishSampled', value: p.fishSampled },
+    { label: 'Gill score (0–3)', path: '/gillScore', value: p.gillScore ?? '—' },
+    { label: 'Fin score (0–3)', path: '/finScore', value: p.finScore ?? '—' },
+    { label: 'Wound score (0–3)', path: '/woundScore', value: p.woundScore ?? '—' },
+    { label: 'Deformity score (0–3)', path: '/deformityScore', value: p.deformityScore ?? '—' },
+    { label: 'Severity', path: '/severity', value: p.severity || '—' },
+    { label: 'Welfare event type', path: '/welfareEventType', value: p.welfareEventType || '—' },
+  ];
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-4">
+      <h3 className="text-sm font-medium text-gray-900 mb-1">Assembled from the latest assessment</h3>
+      <p className="text-xs text-gray-500 mb-3">
+        Indicator scores and the derived severity come from the welfare assessment — read-only here;
+        corrections go to Fish Health.
+      </p>
+      <dl className="divide-y divide-gray-100">
+        {rows.map((row) => {
+          const m = meta(row.path);
+          return (
+            <div key={row.path} className="py-2 flex items-center justify-between gap-2">
+              <dt className="flex items-center gap-2 text-sm text-gray-700">
+                <span>{row.label}</span>
+                {m && <ProvenanceBadge meta={m} />}
+              </dt>
+              <dd className="text-sm font-medium text-gray-900 text-right">{row.value}</dd>
+            </div>
+          );
+        })}
+      </dl>
+    </div>
+  );
+};
 
 // ============================================================================
 // Types
@@ -140,6 +236,16 @@ export const WelfareEventTab: React.FC<WelfareEventTabProps> = ({ siteId }) => {
   const submitWelfareEvent = useSubmitWelfareEvent();
   const clientRef = useStableClientReference();
 
+  // Event-triggered varsling; the period is nominal (the assembler reads the
+  // site's latest welfare_assessment).
+  const { effectiveSiteId } = useEffectiveReportSite(siteId);
+  const prefillPeriod = useMemo(() => ({ year: new Date().getFullYear() }), []);
+  const { data: prefill } = useReportPrefill<WelfarePrefillPayload>(
+    'WELFARE_EVENT',
+    effectiveSiteId,
+    prefillPeriod,
+  );
+
   // Fetch tank data for mortality warning banner
   const { data: tanksData } = useTanksList({ siteId, isActive: true });
   const tanks = tanksData?.items || [];
@@ -176,8 +282,8 @@ export const WelfareEventTab: React.FC<WelfareEventTabProps> = ({ siteId }) => {
       siteManagerEmail: identity.siteManagerEmail,
       detectedAt: (data.detectedAt ?? new Date()).toISOString(),
       reportedBy: identity.kontaktperson.navn,
-      welfareEventType: data.eventType ?? 'welfare_impact',
-      severity: data.severity ?? 'high',
+      welfareEventType: WELFARE_EVENT_TYPE_WIRE[data.eventType ?? 'welfare_impact'],
+      severity: WELFARE_SEVERITY_WIRE[data.severity ?? 'high'],
       mortalityRate: data.mortalityData?.actualRate,
       mortalityPeriod: data.mortalityData?.period,
       affectedBatches: data.mortalityData?.affectedBatches?.map((b) => b.batchNumber),
@@ -231,6 +337,9 @@ export const WelfareEventTab: React.FC<WelfareEventTabProps> = ({ siteId }) => {
 
       {/* Threshold Information */}
       <ThresholdAlert onCreateReport={handleCreateReport} />
+
+      {/* Server-assembled assessment (review-and-approve) */}
+      <WelfareAssembledReview prefill={prefill} />
 
       {/* Submission History */}
       <SubmissionHistorySection reportType="WELFARE_EVENT" siteId={siteId} />

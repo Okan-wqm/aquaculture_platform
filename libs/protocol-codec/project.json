@@ -1,0 +1,33 @@
+{
+  "name": "protocol-codec",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/protocol-codec/src",
+  "projectType": "library",
+  "tags": ["scope:platform", "type:lib"],
+  "targets": {
+    "build-wasm": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": [
+        "{workspaceRoot}/crates/protocol-codec/src/**/*.rs",
+        "{workspaceRoot}/crates/protocol-codec-wasm/src/**/*.rs",
+        "{workspaceRoot}/crates/protocol-codec-wasm/Cargo.toml",
+        "{workspaceRoot}/crates/protocol-codec-wasm/Cargo.lock"
+      ],
+      "outputs": ["{projectRoot}/src/generated"],
+      "options": {
+        "command": "bash libs/protocol-codec/scripts/build-wasm.sh"
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "libs/protocol-codec/jest.config.ts"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint"
+    }
+  }
+}

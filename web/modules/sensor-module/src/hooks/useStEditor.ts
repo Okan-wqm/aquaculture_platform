@@ -4,8 +4,22 @@
  * Manages program list CRUD, compile/validate (mock), dirty tracking,
  * Monaco error markers, keyboard shortcuts (F5, F7, F9, Ctrl+S, Shift+Alt+F),
  * outline tree, problems panel, code formatting, and JSON bundle export/import.
+ *
+ * Persistence (SENSOR-HIGH-049): in standalone (persist) mode the hook
+ * hydrates the program list from the backend AutomationProgram store
+ * (ST-type programs) and `save()` writes through create/updateAutomationProgram.
+ * Editing a DEPLOYED program never overwrites it — save forks a NEW draft
+ * program carrying the edits (the backend rejects in-place DEPLOYED edits).
+ * Embedded mode (AutomationProgramEditorPage owns persistence) keeps the
+ * local-only dirty tracking.
  */
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { graphqlFetch } from '../config/api';
+import {
+  ST_PROGRAMS_QUERY,
+  CREATE_PROGRAM_MUTATION,
+  UPDATE_PROGRAM_MUTATION,
+} from '../graphql/automation.queries';
 import { useStLanguageService } from './useStLanguageService';
 import type { STDiagnostic, STOutlineNode } from '../types/st-editor.types';
 
@@ -15,6 +29,10 @@ export interface StProgram {
   source: string;
   createdAt: number;
   updatedAt: number;
+  /** Backend AutomationProgram id once persisted (absent = never saved). */
+  backendId?: string;
+  /** Backend lifecycle status (draft/pending_review/approved/deployed/...). */
+  status?: string;
 }
 
 export type CompileStatus = 'idle' | 'compiling' | 'success' | 'warning' | 'error';
@@ -50,6 +68,33 @@ END_PROGRAM
 
 function makeId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+/**
+ * Derive a backend programCode (≤30 chars, uppercase, starts with a letter)
+ * from a display name, with a time-based suffix for per-tenant uniqueness —
+ * the backend enforces programCode uniqueness, and forking a DEPLOYED program
+ * mints a fresh code for the new draft.
+ */
+function makeProgramCode(name: string): string {
+  const base = name
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 22);
+  const prefixed = /^[A-Z]/.test(base) ? base : `ST_${base}`.slice(0, 22);
+  const suffix = Date.now().toString(36).toUpperCase().slice(-5);
+  return `${prefixed || 'ST_PROGRAM'}_${suffix}`;
+}
+
+/** Shape of one hydrated backend ST program. */
+interface BackendStProgram {
+  id: string;
+  programCode: string;
+  programName: string;
+  status: string;
+  structuredTextCode?: string | null;
+  updatedAt: string;
 }
 
 /** Map STDiagnostic (WS) → CompileDiagnostic (editor) */
@@ -92,10 +137,22 @@ export interface UseStEditorOptions {
   initialSource?: string;
   /** Callback fired when the active program's source changes */
   onSourceChange?: (source: string) => void;
+  /**
+   * Standalone mode: hydrate from + save to the backend AutomationProgram
+   * store. Embedded consumers (which own persistence themselves) leave this
+   * off and keep the local-only dirty tracking.
+   */
+  persist?: boolean;
+  /** Deploy action fired by the F9 shortcut (e.g. open the deploy modal). */
+  onDeploy?: () => void;
 }
 
 export function useStEditor(options?: UseStEditorOptions) {
-  const { initialSource, onSourceChange } = options ?? {};
+  const { initialSource, onSourceChange, persist = false, onDeploy } = options ?? {};
+
+  // Stable ref so the keyboard effect does not re-register per render.
+  const onDeployRef = useRef(onDeploy);
+  useEffect(() => { onDeployRef.current = onDeploy; }, [onDeploy]);
 
   // Real WebSocket language service (auto-connects on mount)
   const langService = useStLanguageService();
@@ -213,17 +270,113 @@ export function useStEditor(options?: UseStEditorOptions) {
     onSourceChangeRef.current?.(source);
   }, []);
 
+  // ---- Persistence (SENSOR-HIGH-049) ----
+
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [isHydrating, setIsHydrating] = useState(persist);
+
+  // Hydrate the program list from the backend once in persist mode. Without
+  // this, every mode switch / reload silently discarded ALL ST programs.
+  useEffect(() => {
+    if (!persist) return;
+    const controller = new AbortController();
+    const hydrate = async (): Promise<void> => {
+      try {
+        const data = await graphqlFetch<{
+          automationPrograms: { items: BackendStProgram[] };
+        }>(ST_PROGRAMS_QUERY, { limit: 100 });
+        if (controller.signal.aborted) return;
+        const items = data.automationPrograms.items;
+        if (items.length === 0) return; // keep the local default 'Main'
+        const hydrated: StProgram[] = items.map((p) => ({
+          id: p.id,
+          backendId: p.id,
+          name: p.programName,
+          status: p.status,
+          source: p.structuredTextCode ?? '',
+          createdAt: Date.parse(p.updatedAt) || Date.now(),
+          updatedAt: Date.parse(p.updatedAt) || Date.now(),
+        }));
+        setPrograms(hydrated);
+        setSavedSourceMap(Object.fromEntries(hydrated.map((p) => [p.id, p.source])));
+        setActiveProgramId(hydrated[0]!.id);
+      } catch (e) {
+        if (!controller.signal.aborted) {
+          setSaveError(`Programlar yüklenemedi: ${(e as Error).message}`);
+        }
+      } finally {
+        if (!controller.signal.aborted) setIsHydrating(false);
+      }
+    };
+    hydrate();
+    return () => controller.abort();
+    // persist is fixed for the lifetime of the consumer (standalone vs embedded).
+  }, [persist]);
+
   // ---- Save ----
 
+  /**
+   * Persist the active program. Synchronous shape (callers stay unchanged);
+   * the async write manages its own success/error state — `saveError` +
+   * `isSaving` are the observable outcome, and the dirty flag only clears on
+   * a CONFIRMED write. In embedded mode (persist=false) the parent owns
+   * persistence and this only updates local dirty tracking, as before.
+   *
+   * Lifecycle: a DEPLOYED program is immutable — save FORKS a new draft
+   * program (fresh programCode) carrying the edits instead of overwriting
+   * what runs on the device.
+   */
   const save = useCallback(() => {
     const prog = activeProgramRef.current;
     if (!prog) return;
-    setSavedSourceMap((prev) => ({
-      ...prev,
-      [prog.id]: prog.source,
-    }));
-    // TODO: persist to backend via GraphQL mutation
-  }, []);
+
+    if (!persist) {
+      setSavedSourceMap((prev) => ({ ...prev, [prog.id]: prog.source }));
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveError(null);
+    const write = async (): Promise<void> => {
+      if (prog.backendId && prog.status !== 'deployed') {
+        await graphqlFetch(UPDATE_PROGRAM_MUTATION, {
+          id: prog.backendId,
+          input: { programName: prog.name, structuredTextCode: prog.source },
+        });
+        setPrograms((prev) =>
+          prev.map((p) => (p.id === prog.id ? { ...p, status: p.status === 'approved' ? 'draft' : p.status } : p)),
+        );
+      } else {
+        // Never-saved program OR a DEPLOYED one being edited → new draft.
+        const data = await graphqlFetch<{ createAutomationProgram: { id: string } }>(
+          CREATE_PROGRAM_MUTATION,
+          {
+            input: {
+              programCode: makeProgramCode(prog.name),
+              programName: prog.name,
+              programType: 'ST',
+              structuredTextCode: prog.source,
+            },
+          },
+        );
+        const newBackendId = data.createAutomationProgram.id;
+        setPrograms((prev) =>
+          prev.map((p) =>
+            p.id === prog.id ? { ...p, backendId: newBackendId, status: 'draft' } : p,
+          ),
+        );
+      }
+      setSavedSourceMap((prev) => ({ ...prev, [prog.id]: prog.source }));
+    };
+    write()
+      .catch((e) => {
+        setSaveError(`Kaydetme başarısız: ${(e as Error).message}`);
+      })
+      .finally(() => {
+        setIsSaving(false);
+      });
+  }, [persist]);
 
   // ---- Compile (WS → mock fallback) ----
 
@@ -534,16 +687,14 @@ export function useStEditor(options?: UseStEditorOptions) {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ctrl+S → save (internal dirty tracking only; parent handleSave is
-      // triggered by Monaco's own keybinding when the editor has focus)
+      // Ctrl+S → save. In persist mode save() IS the real backend write
+      // (SENSOR-HIGH-049), so the window-level shortcut may safely trigger it
+      // when focus is outside Monaco. In embedded mode the PARENT owns
+      // persistence (wired through Monaco's own keybinding / onSave), so we
+      // only swallow the browser default and let the parent's path handle it.
       if (e.ctrlKey && e.key === 's') {
         e.preventDefault();
-        // Only update dirty-tracking map; do NOT call save() here because
-        // the parent component's onSave callback (wired through Monaco
-        // keybinding in StEditorPanel) is the one that triggers the actual
-        // GraphQL mutation.  Calling save() from this window-level handler
-        // would skip the real persist and confuse users into thinking their
-        // code was saved when it was only marked clean in-memory.
+        if (persist) save();
         return;
       }
       // F5 → compile
@@ -558,10 +709,11 @@ export function useStEditor(options?: UseStEditorOptions) {
         validate();
         return;
       }
-      // F9 → deploy (placeholder)
+      // F9 → deploy (delegates to the consumer's deploy flow, e.g. the
+      // automation deploy modal; a no-op when no flow is wired)
       if (e.key === 'F9') {
         e.preventDefault();
-        // TODO: deploy action
+        onDeployRef.current?.();
         return;
       }
       // Shift+Alt+F → format code
@@ -574,7 +726,7 @@ export function useStEditor(options?: UseStEditorOptions) {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [save, compile, validate, formatCode]);
+  }, [save, compile, validate, formatCode, persist]);
 
   return {
     // Program list
@@ -587,9 +739,12 @@ export function useStEditor(options?: UseStEditorOptions) {
     renameProgram,
     updateSource,
 
-    // Save / dirty
+    // Save / dirty / persistence
     isDirty,
     save,
+    isSaving,
+    saveError,
+    isHydrating,
 
     // Compile
     compileStatus,

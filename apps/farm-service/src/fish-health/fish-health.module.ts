@@ -16,6 +16,7 @@
  *
  * @module FishHealth
  */
+import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
@@ -25,6 +26,7 @@ import { LiceCount } from './entities/lice-count.entity';
 import { TreatmentApplication } from './entities/treatment-application.entity';
 import { WelfareAssessment } from './entities/welfare-assessment.entity';
 import { EscapeIncident } from './entities/escape-incident.entity';
+import { FarmIncidentMedia } from './entities/farm-incident-media.entity';
 
 // Related entities
 import { Batch } from '../batch/entities/batch.entity';
@@ -37,6 +39,7 @@ import { LiceCountService } from './services/lice-count.service';
 import { TreatmentApplicationService } from './services/treatment-application.service';
 import { WelfareAssessmentService } from './services/welfare-assessment.service';
 import { EscapeIncidentService } from './services/escape-incident.service';
+import { IncidentMediaService } from './services/incident-media.service';
 import { WaterTemperatureService } from '../water-quality/services/water-temperature.service';
 
 // Resolvers
@@ -79,6 +82,7 @@ const FieldCaptureQueryHandlers = [
       TreatmentApplication,
       WelfareAssessment,
       EscapeIncident,
+      FarmIncidentMedia,
       Batch,
       Tank,
     ]),
@@ -91,9 +95,16 @@ const FieldCaptureQueryHandlers = [
     TreatmentApplicationService,
     WelfareAssessmentService,
     EscapeIncidentService,
+    // Incident-photo pipeline: presigned upload + finalize into farm_incident_media,
+    // written in the SAME transaction as the escape/welfare/lice record it backs.
+    IncidentMediaService,
     // Same local-provider pattern regulatory/feeding/equipment modules use —
     // the service only injects DataSource; no module cycle with water-quality.
     WaterTemperatureService,
+    // Phase 6 (FARM-HIGH-214): welfare + escape are plain inserts, so mobile
+    // offline-queue replays dedup through the farm_mobile_command_receipts
+    // ledger (same at-most-once contract as mortality/cull/harvest).
+    MobileCommandReceiptService,
     // Resolvers
     HealthEventResolver,
     FieldCaptureResolver,

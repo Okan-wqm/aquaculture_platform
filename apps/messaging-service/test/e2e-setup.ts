@@ -26,7 +26,11 @@ import {
 import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { NatsEventBus } from '@platform/event-bus';
+import {
+  type CoreNatsConnectionLifecycleListener,
+  type CoreNatsConnectionSnapshot,
+  NatsEventBus,
+} from '@platform/event-bus';
 import Redis from 'ioredis';
 import { of } from 'rxjs';
 import supertest from 'supertest';
@@ -206,6 +210,65 @@ export interface E2eTestContext {
   redis: Redis;
 }
 
+type MessagingE2eEventBusDouble = jest.Mocked<Pick<NatsEventBus, keyof NatsEventBus>>;
+
+/**
+ * Build the single NatsEventBus test double shared by every messaging E2E suite.
+ *
+ * The class provider has a wider peer-facing contract than IEventBus:
+ * NatsRequestReply consumes its raw-connection snapshot and lifecycle listener
+ * during construction. Typing this factory against every public NatsEventBus
+ * member makes future additions to that concrete contract a compile-time error
+ * here instead of a runtime bootstrap failure in every E2E spec.
+ */
+function createMessagingE2eEventBusDouble(): MessagingE2eEventBusDouble {
+  const connectionSnapshot: CoreNatsConnectionSnapshot = {
+    connection: null,
+    generation: 0,
+    state: 'disconnected',
+  };
+  const connectionLifecycleListeners = new Set<CoreNatsConnectionLifecycleListener>();
+
+  return {
+    // NestJS lifecycle
+    onModuleInit: jest.fn().mockResolvedValue(undefined),
+    onModuleDestroy: jest.fn().mockResolvedValue(undefined),
+    // IEventBus lifecycle and health
+    connect: jest.fn().mockResolvedValue(undefined),
+    disconnect: jest.fn().mockResolvedValue(undefined),
+    isConnected: jest.fn().mockReturnValue(false),
+    getHealth: jest.fn().mockResolvedValue({
+      isHealthy: false,
+      connectionState: 'disconnected',
+    }),
+    // IEventPublisher
+    publish: jest.fn().mockResolvedValue(undefined),
+    publishBatch: jest.fn().mockResolvedValue(undefined),
+    publishTo: jest.fn().mockResolvedValue(undefined),
+    publishCore: jest.fn().mockResolvedValue(undefined),
+    // IEventSubscriber
+    subscribe: jest.fn().mockResolvedValue(undefined),
+    subscribeTo: jest.fn().mockResolvedValue(undefined),
+    subscribeWildcard: jest.fn().mockResolvedValue(undefined),
+    subscribeForTenant: jest.fn().mockResolvedValue(undefined),
+    unsubscribe: jest.fn().mockResolvedValue(undefined),
+    unsubscribeFrom: jest.fn().mockResolvedValue(undefined),
+    // NatsRequestReply's shared Core NATS lifecycle contract
+    getRawConnection: jest.fn().mockReturnValue(connectionSnapshot.connection),
+    getCoreConnectionSnapshot: jest.fn().mockReturnValue(connectionSnapshot),
+    onCoreConnectionLifecycle: jest.fn(
+      (listener: CoreNatsConnectionLifecycleListener): (() => void) => {
+        connectionLifecycleListeners.add(listener);
+        listener(connectionSnapshot);
+        return () => {
+          connectionLifecycleListeners.delete(listener);
+        };
+      },
+    ),
+    setCoreResponderAvailability: jest.fn(),
+  };
+}
+
 /**
  * Bootstrap the full NestJS application with selective guard overrides.
  *
@@ -276,43 +339,16 @@ export async function createE2eTestApp(
     // (auth correctness is auth-service's E2E concern, not messaging's); the shape
     // matches ValidateTenantMembershipResult.
     emit: jest.fn().mockReturnValue(of(undefined)),
-    send: jest.fn().mockReturnValue(
-      of({ success: true, allValid: true, invalidUserIds: [], inactiveUserIds: [] }),
-    ),
+    send: jest
+      .fn()
+      .mockReturnValue(
+        of({ success: true, allValid: true, invalidUserIds: [], inactiveUserIds: [] }),
+      ),
     connect: jest.fn().mockResolvedValue(undefined),
     close: jest.fn().mockResolvedValue(undefined),
   };
 
-  // Full IEventBus interface mock — every method from IEventPublisher,
-  // IEventSubscriber, and IEventBus plus NestJS lifecycle hooks.
-  const mockEventBus = {
-    // IEventPublisher
-    publish: jest.fn().mockResolvedValue(undefined),
-    publishBatch: jest.fn().mockResolvedValue(undefined),
-    publishTo: jest.fn().mockResolvedValue(undefined),
-    // IEventSubscriber
-    subscribe: jest.fn().mockResolvedValue(undefined),
-    subscribeTo: jest.fn().mockResolvedValue(undefined),
-    // subscribeWildcard is the durable cross-tenant fan-out subscription that
-    // MessagingPushNatsHandler.onModuleInit uses (MSG-HIGH-004). It was missing
-    // from this "full" IEventBus mock, so app bootstrap threw
-    // `subscribeWildcard is not a function` for every E2E spec — invisible until
-    // the ORPHAN-HIGH-092 flake fix let the suite run to completion (111/111).
-    subscribeWildcard: jest.fn().mockResolvedValue(undefined),
-    unsubscribe: jest.fn().mockResolvedValue(undefined),
-    unsubscribeFrom: jest.fn().mockResolvedValue(undefined),
-    // IEventBus
-    connect: jest.fn().mockResolvedValue(undefined),
-    disconnect: jest.fn().mockResolvedValue(undefined),
-    isConnected: jest.fn().mockReturnValue(true),
-    getHealth: jest.fn().mockResolvedValue({
-      isHealthy: true,
-      connectionState: 'connected',
-    }),
-    // NestJS lifecycle
-    onModuleInit: jest.fn().mockResolvedValue(undefined),
-    onModuleDestroy: jest.fn().mockResolvedValue(undefined),
-  };
+  const mockEventBus = createMessagingE2eEventBusDouble();
 
   const mockStorageObjectVerifier = {
     verifyObject: jest.fn().mockResolvedValue({
@@ -380,9 +416,7 @@ export async function createE2eTestApp(
  * would produce the misleading `undefined.close()` cascade and the
  * operator chases a false trail.
  */
-export async function closeE2eTestApp(
-  ctx: E2eTestContext | undefined,
-): Promise<void> {
+export async function closeE2eTestApp(ctx: E2eTestContext | undefined): Promise<void> {
   if (!ctx?.app) return;
   await ctx.app.close();
 }
@@ -412,8 +446,7 @@ export function gqlRequest(
 
   return {
     query: (gql: string, variables?: Record<string, unknown>) => {
-      const body =
-        variables === undefined ? { query: gql } : { query: gql, variables };
+      const body = variables === undefined ? { query: gql } : { query: gql, variables };
       const bodyString = JSON.stringify(body);
       const serviceHeaders: Record<string, string> = {
         ...buildSignedInternalHeaders({
@@ -462,20 +495,15 @@ export function expectGqlOk<T = Record<string, unknown>>(
   const label = opName ? ` (${opName})` : '';
   if (res.status !== 200) {
     throw new Error(
-      `GraphQL HTTP ${res.status}${label}: expected 200.\n` +
-        `Body: ${JSON.stringify(res.body)}`,
+      `GraphQL HTTP ${res.status}${label}: expected 200.\n` + `Body: ${JSON.stringify(res.body)}`,
     );
   }
   if (Array.isArray(res.body.errors) && res.body.errors.length > 0) {
-    throw new Error(
-      `GraphQL request returned errors${label}:\n` +
-        JSON.stringify(res.body.errors),
-    );
+    throw new Error(`GraphQL request returned errors${label}:\n` + JSON.stringify(res.body.errors));
   }
   if (res.body.data === null || res.body.data === undefined) {
     throw new Error(
-      `GraphQL response had no \`data\` field${label}.\n` +
-        `Body: ${JSON.stringify(res.body)}`,
+      `GraphQL response had no \`data\` field${label}.\n` + `Body: ${JSON.stringify(res.body)}`,
     );
   }
   return res.body.data;
@@ -583,10 +611,9 @@ async function backfillTenantMigrationLedger(
   tenantSchema: string,
 ): Promise<void> {
   const ledgerTable = tenantMigrationLedgerTable(sourceSchema);
-  const [sourceLedger] = await dataSource.query(
-    `SELECT to_regclass($1) AS regclass`,
-    [`${sourceSchema}.migrations`],
-  );
+  const [sourceLedger] = await dataSource.query(`SELECT to_regclass($1) AS regclass`, [
+    `${sourceSchema}.migrations`,
+  ]);
 
   if (!sourceLedger?.regclass) {
     return;
@@ -684,10 +711,7 @@ export async function cleanupTenantData(
 /**
  * Flush Redis keys matching a pattern for clean test isolation.
  */
-export async function flushRedisKeys(
-  redis: Redis | undefined,
-  pattern: string,
-): Promise<void> {
+export async function flushRedisKeys(redis: Redis | undefined, pattern: string): Promise<void> {
   if (!redis) return;
   const keys = await redis.keys(pattern);
   if (keys.length > 0) {

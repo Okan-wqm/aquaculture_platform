@@ -9,6 +9,7 @@ import {
   UPDATE_SCADA_PACKAGE,
   DELETE_SCADA_PACKAGE,
   DEPLOY_SCADA_PACKAGE,
+  DEPLOY_SCADA_WITH_AUTOMATION,
 } from '../graphql/scada-package.queries';
 import type {
   ScadaPackage,
@@ -182,7 +183,8 @@ export function useUpdateScadaPackage() {
         description?: string;
         processId?: string;
         packageData?: ScadaPackageJSON;
-        status?: ScadaPackageStatus;
+        // `status` is intentionally not here — package lifecycle (PUBLISHED /
+        // ARCHIVED) is server-owned via deploy/delete, never a client update.
       };
     }) => {
       const data = await graphqlFetch<{ updateScadaPackage: ScadaPackage }>(
@@ -202,6 +204,49 @@ export function useDeleteScadaPackage() {
         deleteScadaPackage: { success: boolean; message?: string; deletedId: string };
       }>(DELETE_SCADA_PACKAGE, { id });
       return data.deleteScadaPackage;
+    },
+  });
+}
+
+/** One automation step's outcome inside a bundle deploy. */
+export interface AutomationDeployStepResult {
+  programId: string;
+  success: boolean;
+  message?: string;
+  commandId?: string;
+}
+
+/** Result of the atomic SCADA+automation bundle deploy. */
+export interface UnifiedDeployResult {
+  success: boolean;
+  message?: string;
+  automationResults: AutomationDeployStepResult[];
+  scadaResult?: { packageId: string; success: boolean; message?: string };
+}
+
+/**
+ * Atomic bundle deploy (GAP-3A): SCADA package + bound automation programs as
+ * ONE signed release bundle — PUBLISHED only on the edge's two-phase
+ * confirmation, so a half-deploy (SCADA without its programs, or vice versa)
+ * is structurally impossible. Programs default to the package's
+ * automationBindings; pass programIds to override.
+ */
+export function useDeployScadaBundle() {
+  return useMutation({
+    mutationFn: async ({
+      packageId,
+      deviceId,
+      programIds,
+    }: {
+      packageId: string;
+      deviceId: string;
+      programIds?: string[];
+    }) => {
+      const data = await graphqlFetch<{ deployScadaWithAutomation: UnifiedDeployResult }>(
+        DEPLOY_SCADA_WITH_AUTOMATION,
+        { input: { packageId, deviceId, programIds } },
+      );
+      return data.deployScadaWithAutomation;
     },
   });
 }

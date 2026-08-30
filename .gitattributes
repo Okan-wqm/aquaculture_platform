@@ -1,0 +1,23 @@
+# The orphan findings ledger is append-only: every branch adds its own
+# block at the end and nothing edits another's. Git's default merge treats
+# two appends at the same offset as a conflict, so every branch that
+# recorded a finding had to hand-resolve the same non-conflict — several
+# times a day once two sessions are working at once.
+#
+# `union` keeps both sides' lines, which for an append-only ledger is not a
+# compromise but the correct answer: losing either block would be losing a
+# recorded finding.
+docs/reviews/orphan-findings.md merge=union
+
+# The authority-hash pin is DERIVED: its one hash line digests a wide tree
+# (docs/aria/, aria-kernel/, tools/aria-poc/, the aria-* workflows), so any
+# two concurrent ARIA-touching branches conflict on it even when their code
+# merges cleanly — a structural conflict with no information in it, and the
+# single cause of every "genuinely conflicts" the merge trains hit on
+# 2026-08-10/11 (#1018, #1127, #1143, #1154, #1164 twice). `ours` silences
+# the textual conflict; correctness never depended on the merge result,
+# because both sides' hashes are wrong for the merged tree anyway — the
+# value is regenerated post-merge (`npm run aria:authority-hash:write`,
+# enforced stale-vs-tree by tests/invariants/aria-doc-runtime-ssot.spec.ts
+# and the pre-commit auto-repin hook).
+docs/aria/CURRENT_STATE.md merge=ours

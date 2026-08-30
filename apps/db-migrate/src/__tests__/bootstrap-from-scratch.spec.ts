@@ -20,7 +20,7 @@
  *
  *   1. Spin up `timescale/timescaledb-ha:pg16` (the production image, by
  *      digest pinned to docker-compose.infra.yml).
- *   2. Bind-mount `infrastructure/docker/init-scripts/` into
+ *   2. Copy `infrastructure/docker/init-scripts/` into
  *      `/docker-entrypoint-initdb.d/` — Postgres runs every script in
  *      lexical order on first boot of an empty PGDATA volume.
  *   3. Connect, then for every service that owns a TypeORM migration
@@ -42,9 +42,9 @@
  *     creates the same tables idempotently.
  *   - A new entity was added without a corresponding CREATE TABLE
  *     migration AND without an init-script entry → add the migration.
- *   - The init scripts assume a privilege the bind-mount POSTGRES_USER
+ *   - The init scripts assume a privilege the bootstrap POSTGRES_USER
  *     does not have on a fresh container → fix the script to use
- *     a less-privileged path or mount additional bootstrap material.
+ *     a less-privileged path or supply additional bootstrap material.
  *
  * # Why testcontainers (not the shared TestDatabase pool)
  *
@@ -76,7 +76,7 @@ import { DataSource, type MigrationInterface } from 'typeorm';
 
 // ADR-031 Platform Bootstrap Atom — runs the schema/role/extension/function/
 // shared-table DDL contract that init-scripts USED to own pre-cutover. The
-// init-scripts bind-mount below now contains only `01-init-databases.sql`
+// init-scripts directory copied below now contains only `01-init-databases.sql`
 // (initdb-only DB GRANTs). Schemas, roles, functions, and shared.* tables
 // are created by the call to runPlatformBootstrap() below before any
 // per-service migration loop runs.
@@ -334,12 +334,21 @@ const SERVICES: ServiceManifest[] = [
 ];
 
 /**
- * Tables expected to be registered as TimescaleDB hypertables after the
- * full bootstrap pipeline runs. Sensor service owns both: `sensor_readings`
- * is the high-volume time-series feed; `sensor_metrics` is the
- * derived/aggregated metric stream with the narrow-table format introduced
- * in 1735800000000-CreateSensorReadingsHypertable + the per-tenant
- * createSensorMetricsHypertable() path in SchemaManagerService.
+ * Tables expected to be registered as TimescaleDB hypertables in the SOURCE
+ * schemas after the full bootstrap pipeline runs.
+ *
+ * `sensor_readings` is the retired per-reading store: nothing reads or writes
+ * it any more (SENSOR-HIGH-085 replaced it with an as-of projection over
+ * sensor_metrics), but Baseline still creates it and it still holds the
+ * historical rows, so its hypertable registration remains part of the bootstrap
+ * contract until F-085-DROP removes the table outright.
+ *
+ * `sensor_metrics` is the per-tenant channel-keyed telemetry hypertable. This
+ * list only covers the `sensor` source copy — the per-tenant copies come from
+ * replaying 1815000000000-CreateTenantSensorMetricsHypertable into each tenant
+ * schema, which this spec does not exercise because it never provisions a
+ * tenant. That gap is not cosmetic: DATA-CRITICAL-010 shows a fresh tenant
+ * provision aborts before reaching 1815 at all.
  */
 const EXPECTED_HYPERTABLES: Array<{ schema: string; table: string }> = [
   { schema: 'sensor', table: 'sensor_readings' },
@@ -779,13 +788,15 @@ describe('Bootstrap from scratch (fresh-volume init + full migration chain)', ()
     }
 
     // -----------------------------------------------------------------
-    // 1. Boot Postgres with init-scripts mounted.
+    // 1. Boot Postgres with init-scripts copied in.
     // -----------------------------------------------------------------
     // The `docker-entrypoint-initdb.d` directory is consumed by the
     // postgres image's entrypoint exactly once, when PGDATA is empty.
-    // Bind-mounting the live repo directory (read-only) means this test
-    // exercises the SAME scripts the production deploy runs, with no
-    // copy/paste drift.
+    // Testcontainers archives the live repo directory into the container, so
+    // the test exercises the SAME scripts the production deploy runs without
+    // depending on host-workspace traversal permissions. An explicit mode is
+    // required because a restrictive checkout umask must not make the copied
+    // init directory unreadable by the postgres image's entrypoint user.
     postgresContainer = await new GenericContainer(POSTGRES_IMAGE)
       .withEnvironment({
         POSTGRES_DB: DATABASE_NAME,
@@ -801,11 +812,11 @@ describe('Bootstrap from scratch (fresh-volume init + full migration chain)', ()
           ]),
         ),
       })
-      .withBindMounts([
+      .withCopyDirectoriesToContainer([
         {
           source: INIT_SCRIPTS_DIR,
           target: '/docker-entrypoint-initdb.d',
-          mode: 'ro',
+          mode: 0o755,
         },
       ])
       .withExposedPorts(5432)
@@ -1036,9 +1047,11 @@ describe('Bootstrap from scratch (fresh-volume init + full migration chain)', ()
     '$schema.$table is a TimescaleDB hypertable',
     async ({ schema, table }) => {
       // Source-schema hypertable existence is the strongest signal that
-      // the create_hypertable() call inside the migration ran. The
-      // tenant-clone path uses createHypertable / createSensorMetricsHypertable
-      // off SchemaManagerService at provision time — covered by Part C.
+      // the create_hypertable() call inside the migration ran. It says
+      // nothing about the per-tenant copies: the runtime
+      // createSensorMetricsHypertable() path this comment used to cite is
+      // gone, tenant schemas are built by migration replay instead, and no
+      // spec provisions a tenant against a live database (DATA-CRITICAL-010).
       const rows = await probeDs().query<{ hypertable_name: string }[]>(
         `SELECT hypertable_name FROM timescaledb_information.hypertables
          WHERE hypertable_schema = $1 AND hypertable_name = $2`,
@@ -1087,18 +1100,21 @@ describe('Bootstrap from scratch (fresh-volume init + full migration chain)', ()
     expect(rows.length).toBe(1);
   });
 
-  it('shared schema contains the 4 cross-service tables (audit_logs, gdpr_data_requests, user_consents, user_permissions)', async () => {
+  it('shared schema contains the 4 cross-service tables (audit_logs, gdpr_data_requests, user_consents, access_logs)', async () => {
+    // user_permissions retired 2026-07-12 (ADR-042, ORPHAN-HIGH-378):
+    // the canonical shared set is audit_logs, gdpr_data_requests,
+    // user_consents, access_logs.
     const rows = await probeDs().query<{ table_name: string }[]>(
       `SELECT table_name FROM information_schema.tables
        WHERE table_schema = 'shared' AND table_name = ANY($1::text[])`,
-      [['audit_logs', 'gdpr_data_requests', 'user_consents', 'user_permissions']],
+      [['audit_logs', 'gdpr_data_requests', 'user_consents', 'access_logs']],
     );
     const found = new Set(rows.map((r) => r.table_name));
-    for (const t of ['audit_logs', 'gdpr_data_requests', 'user_consents', 'user_permissions']) {
+    for (const t of ['audit_logs', 'gdpr_data_requests', 'user_consents', 'access_logs']) {
       if (!found.has(t)) {
         throw new Error(
-          `shared.${t} missing after init scripts. Check ` +
-            `infrastructure/docker/init-scripts/10-shared-schema.sql.`,
+          `shared.${t} missing after platform bootstrap. Check ` +
+            `apps/db-migrate/src/sql/platform-bootstrap/006-shared-schema-tables.sql.`,
         );
       }
     }

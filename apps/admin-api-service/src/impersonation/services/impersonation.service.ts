@@ -23,7 +23,19 @@ import {
   ImpersonationReason,
   ImpersonationPermissions,
   ImpersonationAction,
+  SafeImpersonationSession,
+  toSafeImpersonationSession,
+  IMPERSONATION_MAX_SESSION_MINUTES,
 } from '../entities/impersonation-session.entity';
+
+/**
+ * Start-impersonation response: the safe session view PLUS the raw
+ * impersonation token, revealed exactly once to the initiating super-admin so
+ * they can drive the session. Never carries `originalSessionToken`.
+ */
+export type StartedImpersonationSession = SafeImpersonationSession & {
+  impersonationToken: string;
+};
 
 // ============================================================================
 // Interfaces
@@ -63,7 +75,7 @@ export interface ImpersonationAuditSummary {
   sessionsByReason: Record<ImpersonationReason, number>;
   topImpersonators: Array<{ adminId: string; email: string; sessionCount: number }>;
   topTargetTenants: Array<{ tenantId: string; tenantName: string; sessionCount: number }>;
-  recentSessions: ImpersonationSession[];
+  recentSessions: SafeImpersonationSession[];
 }
 
 // ============================================================================
@@ -247,12 +259,22 @@ export class ImpersonationService implements OnModuleInit {
         isActive: true,
         grantedAt: new Date(),
       });
+      // RBAC-MEDIUM-009: the update path spreads caller data — clamp the
+      // duration ceiling here exactly like the create path.
+      if (permission.maxSessionDurationMinutes > IMPERSONATION_MAX_SESSION_MINUTES) {
+        permission.maxSessionDurationMinutes = IMPERSONATION_MAX_SESSION_MINUTES;
+      }
     } else {
       permission = this.permissionRepo.create({
         ...data,
         canImpersonate: true,
         isActive: true,
-        maxSessionDurationMinutes: data.maxSessionDurationMinutes || 60,
+        // RBAC-MEDIUM-009: clamp to the policy ceiling even if the DTO layer
+        // is bypassed (internal callers) — the cap is enforced at every layer.
+        maxSessionDurationMinutes: Math.min(
+          data.maxSessionDurationMinutes || IMPERSONATION_MAX_SESSION_MINUTES,
+          IMPERSONATION_MAX_SESSION_MINUTES,
+        ),
         maxConcurrentSessions: data.maxConcurrentSessions || 3,
         requireReason: data.requireReason ?? true,
         requireTicketReference: data.requireTicketReference ?? false,
@@ -319,7 +341,7 @@ export class ImpersonationService implements OnModuleInit {
     totalSessions: number;
     activePermissions: number;
     topAdmins: Array<{ adminId: string; email: string; sessionCount: number }>;
-    recentSessions: ImpersonationSession[];
+    recentSessions: SafeImpersonationSession[];
   }> {
     const [activeSessions, totalSessions, activePermissions, topAdminsRaw, recentSessions] =
       await Promise.all([
@@ -351,7 +373,8 @@ export class ImpersonationService implements OnModuleInit {
         email: r.email || 'Unknown',
         sessionCount: parseInt(r.sessionCount, 10) || 0,
       })),
-      recentSessions,
+      // DB-ADMIN-HIGH-002: the stats read path must not serialize token columns.
+      recentSessions: recentSessions.map(toSafeImpersonationSession),
     };
   }
 
@@ -405,7 +428,9 @@ export class ImpersonationService implements OnModuleInit {
   // Session Management
   // ============================================================================
 
-  async startImpersonation(request: StartImpersonationRequest): Promise<ImpersonationSession> {
+  async startImpersonation(
+    request: StartImpersonationRequest,
+  ): Promise<StartedImpersonationSession> {
     // SECURITY: Rate limiting based on admin ID and IP address
     const rateLimitKey = `impersonate:${request.superAdminId}:${request.ipAddress || 'unknown'}`;
     const rateCheck = await this.checkRateLimit(rateLimitKey);
@@ -446,10 +471,13 @@ export class ImpersonationService implements OnModuleInit {
       throw new BadRequestException('Ticket reference is required for impersonation');
     }
 
-    // Calculate expiration
+    // Calculate expiration. RBAC-MEDIUM-009: the absolute policy cap is the
+    // final term — a HISTORICAL grant row stored before the cap existed (up
+    // to 1440 min) can never confer a session longer than the ceiling.
     const durationMinutes = Math.min(
-      request.durationMinutes || 60,
-      permission?.maxSessionDurationMinutes || 60,
+      request.durationMinutes || IMPERSONATION_MAX_SESSION_MINUTES,
+      permission?.maxSessionDurationMinutes || IMPERSONATION_MAX_SESSION_MINUTES,
+      IMPERSONATION_MAX_SESSION_MINUTES,
     );
     const expiresAt = new Date(Date.now() + durationMinutes * 60000);
 
@@ -547,16 +575,18 @@ export class ImpersonationService implements OnModuleInit {
     });
 
     // C-5 fix: Return raw token to caller (only time it's available in plaintext).
-    // The DB stores the hash. Override the hashed value on the returned object only.
-    const result = { ...saved, impersonationToken: rawImpersonationToken };
-    return result as ImpersonationSession;
+    // DB-ADMIN-HIGH-002: strip the stored secrets (plaintext originalSessionToken
+    // + token hash) from the response and re-attach ONLY the raw impersonation
+    // token the initiator needs — so the create response reveals exactly the
+    // one credential, once, and never echoes the stored plaintext session token.
+    return { ...toSafeImpersonationSession(saved), impersonationToken: rawImpersonationToken };
   }
 
   async endImpersonation(
     sessionId: string,
     endReason?: string,
     endedBy?: string,
-  ): Promise<ImpersonationSession> {
+  ): Promise<SafeImpersonationSession> {
     const session = await this.sessionRepo.findOne({ where: { id: sessionId } });
     if (!session) {
       throw new NotFoundException(`Session not found: ${sessionId}`);
@@ -602,14 +632,16 @@ export class ImpersonationService implements OnModuleInit {
 
     this.logger.log(`Ended impersonation session: ${sessionId}`);
 
-    return saved;
+    // DB-ADMIN-HIGH-002: the end response is session state, not a credential
+    // channel — strip the stored token columns like every other response path.
+    return toSafeImpersonationSession(saved);
   }
 
   async terminateSession(
     sessionId: string,
     terminatedBy: string,
     reason: string,
-  ): Promise<ImpersonationSession> {
+  ): Promise<SafeImpersonationSession> {
     const session = await this.sessionRepo.findOne({ where: { id: sessionId } });
     if (!session) {
       throw new NotFoundException(`Session not found: ${sessionId}`);
@@ -643,7 +675,8 @@ export class ImpersonationService implements OnModuleInit {
 
     this.logger.warn(`Terminated impersonation session: ${sessionId} - ${reason}`);
 
-    return saved;
+    // DB-ADMIN-HIGH-002: never echo the stored token columns on the terminate response.
+    return toSafeImpersonationSession(saved);
   }
 
   /**
@@ -654,7 +687,7 @@ export class ImpersonationService implements OnModuleInit {
     sessionId: string,
     additionalMinutes: number,
     extendedBy: string,
-  ): Promise<ImpersonationSession> {
+  ): Promise<SafeImpersonationSession> {
     const session = await this.sessionRepo.findOne({ where: { id: sessionId } });
     if (!session) {
       throw new NotFoundException(`Session not found: ${sessionId}`);
@@ -674,7 +707,12 @@ export class ImpersonationService implements OnModuleInit {
       where: { superAdminId: session.superAdminId, isActive: true },
     });
 
-    const maxDurationMinutes = permission?.maxSessionDurationMinutes || 60;
+    // RBAC-MEDIUM-009: total duration is bounded by the policy ceiling too —
+    // a historical over-cap grant cannot be laundered through extensions.
+    const maxDurationMinutes = Math.min(
+      permission?.maxSessionDurationMinutes || IMPERSONATION_MAX_SESSION_MINUTES,
+      IMPERSONATION_MAX_SESSION_MINUTES,
+    );
     const sessionStartTime = session.createdAt.getTime();
     const currentExpiresAt = session.expiresAt.getTime();
     const newExpiresAt = currentExpiresAt + additionalMinutes * 60000;
@@ -732,7 +770,8 @@ export class ImpersonationService implements OnModuleInit {
       `Extended impersonation session ${sessionId} by ${additionalMinutes} minutes`,
     );
 
-    return saved;
+    // DB-ADMIN-HIGH-002: never echo the stored token columns on the extend response.
+    return toSafeImpersonationSession(saved);
   }
 
   private async endAllSessionsForAdmin(adminId: string, reason: string): Promise<void> {
@@ -901,7 +940,7 @@ export class ImpersonationService implements OnModuleInit {
     endDate?: Date;
     page?: number;
     limit?: number;
-  }): Promise<{ items: ImpersonationSession[]; total: number }> {
+  }): Promise<{ items: SafeImpersonationSession[]; total: number }> {
     const query = this.sessionRepo.createQueryBuilder('s');
 
     if (params.superAdminId) {
@@ -930,15 +969,17 @@ export class ImpersonationService implements OnModuleInit {
     query.skip((page - 1) * limit).take(limit);
 
     const [items, total] = await query.getManyAndCount();
-    return { items, total };
+    // DB-ADMIN-HIGH-002: never serialize the token columns onto a list response.
+    return { items: items.map(toSafeImpersonationSession), total };
   }
 
-  async getSession(id: string): Promise<ImpersonationSession> {
+  async getSession(id: string): Promise<SafeImpersonationSession> {
     const session = await this.sessionRepo.findOne({ where: { id } });
     if (!session) {
       throw new NotFoundException(`Session not found: ${id}`);
     }
-    return session;
+    // DB-ADMIN-HIGH-002: strip secret token columns before the entity leaves the service.
+    return toSafeImpersonationSession(session);
   }
 
   async getAuditSummary(
@@ -1019,7 +1060,8 @@ export class ImpersonationService implements OnModuleInit {
         tenantName: r.tenantName || 'Unknown',
         sessionCount: parseInt(r.sessionCount, 10),
       })),
-      recentSessions,
+      // DB-ADMIN-HIGH-002: the recent-sessions block must not carry token columns.
+      recentSessions: recentSessions.map(toSafeImpersonationSession),
     };
   }
 
@@ -1101,17 +1143,18 @@ export class ImpersonationService implements OnModuleInit {
   // Active Sessions Info
   // ============================================================================
 
-  getActiveSessions(): ImpersonationSession[] {
+  getActiveSessions(): SafeImpersonationSession[] {
     // LOW-005 fix: filter out sessions that have expired in-memory before returning,
     // so callers are not misled by stale session entries after restart or clock drift.
     const now = new Date();
-    const active: ImpersonationSession[] = [];
+    const active: SafeImpersonationSession[] = [];
     for (const [sessionId, session] of this.localActiveSessions.entries()) {
       if (new Date(session.expiresAt) <= now) {
         // Evict expired sessions from cache on access to prevent stale reads
         this.localActiveSessions.delete(sessionId);
       } else {
-        active.push(session);
+        // DB-ADMIN-HIGH-002: strip secret token columns before returning.
+        active.push(toSafeImpersonationSession(session));
       }
     }
     return active;

@@ -316,7 +316,7 @@ class EnterpriseCycleTests(unittest.TestCase):
         self.assertEqual(result["reflection"]["tool_run_count"], 1)
         run = self.latest_run()
         self.assertEqual(run["status"], "ok")
-        self.assertEqual(run["emitted_findings"], [])
+        self.assertEqual(run["emitted_counts"]["findings"], 0)
         self.assertGreater(run["runner"]["raw_findings_count"], 0)
         self.assertEqual(result["cycle_metrics"]["status"], "ok")
         self.assertEqual(result["observability_dashboard"]["latest_cycle"]["cycle_id"], "cycle-shadow")
@@ -441,7 +441,17 @@ class EnterpriseCycleTests(unittest.TestCase):
             shadow_only=False,
         )
         run = self.latest_run()
-        details = run["emitted_observations"][0]["details"]
+        # ORPHAN-HIGH-798 — observations moved to the artifact payload; the
+        # row carries counts + artifact_ref. Resolve the artifact to check
+        # the observation details.
+        from aria_kernel.runtime_artifacts import resolve_artifact_payload
+
+        artifact = resolve_artifact_payload(run.get("artifact_ref"), base_dir=self.tools_dir) or {}
+        payload = artifact.get("payload") or {}
+        raw_obs = payload.get("raw_observations") or []
+        self.assertTrue(len(raw_obs) >= 1, f"artifact should carry observations, payload keys: {sorted(payload.keys())}")
+        self.assertTrue(len(raw_obs) >= 1, f"artifact should carry observations, payload keys: {sorted(payload.keys())}")
+        details = raw_obs[0].get("details", raw_obs[0]) if isinstance(raw_obs[0], dict) else {}
         self.assertEqual(run["runner"]["raw_observations_count"], 1)
         self.assertEqual(details["roots"], ["src"])
         self.assertEqual(details["mode"], "fixture")
@@ -529,7 +539,14 @@ class EnterpriseCycleTests(unittest.TestCase):
         )
         run_cycle(workspace_root=self.root, cycle_id="cycle-feedback-note-2", base_dir=self.tools_dir, shadow_only=True)
         second = {row["belief_id"]: row for row in list_memory(kind="beliefs", base_dir=self.tools_dir)}
-        self.assertGreater(second["candidate:repo-shape"]["confidence"], first["candidate:repo-shape"]["confidence"])
+        # The point of this test is that a note SUBSTRING must not adjust a
+        # belief. It used to prove that by asserting confidence rose —
+        # which only worked because re-observation inflated it. Equality is
+        # the stronger statement of the same intent: nothing moved at all.
+        self.assertEqual(
+            second["candidate:repo-shape"]["confidence"],
+            first["candidate:repo-shape"]["confidence"],
+        )
 
     def test_missing_concrete_evidence_becomes_stale_after_three_cycles(self):
         run_cycle(workspace_root=self.root, cycle_id="cycle-stale-1", base_dir=self.tools_dir)
@@ -574,7 +591,13 @@ class EnterpriseCycleTests(unittest.TestCase):
         self.assertEqual(len(beliefs), 1)
         self.assertEqual(beliefs[0]["first_seen_cycle"], "cycle-memory-1")
         self.assertEqual(beliefs[0]["last_seen_cycle"], "cycle-memory-2")
-        self.assertEqual(beliefs[0]["support_count"], 2)
+        # Two cycles over an UNCHANGED nx.json. This used to assert
+        # support_count == 2, which was the ratchet stated as a
+        # requirement: re-reading one file twice counted as two supports.
+        # Observation and support are now separate facts — the second look
+        # is recorded, and it does not vote.
+        self.assertEqual(beliefs[0]["observation_count"], 2)
+        self.assertEqual(beliefs[0]["support_count"], 1)
 
     def test_memory_normalizes_v0_belief_rows(self):
         append_declared_jsonl(
@@ -617,8 +640,16 @@ class EnterpriseCycleTests(unittest.TestCase):
         register_tool(candidate_tool(confidence=1.0), base_dir=self.tools_dir)
         run_cycle(workspace_root=self.root, cycle_id="cycle-candidate-score-2", base_dir=self.tools_dir, shadow_only=True)
         second = {row["belief_id"]: row for row in list_memory(kind="beliefs", base_dir=self.tools_dir)}
-        self.assertEqual(second["candidate:repo-shape"]["support_count"], 2)
-        self.assertGreater(second["candidate:repo-shape"]["confidence"], first["candidate:repo-shape"]["confidence"])
+        # The intent is the bound below: an adapter declaring confidence
+        # 1.0 must not override memory's own score. That now holds more
+        # strongly — the evidence did not change between the two cycles, so
+        # the score does not move at all, rather than creeping upward.
+        self.assertEqual(second["candidate:repo-shape"]["observation_count"], 2)
+        self.assertEqual(second["candidate:repo-shape"]["support_count"], 1)
+        self.assertEqual(
+            second["candidate:repo-shape"]["confidence"],
+            first["candidate:repo-shape"]["confidence"],
+        )
         self.assertLess(second["candidate:repo-shape"]["confidence"], 0.5)
 
     def test_withdrawn_belief_is_sticky_against_candidate_recreation(self):
@@ -944,31 +975,37 @@ class EnterpriseCycleTests(unittest.TestCase):
           - integrity recognises `aborted` as a terminal event
           - the (event, status) discriminated union is consistent.
         """
-        from aria_kernel import cycle as cycle_module
-
-        # Inject a failed pre-phase by patching _run_extended_phases.
-        # The cycle's contract is "if any pre-phase result has
-        # status='failed'/'blocked'/'regression', abort"; this test
-        # pins that contract end-to-end against the persistent ledger.
-        def fake_run_extended_phases(**kwargs):
-            return {
-                "architecture_baseline": {
-                    "status": "failed",
-                    "reason": "fixture-injected baseline failure",
-                },
-            }
-
-        with patch.object(
-            cycle_module,
-            "_run_extended_phases",
-            side_effect=fake_run_extended_phases,
+        # RC-1 — the pre-tool phase is `architecture_baseline`, a row in
+        # CYCLE_PHASES rather than something a caller opts into, so the
+        # deleted `_run_extended_phases` is no longer the injection point.
+        # The contract under test is unchanged: a pre-tool phase reporting
+        # failed / blocked / regression aborts the cycle before tools
+        # dispatch, and the ledger's terminal row says `aborted`.
+        #
+        # Injected at `take_baseline`, the gate primitive the phase runner
+        # calls, NOT at the runner itself. Patching `cycle._phase_...`
+        # would be inert: CYCLE_PHASES captured the function object at
+        # import, so rebinding the module attribute changes nothing the
+        # driver reads — a patch that silently does nothing while the test
+        # around it goes green is the ORPHAN-HIGH-499 shape.
+        #
+        # `plan_id` is supplied because the phase's precondition is
+        # PLAN_ID_PRESENT; without one the phase records a skip and never
+        # reaches the injected failure, which is itself behaviour the
+        # collapse made visible.
+        with patch(
+            "aria_kernel.architecture_spine_gate.take_baseline",
+            return_value={
+                "status": "failed",
+                "reason": "fixture-injected baseline failure",
+            },
         ):
             result = run_cycle(
                 workspace_root=self.root,
                 cycle_id="cycle-pre-phase-abort",
                 base_dir=self.tools_dir,
                 shadow_only=True,
-                pre_tool_phases=("architecture_baseline",),
+                plan_id="PLAN-PRE-PHASE-ABORT",
             )
         self.assertEqual(result["status"], "aborted")
         self.assertEqual(result["aborted_by_phase"], "architecture_baseline")

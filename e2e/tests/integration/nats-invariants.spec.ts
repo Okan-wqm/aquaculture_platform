@@ -53,8 +53,27 @@
 import { readdirSync, readFileSync, statSync } from 'fs';
 import { join } from 'path';
 
+import {
+  CONFIG_RUNTIME_INBOX_PREFIX,
+  CONFIG_RUNTIME_NONSECRET_ALLOWLIST,
+  CONFIG_RUNTIME_SECRET_ALLOWLIST,
+  CONFIG_RUNTIME_SUBJECTS,
+  MARINE_PROVIDER_CREDENTIAL_ALLOWLIST,
+  MARINE_PROVIDER_CREDENTIAL_INBOX_PREFIX,
+  MARINE_PROVIDER_CREDENTIAL_SUBJECTS,
+  TENANT_ERASURE_OUTCOME_EVENT_TYPES_BY_TARGET,
+  TENANT_ERASURE_OUTCOME_KINDS,
+  TENANT_ERASURE_TARGET_SERVICES,
+  tenantErasureOutcomeSubject,
+} from '@platform/event-contracts';
 import Ajv from 'ajv';
 import { parse as yamlParse } from 'yaml';
+
+// Faz C (ARCH-HIGH-001 / ARCH-MEDIUM-004): the config-runtime caller allowlists +
+// scoped-inbox token are the SSoT the config-service handler enforces; importing
+// them here binds the NATS ACL grants to that same SSoT (the generic RPC scan
+// cannot reach these — the send-site lives in libs/backend-common, and the
+// config.runtime.* namespace is outside the scanned prefix set).
 
 const REPO_ROOT = join(__dirname, '..', '..', '..');
 
@@ -67,6 +86,7 @@ const parseYaml: (input: string) => unknown = yamlParse;
 
 interface Service {
   name: string;
+  application: string;
   description: string;
   publish: string[];
   subscribe: string[];
@@ -75,6 +95,22 @@ interface Service {
 interface ServicesYaml {
   version: number;
   services: Service[];
+}
+
+interface HelmNatsIdentityRegistry {
+  version: number;
+  identities: string[];
+}
+
+type ComposeVolume = string | { source?: string; target?: string; read_only?: boolean };
+
+interface ComposeService {
+  environment?: Record<string, string | number | boolean | null>;
+  volumes?: ComposeVolume[];
+}
+
+interface ComposeDocument {
+  services: Record<string, ComposeService>;
 }
 
 function loadServicesYaml(): ServicesYaml {
@@ -86,6 +122,33 @@ function loadServicesSchema(): object {
   const path = join(REPO_ROOT, 'infrastructure', 'nats', 'services.schema.json');
   const parsed: unknown = JSON.parse(readFileSync(path, 'utf-8'));
   return parsed as object;
+}
+
+function loadHelmNatsIdentityRegistry(): HelmNatsIdentityRegistry {
+  const path = join(
+    REPO_ROOT,
+    'infrastructure',
+    'helm',
+    'aquaculture',
+    'files',
+    'nats-service-identities.yaml',
+  );
+  return parseYaml(readFileSync(path, 'utf-8')) as HelmNatsIdentityRegistry;
+}
+
+function loadComposeDocument(relativePath: string): ComposeDocument {
+  const path = join(REPO_ROOT, relativePath);
+  // Compose environment anchors use YAML merge keys. Resolving them here is
+  // essential: the identity asserted below is the effective runtime value,
+  // not merely a nearby comment or anchor name.
+  return yamlParse(readFileSync(path, 'utf-8'), { merge: true }) as ComposeDocument;
+}
+
+function composeVolumeSource(volume: ComposeVolume): string {
+  if (typeof volume === 'string') {
+    return volume.split(':', 1)[0];
+  }
+  return volume.source ?? '';
 }
 
 function loadNatsConfAuthBlock(): string {
@@ -232,11 +295,15 @@ function loadContractSubjectConstants(): Map<string, string> {
       continue; // contract file split/renamed — literals still covered below
     }
     // KEY: 'subject.with.dots'  (object members)
-    for (const m of text.matchAll(/([A-Z][A-Z0-9_]+):\s*'((?:request|commands|events|sensor|st|policy)\.[^']+)'/g)) {
+    for (const m of text.matchAll(
+      /([A-Z][A-Z0-9_]+):\s*'((?:request|commands|events|sensor|st|policy)\.[^']+)'/g,
+    )) {
       constants.set(m[1], m[2]);
     }
     // export const SOME_SUBJECT = 'subject.with.dots'
-    for (const m of text.matchAll(/export const ([A-Z][A-Z0-9_]+)\s*=\s*'((?:request|commands|events|sensor|st|policy)\.[^']+)'/g)) {
+    for (const m of text.matchAll(
+      /export const ([A-Z][A-Z0-9_]+)\s*=\s*'((?:request|commands|events|sensor|st|policy)\.[^']+)'/g,
+    )) {
       constants.set(m[1], m[2]);
     }
   }
@@ -259,7 +326,9 @@ const NON_NATS_EVENT_TYPES: Record<string, Record<string, string>> = {
   },
   'admin-api-service': {
     IngestBackendPolicyChanged:
-      'carried on policy.ingest_backend.changed (ADR-027/031), covered by the policy.ingest_backend.> grant — not an events.* subject',
+      'carried on exact policy.ingest_backend.changed (ADR-027/031), not an events.* subject',
+    TenantSchemaDeletionFailed:
+      'persisted in admin.tenant_erasure_operations.failures; no NATS event is published',
   },
 };
 
@@ -274,7 +343,8 @@ function extractRpcUsage(appDir: string, constants: Map<string, string>): RpcUsa
   const resolveRef = (ref: string): string | undefined => {
     const literal = /^'([^']+)'$/.exec(ref);
     if (literal) return literal[1];
-    const constRef = /^[A-Za-z0-9_$]+\.([A-Z][A-Z0-9_]+)$/.exec(ref) ?? /^([A-Z][A-Z0-9_]+)$/.exec(ref);
+    const constRef =
+      /^[A-Za-z0-9_$]+\.([A-Z][A-Z0-9_]+)$/.exec(ref) ?? /^([A-Z][A-Z0-9_]+)$/.exec(ref);
     if (constRef) return constants.get(constRef[1]);
     return undefined;
   };
@@ -295,38 +365,15 @@ function extractRpcUsage(appDir: string, constants: Map<string, string>): RpcUsa
 }
 
 /**
- * apps/<dir> → services.yaml identity. Services WITHOUT a NATS identity are
- * explicitly null (they must not gain silent NATS usage — the coverage test
- * fails if a null-mapped app starts building events or RPC handlers).
- *
- *   - admin-api-service shares the gateway_service account (documented in
- *     services.yaml — shared cert CN).
- *   - event-store-service, config-service and db-migrate have NO NATS
- *     connection today (verified 2026-07-02: no EventBusModule import, no
- *     NATS boot log lines). Onboarding one = services.yaml entry + cert CN
- *     + compose mount, per docs/runbooks/nats-service-addition.md.
- *   - sensor-ingestion is Rust — outside TS extraction; its grants are
- *     pinned by apps/sensor-ingestion/src/sensor_lookup.rs LOOKUP_SUBJECT
- *     and the events.*.SensorReading publish path (ADR-025).
+ * apps/<dir> → services.yaml identity. The mapping is derived from the SSoT
+ * `application` field so a runtime can never silently share another runtime's
+ * certificate. db-migrate is the only explicit non-NATS application.
  */
 const APP_TO_SERVICE: Record<string, string | null> = {
-  'admin-api-service': 'gateway_service',
-  'ai-service': 'ai_service',
-  'alert-engine': 'alert_engine',
-  'auth-service': 'auth_service',
-  'billing-service': 'billing_service',
-  'config-service': null,
+  ...Object.fromEntries(
+    loadServicesYaml().services.map((service) => [service.application, service.name]),
+  ),
   'db-migrate': null,
-  'event-store-service': null,
-  'farm-service': 'farm_service',
-  'gateway-api': 'gateway_service',
-  'hr-service': 'hr_service',
-  'hydroponics-service': 'hydroponics_service',
-  'messaging-service': 'messaging_service',
-  'notification-service': 'notification_service',
-  'observability-service': 'observability_service',
-  'sensor-ingestion': null, // Rust — no TS sources to extract
-  'sensor-service': 'sensor_service',
 };
 
 describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subject scheme)', () => {
@@ -344,6 +391,66 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
       throw new Error(`services.yaml schema violations: ${JSON.stringify(validate.errors)}`);
     }
   });
+
+  it('maps every NATS identity to exactly one runtime application', () => {
+    const applications = servicesDoc.services.map((service) => service.application);
+    expect(new Set(applications).size).toBe(applications.length);
+    for (const service of servicesDoc.services) {
+      expect(APP_TO_SERVICE[service.application]).toBe(service.name);
+    }
+    expect(APP_TO_SERVICE['admin-api-service']).toBe('admin_api_service');
+    expect(APP_TO_SERVICE['gateway-api']).toBe('gateway_service');
+    expect(APP_TO_SERVICE['admin-api-service']).not.toBe(APP_TO_SERVICE['gateway-api']);
+  });
+
+  it.each(['docker-compose.droplet.yml', 'docker-compose.prod.yml'])(
+    '%s exposes exactly one certificate identity to every NATS application',
+    (composePath) => {
+      const compose = loadComposeDocument(composePath);
+      const identityByApplication = new Map(
+        servicesDoc.services.map((service) => [service.application, service.name]),
+      );
+
+      for (const [application, service] of Object.entries(compose.services)) {
+        const expectedIdentity = identityByApplication.get(application);
+        const configuredCert = service.environment?.NATS_TLS_CERT;
+        if (!expectedIdentity) {
+          if (configuredCert !== undefined) {
+            throw new Error(
+              `${composePath}:${application} configures NATS but has no application identity in services.yaml`,
+            );
+          }
+          continue;
+        }
+        if (typeof configuredCert !== 'string') {
+          throw new Error(
+            `${composePath}:${application} is a NATS application but has no NATS_TLS_CERT`,
+          );
+        }
+        const configuredKey = service.environment?.NATS_TLS_KEY;
+        if (typeof configuredKey !== 'string') {
+          throw new Error(
+            `${composePath}:${application} is a NATS application but has no NATS_TLS_KEY`,
+          );
+        }
+
+        expect(configuredCert).toContain(`/${expectedIdentity}-cert.pem`);
+        expect(configuredKey).toContain(`/${expectedIdentity}-key.pem`);
+
+        const natsSources = (service.volumes ?? [])
+          .map(composeVolumeSource)
+          .filter((source) => source.startsWith('./certs/nats'))
+          .sort();
+        expect(natsSources).toEqual(
+          [
+            './certs/nats/ca-cert.pem',
+            `./certs/nats/clients/${expectedIdentity}-cert.pem`,
+            `./certs/nats/clients/${expectedIdentity}-key.pem`,
+          ].sort(),
+        );
+      }
+    },
+  );
 
   it('legacy AQUACULTURE_EVENTS subject grants are banned (stream name ≠ subject prefix)', () => {
     // The schema already rejects the prefix structurally; this assertion
@@ -444,20 +551,67 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
           '(ADR-015). If the derivation moved, update this invariant in lockstep.',
       );
     }
-    if (!/for svc in \$SERVICE_NAMES/.test(script)) {
+    if (!/while IFS= read -r svc/.test(script)) {
       throw new Error(
-        'generate-internal-certs.sh no longer iterates $SERVICE_NAMES (the ' +
+        'generate-internal-certs.sh no longer safely iterates $SERVICE_NAMES (the ' +
           'list derived from services.yaml). If the loop was renamed, update ' +
           'this invariant in lockstep.',
       );
+    }
+    expect(script).not.toContain('generate_client_cert');
+    expect(script).not.toContain('aqua-services');
+  });
+
+  it('Helm issues one Secret per identity and mounts exactly one into each NATS runtime', () => {
+    const registry = loadHelmNatsIdentityRegistry();
+    expect(registry.version).toBe(1);
+    expect(registry.identities).toEqual(servicesDoc.services.map((service) => service.name));
+
+    const certificates = readFileSync(
+      join(
+        REPO_ROOT,
+        'infrastructure',
+        'helm',
+        'aquaculture',
+        'templates',
+        'internal-certificates.yaml',
+      ),
+      'utf-8',
+    );
+    const helpers = readFileSync(
+      join(REPO_ROOT, 'infrastructure', 'helm', 'aquaculture', 'templates', '_helpers.tpl'),
+      'utf-8',
+    );
+    const templatesDir = join(REPO_ROOT, 'infrastructure', 'helm', 'aquaculture', 'templates');
+    const renderedTemplates = readdirSync(templatesDir)
+      .filter((file) => file.endsWith('.yaml'))
+      .map((file) => readFileSync(join(templatesDir, file), 'utf-8'))
+      .join('\n');
+    const envIdentities = [
+      ...renderedTemplates.matchAll(/natsServiceEnv"\s+\(list \. "([A-Za-z0-9_-]+)"\)/g),
+    ].map((match) => match[1]);
+    const volumeIdentities = [
+      ...renderedTemplates.matchAll(/natsServiceVolume"\s+\(list \. "([A-Za-z0-9_-]+)"\)/g),
+    ].map((match) => match[1]);
+    const volumeMountCount = [
+      ...renderedTemplates.matchAll(/include "aquaculture\.natsServiceVolumeMount"/g),
+    ].length;
+
+    expect(certificates).toContain('.Files.Get "files/nats-service-identities.yaml"');
+    expect(certificates).toContain('commonName: {{ $identity | quote }}');
+    expect(certificates).not.toContain('commonName: aqua-services');
+    expect(helpers).toContain('aquaculture.natsClientSecretName');
+    expect(helpers).toContain('/etc/ssl/nats-client/tls.crt');
+    expect([...volumeIdentities].sort()).toEqual([...envIdentities].sort());
+    expect(volumeMountCount).toBe(envIdentities.length);
+    for (const identity of envIdentities) {
+      expect(registry.identities).toContain(identity);
     }
   });
 
   describe('publish coverage — every code-buildable event type has a grant (ORPHAN-HIGH-317)', () => {
     const appsDir = join(REPO_ROOT, 'apps');
-    const appDirs = readdirSync(appsDir).filter((d) =>
-      statSync(join(appsDir, d)).isDirectory(),
-    );
+    const appDirs = readdirSync(appsDir).filter((d) => statSync(join(appsDir, d)).isDirectory());
 
     it('every apps/ directory has an explicit APP_TO_SERVICE mapping', () => {
       const unmapped = appDirs.filter(
@@ -521,6 +675,78 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
     });
   });
 
+  describe('certificate-bound tenant-erasure outcome ACLs', () => {
+    const legacyOutcomeSubjects = [
+      'events.system.TenantDataErased',
+      'events.system.TenantDataErasureFailed',
+      'events.system.TenantErasureBlocked',
+    ];
+    const allOutcomeSubjects = TENANT_ERASURE_TARGET_SERVICES.flatMap((targetService) =>
+      TENANT_ERASURE_OUTCOME_KINDS.map((outcome) =>
+        tenantErasureOutcomeSubject(targetService, outcome),
+      ),
+    );
+
+    it('defines exactly 36 globally unique certificate-bound outcome subjects', () => {
+      expect(allOutcomeSubjects).toHaveLength(TENANT_ERASURE_TARGET_SERVICES.length * 3);
+      expect(new Set(allOutcomeSubjects).size).toBe(allOutcomeSubjects.length);
+    });
+
+    it('denies all legacy generic outcome subjects to every certificate identity', () => {
+      for (const service of servicesDoc.services) {
+        for (const subject of legacyOutcomeSubjects) {
+          expect(isCovered(subject, service.publish)).toBe(false);
+        }
+      }
+    });
+
+    it.each(TENANT_ERASURE_TARGET_SERVICES)(
+      '%s certificate grants exactly its own three outcome types',
+      (targetService) => {
+        const identity = APP_TO_SERVICE[targetService];
+        if (!identity) throw new Error(`No NATS identity for erasure target ${targetService}`);
+        const service = serviceByName.get(identity);
+        if (!service) throw new Error(`Unknown NATS identity ${identity}`);
+
+        const expected = TENANT_ERASURE_OUTCOME_KINDS.map((outcome) =>
+          tenantErasureOutcomeSubject(targetService, outcome),
+        );
+        const grantedOutcomeSubjects = allOutcomeSubjects.filter((subject) =>
+          isCovered(subject.replace('events.*.', 'events.system.'), service.publish),
+        );
+        expect(grantedOutcomeSubjects).toEqual(expected);
+      },
+    );
+
+    it('non-target certificates receive no tenant-erasure outcome grant', () => {
+      const targetIdentities = new Set(
+        TENANT_ERASURE_TARGET_SERVICES.map((target) => APP_TO_SERVICE[target]),
+      );
+      for (const service of servicesDoc.services) {
+        if (targetIdentities.has(service.name)) continue;
+        const granted = allOutcomeSubjects.filter((subject) =>
+          isCovered(subject.replace('events.*.', 'events.system.'), service.publish),
+        );
+        expect(granted).toEqual([]);
+      }
+    });
+
+    it('admin and gateway use distinct identities; gateway cannot publish admin proofs', () => {
+      const admin = serviceByName.get('admin_api_service');
+      const gateway = serviceByName.get('gateway_service');
+      expect(admin).toBeDefined();
+      expect(gateway).toBeDefined();
+      expect(APP_TO_SERVICE['admin-api-service']).toBe('admin_api_service');
+      expect(APP_TO_SERVICE['gateway-api']).toBe('gateway_service');
+      for (const outcome of TENANT_ERASURE_OUTCOME_KINDS) {
+        const pattern = TENANT_ERASURE_OUTCOME_EVENT_TYPES_BY_TARGET['admin-api-service'][outcome];
+        const subject = `events.system.${pattern}`;
+        expect(isCovered(subject, admin?.publish ?? [])).toBe(true);
+        expect(isCovered(subject, gateway?.publish ?? [])).toBe(false);
+      }
+    });
+  });
+
   describe('RPC coverage — handled patterns have subscribe grants, sent subjects have publish grants', () => {
     const appsDir = join(REPO_ROOT, 'apps');
     const constants = loadContractSubjectConstants();
@@ -560,9 +786,7 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
           );
         }
         if (missingPub.length > 0) {
-          problems.push(
-            `sent subjects with NO publish grant:\n    ${missingPub.join('\n    ')}`,
-          );
+          problems.push(`sent subjects with NO publish grant:\n    ${missingPub.join('\n    ')}`);
         }
         if (problems.length > 0) {
           throw new Error(
@@ -590,5 +814,184 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
         }
       },
     );
+  });
+
+  describe('config-runtime secret-read grants (ARCH-HIGH-001 + ARCH-MEDIUM-004 + SEC-CRITICAL-001)', () => {
+    // Representative subject under the scoped reply-inbox token — createInbox
+    // appends `.<nuid>`, so any real reply subject is `_INBOXBILLINGCFG.<nuid>`.
+    const scopedInboxSubject = `${CONFIG_RUNTIME_INBOX_PREFIX}.reply`;
+
+    const requireService = (name: string): Service => {
+      const svc = serviceByName.get(name);
+      if (!svc) throw new Error(`services.yaml is missing the "${name}" service`);
+      return svc;
+    };
+
+    it('billing_service PUBLISHES both config.runtime subjects; config_service SUBSCRIBES both (pinned)', () => {
+      const billing = requireService('billing_service');
+      const config = requireService('config_service');
+      for (const subject of [CONFIG_RUNTIME_SUBJECTS.GET, CONFIG_RUNTIME_SUBJECTS.GET_SECRET]) {
+        if (!isCovered(subject, billing.publish)) {
+          throw new Error(`billing_service is missing the PUBLISH grant for "${subject}"`);
+        }
+        if (!isCovered(subject, config.subscribe)) {
+          throw new Error(`config_service is missing the SUBSCRIBE grant for "${subject}"`);
+        }
+      }
+    });
+
+    it('the decrypted-secret reply inbox is scoped to billing↔config ONLY (SEC-CRITICAL-001)', () => {
+      const billing = requireService('billing_service');
+      const config = requireService('config_service');
+      // billing subscribes the scoped inbox; config publishes replies to it.
+      if (!isCovered(scopedInboxSubject, billing.subscribe)) {
+        throw new Error(`billing_service is missing SUBSCRIBE for the scoped secret-reply inbox`);
+      }
+      if (!isCovered(scopedInboxSubject, config.publish)) {
+        throw new Error(`config_service is missing PUBLISH for the scoped secret-reply inbox`);
+      }
+      // The broad `_INBOX.>` must NOT match the scoped token (first-token distinctness) —
+      // this is the whole point: a `_INBOX.>` holder cannot read the secret reply.
+      if (isCovered(scopedInboxSubject, ['_INBOX.>'])) {
+        throw new Error(
+          `${CONFIG_RUNTIME_INBOX_PREFIX} must be a DISTINCT first token from _INBOX so the ` +
+            'platform-wide _INBOX.> grant cannot match the scoped secret-reply subject',
+        );
+      }
+      // No OTHER service may grant the scoped inbox token, on publish or subscribe.
+      for (const svc of servicesDoc.services) {
+        if (svc.name === 'billing_service' || svc.name === 'config_service') continue;
+        const leaks = [...svc.publish, ...svc.subscribe].filter(
+          (g) => g.startsWith(CONFIG_RUNTIME_INBOX_PREFIX) || isCovered(scopedInboxSubject, [g]),
+        );
+        if (leaks.length > 0) {
+          throw new Error(
+            `${svc.name} must NOT hold any grant on the scoped secret-reply inbox ` +
+              `(${CONFIG_RUNTIME_INBOX_PREFIX}) — it could passively read the plaintext ` +
+              `Stripe secret. Offending grants: ${leaks.join(', ')}`,
+          );
+        }
+      }
+    });
+
+    it('no service outside {billing,config} holds ANY config.runtime.* grant', () => {
+      for (const svc of servicesDoc.services) {
+        if (svc.name === 'billing_service' || svc.name === 'config_service') continue;
+        const leaks = [...svc.publish, ...svc.subscribe].filter((g) =>
+          g.startsWith('config.runtime.'),
+        );
+        if (leaks.length > 0) {
+          throw new Error(
+            `${svc.name} must NOT hold a config.runtime.* grant: ${leaks.join(', ')}`,
+          );
+        }
+      }
+    });
+
+    it('every allowlisted caller holds the matching config.runtime.* PUBLISH grant (ARCH-MEDIUM-004)', () => {
+      const check = (
+        allowlist: Readonly<Record<string, readonly string[]>>,
+        subject: string,
+      ): void => {
+        for (const caller of Object.keys(allowlist)) {
+          const cn = APP_TO_SERVICE[caller];
+          if (!cn) {
+            throw new Error(
+              `config-runtime allowlist caller "${caller}" has no APP_TO_SERVICE (cert-CN) mapping`,
+            );
+          }
+          const svc = serviceByName.get(cn);
+          if (!svc || !isCovered(subject, svc.publish)) {
+            throw new Error(
+              `config-runtime allowlist caller "${caller}" (CN "${cn}") lacks the PUBLISH ` +
+                `grant for "${subject}" — the handler would authorize a caller the broker refuses.`,
+            );
+          }
+        }
+      };
+      check(CONFIG_RUNTIME_SECRET_ALLOWLIST, CONFIG_RUNTIME_SUBJECTS.GET_SECRET);
+      check(CONFIG_RUNTIME_NONSECRET_ALLOWLIST, CONFIG_RUNTIME_SUBJECTS.GET);
+    });
+
+    it('secret and non-secret allowlists are DISJOINT per caller (a secret key can never ride the GET path)', () => {
+      for (const caller of Object.keys(CONFIG_RUNTIME_SECRET_ALLOWLIST)) {
+        const secretKeys = new Set(CONFIG_RUNTIME_SECRET_ALLOWLIST[caller]);
+        const nonSecretKeys = CONFIG_RUNTIME_NONSECRET_ALLOWLIST[caller] ?? [];
+        const overlap = nonSecretKeys.filter((k) => secretKeys.has(k));
+        if (overlap.length > 0) {
+          throw new Error(
+            `caller "${caller}" lists key(s) on BOTH the secret and non-secret allowlists ` +
+              `(${overlap.join(', ')}) — the non-secret GET path would then be able to serve a secret`,
+          );
+        }
+      }
+    });
+  });
+
+  describe('marine provider credential grants (cert-is-identity + scoped reply isolation)', () => {
+    const scopedInboxSubject = `${MARINE_PROVIDER_CREDENTIAL_INBOX_PREFIX}.reply`;
+
+    const requireService = (name: string): Service => {
+      const svc = serviceByName.get(name);
+      if (!svc) throw new Error(`services.yaml is missing the "${name}" service`);
+      return svc;
+    };
+
+    it('farm_service publishes exact credential RPCs and config_service subscribes them', () => {
+      const farm = requireService('farm_service');
+      const config = requireService('config_service');
+      for (const subject of Object.values(MARINE_PROVIDER_CREDENTIAL_SUBJECTS)) {
+        if (!isCovered(subject, farm.publish)) {
+          throw new Error(`farm_service is missing the PUBLISH grant for "${subject}"`);
+        }
+        if (!isCovered(subject, config.subscribe)) {
+          throw new Error(`config_service is missing the SUBSCRIBE grant for "${subject}"`);
+        }
+      }
+    });
+
+    it('keeps decrypted marine credential replies scoped to farm and config only', () => {
+      const farm = requireService('farm_service');
+      const config = requireService('config_service');
+      if (!isCovered(scopedInboxSubject, farm.subscribe)) {
+        throw new Error('farm_service is missing SUBSCRIBE for the marine credential reply inbox');
+      }
+      if (!isCovered(scopedInboxSubject, config.publish)) {
+        throw new Error('config_service is missing PUBLISH for the marine credential reply inbox');
+      }
+      if (isCovered(scopedInboxSubject, ['_INBOX.>'])) {
+        throw new Error(
+          `${MARINE_PROVIDER_CREDENTIAL_INBOX_PREFIX} must remain a distinct first token from _INBOX`,
+        );
+      }
+      for (const svc of servicesDoc.services) {
+        if (svc.name === 'farm_service' || svc.name === 'config_service') continue;
+        const leaks = [...svc.publish, ...svc.subscribe].filter(
+          (grant) =>
+            grant.startsWith(MARINE_PROVIDER_CREDENTIAL_INBOX_PREFIX) ||
+            isCovered(scopedInboxSubject, [grant]),
+        );
+        if (leaks.length > 0) {
+          throw new Error(
+            `${svc.name} must not hold marine credential reply-inbox grants: ${leaks.join(', ')}`,
+          );
+        }
+      }
+    });
+
+    it('binds the contract allowlist to farm_service and denies credential RPC grants elsewhere', () => {
+      expect(Object.keys(MARINE_PROVIDER_CREDENTIAL_ALLOWLIST)).toEqual(['farm-service']);
+      const farm = requireService('farm_service');
+      for (const subject of Object.values(MARINE_PROVIDER_CREDENTIAL_SUBJECTS)) {
+        expect(farm.publish).toContain(subject);
+      }
+      for (const svc of servicesDoc.services) {
+        if (svc.name === 'farm_service' || svc.name === 'config_service') continue;
+        const leaks = [...svc.publish, ...svc.subscribe].filter((grant) =>
+          grant.startsWith('config.marine_credentials.'),
+        );
+        expect(leaks).toEqual([]);
+      }
+    });
   });
 });

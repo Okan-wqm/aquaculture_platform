@@ -144,6 +144,12 @@ def run_cycle_acceptance() -> dict[str, Any]:
     from aria_kernel.tool_registry import ensure_tools_dir
 
     failures: list[str] = []
+    # Snapshot the production ledger BEFORE the temp cycle so check (4) can
+    # assert non-growth rather than emptiness.
+    _real_ledger_probe = _REPO_ROOT / "aria-tools" / "cycles.jsonl"
+    _real_ledger_size_before = (
+        _real_ledger_probe.stat().st_size if _real_ledger_probe.exists() else 0
+    )
     with tempfile.TemporaryDirectory() as td:
         ws = Path(td) / "workspace"
         (ws / "src").mkdir(parents=True)
@@ -170,10 +176,20 @@ def run_cycle_acceptance() -> dict[str, Any]:
                 failures.append("no terminal cycle row in cycles.jsonl")
         except Exception as exc:  # ledger integrity error = a hard fail
             failures.append(f"cycles.jsonl failed strict verification: {exc}")
-        # (4) isolation held: the real repo's tools dir was never touched
-        if (_REPO_ROOT / "aria-tools" / "cycles.jsonl").stat().st_size > 0 if (
-            _REPO_ROOT / "aria-tools" / "cycles.jsonl").exists() else False:
-            failures.append("real-repo aria-tools/cycles.jsonl is non-empty — isolation breach")
+        # (4) isolation held: the real repo's ledger did not GROW during this
+        # check. The original predicate asserted the production ledger was
+        # EMPTY, which conflated "the temp cycle stayed isolated" with "ARIA
+        # has never run" — the first legitimate production cycle (2026-08-05)
+        # flipped it to a permanent REJECT. A gate that has never had a real
+        # input proves nothing about the same gate once it has one; compare
+        # before/after instead.
+        real_ledger = _REPO_ROOT / "aria-tools" / "cycles.jsonl"
+        size_after = real_ledger.stat().st_size if real_ledger.exists() else 0
+        if size_after != _real_ledger_size_before:
+            failures.append(
+                f"real-repo aria-tools/cycles.jsonl changed during the temp cycle "
+                f"({_real_ledger_size_before} -> {size_after} bytes) — isolation breach"
+            )
 
         status = result.get("status")
 
@@ -238,12 +254,12 @@ def assert_reacts_to_scenarios() -> dict[str, Any]:
 
 
 # ── orchestration ────────────────────────────────────────────────────────────
-def run_all(*, repo_root: Path | None = None) -> dict[str, Any]:
-    results = [
-        validate_drift_output(repo_root=repo_root),
-        run_cycle_acceptance(),
-        assert_reacts_to_scenarios(),
-    ]
+def run_all(*, repo_root: Path | None = None, skip_poc: bool = False) -> dict[str, Any]:
+    results = []
+    if not skip_poc:
+        results.append(validate_drift_output(repo_root=repo_root))
+    results.append(run_cycle_acceptance())
+    results.append(assert_reacts_to_scenarios())
     return {"passed": all(r["passed"] for r in results), "checks": results}
 
 
@@ -264,8 +280,68 @@ def _print_report(report: dict[str, Any]) -> None:
 
 
 def main() -> int:
-    report = run_all()
+    # WHY argparse exists now: before 2026-08-05 main() ignored sys.argv, so
+    # `--help` silently ran the full multi-minute suite — the invocation every
+    # short timeout then killed mid-flight. The rich per-drift details[] also
+    # died with stdout; --json-out persists the training signal.
+    import argparse
+    import json
+
+    parser = argparse.ArgumentParser(
+        prog="harness.py",
+        description=(
+            "ARIA acceptance harness. Exit 0 = ACCEPT, 1 = REJECT. "
+            "The drift check shells tools/aria-poc/poc.py and may take ~1 "
+            "minute; --skip-poc runs only the synthetic cycle + scenario "
+            "checks (seconds)."
+        ),
+    )
+    parser.add_argument(
+        "--json-out",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help=(
+            "write the full report (incl. per-drift TP/FP details) as JSON. "
+            "Default: aria-tools/reports/acceptance/<UTC-date>.json — SI-0 "
+            "made persistence the default because an opt-in flag produced "
+            "ZERO scorecard artifacts in 8 days of 'continuous' acceptance "
+            "measurement; a measurement nobody can read later is a claim, "
+            "not a measurement. --no-artifact restores the old stdout-only "
+            "behaviour for ad-hoc runs."
+        ),
+    )
+    parser.add_argument(
+        "--no-artifact",
+        action="store_true",
+        help="do not persist a scorecard artifact (stdout only)",
+    )
+    parser.add_argument(
+        "--skip-poc",
+        action="store_true",
+        help="skip the repo-wide drift scan; run only the fast synthetic checks",
+    )
+    args = parser.parse_args()
+
+    report = run_all(skip_poc=args.skip_poc)
     _print_report(report)
+    json_out = args.json_out
+    if json_out is None and not args.no_artifact:
+        # The date names the artifact so consecutive runs on one day
+        # overwrite (latest wins) while history stays one file per day —
+        # the shape the nightly report section reads.
+        from datetime import datetime, timezone
+
+        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        json_out = (
+            _REPO_ROOT / "aria-tools" / "reports" / "acceptance" / f"{stamp}.json"
+        )
+    if json_out is not None:
+        json_out.parent.mkdir(parents=True, exist_ok=True)
+        json_out.write_text(
+            json.dumps(report, indent=2, default=str) + "\n", encoding="utf-8"
+        )
+        print(f"report written: {json_out}")
     return 0 if report["passed"] else 1
 
 

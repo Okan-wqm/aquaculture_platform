@@ -4,6 +4,7 @@
  * Shows feeding summary statistics including totals, variance analysis,
  * FCR calculation, and feed type breakdown for a selected batch.
  */
+import { parseMoney } from '@aquaculture/shared-ui';
 import React, { useState, useMemo } from 'react';
 import {
   useFeedingSummary,
@@ -184,11 +185,11 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({
             <div className="bg-white rounded-lg shadow p-4">
               <p className="text-sm font-medium text-gray-500">Total Cost</p>
               <p className="text-2xl font-semibold text-gray-900">
-                {data.totalCost.toFixed(0)} {data.currency || 'NOK'}
+                {parseMoney(data.totalCostDecimal).toFixed(0)} {data.currency || 'NOK'}
               </p>
               <p className="text-xs text-gray-500">
                 {data.totalFeedGivenKg > 0
-                  ? `${(data.totalCost / data.totalFeedGivenKg).toFixed(2)} per kg`
+                  ? `${(parseMoney(data.totalCostDecimal) / data.totalFeedGivenKg).toFixed(2)} per kg`
                   : '-'}
               </p>
             </div>

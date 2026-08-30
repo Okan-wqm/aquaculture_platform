@@ -1,9 +1,15 @@
 import { Injectable, NotFoundException, NotImplementedException, Optional } from '@nestjs/common';
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
+import {
+  assertSafeSchemaName,
+  getTenantSchemaName,
+  isValidUUID,
+} from '@aquaculture/backend-common/database';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { Repository, ILike, MoreThan, Between, FindOptionsWhere, DataSource } from 'typeorm';
 
+import { TenantListItemDto } from '../dto/tenant-detail.dto';
 import { TenantStatsDto, TenantUsageDto } from '../dto/tenant.dto';
 import { Tenant, TenantStatus, TenantPlan } from '../entities/tenant.entity';
 import {
@@ -73,17 +79,27 @@ export interface PaginatedResult<T> {
   totalPages: number;
 }
 
+/** Per-tenant resource counts sourced from the tenant's own schema (the SSoT). */
+interface TenantResourceCounts {
+  farmCount: number;
+  sensorCount: number;
+}
+
+/** The two per-tenant tables the list view counts — fixed literals by design. */
+const COUNTED_TENANT_TABLES = ['farms', 'sensors'] as const;
+
 @Injectable()
 @QueryHandler(ListTenantsQuery)
 export class ListTenantsHandler
-  implements IQueryHandler<ListTenantsQuery, PaginatedResult<Tenant>>
+  implements IQueryHandler<ListTenantsQuery, PaginatedResult<TenantListItemDto>>
 {
   constructor(
     @InjectRepository(Tenant)
     private readonly tenantRepository: Repository<Tenant>,
+    private readonly dataSource: DataSource,
   ) {}
 
-  async execute(query: ListTenantsQuery): Promise<PaginatedResult<Tenant>> {
+  async execute(query: ListTenantsQuery): Promise<PaginatedResult<TenantListItemDto>> {
     const { filter, pagination, sort } = query;
 
     const page = pagination?.page || 1;
@@ -134,15 +150,115 @@ export class ListTenantsHandler
     // Apply pagination
     queryBuilder.skip(skip).take(limit);
 
-    const [data, total] = await queryBuilder.getManyAndCount();
+    const [tenants, total] = await queryBuilder.getManyAndCount();
+
+    // DB-ADMIN-HIGH-005: the list contract is TenantListItemDto (tier +
+    // farmCount + sensorCount), not the raw entity — the admin-panel list
+    // renders exactly these fields. Counts come from ONE batched round-trip
+    // pair for the whole page, never per-tenant queries.
+    const counts = await this.countTenantResources(tenants.map((tenant) => tenant.id));
 
     return {
-      data,
+      data: tenants.map((tenant) =>
+        this.toTenantListItem(tenant, counts.get(tenant.id) ?? { farmCount: 0, sensorCount: 0 }),
+      ),
       total,
       page,
       limit,
       totalPages: Math.ceil(total / limit),
     };
+  }
+
+  private toTenantListItem(tenant: Tenant, resources: TenantResourceCounts): TenantListItemDto {
+    return {
+      id: tenant.id,
+      name: tenant.name,
+      slug: tenant.slug,
+      domain: tenant.customDomain,
+      status: tenant.status,
+      // WHY materialized: `tier` on the entity is a getter aliasing `plan`;
+      // getters do not survive JSON serialization, so the DTO carries the value
+      // as an own property.
+      tier: tenant.plan,
+      contactEmail: tenant.contactEmail,
+      userCount: tenant.userCount,
+      farmCount: resources.farmCount,
+      sensorCount: resources.sensorCount,
+      createdAt: tenant.createdAt,
+    };
+  }
+
+  /**
+   * Batched per-tenant farm/sensor counts for one list page.
+   *
+   * WHY batched: the per-tenant shape in TenantDetailService.countTenantResource
+   * (information_schema probe + COUNT per table per tenant) is 4 queries/tenant —
+   * an N+1 that turns a 100-row page into 400 round-trips. The list path instead
+   * issues exactly TWO statements regardless of page size:
+   *   1. one information_schema probe over ALL page schemas (a tenant whose
+   *      schema/tables are not provisioned yet legitimately has 0 resources), and
+   *   2. one UNION ALL statement counting every existing (schema, table) pair.
+   *
+   * Identifier safety: tenant ids come from the auth.tenants uuid PK, but they
+   * are about to become SQL identifiers — each id is UUID-validated before
+   * deriving its schema name (canonical getTenantSchemaName), and each schema
+   * name coming back from information_schema is re-checked by
+   * assertSafeSchemaName before interpolation. Table names never leave the
+   * fixed two-literal set.
+   */
+  private async countTenantResources(
+    tenantIds: string[],
+  ): Promise<Map<string, TenantResourceCounts>> {
+    const counts = new Map<string, TenantResourceCounts>(
+      tenantIds.map((id) => [id, { farmCount: 0, sensorCount: 0 }]),
+    );
+
+    const schemaToTenant = new Map<string, string>();
+    for (const id of tenantIds) {
+      // A non-UUID id cannot own a tenant schema — it truthfully has 0 resources.
+      if (isValidUUID(id)) {
+        schemaToTenant.set(getTenantSchemaName(id), id);
+      }
+    }
+    if (schemaToTenant.size === 0) {
+      return counts;
+    }
+
+    const existingTables = await this.dataSource.query<
+      Array<{ table_schema: string; table_name: string }>
+    >(
+      `SELECT table_schema, table_name
+         FROM information_schema.tables
+        WHERE table_schema = ANY($1) AND table_name = ANY($2)`,
+      [[...schemaToTenant.keys()], [...COUNTED_TENANT_TABLES]],
+    );
+    if (existingTables.length === 0) {
+      return counts;
+    }
+
+    const countSql = existingTables
+      .map(({ table_schema, table_name }) => {
+        assertSafeSchemaName(table_schema);
+        return `SELECT '${table_schema}' AS schema_name, '${table_name}' AS table_name, COUNT(*)::int AS row_count FROM "${table_schema}"."${table_name}"`;
+      })
+      .join(' UNION ALL ');
+    const rows = await this.dataSource.query<
+      Array<{ schema_name: string; table_name: string; row_count: number }>
+    >(countSql);
+
+    for (const row of rows) {
+      const tenantId = schemaToTenant.get(row.schema_name);
+      const entry = tenantId ? counts.get(tenantId) : undefined;
+      if (!entry) {
+        continue;
+      }
+      if (row.table_name === 'farms') {
+        entry.farmCount = row.row_count;
+      } else {
+        entry.sensorCount = row.row_count;
+      }
+    }
+    return counts;
   }
 }
 

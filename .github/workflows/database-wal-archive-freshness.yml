@@ -1,0 +1,155 @@
+name: Database WAL Archive Freshness
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: database-wal-archive-freshness-v2
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment:
+      name: production-backup
+      deployment: false
+    steps:
+      - name: Checkout preflight helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Require protected main authority
+        run: |
+          set +x
+          set -euo pipefail
+          test "${GITHUB_REF}" = 'refs/heads/main'
+          test "${GITHUB_SHA}" = "$(git rev-parse HEAD)"
+
+      - name: Assert protected backup environment is complete
+        env:
+          BACKUP_SECRET_PROFILE: archive-freshness
+          DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
+          DROPLET_USER: ${{ secrets.DROPLET_USER }}
+          DROPLET_SSH_KEY: ${{ secrets.DROPLET_SSH_KEY }}
+          DROPLET_SSH_FINGERPRINT: ${{ secrets.DROPLET_SSH_FINGERPRINT }}
+        run: |
+          set +x
+          bash tools/scripts/database/assert-backup-secrets.sh
+
+      # The remote payload reports what production PROVES, never what this lane
+      # hopes. It separates three outcomes the previous single `docker exec`
+      # collapsed into one opaque exit 127: the DR runtime is present, it is
+      # absent, or we could not tell. Only the first two are verdicts; the third
+      # fails closed in resolve-dr-activation.sh rather than guess.
+      - name: Observe production WAL archive runtime
+        id: observe
+        env:
+          DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
+          DROPLET_USER: ${{ secrets.DROPLET_USER }}
+          DROPLET_SSH_KEY: ${{ secrets.DROPLET_SSH_KEY }}
+          DROPLET_SSH_FINGERPRINT: ${{ secrets.DROPLET_SSH_FINGERPRINT }}
+        run: |
+          set +x
+          set -euo pipefail
+          umask 077
+          SSH_STEP_DIR=$(mktemp -d -t aqua-archive-freshness-XXXXXX)
+          cleanup() {
+            status=$?
+            trap - EXIT
+            cleanup_status=0
+            if ! rm -rf -- "${SSH_STEP_DIR}" || [ -e "${SSH_STEP_DIR}" ]; then
+              echo 'FATAL: WAL freshness runner SSH-step cleanup failed.' >&2
+              cleanup_status=1
+            fi
+            if [ "${status}" -eq 0 ] && [ "${cleanup_status}" -ne 0 ]; then
+              status=1
+            fi
+            exit "${status}"
+          }
+          trap cleanup EXIT
+          cat > "${SSH_STEP_DIR}/payload.sh" <<'AQUA_REMOTE_SCRIPT'
+          set +x
+          set -euo pipefail
+          if ! docker inspect --format '{{.State.Running}}' aqua-postgres 2>/dev/null | grep -qx true; then
+            printf 'dr_observed=indeterminate\n'
+            exit 0
+          fi
+          probe_status=0
+          docker exec aqua-postgres test -x /usr/local/bin/postgres-walg-healthcheck.sh 2>/dev/null || probe_status=$?
+          # 0 = the DR runtime is there, 1 = `test` says it is not. Anything
+          # else is docker refusing to exec (125/126) or the container wedged
+          # mid-restart, which proves nothing either way.
+          if [ "${probe_status}" -gt 1 ]; then
+            printf 'dr_observed=indeterminate\n'
+            exit 0
+          fi
+          if [ "${probe_status}" -eq 1 ]; then
+            printf 'dr_observed=absent\n'
+            exit 0
+          fi
+          printf 'dr_observed=present\n'
+          if docker exec aqua-postgres /usr/local/bin/postgres-walg-healthcheck.sh; then
+            printf 'rpo=healthy\n'
+          else
+            printf 'rpo=breached\n'
+          fi
+          AQUA_REMOTE_SCRIPT
+          /usr/bin/env -i \
+              PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+              HOME="${HOME}" \
+              LC_ALL=C \
+              DROPLET_HOST="${DROPLET_HOST}" \
+              DROPLET_USER="${DROPLET_USER}" \
+              DROPLET_SSH_KEY="${DROPLET_SSH_KEY}" \
+              DROPLET_SSH_FINGERPRINT="${DROPLET_SSH_FINGERPRINT}" \
+              SSH_PAYLOAD_PATH="${SSH_STEP_DIR}/payload.sh" \
+              SSH_STDOUT_PATH="${SSH_STEP_DIR}/stdout" \
+              SSH_COMMAND_TIMEOUT_SECONDS=120 \
+            bash tools/scripts/ci/run-protected-ssh.sh
+
+          observed=$(awk -F= '$1 == "dr_observed" { print $2 }' "${SSH_STEP_DIR}/stdout")
+          rpo=$(awk -F= '$1 == "rpo" { print $2 }' "${SSH_STEP_DIR}/stdout")
+          case "${observed}" in
+            present | absent | indeterminate) ;;
+            *)
+              echo "::error::The production probe returned no recognisable observation."
+              exit 1
+              ;;
+          esac
+          printf 'observed=%s\n' "${observed}" >> "${GITHUB_OUTPUT}"
+          printf 'rpo=%s\n' "${rpo}" >> "${GITHUB_OUTPUT}"
+
+      # Combines the declared state with the observation. Fails on drift in
+      # BOTH directions, so neither a stale `not-activated` nor a silently
+      # removed runtime can leave production unmonitored.
+      - name: Resolve declared activation against production
+        id: activation
+        env:
+          DR_CAPABILITY: production-wal-archive
+          DR_OBSERVED: ${{ steps.observe.outputs.observed }}
+        run: |
+          set +x
+          bash tools/scripts/database/resolve-dr-activation.sh
+
+      - name: Enforce the five-minute RPO
+        if: steps.activation.outputs.dr_verdict == 'active'
+        env:
+          RPO: ${{ steps.observe.outputs.rpo }}
+        run: |
+          set +x
+          set -euo pipefail
+          if [ "${RPO}" != 'healthy' ]; then
+            echo "::error::PRODUCTION WAL ARCHIVE RPO BREACH — the archiver is deployed and is NOT meeting its five-minute budget. See the healthcheck diagnosis above."
+            exit 1
+          fi
+          echo 'Production WAL archiving is live and within its five-minute RPO budget.'

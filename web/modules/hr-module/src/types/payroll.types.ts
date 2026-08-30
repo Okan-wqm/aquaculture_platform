@@ -70,9 +70,20 @@ export interface Payroll {
   payPeriodEnd: string;
   paymentDate?: string;
   workHours: WorkHours;
-  earnings: EarningsBreakdown;
-  deductions: DeductionsBreakdown;
+  // The BE Payroll schema exposes FLATTENED earnings*/deductions* columns
+  // (DB-MEDIUM-004) — the previous nested `earnings {}` / `deductions {}`
+  // selection was never in the schema. Money crosses the wire as exact-decimal
+  // strings via the *Decimal siblings (ADR-0004 / DATA-MEDIUM-009); parse with
+  // `parseMoney`.
+  /** @deprecated Float — use `earningsGrossPayDecimal`. */
+  earningsGrossPay: number;
+  earningsGrossPayDecimal: string;
+  /** @deprecated Float — use `deductionsTotalDecimal`. */
+  deductionsTotal: number;
+  deductionsTotalDecimal: string;
+  /** @deprecated Float — use `netPayDecimal`. */
   netPay: number;
+  netPayDecimal: string;
   currency: string;
   status: PayrollStatus;
   approvedBy?: string;

@@ -17,15 +17,33 @@ import { Repository, DataSource } from 'typeorm';
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { BestEffortEventPublisher } from '../../../outbox/best-effort-event-publisher';
-import { ActionToken, ActionTokenPurpose, ActionTokenStatus } from '../../authentication/entities/action-token.entity';
+import {
+  ActionToken,
+  ActionTokenPurpose,
+  ActionTokenStatus,
+} from '../../authentication/entities/action-token.entity';
 import { Invitation, InvitationStatus } from '../../authentication/entities/invitation.entity';
 import { RefreshToken } from '../../authentication/entities/refresh-token.entity';
 import { UserModuleAssignment } from '../../authentication/entities/user-module-assignment.entity';
 import { User, AccessType } from '../../authentication/entities/user.entity';
-import { MobileUserSettings, DEFAULT_MOBILE_FEATURES } from '../entities/mobile-user-settings.entity';
+import {
+  DurableUserTokenInvalidationService,
+  type UserTokenInvalidationIntent,
+} from '../../authentication/services/durable-user-token-invalidation.service';
+import {
+  MobileUserSettings,
+  DEFAULT_MOBILE_FEATURES,
+} from '../entities/mobile-user-settings.entity';
 import { Tenant } from '../entities/tenant.entity';
 
+import { CapabilityAuthorityService, ValidatedOverrideSet } from './capability-authority';
 import { TenantRoleService, TenantRoleWithDetails } from './tenant-role.service';
+import {
+  createCredentialInvalidationIntent,
+  lockUserForCredentialMutation,
+  revokeActiveRefreshTokens,
+  type UserCredentialInvalidationOperation,
+} from './user-credential-revocation';
 
 /**
  * Narrowing type guard: a raw role string is one of the four canonical roles.
@@ -111,7 +129,34 @@ export class UserLifecycleService {
     // first needs createUser to become transactional.)
     private readonly bestEffort: BestEffortEventPublisher,
     private readonly auditLogService: AuditLogService,
+    // SECURITY (RBAC-C1/C2): write-time grant-authority SSoT. createUser was a
+    // grant path with NO authority check — a delegate with `users:invite` could
+    // spawn a user carrying arbitrary override grants. All grants now route
+    // through the shared validator.
+    private readonly capabilityAuthority: CapabilityAuthorityService,
+    private readonly durableUserTokenInvalidation: DurableUserTokenInvalidationService,
   ) {}
+
+  private async applyCredentialInvalidationImmediately(
+    operation: UserCredentialInvalidationOperation,
+    intent: UserTokenInvalidationIntent,
+  ): Promise<void> {
+    try {
+      await this.durableUserTokenInvalidation.applyImmediately(intent);
+    } catch (error) {
+      // The transaction already committed the durable security-recovery event.
+      // Redis unavailability must not turn a committed credential mutation into
+      // an apparent rollback; the outbox consumer will replay the same max-only
+      // invalidation epoch.
+      this.logger.error(
+        JSON.stringify({
+          event: 'user_credential_immediate_invalidation_failed',
+          operation,
+          errorType: error instanceof Error ? error.name : 'UnknownError',
+        }),
+      );
+    }
+  }
 
   /**
    * Create a new user within a tenant.
@@ -161,11 +206,19 @@ export class UserLifecycleService {
       throw new NotFoundException(`Role with ID "${input.roleId}" not found in tenant`);
     }
 
+    // SECURITY (RBAC-C1/C2): validate the initial override grants against the
+    // catalogue + the creator's own authority BEFORE creating the user. A
+    // non-admin creator (holding `users:invite`) cannot seed a new user with
+    // capabilities they do not themselves hold.
+    const validatedOverrides = this.capabilityAuthority.assertGrantableOverrides(
+      input.permissionOverrides,
+      await this.capabilityAuthority.resolveActorAuthority(tenantId, createdBy),
+    );
+
     // Generate invitation token if not providing password
     // SECURITY: Use crypto.randomBytes for unpredictable tokens (256 bits of entropy)
-    const plainInvitationToken = sendInvitation && !input.password
-      ? crypto.randomBytes(32).toString('hex')
-      : null;
+    const plainInvitationToken =
+      sendInvitation && !input.password ? crypto.randomBytes(32).toString('hex') : null;
     // SECURITY: Hash invitation token with SHA-256 before storage (SEC-005)
     const invitationTokenHash = plainInvitationToken
       ? crypto.createHash('sha256').update(plainInvitationToken).digest('hex')
@@ -208,7 +261,9 @@ export class UserLifecycleService {
         this.logger.debug(`Auto-provisioned mobile settings for user ${savedUser.id}`);
       } catch (mobileErr) {
         // Non-fatal: mobile settings can be created on-demand when user first opens the app
-        this.logger.warn(`Failed to auto-provision mobile settings for ${savedUser.id}: ${(mobileErr as Error).message}`);
+        this.logger.warn(
+          `Failed to auto-provision mobile settings for ${savedUser.id}: ${(mobileErr as Error).message}`,
+        );
       }
     }
 
@@ -219,7 +274,7 @@ export class UserLifecycleService {
       savedUser.id,
       input.roleId,
       role,
-      input.permissionOverrides || { grants: [], revokes: [] },
+      validatedOverrides,
       createdBy,
     );
 
@@ -231,7 +286,9 @@ export class UserLifecycleService {
         invitationSent = true;
       } catch (error) {
         // SECURITY: Log user ID instead of email to prevent PII exposure (H-14)
-        this.logger.error(`Failed to send invitation email for userId=${savedUser.id}: ${(error as Error).message}`);
+        this.logger.error(
+          `Failed to send invitation email for userId=${savedUser.id}: ${(error as Error).message}`,
+        );
       }
     }
 
@@ -272,36 +329,11 @@ export class UserLifecycleService {
    * 4. Prevent deleting another TENANT_ADMIN
    * 5. Prevent self-deletion
    */
-  async deleteUser(
-    tenantId: string,
-    userId: string,
-    deletedBy: string,
-  ): Promise<boolean> {
+  async deleteUser(tenantId: string, userId: string, deletedBy: string): Promise<boolean> {
     // SECURITY: Prevent self-deletion
     if (deletedBy === userId) {
       throw new BadRequestException('Cannot delete your own account');
     }
-
-    // Validate user exists and belongs to tenant
-    const user = await this.userRepository.findOne({
-      where: { id: userId, tenantId },
-    });
-    if (!user) {
-      throw new NotFoundException(`User with ID "${userId}" not found in tenant`);
-    }
-
-    // SECURITY: Cannot delete another TENANT_ADMIN
-    if (user.role === Role.TENANT_ADMIN) {
-      throw new ForbiddenException('Cannot delete a tenant admin user');
-    }
-
-    // SECURITY (foreign-actor email leak): pin the admin (actor) lookup to the
-    // tenant so a cross-tenant `deletedBy` id cannot surface another tenant's
-    // admin email into THIS tenant's audit row. A cross-tenant id resolves to
-    // null → no `performedByEmail` rather than a foreign email.
-    const admin = await this.userRepository.findOne({
-      where: { id: deletedBy, tenantId },
-    });
 
     // SECURITY (SEC-MEDIUM-002): the soft-delete, role revocation, refresh-token
     // revocation, and audit row commit ATOMICALLY. Previously the user was
@@ -312,10 +344,34 @@ export class UserLifecycleService {
     // assignments. A throwing audit, role revoke, or token revoke now rolls back
     // the whole soft-delete (fail-CLOSED): no deletion persists without its role
     // revocation, token revocation, AND audit trail.
-    await this.dataSource.transaction(async (manager) => {
+    const transactionResult = await this.dataSource.transaction(async (manager) => {
+      // Canonical credential lock order: User FOR UPDATE first. Every token
+      // mint/rotation path uses the same per-user fence before RefreshToken,
+      // so no concurrent replacement token can escape the UPDATE below.
+      const user = await lockUserForCredentialMutation(
+        manager,
+        this.userRepository,
+        userId,
+        tenantId,
+      );
+      if (!user) {
+        throw new NotFoundException(`User with ID "${userId}" not found in tenant`);
+      }
+      if (user.role === Role.TENANT_ADMIN) {
+        throw new ForbiddenException('Cannot delete a tenant admin user');
+      }
+
+      // SECURITY (foreign-actor email leak): pin the actor lookup to this
+      // tenant. It deliberately remains a non-locking read; the target User is
+      // the one credential principal whose write fence this transaction owns.
+      const transactionUserRepository = manager.withRepository(this.userRepository);
+      const admin = await transactionUserRepository.findOne({
+        where: { id: deletedBy, tenantId },
+      });
+
       // 1. Deactivate the user
       user.isActive = false;
-      await manager.save(user);
+      await transactionUserRepository.save(user);
 
       // 2. Revoke role assignments — repointed to "auth"."user_role_assignments"
       // (ORPHAN-CRITICAL-100). The table has NO tenantId column, so tenant
@@ -338,11 +394,21 @@ export class UserLifecycleService {
       // 3. CRITICAL: Revoke ALL refresh tokens. Without this, existing refresh
       // tokens remain valid and can mint new access tokens after "deletion".
       // EntityManager.update (not a repository handle) keeps this inside the tx.
-      await manager.update(
-        RefreshToken,
-        { userId, isRevoked: false },
-        { isRevoked: true, revokedAt: new Date(), revokedReason: 'User deleted' },
+      const invalidatedAt = new Date();
+      const refreshTokensRevoked = await revokeActiveRefreshTokens(
+        manager,
+        this.refreshTokenRepository,
+        userId,
+        invalidatedAt,
+        'User deleted',
       );
+      const intent = createCredentialInvalidationIntent(
+        user,
+        invalidatedAt,
+        'user-delete',
+        'logout_all_devices',
+      );
+      await this.durableUserTokenInvalidation.enqueue(manager, intent);
 
       // 4. SECURITY AUDIT: Log user deletion. Pass `manager` so the audit row
       // is written on THIS transaction's connection (fail-CLOSED): a throwing
@@ -361,17 +427,22 @@ export class UserLifecycleService {
           details: {
             targetEmail: user.email,
             targetRole: user.role,
-            refreshTokensRevoked: true,
+            refreshTokensRevoked,
             timestamp: new Date().toISOString(),
           },
           severity: AuditLogSeverity.WARNING,
         },
         manager,
       );
+      return { user, intent };
     });
 
+    await this.applyCredentialInvalidationImmediately('user-delete', transactionResult.intent);
+
     // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
-    this.logger.log(`Deleted (soft) userId=${user.id} from tenant ${tenantId}, revoked all refresh tokens`);
+    this.logger.log(
+      `Deleted (soft) userId=${transactionResult.user.id} from tenant ${tenantId}, revoked all credentials`,
+    );
 
     return true;
   }
@@ -480,30 +551,49 @@ export class UserLifecycleService {
     userId: string,
     newPassword: string,
   ): Promise<{ userId: string; refreshTokensRevoked: number }> {
-    const user = await this.userRepository.findOne({ where: { id: userId } });
-    if (!user) {
-      throw new NotFoundException(`User with ID "${userId}" not found`);
-    }
+    const transactionResult = await this.dataSource.transaction(async (manager) => {
+      const user = await lockUserForCredentialMutation(manager, this.userRepository, userId);
+      if (!user) {
+        throw new NotFoundException(`User with ID "${userId}" not found`);
+      }
 
-    user.password = newPassword;
-    user.passwordResetToken = null;
-    user.passwordResetExpires = null;
-    user.failedLoginAttempts = 0;
-    user.lockedUntil = null;
-    await this.userRepository.save(user);
+      user.password = newPassword;
+      user.passwordResetToken = null;
+      user.passwordResetExpires = null;
+      user.failedLoginAttempts = 0;
+      user.lockedUntil = null;
+      await manager.withRepository(this.userRepository).save(user);
 
-    // Revoke ALL refresh tokens. `update()` returns UpdateResult; affected
-    // is populated by Postgres driver. Default to 0 when driver omits it.
-    const revokeResult = await this.refreshTokenRepository.update(
-      { userId, isRevoked: false },
-      { isRevoked: true, revokedAt: new Date(), revokedReason: 'Admin password reset' },
+      const invalidatedAt = new Date();
+      const refreshTokensRevoked = await revokeActiveRefreshTokens(
+        manager,
+        this.refreshTokenRepository,
+        userId,
+        invalidatedAt,
+        'Admin password reset',
+      );
+      const intent = createCredentialInvalidationIntent(
+        user,
+        invalidatedAt,
+        'admin-password-reset',
+        'password_reset',
+      );
+      await this.durableUserTokenInvalidation.enqueue(manager, intent);
+      return { user, refreshTokensRevoked, intent };
+    });
+
+    await this.applyCredentialInvalidationImmediately(
+      'admin-password-reset',
+      transactionResult.intent,
     );
-    const refreshTokensRevoked = revokeResult.affected ?? 0;
 
     this.logger.log(
-      `Admin password reset for userId=${user.id}, refreshTokensRevoked=${refreshTokensRevoked}`,
+      `Admin password reset for userId=${transactionResult.user.id}, refreshTokensRevoked=${transactionResult.refreshTokensRevoked}`,
     );
-    return { userId: user.id, refreshTokensRevoked };
+    return {
+      userId: transactionResult.user.id,
+      refreshTokensRevoked: transactionResult.refreshTokensRevoked,
+    };
   }
 
   /**
@@ -531,31 +621,73 @@ export class UserLifecycleService {
       isActive?: boolean;
     },
   ): Promise<User> {
+    // Role, tenant and deactivation fields are authorization state, not
+    // ordinary profile data. Serialize them with token minting through the
+    // canonical User fence, revoke refresh credentials and durably invalidate
+    // already-issued access tokens in the same transaction.
+    const mutatesAuthorization =
+      patch.isActive === false || patch.role !== undefined || patch.tenantId !== undefined;
+    if (mutatesAuthorization) {
+      const transactionResult = await this.dataSource.transaction(async (manager) => {
+        const user = await lockUserForCredentialMutation(manager, this.userRepository, userId);
+        if (!user) {
+          throw new NotFoundException(`User with ID "${userId}" not found`);
+        }
+
+        const requestedRole = patch.role;
+        if (requestedRole !== undefined && !isCanonicalRole(requestedRole)) {
+          throw new BadRequestException(`Unknown role "${requestedRole}"`);
+        }
+
+        if (patch.tenantId !== undefined && patch.tenantId !== null) {
+          const tenant = await manager.withRepository(this.tenantRepository).findOne({
+            where: { id: patch.tenantId },
+          });
+          if (!tenant) {
+            throw new NotFoundException(`Tenant with ID "${patch.tenantId}" not found`);
+          }
+        }
+
+        if (patch.firstName !== undefined) user.firstName = patch.firstName;
+        if (patch.lastName !== undefined) user.lastName = patch.lastName;
+        if (requestedRole !== undefined) user.role = requestedRole;
+        if (patch.tenantId !== undefined) user.tenantId = patch.tenantId;
+        if (patch.isActive !== undefined) user.isActive = patch.isActive;
+
+        const saved = await manager.withRepository(this.userRepository).save(user);
+        const invalidatedAt = new Date();
+        await revokeActiveRefreshTokens(
+          manager,
+          this.refreshTokenRepository,
+          userId,
+          invalidatedAt,
+          'User authorization updated by administrator',
+        );
+        const intent = createCredentialInvalidationIntent(
+          saved,
+          invalidatedAt,
+          'admin-user-authorization-update',
+          'logout_all_devices',
+        );
+        await this.durableUserTokenInvalidation.enqueue(manager, intent);
+        return { saved, intent };
+      });
+
+      await this.applyCredentialInvalidationImmediately(
+        'admin-user-authorization-update',
+        transactionResult.intent,
+      );
+      this.logger.log(`Admin updated authorization for userId=${transactionResult.saved.id}`);
+      return transactionResult.saved;
+    }
+
     const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) {
       throw new NotFoundException(`User with ID "${userId}" not found`);
     }
 
-    if (patch.role !== undefined &&
-        !(Object.values(Role) as string[]).includes(patch.role)) {
-      throw new BadRequestException(`Unknown role "${patch.role}"`);
-    }
-
-    // `null` tenantId is meaningful (promotion to SUPER_ADMIN with no
-    // tenant). Only validate existence when a non-null value is provided.
-    if (patch.tenantId !== undefined && patch.tenantId !== null) {
-      const tenant = await this.tenantRepository.findOne({
-        where: { id: patch.tenantId },
-      });
-      if (!tenant) {
-        throw new NotFoundException(`Tenant with ID "${patch.tenantId}" not found`);
-      }
-    }
-
     if (patch.firstName !== undefined) user.firstName = patch.firstName;
     if (patch.lastName !== undefined) user.lastName = patch.lastName;
-    if (patch.role !== undefined) user.role = patch.role as Role;
-    if (patch.tenantId !== undefined) user.tenantId = patch.tenantId;
     if (patch.isActive !== undefined) user.isActive = patch.isActive;
 
     const saved = await this.userRepository.save(user);
@@ -573,54 +705,98 @@ export class UserLifecycleService {
    *    (admin-panel RBAC controls who reaches this endpoint).
    *  - Does NOT revoke tenant-schema role assignments (admin-api's
    *    platform-deactivation flow does not tear those down).
-   *  - DELETES refresh tokens rather than soft-revoking them — matches
-   *    the pre-existing admin-api semantics and the "force logout on
-   *    deactivate" UX expectation.
+   *  - Soft-revokes refresh tokens, preserving forensic lineage and reuse
+   *    detection while keeping the existing result-field contract.
    *
    * @throws NotFoundException when the userId does not resolve
    */
   async adminDeactivateUser(
     userId: string,
   ): Promise<{ userId: string; refreshTokensRemoved: number }> {
-    const user = await this.userRepository.findOne({ where: { id: userId } });
-    if (!user) {
-      throw new NotFoundException(`User with ID "${userId}" not found`);
-    }
+    const transactionResult = await this.dataSource.transaction(async (manager) => {
+      const user = await lockUserForCredentialMutation(manager, this.userRepository, userId);
+      if (!user) {
+        throw new NotFoundException(`User with ID "${userId}" not found`);
+      }
 
-    user.isActive = false;
-    await this.userRepository.save(user);
+      user.isActive = false;
+      await manager.withRepository(this.userRepository).save(user);
+      const invalidatedAt = new Date();
+      const refreshTokensRemoved = await revokeActiveRefreshTokens(
+        manager,
+        this.refreshTokenRepository,
+        userId,
+        invalidatedAt,
+        'User deactivated by administrator',
+      );
+      const intent = createCredentialInvalidationIntent(
+        user,
+        invalidatedAt,
+        'admin-user-deactivate',
+        'logout_all_devices',
+      );
+      await this.durableUserTokenInvalidation.enqueue(manager, intent);
+      return { user, refreshTokensRemoved, intent };
+    });
 
-    const deleteResult = await this.refreshTokenRepository.delete({ userId });
-    const refreshTokensRemoved = deleteResult.affected ?? 0;
+    await this.applyCredentialInvalidationImmediately(
+      'admin-user-deactivate',
+      transactionResult.intent,
+    );
 
     this.logger.log(
-      `Admin deactivated userId=${user.id}, refreshTokensRemoved=${refreshTokensRemoved}`,
+      `Admin deactivated userId=${transactionResult.user.id}, refreshTokensRemoved=${transactionResult.refreshTokensRemoved}`,
     );
-    return { userId: user.id, refreshTokensRemoved };
+    return {
+      userId: transactionResult.user.id,
+      refreshTokensRemoved: transactionResult.refreshTokensRemoved,
+    };
   }
 
   /**
-   * Admin-initiated force-logout. Hard-deletes all refresh tokens for a
+   * Admin-initiated force-logout. Revokes all active refresh tokens for a
    * user without touching the user record itself — the account remains
    * active and the user can re-authenticate immediately. Typical use:
    * suspected credential leak, operator wants to invalidate sessions
    * without locking the account.
    */
-  async adminForceLogout(
-    userId: string,
-  ): Promise<{ userId: string; sessionsInvalidated: number }> {
-    const user = await this.userRepository.findOne({ where: { id: userId } });
-    if (!user) {
-      throw new NotFoundException(`User with ID "${userId}" not found`);
-    }
+  async adminForceLogout(userId: string): Promise<{ userId: string; sessionsInvalidated: number }> {
+    const transactionResult = await this.dataSource.transaction(async (manager) => {
+      const user = await lockUserForCredentialMutation(manager, this.userRepository, userId);
+      if (!user) {
+        throw new NotFoundException(`User with ID "${userId}" not found`);
+      }
 
-    const deleteResult = await this.refreshTokenRepository.delete({ userId });
-    const sessionsInvalidated = deleteResult.affected ?? 0;
+      const invalidatedAt = new Date();
+      const sessionsInvalidated = await revokeActiveRefreshTokens(
+        manager,
+        this.refreshTokenRepository,
+        userId,
+        invalidatedAt,
+        'Administrator forced logout',
+      );
+      const intent = createCredentialInvalidationIntent(
+        user,
+        invalidatedAt,
+        'admin-force-logout',
+        'logout_all_devices',
+      );
+      await this.durableUserTokenInvalidation.enqueue(manager, intent);
+      return { user, sessionsInvalidated, intent };
+    });
+
+    await this.applyCredentialInvalidationImmediately(
+      'admin-force-logout',
+      transactionResult.intent,
+    );
 
     this.logger.log(
-      `Admin force-logout userId=${user.id}, sessionsInvalidated=${sessionsInvalidated}`,
+      `Admin force-logout userId=${transactionResult.user.id}, sessionsInvalidated=${transactionResult.sessionsInvalidated}`,
     );
-    return { userId: user.id, sessionsInvalidated };
+    return {
+      userId: transactionResult.user.id,
+      sessionsInvalidated: transactionResult.sessionsInvalidated,
+    };
   }
 
   /**
@@ -756,10 +932,7 @@ export class UserLifecycleService {
         lastName: input.lastName ?? null,
         role: invitedRole,
         tenantId: input.tenantId,
-        moduleIds:
-          input.moduleIds && input.moduleIds.length > 0
-            ? input.moduleIds
-            : null,
+        moduleIds: input.moduleIds && input.moduleIds.length > 0 ? input.moduleIds : null,
         primaryModuleId: input.primaryModuleId ?? null,
         status: InvitationStatus.PENDING,
         expiresAt,
@@ -788,19 +961,14 @@ export class UserLifecycleService {
       // UserModuleAssignment entries. The moduleIds presence check is inlined
       // into the `if` so TS narrows `input.moduleIds` to a defined string[]
       // (no non-null assertion needed on the .map).
-      if (
-        invitedRole !== Role.TENANT_ADMIN &&
-        input.moduleIds &&
-        input.moduleIds.length > 0
-      ) {
+      if (invitedRole !== Role.TENANT_ADMIN && input.moduleIds && input.moduleIds.length > 0) {
         const assignments = input.moduleIds.map((moduleId) =>
           umaRepo.create({
             userId: savedUser.id,
             moduleId,
             tenantId: input.tenantId,
             isPrimaryManager:
-              invitedRole === Role.MODULE_MANAGER &&
-              moduleId === input.primaryModuleId,
+              invitedRole === Role.MODULE_MANAGER && moduleId === input.primaryModuleId,
             isActive: true,
             assignedBy: input.invitedBy,
           }),
@@ -911,11 +1079,7 @@ export class UserLifecycleService {
    * invite into their own tenant, and only at a role ≤ their own.
    * MODULE_MANAGER can invite only MODULE_USER. Anything else throws.
    */
-  private assertRoleHierarchy(
-    inviter: User,
-    targetTenantId: string,
-    targetRole: Role,
-  ): void {
+  private assertRoleHierarchy(inviter: User, targetTenantId: string, targetRole: Role): void {
     const ranks: Record<string, number> = {
       [Role.SUPER_ADMIN]: 4,
       [Role.TENANT_ADMIN]: 3,
@@ -926,23 +1090,17 @@ export class UserLifecycleService {
     if (inviter.role === Role.SUPER_ADMIN) return;
 
     if (inviter.tenantId !== targetTenantId) {
-      throw new ForbiddenException(
-        'Cannot invite users to a different tenant',
-      );
+      throw new ForbiddenException('Cannot invite users to a different tenant');
     }
 
     if (inviter.role === Role.TENANT_ADMIN) {
       if ((ranks[targetRole] ?? 0) <= (ranks[Role.TENANT_ADMIN] ?? 0)) return;
-      throw new ForbiddenException(
-        'Cannot create user with higher role than your own',
-      );
+      throw new ForbiddenException('Cannot create user with higher role than your own');
     }
 
     if (inviter.role === Role.MODULE_MANAGER) {
       if (targetRole === Role.MODULE_USER) return;
-      throw new ForbiddenException(
-        'Module managers can only invite module users',
-      );
+      throw new ForbiddenException('Module managers can only invite module users');
     }
 
     throw new ForbiddenException('You do not have permission to invite users');
@@ -983,7 +1141,9 @@ export class UserLifecycleService {
     userId: string,
     roleId: string,
     role: TenantRoleWithDetails,
-    permissionOverrides: { grants: string[]; revokes: string[] },
+    // SECURITY (RBAC-C1/C2): accepts only a validated (branded) override set, so
+    // this INSERT cannot persist an unauthorized grant. Callers validate first.
+    permissionOverrides: ValidatedOverrideSet,
     assignedBy: string,
     expiresAt?: Date,
   ): Promise<UserRoleAssignmentResult> {
@@ -1008,7 +1168,7 @@ export class UserLifecycleService {
       [
         userId,
         roleId,
-        JSON.stringify(permissionOverrides),
+        CapabilityAuthorityService.serializeOverrides(permissionOverrides),
         expiresAt || null,
         assignedBy,
         tenantId,
@@ -1019,9 +1179,7 @@ export class UserLifecycleService {
     // not owned by this tenant (or does not exist). Fail loud with a tenant-scoped
     // NotFoundException rather than carrying an undefined id forward.
     if (!inserted) {
-      throw new NotFoundException(
-        `Role with ID "${roleId}" not found in tenant`,
-      );
+      throw new NotFoundException(`Role with ID "${roleId}" not found in tenant`);
     }
     const assignmentId = inserted.id;
 
@@ -1038,7 +1196,11 @@ export class UserLifecycleService {
       roleColor: role.color,
       roleIcon: role.icon,
       roleLevel: role.level,
-      permissionOverrides,
+      // Strip the internal validation brand from the client-facing result.
+      permissionOverrides: {
+        grants: permissionOverrides.grants,
+        revokes: permissionOverrides.revokes,
+      },
       panelPermissions: role.permissions?.panelPermissions || {},
       resourcePermissions: role.permissions?.resourcePermissions || [],
       effectivePermissions,
@@ -1091,13 +1253,13 @@ export class UserLifecycleService {
   ): Promise<void> {
     // SECURITY: Hash the invitation token for the opaque actionTokenId reference.
     // The raw token is NEVER placed on the event bus.
-    const actionTokenHash = crypto
-      .createHash('sha256')
-      .update(invitationToken)
-      .digest('hex');
+    const actionTokenHash = crypto.createHash('sha256').update(invitationToken).digest('hex');
 
     const event: UserInvitedEvent = {
-      ...createBaseEvent<UserInvitedEvent>('UserInvited', tenant.id, { aggregateId: user.id, aggregateType: 'User' }),
+      ...createBaseEvent<UserInvitedEvent>('UserInvited', tenant.id, {
+        aggregateId: user.id,
+        aggregateType: 'User',
+      }),
       userId: user.id,
       role: user.role,
       invitedBy: user.invitedBy || undefined,

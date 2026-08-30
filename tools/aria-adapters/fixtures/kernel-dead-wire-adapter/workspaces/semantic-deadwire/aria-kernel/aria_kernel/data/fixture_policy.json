@@ -1,0 +1,11 @@
+{
+  "_doc": "FP trap 1 - documentation, not a tunable. Must never be flagged.",
+  "comment": "FP trap 2 - the other doc-key spelling used in the real policy files.",
+  "shadow_min_clean_cycles": 5,
+  "orphan_promotion_ceiling": 3,
+  "**/billing/**": "FP trap 3 - a glob KEY is policy data, not a switch the kernel reads by name.",
+  "nested_block": {
+    "read_by_the_module": true,
+    "never_read_anywhere": 0.9
+  }
+}

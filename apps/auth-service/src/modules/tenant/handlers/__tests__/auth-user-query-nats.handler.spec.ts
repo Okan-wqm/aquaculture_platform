@@ -1,6 +1,8 @@
+import { Global, Module } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
+import { DataSource } from 'typeorm';
 
 import { AUTH_USER_QUERY_SUBJECTS } from '@platform/event-contracts';
 
@@ -8,6 +10,22 @@ import { AuditModule } from '../../../../audit/audit.module';
 import { AuditLog } from '../../../../audit/audit-log.entity';
 import { User } from '../../../authentication/entities/user.entity';
 import { AuthUserQueryNatsHandler } from '../auth-user-query-nats.handler';
+
+/**
+ * In production the DataSource token is registered globally by
+ * TypeOrmModule.forRoot (TypeOrmCoreModule is @Global). The DI-resolution smoke
+ * below deliberately does NOT boot a database, so it supplies the same token via
+ * a @Global stub — exactly as ConfigModule.forRoot({ isGlobal: true }) supplies
+ * ConfigService. AuditLogService (from the imported @Global AuditModule) injects
+ * DataSource at constructor index [2] since #845 (standalone audit writes run in
+ * an RLS system-context transaction); without this the smoke cannot resolve.
+ */
+@Global()
+@Module({
+  providers: [{ provide: DataSource, useValue: { transaction: jest.fn() } }],
+  exports: [DataSource],
+})
+class StubDataSourceModule {}
 
 const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const U1 = '11111111-1111-4111-8111-111111111111';
@@ -100,6 +118,7 @@ describe('AuthUserQueryNatsHandler', () => {
         // ConfigService dependency. The smoke focuses on the
         // handler↔AuditLogService wiring.
         ConfigModule.forRoot({ isGlobal: true, ignoreEnvFile: true }),
+        StubDataSourceModule,
         AuditModule,
       ],
       controllers: [AuthUserQueryNatsHandler],

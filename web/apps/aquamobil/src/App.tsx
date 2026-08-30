@@ -10,6 +10,7 @@ import { useSwNavigation } from './hooks/useSwNavigation';
 import { MobileLayout } from './layouts/MobileLayout';
 import { HomePage } from './pages/HomePage';
 import { LoginPage } from './pages/LoginPage';
+import { NotFoundPage } from './pages/NotFoundPage';
 import { isFeatureAccessible } from './utils/feature-access';
 
 /**
@@ -69,6 +70,10 @@ const AccountPage = lazy(() =>
 const NotificationsPage = lazy(() =>
   import('./pages/notifications/NotificationsPage').then((m) => ({ default: m.NotificationsPage }))
 );
+// MOB-HIGH-006: mobile alarm surface (alert-engine history + acknowledge)
+const AlertsPage = lazy(() =>
+  import('./pages/alerts/AlertsPage').then((m) => ({ default: m.AlertsPage }))
+);
 const RecordTransferPage = lazy(() =>
   import('./pages/transfer/RecordTransferPage').then((m) => ({ default: m.RecordTransferPage }))
 );
@@ -111,6 +116,23 @@ const MediaViewerPage = lazy(() =>
 );
 const AiChatPage = lazy(() =>
   import('./pages/messaging/AiChatPage').then((m) => ({ default: m.AiChatPage }))
+);
+
+// Regulatory field capture + report surface (FARM-HIGH-214 / RPT-019)
+const LiceCountPage = lazy(() =>
+  import('./pages/lice/LiceCountPage').then((m) => ({ default: m.LiceCountPage }))
+);
+const WelfareScorePage = lazy(() =>
+  import('./pages/welfare/WelfareScorePage').then((m) => ({ default: m.WelfareScorePage }))
+);
+const EscapeIncidentPage = lazy(() =>
+  import('./pages/escape/EscapeIncidentPage').then((m) => ({ default: m.EscapeIncidentPage }))
+);
+const ReportsDuePage = lazy(() =>
+  import('./pages/reports/ReportsDuePage').then((m) => ({ default: m.ReportsDuePage }))
+);
+const ReportReviewPage = lazy(() =>
+  import('./pages/reports/ReportReviewPage').then((m) => ({ default: m.ReportReviewPage }))
 );
 
 // Operations hub sub-pages — enterprise-grade dedicated hubs per ADR-011
@@ -292,6 +314,7 @@ export function App(): ReactElement {
                       <Route path="/hr" element={<Navigate to="/operations" replace />} />
                       <Route path="/more" element={<Navigate to="/account" replace />} />
                       <Route path="/notifications" element={<NotificationsPage />} />
+                      <Route path="/alerts" element={<AlertsPage />} />
                       <Route
                         path="/mortality/record"
                         element={
@@ -457,9 +480,81 @@ export function App(): ReactElement {
                           </FeatureRoute>
                         }
                       />
+                      {/* Regulatory field capture (FARM-HIGH-214 / RPT-019) —
+                          offline-first writes into the Phase-2 source entities */}
+                      <Route
+                        path="/lice/record"
+                        element={
+                          <FeatureRoute feature="liceCount">
+                            <LiceCountPage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/lice/record/:tankId"
+                        element={
+                          <FeatureRoute feature="liceCount">
+                            <LiceCountPage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/welfare/record"
+                        element={
+                          <FeatureRoute feature="welfare">
+                            <WelfareScorePage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/welfare/record/:tankId"
+                        element={
+                          <FeatureRoute feature="welfare">
+                            <WelfareScorePage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/escape/record"
+                        element={
+                          <FeatureRoute feature="escape">
+                            <EscapeIncidentPage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/escape/record/:tankId"
+                        element={
+                          <FeatureRoute feature="escape">
+                            <EscapeIncidentPage />
+                          </FeatureRoute>
+                        }
+                      />
+                      {/* Report surface — ONLINE-ONLY review/approve; FeatureRoute
+                          enforces the MODULE_MANAGER role floor (feature-access SSoT)
+                          mirroring the draft resolver's @Roles matrix */}
+                      <Route
+                        path="/reports"
+                        element={
+                          <FeatureRoute feature="reports">
+                            <ReportsDuePage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/reports/:draftId"
+                        element={
+                          <FeatureRoute feature="reports">
+                            <ReportReviewPage />
+                          </FeatureRoute>
+                        }
+                      />
                       <Route path="/sync" element={<SyncStatusPage />} />
 
-                      <Route path="*" element={<Navigate to="/" replace />} />
+                      {/* MOB-LOW-001: unknown paths render a 404 page instead of a
+                          silent redirect home — broken deep links stay observable
+                          (BUG-16 was hidden by the old catch-all). */}
+                      <Route path="*" element={<NotFoundPage />} />
                       </Routes>
                     </Suspense>
                   </ErrorBoundary>

@@ -20,6 +20,7 @@ export const UNIFIED_TAG_FIELDS = `
   deadband
   source
   hierarchy
+  status
   createdAt
   updatedAt
 `;
@@ -67,6 +68,14 @@ export const CREATE_UNIFIED_TAG = `
 export const UPDATE_UNIFIED_TAG = `
   mutation UpdateUnifiedTag($input: UpdateTagInput!) {
     updateUnifiedTag(input: $input) {
+      ${UNIFIED_TAG_FIELDS}
+    }
+  }
+`;
+
+export const RETIRE_UNIFIED_TAG = `
+  mutation RetireUnifiedTag($id: ID!) {
+    retireUnifiedTag(id: $id) {
       ${UNIFIED_TAG_FIELDS}
     }
   }

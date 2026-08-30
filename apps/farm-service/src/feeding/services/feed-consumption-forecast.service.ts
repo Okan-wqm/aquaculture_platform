@@ -13,7 +13,6 @@ import { TenantContextError } from '@aquaculture/backend-common/database';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { Batch } from '../../batch/entities/batch.entity';
 import { Feed } from '../../feed/entities/feed.entity';
-import { FeedInventory } from '../entities/feed-inventory.entity';
 import { GrowthSimulatorService, GrowthProjection } from './growth-simulator.service';
 
 export interface FeedConsumptionByType {
@@ -70,8 +69,6 @@ export class FeedConsumptionForecastService {
     private readonly batchRepo: Repository<Batch>,
     @InjectRepository(Feed)
     private readonly feedRepo: Repository<Feed>,
-    @InjectRepository(FeedInventory)
-    private readonly inventoryRepo: Repository<FeedInventory>,
     private readonly growthSimulator: GrowthSimulatorService,
   ) {}
 
@@ -329,40 +326,6 @@ export class FeedConsumptionForecastService {
     }
   }
 
-  /**
-   * Get active batches for the tenant/site (legacy batch-based approach)
-   * @deprecated Use getActiveTanks for tank-based simulation
-   */
-  private async getActiveBatches(
-    tenantId: string,
-    schemaName: string,
-    siteId?: string,
-  ): Promise<Batch[]> {
-    // Use TypeORM QueryBuilder for proper column mapping
-    // The Batch entity may have different DB column names depending on schema setup
-    const queryBuilder = this.batchRepo
-      .createQueryBuilder('batch')
-      .where('batch.tenantId = :tenantId', { tenantId })
-      .andWhere('batch.status IN (:...statuses)', { statuses: ['ACTIVE', 'STOCKED', 'QUARANTINE'] });
-
-    if (siteId) {
-      queryBuilder.andWhere('batch.siteId = :siteId', { siteId });
-    }
-
-    // Try to get batches - use simpler query if entity fields don't match DB
-    try {
-      return await queryBuilder.getMany();
-    } catch (error: unknown) {
-      // Fallback: Query with minimal filtering if entity mapping fails
-      this.logger.debug(`Error in getActiveBatches: ${error instanceof Error ? error.message : String(error)}`);
-      this.logger.warn('Batch entity mapping issue, using fallback query');
-      const rawBatches = await this.batchRepo.query(
-        `SELECT * FROM "${schemaName}".batches WHERE "tenantId" = $1 AND "status" IN ('ACTIVE', 'STOCKED', 'QUARANTINE')`,
-        [tenantId]
-      );
-      return rawBatches;
-    }
-  }
 
   /**
    * Get current feed inventory levels

@@ -57,6 +57,22 @@ export interface ToolExecutionContext {
    * agent runner from the resolved profile; never from Claude.
    */
   actuationPolicy: ActuationPolicy;
+  /**
+   * SENSOR-MEDIUM-070: a first-class internal SERVICE principal. Set ONLY when a
+   * trusted platform service (not a human user) drives the tool call — e.g.
+   * sensor-service's channel-detection running the read-only sensor-config
+   * tools. When present, the executor authorizes exactly the tools named in
+   * `grantedToolNames` WITHOUT consulting user RBAC (no fabricated user roles,
+   * the SENSOR-MEDIUM-070 anti-pattern). It grants read-only tools only: the
+   * executor refuses any grant for an actuation (`requiresConfirmation`) tool,
+   * so a service principal can never actuate. Absent for every human request.
+   */
+  servicePrincipal?: {
+    /** Stable identity of the calling service, e.g. 'sensor-service'. */
+    name: string;
+    /** Exact allowlist of tool names this principal may run. */
+    grantedToolNames: string[];
+  };
 }
 
 /** Result wrapper for tool execution */
@@ -77,6 +93,13 @@ export interface ToolResult<T = unknown> {
    * propose→confirm→execute round-trip is Faz 6; this flag is its seam.
    */
   requiresConfirmation?: boolean;
+  /**
+   * DB-PEOPLE-MEDIUM-003: set when an actuation-class tool executed but its
+   * safety-load-bearing audit row could NOT be durably written. The executor
+   * surfaces the failure here (instead of swallowing it) so the runner / safety
+   * layer can react — the actuation ran, but its audit trail is incomplete.
+   */
+  auditFailed?: boolean;
 }
 
 /** Core tool interface - every tool must implement this */

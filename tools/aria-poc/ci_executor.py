@@ -38,6 +38,7 @@ import shutil
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -47,11 +48,17 @@ if str(_THIS_DIR) not in sys.path:
 
 from claude_runtime import (
     CLAUDE_MOCK_ENV_VAR,
+    ClaudeAuthFailure,
+    ClaudeCreditExhausted,
+    CREDIT_FALLBACK_EFFORT,
+    MODEL_FALLBACK_TIER,
     ClaudeAuthUnavailable,
     ClaudeCliUnavailable,
     ClaudePolicyViolation,
     ClaudeRunResult,
     ClaudeUsageUnavailable,
+    ProviderRedirectUnavailable,
+    UsageRecording,
     extract_final_message,
     extract_usage,
     is_mock_mode as _claude_is_mock_mode,
@@ -60,16 +67,31 @@ from claude_runtime import (
     run_claude_exec,
     run_with_model_fallback,
 )
+from dispatch_failure import (
+    DispatchFailure,
+    classify_dispatch_failure,
+    emit_dispatch_result_summary,
+    resolve_dispatch_route,
+)
 
 try:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "aria-kernel"))
     from aria_kernel.agent_surface import DISPATCHABLE_ROLES as _DISPATCHABLE_ROLES
     from aria_kernel.agent_invocations import render_invocation_prompt as _render_invocation_prompt
+    # The ONE projection of a claim response into a prompt envelope. The
+    # executor used to build its own — `claim.get("forbidden_scope") or []`,
+    # no repository_map — and that copy is where the prompt-hash binding
+    # died AFTER the kernel-side fusion was fixed: same defect, one layer up.
+    from aria_kernel.agent_invocations import fuse_prompt_envelope as _fuse_prompt_envelope
     # Plan ARIA WS1 — import the canonical plan_content required-field set
     # from the kernel SSoT (plan_convergence.PLAN_CONTENT_REQUIRED) instead
     # of re-declaring it here, so the fail-fast gate below can never drift
     # from the kernel-side _validate_plan_content gate it mirrors.
     from aria_kernel.plan_convergence import PLAN_CONTENT_REQUIRED as _PLAN_CONTENT_REQUIRED
+    # FAZ 5b — the pre-claim environment gate writes governance rows through
+    # the kernel and probes the sandbox through the runtime's own accessor.
+    from aria_kernel.tool_registry import append_tools_governance as _append_tools_governance
+    from aria_kernel.implementation_safety import sandbox_backend as _sandbox_backend
 except Exception:  # pragma: no cover - fallback keeps standalone contract importable
     _DISPATCHABLE_ROLES = frozenset({
         "specialist_domain_review",
@@ -82,8 +104,26 @@ except Exception:  # pragma: no cover - fallback keeps standalone contract impor
         "cross_review",
         "completeness_critique",
         "implementation",
+        "human_required_adjudication",
+        # E14 — the three roles that gained a producer (goldset curation,
+        # change intelligence, split-verdict arbitration). This standalone
+        # fallback exists only when the kernel import fails; it drifting
+        # narrower than the kernel set would make exactly those envelopes
+        # unclaimable in the one mode where the drift is invisible.
+        "consensus_arbitration",
+        "change_intelligence",
+        "goldset_curation",
+        # E9-c — adversarial re-review of an already-closed decision. Added
+        # here in the same commit as the kernel set, which is the contract
+        # this mirror is held to: standalone mode is the ONE mode where a
+        # narrower copy is invisible, so the no-drift test is what makes the
+        # duplication legitimate rather than latent.
+        "verification",
     })
     _render_invocation_prompt = None
+    _fuse_prompt_envelope = None
+    _append_tools_governance = None
+    _sandbox_backend = None
     # Standalone-mode fallback: identical value/order to the kernel SSoT.
     # Intentional duplication for kernel-less importability; WS2 adds a
     # drift guard asserting this equals plan_convergence.PLAN_CONTENT_REQUIRED.
@@ -140,6 +180,37 @@ def _stage(msg: str) -> None:
     elapsed = time.monotonic() - _CI_T0
     sys.stderr.write(f"[ci-stage t={elapsed:7.2f}s] {msg}\n")
     sys.stderr.flush()
+
+
+def _publish_artifact_paths(envelope_path: Path, transcript_path: Path) -> None:
+    """Tell the workflow WHERE the envelope actually landed.
+
+    The upload step used to rebuild the path from the request id
+    (`outputs/<request_id>.json`), while the request envelope names it
+    `outputs/<group>/<round>-<role>-<request_id>.md` — two spellings of one
+    path that never agreed, so `if-no-files-found: error` failed every run
+    that claimed a request, AFTER the agent work had already succeeded. The
+    producer knows the path; it says so here instead of letting YAML guess.
+
+    Paths are emitted relative to the workspace because that is what
+    actions/upload-artifact resolves against; an absolute path outside the
+    workspace would silently upload nothing.
+    """
+    output_file = os.environ.get("GITHUB_OUTPUT")
+    if not output_file:
+        return
+    workspace = Path(os.environ.get("GITHUB_WORKSPACE", ".")).resolve()
+
+    def _relative(path: Path) -> str:
+        resolved = path.resolve()
+        try:
+            return resolved.relative_to(workspace).as_posix()
+        except ValueError:
+            return resolved.as_posix()
+
+    with open(output_file, "a", encoding="utf-8") as handle:
+        handle.write(f"envelope_path={_relative(envelope_path)}\n")
+        handle.write(f"transcript_path={_relative(transcript_path)}\n")
 
 
 def _write_sanitized_envelope(path: Path, envelope: dict[str, Any]) -> None:
@@ -388,7 +459,9 @@ def _canonicalize_cross_review(
     return mutated
 
 
-def _pre_submit_validate_envelope(envelope: dict[str, Any], role: str) -> list[str]:
+def _pre_submit_validate_envelope(
+    envelope: dict[str, Any], role: str, request: dict[str, Any] | None = None,
+) -> list[str]:
     """Plan ARIA-V8.1 Phase 3 — fail-fast canonical schema gate.
 
     Validates the agent's response envelope against the same canonical
@@ -403,6 +476,46 @@ def _pre_submit_validate_envelope(envelope: dict[str, Any], role: str) -> list[s
     than a generic "plan content must be a JSON object" warning.
     """
     errors: list[str] = []
+    if role in ("evidence_judgment", "adversarial_judgment"):
+        # Y5 (ORPHAN-706) — the judge output contract, enforced BEFORE the
+        # result is sealed. The second sealed night accepted 12 judge
+        # results with no readable verdict block; each became an accepted
+        # row the bridge could never fold ("expected verdict ..., got
+        # None"), burning bridge retries toward permanent_fail. The check
+        # is the KERNEL's own (`judgment_bridge.validate_judge_response`)
+        # so the executor and the bridge can never disagree about what a
+        # valid judge response is.
+        #
+        # Restart follow-through: the first healed drain refused two
+        # PERFECTLY-IDENTIFIED judge envelopes with
+        # missing_tool_run_or_finding_id — the caller's ``request`` here is
+        # the TRIMMED claim payload, which never carried the judgment
+        # identity fields; the full ledger row does (the submit-time bridge
+        # reads that row, which is why folding worked while this gate
+        # refused). Read the SAME row the bridge reads, so gate and bridge
+        # judge one truth.
+        from aria_kernel.judgment_bridge import validate_judge_response
+
+        gate_request = dict(request or {})
+        if not (gate_request.get("tool_id") and gate_request.get("run_id") and gate_request.get("finding_id")):
+            request_id = str(gate_request.get("request_id") or envelope.get("request_id") or "")
+            tools_dir_raw = os.environ.get("ARIA_TOOLS_DIR")
+            if request_id and tools_dir_raw:
+                try:
+                    from aria_kernel.agent_invocations import _find_request_by_id
+                    from aria_kernel.tool_registry import ensure_tools_dir as _etd
+
+                    full_row = _find_request_by_id(_etd(tools_dir_raw), request_id)
+                except Exception:
+                    full_row = None
+                if full_row:
+                    for key in ("tool_id", "run_id", "finding_id", "judgment_group_id"):
+                        if not gate_request.get(key) and full_row.get(key):
+                            gate_request[key] = full_row[key]
+        return validate_judge_response(
+            request=gate_request,
+            response={**envelope, "role": role},
+        )
     if role in ("primary_plan", "challenger_plan"):
         plan_content = envelope.get("plan_content")
         if not isinstance(plan_content, dict):
@@ -622,19 +735,12 @@ def _max_requests() -> int:
 def _max_timeout_seconds() -> int:
     return int(os.environ.get("MAX_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS))
 
-
-def _max_budget_usd() -> float:
-    """Legacy operator-tunable USD cap for API-key mode.
-
-    Default Claude Code execution uses managed-session auth and does not use
-    this value for billing control. It remains for compatibility with
-    older cost-cap heuristics only.
-    """
-    return float(os.environ.get("MAX_BUDGET_USD_PER_RUN", "2.0"))
-
-
-def _max_budget_usd_per_cycle() -> float:
-    return float(os.environ.get("MAX_BUDGET_USD_PER_CYCLE", "3.00"))
+# ORPHAN-HIGH-472 — `_max_budget_usd` and `_max_budget_usd_per_cycle` lived
+# here and are gone. Their own docstring already conceded the point ("Default
+# Claude Code execution uses managed-session auth and does not use this value
+# for billing control"), and after the dispatch gate moved to wall clock they
+# had no readers at all. A tunable that gates nothing is worse than no
+# tunable: an operator who lowers it believes they have tightened something.
 
 
 _TRUTHY_BOOL_VALUES: frozenset[str] = frozenset({"1", "true", "yes", "on"})
@@ -686,26 +792,36 @@ def _is_mock_mode() -> bool:
 _MOCK_MODE_AT_ENTRY: bool | None = None
 
 
-def _validate_cost_cap(*, request: dict[str, Any]) -> None:
-    """Reject requests whose budget shape exceeds the configured cap.
+def _validate_dispatch_budget(
+    *,
+    request: dict[str, Any],
+    tools_dir: str | Path,
+    timeout_seconds: int,
+) -> None:
+    """Refuse a dispatch that cannot finish inside the cycle's wall clock.
 
-    The kernel's request envelope MAY carry a hint of the expected
-    verdict cardinality (e.g. judges that scan many evidence_refs). When
-    a hint is absent the executor permits the run and lets the
-    Claude Code CLI's own --max-turns enforce the second layer.
+    ORPHAN-HIGH-472 — this used to gate on estimated DOLLARS against
+    MAX_BUDGET_USD_PER_CYCLE, and that number never described anything real.
+    ARIA runs its agents through the Claude Code CLI on a logged-in
+    subscription session (``claude_runtime`` is explicit that raw
+    ANTHROPIC_API_KEY billing is disallowed, and both workflows reject those
+    env vars), so there is no marginal per-run charge to cap. The USD figures
+    price tokens at API list rates: useful as telemetry, meaningless as a
+    gate. Four values disagreed by 40x — cost_budget's $0.50 per_run, the
+    workflow's $20.00 per-run AND $3.00 per-cycle in the same invocation, and
+    a ~$1.15 measured run — because none of them was measuring spend.
 
-    Plan ARIA-V8 §4 Phase 8.0 (B-V2-11) — the per-run dollar cap is
-    enforced separately via `aria_kernel.budget.reserve_cycle_budget`
-    + `reconcile_envelope_cost`; this function preserves the legacy
-    heuristic turn-count guard as a defense-in-depth pre-flight.
+    What is actually scarce is time: the shared subscription quota and CI
+    minutes. So the ceiling is wall-clock, derived from the lane's own pinned
+    job timeout, and the refusal happens BEFORE a run that could not have
+    finished is started.
+
+    The turn-count heuristic is kept as a second, independent pre-flight —
+    it bounds envelope shape rather than elapsed time.
     """
-    estimated_cost = _estimate_envelope_cost_usd(request=request)
-    cycle_cap = _max_budget_usd_per_cycle()
-    if estimated_cost > cycle_cap:
-        raise CostCapExceeded(
-            f"estimated envelope cost ${estimated_cost:.4f} exceeds "
-            f"MAX_BUDGET_USD_PER_CYCLE=${cycle_cap:.4f}"
-        )
+    _assert_cycle_wall_clock(
+        request=request, tools_dir=tools_dir, timeout_seconds=timeout_seconds
+    )
     expected_evidence_count = len(request.get("evidence_refs") or [])
     if expected_evidence_count > _max_turns() * 4:  # rough heuristic: 4 refs per turn
         raise CostCapExceeded(
@@ -714,35 +830,132 @@ def _validate_cost_cap(*, request: dict[str, Any]) -> None:
         )
 
 
-def _estimate_envelope_cost_usd(*, request: dict[str, Any]) -> float:
-    """Plan ARIA-V8 §4 Phase 8.0 (B-V2-11) — pessimistic per-envelope cost.
+def _wall_clock_cap_seconds() -> int | None:
+    """This lane's self-imposed ceiling, from the pinned workflow contract.
 
-    WHY: per-cycle budget reservation needs a number before the LLM call.
-    HOW: count evidence_refs as a proxy for input token volume (each
-    evidence_ref is ~50-200 input tokens), assume max_turns × 500
-    output tokens cap, price at $0.27/call (V8 worst-case per
-    performance-expert HIGH-003 numerical analysis).
+    Derived rather than configured so it cannot drift from the timeout the
+    runner actually enforces — ``_verify_job_timeout_minutes`` fails the
+    contract test if the YAML and the registry disagree.
     """
-    refs = len(request.get("evidence_refs") or [])
-    if refs >= 8:
-        base = 0.30  # heavy decision-node envelope
-    elif refs >= 3:
-        base = 0.18
-    else:
-        base = 0.10
-    # K4 (ORPHAN-MEDIUM-286) — model-aware reservation. Fable prices at 2x
-    # opus on both input and output; an opus-calibrated estimate under-
-    # reserves and trips the per-cycle cap mid-cycle. Resolution is
-    # fail-safe (unknown agent -> most expensive tier -> conservative 2x).
-    target_agent = str(request.get("target_agent") or "")
-    if target_agent:
-        try:
-            from aria_kernel.agent_runtime_profile import resolve_claude_model
-            if resolve_claude_model(target_agent) == "fable":
-                return base * 2.0
-        except Exception:
-            return base * 2.0
-    return base
+    from aria_kernel.workflow_contract_registry import cycle_wall_clock_cap_seconds
+
+    workflow_id = _current_workflow_id()
+    if workflow_id is None:
+        return None
+    return cycle_wall_clock_cap_seconds(workflow_id)
+
+
+def _current_workflow_id() -> str | None:
+    """Registry key for the workflow this process is running under.
+
+    GITHUB_WORKFLOW_REF looks like
+    ``owner/repo/.github/workflows/aria-agent-executor.yml@refs/heads/main``;
+    the registry keys on the file stem.
+    """
+    ref = os.environ.get("GITHUB_WORKFLOW_REF", "")
+    if not ref:
+        return None
+    path = ref.split("@", 1)[0]
+    stem = path.rsplit("/", 1)[-1]
+    for suffix in (".yml", ".yaml"):
+        if stem.endswith(suffix):
+            return stem[: -len(suffix)]
+    return stem or None
+
+
+def _record_run_wall_clock(
+    *,
+    request: dict[str, Any],
+    tools_dir: str | Path,
+    request_id: str,
+    seconds: float,
+) -> None:
+    """Book this run's elapsed time against its cycle.
+
+    Deliberately swallows its own failures: the ledger append is accounting,
+    and a bookkeeping error must not convert a completed agent run into a
+    failed one. The cost of missing a row is a cycle that over-runs its
+    ceiling once; the cost of raising here would be losing real work.
+    """
+    from aria_kernel.budget import record_run_wall_clock
+
+    cycle_id = request.get("cycle_id")
+    if not cycle_id:
+        return
+    try:
+        record_run_wall_clock(
+            cycle_id=str(cycle_id),
+            seconds=seconds,
+            base_dir=tools_dir,
+            request_id=request_id,
+        )
+    except Exception as exc:  # noqa: BLE001 — see docstring
+        sys.stderr.write(f"wall_clock_record_failed: {exc}\n")
+
+
+def _job_elapsed_seconds() -> float | None:
+    """Seconds since this workflow RUN started, from GitHub's own timestamp.
+
+    ORPHAN-CRITICAL-495 — the first version of this gate accounted against
+    ``request["cycle_id"]``, and 15 of 17 mint paths never set it, so the
+    ceiling was inert on essentially every dispatch: exactly the
+    written-tested-and-never-reached defect this branch exists to close, in
+    the commit that claimed to close it.
+
+    Elapsed-since-job-start is also the better question for this lane. The
+    executor handles ONE request per job, so there is no cycle total to
+    accumulate; what actually matters is whether a 30-minute run still fits
+    in what remains of a 35-minute job after restore, preflight and lease
+    checks have taken their share. ``GITHUB_RUN_STARTED_AT`` needs nothing
+    threaded through the envelope to answer that.
+    """
+    started = os.environ.get("GITHUB_RUN_STARTED_AT", "").strip()
+    if not started:
+        return None
+    try:
+        parsed = datetime.fromisoformat(started.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return max(0.0, (datetime.now(timezone.utc) - parsed).total_seconds())
+
+
+def _assert_cycle_wall_clock(
+    *,
+    request: dict[str, Any],
+    tools_dir: str | Path,
+    timeout_seconds: int,
+) -> None:
+    from aria_kernel.budget import WallClockExhausted
+
+    cap_seconds = _wall_clock_cap_seconds()
+    elapsed = _job_elapsed_seconds()
+    if cap_seconds is None or elapsed is None:
+        # Not in a recognised lane, or GitHub gave us no run timestamp. The
+        # per-run timeout still bounds this run; there is simply no job
+        # ceiling to measure it against.
+        return
+    remaining = cap_seconds - elapsed
+    if remaining < timeout_seconds:
+        raise WallClockExhausted(
+            f"job_wall_clock_exhausted: remaining={remaining:.0f}s "
+            f"< per_run_timeout={timeout_seconds}s "
+            f"(cap={cap_seconds}s elapsed={elapsed:.0f}s)"
+        )
+    # The run's actual duration is booked after it finishes, in the `finally`
+    # arm around invoke_claude_cli. Nothing is recorded here: a zero-second
+    # row at gate time would be noise in a ledger whose whole purpose is to
+    # answer how long things took.
+
+
+# ORPHAN-HIGH-472 — `_estimate_envelope_cost_usd` lived here. It priced an
+# envelope before the call so a USD reservation could be checked against a
+# cap. With the dispatch gate moved to wall clock it had no callers left, and
+# its output was never spend in the first place: under a subscription session
+# the number it produced was an API-list-price estimate of a call that is not
+# billed per token. Deleted rather than left as an unused helper, because the
+# next reader would reasonably assume something enforces it.
 
 
 def _try_reconcile_envelope_cost(*, envelope_id: str, actual_cost_usd: float, tools_dir: Path) -> None:
@@ -884,14 +1097,29 @@ def invoke_claude_cli(
                 "satisfaction_matrix": matrix,
                 "evidence_refs": [],
                 "details": {
+                    # Y5 (ORPHAN-706) — the mock envelope satisfies the SAME
+                    # judge contract the pre-submit gate enforces (verdict in
+                    # the closed set + resolvable ids), exactly like the eval
+                    # fixtures do. The old "uncertain" placeholder was an
+                    # envelope the bridge could never fold — the measured
+                    # defect class this contract exists to keep out. Mock
+                    # mode is env-gated and never on in production lanes;
+                    # the ci-mock fallbacks only fire when the request row
+                    # itself carries no judgment identity (test fixtures).
+                    "agent_subagent_type": subagent_type,
                     "verdict": {
-                        "verdict": "uncertain",
+                        "verdict": "false_positive",
                         "confidence": 0.5,
                         "judge_id": subagent_type,
                         "model": "mock",
+                        "tool_id": str((request_envelope or {}).get("tool_id") or "ci-mock"),
+                        "run_id": str((request_envelope or {}).get("run_id") or "ci-mock"),
+                        "finding_id": str((request_envelope or {}).get("finding_id") or "ci-mock"),
                         "rationale": "MOCK MODE — CI executor placeholder; real Claude Code CLI invocation not configured",
                         "evidence_refs": [],
-                        "judgment_group_id": "ci-mock",
+                        "judgment_group_id": str(
+                            (request_envelope or {}).get("judgment_group_id") or "ci-mock"
+                        ),
                         "severity": "low",
                     },
                 },
@@ -949,6 +1177,42 @@ def invoke_claude_cli(
     # unknown agent → most expensive tier.
     from aria_kernel.agent_runtime_profile import read_agent_runtime_profile
     agent_profile = read_agent_runtime_profile(subagent_type)
+    # ARIA-HIGH-002 — resolve the dispatch route BEFORE the claim is taken:
+    # the trusted request envelope names the agent/role, the frontmatter SSoT
+    # resolves the model, the redirect SSoT resolves the provider, and a
+    # drain can key its circuit on that route without claiming work. The
+    # provider/model fallback policy itself stays owned by claude_runtime.
+    _route_request: dict[str, Any] = {"role": role, "target_agent": subagent_type}
+    if isinstance(request_envelope, dict):
+        _route_request["target_agent"] = str(
+            request_envelope.get("target_agent") or subagent_type,
+        )
+    _dispatch_route = resolve_dispatch_route(
+        request=_route_request,
+        repo_root=Path(__file__).resolve().parents[2],
+    )
+    _summary_emitted = False
+
+    def _emit_dispatch_summary(
+        *, outcome: str, failure: DispatchFailure | None, exit_code: int | None,
+    ) -> None:
+        """Exactly one sanitized classified summary per terminal path."""
+        nonlocal _summary_emitted
+        if _summary_emitted:
+            return
+        _summary_emitted = True
+        try:
+            emit_dispatch_result_summary(
+                route=_dispatch_route,
+                request_id=request_id,
+                outcome=outcome,
+                failure=failure,
+                exit_code=exit_code,
+            )
+        except (OSError, ValueError) as summary_exc:
+            # The summary is telemetry; a dispatch outcome must never fail
+            # because the telemetry channel did. Name it on stderr instead.
+            sys.stderr.write(f"dispatch_summary_unwritable: {summary_exc}\n")
     try:
         # Model dispatch with the fable→opus fallback policy (credit + refusal),
         # applied by the claude_runtime SSoT helper. The executor supplies the
@@ -960,6 +1224,22 @@ def invoke_claude_cli(
                 timeout_seconds=timeout_seconds,
                 model=model,
                 effort=effort,
+                # E17-d — per-spawn usage accounting. This callsite is the
+                # seam where the full identity is in scope: request_id +
+                # envelope role + subagent_type are REQUIRED parameters of
+                # invoke_claude_cli (Plan 025 §B). tools_dir=None is the
+                # legacy/mock-only shape — no tools root, nothing to record
+                # into, same gate the cost_attribution row uses.
+                usage_recording=(
+                    UsageRecording(
+                        request_id=request_id,
+                        role=role,
+                        target_agent=subagent_type,
+                        base_dir=tools_dir,
+                    )
+                    if tools_dir is not None
+                    else None
+                ),
             )
 
         def _gov(event: str, payload: dict[str, Any]) -> None:
@@ -974,18 +1254,27 @@ def invoke_claude_cli(
             except Exception:
                 pass
 
+        # ORPHAN-HIGH-478 — the audit rows named the fable->opus@xhigh hop as a
+        # literal. Once the ladder gained a second rung those strings would have
+        # written factually false entries into an append-only, hash-chained
+        # governance ledger, which is the one artifact here that cannot be
+        # corrected after the fact.
+        _credit_fallback_target = MODEL_FALLBACK_TIER.get(agent_profile.model, "(none)")
+        _refusal_fallback_target = _credit_fallback_target
+
         def _on_credit(marker: dict[str, Any]) -> None:
             _gov("model_credit_fallback_attempted", {
                 "request_id": request_id,
                 "subagent_type": subagent_type,
                 "from_model": agent_profile.model,
-                "to_model": "opus",
-                "to_effort": "xhigh",
+                "to_model": _credit_fallback_target,
+                "to_effort": CREDIT_FALLBACK_EFFORT,
                 "credit_exhaustion": marker,
             })
             _stage(
                 f"model_credit_fallback request_id={request_id} "
-                f"marker={marker.get('matched_marker')!r} fable->opus@xhigh"
+                f"marker={marker.get('matched_marker')!r} "
+                f"{agent_profile.model}->{_credit_fallback_target}@{CREDIT_FALLBACK_EFFORT}"
             )
 
         def _on_refusal(refusal: dict[str, Any]) -> None:
@@ -993,12 +1282,13 @@ def invoke_claude_cli(
                 "request_id": request_id,
                 "subagent_type": subagent_type,
                 "from_model": agent_profile.model,
-                "to_model": "opus",
+                "to_model": _refusal_fallback_target,
                 "refusal": refusal,
             })
             _stage(
                 f"model_refusal_fallback request_id={request_id} "
-                f"category={refusal.get('category')!r} fable->opus"
+                f"category={refusal.get('category')!r} "
+                f"{agent_profile.model}->{_refusal_fallback_target}"
             )
 
         completed = run_with_model_fallback(
@@ -1047,15 +1337,43 @@ def invoke_claude_cli(
                         )
                 except (subprocess.TimeoutExpired, OSError) as _hr_exc:
                     sys.stderr.write(f"human-required record (refusal) failed: {_hr_exc}\n")
+            # ARIA-HIGH-002 — a model refusal is not a build failure: the
+            # summary says "refused", the escalation path stays as-is.
+            _emit_dispatch_summary(
+                outcome="refused", failure=None, exit_code=completed.returncode,
+            )
             raise ClaudeCliUnavailable(
                 "model_safety_refusal_unresolved: request "
                 f"{request_id} refused by {agent_profile.model} "
                 f"(category={completed.refusal.get('category')!r}); "
                 "escalated to HUMAN_REQUIRED"
             )
-    except (ClaudeAuthUnavailable, ClaudeCliUnavailable, ClaudePolicyViolation, ClaudeUsageUnavailable) as exc:
-        contract = "tools/aria-poc/ci_executor_contract_proven.md"
-        raise ClaudeCliUnavailable(f"{exc}; see {contract}") from exc
+    except (
+        ClaudeAuthUnavailable,
+        ClaudeCliUnavailable,
+        ClaudePolicyViolation,
+        ClaudeUsageUnavailable,
+        ClaudeAuthFailure,
+        ClaudeCreditExhausted,
+        ProviderRedirectUnavailable,
+        subprocess.TimeoutExpired,
+    ) as exc:
+        # ARIA-HIGH-002 — every terminal perimeter path writes exactly one
+        # sanitized classified summary before the exception travels on. The
+        # classification names the ORIGINAL condition; the translation below
+        # preserves the existing contract-reference wrapping unchanged.
+        _emit_dispatch_summary(
+            outcome="failed",
+            failure=classify_dispatch_failure(exception=exc, phase="spawn"),
+            exit_code=None,
+        )
+        if isinstance(
+            exc,
+            (ClaudeAuthUnavailable, ClaudeCliUnavailable, ClaudePolicyViolation, ClaudeUsageUnavailable),
+        ):
+            contract = "tools/aria-poc/ci_executor_contract_proven.md"
+            raise ClaudeCliUnavailable(f"{exc}; see {contract}") from exc
+        raise
     # Plan ARIA-V7 §2g v2 + V7.10 envelope-extraction fix.
     #
     # WHY: claude -p stream-json emits JSONL events
@@ -1088,6 +1406,7 @@ def invoke_claude_cli(
             role=role,
             subagent_type=subagent_type,
             must_satisfy=must_satisfy or [],
+            dispatch_model=agent_profile.model,
         )
         output_path.parent.mkdir(parents=True, exist_ok=True)
         _write_sanitized_envelope(output_path, envelope)
@@ -1112,6 +1431,11 @@ def invoke_claude_cli(
                 role=role,
                 request_id=request_id,
             )
+    _emit_dispatch_summary(
+        outcome="succeeded" if completed.returncode == 0 else "failed",
+        failure=classify_dispatch_failure(result=completed, phase="runtime"),
+        exit_code=completed.returncode,
+    )
     return completed.returncode
 
 
@@ -1190,14 +1514,41 @@ def _record_claude_cli_usage(
             actual_cost_usd = float(candidate_cost)
         break
     try:
-        from aria_kernel.budget import estimate_tokens_usd, record_cost_attribution
-        estimated_usd = (
-            actual_cost_usd
-            if actual_cost_usd is not None
-            else estimate_tokens_usd(
-                model=model, input_tokens=input_tokens, output_tokens=output_tokens,
-            )
+        from aria_kernel.budget import (
+            PRICING_SOURCE_FAMILY,
+            price_tokens,
+            record_cost_attribution,
         )
+        # ORPHAN-HIGH-476 — price_tokens, not estimate_tokens_usd: the bare
+        # float discards HOW the price was derived, so a family estimate would
+        # be filed as though it were a measured rate.
+        priced = price_tokens(
+            model=model, input_tokens=input_tokens, output_tokens=output_tokens,
+        )
+        estimated_usd = actual_cost_usd if actual_cost_usd is not None else priced.usd
+        if (
+            actual_cost_usd is None
+            and priced.source == PRICING_SOURCE_FAMILY
+            and (input_tokens or output_tokens)
+        ):
+            # A new model generation the exact table has not caught up with.
+            # The charge is real enough to keep the caps binding, but the
+            # operator needs to know it is inferred so the rate can be
+            # corrected — silence here is how an estimate becomes "the number".
+            try:
+                from aria_kernel.tool_registry import append_tools_governance
+                append_tools_governance(
+                    tools_dir,
+                    "cost_pricing_inferred_from_family",
+                    {
+                        "model": model,
+                        "matched_family": priced.matched_key,
+                        "estimated_usd": priced.usd,
+                        "request_id": request_id,
+                    },
+                )
+            except Exception:
+                pass
         if estimated_usd == 0.0 and (input_tokens or output_tokens):
             # Tokens were consumed but no price resolved — make the zero
             # loud instead of silently under-counting the caps.
@@ -1287,6 +1638,7 @@ def _build_envelope_from_claude_output(
     role: str,
     subagent_type: str,
     must_satisfy: list[dict[str, Any]],
+    dispatch_model: str | None = None,
 ) -> dict[str, Any]:
     """Convert ``claude -p stream-json`` JSONL into a kernel-valid envelope.
 
@@ -1358,7 +1710,21 @@ def _build_envelope_from_claude_output(
     details = envelope.get("details")
     if not isinstance(details, dict):
         details = {}
-    details.setdefault("agent_subagent_type", subagent_type)
+    # D1 (Kapalı Döngü) — FORCE-set, not setdefault: this field is now the
+    # judge's calibration identity (judgment_bridge reads it as judge_id),
+    # and a setdefault would let the agent's own payload spoof another
+    # judge's identity into the per-judge precision ledger.
+    details["agent_subagent_type"] = subagent_type
+    # ORPHAN-HIGH-781 — the dispatch-resolved model, same doctrine as
+    # agent_subagent_type above: FORCE-set from the runtime profile the
+    # executor resolved at invocation time. The judge's own
+    # verdict.model self-report remains in the payload as data, but the
+    # kernel's anchor distinct-model count must not trust a string the
+    # judged agent wrote about itself — a misreported model silently
+    # satisfies or violates ANCHOR_MIN_DISTINCT_MODELS, which is exactly
+    # the guarantee that field exists to provide.
+    if dispatch_model:
+        details["agent_dispatch_model"] = dispatch_model
     details.setdefault("agent_text", _safe_agent_text_excerpt(agent_text))
     usage = extract_usage(parse_claude_jsonl(raw_stdout))
     if usage is not None:
@@ -1395,7 +1761,7 @@ def _release_claim(
     fix adds ``--agent-id`` to the argv + the matching CLI flag
     registration in §B.1's cli.py change.
     """
-    subprocess.run(
+    released = subprocess.run(
         [
             "python3", "-m", "aria_kernel", "agent", "release",
             "--claim-id", claim_id,
@@ -1409,7 +1775,31 @@ def _release_claim(
             "PYTHONPATH": str(repo / "aria-kernel"),
             LEASE_TOKEN_ENV_VAR: lease_token,
         },
+        capture_output=True,
+        text=True,
     )
+    if released.returncode != 0:
+        # A release that FAILED used to be indistinguishable from a release
+        # that happened: the return code was never read, so a governance
+        # refusal, an expired lease or an agent-id mismatch left the claim in
+        # CLAIMED while the executor walked away reporting only its original
+        # error.
+        #
+        # That is a permanent queue leak, not a transient one. `PENDING` is
+        # reachable from `CLAIMED` ONLY through an explicit released/requeued
+        # event (agent_invocations.derive_request_state), and once the 30-minute
+        # lease expires the state derives `STALE`, which `next_pending_request`
+        # skips and `claim_request` refuses. Both exits are closed; the row is
+        # dead. Measured 2026-08-09: ten of twelve requests in that state.
+        detail = "\n".join(
+            part for part in (released.stdout or "", released.stderr or "") if part.strip()
+        ) or "(the release produced no output)"
+        sys.stderr.write(
+            f"::error::aria executor could not release claim {claim_id} "
+            f"(reason={reason}): "
+            + _redact_lease_in_message(detail, lease_token)
+            + ". The request stays CLAIMED and no later run can pick it up.\n"
+        )
 
 
 def _deserialise_inherited_claim_metadata(
@@ -1513,29 +1903,25 @@ def _on_disk_anchors(
     requests_path = tools_dir / "agent-invocations" / "requests.jsonl"
     claim_hash: str | None = None
     request_hash: str | None = None
+    # Late import keeps standalone/mock executor startup behavior unchanged.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "aria-kernel"))
+    from aria_kernel.ledger import load_declared_jsonl
+
     if claims_path.exists():
-        for raw in claims_path.read_text(encoding="utf-8").splitlines():
-            raw = raw.strip()
-            if not raw:
-                continue
-            try:
-                row = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
+        for row in load_declared_jsonl(
+            claims_path,
+            expected_surface="agent_invocation_claims",
+        ):
             if (
                 row.get("claim_id") == claim_id
                 and row.get("event") == "claimed"
             ):
                 claim_hash = row.get("ledger_hash")
     if requests_path.exists():
-        for raw in requests_path.read_text(encoding="utf-8").splitlines():
-            raw = raw.strip()
-            if not raw:
-                continue
-            try:
-                row = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
+        for row in load_declared_jsonl(
+            requests_path,
+            expected_surface="agent_invocation_requests",
+        ):
             if row.get("request_id") == request_id:
                 request_hash = row.get("ledger_hash")
     return claim_hash, request_hash
@@ -1572,12 +1958,82 @@ def _record_mock_mode_audit(tools_dir: Path) -> None:
     )
 
 
+def _pre_claim_environment_gate(*, tools_dir: Path) -> str | None:
+    """Refuse to CLAIM a request the environment cannot host (FAZ 5b).
+
+    The correct shape existed in the dead `--consume` loop: preflight the
+    Claude auth BEFORE touching the queue. The CI path claimed first and
+    discovered the broken environment after, so a night with no auth or no
+    sandbox burned a claim (and a requeue) per request — environment faults
+    priced as request failures, the same M-2.5 class as ORPHAN-HIGH-605/610.
+
+    Returns None when the dispatch can proceed, else the governance kind
+    recorded (`claude_auth_unavailable` / `sandbox_unavailable` /
+    `env_deps_missing`). On refusal the request is NEVER claimed: it stays
+    PENDING for a healthy host instead of consuming a lease + requeue here.
+    Mock mode skips the gate — a mock dispatch needs none of the surfaces.
+    """
+    if _MOCK_MODE_AT_ENTRY:
+        return None
+
+    kind: str | None = None
+    detail = ""
+    try:
+        preflight_claude_auth()
+    except (ClaudeAuthUnavailable, ClaudeCliUnavailable, ClaudePolicyViolation) as exc:
+        kind, detail = "claude_auth_unavailable", str(exc)
+    if kind is None and _sandbox_backend is not None and _sandbox_backend() is None:
+        kind, detail = "sandbox_unavailable", (
+            "sandbox_backend() returned None; write-capable spawns would be refused"
+        )
+    if kind is None and not (Path.cwd() / "node_modules").is_dir():
+        kind, detail = "env_deps_missing", (
+            "workspace has no node_modules; agent validation commands cannot run"
+        )
+    if kind is None:
+        return None
+
+    sys.stderr.write(f"::error::pre_claim_environment_gate: {kind}: {detail}\n")
+    if _append_tools_governance is not None:
+        try:
+            _append_tools_governance(
+                tools_dir,
+                kind,
+                {
+                    "source": "ci_executor_pre_claim_gate",
+                    "detail": detail,
+                    "run_id": os.environ.get("GITHUB_RUN_ID", "local"),
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 — a governance-write failure
+            # must not mask the environment refusal it is trying to record.
+            sys.stderr.write(f"governance_write_failed: {exc}\n")
+    return kind
+
+
 def main(argv: list[str] | None = None) -> int:
     """Entry point — runs one cycle. Designed to be called by GHA step."""
     args = argv if argv is not None else sys.argv[1:]
     if len(args) < 1:
-        print("usage: ci_executor.py <request_id> [subagent_type]", file=sys.stderr)
+        print(
+            "usage: ci_executor.py <request_id> [subagent_type] | --drain",
+            file=sys.stderr,
+        )
         return 2
+
+    if args[0] == "--drain":
+        # Batch consumption for the scheduled lane. The loop lives in its own
+        # module (ci_executor_drain) so this engine file stops growing; the
+        # import is local because drain imports THIS module for its stage
+        # logger and governance binding.
+        from ci_executor_drain import drain_pending
+
+        repo_root = Path.cwd().resolve()
+        env_tools = os.environ.get("ARIA_TOOLS_DIR")
+        drain_tools_dir = (
+            Path(env_tools).resolve() if env_tools else repo_root / "aria-tools"
+        )
+        return drain_pending(tools_dir=drain_tools_dir, repo_root=repo_root)
 
     # Plan ARIA-V3.1-D2 — frozen mock-mode sentinel at main() entry
     # (closes ai-safety HIGH-007). Pre-V3.1-D2 every cost-attribution
@@ -1649,6 +2105,13 @@ def main(argv: list[str] | None = None) -> int:
         claim_id = claim["claim_id"]
         agent_id = str(claim["agent_id"])
     else:
+        # FAZ 5b — environment gate BEFORE the claim. Single-claim mode skips
+        # it deliberately: the claim already exists there (the planner made
+        # it), so the request is already spent from the queue's perspective
+        # and refusing here would strand a held lease instead of saving one.
+        gate_kind = _pre_claim_environment_gate(tools_dir=tools_dir)
+        if gate_kind is not None:
+            return 1
         # Step 1 — claim the request through the kernel CLI.
         claim_proc = subprocess.run(
             [
@@ -1689,35 +2152,32 @@ def main(argv: list[str] | None = None) -> int:
     # would operate on a stale envelope. Reading from the fused
     # response closes the race AND eliminates one subprocess hop per
     # cycle (lower latency).
-    request_envelope = {
-        "request_id": request_id,
-        "expected_output_path": claim.get("expected_output_path"),
-        "role": claim.get("role"),
-        "must_satisfy": claim.get("must_satisfy") or [],
-        "allowed_scope": claim.get("allowed_scope") or [],
-        "evidence_refs": claim.get("evidence_refs") or [],
-        # Plan ARIA-V7 §2g v2 — additional fields surfaced into the
-        # envelope dict so the prompt template can render them for
-        # the agent. Pre-V7 the dict held only the 4 fields above;
-        # the agent contract requires target_agent / convergence_id
-        # / suggested_prompt to bind the request to the convergence
-        # loop and to read the operator's intent.
-        "target_agent": claim.get("target_agent") or subagent_type,
-        "convergence_id": claim.get("convergence_id"),
-        "suggested_prompt": claim.get("suggested_prompt"),
-        "forbidden_scope": claim.get("forbidden_scope") or [],
-        "impact_graph_refs": claim.get("impact_graph_refs") or [],
-        "validation_commands": claim.get("validation_commands") or [],
-        "context_hash": claim.get("context_hash"),
-        "prompt_hash": claim.get("prompt_hash"),
-        "context_ledger_hash": claim.get("context_ledger_hash"),
-        "prompt_ledger_hash": claim.get("prompt_ledger_hash"),
-        # Plan 026R §B.5 anchors — verified by ci_executor at envelope
-        # deserialise time when the planner-hook single-claim env-var
-        # contract delivers the metadata.
-        "claim_ledger_hash": claim.get("claim_ledger_hash"),
-        "request_ledger_hash": claim.get("request_ledger_hash"),
-    }
+    # The envelope is the kernel's OWN projection of the claim response, not a
+    # copy maintained here. This function used to hand-build the dict —
+    # `claim.get("forbidden_scope") or []`, no `repository_map` — which is the
+    # same defect the kernel-side fusion fix closed, one layer up: `or []`
+    # turns absence into an empty value, the renderer distinguishes the two,
+    # and the dropped map deleted the whole `## Repository map` section from
+    # the re-render. Net effect, measured on run 31330288849: the binding
+    # check compared the hash of the row against the hash of this copy and
+    # failed for every request that carried a map — after the kernel fix had
+    # already landed. One projection, owned by the kernel, ends the class.
+    if _fuse_prompt_envelope is None:
+        sys.stderr.write("kernel_prompt_renderer_unavailable\n")
+        _release_claim(
+            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+            agent_id=agent_id, lease_token=lease_token,
+            reason="kernel_prompt_renderer_unavailable",
+        )
+        return 1
+    request_envelope = _fuse_prompt_envelope(claim)
+    request_envelope.setdefault("request_id", request_id)
+    # Operational anchors, NOT prompt material: the renderer never reads
+    # these, so carrying them cannot perturb the binding. claim/request
+    # ledger hashes feed the §B.5 metadata-tamper check.
+    for anchor in ("claim_ledger_hash", "request_ledger_hash"):
+        if claim.get(anchor) is not None:
+            request_envelope[anchor] = claim[anchor]
     if not request_envelope.get("expected_output_path"):
         sys.stderr.write(
             f"request_envelope_missing_expected_output_path: "
@@ -1741,18 +2201,31 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     expected_output_path = Path(request_envelope["expected_output_path"])
 
+    from aria_kernel.budget import WallClockExhausted
+
     try:
-        _validate_cost_cap(request=request_envelope)
-    except CostCapExceeded as exc:
-        sys.stderr.write(f"cost_cap_exceeded: {exc}\n")
+        _validate_dispatch_budget(
+            request=request_envelope,
+            tools_dir=tools_dir,
+            timeout_seconds=_max_timeout_seconds(),
+        )
+    except (CostCapExceeded, WallClockExhausted) as exc:
+        sys.stderr.write(f"dispatch_budget_refused: {exc}\n")
         # Plan 025 §B — release via the shared helper so every fail-
         # fast branch in ``main()`` releases the lease deterministically
         # (no claim row leaked in CLAIMED state until lease expiry).
+        #
+        # ORPHAN-HIGH-472 — releasing is what makes the wall-clock refusal
+        # worth having. The request goes back on the queue for the next
+        # cycle instead of being started with less time left than its own
+        # timeout, which is the case that would have been killed mid-flight
+        # by the runner with the lease still held.
         _release_claim(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
-            agent_id=agent_id, lease_token=lease_token, reason="cost_cap_exceeded",
+            agent_id=agent_id, lease_token=lease_token,
+            reason="dispatch_budget_refused",
         )
-        return 0  # cost-cap exceedance is a budget signal, NOT a build failure
+        return 0  # a budget signal, NOT a build failure
 
     # Plan ARIA-V7 §2g v2 — write the request's suggested_prompt to
     # the canonical prompts/ path BEFORE invoking the CLI. Pre-V7
@@ -1790,6 +2263,8 @@ def main(argv: list[str] | None = None) -> int:
 
     timeout = _max_timeout_seconds()
     transcript_output_path = expected_output_path.with_suffix(".transcript.jsonl")
+    _publish_artifact_paths(expected_output_path, transcript_output_path)
+    _run_started_at = time.monotonic()
     try:
         # Plan 024 v3 §B-8 — pass real lease identity + role from
         # request row into the mock envelope writer. claim_id +
@@ -1818,9 +2293,63 @@ def main(argv: list[str] | None = None) -> int:
             request_envelope=request_envelope,
             tools_dir=tools_dir,
         )
-    except ClaudeCliUnavailable as exc:
-        sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")
+    except ClaudeAuthFailure as exc:
+        # An expired session is not "the agent ran and failed" — nothing ran.
+        # It was released as a generic `claude_cli_exit_1` for five consecutive
+        # nights (2026-08-04 → 08) while the whole judgment → consensus →
+        # calibration → gold-corpus chain stayed empty, because no signal named
+        # the cause. The `::error::` is deliberate: this is the one failure a
+        # human must clear, and the remedy travels with it.
+        sys.stderr.write(
+            "::error::aria executor cannot authenticate the agent runtime: "
+            + _redact_lease_in_message(str(exc), lease_token)
+            + ". No agent ran, so no result was submitted.\n"
+        )
+        _release_claim(
+            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+            agent_id=agent_id, lease_token=lease_token,
+            reason="claude_cli_auth_failure",
+        )
         return 1
+    except (ClaudeCliUnavailable, ClaudeCreditExhausted) as exc:
+        sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")
+        # ORPHAN-HIGH-489 — ClaudeCreditExhausted belongs here too. I added that
+        # raise in ORPHAN-HIGH-475 so a quota notice could not be returned as
+        # the agent's answer, and then left it in nobody's handler: exactly the
+        # ResourceLimitsUnavailable defect one release earlier, in my own code.
+        # A quota-exhausted run would escape main() with the claim CLAIMED, so
+        # a billing event — the most likely reason to run out mid-cycle — would
+        # also block the request for the full lease window. Found by the review
+        # panel while attacking the ResourceLimitsUnavailable fix.
+        # ORPHAN-HIGH-470 follow-through — this arm is the landing site for
+        # every refused spawn: `invoke_claude_cli` re-raises the whole
+        # perimeter family (auth / CLI / policy / usage — policy now including
+        # the translated `ResourceLimitsUnavailable`) as ClaudeCliUnavailable.
+        # It used to `return 1` with the claim still CLAIMED, so a refusal
+        # caused by a missing limiter or sandbox blocked the request for the
+        # full lease window and the next cycle found nothing to do — strictly
+        # worse than the crash it replaced. The CLI-exit and submit-failure arms
+        # below both release; this arm now matches them. (An earlier draft of
+        # this comment claimed EVERY fail-fast branch in main() releases — a
+        # reviewer flagged that as unverified, and it is narrowed here rather
+        # than left as a claim nobody checked.)
+        _release_claim(
+            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+            agent_id=agent_id, lease_token=lease_token,
+            reason="claude_spawn_refused",
+        )
+        return 1
+    finally:
+        # ORPHAN-HIGH-472 — in `finally`, so a run that timed out or was
+        # refused still books the time it burned. Recording only successful
+        # runs would under-count precisely in the case the ceiling exists to
+        # catch: a cycle whose runs keep dying slowly.
+        _record_run_wall_clock(
+            request=request_envelope,
+            tools_dir=tools_dir,
+            request_id=request_id,
+            seconds=time.monotonic() - _run_started_at,
+        )
 
     if cli_exit != 0:
         sys.stderr.write(f"claude exec exited {cli_exit}\n")
@@ -1947,21 +2476,42 @@ def main(argv: list[str] | None = None) -> int:
                 _write_sanitized_envelope(expected_output_path, _envelope_for_validation)
             except OSError as _exc:
                 _stage(f"canonicalize_write_failed: {_exc}")
+        _role_for_validation = str(request_envelope.get("role") or "")
         validation_errors = _pre_submit_validate_envelope(
             _envelope_for_validation,
-            role=str(request_envelope.get("role") or ""),
+            role=_role_for_validation,
+            request=request_envelope,
         )
         if validation_errors:
             _stage(f"pre_submit_validation_FAILED errors={validation_errors}")
             sys.stderr.write(
                 f"plan_content_pre_submit_rejected: {','.join(validation_errors)}\n"
             )
+            # Y5 (ORPHAN-706) — a judge contract violation is a HARNESS-class
+            # release (the malformed output says nothing about the request;
+            # re-judging usually succeeds), with the field-level errors in
+            # the log line above so the operator sees WHICH field was wrong.
+            # Plan-content violations keep their request-fault pricing.
+            if _role_for_validation in ("evidence_judgment", "adversarial_judgment"):
+                _release_reason = "judge_verdict_contract_violation"
+            else:
+                _release_reason = f"plan_content_invalid:{','.join(validation_errors)[:160]}"
             _release_claim(
                 tools_dir=tools_dir, repo=repo, claim_id=claim_id,
                 agent_id=agent_id, lease_token=lease_token,
-                reason=f"plan_content_invalid:{','.join(validation_errors)[:160]}",
+                reason=_release_reason,
             )
-            return 1
+            # ORPHAN-HIGH-737 — a REFUSED envelope is this executor doing its
+            # job, not failing it: the contract caught a malformed agent
+            # output, the claim is released above, the request stays pending
+            # with its Y1 retry budget, and the reason is in the ledger. The
+            # two sibling refusal arms already say so in their own comments
+            # ("refusal is a legitimate terminal — not a build failure",
+            # "a budget signal, NOT a build failure"); this one returned 1
+            # and, through the drain's `0 if failed == 0 else 1`, painted a
+            # 10-of-11 night RED — the honest-partial-red class ORPHAN-716
+            # closed for the meta-watchdog, still open here.
+            return 0
         _stage("pre_submit_validation_passed")
 
     _stage("submit_step_begin claim=" + claim_id)
@@ -1984,21 +2534,32 @@ def main(argv: list[str] | None = None) -> int:
             encoding="utf-8",
         )
     _transcript_hash = "sha256:" + hashlib.sha256(transcript_output_path.read_bytes()).hexdigest()
+    # ARIA-HIGH-022 — implementer agents cite the POST-FIX lines of files
+    # they changed; graded against the request's base SHA every genuine fix
+    # was worktree_candidate and the submit died. Ground the evidence check
+    # at this worktree's committed HEAD when it has moved past the request
+    # base — submit_claim_result proves the descent fail-closed.
+    submit_argv = [
+        "python3", "-m", "aria_kernel", "agent", "submit-result",
+        "--claim-id", claim_id,
+        "--agent-id", agent_id,
+        "--lease-token-from-env", LEASE_TOKEN_ENV_VAR,
+        "--output-path", str(expected_output_path),
+        "--workspace-root", str(repo),
+        "--tools-dir", str(tools_dir),
+        "--context-hash", str(request_envelope.get("context_hash") or ""),
+        "--prompt-hash", str(request_envelope.get("prompt_hash") or ""),
+        "--transcript-hash", _transcript_hash,
+        "--transcript-artifact-ref", transcript_output_path.resolve().as_posix(),
+    ]
+    # "auto": the kernel CLI resolves the workspace HEAD and grounds the
+    # evidence check there when it has moved past the request base — one
+    # flag, no extra subprocess on this side (the fused-envelope smoke
+    # contract counts subprocess calls).
+    submit_argv += ["--evidence-target-sha", "auto"]
     try:
         submit_proc = subprocess.run(
-            [
-                "python3", "-m", "aria_kernel", "agent", "submit-result",
-                "--claim-id", claim_id,
-                "--agent-id", agent_id,
-                "--lease-token-from-env", LEASE_TOKEN_ENV_VAR,
-                "--output-path", str(expected_output_path),
-                "--workspace-root", str(repo),
-                "--tools-dir", str(tools_dir),
-                "--context-hash", str(request_envelope.get("context_hash") or ""),
-                "--prompt-hash", str(request_envelope.get("prompt_hash") or ""),
-                "--transcript-hash", _transcript_hash,
-                "--transcript-artifact-ref", transcript_output_path.resolve().as_posix(),
-            ],
+            submit_argv,
             capture_output=True,
             text=True,
             env={
@@ -2023,8 +2584,35 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     _stage(f"submit_step_done rc={submit_proc.returncode}")
     if submit_proc.returncode != 0:
+        # STDOUT as well as stderr, and this is the whole point: the kernel CLI
+        # prints a refusal as JSON on STDOUT and returns nonzero, leaving
+        # stderr EMPTY. Forwarding only stderr produced a log that said
+        # `submit_step_done rc=1` and nothing else — on 2026-08-09 the actual
+        # reason (44 evidence refs rejected) was only readable by pulling the
+        # result row out of the aria/state branch afterwards.
+        #
+        # Same defect class as the swallowed CLI error one step earlier: a
+        # failure that reports its existence but not its cause costs a full
+        # round trip every time, and it cost days here.
+        detail = "\n".join(
+            part
+            for part in (submit_proc.stdout or "", submit_proc.stderr or "")
+            if part.strip()
+        ) or "(the submit step produced no output on either stream)"
         sys.stderr.write(
-            _redact_lease_in_message(submit_proc.stderr, lease_token) + "\n"
+            "::error::aria executor could not submit the agent result: "
+            + _redact_lease_in_message(detail, lease_token)
+            + "\n"
+        )
+        # Release, like every other failure path in this function does. This
+        # was the one exit that did not, and a rejected result therefore held
+        # its claim forever — the request could never be retried by anyone.
+        # Runaway retries are already bounded: DEFAULT_MAX_REQUEUES caps the
+        # requeue count and the state then derives HUMAN_REQUIRED.
+        _release_claim(
+            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+            agent_id=agent_id, lease_token=lease_token,
+            reason="submit_rejected",
         )
         return 1
     return 0

@@ -2,7 +2,7 @@
  * Create Chemical Input DTO
  */
 import { InputType, Field, Int, Float, ID } from '@nestjs/graphql';
-import { IsNotEmpty, IsString, IsOptional, IsNumber, MaxLength, MinLength, IsEnum, IsArray, ValidateNested, IsUUID } from 'class-validator';
+import { IsNotEmpty, IsString, IsOptional, IsNumber, IsBoolean, MaxLength, MinLength, IsEnum, IsArray, ValidateNested, IsUUID } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ChemicalType } from '../entities/chemical.entity';
 
@@ -119,6 +119,11 @@ export class UsageProtocolInput {
   @IsOptional()
   @IsArray()
   precautions?: string[];
+
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsBoolean()
+  prescriptionRequired?: boolean;
 
   @Field({ nullable: true })
   @IsOptional()

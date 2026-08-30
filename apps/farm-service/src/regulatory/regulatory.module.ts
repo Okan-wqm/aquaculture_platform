@@ -12,6 +12,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
 
 import { BatchModule } from '../batch/batch.module';
 import { Site } from '../site/entities/site.entity';
@@ -42,10 +43,13 @@ import { ListBiomassReportsForSiteHandler } from './handlers/list-biomass-report
 
 // Server-side report assembly (automated-reporting plan Phase 1)
 import { BiomassReportAssembler } from './assembly/biomass.assembler';
+import { DiseaseReportAssembler } from './assembly/assemblers/disease.assembler';
+import { EscapeReportAssembler } from './assembly/assemblers/escape.assembler';
 import { LakselusReportAssembler } from './assembly/assemblers/lakselus.assembler';
 import { RensefiskReportAssembler } from './assembly/assemblers/rensefisk.assembler';
 import { SettefiskReportAssembler } from './assembly/assemblers/settefisk.assembler';
 import { SlaktReportAssembler } from './assembly/assemblers/slakt.assembler';
+import { WelfareReportAssembler } from './assembly/assemblers/welfare.assembler';
 import { WaterTemperatureService } from '../water-quality/services/water-temperature.service';
 import { ReportAssemblyService } from './assembly/report-assembly.service';
 import { GetReportPrefillHandler } from './handlers/get-report-prefill.handler';
@@ -64,6 +68,10 @@ import { GetRegulatoryReportSummaryHandler } from './handlers/get-regulatory-rep
 @Module({
   imports: [
     ConfigModule,
+    // The Maskinporten + Mattilsynet clients wrap their outbound calls in the
+    // canonical per-tenant circuit breaker (fail-closed) so one tenant's failing
+    // government integration cannot cascade to others.
+    CircuitBreakerModule,
     TypeOrmModule.forFeature([
       RegulatorySettings,
       BiomassReport,
@@ -102,6 +110,9 @@ import { GetRegulatoryReportSummaryHandler } from './handlers/get-regulatory-rep
     SettefiskReportAssembler,
     RensefiskReportAssembler,
     SlaktReportAssembler,
+    EscapeReportAssembler,
+    WelfareReportAssembler,
+    DiseaseReportAssembler,
     // Same local-provider pattern feeding.module/equipment.module use — the
     // service only injects DataSource; no module cycle with water-quality.
     WaterTemperatureService,

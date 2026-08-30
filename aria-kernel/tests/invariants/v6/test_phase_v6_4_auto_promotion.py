@@ -118,15 +118,29 @@ class PhaseV6_4AutoPromotion(unittest.TestCase):
         the OR clauses or replaces evidence_chains_valid with a
         helper call breaks this invariant — fails CI before merge.
 
+        JJ-2b (ORPHAN-HIGH-732) REWROTE this pin rather than deleting it.
+        The gate names THREE authorities (operator ref, auto-promote
+        token, panel-approval token) because promotion became panel-approved
+        with an operator veto window. What the pin protects is unchanged and
+        is why it is rewritten instead of relaxed: evidence_chains_valid
+        stays the LAST clause, so no authority can ever buy its way past
+        evidence integrity.
+
+        ORPHAN-HIGH-787 rewrote it AGAIN, same doctrine: the auto-promote
+        authority is now `_auto_promote_verified` — the consume-time MAC
+        verification of the token envelope — not the token's PRESENCE.
+        A refactor back to `not auto_promote_token` re-opens the
+        accepts-on-presence hole and must fail here.
+
         The exact predicate (load-bearing order):
 
-            if (not operator_approval and not auto_promote_token) or not evidence_chains_valid:
+            if (not operator_approval and not _auto_promote_verified and not panel_approval_token) or not evidence_chains_valid:
         """
         import aria_kernel.tool_registry as mod
         src = inspect.getsource(mod.transition_tool)
         literal_predicate = (
-            "if (not operator_approval and not auto_promote_token) "
-            "or not evidence_chains_valid:"
+            "if (not operator_approval and not _auto_promote_verified "
+            "and not panel_approval_token) or not evidence_chains_valid:"
         )
         self.assertIn(
             literal_predicate, src,
@@ -140,6 +154,10 @@ class PhaseV6_4AutoPromotion(unittest.TestCase):
                 "Restore the literal predicate to fix this invariant."
             ),
         )
+        # And the verification must actually consult the verifier — a
+        # predicate variable named _auto_promote_verified that nothing
+        # assigns from verify_auto_promote_token would be a Potemkin gate.
+        self.assertIn("verify_auto_promote_token(", src)
         # And auto_promote_token must be in the signature.
         sig = inspect.signature(mod.transition_tool)
         self.assertIn(

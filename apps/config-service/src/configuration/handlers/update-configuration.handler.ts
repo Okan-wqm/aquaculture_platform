@@ -7,16 +7,21 @@ import {
 } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { DataSource, QueryRunner } from 'typeorm';
+import { OutboxPublisher } from '@platform/outbox';
+import { TenantErasureTombstoneError } from '@aquaculture/backend-common/compliance';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { UpdateConfigurationCommand } from '../commands/update-configuration.command';
 import {
   Configuration,
   ConfigurationHistory,
   ConfigValueType,
 } from '../entities/configuration.entity';
+import { emitConfigurationChanged } from '../events/emit-configuration-changed';
 import { ConfigurationService } from '../services/configuration.service';
 import { ConfigurationValidationService } from '../services/configuration-validation.service';
 import { EncryptionService } from '../services/encryption.service';
-import { tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { assertTenantConfigurationNotErased } from '../services/configuration-erasure-fence';
+import { pinRlsTenantScope } from '../../database/rls-scoped-session';
 
 @Injectable()
 @CommandHandler(UpdateConfigurationCommand)
@@ -30,6 +35,7 @@ export class UpdateConfigurationHandler
     private readonly configurationService: ConfigurationService,
     private readonly validationService: ConfigurationValidationService,
     private readonly encryptionService: EncryptionService,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: UpdateConfigurationCommand): Promise<Configuration> {
@@ -40,6 +46,8 @@ export class UpdateConfigurationHandler
     await queryRunner.startTransaction('READ COMMITTED');
 
     try {
+      await pinRlsTenantScope(queryRunner, tenantId);
+      await assertTenantConfigurationNotErased(queryRunner, tenantId);
       const configRepo = tenantManagerRepo(queryRunner.manager, Configuration, tenantId);
       const historyRepo = tenantManagerRepo(queryRunner.manager, ConfigurationHistory, tenantId);
 
@@ -80,13 +88,22 @@ export class UpdateConfigurationHandler
 
       if (input.value !== undefined) {
         this.validationService.validateValue(input.value, nextValueType);
+        if (nextWillBeSecret && !this.encryptionService.isAvailable()) {
+          throw new InternalServerErrorException(
+            'Secret configuration writes require CONFIG_ENCRYPTION_KEY',
+          );
+        }
       }
 
       // Encrypt new value if this is a secret config
       // PLAT-HIGH-003: Pass tenantId + key as AAD to bind ciphertext to context
       if (input.value !== undefined) {
-        if (nextWillBeSecret && this.encryptionService.isAvailable()) {
-          configuration.value = this.encryptionService.encrypt(input.value, configuration.tenantId, configuration.key);
+        if (nextWillBeSecret) {
+          configuration.value = this.encryptionService.encrypt(
+            input.value,
+            configuration.tenantId,
+            configuration.key,
+          );
         } else {
           configuration.value = input.value;
         }
@@ -124,6 +141,14 @@ export class UpdateConfigurationHandler
         await historyRepo.save(history);
       }
 
+      // ARCH-MEDIUM-003: emit the change signal atomically with the write.
+      await emitConfigurationChanged(
+        this.outboxPublisher,
+        queryRunner.manager,
+        savedConfig,
+        userId,
+      );
+
       await queryRunner.commitTransaction();
 
       this.configurationService.invalidateCache(tenantId, savedConfig.service, savedConfig.key);
@@ -135,6 +160,10 @@ export class UpdateConfigurationHandler
       return savedConfig;
     } catch (error) {
       await queryRunner.rollbackTransaction();
+
+      if (error instanceof TenantErasureTombstoneError) {
+        throw error;
+      }
 
       if (error instanceof NotFoundException || error instanceof BadRequestException) {
         throw error;

@@ -1,10 +1,13 @@
 import { DataSource } from 'typeorm';
-import { SourceSchemaScanner, WatchdogViolation } from '../watchdog/source-schema-scanner';
+
+import { MODULE_SCHEMAS } from '../schema-manager.service';
+import type { ModuleSchema } from '../schema-manager.service';
+import { getTenantSchemaName, listTenantSchemas } from '../tenant-schema.utils';
 import { CrossTenantProbe } from '../watchdog/cross-tenant-probe';
 import { SchemaDriftDetector } from '../watchdog/schema-drift-detector';
+import { SourceSchemaScanner } from '../watchdog/source-schema-scanner';
 import { WatchdogRunner } from '../watchdog/watchdog-runner';
-import { MODULE_SCHEMAS } from '../schema-manager.service';
-import { getTenantSchemaName } from '../tenant-schema.utils';
+import type { WatchdogReport } from '../watchdog/watchdog-runner';
 
 /**
  * Watchdog Integration Tests
@@ -17,19 +20,22 @@ import { getTenantSchemaName } from '../tenant-schema.utils';
  * Requires: DATABASE_HOST, DATABASE_PORT, DATABASE_USER, DATABASE_PASSWORD, DATABASE_NAME
  */
 
-const TEST_TENANT_ID_A = 'aaaa1111-bbbb-cccc-dddd-eeeeeeeeee01';
-const TEST_TENANT_ID_B = 'aaaa1111-bbbb-cccc-dddd-eeeeeeeeee02';
+const TEST_TENANT_ID_A = 'a1aa1111-bbbb-4ccc-8ddd-eeeeeeeeee01';
+const TEST_TENANT_ID_B = 'b2bb2222-cccc-4ddd-8eee-ffffffff0002';
+const SCANNER_SOURCE_SCHEMA = 'watchdog_source_fixture';
+const SCANNER_TEST_TABLE = 'source_contamination_fixture';
+const scannerFixtureModule: ModuleSchema = {
+  moduleName: 'watchdog-integration-fixture',
+  sourceSchema: SCANNER_SOURCE_SCHEMA,
+  tables: [SCANNER_TEST_TABLE],
+};
 
 describe('Watchdog Integration Tests', () => {
   let dataSource: DataSource;
+  let createdAuthSchema = false;
+  let createdAuthTenantsTable = false;
   const schemaA = getTenantSchemaName(TEST_TENANT_ID_A);
   const schemaB = getTenantSchemaName(TEST_TENANT_ID_B);
-
-  // Pick a module that has tables we can test with -- sensor module has 'sensors' table
-  const testModule = MODULE_SCHEMAS.find(m => m.moduleName === 'sensor');
-  // We need a table that is NOT a reference data table
-  const testTable = 'sensors';
-  const testRefTable = testModule?.referenceDataTables?.[0]; // e.g. 'sensor_protocols'
 
   beforeAll(async () => {
     dataSource = new DataSource({
@@ -41,122 +47,102 @@ describe('Watchdog Integration Tests', () => {
       database: process.env['DATABASE_NAME'] || 'aquaculture',
     });
     await dataSource.initialize();
+
+    const authSchemaExists: { exists: boolean }[] = await dataSource.query(
+      `SELECT EXISTS (
+         SELECT 1 FROM information_schema.schemata WHERE schema_name = 'auth'
+       ) AS exists`,
+    );
+    createdAuthSchema = authSchemaExists[0]?.exists !== true;
+    await dataSource.query('CREATE SCHEMA IF NOT EXISTS "auth"');
+
+    const authTenantsExists: { exists: boolean }[] = await dataSource.query(
+      `SELECT to_regclass('auth.tenants') IS NOT NULL AS exists`,
+    );
+    createdAuthTenantsTable = authTenantsExists[0]?.exists !== true;
+    if (createdAuthTenantsTable) {
+      await dataSource.query(`
+        CREATE TABLE "auth"."tenants" (
+          id UUID PRIMARY KEY,
+          name TEXT NOT NULL,
+          slug TEXT NOT NULL UNIQUE,
+          status TEXT NOT NULL
+        )
+      `);
+    }
   }, 30_000);
 
   afterAll(async () => {
-    // Cleanup all test artifacts
-    try {
+    if (dataSource.isInitialized) {
       await dataSource.query(`DROP SCHEMA IF EXISTS "${schemaA}" CASCADE`);
       await dataSource.query(`DROP SCHEMA IF EXISTS "${schemaB}" CASCADE`);
-    } catch {
-      // Ignore
+      await dataSource.query(`DROP SCHEMA IF EXISTS "${SCANNER_SOURCE_SCHEMA}" CASCADE`);
+      if (createdAuthTenantsTable) {
+        await dataSource.query('DROP TABLE "auth"."tenants"');
+      }
+      if (createdAuthSchema) {
+        await dataSource.query('DROP SCHEMA "auth"');
+      }
+      await dataSource.destroy();
     }
-    await dataSource.destroy();
   }, 15_000);
 
   describe('SourceSchemaScanner', () => {
-    const scannerTestTable = '__watchdog_test_source_contamination';
-
     afterEach(async () => {
-      // Clean up: remove test data from source schema
-      try {
-        await dataSource.query(
-          `DROP TABLE IF EXISTS "sensor"."${scannerTestTable}"`,
-        );
-      } catch {
-        // Ignore
+      const fixtureIndex = MODULE_SCHEMAS.indexOf(scannerFixtureModule);
+      if (fixtureIndex >= 0) {
+        MODULE_SCHEMAS.splice(fixtureIndex, 1);
       }
+      await dataSource.query(`DROP SCHEMA IF EXISTS "${SCANNER_SOURCE_SCHEMA}" CASCADE`);
     });
 
-    it('should return empty violations when source schemas are clean', async () => {
+    it('should not report a queryable source table with no rows', async () => {
+      await dataSource.query(`CREATE SCHEMA "${SCANNER_SOURCE_SCHEMA}"`);
+      await dataSource.query(
+        `CREATE TABLE "${SCANNER_SOURCE_SCHEMA}"."${SCANNER_TEST_TABLE}" (
+          id SERIAL PRIMARY KEY
+        )`,
+      );
+      MODULE_SCHEMAS.push(scannerFixtureModule);
+
       const scanner = new SourceSchemaScanner(dataSource);
       const violations = await scanner.scan();
 
-      // Filter out violations that might exist from real data (we can't control that)
-      // Just verify the scanner runs without errors and returns an array
-      expect(Array.isArray(violations)).toBe(true);
-      for (const v of violations) {
-        expect(v.type).toBe('SOURCE_CONTAMINATION');
-        expect(v.severity).toBe('CRITICAL');
-        expect(v.schema).toBeTruthy();
-        expect(v.table).toBeTruthy();
-        expect(v.timestamp).toBeInstanceOf(Date);
-      }
+      expect(
+        violations.some(
+          (violation) =>
+            violation.schema === SCANNER_SOURCE_SCHEMA && violation.table === SCANNER_TEST_TABLE,
+        ),
+      ).toBe(false);
     });
 
     it('should detect contamination when source schema has tenant data', async () => {
-      // We need to check if sensor.sensors table exists first
-      const sourceTableExists = await dataSource.query(
-        `SELECT 1 FROM information_schema.tables WHERE table_schema = 'sensor' AND table_name = $1`,
-        [testTable],
-      );
-
-      if (sourceTableExists.length === 0) {
-        console.log(
-          `Skipping contamination test: sensor.${testTable} table does not exist (service not started)`,
-        );
-        return;
-      }
-
-      // Check if the table has any columns we can insert into safely
-      const columns: { column_name: string; data_type: string }[] = await dataSource.query(
-        `SELECT column_name, data_type FROM information_schema.columns
-         WHERE table_schema = 'sensor' AND table_name = $1
-         ORDER BY ordinal_position LIMIT 1`,
-        [testTable],
-      );
-
-      if (columns.length === 0) {
-        console.log(`Skipping contamination test: sensor.${testTable} has no columns`);
-        return;
-      }
-
-      // Insert test data into source schema (this simulates contamination)
-      // We use a separate test table to avoid damaging real data
+      await dataSource.query(`CREATE SCHEMA "${SCANNER_SOURCE_SCHEMA}"`);
       await dataSource.query(
-        `CREATE TABLE IF NOT EXISTS "sensor"."${scannerTestTable}" (
+        `CREATE TABLE "${SCANNER_SOURCE_SCHEMA}"."${SCANNER_TEST_TABLE}" (
           id SERIAL PRIMARY KEY,
           tenant_id UUID DEFAULT '${TEST_TENANT_ID_A}',
           name TEXT DEFAULT 'watchdog_test'
         )`,
       );
       await dataSource.query(
-        `INSERT INTO "sensor"."${scannerTestTable}" (name) VALUES ('contamination_test')`,
+        `INSERT INTO "${SCANNER_SOURCE_SCHEMA}"."${SCANNER_TEST_TABLE}" (name)
+         VALUES ('contamination_test')`,
+      );
+      MODULE_SCHEMAS.push(scannerFixtureModule);
+
+      const scanner = new SourceSchemaScanner(dataSource);
+      const violations = await scanner.scan();
+      const fixtureViolation = violations.find(
+        (violation) =>
+          violation.schema === SCANNER_SOURCE_SCHEMA && violation.table === SCANNER_TEST_TABLE,
       );
 
-      // Temporarily patch MODULE_SCHEMAS to include our test table
-      // (We can't modify the const, so we test the scanner directly)
-      const customScanner = new (class extends SourceSchemaScanner {
-        async scan(): Promise<WatchdogViolation[]> {
-          const violations: WatchdogViolation[] = [];
-          try {
-            const result = await (this as unknown as { dataSource: DataSource }).dataSource.query(
-              `SELECT COUNT(*) as cnt FROM "sensor"."${scannerTestTable}"`,
-            );
-            const count = parseInt(result[0]?.cnt || '0');
-            if (count > 0) {
-              violations.push({
-                type: 'SOURCE_CONTAMINATION',
-                severity: 'CRITICAL',
-                schema: 'sensor',
-                table: scannerTestTable,
-                details: `Test: source contamination detected with ${count} rows`,
-                rowCount: count,
-                timestamp: new Date().toISOString(),
-              });
-            }
-          } catch {
-            // Ignore
-          }
-          return violations;
-        }
-      })(dataSource);
-
-      const violations = await customScanner.scan();
-      expect(violations.length).toBeGreaterThan(0);
-      expect(violations[0]!.type).toBe('SOURCE_CONTAMINATION');
-      expect(violations[0]!.severity).toBe('CRITICAL');
-      expect(violations[0]!.rowCount).toBeGreaterThan(0);
+      expect(fixtureViolation).toMatchObject({
+        type: 'SOURCE_CONTAMINATION',
+        severity: 'CRITICAL',
+        rowCount: 1,
+      });
     });
   });
 
@@ -191,11 +177,11 @@ describe('Watchdog Integration Tests', () => {
       // It also checks against MODULE_SCHEMAS, so MISSING_TABLE violations are expected
       // for both schemas (test tables aren't in MODULE_SCHEMAS). But SCHEMA_DRIFT
       // between the two schemas should definitely be detected.
-      const driftViolations = violations.filter(v => v.type === 'SCHEMA_DRIFT');
+      const driftViolations = violations.filter((v) => v.type === 'SCHEMA_DRIFT');
 
       // schemaA has test_table2 but schemaB doesn't -- drift detected
       const relevantDrift = driftViolations.filter(
-        v => v.schema === schemaB && v.details.includes('test_table2'),
+        (v) => v.schema === schemaB && v.details.includes('test_table2'),
       );
       expect(relevantDrift.length).toBeGreaterThan(0);
     });
@@ -207,17 +193,61 @@ describe('Watchdog Integration Tests', () => {
       // Our test schemas only have test_table1 and test_table2, but MODULE_SCHEMAS
       // defines 133 tables. So we expect MISSING_TABLE violations.
       const missingViolations = violations.filter(
-        v => v.type === 'MISSING_TABLE' && (v.schema === schemaA || v.schema === schemaB),
+        (v) => v.type === 'MISSING_TABLE' && (v.schema === schemaA || v.schema === schemaB),
       );
 
       // Each test schema should be missing most of the 133 expected tables
       expect(missingViolations.length).toBeGreaterThan(0);
-      expect(missingViolations[0]!.severity).toBe('HIGH');
+      expect(missingViolations.every((violation) => violation.severity === 'HIGH')).toBe(true);
     });
   });
 
   describe('CrossTenantProbe', () => {
     const crossTenantSchema = getTenantSchemaName(TEST_TENANT_ID_A);
+    let createdTenant = false;
+
+    function rejectDataSourceQueryAt(callNumber: number, message: string): void {
+      const originalQuery = dataSource.query.bind(dataSource);
+      const querySpy = jest.spyOn(dataSource, 'query');
+      for (let call = 1; call < callNumber; call += 1) {
+        querySpy.mockImplementationOnce(originalQuery);
+      }
+      querySpy.mockRejectedValueOnce(new Error(message));
+    }
+
+    function returnRowsFromDataSourceQueryAt(callNumber: number, rows: object[]): void {
+      const originalQuery = dataSource.query.bind(dataSource);
+      const querySpy = jest.spyOn(dataSource, 'query');
+      for (let call = 1; call < callNumber; call += 1) {
+        querySpy.mockImplementationOnce(originalQuery);
+      }
+      querySpy.mockResolvedValueOnce(rows);
+    }
+
+    async function runCrossTenantOnly(): Promise<WatchdogReport> {
+      const runner = new WatchdogRunner(dataSource);
+      return runner.run({
+        sourceContamination: false,
+        crossTenantData: true,
+        schemaDrift: false,
+      });
+    }
+
+    function expectIncompleteCrossTenantReport(
+      report: WatchdogReport,
+      expectedError: string,
+    ): void {
+      expect(report.violations).toEqual([]);
+      expect(report.summary.hasCritical).toBe(true);
+      expect(report.summary.bySeverity.CRITICAL).toBe(0);
+      expect(report.scannerErrors).toHaveLength(1);
+      const scannerError = report.scannerErrors[0];
+      if (scannerError === undefined) {
+        throw new Error('Cross-tenant scanner failure was not recorded');
+      }
+      expect(scannerError.scanner).toBe('CrossTenantProbe');
+      expect(scannerError.error).toContain(expectedError);
+    }
 
     beforeEach(async () => {
       await dataSource.query(`DROP SCHEMA IF EXISTS "${crossTenantSchema}" CASCADE`);
@@ -231,82 +261,149 @@ describe('Watchdog Integration Tests', () => {
           data TEXT
         )
       `);
-    });
-
-    afterEach(async () => {
-      await dataSource.query(`DROP SCHEMA IF EXISTS "${crossTenantSchema}" CASCADE`);
-    });
-
-    it('should detect cross-tenant data when rows have wrong tenant_id', async () => {
-      // First, we need tenant A to exist in auth.tenants for the probe to work
-      // Check if auth.tenants exists
-      const authTableExists = await dataSource.query(
-        `SELECT 1 FROM information_schema.tables WHERE table_schema = 'auth' AND table_name = 'tenants'`,
-      );
-
-      if (authTableExists.length === 0) {
-        console.log('Skipping cross-tenant probe test: auth.tenants table does not exist');
-        return;
-      }
-
-      // Check if our test tenant already exists
-      const existingTenant = await dataSource.query(
+      const existingTenant: { id: string }[] = await dataSource.query(
         `SELECT id FROM auth.tenants WHERE id = $1`,
         [TEST_TENANT_ID_A],
       );
 
-      let createdTenant = false;
+      createdTenant = false;
       if (existingTenant.length === 0) {
-        // Try to insert a test tenant
-        try {
+        const tenantVersionColumn: { exists: boolean }[] = await dataSource.query(
+          `SELECT EXISTS (
+             SELECT 1
+             FROM information_schema.columns
+             WHERE table_schema = 'auth'
+               AND table_name = 'tenants'
+               AND column_name = 'version'
+           ) AS exists`,
+        );
+        if (tenantVersionColumn[0]?.exists === true) {
+          await dataSource.query(
+            `INSERT INTO auth.tenants (id, name, slug, status, version)
+             VALUES ($1, 'Watchdog Test Tenant', $2, 'ACTIVE', 1)`,
+            [TEST_TENANT_ID_A, `watchdog-test-${TEST_TENANT_ID_A}`],
+          );
+        } else {
           await dataSource.query(
             `INSERT INTO auth.tenants (id, name, slug, status)
              VALUES ($1, 'Watchdog Test Tenant', $2, 'ACTIVE')`,
-            [TEST_TENANT_ID_A, `watchdog-test-${Date.now()}`],
+            [TEST_TENANT_ID_A, `watchdog-test-${TEST_TENANT_ID_A}`],
           );
-          createdTenant = true;
-        } catch (err) {
-          console.log(
-            `Skipping cross-tenant probe test: could not create test tenant: ${(err as Error).message}`,
-          );
-          return;
         }
+        createdTenant = true;
       }
+    });
 
-      try {
-        // Insert data with CORRECT tenant_id (should not trigger violation)
-        await dataSource.query(
-          `INSERT INTO "${crossTenantSchema}"."probe_test" (tenant_id, data)
-           VALUES ($1, 'correct tenant data')`,
-          [TEST_TENANT_ID_A],
-        );
-
-        // Insert data with WRONG tenant_id (should trigger violation)
-        await dataSource.query(
-          `INSERT INTO "${crossTenantSchema}"."probe_test" (tenant_id, data)
-           VALUES ($1, 'WRONG tenant data - this is a leak')`,
-          [TEST_TENANT_ID_B],
-        );
-
-        const probe = new CrossTenantProbe(dataSource);
-        const violations = await probe.probe();
-
-        // Should detect the cross-tenant violation
-        const relevant = violations.filter(
-          v =>
-            v.type === 'CROSS_TENANT_DATA' &&
-            v.schema === crossTenantSchema &&
-            v.table === 'probe_test',
-        );
-        expect(relevant.length).toBeGreaterThan(0);
-        expect(relevant[0]!.severity).toBe('CRITICAL');
-        expect(relevant[0]!.rowCount).toBe(1);
-      } finally {
-        // Cleanup test tenant if we created it
-        if (createdTenant) {
-          await dataSource.query(`DELETE FROM auth.tenants WHERE id = $1`, [TEST_TENANT_ID_A]);
-        }
+    afterEach(async () => {
+      jest.restoreAllMocks();
+      if (createdTenant) {
+        await dataSource.query(`DELETE FROM auth.tenants WHERE id = $1`, [TEST_TENANT_ID_A]);
       }
+      await dataSource.query(`DROP SCHEMA IF EXISTS "${crossTenantSchema}" CASCADE`);
+    });
+
+    it('should detect cross-tenant data when rows have wrong tenant_id', async () => {
+      await dataSource.query(
+        `INSERT INTO "${crossTenantSchema}"."probe_test" (tenant_id, data)
+         VALUES ($1, 'correct tenant data')`,
+        [TEST_TENANT_ID_A],
+      );
+      await dataSource.query(
+        `INSERT INTO "${crossTenantSchema}"."probe_test" (tenant_id, data)
+         VALUES ($1, 'WRONG tenant data - this is a leak')`,
+        [TEST_TENANT_ID_B],
+      );
+
+      const activeTenant: { id: string }[] = await dataSource.query(
+        `SELECT id FROM auth.tenants WHERE id = $1 AND status = 'ACTIVE'`,
+        [TEST_TENANT_ID_A],
+      );
+      const tenantSchemas = await listTenantSchemas(dataSource);
+      const foreignRows: { count: string }[] = await dataSource.query(
+        `SELECT COUNT(*)::text AS count
+         FROM "${crossTenantSchema}"."probe_test"
+         WHERE tenant_id != $1`,
+        [TEST_TENANT_ID_A],
+      );
+      expect(activeTenant).toHaveLength(1);
+      expect(tenantSchemas).toContain(crossTenantSchema);
+      expect(foreignRows[0]?.count).toBe('1');
+
+      const probe = new CrossTenantProbe(dataSource);
+      const violations = await probe.probe();
+
+      const relevant = violations.filter(
+        (v) =>
+          v.type === 'CROSS_TENANT_DATA' &&
+          v.schema === crossTenantSchema &&
+          v.table === 'probe_test',
+      );
+      expect(relevant).toEqual([
+        expect.objectContaining({
+          severity: 'CRITICAL',
+          rowCount: 1,
+        }),
+      ]);
+    });
+
+    it('records tenant-directory failures instead of an error-free clean report', async () => {
+      rejectDataSourceQueryAt(2, 'tenant directory unavailable');
+
+      const report = await runCrossTenantOnly();
+
+      expectIncompleteCrossTenantReport(
+        report,
+        'could not load the tenant directory: tenant directory unavailable',
+      );
+    });
+
+    it('records tenant-column discovery failures instead of an error-free clean report', async () => {
+      rejectDataSourceQueryAt(3, 'tenant column catalog unavailable');
+
+      const report = await runCrossTenantOnly();
+
+      expectIncompleteCrossTenantReport(
+        report,
+        `could not discover tenant columns in schema "${crossTenantSchema}": tenant column catalog unavailable`,
+      );
+    });
+
+    it('records foreign-row query failures instead of an error-free clean report', async () => {
+      rejectDataSourceQueryAt(4, 'foreign-row query unavailable');
+
+      const report = await runCrossTenantOnly();
+
+      expectIncompleteCrossTenantReport(
+        report,
+        `could not inspect "${crossTenantSchema}"."probe_test"."tenant_id": foreign-row query unavailable`,
+      );
+    });
+
+    it('records an unmapped tenant schema instead of omitting it from coverage', async () => {
+      returnRowsFromDataSourceQueryAt(2, []);
+
+      const report = await runCrossTenantOnly();
+
+      expectIncompleteCrossTenantReport(
+        report,
+        `found schema "${crossTenantSchema}" without a canonical auth.tenants mapping`,
+      );
+    });
+
+    it('records unsafe catalog identifiers instead of omitting them from coverage', async () => {
+      await dataSource.query(`
+        CREATE TABLE "${crossTenantSchema}"."unsafe-table" (
+          id SERIAL PRIMARY KEY,
+          tenant_id UUID NOT NULL
+        )
+      `);
+
+      const report = await runCrossTenantOnly();
+
+      expectIncompleteCrossTenantReport(
+        report,
+        `rejected unsafe identifier table="unsafe-table" column="tenant_id" in schema="${crossTenantSchema}"`,
+      );
     });
   });
 
@@ -358,8 +455,13 @@ describe('Watchdog Integration Tests', () => {
       if (report.violations.length >= 2) {
         const severityOrder = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
         for (let i = 1; i < report.violations.length; i++) {
-          const prev = severityOrder[report.violations[i - 1]!.severity];
-          const curr = severityOrder[report.violations[i]!.severity];
+          const previousViolation = report.violations[i - 1];
+          const currentViolation = report.violations[i];
+          if (previousViolation === undefined || currentViolation === undefined) {
+            throw new Error('Watchdog violation ordering traversal exceeded report bounds');
+          }
+          const prev = severityOrder[previousViolation.severity];
+          const curr = severityOrder[currentViolation.severity];
           expect(curr).toBeGreaterThanOrEqual(prev);
         }
       }

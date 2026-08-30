@@ -7,6 +7,7 @@
     "jest.config.ts",
     "playwright.config.ts",
     "playwright.water-chemistry.config.ts",
+    "playwright.aquamobil.config.ts",
     "fixtures/**/*.ts",
     "helpers/**/*.ts",
     "tests/**/*.ts"

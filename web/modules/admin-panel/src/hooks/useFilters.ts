@@ -42,7 +42,7 @@ export interface UseFiltersReturn<T extends Record<string, unknown>> {
 }
 
 export function useFilters<T extends Record<string, unknown>>(
-  options: UseFiltersOptions<T>
+  options: UseFiltersOptions<T>,
 ): UseFiltersReturn<T> {
   const {
     initialFilters,
@@ -75,7 +75,11 @@ export function useFilters<T extends Record<string, unknown>>(
               (urlFilters as Record<string, unknown>)[key] = parsed;
             } else if (Array.isArray(parsed) && Array.isArray(initialFilters[key as keyof T])) {
               // Only accept primitive-element arrays
-              if (parsed.every((v) => typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean')) {
+              if (
+                parsed.every(
+                  (v) => typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean',
+                )
+              ) {
                 (urlFilters as Record<string, unknown>)[key] = parsed;
               }
             }
@@ -93,31 +97,34 @@ export function useFilters<T extends Record<string, unknown>>(
   const [filters, setFiltersState] = useState<T>(getInitialFilters);
   const [debouncedFilters, setDebouncedFilters] = useState<T>(filters);
 
-  const debounceTimerRef = useRef<(ReturnType<typeof setTimeout>) | undefined>(undefined);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // Update URL when filters change (H2: functional update to avoid stale closure)
   const updateUrl = useCallback(
     (newFilters: T) => {
       if (!syncUrl) return;
 
-      setSearchParams(prev => {
-        const newParams = new URLSearchParams(prev);
+      setSearchParams(
+        (prev) => {
+          const newParams = new URLSearchParams(prev);
 
-        Object.entries(newFilters).forEach(([key, value]) => {
-          const initialValue = initialFilters[key as keyof T];
+          Object.entries(newFilters).forEach(([key, value]) => {
+            const initialValue = initialFilters[key as keyof T];
 
-          // Only add to URL if different from initial
-          if (value !== initialValue && value !== '' && value !== null && value !== undefined) {
-            newParams.set(key, typeof value === 'object' ? JSON.stringify(value) : String(value));
-          } else {
-            newParams.delete(key);
-          }
-        });
+            // Only add to URL if different from initial
+            if (value !== initialValue && value !== '' && value !== null && value !== undefined) {
+              newParams.set(key, typeof value === 'object' ? JSON.stringify(value) : String(value));
+            } else {
+              newParams.delete(key);
+            }
+          });
 
-        return newParams;
-      }, { replace: true });
+          return newParams;
+        },
+        { replace: true },
+      );
     },
-    [syncUrl, setSearchParams, initialFilters]
+    [syncUrl, setSearchParams, initialFilters],
   );
 
   // Track which keys were updated immediately (non-debounced) so we don't call onChange twice (BUG-007, PERF-008)
@@ -151,8 +158,10 @@ export function useFilters<T extends Record<string, unknown>>(
         const newFilters = { ...prev, [key]: value };
         updateUrl(newFilters);
 
-        // If not a debounced key, update debouncedFilters immediately and fire onChange once
-        if (!debounceKeys.includes(key)) {
+        // An empty debounceKeys list means every filter is debounced. Supplying
+        // keys opts the remaining filters into immediate updates.
+        const shouldDebounce = debounceKeys.length === 0 || debounceKeys.includes(key);
+        if (!shouldDebounce) {
           setDebouncedFilters(newFilters);
           onChange?.(newFilters);
           // Mark as immediate so the debounce effect doesn't re-fire onChange (BUG-007)
@@ -162,7 +171,7 @@ export function useFilters<T extends Record<string, unknown>>(
         return newFilters;
       });
     },
-    [debounceKeys, onChange, updateUrl]
+    [debounceKeys, onChange, updateUrl],
   );
 
   const setFiltersMultiple = useCallback(
@@ -170,10 +179,19 @@ export function useFilters<T extends Record<string, unknown>>(
       setFiltersState((prev) => {
         const newFilters = { ...prev, ...updates };
         updateUrl(newFilters);
+
+        const updatedKeys = Object.keys(updates) as (keyof T)[];
+        const hasDebouncedKey =
+          debounceKeys.length === 0 || updatedKeys.some((key) => debounceKeys.includes(key));
+        if (!hasDebouncedKey) {
+          setDebouncedFilters(newFilters);
+          onChange?.(newFilters);
+          immediateUpdateRef.current = true;
+        }
         return newFilters;
       });
     },
-    [updateUrl]
+    [debounceKeys, onChange, updateUrl],
   );
 
   const resetFilters = useCallback(() => {
@@ -233,10 +251,7 @@ export function useFilters<T extends Record<string, unknown>>(
     }).length;
   }, [filters, initialFilters]);
 
-  const getFilter = useCallback(
-    <K extends keyof T>(key: K): T[K] => filters[key],
-    [filters]
-  );
+  const getFilter = useCallback(<K extends keyof T>(key: K): T[K] => filters[key], [filters]);
 
   return {
     filters,

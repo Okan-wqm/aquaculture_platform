@@ -78,6 +78,19 @@ export class UpdateVfdDto {
   @IsUUID()
   tankId?: string;
 
+  // SENSOR-CRITICAL-007: edge-delegated write binding (both-or-neither, enforced
+  // on the resulting device state by the service).
+  @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
+  edgeDeviceId?: string;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  edgeModbusDeviceName?: string;
+
   @Field(() => [String], { nullable: true })
   @IsOptional()
   @IsArray()

@@ -166,7 +166,9 @@ export interface HealthEvent {
   resolutionNotes?: string;
   parentEventId?: string;
   alertIncidentId?: string;
+  /** @deprecated Float — use `estimatedCostDecimal` (exact decimal string, ADR-0004). */
   estimatedCost?: number;
+  estimatedCostDecimal?: string | null;
   currency?: string;
   reportedBy: string;
   notes?: string;
@@ -388,6 +390,7 @@ const HEALTH_EVENT_FIELDS = `
   parentEventId
   alertIncidentId
   estimatedCost
+  estimatedCostDecimal
   currency
   reportedBy
   notes

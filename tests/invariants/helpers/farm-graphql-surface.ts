@@ -62,16 +62,24 @@ export function listFiles(root: string, patterns: string[]): string[] {
  * Decorators may be interleaved between the field decorator and the method
  * (e.g. `@Query(...) @Roles(...) async foo()`), so they are skipped.
  */
-export function extractBackendResolverFields(): BackendResolverField[] {
+export function extractBackendResolverFields(
+  sourceRoot: string = BE_SOURCE_ROOT,
+): BackendResolverField[] {
   const fields: BackendResolverField[] = [];
   const decoratorArgs = String.raw`(?:[^()]|\([^()]*\))*`;
-  const interleaved = String.raw`(?:@[A-Za-z]+\s*\((?:[^()]|\([^()]*\))*\)\s*)*`;
+  // Between the operation decorator and the method name there may be any mix of
+  // interleaved decorators (@Roles, @UseGuards, @AuditLog …), `//` line comments,
+  // and `/* … */` block comments. Consuming comments here closes the extractor
+  // gap the farm harvest note documented — a comment between the decorator and
+  // the method used to hide the field from the parity scan (a false "unresolved"
+  // for any FE op naming it). hr-service places rationale comments there widely.
+  const interleaved = String.raw`(?:(?:@[A-Za-z]+\s*\((?:[^()]|\([^()]*\))*\)|\/\/[^\n]*|\/\*[\s\S]*?\*\/)\s*)*`;
   const re = new RegExp(
     String.raw`@(Query|Mutation|Subscription|ResolveField)\s*\((${decoratorArgs})\)\s*${interleaved}(?:async\s+)?([A-Za-z0-9_]+)\s*\(`,
     'g',
   );
 
-  for (const file of listFiles(BE_SOURCE_ROOT, ['**/*.ts'])) {
+  for (const file of listFiles(sourceRoot, ['**/*.ts'])) {
     if (file.includes('.spec.') || file.includes('__tests__')) continue;
     const src = readFileSync(join(REPO_ROOT, file), 'utf8');
     let match: RegExpExecArray | null;
@@ -89,9 +97,11 @@ export function extractBackendResolverFields(): BackendResolverField[] {
 }
 
 /**
- * Flat set of every field name the farm subgraph serves (all decorator kinds).
- * Backward-compatible view consumed by the FE↔BE parity gate.
+ * Flat set of every field name a subgraph serves (all decorator kinds).
+ * Backward-compatible view consumed by the FE↔BE parity gates. Defaults to the
+ * farm-service tree; pass another `sourceRoot` (e.g. `apps/hr-service/src`) to
+ * reuse the same decorator scan for a different subgraph.
  */
-export function extractBackendFieldSet(): Set<string> {
-  return new Set(extractBackendResolverFields().map((f) => f.field));
+export function extractBackendFieldSet(sourceRoot: string = BE_SOURCE_ROOT): Set<string> {
+  return new Set(extractBackendResolverFields(sourceRoot).map((f) => f.field));
 }

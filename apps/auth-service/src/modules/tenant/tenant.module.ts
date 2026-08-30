@@ -12,7 +12,10 @@ import { Module as SystemModule } from '../system-module/entities/module.entity'
 
 import { MobileUserSettings } from './entities/mobile-user-settings.entity';
 import { TenantModule as TenantModuleEntity } from './entities/tenant-module.entity';
+import { TenantRolePermission } from './entities/tenant-role-permission.entity';
+import { TenantRole } from './entities/tenant-role.entity';
 import { Tenant } from './entities/tenant.entity';
+import { UserRoleAssignment } from './entities/user-role-assignment.entity';
 import { TenantSubscriptionProjectionHandler } from './event-handlers/tenant-subscription-projection.handler';
 import { AuthAdminNatsHandler } from './handlers/auth-admin-nats.handler';
 import { AuthUserQueryNatsHandler } from './handlers/auth-user-query-nats.handler';
@@ -20,6 +23,8 @@ import { MobileSettingsResolver } from './resolvers/mobile-settings.resolver';
 import { TenantAdminResolver } from './resolvers/tenant-admin.resolver';
 import { TenantRoleResolver } from './resolvers/tenant-role.resolver';
 import { TenantResolver } from './resolvers/tenant.resolver';
+import { CapabilityAuthorityService } from './services/capability-authority';
+import { FarmSiteAssignmentValidator } from './services/farm-site-assignment-validator.service';
 import { MobileSettingsService } from './services/mobile-settings.service';
 import { TenantAdminService } from './services/tenant-admin.service';
 import { TenantProvisioningCommandService } from './services/tenant-provisioning-command.service';
@@ -42,6 +47,11 @@ import { UserLifecycleService } from './services/user-lifecycle.service';
       MobileUserSettings,
       RefreshToken,
       Invitation,
+      // RBAC-HIGH-011: centralized RBAC tables mapped for schema-drift
+      // visibility (ADR-012). DML remains raw SQL through the existing paths.
+      TenantRole,
+      TenantRolePermission,
+      UserRoleAssignment,
     ]),
   ],
   // AuthAdminNatsHandler is declared in `controllers` (not `providers`) —
@@ -52,6 +62,10 @@ import { UserLifecycleService } from './services/user-lifecycle.service';
   providers: [
     TenantService,
     TenantAdminService,
+    FarmSiteAssignmentValidator,
+    // SECURITY (RBAC-C1/C2): write-time grant-authority SSoT injected by
+    // TenantRoleService / TenantUserManagementService / UserLifecycleService.
+    CapabilityAuthorityService,
     TenantRoleService,
     TenantUserManagementService,
     UserLifecycleService,

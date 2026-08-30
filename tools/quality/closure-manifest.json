@@ -1,7 +1,7 @@
 {
   "entrypoints": {
-    "gates:all": "node tools/quality/quality.mjs closure-run --profile gates-all",
-    "gates:enterprise-closure": "ts-node --project tools/gates/tsconfig.runtime.json tools/gates/enterprise-closure.ts"
+    "gates:enterprise-closure": "ts-node --project tools/gates/tsconfig.runtime.json tools/gates/enterprise-closure.ts",
+    "quality:closure-run": "node tools/quality/quality.mjs closure-run --profile gates-all"
   },
   "generated_by": "tools/quality/quality.mjs closure-manifest generate",
   "no_skip_acceptance": true,
@@ -63,7 +63,7 @@
           "name": "criticality-manifest"
         },
         {
-          "command": ["npm", "run", "gates:required-secrets"],
+          "command": ["npm", "run", "validate:required-secrets"],
           "name": "required-secrets"
         },
         {
@@ -85,9 +85,13 @@
           "name": "npm-ci-ignore-scripts"
         },
         {
-          "command": ["npm", "ls", "--package-lock-only", "--all"],
+          "command": ["npm", "ls", "--all"],
           "heavy": true,
-          "name": "npm-ls-lock"
+          "name": "npm-ls-installed-tree"
+        },
+        {
+          "command": ["node", "tools/toolchain/run.mjs", "nx", "sync:check"],
+          "name": "nx-sync-check"
         },
         {
           "command": ["npm", "audit", "--audit-level=moderate", "--omit=dev"],
@@ -191,7 +195,7 @@
           "name": "criticality-manifest"
         },
         {
-          "command": ["npm", "run", "gates:required-secrets"],
+          "command": ["npm", "run", "validate:required-secrets"],
           "name": "required-secrets"
         },
         {

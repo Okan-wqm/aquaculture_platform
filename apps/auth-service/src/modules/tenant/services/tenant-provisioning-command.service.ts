@@ -1,7 +1,12 @@
 import * as crypto from 'crypto';
 
+import { bindTenantRlsContext } from '@aquaculture/backend-common/database';
 import { Role } from '@aquaculture/backend-common/decorators';
-import { Injectable, Logger, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
+import {
+  USER_TOKEN_REVOCATION,
+  IUserTokenRevocation,
+} from '@aquaculture/backend-common/security';
+import { Injectable, Logger, NotFoundException, ConflictException, BadRequestException, Inject } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import {
   type ActivateTenantCommand,
@@ -25,6 +30,7 @@ import {
   TenantPlan,
   toTenantPlan,
   resolvePlanLimits,
+  isLoginAllowed,
 } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, EntityManager, Repository } from 'typeorm';
@@ -159,6 +165,11 @@ export class TenantProvisioningCommandService {
     // auth_outbox inside the command's SERIALIZABLE receipt transaction, so the
     // status write and its event commit atomically (no raw fire-and-forget bus).
     private readonly outboxPublisher: OutboxPublisher,
+    // RBAC-HIGH-007: transitioning a tenant OUT of the operational state cuts
+    // its users' live access tokens fleet-wide (shared Redis user blacklist —
+    // the RBAC-HIGH-001 primitive the gateway already enforces on every request).
+    @Inject(USER_TOKEN_REVOCATION)
+    private readonly userTokenRevocation: IUserTokenRevocation,
   ) {}
 
   async reserveTenant(command: ReserveTenantCommand): Promise<{ tenant: AuthTenantSnapshot; status: string }> {
@@ -688,6 +699,9 @@ export class TenantProvisioningCommandService {
         `Lifecycle command ${commandType} targets ${lifecycle.target}, not ${targetStatus}`,
       );
     }
+    // RBAC-HIGH-007: users locked out by THIS live execution (closure, not part
+    // of the receipt result — an idempotent replay must not re-blacklist).
+    const lockedOutUserIds: string[] = [];
     const execution = await this.runWithReceipt(
       commandType,
       command,
@@ -717,6 +731,25 @@ export class TenantProvisioningCommandService {
         }
 
         tenant.status = targetStatus;
+
+        // Suspension audit trio (DB-ADMIN-HIGH-003): persisted atomically with
+        // the status write by the single writer of auth.tenants. The SUSPENDED
+        // transition records when/why/who (actor.id travels on every lifecycle
+        // command via AuthTenantCommandMetadata); the ACTIVE transition clears
+        // all three because an active tenant is, by definition, not suspended.
+        // Other targets (DEACTIVATED/ARCHIVED/…) deliberately leave the trio
+        // untouched so a tenant deactivated OUT of suspension keeps the audit
+        // trail of its last suspension.
+        if (targetStatus === TenantStatus.SUSPENDED) {
+          tenant.suspendedAt = new Date();
+          tenant.suspendedReason = reason ?? null;
+          tenant.suspendedBy = command.actor.id;
+        } else if (targetStatus === TenantStatus.ACTIVE) {
+          tenant.suspendedAt = null;
+          tenant.suspendedReason = null;
+          tenant.suspendedBy = null;
+        }
+
         await manager.save(Tenant, tenant);
 
         // Durable TenantStatusChanged, atomic with the status write. The local
@@ -741,6 +774,39 @@ export class TenantProvisioningCommandService {
           },
         );
 
+        // RBAC-HIGH-007: a transition OUT of the operational state (SUSPENDED /
+        // DEACTIVATED / CANCELLED / ARCHIVED / PURGED — anything the
+        // isLoginAllowed SSoT rejects) must terminate the tenant's live
+        // sessions NOW, not at natural token expiry. Before this, suspend
+        // flipped the status + emitted the event but revoked nothing: every
+        // logged-in user kept full access and silently rotated new tokens for
+        // the refresh-token lifetime (days). The refresh-token kill is atomic
+        // with the status write (same SERIALIZABLE receipt transaction — a
+        // rolled-back suspend revokes nothing). The tx-local tenant GUC gives
+        // the RLS policy on auth.refresh_tokens exactly this tenant's rows —
+        // tenant-SCOPED context, not a bypass; the lifecycle command arrives
+        // over NATS with no request tenant context.
+        if (!isLoginAllowed(targetStatus)) {
+          const userRows = this.rowsFromQuery<{ id: string }>(await manager.query(
+            `SELECT id FROM "auth"."users" WHERE "tenantId" = $1`,
+            [command.tenantId],
+          ));
+          lockedOutUserIds.push(...userRows.map((row) => row.id));
+          if (lockedOutUserIds.length > 0) {
+            await manager.query(
+              `SELECT set_config('app.current_tenant', $1, true)`,
+              [command.tenantId],
+            );
+            await manager.query(
+              `UPDATE "auth"."refresh_tokens"
+                  SET "isRevoked" = true, "revokedAt" = NOW(), "revokedReason" = $2
+                WHERE "userId" = ANY($1::uuid[])
+                  AND "isRevoked" = false`,
+              [lockedOutUserIds, `Tenant ${targetStatus}`],
+            );
+          }
+        }
+
         return {
           operationId: command.operationId,
           tenantId: command.tenantId,
@@ -750,6 +816,23 @@ export class TenantProvisioningCommandService {
         };
       },
     );
+
+    // Post-commit: cut LIVE access tokens fleet-wide via the shared Redis user
+    // blacklist (the gateway rejects blacklisted users on their next request).
+    // Deliberately outside the transaction — Redis is not transactional — and
+    // deliberately non-fatal per user: the durable guarantee is the in-tx
+    // refresh-token revocation above plus the refresh-path tenant gate; access
+    // tokens self-expire within their ≤15-minute TTL even if Redis is down.
+    for (const userId of lockedOutUserIds) {
+      try {
+        await this.userTokenRevocation.revokeUserTokens(userId);
+      } catch (err) {
+        this.logger.warn(
+          `Access-token blacklist failed for userId=${userId} after ${commandType} on tenant ${command.tenantId}: ${(err as Error).message}`,
+        );
+      }
+    }
+
     return execution.result;
   }
 
@@ -849,6 +932,24 @@ export class TenantProvisioningCommandService {
     );
 
     return this.dataSource.transaction('SERIALIZABLE', async (manager) => {
+      // ORPHAN-CRITICAL-573 — bind the RLS tenant context before the FIRST
+      // statement of the receipt lifecycle.
+      //
+      // `auth.tenant_command_receipts` carries the standard isolation policy:
+      // a row is visible/writable only under `app.bypass_rls=on` or when
+      // `app.current_tenant` equals its `tenantId`. This transaction ran with
+      // NEITHER, so every INSERT here was refused — and because the receipt is
+      // written before any provisioning step executes, EVERY tenant creation
+      // failed at step zero. Production carried two tenants stuck in PENDING
+      // with no schema for months as a result.
+      //
+      // Tenant-SCOPED, not a bypass: the receipt belongs to exactly this
+      // tenant, so the policy is satisfied honestly rather than switched off.
+      // Third argument `true` makes the setting transaction-local, so a pooled
+      // connection cannot carry this tenant into the next caller's query -
+      // the failure mode that makes a bypass here unacceptable.
+      await bindTenantRlsContext(manager, command.tenantId, 'auth');
+
       const receiptRowsRaw: unknown = await manager.query(
         `SELECT "payloadHash", status, "entityId", "resultSummary"
            FROM auth.tenant_command_receipts

@@ -1,6 +1,11 @@
 import { join } from 'path';
 
-import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
+import {
+  AUDIT_LOG_SERVICE,
+  AuditedOperationModule,
+  type IAuditLogService,
+} from '@aquaculture/backend-common/audit';
+import { TenantExecutionContextModule } from '@aquaculture/backend-common/context';
 import {
   AUTH_RLS_EXCLUDE_TABLES,
   RlsModule,
@@ -24,9 +29,21 @@ import {
   RequestLoggingMiddleware,
   StripInternalHeadersMiddleware,
 } from '@aquaculture/backend-common/middleware';
-import { RateLimitGuard, RateLimitModule, RATE_LIMIT_STORE, RateLimitStore } from '@aquaculture/backend-common/rate-limit';
+import {
+  RateLimitGuard,
+  RateLimitModule,
+  RATE_LIMIT_STORE,
+  RateLimitStore,
+} from '@aquaculture/backend-common/rate-limit';
 import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
-import { TOKEN_BLACKLIST, ITokenBlacklist } from '@aquaculture/backend-common/security';
+import {
+  ITokenBlacklist,
+  IUserTokenRevocation,
+  TOKEN_BLACKLIST,
+  TokenBlacklistModule,
+  USER_TOKEN_REVOCATION,
+  UserTokenRevocationModule,
+} from '@aquaculture/backend-common/security';
 import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
 import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -40,6 +57,7 @@ import depthLimit from 'graphql-depth-limit';
 
 import { AuditModule } from './audit/audit.module';
 import { SECURITY_CONSTANTS } from './constants/auth.constants';
+import { parseAccessTokenLifetimeSeconds } from './config/jwt-lifetime';
 import { HealthModule } from './health/health.module';
 import { AuthMetricsModule } from './metrics/metrics.module';
 import { AnnouncementModule } from './modules/announcement/announcement.module';
@@ -103,7 +121,6 @@ const authSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
         }),
     }),
 
-
     // GraphQL Federation
     GraphQLModule.forRootAsync<ApolloFederationDriverConfig>({
       driver: ApolloFederationDriver,
@@ -130,12 +147,12 @@ const authSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
            *  defense-in-depth in case a subgraph becomes directly accessible. */
           allowBatchedHttpRequests: false,
           /**
-           * 2026-04-30: Keep Apollo CSRF prevention explicit while Apollo Server 5
-           * migration is blocked by the Nest/Apollo peer graph.
-           * WHY: Apollo Server 4 remains in the dependency graph, so XS-Search
-           * class protections must be fail-closed at runtime.
+           * Keep Apollo CSRF prevention explicit as defense in depth against
+           * cross-site search and simple-request execution paths.
            */
           csrfPrevention: true,
+          playground: false,
+          graphiql: process.env['NODE_ENV'] !== 'production',
           /**
            * SECURITY (H-05): depthLimit(10) prevents deeply nested query DoS attacks.
            * Without depth limiting, an attacker can craft a deeply nested GraphQL query
@@ -223,9 +240,11 @@ const authSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
             // Consumer services verify with the public key; a compromised consumer
             // cannot forge tokens for other services.
             algorithm: 'RS256' as const,
-            expiresIn: configService.get(
-              'JWT_EXPIRES_IN',
-              SECURITY_CONSTANTS.DEFAULT_JWT_EXPIRES_IN,
+            expiresIn: parseAccessTokenLifetimeSeconds(
+              configService.get<string>(
+                'JWT_EXPIRES_IN',
+                SECURITY_CONSTANTS.DEFAULT_JWT_EXPIRES_IN,
+              ),
             ),
             issuer: configService.get('JWT_ISSUER', 'aquaculture-platform'),
             audience: configService.get('JWT_AUDIENCE', 'aquaculture-platform'),
@@ -245,6 +264,17 @@ const authSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
       useFactory: (configService: ConfigService) =>
         buildRedisOptions(configService, 'auth', 'required'),
     }),
+
+    // RBAC-HIGH-001: canonical user-token-revocation primitive. @Global, backed
+    // by the RedisService above, so an RBAC permission change writes the shared
+    // `user_blacklist:{userId}` epoch the gateway already enforces on every
+    // request — a revoke propagates fleet-wide immediately (next request → 401
+    // → refresh re-mints with current permissions).
+    UserTokenRevocationModule,
+
+    // Auth-service is the sole per-JTI revocation writer. Redis is mandatory
+    // and markers use the explicit auth-owned authorization namespace.
+    TokenBlacklistModule,
 
     // SECURITY (SEC-CRITICAL-002): distributed rate-limit store on top of
     // the service Redis — login/MFA/reset budgets are shared across replicas.
@@ -342,6 +372,21 @@ const authSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
       // tables); kept in sync with db-migrate SCHEMA_REGISTRY['auth'].
       excludeTables: [...AUTH_RLS_EXCLUDE_TABLES],
     }),
+    /**
+     * ORPHAN-CRITICAL-573 — bind tenant context around every execution,
+     * including the NATS command path.
+     *
+     * auth-service was the one tenant-writing service that never registered
+     * this module, on the reasoning that pre-auth lookups read across tenants.
+     * That reasoning holds for the LOOKUP tables (which is why they are
+     * RLS-excluded above) and fails for everything else: the tenant lifecycle
+     * commands arrive over NATS with no request to seed AsyncLocalStorage
+     * from, so every write they made to an RLS-armed table was refused and
+     * tenant onboarding was broken in production for months. The interceptor
+     * no-ops when a payload carries no tenant, so the cross-tenant pre-auth
+     * paths are unaffected.
+     */
+    TenantExecutionContextModule,
     /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */
     SchemaDriftModule.forRoot({ serviceName: 'auth' }),
   ],
@@ -374,16 +419,21 @@ const authSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
         jwtService: JwtService,
         reflector: Reflector,
         configService: ConfigService,
-        tokenBlacklist?: ITokenBlacklist,
-      ): JwtAuthGuard => new JwtAuthGuard(jwtService, reflector, configService, tokenBlacklist),
-      inject: [JwtService, Reflector, ConfigService, { token: TOKEN_BLACKLIST, optional: true }],
+        tokenBlacklist: ITokenBlacklist,
+        userTokenRevocation: IUserTokenRevocation,
+      ): JwtAuthGuard =>
+        new JwtAuthGuard(jwtService, reflector, configService, tokenBlacklist, userTokenRevocation),
+      inject: [JwtService, Reflector, ConfigService, TOKEN_BLACKLIST, USER_TOKEN_REVOCATION],
     },
     // SECURITY: Global tenant guard - ensures tenant isolation
     {
       provide: APP_GUARD,
-      useFactory: (reflector: Reflector, configService: ConfigService): TenantGuard =>
-        new TenantGuard(reflector, undefined, configService),
-      inject: [Reflector, ConfigService],
+      useFactory: (
+        reflector: Reflector,
+        auditLogService: IAuditLogService,
+        configService: ConfigService,
+      ): TenantGuard => new TenantGuard(reflector, auditLogService, configService),
+      inject: [Reflector, AUDIT_LOG_SERVICE, ConfigService],
     },
     // SECURITY: Roles guard - enforces @Roles() decorator authorization
     {

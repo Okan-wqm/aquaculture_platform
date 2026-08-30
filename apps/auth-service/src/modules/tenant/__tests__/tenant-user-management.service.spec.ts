@@ -6,8 +6,8 @@
  
  
 import { Role } from '@aquaculture/backend-common/decorators';
+import { USER_TOKEN_REVOCATION } from '@aquaculture/backend-common/security';
 import {
-  BadRequestException,
   ConflictException,
   ForbiddenException,
   NotFoundException,
@@ -21,6 +21,8 @@ import { BestEffortEventPublisher } from '../../../outbox/best-effort-event-publ
 import { User } from '../../authentication/entities/user.entity';
 import { MobileUserSettings } from '../entities/mobile-user-settings.entity';
 import { Tenant, TenantStatus, TenantPlan } from '../entities/tenant.entity';
+
+import { CapabilityAuthorityService, ActorAuthority } from '../services/capability-authority';
 import { TenantRoleService, TenantRoleWithDetails } from '../services/tenant-role.service';
 import { TenantUserManagementService } from '../services/tenant-user-management.service';
 import { UserLifecycleService } from '../services/user-lifecycle.service';
@@ -135,6 +137,17 @@ describe('TenantUserManagementService', () => {
     createUser: jest.Mock;
     deleteUser: jest.Mock;
   };
+  // SECURITY (RBAC-C1/C2): the write-time grant-authority SSoT. Default mock
+  // behaves as a tenant admin (may grant anything, pass-through overrides); tests
+  // exercising delegate containment override resolveActorAuthority / the asserts.
+  let mockCapabilityAuthority: {
+    resolveActorAuthority: jest.Mock;
+    assertGrantableOverrides: jest.Mock;
+    assertGrantableResourcePermissions: jest.Mock;
+    emptyOverrides: jest.Mock;
+  };
+  // RBAC-HIGH-001: canonical user-token-revocation mock.
+  let mockUserTokenRevocation: { revokeUserTokens: jest.Mock; isTokenValid: jest.Mock };
 
   beforeEach(async () => {
     const mockUserRepo = createMockRepository();
@@ -201,6 +214,26 @@ describe('TenantUserManagementService', () => {
       deleteUser: jest.fn().mockResolvedValue(true),
     };
 
+    const adminAuthority: ActorAuthority = {
+      isTenantAdmin: true,
+      effective: new Set<string>(),
+      entitled: new Set<string>(),
+    };
+    mockCapabilityAuthority = {
+      resolveActorAuthority: jest.fn().mockResolvedValue(adminAuthority),
+      assertGrantableOverrides: jest.fn((o: { grants?: string[]; revokes?: string[] } | null) => ({
+        grants: o?.grants ?? [],
+        revokes: o?.revokes ?? [],
+      })),
+      assertGrantableResourcePermissions: jest.fn((requested: string[]) => requested),
+      emptyOverrides: jest.fn(() => ({ grants: [], revokes: [] })),
+    };
+
+    mockUserTokenRevocation = {
+      revokeUserTokens: jest.fn().mockResolvedValue(undefined),
+      isTokenValid: jest.fn().mockResolvedValue(true),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TenantUserManagementService,
@@ -219,6 +252,8 @@ describe('TenantUserManagementService', () => {
         },
         { provide: AuditLogService, useValue: mockAuditLogService },
         { provide: UserLifecycleService, useValue: mockUserLifecycleService },
+        { provide: CapabilityAuthorityService, useValue: mockCapabilityAuthority },
+        { provide: USER_TOKEN_REVOCATION, useValue: mockUserTokenRevocation },
       ],
     }).compile();
 
@@ -537,6 +572,9 @@ describe('TenantUserManagementService', () => {
         }),
         expect.anything(),
       );
+      // RBAC-HIGH-001: the change revokes the user's live tokens so the new
+      // effective set is enforced on the next request (fleet-wide).
+      expect(mockUserTokenRevocation.revokeUserTokens).toHaveBeenCalledWith(USER_ID);
     });
 
     it('SEC-MEDIUM-002: an audit failure ROLLS BACK the role change (fail-closed)', async () => {
@@ -597,6 +635,11 @@ describe('TenantUserManagementService', () => {
       mockDataSource.query.mockResolvedValueOnce([
         { id: 'assignment-1', role_id: ROLE_ID, user_id: USER_ID },
       ]); // existing
+      // RBAC-C1: the override-only path now resolves the ceiling role (the user's
+      // current role) so the authority guard runs even with no role change.
+      mockTenantRoleService.getRoleById.mockResolvedValue(
+        createMockRoleWithDetails({ id: ROLE_ID }),
+      );
       mockAuditLogService.log.mockRejectedValueOnce(new Error('Audit DB down'));
 
       await expect(
@@ -607,6 +650,33 @@ describe('TenantUserManagementService', () => {
           ADMIN_USER_ID,
         ),
       ).rejects.toThrow('Audit DB down');
+    });
+
+    it('RBAC-C1: an override-ONLY update runs the grant-authority validator and a rejection aborts before any write', async () => {
+      // The escalation was: updateUserRole with ONLY permissionOverrides skipped
+      // the authority guard, letting a delegate self-grant anything. Now the
+      // override grants are validated unconditionally; a rejection must abort
+      // before the transaction.
+      userRepository.findOne.mockResolvedValue(createMockUser({ role: Role.TENANT_ADMIN }));
+      mockDataSource.query.mockResolvedValueOnce([
+        { id: 'assignment-1', role_id: ROLE_ID, user_id: USER_ID },
+      ]); // existing
+      mockTenantRoleService.getRoleById.mockResolvedValue(createMockRoleWithDetails({ id: ROLE_ID }));
+      mockCapabilityAuthority.assertGrantableOverrides.mockImplementation(() => {
+        throw new ForbiddenException('You cannot grant capabilities you do not hold: roles:delete.');
+      });
+
+      await expect(
+        service.updateUserRole(
+          TENANT_ID,
+          USER_ID,
+          { permissionOverrides: { grants: ['roles:delete'], revokes: [] } },
+          ADMIN_USER_ID,
+        ),
+      ).rejects.toThrow(ForbiddenException);
+      // The validator was consulted, and no assignment write happened.
+      expect(mockCapabilityAuthority.assertGrantableOverrides).toHaveBeenCalled();
+      expect(mockDataSource.transaction).not.toHaveBeenCalled();
     });
 
     // ------------------------------------------------------------------
@@ -821,51 +891,16 @@ describe('TenantUserManagementService', () => {
   // ==========================================================================
 
   describe('deleteTenantUser', () => {
-    it('SEC-MEDIUM-002: soft-delete, role revoke, and audit commit ATOMICALLY', async () => {
-      userRepository.findOne
-        .mockResolvedValueOnce(createMockUser({ role: Role.MODULE_USER })) // target
-        .mockResolvedValueOnce(createMockUser({ id: ADMIN_USER_ID, email: 'admin@t.com', role: Role.TENANT_ADMIN })); // admin lookup
-
+    it('RBAC-HIGH-002: delegates to the single deletion SSoT (UserLifecycleService.deleteUser)', async () => {
+      // The deletion logic (soft-delete + role revoke + refresh-token revoke +
+      // access-token revoke + fail-closed audit) lives in ONE place and is tested
+      // there; this facade must NOT re-implement it (that divergent copy skipped
+      // refresh-token revocation). Assert pure delegation, no local transaction.
       const result = await service.deleteTenantUser(TENANT_ID, USER_ID, ADMIN_USER_ID);
 
       expect(result).toBe(true);
-      expect(mockDataSource.transaction).toHaveBeenCalled();
-      // FINDING #5: the soft-delete audit is manager-threaded (2nd arg).
-      expect(mockAuditLogService.log).toHaveBeenCalledWith(
-        expect.objectContaining({
-          action: 'USER_DELETED',
-          entityType: 'User',
-          entityId: USER_ID,
-        }),
-        expect.anything(),
-      );
-    });
-
-    it('rejects self-deletion', async () => {
-      await expect(
-        service.deleteTenantUser(TENANT_ID, USER_ID, USER_ID),
-      ).rejects.toThrow(BadRequestException);
+      expect(mockUserLifecycleService.deleteUser).toHaveBeenCalledWith(TENANT_ID, USER_ID, ADMIN_USER_ID);
       expect(mockDataSource.transaction).not.toHaveBeenCalled();
-    });
-
-    it('refuses to delete another TENANT_ADMIN', async () => {
-      userRepository.findOne.mockResolvedValueOnce(createMockUser({ role: Role.TENANT_ADMIN }));
-
-      await expect(
-        service.deleteTenantUser(TENANT_ID, USER_ID, ADMIN_USER_ID),
-      ).rejects.toThrow(ForbiddenException);
-      expect(mockDataSource.transaction).not.toHaveBeenCalled();
-    });
-
-    it('SEC-MEDIUM-002: an audit failure ROLLS BACK the soft-delete (fail-closed)', async () => {
-      userRepository.findOne
-        .mockResolvedValueOnce(createMockUser({ role: Role.MODULE_USER })) // target
-        .mockResolvedValueOnce(createMockUser({ id: ADMIN_USER_ID, role: Role.TENANT_ADMIN })); // admin lookup
-      mockAuditLogService.log.mockRejectedValueOnce(new Error('audit DB down'));
-
-      await expect(
-        service.deleteTenantUser(TENANT_ID, USER_ID, ADMIN_USER_ID),
-      ).rejects.toThrow('audit DB down');
     });
   });
 

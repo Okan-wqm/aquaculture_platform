@@ -17,6 +17,8 @@
  * The persist-first / classify / retry behaviour itself is covered in
  * regulatory-submission.service.spec.ts — it is not re-tested here.
  */
+import { BadRequestException } from '@nestjs/common';
+
 import { RegulatoryResolver } from '../regulatory.resolver';
 import { MattilsynetApiService } from '../mattilsynet-api.service';
 import { MaskinportenService } from '../maskinporten.service';
@@ -71,10 +73,21 @@ describe('RegulatoryResolver — REST submit schema gate + delegation', () => {
       resubmit,
     };
 
+    // SEC-HIGH-001: the resolver verifies the client-declared identity is
+    // tenant-owned before submitting. The mock owns lokalitet 12345 under org
+    // 987654321 (matching the test input).
+    const settingsService: Pick<
+      RegulatorySettingsService,
+      'getEffectiveSiteLocalityMappings' | 'getEffectiveOrganisationNumber'
+    > = {
+      getEffectiveSiteLocalityMappings: jest.fn().mockResolvedValue({ 'site-1': 12345 }),
+      getEffectiveOrganisationNumber: jest.fn().mockResolvedValue('987654321'),
+    };
+
     resolver = new RegulatoryResolver(
       mattilsynet as MattilsynetApiService,
       {} as MaskinportenService,
-      {} as RegulatorySettingsService,
+      settingsService as RegulatorySettingsService,
       {} as RegulatoryVarslingService,
       // The REAL validator (pure, no deps): the delegation path must only ever
       // hand a schema-valid payload to the submission service.
@@ -126,18 +139,36 @@ describe('RegulatoryResolver — REST submit schema gate + delegation', () => {
   it('rejects a schema-invalid payload BEFORE delegating — no submitWithRecord, no API call', async () => {
     const invalid = {
       ...input,
-      // Official schema: lokalitetsnummer is a 5-digit number (10000–99999).
-      lokalitetsnummer: 5,
+      // Owned lokalitet (passes the identity gate), but the official schema caps
+      // rapporteringsuke at 53 — so the schema gate rejects it.
+      rapporteringsuke: 99,
     } as SubmitSeaLiceReportInput;
 
     const result = await resolver.submitSeaLiceReport(invalid, ctx());
 
     expect(result.success).toBe(false);
     expect(result.valideringsfeil).toEqual(
-      expect.arrayContaining([expect.objectContaining({ felt: 'lokalitetsnummer' })]),
+      expect.arrayContaining([expect.objectContaining({ felt: 'rapporteringsuke' })]),
     );
     expect(submitWithRecord).not.toHaveBeenCalled();
     expect(submitSeaLice).not.toHaveBeenCalled();
+  });
+
+  it('SEC-HIGH-001: rejects a lokalitetsnummer that is not a tenant-owned site — no submit', async () => {
+    const foreign = { ...input, lokalitetsnummer: 54321 } as SubmitSeaLiceReportInput;
+
+    await expect(resolver.submitSeaLiceReport(foreign, ctx())).rejects.toThrow(BadRequestException);
+    expect(submitWithRecord).not.toHaveBeenCalled();
+    expect(submitSeaLice).not.toHaveBeenCalled();
+  });
+
+  it('SEC-HIGH-001: rejects an organisasjonsnummer that does not match the tenant config — no submit', async () => {
+    const foreignOrg = { ...input, organisasjonsnummer: '111111111' } as SubmitSeaLiceReportInput;
+
+    await expect(resolver.submitSeaLiceReport(foreignOrg, ctx())).rejects.toThrow(
+      BadRequestException,
+    );
+    expect(submitWithRecord).not.toHaveBeenCalled();
   });
 
   it('resubmitRegulatoryReport delegates to the submission service replay path', async () => {

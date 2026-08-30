@@ -1,7 +1,8 @@
 import { DataSource } from 'typeorm';
+
 import { getTenantSchemaName, listTenantSchemas, SCHEMA_NAME_REGEX } from '../tenant-schema.utils';
+
 import { WatchdogViolation } from './source-schema-scanner';
-import { Logger } from '@nestjs/common';
 
 /**
  * Regex for safe SQL identifiers returned by information_schema.
@@ -9,6 +10,10 @@ import { Logger } from '@nestjs/common';
  * Intentionally more permissive than SCHEMA_NAME_REGEX to handle camelCase column names.
  */
 const SAFE_SQL_IDENTIFIER = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+
+function probeErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 /**
  * CrossTenantProbe detects data that has leaked between tenant schemas.
@@ -22,8 +27,6 @@ const SAFE_SQL_IDENTIFIER = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
  * or a direct cross-schema INSERT.
  */
 export class CrossTenantProbe {
-  private readonly logger = new Logger(CrossTenantProbe.name);
-
   constructor(private readonly dataSource: DataSource) {}
 
   /**
@@ -42,36 +45,32 @@ export class CrossTenantProbe {
     const violations: WatchdogViolation[] = [];
     const schemas = await listTenantSchemas(this.dataSource);
 
-    // Build schema -> tenantId map from auth.tenants
+    // Build schema -> tenantId map from the canonical tenant directory. Suspended
+    // and archived tenants still retain schemas that must remain covered by the
+    // isolation probe; lifecycle state must not create a monitoring blind spot.
     const tenantMap = new Map<string, string>();
     try {
-      const tenants: { id: string }[] = await this.dataSource.query(
-        `SELECT id FROM auth.tenants WHERE status = 'ACTIVE'`,
-      );
+      const tenants: { id: string }[] = await this.dataSource.query(`SELECT id FROM auth.tenants`);
       for (const t of tenants) {
         tenantMap.set(getTenantSchemaName(t.id), t.id);
       }
-    } catch (err) {
-      this.logger.warn(
-        `Could not query auth.tenants to build tenant map: ${(err as Error).message}. ` +
-          `Cross-tenant probe will be limited.`,
+    } catch (error) {
+      throw new Error(
+        `Cross-tenant probe could not load the tenant directory: ${probeErrorMessage(error)}`,
       );
-      return violations;
     }
 
     for (const schema of schemas) {
       // Defence-in-depth: validate schema name before interpolation into SQL
       if (!SCHEMA_NAME_REGEX.test(schema)) {
-        this.logger.error(`Skipping unsafe schema name: "${schema}"`);
-        continue;
+        throw new Error(`Cross-tenant probe rejected unsafe schema name "${schema}"`);
       }
 
       const expectedTenantId = tenantMap.get(schema);
       if (!expectedTenantId) {
-        this.logger.debug(
-          `Schema ${schema} has no matching active tenant in auth.tenants -- skipping`,
+        throw new Error(
+          `Cross-tenant probe found schema "${schema}" without a canonical auth.tenants mapping`,
         );
-        continue;
       }
 
       // Find tables in this schema that have a tenant_id column.
@@ -83,20 +82,21 @@ export class CrossTenantProbe {
         tablesWithTenantCol = await this.dataSource.query(
           `SELECT DISTINCT table_name, column_name FROM information_schema.columns
            WHERE table_schema = $1 AND column_name IN ('tenant_id', 'tenantId')
-           ORDER BY RANDOM() LIMIT 10`,
+           ORDER BY table_name, column_name LIMIT 10`,
           [schema],
         );
-      } catch {
-        continue;
+      } catch (error) {
+        throw new Error(
+          `Cross-tenant probe could not discover tenant columns in schema "${schema}": ${probeErrorMessage(error)}`,
+        );
       }
 
       for (const { table_name, column_name } of tablesWithTenantCol) {
         // Validate identifiers from information_schema before SQL interpolation
         if (!SAFE_SQL_IDENTIFIER.test(table_name) || !SAFE_SQL_IDENTIFIER.test(column_name)) {
-          this.logger.error(
-            `Skipping unsafe identifier: table="${table_name}" column="${column_name}" in schema="${schema}"`,
+          throw new Error(
+            `Cross-tenant probe rejected unsafe identifier table="${table_name}" column="${column_name}" in schema="${schema}"`,
           );
-          continue;
         }
         try {
           // Use the actual column name found in information_schema (quoted to preserve case)
@@ -122,8 +122,10 @@ export class CrossTenantProbe {
               timestamp: new Date().toISOString(),
             });
           }
-        } catch {
-          // Skip if query fails (table may have unusual structure)
+        } catch (error) {
+          throw new Error(
+            `Cross-tenant probe could not inspect "${schema}"."${table_name}"."${column_name}": ${probeErrorMessage(error)}`,
+          );
         }
       }
     }

@@ -4,6 +4,13 @@
  * Batches feed assignment + feed lookups by batchId into bulk IN queries.
  * Uses the same weight-matching logic as FeedSelectorService but in bulk.
  *
+ * C-5 (feeding-protocol cycle): the PRIMARY resolution is now the unit's
+ * active v2 `ProtocolAssignment` + ACTIVE `FeedingProtocolV2` band — the same
+ * `ProtocolRateService` math the 06:00 day-plan generator runs, so the tanks
+ * page and the plan can never disagree on "current feed". The legacy chains
+ * (v1 batch protocol, batch_feed_assignments) remain as drain-window
+ * fallbacks and are deleted with the v1 stack in Phase 8.
+ *
  * Tenant scoping is structural: the batch function only ever runs with a
  * tenantId the factory resolved fail-closed from the request context, so every
  * `WHERE "tenantId" = $1` clause can never be issued tenant-blind. The schema is
@@ -22,12 +29,21 @@ import type {
   GrowthStageProtocol,
   TemperatureRange,
 } from '../../feed/entities/feeding-protocol.entity';
+import { ProtocolRateService } from '../../feeding-protocol/services/protocol-rate.service';
+import type {
+  ProtocolBand,
+  ProtocolSettings,
+  TemperatureAdjustment,
+} from '../../feeding-protocol/entities/feeding-protocol-v2.entity';
+import type { AssignmentOverrides } from '../../feeding-protocol/entities/protocol-assignment.entity';
 
 interface BatchFeedContext {
   batchId: string;
   avgWeightG: number;
   biomassKg: number;
   waterTempC?: number;
+  /** Equipment.id — v2 protokol ataması ünite-anahtarlıdır (C-5). */
+  unitId?: string;
 }
 
 interface FeedingCurvePoint {
@@ -72,13 +88,29 @@ interface ProtocolRow {
   temperatureRanges: TemperatureRange[] | string | null;
 }
 
+/** Shape of an active v2 assignment + ACTIVE protocol row (C-5 primary path). */
+interface V2AssignmentRow {
+  unitId: string;
+  overrides: AssignmentOverrides | string | null;
+  bands: ProtocolBand[] | string;
+  temperatureAdjustments: TemperatureAdjustment[] | string | null;
+  settings: ProtocolSettings | string;
+}
+
 function parseJsonArray<T>(value: T[] | string | null | undefined): T[] | undefined {
   if (value == null) return undefined;
   const parsed = typeof value === 'string' ? JSON.parse(value) : value;
   return Array.isArray(parsed) ? (parsed as T[]) : undefined;
 }
 
+function parseJsonObject<T>(value: T | string | null | undefined): T | undefined {
+  if (value == null) return undefined;
+  return typeof value === 'string' ? (JSON.parse(value) as T) : value;
+}
+
 const protocolRate = new FeedingProtocolRateService();
+// v2 band/oran SSoT — 06:00 üretici ile aynı hesap (stateless, saf).
+const protocolRateV2 = new ProtocolRateService();
 
 function parseEntries(value: FeedAssignmentEntry[] | string): FeedAssignmentEntry[] {
   const parsed = typeof value === 'string' ? JSON.parse(value) : value;
@@ -94,6 +126,37 @@ export function createFeedSelectionLoader(
   const loader = createTenantScopedDataLoader<string, FeedSelectionRow | null>(
     async (tenantId: string, batchIds: readonly string[]): Promise<(FeedSelectionRow | null)[]> => {
       const schema = getTenantSchemaName(tenantId);
+
+      // 0. C-5 PRIMARY: bulk load active v2 assignments + ACTIVE protocols for
+      // the units in context. A unit with a live v2 assignment resolves from
+      // the protocol band — the legacy chains below never run for it.
+      const contextUnitIds = [
+        ...new Set(
+          batchIds
+            .map((batchId) => contextMap.get(batchId)?.unitId)
+            .filter((unitId): unitId is string => unitId != null),
+        ),
+      ];
+      const v2ByUnit = new Map<string, V2AssignmentRow>();
+      if (contextUnitIds.length > 0) {
+        const v2Rows: V2AssignmentRow[] = await repo.query(
+          `SELECT pa."unitId", pa."overrides",
+                  p."bands", p."temperatureAdjustments", p."settings"
+             FROM "${schema}".feeding_protocol_assignments pa
+             JOIN "${schema}".feeding_protocols_v2 p
+               ON p."id" = pa."protocolId"
+              AND p."tenantId" = pa."tenantId"
+              AND p."status" = 'active'
+              AND p."isDeleted" = false
+            WHERE pa."tenantId" = $1
+              AND pa."unitId" = ANY($2::uuid[])
+              AND pa."status" = 'active'`,
+          [tenantId, contextUnitIds],
+        );
+        for (const row of v2Rows) {
+          v2ByUnit.set(row.unitId, row);
+        }
+      }
 
       // 1. Bulk load all feed assignments
       const assignments: FeedAssignmentRow[] = await repo.query(
@@ -181,7 +244,38 @@ export function createFeedSelectionLoader(
         const ctx = contextMap.get(batchId);
         if (!ctx || ctx.avgWeightG <= 0 || ctx.biomassKg <= 0) return null;
 
-        // Protocol precedence: drive the rate from the assigned protocol.
+        // C-5 PRIMARY: unit's active v2 assignment — same band/rate math as
+        // the 06:00 day-plan generator (bandFor + tempMultiplier + overrides).
+        const v2 = ctx.unitId ? v2ByUnit.get(ctx.unitId) : undefined;
+        if (v2) {
+          const bands = parseJsonArray<ProtocolBand>(v2.bands) ?? [];
+          const resolved = protocolRateV2.bandFor(bands, ctx.avgWeightG);
+          if (resolved) {
+            const settings = parseJsonObject<ProtocolSettings>(v2.settings);
+            const overrides = parseJsonObject<AssignmentOverrides>(v2.overrides);
+            const tempMultiplier = protocolRateV2.temperatureMultiplier(
+              parseJsonArray<TemperatureAdjustment>(v2.temperatureAdjustments),
+              ctx.waterTempC ?? null,
+            );
+            const effectiveRate = protocolRateV2.effectiveRatePercent({
+              baseRatePercent: resolved.band.feedingRatePercent,
+              temperatureMultiplier: tempMultiplier,
+              rateAdjustmentPercent: overrides?.rateAdjustmentPercent,
+              minRatePercent: settings?.minFeedingRatePercent,
+              maxRatePercent: settings?.maxFeedingRatePercent,
+            });
+            return {
+              feedId: resolved.band.feedId,
+              feedCode: resolved.band.feedCode,
+              feedName: resolved.band.feedName,
+              feedingRatePercent: effectiveRate,
+              dailyFeedKg: Math.round(((ctx.biomassKg * effectiveRate) / 100) * 100) / 100,
+            };
+          }
+        }
+
+        // Legacy drain-window fallbacks (v1 batch protocol, then
+        // batch_feed_assignments) — deleted with the v1 stack in Phase 8.
         const protocolId = protocolIdByBatch.get(batchId);
         if (protocolId) {
           const protocol = protocolMap.get(protocolId);
@@ -254,8 +348,9 @@ export function createFeedSelectionLoader(
       avgWeightG: number,
       biomassKg: number,
       waterTempC?: number,
+      unitId?: string,
     ): void => {
-      contextMap.set(batchId, { batchId, avgWeightG, biomassKg, waterTempC });
+      contextMap.set(batchId, { batchId, avgWeightG, biomassKg, waterTempC, unitId });
     },
   });
 }

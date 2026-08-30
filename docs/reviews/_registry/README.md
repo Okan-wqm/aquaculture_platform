@@ -8,6 +8,8 @@ Landed 2026-04-16 as Phase 6 of `/root/.claude/plans/abstract-brewing-mochi.md`.
 
 - `findings.jsonl` — one JSON object per line; append-only; hash-chained (each entry's `prev_hash` = previous entry's `content_hash`).
 - `findings.jsonl.schema.json` — JSON Schema validating every entry structure.
+- `<git-common-dir>/finding-registry-v1.lock` — process-owned lock present only while a mutation is active; it is not committed.
+- `<git-common-dir>/finding-id-reservations-v1.json` — repository-local domain high-water ledger shared by active worktrees; it is not committed.
 - `README.md` — this file.
 
 ## Lifecycle states
@@ -27,23 +29,75 @@ Landed 2026-04-16 as Phase 6 of `/root/.claude/plans/abstract-brewing-mochi.md`.
 
 ## How to append a finding
 
-**Manual (until Phase 2 CLI lands):**
+Create a stub without an `id`, then let the CLI allocate and append it:
 
 ```bash
-# Inspect current last entry's content_hash:
-tail -n 1 docs/reviews/_registry/findings.jsonl | jq -r '.content_hash'
-# Compose new entry with prev_hash = that value.
-# Compute content_hash = sha256 over JSON with content_hash field excluded.
-# Append to findings.jsonl.
+npm run findings:add -- INFRA /tmp/new-finding.json
 ```
 
-**Via Phase 2 CLI (once landed):**
+`add` selects `max(NNN) + 1` from every existing classifier in the named
+domain, regardless of the new finding's severity. For example, existing
+`INFRA-LOW-045` makes the next HIGH id `INFRA-HIGH-046`. Allocation, duplicate
+checking, schema validation, hash-chain extension, file fsync, and atomic rename
+all execute under one exclusive lock. A caller-supplied `id` is rejected.
+
+The fixed-id path exists only for governed historical import/replay:
 
 ```bash
-# tools/gates/finding-registry.ts add <finding-json>
-# tools/gates/finding-registry.ts transition <id> <state> [--commit <sha>]
-# tools/gates/finding-registry.ts sweep             # STALE auto-escalation
+npx ts-node --project tools/gates/tsconfig.json \
+  tools/gates/finding-registry.ts add-explicit /tmp/historical-finding.json
 ```
+
+All mutating subcommands (`add`, `add-explicit`, `close`, `sweep`,
+`rechain-from`, and `dedupe`) share one lock in Git's common directory, so every
+worktree of the same repository is serialized. Lock acquisition is bounded. A
+stale lock is taken over only when its metadata is valid, it belongs to this
+host, and its recorded process no longer exists. Malformed and foreign-host
+locks fail closed. Ownership is fenced immediately before each atomic write and
+release uses rename-then-token-verification, so a resumed stale owner cannot
+unlink or overwrite a successor's lock.
+
+Same-host stale-owner detection assumes all clients sharing the Git common
+directory also share one PID namespace. Do not mount that common directory into
+containers with isolated PID namespaces; use independent clones and the
+sequential-PR rule below instead.
+
+### Worktree and clone boundary
+
+The allocator reads the current registry plus every registry in `git worktree
+list`, then compares that maximum with the common-dir
+`finding-id-reservations-v1.json` high-water ledger. It durably reserves the
+chosen suffix before replacing the branch registry. A process crash after the
+reservation can leave a gap, but that number is never reused by another active
+worktree.
+
+The common directory does not span independent clones on different machines.
+Do not copy an allocated entry between clones. Refresh from `origin/main`,
+allocate on the branch that will carry the finding, and merge registry-writing
+PRs sequentially. If a remote registry PR lands first, update the branch and
+run `add` again so the suffix is selected from the new main tip. The CI
+uniqueness and hash-chain invariants remain the final cross-clone collision
+gate.
+
+The common lock also cannot make an allocator-old worktree client participate
+retroactively. During cutover, treat every active worktree that does not contain
+`finding-registry-store.ts` as read-only for registry operations. Do not close
+the allocator rollout finding until those legacy writers are removed, advanced
+to the authority-bearing main tip, or explicitly frozen while protected deploy
+and certificate checkouts remain intact. `git worktree list --porcelain` is the
+cutover inventory; CI and sequential registry PRs remain mandatory throughout
+that window.
+
+### Rechain boundary
+
+`rechain-from <N>` is restricted to a branch-only suffix. Before writing, it
+loads the locally fetched `origin/main` registry, requires every canonical entry
+to remain identical (including hashes), and requires `N` to be at or beyond that
+canonical prefix. It then validates the complete suffix against the JSON schema
+and the post-cutover evidence contract before recalculating hashes. This permits
+merge concatenation and correction of an unmerged malformed tail without
+turning rechain into a way to bless edits to canonical history. `close` remains
+the only command that can transition an already-merged row.
 
 ## Hash chain integrity
 
@@ -56,13 +110,14 @@ tail -n 1 docs/reviews/_registry/findings.jsonl | jq -r '.content_hash'
 
 ## Finding ID format
 
-Per `_shared/output-format.md`: `{PREFIX}-{SEVERITY}-{NNN}`. Recognised prefixes:
+Per `_shared/output-format.md`: `{PREFIX}-{SEVERITY}-{NNN}`. The schema is the
+authoritative prefix list; the allocator validates its complete output against
+that schema before writing.
 
 ```
-DATA  SEC   PLAT  FE    EDGE  MT
-FARM  SENSOR HR   MSG   ADMIN
-ANTI  ADR   AUDIT CTX   INFRA  PROC
-P0                              (Phase-0 audit bootstrap)
+DATA SEC PLAT FE EDGE MT FARM SENSOR HR MSG ADMIN ANTI ADR AUDIT CTX INFRA PROC
+P0 COMPLIANCE PERF OBS SUPPLY CONTRACT CIRCUIT MEM CLAUDE BILLING ALERT LEGAL
+AUDITTRAIL TENANTCOST AISAFETY PRODUCT DEPLOY RUST ULTRA ORPHAN RBAC MOB
 ```
 
 ## Commit trailer convention

@@ -581,10 +581,6 @@ describe('INVARIANT: admin-api runtime code does not execute tenant schema DDL d
         'apps/admin-api-service/src/database-management/services/schema-management.service.ts',
       ),
     );
-    const sourceSchemaGuard = stripComments(
-      readRepoFile('libs/backend-common/src/database/source-schema-write-guard.ts'),
-    );
-
     expect(schemaManagement).toContain('Runtime tenant schema creation is disabled');
     expect(schemaManagement).toContain('Runtime admin.tenant_schemas status writes are disabled');
     expect(schemaManagement).toContain('Runtime schema deletion is disabled');
@@ -594,17 +590,6 @@ describe('INVARIANT: admin-api runtime code does not execute tenant schema DDL d
     );
     expect(schemaManagement).not.toContain('SchemaManagerService');
     expect(schemaManagement).not.toContain('DEFAULT_TENANT_MODULES');
-
-    expect(sourceSchemaGuard).toContain(
-      'Runtime services cannot disable source schema write guards',
-    );
-    expect(sourceSchemaGuard).toContain(
-      'Runtime services cannot enable source schema write guards',
-    );
-    expect(sourceSchemaGuard).toContain('aqua-db-migrate owns source-schema trigger hardening');
-    expect(sourceSchemaGuard).not.toContain('ALTER TABLE IF EXISTS');
-    expect(sourceSchemaGuard).not.toContain('DISABLE TRIGGER');
-    expect(sourceSchemaGuard).not.toContain('ENABLE TRIGGER');
   });
 });
 

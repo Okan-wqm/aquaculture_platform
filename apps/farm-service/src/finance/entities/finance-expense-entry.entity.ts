@@ -13,6 +13,7 @@
  * mode documented on the feed_inventory/storage_inventory reconciliation.
  */
 import { Field, Float, ID, ObjectType } from '@nestjs/graphql';
+import { DecimalScalar } from '@aquaculture/backend-common/graphql';
 import {
   Column,
   CreateDateColumn,
@@ -30,10 +31,20 @@ import { FinanceCategory } from './finance-category.entity';
 
 @ObjectType()
 @Entity('finance_expense_entries')
-@Index('idx_finance_entries_tenant_date', ['tenantId', 'entryDate'])
-@Index('idx_finance_entries_tenant_category_date', ['tenantId', 'categoryId', 'entryDate'])
-@Index('idx_finance_entries_tenant_batch', ['tenantId', 'batchId'])
-@Index('idx_finance_entries_tenant_site', ['tenantId', 'siteId'])
+// Partial on the read path's dominant predicate (soft-deleted rows leave
+// aggregates but keep audit history) — see migration 1805800000000.
+@Index('idx_finance_entries_tenant_date_active', ['tenantId', 'entryDate'], {
+  where: '"isDeleted" = false',
+})
+@Index('idx_finance_entries_tenant_category_date_active', ['tenantId', 'categoryId', 'entryDate'], {
+  where: '"isDeleted" = false',
+})
+@Index('idx_finance_entries_tenant_batch_active', ['tenantId', 'batchId'], {
+  where: '"isDeleted" = false',
+})
+@Index('idx_finance_entries_tenant_site_active', ['tenantId', 'siteId'], {
+  where: '"isDeleted" = false',
+})
 export class FinanceExpenseEntry {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
@@ -67,7 +78,9 @@ export class FinanceExpenseEntry {
   @Column('date', { nullable: true })
   periodEnd?: Date;
 
-  @Field(() => Float)
+  @Field(() => Float, {
+    deprecationReason: 'Use amountDecimal (exact decimal string, ADR-0004).',
+  })
   @Column({
     type: 'decimal',
     precision: 15,
@@ -75,6 +88,13 @@ export class FinanceExpenseEntry {
     transformer: new DecimalTransformer(),
   })
   amount!: number;
+
+  /** Same value as `amount`, on the wire as an exact decimal string (ADR-0004 /
+   *  DATA-MEDIUM-009). A getter (not a column) so TypeORM ignores it. */
+  @Field(() => DecimalScalar)
+  get amountDecimal(): number {
+    return this.amount;
+  }
 
   /** ISO 4217 — defaulted from the tenant finance settings at write time. */
   @Field()
@@ -107,6 +127,10 @@ export class FinanceExpenseEntry {
 
   @Column('timestamptz', { nullable: true })
   deletedAt?: Date | null;
+
+  /** Actor who soft-deleted the row — required for financial audit attribution. */
+  @Column('uuid', { nullable: true })
+  deletedBy?: string | null;
 
   @VersionColumn()
   version!: number;

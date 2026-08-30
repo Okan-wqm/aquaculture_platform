@@ -17,6 +17,7 @@ import { FeedingProgram } from '../../../feeding/entities/feeding-program.entity
 import { FeedingRecord } from '../../../feeding/entities/feeding-record.entity';
 import { Species } from '../../../species/entities/species.entity';
 import { GrowthMeasurement } from '../../entities/growth-measurement.entity';
+import { ProtocolRateService } from '../../../feeding-protocol/services/protocol-rate.service';
 import { FCRCalculationService, FCRCalculationInput } from '../../services/fcr-calculation.service';
 
 describe('FCRCalculationService', () => {
@@ -72,8 +73,12 @@ describe('FCRCalculationService', () => {
     createQueryBuilder: jest.fn(),
   };
 
+  // getTargetFCR v2 zinciri (P-14) ham SQL'i repository.manager.query üzerinden
+  // atar — varsayılan boş sonuç: v2 ataması yok, zincir legacy dallara düşer.
+  const mockManagerQuery = jest.fn();
   const mockBatchRepository = {
     findOne: jest.fn(),
+    manager: { query: mockManagerQuery },
   };
 
   const mockSpeciesRepository = {
@@ -122,6 +127,8 @@ describe('FCRCalculationService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         FCRCalculationService,
+        // Saf servis — gerçek instance (band/matris çözümü specteki değerlerle sınanır).
+        ProtocolRateService,
         {
           provide: getRepositoryToken(FeedingRecord),
           useValue: mockFeedingRecordRepository,
@@ -169,6 +176,7 @@ describe('FCRCalculationService', () => {
     mockGrowthMeasurementRepository.createQueryBuilder.mockReturnValue(mockQueryBuilder);
     mockTankOperationRepository.createQueryBuilder.mockReturnValue(mockLedgerQueryBuilder);
     mockLedgerQueryBuilder.getRawOne.mockResolvedValue({ netRemovedKg: 0 });
+    mockManagerQuery.mockResolvedValue([]);
   });
 
   describe('calculatePeriodFCR', () => {
@@ -611,6 +619,120 @@ describe('FCRCalculationService', () => {
 
       expect(result.hasAnomaly).toBe(false);
       expect(result.anomalies).toHaveLength(0);
+    });
+  });
+
+  describe('getTargetFCR — P-14 v2 protokol zinciri (compareFCR üzerinden)', () => {
+    const tenantId = 'tenant-123';
+    const batchId = 'batch-456';
+
+    // makeBatch 120g ortalama üretir (1200kg / 10000 adet) — band [0, 1e6) kapsar.
+    const v2Row = (params?: {
+      overrides?: Record<string, unknown>;
+      fcrSource?: string;
+      fcrMatrix?: { temperatures: number[]; weights: number[]; fcrValues: number[][] } | null;
+    }): Record<string, unknown> => ({
+      overrides: params?.overrides ?? {},
+      bands: [
+        {
+          minWeightG: 0,
+          maxWeightG: 1000000,
+          feedId: 'feed-1',
+          feedCode: 'F1',
+          feedName: 'Starter F1',
+          feedingRatePercent: 2,
+          expectedFcr: 1.2,
+        },
+      ],
+      settings: {
+        autoTransition: true,
+        transitionBufferG: 10,
+        growthApplicationMode: 'per_meal',
+        underfeedAlertThresholdPercent: 15,
+        fcrSource: params?.fcrSource ?? 'band',
+      },
+      fcrMatrix: params?.fcrMatrix ?? null,
+    });
+
+    beforeEach(() => {
+      // 1000kg start, 1200kg current → cumulative FCR 300/200 = 1.5.
+      mockBatchRepository.findOne.mockResolvedValue(
+        Object.assign(makeBatch({ currentBiomassKg: 1200, startBiomassKg: 1000 }), {
+          tenantId,
+        }),
+      );
+      mockQueryBuilder.getRawOne.mockResolvedValue({ totalFeed: 300 });
+    });
+
+    it('aktif v2 ataması varken hedef FCR banddan gelir ve legacy program dalı HİÇ sorgulanmaz', async () => {
+      mockManagerQuery.mockResolvedValueOnce([v2Row()]);
+
+      const result = await service.compareFCR(batchId, tenantId);
+
+      expect(result.targetFCR).toBe(1.2);
+      // Zincir sırası pinli: v2 çözüldüyse legacy FeedingProgram yoluna inilmez.
+      expect(mockBatchLocationRepository.findOne).not.toHaveBeenCalled();
+      expect(mockFeedingProgramTankRepository.findOne).not.toHaveBeenCalled();
+    });
+
+    it('ünite fcrOverrides girdisi band varsayılanını ezer (OVERRIDE önceliği)', async () => {
+      mockManagerQuery.mockResolvedValueOnce([
+        v2Row({ overrides: { fcrOverrides: [{ feedId: 'feed-1', expectedFcr: 1.05 }] } }),
+      ]);
+
+      const result = await service.compareFCR(batchId, tenantId);
+
+      expect(result.targetFCR).toBe(1.05);
+    });
+
+    it('fcrSource=feed protokolde band yeminin FCR matrisi ağırlık ekseninde interpolasyonla çözülür', async () => {
+      mockManagerQuery
+        .mockResolvedValueOnce([v2Row({ fcrSource: 'feed' })])
+        .mockResolvedValueOnce([
+          {
+            matrix: {
+              temperatures: [10],
+              weights: [100, 200],
+              rates: [[2.5, 2.0]],
+              fcrMatrix: [[1.0, 1.4]],
+            },
+          },
+        ]);
+
+      const result = await service.compareFCR(batchId, tenantId);
+
+      // 120g: wFrac = (120−100)/(200−100) = 0.2 → 1.0 + 0.4×0.2 = 1.08.
+      expect(result.targetFCR).toBeCloseTo(1.08, 10);
+      expect(mockManagerQuery).toHaveBeenCalledTimes(2);
+      expect(String(mockManagerQuery.mock.calls[1]?.[0])).toContain('feedingMatrix2D');
+    });
+
+    it('v2 ataması yokken zincir species targetFCR dalına düşer', async () => {
+      mockBatchRepository.findOne.mockResolvedValue(
+        Object.assign(makeBatch({ currentBiomassKg: 1200, startBiomassKg: 1000 }), {
+          tenantId,
+          species: { growthParameters: { targetFCR: 1.35 } },
+        }),
+      );
+
+      const result = await service.compareFCR(batchId, tenantId);
+
+      expect(mockManagerQuery).toHaveBeenCalledTimes(1);
+      expect(result.targetFCR).toBe(1.35);
+    });
+
+    it('kullanıcı override (batch.fcr.target) her şeyden önce gelir — v2 sorgusu atılmaz', async () => {
+      mockBatchRepository.findOne.mockResolvedValue(
+        Object.assign(makeBatch({ currentBiomassKg: 1200, startBiomassKg: 1000 }), {
+          tenantId,
+          fcr: { isUserOverride: true, target: 2.0 },
+        }),
+      );
+
+      const result = await service.compareFCR(batchId, tenantId);
+
+      expect(result.targetFCR).toBe(2.0);
+      expect(mockManagerQuery).not.toHaveBeenCalled();
     });
   });
 

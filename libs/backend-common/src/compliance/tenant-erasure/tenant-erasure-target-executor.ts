@@ -7,20 +7,53 @@ import {
   TenantDataErasureFailedEvent,
   TenantErasureBlockedEvent,
   TenantErasureRequestedEvent,
+  tenantErasureOutcomeEventType,
+  type BaseEvent,
   type TenantErasureTargetService,
 } from '@platform/event-contracts';
-import { OutboxPublisher } from '@platform/outbox';
-import { DataSource, EntityManager } from 'typeorm';
+import { EntityManager } from 'typeorm';
 
-import { queryRowCountNormalized, queryRowsNormalized } from '../../database/query-result-normalizer';
+import {
+  queryRowCountNormalized,
+  queryRowsNormalized,
+} from '../../database/query-result-normalizer';
 import { MODULE_SCHEMAS } from '../../database/schema-manager.service';
 import { validateSqlIdentifier } from '../../database/sql-identifier.util';
 import { getTenantSchemaName } from '../../database/tenant-schema.utils';
-import { LegalHoldActiveError, LegalHoldService } from '../legal-hold';
+import { LegalHoldActiveError } from '../legal-hold';
 
-export type TenantErasureTargetMode =
-  | 'tenant-schema-module'
-  | 'source-schema-tenant-column';
+import { tenantErasureFenceLockKey } from './tenant-erasure-fence';
+import {
+  tenantErasureCompletionState,
+  type TenantErasureExecutionState,
+} from './tenant-erasure-result';
+
+export type TenantErasureTargetMode = 'tenant-schema-module' | 'source-schema-tenant-column';
+
+/**
+ * Optional per-service post-erasure extension point.
+ *
+ * WHY: some erasure targets hold tenant data that table deletion cannot reach
+ * (e.g. event-store's immutable `stored_events` log, whose GDPR treatment is a
+ * per-tenant crypto-shred). Hooks run INSIDE the erasure transaction, after
+ * every table deletion succeeded and before the success proof is recorded and
+ * enqueued — so a hook failure aborts the erasure exactly like a table-deletion
+ * failure (fail-closed: TenantDataErasureFailed, no proof).
+ */
+export interface TenantErasurePostErasureHook {
+  /**
+   * Stable identifier folded into the erasure proof hash so the proof attests
+   * which hooks completed as part of the operation.
+   */
+  readonly hookName: string;
+  /**
+   * MUST be idempotent (erasure retries re-invoke it) and MUST reject on
+   * failure. Receives the transaction EntityManager so hooks that write can
+   * commit atomically with the erasure; hooks with their own persistence (e.g.
+   * an idempotent crypto-shred) may ignore it.
+   */
+  onTenantErased(event: TenantErasureRequestedEvent, manager: EntityManager): Promise<void>;
+}
 
 export interface TenantErasureTargetExecutorOptions {
   readonly targetService: TenantErasureTargetService;
@@ -39,14 +72,36 @@ export interface TenantErasureTargetExecutorOptions {
 }
 
 export interface TenantErasureTargetExecutorDependencies {
-  readonly dataSource: DataSource;
-  readonly outboxPublisher: OutboxPublisher;
-  readonly legalHoldService: LegalHoldService;
-  readonly logger?: Logger;
+  readonly dataSource: TenantErasureTargetDataSource;
+  readonly outboxPublisher: TenantErasureTargetOutbox;
+  readonly legalHoldService: TenantErasureTargetLegalHold;
+  readonly logger?: Pick<Logger, 'log' | 'warn' | 'error'>;
+  /**
+   * Post-erasure hooks for tenant data that table deletion cannot reach
+   * (see TenantErasurePostErasureHook). Empty for most services.
+   */
+  readonly postErasureHooks?: readonly TenantErasurePostErasureHook[];
+}
+
+export interface TenantErasureTargetDataSource {
+  query(query: string, parameters?: unknown[]): Promise<unknown>;
+  transaction<T>(work: (manager: EntityManager) => Promise<T>): Promise<T>;
+}
+
+export interface TenantErasureTargetOutbox {
+  enqueue(
+    event: BaseEvent,
+    manager: EntityManager,
+    options?: { idempotencyKey?: string; aggregateId?: string },
+  ): Promise<void>;
+}
+
+export interface TenantErasureTargetLegalHold {
+  assertNoHold(tenantId: string, scope: 'tenant'): Promise<void>;
 }
 
 export interface TenantErasureTargetResult {
-  readonly state: 'PURGED' | 'ALREADY_PURGED' | 'BLOCKED' | 'FAILED';
+  readonly state: TenantErasureExecutionState | 'BLOCKED' | 'FAILED';
   readonly tenantId: string;
   readonly operationId: string;
   readonly targetService: TenantErasureTargetService;
@@ -91,20 +146,16 @@ interface Queryable {
 }
 
 export class TenantErasureTargetExecutor {
-  private readonly logger: Logger;
+  private readonly logger: Pick<Logger, 'log' | 'warn' | 'error'>;
 
   constructor(
     private readonly deps: TenantErasureTargetExecutorDependencies,
     private readonly options: TenantErasureTargetExecutorOptions,
   ) {
-    this.logger =
-      deps.logger ??
-      new Logger(`TenantErasureTargetExecutor:${options.targetService}`);
+    this.logger = deps.logger ?? new Logger(`TenantErasureTargetExecutor:${options.targetService}`);
   }
 
-  async eraseFromRequest(
-    event: TenantErasureRequestedEvent,
-  ): Promise<TenantErasureTargetResult> {
+  async eraseFromRequest(event: TenantErasureRequestedEvent): Promise<TenantErasureTargetResult> {
     const idempotencyKey = this.idempotencyKey(event.operationId);
     const existingProof = await this.readExistingProof(event, this.deps.dataSource);
     if (existingProof) {
@@ -141,6 +192,7 @@ export class TenantErasureTargetExecutor {
 
     try {
       return await this.deps.dataSource.transaction(async (manager) => {
+        await this.lockTenantFence(manager, event.tenantId);
         await this.lockOperation(manager, event);
         const proofAfterLock = await this.readExistingProof(event, manager);
         if (proofAfterLock) {
@@ -156,14 +208,14 @@ export class TenantErasureTargetExecutor {
           this.options.mode === 'tenant-schema-module'
             ? await this.eraseTenantSchemaModule(event, manager)
             : await this.eraseSourceSchemaRows(event, manager);
-        const matchedRecordCount = tableResults.reduce(
-          (sum, item) => sum + item.matchedCount,
-          0,
-        );
-        const erasedRecordCount = tableResults.reduce(
-          (sum, item) => sum + item.erasedCount,
-          0,
-        );
+        const matchedRecordCount = tableResults.reduce((sum, item) => sum + item.matchedCount, 0);
+        const erasedRecordCount = tableResults.reduce((sum, item) => sum + item.erasedCount, 0);
+        // Post-erasure hooks run after every table deletion succeeded and
+        // before the proof exists: a hook throw rolls the transaction back and
+        // falls through to the emitFailure path below, so the erasure can never
+        // report success while non-deletable tenant data (e.g. stored_events
+        // ciphertext) is still recoverable.
+        const executedHooks = await this.runPostErasureHooks(event, manager);
         const erasedAt = new Date().toISOString();
         const proofHash = this.createProofHash({
           event,
@@ -171,10 +223,12 @@ export class TenantErasureTargetExecutor {
           matchedRecordCount,
           erasedRecordCount,
           tableResults,
+          executedHooks,
         });
 
+        const proofEventType = tenantErasureOutcomeEventType(this.options.targetService, 'erased');
         const proofEvent: TenantDataErasedEvent = {
-          ...createBaseEvent<TenantDataErasedEvent>('TenantDataErased', event.tenantId, {
+          ...createBaseEvent<TenantDataErasedEvent>(proofEventType, event.tenantId, {
             aggregateId: event.tenantId,
             aggregateType: 'Tenant',
           }),
@@ -196,7 +250,7 @@ export class TenantErasureTargetExecutor {
         });
 
         return {
-          state: 'PURGED' as const,
+          state: tenantErasureCompletionState(event.dryRun, false),
           tenantId: event.tenantId,
           operationId: event.operationId,
           targetService: this.options.targetService,
@@ -217,6 +271,37 @@ export class TenantErasureTargetExecutor {
     }
   }
 
+  /**
+   * Runs the registered post-erasure hooks sequentially, returning the names of
+   * the hooks that completed (folded into the proof hash).
+   *
+   * WHY dry runs skip hooks entirely: hooks are destructive by contract (the
+   * canonical hook crypto-shreds a tenant key). A dry run must count what an
+   * erasure WOULD remove without destroying anything, so the executor — not
+   * each hook author — guarantees no hook ever fires under dryRun.
+   */
+  private async runPostErasureHooks(
+    event: TenantErasureRequestedEvent,
+    manager: EntityManager,
+  ): Promise<readonly string[]> {
+    const hooks = this.deps.postErasureHooks ?? [];
+    if (hooks.length === 0) {
+      return [];
+    }
+    if (event.dryRun) {
+      this.logger.log(
+        `Dry run: skipping ${hooks.length} post-erasure hook(s) for operation=${event.operationId}`,
+      );
+      return [];
+    }
+    const executed: string[] = [];
+    for (const hook of hooks) {
+      await hook.onTenantErased(event, manager);
+      executed.push(hook.hookName);
+    }
+    return executed;
+  }
+
   private async eraseTenantSchemaModule(
     event: TenantErasureRequestedEvent,
     manager: EntityManager,
@@ -230,25 +315,14 @@ export class TenantErasureTargetExecutor {
       );
     }
 
-    const tenantSchema = validateSqlIdentifier(
-      getTenantSchemaName(event.tenantId),
-      'schema',
-    );
-    const tables = moduleSchema.tables.map((table) =>
-      validateSqlIdentifier(table, 'table'),
-    );
+    const tenantSchema = validateSqlIdentifier(getTenantSchemaName(event.tenantId), 'schema');
+    const tables = moduleSchema.tables.map((table) => validateSqlIdentifier(table, 'table'));
     const existingTables = await this.existingTables(manager, tenantSchema, tables);
-    const sortedTables = await this.sortedTablesForDelete(
-      manager,
-      tenantSchema,
-      existingTables,
-    );
+    const sortedTables = await this.sortedTablesForDelete(manager, tenantSchema, existingTables);
 
     const results: TableDeleteResult[] = [];
     for (const tableName of sortedTables) {
-      results.push(
-        await this.deleteWholeTable(manager, tenantSchema, tableName, event.dryRun),
-      );
+      results.push(await this.deleteWholeTable(manager, tenantSchema, tableName, event.dryRun));
     }
     return results;
   }
@@ -267,20 +341,26 @@ export class TenantErasureTargetExecutor {
     }
 
     const sourceSchema = validateSqlIdentifier(this.options.sourceSchema, 'schema');
-    const excludedTables = new Set(this.options.excludedTables ?? []);
-    const candidateTables = [
-      ...moduleSchema.tables,
-      ...(moduleSchema.infrastructureTables ?? []),
-    ]
+    // Structural exclusions — enforced by the executor, never left to
+    // per-registry excludedTables convention. Both tables carry a tenant
+    // column, so the candidate filter would otherwise row-delete them:
+    //  - proof ledger: a NEW erasure operation must never erase the proofs of
+    //    PRIOR operations — those rows are the durable audit/GDPR evidence
+    //    that earlier erasures completed (and this operation's own proof is
+    //    inserted into the same table later in this transaction).
+    //  - outbox: tenant rows pending publish — including the erasure events
+    //    this very flow enqueues — must survive to publication.
+    const excludedTables = new Set([
+      ...(this.options.excludedTables ?? []),
+      this.options.proofLedger.table,
+      this.options.outbox.table,
+    ]);
+    const candidateTables = [...moduleSchema.tables, ...(moduleSchema.infrastructureTables ?? [])]
       .filter((table) => !excludedTables.has(table))
       .map((table) => validateSqlIdentifier(table, 'table'));
     const tenantColumns = await this.tenantColumns(manager, sourceSchema, candidateTables);
     const targetTables = Array.from(tenantColumns.keys()).sort();
-    const sortedTables = await this.sortedTablesForDelete(
-      manager,
-      sourceSchema,
-      targetTables,
-    );
+    const sortedTables = await this.sortedTablesForDelete(manager, sourceSchema, targetTables);
 
     const results: TableDeleteResult[] = [];
     for (const tableName of sortedTables) {
@@ -442,13 +522,7 @@ export class TenantErasureTargetExecutor {
     tableName: string,
     dryRun: boolean,
   ): Promise<TableDeleteResult> {
-    const matchedCount = await this.countRows(
-      manager,
-      schemaName,
-      tableName,
-      undefined,
-      undefined,
-    );
+    const matchedCount = await this.countRows(manager, schemaName, tableName, undefined, undefined);
     const erasedCount = dryRun
       ? 0
       : await this.deleteRows(manager, schemaName, tableName, undefined, undefined);
@@ -504,10 +578,7 @@ export class TenantErasureTargetExecutor {
     const where = tenantColumn ? ` WHERE "${tenantColumn}" = $1` : '';
     const params = tenantColumn ? [tenantId] : [];
     return queryRowCountNormalized(
-      await manager.query(
-        `DELETE FROM "${schemaName}"."${tableName}"${where}`,
-        params,
-      ),
+      await manager.query(`DELETE FROM "${schemaName}"."${tableName}"${where}`, params),
     );
   }
 
@@ -515,14 +586,8 @@ export class TenantErasureTargetExecutor {
     event: TenantErasureRequestedEvent,
     queryable: Queryable,
   ): Promise<TenantErasureStoredProofRow | null> {
-    const schemaName = validateSqlIdentifier(
-      this.options.proofLedger.schema,
-      'schema',
-    );
-    const tableName = validateSqlIdentifier(
-      this.options.proofLedger.table,
-      'table',
-    );
+    const schemaName = validateSqlIdentifier(this.options.proofLedger.schema, 'schema');
+    const tableName = validateSqlIdentifier(this.options.proofLedger.table, 'table');
     const rows = queryRowsNormalized<TenantErasureStoredProofRow>(
       await queryable.query(
         `
@@ -554,12 +619,7 @@ export class TenantErasureTargetExecutor {
     idempotencyKey: string,
   ): Promise<TenantErasureTargetResult> {
     return this.deps.dataSource.transaction((manager) =>
-      this.replayStoredProofInTransaction(
-        manager,
-        event,
-        storedProof,
-        idempotencyKey,
-      ),
+      this.replayStoredProofInTransaction(manager, event, storedProof, idempotencyKey),
     );
   }
 
@@ -569,6 +629,7 @@ export class TenantErasureTargetExecutor {
     storedProof: TenantErasureStoredProofRow,
     idempotencyKey: string,
   ): Promise<TenantErasureTargetResult> {
+    this.assertStoredProofMode(event, storedProof);
     const matchedRecordCount = this.numberFromRow(
       storedProof.matchedRecordCount,
       'matchedRecordCount',
@@ -577,11 +638,7 @@ export class TenantErasureTargetExecutor {
       storedProof.erasedRecordCount,
       'erasedRecordCount',
     );
-    const alreadyQueued = await this.hasOutboxRow(
-      manager,
-      event.tenantId,
-      idempotencyKey,
-    );
+    const alreadyQueued = await this.hasOutboxRow(manager, event.tenantId, idempotencyKey);
     if (!alreadyQueued) {
       await this.deps.outboxPublisher.enqueue(
         this.storedProofToEvent(event, storedProof),
@@ -593,13 +650,35 @@ export class TenantErasureTargetExecutor {
       );
     }
     return {
-      state: 'ALREADY_PURGED',
+      state: tenantErasureCompletionState(storedProof.dryRun, true),
       tenantId: event.tenantId,
       operationId: event.operationId,
       targetService: this.options.targetService,
       matchedRecordCount,
       erasedRecordCount,
     };
+  }
+
+  private assertStoredProofMode(
+    event: TenantErasureRequestedEvent,
+    storedProof: TenantErasureStoredProofRow,
+  ): void {
+    if (storedProof.dryRun !== event.dryRun) {
+      throw new Error(
+        `Tenant erasure stored proof mode mismatch for operation ${event.operationId}: ` +
+          `requested dryRun=${event.dryRun}, stored dryRun=${storedProof.dryRun}`,
+      );
+    }
+    const erasedRecordCount = this.numberFromRow(
+      storedProof.erasedRecordCount,
+      'erasedRecordCount',
+    );
+    if (storedProof.dryRun && erasedRecordCount !== 0) {
+      throw new Error(
+        `Tenant erasure dry-run proof ${event.operationId} reports ` +
+          `${erasedRecordCount} erased records`,
+      );
+    }
   }
 
   private storedProofToEvent(
@@ -609,7 +688,7 @@ export class TenantErasureTargetExecutor {
     const erasedAt = this.isoFromRow(storedProof.erasedAt);
     return {
       eventId: storedProof.eventId as TenantDataErasedEvent['eventId'],
-      eventType: 'TenantDataErased',
+      eventType: tenantErasureOutcomeEventType(this.options.targetService, 'erased'),
       timestamp: erasedAt,
       tenantId: event.tenantId,
       version: 1,
@@ -620,14 +699,8 @@ export class TenantErasureTargetExecutor {
       targetService: this.options.targetService,
       erasedAt,
       dryRun: storedProof.dryRun,
-      matchedRecordCount: this.numberFromRow(
-        storedProof.matchedRecordCount,
-        'matchedRecordCount',
-      ),
-      erasedRecordCount: this.numberFromRow(
-        storedProof.erasedRecordCount,
-        'erasedRecordCount',
-      ),
+      matchedRecordCount: this.numberFromRow(storedProof.matchedRecordCount, 'matchedRecordCount'),
+      erasedRecordCount: this.numberFromRow(storedProof.erasedRecordCount, 'erasedRecordCount'),
       proofHash: storedProof.proofHash,
     };
   }
@@ -636,14 +709,8 @@ export class TenantErasureTargetExecutor {
     manager: EntityManager,
     event: TenantDataErasedEvent,
   ): Promise<void> {
-    const schemaName = validateSqlIdentifier(
-      this.options.proofLedger.schema,
-      'schema',
-    );
-    const tableName = validateSqlIdentifier(
-      this.options.proofLedger.table,
-      'table',
-    );
+    const schemaName = validateSqlIdentifier(this.options.proofLedger.schema, 'schema');
+    const tableName = validateSqlIdentifier(this.options.proofLedger.table, 'table');
     await manager.query(
       `
         INSERT INTO "${schemaName}"."${tableName}" (
@@ -703,6 +770,12 @@ export class TenantErasureTargetExecutor {
     ]);
   }
 
+  private async lockTenantFence(manager: EntityManager, tenantId: string): Promise<void> {
+    await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+      tenantErasureFenceLockKey(tenantId, this.options.targetService),
+    ]);
+  }
+
   private numberFromRow(value: number | string, field: string): number {
     const parsed = typeof value === 'number' ? value : Number.parseInt(value, 10);
     if (!Number.isFinite(parsed)) {
@@ -723,8 +796,9 @@ export class TenantErasureTargetExecutor {
   ): Promise<void> {
     await this.deps.dataSource.transaction(async (manager) => {
       const blockedAt = new Date().toISOString();
+      const blockedEventType = tenantErasureOutcomeEventType(this.options.targetService, 'blocked');
       const blockedEvent: TenantErasureBlockedEvent = {
-        ...createBaseEvent<TenantErasureBlockedEvent>('TenantErasureBlocked', event.tenantId, {
+        ...createBaseEvent<TenantErasureBlockedEvent>(blockedEventType, event.tenantId, {
           aggregateId: event.tenantId,
           aggregateType: 'Tenant',
         }),
@@ -751,8 +825,9 @@ export class TenantErasureTargetExecutor {
     await this.deps.dataSource.transaction(async (manager) => {
       const failedAt = new Date().toISOString();
       const errorMessage = error instanceof Error ? error.message : String(error);
+      const failureEventType = tenantErasureOutcomeEventType(this.options.targetService, 'failed');
       const failureEvent: TenantDataErasureFailedEvent = {
-        ...createBaseEvent<TenantDataErasureFailedEvent>('TenantDataErasureFailed', event.tenantId, {
+        ...createBaseEvent<TenantDataErasureFailedEvent>(failureEventType, event.tenantId, {
           aggregateId: event.tenantId,
           aggregateType: 'Tenant',
         }),
@@ -782,6 +857,7 @@ export class TenantErasureTargetExecutor {
     readonly matchedRecordCount: number;
     readonly erasedRecordCount: number;
     readonly tableResults: readonly TableDeleteResult[];
+    readonly executedHooks: readonly string[];
   }): string {
     const perTable = [...args.tableResults]
       .sort((a, b) => a.tableName.localeCompare(b.tableName))
@@ -798,6 +874,10 @@ export class TenantErasureTargetExecutor {
       String(args.matchedRecordCount),
       String(args.erasedRecordCount),
       perTable,
+      // Hook coverage is part of the attested proof material: the hash of a
+      // successful erasure binds WHICH non-deletion treatments (e.g. the
+      // stored_events crypto-shred) completed inside the same transaction.
+      args.executedHooks.join(','),
     ].join('|');
     return `sha256:${createHash('sha256').update(material).digest('hex')}`;
   }

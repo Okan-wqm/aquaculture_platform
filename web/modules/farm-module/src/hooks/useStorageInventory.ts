@@ -75,7 +75,9 @@ export interface StockMovement {
 export interface CategoryTotal {
   category: string;
   totalQuantity: number;
+  /** @deprecated Float — use `totalValueDecimal` (exact decimal string, ADR-0004). */
   totalValue: number;
+  totalValueDecimal: string;
   itemCount: number;
 }
 
@@ -99,7 +101,9 @@ export interface LowStockAlert {
 }
 
 export interface StorageOverview {
+  /** @deprecated Float — use `totalStockValueDecimal` (exact decimal string, ADR-0004). */
   totalStockValue: number;
+  totalStockValueDecimal: string;
   totalItems: number;
   lowStockAlertCount: number;
   recentMovementsCount: number;
@@ -168,6 +172,7 @@ const STORAGE_OVERVIEW_QUERY = `
   query StorageOverview {
     storageOverview {
       totalStockValue
+      totalStockValueDecimal
       totalItems
       lowStockAlertCount
       recentMovementsCount
@@ -175,6 +180,7 @@ const STORAGE_OVERVIEW_QUERY = `
         category
         totalQuantity
         totalValue
+        totalValueDecimal
         itemCount
       }
       locationFillRates {

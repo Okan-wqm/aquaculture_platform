@@ -32,11 +32,16 @@ KERNEL_RUNTIME_PATH_PREFIXES: tuple[str, ...] = (
 )
 
 
-def _is_runtime_path(porcelain_line: str) -> bool:
+def is_runtime_path(porcelain_line: str) -> bool:
     """Detect if a `git status --porcelain` line refers to a kernel-runtime path.
 
     Porcelain v1 format: `XY <path>` (X=index status, Y=worktree status, two
     chars then space, then optionally a quoted path). Untracked is `?? <path>`.
+
+    Public because more than one guard needs the same notion of "the kernel
+    wrote this itself". ``burn_in`` previously carried no such notion at all
+    and rejected any porcelain output, which made the observe burn-in
+    unstartable the moment a runtime write became visible to git.
     """
     if len(porcelain_line) < 4:
         return False
@@ -97,8 +102,8 @@ def preflight(
     )
     porcelain = porcelain_proc.stdout if porcelain_proc.returncode == 0 else ""
     raw_dirty_lines = [line for line in porcelain.splitlines() if line.strip()]
-    runtime_dirty_lines = [line for line in raw_dirty_lines if _is_runtime_path(line)]
-    source_dirty_lines = [line for line in raw_dirty_lines if not _is_runtime_path(line)]
+    runtime_dirty_lines = [line for line in raw_dirty_lines if is_runtime_path(line)]
+    source_dirty_lines = [line for line in raw_dirty_lines if not is_runtime_path(line)]
     # Source-dirty drives the gate; runtime-dirty is recorded for auditability only.
     dirty_lines = source_dirty_lines
     dirty_files_count = len(source_dirty_lines)

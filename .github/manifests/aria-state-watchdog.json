@@ -1,0 +1,33 @@
+{
+  "$comment": [
+    "Thresholds for the ARIA external watchdog (PLAN Wave 1, moved forward from Wave 11).",
+    "Data, not code: an operator changes a number here, and the invariant spec pins that",
+    "the workflow reads them from this file rather than carrying its own copy.",
+    "",
+    "The hours are derived from the schedules they watch, not chosen freely:",
+    "the producer runs at 01:13 and the executor at 02:29 daily, so one missed night is",
+    "within tolerance and two is not. A threshold tighter than the cadence would page on",
+    "a single retry; one looser than two cadences would let a silent week pass."
+  ],
+  "stateBranch": {
+    "ref": "aria/state",
+    "maxTipAgeHours": 50,
+    "$comment": "The ONE signal no other watchdog carries: the branch tip must MOVE. A lane can run green every night and publish nothing - ORPHAN-CRITICAL-484's exact shape - and a run-status watchdog reads that as health."
+  },
+  "lanes": [
+    {
+      "workflow": "aria-auto-cycle.yml",
+      "role": "producer",
+      "maxSuccessAgeHours": 50
+    },
+    {
+      "workflow": "aria-agent-executor.yml",
+      "role": "executor",
+      "maxSuccessAgeHours": 50
+    }
+  ],
+  "incidentIssue": {
+    "titlePrefix": "ARIA external watchdog:",
+    "labels": ["aria", "watchdog"]
+  }
+}

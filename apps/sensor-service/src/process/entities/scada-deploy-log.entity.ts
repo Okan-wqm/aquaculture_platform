@@ -24,6 +24,10 @@ export enum ScadaDeployStatus {
   SUCCESS = 'success',
   FAILED = 'failed',
   ROLLED_BACK = 'rolled_back',
+  /** WF-011: undeploy command published to the device (delete flow). */
+  UNDEPLOY_SENT = 'undeploy_sent',
+  /** WF-011: device acked that the package was cleared. */
+  UNDEPLOYED = 'undeployed',
 }
 
 registerEnumType(ScadaDeployStatus, {

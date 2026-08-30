@@ -1,0 +1,90 @@
+name: Helm dependency update
+description: >-
+  Resolve a chart's declared subchart dependencies into charts/, tolerating a
+  transient registry failure without tolerating a real one.
+
+# WHY THIS EXISTS, AND WHAT IT COST NOT TO.
+#
+# `helm dependency update` reads Chart.yaml — the repository's SSoT for the
+# postgresql / redis / nats subchart versions — and fetches those archives from
+# the declared upstream repositories. `charts/` is build output by Helm
+# convention and is not committed, so both the `helm template` renderer in
+# ci-affected.yml and the `helm lint` matrix in infra-helm-lint.yml must run it
+# before they can resolve the dependency graph at all.
+#
+# That put a live third-party chart registry on the critical path of a REQUIRED
+# check. On 2026-08-03 charts.bitnami.com reset the connection mid-fetch:
+#
+#   Save error occurred: could not find : chart postgresql not found in
+#   https://charts.bitnami.com/bitnami: ... read: connection reset by peer
+#
+# one TCP reset, and `pre-flight` went red — taking `build-status` (which
+# depends on it, and which branch protection requires) with it, on a pull
+# request whose diff touched no infrastructure at all. Every PR in flight at
+# that moment was blocked by a stranger's load balancer.
+#
+# A single-shot network fetch inside a merge gate is a coin flip the gate has to
+# win every time. Retrying makes surviving a transient the DEFAULT rather than
+# something an operator has to notice and re-run by hand — and re-running by
+# hand was not even available: the workflow token cannot POST rerun-failed-jobs,
+# so the only recovery was pushing another commit.
+#
+# WHAT THIS DELIBERATELY DOES NOT DO: swallow a real failure. A genuinely
+# missing chart, a bad version pin or a removed repository fails identically on
+# every attempt and the step still fails, with the last attempt's real stderr
+# intact. Retry buys time against transience; it cannot manufacture a chart that
+# is not there.
+#
+# WHY IT IS ONE FILE. The two callsites carried the same command as two
+# hand-written lines, so a fix applied to one would not reach the other — the
+# exact shape of the drift that let ORPHAN-CRITICAL-484's fix land on the
+# consumer lane and never reach the producer (see
+# .github/actions/restore-aria-state, and the invariant that now pins it).
+# `tests/invariants/helm-dependency-single-path.spec.ts` stops the pair
+# re-forming.
+#
+# NOT CHOSEN, and worth naming rather than leaving implied: vendoring the
+# resolved .tgz archives into the repository would remove the network from CI
+# entirely — a structurally stronger fix than retrying. It is not taken here
+# because it inverts a convention this chart states explicitly (Chart.yaml is
+# the SSoT; `charts/` is build output, not source), and committed archives that
+# no longer match their pinned versions are a drift surface whose only detector
+# is... fetching from the network. That trade is an infrastructure-ownership
+# decision with an ADR's weight, not a side effect of unblocking a merge queue.
+
+inputs:
+  chart-dir:
+    description: Path to the chart directory containing Chart.yaml.
+    required: true
+  attempts:
+    description: >-
+      Total attempts before the step fails. Bounded on purpose: an unbounded
+      retry against a registry that is genuinely down converts a fast red into a
+      job that burns its timeout before saying the same thing.
+    required: false
+    default: '3'
+  backoff-seconds:
+    description: >-
+      Seconds to wait before the second attempt. Each further wait doubles, so
+      the default spends 5s + 10s across three attempts — long enough to outlast
+      a reset or a brief 5xx, short enough that a real outage still fails the job
+      promptly.
+    required: false
+    default: '5'
+
+runs:
+  using: composite
+  steps:
+    # The retry lives in resolve.sh rather than inline here so it can be run
+    # against a stub `helm` by
+    # `tests/invariants/helm-dependency-single-path.spec.ts`, which asserts how
+    # many times it calls the resolver and that it still fails when the failure
+    # is real. Inline, the only available assertion would be that the words
+    # "attempt" and "sleep" appear — which a loop that never increments its
+    # counter also satisfies.
+    - name: Resolve chart dependencies
+      shell: bash
+      env:
+        ATTEMPTS: ${{ inputs.attempts }}
+        BACKOFF_SECONDS: ${{ inputs.backoff-seconds }}
+      run: '"${GITHUB_ACTION_PATH}/resolve.sh" "${{ inputs.chart-dir }}"'

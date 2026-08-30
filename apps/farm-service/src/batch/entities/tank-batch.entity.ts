@@ -113,10 +113,11 @@ export class TankBatch {
   // -------------------------------------------------------------------------
   // STOK BİLGİLERİ (EKLENEN)
   // -------------------------------------------------------------------------
-
-  @Field(() => Int, { nullable: true })
-  @Column({ type: 'int', nullable: true })
-  currentQuantity?: number;
+  // NOTE: the former `currentQuantity` COUNT mirror is RETIRED (ORPHAN-HIGH-353
+  // step 3, DropTankBatchCurrentQuantityMirror) — the fish count is the
+  // batchDetails-derived `totalQuantity` SSoT. `currentBiomassKg` remains: it is
+  // the growth-tracked live biomass (feeding accrues weight-gain into it), NOT a
+  // count-style mirror; guarded by farm-tank-count-ssot.spec's asymmetry check.
 
   @Field(() => Float, { nullable: true })
   @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })

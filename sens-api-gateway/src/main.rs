@@ -2911,14 +2911,18 @@ impl AppState {
 
     /// Initialize hardware handles (must be called within LocalSet context)
     pub fn init_hardware_handles(&mut self) {
-        // Initialize Modbus actor
-        if !self.config.modbus.is_empty() {
-            self.modbus_handle = Some(ModbusHandle::new(self.config.modbus.clone()));
-            info!(
-                "Modbus actor initialized with {} devices",
-                self.config.modbus.len()
-            );
-        }
+        // Initialize Modbus actor. Started UNCONDITIONALLY — even with zero
+        // devices — so the runtime can hot-provision a tenant-added drive
+        // (SENSOR-CRITICAL-007) without a reboot. An empty actor simply parks on
+        // its command channel; every device-touching path already guards on
+        // `config.modbus` being non-empty, so no read/write/telemetry surface
+        // changes for a Modbus-less edge. "Modbus configured" is derived from
+        // `config.modbus`, never from the handle's presence.
+        self.modbus_handle = Some(ModbusHandle::new(self.config.modbus.clone()));
+        info!(
+            "Modbus actor initialized with {} devices",
+            self.config.modbus.len()
+        );
 
         // Initialize GPIO actor (v2.0 - actor pattern)
         if !self.config.gpio.is_empty() {

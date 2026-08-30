@@ -66,23 +66,56 @@ interface Baseline {
 }
 
 function discoverProjects(): string[] {
-  // Project roots that may contain a `tsconfig.spec.json`. `platform/libs`
-  // was added in PR-39 when @platform/outbox got its first test suite —
-  // before then no platform lib had a spec config, so the gate never had
-  // to look there.
-  const roots: readonly string[] = ['apps', 'libs', 'platform/libs'];
+  // The project set is DERIVED from the presence of a `tsconfig.spec.json`,
+  // not from a list of directories to look in.
+  //
+  // WHY IT CHANGED. The roots were hardcoded as
+  // `['apps', 'libs', 'platform/libs']`, with a comment recording that
+  // `platform/libs` had been appended the first time a platform lib grew a
+  // spec config. That is the tell: the list is a log of the times someone
+  // noticed, and a directory nobody noticed is silently ungated. The repo has
+  // 30 spec tsconfigs; those three roots reach 29. The one they missed is
+  // `tests/invariants` — which is where the platform's INVARIANTS live, so the
+  // gate that ratchets spec type errors was blind to the specs that enforce
+  // every other rule.
+  //
+  // Measured, not assumed: a `noUncheckedIndexedAccess` error introduced in
+  // `tests/invariants/git-hook-binding.spec.ts` during this session passed
+  // ci-full's spec gate and was caught only by ci-affected's changed-files
+  // guard — which sees a file when it CHANGES and never guards the rest. So a
+  // pre-existing error there was invisible to every gate.
+  //
+  // Deriving instead of enumerating means a new top-level tree is covered the
+  // moment it acquires a spec config, with no second place to remember to
+  // edit. `tests/**` nests one level deeper than `apps/**`, so the walk is
+  // depth-bounded rather than root-listed.
   const projects: string[] = [];
-  for (const root of roots) {
-    const rootDir = join(REPO_ROOT, root);
-    if (!existsSync(rootDir)) continue;
-    for (const child of readdirSync(rootDir)) {
-      const projectDir = join(rootDir, child);
-      if (!statSync(projectDir).isDirectory()) continue;
-      const specCfg = join(projectDir, 'tsconfig.spec.json');
-      if (existsSync(specCfg)) {
-        projects.push(`${root}/${child}`);
-      }
+  const skip = new Set(['node_modules', '.git', 'dist', 'coverage', '.nx']);
+
+  const walk = (relative: string, depth: number): void => {
+    const abs = join(REPO_ROOT, relative);
+    if (!existsSync(abs) || !statSync(abs).isDirectory()) return;
+    if (existsSync(join(abs, 'tsconfig.spec.json'))) {
+      projects.push(relative);
+      // A project does not contain another project; stop descending so a
+      // nested fixture tsconfig cannot register as its own gate entry.
+      return;
     }
+    if (depth === 0) return;
+    for (const child of readdirSync(abs)) {
+      if (skip.has(child) || child.startsWith('.')) continue;
+      walk(`${relative}/${child}`, depth - 1);
+    }
+  };
+
+  for (const child of readdirSync(REPO_ROOT)) {
+    if (skip.has(child) || child.startsWith('.')) continue;
+    const abs = join(REPO_ROOT, child);
+    if (!existsSync(abs) || !statSync(abs).isDirectory()) continue;
+    // Depth 2 below each top-level directory covers `apps/<svc>`,
+    // `libs/<lib>`, `platform/libs/<lib>` and `tests/<suite>` without walking
+    // into source trees, where a stray spec config would not be a project.
+    walk(child, 2);
   }
   return projects.sort();
 }

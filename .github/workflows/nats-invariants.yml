@@ -18,6 +18,8 @@
 #                                 against apps/** sources
 #   - nats-subject-contract.spec.ts  publisher↔subscriber subject shape pin
 #                                    (ORPHAN-013 regression guard)
+#   - messaging-acl-smoke.test.mjs  parser/envelope adversarial tests for the
+#                                   generated cert-only authorization surface
 #
 # Paths: apps/** and libs/event-contracts/** are inputs to the coverage
 # checks (a new createBaseEvent type or @MessagePattern handler must carry
@@ -32,6 +34,11 @@ on:
       - 'infrastructure/nats/**'
       - 'infrastructure/docker/nats/**'
       - 'infrastructure/docker/scripts/generate-internal-certs.sh'
+      - 'infrastructure/helm/aquaculture/**'
+      - 'docker-compose.droplet.yml'
+      - 'docker-compose.prod.yml'
+      - 'docker-compose.staging.yml'
+      - 'scripts/deploy/droplet-up.sh'
       - 'scripts/nats/**'
       - 'apps/**'
       - 'libs/event-contracts/**'
@@ -44,6 +51,13 @@ on:
     paths:
       - 'infrastructure/nats/**'
       - 'infrastructure/docker/nats/**'
+      - 'infrastructure/docker/scripts/generate-internal-certs.sh'
+      - 'infrastructure/helm/aquaculture/**'
+      - 'docker-compose.droplet.yml'
+      - 'docker-compose.prod.yml'
+      - 'docker-compose.staging.yml'
+      - 'scripts/deploy/droplet-up.sh'
+      - 'scripts/nats/**'
       - 'apps/**'
       - 'libs/event-contracts/**'
 
@@ -62,7 +76,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -73,11 +87,12 @@ jobs:
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --ignore-scripts --no-fund
 
-      - name: Verify nats.conf is regenerated from services.yaml (generator idempotency)
+      - name: Verify NATS generated artifacts match services.yaml
         run: |
           python3 scripts/nats/generate-nats-conf.py
-          if ! git diff --exit-code infrastructure/docker/nats/nats.conf; then
-            echo "::error file=infrastructure/docker/nats/nats.conf::nats.conf is stale — services.yaml changed without regenerating. Run scripts/nats/generate-nats-conf.py and commit the diff (same commit, per ADR-015)."
+          if [ -n "$(git status --porcelain -- infrastructure/docker/nats/nats.conf infrastructure/helm/aquaculture/files/nats-service-identities.yaml)" ]; then
+            git diff -- infrastructure/docker/nats/nats.conf infrastructure/helm/aquaculture/files/nats-service-identities.yaml
+            echo "::error::NATS ACL or Helm certificate roster is stale — run scripts/nats/generate-nats-conf.py and commit both artifacts."
             exit 1
           fi
 
@@ -87,3 +102,6 @@ jobs:
             --runTestsByPath \
             e2e/tests/integration/nats-invariants.spec.ts \
             e2e/tests/integration/nats-subject-contract.spec.ts
+
+      - name: Run generated authorization parser adversarial tests
+        run: node --test scripts/nats/messaging-acl-smoke.test.mjs

@@ -29,6 +29,9 @@
         "command": "npm run preview"
       },
       "dependsOn": ["build"]
+    },
+    "test": {
+      "dependsOn": ["shared-ui:build"]
     }
   },
   "implicitDependencies": ["shared-ui"]

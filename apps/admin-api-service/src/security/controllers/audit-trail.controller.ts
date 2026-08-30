@@ -33,12 +33,13 @@ import {
   AuditAlertRule,
   RetentionStats,
 } from '../services/audit-trail.service';
+import { ACTIVITY_LOG_SORT_FIELDS, ActivityLogSortField } from '../sorting/activity-log-sort';
 
 // ============================================================================
 // DTOs
 // ============================================================================
 
-class QueryAuditTrailDto {
+export class QueryAuditTrailDto {
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
@@ -127,8 +128,8 @@ class QueryAuditTrailDto {
   includeArchived?: boolean;
 
   @IsOptional()
-  @IsString()
-  sortBy?: string;
+  @IsIn(ACTIVITY_LOG_SORT_FIELDS)
+  sortBy?: ActivityLogSortField;
 
   @IsOptional()
   @IsIn(['ASC', 'DESC'])

@@ -84,10 +84,52 @@ MODEL_FALLBACK_TIER: dict[str, str] = {
     # rather than silently returning the usage-limit notice as an answer. The
     # ladder is what makes running the write tier on opus safe.
     "opus": "sonnet",
+    # ARIA-HIGH-023 — cross-provider rungs. Every Anthropic tier's chain now
+    # terminates at a DIFFERENT vendor: an absent subscription is a
+    # credential-level failure no same-vendor rung can cure, so auth failures
+    # walk the ladder to the first cross-provider tier (see
+    # run_with_model_fallback). Bidirectional: a dead Z.ai key falls glm-5.3
+    # back to the Anthropic pool at the strongest authoring tier.
+    "sonnet": "glm-5.3",
+    "glm-5.3": "opus",
 }
 
 # The effort a credit retry escalates to ("ultra code" retry).
 CREDIT_FALLBACK_EFFORT: str = "max"
+
+
+def _model_provider(model: str | None) -> str:
+    """The vendor a tier authenticates through (ARIA-HIGH-023).
+
+    Models listed in PROVIDER_REDIRECTS reach their vendor through that
+    redirect's credential; everything else authenticates through the managed
+    Anthropic session. The provider, not the tier name, is what an auth
+    failure is a fact ABOUT: a dead credential cannot be cured by any rung
+    inside the same vendor, and can be by the first rung outside it.
+    """
+    redirect = PROVIDER_REDIRECTS.get(str(model or ""))
+    return redirect["provider"] if redirect is not None else "anthropic"
+
+
+def _cross_provider_auth_fallback(model: str | None) -> str | None:
+    """First ladder tier authenticating through a DIFFERENT vendor (ARIA-HIGH-023).
+
+    Walks ``MODEL_FALLBACK_TIER`` from ``model``, skipping same-vendor rungs
+    (they share the dead credential), and returns the first cross-vendor tier.
+    Cycle-bounded: the cross-provider rungs make the ladder cyclic
+    (``opus -> sonnet -> glm-5.3 -> opus``), so the walk tracks visited tiers
+    and gives up at the first repeat. Returns ``None`` when no cross-vendor
+    tier is reachable — the caller then treats the auth failure as terminal.
+    """
+    origin_provider = _model_provider(model)
+    visited: set[str] = set()
+    current = MODEL_FALLBACK_TIER.get(str(model or ""))
+    while current is not None and current not in visited:
+        visited.add(current)
+        if _model_provider(current) != origin_provider:
+            return current
+        current = MODEL_FALLBACK_TIER.get(current)
+    return None
 
 
 # NOTE: a `has_fallback_tier(model)` predicate was added here alongside the
@@ -280,8 +322,9 @@ class ClaudeRunResult:
     # the K2 refusal path), or None. Detection only; executors own the policy.
     credit_exhaustion: dict[str, Any] | None = None
     # Authentication failure record, or None. Detection only; executors own the
-    # policy. Never recoverable by the fallback ladder — see
-    # AUTH_FAILURE_MARKERS.
+    # policy. Not recoverable by any SAME-vendor rung — ARIA-HIGH-023 lets
+    # run_with_model_fallback cross vendors on auth failure; see
+    # AUTH_FAILURE_MARKERS and _cross_provider_auth_fallback.
     auth_failure: dict[str, Any] | None = None
     # ARIA-HIGH-002 — typed terminal classification of THIS result (auth
     # failure / credit-exhaustion markers, process exit), stamped by the
@@ -1084,14 +1127,21 @@ def run_with_model_fallback(
     on five counts after the code had moved on, which is the same stale-prose
     defect as the jest tier comments (ORPHAN-MEDIUM-477). Corrected to match:
 
-    * Fallback fires for any tier present in ``MODEL_FALLBACK_TIER`` — currently
-      ``fable -> opus`` (planning) and ``opus -> sonnet`` (implementation). It is
+    * Fallback fires for any tier present in ``MODEL_FALLBACK_TIER`` — the
+      in-vendor credit ladder (``fable -> opus``, ``opus -> sonnet``) plus the
+      cross-provider rungs (``sonnet -> glm-5.3``, ``glm-5.3 -> opus``). It is
       NOT keyed to one model name.
     * A credit/quota exhaustion retries once on the mapped tier at
       ``CREDIT_FALLBACK_EFFORT`` — a separate credit pool at ultracode depth.
     * A refusal retries once on the mapped tier at the ORIGINAL effort (K2).
-    * Total retries are bounded to exactly ONE per call: the ladder is walked a
-      single rung, never chained. Credit takes precedence over refusal.
+    * ARIA-HIGH-023 — an AUTH failure walks the ladder (same-vendor rungs
+      skipped, cycle-bounded) to the first CROSS-provider tier and retries
+      there at the original effort: a dead credential is a vendor-level fact,
+      and the other vendor's credential is genuinely different. Both vendors
+      failing auth raises :class:`ClaudeAuthFailure`; no mock verdict is ever
+      produced on this path.
+    * Credit and refusal retries are bounded to exactly ONE rung per call,
+      never chained. Credit takes precedence over refusal.
     * A credit exhaustion that cannot be recovered — the tier has no mapped
       fallback, or the fallback tier is ALSO exhausted — RAISES
       :class:`ClaudeCreditExhausted`. It is not returned. The earlier claim that
@@ -1110,6 +1160,25 @@ def run_with_model_fallback(
     # the same thing, and then report the second failure as if it were the
     # cause.
     if completed.auth_failure is not None:
+        # ARIA-HIGH-023 — an auth failure is a fact about the PROVIDER's
+        # credential, not the tier: every same-vendor rung would burn a spawn
+        # to relearn the same dead credential. Walk the ladder (cycle-bounded)
+        # to the first CROSS-provider tier and retry there at the original
+        # effort; only when that also fails auth — both vendors unavailable —
+        # is the failure terminal. This is what lets the lane keep working
+        # with real providers while one subscription is absent; there is no
+        # mock verdict anywhere on this path.
+        cross = _cross_provider_auth_fallback(model)
+        if cross is not None:
+            retried = run(cross, effort)
+            if retried.auth_failure is None:
+                return retried
+            raise ClaudeAuthFailure(
+                f"claude_auth_failure: {completed.auth_failure.get('marker')} on "
+                f"{model!r}, and the cross-provider rung {cross!r} failed auth "
+                f"too ({retried.auth_failure.get('marker')}) — both providers "
+                f"are unavailable; remedy: {completed.auth_failure.get('remedy')}"
+            )
         raise ClaudeAuthFailure(
             f"claude_auth_failure: {completed.auth_failure.get('marker')} — "
             f"{completed.auth_failure.get('remedy')}"

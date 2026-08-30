@@ -2315,6 +2315,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/security/controllers/__tests__/sorting.dto.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/security/controllers/activity-log.controller.ts",
       "prettier_managed": true
     },
@@ -2369,6 +2375,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/security/services/__tests__/activity-logging.service.sorting.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/security/services/__tests__/audit-trail.service.sorting.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/security/services/activity-logging.service.ts",
       "prettier_managed": true
     },
@@ -2394,6 +2412,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/security/services/security-monitoring.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/security/sorting/activity-log-sort.ts",
       "prettier_managed": true
     },
     {
@@ -2705,6 +2729,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/system-management/services/__tests__/error-tracking.service.sorting.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/system-management/services/error-tracking.service.ts",
       "prettier_managed": true
     },
@@ -2730,6 +2760,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/system-management/services/performance-monitoring.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/system-management/sorting/error-group-sort.ts",
       "prettier_managed": true
     },
     {
@@ -27374,6 +27410,17 @@
       "source_of_truth": "committed_hash"
     },
     {
+      "class": "runtime_evidence",
+      "content_sha256": "f5fd14b01865db141812c138ef43fc10fcb29fcdc3643cd418e2b707b4c77630",
+      "hash_policy": "sha256",
+      "owner": "aria-runtime",
+      "path": "aria-tools/reports/daily/2026-08-12.md",
+      "prettier_managed": false,
+      "reason": "runtime evidence is declared artifact output",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
       "class": "canonical_source",
       "owner": "source",
       "path": "CLAUDE.md",
@@ -33321,6 +33368,30 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/aria/2026-08-28-provider-failover.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/aria/2026-08-29-codex-runtime-and-delegated-adjudication.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/aria/2026-08-30-execution-spine.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/aria/2026-08-30-judge-verified-fixes.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md",
       "prettier_managed": true
     },
@@ -34767,6 +34838,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/security-reviewer/2026-08-25-production-security-audit.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/sensor-expert/2026-04-04-full-codebase-audit.md",
       "prettier_managed": true
     },
@@ -35472,6 +35549,48 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/superpowers/plans/2026-08-26-aquamobil-v4-closeout.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/superpowers/plans/2026-08-26-aquamobil-v4-delivery-appearance.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/superpowers/plans/2026-08-26-aquamobil-v4-feeding-foundation.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/superpowers/plans/2026-08-26-aquamobil-v4-product-surfaces.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/superpowers/plans/2026-08-26-aquamobil-v4-safe-integration-program.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/superpowers/plans/2026-08-26-aquamobil-v4-vfd-feeding-loop.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/superpowers/plans/2026-08-26-production-security-release-gate-closure.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/superpowers/plans/agent-01-tenant-isolation.md",
       "prettier_managed": true
     },
@@ -35604,6 +35723,18 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/superpowers/specs/2026-08-26-aquamobil-v4-safe-integration-design.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/superpowers/specs/2026-08-26-security-release-gate-closure-design.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/superpowers/specs/2026-08-28-aria-operational-proof-continuity-design.md",
       "prettier_managed": true
     },
@@ -35717,7 +35848,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "4a4c068ea1de468a846a42bcff8fcd586e94870d0ccd816c192c9a1ed76e2dba",
+      "content_sha256": "2985e2438fcb8b23d6f583c63c83eff0b3438cd2b35701b3e5f8f66e07f464ac",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "e2e/package-lock.json",
@@ -36506,7 +36637,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "ce4c0526eafb541388591d9886129b9ff138b2448846a969ee59f14c350735e5",
+      "content_sha256": "215410627a604f4ed0760d3957903a931dacd0446561f1cd0e34a4c250deccb0",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "libs/alarm-core/src/generated/alarm_core_wasm_bg.wasm.d.ts",
@@ -36517,7 +36648,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "8135ecf76b76a405a9d3c8fdd927569b145b9252cdc5282c37244038fe6cf791",
+      "content_sha256": "41691b2a74542088c16d26dad29d34a71916de882432599bb53a365fd72df40c",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "libs/alarm-core/src/generated/alarm_core_wasm.d.ts",
@@ -36528,7 +36659,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "5be6d0debdeea884a376c0d1f94c3ee022776c2decc1f67138fd8b730edb81c2",
+      "content_sha256": "da4dd0c58e0bb18783dce50fadbe6828e40979eb6b6c78a255d9ed12e0e44651",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "libs/alarm-core/src/generated/alarm_core_wasm.js",
@@ -40325,7 +40456,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "b23d7a754fba47890bda7b6f3870054e8c70b2e6d55c5be0043e1cd8e882cbab",
+      "content_sha256": "0ee2447e30cf6e6f3ec824764e64f9b059e6ca6802b06da7b10139e6db9360a0",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "libs/protocol-codec/src/generated/protocol_codec_wasm_bg.wasm.d.ts",
@@ -40336,7 +40467,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "cb5d4bbc10ad01a68d9e23e75f82509f308e2890db64cda42a44744df00237b5",
+      "content_sha256": "0b1bb5a5cd08fc048544bd22beb2973e77875b130f219e2b91f4bd522458972f",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "libs/protocol-codec/src/generated/protocol_codec_wasm.d.ts",
@@ -40347,7 +40478,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "409caeea16245bf79a94b88300657bf589a818c35a13b0fd0ac91fd9035ea7af",
+      "content_sha256": "84d45cd31c6501739dcecce7a3f4b714d4587668c6576749c54751fc11da3492",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "libs/protocol-codec/src/generated/protocol_codec_wasm.js",
@@ -41282,7 +41413,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "3f6ec77ad67e1a0af5ea3ec950802711cf8288833fb6ec441ed0d4ded272c430",
+      "content_sha256": "35e96e4c31d1c88a03e1237a2b6c6c36dd2aafde375151c9ee9daeadc005f0ac",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -43310,6 +43441,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/dependency-security-floor.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/deploy-isolated-checkout-ssot.spec.ts",
       "prettier_managed": true
     },
@@ -44036,6 +44173,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/react-router-v7-source-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/repo-hygiene-invariants.spec.ts",
       "prettier_managed": true
     },
@@ -44337,6 +44480,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/walg-pitr-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/wasm-lock-build-contract.spec.ts",
       "prettier_managed": true
     },
     {
@@ -45954,7 +46103,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "ea002ad89b46818ae5b1ea1868194eee963187186d5ddd37f72e56fa56ed10b8",
+      "content_sha256": "ee6a904ac9a7214bf1aeac525a264245b6c8d283f2275129752e153d2adeeb80",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "web/apps/aquamobil/package-lock.json",
@@ -47280,6 +47429,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/types/messaging.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/types/react-router-declarative.compile-probe.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/types/react-router-declarative.ts",
       "prettier_managed": true
     },
     {
@@ -51257,6 +51418,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/hydroponics-module/src/pages/solution/__tests__/SolutionPage.router.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/hydroponics-module/src/pages/solution/SolutionPage.tsx",
       "prettier_managed": true
     },
@@ -51306,6 +51473,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/hydroponics-module/src/pages/solution/tabs/WaterAnalysisTab.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/hydroponics-module/src/test-setup.ts",
       "prettier_managed": true
     },
     {
@@ -55180,6 +55353,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/providers/__tests__/DataProviderContext.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/providers/DataProviderContext.tsx",
       "prettier_managed": true
     },
@@ -56859,6 +57038,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/types/react-router-declarative.compile-probe.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/types/react-router-declarative.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/utils/__tests__/api-client.spec.ts",
       "prettier_managed": true
     },
@@ -56878,6 +57069,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/utils/__tests__/token-lifecycle.decode.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/utils/__tests__/url-allowlist.spec.ts",
       "prettier_managed": true
     },
     {

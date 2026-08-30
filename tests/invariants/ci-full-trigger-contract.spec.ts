@@ -146,7 +146,8 @@ describe('CI Full protected-main and PR contract', () => {
     const rootVitest = packageJson.devDependencies?.vitest;
     const rootCoverage = packageJson.devDependencies?.['@vitest/coverage-v8'];
 
-    expect(rootVitest).toBe('3.2.4');
+    const expectedVitestVersion = '3.2.7';
+    expect(rootVitest).toBe(expectedVitestVersion);
     expect(rootCoverage).toBe(rootVitest);
     expect(packageLock.packages?.['']?.devDependencies?.['@vitest/coverage-v8']).toBe(rootVitest);
     expect(packageLock.packages?.['node_modules/@vitest/coverage-v8']?.version).toBe(rootVitest);

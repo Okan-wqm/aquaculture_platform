@@ -5,6 +5,8 @@
 
 import type { ReactNode } from 'react';
 
+export type { DeclarativeNavigateResult } from './react-router-declarative';
+
 // ============================================================================
 // Kullanıcı ve Yetkilendirme Tipleri
 // ============================================================================
@@ -374,7 +376,14 @@ export interface SystemAlert {
 /**
  * Buton varyantları
  */
-export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'success' | 'warning' | 'ghost' | 'outline';
+export type ButtonVariant =
+  | 'primary'
+  | 'secondary'
+  | 'danger'
+  | 'success'
+  | 'warning'
+  | 'ghost'
+  | 'outline';
 
 /**
  * MetricCard trend yönü

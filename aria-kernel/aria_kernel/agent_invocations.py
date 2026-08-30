@@ -292,15 +292,85 @@ def _established_knowledge_for_refs(
                 workspace_root=workspace_root, paths=wanted
             )
         ]
-        if not beliefs and not conventions and not anti_patterns:
+        # Past-failed-attempts section (yargıç önerisi 2026-08-30): mine the
+        # implementation rejection ledger for approaches that FAILED on these
+        # exact paths, so a new agent doesn't retry what already didn't work.
+        # This reads existing ledgers — no new surface, no second truth.
+        past_failures = _past_failed_attempts_for_paths(
+            base_dir=base_dir, paths=wanted,
+        )
+        if not beliefs and not conventions and not anti_patterns and not past_failures:
             return None
         return {
             "beliefs": beliefs,
             "conventions": conventions,
             "anti_patterns": anti_patterns,
+            **({"past_failed_attempts": past_failures} if past_failures else {}),
         }
     except (OSError, ValueError, KeyError, TypeError):
         return None
+
+
+def _past_failed_attempts_for_paths(
+    *,
+    base_dir: Path,
+    paths: list[str],
+) -> list[dict[str, Any]]:
+    """Rejection-class failures whose evidence touched these paths.
+
+    Reads the existing results ledger (no new surface). An agent about to
+    edit file X should see "this approach on X was rejected because Y"
+    without querying a separate attempt ledger — the data is already in
+    the implementation-rejection rows, it just never reached the context.
+    Capped at 5, sorted most-recent-first.
+    """
+    from .implementation_rejections import VALID_IMPLEMENTATION_REJECTION_CLASSES
+
+    results_path = base_dir / "agent-invocations" / "results.jsonl"
+    if not results_path.exists():
+        return []
+    from .knowledge_graph import _paths_related
+    from .memory import load_jsonl
+
+    failures: list[dict[str, Any]] = []
+    try:
+        rows = list(reversed(load_jsonl(results_path)))
+        for row in rows:
+            if len(failures) >= 5:
+                break
+            if not isinstance(row, dict):
+                continue
+            reasons = row.get("reasons") or []
+            if not isinstance(reasons, list):
+                continue
+            rejection_classes = {
+                str(r).split(":")[0].strip()
+                for r in reasons
+                if isinstance(r, str) and str(r).split(":")[0].strip() in VALID_IMPLEMENTATION_REJECTION_CLASSES
+            }
+            if not rejection_classes:
+                continue
+            evidence = [
+                str(r).split(":", 1)[0]
+                for r in (row.get("evidence_refs") or reasons)
+                if isinstance(r, str) and ":" in str(r)
+            ]
+            if not any(
+                _paths_related(ref_path, want)
+                for ref_path in evidence
+                for want in paths
+            ):
+                continue
+            failures.append({
+                "rejection_classes": sorted(rejection_classes),
+                "reasons": [str(r)[:120] for r in reasons[:3]],
+                "at": row.get("at") or row.get("submitted_at") or "",
+            })
+    except (OSError, ValueError):
+        # Unreadable results ledger is an environment problem, not a
+        # silent skip: the caller sees an empty list (no past failures
+        # known) rather than a fabricated success.
+        return failures
 
 
 def _recent_intent_for_refs(
@@ -4170,6 +4240,7 @@ def _prepare_claim_submission(
     prompt_hash: str | None,
     transcript_hash: str | None,
     transcript_artifact_ref: str | None,
+    evidence_target_sha: str | None = None,
 ) -> dict[str, Any]:
     """Validate and construct every write payload before locking/mutating."""
     from .agent_contract import enforce_separation_of_duties, validate_response
@@ -4197,6 +4268,20 @@ def _prepare_claim_submission(
         )
 
     strict_request = _strict_request_view(request)
+    # ARIA-HIGH-022 — ground the evidence check at the agent's committed
+    # HEAD when the submitter provides one. Implementer agents cite the
+    # POST-FIX lines of files they changed; against the request's base SHA
+    # every genuine fix graded worktree_candidate and the submit was
+    # rejected (13/13 challenger envelopes died exactly here). The override
+    # must DESCEND from the request's base — proven here, fail-closed: a
+    # submitter pointing at an unrelated commit is rejected loudly, never
+    # silently downgraded to a weaker anchor.
+    if evidence_target_sha is not None:
+        strict_request["evidence_target_sha"] = _verified_evidence_target_sha(
+            workspace_root=workspace_root,
+            request=strict_request,
+            override=str(evidence_target_sha).strip(),
+        )
     reasons: list[str] = []
     try:
         validate_response(
@@ -4229,6 +4314,35 @@ def _prepare_claim_submission(
     )
     if not revalidation["valid"]:
         reasons.extend(f"evidence: {error}" for error in revalidation["errors"])
+    # Scope discipline (operator requirements 2026-08-29) — the two halves
+    # that turn a rejection into a signal instead of a dead end:
+    # 1. the agent must have declared its route before the work
+    # 2. out-of-scope sightings are CAPTURED for a separate plan, never lost
+    from .scope_discipline import extract_out_of_scope_observations, require_declared_route
+    # The route contract is opt-in per request: new requests mint
+    # require_declared_route=true; legacy requests without the flag keep
+    # the pre-existing validation (no silent breakage of the standing fleet).
+    if strict_request.get("require_declared_route"):
+        route_violation = require_declared_route(envelope)
+        if route_violation is not None:
+            reasons.append(f"route: {route_violation['code']} — {route_violation['reason']}")
+    out_of_scope = extract_out_of_scope_observations(
+        rejected_errors=revalidation.get("errors", []),
+        response=envelope,
+    )
+    if out_of_scope:
+        append_declared_jsonl(
+            root / "pressure" / "out-of-scope-observations.jsonl",
+            {
+                "schema_version": 1,
+                "claim_id": claim_id,
+                "request_id": request_id,
+                "cycle_id": request.get("cycle_id"),
+                "observations": out_of_scope,
+                "at": _iso(_utc_now_dt()),
+            },
+            expected_surface="pressure_out_of_scope_observations",
+        )
     if reasons:
         return _prepared_claim_rejection(
             claim_id=claim_id,
@@ -4367,6 +4481,7 @@ def submit_claim_result(
     prompt_hash: str | None = None,
     transcript_hash: str | None = None,
     transcript_artifact_ref: str | None = None,
+    evidence_target_sha: str | None = None,
 ) -> dict[str, Any]:
     """Validate and persist an agent's submitted result against its leased claim.
 
@@ -4620,6 +4735,7 @@ def submit_claim_result(
                 prompt_hash=prompt_hash,
                 transcript_hash=transcript_hash,
                 transcript_artifact_ref=transcript_artifact_ref,
+                evidence_target_sha=evidence_target_sha,
             )
             journal_candidate = _prepare_submission_journal(
                 prepared=prepared_candidate,
@@ -5067,6 +5183,48 @@ def _strict_request_view(legacy_request: dict[str, Any]) -> dict[str, Any]:
     view.setdefault("evidence_refs", [])
     view.setdefault("expected_output_path", view.get("expected_output_path") or "")
     return view
+
+
+def _verified_evidence_target_sha(
+    *,
+    workspace_root: str | Path,
+    request: dict[str, Any],
+    override: str,
+) -> str:
+    """Prove an evidence-target override descends from the request's base.
+
+    ARIA-HIGH-022 — the override exists so implementer evidence can cite
+    post-fix lines. It is only honest when the anchor commit CONTAINS the
+    request's base tree (a descendant): then untouched files still verify
+    against the base content and changed files verify against the agent's
+    committed work. Anything else — an unrelated commit, a rewritten
+    history, a typo — is a submission trying to grade its evidence against
+    a tree the request never knew, and is refused loudly.
+    """
+    import subprocess as _sp
+
+    if not override:
+        raise GovernanceError("evidence_target_sha_must_be_non_empty")
+    base = (
+        request.get("target_sha")
+        or request.get("base_commit_sha")
+        or request.get("pinned_commit_sha")
+        or ""
+    )
+    root = Path(workspace_root)
+    def _git(*args: str) -> bool:
+        proc = _sp.run(
+            ["git", "-C", str(root), *args],
+            capture_output=True, text=True, check=False,
+        )
+        return proc.returncode == 0
+    if not _git("cat-file", "-e", f"{override}^{{commit}}"):
+        raise GovernanceError(f"evidence_target_sha_unknown_commit: {override}")
+    if base and not _git("merge-base", "--is-ancestor", str(base), override):
+        raise GovernanceError(
+            f"evidence_target_sha_not_descendant_of_base: base={base} override={override}"
+        )
+    return override
 
 
 def reap_stale_claims(

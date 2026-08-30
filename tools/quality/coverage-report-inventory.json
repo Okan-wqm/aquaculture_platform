@@ -31,6 +31,7 @@
     "web/modules/dashboard/coverage/lcov.info",
     "web/modules/farm-module/coverage/lcov.info",
     "web/modules/hr-module/coverage/lcov.info",
+    "web/modules/hydroponics-module/coverage/lcov.info",
     "web/modules/messaging-module/coverage/lcov.info",
     "web/modules/sensor-module/coverage/lcov.info",
     "web/modules/tenant-admin/coverage/lcov.info",

@@ -41,13 +41,16 @@ updates:
   # Cargo.toml in the monorepo. sensor-ingestion + the shared crates
   # under crates/** inherit this automation; the sens-api-gateway
   # edge tree keeps its own deny.toml allowlist and manages its own
-  # cadence, so directory: / (monorepo root Cargo.toml virtual
-  # workspace) is the single entry here. Rust advisories (RUSTSEC)
+  # cadence, so it is excluded from this authority. The monorepo root and
+  # standalone production WASM locks are updated together. Rust advisories (RUSTSEC)
   # are handled by cargo-audit in rust-ci.yml + .cargo/audit.toml;
   # dependabot handles non-advisory version bumps to keep Cargo.lock
   # from drifting into unsupported releases.
   - package-ecosystem: cargo
-    directory: /
+    directories:
+      - /
+      - /crates/alarm-core-wasm
+      - /crates/protocol-codec-wasm
     schedule:
       interval: weekly
       day: monday
@@ -80,13 +83,9 @@ updates:
   # dependency tree that carries almost all of this repository's open
   # advisories was the one tree Dependabot was not watching.
   #
-  # `directory: /` is the whole workspace, not just the root manifest: npm
-  # workspaces resolve into the single root package-lock.json, and Dependabot
-  # follows that lockfile into every member. Two lockfiles sit outside it —
-  # e2e/package-lock.json and web/apps/aquamobil/package-lock.json — and are
-  # deliberately NOT added here; each needs its own entry and its own decision
-  # about review load, and widening coverage and raising volume in one change
-  # would make neither reviewable.
+  # The `directories` authority covers the root workspace and AquaMobil's
+  # standalone production lock atomically. The standalone E2E lockfile remains
+  # independently watched below.
   #
   # Limit and grouping are deliberately conservative. This ecosystem is far
   # larger than the other two, and the first run after enabling always lands
@@ -100,13 +99,16 @@ updates:
   # --audit-level=high` in ci-full's security-scan remains the gate that
   # decides whether the tree is acceptable, not the presence of a PR.
   - package-ecosystem: npm
-    directory: /
+    directories:
+      - /
+      - /web/apps/aquamobil
     schedule:
       interval: weekly
       day: monday
       time: '06:00'
       timezone: Europe/Istanbul
     open-pull-requests-limit: 5
+    versioning-strategy: increase
     commit-message:
       prefix: 'chore(deps)'
       include: scope
@@ -115,7 +117,30 @@ updates:
     reviewers:
       - Okan-wqm
     groups:
-      npm-minor-patch:
+      npm-by-dependency:
+        group-by: dependency-name
+
+  # ── npm (standalone E2E graph) ────────────────────────────────────
+  # e2e/ is intentionally outside the root npm workspace and owns an independent
+  # package-lock.json. Watching only `/` therefore leaves its CI/test dependency
+  # graph invisible even though that graph executes repository-controlled code.
+  - package-ecosystem: npm
+    directory: /e2e
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Europe/Istanbul
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: 'chore(deps-e2e)'
+      include: scope
+    labels:
+      - dependencies
+    reviewers:
+      - Okan-wqm
+    groups:
+      e2e-minor-patch:
         update-types:
           - minor
           - patch

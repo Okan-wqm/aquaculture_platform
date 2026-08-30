@@ -8,9 +8,15 @@ import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
+const { navigate } = vi.hoisted(() => ({ navigate: vi.fn() }));
 const login = vi.fn().mockResolvedValue({ redirectPath: '/' });
 const verifyMfaLogin = vi.fn().mockResolvedValue({ redirectPath: '/' });
 const clearError = vi.fn();
+
+vi.mock('react-router-dom', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('react-router-dom')>()),
+  useNavigate: () => navigate,
+}));
 
 vi.mock('@aquaculture/shared-ui', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@aquaculture/shared-ui')>();
@@ -30,7 +36,7 @@ import LoginForm from '../LoginForm';
 
 const renderForm = (): ReturnType<typeof render> =>
   render(
-    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <MemoryRouter>
       <LoginForm />
     </MemoryRouter>,
   );
@@ -38,6 +44,8 @@ const renderForm = (): ReturnType<typeof render> =>
 describe('LoginForm', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    login.mockResolvedValue({ redirectPath: '/' });
+    verifyMfaLogin.mockResolvedValue({ redirectPath: '/' });
   });
 
   it('renders the industrial sign-in surface with real auth controls only', () => {
@@ -99,6 +107,40 @@ describe('LoginForm', () => {
     );
   });
 
+  it.each(['/\\evil.example/steal', '/%5cevil.example/steal', '/%2f%2fevil.example/steal'])(
+    'never passes browser-normalizable external redirect %s to navigate',
+    async (redirectPath) => {
+      login.mockResolvedValueOnce({ redirectPath });
+      const { container } = renderForm();
+      const email = container.querySelector<HTMLInputElement>('input[name="email"]');
+      const password = container.querySelector<HTMLInputElement>('input[name="password"]');
+      if (!email || !password) throw new Error('login fields not found');
+
+      fireEvent.change(email, { target: { value: 'operator@suderra.com' } });
+      fireEvent.change(password, { target: { value: 'password123' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+
+      await waitFor(() => expect(navigate).toHaveBeenCalledWith('/'));
+      expect(navigate).not.toHaveBeenCalledWith(redirectPath);
+    },
+  );
+
+  it('preserves a valid internal redirect at the navigate sink', async () => {
+    login.mockResolvedValueOnce({ redirectPath: '/sites/setup/sites?tab=active#main' });
+    const { container } = renderForm();
+    const email = container.querySelector<HTMLInputElement>('input[name="email"]');
+    const password = container.querySelector<HTMLInputElement>('input[name="password"]');
+    if (!email || !password) throw new Error('login fields not found');
+
+    fireEvent.change(email, { target: { value: 'operator@suderra.com' } });
+    fireEvent.change(password, { target: { value: 'password123' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+
+    await waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith('/sites/setup/sites?tab=active#main'),
+    );
+  });
+
   it('uses the real MFA challenge token and only enables verification for a valid code', async () => {
     login.mockResolvedValueOnce({
       mfaRequired: true,
@@ -128,5 +170,30 @@ describe('LoginForm', () => {
         code: '123456',
       }),
     );
+  });
+
+  it('never passes an encoded control-character MFA redirect to navigate', async () => {
+    login.mockResolvedValueOnce({
+      mfaRequired: true,
+      mfaToken: 'mfa-challenge-token',
+    });
+    verifyMfaLogin.mockResolvedValueOnce({ redirectPath: '/%09/evil.example' });
+    const { container } = renderForm();
+    const email = container.querySelector<HTMLInputElement>('input[name="email"]');
+    const password = container.querySelector<HTMLInputElement>('input[name="password"]');
+    if (!email || !password) throw new Error('login fields not found');
+
+    fireEvent.change(email, { target: { value: 'operator@suderra.com' } });
+    fireEvent.change(password, { target: { value: 'password123' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+
+    const verifyButton = await screen.findByRole('button', { name: 'Verify Code' });
+    const code = container.querySelector<HTMLInputElement>('input[name="mfaCode"]');
+    if (!code) throw new Error('MFA code field not found');
+    fireEvent.change(code, { target: { value: '123456' } });
+    fireEvent.click(verifyButton);
+
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/'));
+    expect(navigate).not.toHaveBeenCalledWith('/%09/evil.example');
   });
 });

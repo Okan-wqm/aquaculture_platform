@@ -4,7 +4,7 @@
  * The regulatory-reports shell reads the per-type submission summary from the
  * backend (RegulatoryReportSummary) and renders the tabbed report surface.
  */
-import { screen, waitFor } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
@@ -21,21 +21,33 @@ import { ReportsPage } from '../ReportsPage';
 beforeEach(() => {
   requestMock.mockReset();
   routeGraphql([
-    { match: 'query RegulatoryReportSummary', result: { regulatoryReportSummary: [] } },
+    {
+      match: 'query RegulatoryReportSummary',
+      result: {
+        regulatoryReportSummary: [
+          {
+            reportType: 'SEA_LICE',
+            pendingCount: 1,
+            submittedCount: 2,
+            queuedCount: 1,
+            failedCount: 4,
+            lastSubmittedAt: '2026-08-26T10:00:00.000Z',
+          },
+        ],
+      },
+    },
   ]);
 });
 
 describe('ReportsPage', () => {
-  it('renders the regulatory reports shell and reads the backend summary', async () => {
-    renderWithProviders(<ReportsPage />, { route: '/sites/reports' });
+  it('renders persisted report failures through its nested route contract', async () => {
+    renderWithProviders(<ReportsPage />, {
+      route: '/sites/reports',
+      path: 'sites/reports/*',
+    });
 
     expect(await screen.findByText('Regulatory Reports')).toBeInTheDocument();
-    await waitFor(() => {
-      expect(
-        requestMock.mock.calls.some(([q]) =>
-          (q as string).includes('query RegulatoryReportSummary'),
-        ),
-      ).toBe(true);
-    });
+    expect(await screen.findByText(/4 failed submissions/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Sea Lice/ })).toHaveTextContent('4');
   });
 });

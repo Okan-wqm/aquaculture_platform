@@ -10990,7 +10990,6 @@ Pinned by the check itself, and the deliberate-breakage direction was measured r
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
-
 ## ADMIN-HIGH-006: compliance requirement is a nested object rendered as a React child
 
 **Severity:** HIGH
@@ -10999,6 +10998,7 @@ Pinned by the check itself, and the deliberate-breakage direction was measured r
 **Deadline:** 2026-09-30
 **Owner:** admin-expert
 **Evidence:**
+
 - `apps/admin-api-service/src/security/controllers/compliance.controller.ts`
 - `apps/admin-api-service/src/security/services/compliance.service.ts`
 - `web/modules/admin-panel/src/pages/CompliancePage.tsx:1124`

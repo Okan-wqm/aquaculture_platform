@@ -344,11 +344,12 @@ jobs:
         image: nats:2.10-alpine
         ports:
           - 4222:4222
+          - 8222:8222
         options: >-
-          --health-cmd "wget --no-verbose --tries=1 --spider http://localhost:8222/healthz || exit 1"
+          --health-cmd "nats-server --version"
           --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+          --health-timeout 10s
+          --health-retries 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -454,6 +455,10 @@ jobs:
           # db-migration-check.yml + the quality-gates invariants-fast job.
           PR_BODY: ${{ github.event.pull_request.body }}
           NODE_OPTIONS: '--max-old-space-size=4096'
+          # NATS event bus connectivity for integration tests. The service
+          # container exposes nats://localhost:4222 with no auth (dev mode).
+          NATS_URL: nats://localhost:4222
+          NATS_AUTH_MODE: none
 
       - name: Run admin route contract (affected, strict)
         run: |

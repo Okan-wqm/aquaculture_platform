@@ -363,6 +363,25 @@ def assess_memory_continuity(
         # `snapshot_continuity` returned a status this function does not map.
         # Naming it beats defaulting to ok, which would drop a real refusal.
         reasons.append(f"state_continuity_unmapped_status:{status_from_detail}")
+    # Operator bootstrap acknowledgment (2026-08-31): when the operator
+    # explicitly acknowledged a state reduction (compaction, fresh start),
+    # surfaces_lost is EXPECTED. Downgrade from CRITICAL (blocks everything)
+    # to UNKNOWN (blocks nothing) with the ack recorded for audit.
+    import os as _os
+    _ack = _os.environ.get("ARIA_STATE_BOOTSTRAP_ACK", "").strip()
+    if _ack and lost:
+        reasons.append(
+            f"state_continuity_surfaces_lost_operator_acknowledged:{_ack}"
+        )
+        return ContinuityVerdict(
+            status=GAP_UNKNOWN,
+            reference_kind=reference_kind,
+            reasons=tuple(reasons),
+            notes=notes,
+            lost_surfaces=lost,
+            current_manifest_root=current_root,
+            reference_manifest_root=reference_root,
+        )
     return ContinuityVerdict(
         status=GAP_CRITICAL,
         reference_kind=reference_kind,

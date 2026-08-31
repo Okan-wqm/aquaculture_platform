@@ -39,7 +39,15 @@ def compact_state(
     Returns a summary dict with per-surface before/after stats.
     When dry_run is True, reports what WOULD be compacted but writes nothing.
     """
-    root = ensure_tools_dir(base_dir)
+    # Accept an explicit absolute path without requiring repo_identity.json:
+    # the compact command runs on CLONED state (e.g. from the maintenance
+    # lane) where the marker file may not exist. ensure_tools_dir is for
+    # RUNTIME state resolution; compaction operates on whatever tree it
+    # is given.
+    if base_dir and Path(base_dir).is_absolute() and Path(base_dir).is_dir():
+        root = Path(base_dir)
+    else:
+        root = ensure_tools_dir(base_dir)
     cutoff = datetime.now(timezone.utc) - timedelta(days=retain_days)
     results: dict[str, Any] = {"dry_run": dry_run, "cutoff": cutoff.isoformat(), "surfaces": {}}
 

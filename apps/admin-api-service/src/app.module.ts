@@ -11,7 +11,18 @@ import { LoggingModule } from '@aquaculture/backend-common/logging';
 import { ServiceMetricsModule } from '@aquaculture/backend-common/metrics';
 import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
 import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
-import { ThrottlerGuard, ThrottlerModule } from '@aquaculture/backend-common/security';
+import {
+  IpRateLimiterService,
+  SecurityEventService,
+  ThrottlerGuard,
+  ThrottlerModule,
+  TOKEN_BLACKLIST,
+  TokenBlacklistModule,
+  USER_TOKEN_REVOCATION,
+  UserTokenRevocationModule,
+  type ITokenBlacklist,
+  type IUserTokenRevocation,
+} from '@aquaculture/backend-common/security';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
@@ -53,10 +64,7 @@ import { UsersModule } from './users/users.module';
 
 const AdminSchemaVersionGate = createSchemaVersionGate('admin');
 
-const getRequiredStorageConfig = (
-  configService: ConfigService,
-  key: string,
-): string => {
+const getRequiredStorageConfig = (configService: ConfigService, key: string): string => {
   const value = configService.get<string>(key);
   if (value === undefined || value.trim().length === 0) {
     throw new Error(`Missing required object storage configuration: ${key}`);
@@ -117,8 +125,7 @@ const getAdminStoragePort = (configService: ConfigService): number => {
           migrations: [__dirname + '/migrations/[0-9]*{.ts,.js}'],
           // Single-writer deploy contract: aqua-db-migrate owns production
           // migrations. Local/E2E can still opt in explicitly.
-          migrationsRunFromEnv: (cfg) =>
-            cfg.get('DATABASE_MIGRATIONS_RUN', 'false') === 'true',
+          migrationsRunFromEnv: (cfg) => cfg.get('DATABASE_MIGRATIONS_RUN', 'false') === 'true',
         }),
     }),
     /**
@@ -142,10 +149,14 @@ const getAdminStoragePort = (configService: ConfigService): number => {
           type: 'postgres',
           host: configService.get<string>('DATABASE_HOST', 'localhost'),
           port: configService.get<number>('DATABASE_PORT', 5432),
-          username: configService.get<string>('DATABASE_READONLY_USER',
-            configService.get<string>('DATABASE_USER', 'postgres')),
-          password: configService.get<string>('DATABASE_READONLY_PASSWORD',
-            dbPassword || 'postgres'),
+          username: configService.get<string>(
+            'DATABASE_READONLY_USER',
+            configService.get<string>('DATABASE_USER', 'postgres'),
+          ),
+          password: configService.get<string>(
+            'DATABASE_READONLY_PASSWORD',
+            dbPassword || 'postgres',
+          ),
           database: configService.get<string>('DATABASE_NAME', 'aquaculture'),
           schema: configService.get<string>('DATABASE_SCHEMA', 'admin'),
           // SECURITY: No entities — this DataSource is for raw queries only
@@ -184,6 +195,16 @@ const getAdminStoragePort = (configService: ConfigService): number => {
     }),
     LoggingModule,
     ThrottlerModule,
+    // APA-367: token-revocation primitives for PlatformAdminGuard. admin-api is a
+    // directly-reachable auth boundary (prod nginx routes /api/ straight here,
+    // bypassing gateway-api's blacklist-checking guard), so it MUST self-enforce
+    // revocation. Both modules are @Global and export their DI tokens; the
+    // TokenBlacklistService is cross-instance correct via the RedisModule below.
+    //   - TokenBlacklistModule       → per-jti + `token:blacklist:` bulk marker
+    //   - UserTokenRevocationModule  → `user_blacklist:{userId}` epoch (force-logout,
+    //                                  deletion, RBAC reduction)
+    TokenBlacklistModule,
+    UserTokenRevocationModule,
     // Redis for caching and distributed rate limiting
     RedisModule.forRootAsync({
       imports: [ConfigModule],
@@ -274,11 +295,54 @@ const getAdminStoragePort = (configService: ConfigService): number => {
     // @UseGuards(PlatformAdminGuard) on controllers resolves the guard from the DI container
     // using the class token — NOT the APP_GUARD symbol. Without this explicit registration,
     // NestJS falls back to reflect-metadata class resolution which fails in Docker Alpine.
+    // APA-369: SecurityEventService publishes AUTH_TOKEN_REJECTED /
+    // RATE_LIMIT_EXCEEDED to the incident pipeline (graceful — @Optional EVENT_BUS,
+    // never throws). IpRateLimiterService (the per-IP failed-auth bucket) is
+    // already provided + exported by ThrottlerModule above.
+    SecurityEventService,
     {
       provide: PlatformAdminGuard,
-      useFactory: (reflector: Reflector, configService: ConfigService, jwtService: JwtService): PlatformAdminGuard =>
-        new PlatformAdminGuard(reflector, configService, jwtService),
-      inject: [Reflector, ConfigService, JwtService],
+      useFactory: (
+        reflector: Reflector,
+        configService: ConfigService,
+        jwtService: JwtService,
+        tokenBlacklist: ITokenBlacklist,
+        userTokenRevocation: IUserTokenRevocation,
+        failedAuthIpLimiter: IpRateLimiterService,
+        securityEvents: SecurityEventService,
+      ): PlatformAdminGuard =>
+        new PlatformAdminGuard(
+          reflector,
+          configService,
+          jwtService,
+          {
+            // Read-side adapter over the auth-owned TOKEN_BLACKLIST writer:
+            // admin-api enforces revocation, it never writes. Only the per-jti
+            // `token:blacklist:` namespace is checked here; the
+            // `user_blacklist:{userId}` epoch is checked by the
+            // userTokenRevocation store below — together they mirror the
+            // gateway's composite isValidToken decision without duplicating it.
+            isValidToken: (jti: string): Promise<boolean> =>
+              tokenBlacklist.isBlacklisted(jti).then((blacklisted) => !blacklisted),
+          },
+          userTokenRevocation,
+          failedAuthIpLimiter,
+          securityEvents,
+        ),
+      // APA-367: TOKEN_BLACKLIST + USER_TOKEN_REVOCATION are REQUIRED (not
+      // optional) — a missing revocation store fails DI at boot instead of
+      // silently shipping a guard that never checks revocation.
+      // APA-369: IpRateLimiterService + SecurityEventService drive per-IP
+      // failed-auth throttling + incident-pipeline events.
+      inject: [
+        Reflector,
+        ConfigService,
+        JwtService,
+        TOKEN_BLACKLIST,
+        USER_TOKEN_REVOCATION,
+        IpRateLimiterService,
+        SecurityEventService,
+      ],
     },
     {
       provide: APP_GUARD,

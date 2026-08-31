@@ -695,8 +695,8 @@ jobs:
           # Anchoring here is only the local-dispatch fallback (env unset).
           JOB_TIMEOUT_MINUTES=360
           ANCHOR_EPOCH="${ARIA_JOB_LAUNCH_EPOCH:-$(date +%s)}"
-          export ARIA_JOB_DEADLINE_EPOCH=$(( ANCHOR_EPOCH + JOB_TIMEOUT_MINUTES * 60 - 2400 ))
-          echo "spawn deadline: $(date -u -d @${ARIA_JOB_DEADLINE_EPOCH} +%H:%M:%SZ) (job cap ${JOB_TIMEOUT_MINUTES}m - 40m margin, anchored $( [ -n "${ARIA_JOB_LAUNCH_EPOCH:-}" ] && echo at-job-launch || echo at-step ))"
+          export ARIA_JOB_DEADLINE_EPOCH=$(( ANCHOR_EPOCH + JOB_TIMEOUT_MINUTES * 60 - 6000 ))
+          echo "spawn deadline: $(date -u -d @${ARIA_JOB_DEADLINE_EPOCH} +%H:%M:%SZ) (job cap ${JOB_TIMEOUT_MINUTES}m - 100m margin, anchored $( [ -n "${ARIA_JOB_LAUNCH_EPOCH:-}" ] && echo at-job-launch || echo at-step ))"
           PYTHONPATH=aria-kernel python3 -m aria_kernel autonomy run \
             --workspace-root "$GITHUB_WORKSPACE" \
             --tools-dir "$ARIA_TOOLS_DIR" \

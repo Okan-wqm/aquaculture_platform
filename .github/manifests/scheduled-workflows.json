@@ -70,8 +70,8 @@
     },
     {
       "workflow": "aria-state-maintenance.yml",
-      "max_age_hours": 48,
-      "description": "Standalone state compaction lane \u2014 shrinks the aria/state branch before the cycle"
+      "description": "Standalone state compaction lane \u2014 shrinks the aria/state branch before the cycle",
+      "maxAgeHours": 48
     }
   ]
 }

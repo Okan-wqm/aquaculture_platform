@@ -20,6 +20,10 @@ describe('tenant schema provisioner contract', () => {
     ),
     'utf8',
   );
+  const tenantErasureWorkflow = readFileSync(
+    resolve(ROOT, '../../admin-api-service/src/tenant/handlers/tenant-erasure.handler.ts'),
+    'utf8',
+  );
 
   it('exposes a narrow runtime request function instead of runtime DDL', () => {
     expect(sql).toContain('CREATE TABLE IF NOT EXISTS platform.tenant_schema_jobs');
@@ -110,6 +114,28 @@ describe('tenant schema provisioner contract', () => {
     expect(deletionFunction).toContain('Tenant schema deletion requires cleanupProof evidence');
     expect(deletionFunction).toContain('Tenant schema deletion requires encrypted backup evidence');
     expect(deletionFunction).toContain("'DELETE'");
+  });
+
+  it('binds source farm provenance cleanup to the proof-gated db-migrate delete job', () => {
+    expect(worker).toContain("set_config('aqua.tenant_schema_delete_operation'");
+    expect(worker).toContain("set_config('aqua.tenant_schema_delete_tenant'");
+    expect(worker).toContain('DELETE FROM farm.feeding_record_provenance');
+    expect(worker).toContain('sourceProvenanceRowsDeleted');
+    expect(worker.indexOf('assertDeleteProof(job)')).toBeLessThan(
+      worker.indexOf('sourceProvenanceRowsDeleted = await deleteFarmSourceProvenanceForTenant'),
+    );
+  });
+
+  it('does not treat service target proofs as global erasure completion before schema deletion', () => {
+    const deletionGate = tenantErasureWorkflow.indexOf(
+      'if (!this.isSchemaDeletionComplete(schemaDeletion))',
+    );
+    const finalization = tenantErasureWorkflow.indexOf('await this.finalizeOperation(');
+    expect(deletionGate).toBeGreaterThan(0);
+    expect(finalization).toBeGreaterThan(deletionGate);
+    expect(tenantErasureWorkflow).toMatch(
+      /await this\.updateOperationProgress\(\s*manager,\s*operation\.id,\s*proofs,?\s*\)/,
+    );
   });
 
   it('claims jobs with a lease and commits admin tenant schema evidence only from db-migrate', () => {

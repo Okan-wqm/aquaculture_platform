@@ -10989,3 +10989,22 @@ The extension announced one more bug of its own: a `Lambda`'s `body` is a single
 Pinned by the check itself, and the deliberate-breakage direction was measured rather than asserted: reverting the `cycle.py` import makes the detector report the original defect again.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
+## ADMIN-HIGH-006: compliance requirement is a nested object rendered as a React child
+
+**Severity:** HIGH
+**State:** OPEN
+**Created:** 2026-08-30
+**Deadline:** 2026-09-30
+**Owner:** admin-expert
+**Evidence:**
+
+- `apps/admin-api-service/src/security/controllers/compliance.controller.ts`
+- `apps/admin-api-service/src/security/services/compliance.service.ts`
+- `web/modules/admin-panel/src/pages/CompliancePage.tsx:1124`
+
+**Rule violated:** React children must be renderable values; spreading a nested
+object as a React child blanks the entire view (APA-232/233 from admin RC1 audit).
+
+**Notes:** The service returns requirement as a ComplianceRequirement object;
+the controller now flattens the nested shape the page can render.

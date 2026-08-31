@@ -41413,7 +41413,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "35e96e4c31d1c88a03e1237a2b6c6c36dd2aafde375151c9ee9daeadc005f0ac",
+      "content_sha256": "88554cc5019002d276f111459c675cbd72104dad8a8b0923c276c755c1696a56",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",

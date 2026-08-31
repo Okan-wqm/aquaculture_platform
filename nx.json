@@ -14,12 +14,7 @@
       "!{projectRoot}/jest.config.[jt]s",
       "!{projectRoot}/src/test-setup.[jt]s"
     ],
-    "sharedGlobals": [
-      "{workspaceRoot}/libs/*/src/**/*.ts",
-      "{workspaceRoot}/platform/libs/*/src/**/*.ts",
-      "{workspaceRoot}/tsconfig.base.json",
-      "{workspaceRoot}/tools/build/**"
-    ]
+    "sharedGlobals": ["{workspaceRoot}/tsconfig.base.json", "{workspaceRoot}/tools/build/**"]
   },
   "targetDefaults": {
     "build": {

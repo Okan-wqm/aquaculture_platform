@@ -23,6 +23,8 @@
 #   GITHUB_ACTOR      — actor username for GHCR login
 #   GHCR_TOKEN        — GITHUB_TOKEN with packages:read scope
 #   IMAGE_PREFIX      — GHCR image prefix (defaults to this repository)
+#   RUN_DB_MIGRATE    — "true" by default; "false" only for catalog-proven
+#                       frontend-only development deploys
 # =============================================================================
 
 set -euo pipefail
@@ -41,6 +43,8 @@ source "${DEPLOY_SOURCE_REPO:-/var/aqua-saas}/scripts/deploy/deploy-paths.sh"
 IMAGE_PREFIX="${IMAGE_PREFIX:-ghcr.io/okan-wqm/aquaculture_platform}"
 TAG="${TAG:-${DEPLOY_SHA:-}}"
 export TAG
+RUN_DB_MIGRATE="${RUN_DB_MIGRATE:-true}"
+export RUN_DB_MIGRATE
 GATEWAY_IMAGE_REF="${IMAGE_PREFIX}/gateway-api:latest"
 DEPLOY_RELEASE_ID="${DEPLOY_RELEASE_ID:-${DEPLOY_SHA:-unknown}-$(date -u +%Y%m%dT%H%M%SZ)}"
 export DEPLOY_RELEASE_ID
@@ -63,7 +67,55 @@ fi
 # shellcheck source=infrastructure/deploy/service-catalog.deploy.vars
 . "${CATALOG_DEPLOY_ENV}"
 APPLICATION_IMAGE_SERVICES="${CATALOG_APPLICATION_IMAGE_SERVICES:?generated application image services missing}"
+FRONTEND_IMAGE_SERVICES="${CATALOG_FRONTEND_IMAGE_SERVICES:?generated frontend image services missing}"
+GATEWAY_RECOMPOSITION_SERVICES="${CATALOG_GATEWAY_RECOMPOSITION_SERVICES:?generated gateway recomposition services missing}"
 SERVICE_DB_ROLES="${CATALOG_SERVICE_DB_ROLE_PREFIXES:?generated service DB role prefixes missing}"
+
+validate_migration_policy() {
+  case "${RUN_DB_MIGRATE}" in
+    true) return 0 ;;
+    false) ;;
+    *)
+      echo "::error::RUN_DB_MIGRATE must be exactly true or false."
+      return 1
+      ;;
+  esac
+
+  if [ "${DEPLOY_MODE:-production}" != "development" ] || [ "${FULL_DEPLOY:-false}" = "true" ]; then
+    echo "::error::RUN_DB_MIGRATE=false is restricted to selective development deploys."
+    return 1
+  fi
+
+  local normalized_services="${DEPLOY_SERVICES:-}"
+  normalized_services="${normalized_services//,/ }"
+  local service
+  local service_count=0
+  for service in ${normalized_services}; do
+    case "${service}" in
+      *[!a-z0-9._-]*)
+        echo "::error::RUN_DB_MIGRATE=false received an invalid service name: ${service}"
+        return 1
+        ;;
+    esac
+    case " ${FRONTEND_IMAGE_SERVICES} " in
+      *" ${service} "*) service_count=$((service_count + 1)) ;;
+      *)
+        echo "::error::RUN_DB_MIGRATE=false requires a catalog-proven frontend-only service set; rejected ${service}."
+        return 1
+        ;;
+    esac
+  done
+
+  if [ "${service_count}" -eq 0 ]; then
+    echo "::error::RUN_DB_MIGRATE=false requires a catalog-proven frontend-only service set."
+    return 1
+  fi
+
+  MIGRATIONS_APPLIED_THIS_RELEASE=0
+  export MIGRATIONS_APPLIED_THIS_RELEASE
+}
+
+validate_migration_policy
 
 if [ -n "${DEPLOY_IMAGE_DIGESTS_B64:-}" ]; then
   printf '%s' "${DEPLOY_IMAGE_DIGESTS_B64}" | base64 -d > "${DEPLOY_IMAGE_DIGESTS_FILE}"
@@ -251,6 +303,20 @@ deploy_includes_service() {
     *" ${svc} "*) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+deploy_requires_gateway_recomposition() {
+  local service
+
+  if deploy_includes_service "gateway-api"; then
+    return 0
+  fi
+  for service in ${GATEWAY_RECOMPOSITION_SERVICES}; do
+    if deploy_includes_service "${service}"; then
+      return 0
+    fi
+  done
+  return 1
 }
 
 classify_pull_failure() {
@@ -585,11 +651,12 @@ deploy_metadata_json() {
     image_manifest_hash="$(sha256sum "${DEPLOY_IMAGE_DIGESTS_FILE}" | awk '{print $1}')"
   fi
 
-  printf '{"capacity":%s,"imageDigestManifestSha256":"%s","deployMode":"%s","fullDeploy":%s}' \
+  printf '{"capacity":%s,"imageDigestManifestSha256":"%s","deployMode":"%s","fullDeploy":%s,"migrationRequired":%s}' \
     "${capacity}" \
     "${image_manifest_hash}" \
     "${DEPLOY_MODE:-unknown}" \
-    "$([ "${FULL_DEPLOY:-false}" = "true" ] && echo true || echo false)"
+    "$([ "${FULL_DEPLOY:-false}" = "true" ] && echo true || echo false)" \
+    "${RUN_DB_MIGRATE}"
 }
 
 rollback_manifest_sha256() {
@@ -603,6 +670,10 @@ rollback_manifest_sha256() {
 schema_may_be_forward_for() {
   local status="$1"
   local phase="$2"
+  if [ "${RUN_DB_MIGRATE}" = "false" ]; then
+    echo "false"
+    return 0
+  fi
   if [ "${SCHEMA_MAY_BE_FORWARD:-false}" = "true" ]; then
     echo "true"
     return 0
@@ -870,7 +941,8 @@ verify_release_ledger_sql() {
     -d "${db_name}" \
     -v ON_ERROR_STOP=1 \
     -v release_id="${release_id}" \
-    -v git_sha="${DEPLOY_SHA:-unknown}" <<'SQL'
+    -v git_sha="${DEPLOY_SHA:-unknown}" \
+    -v migration_required="${RUN_DB_MIGRATE}" <<'SQL'
 SELECT set_config('aqua.deploy_release_id', :'release_id', false);
 SELECT set_config('aqua.deploy_git_sha', :'git_sha', false);
 
@@ -892,9 +964,10 @@ BEGIN
     RAISE EXCEPTION 'release ledger row missing for release_id=%', expected_release_id;
   END IF;
 
-  IF rel.expected_heads = '{}'::jsonb
-     OR rel.applied_heads = '{}'::jsonb
-     OR rel.expected_heads <> rel.applied_heads THEN
+  IF :'migration_required'::boolean
+     AND (rel.expected_heads = '{}'::jsonb
+       OR rel.applied_heads = '{}'::jsonb
+       OR rel.expected_heads <> rel.applied_heads) THEN
     RAISE EXCEPTION 'release ledger expected/applied heads missing or mismatched for release_id=%', expected_release_id;
   END IF;
 
@@ -1383,11 +1456,13 @@ else
   # Application secrets
   generate_credential "WEBHOOK_ENCRYPTION_KEY"
 
-  # Ensure infrastructure services required for migrations are running.
-  # nginx starts/reloads only after db-migrate and app restarts succeed.
-  echo "=== Ensuring migration infrastructure is running ==="
-  docker compose -f docker-compose.droplet.yml up -d --no-build postgres redis minio 2>&1
-  sleep 5
+  if [ "$RUN_DB_MIGRATE" = "true" ]; then
+    echo "=== Ensuring migration infrastructure is running ==="
+    docker compose -f docker-compose.droplet.yml up -d --no-build postgres redis minio 2>&1
+    sleep 5
+  else
+    echo "=== Frontend-only development deploy: migration infrastructure unchanged ==="
+  fi
 
   echo "=== Pulling affected images sequentially: ${DEPLOY_SERVICES} ==="
   for svc in ${DEPLOY_SERVICES}; do
@@ -1401,10 +1476,13 @@ else
   # db-migrate advances schema. Otherwise a later image-pull failure leaves
   # production running old app code against new DB state.
   # ─────────────────────────────────────────────────────────────
-  run_db_migrate_or_exit "selective deploy"
-  record_release_ledger "db_complete" ""
-
-  ensure_nats_acl_loaded
+  if [ "$RUN_DB_MIGRATE" = "true" ]; then
+    run_db_migrate_or_exit "selective deploy"
+    record_release_ledger "db_complete" ""
+    ensure_nats_acl_loaded
+  else
+    echo "=== Frontend-only development deploy: db-migrate and NATS reload skipped ==="
+  fi
   RESTART_SERVICES=$(restartable_deploy_services | xargs)
   if [ "${NATS_ACL_RELOADED}" = "true" ]; then
     case " ${RESTART_SERVICES} " in
@@ -1434,8 +1512,7 @@ else
   # ARCH-GW-006: Force gateway schema recomposition when backend services change.
   # Only restart gateway when a backend subgraph service was deployed, since
   # frontend-only deploys don't affect the supergraph schema.
-  BACKEND_PATTERN="gateway-api|auth-service|farm-service|sensor-service|alert-engine|billing-service|hr-service|hydroponics-service|notification-service|config-service|messaging-service"
-  if echo "${DEPLOY_SERVICES}" | grep -qE "${BACKEND_PATTERN}"; then
+  if deploy_requires_gateway_recomposition; then
     echo "=== Backend subgraph changed — restarting gateway for schema recomposition ==="
     docker compose -f docker-compose.droplet.yml restart gateway-api 2>&1
     sleep 15

@@ -60,12 +60,12 @@ function readWorkflow(): Workflow {
   return YAML.parse(fs.readFileSync(WORKFLOW_PATH, 'utf8')) as Workflow;
 }
 
-describe('CI Full protected-main and PR contract', () => {
-  it('runs for pull requests and pushes to main while retaining release tags', () => {
+describe('CI Full scheduled and release contract', () => {
+  it('stays off pull requests and branch pushes while retaining release tags', () => {
     const workflow = readWorkflow();
 
-    expect(workflow.on?.pull_request?.branches).toContain('main');
-    expect(workflow.on?.push?.branches).toContain('main');
+    expect(workflow.on?.pull_request).toBeUndefined();
+    expect(workflow.on?.push?.branches).toBeUndefined();
     expect(workflow.on?.push?.tags).toEqual(expect.arrayContaining(['v*', 'release-*']));
   });
 
@@ -80,15 +80,15 @@ describe('CI Full protected-main and PR contract', () => {
     );
   });
 
-  it('uses build-status as the canonical summary of every full-CI job', () => {
+  it('uses full-ci-status as the distinct summary of every full-CI job', () => {
     const workflow = readWorkflow();
     const jobs = workflow.jobs ?? {};
-    const summary = jobs['build-status'];
+    const summary = jobs['full-ci-status'];
     const expectedDependencies = Object.keys(jobs)
-      .filter((jobId) => jobId !== 'build-status')
+      .filter((jobId) => jobId !== 'full-ci-status')
       .sort();
 
-    expect(summary?.name).toBe('build-status');
+    expect(summary?.name).toBe('full-ci-status');
     expect(summary?.if).toBe('always()');
     expect([...(summary?.needs ?? [])].sort()).toEqual(expectedDependencies);
 

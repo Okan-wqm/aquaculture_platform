@@ -80,6 +80,7 @@ export interface GatewaySubgraphCatalogEntry {
 export interface InfraImageBuildContract {
   dockerfile: string;
   context: string;
+  buildInputGlobs: readonly string[];
 }
 
 export interface ServiceCatalogEntry {
@@ -313,6 +314,16 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     infraImageBuild: {
       dockerfile: 'infrastructure/docker/Dockerfile.postgres-walg',
       context: '.',
+      buildInputGlobs: [
+        'infrastructure/docker/Dockerfile.postgres-walg',
+        'infrastructure/docker/scripts/postgres-ssl-entrypoint.sh',
+        'infrastructure/docker/scripts/postgres-walg-healthcheck.sh',
+        'infrastructure/docker/scripts/walg-load-secrets.sh',
+        'infrastructure/docker/scripts/walg-archive-command.sh',
+        'infrastructure/docker/scripts/walg-restore-command.sh',
+        'infrastructure/docker/scripts/walg-runtime-command.sh',
+        '.github/manifests/postgres-dr-contract.sha256',
+      ],
     },
     deploymentStatus: 'active',
     deployTarget: 'droplet',
@@ -974,10 +985,12 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
       buildEntry({
         serviceId,
         nxProject:
-          serviceId.includes('-module') ||
-          ['shell', 'dashboard', 'admin-panel', 'tenant-admin'].includes(serviceId)
-            ? serviceId
-            : undefined,
+          serviceId === 'aquamobil'
+            ? '@aquaculture/aquamobil'
+            : serviceId.includes('-module') ||
+                ['shell', 'dashboard', 'admin-panel', 'tenant-admin'].includes(serviceId)
+              ? serviceId
+              : undefined,
         imageTarget:
           serviceId === 'mosquitto' || !['nginx', 'minio'].includes(serviceId)
             ? serviceId
@@ -1000,6 +1013,10 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
             ? {
                 dockerfile: 'infrastructure/mosquitto/Dockerfile',
                 context: 'infrastructure/mosquitto',
+                buildInputGlobs: [
+                  'infrastructure/mosquitto/Dockerfile',
+                  'infrastructure/mosquitto/**',
+                ],
               }
             : undefined,
         deploymentStatus: 'active',
@@ -1094,6 +1111,7 @@ export function infraImageBuildMatrix(): readonly InfraImageBuildMatrixEntry[] {
         image: entry.imageTarget,
         dockerfile: entry.infraImageBuild.dockerfile,
         context: entry.infraImageBuild.context,
+        buildInputGlobs: entry.infraImageBuild.buildInputGlobs,
       };
     });
 }
@@ -1351,6 +1369,15 @@ export function validateServiceCatalog(
       errors.push({
         serviceId: entry.serviceId,
         message: 'infraImageBuild is only valid for docker-only services',
+      });
+    }
+    if (
+      entry.infraImageBuild &&
+      !entry.infraImageBuild.buildInputGlobs.includes(entry.infraImageBuild.dockerfile)
+    ) {
+      errors.push({
+        serviceId: entry.serviceId,
+        message: 'infraImageBuild.buildInputGlobs must include its Dockerfile',
       });
     }
     if (entry.migrationGlobs && entry.migration && entry.migrationGlobs !== entry.migration.globs) {

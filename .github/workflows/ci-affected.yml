@@ -9,9 +9,9 @@ name: CI - Affected
 
 on:
   push:
-    branches: [main, develop, 'feature/*', 'hotfix/*']
+    branches: [main]
   pull_request:
-    branches: [main, develop]
+    branches: [main]
 
 # SEC-CI-021: Minimum token permissions — prevents compromised actions from
 # pushing commits, creating releases, or modifying repository settings.
@@ -26,140 +26,85 @@ env:
 jobs:
   detect-changes:
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      nats:
-        image: nats:2.10-alpine
-        ports:
-          - 4222:4222
-          - 8222:8222
-        options: >-
-          --health-cmd "nats-server --version"
-          --health-interval 10s
-          --health-timeout 10s
-          --health-retries 10
     outputs:
-      docs_changed: ${{ steps.changes.outputs.docs }}
+      base_sha: ${{ steps.range.outputs.base_sha }}
+      dependency_audit_required: ${{ steps.scope.outputs.dependency_audit_required }}
+      docs_changed: ${{ steps.scope.outputs.docs_changed }}
+      farm_checks_required: ${{ steps.scope.outputs.farm_checks_required }}
+      full_validation: ${{ steps.range.outputs.full_validation }}
       has_changes: ${{ steps.check.outputs.has_changes }}
       deploy_changes: ${{ steps.check.outputs.deploy_changes }}
-      infra_image_changed: ${{ steps.changes.outputs.infra_image }}
+      head_sha: ${{ steps.range.outputs.head_sha }}
+      infra_image_changed: ${{ steps.scope.outputs.has_infra }}
+      infra_matrix: ${{ steps.scope.outputs.infra_matrix }}
       is_pr: ${{ github.event_name == 'pull_request' }}
+      range_reason: ${{ steps.range.outputs.range_reason }}
+      rust_checks_required: ${{ steps.scope.outputs.rust_checks_required }}
+      selection_reason: ${{ steps.scope.outputs.selection_reason }}
+      sensor_checks_required: ${{ steps.scope.outputs.sensor_checks_required }}
+      validation_started_epoch: ${{ steps.range.outputs.validation_started_epoch }}
     steps:
       # SEC-CI-002: pinned to SHA
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      # SEC-CI-002/SEC-CI-019: Migrated from unmaintained @v2 to @v3, pinned to SHA
-      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
-        id: changes
-        with:
-          filters: |
-            apps:
-              - 'apps/**'
-            libs:
-              - 'libs/**'
-              - 'platform/libs/**'
-            web:
-              - 'web/**'
-            docs:
-              - 'docs/**/*.md'
-            infra_image:
-              - 'infrastructure/mosquitto/**'
-            # Deploy-pipeline infrastructure. Changes here affect how the
-            # deploy runs even when no application source changed — e.g.
-            # a droplet-up.sh tweak, a new criticality-manifest entry, a
-            # change to the compose topology. Without including these,
-            # deploy-workflow fixes cannot TEST THEMSELVES (recursive
-            # chicken-egg: the fix lands but nothing triggers the chain
-            # that would exercise it).
-            deploy-config:
-              - 'sens-api-gateway/**'
-              - 'Cargo.toml'
-              - 'Cargo.lock'
-              - 'crates/**'
-              - 'tools/executors/cargo/**'
-              - 'scripts/deploy/**'
-              - 'scripts/ci/**'
-              - 'scripts/graphql/**'
-              - 'scripts/apollo-router/**'
-              - '.github/workflows/deploy-digitalocean.yml'
-              - '.github/workflows/deploy-staging.yml'
-              - '.github/workflows/production-post-deploy-verify.yml'
-              - '.github/workflows/ci-affected.yml'
-              # Required-check and protected-release workflows are executable
-              # control-plane code. Any workflow-only PR must run the real
-              # dependency chain rather than a has_changes=false summary.
-              - '.github/workflows/**'
-              - '.github/actions/**'
-              - '.github/manifests/**'
-              - 'infrastructure/deploy/**'
-              - 'infrastructure/apollo-router/**'
-              - 'infrastructure/scripts/**'
-              - 'docker-compose.droplet.yml'
-              - 'docker-compose.prod.yml'
-              - '.gitignore'
-              - '.nxignore'
-              - 'codegen.ts'
-              - 'web/shared-ui/src/generated/**'
-              # CI install-chain tooling — the Nx graph probe + ESLint
-              # plugin loader resolve against these paths on every run.
-              # A broken `tools/eslint-rules/` tsconfig or a miswired
-              # `tools/gates/` script crashes the install job itself, so
-              # changes here MUST trigger the full chain or the fix
-              # cannot validate itself. Root cause: commit 5f3280c4
-              # fixed the eslint-rules build but CI skipped validation
-              # because the change only touched tools/, producing
-              # has_changes=false. Architectural fix: treat CI-consumed
-              # tooling as deploy-config for path-filter purposes.
-              - 'tools/eslint-rules/**'
-              - 'tools/backup-ssh-broker/**'
-              - 'tools/gates/**'
-              - 'tools/lint-gates/**'
-              - 'tools/scripts/**'
-              - 'eslint.config.mjs'
-              - 'tsconfig.base.json'
-              - 'tests/**'
-              # Root manifest + lockfile. Any change here rewires the
-              # workspace graph OR the dependency tree — both invalidate
-              # every downstream build. Missing these from the filter
-              # was the a8320411 blind-spot: a workspaces-array change
-              # (root cause of the @nx/eslint-plugin native-binding
-              # red herring) landed and CI-Affected skipped the full
-              # chain in 9s because has_changes=false.
-              - '.npmrc'
-              - 'package.json'
-              - 'package-lock.json'
-            # Standalone E2E owns an independent lockfile. Its Dependabot PRs
-            # must enter the security-audit job even when no workspace source
-            # changed, otherwise the E2E audit contract cannot enforce itself.
-            audit_only:
-              - 'e2e/**'
-      - id: check
+      - name: Resolve immutable affected range
+        id: range
+        env:
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          deploy_changes=false
-          if [ "${{ steps.changes.outputs.apps }}" = "true" ] || \
-             [ "${{ steps.changes.outputs.libs }}" = "true" ] || \
-             [ "${{ steps.changes.outputs.web }}" = "true" ] || \
-             [ "${{ steps.changes.outputs.infra_image }}" = "true" ] || \
-             [ "${{ steps.changes.outputs.deploy-config }}" = "true" ]; then
-            deploy_changes=true
+          set -euo pipefail
+          echo "validation_started_epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT_NAME" = "push" ]; then
+            if git ls-remote --exit-code --refs origin refs/tags/deployed/development >/dev/null; then
+              git fetch --force --no-tags origin \
+                '+refs/tags/deployed/development:refs/tags/deployed/development'
+            else
+              lookup_status=$?
+              if [ "$lookup_status" -ne 2 ]; then
+                echo "::error::Unable to resolve the development deployment baseline from origin."
+                exit "$lookup_status"
+              fi
+              if git rev-parse --verify refs/tags/deployed/development >/dev/null 2>&1; then
+                git tag --delete deployed/development
+              fi
+            fi
           fi
+          node scripts/ci/resolve-affected-range.ts \
+            --event-name "${{ github.event_name }}" \
+            --ref "${{ github.ref }}" \
+            --pr-base-sha "${{ github.event.pull_request.base.sha }}" \
+            --head-sha "${{ github.sha }}" \
+            --development-ref deployed/development
 
-          has_changes="$deploy_changes"
-          if [ "${{ steps.changes.outputs.audit_only }}" = "true" ]; then
-            has_changes=true
-          fi
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
 
-          echo "has_changes=$has_changes" >> "$GITHUB_OUTPUT"
-          echo "deploy_changes=$deploy_changes" >> "$GITHUB_OUTPUT"
+      - name: Install workspace graph dependencies
+        run: npm ci --ignore-scripts --no-audit --prefer-offline
+
+      - name: Resolve Nx and catalog scope
+        id: scope
+        env:
+          BASE_SHA: ${{ steps.range.outputs.base_sha }}
+          HEAD_SHA: ${{ steps.range.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          node scripts/ci/select-deployment-scope.ts \
+            --repo "$GITHUB_WORKSPACE" \
+            --base-sha "$BASE_SHA" \
+            --head-sha "$HEAD_SHA" \
+            --requested-services auto \
+            --channel development
+      - id: check
+        env:
+          DEPLOY_CHANGES: ${{ steps.scope.outputs.has_images }}
+          VALIDATION_REQUIRED: ${{ steps.scope.outputs.validation_required }}
+        run: |
+          echo "has_changes=$VALIDATION_REQUIRED" >> "$GITHUB_OUTPUT"
+          echo "deploy_changes=$DEPLOY_CHANGES" >> "$GITHUB_OUTPUT"
 
   # ---------------------------------------------------------------------------
   # Shared setup: install + cache (reusable via needs + cache restore)
@@ -300,9 +245,10 @@ jobs:
 
       - name: Run linter (affected only)
         run: |
-          BASE_REF="origin/${{ github.base_ref || 'main' }}"
-          bash scripts/ci/lint-changed-files.sh --base "$BASE_REF" --head HEAD
-          bash scripts/ci/affected-target-policy.sh --target lint --base "$BASE_REF" --parallel 2
+          BASE_REF="${{ needs.detect-changes.outputs.base_sha }}"
+          HEAD_REF="${{ needs.detect-changes.outputs.head_sha }}"
+          bash scripts/ci/lint-changed-files.sh --base "$BASE_REF" --head "$HEAD_REF"
+          bash scripts/ci/affected-target-policy.sh --target lint --base "$BASE_REF" --head "$HEAD_REF" --parallel 2
         timeout-minutes: 35
         env:
           NX_DAEMON: 'false'
@@ -391,9 +337,10 @@ jobs:
 
       - name: Run type check (affected plus changed TypeScript guard)
         run: |
-          BASE_REF="origin/${{ github.base_ref || 'main' }}"
-          node tools/toolchain/run.mjs npx nx affected -t type-check --base="$BASE_REF" --head=HEAD --parallel=2
-          node scripts/ci/type-check-changed-files.mjs --base "$BASE_REF" --head HEAD
+          BASE_REF="${{ needs.detect-changes.outputs.base_sha }}"
+          HEAD_REF="${{ needs.detect-changes.outputs.head_sha }}"
+          node tools/toolchain/run.mjs npx nx affected -t type-check --base="$BASE_REF" --head="$HEAD_REF" --parallel=2
+          node scripts/ci/type-check-changed-files.mjs --base "$BASE_REF" --head "$HEAD_REF"
         timeout-minutes: 35
         env:
           NX_DAEMON: 'false'
@@ -486,7 +433,7 @@ jobs:
       # asks the Nx graph which affected test projects transitively
       # depend on migration-harness and pulls once, before any Jest run.
       - name: Prewarm PostgreSQL testcontainer image (dependency-aware)
-        run: node scripts/ci/prewarm-postgres-testcontainer.ts --base "origin/${{ github.base_ref || 'main' }}"
+        run: node scripts/ci/prewarm-postgres-testcontainer.ts --base "${{ needs.detect-changes.outputs.base_sha }}" --head "${{ needs.detect-changes.outputs.head_sha }}"
         timeout-minutes: 10
         env:
           NX_DAEMON: 'false'
@@ -494,8 +441,9 @@ jobs:
 
       - name: Run migration harness tests (affected, isolated)
         run: |
-          BASE_REF="origin/${{ github.base_ref || 'main' }}"
-          AFFECTED_FILES="$(git diff --name-only "$BASE_REF"...HEAD | grep -Ev '^(\.npmrc|package(-lock)?\.json)$' || true)"
+          BASE_REF="${{ needs.detect-changes.outputs.base_sha }}"
+          HEAD_REF="${{ needs.detect-changes.outputs.head_sha }}"
+          AFFECTED_FILES="$(git diff --name-only "$BASE_REF" "$HEAD_REF" -- | grep -Ev '^(\.npmrc|package(-lock)?\.json)$' || true)"
 
           if [ -z "$AFFECTED_FILES" ]; then
             echo "No source files affected beyond root package metadata; skipping isolated Testcontainers gate."
@@ -521,8 +469,9 @@ jobs:
 
       - name: Run tests (affected only)
         run: |
-          BASE_REF="origin/${{ github.base_ref || 'main' }}"
-          bash scripts/ci/affected-target-policy.sh --target test --base "$BASE_REF" --parallel 2 --exclude migration-harness
+          BASE_REF="${{ needs.detect-changes.outputs.base_sha }}"
+          HEAD_REF="${{ needs.detect-changes.outputs.head_sha }}"
+          bash scripts/ci/affected-target-policy.sh --target test --base "$BASE_REF" --head "$HEAD_REF" --parallel 2 --exclude migration-harness
         timeout-minutes: 35
         env:
           NX_DAEMON: 'false'
@@ -542,8 +491,9 @@ jobs:
 
       - name: Run admin route contract (affected, strict)
         run: |
-          BASE_REF="origin/${{ github.base_ref || 'main' }}"
-          bash scripts/ci/affected-target-policy.sh --target test:contract --base "$BASE_REF" --parallel 1
+          BASE_REF="${{ needs.detect-changes.outputs.base_sha }}"
+          HEAD_REF="${{ needs.detect-changes.outputs.head_sha }}"
+          bash scripts/ci/affected-target-policy.sh --target test:contract --base "$BASE_REF" --head "$HEAD_REF" --parallel 1
         timeout-minutes: 10
         env:
           NX_DAEMON: 'false'
@@ -564,8 +514,9 @@ jobs:
       # touches the SW.
       - name: Run SW build-artifact invariant (affected only)
         run: |
-          BASE_REF="origin/${{ github.base_ref || 'main' }}"
-          bash scripts/ci/affected-target-policy.sh --target test:invariant --base "$BASE_REF" --parallel 1
+          BASE_REF="${{ needs.detect-changes.outputs.base_sha }}"
+          HEAD_REF="${{ needs.detect-changes.outputs.head_sha }}"
+          bash scripts/ci/affected-target-policy.sh --target test:invariant --base "$BASE_REF" --head "$HEAD_REF" --parallel 1
         timeout-minutes: 20
         env:
           NX_DAEMON: 'false'
@@ -574,8 +525,9 @@ jobs:
 
       - name: Run focused farm water-chemistry tests
         run: |
-          BASE_REF="origin/${{ github.base_ref || 'main' }}"
-          if git diff --name-only "$BASE_REF"...HEAD | grep -Eq '^(\.github/workflows/ci-affected\.yml|e2e/|web/modules/farm-module/(package\.json|vite\.config\.ts|src/pages/water-chemistry/)|libs/aquaculture-engines/src/water-chemistry/)'; then
+          BASE_REF="${{ needs.detect-changes.outputs.base_sha }}"
+          HEAD_REF="${{ needs.detect-changes.outputs.head_sha }}"
+          if git diff --name-only "$BASE_REF" "$HEAD_REF" -- | grep -Eq '^(\.github/workflows/ci-affected\.yml|e2e/|web/modules/farm-module/(package\.json|vite\.config\.ts|src/pages/water-chemistry/)|libs/aquaculture-engines/src/water-chemistry/)'; then
             npm --workspace @aquaculture/farm-module run test:water-chemistry
           else
             echo "No farm water-chemistry files changed; skipping focused water-chemistry gate."
@@ -588,10 +540,7 @@ jobs:
 
   farm-water-chemistry-e2e:
     needs: [install, detect-changes]
-    if: >-
-      needs.detect-changes.outputs.has_changes == 'true' &&
-      (github.event_name == 'pull_request' ||
-       (github.event_name == 'push' && github.ref == 'refs/heads/main'))
+    if: needs.detect-changes.outputs.farm_checks_required == 'true'
     runs-on: ubuntu-latest
     services:
       redis:
@@ -662,8 +611,9 @@ jobs:
       - name: Run production water-chemistry browser smoke
         run: |
           set -euo pipefail
-          BASE_REF="origin/${{ github.base_ref || 'main' }}"
-          if ! git diff --name-only "$BASE_REF"...HEAD | grep -Eq '^(\.github/workflows/ci-affected\.yml|e2e/|web/modules/farm-module/(package\.json|vite\.config\.ts|src/pages/water-chemistry/)|libs/aquaculture-engines/src/water-chemistry/)'; then
+          BASE_REF="${{ needs.detect-changes.outputs.base_sha }}"
+          HEAD_REF="${{ needs.detect-changes.outputs.head_sha }}"
+          if ! git diff --name-only "$BASE_REF" "$HEAD_REF" -- | grep -Eq '^(\.github/workflows/ci-affected\.yml|e2e/|web/modules/farm-module/(package\.json|vite\.config\.ts|src/pages/water-chemistry/)|libs/aquaculture-engines/src/water-chemistry/)'; then
             echo "No farm water-chemistry release files changed; skipping browser smoke."
             exit 0
           fi
@@ -802,7 +752,7 @@ jobs:
         run: mkdir -p .nx/cache
 
       - name: Build (affected only)
-        run: node tools/toolchain/run.mjs npx nx affected -t build --base=origin/${{ github.base_ref || 'main' }} --head=HEAD --parallel=2
+        run: node tools/toolchain/run.mjs npx nx affected -t build --base="${{ needs.detect-changes.outputs.base_sha }}" --head="${{ needs.detect-changes.outputs.head_sha }}" --parallel=2
         timeout-minutes: 45
         env:
           NX_DAEMON: 'false'
@@ -1121,16 +1071,10 @@ jobs:
         run: bash scripts/ci/validate-deploy-ssot.sh
 
   # ---------------------------------------------------------------------------
-  # Main release orchestration
-  #
-  # deploy-staging.yml, deploy-digitalocean.yml, and
-  # production-post-deploy-verify.yml are reusable workflows. CI Affected is the
-  # SSoT release control plane on push to main: the same quality gates that keep
-  # main deployable also decide whether the DigitalOcean image/deploy workflow
-  # is invoked. This prevents the historical split-brain where deploy workflows
-  # documented a workflow_call path but no caller existed.
+  # Main development orchestration. Production remains a separate, manually
+  # locked workflow; a main merge can mutate only the shared development lane.
   # ---------------------------------------------------------------------------
-  deploy-staging:
+  build-development-images:
     needs:
       - detect-changes
       - install
@@ -1140,65 +1084,106 @@ jobs:
       - farm-water-chemistry-e2e
       - build
       - pre-flight
+      - security-audit
+      - sensor-service-gates
+      - sens-api-gateway-rust
+      - sens-enterprise-validation
+      - build-status
     if: >-
+      always() &&
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
       needs.detect-changes.outputs.deploy_changes == 'true' &&
+      needs.build-status.result == 'success' &&
       needs.install.result == 'success' &&
       needs.lint.result == 'success' &&
       needs.type-check.result == 'success' &&
       needs.test.result == 'success' &&
-      needs.farm-water-chemistry-e2e.result == 'success' &&
-      needs.build.result == 'success' &&
-      needs.pre-flight.result == 'success'
-    permissions:
-      contents: write
-      packages: write
-    uses: ./.github/workflows/deploy-staging.yml
-    secrets: inherit
-
-  deploy-production:
-    needs:
-      - detect-changes
-      - install
-      - lint
-      - type-check
-      - test
-      - farm-water-chemistry-e2e
-      - build
-      - pre-flight
-      - deploy-staging
-    if: >-
-      github.event_name == 'push' &&
-      github.ref == 'refs/heads/main' &&
-      needs.detect-changes.outputs.deploy_changes == 'true' &&
-      needs.install.result == 'success' &&
-      needs.lint.result == 'success' &&
-      needs.type-check.result == 'success' &&
-      needs.test.result == 'success' &&
-      needs.farm-water-chemistry-e2e.result == 'success' &&
       needs.build.result == 'success' &&
       needs.pre-flight.result == 'success' &&
-      needs.deploy-staging.result == 'success'
+      (needs.farm-water-chemistry-e2e.result == 'success' || needs.farm-water-chemistry-e2e.result == 'skipped') &&
+      (needs.security-audit.result == 'success' || needs.security-audit.result == 'skipped') &&
+      (needs.sensor-service-gates.result == 'success' || needs.sensor-service-gates.result == 'skipped') &&
+      (needs.sens-api-gateway-rust.result == 'success' || needs.sens-api-gateway-rust.result == 'skipped') &&
+      (needs.sens-enterprise-validation.result == 'success' || needs.sens-enterprise-validation.result == 'skipped')
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/build-images.yml
+    with:
+      baseline_ref: ${{ needs.detect-changes.outputs.base_sha }}
+      head_sha: ${{ needs.detect-changes.outputs.head_sha }}
+      requested_services: auto
+      channel: development
+      no_cache: false
+    secrets: inherit
+
+  deploy-development:
+    needs:
+      - build-development-images
+    if: >-
+      needs.build-development-images.result == 'success' &&
+      needs.build-development-images.outputs.deploy_services != '' &&
+      needs.build-development-images.outputs.image_digest_manifest != ''
     permissions:
       contents: write
       packages: write
-      id-token: write
-    uses: ./.github/workflows/deploy-digitalocean.yml
+    uses: ./.github/workflows/deploy-development.yml
     with:
-      services: auto
+      head_sha: ${{ github.sha }}
+      deploy_services: ${{ needs.build-development-images.outputs.deploy_services }}
+      full_deploy: ${{ needs.build-development-images.outputs.full_deploy == 'true' }}
+      migration_required: ${{ needs.build-development-images.outputs.migration_required == 'true' }}
+      image_digest_manifest: ${{ needs.build-development-images.outputs.image_digest_manifest }}
+      image_prefix: ${{ needs.build-development-images.outputs.image_prefix }}
+      selection_reason: ${{ needs.build-development-images.outputs.selection_reason }}
     secrets: inherit
 
-  production-post-deploy-verify:
+  development-timing-summary:
     needs:
-      - deploy-production
-    if: needs.deploy-production.outputs.deployed == 'true'
-    permissions:
-      contents: read
-    uses: ./.github/workflows/production-post-deploy-verify.yml
-    with:
-      target_sha: ${{ github.sha }}
-    secrets: inherit
+      - detect-changes
+      - build-development-images
+      - deploy-development
+    if: >-
+      always() &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.deploy-development.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Publish development phase durations
+        env:
+          VALIDATION_STARTED_EPOCH: ${{ needs.detect-changes.outputs.validation_started_epoch }}
+          IMAGE_STARTED_EPOCH: ${{ needs.build-development-images.outputs.image_started_epoch }}
+          IMAGE_FINISHED_EPOCH: ${{ needs.build-development-images.outputs.image_finished_epoch }}
+          DEPLOY_STARTED_EPOCH: ${{ needs.deploy-development.outputs.deploy_started_epoch }}
+          DEPLOY_FINISHED_EPOCH: ${{ needs.deploy-development.outputs.deploy_finished_epoch }}
+        run: |
+          set -euo pipefail
+          for value in \
+            "$VALIDATION_STARTED_EPOCH" \
+            "$IMAGE_STARTED_EPOCH" \
+            "$IMAGE_FINISHED_EPOCH" \
+            "$DEPLOY_STARTED_EPOCH" \
+            "$DEPLOY_FINISHED_EPOCH"; do
+            [[ "$value" =~ ^[0-9]+$ ]]
+          done
+          [ "$IMAGE_STARTED_EPOCH" -ge "$VALIDATION_STARTED_EPOCH" ]
+          [ "$IMAGE_FINISHED_EPOCH" -ge "$IMAGE_STARTED_EPOCH" ]
+          [ "$DEPLOY_FINISHED_EPOCH" -ge "$DEPLOY_STARTED_EPOCH" ]
+          validation_seconds=$((IMAGE_STARTED_EPOCH - VALIDATION_STARTED_EPOCH))
+          image_seconds=$((IMAGE_FINISHED_EPOCH - IMAGE_STARTED_EPOCH))
+          droplet_seconds=$((DEPLOY_FINISHED_EPOCH - DEPLOY_STARTED_EPOCH))
+          {
+            echo '### Development delivery timing'
+            echo ''
+            echo '| Phase | Duration (seconds) |'
+            echo '| --- | ---: |'
+            echo "| Affected validation | ${validation_seconds} |"
+            echo "| Hosted image build | ${image_seconds} |"
+            echo "| Droplet deployment | ${droplet_seconds} |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # ---------------------------------------------------------------------------
   # PR-time infrastructure image build gate
@@ -1232,26 +1217,46 @@ jobs:
           --health-interval 10s
           --health-timeout 10s
           --health-retries 10
-    timeout-minutes: 20
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.detect-changes.outputs.infra_matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
-      - name: Build Mosquitto infrastructure image (no push)
+      - name: Resolve immutable Postgres DR contract digest
+        if: matrix.image == 'postgres'
+        id: postgres_dr_contract
+        run: |
+          set -euo pipefail
+          CONTRACT_MANIFEST=.github/manifests/postgres-dr-contract.sha256
+          test -f "${CONTRACT_MANIFEST}"
+          test ! -L "${CONTRACT_MANIFEST}"
+          sha256sum --strict --check "${CONTRACT_MANIFEST}"
+          CONTRACT_SHA256=$(sha256sum --binary "${CONTRACT_MANIFEST}" | awk '{print $1}')
+          [[ "${CONTRACT_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          printf 'sha256=%s\n' "${CONTRACT_SHA256}" >> "${GITHUB_OUTPUT}"
+
+      - name: Build ${{ matrix.image }} infrastructure image (no push)
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
-          context: infrastructure/mosquitto
-          file: infrastructure/mosquitto/Dockerfile
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
           platforms: linux/amd64
           push: false
-          tags: aquaculture-platform/mosquitto-ci:${{ github.sha }}
+          tags: aquaculture-platform/${{ matrix.image }}-ci:${{ github.sha }}
+          build-args: |
+            BUILD_MAIN_SHA=${{ github.sha }}
+            POSTGRES_DR_CONTRACT_SHA256=${{ steps.postgres_dr_contract.outputs.sha256 }}
 
   # M-FE-03: npm audit on every PR — catches vulnerable dependencies before merge.
   # Only runs on PRs (not push to main) to avoid blocking deploys.
   security-audit:
     needs: [install, detect-changes]
-    if: needs.detect-changes.outputs.has_changes == 'true' && github.event_name == 'pull_request'
+    if: needs.detect-changes.outputs.dependency_audit_required == 'true'
     runs-on: ubuntu-latest
     services:
       redis:
@@ -1441,7 +1446,7 @@ jobs:
 
   sensor-service-gates:
     needs: [install, detect-changes]
-    if: needs.detect-changes.outputs.has_changes == 'true' && github.event_name == 'pull_request'
+    if: needs.detect-changes.outputs.sensor_checks_required == 'true'
     runs-on: ubuntu-latest
     services:
       redis:
@@ -1502,7 +1507,7 @@ jobs:
 
   sens-api-gateway-rust:
     needs: [install, detect-changes]
-    if: needs.detect-changes.outputs.has_changes == 'true' && github.event_name == 'pull_request'
+    if: needs.detect-changes.outputs.rust_checks_required == 'true'
     runs-on: ubuntu-latest
     services:
       redis:
@@ -1564,7 +1569,7 @@ jobs:
 
   sens-enterprise-validation:
     needs: [install, detect-changes]
-    if: needs.detect-changes.outputs.has_changes == 'true' && github.event_name == 'pull_request'
+    if: needs.detect-changes.outputs.sensor_checks_required == 'true'
     runs-on: ubuntu-latest
     services:
       redis:
@@ -1674,12 +1679,18 @@ jobs:
             "${{ needs.lint.result }}" \
             "${{ needs.type-check.result }}" \
             "${{ needs.test.result }}" \
-            "${{ needs.sensor-service-gates.result }}" \
-            "${{ needs.sens-api-gateway-rust.result }}" \
-            "${{ needs.sens-enterprise-validation.result }}" \
             "${{ needs.build.result }}"; do
             if [ "$result" != "success" ]; then
-              echo "Sens enterprise dependency did not succeed: $result"
+              echo "Core Sens dependency did not succeed: $result"
+              exit 1
+            fi
+          done
+          for result in \
+            "${{ needs.sensor-service-gates.result }}" \
+            "${{ needs.sens-api-gateway-rust.result }}" \
+            "${{ needs.sens-enterprise-validation.result }}"; do
+            if [ "$result" != "success" ] && [ "$result" != "skipped" ]; then
+              echo "Specialist Sens dependency failed: $result"
               exit 1
             fi
           done
@@ -1755,3 +1766,80 @@ jobs:
             fi
           done
           echo "Merge gate passed."
+
+  build-status:
+    name: build-status
+    needs:
+      - detect-changes
+      - install
+      - lint
+      - type-check
+      - test
+      - build
+      - schema-validation
+      - pre-flight
+      - infra-image-build-check
+      - security-audit
+      - docs-check
+      - farm-water-chemistry-e2e
+      - sensor-service-gates
+      - sens-api-gateway-rust
+      - sens-enterprise-validation
+      - sens-enterprise-summary
+      - merge-gate
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Assert affected validation status
+        run: |
+          set -euo pipefail
+          if [ "${{ needs.detect-changes.result }}" != "success" ]; then
+            echo "::error::Affected range resolution failed."
+            exit 1
+          fi
+
+          for entry in \
+            "schema-validation:${{ needs.schema-validation.result }}" \
+            "pre-flight:${{ needs.pre-flight.result }}" \
+            "infra-image-build-check:${{ needs.infra-image-build-check.result }}" \
+            "security-audit:${{ needs.security-audit.result }}" \
+            "docs-check:${{ needs.docs-check.result }}" \
+            "farm-water-chemistry-e2e:${{ needs.farm-water-chemistry-e2e.result }}" \
+            "sensor-service-gates:${{ needs.sensor-service-gates.result }}" \
+            "sens-api-gateway-rust:${{ needs.sens-api-gateway-rust.result }}" \
+            "sens-enterprise-validation:${{ needs.sens-enterprise-validation.result }}" \
+            "sens-enterprise-summary:${{ needs.sens-enterprise-summary.result }}" \
+            "merge-gate:${{ needs.merge-gate.result }}"; do
+            name="${entry%%:*}"
+            result="${entry##*:}"
+            if [ "$result" != "success" ] && [ "$result" != "skipped" ]; then
+              echo "::error::${name} result=${result}"
+              exit 1
+            fi
+          done
+
+          if [ "${{ needs.detect-changes.outputs.has_changes }}" = "true" ]; then
+            for entry in \
+              "install:${{ needs.install.result }}" \
+              "lint:${{ needs.lint.result }}" \
+              "type-check:${{ needs.type-check.result }}" \
+              "test:${{ needs.test.result }}" \
+              "build:${{ needs.build.result }}"; do
+              name="${entry%%:*}"
+              result="${entry##*:}"
+              if [ "$result" != "success" ]; then
+                echo "::error::${name} result=${result}"
+                exit 1
+              fi
+            done
+          fi
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            [ "${{ needs.merge-gate.result }}" = "success" ]
+            [ "${{ needs.sens-enterprise-summary.result }}" = "success" ]
+            if [ "${{ needs.detect-changes.outputs.has_changes }}" = "true" ]; then
+              [ "${{ needs.schema-validation.result }}" = "success" ]
+            fi
+          fi
+          echo "Affected validation passed for ${{ needs.detect-changes.outputs.base_sha }}..${{ needs.detect-changes.outputs.head_sha }}"

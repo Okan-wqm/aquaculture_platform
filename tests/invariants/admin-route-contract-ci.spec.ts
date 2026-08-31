@@ -66,7 +66,7 @@ describe('admin route contract CI boundary', () => {
 
     expect(contractStepIndex).toBeGreaterThan(regularTestIndex);
     expect(contractStep).toContain(
-      'bash scripts/ci/affected-target-policy.sh --target test:contract --base "$BASE_REF" --parallel 1',
+      'bash scripts/ci/affected-target-policy.sh --target test:contract --base "$BASE_REF" --head "$HEAD_REF" --parallel 1',
     );
     expect(contractStep).not.toContain('continue-on-error');
   });

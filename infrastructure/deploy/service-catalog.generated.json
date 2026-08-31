@@ -2,8 +2,8 @@
   "metadata": {
     "generatedFrom": "platform/libs/service-catalog/src/index.ts",
     "generator": "scripts/service-catalog/generate-artifacts.ts",
-    "generatorVersion": 3,
-    "catalogHash": "b314e8353e82369711981b1beff7d5e51b4624753693371e9dc0ea08f5178a2a",
+    "generatorVersion": 4,
+    "catalogHash": "2cc5d19beb10d14009e75e7bf4b5655d53e198e0255d2d3ef47ddd26a841b10c",
     "note": "do not edit by hand"
   },
   "activeDropletComposeServices": [
@@ -236,64 +236,88 @@
       {
         "module": "shell",
         "dockerfile": "infrastructure/docker/Dockerfile.shell",
-        "module_path": "web/shell"
+        "module_path": "web/shell",
+        "nx_project": "shell"
       },
       {
         "module": "dashboard",
         "dockerfile": "infrastructure/docker/Dockerfile.microfrontend.simple",
-        "module_path": "web/modules/dashboard"
+        "module_path": "web/modules/dashboard",
+        "nx_project": "dashboard"
       },
       {
         "module": "farm-module",
         "dockerfile": "infrastructure/docker/Dockerfile.microfrontend.simple",
-        "module_path": "web/modules/farm-module"
+        "module_path": "web/modules/farm-module",
+        "nx_project": "farm-module"
       },
       {
         "module": "sensor-module",
         "dockerfile": "infrastructure/docker/Dockerfile.microfrontend.simple",
-        "module_path": "web/modules/sensor-module"
+        "module_path": "web/modules/sensor-module",
+        "nx_project": "sensor-module"
       },
       {
         "module": "hr-module",
         "dockerfile": "infrastructure/docker/Dockerfile.microfrontend.simple",
-        "module_path": "web/modules/hr-module"
+        "module_path": "web/modules/hr-module",
+        "nx_project": "hr-module"
       },
       {
         "module": "hydroponics-module",
         "dockerfile": "infrastructure/docker/Dockerfile.microfrontend.simple",
-        "module_path": "web/modules/hydroponics-module"
+        "module_path": "web/modules/hydroponics-module",
+        "nx_project": "hydroponics-module"
       },
       {
         "module": "messaging-module",
         "dockerfile": "infrastructure/docker/Dockerfile.microfrontend.simple",
-        "module_path": "web/modules/messaging-module"
+        "module_path": "web/modules/messaging-module",
+        "nx_project": "messaging-module"
       },
       {
         "module": "admin-panel",
         "dockerfile": "infrastructure/docker/Dockerfile.microfrontend.simple",
-        "module_path": "web/modules/admin-panel"
+        "module_path": "web/modules/admin-panel",
+        "nx_project": "admin-panel"
       },
       {
         "module": "tenant-admin",
         "dockerfile": "infrastructure/docker/Dockerfile.microfrontend.simple",
-        "module_path": "web/modules/tenant-admin"
+        "module_path": "web/modules/tenant-admin",
+        "nx_project": "tenant-admin"
       },
       {
         "module": "aquamobil",
         "dockerfile": "infrastructure/docker/Dockerfile.aquamobil",
-        "module_path": "web/apps/aquamobil"
+        "module_path": "web/apps/aquamobil",
+        "nx_project": "@aquaculture/aquamobil"
       }
     ],
     "infraImageMatrix": [
       {
         "image": "postgres",
         "dockerfile": "infrastructure/docker/Dockerfile.postgres-walg",
-        "context": "."
+        "context": ".",
+        "buildInputGlobs": [
+          "infrastructure/docker/Dockerfile.postgres-walg",
+          "infrastructure/docker/scripts/postgres-ssl-entrypoint.sh",
+          "infrastructure/docker/scripts/postgres-walg-healthcheck.sh",
+          "infrastructure/docker/scripts/walg-load-secrets.sh",
+          "infrastructure/docker/scripts/walg-archive-command.sh",
+          "infrastructure/docker/scripts/walg-restore-command.sh",
+          "infrastructure/docker/scripts/walg-runtime-command.sh",
+          ".github/manifests/postgres-dr-contract.sha256"
+        ]
       },
       {
         "image": "mosquitto",
         "dockerfile": "infrastructure/mosquitto/Dockerfile",
-        "context": "infrastructure/mosquitto"
+        "context": "infrastructure/mosquitto",
+        "buildInputGlobs": [
+          "infrastructure/mosquitto/Dockerfile",
+          "infrastructure/mosquitto/**"
+        ]
       }
     ]
   },
@@ -322,7 +346,8 @@
     "hydroponics-module",
     "messaging-module",
     "admin-panel",
-    "tenant-admin"
+    "tenant-admin",
+    "@aquaculture/aquamobil"
   ],
   "requiredRuntimeEnv": [
     "MINIO_USER",

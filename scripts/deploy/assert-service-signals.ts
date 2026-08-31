@@ -23,9 +23,11 @@
  *   BOOT_SIGNAL_SINCE  optional docker logs --since value. When absent, the
  *                      asserter uses each container's StartedAt timestamp.
  *   FULL_DEPLOY        "true" asserts every manifest service. Otherwise
- *                      asserts db-migrate + DEPLOY_SERVICES.
+ *                      asserts DEPLOY_SERVICES and, when RUN_DB_MIGRATE is
+ *                      not false, db-migrate.
  *   DEPLOY_SERVICES    comma/space-separated restarted services for selective
  *                      deploys.
+ *   RUN_DB_MIGRATE     "false" excludes db-migrate from selective assertions.
  *   ALLOW_LEGACY_BOOT_SIGNAL_SUBSTRING
  *                      opt-in transition mode for substring matching.
  *
@@ -38,17 +40,11 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import yaml from 'js-yaml';
 
-const COMPOSE_FILE =
-  process.env['COMPOSE_FILE'] ?? 'docker-compose.droplet.yml';
-const MANIFEST_PATH =
-  process.env['MANIFEST'] ?? 'infrastructure/deploy/required-signals.yaml';
-const POLL_INTERVAL = Number.parseInt(
-  process.env['POLL_INTERVAL'] ?? '10',
-  10,
-);
+const COMPOSE_FILE = process.env['COMPOSE_FILE'] ?? 'docker-compose.droplet.yml';
+const MANIFEST_PATH = process.env['MANIFEST'] ?? 'infrastructure/deploy/required-signals.yaml';
+const POLL_INTERVAL = Number.parseInt(process.env['POLL_INTERVAL'] ?? '10', 10);
 const BOOT_SIGNAL_SINCE = process.env['BOOT_SIGNAL_SINCE'];
-const ALLOW_LEGACY_SUBSTRING =
-  process.env['ALLOW_LEGACY_BOOT_SIGNAL_SUBSTRING'] === 'true';
+const ALLOW_LEGACY_SUBSTRING = process.env['ALLOW_LEGACY_BOOT_SIGNAL_SUBSTRING'] === 'true';
 
 interface SignalDef {
   pattern: string;
@@ -98,21 +94,16 @@ function loadManifest(path: string): {
     process.exit(2);
   }
   return {
-    defaultWindow: Number.parseInt(
-      String(data.defaults?.window_seconds ?? 120),
-      10,
-    ),
+    defaultWindow: Number.parseInt(String(data.defaults?.window_seconds ?? 120), 10),
     signals: data.signal_library ?? {},
     services: Array.isArray(data.services) ? data.services : [],
   };
 }
 
 function composeServices(composeFile: string): string[] {
-  const out = execFileSync(
-    'docker',
-    ['compose', '-f', composeFile, 'config', '--services'],
-    { encoding: 'utf8' },
-  );
+  const out = execFileSync('docker', ['compose', '-f', composeFile, 'config', '--services'], {
+    encoding: 'utf8',
+  });
   return out
     .split('\n')
     .map((s) => s.trim())
@@ -120,11 +111,9 @@ function composeServices(composeFile: string): string[] {
 }
 
 function composeContainerIds(composeFile: string, service: string): string[] {
-  const result = spawnSync(
-    'docker',
-    ['compose', '-f', composeFile, 'ps', '-a', '-q', service],
-    { encoding: 'utf8' },
-  );
+  const result = spawnSync('docker', ['compose', '-f', composeFile, 'ps', '-a', '-q', service], {
+    encoding: 'utf8',
+  });
   if (result.status !== 0) return [];
   return (result.stdout ?? '')
     .split('\n')
@@ -133,21 +122,16 @@ function composeContainerIds(composeFile: string, service: string): string[] {
 }
 
 function inspectStartedAt(containerId: string): string | undefined {
-  const result = spawnSync(
-    'docker',
-    ['inspect', '--format={{.State.StartedAt}}', containerId],
-    { encoding: 'utf8' },
-  );
+  const result = spawnSync('docker', ['inspect', '--format={{.State.StartedAt}}', containerId], {
+    encoding: 'utf8',
+  });
   if (result.status !== 0) return undefined;
   const startedAt = (result.stdout ?? '').trim();
   if (!startedAt || startedAt.startsWith('0001-01-01')) return undefined;
   return startedAt;
 }
 
-function logsSinceForService(
-  composeFile: string,
-  service: string,
-): string | undefined {
+function logsSinceForService(composeFile: string, service: string): string | undefined {
   if (BOOT_SIGNAL_SINCE) return BOOT_SIGNAL_SINCE;
   const started = composeContainerIds(composeFile, service)
     .map((id) => inspectStartedAt(id))
@@ -157,14 +141,7 @@ function logsSinceForService(
 }
 
 function fetchLogs(composeFile: string, service: string): string {
-  const args = [
-    'compose',
-    '-f',
-    composeFile,
-    'logs',
-    '--no-color',
-    '--no-log-prefix',
-  ];
+  const args = ['compose', '-f', composeFile, 'logs', '--no-color', '--no-log-prefix'];
   const since = logsSinceForService(composeFile, service);
   if (since) args.push('--since', since);
   args.push(service);
@@ -190,7 +167,10 @@ function scopeServices(services: ServiceReq[]): ServiceReq[] {
 
   if (isFullDeploy) return services;
 
-  const scoped = new Set<string>(['db-migrate', ...deployServices]);
+  const migrationRequired = process.env['RUN_DB_MIGRATE'] !== 'false';
+  const scoped = new Set<string>(
+    migrationRequired ? ['db-migrate', ...deployServices] : deployServices,
+  );
   return services.filter((svc) => scoped.has(svc.name));
 }
 
@@ -201,18 +181,13 @@ function parseJsonRecord(line: string): Record<string, unknown> | null {
   if (start < 0) return null;
   try {
     const parsed = JSON.parse(trimmed.slice(start)) as unknown;
-    return parsed && typeof parsed === 'object'
-      ? (parsed as Record<string, unknown>)
-      : null;
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
   } catch {
     return null;
   }
 }
 
-function structuredField(
-  record: Record<string, unknown>,
-  field: string,
-): unknown {
+function structuredField(record: Record<string, unknown>, field: string): unknown {
   if (field in record) return record[field];
   const extra = record['extra'];
   if (extra && typeof extra === 'object' && field in extra) {
@@ -221,11 +196,7 @@ function structuredField(
   return undefined;
 }
 
-function logsContainStructuredSignal(
-  logs: string,
-  signalKey: string,
-  def: SignalDef,
-): boolean {
+function logsContainStructuredSignal(logs: string, signalKey: string, def: SignalDef): boolean {
   for (const line of logs.split('\n')) {
     const record = parseJsonRecord(line);
     if (!record) continue;
@@ -281,18 +252,13 @@ function findMissing(
 }
 
 async function main(): Promise<void> {
-  const { defaultWindow, signals, services: manifestServices } =
-    loadManifest(MANIFEST_PATH);
+  const { defaultWindow, signals, services: manifestServices } = loadManifest(MANIFEST_PATH);
   const services = scopeServices(manifestServices);
 
   const composeSvcs = composeServices(COMPOSE_FILE);
-  const unknown = services
-    .map((s) => s.name)
-    .filter((n) => !composeSvcs.includes(n));
+  const unknown = services.map((s) => s.name).filter((n) => !composeSvcs.includes(n));
   if (unknown.length > 0) {
-    console.error(
-      `::error::signal manifest references services not in ${COMPOSE_FILE}:`,
-    );
+    console.error(`::error::signal manifest references services not in ${COMPOSE_FILE}:`);
     for (const name of unknown) console.error(`  - ${name}`);
     process.exit(2);
   }
@@ -302,15 +268,11 @@ async function main(): Promise<void> {
   console.log('=== Boot signal assertion ===');
   console.log(`  manifest: ${MANIFEST_PATH}`);
   console.log(`  compose : ${COMPOSE_FILE}`);
-  console.log(
-    `  scope   : ${services.length}/${manifestServices.length} manifest services`,
-  );
+  console.log(`  scope   : ${services.length}/${manifestServices.length} manifest services`);
   console.log(
     `  logs    : ${BOOT_SIGNAL_SINCE ? `since ${BOOT_SIGNAL_SINCE}` : 'since container StartedAt'}`,
   );
-  console.log(
-    `  legacy  : ${ALLOW_LEGACY_SUBSTRING ? 'enabled' : 'disabled'}`,
-  );
+  console.log(`  legacy  : ${ALLOW_LEGACY_SUBSTRING ? 'enabled' : 'disabled'}`);
 
   let missing: MissingSignal[] = [];
   let round = 1;
@@ -331,12 +293,8 @@ async function main(): Promise<void> {
     console.log(
       `--- Round ${round}: ${missing.length} signal(s) pending after ${elapsedSeconds}s ---`,
     );
-    const nextDeadlineMs =
-      startedAt + Math.min(...missing.map((m) => m.windowSeconds * 1000));
-    const sleepMs = Math.min(
-      POLL_INTERVAL * 1000,
-      Math.max(0, nextDeadlineMs - Date.now()),
-    );
+    const nextDeadlineMs = startedAt + Math.min(...missing.map((m) => m.windowSeconds * 1000));
+    const sleepMs = Math.min(POLL_INTERVAL * 1000, Math.max(0, nextDeadlineMs - Date.now()));
     if (sleepMs <= 0) break;
     await sleep(sleepMs);
     round += 1;

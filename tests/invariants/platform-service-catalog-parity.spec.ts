@@ -202,6 +202,11 @@ describe('platform service catalog parity', () => {
         .map((entry) => `${entry.serviceId}:${entry.port}`)
         .sort(),
     );
+    expect(readShellStringList(deployEnv, 'CATALOG_GATEWAY_RECOMPOSITION_SERVICES')).toEqual(
+      gatewaySubgraphs()
+        .map((entry) => entry.nxProject)
+        .sort(),
+    );
     expect(generatedTargets).toEqual([...imageBuildTargets()].sort());
     expect(generatedTargets).toContain('event-store-service');
     expect(generatedTargets).toContain('mosquitto');

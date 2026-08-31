@@ -248,12 +248,52 @@ function checkStaticContract(manifest: RequiredStatusChecksManifest): string[] {
 
   const ciAffectedPath = '.github/workflows/ci-affected.yml';
   const ciAffected = readFileSync(join(REPO_ROOT, ciAffectedPath), 'utf8');
-  if (!ciAffected.includes('pull_request:') || !ciAffected.includes('branches: [main, develop]')) {
+  if (!/\n  pull_request:\n    branches: \[[^\]]*\bmain\b[^\]]*\]/u.test(ciAffected)) {
     errors.push(`${ciAffectedPath} must run on pull_request to main`);
   }
+  const selectorPath = 'scripts/ci/select-deployment-scope.ts';
+  const selectorInvocation = `node ${selectorPath}`;
+  if (!ciAffected.includes(selectorInvocation)) {
+    errors.push(`${ciAffectedPath} must resolve validation through ${selectorPath}`);
+  }
+  if (
+    !ciAffected.includes('VALIDATION_REQUIRED: ${{ steps.scope.outputs.validation_required }}') ||
+    !ciAffected.includes('echo "has_changes=$VALIDATION_REQUIRED" >> "$GITHUB_OUTPUT"')
+  ) {
+    errors.push(`${ciAffectedPath} must gate affected validation on selector output`);
+  }
   for (const filter of manifest.ci_affected_required_path_filters) {
-    if (!ciAffected.includes(`'${filter}'`) && !ciAffected.includes(`"${filter}"`)) {
-      errors.push(`${ciAffectedPath} deploy-config filter missing ${filter}`);
+    const representativePath = filter
+      .replaceAll('**', 'required-status-contract')
+      .replaceAll('*', 'required-status-contract');
+    const result = spawnSync(
+      process.execPath,
+      [
+        join(REPO_ROOT, selectorPath),
+        '--repo',
+        REPO_ROOT,
+        '--requested-services',
+        'auto',
+        '--channel',
+        'development',
+        '--changed-files-json',
+        JSON.stringify([representativePath]),
+        '--affected-projects-json',
+        '[]',
+      ],
+      { cwd: REPO_ROOT, encoding: 'utf8' },
+    );
+    if (result.status !== 0) {
+      errors.push(`${selectorPath} failed required path contract ${filter}`);
+      continue;
+    }
+    try {
+      const selected = JSON.parse(result.stdout) as { validationRequired?: boolean };
+      if (selected.validationRequired !== true) {
+        errors.push(`${selectorPath} does not validate required path ${filter}`);
+      }
+    } catch {
+      errors.push(`${selectorPath} returned invalid JSON for required path ${filter}`);
     }
   }
 

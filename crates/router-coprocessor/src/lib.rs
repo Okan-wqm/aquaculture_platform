@@ -14,7 +14,7 @@
 //! RS256 JWT verification, Redis blacklist/rate-limit, and CSRF stages follow.
 
 use hmac::digest::InvalidLength;
-use hmac::{Hmac, Mac};
+use hmac::{digest::KeyInit, Hmac, Mac};
 use sha2::{Digest, Sha256};
 
 /// The Apollo Router external-coprocessor wire contract (stage payload + control

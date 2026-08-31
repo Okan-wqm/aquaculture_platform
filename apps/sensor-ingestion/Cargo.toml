@@ -106,7 +106,7 @@ metrics-util = { version = "0.20", features = ["debugging"] }
 # bollard >= 0.20, which dropped the unmaintained rustls-pemfile
 # (RUSTSEC-2025-0134) — clearing the last pemfile consumer from this
 # workspace's dependency graph.
-testcontainers = "0.27"
+testcontainers = "0.28"
 # The sensor-ingestion crate's own source does NOT enable test-utils
 # — only the dev-dep pulls it in so the plaintext connect path is
 # NEVER reachable from `cargo build --release`.

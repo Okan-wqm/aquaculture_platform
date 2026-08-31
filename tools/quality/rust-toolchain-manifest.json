@@ -1,6 +1,6 @@
 {
   "authority": "rust-toolchain.toml",
-  "cargo_lock_sha256": "f23f3574c243d92126418c00a84fdda6567aef49d401f36d01fbecd8283ee29d",
+  "cargo_lock_sha256": "1cbbd501df4ba9df59cac54fbe4cc0b5776c0154b3b9972895376578bfe92fcb",
   "channel": "1.88.0",
   "components": ["clippy", "rust-src", "rustfmt"],
   "generated_by": "tools/quality/quality.mjs rust-toolchain generate",

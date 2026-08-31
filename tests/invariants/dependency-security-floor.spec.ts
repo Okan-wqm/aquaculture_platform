@@ -524,6 +524,9 @@ describe('JavaScript dependency security floor', () => {
     const jsYamlFloorsByMajor: Readonly<Record<string, string>> = {
       '3': '3.15.1',
       '4': '4.3.1',
+      // Major 5 succeeds the patched 4.3.1 line; the floor is the first
+      // adopted 5.x (this PR's bump). Older 5.x are unvetted — keep them out.
+      '5': '5.4.0',
     };
     const jsYamlVersions = resolvedVersions(lock, 'js-yaml');
     expect(jsYamlVersions.length).toBeGreaterThan(0);

@@ -186,14 +186,14 @@
     "tools:test": "node --experimental-strip-types --test \"tools/supervisor/*.spec.ts\" \"tools/watchdog/*.spec.mjs\""
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.93.0",
+    "@anthropic-ai/sdk": "^0.121.0",
     "@apollo/gateway": "2.13.3",
     "@apollo/server": "^5.5.1",
     "@apollo/server-plugin-landing-page-graphql-playground": "file:tools/vendor/apollo-playground-disabled",
     "@apollo/subgraph": "2.13.3",
     "@as-integrations/express5": "1.1.2",
-    "@aws-sdk/client-s3": "^3.1039.0",
-    "@aws-sdk/s3-request-presigner": "^3.1039.0",
+    "@aws-sdk/client-s3": "^3.1121.0",
+    "@aws-sdk/s3-request-presigner": "^3.1121.0",
     "@jitl/quickjs-singlefile-cjs-release-asyncify": "0.32.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@nats-io/jetstream": "^3.4.0",

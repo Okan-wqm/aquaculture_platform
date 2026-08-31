@@ -199,6 +199,7 @@ class AutoMergeTests(unittest.TestCase):
 
     def _seed_readiness_claim(self, *, pr_number: int, head_sha: str, target_ref: str = "main") -> str:
         from aria_kernel.enterprise_readiness import (
+            REQUIRED_MERGE_STATUS_CHECKS,
             READINESS_SCHEMA,
             record_artifact_proof,
             record_branch_protection_proof,
@@ -217,7 +218,7 @@ class AutoMergeTests(unittest.TestCase):
         readiness_claim_id = f"ready-{pr_number}"
         repo = "example/aqua"
         head_ref = "feature/docs"
-        required_checks = ["sens-enterprise-summary", "merge-gate", "aria-merge-authority"]
+        required_checks = list(REQUIRED_MERGE_STATUS_CHECKS)
         common = {
             "repo": repo,
             "pr_number": pr_number,

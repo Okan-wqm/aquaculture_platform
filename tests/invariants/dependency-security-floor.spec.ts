@@ -1,6 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import * as YAML from 'yaml';
@@ -120,32 +119,6 @@ interface Workflow {
 
 function readRepoFile(relativePath: string): string {
   return readFileSync(resolve(REPO_ROOT, relativePath), 'utf8');
-}
-
-function executeChangeClassifier(
-  script: string,
-  values: Readonly<Record<string, 'true' | 'false'>>,
-): Readonly<Record<string, string>> {
-  const directory = mkdtempSync(resolve(tmpdir(), 'aqua-change-classifier-'));
-  const outputPath = resolve(directory, 'github-output');
-  const rendered = script.replace(
-    /\$\{\{ steps\.changes\.outputs\.([a-z_-]+) \}\}/g,
-    (_match, name: string) => values[name] ?? 'false',
-  );
-  try {
-    execFileSync('bash', ['-c', `set -euo pipefail\n${rendered}`], {
-      cwd: REPO_ROOT,
-      env: { ...process.env, GITHUB_OUTPUT: outputPath },
-    });
-    return Object.fromEntries(
-      readFileSync(outputPath, 'utf8')
-        .trim()
-        .split(/\r?\n/)
-        .map((line) => line.split('=', 2) as [string, string]),
-    );
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
-  }
 }
 
 function readJson<T>(relativePath: string): T {
@@ -555,32 +528,48 @@ describe('JavaScript dependency security floor', () => {
   test('keeps E2E-only changes inside CI without granting deploy authority', () => {
     const workflow = YAML.parse(readRepoFile('.github/workflows/ci-affected.yml')) as Workflow;
     const detect = workflow.jobs?.['detect-changes'];
-    const filtersSource = detect?.steps?.find((step) => step.id === 'changes')?.with?.filters;
-    const filters = YAML.parse(String(filtersSource ?? '')) as Record<string, string[]>;
-    const classifier = detect?.steps?.find((step) => step.id === 'check')?.run ?? '';
+    const scope = detect?.steps?.find((step) => step.id === 'scope')?.run ?? '';
+    const selected = JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          resolve(REPO_ROOT, 'scripts/ci/select-deployment-scope.ts'),
+          '--repo',
+          REPO_ROOT,
+          '--requested-services',
+          'auto',
+          '--channel',
+          'development',
+          '--changed-files-json',
+          JSON.stringify(['e2e/package-lock.json']),
+          '--affected-projects-json',
+          '[]',
+        ],
+        { cwd: REPO_ROOT, encoding: 'utf8' },
+      ),
+    ) as {
+      dependencyAuditRequired: boolean;
+      deployServices: string[];
+    };
 
-    expect(filters.audit_only).toEqual(['e2e/**']);
-    expect(filters['deploy-config']).not.toContain('e2e/**');
+    expect(selected).toEqual(
+      expect.objectContaining({
+        dependencyAuditRequired: true,
+        deployServices: [],
+      }),
+    );
     expect(detect?.outputs).toMatchObject({
       has_changes: '${{ steps.check.outputs.has_changes }}',
       deploy_changes: '${{ steps.check.outputs.deploy_changes }}',
+      dependency_audit_required: '${{ steps.scope.outputs.dependency_audit_required }}',
     });
-    expect(executeChangeClassifier(classifier, { audit_only: 'true' })).toEqual({
-      has_changes: 'true',
-      deploy_changes: 'false',
-    });
-    expect(executeChangeClassifier(classifier, { apps: 'true' })).toEqual({
-      has_changes: 'true',
-      deploy_changes: 'true',
-    });
-
-    for (const jobName of ['deploy-staging', 'deploy-production']) {
-      const condition = workflow.jobs?.[jobName]?.if ?? '';
-      expect(condition).toContain("needs.detect-changes.outputs.deploy_changes == 'true'");
-      expect(condition).not.toContain('outputs.has_changes');
-    }
+    expect(scope).toContain('scripts/ci/select-deployment-scope.ts');
+    expect(detect?.steps?.some((step) => step.id === 'changes')).toBe(false);
+    expect(workflow.jobs?.['build-development-images']?.if).toContain(
+      "needs.detect-changes.outputs.deploy_changes == 'true'",
+    );
     expect(workflow.jobs?.['security-audit']?.if).toContain(
-      "needs.detect-changes.outputs.has_changes == 'true'",
+      "needs.detect-changes.outputs.dependency_audit_required == 'true'",
     );
   });
 

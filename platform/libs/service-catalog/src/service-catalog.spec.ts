@@ -113,11 +113,22 @@ describe('platform service catalog executable views', () => {
         image: 'postgres',
         dockerfile: 'infrastructure/docker/Dockerfile.postgres-walg',
         context: '.',
+        buildInputGlobs: [
+          'infrastructure/docker/Dockerfile.postgres-walg',
+          'infrastructure/docker/scripts/postgres-ssl-entrypoint.sh',
+          'infrastructure/docker/scripts/postgres-walg-healthcheck.sh',
+          'infrastructure/docker/scripts/walg-load-secrets.sh',
+          'infrastructure/docker/scripts/walg-archive-command.sh',
+          'infrastructure/docker/scripts/walg-restore-command.sh',
+          'infrastructure/docker/scripts/walg-runtime-command.sh',
+          '.github/manifests/postgres-dr-contract.sha256',
+        ],
       },
       {
         image: 'mosquitto',
         dockerfile: 'infrastructure/mosquitto/Dockerfile',
         context: 'infrastructure/mosquitto',
+        buildInputGlobs: ['infrastructure/mosquitto/Dockerfile', 'infrastructure/mosquitto/**'],
       },
     ]);
 
@@ -155,6 +166,39 @@ describe('platform service catalog executable views', () => {
       serviceId: 'postgres',
       message: 'docker-only service must declare imageTarget and infraImageBuild',
     });
+  });
+
+  it('rejects infra build coordinates that do not include their Dockerfile', () => {
+    const invalid = PLATFORM_SERVICE_CATALOG.map((entry) =>
+      entry.serviceId === 'postgres' && entry.infraImageBuild
+        ? {
+            ...entry,
+            infraImageBuild: {
+              ...entry.infraImageBuild,
+              buildInputGlobs: ['infrastructure/docker/scripts/**'],
+            },
+          }
+        : entry,
+    );
+
+    expect(validateServiceCatalog(invalid)).toContainEqual({
+      serviceId: 'postgres',
+      message: 'infraImageBuild.buildInputGlobs must include its Dockerfile',
+    });
+  });
+
+  it('records AquaMobil package identity without adding its self-build image to prebuild lanes', () => {
+    const aquamobil = PLATFORM_SERVICE_CATALOG.find((entry) => entry.serviceId === 'aquamobil');
+
+    expect(aquamobil?.nxProject).toBe('@aquaculture/aquamobil');
+    expect(frontendPrebuildPlan().nxProjects).not.toContain('@aquaculture/aquamobil');
+    expect(frontendPrebuildPlan().workspaceModules.map((entry) => entry.module)).not.toContain(
+      'aquamobil',
+    );
+  });
+
+  it('derives gateway recomposition services from Apollo participation', () => {
+    expect(gatewaySubgraphs().map((entry) => entry.nxProject)).toContain('ai-service');
   });
 
   it('exposes container ports through the readiness view (INFRA-HIGH-014)', () => {

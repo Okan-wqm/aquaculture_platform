@@ -12,12 +12,9 @@ on:
     - cron: '0 2 * * 0' # Sunday at 2 AM
   workflow_dispatch:
   push:
-    branches: [main]
     tags:
       - 'v*'
       - 'release-*'
-  pull_request:
-    branches: [main]
 
 # SEC-CI-021: Minimum token permissions — prevents compromised actions from
 # pushing commits, creating releases, or modifying repository settings.
@@ -541,8 +538,8 @@ jobs:
       - name: Check production license contract
         run: npm run gates:production-licenses
 
-  build-status:
-    name: build-status
+  full-ci-status:
+    name: full-ci-status
     needs:
       - lint-and-typecheck
       - test

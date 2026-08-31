@@ -39,7 +39,7 @@ const {
 const REPO_ROOT = resolve(process.cwd());
 const CATALOG_PATH = 'platform/libs/service-catalog/src/index.ts';
 const GENERATOR_PATH = 'scripts/service-catalog/generate-artifacts.ts';
-const GENERATOR_VERSION = 3;
+const GENERATOR_VERSION = 4;
 
 interface Artifact {
   path: string;
@@ -310,6 +310,7 @@ function catalogDeployEnvArtifact(): Artifact {
   const nxFrontend = prebuild.nxProjects;
   const nonNxFrontend = prebuild.workspaceModules.map((entry) => entry.module);
   const readySpecs = readinessServices().map((entry) => `${entry.serviceId}:${entry.port}`);
+  const gatewayRecompositionServices = gatewaySubgraphs().map((entry) => entry.nxProject);
 
   return {
     path: 'infrastructure/deploy/service-catalog.deploy.vars',
@@ -319,6 +320,7 @@ ${shellAssignment('CATALOG_FRONTEND_IMAGE_SERVICES', frontendTargets)}
 ${shellAssignment('CATALOG_INFRA_IMAGE_SERVICES', [...infraImageBuildTargets()])}
 ${shellAssignment('CATALOG_APPLICATION_IMAGE_SERVICES', [...imageBuildTargets()])}
 ${shellAssignment('CATALOG_SERVICE_DB_ROLE_PREFIXES', [...serviceDbRolePrefixes()])}
+${shellAssignment('CATALOG_GATEWAY_RECOMPOSITION_SERVICES', gatewayRecompositionServices)}
 ${shellAssignment('CATALOG_NX_FRONTEND_PROJECTS', nxFrontend)}
 ${shellAssignment('CATALOG_NON_NX_FRONTEND_PROJECTS', nonNxFrontend)}
 ${shellAssignment('CATALOG_READINESS_SERVICES', readySpecs)}
@@ -359,6 +361,7 @@ function catalogGeneratedArtifact(): Artifact {
           module: target,
           dockerfile: frontendDockerfile(target),
           module_path: frontendModulePath(target),
+          nx_project: getServiceCatalogEntry(target)?.nxProject ?? target,
         })),
         infraImageMatrix: infraImageBuildMatrix(),
       },

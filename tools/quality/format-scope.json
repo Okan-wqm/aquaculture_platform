@@ -17726,7 +17726,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "72be9ac562df3253d1a03492308dddfc2b7a7f155e5b23f9896e79ccababf524",
+      "content_sha256": "173b7dfdf416bb77fb7fa483fcffd107a348c050cbd55f193005a3a89f052baf",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "apps/gateway-api/src/config/federated-subgraphs.generated.ts",
@@ -36417,7 +36417,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "4a731f65eaa914d5d3510b1e2689de38891b995b918db1bbfca6be78ccfc08c7",
+      "content_sha256": "b0ace07192eef419be6705d5c796fd49e7308a67fa97084d526244fe93ea2ec1",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/apollo-router/codegen-schema.generated.json",
@@ -36440,7 +36440,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "3bfc58c215d93231343c73a379408bef0ea55ef7d0f6853f047239fabb9e5c6e",
+      "content_sha256": "ded239bc369925016eb4cd62e51b30ae9da9639d771ec35830825d77cb7dfd0d",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/deploy/service-catalog.generated.json",
@@ -41953,6 +41953,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "scripts/ci/resolve-affected-range.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "scripts/ci/select-deployment-scope.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "scripts/ci/type-check-changed-files.mjs",
       "prettier_managed": true
     },
@@ -43142,6 +43154,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/adoption-invariants.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/affected-development-pipeline.spec.ts",
       "prettier_managed": true
     },
     {

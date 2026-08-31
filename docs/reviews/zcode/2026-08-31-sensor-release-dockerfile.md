@@ -8,7 +8,7 @@
 Every `Sensor-Ingestion Release` run on `main` since **2026-07-13** (8 consecutive
 failures) died at the cargo-chef dependency-cook step:
 
-```
+```text
 error: failed to load source for dependency `rumqttc`
   failed to read `/build/crates/local-rumqttc/Cargo.toml`
 ```

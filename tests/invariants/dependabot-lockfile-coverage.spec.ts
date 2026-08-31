@@ -165,8 +165,12 @@ describe('Dependabot lockfile coverage', () => {
     const job = workflow.jobs?.['sens-api-gateway-rust'];
     const steps = job?.steps ?? [];
 
+    // The exact pin rotates via dependabot (actions-minor-patch group); the
+    // invariant is that the step stays SHA-pinned (never a floating tag) and
+    // installs cargo-audit. Repo-wide tag/SHA discipline is enforced by
+    // gha-sha-pin-gate.spec.ts.
     expect(steps.find((step) => step.name === 'Install cargo-audit (precompiled)')).toMatchObject({
-      uses: 'taiki-e/install-action@6c6fd71fe4fb72c3697d269963d0e15df8adedad',
+      uses: expect.stringMatching(/^taiki-e\/install-action@[0-9a-f]{40}$/),
       with: { tool: 'cargo-audit' },
     });
     expect(steps.find((step) => step.name === 'Audit root lockfile')?.run).toBe(

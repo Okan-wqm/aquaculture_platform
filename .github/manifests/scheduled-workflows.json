@@ -67,6 +67,11 @@
     {
       "workflow": "security-trivy.yml",
       "maxAgeHours": 192
+    },
+    {
+      "workflow": "aria-state-maintenance.yml",
+      "max_age_hours": 48,
+      "description": "Standalone state compaction lane \u2014 shrinks the aria/state branch before the cycle"
     }
   ]
 }

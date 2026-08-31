@@ -35848,7 +35848,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "b9a279f5e4ca3a9be0d0be41e920abef4ff437713cd145312e065d3936e2880b",
+      "content_sha256": "b2815f6e7a52971c6dd4a24a25d582587209147471f0dc50a1b4f306082c2225",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "e2e/package-lock.json",

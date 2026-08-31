@@ -1,0 +1,220 @@
+name: ARIA State Maintenance
+
+# =============================================================================
+# Why this exists: the aria/state branch accumulated 842MB of historical
+# data (runs, raw-findings, hot artifacts). The nightly cycle OOMs on
+# restore because cloning 842MB on a 7.8GB shared runner exceeds memory.
+# The auto-compact at cycle-end never fires because the cycle can't
+# complete — a catch-22.
+#
+# This lane breaks the loop: it runs INDEPENDENTLY of the cycle (on a
+# GitHub-hosted runner with no memory constraint), compacts the state,
+# and pushes the slim branch. The cycle then restores a small state.
+#
+# It also cleans hot artifacts — the single biggest contributor (529MB
+# from old cycles' tool_run.json files) that the JSONL-only compact
+# never touched.
+# =============================================================================
+
+on:
+  schedule:
+    # 15:13 UTC daily — two hours before the 17:13 UTC cycle
+    - cron: '13 15 * * *'
+  workflow_dispatch:
+    inputs:
+      retain_days:
+        description: 'Days of data to retain (default 7)'
+        default: '7'
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: aria-state-maintenance
+  cancel-in-progress: false
+
+jobs:
+  compact:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-aria-kernel
+
+      - name: Clone aria/state branch
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch aria/state \
+            "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" \
+            /tmp/state-store
+          du -sh /tmp/state-store/tools/ || echo "empty state"
+
+      - name: Compact surfaces and strip old artifacts
+        env:
+          RETAIN_DAYS: ${{ github.event.inputs.retain_days || '7' }}
+        run: |
+          set -euo pipefail
+          BEFORE=$(du -sb /tmp/state-store/tools/ | cut -f1)
+          python3 - <<'PYEOF'
+          import json, gzip, shutil, os
+          from pathlib import Path
+          from datetime import datetime, timezone, timedelta
+
+          ROOT = Path("/tmp/state-store/tools")
+          ARCHIVE = ROOT / "archives"
+          ARCHIVE.mkdir(exist_ok=True)
+          retain = int(os.environ.get("RETAIN_DAYS", "7"))
+          cutoff = datetime.now(timezone.utc) - timedelta(days=retain)
+          results = {}
+
+          def _ts(row):
+              for k in ("at", "created_at", "timestamp", "ts"):
+                  v = row.get(k)
+                  if v: return v
+              return ""
+
+          def _parse(ts):
+              try: return datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+              except: return None
+
+          def _is_recent(row):
+              dt = _parse(_ts(row))
+              return dt is not None and dt >= cutoff
+
+          # 1. runs.jsonl — keep recent, strip inline arrays from kept
+          path = ROOT / "runs.jsonl"
+          if path.exists() and path.stat().st_size > 0:
+              lines = path.read_text(encoding="utf-8").splitlines()
+              kept, old = [], []
+              for line in lines:
+                  if not line.strip(): continue
+                  try: row = json.loads(line)
+                  except: continue
+                  if _is_recent(row):
+                      row.pop("emitted_observations", None)
+                      row.pop("emitted_findings", None)
+                      raw = row.get("runner") or {}
+                      if isinstance(raw, dict): raw.pop("raw_findings_sample", None)
+                      kept.append(json.dumps(row, separators=(",",":"), sort_keys=True))
+                  else:
+                      old.append(line)
+              if old:
+                  with gzip.open(ARCHIVE / "runs-stripped.jsonl.gz", "at") as f:
+                      f.write("\n".join(old) + "\n")
+              path.write_text("\n".join(kept) + "\n" if kept else "", encoding="utf-8")
+              results["runs"] = {"kept": len(kept), "archived": len(old)}
+
+          # 2. raw-findings.jsonl — keep recent only
+          path = ROOT / "raw-findings.jsonl"
+          if path.exists() and path.stat().st_size > 0:
+              lines = path.read_text(encoding="utf-8").splitlines()
+              kept, old = [], []
+              for line in lines:
+                  if not line.strip(): continue
+                  try: row = json.loads(line)
+                  except: continue
+                  if _is_recent(row): kept.append(line)
+                  else: old.append(line)
+              if old:
+                  with gzip.open(ARCHIVE / "raw-findings-stripped.jsonl.gz", "at") as f:
+                      f.write("\n".join(old) + "\n")
+              path.write_text("\n".join(kept) + "\n" if kept else "", encoding="utf-8")
+              results["raw_findings"] = {"kept": len(kept), "archived": len(old)}
+
+          # 3. beliefs.jsonl — collapse to latest per belief_id
+          path = ROOT / "memory" / "beliefs.jsonl"
+          if path.exists() and path.stat().st_size > 0:
+              lines = path.read_text(encoding="utf-8").splitlines()
+              latest = {}
+              for line in lines:
+                  if not line.strip(): continue
+                  try: row = json.loads(line)
+                  except: continue
+                  latest[row.get("belief_id", "unknown")] = line
+              kept = list(latest.values())
+              if len(kept) < len(lines):
+                  with gzip.open(ARCHIVE / "beliefs-collapsed.jsonl.gz", "at") as f:
+                      f.write("\n".join(lines) + "\n")
+              path.write_text("\n".join(kept) + "\n" if kept else "", encoding="utf-8")
+              results["beliefs"] = {"unique": len(kept), "was_rows": len(lines)}
+
+          # 4. learning-events.jsonl — keep recent
+          path = ROOT / "memory" / "learning-events.jsonl"
+          if path.exists() and path.stat().st_size > 0:
+              lines = path.read_text(encoding="utf-8").splitlines()
+              kept = [l for l in lines if l.strip() and _is_recent(json.loads(l))]
+              old = [l for l in lines if l.strip() and not _is_recent(json.loads(l))]
+              if old:
+                  with gzip.open(ARCHIVE / "learning-events-stripped.jsonl.gz", "at") as f:
+                      f.write("\n".join(old) + "\n")
+              path.write_text("\n".join(kept) + "\n" if kept else "", encoding="utf-8")
+              results["learning_events"] = {"kept": len(kept), "archived": len(old)}
+
+          # 5. Hot artifacts — remove cycle dirs older than retain window
+          # (biggest contributor: 529MB of old tool_run.json files)
+          hot = ROOT / "run-artifacts" / "hot"
+          removed = 0
+          if hot.exists():
+              for item in hot.iterdir():
+                  should_remove = False
+                  if item.is_dir():
+                      # Cycle IDs carry timestamps: cyc-20260822T153253Z-auto
+                      name = item.name
+                      if name.startswith("cyc-"):
+                          try:
+                              ts_str = name[4:19]  # 20260822T153253
+                              dt = datetime.strptime(ts_str, "%Y%m%dT%H%M%S").replace(tzinfo=timezone.utc)
+                              should_remove = dt < cutoff
+                          except ValueError:
+                              pass
+                      if not should_remove:
+                          # Fall back to mtime
+                          mtime = datetime.fromtimestamp(item.stat().st_mtime, tz=timezone.utc)
+                          should_remove = mtime < cutoff
+                  if should_remove:
+                      shutil.rmtree(item, ignore_errors=True)
+                      removed += 1
+          results["hot_artifacts_removed"] = removed
+
+          # 6. Discovery FATES — remove older than 30 days
+          disc = ROOT / "discovery"
+          fates_removed = 0
+          old30 = datetime.now(timezone.utc) - timedelta(days=30)
+          if disc.exists():
+              for f in disc.rglob("FATES.json"):
+                  mtime = datetime.fromtimestamp(f.stat().st_mtime, tz=timezone.utc)
+                  if mtime < old30:
+                      f.unlink()
+                      fates_removed += 1
+          results["fates_removed"] = fates_removed
+
+          print(json.dumps(results, indent=2))
+          PYEOF
+          AFTER=$(du -sb /tmp/state-store/tools/ | cut -f1)
+          echo "compact_result: before=${BEFORE} after=${AFTER} saved=$((BEFORE - AFTER))"
+
+      - name: Commit and push compacted state
+        run: |
+          set -euo pipefail
+          cd /tmp/state-store
+          git config user.name "aria-state-maintenance"
+          git config user.email "aria-state-maintenance@users.noreply.github.com"
+          if git diff --quiet; then
+            echo "No changes — state already compact"
+            exit 0
+          fi
+          git add -A
+          git commit -m "chore(state): automated compaction — stripped old runs/findings/artifacts"
+          git push origin aria/state
+          echo "PUSHED compacted state"
+
+      - name: Report size
+        if: always()
+        run: |
+          du -sh /tmp/state-store/tools/ 2>/dev/null || echo "N/A"
+          echo "Branch size after compaction: $(du -sh /tmp/state-store/tools/ 2>/dev/null | cut -f1)"

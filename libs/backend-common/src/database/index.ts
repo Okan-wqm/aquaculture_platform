@@ -86,6 +86,7 @@ export {
   assertTenantSchemaPrivileges,
   verifyTenantSchemaPrivileges,
   ownerRoleForTenantAwareSchema,
+  serviceReadOnlyTenantTablesForSourceSchema,
   tenantTablesForSourceSchema,
 } from './tenant-schema-privileges';
 export type {

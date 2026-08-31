@@ -64,10 +64,7 @@ import { UsersModule } from './users/users.module';
 
 const AdminSchemaVersionGate = createSchemaVersionGate('admin');
 
-const getRequiredStorageConfig = (
-  configService: ConfigService,
-  key: string,
-): string => {
+const getRequiredStorageConfig = (configService: ConfigService, key: string): string => {
   const value = configService.get<string>(key);
   if (value === undefined || value.trim().length === 0) {
     throw new Error(`Missing required object storage configuration: ${key}`);
@@ -128,8 +125,7 @@ const getAdminStoragePort = (configService: ConfigService): number => {
           migrations: [__dirname + '/migrations/[0-9]*{.ts,.js}'],
           // Single-writer deploy contract: aqua-db-migrate owns production
           // migrations. Local/E2E can still opt in explicitly.
-          migrationsRunFromEnv: (cfg) =>
-            cfg.get('DATABASE_MIGRATIONS_RUN', 'false') === 'true',
+          migrationsRunFromEnv: (cfg) => cfg.get('DATABASE_MIGRATIONS_RUN', 'false') === 'true',
         }),
     }),
     /**
@@ -153,10 +149,14 @@ const getAdminStoragePort = (configService: ConfigService): number => {
           type: 'postgres',
           host: configService.get<string>('DATABASE_HOST', 'localhost'),
           port: configService.get<number>('DATABASE_PORT', 5432),
-          username: configService.get<string>('DATABASE_READONLY_USER',
-            configService.get<string>('DATABASE_USER', 'postgres')),
-          password: configService.get<string>('DATABASE_READONLY_PASSWORD',
-            dbPassword || 'postgres'),
+          username: configService.get<string>(
+            'DATABASE_READONLY_USER',
+            configService.get<string>('DATABASE_USER', 'postgres'),
+          ),
+          password: configService.get<string>(
+            'DATABASE_READONLY_PASSWORD',
+            dbPassword || 'postgres',
+          ),
           database: configService.get<string>('DATABASE_NAME', 'aquaculture'),
           schema: configService.get<string>('DATABASE_SCHEMA', 'admin'),
           // SECURITY: No entities — this DataSource is for raw queries only
@@ -315,7 +315,16 @@ const getAdminStoragePort = (configService: ConfigService): number => {
           reflector,
           configService,
           jwtService,
-          tokenBlacklist,
+          {
+            // Read-side adapter over the auth-owned TOKEN_BLACKLIST writer:
+            // admin-api enforces revocation, it never writes. Only the per-jti
+            // `token:blacklist:` namespace is checked here; the
+            // `user_blacklist:{userId}` epoch is checked by the
+            // userTokenRevocation store below — together they mirror the
+            // gateway's composite isValidToken decision without duplicating it.
+            isValidToken: (jti: string): Promise<boolean> =>
+              tokenBlacklist.isBlacklisted(jti).then((blacklisted) => !blacklisted),
+          },
           userTokenRevocation,
           failedAuthIpLimiter,
           securityEvents,

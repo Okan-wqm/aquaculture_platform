@@ -2,11 +2,11 @@ import {
   enforceAccessTokenType,
   enforceTokenNotRevoked,
   getJwtVerifyOptions,
+  type TokenRevocationStores,
 } from '@aquaculture/backend-common/auth';
 import { requestContextStorage } from '@aquaculture/backend-common/logging';
 import {
   IpRateLimiterService,
-  ITokenBlacklist,
   IUserTokenRevocation,
   SecurityEventService,
   TOKEN_BLACKLIST,
@@ -106,7 +106,12 @@ export class PlatformAdminGuard implements CanActivate {
     // silently disabling revocation on the most privileged surface. In production
     // TokenBlacklistService itself fails fast unless Redis is configured, so the
     // check is cross-instance correct.
-    @Inject(TOKEN_BLACKLIST) private readonly tokenBlacklist: ITokenBlacklist,
+    // The injected capability is narrowed to the structural read-only shape of
+    // TokenRevocationStores: app.module adapts the auth-owned TOKEN_BLACKLIST
+    // writer, so this guard can never acquire write authority (same reader/
+    // writer split the gateway enforces with its own TOKEN_BLACKLIST_STORE).
+    @Inject(TOKEN_BLACKLIST)
+    private readonly tokenBlacklist: TokenRevocationStores['tokenBlacklist'],
     @Inject(USER_TOKEN_REVOCATION)
     private readonly userTokenRevocation: IUserTokenRevocation,
     // APA-369: this guard is the FIRST APP_GUARD, so a request with a
@@ -239,28 +244,25 @@ export class PlatformAdminGuard implements CanActivate {
         context.getHandler(),
         context.getClass(),
       ]);
-      const requiredRoles = (decoratedRoles || DEFAULT_ADMIN_ROLES)
-        .filter((role) => role.toUpperCase() === 'SUPER_ADMIN');
+      const requiredRoles = (decoratedRoles || DEFAULT_ADMIN_ROLES).filter(
+        (role) => role.toUpperCase() === 'SUPER_ADMIN',
+      );
       if (requiredRoles.length === 0) {
         requiredRoles.push('SUPER_ADMIN');
       }
 
       // Case-insensitive role check
       const hasRequiredRole = userRoles.some((userRole) =>
-        requiredRoles.some(
-          (required) => required.toUpperCase() === userRole.toUpperCase(),
-        ),
+        requiredRoles.some((required) => required.toUpperCase() === userRole.toUpperCase()),
       );
 
       if (!hasRequiredRole) {
         // SECURITY: Log user ID only -- do not include email PII in logs (H-14)
         this.logger.warn(
           `Access denied for userId=${payload.sub}: ` +
-          `has roles [${userRoles.join(', ')}], requires one of [${requiredRoles.join(', ')}]`,
+            `has roles [${userRoles.join(', ')}], requires one of [${requiredRoles.join(', ')}]`,
         );
-        throw new ForbiddenException(
-          `Access denied. Required roles: ${requiredRoles.join(', ')}`,
-        );
+        throw new ForbiddenException(`Access denied. Required roles: ${requiredRoles.join(', ')}`);
       }
 
       return true;
@@ -325,9 +327,7 @@ export class PlatformAdminGuard implements CanActivate {
     const reason = reasonOf(unauthorized);
     // WARN, not DEBUG: failed auth on the most privileged surface must be
     // visible at production log levels.
-    this.logger.warn(
-      `401 Unauthorized: ${reason} for ${request.method} ${request.url}`,
-    );
+    this.logger.warn(`401 Unauthorized: ${reason} for ${request.method} ${request.url}`);
 
     const ip = this.getClientIp(request);
     const userAgent = headerValue(request.headers['user-agent']);

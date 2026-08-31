@@ -29,11 +29,8 @@ on:
 
 permissions:
   contents: write
-<<<<<<< HEAD
   actions: read
   issues: write
-=======
->>>>>>> bf93c1dc0 (chore(aria): standalone state-maintenance lane compacts the 842MB branch daily)
 
 concurrency:
   group: aria-state-maintenance

@@ -712,6 +712,8 @@ class AncestryProof(StateStoreTestCase):
 
         surface.unlink()
         follow_up = self._snapshot(store, "snap-2", cycle_id="cycle-2")
+        import os as _os
+        _os.environ.pop("ARIA_STATE_BOOTSTRAP_ACK", None)
         with self.assertRaises(StateStoreRefusal) as ctx:
             publish_state(store, snapshot=follow_up, cycle_id="cycle-2", repo_hash=REPO_HASH)
         self.assertIn("state_publish_continuity_surfaces_lost", str(ctx.exception))

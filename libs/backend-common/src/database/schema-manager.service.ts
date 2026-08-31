@@ -31,6 +31,12 @@ export interface ModuleSchema {
   /** Tables containing reference/lookup data to copy into new tenant schemas */
   referenceDataTables?: string[];
   /**
+   * Per-tenant tables whose runtime service role may read but must never
+   * mutate directly. Privilege reconciliation consumes this profile instead
+   * of applying the default SELECT/INSERT/UPDATE/DELETE grant.
+   */
+  serviceReadOnlyTables?: string[];
+  /**
    * Tables that legitimately live in the source schema but are NOT
    * per-tenant copied. These are service-infrastructure tables:
    * TypeORM's `migrations` bookkeeping, the service's outbox table,
@@ -205,6 +211,9 @@ function toSchemaManagerError(error: unknown): Error {
  *   a migration to drop the column/table from existing tenant schemas.
  * - Reference data tables (lookup / seed data) must also be listed in `referenceDataTables` so
  *   they are copied into every new tenant schema on provisioning.
+ * - Append-only/protected ledgers exposed read-only to the runtime role must
+ *   also be listed in `serviceReadOnlyTables`; reconciliation verifies that
+ *   write privileges remain absent.
  * - Call `SchemaManagerService.validateModuleSchemas()` in integration tests to detect drift
  *   between this list and the actual entity definitions.
  */
@@ -344,6 +353,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
   {
     moduleName: 'farm',
     sourceSchema: 'farm', // Tables are in farm schema, will be copied to tenant schema
+    serviceReadOnlyTables: ['feeding_record_provenance'],
     // ── Phase 14: strict ownership ────────────────────────────────────
     // Farm was the first module to hit cross-module contamination in
     // its source schema (historical transitive imports of
@@ -452,6 +462,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'feed_sites',
       'feeding_protocols',
       'feeding_records',
+      'feeding_record_provenance',
       'feeding_tables',
       'feeding_programs',
       'feeding_program_tanks',

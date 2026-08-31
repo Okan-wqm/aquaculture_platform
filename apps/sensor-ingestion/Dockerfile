@@ -47,7 +47,19 @@ RUN cargo chef prepare --recipe-path recipe.json
 # Stage 3 — builder: cook deps then build the binary.
 FROM chef AS builder
 COPY --from=planner /build/recipe.json recipe.json
+# WHY sources precede cook: the workspace patches rumqttc to a path
+# dependency (crates/local-rumqttc, RUST-CVE-001). Reconstructing the
+# dependency graph from the recipe needs every [patch.crates-io] target's
+# manifest on disk, so the manifests + patched crate must be present before
+# `cargo chef cook` — cooking with only recipe.json has failed on every
+# release since the vendored fork landed. apps/ stays after cook so the
+# dep layer stays keyed off manifests rather than application source.
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
 RUN cargo chef cook --release --recipe-path recipe.json --bin sensor-ingestion
+# cook skeletonizes every manifest (including the root) to cook deps; its
+# skeleton does not carry `[workspace.lints]`, so the real manifests and
+# sources must be restored for the final build.
 COPY Cargo.toml Cargo.lock ./
 COPY apps ./apps
 COPY crates ./crates

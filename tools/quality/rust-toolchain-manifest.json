@@ -1,11 +1,19 @@
 {
   "authority": "rust-toolchain.toml",
-  "cargo_lock_sha256": "f426e903d295362c5b9ba0edb26b27c73198211a0f95931f7de6d6b1bc8d82ce",
+  "cargo_lock_sha256": "f7153b7ecc4dad042ccc382e5303167bc80fe541725c47eba06984963f1132c7",
   "channel": "1.88.0",
-  "components": ["clippy", "rust-src", "rustfmt"],
+  "components": [
+    "clippy",
+    "rust-src",
+    "rustfmt"
+  ],
   "generated_by": "tools/quality/quality.mjs rust-toolchain generate",
   "schema_version": 1,
-  "targets": ["aarch64-unknown-linux-musl", "wasm32-unknown-unknown", "x86_64-unknown-linux-musl"],
+  "targets": [
+    "aarch64-unknown-linux-musl",
+    "wasm32-unknown-unknown",
+    "x86_64-unknown-linux-musl"
+  ],
   "workspace_members": [
     "apps/sensor-ingestion",
     "crates/alarm-core",

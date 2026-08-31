@@ -26,6 +26,26 @@ env:
 jobs:
   detect-changes:
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      nats:
+        image: nats:2.10-alpine
+        ports:
+          - 4222:4222
+          - 8222:8222
+        options: >-
+          --health-cmd "nats-server --version"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 10
     outputs:
       docs_changed: ${{ steps.changes.outputs.docs }}
       has_changes: ${{ steps.check.outputs.has_changes }}
@@ -148,6 +168,26 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      nats:
+        image: nats:2.10-alpine
+        ports:
+          - 4222:4222
+          - 8222:8222
+        options: >-
+          --health-cmd "nats-server --version"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 10
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -188,6 +228,26 @@ jobs:
       (github.event_name == 'pull_request' ||
        (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      nats:
+        image: nats:2.10-alpine
+        ports:
+          - 4222:4222
+          - 8222:8222
+        options: >-
+          --health-cmd "nats-server --version"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 10
     timeout-minutes: 40
     # continue-on-error removed: lint failures must block PR merge.
     # BEFORE: lint errors showed green in GitHub — no signal to reviewers or authors.
@@ -261,6 +321,26 @@ jobs:
       (github.event_name == 'pull_request' ||
        (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      nats:
+        image: nats:2.10-alpine
+        ports:
+          - 4222:4222
+          - 8222:8222
+        options: >-
+          --health-cmd "nats-server --version"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 10
     timeout-minutes: 40
     # continue-on-error removed: TypeScript errors must block PR merge.
     # BEFORE: type errors merged silently — caught only at runtime or in production.
@@ -513,6 +593,26 @@ jobs:
       (github.event_name == 'pull_request' ||
        (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      nats:
+        image: nats:2.10-alpine
+        ports:
+          - 4222:4222
+          - 8222:8222
+        options: >-
+          --health-cmd "nats-server --version"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 10
     timeout-minutes: 35
     strategy:
       fail-fast: false
@@ -632,6 +732,26 @@ jobs:
       (github.event_name == 'pull_request' ||
        (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      nats:
+        image: nats:2.10-alpine
+        ports:
+          - 4222:4222
+          - 8222:8222
+        options: >-
+          --health-cmd "nats-server --version"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 10
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -701,6 +821,26 @@ jobs:
     needs: [install, detect-changes]
     if: needs.detect-changes.outputs.has_changes == 'true' && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      nats:
+        image: nats:2.10-alpine
+        ports:
+          - 4222:4222
+          - 8222:8222
+        options: >-
+          --health-cmd "nats-server --version"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 10
     timeout-minutes: 20
     continue-on-error: false
     steps:
@@ -762,6 +902,26 @@ jobs:
     needs: detect-changes
     # No `has_changes` gate — infra/compose/NATS drift must always fire.
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      nats:
+        image: nats:2.10-alpine
+        ports:
+          - 4222:4222
+          - 8222:8222
+        options: >-
+          --health-cmd "nats-server --version"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 10
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1052,6 +1212,26 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.infra_image_changed == 'true' && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      nats:
+        image: nats:2.10-alpine
+        ports:
+          - 4222:4222
+          - 8222:8222
+        options: >-
+          --health-cmd "nats-server --version"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 10
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1073,6 +1253,26 @@ jobs:
     needs: [install, detect-changes]
     if: needs.detect-changes.outputs.has_changes == 'true' && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      nats:
+        image: nats:2.10-alpine
+        ports:
+          - 4222:4222
+          - 8222:8222
+        options: >-
+          --health-cmd "nats-server --version"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 10
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1195,6 +1395,26 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.docs_changed == 'true'
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      nats:
+        image: nats:2.10-alpine
+        ports:
+          - 4222:4222
+          - 8222:8222
+        options: >-
+          --health-cmd "nats-server --version"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 10
     steps:
       # SEC-CI-002: pinned to SHA
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1223,6 +1443,26 @@ jobs:
     needs: [install, detect-changes]
     if: needs.detect-changes.outputs.has_changes == 'true' && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      nats:
+        image: nats:2.10-alpine
+        ports:
+          - 4222:4222
+          - 8222:8222
+        options: >-
+          --health-cmd "nats-server --version"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 10
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1264,6 +1504,26 @@ jobs:
     needs: [install, detect-changes]
     if: needs.detect-changes.outputs.has_changes == 'true' && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      nats:
+        image: nats:2.10-alpine
+        ports:
+          - 4222:4222
+          - 8222:8222
+        options: >-
+          --health-cmd "nats-server --version"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 10
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1306,6 +1566,26 @@ jobs:
     needs: [install, detect-changes]
     if: needs.detect-changes.outputs.has_changes == 'true' && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      nats:
+        image: nats:2.10-alpine
+        ports:
+          - 4222:4222
+          - 8222:8222
+        options: >-
+          --health-cmd "nats-server --version"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 10
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1359,6 +1639,26 @@ jobs:
       - build
     if: always()
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      nats:
+        image: nats:2.10-alpine
+        ports:
+          - 4222:4222
+          - 8222:8222
+        options: >-
+          --health-cmd "nats-server --version"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 10
     timeout-minutes: 5
     steps:
       - name: Fail on skipped, cancelled or failed Sens dependencies
@@ -1401,6 +1701,26 @@ jobs:
       - sens-enterprise-validation
     if: always() && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      nats:
+        image: nats:2.10-alpine
+        ports:
+          - 4222:4222
+          - 8222:8222
+        options: >-
+          --health-cmd "nats-server --version"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 10
     timeout-minutes: 2
     steps:
       - name: Assert required PR checks

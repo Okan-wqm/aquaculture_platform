@@ -35848,7 +35848,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "2985e2438fcb8b23d6f583c63c83eff0b3438cd2b35701b3e5f8f66e07f464ac",
+      "content_sha256": "2f42a0be28934a659f5a06edc9e826fb9d4f5297d6e15af491baeb8c0ed6ab23",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "e2e/package-lock.json",
@@ -41413,7 +41413,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "35e96e4c31d1c88a03e1237a2b6c6c36dd2aafde375151c9ee9daeadc005f0ac",
+      "content_sha256": "1ed4e6c2195e84398a52d19acc6f91dcea0b985e254679408b3f6deceb7b2c04",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",

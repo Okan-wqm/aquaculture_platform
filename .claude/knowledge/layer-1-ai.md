@@ -1,7 +1,7 @@
 # Layer-1 AI — Anthropic SDK + API patterns
 
 **Audience:** ai-expert, ai-safety-expert, ai-service domain reviewers, cost-attribution reviewers, any agent reviewing `apps/ai-service/**`, `.claude/skills/**`, or orchestrator-dispatch code.
-**Anchor:** `@anthropic-ai/sdk@^0.93.0` (root `package.json`), Claude Sonnet 4.6 + Haiku 4.5 + Opus 4.7 (default model routing per workload), as of 2026-07-27.
+**Anchor:** `@anthropic-ai/sdk@^0.121.0` (root `package.json`), Claude Sonnet 4.6 + Haiku 4.5 + Opus 4.7 (default model routing per workload), as of 2026-08-31.
 
 Depends on: `layer-1-nestjs.md` (guards, interceptors, CQRS), `layer-2-patterns.md` (outbox, tenant isolation). Applies to: `apps/ai-service/src/agent/`, `apps/ai-service/src/chat/`, `apps/ai-service/src/cost/`, `apps/ai-service/src/safety/`, `apps/ai-service/src/tools/`.
 

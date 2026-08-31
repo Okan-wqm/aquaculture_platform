@@ -177,6 +177,42 @@ describe('ThrottlerGuard', () => {
 
       module.get(SlidingWindowStrategy).onModuleDestroy();
     });
+
+    it('APA-368: does NOT honour THROTTLE_ENABLED=false in production (the kill switch cannot nullify pre-auth limits)', async () => {
+      // Mock the rate limiter (always blocks) so the guard's isEnabled scoping is
+      // tested in isolation — the real SlidingWindowStrategy fail-fasts in prod
+      // without Redis, which is a separate contract.
+      const alwaysBlocks = {
+        consumeWithConfig: jest.fn().mockResolvedValue({
+          allowed: false,
+          remaining: 0,
+          resetTime: new Date(Date.now() + 60000),
+          retryAfter: 60,
+        }),
+      };
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          ThrottlerGuard,
+          { provide: SlidingWindowStrategy, useValue: alwaysBlocks },
+          Reflector,
+          {
+            provide: ConfigService,
+            useValue: {
+              get: jest.fn((key: string, defaultValue?: unknown) => {
+                if (key === 'THROTTLE_ENABLED') return false; // operator tries to disable
+                if (key === 'NODE_ENV') return 'production';
+                return defaultValue;
+              }),
+            },
+          },
+        ],
+      }).compile();
+
+      const prodGuard = module.get(ThrottlerGuard);
+      // Even though THROTTLE_ENABLED=false, production forces enforcement, so the
+      // (always-blocking) limiter runs and a 429 is thrown rather than skipped.
+      await expect(prodGuard.canActivate(createMockContext())).rejects.toThrow(HttpException);
+    });
   });
 
   // ========================================================================

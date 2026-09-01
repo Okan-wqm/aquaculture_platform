@@ -527,7 +527,7 @@ const CHECKS: Record<string, () => CheckResult> = {
       [
         lineRef(WORKFLOW_CI, `node ${DEPLOYMENT_SCOPE_SELECTOR}`),
         lineRef(REQUIRED_STATUS_CHECKS_MANIFEST, 'sens_specialist_required_path_filters'),
-        lineRef(DEPLOYMENT_SCOPE_SELECTOR, 'loadSensSpecialistRequiredPathFilters'),
+        lineRef(DEPLOYMENT_SCOPE_SELECTOR, 'function loadRequiredPathFilters'),
       ],
     );
   },

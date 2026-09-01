@@ -415,6 +415,10 @@ function requestedScope(
   };
 }
 
+function validationRequired(scope: DeploymentScope, args: Arguments): boolean {
+  return args.changedFiles.length > 0 && scope.reason !== 'docs-only';
+}
+
 function withValidationRequired(
   scope: DeploymentScope,
   args: Arguments,
@@ -423,13 +427,14 @@ function withValidationRequired(
   return {
     ...scope,
     validationRequired:
-      args.changedFiles.length > 0 &&
-      (scope.reason !== 'docs-only' ||
-        scope.dependencyAuditRequired ||
-        scope.farmChecksRequired ||
-        scope.rustChecksRequired ||
-        scope.sensorChecksRequired ||
-        requiredPathChanged),
+      validationRequired(scope, args) ||
+      (scope.reason === 'docs-only' &&
+        args.changedFiles.length > 0 &&
+        (scope.dependencyAuditRequired ||
+          scope.farmChecksRequired ||
+          scope.rustChecksRequired ||
+          scope.sensorChecksRequired ||
+          requiredPathChanged)),
   };
 }
 

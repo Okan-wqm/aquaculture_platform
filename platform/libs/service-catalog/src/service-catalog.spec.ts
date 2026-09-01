@@ -6,6 +6,7 @@ import {
   PLATFORM_SERVICE_CATALOG,
   activeDropletComposeServices,
   activeDropletServices,
+  frontendImageBuildMatrix,
   frontendImageBuildTargets,
   frontendPrebuildPlan,
   gatewaySubgraphs,
@@ -138,6 +139,56 @@ describe('platform service catalog executable views', () => {
     }
   });
 
+  it('derives every frontend Docker COPY input from the catalog', () => {
+    const builds = frontendImageBuildMatrix();
+    const byModule = new Map(builds.map((entry) => [entry.module, entry]));
+
+    const shell = byModule.get('shell');
+    expect(shell?.dockerfile).toBe('infrastructure/docker/Dockerfile.shell');
+    expect(shell?.buildInputGlobs).toEqual(
+      expect.arrayContaining([
+        'infrastructure/docker/Dockerfile.shell',
+        'infrastructure/docker/nginx/shell.conf',
+        'infrastructure/docker/scripts/40-create-runtime-config.sh',
+      ]),
+    );
+    const aquamobil = byModule.get('aquamobil');
+    expect(aquamobil?.dockerfile).toBe('infrastructure/docker/Dockerfile.aquamobil');
+    expect(aquamobil?.buildInputGlobs).toEqual(
+      expect.arrayContaining([
+        'infrastructure/docker/Dockerfile.aquamobil',
+        'infrastructure/docker/nginx/aquamobil.conf',
+        'infrastructure/docker/nginx/snippets/security-headers.conf',
+        'web/apps/aquamobil/**',
+        'libs/farm-shared/**',
+        'libs/shared-contracts/**',
+      ]),
+    );
+    for (const module of [
+      'dashboard',
+      'farm-module',
+      'sensor-module',
+      'hr-module',
+      'hydroponics-module',
+      'messaging-module',
+      'admin-panel',
+      'tenant-admin',
+    ]) {
+      const remote = byModule.get(module);
+      expect(remote?.dockerfile).toBe('infrastructure/docker/Dockerfile.microfrontend.simple');
+      expect(remote?.buildInputGlobs).toEqual(
+        expect.arrayContaining([
+          'infrastructure/docker/Dockerfile.microfrontend.simple',
+          'infrastructure/docker/nginx/microfrontend.conf',
+        ]),
+      );
+    }
+    for (const build of builds) {
+      expect(build.buildInputGlobs).toContain(build.dockerfile);
+      expect(existsSync(join(REPO_ROOT, build.dockerfile))).toBe(true);
+    }
+  });
+
   it('keeps WAL-G object-store coordinates in generated runtime configuration', () => {
     expect(requiredRuntimeEnv()).toEqual(
       expect.arrayContaining([
@@ -184,6 +235,25 @@ describe('platform service catalog executable views', () => {
     expect(validateServiceCatalog(invalid)).toContainEqual({
       serviceId: 'postgres',
       message: 'infraImageBuild.buildInputGlobs must include its Dockerfile',
+    });
+  });
+
+  it('rejects frontend build coordinates that do not include their Dockerfile', () => {
+    const invalid = PLATFORM_SERVICE_CATALOG.map((entry) =>
+      entry.serviceId === 'shell' && entry.frontendImageBuild
+        ? {
+            ...entry,
+            frontendImageBuild: {
+              ...entry.frontendImageBuild,
+              buildInputGlobs: ['infrastructure/docker/nginx/shell.conf'],
+            },
+          }
+        : entry,
+    );
+
+    expect(validateServiceCatalog(invalid)).toContainEqual({
+      serviceId: 'shell',
+      message: 'frontendImageBuild.buildInputGlobs must include its Dockerfile',
     });
   });
 

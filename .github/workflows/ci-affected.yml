@@ -1438,11 +1438,8 @@ jobs:
       - name: Check markdown files
         run: node scripts/ci/markdownlint-changed.mjs
         env:
-          MARKDOWNLINT_BASE_REF: ${{ github.event.pull_request.base.sha || (github.event.before != '0000000000000000000000000000000000000000' && github.event.before) || 'HEAD^' }}
-          # A pull_request checkout is GitHub's synthetic merge commit. Lint the
-          # immutable event head instead, otherwise unrelated base-branch
-          # advances become false "changed docs" while a queued job is waiting.
-          MARKDOWNLINT_HEAD_REF: ${{ github.event.pull_request.head.sha || github.sha }}
+          MARKDOWNLINT_BASE_REF: ${{ needs.detect-changes.outputs.base_sha }}
+          MARKDOWNLINT_HEAD_REF: ${{ needs.detect-changes.outputs.head_sha }}
 
   sensor-service-gates:
     needs: [install, detect-changes]

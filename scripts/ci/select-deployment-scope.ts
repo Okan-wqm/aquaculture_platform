@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 
 interface FrontendMatrixEntry {
+  readonly buildInputGlobs: string[];
   readonly dockerfile: string;
   readonly module: string;
   readonly module_path: string;
@@ -97,7 +98,7 @@ function gitChangedFiles(repo: string, baseSha: string, headSha: string): string
   }
   return execFileSync(
     'git',
-    ['diff', '--name-only', '--diff-filter=ACMRD', baseSha, headSha, '--'],
+    ['diff', '--name-only', '--diff-filter=ACMRTD', baseSha, headSha, '--'],
     { cwd: repo, encoding: 'utf8' },
   )
     .split('\n')
@@ -201,6 +202,7 @@ function backendMatrix(services: readonly string[]): BackendMatrixEntry[] {
 }
 
 const WORKSPACE_GLOBAL_INPUTS = new Set([
+  '.dockerignore',
   '.npmrc',
   'nx.json',
   'package-lock.json',
@@ -501,9 +503,6 @@ export function selectDeploymentScope(args: Arguments): ResolvedDeploymentScope 
   const dbMigrateDockerfileChanged = args.changedFiles.includes(
     'infrastructure/docker/Dockerfile.db-migrate',
   );
-  const changedDockerfiles = new Set(
-    args.changedFiles.filter((file) => file.includes('/Dockerfile')),
-  );
   const selectedBackend = catalog.deploy.backendImageTargets.filter(
     (service) =>
       backendDockerfileChanged ||
@@ -515,8 +514,19 @@ export function selectDeploymentScope(args: Arguments): ResolvedDeploymentScope 
     selectedBackend.unshift('db-migrate');
   }
   const selectedFrontend = catalog.deploy.frontendImageMatrix
-    .filter((entry) => affected.has(entry.nx_project) || changedDockerfiles.has(entry.dockerfile))
+    .filter(
+      (entry) =>
+        affected.has(entry.nx_project) ||
+        args.changedFiles.some((file) =>
+          entry.buildInputGlobs.some((glob) => globToRegExp(glob).test(file)),
+        ),
+    )
     .map((entry) => entry.module);
+  const frontendBuildInputChanged = catalog.deploy.frontendImageMatrix.some((entry) =>
+    args.changedFiles.some((file) =>
+      entry.buildInputGlobs.some((glob) => globToRegExp(glob).test(file)),
+    ),
+  );
   const infraBuildInputChanged = catalog.deploy.infraImageMatrix.some((entry) =>
     args.changedFiles.some((file) =>
       entry.buildInputGlobs.some((glob) => globToRegExp(glob).test(file)),
@@ -539,8 +549,8 @@ export function selectDeploymentScope(args: Arguments): ResolvedDeploymentScope 
   if (owners.size > 0) reason = 'migration-owner';
   if (backendDockerfileChanged) reason = 'backend-dockerfile-group';
   if (dbMigrateDockerfileChanged && !backendDockerfileChanged) reason = 'db-migrate-dockerfile';
-  if (changedDockerfiles.size > 0 && selectedFrontend.length > 0 && selectedBackend.length === 0) {
-    reason = 'frontend-dockerfile-group';
+  if (frontendBuildInputChanged && selectedFrontend.length > 0 && selectedBackend.length === 0) {
+    reason = 'frontend-build-input';
   }
   if (infraBuildInputChanged) reason = 'infra-build-input';
 

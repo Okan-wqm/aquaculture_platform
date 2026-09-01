@@ -33,8 +33,7 @@ on:
         value: ${{ jobs.deploy.outputs.deploy_finished_epoch }}
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 concurrency:
   group: deploy-development

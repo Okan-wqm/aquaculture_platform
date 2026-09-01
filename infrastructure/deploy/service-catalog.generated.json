@@ -3,7 +3,7 @@
     "generatedFrom": "platform/libs/service-catalog/src/index.ts",
     "generator": "scripts/service-catalog/generate-artifacts.ts",
     "generatorVersion": 4,
-    "catalogHash": "2cc5d19beb10d14009e75e7bf4b5655d53e198e0255d2d3ef47ddd26a841b10c",
+    "catalogHash": "07170535306a24842dd83234b57f98561512c609bcfe37dbae3c950101917a3e",
     "note": "do not edit by hand"
   },
   "activeDropletComposeServices": [
@@ -237,61 +237,106 @@
         "module": "shell",
         "dockerfile": "infrastructure/docker/Dockerfile.shell",
         "module_path": "web/shell",
-        "nx_project": "shell"
+        "nx_project": "shell",
+        "buildInputGlobs": [
+          "infrastructure/docker/Dockerfile.shell",
+          "infrastructure/docker/nginx/shell.conf",
+          "infrastructure/docker/scripts/40-create-runtime-config.sh"
+        ]
       },
       {
         "module": "dashboard",
         "dockerfile": "infrastructure/docker/Dockerfile.microfrontend.simple",
         "module_path": "web/modules/dashboard",
-        "nx_project": "dashboard"
+        "nx_project": "dashboard",
+        "buildInputGlobs": [
+          "infrastructure/docker/Dockerfile.microfrontend.simple",
+          "infrastructure/docker/nginx/microfrontend.conf"
+        ]
       },
       {
         "module": "farm-module",
         "dockerfile": "infrastructure/docker/Dockerfile.microfrontend.simple",
         "module_path": "web/modules/farm-module",
-        "nx_project": "farm-module"
+        "nx_project": "farm-module",
+        "buildInputGlobs": [
+          "infrastructure/docker/Dockerfile.microfrontend.simple",
+          "infrastructure/docker/nginx/microfrontend.conf"
+        ]
       },
       {
         "module": "sensor-module",
         "dockerfile": "infrastructure/docker/Dockerfile.microfrontend.simple",
         "module_path": "web/modules/sensor-module",
-        "nx_project": "sensor-module"
+        "nx_project": "sensor-module",
+        "buildInputGlobs": [
+          "infrastructure/docker/Dockerfile.microfrontend.simple",
+          "infrastructure/docker/nginx/microfrontend.conf"
+        ]
       },
       {
         "module": "hr-module",
         "dockerfile": "infrastructure/docker/Dockerfile.microfrontend.simple",
         "module_path": "web/modules/hr-module",
-        "nx_project": "hr-module"
+        "nx_project": "hr-module",
+        "buildInputGlobs": [
+          "infrastructure/docker/Dockerfile.microfrontend.simple",
+          "infrastructure/docker/nginx/microfrontend.conf"
+        ]
       },
       {
         "module": "hydroponics-module",
         "dockerfile": "infrastructure/docker/Dockerfile.microfrontend.simple",
         "module_path": "web/modules/hydroponics-module",
-        "nx_project": "hydroponics-module"
+        "nx_project": "hydroponics-module",
+        "buildInputGlobs": [
+          "infrastructure/docker/Dockerfile.microfrontend.simple",
+          "infrastructure/docker/nginx/microfrontend.conf"
+        ]
       },
       {
         "module": "messaging-module",
         "dockerfile": "infrastructure/docker/Dockerfile.microfrontend.simple",
         "module_path": "web/modules/messaging-module",
-        "nx_project": "messaging-module"
+        "nx_project": "messaging-module",
+        "buildInputGlobs": [
+          "infrastructure/docker/Dockerfile.microfrontend.simple",
+          "infrastructure/docker/nginx/microfrontend.conf"
+        ]
       },
       {
         "module": "admin-panel",
         "dockerfile": "infrastructure/docker/Dockerfile.microfrontend.simple",
         "module_path": "web/modules/admin-panel",
-        "nx_project": "admin-panel"
+        "nx_project": "admin-panel",
+        "buildInputGlobs": [
+          "infrastructure/docker/Dockerfile.microfrontend.simple",
+          "infrastructure/docker/nginx/microfrontend.conf"
+        ]
       },
       {
         "module": "tenant-admin",
         "dockerfile": "infrastructure/docker/Dockerfile.microfrontend.simple",
         "module_path": "web/modules/tenant-admin",
-        "nx_project": "tenant-admin"
+        "nx_project": "tenant-admin",
+        "buildInputGlobs": [
+          "infrastructure/docker/Dockerfile.microfrontend.simple",
+          "infrastructure/docker/nginx/microfrontend.conf"
+        ]
       },
       {
         "module": "aquamobil",
         "dockerfile": "infrastructure/docker/Dockerfile.aquamobil",
         "module_path": "web/apps/aquamobil",
-        "nx_project": "@aquaculture/aquamobil"
+        "nx_project": "@aquaculture/aquamobil",
+        "buildInputGlobs": [
+          "infrastructure/docker/Dockerfile.aquamobil",
+          "infrastructure/docker/nginx/aquamobil.conf",
+          "infrastructure/docker/nginx/snippets/security-headers.conf",
+          "web/apps/aquamobil/**",
+          "libs/farm-shared/**",
+          "libs/shared-contracts/**"
+        ]
       }
     ],
     "infraImageMatrix": [

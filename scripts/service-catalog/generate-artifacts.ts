@@ -15,10 +15,10 @@ const {
   PLATFORM_SERVICE_CATALOG,
   activeDropletServices,
   backendImageBuildTargets,
+  frontendImageBuildMatrix,
   frontendImageBuildTargets,
   frontendPrebuildPlan,
   gatewaySubgraphs,
-  getServiceCatalogEntry,
   imageBuildTargets,
   infraImageBuildMatrix,
   infraImageBuildTargets,
@@ -115,22 +115,6 @@ function shellQuote(value: string): string {
 
 function shellAssignment(name: string, values: readonly string[]): string {
   return `${name}=${shellQuote(values.join(' '))}`;
-}
-
-function frontendModulePath(serviceId: string): string {
-  // Catalog entry is the SSOT for module paths (INFRA-HIGH-005: the old
-  // per-script convention diverged from the npm-workspace reality).
-  const modulePath = getServiceCatalogEntry(serviceId)?.modulePath;
-  if (!modulePath) {
-    throw new Error(`No catalog modulePath for frontend service ${serviceId}`);
-  }
-  return modulePath;
-}
-
-function frontendDockerfile(serviceId: string): string {
-  if (serviceId === 'shell') return 'infrastructure/docker/Dockerfile.shell';
-  if (serviceId === 'aquamobil') return 'infrastructure/docker/Dockerfile.aquamobil';
-  return 'infrastructure/docker/Dockerfile.microfrontend.simple';
 }
 
 function signalEmitterSources(key: string): readonly string[] {
@@ -357,11 +341,12 @@ function catalogGeneratedArtifact(): Artifact {
         // never from a `web/modules/${mod}` convention (INFRA-HIGH-005).
         nonNxFrontendBuild: prebuild.workspaceModules,
         readinessServices: readinessServices(),
-        frontendImageMatrix: frontendTargets.map((target) => ({
-          module: target,
-          dockerfile: frontendDockerfile(target),
-          module_path: frontendModulePath(target),
-          nx_project: getServiceCatalogEntry(target)?.nxProject ?? target,
+        frontendImageMatrix: frontendImageBuildMatrix().map((entry) => ({
+          module: entry.module,
+          dockerfile: entry.dockerfile,
+          module_path: entry.modulePath,
+          nx_project: entry.nxProject,
+          buildInputGlobs: entry.buildInputGlobs,
         })),
         infraImageMatrix: infraImageBuildMatrix(),
       },

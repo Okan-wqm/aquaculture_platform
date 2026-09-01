@@ -1,5 +1,13 @@
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -488,6 +496,35 @@ describe('development image and deploy scope selector', () => {
 
   it.each([
     [
+      'infrastructure/docker/nginx/microfrontend.conf',
+      [
+        'dashboard',
+        'farm-module',
+        'sensor-module',
+        'hr-module',
+        'hydroponics-module',
+        'messaging-module',
+        'admin-panel',
+        'tenant-admin',
+      ],
+    ],
+    ['infrastructure/docker/nginx/shell.conf', ['shell']],
+    ['infrastructure/docker/scripts/40-create-runtime-config.sh', ['shell']],
+    ['infrastructure/docker/nginx/aquamobil.conf', ['aquamobil']],
+    ['infrastructure/docker/nginx/snippets/security-headers.conf', ['aquamobil']],
+  ])('selects every frontend image whose Docker build consumes %s', (changedFile, modules) => {
+    const scope = selectScope([changedFile], []);
+
+    expect(scope.backendMatrix).toEqual([]);
+    expect(scope.deployServices).toEqual(modules);
+    expect(scope.frontendMatrix.map((entry) => entry.module)).toEqual(modules);
+    expect(scope.infraMatrix).toEqual([]);
+    expect(scope.migrationRequired).toBe(false);
+    expect(scope.reason).toBe('frontend-build-input');
+  });
+
+  it.each([
+    [
       'infrastructure/docker/scripts/postgres-walg-healthcheck.sh',
       'postgres',
       'infrastructure/docker/Dockerfile.postgres-walg',
@@ -514,6 +551,7 @@ describe('development image and deploy scope selector', () => {
   });
 
   it.each([
+    ['.dockerignore', 'workspace-global-input'],
     ['package-lock.json', 'workspace-global-input'],
     ['docker-compose.droplet.yml', 'deploy-control-plane'],
     ['infrastructure/nats/services.yaml', 'deploy-control-plane'],
@@ -826,6 +864,52 @@ describe('development image and deploy scope selector', () => {
       rmSync(repo, { recursive: true, force: true });
     }
   });
+
+  it('keeps type changes in the immutable range so their image and deploy scope is not skipped', () => {
+    const repo = fixtureRepository();
+    try {
+      mkdirSync(join(repo, 'infrastructure', 'deploy'), { recursive: true });
+      mkdirSync(join(repo, 'node_modules', '.bin'), { recursive: true });
+      mkdirSync(join(repo, 'apps', 'farm-service', 'src'), { recursive: true });
+      writeFileSync(
+        join(repo, 'infrastructure', 'deploy', 'service-catalog.generated.json'),
+        JSON.stringify({
+          dbSchemas: [],
+          deploy: {
+            backendImageTargets: ['db-migrate', 'farm-service'],
+            frontendImageMatrix: [],
+            frontendImageTargets: [],
+            infraImageMatrix: [],
+            infraImageTargets: [],
+          },
+        }),
+      );
+      writeFileSync(
+        join(repo, 'node_modules', '.bin', 'nx'),
+        "#!/usr/bin/env node\nprocess.stdout.write(JSON.stringify(['farm-service']));\n",
+      );
+      chmodSync(join(repo, 'node_modules', '.bin', 'nx'), 0o755);
+      const changedFile = 'apps/farm-service/src/farm.service.ts';
+      writeFileSync(join(repo, changedFile), 'export const farm = true;\n');
+      git(repo, 'add', '.');
+      git(repo, 'commit', '-m', 'baseline');
+      const baseSha = git(repo, 'rev-parse', 'HEAD');
+      rmSync(join(repo, changedFile));
+      symlinkSync('farm.service.target.ts', join(repo, changedFile));
+      git(repo, 'add', '--all');
+      git(repo, 'commit', '-m', 'change farm source type');
+      const headSha = git(repo, 'rev-parse', 'HEAD');
+
+      expect(selectRangeScope(repo, baseSha, headSha)).toMatchObject({
+        affectedProjects: ['farm-service'],
+        changedFiles: [changedFile],
+        deployServices: ['db-migrate', 'farm-service'],
+        validationRequired: true,
+      });
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('Nx affected graph inputs', () => {
@@ -1042,6 +1126,20 @@ describe('affected development workflow contract', () => {
     expect(staleCheck).toBeLessThan(firstSsh);
     expect(healthCheckedDeploy).toBeLessThan(latestPromotion);
     expect(latestPromotion).toBeLessThan(baselineAdvance);
+  });
+
+  it('keeps package publishing permission on the deploy job, not the preflight default', () => {
+    const development = workflow('.github/workflows/deploy-development.yml') as {
+      permissions?: Record<string, string>;
+      jobs?: Record<string, { permissions?: Record<string, string> }>;
+    };
+
+    expect(development.permissions).toEqual({ contents: 'read' });
+    expect(development.jobs?.['capacity-preflight']?.permissions).toBeUndefined();
+    expect(development.jobs?.deploy?.permissions).toEqual({
+      contents: 'write',
+      packages: 'write',
+    });
   });
 
   it('allows migration skipping only for catalog-proven frontend-only development deploys', () => {

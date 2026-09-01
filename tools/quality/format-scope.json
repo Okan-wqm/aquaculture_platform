@@ -17726,7 +17726,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "72be9ac562df3253d1a03492308dddfc2b7a7f155e5b23f9896e79ccababf524",
+      "content_sha256": "643780c486a4a2e95d147b61d0e996427ef6e48d5e79c0e07c4fceaca1d9e7ae",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "apps/gateway-api/src/config/federated-subgraphs.generated.ts",
@@ -34940,6 +34940,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-01-npm-decode-uri-component-dos.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/runbooks/2026-04-14-teardown-rollout.md",
       "prettier_managed": true
     },
@@ -36429,7 +36435,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "4a731f65eaa914d5d3510b1e2689de38891b995b918db1bbfca6be78ccfc08c7",
+      "content_sha256": "d03d44c5a1b5f339e29ab6280d8166752f1e8afdf314f0d6d872573815154715",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/apollo-router/codegen-schema.generated.json",
@@ -36452,7 +36458,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "3bfc58c215d93231343c73a379408bef0ea55ef7d0f6853f047239fabb9e5c6e",
+      "content_sha256": "7bcc709eaba218535e6afe87d3a2abb86d1ce1aec7671617f7e4e1733f25b60a",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/deploy/service-catalog.generated.json",
@@ -41425,7 +41431,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "1ed4e6c2195e84398a52d19acc6f91dcea0b985e254679408b3f6deceb7b2c04",
+      "content_sha256": "9ef9f49d4bbb114b140b3c8b438edd9b87b1957114264c67b76e813ce5bc909d",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -41960,6 +41966,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "scripts/ci/print-migration-harness-postgres-image.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "scripts/ci/resolve-affected-range.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "scripts/ci/select-deployment-scope.ts",
       "prettier_managed": true
     },
     {
@@ -43154,6 +43172,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/adoption-invariants.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/affected-development-pipeline.spec.ts",
       "prettier_managed": true
     },
     {

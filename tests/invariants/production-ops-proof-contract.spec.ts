@@ -83,15 +83,11 @@ describe('production operations proof contract', () => {
     expect(workflow).toContain('workflow_call:');
     expect(workflow).not.toContain('workflow_run:');
     expect(workflow).toContain('environment: production');
-    // CI-Affected is the release orchestration SSoT on push-to-main. The
-    // verifier must run only after the production reusable workflow reports
-    // that a droplet mutation actually happened, not merely because a called
-    // workflow returned success.
-    expect(ciAffected).toContain('production-post-deploy-verify:');
-    expect(ciAffected).toContain("needs.deploy-production.outputs.deployed == 'true'");
-    expect(ciAffected).toContain('uses: ./.github/workflows/production-post-deploy-verify.yml');
-    expect(ciAffected).toContain('target_sha: ${{ github.sha }}');
-    expect(ciAffected).not.toContain("needs.deploy.result == 'success'");
+    // Main CI owns only the shared development lane. Production verification
+    // remains callable/manual behind the dedicated production stop-line.
+    expect(ciAffected).not.toContain('production-post-deploy-verify:');
+    expect(ciAffected).not.toContain('uses: ./.github/workflows/production-post-deploy-verify.yml');
+    expect(ciAffected).toContain('uses: ./.github/workflows/deploy-development.yml');
     expect(workflow).toContain('deployed/production');
     expect(workflow).toContain('scripts/deploy/post-deploy-verify.sh');
     expect(workflow).toContain('production-post-deploy-evidence.json');

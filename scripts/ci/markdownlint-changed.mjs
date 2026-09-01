@@ -4,6 +4,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmdirSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -13,6 +14,9 @@ import { spawnSync } from 'node:child_process';
 
 const repoRoot = resolve(new URL('../..', import.meta.url).pathname);
 const lintAllDocs = process.argv.slice(2).includes('--all');
+const EMPTY_TREE_OID = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+const MARKDOWNLINT_CHANGED_LANE_MAX_BUFFER = 8 * 1024 * 1024;
+const MARKDOWNLINT_BOOTSTRAP_MAX_JSON_BYTES = 32 * 1024 * 1024;
 // E17-a — GENERATED docs are excluded from prose linting. A generated
 // artifact reproduces its SSoT sources byte-for-byte (docs/aria/generated/
 // JUDGE-DIGEST.md is extracted from SPEC/CONTRACTS/PIPELINES and pinned
@@ -47,6 +51,22 @@ function resolveCommit(ref, role) {
   return oid;
 }
 
+function resolveBaseRef(ref) {
+  if (ref !== EMPTY_TREE_OID) return resolveCommit(ref, 'base');
+
+  const result = run('git', ['cat-file', '-e', `${EMPTY_TREE_OID}^{tree}`]);
+  if (result.status !== 0) {
+    throw new Error(
+      `markdownlint base ${EMPTY_TREE_OID} cannot be resolved: ${result.stderr.trim()}`,
+    );
+  }
+  return EMPTY_TREE_OID;
+}
+
+function diffRange(baseRef, headRef) {
+  return baseRef === EMPTY_TREE_OID ? [baseRef, headRef] : [`${baseRef}...${headRef}`];
+}
+
 function parseChangedDocs(stdout) {
   const files = new Set();
   for (const file of stdout.split('\0')) {
@@ -62,21 +82,21 @@ function parseChangedDocs(stdout) {
 }
 
 function changedDocs(baseRef, headRef) {
-  const baseOid = resolveCommit(baseRef, 'base');
+  const baseOid = resolveBaseRef(baseRef);
   const headOid = resolveCommit(headRef, 'head');
   const args = [
     'diff',
     '--name-only',
     '-z',
     '--diff-filter=ACMRT',
-    `${baseOid}...${headOid}`,
+    ...diffRange(baseOid, headOid),
     '--',
     ...docsPathspecs,
   ];
   const result = run('git', args);
   if (result.status !== 0) {
     throw new Error(
-      `markdownlint range ${baseOid}...${headOid} cannot be inspected: ${result.stderr.trim()}`,
+      `markdownlint range ${diffRange(baseOid, headOid).join(' ')} cannot be inspected: ${result.stderr.trim()}`,
     );
   }
   return parseChangedDocs(result.stdout);
@@ -106,7 +126,7 @@ function changedWorkingTreeDocs() {
  */
 function addedLineRanges(file, baseRef, headRef) {
   const args = baseRef
-    ? ['diff', '-U0', `${baseRef}...${headRef}`, '--', file]
+    ? ['diff', '-U0', ...diffRange(baseRef, headRef), '--', file]
     : ['diff', '-U0', 'HEAD', '--', file];
   const result = run('git', args);
   if (result.status !== 0) {
@@ -172,6 +192,68 @@ function keepFindingsOnChangedLines(stderr, changedFiles, baseRef, headRef) {
   return kept;
 }
 
+function bootstrapLintSummary(result, outputPath, changedFiles) {
+  if (result.status !== 0 && result.status !== 1) {
+    return {
+      reason: `unexpected linter status ${result.status ?? 'null'}${result.signal ? ` (${result.signal})` : ''}`,
+    };
+  }
+  if (result.stdout || result.stderr) {
+    return { reason: 'unexpected markdownlint stdout or stderr' };
+  }
+  if (!existsSync(outputPath)) {
+    return { reason: 'missing markdownlint JSON output' };
+  }
+
+  const outputSize = statSync(outputPath).size;
+  if (result.status === 0) {
+    return outputSize === 0
+      ? { findingCount: 0, fileCount: 0, rules: [] }
+      : { reason: 'status 0 with non-empty JSON output' };
+  }
+  if (outputSize === 0) {
+    return { reason: 'status 1 with empty JSON output' };
+  }
+  if (outputSize > MARKDOWNLINT_BOOTSTRAP_MAX_JSON_BYTES) {
+    return { reason: `JSON output exceeds ${MARKDOWNLINT_BOOTSTRAP_MAX_JSON_BYTES} bytes` };
+  }
+
+  let findings;
+  try {
+    findings = JSON.parse(readFileSync(outputPath, 'utf8'));
+  } catch {
+    return { reason: 'malformed markdownlint JSON output' };
+  }
+  if (!Array.isArray(findings) || findings.length === 0) {
+    return { reason: 'status 1 without a non-empty findings array' };
+  }
+
+  const expectedFiles = new Set(changedFiles);
+  const findingFiles = new Set();
+  const rules = new Set();
+  for (const finding of findings) {
+    if (!finding || typeof finding !== 'object' || Array.isArray(finding)) {
+      return { reason: 'malformed markdownlint finding' };
+    }
+    const { fileName, lineNumber, ruleNames } = finding;
+    if (
+      typeof fileName !== 'string' ||
+      !fileName.startsWith('docs/') ||
+      !expectedFiles.has(fileName) ||
+      !Number.isInteger(lineNumber) ||
+      lineNumber <= 0 ||
+      !Array.isArray(ruleNames) ||
+      typeof ruleNames[0] !== 'string' ||
+      !/^MD\d{3}$/.test(ruleNames[0])
+    ) {
+      return { reason: 'invalid markdownlint finding fields' };
+    }
+    findingFiles.add(fileName);
+    rules.add(ruleNames[0]);
+  }
+  return { findingCount: findings.length, fileCount: findingFiles.size, rules: [...rules].sort() };
+}
+
 const explicitBase = process.env.MARKDOWNLINT_BASE_REF;
 const explicitHead = process.env.MARKDOWNLINT_HEAD_REF;
 let files = [];
@@ -200,6 +282,10 @@ if (
 
 const markdownlintConfigDirectory = mkdtempSync(join(tmpdir(), 'aqua-markdownlint-'));
 const markdownlintConfigPath = join(markdownlintConfigDirectory, 'config.json');
+const bootstrapOutputPath =
+  !lintAllDocs && explicitBase === EMPTY_TREE_OID
+    ? join(markdownlintConfigDirectory, 'bootstrap-findings.json')
+    : null;
 try {
   writeFileSync(
     markdownlintConfigPath,
@@ -221,33 +307,66 @@ try {
   const localMarkdownlintBin = resolve(repoRoot, 'node_modules/.bin/markdownlint');
   const markdownlintBin = existsSync(localMarkdownlintBin) ? localMarkdownlintBin : 'markdownlint';
   const targets = lintAllDocs ? ['docs/**/*.md'] : files;
+  const markdownlintArgs = [
+    ...targets,
+    '--config',
+    markdownlintConfigPath,
+    '--ignore',
+    'node_modules',
+  ];
+  if (bootstrapOutputPath) {
+    markdownlintArgs.push('--json', '--output', bootstrapOutputPath);
+  }
   const result = run(
     markdownlintBin,
-    [...targets, '--config', markdownlintConfigPath, '--ignore', 'node_modules'],
+    markdownlintArgs,
     // Captured, not inherited: the changed-file lane filters findings to the
     // lines this change actually wrote (see below), so the raw stream would
     // report violations the gate then does not enforce.
-    lintAllDocs ? { stdio: 'inherit' } : { stdio: ['ignore', 'inherit', 'pipe'] },
+    bootstrapOutputPath
+      ? { stdio: ['ignore', 'pipe', 'pipe'] }
+      : lintAllDocs
+        ? { stdio: 'inherit' }
+        : {
+            stdio: ['ignore', 'inherit', 'pipe'],
+            maxBuffer: MARKDOWNLINT_CHANGED_LANE_MAX_BUFFER,
+          },
   );
   const changedLaneHandled = !lintAllDocs && !result.error;
   if (changedLaneHandled) {
-    const filtered = keepFindingsOnChangedLines(
-      result.stderr ?? '',
-      files,
-      explicitBase,
-      explicitHead,
-    );
-    if (filtered.length > 0) {
-      console.error(filtered.join('\n'));
-    }
-    process.exitCode = filtered.length > 0 ? 1 : 0;
-    // Debt you did not create is not billed — but it is not hidden either.
-    const untouched = (result.stderr ?? '').trim();
-    if (untouched && filtered.length === 0) {
-      console.log(
-        'markdownlint-changed: pre-existing violations in touched files (not billed to this change):\n' +
-          untouched,
+    if (bootstrapOutputPath) {
+      const summary = bootstrapLintSummary(result, bootstrapOutputPath, files);
+      if ('reason' in summary) {
+        console.error(`markdownlint bootstrap baseline failed: ${summary.reason}`);
+        process.exitCode = result.status && result.status > 0 ? result.status : 1;
+      } else if (result.status === 0) {
+        process.exitCode = 0;
+      } else {
+        console.log(
+          `markdownlint-changed: bootstrap inherited debt: findings=${summary.findingCount} ` +
+            `files=${summary.fileCount} rules=${summary.rules.join(',')}; baseline snapshot accepted`,
+        );
+        process.exitCode = 0;
+      }
+    } else {
+      const filtered = keepFindingsOnChangedLines(
+        result.stderr ?? '',
+        files,
+        explicitBase,
+        explicitHead,
       );
+      if (filtered.length > 0) {
+        console.error(filtered.join('\n'));
+      }
+      process.exitCode = filtered.length > 0 ? 1 : 0;
+      // Debt you did not create is not billed — but it is not hidden either.
+      const untouched = (result.stderr ?? '').trim();
+      if (untouched && filtered.length === 0) {
+        console.log(
+          'markdownlint-changed: pre-existing violations in touched files (not billed to this change):\n' +
+            untouched,
+        );
+      }
     }
   } else if (result.error) {
     // "The linter is missing" is not "the docs are bad". spawnSync reports a
@@ -265,6 +384,9 @@ try {
     process.exitCode = result.status ?? 1;
   }
 } finally {
+  if (bootstrapOutputPath && existsSync(bootstrapOutputPath)) {
+    unlinkSync(bootstrapOutputPath);
+  }
   unlinkSync(markdownlintConfigPath);
   rmdirSync(markdownlintConfigDirectory);
 }

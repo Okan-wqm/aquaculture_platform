@@ -330,6 +330,7 @@ describe('protected backup SSH broker substrate', () => {
     const release = read(RELEASE_WORKFLOW_PATH);
     const attest = read(ATTEST_WORKFLOW_PATH);
     const ciAffected = read(CI_AFFECTED_WORKFLOW_PATH);
+    const scopeSelector = read(join(REPO_ROOT, 'scripts/ci/select-deployment-scope.ts'));
     const requiredChecks = read(REQUIRED_CHECKS_MANIFEST_PATH);
     const contract = policy();
 
@@ -377,9 +378,13 @@ describe('protected backup SSH broker substrate', () => {
       'tools/backup-ssh-broker/**',
       'tests/**',
     ]) {
-      expect(ciAffected).toContain(`'${protectedPath}'`);
       expect(requiredChecks).toContain(`"${protectedPath}"`);
     }
+    expect(ciAffected).toContain('scripts/ci/select-deployment-scope.ts');
+    expect(scopeSelector).toContain('function validationRequired');
+    expect(scopeSelector).toContain(
+      "return args.changedFiles.length > 0 && scope.reason !== 'docs-only';",
+    );
 
     for (const operation of contract.operations) {
       expect(attest).toContain(`secrets.${operation.private_key_secret}`);

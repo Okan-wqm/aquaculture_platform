@@ -44,23 +44,30 @@ interface NxGraphFile {
 
 const IMAGE_OWNER_PROJECT = 'migration-harness';
 
-function parseBaseArg(argv: readonly string[]): string {
-  const idx = argv.indexOf('--base');
-  const base = idx >= 0 ? argv[idx + 1] : undefined;
-  if (base === undefined || base.length === 0) {
+interface RangeArgs {
+  readonly base: string;
+  readonly head: string;
+}
+
+function parseRangeArgs(argv: readonly string[]): RangeArgs {
+  const baseIndex = argv.indexOf('--base');
+  const headIndex = argv.indexOf('--head');
+  const base = baseIndex >= 0 ? argv[baseIndex + 1] : undefined;
+  const head = headIndex >= 0 ? argv[headIndex + 1] : undefined;
+  if (base === undefined || base.length === 0 || head === undefined || head.length === 0) {
     process.stderr.write(
-      'usage: prewarm-postgres-testcontainer.ts --base <git-ref>\n',
+      'usage: prewarm-postgres-testcontainer.ts --base <git-ref> --head <git-ref>\n',
     );
     process.exit(2);
   }
-  return base;
+  return { base, head };
 }
 
 function run(cmd: string, args: readonly string[]): string {
   return execFileSync(cmd, [...args], { encoding: 'utf8' });
 }
 
-function affectedTestProjects(base: string): Set<string> {
+function affectedTestProjects(base: string, head: string): Set<string> {
   // --json explicitly: without it nx emits newline-separated names on a
   // TTY but a single-line JSON array when piped — sniffing the shape
   // would be fragile across nx versions.
@@ -71,6 +78,8 @@ function affectedTestProjects(base: string): Set<string> {
     '--affected',
     '--base',
     base,
+    '--head',
+    head,
     '--with-target=test',
     '--json',
   ]);
@@ -116,18 +125,16 @@ function pullWithRetry(image: string): void {
         process.exit(1);
       }
       const delaySeconds = attempt * 10;
-      process.stderr.write(
-        `Image pull attempt ${attempt} failed; retrying in ${delaySeconds}s.\n`,
-      );
+      process.stderr.write(`Image pull attempt ${attempt} failed; retrying in ${delaySeconds}s.\n`);
       execFileSync('sleep', [String(delaySeconds)]);
     }
   }
 }
 
 function main(): void {
-  const base = parseBaseArg(process.argv.slice(2));
+  const { base, head } = parseRangeArgs(process.argv.slice(2));
 
-  const affected = affectedTestProjects(base);
+  const affected = affectedTestProjects(base, head);
   if (affected.size === 0) {
     process.stdout.write('No affected test projects; prewarm not needed.\n');
     return;
@@ -145,12 +152,8 @@ function main(): void {
     return;
   }
 
-  const image = run('node', [
-    'scripts/ci/print-migration-harness-postgres-image.mjs',
-  ]).trim();
-  process.stdout.write(
-    `Prewarming ${image} for affected consumers: ${needy.join(', ')}\n`,
-  );
+  const image = run('node', ['scripts/ci/print-migration-harness-postgres-image.mjs']).trim();
+  process.stdout.write(`Prewarming ${image} for affected consumers: ${needy.join(', ')}\n`);
   pullWithRetry(image);
 }
 

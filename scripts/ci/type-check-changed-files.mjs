@@ -54,7 +54,9 @@ const changedFiles = run('git', [
   'diff',
   '--name-only',
   '--diff-filter=ACMR',
-  `${options.base}...${options.head}`,
+  options.base,
+  options.head,
+  '--',
 ])
   .split('\n')
   .map((line) => line.trim())

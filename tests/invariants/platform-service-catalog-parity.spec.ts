@@ -7,6 +7,7 @@ import { SCHEMA_REGISTRY } from '../../apps/db-migrate/src/schema-registry';
 import {
   PLATFORM_SERVICE_CATALOG,
   backendImageBuildTargets,
+  frontendImageBuildMatrix,
   frontendImageBuildTargets,
   imageBuildTargets,
   infraImageBuildMatrix,
@@ -48,6 +49,13 @@ interface GeneratedServiceCatalog {
   deploy: {
     backendImageTargets: string[];
     frontendImageTargets: string[];
+    frontendImageMatrix: Array<{
+      module: string;
+      dockerfile: string;
+      module_path: string;
+      nx_project: string;
+      buildInputGlobs: string[];
+    }>;
     infraImageTargets: string[];
     infraImageMatrix: Array<{ image: string; dockerfile: string; context: string }>;
     applicationImageServices: string[];
@@ -170,6 +178,15 @@ describe('platform service catalog parity', () => {
     expect(generated.deploy.frontendImageTargets.sort()).toEqual(
       [...frontendImageBuildTargets()].sort(),
     );
+    expect(generated.deploy.frontendImageMatrix).toEqual(
+      frontendImageBuildMatrix().map((entry) => ({
+        module: entry.module,
+        dockerfile: entry.dockerfile,
+        module_path: entry.modulePath,
+        nx_project: entry.nxProject,
+        buildInputGlobs: entry.buildInputGlobs,
+      })),
+    );
     expect(generated.deploy.infraImageTargets.sort()).toEqual([...infraImageBuildTargets()].sort());
     expect(generated.deploy.infraImageMatrix).toEqual([...infraImageBuildMatrix()]);
     expect(generated.deploy.applicationImageServices.sort()).toEqual(
@@ -200,6 +217,11 @@ describe('platform service catalog parity', () => {
     expect(readShellStringList(deployEnv, 'CATALOG_READINESS_SERVICES')).toEqual(
       readinessServices()
         .map((entry) => `${entry.serviceId}:${entry.port}`)
+        .sort(),
+    );
+    expect(readShellStringList(deployEnv, 'CATALOG_GATEWAY_RECOMPOSITION_SERVICES')).toEqual(
+      gatewaySubgraphs()
+        .map((entry) => entry.nxProject)
         .sort(),
     );
     expect(generatedTargets).toEqual([...imageBuildTargets()].sort());

@@ -1,0 +1,242 @@
+name: Deploy Development
+
+on:
+  workflow_call:
+    inputs:
+      head_sha:
+        required: true
+        type: string
+      deploy_services:
+        required: true
+        type: string
+      full_deploy:
+        required: true
+        type: boolean
+      migration_required:
+        required: true
+        type: boolean
+      image_digest_manifest:
+        required: true
+        type: string
+      image_prefix:
+        required: true
+        type: string
+      selection_reason:
+        required: true
+        type: string
+    outputs:
+      deployed:
+        value: ${{ jobs.deploy.outputs.performed }}
+      deploy_started_epoch:
+        value: ${{ jobs.capacity-preflight.outputs.deploy_started_epoch }}
+      deploy_finished_epoch:
+        value: ${{ jobs.deploy.outputs.deploy_finished_epoch }}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-development
+  cancel-in-progress: false
+
+jobs:
+  capacity-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      deploy_started_epoch: ${{ steps.timing.outputs.deploy_started_epoch }}
+    steps:
+      - name: Record development deploy start
+        id: timing
+        run: echo "deploy_started_epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.head_sha }}
+
+      - name: Reject a stale main deployment before droplet access
+        env:
+          DEPLOY_SHA: ${{ inputs.head_sha }}
+        run: |
+          set -euo pipefail
+          current_main="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          if [ "$current_main" != "$DEPLOY_SHA" ]; then
+            echo "::error::Refusing stale development deploy: requested=${DEPLOY_SHA} current-main=${current_main}"
+            exit 1
+          fi
+
+      - name: Check selected image contract
+        env:
+          DEPLOY_IMAGE_DIGESTS_B64: ${{ inputs.image_digest_manifest }}
+          DEPLOY_SERVICES: ${{ inputs.deploy_services }}
+          DEPLOY_SHA: ${{ inputs.head_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$DEPLOY_SERVICES" =~ ^[a-z0-9][a-z0-9._-]*(\ [a-z0-9][a-z0-9._-]*)*$ ]]
+          manifest_file="$(mktemp)"
+          trap 'rm -f "$manifest_file"' EXIT
+          printf '%s' "$DEPLOY_IMAGE_DIGESTS_B64" | base64 --decode > "$manifest_file"
+          for service in $DEPLOY_SERVICES; do
+            matches="$(awk -F '\t' -v service="$service" '$1 == service { count += 1 } END { print count + 0 }' "$manifest_file")"
+            if [ "$matches" -ne 1 ]; then
+              echo "::error::Digest manifest must contain exactly one row for ${service}"
+              exit 1
+            fi
+          done
+          while IFS=$'\t' read -r service image digest; do
+            [[ " $DEPLOY_SERVICES " == *" $service "* ]]
+            [[ "$image" =~ ^ghcr\.io/[a-z0-9._/-]+$ ]]
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          done < "$manifest_file"
+
+      - name: Capacity preflight on development droplet
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.0.3
+        env:
+          DEPLOY_SERVICES: ${{ inputs.deploy_services }}
+          FULL_DEPLOY: ${{ inputs.full_deploy }}
+          DEPLOY_SHA: ${{ inputs.head_sha }}
+          IMAGE_PREFIX: ${{ inputs.image_prefix }}
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          command_timeout: 12m
+          envs: DEPLOY_SERVICES,FULL_DEPLOY,DEPLOY_SHA,IMAGE_PREFIX,DEPLOY_CHECKOUT_DIR
+          script: |
+            set -euo pipefail
+            cd /var/aqua-saas
+            git fetch --force --prune origin
+            install -d /var/lib/aqua/deploy
+            git show "${DEPLOY_SHA}:scripts/deploy/deploy-paths.sh" > /var/lib/aqua/deploy/deploy-paths.sh
+            source /var/lib/aqua/deploy/deploy-paths.sh
+            materialize_deploy_checkout "${DEPLOY_SHA}"
+            cd "${DEPLOY_CHECKOUT_DIR}"
+            CAPACITY_GC_MODE=auto bash scripts/deploy/droplet-capacity.sh gate
+
+  deploy:
+    needs: capacity-preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    permissions:
+      contents: write
+      packages: write
+    outputs:
+      performed: ${{ steps.mark.outputs.performed }}
+      deploy_finished_epoch: ${{ steps.mark.outputs.deploy_finished_epoch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.head_sha }}
+
+      - name: Reject a stale main deployment
+        env:
+          DEPLOY_SHA: ${{ inputs.head_sha }}
+        run: |
+          set -euo pipefail
+          current_main="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          if [ "$current_main" != "$DEPLOY_SHA" ]; then
+            echo "::error::Refusing stale development deploy: requested=${DEPLOY_SHA} current-main=${current_main}"
+            exit 1
+          fi
+
+      - name: Deploy selected images to the development droplet
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.0.3
+        env:
+          DEPLOY_IMAGE_DIGESTS_B64: ${{ inputs.image_digest_manifest }}
+          DEPLOY_MODE: development
+          DEPLOY_SERVICES: ${{ inputs.deploy_services }}
+          DEPLOY_SHA: ${{ inputs.head_sha }}
+          FULL_DEPLOY: ${{ inputs.full_deploy }}
+          GHCR_ACTOR: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_PREFIX: ${{ inputs.image_prefix }}
+          RUN_DB_MIGRATE: ${{ inputs.migration_required }}
+          TAG: ${{ inputs.head_sha }}
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          command_timeout: 75m
+          envs: DEPLOY_IMAGE_DIGESTS_B64,DEPLOY_MODE,DEPLOY_SERVICES,DEPLOY_SHA,FULL_DEPLOY,GHCR_ACTOR,GHCR_TOKEN,IMAGE_PREFIX,RUN_DB_MIGRATE,TAG,DEPLOY_CHECKOUT_DIR
+          script: |
+            set -euo pipefail
+            cd /var/aqua-saas
+            git fetch --force --prune origin
+            install -d /var/lib/aqua/deploy
+            git show "${DEPLOY_SHA}:scripts/deploy/deploy-paths.sh" > /var/lib/aqua/deploy/deploy-paths.sh
+            source /var/lib/aqua/deploy/deploy-paths.sh
+            materialize_deploy_checkout "${DEPLOY_SHA}"
+            cd "${DEPLOY_CHECKOUT_DIR}"
+            bash scripts/deploy/droplet-up.sh
+
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - name: Login to GHCR for successful channel promotion
+        env:
+          GHCR_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GHCR_PASSWORD" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Promote verified digests to development-latest
+        env:
+          DEPLOY_IMAGE_DIGESTS_B64: ${{ inputs.image_digest_manifest }}
+        run: |
+          set -euo pipefail
+          manifest_file="$(mktemp)"
+          trap 'rm -f "$manifest_file"' EXIT
+          printf '%s' "$DEPLOY_IMAGE_DIGESTS_B64" | base64 --decode > "$manifest_file"
+          while IFS=$'\t' read -r service image digest; do
+            [[ -n "$service" ]]
+            [[ "$image" =~ ^ghcr\.io/[a-z0-9._/-]+$ ]]
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+            docker buildx imagetools create \
+              --prefer-index=false \
+              --tag "${image}:development-latest" \
+              "${image}@${digest}"
+            promoted_digest="$(docker buildx imagetools inspect \
+              "${image}:development-latest" \
+              --format '{{json .Manifest.Digest}}' | tr -d '"')"
+            if [ "$promoted_digest" != "$digest" ]; then
+              echo "::error::Development channel digest mismatch for ${service}: expected=${digest} actual=${promoted_digest}"
+              exit 1
+            fi
+          done < "$manifest_file"
+
+      - name: Advance successful development baseline
+        env:
+          DEPLOY_SHA: ${{ inputs.head_sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin refs/tags/deployed/development >/dev/null 2>&1; then
+            gh api \
+              --method PATCH \
+              "repos/${GITHUB_REPOSITORY}/git/refs/tags/deployed/development" \
+              -f sha="$DEPLOY_SHA" \
+              -F force=true >/dev/null
+          else
+            gh api \
+              --method POST \
+              "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f ref='refs/tags/deployed/development' \
+              -f sha="$DEPLOY_SHA" >/dev/null
+          fi
+
+      - name: Mark deployment performed
+        id: mark
+        run: |
+          echo 'performed=true' >> "$GITHUB_OUTPUT"
+          echo "deploy_finished_epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Publish development timing summary
+        run: |
+          {
+            echo '### Development deploy'
+            echo ''
+            echo "- SHA: \`${{ inputs.head_sha }}\`"
+            echo "- Services: \`${{ inputs.deploy_services }}\`"
+            echo "- Selection: \`${{ inputs.selection_reason }}\`"
+            echo "- Migration: \`${{ inputs.migration_required }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

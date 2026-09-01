@@ -349,6 +349,7 @@
     "multer": "2.2.0",
     "dompurify": "3.4.14",
     "diff": "8.0.3",
+    "decode-uri-component": "^0.5.0",
     "vite-plugin-dts": {
       "@microsoft/api-extractor": "7.59.0"
     },

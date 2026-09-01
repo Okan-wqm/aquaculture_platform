@@ -1,0 +1,417 @@
+name: Build Selected Images
+
+on:
+  workflow_call:
+    inputs:
+      baseline_ref:
+        description: Immutable base commit/tree resolved by CI
+        required: true
+        type: string
+      head_sha:
+        description: Immutable commit to build
+        required: true
+        type: string
+      requested_services:
+        description: auto, all, or a comma-separated service list
+        required: false
+        type: string
+        default: auto
+      channel:
+        description: Non-production image channel
+        required: true
+        type: string
+      no_cache:
+        description: Disable BuildKit registry cache reads and writes
+        required: false
+        type: boolean
+        default: false
+    outputs:
+      deploy_services:
+        value: ${{ jobs.prepare.outputs.deploy_services }}
+      backend_matrix:
+        value: ${{ jobs.prepare.outputs.backend_matrix }}
+      frontend_matrix:
+        value: ${{ jobs.prepare.outputs.frontend_matrix }}
+      infra_matrix:
+        value: ${{ jobs.prepare.outputs.infra_matrix }}
+      full_deploy:
+        value: ${{ jobs.prepare.outputs.full_deploy }}
+      migration_required:
+        value: ${{ jobs.prepare.outputs.migration_required }}
+      image_digest_manifest:
+        value: ${{ jobs.verify-images.outputs.image_digest_manifest }}
+      image_prefix:
+        value: ${{ jobs.prepare.outputs.image_prefix }}
+      selection_reason:
+        value: ${{ jobs.prepare.outputs.selection_reason }}
+      image_started_epoch:
+        value: ${{ jobs.prepare.outputs.image_started_epoch }}
+      image_finished_epoch:
+        value: ${{ jobs.verify-images.outputs.image_finished_epoch }}
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  NODE_VERSION: '22'
+  REGISTRY: ghcr.io
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      backend_matrix: ${{ steps.scope.outputs.backend_matrix }}
+      backend_services: ${{ steps.scope.outputs.backend_services }}
+      deploy_services: ${{ steps.scope.outputs.deploy_services }}
+      frontend_matrix: ${{ steps.scope.outputs.frontend_matrix }}
+      frontend_projects: ${{ steps.scope.outputs.frontend_projects }}
+      full_deploy: ${{ steps.scope.outputs.full_deploy }}
+      has_backend: ${{ steps.scope.outputs.has_backend }}
+      has_frontend: ${{ steps.scope.outputs.has_frontend }}
+      has_images: ${{ steps.scope.outputs.has_images }}
+      has_infra: ${{ steps.scope.outputs.has_infra }}
+      image_prefix: ${{ steps.registry.outputs.image_prefix }}
+      image_started_epoch: ${{ steps.timing.outputs.image_started_epoch }}
+      infra_matrix: ${{ steps.scope.outputs.infra_matrix }}
+      migration_required: ${{ steps.scope.outputs.migration_required }}
+      nx_frontend_projects: ${{ steps.scope.outputs.nx_frontend_projects }}
+      selection_reason: ${{ steps.scope.outputs.selection_reason }}
+    steps:
+      - name: Record image workflow start
+        id: timing
+        run: echo "image_started_epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.head_sha }}
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install workspace graph dependencies
+        run: npm ci --ignore-scripts --no-audit --prefer-offline
+
+      - name: Resolve registry namespace
+        id: registry
+        run: |
+          set -euo pipefail
+          repository="${GITHUB_REPOSITORY,,}"
+          echo "image_prefix=${REGISTRY}/${repository}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve selected image scope
+        id: scope
+        env:
+          BASELINE_REF: ${{ inputs.baseline_ref }}
+          CHANNEL: ${{ inputs.channel }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          REQUESTED_SERVICES: ${{ inputs.requested_services }}
+        run: |
+          set -euo pipefail
+          node scripts/ci/select-deployment-scope.ts \
+            --repo "$GITHUB_WORKSPACE" \
+            --base-sha "$BASELINE_REF" \
+            --head-sha "$HEAD_SHA" \
+            --requested-services "$REQUESTED_SERVICES" \
+            --channel "$CHANNEL"
+
+      - name: Publish selection summary
+        run: |
+          {
+            echo '### Image selection'
+            echo ''
+            echo "- Range: \`${{ inputs.baseline_ref }}..${{ inputs.head_sha }}\`"
+            echo "- Reason: \`${{ steps.scope.outputs.selection_reason }}\`"
+            echo "- Services: \`${{ steps.scope.outputs.deploy_services || 'none' }}\`"
+            echo "- Full deploy: \`${{ steps.scope.outputs.full_deploy }}\`"
+            echo "- Migration required: \`${{ steps.scope.outputs.migration_required }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build-backend-artifacts:
+    needs: prepare
+    if: needs.prepare.outputs.has_backend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.head_sha }}
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci --ignore-scripts --no-audit --prefer-offline
+
+      - uses: ./.github/actions/install-platform-binaries
+
+      - name: Build selected backend artifacts from source
+        env:
+          BACKEND_SERVICES: ${{ needs.prepare.outputs.backend_services }}
+          NODE_OPTIONS: --max-old-space-size=4096
+          NX_DAEMON: 'false'
+          NX_NO_CLOUD: 'true'
+          NX_SKIP_NX_CACHE: 'true'
+        run: |
+          set -euo pipefail
+          projects="${BACKEND_SERVICES// /,}"
+          node tools/toolchain/run.mjs npx nx run-many \
+            --target=build \
+            --projects="$projects" \
+            --parallel=3
+          node scripts/deploy/verify-backend-dist-provenance.mjs "$projects"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: backend-dist-${{ inputs.head_sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 1
+
+  build-frontend-artifacts:
+    needs: prepare
+    if: needs.prepare.outputs.has_frontend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.head_sha }}
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci --ignore-scripts --no-audit --prefer-offline
+
+      - uses: ./.github/actions/install-platform-binaries
+
+      - name: Build selected Nx frontend artifacts
+        env:
+          FRONTEND_PROJECTS: ${{ needs.prepare.outputs.nx_frontend_projects }}
+          NODE_OPTIONS: --max-old-space-size=4096
+          NX_DAEMON: 'false'
+          NX_NO_CLOUD: 'true'
+        run: |
+          set -euo pipefail
+          if [ -n "$FRONTEND_PROJECTS" ]; then
+            projects="${FRONTEND_PROJECTS// /,}"
+            node tools/toolchain/run.mjs npx nx run-many \
+              --target=build \
+              --projects="$projects" \
+              --parallel=3
+          fi
+          mkdir -p web/.artifact-marker
+          printf '%s\n' "${{ inputs.head_sha }}" > web/.artifact-marker/source-sha
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: frontend-dist-${{ inputs.head_sha }}
+          path: |
+            web/shell/dist/
+            web/modules/*/dist/
+            web/.artifact-marker/
+          if-no-files-found: error
+          retention-days: 1
+
+  build-backend-images:
+    needs: [prepare, build-backend-artifacts]
+    if: needs.prepare.outputs.has_backend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        include: ${{ fromJson(needs.prepare.outputs.backend_matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.head_sha }}
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: backend-dist-${{ inputs.head_sha }}
+          path: dist/
+
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - name: Login to GHCR
+        env:
+          GHCR_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GHCR_PASSWORD" | docker login "$REGISTRY" -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and push ${{ matrix.service }}
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:${{ inputs.head_sha }}
+          build-args: SERVICE_NAME=${{ matrix.service }}
+          no-cache: ${{ inputs.no_cache }}
+          cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:buildcache-${{ inputs.channel }}-v1
+          cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:buildcache-${{ inputs.channel }}-v1,mode=max,ignore-error=true
+
+  build-frontend-images:
+    needs: [prepare, build-frontend-artifacts]
+    if: needs.prepare.outputs.has_frontend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        include: ${{ fromJson(needs.prepare.outputs.frontend_matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.head_sha }}
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: frontend-dist-${{ inputs.head_sha }}
+          path: web/
+
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - name: Login to GHCR
+        env:
+          GHCR_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GHCR_PASSWORD" | docker login "$REGISTRY" -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and push ${{ matrix.module }}
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:${{ inputs.head_sha }}
+          build-args: MODULE_PATH=${{ matrix.module_path }}
+          no-cache: ${{ inputs.no_cache }}
+          cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:buildcache-${{ inputs.channel }}-v1
+          cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:buildcache-${{ inputs.channel }}-v1,mode=max,ignore-error=true
+
+  build-infra-images:
+    needs: prepare
+    if: needs.prepare.outputs.has_infra == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.prepare.outputs.infra_matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.head_sha }}
+
+      - name: Resolve immutable Postgres DR contract digest
+        if: matrix.image == 'postgres'
+        id: postgres_dr_contract
+        run: |
+          set -euo pipefail
+          CONTRACT_MANIFEST=.github/manifests/postgres-dr-contract.sha256
+          test -f "${CONTRACT_MANIFEST}"
+          test ! -L "${CONTRACT_MANIFEST}"
+          EXPECTED_CONTRACT_PATHS=$(printf '%s\n' \
+            infrastructure/docker/Dockerfile.postgres-walg \
+            infrastructure/docker/scripts/postgres-ssl-entrypoint.sh \
+            infrastructure/docker/scripts/postgres-walg-healthcheck.sh \
+            infrastructure/docker/scripts/walg-archive-command.sh \
+            infrastructure/docker/scripts/walg-load-secrets.sh \
+            infrastructure/docker/scripts/walg-restore-command.sh \
+            infrastructure/docker/scripts/walg-runtime-command.sh)
+          ACTUAL_CONTRACT_PATHS=$(awk 'NF == 2 {print $2}' "${CONTRACT_MANIFEST}")
+          test "${ACTUAL_CONTRACT_PATHS}" = "${EXPECTED_CONTRACT_PATHS}"
+          test "$(printf '%s\n' "${ACTUAL_CONTRACT_PATHS}" | sort -u | wc -l)" -eq 7
+          while IFS= read -r CONTRACT_PATH; do
+            test -f "${CONTRACT_PATH}"
+            test ! -L "${CONTRACT_PATH}"
+          done <<< "${ACTUAL_CONTRACT_PATHS}"
+          sha256sum --strict --check "${CONTRACT_MANIFEST}"
+          CONTRACT_SHA256=$(sha256sum --binary "${CONTRACT_MANIFEST}" | awk '{print $1}')
+          [[ "${CONTRACT_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          printf 'sha256=%s\n' "${CONTRACT_SHA256}" >> "${GITHUB_OUTPUT}"
+
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - name: Login to GHCR
+        env:
+          GHCR_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GHCR_PASSWORD" | docker login "$REGISTRY" -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and push ${{ matrix.image }}
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:${{ inputs.head_sha }}
+          build-args: |
+            BUILD_MAIN_SHA=${{ inputs.head_sha }}
+            POSTGRES_DR_CONTRACT_SHA256=${{ steps.postgres_dr_contract.outputs.sha256 }}
+          no-cache: ${{ inputs.no_cache }}
+          cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:buildcache-${{ inputs.channel }}-v1
+          cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:buildcache-${{ inputs.channel }}-v1,mode=max,ignore-error=true
+
+  verify-images:
+    needs: [prepare, build-backend-images, build-frontend-images, build-infra-images]
+    if: >-
+      always() &&
+      needs.prepare.result == 'success' &&
+      needs.prepare.outputs.has_images == 'true' &&
+      (needs.build-backend-images.result == 'success' || needs.build-backend-images.result == 'skipped') &&
+      (needs.build-frontend-images.result == 'success' || needs.build-frontend-images.result == 'skipped') &&
+      (needs.build-infra-images.result == 'success' || needs.build-infra-images.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    outputs:
+      image_digest_manifest: ${{ steps.manifest.outputs.image_digest_manifest }}
+      image_finished_epoch: ${{ steps.manifest.outputs.image_finished_epoch }}
+    steps:
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - name: Login to GHCR
+        env:
+          GHCR_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GHCR_PASSWORD" | docker login "$REGISTRY" -u "${{ github.actor }}" --password-stdin
+
+      - name: Verify immutable image manifests
+        id: manifest
+        env:
+          DEPLOY_SERVICES: ${{ needs.prepare.outputs.deploy_services }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          IMAGE_PREFIX: ${{ needs.prepare.outputs.image_prefix }}
+        run: |
+          set -euo pipefail
+          : > image-digests.tsv
+          for service in $DEPLOY_SERVICES; do
+            image="${IMAGE_PREFIX}/${service}"
+            digest="$(docker buildx imagetools inspect "${image}:${HEAD_SHA}" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+            if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "::error::Missing immutable digest for ${image}:${HEAD_SHA}"
+              exit 1
+            fi
+            printf '%s\t%s\t%s\n' "$service" "$image" "$digest" >> image-digests.tsv
+          done
+          manifest="$(base64 -w0 image-digests.tsv)"
+          echo "image_digest_manifest=$manifest" >> "$GITHUB_OUTPUT"
+          echo "image_finished_epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
+          {
+            echo '### Verified image digests'
+            echo ''
+            echo '```text'
+            cat image-digests.tsv
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

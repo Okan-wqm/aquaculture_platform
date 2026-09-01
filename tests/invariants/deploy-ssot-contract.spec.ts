@@ -122,11 +122,17 @@ describe('deploy SSOT contract', () => {
     };
     const workflow = read('.github/workflows/deploy-digitalocean.yml');
 
-    expect(generated.deploy?.infraImageMatrix).toContainEqual({
-      image: 'postgres',
-      dockerfile: 'infrastructure/docker/Dockerfile.postgres-walg',
-      context: '.',
-    });
+    expect(generated.deploy?.infraImageMatrix).toContainEqual(
+      expect.objectContaining({
+        image: 'postgres',
+        dockerfile: 'infrastructure/docker/Dockerfile.postgres-walg',
+        context: '.',
+        buildInputGlobs: expect.arrayContaining([
+          'infrastructure/docker/Dockerfile.postgres-walg',
+          'infrastructure/docker/scripts/postgres-walg-healthcheck.sh',
+        ]),
+      }),
+    );
     expect(workflow).toContain('data.deploy?.infraImageMatrix');
     expect(workflow).toContain('BUILD_MAIN_SHA=${{ github.sha }}');
     expect(workflow).toContain('POSTGRES_DR_CONTRACT_SHA256=');
@@ -1034,27 +1040,25 @@ describe('deploy SSOT contract', () => {
     }
   });
 
-  it('keeps CI-Affected as the main release orchestrator with explicit deploy mutation proof', () => {
-    // A reusable-workflow caller's `result == success` only proves the called
-    // workflow did not fail. The production deploy workflow keeps an explicit
-    // mutation output and CI-Affected uses that output as the single release
-    // orchestration contract: quality gates -> staging -> production -> proof.
+  it('keeps production locked separately and makes CI-Affected the development orchestrator', () => {
     const deployWorkflow = read('.github/workflows/deploy-digitalocean.yml');
+    const developmentWorkflow = read('.github/workflows/deploy-development.yml');
     const ciAffected = read('.github/workflows/ci-affected.yml');
     expect(deployWorkflow).toContain('deployed:');
     expect(deployWorkflow).toContain("value: ${{ jobs.deploy.outputs.performed == 'true' }}");
     expect(deployWorkflow).toContain('Mark deployment performed');
-    expect(ciAffected).toContain('deploy-staging:');
-    expect(ciAffected).toContain('deploy-production:');
-    expect(ciAffected).toContain('production-post-deploy-verify:');
-    expect(ciAffected).toContain('uses: ./.github/workflows/deploy-staging.yml');
-    expect(ciAffected).toContain('uses: ./.github/workflows/deploy-digitalocean.yml');
-    expect(ciAffected).toContain('uses: ./.github/workflows/production-post-deploy-verify.yml');
-    expect(ciAffected).toContain('services: auto');
-    expect(ciAffected).toContain("needs.deploy-production.outputs.deployed == 'true'");
-    expect(ciAffected).toContain("needs.deploy-staging.result == 'success'");
+    expect(developmentWorkflow).toContain('deployed:');
+    expect(developmentWorkflow).toContain('Mark deployment performed');
+    expect(ciAffected).toContain('build-development-images:');
+    expect(ciAffected).toContain('deploy-development:');
+    expect(ciAffected).toContain('uses: ./.github/workflows/build-images.yml');
+    expect(ciAffected).toContain('uses: ./.github/workflows/deploy-development.yml');
+    expect(ciAffected).not.toContain('uses: ./.github/workflows/deploy-staging.yml');
+    expect(ciAffected).not.toContain('uses: ./.github/workflows/deploy-digitalocean.yml');
     expect(ciAffected).toContain("needs.pre-flight.result == 'success'");
-    expect(ciAffected).toContain("- '.github/workflows/production-post-deploy-verify.yml'");
+    expect(read('scripts/ci/select-deployment-scope.ts')).toContain(
+      "file.startsWith('.github/workflows/')",
+    );
   });
 
   it('verifies SHA images and capacity before SSH mutation', () => {

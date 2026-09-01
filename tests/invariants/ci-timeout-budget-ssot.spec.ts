@@ -191,7 +191,7 @@ describe('CI timeout budgets are hang detectors, not performance budgets', () =>
         'deploy-ssot-gates',
         'security-scan',
         'license-check',
-        'build-status',
+        'full-ci-status',
       ]),
     );
 
@@ -201,7 +201,7 @@ describe('CI timeout budgets are hang detectors, not performance budgets', () =>
   });
 
   it('reports the aggregate verdict without inventing a cause', () => {
-    const script = (job(CI_FULL, 'build-status').steps ?? [])
+    const script = (job(CI_FULL, 'full-ci-status').steps ?? [])
       .map((candidate) => candidate.run ?? '')
       .join('\n');
 

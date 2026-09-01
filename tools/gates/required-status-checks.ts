@@ -19,6 +19,7 @@ interface RequiredStatusChecksManifest {
     checks: RequiredStatusCheck[];
   };
   ci_affected_required_path_filters: string[];
+  sens_specialist_required_path_filters: string[];
   workflow_contracts: WorkflowContract[];
 }
 
@@ -160,6 +161,10 @@ function parseManifest(raw: unknown): RequiredStatusChecksManifest {
       raw.ci_affected_required_path_filters,
       'ci_affected_required_path_filters',
     ),
+    sens_specialist_required_path_filters: requireStringArray(
+      raw.sens_specialist_required_path_filters,
+      'sens_specialist_required_path_filters',
+    ),
     workflow_contracts: requireRecordArray(raw.workflow_contracts, 'workflow_contracts').map(
       parseWorkflowContract,
     ),
@@ -200,6 +205,35 @@ function missingValues(expected: string[], actual: string[]): string[] {
 function unexpectedValues(expected: string[], actual: string[]): string[] {
   const expectedSet = new Set(expected);
   return actual.filter((value) => !expectedSet.has(value));
+}
+
+function representativePathForFilter(filter: string): string {
+  return filter.replaceAll('**', 'README.md').replaceAll('*', 'README.md');
+}
+
+interface SelectorExecutionResult {
+  readonly status: number | null;
+  readonly stderr: string;
+}
+
+function selectorFailureDetails(
+  result: SelectorExecutionResult,
+  representativePath: string,
+): string {
+  const stderr = result.stderr.trim() || '<empty>';
+  return `representative=${representativePath} exit=${String(result.status)} stderr=${stderr}`;
+}
+
+function observedSpecialistFlags(selected: {
+  rustChecksRequired?: boolean;
+  sensorChecksRequired?: boolean;
+  validationRequired?: boolean;
+}): string {
+  return [
+    `validationRequired=${String(selected.validationRequired)}`,
+    `sensorChecksRequired=${String(selected.sensorChecksRequired)}`,
+    `rustChecksRequired=${String(selected.rustChecksRequired)}`,
+  ].join(', ');
 }
 
 function checkStaticContract(manifest: RequiredStatusChecksManifest): string[] {
@@ -245,15 +279,111 @@ function checkStaticContract(manifest: RequiredStatusChecksManifest): string[] {
   if (manifestChecks.some((check) => !Number.isInteger(check.app_id) || check.app_id <= 0)) {
     errors.push('required_status_checks.checks app_id values must be positive integers');
   }
+  for (const filter of missingValues(
+    manifest.sens_specialist_required_path_filters,
+    manifest.ci_affected_required_path_filters,
+  )) {
+    errors.push(
+      `sens_specialist_required_path_filters must be a subset of ci_affected_required_path_filters: ${filter}`,
+    );
+  }
 
   const ciAffectedPath = '.github/workflows/ci-affected.yml';
   const ciAffected = readFileSync(join(REPO_ROOT, ciAffectedPath), 'utf8');
-  if (!ciAffected.includes('pull_request:') || !ciAffected.includes('branches: [main, develop]')) {
+  if (!/\n {2}pull_request:\n {4}branches: \[[^\]]*\bmain\b[^\]]*\]/u.test(ciAffected)) {
     errors.push(`${ciAffectedPath} must run on pull_request to main`);
   }
+  const selectorPath = 'scripts/ci/select-deployment-scope.ts';
+  const selectorInvocation = `node ${selectorPath}`;
+  const detectChangesJob = workflowJobBlock(ciAffected, 'detect-changes');
+  if (detectChangesJob === null || !detectChangesJob.includes(selectorInvocation)) {
+    errors.push(`${ciAffectedPath} must resolve validation through ${selectorPath}`);
+  }
+  if (
+    detectChangesJob === null ||
+    !detectChangesJob.includes(
+      'VALIDATION_REQUIRED: ${{ steps.scope.outputs.validation_required }}',
+    ) ||
+    !detectChangesJob.includes('echo "has_changes=$VALIDATION_REQUIRED" >> "$GITHUB_OUTPUT"')
+  ) {
+    errors.push(`${ciAffectedPath} must gate affected validation on selector output`);
+  }
   for (const filter of manifest.ci_affected_required_path_filters) {
-    if (!ciAffected.includes(`'${filter}'`) && !ciAffected.includes(`"${filter}"`)) {
-      errors.push(`${ciAffectedPath} deploy-config filter missing ${filter}`);
+    const representativePath = representativePathForFilter(filter);
+    const result = spawnSync(
+      process.execPath,
+      [
+        join(REPO_ROOT, selectorPath),
+        '--repo',
+        REPO_ROOT,
+        '--requested-services',
+        'auto',
+        '--channel',
+        'development',
+        '--changed-files-json',
+        JSON.stringify([representativePath]),
+        '--affected-projects-json',
+        '[]',
+      ],
+      { cwd: REPO_ROOT, encoding: 'utf8' },
+    );
+    if (result.status !== 0) {
+      errors.push(
+        `${selectorPath} failed required path contract ${filter}: ${selectorFailureDetails(result, representativePath)}`,
+      );
+      continue;
+    }
+    try {
+      const selected = JSON.parse(result.stdout) as { validationRequired?: boolean };
+      if (selected.validationRequired !== true) {
+        errors.push(`${selectorPath} does not validate required path ${filter}`);
+      }
+    } catch {
+      errors.push(`${selectorPath} returned invalid JSON for required path ${filter}`);
+    }
+  }
+  for (const filter of manifest.sens_specialist_required_path_filters) {
+    const representativePath = representativePathForFilter(filter);
+    const result = spawnSync(
+      process.execPath,
+      [
+        join(REPO_ROOT, selectorPath),
+        '--repo',
+        REPO_ROOT,
+        '--requested-services',
+        'auto',
+        '--channel',
+        'development',
+        '--changed-files-json',
+        JSON.stringify([representativePath]),
+        '--affected-projects-json',
+        '[]',
+      ],
+      { cwd: REPO_ROOT, encoding: 'utf8' },
+    );
+    if (result.status !== 0) {
+      errors.push(
+        `${selectorPath} failed Sens specialist path contract ${filter}: ${selectorFailureDetails(result, representativePath)}`,
+      );
+      continue;
+    }
+    try {
+      const selected = JSON.parse(result.stdout) as {
+        rustChecksRequired?: boolean;
+        sensorChecksRequired?: boolean;
+        validationRequired?: boolean;
+      };
+      if (
+        selected.validationRequired !== true ||
+        selected.sensorChecksRequired !== true ||
+        selected.rustChecksRequired !== true
+      ) {
+        errors.push(
+          `${selectorPath} does not require both Sens specialists for ${filter}: representative=${representativePath} observed ${observedSpecialistFlags(selected)}`,
+        );
+      }
+    } catch {
+      errors.push(`${selectorPath} returned invalid JSON for Sens specialist path ${filter}`);
     }
   }
 

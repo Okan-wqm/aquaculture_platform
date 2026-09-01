@@ -15,10 +15,10 @@ const {
   PLATFORM_SERVICE_CATALOG,
   activeDropletServices,
   backendImageBuildTargets,
+  frontendImageBuildMatrix,
   frontendImageBuildTargets,
   frontendPrebuildPlan,
   gatewaySubgraphs,
-  getServiceCatalogEntry,
   imageBuildTargets,
   infraImageBuildMatrix,
   infraImageBuildTargets,
@@ -39,7 +39,7 @@ const {
 const REPO_ROOT = resolve(process.cwd());
 const CATALOG_PATH = 'platform/libs/service-catalog/src/index.ts';
 const GENERATOR_PATH = 'scripts/service-catalog/generate-artifacts.ts';
-const GENERATOR_VERSION = 3;
+const GENERATOR_VERSION = 4;
 
 interface Artifact {
   path: string;
@@ -115,22 +115,6 @@ function shellQuote(value: string): string {
 
 function shellAssignment(name: string, values: readonly string[]): string {
   return `${name}=${shellQuote(values.join(' '))}`;
-}
-
-function frontendModulePath(serviceId: string): string {
-  // Catalog entry is the SSOT for module paths (INFRA-HIGH-005: the old
-  // per-script convention diverged from the npm-workspace reality).
-  const modulePath = getServiceCatalogEntry(serviceId)?.modulePath;
-  if (!modulePath) {
-    throw new Error(`No catalog modulePath for frontend service ${serviceId}`);
-  }
-  return modulePath;
-}
-
-function frontendDockerfile(serviceId: string): string {
-  if (serviceId === 'shell') return 'infrastructure/docker/Dockerfile.shell';
-  if (serviceId === 'aquamobil') return 'infrastructure/docker/Dockerfile.aquamobil';
-  return 'infrastructure/docker/Dockerfile.microfrontend.simple';
 }
 
 function signalEmitterSources(key: string): readonly string[] {
@@ -310,6 +294,7 @@ function catalogDeployEnvArtifact(): Artifact {
   const nxFrontend = prebuild.nxProjects;
   const nonNxFrontend = prebuild.workspaceModules.map((entry) => entry.module);
   const readySpecs = readinessServices().map((entry) => `${entry.serviceId}:${entry.port}`);
+  const gatewayRecompositionServices = gatewaySubgraphs().map((entry) => entry.nxProject);
 
   return {
     path: 'infrastructure/deploy/service-catalog.deploy.vars',
@@ -319,6 +304,7 @@ ${shellAssignment('CATALOG_FRONTEND_IMAGE_SERVICES', frontendTargets)}
 ${shellAssignment('CATALOG_INFRA_IMAGE_SERVICES', [...infraImageBuildTargets()])}
 ${shellAssignment('CATALOG_APPLICATION_IMAGE_SERVICES', [...imageBuildTargets()])}
 ${shellAssignment('CATALOG_SERVICE_DB_ROLE_PREFIXES', [...serviceDbRolePrefixes()])}
+${shellAssignment('CATALOG_GATEWAY_RECOMPOSITION_SERVICES', gatewayRecompositionServices)}
 ${shellAssignment('CATALOG_NX_FRONTEND_PROJECTS', nxFrontend)}
 ${shellAssignment('CATALOG_NON_NX_FRONTEND_PROJECTS', nonNxFrontend)}
 ${shellAssignment('CATALOG_READINESS_SERVICES', readySpecs)}
@@ -355,10 +341,12 @@ function catalogGeneratedArtifact(): Artifact {
         // never from a `web/modules/${mod}` convention (INFRA-HIGH-005).
         nonNxFrontendBuild: prebuild.workspaceModules,
         readinessServices: readinessServices(),
-        frontendImageMatrix: frontendTargets.map((target) => ({
-          module: target,
-          dockerfile: frontendDockerfile(target),
-          module_path: frontendModulePath(target),
+        frontendImageMatrix: frontendImageBuildMatrix().map((entry) => ({
+          module: entry.module,
+          dockerfile: entry.dockerfile,
+          module_path: entry.modulePath,
+          nx_project: entry.nxProject,
+          buildInputGlobs: entry.buildInputGlobs,
         })),
         infraImageMatrix: infraImageBuildMatrix(),
       },

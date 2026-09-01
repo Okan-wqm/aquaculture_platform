@@ -18,7 +18,7 @@ fails on pre-fix code.
 
 ## Execution map (as verified 2026-09-01)
 
-```
+```text
 nightly  aria-auto-cycle ── restore ── autonomy run ── publish ──┐
 ~40min   aria-agent-executor ── restore ─ agent step ─ publish ──┤── aria/state (fast-forward-only)
 daily    aria-state-maintenance ── compact JSONL + strip hot ────┤   (self-inconsistent since 08-31, see F1)

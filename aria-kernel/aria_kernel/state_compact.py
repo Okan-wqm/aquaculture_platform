@@ -17,6 +17,7 @@ so nothing is lost. Ledgers are re-chained via rewrite_declared_jsonl.
 """
 from __future__ import annotations
 
+import copy
 import gzip
 import json
 import os
@@ -102,23 +103,36 @@ def _surface_path(root: Path, surface: str) -> Path:
 def _compact_runs(path: Path, root: Path, cutoff: datetime, dry_run: bool) -> tuple[int, int]:
     rows = load_declared_jsonl(path, expected_surface="runs")
     kept: list[dict[str, Any]] = []
+    stripped_rows: list[dict[str, Any]] = []
     stripped = 0
     for row in rows:
         recorded = _parse_ts(row.get("recorded_at"))
         if recorded is not None and recorded < cutoff:
+            will_strip = False
             ev = row.get("evidence_validation")
+            if isinstance(ev, dict) and isinstance(ev.get("evidence_envelopes"), list):
+                will_strip = True
+            rp = row.get("read_paths")
+            if isinstance(rp, list) and len(rp) > 20:
+                will_strip = True
+            if will_strip:
+                # The archive must carry the row as it was BEFORE slimming.
+                # `row` is mutated in place below and `kept.append(row)`
+                # aliases it, so any shallow copy taken after the first
+                # mutation archives the slimmed row — the loss the
+                # "nothing is lost" contract exists to prevent.
+                stripped_rows.append(copy.deepcopy(row))
             if isinstance(ev, dict) and isinstance(ev.get("evidence_envelopes"), list):
                 envelopes = ev.pop("evidence_envelopes")
                 ev["evidence_envelope_count"] = len(envelopes)
                 stripped += 1
-            rp = row.get("read_paths")
             if isinstance(rp, list) and len(rp) > 20:
                 row["read_paths_count"] = len(rp)
                 row["read_paths"] = rp[:5]
         kept.append(row)
     if dry_run or stripped == 0:
         return len(kept), stripped
-    _archive_stripped(root, "runs", rows, kept)
+    _archive_stripped(root, "runs", stripped_rows)
     rewrite_declared_jsonl(path, kept, expected_surface="runs", migration_id=f"compact_runs_{utc_now()}")
     return len(kept), stripped
 
@@ -126,10 +140,12 @@ def _compact_runs(path: Path, root: Path, cutoff: datetime, dry_run: bool) -> tu
 def _compact_raw_findings(path: Path, root: Path, cutoff: datetime, dry_run: bool) -> tuple[int, int]:
     rows = load_declared_jsonl(path, expected_surface="raw_findings")
     kept: list[dict[str, Any]] = []
+    stripped_rows: list[dict[str, Any]] = []
     stripped = 0
     for row in rows:
         recorded = _parse_ts(row.get("recorded_at"))
         if recorded is not None and recorded < cutoff and "finding" in row:
+            stripped_rows.append(copy.deepcopy(row))
             finding = row.pop("finding")
             if "finding_summary" not in row and isinstance(finding, dict):
                 row["finding_summary"] = {
@@ -140,7 +156,7 @@ def _compact_raw_findings(path: Path, root: Path, cutoff: datetime, dry_run: boo
         kept.append(row)
     if dry_run or stripped == 0:
         return len(kept), stripped
-    _archive_stripped(root, "raw_findings", rows, kept)
+    _archive_stripped(root, "raw_findings", stripped_rows)
     rewrite_declared_jsonl(path, kept, expected_surface="raw_findings", migration_id=f"compact_raw_findings_{utc_now()}")
     return len(kept), stripped
 
@@ -156,7 +172,8 @@ def _compact_beliefs(path: Path, root: Path, cutoff: datetime, dry_run: bool) ->
     stripped = len(rows) - len(kept)
     if dry_run or stripped == 0:
         return len(kept), stripped
-    _archive_stripped(root, "beliefs", rows, kept)
+    kept_ids = {id(k) for k in kept}
+    _archive_stripped(root, "beliefs", [r for r in rows if id(r) not in kept_ids])
     rewrite_declared_jsonl(path, kept, expected_surface="memory_beliefs", migration_id=f"compact_beliefs_{utc_now()}")
     return len(kept), stripped
 
@@ -167,18 +184,28 @@ def _compact_learning_events(path: Path, root: Path, cutoff: datetime, dry_run: 
     stripped = len(rows) - len(kept)
     if dry_run or stripped == 0:
         return len(kept), stripped
-    _archive_stripped(root, "learning_events", rows, kept)
+    kept_ids = {id(k) for k in kept}
+    _archive_stripped(root, "learning_events", [r for r in rows if id(r) not in kept_ids])
     rewrite_declared_jsonl(path, kept, expected_surface="memory_learning_events", migration_id=f"compact_learning_{utc_now()}")
     return len(kept), stripped
 
 
-def _archive_stripped(root: Path, surface: str, original: list[dict[str, Any]], kept: list[dict[str, Any]]) -> None:
+def _archive_stripped(root: Path, surface: str, stripped_rows: list[dict[str, Any]]) -> None:
+    """Archive exactly the rows compaction removed or slimmed, pristine.
+
+    The archive is the "nothing is lost" half of the compaction contract:
+    every row it receives must carry the data the live ledger lost. That
+    is why callers pass pre-mutation copies for in-place slimming (runs,
+    raw_findings) and the untouched dropped rows for whole-row removal
+    (beliefs, learning_events) — never a list that aliases `kept`, whose
+    rows were slimmed before this function could see them.
+    """
     archive_dir = root / "archives"
     archive_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     archive_path = archive_dir / f"{surface}-compact-{timestamp}.jsonl.gz"
     with gzip.open(archive_path, "wt", encoding="utf-8") as fh:
-        for row in original:
+        for row in stripped_rows:
             fh.write(json.dumps(row, sort_keys=True) + "\n")
 
 

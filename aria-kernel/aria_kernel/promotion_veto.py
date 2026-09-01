@@ -372,6 +372,43 @@ def compute_panel_approval_token(
     return hmac.new(_derive_workspace_key(root), payload, hashlib.sha256).hexdigest()
 
 
+def verify_panel_approval_token(
+    token: str | None,
+    *,
+    tool_id: str,
+    base_dir: str | Path | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any] | None:
+    """Consume-time verification of the panel approval token.
+
+    Mirrors ``adapter_calibration.verify_auto_promote_token`` (which closed
+    the same class of hole for the auto-promote lane, ORPHAN-HIGH-787).
+    ``transition_tool`` sees caller input: a truthy-but-forged string is
+    indistinguishable from authority unless the MAC is checked where the
+    token is CONSUMED. Re-deriving through ``compute_panel_approval_token``
+    re-runs every mint-side legitimacy gate — kernel scope, a real panel
+    adjudication, a readable veto deadline, an elapsed veto window — so a
+    token that verifies is a token whose promotion is STILL legitimate at
+    consume time, not merely one that was legitimate when minted.
+
+    Returns the authenticated pending-promotion row, or None for ANY of:
+    a non-string token, an ineligible-or-withdrawn promotion, or a MAC that
+    does not match this workspace's key. Like the auto-promote verifier, no
+    error message distinguishes the failure modes: a forged token must not
+    learn which check it failed.
+    """
+    if not isinstance(token, str):
+        return None
+    try:
+        expected = compute_panel_approval_token(tool_id=tool_id, base_dir=base_dir, now=now)
+    except PanelApprovalIneligibleError:
+        return None
+    if not hmac.compare_digest(expected, token):
+        return None
+    root = ensure_tools_dir(base_dir)
+    return pending_promotion(tool_id=tool_id, base_dir=root)
+
+
 def settle_pending_promotions(
     *,
     cycle_id: str | None = None,
@@ -498,6 +535,7 @@ __all__ = [
     "VETO_WINDOW_HOURS",
     "PanelApprovalIneligibleError",
     "compute_panel_approval_token",
+    "verify_panel_approval_token",
     "pending_promotion",
     "record_pending_promotion",
     "resolve_panel_approval",

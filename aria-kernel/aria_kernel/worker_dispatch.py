@@ -390,6 +390,7 @@ def prune_worktrees(
     rows = load_jsonl(root / "dispatch" / "requests.jsonl")
     states = _latest_assignment_states(root)
     moment = now or datetime.now(timezone.utc)
+    repo_resolved = repo.resolve()
     pruned: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     for row in rows:
@@ -412,12 +413,34 @@ def prune_worktrees(
         worktree_path = Path(worktree_rel)
         if not worktree_path.is_absolute():
             worktree_path = repo / worktree_rel
-        if not worktree_path.exists():
+        # The dispatch ledger is agent-driven state; the prune path treats
+        # its rows as untrusted input. A row whose worktree_path resolves
+        # outside the repository root — or to the root itself — names
+        # something that is not a worktree of this workspace, and
+        # --acknowledge acknowledges pruning WORKTREES, not whatever an
+        # absolute path in a ledger row happens to name. Refuse, record,
+        # never remove.
+        try:
+            resolved_worktree = worktree_path.resolve()
+        except OSError:
+            resolved_worktree = None
+        if (
+            resolved_worktree is None
+            or resolved_worktree == repo_resolved
+            or not resolved_worktree.is_relative_to(repo_resolved)
+        ):
+            skipped.append({
+                "assignment_id": assignment_id,
+                "reason": "worktree_outside_repo",
+                "path": str(worktree_rel),
+            })
+            continue
+        if not resolved_worktree.exists():
             skipped.append({"assignment_id": assignment_id, "reason": "worktree_missing"})
             continue
         try:
             subprocess.run(
-                ["git", "worktree", "remove", "--force", str(worktree_path)],
+                ["git", "worktree", "remove", "--force", str(resolved_worktree)],
                 cwd=repo,
                 text=True,
                 capture_output=True,
@@ -425,8 +448,8 @@ def prune_worktrees(
             )
         except OSError:
             pass
-        if worktree_path.exists():
-            shutil.rmtree(worktree_path, ignore_errors=True)
+        if resolved_worktree.exists():
+            shutil.rmtree(resolved_worktree, ignore_errors=True)
         event = append_tools_governance(
             root,
             "worktree_pruned",

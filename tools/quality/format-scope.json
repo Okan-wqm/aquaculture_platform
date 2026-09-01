@@ -31814,6 +31814,84 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/FINDING-COVERAGE.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/phases/P01.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/phases/P02.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/phases/P03.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/phases/P04.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/phases/P05.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/phases/P06.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/phases/P07.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/phases/P08.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/phases/P09.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/PLAN.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/PROGRESS.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/progress/evidence/D0-plan-materialization.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/plans/multi-agent-architecture.md",
       "prettier_managed": true
     },
@@ -35748,6 +35826,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/superpowers/specs/2026-08-28-aria-operational-proof-continuity-design.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/superpowers/specs/2026-09-01-new-aria-autonomous-engineering-design.md",
       "prettier_managed": true
     },
     {

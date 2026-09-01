@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from .confidence import confidence_in_unit_interval
 from .ledger import append_declared_jsonl, append_jsonl as append_chained_jsonl
 from .ledger import load_jsonl as load_chained_jsonl
 from .ledger import rewrite_jsonl as rewrite_chained_jsonl
@@ -516,8 +517,11 @@ def record_operator_feedback(
         raise GovernanceError("affected_belief_ids must be an array of non-empty strings")
     if evidence_refs is not None and not _valid_string_list(evidence_refs):
         raise GovernanceError("evidence_refs must be an array of non-empty strings")
-    if confidence is not None and (not isinstance(confidence, (int, float)) or confidence < 0 or confidence > 1):
-        raise GovernanceError("confidence must be between 0 and 1")
+    # One gate for the whole number semantics: isinstance lets bool and
+    # NaN through (nan < 0 and nan > 1 are both False), and those must be
+    # refusals, not probabilities.
+    if confidence is not None and confidence_in_unit_interval(confidence) is None:
+        raise GovernanceError("confidence must be a finite number between 0 and 1")
     if source_type != "human" and (not judge_id or not judge_id.strip()):
         raise GovernanceError("AI feedback requires judge_id")
     for _name, _value in (("judge_count", judge_count), ("judges_voted", judges_voted)):
@@ -836,8 +840,8 @@ def generate_ai_consensus(
         # the mean; a group with NO numeric confidence at all escalates under
         # its own name instead of masquerading as low confidence.
         confidences = [
-            float(row["confidence"]) for row in agreeing
-            if isinstance(row.get("confidence"), (int, float))
+            gated for row in agreeing
+            if (gated := confidence_in_unit_interval(row.get("confidence"))) is not None
         ]
         if not confidences:
             uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "missing_confidence"))

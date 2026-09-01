@@ -20,6 +20,7 @@ from __future__ import annotations
 import gzip
 import json
 import os
+import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -74,6 +75,15 @@ def compact_state(
             "stripped_rows": stripped_rows,
         }
 
+    # Non-ledger surfaces the maintenance lane historically stripped in a
+    # workflow-inline copy of this compactor. That copy diverged (silent
+    # skip of malformed lines, rewrites without re-chaining) and was
+    # retired; the cleanup moved HERE so one implementation serves both
+    # the CLI and the lane (ARIA-AUDIT-001).
+    now = datetime.now(timezone.utc)
+    results["hot_artifacts_removed"] = _strip_hot_artifacts(root, cutoff, dry_run)
+    results["fates_removed"] = _strip_discovery_fates(root, now, dry_run)
+
     if not dry_run:
         append_tools_governance(
             root,
@@ -97,6 +107,70 @@ def _surface_path(root: Path, surface: str) -> Path:
         "learning_events": root / "memory" / "learning-events.jsonl",
     }
     return mapping[surface]
+
+
+# Discovery FATES age out on a fixed 30-day clock, independent of
+# --retain-days: they are per-run scratch, and the maintenance contract
+# this kernelized never tied them to the ledger retention window.
+DISCOVERY_FATES_RETAIN_DAYS = 30
+
+
+def _cycle_timestamp(name: str) -> datetime | None:
+    """Parse the UTC stamp out of a hot-artifact cycle directory name.
+
+    Cycle IDs carry their own clock: ``cyc-20260822T153253Z-auto``.
+    """
+    if not name.startswith("cyc-"):
+        return None
+    try:
+        return datetime.strptime(name[4:19], "%Y%m%dT%H%M%S").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def _strip_hot_artifacts(root: Path, cutoff: datetime, dry_run: bool) -> int:
+    """Remove hot-artifact cycle directories older than the cutoff.
+
+    The single biggest state-branch contributor (old cycles'
+    tool_run.json files). A name that does not carry a parseable cycle
+    stamp falls back to mtime, matching the retired workflow contract.
+    """
+    hot = root / "run-artifacts" / "hot"
+    if not hot.is_dir():
+        return 0
+    removed = 0
+    for item in sorted(hot.iterdir()):
+        if not item.is_dir():
+            continue
+        stamp = _cycle_timestamp(item.name)
+        if stamp is None:
+            try:
+                stamp = datetime.fromtimestamp(item.stat().st_mtime, tz=timezone.utc)
+            except OSError:
+                continue
+        if stamp < cutoff:
+            if not dry_run:
+                shutil.rmtree(item, ignore_errors=True)
+            removed += 1
+    return removed
+
+
+def _strip_discovery_fates(root: Path, now: datetime, dry_run: bool) -> int:
+    """Remove discovery FATES.json files older than the fixed 30-day clock."""
+    cutoff = now - timedelta(days=DISCOVERY_FATES_RETAIN_DAYS)
+    disc = root / "discovery"
+    if not disc.is_dir():
+        return 0
+    removed = 0
+    for fates in sorted(disc.rglob("FATES.json")):
+        try:
+            if datetime.fromtimestamp(fates.stat().st_mtime, tz=timezone.utc) < cutoff:
+                if not dry_run:
+                    fates.unlink()
+                removed += 1
+        except OSError:
+            continue
+    return removed
 
 
 def _compact_runs(path: Path, root: Path, cutoff: datetime, dry_run: bool) -> tuple[int, int]:

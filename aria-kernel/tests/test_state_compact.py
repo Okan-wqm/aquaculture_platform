@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import os
 import shutil
 import tempfile
 import unittest
@@ -193,6 +194,52 @@ class StateCompactTests(unittest.TestCase):
         events = load_jsonl(self.tools / "governance.jsonl")
         compact_events = [e for e in events if e.get("kind") == "state_compacted"]
         self.assertEqual(len(compact_events), 1)
+
+    def _seed_hot_artifacts(self) -> None:
+        hot = self.tools / "run-artifacts" / "hot"
+        old_stamp = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y%m%dT%H%M%SZ")
+        new_stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        for name in (f"cyc-{old_stamp}-auto", f"cyc-{new_stamp}-auto", "not-a-cycle-dir"):
+            cycle = hot / name
+            cycle.mkdir(parents=True, exist_ok=True)
+            (cycle / "tool_run.json").write_text("{}", encoding="utf-8")
+        # The non-cycle directory has no name stamp: its mtime decides.
+        stale = hot / "not-a-cycle-dir"
+        old_ts = (datetime.now(timezone.utc) - timedelta(days=30)).timestamp()
+        os.utime(stale, (old_ts, old_ts))
+
+    def test_hot_artifacts_older_than_retain_removed_newer_kept(self) -> None:
+        self._seed_hot_artifacts()
+        result = compact_state(base_dir=self.tools, retain_days=7)
+        hot = self.tools / "run-artifacts" / "hot"
+        self.assertEqual(result["hot_artifacts_removed"], 2)
+        remaining = sorted(p.name for p in hot.iterdir())
+        self.assertTrue(any(n.startswith("cyc-") and n != "not-a-cycle-dir" for n in remaining))
+        self.assertNotIn("not-a-cycle-dir", remaining)
+
+    def test_discovery_fates_older_than_thirty_days_removed(self) -> None:
+        fates = self.tools / "discovery" / "cyc-x"
+        fates.mkdir(parents=True, exist_ok=True)
+        target = fates / "FATES.json"
+        target.write_text("{}", encoding="utf-8")
+        old_ts = (datetime.now(timezone.utc) - timedelta(days=31)).timestamp()
+        os.utime(target, (old_ts, old_ts))
+        fresh = self.tools / "discovery" / "cyc-y" / "FATES.json"
+        fresh.parent.mkdir(parents=True, exist_ok=True)
+        fresh.write_text("{}", encoding="utf-8")
+
+        result = compact_state(base_dir=self.tools, retain_days=7)
+
+        self.assertEqual(result["fates_removed"], 1)
+        self.assertFalse(target.exists())
+        self.assertTrue(fresh.exists())
+
+    def test_dry_run_removes_no_hot_artifacts_or_fates(self) -> None:
+        self._seed_hot_artifacts()
+        result = compact_state(base_dir=self.tools, retain_days=7, dry_run=True)
+        self.assertEqual(result["hot_artifacts_removed"], 2)
+        hot = self.tools / "run-artifacts" / "hot"
+        self.assertEqual(len(list(hot.iterdir())), 3)
 
 
 if __name__ == "__main__":

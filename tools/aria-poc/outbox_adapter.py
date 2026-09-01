@@ -185,11 +185,17 @@ def scan(repo_root: Path, allowed_paths: Iterable[str] | None = None) -> dict:
     """
     findings: list[dict] = []
     read_paths: list[str] = []
+    unreadable: list[str] = []
     for path in _iter_files(repo_root, allowed_paths):
         rel = path.relative_to(repo_root).as_posix()
         try:
             content = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
+            # An in-scope source that cannot be read is not invisible: the
+            # scan's coverage has a hole, and a "clean" verdict over a
+            # partial scan is exactly the fail-open the audit reproduced.
+            # Counted, surfaced, and the envelope reports incomplete.
+            unreadable.append(rel)
             continue
         read_paths.append(rel)
         if not _PUBLISH_RE.search(content):
@@ -208,7 +214,7 @@ def scan(repo_root: Path, allowed_paths: Iterable[str] | None = None) -> dict:
                 "ref": rel,
                 "severity": "MEDIUM",
             })
-    return {
+    envelope = {
         "observations": [],
         "findings": findings,
         "read_paths": read_paths[:200],
@@ -220,6 +226,11 @@ def scan(repo_root: Path, allowed_paths: Iterable[str] | None = None) -> dict:
             "finding_count": len(findings),
         },
     }
+    if unreadable:
+        envelope["status"] = "incomplete"
+        envelope["metadata"]["unreadable_file_count"] = len(unreadable)
+        envelope["metadata"]["unreadable_paths"] = unreadable[:50]
+    return envelope
 
 
 def _allowed_paths_from_stdin(payload: object) -> list[str] | None:

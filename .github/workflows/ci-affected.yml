@@ -450,8 +450,7 @@ jobs:
             exit 0
           fi
 
-          FILES_ARG="$(printf '%s\n' "$AFFECTED_FILES" | paste -sd, -)"
-          AFFECTED_TEST_PROJECTS="$(node tools/toolchain/run.mjs npx nx show projects --affected --files="$FILES_ARG" --with-target=test)"
+          AFFECTED_TEST_PROJECTS="$(node tools/toolchain/run.mjs npx nx show projects --affected --base="$BASE_REF" --head="$HEAD_REF" --with-target=test)"
 
           if printf '%s\n' "$AFFECTED_TEST_PROJECTS" | grep -Fxq 'migration-harness'; then
             # Image prewarm happens in the dedicated dependency-aware step

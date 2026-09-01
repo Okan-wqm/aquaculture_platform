@@ -58,9 +58,7 @@ function isLintedTypeScriptFile(file) {
   return (
     /\.(?:ts|tsx)$/.test(file) &&
     !/\.d\.ts$/.test(file) &&
-    !/^apps\/[^/]+\/src\/database\/migrations\/[0-9]{13}-Baseline\.ts$/.test(
-      file,
-    )
+    !/^apps\/[^/]+\/src\/database\/migrations\/[0-9]{13}-Baseline\.ts$/.test(file)
   );
 }
 
@@ -82,7 +80,9 @@ function changedTypeScriptFiles() {
     'diff',
     '--name-status',
     '--diff-filter=ACMR',
-    `${options.base}...${options.head}`,
+    options.base,
+    options.head,
+    '--',
   ])
     .split('\n')
     .map((line) => line.trim())
@@ -129,10 +129,7 @@ function runEslintChunk(cwd, files, label) {
   const outputPath = join(outputDir, 'eslint-results.json');
   const { command, prefixArgs } = eslintCommand();
   const pluginResolverArgs = process.env.ESLINT_RESOLVE_PLUGINS_RELATIVE_TO
-    ? [
-        '--resolve-plugins-relative-to',
-        process.env.ESLINT_RESOLVE_PLUGINS_RELATIVE_TO,
-      ]
+    ? ['--resolve-plugins-relative-to', process.env.ESLINT_RESOLVE_PLUGINS_RELATIVE_TO]
     : [];
   const result = spawnSync(
     command,
@@ -192,9 +189,7 @@ function runEslintChunk(cwd, files, label) {
     if (result.stdout) process.stdout.write(result.stdout);
     if (result.stderr) process.stderr.write(result.stderr);
     const message = error instanceof Error ? error.message : String(error);
-    console.error(
-      `lint-changed-files: failed to parse ESLint JSON for ${label}: ${message}`,
-    );
+    console.error(`lint-changed-files: failed to parse ESLint JSON for ${label}: ${message}`);
     process.exit(result.status ?? 1);
   }
 }
@@ -281,12 +276,9 @@ function severityLabel(severity) {
 }
 
 function problemKey(problem) {
-  return [
-    problem.comparePath,
-    String(problem.severity),
-    problem.ruleId,
-    problem.message,
-  ].join('\0');
+  return [problem.comparePath, String(problem.severity), problem.ruleId, problem.message].join(
+    '\0',
+  );
 }
 
 function countProblems(results, cwd, comparePathFor) {
@@ -466,11 +458,7 @@ try {
 
   const baseResults = runEslint(worktree, baseFiles, options.base);
   const baseCounts = countProblems(baseResults, worktree, (path) => path);
-  const headCounts = countProblems(
-    headResults,
-    repoRoot,
-    (path) => headToBase.get(path) ?? path,
-  );
+  const headCounts = countProblems(headResults, repoRoot, (path) => headToBase.get(path) ?? path);
 
   const regressions = [];
 
@@ -496,18 +484,9 @@ try {
     base: options.base,
     head: options.head,
     changedFileCount: changedFiles.length,
-    currentFindingCount: [...headCounts.values()].reduce(
-      (sum, item) => sum + item.count,
-      0,
-    ),
-    baseFindingCount: [...baseCounts.values()].reduce(
-      (sum, item) => sum + item.count,
-      0,
-    ),
-    regressionCount: regressions.reduce(
-      (sum, item) => sum + item.addedCount,
-      0,
-    ),
+    currentFindingCount: [...headCounts.values()].reduce((sum, item) => sum + item.count, 0),
+    baseFindingCount: [...baseCounts.values()].reduce((sum, item) => sum + item.count, 0),
+    regressionCount: regressions.reduce((sum, item) => sum + item.addedCount, 0),
     regressions,
   });
 

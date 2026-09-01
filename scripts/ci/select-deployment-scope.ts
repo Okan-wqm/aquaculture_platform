@@ -3,6 +3,7 @@
 import { appendFileSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 interface FrontendMatrixEntry {
   readonly dockerfile: string;
@@ -43,6 +44,8 @@ interface Arguments {
 }
 
 const EMPTY_TREE_SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+const REQUIRED_STATUS_CHECKS_MANIFEST = '.github/manifests/main-required-status-checks.json';
+const SELECTOR_REPOSITORY_ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 
 interface BackendMatrixEntry {
   readonly dockerfile: string;
@@ -138,6 +141,36 @@ function loadCatalog(repo: string): GeneratedCatalog {
   return JSON.parse(
     readFileSync(join(repo, 'infrastructure/deploy/service-catalog.generated.json'), 'utf8'),
   ) as GeneratedCatalog;
+}
+
+function loadSensSpecialistRequiredPathFilters(): string[] {
+  const raw: unknown = JSON.parse(
+    readFileSync(join(SELECTOR_REPOSITORY_ROOT, REQUIRED_STATUS_CHECKS_MANIFEST), 'utf8'),
+  );
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new Error(`${REQUIRED_STATUS_CHECKS_MANIFEST} must be a JSON object`);
+  }
+  const filters = raw['sens_specialist_required_path_filters'];
+  if (!Array.isArray(filters) || filters.length === 0) {
+    throw new Error(
+      `${REQUIRED_STATUS_CHECKS_MANIFEST}.sens_specialist_required_path_filters must be a non-empty string array`,
+    );
+  }
+  const typedFilters: string[] = [];
+  for (const filter of filters) {
+    if (typeof filter !== 'string' || filter.length === 0) {
+      throw new Error(
+        `${REQUIRED_STATUS_CHECKS_MANIFEST}.sens_specialist_required_path_filters must be a non-empty string array`,
+      );
+    }
+    typedFilters.push(filter);
+  }
+  if (new Set(typedFilters).size !== typedFilters.length) {
+    throw new Error(
+      `${REQUIRED_STATUS_CHECKS_MANIFEST}.sens_specialist_required_path_filters must not contain duplicates`,
+    );
+  }
+  return typedFilters;
 }
 
 function backendMatrix(services: readonly string[]): BackendMatrixEntry[] {
@@ -276,10 +309,16 @@ function allScope(
   };
 }
 
-function specialistChecks(args: Arguments): SpecialistChecks {
+function specialistChecks(
+  args: Arguments,
+  sensSpecialistRequiredPathFilters: readonly string[],
+): SpecialistChecks {
   const affected = new Set(args.affectedProjects);
   const changed = (prefix: string): boolean =>
     args.changedFiles.some((file) => file === prefix || file.startsWith(`${prefix}/`));
+  const sensSpecialistPathChanged = args.changedFiles.some((file) =>
+    sensSpecialistRequiredPathFilters.some((glob) => globToRegExp(glob).test(file)),
+  );
 
   return {
     dependencyAuditRequired: args.changedFiles.some((file) =>
@@ -289,6 +328,7 @@ function specialistChecks(args: Arguments): SpecialistChecks {
       affected.has('farm-service') || affected.has('farm-module') || changed('apps/farm-service'),
     rustChecksRequired:
       affected.has('sensor-ingestion') ||
+      sensSpecialistPathChanged ||
       changed('sens-api-gateway') ||
       changed('apps/sensor-ingestion'),
     sensorChecksRequired:
@@ -296,6 +336,7 @@ function specialistChecks(args: Arguments): SpecialistChecks {
       affected.has('sensor-module') ||
       affected.has('sensor-contracts') ||
       affected.has('sensor-ingestion') ||
+      sensSpecialistPathChanged ||
       changed('apps/sensor-service') ||
       changed('apps/sensor-ingestion') ||
       changed('sens-api-gateway'),
@@ -363,7 +404,7 @@ export function selectDeploymentScope(args: Arguments): DeploymentScope {
   }
 
   const catalog = loadCatalog(args.repo);
-  const checks = specialistChecks(args);
+  const checks = specialistChecks(args, loadSensSpecialistRequiredPathFilters());
   if (args.fullValidation) {
     return allScope(catalog, 'full-validation');
   }

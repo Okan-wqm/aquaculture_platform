@@ -9,6 +9,7 @@
  */
 
 import { strict as assert } from 'node:assert';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -107,6 +108,8 @@ const DEFAULT_RELEASE_PROFILE = 'edge-agent-scada-display';
 const WORKFLOW_CI = '.github/workflows/ci-affected.yml';
 const WORKFLOW_SENS = '.github/workflows/sens-api-gateway-ci.yml';
 const WORKFLOW_RELEASE = '.github/workflows/edge-agent-release.yml';
+const REQUIRED_STATUS_CHECKS_MANIFEST = '.github/manifests/main-required-status-checks.json';
+const DEPLOYMENT_SCOPE_SELECTOR = 'scripts/ci/select-deployment-scope.ts';
 const TPM_BUILD_DEPS_ACTION = '.github/actions/install-tpm-build-dependencies/action.yml';
 const RUST_TOOLCHAIN = 'rust-toolchain.toml';
 const SX1302_HIL_EVIDENCE_SCHEMA = 'tools/gates/sx1302-hil-evidence.schema.json';
@@ -124,17 +127,6 @@ const DISALLOWED_WORKFLOW_UPDATE_FLAG = '--update-' + 'baseline';
 const ALL_WORKFLOWS_DIR = path.join(REPO_ROOT, '.github', 'workflows');
 const CI_AFFECTED_SENS_FEATURES =
   'health,telemetry,metrics,strict-security,scada-display,lorawan,signed-deploy,tpm,st-bytecode,multi-task-scheduler,opc-ua-server,live-debug,license-enforce';
-const REQUIRED_CI_PATH_FILTERS = [
-  'sens-api-gateway/**',
-  'Cargo.toml',
-  'Cargo.lock',
-  'crates/**',
-  'tools/executors/cargo/**',
-  'tools/gates/**',
-  '.github/manifests/**',
-  'package.json',
-  'package-lock.json',
-] as const;
 const CI_ENTERPRISE_SUMMARY_JOBS = [
   'install',
   'lint',
@@ -279,11 +271,6 @@ function workflowJobBlock(src: string, jobName: string): string {
   return lines.slice(start, end).join('\n');
 }
 
-function hasYamlListItem(src: string, value: string): boolean {
-  const uncommented = stripCommentOnlyLines(src);
-  return new RegExp(`^\\s*-\\s*['"]?${escapeRegExp(value)}['"]?\\s*$`, 'm').test(uncommented);
-}
-
 function hasExecutableText(src: string, value: string): boolean {
   return stripCommentOnlyLines(src).includes(value);
 }
@@ -293,14 +280,60 @@ function hasAll(src: string, needles: readonly string[]): string[] {
   return needles.filter((needle) => !uncommented.includes(needle));
 }
 
+function sensSpecialistRequiredPathFilters(): string[] {
+  const raw: unknown = JSON.parse(readFile(REQUIRED_STATUS_CHECKS_MANIFEST));
+  if (!isRecord(raw)) {
+    throw new Error(`${REQUIRED_STATUS_CHECKS_MANIFEST} must be a JSON object`);
+  }
+  return requireStringArray(raw.sens_specialist_required_path_filters, 'sens_specialist_required_path_filters');
+}
+
+function representativePathForFilter(filter: string): string {
+  return filter.replaceAll('**', 'sens-specialist-contract').replaceAll('*', 'sens-specialist-contract');
+}
+
 function missingCiPathFilterEvidence(src: string): string[] {
-  const missing: string[] = REQUIRED_CI_PATH_FILTERS.filter((entry) => !hasYamlListItem(src, entry));
-  if (!hasExecutableText(src, 'steps.changes.outputs.deploy-config')) {
-    missing.push('steps.changes.outputs.deploy-config');
+  const missing: string[] = [];
+  if (!hasExecutableText(src, `node ${DEPLOYMENT_SCOPE_SELECTOR}`)) {
+    missing.push(`node ${DEPLOYMENT_SCOPE_SELECTOR}`);
+  }
+  for (const filter of sensSpecialistRequiredPathFilters()) {
+    const result = spawnSync(
+      process.execPath,
+      [
+        path.join(REPO_ROOT, DEPLOYMENT_SCOPE_SELECTOR),
+        '--repo',
+        REPO_ROOT,
+        '--requested-services',
+        'auto',
+        '--channel',
+        'development',
+        '--changed-files-json',
+        JSON.stringify([representativePathForFilter(filter)]),
+        '--affected-projects-json',
+        '[]',
+      ],
+      { cwd: REPO_ROOT, encoding: 'utf8' },
+    );
+    if (result.status !== 0) {
+      missing.push(`selector failed for ${filter}`);
+      continue;
+    }
+    try {
+      const scope = JSON.parse(result.stdout) as {
+        rustChecksRequired?: boolean;
+        sensorChecksRequired?: boolean;
+        validationRequired?: boolean;
+      };
+      if (scope.validationRequired !== true || scope.sensorChecksRequired !== true || scope.rustChecksRequired !== true) {
+        missing.push(`selector specialist coverage for ${filter}`);
+      }
+    } catch {
+      missing.push(`selector returned invalid JSON for ${filter}`);
+    }
   }
   return missing;
 }
-
 function missingSummaryDependencyEvidence(
   src: string,
   jobName: string,
@@ -451,14 +484,23 @@ function validateSx1302HilEvidence(relPath: string): string[] {
 const CHECKS: Record<string, () => CheckResult> = {
   ci_path_filters_cover_sens_surface: () => {
     const src = readFile(WORKFLOW_CI);
-    const missing = missingCiPathFilterEvidence(src);
+    let missing: string[];
+    try {
+      missing = missingCiPathFilterEvidence(src);
+    } catch (error) {
+      missing = [error instanceof Error ? error.message : String(error)];
+    }
     return check(
       'ci_path_filters_cover_sens_surface',
-      'ci-affected path filters cover Sens, Cargo, crates, cargo executor, gates and npm manifests',
+      'ci-affected selector covers manifest-governed Sens/Rust critical paths',
       missing.length === 0,
-      missing.length ? `missing path filters: ${missing.join(', ')}` : 'all required path filters present',
-      [WORKFLOW_CI],
-      [lineRef(WORKFLOW_CI, 'filters: |')],
+      missing.length ? `missing selector specialist evidence: ${missing.join(', ')}` : 'selector requires validation and both Sens specialists for every manifest-governed path',
+      [WORKFLOW_CI, REQUIRED_STATUS_CHECKS_MANIFEST, DEPLOYMENT_SCOPE_SELECTOR],
+      [
+        lineRef(WORKFLOW_CI, `node ${DEPLOYMENT_SCOPE_SELECTOR}`),
+        lineRef(REQUIRED_STATUS_CHECKS_MANIFEST, 'sens_specialist_required_path_filters'),
+        lineRef(DEPLOYMENT_SCOPE_SELECTOR, 'loadSensSpecialistRequiredPathFilters'),
+      ],
     );
   },
 

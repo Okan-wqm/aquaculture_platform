@@ -44,6 +44,17 @@
     "package.json",
     "package-lock.json"
   ],
+  "sens_specialist_required_path_filters": [
+    "sens-api-gateway/**",
+    "Cargo.toml",
+    "Cargo.lock",
+    "crates/**",
+    "tools/executors/cargo/**",
+    "tools/gates/**",
+    ".github/manifests/**",
+    "package.json",
+    "package-lock.json"
+  ],
   "workflow_contracts": [
     {
       "workflow": ".github/workflows/ci-affected.yml",

@@ -32,6 +32,17 @@ interface DeploymentScope {
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const RANGE_RESOLVER = join(REPO_ROOT, 'scripts', 'ci', 'resolve-affected-range.ts');
 const SCOPE_SELECTOR = join(REPO_ROOT, 'scripts', 'ci', 'select-deployment-scope.ts');
+const SENS_SPECIALIST_REQUIRED_PATH_FILTERS = [
+  'sens-api-gateway/**',
+  'Cargo.toml',
+  'Cargo.lock',
+  'crates/**',
+  'tools/executors/cargo/**',
+  'tools/gates/**',
+  '.github/manifests/**',
+  'package.json',
+  'package-lock.json',
+] as const;
 
 function git(repo: string, ...args: string[]): string {
   const result = spawnSync('git', args, { cwd: repo, encoding: 'utf8' });
@@ -111,6 +122,12 @@ function selectRangeScope(repo: string, baseSha: string, headSha: string): Deplo
   );
   expect(result.status).toBe(0);
   return JSON.parse(result.stdout) as DeploymentScope;
+}
+
+function representativePathForGlob(filter: string): string {
+  return filter
+    .replaceAll('**', 'sens-specialist-contract')
+    .replaceAll('*', 'sens-specialist-contract');
 }
 
 describe('affected CI range resolver', () => {
@@ -542,6 +559,24 @@ describe('development image and deploy scope selector', () => {
       sensorChecksRequired: false,
     });
   });
+
+  it.each(SENS_SPECIALIST_REQUIRED_PATH_FILTERS)(
+    'requires validation and both Sens specialists for %s',
+    (filter) => {
+      const requiredChecks = JSON.parse(
+        readFileSync(join(REPO_ROOT, '.github/manifests/main-required-status-checks.json'), 'utf8'),
+      ) as { sens_specialist_required_path_filters?: string[] };
+
+      expect(requiredChecks.sens_specialist_required_path_filters).toEqual(
+        SENS_SPECIALIST_REQUIRED_PATH_FILTERS,
+      );
+      expect(selectScope([representativePathForGlob(filter)], [])).toMatchObject({
+        validationRequired: true,
+        sensorChecksRequired: true,
+        rustChecksRequired: true,
+      });
+    },
+  );
 
   it('derives changed files and Nx affected projects from the exact requested SHA range', () => {
     const repo = fixtureRepository();

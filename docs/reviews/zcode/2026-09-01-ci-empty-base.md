@@ -1,7 +1,7 @@
 # CI affected-range empty-base outage — 2026-09-01
 
 **Date:** 2026-09-01 · **Agent:** zcode · **Cycle:** 2026-09-01 advisory-gate-recovery
-**Finding:** INFRA-HIGH-005 · **State:** OPEN → closed by this change
+**Finding:** INFRA-HIGH-138 · **State:** OPEN → closed by this change
 
 ## What broke
 

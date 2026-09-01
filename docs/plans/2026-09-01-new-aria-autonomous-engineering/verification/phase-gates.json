@@ -1,0 +1,60 @@
+{
+  "schema_version": "1.0.0",
+  "contract_id": "new-aria-twelve-role-gates-v1",
+  "roles": [
+    "integrity",
+    "identity",
+    "authorization",
+    "execution-containment",
+    "supply-chain",
+    "data-privacy",
+    "cost-capacity",
+    "reliability-dr",
+    "github-delivery",
+    "api-ui",
+    "portability-readability",
+    "appellate"
+  ],
+  "required_artifacts": [
+    "distinct_principal",
+    "immutable_report",
+    "capability_match",
+    "conflict_graph",
+    "deterministic_oracle",
+    "dissent_disposition",
+    "appellate_verdict",
+    "exact_reviewed_target",
+    "zero_unresolved_load_bearing_findings"
+  ],
+  "gates": [
+    { "phase_id": "P01", "sprint_id": "S08", "mechanism": "external-adversarial-review-v1" },
+    { "phase_id": "P02", "sprint_id": "S16", "mechanism": "external-adversarial-review-v1" },
+    { "phase_id": "P03", "sprint_id": "S24", "mechanism": "external-adversarial-review-v1" },
+    { "phase_id": "P04", "sprint_id": "S32", "mechanism": "external-adversarial-review-v1" },
+    {
+      "phase_id": "P05",
+      "sprint_id": "S40",
+      "mechanism": "productized-reviewers-plus-external-appellate-v1"
+    },
+    {
+      "phase_id": "P06",
+      "sprint_id": "S48",
+      "mechanism": "productized-reviewers-plus-external-appellate-v1"
+    },
+    {
+      "phase_id": "P07",
+      "sprint_id": "S56",
+      "mechanism": "productized-reviewers-plus-external-appellate-v1"
+    },
+    {
+      "phase_id": "P08",
+      "sprint_id": "S64",
+      "mechanism": "productized-reviewers-plus-external-appellate-v1"
+    },
+    {
+      "phase_id": "P09",
+      "sprint_id": "S70",
+      "mechanism": "productized-reviewers-plus-external-appellate-v1"
+    }
+  ]
+}

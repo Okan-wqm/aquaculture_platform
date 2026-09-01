@@ -1,0 +1,69 @@
+{
+  "schema_version": "1.0.0",
+  "policy_id": "new-aria-readability-v1",
+  "limits": {
+    "authored_file_target_lines": 250,
+    "authored_file_hard_lines": 400,
+    "function_lines": 60,
+    "function_parameters": 5,
+    "cyclomatic_complexity": 10,
+    "cognitive_complexity": 15
+  },
+  "dependency_policy": {
+    "layers": ["domain", "kernel", "application", "adapters", "runtime"],
+    "rule": "A module may import its own layer or an earlier layer only.",
+    "migration_exempt": false,
+    "d0_verification_layers": {
+      "domain": ["verification/lib/canonical.mjs", "verification/lib/markdown.mjs"],
+      "application": [
+        "verification/lib/projections.mjs",
+        "verification/lib/verify-history.mjs",
+        "verification/lib/verify-mapping.mjs",
+        "verification/lib/verify-provenance.mjs",
+        "verification/lib/verify-readability.mjs",
+        "verification/lib/verify.mjs"
+      ],
+      "runtime": [
+        "verification/render-projections.mjs",
+        "verification/test-negative-controls.mjs",
+        "verification/verify-d0.mjs"
+      ]
+    }
+  },
+  "generated_exception_required_fields": [
+    "owner",
+    "reason",
+    "expires_at",
+    "input_digests",
+    "generator_argv",
+    "generator_version",
+    "generator_digest",
+    "output_digests",
+    "deterministic_check_argv"
+  ],
+  "declarative_exceptions": [
+    {
+      "path": "FINDING-COVERAGE.md",
+      "owner": "new-aria-program-authority",
+      "reason": "The exact 88-row, nine-field table remains the single writable finding authority; fixed-range generated vertical pages provide readable projections.",
+      "expires_at": "S72 program closeout",
+      "projection_ranges": [
+        "001-011",
+        "012-022",
+        "023-033",
+        "034-044",
+        "045-055",
+        "056-066",
+        "067-077",
+        "078-088"
+      ],
+      "parity_check_argv": [
+        "node",
+        "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/render-projections.mjs",
+        "--repo-root",
+        ".",
+        "--check"
+      ]
+    }
+  ]
+}

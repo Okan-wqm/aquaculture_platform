@@ -132,6 +132,21 @@ runs:
         with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as fh:
             for key, value in sorted(verdict["environment"].items()):
                 fh.write(f"{key}={value}\n")
+
+        # The operator ACK rides the same export path as the binding. Every
+        # later gate in the job — publish's continuity check in state_store
+        # and the cycle's memory-gap check — reads ARIA_STATE_BOOTSTRAP_ACK
+        # from the process environment. Delivering it only to `state
+        # checkout` leaves those gates blind to an operator-acknowledged
+        # state reduction (compaction, fresh start), so every publish after
+        # the 2026-08-31 compaction refused with
+        # state_publish_continuity_surfaces_lost despite the acknowledgment.
+        # Absent ACK (variable unset) exports nothing and the gates stay
+        # fail-closed.
+        _ack = os.environ.get("ARIA_STATE_BOOTSTRAP_ACK", "").strip()
+        if _ack:
+            with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as fh:
+                fh.write(f"ARIA_STATE_BOOTSTRAP_ACK={_ack}\n")
         print(f"aria/state checked out ({signal}); tools root {verdict['tools_root']}")
         PY
           # A CHECKED-OUT STORE IS NOT YET A USABLE TOOLS ROOT, and this is the

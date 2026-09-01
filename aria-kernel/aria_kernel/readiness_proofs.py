@@ -933,6 +933,33 @@ def produce_dlp_proof(
             "file_sha256s": [_sha256_file(path) for path in paths],
             "finding_count": len(findings),
         }
+        # ARIA-AUDIT-022: the DIFF surface is caller-supplied, and a
+        # caller choosing its own scan scope can hand the proof an
+        # innocent file while the real diff carries the secret. The
+        # verifier therefore derives the touched-file set from head_sha
+        # itself and refuses when any touched file is missing from the
+        # scanned diff text — scope is proven, not promised.
+        if surface == "diff":
+            import subprocess as _sp
+
+            repo_dir = Path(workspace_root)
+            try:
+                touched = _sp.run(
+                    ["git", "show", "--name-only", "--pretty=format:", head_sha],
+                    cwd=repo_dir, capture_output=True, text=True, check=False, timeout=30,
+                ).stdout.split()
+            except (_sp.SubprocessError, OSError, ValueError):
+                touched = []
+            diff_text = "\n".join(
+                path.read_text(encoding="utf-8", errors="replace") for path in paths
+            )
+            missing = [name for name in touched if name and name not in diff_text]
+            if missing:
+                raise GovernanceError(
+                    "dlp_diff_surface_incomplete: files touched by "
+                    f"{head_sha[:12]} absent from the scanned diff: "
+                    f"{missing[:10]}"
+                )
     status = "passed" if not all_findings else "failed"
 
     snapshot_payload = {

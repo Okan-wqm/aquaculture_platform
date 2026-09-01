@@ -40,6 +40,10 @@ import ci_executor  # noqa: E402
 _HEALTHY_ENV = {
     "RUNNER_NAME": "probe-test-runner",
     "CLAUDE_CODE_OAUTH_TOKEN": "token-present",
+    # ARIA-AUDIT-016: identity claims require the Actions OIDC channel as
+    # platform evidence; tests simulate the runner-side token channel.
+    "ACTIONS_ID_TOKEN_REQUEST_URL": "https://pipelines.actions.githubusercontent.com/xxx",
+    "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "test-oidc-token",
 }
 
 
@@ -111,6 +115,25 @@ class AttestationProducerTest(unittest.TestCase):
                     _probe(tools)
 
         self.assertIn("sandbox_required", str(caught.exception))
+
+    def test_identity_claims_without_the_oidc_channel_refuse(self) -> None:
+        """ARIA-AUDIT-016: workflow-input defaults are assertions, not evidence."""
+        from aria_kernel.tool_registry import GovernanceError
+
+        with TemporaryDirectory() as tmp:
+            tools = Path(tmp) / "aria-tools"
+            ensure_tools_dir(tools)
+            saved = {k: os.environ.pop(k, None) for k in (
+                "ACTIONS_ID_TOKEN_REQUEST_URL", "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+            )}
+            try:
+                with self.assertRaises(GovernanceError) as caught:
+                    _probe(tools)
+                self.assertIn("platform_unverified", str(caught.exception))
+            finally:
+                for k, v in saved.items():
+                    if v is not None:
+                        os.environ[k] = v
 
     def test_lane_start_sweep_attests_every_readiness_claim(self) -> None:
         from aria_kernel.runner_attestation import (

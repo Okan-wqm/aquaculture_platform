@@ -142,6 +142,17 @@ def probe_runner_attestation(
                 "managed_claude_code_cli" if managed_auth_present else "absent"
             ),
             "attestation_method": "probed",
+            # ARIA-AUDIT-016: identity claims need PLATFORM evidence, not
+            # workflow inputs. GitHub mints an OIDC token channel for every
+            # Actions runner (ACTIONS_ID_TOKEN_REQUEST_URL/TOKEN); its
+            # presence is the runner-side proof of "this executes on an
+            # Actions runner". The config-asserted trio (group, ephemeral,
+            # approved) may still ride along as claims — the validator
+            # refuses them without this platform signal.
+            "platform_verified": bool(
+                os.environ.get("ACTIONS_ID_TOKEN_REQUEST_URL")
+                and os.environ.get("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
+            ),
             "probe": {
                 "sandbox_backend": backend,
                 "api_key_env_present": api_key_present,
@@ -226,6 +237,12 @@ def _validate_attestation(row: dict[str, Any]) -> None:
     missing = [key for key in required if row.get(key) in (None, "", [], {})]
     if missing:
         raise GovernanceError("runner_attestation_missing_fields:" + ",".join(missing))
+    if row.get("platform_verified") is not True:
+        raise GovernanceError(
+            "runner_attestation_platform_unverified: identity claims require "
+            "the Actions OIDC channel (ACTIONS_ID_TOKEN_REQUEST_URL/TOKEN); "
+            "workflow-input defaults are assertions, not evidence"
+        )
     if row.get("ephemeral_runner") is not True:
         raise GovernanceError("runner_attestation_ephemeral_runner_required")
     if row.get("approved_runner_group") is not True:

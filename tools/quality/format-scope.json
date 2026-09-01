@@ -33266,6 +33266,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/2026-09-01-aria-full-system-audit.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/access-boundary-auditor/2026-08-16-aquamobil-access-boundaries.md",
       "prettier_managed": true
     },
@@ -33741,6 +33747,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/codex/2026-07-31-farm-environment-monitoring.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/codex/2026-09-01-aria-full-system-audit.md",
       "prettier_managed": true
     },
     {

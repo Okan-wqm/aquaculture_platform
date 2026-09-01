@@ -143,11 +143,15 @@ function loadCatalog(repo: string): GeneratedCatalog {
   ) as GeneratedCatalog;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 function loadSensSpecialistRequiredPathFilters(): string[] {
   const raw: unknown = JSON.parse(
     readFileSync(join(SELECTOR_REPOSITORY_ROOT, REQUIRED_STATUS_CHECKS_MANIFEST), 'utf8'),
   );
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+  if (!isRecord(raw)) {
     throw new Error(`${REQUIRED_STATUS_CHECKS_MANIFEST} must be a JSON object`);
   }
   const filters = raw['sens_specialist_required_path_filters'];

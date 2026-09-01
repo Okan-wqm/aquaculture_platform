@@ -79,7 +79,7 @@ REPORT_PATH="$ARTIFACT_DIR/$TARGET.json"
 node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); for (const item of p.metadataExcludes ?? ['.npmrc','package.json','package-lock.json']) console.log(item);" "$POLICY_PATH" > "$ARTIFACT_DIR/$TARGET.metadata-excludes.txt"
 printf '%s\n' "${EXCLUDES[@]}" > "$EXCLUDE_LIST"
 
-git diff --name-only "$BASE_REF...$HEAD_REF" \
+git diff --name-only "$BASE_REF" "$HEAD_REF" -- \
   | grep -Fvx -f "$ARTIFACT_DIR/$TARGET.metadata-excludes.txt" \
   > "$CHANGED_FILE_LIST" || true
 

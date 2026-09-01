@@ -1040,6 +1040,34 @@ describe('affected development workflow contract', () => {
     }
   });
 
+  it('compares exact range snapshots without commit-only or argv-sized diff expansion', () => {
+    const affected = source('.github/workflows/ci-affected.yml');
+    const affectedPolicy = source('scripts/ci/affected-target-policy.sh');
+    const lintChangedFiles = source('scripts/ci/lint-changed-files.mjs');
+    const typeCheckChangedFiles = source('scripts/ci/type-check-changed-files.mjs');
+
+    // The bootstrap baseline is Git's canonical empty tree, not a commit. Two-endpoint
+    // diff accepts both the empty tree and ordinary ancestor commits while preserving
+    // the exact immutable base/head snapshots selected by the range resolver.
+    expect(affectedPolicy).toContain('git diff --name-only "$BASE_REF" "$HEAD_REF" --');
+    expect(affectedPolicy).not.toContain('$BASE_REF...$HEAD_REF');
+    expect(lintChangedFiles).toMatch(
+      /'diff',\s*'--name-status',\s*'--diff-filter=ACMR',\s*options\.base,\s*options\.head/u,
+    );
+    expect(typeCheckChangedFiles).toMatch(
+      /'diff',\s*'--name-only',\s*'--diff-filter=ACMR',\s*options\.base,\s*options\.head/u,
+    );
+    expect(lintChangedFiles).not.toContain(`${'${options.base}'}...${'${options.head}'}`);
+    expect(typeCheckChangedFiles).not.toContain(`${'${options.base}'}...${'${options.head}'}`);
+
+    // A first rollout can contain thousands of paths. Nx owns the immutable range;
+    // the workflow must not flatten that file set into one OS-limited argv value.
+    expect(affected).toContain(
+      'nx show projects --affected --base="$BASE_REF" --head="$HEAD_REF" --with-target=test',
+    );
+    expect(affected).not.toContain('--files="$FILES_ARG"');
+  });
+
   it('builds only selected immutable images on hosted runners and verifies their digests', () => {
     const build = source('.github/workflows/build-images.yml');
     const parsed = workflow('.github/workflows/build-images.yml') as {

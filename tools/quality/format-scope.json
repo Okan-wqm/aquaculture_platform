@@ -34934,6 +34934,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-01-aria-kernel-security-defects.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/runbooks/2026-04-14-teardown-rollout.md",
       "prettier_managed": true
     },

@@ -698,6 +698,14 @@ AUDITED_WORKFLOW_EXCLUSIONS: dict[str, AuditedWorkflowExclusion] = {
         owner="aria-kernel",
         expires_at=_NEVER_EXPIRES,
     ),
+    "aria-state-maintenance": AuditedWorkflowExclusion(
+        workflow_id="aria-state-maintenance",
+        reason="utility maintenance lane; clones aria/state to /tmp, compacts JSONL surfaces "
+        "and strips old hot artifacts, pushes the slim branch; performs no governed ARIA "
+        "mutation and uploads no ARIA artifact — the output IS the aria/state branch itself",
+        owner="aria-kernel",
+        expires_at=_NEVER_EXPIRES,
+    ),
     "aria-external-watchdog": AuditedWorkflowExclusion(
         workflow_id="aria-external-watchdog",
         reason="external liveness watchdog; reads the aria/state branch tip and the watched "

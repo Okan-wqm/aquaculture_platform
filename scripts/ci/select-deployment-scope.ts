@@ -3,7 +3,6 @@
 import { appendFileSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 interface FrontendMatrixEntry {
   readonly dockerfile: string;
@@ -43,9 +42,13 @@ interface Arguments {
   readonly requestedServices: string;
 }
 
+interface RequiredPathFilters {
+  readonly ciAffected: string[];
+  readonly sensSpecialist: string[];
+}
+
 const EMPTY_TREE_SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 const REQUIRED_STATUS_CHECKS_MANIFEST = '.github/manifests/main-required-status-checks.json';
-const SELECTOR_REPOSITORY_ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 
 interface BackendMatrixEntry {
   readonly dockerfile: string;
@@ -64,6 +67,10 @@ export interface DeploymentScope {
   readonly reason: string;
   readonly rustChecksRequired: boolean;
   readonly sensorChecksRequired: boolean;
+}
+
+interface ResolvedDeploymentScope extends DeploymentScope {
+  readonly validationRequired: boolean;
 }
 
 function argumentValue(argv: readonly string[], name: string): string {
@@ -147,34 +154,40 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function loadSensSpecialistRequiredPathFilters(): string[] {
+function requireUniqueStringArray(value: unknown, field: string): string[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error(`${field} must be a non-empty string array`);
+  }
+  const strings: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string' || entry.length === 0) {
+      throw new Error(`${field} must be a non-empty string array`);
+    }
+    strings.push(entry);
+  }
+  if (new Set(strings).size !== strings.length) {
+    throw new Error(`${field} must not contain duplicates`);
+  }
+  return strings;
+}
+
+function loadRequiredPathFilters(repo: string): RequiredPathFilters {
   const raw: unknown = JSON.parse(
-    readFileSync(join(SELECTOR_REPOSITORY_ROOT, REQUIRED_STATUS_CHECKS_MANIFEST), 'utf8'),
+    readFileSync(join(repo, REQUIRED_STATUS_CHECKS_MANIFEST), 'utf8'),
   );
   if (!isRecord(raw)) {
     throw new Error(`${REQUIRED_STATUS_CHECKS_MANIFEST} must be a JSON object`);
   }
-  const filters = raw['sens_specialist_required_path_filters'];
-  if (!Array.isArray(filters) || filters.length === 0) {
-    throw new Error(
-      `${REQUIRED_STATUS_CHECKS_MANIFEST}.sens_specialist_required_path_filters must be a non-empty string array`,
-    );
-  }
-  const typedFilters: string[] = [];
-  for (const filter of filters) {
-    if (typeof filter !== 'string' || filter.length === 0) {
-      throw new Error(
-        `${REQUIRED_STATUS_CHECKS_MANIFEST}.sens_specialist_required_path_filters must be a non-empty string array`,
-      );
-    }
-    typedFilters.push(filter);
-  }
-  if (new Set(typedFilters).size !== typedFilters.length) {
-    throw new Error(
-      `${REQUIRED_STATUS_CHECKS_MANIFEST}.sens_specialist_required_path_filters must not contain duplicates`,
-    );
-  }
-  return typedFilters;
+  return {
+    ciAffected: requireUniqueStringArray(
+      raw['ci_affected_required_path_filters'],
+      `${REQUIRED_STATUS_CHECKS_MANIFEST}.ci_affected_required_path_filters`,
+    ),
+    sensSpecialist: requireUniqueStringArray(
+      raw['sens_specialist_required_path_filters'],
+      `${REQUIRED_STATUS_CHECKS_MANIFEST}.sens_specialist_required_path_filters`,
+    ),
+  };
 }
 
 function backendMatrix(services: readonly string[]): BackendMatrixEntry[] {
@@ -402,42 +415,77 @@ function requestedScope(
   };
 }
 
-export function selectDeploymentScope(args: Arguments): DeploymentScope {
+function withValidationRequired(
+  scope: DeploymentScope,
+  args: Arguments,
+  requiredPathChanged: boolean,
+): ResolvedDeploymentScope {
+  return {
+    ...scope,
+    validationRequired:
+      args.changedFiles.length > 0 &&
+      (scope.reason !== 'docs-only' ||
+        scope.dependencyAuditRequired ||
+        scope.farmChecksRequired ||
+        scope.rustChecksRequired ||
+        scope.sensorChecksRequired ||
+        requiredPathChanged),
+  };
+}
+
+export function selectDeploymentScope(args: Arguments): ResolvedDeploymentScope {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(args.channel)) {
     throw new Error(`unsupported deployment channel: ${args.channel}`);
   }
 
   const catalog = loadCatalog(args.repo);
-  const checks = specialistChecks(args, loadSensSpecialistRequiredPathFilters());
+  const requiredPathFilters = loadRequiredPathFilters(args.repo);
+  const checks = specialistChecks(args, requiredPathFilters.sensSpecialist);
+  const requiredPathChanged = args.changedFiles.some((file) =>
+    requiredPathFilters.ciAffected.some((glob) => globToRegExp(glob).test(file)),
+  );
   if (args.fullValidation) {
-    return allScope(catalog, 'full-validation');
+    return withValidationRequired(allScope(catalog, 'full-validation'), args, requiredPathChanged);
   }
   if (args.requestedServices === 'all') {
-    return allScope(catalog, 'requested-all');
+    return withValidationRequired(allScope(catalog, 'requested-all'), args, requiredPathChanged);
   }
   if (args.requestedServices !== 'auto') {
-    return requestedScope(catalog, args.requestedServices, checks);
+    return withValidationRequired(
+      requestedScope(catalog, args.requestedServices, checks),
+      args,
+      requiredPathChanged,
+    );
   }
   if (args.changedFiles.some(isDeployControlPlane)) {
-    return allScope(catalog, 'deploy-control-plane', checks);
+    return withValidationRequired(
+      allScope(catalog, 'deploy-control-plane', checks),
+      args,
+      requiredPathChanged,
+    );
   }
   if (args.changedFiles.some(isWorkspaceGlobalInput)) {
-    return allScope(catalog, 'workspace-global-input');
+    return withValidationRequired(
+      allScope(catalog, 'workspace-global-input'),
+      args,
+      requiredPathChanged,
+    );
   }
   if (args.changedFiles.length > 0 && args.changedFiles.every(isDocumentation)) {
-    return {
-      backendMatrix: [],
-      ...checks,
-      deployServices: [],
-      farmChecksRequired: false,
-      frontendMatrix: [],
-      fullDeploy: false,
-      infraMatrix: [],
-      migrationRequired: false,
-      reason: 'docs-only',
-      rustChecksRequired: false,
-      sensorChecksRequired: false,
-    };
+    return withValidationRequired(
+      {
+        backendMatrix: [],
+        ...checks,
+        deployServices: [],
+        frontendMatrix: [],
+        fullDeploy: false,
+        infraMatrix: [],
+        migrationRequired: false,
+        reason: 'docs-only',
+      },
+      args,
+      requiredPathChanged,
+    );
   }
 
   const affected = new Set(args.affectedProjects);
@@ -491,23 +539,27 @@ export function selectDeploymentScope(args: Arguments): DeploymentScope {
   }
   if (infraBuildInputChanged) reason = 'infra-build-input';
 
-  return {
-    backendMatrix: backendMatrix(selectedBackend),
-    ...checks,
-    deployServices: [...selectedBackend, ...selectedFrontend, ...selectedInfra],
-    frontendMatrix: catalog.deploy.frontendImageMatrix.filter((entry) =>
-      selectedFrontend.includes(entry.module),
-    ),
-    fullDeploy: false,
-    infraMatrix: catalog.deploy.infraImageMatrix.filter((entry) =>
-      selectedInfra.includes(entry.image),
-    ),
-    migrationRequired: selectedBackend.length > 0,
-    reason,
-  };
+  return withValidationRequired(
+    {
+      backendMatrix: backendMatrix(selectedBackend),
+      ...checks,
+      deployServices: [...selectedBackend, ...selectedFrontend, ...selectedInfra],
+      frontendMatrix: catalog.deploy.frontendImageMatrix.filter((entry) =>
+        selectedFrontend.includes(entry.module),
+      ),
+      fullDeploy: false,
+      infraMatrix: catalog.deploy.infraImageMatrix.filter((entry) =>
+        selectedInfra.includes(entry.image),
+      ),
+      migrationRequired: selectedBackend.length > 0,
+      reason,
+    },
+    args,
+    requiredPathChanged,
+  );
 }
 
-function writeGithubOutputs(scope: DeploymentScope, args: Arguments): void {
+function writeGithubOutputs(scope: ResolvedDeploymentScope, args: Arguments): void {
   const outputPath = process.env['GITHUB_OUTPUT'];
   if (!outputPath) return;
   const nxFrontendProjects = new Set(loadCatalog(args.repo).deploy.nxFrontendProjects ?? []);
@@ -536,17 +588,13 @@ function writeGithubOutputs(scope: DeploymentScope, args: Arguments): void {
       `sensor_checks_required=${String(scope.sensorChecksRequired)}`,
       `docs_changed=${String(args.changedFiles.some((file) => isDocumentation(file)))}`,
       `full_validation=${String(args.fullValidation)}`,
-      `validation_required=${String(validationRequired(scope, args))}`,
+      `validation_required=${String(scope.validationRequired)}`,
       `affected_projects_json=${JSON.stringify(args.affectedProjects)}`,
       `changed_files_json=${JSON.stringify(args.changedFiles)}`,
       `selection_reason=${scope.reason}`,
       '',
     ].join('\n'),
   );
-}
-
-function validationRequired(scope: DeploymentScope, args: Arguments): boolean {
-  return args.changedFiles.length > 0 && scope.reason !== 'docs-only';
 }
 
 function main(argv: readonly string[]): number {
@@ -559,7 +607,7 @@ function main(argv: readonly string[]): number {
         ...scope,
         affectedProjects: args.affectedProjects,
         changedFiles: args.changedFiles,
-        validationRequired: validationRequired(scope, args),
+        validationRequired: scope.validationRequired,
       })}\n`,
     );
     return 0;

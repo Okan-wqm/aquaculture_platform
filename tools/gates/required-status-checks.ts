@@ -208,9 +208,32 @@ function unexpectedValues(expected: string[], actual: string[]): string[] {
 }
 
 function representativePathForFilter(filter: string): string {
-  return filter
-    .replaceAll('**', 'required-status-contract')
-    .replaceAll('*', 'required-status-contract');
+  return filter.replaceAll('**', 'README.md').replaceAll('*', 'README.md');
+}
+
+interface SelectorExecutionResult {
+  readonly status: number | null;
+  readonly stderr: string;
+}
+
+function selectorFailureDetails(
+  result: SelectorExecutionResult,
+  representativePath: string,
+): string {
+  const stderr = result.stderr.trim() || '<empty>';
+  return `representative=${representativePath} exit=${String(result.status)} stderr=${stderr}`;
+}
+
+function observedSpecialistFlags(selected: {
+  rustChecksRequired?: boolean;
+  sensorChecksRequired?: boolean;
+  validationRequired?: boolean;
+}): string {
+  return [
+    `validationRequired=${String(selected.validationRequired)}`,
+    `sensorChecksRequired=${String(selected.sensorChecksRequired)}`,
+    `rustChecksRequired=${String(selected.rustChecksRequired)}`,
+  ].join(', ');
 }
 
 function checkStaticContract(manifest: RequiredStatusChecksManifest): string[] {
@@ -272,12 +295,16 @@ function checkStaticContract(manifest: RequiredStatusChecksManifest): string[] {
   }
   const selectorPath = 'scripts/ci/select-deployment-scope.ts';
   const selectorInvocation = `node ${selectorPath}`;
-  if (!ciAffected.includes(selectorInvocation)) {
+  const detectChangesJob = workflowJobBlock(ciAffected, 'detect-changes');
+  if (detectChangesJob === null || !detectChangesJob.includes(selectorInvocation)) {
     errors.push(`${ciAffectedPath} must resolve validation through ${selectorPath}`);
   }
   if (
-    !ciAffected.includes('VALIDATION_REQUIRED: ${{ steps.scope.outputs.validation_required }}') ||
-    !ciAffected.includes('echo "has_changes=$VALIDATION_REQUIRED" >> "$GITHUB_OUTPUT"')
+    detectChangesJob === null ||
+    !detectChangesJob.includes(
+      'VALIDATION_REQUIRED: ${{ steps.scope.outputs.validation_required }}',
+    ) ||
+    !detectChangesJob.includes('echo "has_changes=$VALIDATION_REQUIRED" >> "$GITHUB_OUTPUT"')
   ) {
     errors.push(`${ciAffectedPath} must gate affected validation on selector output`);
   }
@@ -301,7 +328,9 @@ function checkStaticContract(manifest: RequiredStatusChecksManifest): string[] {
       { cwd: REPO_ROOT, encoding: 'utf8' },
     );
     if (result.status !== 0) {
-      errors.push(`${selectorPath} failed required path contract ${filter}`);
+      errors.push(
+        `${selectorPath} failed required path contract ${filter}: ${selectorFailureDetails(result, representativePath)}`,
+      );
       continue;
     }
     try {
@@ -333,7 +362,9 @@ function checkStaticContract(manifest: RequiredStatusChecksManifest): string[] {
       { cwd: REPO_ROOT, encoding: 'utf8' },
     );
     if (result.status !== 0) {
-      errors.push(`${selectorPath} failed Sens specialist path contract ${filter}`);
+      errors.push(
+        `${selectorPath} failed Sens specialist path contract ${filter}: ${selectorFailureDetails(result, representativePath)}`,
+      );
       continue;
     }
     try {
@@ -347,7 +378,9 @@ function checkStaticContract(manifest: RequiredStatusChecksManifest): string[] {
         selected.sensorChecksRequired !== true ||
         selected.rustChecksRequired !== true
       ) {
-        errors.push(`${selectorPath} does not require both Sens specialists for ${filter}`);
+        errors.push(
+          `${selectorPath} does not require both Sens specialists for ${filter}: representative=${representativePath} observed ${observedSpecialistFlags(selected)}`,
+        );
       }
     } catch {
       errors.push(`${selectorPath} returned invalid JSON for Sens specialist path ${filter}`);

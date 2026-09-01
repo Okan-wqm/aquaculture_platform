@@ -289,12 +289,38 @@ function sensSpecialistRequiredPathFilters(): string[] {
 }
 
 function representativePathForFilter(filter: string): string {
-  return filter.replaceAll('**', 'sens-specialist-contract').replaceAll('*', 'sens-specialist-contract');
+  return filter.replaceAll('**', 'README.md').replaceAll('*', 'README.md');
+}
+
+interface SelectorExecutionResult {
+  readonly status: number | null;
+  readonly stderr: string;
+}
+
+function selectorFailureDetails(
+  result: SelectorExecutionResult,
+  representativePath: string,
+): string {
+  const stderr = result.stderr.trim() || '<empty>';
+  return `representative=${representativePath} exit=${String(result.status)} stderr=${stderr}`;
+}
+
+function observedSpecialistFlags(scope: {
+  rustChecksRequired?: boolean;
+  sensorChecksRequired?: boolean;
+  validationRequired?: boolean;
+}): string {
+  return [
+    `validationRequired=${String(scope.validationRequired)}`,
+    `sensorChecksRequired=${String(scope.sensorChecksRequired)}`,
+    `rustChecksRequired=${String(scope.rustChecksRequired)}`,
+  ].join(', ');
 }
 
 function missingCiPathFilterEvidence(src: string): string[] {
   const missing: string[] = [];
-  if (!hasExecutableText(src, `node ${DEPLOYMENT_SCOPE_SELECTOR}`)) {
+  const detectChangesJob = workflowJobBlock(src, 'detect-changes');
+  if (!detectChangesJob || !hasExecutableText(detectChangesJob, `node ${DEPLOYMENT_SCOPE_SELECTOR}`)) {
     missing.push(`node ${DEPLOYMENT_SCOPE_SELECTOR}`);
   }
   for (const filter of sensSpecialistRequiredPathFilters()) {
@@ -316,7 +342,7 @@ function missingCiPathFilterEvidence(src: string): string[] {
       { cwd: REPO_ROOT, encoding: 'utf8' },
     );
     if (result.status !== 0) {
-      missing.push(`selector failed for ${filter}`);
+      missing.push(`selector failed for ${filter}: ${selectorFailureDetails(result, representativePathForFilter(filter))}`);
       continue;
     }
     try {
@@ -326,7 +352,9 @@ function missingCiPathFilterEvidence(src: string): string[] {
         validationRequired?: boolean;
       };
       if (scope.validationRequired !== true || scope.sensorChecksRequired !== true || scope.rustChecksRequired !== true) {
-        missing.push(`selector specialist coverage for ${filter}`);
+        missing.push(
+          `selector specialist coverage for ${filter}: representative=${representativePathForFilter(filter)} observed ${observedSpecialistFlags(scope)}`,
+        );
       }
     } catch {
       missing.push(`selector returned invalid JSON for ${filter}`);

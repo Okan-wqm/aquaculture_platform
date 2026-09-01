@@ -62,6 +62,41 @@ function fixtureRepository(): string {
   git(repo, 'init', '--initial-branch=main');
   git(repo, 'config', 'user.email', 'ci-test@example.invalid');
   git(repo, 'config', 'user.name', 'CI Test');
+  mkdirSync(join(repo, '.github', 'manifests'), { recursive: true });
+  writeFileSync(
+    join(repo, '.github', 'manifests', 'main-required-status-checks.json'),
+    JSON.stringify({
+      ci_affected_required_path_filters: SENS_SPECIALIST_REQUIRED_PATH_FILTERS,
+      sens_specialist_required_path_filters: SENS_SPECIALIST_REQUIRED_PATH_FILTERS,
+    }),
+  );
+  return repo;
+}
+
+function selectorFixtureRepository(sensSpecialistRequiredPathFilters: readonly string[]): string {
+  const repo = mkdtempSync(join(tmpdir(), 'aqua-selector-'));
+  mkdirSync(join(repo, '.github', 'manifests'), { recursive: true });
+  mkdirSync(join(repo, 'infrastructure', 'deploy'), { recursive: true });
+  writeFileSync(
+    join(repo, '.github', 'manifests', 'main-required-status-checks.json'),
+    JSON.stringify({
+      ci_affected_required_path_filters: [...sensSpecialistRequiredPathFilters],
+      sens_specialist_required_path_filters: [...sensSpecialistRequiredPathFilters],
+    }),
+  );
+  writeFileSync(
+    join(repo, 'infrastructure', 'deploy', 'service-catalog.generated.json'),
+    JSON.stringify({
+      dbSchemas: [],
+      deploy: {
+        backendImageTargets: [],
+        frontendImageMatrix: [],
+        frontendImageTargets: [],
+        infraImageMatrix: [],
+        infraImageTargets: [],
+      },
+    }),
+  );
   return repo;
 }
 
@@ -80,12 +115,28 @@ function selectScope(
   requestedServices = 'auto',
   fullValidation = false,
 ): DeploymentScope {
+  return selectScopeForRepository(
+    REPO_ROOT,
+    changedFiles,
+    affectedProjects,
+    requestedServices,
+    fullValidation,
+  );
+}
+
+function selectScopeForRepository(
+  repo: string,
+  changedFiles: readonly string[],
+  affectedProjects: readonly string[],
+  requestedServices = 'auto',
+  fullValidation = false,
+): DeploymentScope {
   const result = spawnSync(
     process.execPath,
     [
       SCOPE_SELECTOR,
       '--repo',
-      REPO_ROOT,
+      repo,
       '--requested-services',
       requestedServices,
       '--channel',
@@ -125,9 +176,7 @@ function selectRangeScope(repo: string, baseSha: string, headSha: string): Deplo
 }
 
 function representativePathForGlob(filter: string): string {
-  return filter
-    .replaceAll('**', 'sens-specialist-contract')
-    .replaceAll('*', 'sens-specialist-contract');
+  return filter.replaceAll('**', 'README.md').replaceAll('*', 'README.md');
 }
 
 describe('affected CI range resolver', () => {
@@ -488,6 +537,9 @@ describe('development image and deploy scope selector', () => {
       infraMatrix: [],
       migrationRequired: false,
       reason: 'docs-only',
+      rustChecksRequired: false,
+      sensorChecksRequired: false,
+      validationRequired: false,
     });
   });
 
@@ -570,13 +622,75 @@ describe('development image and deploy scope selector', () => {
       expect(requiredChecks.sens_specialist_required_path_filters).toEqual(
         SENS_SPECIALIST_REQUIRED_PATH_FILTERS,
       );
-      expect(selectScope([representativePathForGlob(filter)], [])).toMatchObject({
+      const scope = selectScope([representativePathForGlob(filter)], []);
+      expect(scope).toMatchObject({
         validationRequired: true,
         sensorChecksRequired: true,
         rustChecksRequired: true,
       });
     },
   );
+
+  it.each(['sens-api-gateway/README.md', 'tools/gates/README.md'])(
+    'keeps governed docs-only path %s out of image and deploy scope',
+    (changedFile) => {
+      expect(selectScope([changedFile], [])).toMatchObject({
+        backendMatrix: [],
+        deployServices: [],
+        frontendMatrix: [],
+        infraMatrix: [],
+        reason: 'docs-only',
+        rustChecksRequired: true,
+        sensorChecksRequired: true,
+        validationRequired: true,
+      });
+    },
+  );
+
+  it.each([
+    'tools/backup-ssh-broker/README.md',
+    'infrastructure/scripts/README.md',
+    'tests/README.md',
+  ])('validates general CI-required docs-only path %s without selecting images', (changedFile) => {
+    expect(selectScope([changedFile], [])).toMatchObject({
+      backendMatrix: [],
+      deployServices: [],
+      frontendMatrix: [],
+      infraMatrix: [],
+      reason: 'docs-only',
+      rustChecksRequired: false,
+      sensorChecksRequired: false,
+      validationRequired: true,
+    });
+  });
+
+  it('uses the target repository manifest for docs-only specialist coverage', () => {
+    const repo = selectorFixtureRepository(['target-specialist/**']);
+    try {
+      expect(selectScopeForRepository(repo, ['target-specialist/README.md'], [])).toMatchObject({
+        backendMatrix: [],
+        deployServices: [],
+        frontendMatrix: [],
+        infraMatrix: [],
+        reason: 'docs-only',
+        rustChecksRequired: true,
+        sensorChecksRequired: true,
+        validationRequired: true,
+      });
+      expect(selectScopeForRepository(repo, ['tools/gates/README.md'], [])).toMatchObject({
+        backendMatrix: [],
+        deployServices: [],
+        frontendMatrix: [],
+        infraMatrix: [],
+        reason: 'docs-only',
+        rustChecksRequired: false,
+        sensorChecksRequired: false,
+        validationRequired: false,
+      });
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
 
   it('derives changed files and Nx affected projects from the exact requested SHA range', () => {
     const repo = fixtureRepository();

@@ -21,7 +21,27 @@ export interface AffectedRange {
 }
 
 const SHA_PATTERN = /^[0-9a-f]{40}$/u;
-const EMPTY_TREE_SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+
+/**
+ * The full-validation fallback base: the repository's oldest root commit.
+ *
+ * "Validate everything" must still name a base every consumer can diff
+ * against — `nx affected --base`, `git diff base...head`, the changed-file
+ * guards. The empty-tree SHA this replaces is a real git object but NOT a
+ * commit: the first main push after the lane landed resolved its baseline
+ * to it and every CI job died with `object … is a tree, not a commit`,
+ * leaving main red until a deployment tag existed — a tag only a green
+ * pipeline could create. Root..head spans the whole history, which IS the
+ * everything-affected intent, and it is always a valid commit.
+ */
+function repositoryRootCommit(repo: string, headSha: string): string {
+  const roots = git(repo, ['rev-list', '--max-parents=0', headSha]).split('\n');
+  const oldest = roots.filter(Boolean).at(-1);
+  if (!oldest) {
+    throw new Error(`unable to resolve a root commit for ${headSha}`);
+  }
+  return oldest;
+}
 
 function argumentValue(argv: readonly string[], name: string): string {
   const index = argv.indexOf(name);
@@ -98,7 +118,7 @@ export function resolveAffectedRange(args: Arguments): AffectedRange {
     const baseSha = tryResolveCommit(args.repo, args.developmentRef);
     if (!baseSha) {
       return {
-        baseSha: EMPTY_TREE_SHA,
+        baseSha: repositoryRootCommit(args.repo, args.headSha),
         headSha: args.headSha,
         fullValidation: true,
         reason: refExists(args.repo, args.developmentRef)
@@ -109,7 +129,7 @@ export function resolveAffectedRange(args: Arguments): AffectedRange {
     requireCommit(args.repo, baseSha, 'development baseline SHA');
     if (!isAncestor(args.repo, baseSha, args.headSha)) {
       return {
-        baseSha: EMPTY_TREE_SHA,
+        baseSha: repositoryRootCommit(args.repo, args.headSha),
         headSha: args.headSha,
         fullValidation: true,
         reason: 'development-baseline-not-ancestor',

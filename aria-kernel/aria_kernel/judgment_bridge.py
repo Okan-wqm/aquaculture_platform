@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent_surface import JUDGE_ROLES, SUPPORTING_ROLES
+from .confidence import confidence_in_unit_interval
 from .feedback_store import (
     CONSENSUS_UNCERTAINTY_REASONS,
     CONSENSUS_MIN_CONFIDENCE,
@@ -241,9 +242,10 @@ def record_judge_verdict_from_response(
             f"judge bridge refuses executor-shaped judge identity: {judge_id!r}"
         )
 
-    confidence = verdict_block.get("confidence")
-    if confidence is not None and not isinstance(confidence, (int, float)):
-        confidence = None
+    # The unit-interval gate, not a bare isinstance: True is an int and
+    # float("nan") is a float to isinstance, and both would ride a judge
+    # verdict into calibration as if they were probabilities.
+    confidence = confidence_in_unit_interval(verdict_block.get("confidence"))
 
     note = (
         verdict_block.get("rationale")

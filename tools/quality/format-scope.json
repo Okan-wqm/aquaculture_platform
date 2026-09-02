@@ -35492,6 +35492,24 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-01-aria-kernel-security-defects.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-01-aria-p0-wave-1.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-01-ci-empty-base.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/zcode/2026-09-01-npm-decode-uri-component-dos.md",
       "prettier_managed": true
     },
@@ -46003,6 +46021,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/gates/fixtures/plan-coverage/nx-graph.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/fixtures/plan-coverage/repo/apps/farm-service/src/database/migrations/1800000000000-add-batch-column.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/fixtures/plan-coverage/repo/apps/farm-service/src/database/migrations/1800000000001-unrelated.ts",
       "prettier_managed": true
     },
     {

@@ -6,13 +6,15 @@ import re
 from pathlib import Path
 from typing import Any
 
+from .secret_scrub import secret_patterns
 
-SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"sk-[A-Za-z0-9_-]{20,}"),
-    re.compile(r"(OPENAI_API_KEY|CODEX_API_KEY|CLAUDE_CODE_OAUTH_TOKEN|ANTHROPIC_API_KEY)=\\S+"),
-    re.compile(r"(ARIA_LEASE_TOKEN)=\\S+"),
-    re.compile(r"(gh[psu]_[A-Za-z0-9_]{20,})"),
-)
+# One pattern set, one policy: the compiled patterns live in
+# secret_scrub (the typed cross-review scrubber) and are consumed here so
+# the artifact boundary can never drift from it again. The local set this
+# replaced carried a raw-string `=\\S+` that matches a literal
+# backslash-S rather than non-whitespace, so `OPENAI_API_KEY=...` and
+# `ARIA_LEASE_TOKEN=...` passed through executor artifacts unredacted.
+SECRET_PATTERNS: tuple[re.Pattern[str], ...] = secret_patterns()
 
 FORBIDDEN_REAL_MODE_ENV: frozenset[str] = frozenset({
     "CODEX_OSS_DEBUG",

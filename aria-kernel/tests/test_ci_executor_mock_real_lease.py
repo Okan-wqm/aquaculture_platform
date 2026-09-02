@@ -120,7 +120,10 @@ class CiExecutorMockRealLeaseTests(unittest.TestCase):
             ids = {e.get("id") for e in envelope["satisfaction_matrix"]}
             self.assertEqual(ids, {"c-1", "c-2"})
             for entry in envelope["satisfaction_matrix"]:
-                self.assertEqual(entry["verdict"], "satisfied")
+                # ARIA-AUDIT-024: the executor is transport, not judge —
+                # synthesized rows carry UNVERIFIED, and satisfaction is
+                # decided downstream by an independent reader.
+                self.assertEqual(entry["verdict"], "unverified")
 
     def test_source_does_not_carry_legacy_literals_as_envelope_values(self) -> None:
         """Plan 024 §B-8 acceptance (4): regression guard against the

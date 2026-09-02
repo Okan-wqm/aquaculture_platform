@@ -136,6 +136,8 @@ class EnterprisePolicyOwnerTests(unittest.TestCase):
                 "sandbox_available": True,
                 "claude_auth": "managed_claude_code_cli",
                 "api_key_auth": False,
+                # ARIA-AUDIT-016: identity claims carry platform evidence.
+                "platform_verified": True,
             },
             base_dir=self.tools,
         )

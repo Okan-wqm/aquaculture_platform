@@ -161,13 +161,26 @@ class ReviewGateEvidenceBinding(unittest.TestCase):
                 self.assertIsNone(result["accepted_result_ref"])
 
     # I-GATE-03 — a real accepted result passes and stays attributable.
+    # Since the audit's transport-acceptance fix, "passes" additionally
+    # requires the judge's SEALED payload to carry an explicit
+    # `VERDICT: no_gaps` line and to hash to the row's output_hash —
+    # acceptance alone says the judge ran, never what it concluded.
     def test_i_gate_03_accepted_result_passes_and_is_attributable(self) -> None:
+        import hashlib
+
+        payload = "adversarial audit complete\n\nVERDICT: no_gaps\n"
+        output_hash = "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        output_rel = "agent-invocations/outputs/content-addressed/responses/gate03.md"
+        output_file = self.tools / output_rel
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_text(payload, encoding="utf-8")
         accepted = {
             "request_id": "ignored-by-patch",
             "role": _ADVERSARIAL_ROLE,
             "status": "accepted",
             "agent_id": "aria-adversarial-judge",
-            "output_hash": "sha256:" + "a" * 64,
+            "output_path": output_rel,
+            "output_hash": output_hash,
             "transcript_hash": "sha256:" + "b" * 64,
         }
         with unittest.mock.patch(
@@ -214,6 +227,75 @@ class ReviewGateEvidenceBinding(unittest.TestCase):
             result = _run_review(self.tools)
         self.assertIn(result["review_verdict"], {"gaps_open", "max_review_rounds"})
         self.assertIsNone(result["accepted_result_ref"])
+
+    # The audit's transport-acceptance reproduction: an accepted row whose
+    # payload never said anything (or said gaps_open, or drifted from its
+    # own hash) must NOT manufacture a no_gaps.
+    def _accepted_without_verdict(self, payload: str | None, output_hash: str | None) -> dict:
+        row = {
+            "request_id": "ignored-by-patch",
+            "role": _ADVERSARIAL_ROLE,
+            "status": "accepted",
+            "agent_id": "aria-adversarial-judge",
+            "transcript_hash": "sha256:" + "b" * 64,
+        }
+        if payload is not None:
+            import hashlib
+
+            output_rel = "agent-invocations/outputs/content-addressed/responses/gate04.md"
+            output_file = self.tools / output_rel
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+            output_file.write_text(payload, encoding="utf-8")
+            row["output_path"] = output_rel
+            row["output_hash"] = output_hash or (
+                "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+            )
+        return row
+
+    def test_accepted_row_without_payload_stays_gaps_open(self) -> None:
+        accepted = self._accepted_without_verdict(payload=None, output_hash=None)
+        with unittest.mock.patch(
+            "aria_kernel.review_runner.accepted_result_for_request",
+            return_value=accepted,
+        ):
+            result = _run_review(self.tools)
+        self.assertEqual(result["review_verdict"], "gaps_open")
+        self.assertIsNone(result["accepted_result_ref"])
+
+    def test_accepted_payload_without_verdict_line_stays_gaps_open(self) -> None:
+        accepted = self._accepted_without_verdict(
+            payload="looks fine to me, nothing to flag", output_hash=None,
+        )
+        with unittest.mock.patch(
+            "aria_kernel.review_runner.accepted_result_for_request",
+            return_value=accepted,
+        ):
+            result = _run_review(self.tools)
+        self.assertEqual(result["review_verdict"], "gaps_open")
+
+    def test_accepted_payload_saying_gaps_open_stays_gaps_open(self) -> None:
+        accepted = self._accepted_without_verdict(
+            payload="found a hole in the evidence chain\n\nVERDICT: gaps_open\n",
+            output_hash=None,
+        )
+        with unittest.mock.patch(
+            "aria_kernel.review_runner.accepted_result_for_request",
+            return_value=accepted,
+        ):
+            result = _run_review(self.tools)
+        self.assertEqual(result["review_verdict"], "gaps_open")
+
+    def test_accepted_payload_hash_drift_stays_gaps_open(self) -> None:
+        accepted = self._accepted_without_verdict(
+            payload="VERDICT: no_gaps\n",
+            output_hash="sha256:" + "c" * 64,  # not the payload's hash
+        )
+        with unittest.mock.patch(
+            "aria_kernel.review_runner.accepted_result_for_request",
+            return_value=accepted,
+        ):
+            result = _run_review(self.tools)
+        self.assertEqual(result["review_verdict"], "gaps_open")
 
 
 class SpecialistGateEvidenceBinding(unittest.TestCase):

@@ -66,7 +66,13 @@ class CycleAcceptanceTests(unittest.TestCase):
     def test_isolated_cycle_closes_and_keeps_ledger_valid(self) -> None:
         result = harness.run_cycle_acceptance()
         self.assertTrue(result["passed"], result["failures"])
-        self.assertIn(result["cycle_status"], ("completed", "failed"))
+        # ARIA-AUDIT-025: only 'completed' is a passing terminal state; the
+# oracle must not green-pin a failed cycle that behaved structurally.
+self.assertEqual(result["cycle_status"], "completed")
+self.assertTrue(
+    result["passed"],
+    "a completed cycle with intact phase keys + ledger must pass",
+)
 
 
 if __name__ == "__main__":

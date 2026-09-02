@@ -62,6 +62,13 @@ class PhaseRegistrationTest(unittest.TestCase):
 
 
 class JudgmentPipelinePhaseTest(unittest.TestCase):
+    def setUp(self) -> None:
+        # ARIA-AUDIT-015: consensus promotion is operator-gated; the
+        # phase pipeline test provisions the recorded acknowledgment.
+        import os as _os
+
+        _os.environ.setdefault("ARIA_CONSENSUS_PROMOTION_ACK", "operator-approved-tests")
+
     def _run(self, *, sample_raises: bool = False):
         with TemporaryDirectory() as tmp:
             ctx = _context(tmp)

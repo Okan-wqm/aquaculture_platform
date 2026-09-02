@@ -252,7 +252,13 @@ def _git_blob_matches(root: Path, rel: str, target_sha: str, content_hash: str |
 # distinct from a bare missing path.
 _GLOB_METACHARS = ("*", "?", "[")
 MIN_GLOB_MATCHES = 1
-_GLOB_SAMPLE_SIZE = 5
+# A glob is graded repo-verified only when EVERY match resolves as a
+# committed blob at the baseline SHA. Verifying a bounded sample and
+# generalizing to the set (the pre-audit shape) let an uncommitted file
+# hide behind five sorted-first committed siblings. A glob with more
+# matches than this ceiling is graded insufficient — never
+# verified-by-sample.
+_GLOB_VERIFY_LIMIT = 500
 
 
 def _is_glob(path_part: str) -> bool:
@@ -282,7 +288,11 @@ def _glob_repo_verified(
         # Nothing to verify committment against — honest "unbaselined", not
         # verified (mirrors the file path's baseline_unavailable).
         return ("baseline_unavailable", count)
-    for match in matches[:_GLOB_SAMPLE_SIZE]:
+    if count > _GLOB_VERIFY_LIMIT:
+        # More matches than the verification ceiling: honest insufficient
+        # evidence, not a sample generalized into a grade.
+        return ("glob_too_large_to_verify", count)
+    for match in matches:
         try:
             rel = match.resolve().relative_to(root).as_posix()
         except ValueError:

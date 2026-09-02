@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import os
 import shutil
 import tempfile
 import unittest
@@ -179,6 +180,64 @@ class StateCompactTests(unittest.TestCase):
         gz_files = list(archive_dir.glob("*.jsonl.gz"))
         self.assertGreater(len(gz_files), 0)
 
+    def test_runs_archive_carries_stripped_rows_pristine(self) -> None:
+        """2026-09-01 controlled reproduction: 100 stripped evidence
+        envelopes were unrecoverable from the 'lossless' archive because
+        the archive wrote the SAME mutated row objects the live ledger
+        kept (shallow alias). The archive must carry each slimmed row as
+        it was BEFORE slimming."""
+        compact_state(base_dir=self.tools, retain_days=7)
+        archive = next((self.tools / "archives").glob("runs-compact-*.jsonl.gz"))
+        with gzip.open(archive, "rt", encoding="utf-8") as fh:
+            archived = [json.loads(line) for line in fh]
+        self.assertGreater(len(archived), 0)
+        old = next(r for r in archived if r["run_id"] == "run-old")
+        self.assertEqual(len(old["evidence_validation"]["evidence_envelopes"]), 100)
+        self.assertEqual(len(old["read_paths"]), 100)
+        self.assertNotIn("evidence_envelope_count", old["evidence_validation"])
+        for row in archived:
+            self.assertNotEqual(row.get("run_id"), "run-new",
+                                "unstripped rows do not belong in the runs archive")
+
+    def test_raw_findings_archive_carries_inline_findings_pristine(self) -> None:
+        compact_state(base_dir=self.tools, retain_days=7)
+        archive = next((self.tools / "archives").glob("raw_findings-compact-*.jsonl.gz"))
+        with gzip.open(archive, "rt", encoding="utf-8") as fh:
+            archived = [json.loads(line) for line in fh]
+        self.assertGreater(len(archived), 0)
+        self.assertTrue(all("finding" in r for r in archived),
+                        "every archived raw-finding row must still carry its inline finding")
+        self.assertTrue(all("finding_summary" not in r for r in archived))
+
+    def test_beliefs_and_learning_archives_carry_dropped_rows_only(self) -> None:
+        compact_state(base_dir=self.tools, retain_days=7)
+        beliefs_archive = next((self.tools / "archives").glob("beliefs-compact-*.jsonl.gz"))
+        with gzip.open(beliefs_archive, "rt", encoding="utf-8") as fh:
+            archived_beliefs = [json.loads(line) for line in fh]
+        # Collapse-to-latest drops the SUPERSEDED rows; their belief_ids
+        # legitimately still live in the ledger via their newer rows. What
+        # the archive must carry is exactly the superseded versions: the
+        # ten b-0..b-9 "supported" rows, and nothing for b-10..b-19.
+        self.assertEqual(len(archived_beliefs), 10)
+        archived_by_id = {r["belief_id"]: r for r in archived_beliefs}
+        for i in range(10):
+            self.assertEqual(archived_by_id[f"b-{i}"]["status"], "supported")
+        for i in range(10, 20):
+            self.assertNotIn(f"b-{i}", archived_by_id)
+
+        learning_archive = next((self.tools / "archives").glob("learning_events-compact-*.jsonl.gz"))
+        with gzip.open(learning_archive, "rt", encoding="utf-8") as fh:
+            archived_learning = [json.loads(line) for line in fh]
+        kept_learning = load_declared_jsonl(
+            self.tools / "memory" / "learning-events.jsonl", expected_surface="memory_learning_events"
+        )
+        # Fixture: one old row dropped, one new row kept — the archive
+        # carries the dropped one, the ledger the kept one.
+        self.assertEqual(len(archived_learning), 1)
+        self.assertEqual(len(kept_learning), 1)
+        self.assertEqual(archived_learning[0]["belief_id"], "b-0")
+        self.assertEqual(kept_learning[0]["belief_id"], "b-1")
+
     def test_hash_chain_rechained(self) -> None:
         compact_state(base_dir=self.tools, retain_days=7)
         for ledger_name in ["runs.jsonl", "raw-findings.jsonl", "memory/beliefs.jsonl", "memory/learning-events.jsonl"]:
@@ -193,6 +252,52 @@ class StateCompactTests(unittest.TestCase):
         events = load_jsonl(self.tools / "governance.jsonl")
         compact_events = [e for e in events if e.get("kind") == "state_compacted"]
         self.assertEqual(len(compact_events), 1)
+
+    def _seed_hot_artifacts(self) -> None:
+        hot = self.tools / "run-artifacts" / "hot"
+        old_stamp = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y%m%dT%H%M%SZ")
+        new_stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        for name in (f"cyc-{old_stamp}-auto", f"cyc-{new_stamp}-auto", "not-a-cycle-dir"):
+            cycle = hot / name
+            cycle.mkdir(parents=True, exist_ok=True)
+            (cycle / "tool_run.json").write_text("{}", encoding="utf-8")
+        # The non-cycle directory has no name stamp: its mtime decides.
+        stale = hot / "not-a-cycle-dir"
+        old_ts = (datetime.now(timezone.utc) - timedelta(days=30)).timestamp()
+        os.utime(stale, (old_ts, old_ts))
+
+    def test_hot_artifacts_older_than_retain_removed_newer_kept(self) -> None:
+        self._seed_hot_artifacts()
+        result = compact_state(base_dir=self.tools, retain_days=7)
+        hot = self.tools / "run-artifacts" / "hot"
+        self.assertEqual(result["hot_artifacts_removed"], 2)
+        remaining = sorted(p.name for p in hot.iterdir())
+        self.assertTrue(any(n.startswith("cyc-") and n != "not-a-cycle-dir" for n in remaining))
+        self.assertNotIn("not-a-cycle-dir", remaining)
+
+    def test_discovery_fates_older_than_thirty_days_removed(self) -> None:
+        fates = self.tools / "discovery" / "cyc-x"
+        fates.mkdir(parents=True, exist_ok=True)
+        target = fates / "FATES.json"
+        target.write_text("{}", encoding="utf-8")
+        old_ts = (datetime.now(timezone.utc) - timedelta(days=31)).timestamp()
+        os.utime(target, (old_ts, old_ts))
+        fresh = self.tools / "discovery" / "cyc-y" / "FATES.json"
+        fresh.parent.mkdir(parents=True, exist_ok=True)
+        fresh.write_text("{}", encoding="utf-8")
+
+        result = compact_state(base_dir=self.tools, retain_days=7)
+
+        self.assertEqual(result["fates_removed"], 1)
+        self.assertFalse(target.exists())
+        self.assertTrue(fresh.exists())
+
+    def test_dry_run_removes_no_hot_artifacts_or_fates(self) -> None:
+        self._seed_hot_artifacts()
+        result = compact_state(base_dir=self.tools, retain_days=7, dry_run=True)
+        self.assertEqual(result["hot_artifacts_removed"], 2)
+        hot = self.tools / "run-artifacts" / "hot"
+        self.assertEqual(len(list(hot.iterdir())), 3)
 
 
 if __name__ == "__main__":

@@ -1057,7 +1057,30 @@ def _staged_pathspecs(
                     f"{store.root.as_posix()}"
                 ) from None
             specs.add(f"{prefix}/{entry['path']}")
-    return sorted(specs)
+    return _stageable_pathspecs(store, specs)
+
+
+def _stageable_pathspecs(store: StateStore, specs: set[str]) -> list[str]:
+    """Drop pathspecs that match neither the worktree nor the index.
+
+    The predecessor's declared-but-removed surfaces are the exact shape
+    the 2026-08-31 operator compaction left on the branch: snapshot.json
+    attested hot artifacts the tree no longer carried. ``git add --all
+    -- <spec>`` treats a matchless pathspec as FATAL, so one
+    self-inconsistent predecessor made every later publish die at the
+    staging step — with the ACK letting the continuity gate pass, the
+    outage simply moved to transport. A pathspec that matches nothing
+    has no content to add and no deletion to stage: skipping it cannot
+    change the commit, and the fresh snapshot stops declaring the
+    phantom, healing the branch instead of refusing forever.
+    """
+    ordered = sorted(specs)
+    existing = {spec for spec in ordered if (store.root / spec).exists()}
+    missing = [spec for spec in ordered if spec not in existing]
+    if not missing:
+        return ordered
+    tracked = set(_git(store.root, "ls-files", "--", *missing).split())
+    return [spec for spec in ordered if spec in existing or spec in tracked]
 
 
 def _full_git_sha(value: str) -> bool:

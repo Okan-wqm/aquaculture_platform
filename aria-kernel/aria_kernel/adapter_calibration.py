@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
+import secrets
 from pathlib import Path
 from typing import Any
 
@@ -227,12 +229,42 @@ def _precision_history(
 
 
 def _derive_workspace_key(root: Path) -> bytes:
-    """Workspace-bound HMAC key.
+    """Workspace-bound HMAC key made of SECRET material, never the path.
 
-    Uses the contract hash from ``tools_contract_version`` if available;
-    falls back to a sha256 of the resolved aria-tools root path. Either
-    way, tokens minted in workspace A do not verify in workspace B —
-    the consume-time half is wired since ORPHAN-HIGH-787
-    (``verify_auto_promote_token`` re-derives this same key).
+    Priority: the ``ARIA_WORKSPACE_HMAC_KEY`` external secret (hex, >=32
+    bytes — CI injects it from the environment's secret store, and
+    rotating it invalidates every outstanding token), then a per-store
+    random secret persisted at ``.workspace-secret`` with 0600 (created
+    on first use). A store recreated at the same path gets a NEW key, so
+    a replayed token cannot ride public knowledge of the directory name —
+    the exact forgery class the audit reproduced against the previous
+    path-hash derivation. Both promotion lanes (auto and panel) share
+    this one derivation (i1), so the property covers both token families.
     """
-    return hashlib.sha256(str(root.resolve()).encode("utf-8")).digest()
+    external = os.environ.get("ARIA_WORKSPACE_HMAC_KEY", "").strip()
+    if external:
+        try:
+            material = bytes.fromhex(external)
+        except ValueError as exc:
+            raise GovernanceError(
+                "ARIA_WORKSPACE_HMAC_KEY must be hex-encoded secret material"
+            ) from exc
+        if len(material) < 32:
+            raise GovernanceError(
+                "ARIA_WORKSPACE_HMAC_KEY must carry at least 32 bytes"
+            )
+        return material
+    secret_path = root / ".workspace-secret"
+    try:
+        material = bytes.fromhex(secret_path.read_text(encoding="utf-8").strip())
+        if len(material) >= 32:
+            return material
+    except (OSError, ValueError):
+        pass
+    material = secrets.token_bytes(32)
+    secret_path.write_text(material.hex() + "\n", encoding="utf-8")
+    try:
+        os.chmod(secret_path, 0o600)
+    except OSError:  # pragma: no cover - platforms without POSIX modes
+        pass
+    return material

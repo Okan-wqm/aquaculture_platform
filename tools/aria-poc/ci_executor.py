@@ -345,7 +345,10 @@ def _canonicalize_satisfaction_matrix(
             mutated = True
         verdict = entry.get("verdict")
         if verdict in (None, "", "null"):
-            entry["verdict"] = "satisfied"
+            # ARIA-AUDIT-024: the executor is a TRANSPORT, not a judge.
+            # A missing verdict is unverified — auto-filling "satisfied"
+            # made the producer the author of its own acceptance.
+            entry["verdict"] = "unverified"
             mutated = True
     return mutated
 
@@ -1069,7 +1072,7 @@ def invoke_claude_cli(
                 if cid:
                     matrix.append({
                         "id": cid,
-                        "verdict": "satisfied",
+                        "verdict": "unverified",
                         "evidence_refs": [],
                     })
         # Plan 025 §B latent-bug-2 closure — no string-mangle fallback.
@@ -1290,6 +1293,54 @@ def invoke_claude_cli(
                 f"category={refusal.get('category')!r} "
                 f"{agent_profile.model}->{_refusal_fallback_target}"
             )
+
+        # ARIA-AUDIT-021: reserve BEFORE the external call. The budget
+        # gate existed with zero production callers, so cost was only ever
+        # evaluated AFTER the spend, on the success path, with unknown
+        # models priced at $0 — fail-open in every direction. The
+        # reservation uses a conservative notional ceiling for the model
+        # family; a model with NO resolvable price refuses unless the
+        # operator injects ARIA_COST_UNKNOWN_ACK (unknown-cost = deny,
+        # never zero).
+        if tools_dir is not None and _MOCK_MODE_AT_ENTRY is False:
+            from aria_kernel.budget import (
+                MODEL_FAMILY_PRICING_USD_PER_MTOK,
+                MODEL_PRICING_USD_PER_MTOK,
+            )
+            from aria_kernel.cost_budget import assert_within_budget
+            from aria_kernel.tool_registry import GovernanceError as _BudgetRefusal
+
+            _normalized = (agent_profile.model or "").strip().lower()
+            _rates = None
+            for _known, _r in MODEL_PRICING_USD_PER_MTOK.items():
+                if _normalized == _known or _normalized.startswith(f"{_known}-"):
+                    _rates = _r
+                    break
+            if _rates is None:
+                for _family, _r in MODEL_FAMILY_PRICING_USD_PER_MTOK.items():
+                    if _normalized == _family or _normalized.startswith(f"{_family}-"):
+                        _rates = _r
+                        break
+            if _rates is None and not os.environ.get("ARIA_COST_UNKNOWN_ACK", "").strip():
+                _emit_dispatch_summary(
+                    outcome="failed",
+                    failure="cost_reservation_refused: model pricing unknown and "
+                            "ARIA_COST_UNKNOWN_ACK unset (unknown-cost = deny)",
+                    exit_code=1,
+                )
+                return 1
+            # Conservative ceiling: 400k in / 64k out tokens for one call.
+            _in_rate, _out_rate = _rates or (0.0, 0.0)
+            _estimate = (400_000 * _in_rate + 64_000 * _out_rate) / 1_000_000
+            try:
+                assert_within_budget(tools_dir, estimated_run_usd=_estimate)
+            except _BudgetRefusal as _refusal:
+                _emit_dispatch_summary(
+                    outcome="failed",
+                    failure=f"cost_reservation_refused: {_refusal}"[:200],
+                    exit_code=1,
+                )
+                return 1
 
         completed = run_with_model_fallback(
             run=_dispatch_attempt,
@@ -1666,10 +1717,11 @@ def _build_envelope_from_claude_output(
         envelope["satisfaction_matrix"] = matrix_in
     else:
         # Synthesize from must_satisfy so the kernel's non-empty-matrix
-        # check passes; verdict=satisfied with the agent text excerpt
-        # as evidence is honest because we INVOKED the agent and got a
-        # textual reply — the satisfaction signal is real even when the
-        # agent did not format it.
+        # check passes — as UNVERIFIED rows (ARIA-AUDIT-024). The agent
+        # being invoked and replying is transport evidence, not a
+        # satisfaction judgment; the verdict belongs to an independent
+        # judge reading this matrix, never to the executor that carried
+        # the reply.
         synthesized: list[dict[str, Any]] = []
         excerpt = (agent_text or "<agent produced no text>").strip()
         excerpt_short = excerpt[:240] + ("..." if len(excerpt) > 240 else "")
@@ -1682,7 +1734,7 @@ def _build_envelope_from_claude_output(
                     continue
                 synthesized.append({
                     "id": cid,
-                    "verdict": "satisfied",
+                    "verdict": "unverified",
                     "evidence_refs": [],
                     "evidence": excerpt_short,
                 })
@@ -1692,7 +1744,7 @@ def _build_envelope_from_claude_output(
             # evidence_satisfaction_matrix_must_be_non_empty.
             synthesized.append({
                 "id": f"agent-text-{request_id[-8:]}",
-                "verdict": "satisfied",
+                "verdict": "unverified",
                 "evidence_refs": [],
                 "evidence": excerpt_short,
             })

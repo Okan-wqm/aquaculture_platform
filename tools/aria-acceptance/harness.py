@@ -163,6 +163,15 @@ def run_cycle_acceptance() -> dict[str, Any]:
         # (1) cycle reached a terminal status
         if result.get("status") not in ("completed", "failed"):
             failures.append(f"cycle did not reach terminal status: {result.get('status')}")
+        # (1b) ARIA-AUDIT-025: terminal alone is not success. A cycle that
+        # FAILED while emitting the expected phase keys and a valid ledger
+        # row is a WORKING PIPELINE around a failing cycle — accepting it
+        # green-pins the failure as the pass condition.
+        if result.get("status") != "completed":
+            failures.append(
+                f"cycle terminated as {result.get('status')!r}, not 'completed' — "
+                "a failed cycle must fail acceptance"
+            )
         # (2) every expected phase produced a state key
         for key in _EXPECTED_PHASE_KEYS:
             if key not in result:

@@ -91,6 +91,19 @@ def _run(**overrides) -> dict:
     return run
 
 
+_APPROVAL_EVENT = "evt-test-operator-approval"
+_APPROVAL_REF = f"gov:{_APPROVAL_EVENT}"
+
+
+def _record_test_approval(root) -> None:
+    """Provision the governance-recorded operator approval fixtures use."""
+    from aria_kernel.tool_registry import append_tools_governance
+
+    append_tools_governance(
+        root, "operator_action", {"event_id": _APPROVAL_EVENT, "action": "approve"},
+    )
+
+
 class RuntimeArtifactTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="aria-runtime-artifacts-"))
@@ -99,6 +112,7 @@ class RuntimeArtifactTests(unittest.TestCase):
         os.environ["ARIA_RUN_LEDGER_FORMAT"] = "v2"
         self.repo_root = Path(__file__).resolve().parents[2]
         ensure_tools_binding(self.tools, workspace_root=self.repo_root)
+        _record_test_approval(self.tools)
         register_tool(_tool(), base_dir=self.tools)
         target_sha = subprocess.check_output(
             ["git", "rev-parse", "HEAD"],
@@ -108,14 +122,14 @@ class RuntimeArtifactTests(unittest.TestCase):
         evidence_bundle = self.tools / "runtime" / "v2-promotion-evidence.json"
         evidence_bundle.parent.mkdir(parents=True, exist_ok=True)
         evidence_bundle.write_text(
-            json.dumps({"operator_approval_ref": "test", "target_sha": target_sha}),
+            json.dumps({"operator_approval_ref": _APPROVAL_REF, "target_sha": target_sha}),
             encoding="utf-8",
         )
         approve_runtime_v2_promotion(
             evidence_bundle=evidence_bundle,
             base_dir=self.tools,
             workspace_root=self.repo_root,
-            operator_approval_ref="test",
+            operator_approval_ref=_APPROVAL_REF,
         )
 
     def tearDown(self) -> None:
@@ -176,7 +190,7 @@ class RuntimeArtifactTests(unittest.TestCase):
             acknowledge=True,
             workspace_root=self.repo_root,
             reason="unit-test-retention",
-            operator_approval_ref="test-approval",
+            operator_approval_ref=_APPROVAL_REF,
         )
         self.assertEqual(applied["archived_count"], 1)
         artifact_id = applied["archived"][0]["artifact_id"]
@@ -185,7 +199,7 @@ class RuntimeArtifactTests(unittest.TestCase):
             artifact_ref=artifact_id,
             workspace_root=self.repo_root,
             reason="unit-test-restore",
-            operator_approval_ref="test-approval",
+            operator_approval_ref=_APPROVAL_REF,
         )
         self.assertEqual(restored["status"], "restored")
 

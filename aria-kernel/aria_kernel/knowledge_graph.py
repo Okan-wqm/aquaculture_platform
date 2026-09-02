@@ -332,10 +332,23 @@ def record_anti_pattern(
         raise KnowledgeGraphSchemaError(
             f"reason_class must be in {sorted(ANTI_PATTERN_TYPES)}, got {reason_class!r}"
         )
-    if not isinstance(operator_signature, str) or len(operator_signature) < 16:
+    if not isinstance(operator_signature, str) or not operator_signature.strip():
         raise KnowledgeGraphSignatureMissing(
-            "anti-pattern entries require operator_signature (non-empty, >=16 chars)"
+            "anti-pattern entries require operator_signature"
         )
+    # ARIA-AUDIT-015: length was never authority. The signature must be a
+    # resolvable operator reference (gov:<event>, review:<path>#<id>, or
+    # ack-env:<VAR>); a plausible-looking bare string refuses.
+    from .operator_approval import OperatorApprovalUnrecorded, verify_operator_approval_ref
+
+    try:
+        verify_operator_approval_ref(
+            operator_signature,
+            base_dir=Path(workspace_root) / "aria-tools",
+            surface="knowledge_graph_anti_pattern",
+        )
+    except OperatorApprovalUnrecorded as exc:
+        raise KnowledgeGraphSignatureMissing(str(exc)) from exc
     if pattern.pattern_type != "anti_pattern":
         raise KnowledgeGraphSchemaError(
             f"anti-pattern pattern_type MUST be 'anti_pattern', got {pattern.pattern_type!r}"

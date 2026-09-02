@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0.0",
+  "policy_id": "new-aria-one-work-unit-per-pr-v1",
+  "work_units": "D0 and each S01-S72 sprint",
+  "pull_request_cardinality": "exactly one work unit",
+  "required_check_state": "GitHub Actions SUCCESS",
+  "target_ref": "refs/heads/main",
+  "merge_method": "MERGE_COMMIT",
+  "forbidden_merge_methods": ["SQUASH", "REBASE"],
+  "successor_base": "exact resulting origin/main SHA"
+}

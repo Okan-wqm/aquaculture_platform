@@ -1,0 +1,137 @@
+input CreateMissionDraftInput {
+  requestId: UUID!
+  workspaceId: ID!
+  expectedVersion: Long!
+  clientIssuedAt: DateTime!
+  repositoryId: ID!
+  snapshotSha: String!
+  title: String!
+}
+
+input PostConversationMessageInput {
+  requestId: UUID!
+  workspaceId: ID!
+  expectedVersion: Long!
+  clientIssuedAt: DateTime!
+  missionId: ID!
+  threadId: ID!
+  clientMessageId: UUID!
+  text: String!
+  contextDigest: String!
+}
+
+input SubmitMissionInput {
+  requestId: UUID!
+  workspaceId: ID!
+  expectedVersion: Long!
+  clientIssuedAt: DateTime!
+  missionId: ID!
+  previewDigest: String!
+  snapshotDigest: String!
+  payloadDigest: String!
+  policyDigest: String!
+}
+
+input CancelMissionInput {
+  requestId: UUID!
+  workspaceId: ID!
+  expectedVersion: Long!
+  clientIssuedAt: DateTime!
+  missionId: ID!
+  targetAttemptId: ID!
+  reason: String!
+}
+
+input RetryMissionInput {
+  requestId: UUID!
+  workspaceId: ID!
+  expectedVersion: Long!
+  clientIssuedAt: DateTime!
+  missionId: ID!
+  failedAttemptId: ID!
+  reason: String!
+  previewDigest: String!
+}
+
+input FreezeAutonomyInput {
+  requestId: UUID!
+  workspaceId: ID!
+  expectedVersion: Long!
+  clientIssuedAt: DateTime!
+  reason: String!
+  scope: String!
+}
+
+input ResumeAutonomyInput {
+  requestId: UUID!
+  workspaceId: ID!
+  expectedVersion: Long!
+  clientIssuedAt: DateTime!
+  incidentId: ID!
+  reconciliationDigest: String!
+  previewDigest: String!
+}
+
+input MergeEvaluationInput {
+  requestId: UUID!
+  workspaceId: ID!
+  expectedVersion: Long!
+  clientIssuedAt: DateTime!
+  missionId: ID!
+  pullRequestNumber: Int!
+  baseSha: String!
+  headSha: String!
+  dossierDigest: String!
+  previewDigest: String!
+}
+
+input AcknowledgeDecisionInput {
+  requestId: UUID!
+  workspaceId: ID!
+  expectedVersion: Long!
+  clientIssuedAt: DateTime!
+  missionId: ID!
+  decisionId: ID!
+  reason: String!
+}
+
+union AriaCommandResult =
+  | AriaCommandAccepted
+  | AriaCommandConflict
+  | AriaCommandDenied
+  | AriaCommandStale
+  | AriaCommandInvalid
+  | AriaCommandUnavailable
+
+type AriaCommandAccepted {
+  commandId: ID!
+  aggregateId: ID!
+  version: Long!
+}
+
+type AriaCommandConflict {
+  currentVersion: Long!
+  safeRefreshCursor: Cursor!
+}
+
+type AriaCommandDenied {
+  reasonCode: String!
+}
+
+type AriaCommandStale {
+  requiredAuthorityVersion: String!
+}
+
+type AriaFieldError {
+  field: String!
+  code: String!
+}
+
+type AriaCommandInvalid {
+  fieldErrors: [AriaFieldError!]!
+}
+
+type AriaCommandUnavailable {
+  retryAfter: DateTime
+  requestStatusLookupId: ID
+}

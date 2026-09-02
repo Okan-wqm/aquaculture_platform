@@ -1,34 +1,23 @@
 #!/usr/bin/env node
 
 import assert from 'node:assert/strict';
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { eventHash, parseStrictJson } from './lib/canonical.mjs';
 import { verifyD0 } from './lib/verify.mjs';
-
-const planRoot = fileURLToPath(new URL('..', import.meta.url));
-const repositoryRoot = fileURLToPath(new URL('../../../..', import.meta.url));
-const scratchParent = dirname(planRoot);
-
-function replace(root, relativePath, before, after) {
-  const path = join(root, relativePath);
-  const source = readFileSync(path, 'utf8');
-  assert(source.includes(before), `fixture anchor missing: ${relativePath}`);
-  writeFileSync(path, source.replace(before, after));
-}
-
-function mutateJson(root, relativePath, mutate) {
-  const path = join(root, relativePath);
-  const value = JSON.parse(readFileSync(path, 'utf8'));
-  mutate(value);
-  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
-}
+import {
+  mutateJson,
+  planRoot,
+  replace,
+  repositoryRoot,
+  targetArguments,
+  withPlanCopy,
+} from './test-support.mjs';
 
 const cases = [
   {
     name: 'frozen title drift',
-    code: 'AUDIT_SNAPSHOT',
+    code: 'AUDIT_ORACLE',
     mutate: (root) =>
       replace(root, 'FINDING-COVERAGE.md', 'Scheduled compactor', 'Changed compactor'),
   },
@@ -73,13 +62,13 @@ const cases = [
   },
   {
     name: 'review report rewrite',
-    code: 'REVIEW_EVIDENCE',
+    code: 'REVIEW_DOSSIER',
     mutate: (root) =>
       replace(root, 'reviews/01-integrity.md', 'D0 evidence/integrity', 'D0 rewritten/integrity'),
   },
   {
     name: 'review source rewrite',
-    code: 'REVIEW_EVIDENCE',
+    code: 'REVIEW_DOSSIER',
     mutate: (root) =>
       replace(
         root,
@@ -163,37 +152,26 @@ assert.equal(
   'event key order must not change canonical hash',
 );
 assert.throws(() => parseStrictJson('{"a":1,"a":2}'), /duplicate key/);
-assert.throws(() => parseStrictJson('{"a":1.5}'), /integer/);
+assert.throws(() => parseStrictJson('{"a":1.5}'), /floating-point/);
+assert.throws(() => parseStrictJson('{"a":1.0}'), /floating-point/);
+assert.throws(() => parseStrictJson('{"a":1e0}'), /floating-point/);
+assert.throws(() => parseStrictJson('{"a":9007199254740992}'), /safe integer/);
 assert.throws(() => parseStrictJson('{"a":-0}'), /negative zero/);
 assert.throws(() => parseStrictJson('{"a":"\\ud800"}'), /Unicode scalar/);
 
-const baseline = verifyD0(planRoot, { repositoryRoot, changedPaths: [] });
+const target = targetArguments();
+const baseline = verifyD0(planRoot, { repositoryRoot, target }).errors;
 assert.deepEqual(baseline, [], `baseline verifier errors:\n${JSON.stringify(baseline, null, 2)}`);
 
 for (const testCase of cases) {
-  const scratch = mkdtempSync(join(scratchParent, '.d0-negative-'));
-  try {
-    cpSync(planRoot, scratch, { recursive: true });
+  withPlanCopy('new-aria-d0-negative-', (scratch) => {
     testCase.mutate(scratch);
-    const errors = verifyD0(scratch, { repositoryRoot, changedPaths: [] });
+    const errors = verifyD0(scratch, { repositoryRoot, target }).errors;
     assert(
       errors.some((error) => error.code === testCase.code),
       `${testCase.name}: expected ${testCase.code}, received ${JSON.stringify(errors)}`,
     );
-  } finally {
-    rmSync(scratch, { recursive: true, force: true });
-  }
+  });
 }
 
-for (const [path, code] of [
-  ['aria-kernel/src/state.py', 'PROTECTED_SCOPE'],
-  ['apps/gateway-api/src/main.ts', 'PRODUCT_SCOPE'],
-]) {
-  const errors = verifyD0(planRoot, { repositoryRoot, changedPaths: [path] });
-  assert(
-    errors.some((error) => error.code === code),
-    `${path}: expected ${code}`,
-  );
-}
-
-process.stdout.write(`PASS negative-controls=${cases.length + 7}\n`);
+process.stdout.write(`PASS negative-controls=${cases.length + 8}\n`);

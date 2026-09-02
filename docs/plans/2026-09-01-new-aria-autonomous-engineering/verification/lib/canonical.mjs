@@ -28,7 +28,10 @@ function scanPrimitive(source, state) {
   const start = state.index;
   while (state.index < source.length && !/[\s,\]}]/u.test(source[state.index])) state.index += 1;
   const token = source.slice(start, state.index);
-  if (!/^(?:null|true|false|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)$/u.test(token)) {
+  if (/^-?(?:0|[1-9]\d*)[.eE]/u.test(token)) {
+    throw new Error(`floating-point number lexeme is forbidden: ${token}`);
+  }
+  if (!/^(?:null|true|false|-?(?:0|[1-9]\d*))$/u.test(token)) {
     throw new Error(`invalid JSON token: ${token}`);
   }
 }

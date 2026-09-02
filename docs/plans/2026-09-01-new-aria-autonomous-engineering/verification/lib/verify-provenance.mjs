@@ -1,9 +1,10 @@
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { parseStrictJson, sha256, sha256File } from './canonical.mjs';
 
 const manifestPath = 'verification/verifier-inputs.jsonl';
 const designPath = '../../superpowers/specs/2026-09-01-new-aria-autonomous-engineering-design.md';
+const formatScopePath = '../../../tools/quality/format-scope.json';
 
 function add(errors, message) {
   errors.push({ code: 'VERIFIER_PROVENANCE', message });
@@ -26,6 +27,7 @@ export function expectedPaths(planRoot) {
     .filter((path) => extensions.some((extension) => path.endsWith(extension)))
     .filter((path) => path !== manifestPath);
   paths.push(designPath);
+  paths.push(formatScopePath);
   return paths.sort();
 }
 
@@ -35,15 +37,26 @@ export function bundleDigest(records) {
 }
 
 function verifyRuntime(errors, runtime) {
-  if (!/^v(?:2[0-9]|[3-9][0-9])\./u.test(runtime?.node_version ?? ''))
-    add(errors, 'unsupported or absent Node version');
-  if (!/^[a-f0-9]{64}$/u.test(runtime?.node_executable_sha256 ?? ''))
-    add(errors, 'Node executable digest missing');
+  const actualPath = realpathSync(process.execPath);
+  if (!runtime || typeof runtime !== 'object' || Array.isArray(runtime)) {
+    errors.push({ code: 'VERIFIER_RUNTIME', message: 'Node runtime observation mismatch' });
+    return;
+  }
+  const declaredPath = runtime.node_executable;
+  if (
+    runtime.node_version !== process.version ||
+    typeof declaredPath !== 'string' ||
+    !existsSync(declaredPath) ||
+    realpathSync(declaredPath) !== actualPath ||
+    runtime.node_executable_sha256 !== sha256File(actualPath)
+  ) {
+    errors.push({ code: 'VERIFIER_RUNTIME', message: 'Node runtime observation mismatch' });
+  }
 }
 
 function verifyMetadataIdentity(errors, metadata) {
   const identity = [metadata.schema_version, metadata.kind, metadata.verifier_version];
-  if (JSON.stringify(identity) !== JSON.stringify(['1.0.0', 'metadata', '1.0.0']))
+  if (JSON.stringify(identity) !== JSON.stringify(['2.0.0', 'metadata', '2.0.0']))
     add(errors, 'metadata identity drift');
   if (!metadata.recorded_at_utc) add(errors, 'provenance observation timestamp missing');
   if (metadata.claim !== 'verifier input provenance; not an admission record')
@@ -51,18 +64,24 @@ function verifyMetadataIdentity(errors, metadata) {
 }
 
 function verifyMetadata(errors, metadata, records) {
-  const expectedArgv = [
-    'node',
-    'docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/verify-d0.mjs',
+  const expectedFlags = [
     '--repo-root',
-    '.',
     '--mode',
-    'full',
+    '--base',
+    '--head',
+    '--reviewed-ref',
+    '--base-tree',
+    '--head-tree',
+    '--diff-sha256',
+    '--design-sha256',
+    '--format-scope-sha256',
   ];
   verifyMetadataIdentity(errors, metadata);
   verifyRuntime(errors, metadata.runtime);
   if (
-    JSON.stringify(metadata.argv) !== JSON.stringify(expectedArgv) ||
+    metadata.verifier_script !==
+      'docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/verify-d0.mjs' ||
+    JSON.stringify(metadata.required_flags) !== JSON.stringify(expectedFlags) ||
     metadata.cwd_contract !== 'repository root'
   )
     add(errors, 'argv/CWD drift');

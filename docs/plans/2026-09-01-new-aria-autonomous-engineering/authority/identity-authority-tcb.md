@@ -78,6 +78,26 @@ dossier/attestation/ruleset/check-review digest'leri, nonce, issued/expiry ve re
 Issuer=consumer, producer=approver, unknown/below-quorum issuer ve direct ledger insert DB policy ile
 imkânsızdır. Consume ve exact `INTENDED` effect insert tek serializable transaction'dır.
 
+## IssuerTopologyManifest
+
+Operator-owned `IssuerTopologyManifest` şu exact principal roster'ını taşır:
+`aria-human-grant-issuer`, `aria-low-permit-issuer`, `aria-medium-permit-issuer`,
+`security-authority`, `release-authority`, `domain-owner-authority` ve quorum oyu veremeyen
+`aria-medium-permit-assembler`. Her kayıt canonical `WorkloadSubjectId`, immutable image/attestation,
+host ve failure-domain ID, numeric UID/GID, exclusive KMS handle, exclusive DB issue-procedure
+socket'i, authenticated RPC peer allowlist'i, egress/resource bounds, rotation epoch ve
+`recovery_epoch` taşır.
+
+Bu yedi principal pairwise farklı host/failure-domain/UID/credential/socket sınırındadır. Ayrıca her
+biri `policy-attestor`, `publisher` ve `merge-authority` ile aynı pairwise collision oracle'ına
+girer. Issuer ile consumer, assembler ile herhangi voter, iki voter veya bu principal'ların herhangi
+birinin aynı host, UID, KMS handle, DB procedure, credential mount ya da failure domain'i paylaşması
+admission'ı durdurur. Tek principal compromise; issue+consume, iki quorum oyu, policy attestation,
+publish veya merge yetkilerinden ikisini birleştiremez.
+
+`OP-03` bu manifestin owner'ıdır; S04 schema/identity ve pairwise oracle'yı kurar. S28/S50/S58 exact
+current manifest digest, rotation/revoke drill ve recovery epoch olmadan issue process'i başlatamaz.
+
 ## Sekiz runtime rolünün immutable sınırı
 
 Yeni ARIA production droplet'a schedule edilmez. `aria-control-vm` control-plane; ayrı
@@ -110,4 +130,5 @@ verdict'iyle değiştiremez.
 
 S04/S08 identity negatives; S18/S27 workload mismatch; S28/S50/S58 issuer/direct-insert/concurrent
 consume; S25/S31 repository lifecycle; S67 single-role compromise ve rotation testleri mandatory'dir.
-Bir authority edge'i veya principal çıkarıldığında gate fail etmelidir.
+Issuer/voter/assembler/policy-attestor/publisher/merge-authority collision matrix'inden bir edge veya
+principal çıkarıldığında gate fail etmelidir.

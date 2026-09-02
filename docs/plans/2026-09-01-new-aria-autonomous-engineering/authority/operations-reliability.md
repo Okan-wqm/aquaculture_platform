@@ -4,24 +4,27 @@
 
 ## Charged-unknown reservation
 
-`ProviderReservation` authoritative state machine'i:
+Logical effect, her external call için ayrı immutable child `PhysicalDispatchReservation` taşır:
 
 ```text
-RESERVED -> DISPATCHED -> SETTLED
-                       -> HELD_UNKNOWN -> SETTLED | MANUAL_RECONCILIATION
-RESERVED -> EXPIRED_UNUSED
+LogicalEffectReservation(maxAttempts * perCallUpperBound)
+  -> PhysicalDispatchReservation[n]: RESERVED -> DISPATCHED
+     -> KNOWN_ZERO -> RELEASED
+     -> KNOWN_CHARGED -> SETTLED
+     -> UNKNOWN_CHARGE -> HELD_UNKNOWN -> SETTLED | MANUAL_RECONCILIATION
 ```
 
-Kayıt provider account/subscription/quota bucket, subject, workspace, risk class, mission/job/
-attempt/effect/request/idempotency ID, quota window/unit, conservative upper bound, policy version ve
-expiry taşır. Reserve transaction'ı workspace/provider/global available balance'ı atomik azaltır;
-dispatch öncesi consume edilir. Started olup charge certainty belirsiz kalan call'ın tam upper
-bound'ı `HELD_UNKNOWN` kalır; lease/timeout/cancel bunu release etmez ve retry başlatamaz. Settlement
-provider-authoritative usage veya açık conservative upper bound ile bir kez yapılır; overage
-incident/freeze üretir, negative balance üretemez.
+Parent kayıt provider/account/quota/subject/workspace/risk/mission/job/attempt/logical effect,
+max-attempt ve aggregate upper bound'ı taşır. Her physical call unique dispatch ID, request digest,
+attempt number ve kendi upper-bound slice'ını yeni atomic aggregate-balance debit ile reserve eder.
+`KNOWN_ZERO` yalnız provider-authoritative uncharged sonuçta slice'ı release edip retry'ı mümkün
+kılar. `KNOWN_CHARGED` exact/conservative usage ile settle olur; policy izin veriyorsa sonraki call
+yine yeni child debit ister. `UNKNOWN_CHARGE` tam slice'ı `HELD_UNKNOWN` bırakır ve asla retry etmez.
+Bir child/reservation ikinci call için yeniden kullanılamaz.
 
 Kill points reserve, dispatch, provider acceptance, response, usage write, settle ve release'te;
-cancel/lease/retry races ise tek call/reservation/settlement ve unknown hold'u kanıtlar.
+multi-retry/restart/cancel/lease races her physical call'ın reserved/known-zero/settled/held/released
+toplamını ve parent available balance'ını exact reconcile eder; unmodeled veya negative balance yoktur.
 
 ## Durable retry ve provider cooldown
 
@@ -52,18 +55,24 @@ concurrent workspace tests deterministic refusal ve unrelated product health'i k
 ## External dispatch horizon ve recovery cut
 
 Her provider/GitHub external effect; DB intent+permit consumption'dan sonra fakat dispatch'ten önce
-immutable cross-account off-host `DispatchJournal` horizon'una ulaşır. Journal record effect UUID,
-repository/base/head/payload/options, permit/reservation, recovery epoch ve digest'i taşır; horizon
-ack yoksa call yoktur. Restore `(recovery point, outage fence]` journal range'ini enumerate eder ve
-GitHub/provider readback ile reconcile eder; complete expected set kanıtlanmazsa `FROZEN_MANUAL`.
+immutable `DispatchJournal` horizon'una ulaşır. Her signed record `journalGeneration`, monotonik
+`journalSequence`, previous-record hash, Merkle leaf/root, effect UUID, repository/base/head/payload/
+options, permit/reservation, recovery epoch ve digest taşır. Gap, duplicate veya reorder continuity
+root'u bozar; horizon ack yoksa call yoktur.
 
 Signed `RecoveryManifest` ortak cut alanları:
 
 ```text
 sourceSystemId, postgresTimeline, LSN, recoveryTimestamp, dbBackupId,
 objectBucketGeneration, exactObjectVersionInventoryDigest, retentionFloor,
+journalGeneration, rangeStart, rangeEnd, rangeRoot, rangeCount, highWater,
 dispatchHorizon, recoveryEpoch, signer, issuedAt
 ```
+
+Restore manifest exact journal generation/range/count/root/high-water ve retention floor'u imzalar.
+Middle-record omission, prefix/suffix truncation, generation swap veya stale high-water bütün write
+ve effect resume'u bloklar. Exact continuity sonrası her record provider/GitHub readback ile
+uzlaştırılır; complete expected set kanıtlanmazsa `FROZEN_MANUAL` kalır.
 
 Expected object set restored DB'den türetilir ve immutable version inventory ile iki yönlü exact
 karşılaştırılır. PITR window/hold/retention floor aşılmadan GC/delete physical version silmez.
@@ -72,10 +81,12 @@ başka timeline manifestini fail-closed reddeder.
 
 ## Independent backup ve global failover
 
-Son recoverable copy ayrı region ve administrative account'tadır; primary delete principal'ı onu
-silemez. Immutable retention/object lock, independent backup-delete quorum, read-only restore
-identity, separate escrowed/rotatable decrypt key ve measured replication lag/RPO zorunludur. Aynı
-failure domain topology'si no-go'dur; “off-host” yeterli kanıt değildir.
+Son recoverable DB/object **ve DispatchJournal** kopyası ayrı region ve administrative account'tadır;
+primary journal/delete principal'ı onu silemez. Immutable retention/object lock, independent
+backup/journal-delete quorum, read-only restore identity, separate escrowed/rotatable decrypt key ve
+measured replication lag/RPO zorunludur. Journal writer, delete authority ve key authority de
+primary region/admin/failure domain'den ayrıdır. Total primary account/region loss altında bu copy
+continuity/readback kanıtı olmadan yazım açılmaz; “off-host” yeterli kanıt değildir.
 
 Tek-active failover için operator-owned external monotonik `recoveryEpoch` gerekir. New region
 write/effect ancak old epoch ingress/egress ve GitHub/provider/worker credentials provider-side

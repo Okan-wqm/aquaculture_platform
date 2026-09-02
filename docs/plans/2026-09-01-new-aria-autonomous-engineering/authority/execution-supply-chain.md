@@ -68,7 +68,9 @@ değişmediğini before/after inventory digest'iyle kanıtlar.
 
 ## Hermetic toolchain ve dependency admission
 
-Operator-owned `ToolchainManifest` P03'ten önce şunları pinler:
+Operator-owned complete `ToolchainManifest`, `OP-05` tarafından S17 başlamadan önce versioned,
+imzalı ve current olarak admit edilir; S20/S21 provider-capable process spawn gate'i bu prerequisite
+digest'ine DB constraint ile bağlıdır. Manifest şunların tamamını pinler:
 
 - broker/executor/base image digest ve trusted signer/attestation;
 - Codex/Claude CLI exact version, binary digest/signature ve installer/source;
@@ -78,15 +80,18 @@ Operator-owned `ToolchainManifest` P03'ten önce şunları pinler:
 - SBOM, vulnerability/license policy, builder/scanner/rules digest ve cache-key inputs;
 - Git signer allowlist/fingerprint, subject/workspace binding, validity/revocation ve allowed format.
 
-Unlisted plugin/MCP/hook/settings, auto-update, mutable tag, unknown registry, lifecycle change veya
-manifest downgrade process spawn'dan önce deny olur. Cache key bütün manifest girdilerini kapsar.
+Her spawn binary/image/plugin/MCP/hook/OS/runtime/lock/registry/lifecycle/SBOM/signer/build alanlarının
+tamamını current manifest ve invalidation epoch'uyla yeniden doğrular. Missing/drifted/unlisted
+plugin/MCP/hook/settings, auto-update, mutable tag, unknown registry, lifecycle change veya manifest
+downgrade halinde provider process count sıfırdır. Cache key bütün manifest girdilerini kapsar.
 Controlled-network `npm ci`/eşdeğer clean install ve iki clean build aynı normalized artifact digest
 üretir; nondeterminism success değil typed denied witness'tır.
 
 S22 exact immutable base..head commit setini shell interpolation olmadan çözer ve her commit'i
 trusted signer setine göre doğrular. Unsigned, mixed, unknown, expired/revoked, wrong-workspace,
 rewritten/cherry-pick/rebase range reddedilir. Evidence; source/diff, signer-set, toolchain,
-dependency, image, OS ve artifact digest'lerini birlikte bağlar.
+dependency, image, OS ve artifact digest'lerini birlikte bağlar. S22 TDD/reproducibility evidence'ı
+toplar; ilk toolchain admission noktası değildir ve önceki provider spawn'ı geriye dönük meşrulaştıramaz.
 
 ## Artifact ve malicious-repository negatives
 

@@ -70,6 +70,7 @@ function projectionIndex(marker) {
 }
 
 function progressHeader(marker, latest, materialized, count) {
+  const reviewName = latest.evidence_uri.split('/').at(-1);
   return [
     marker,
     '',
@@ -83,7 +84,7 @@ function progressHeader(marker, latest, materialized, count) {
     `- **D0 state:** \`${latest.to_state}\``,
     `- **Materialization evidence:** [D0-plan-materialization.json](${materialized.evidence_uri})`,
     `- **Materialization digest:** \`${materialized.evidence_digest}\``,
-    `- **Review evidence:** [D0-review-c6065d6d-changes-required.json](${latest.evidence_uri})`,
+    `- **Review evidence:** [${reviewName}](${latest.evidence_uri})`,
     `- **Review evidence digest:** \`${latest.evidence_digest}\``,
     `- **Review verdict:** \`${latest.review_verdict}\` (non-admission)`,
     `- **Event count:** ${count}`,
@@ -93,23 +94,39 @@ function progressHeader(marker, latest, materialized, count) {
   ];
 }
 
+function markdownTable(headers, rows) {
+  const widths = headers.map((header, index) =>
+    Math.max(header.length, ...rows.map((row) => row[index].length), 3),
+  );
+  const render = (row) => `| ${row.map((cell, index) => cell.padEnd(widths[index])).join(' | ')} |`;
+  return [render(headers), render(widths.map((width) => '-'.repeat(width))), ...rows.map(render)];
+}
+
 function progressTables() {
+  const projection = markdownTable(
+    ['Scope', 'State', 'Evidence / next gate'],
+    [
+      [
+        'D0 correction',
+        '`VERIFYING`',
+        'c139 D remediation authored; fresh review has not admitted it.',
+      ],
+      ['P01 / S01-S08', '`PLANNED`', 'D0 merge and P01 external 12-role gate required.'],
+      ['P02 / S09-S16', '`PLANNED`', 'P01 evidence seal required.'],
+      ['P03 / S17-S24', '`PLANNED`', 'P02 no-side-effect seal required.'],
+      ['P04 / S25-S32', '`PLANNED`', 'P03 `EXECUTE_NO_PUSH` seal required.'],
+      ['P05 / S33-S40', '`PLANNED`', 'P04 `PR_OPEN` seal required; merge disabled.'],
+      ['P06 / S41-S48', '`PLANNED`', 'P05 adversarial seal required.'],
+      ['P07 / S49-S56', '`PLANNED`', 'P06 burn-in evidence required.'],
+      ['P08 / S57-S64', '`PLANNED`', 'P07 low-risk evidence required.'],
+      ['P09 / S65-S72', '`PLANNED`', 'High-risk activation remains prohibited.'],
+    ],
+  );
   return [
     '',
     '## Projection',
     '',
-    '| Scope         | State       | Evidence / next gate                                        |',
-    '| ------------- | ----------- | ----------------------------------------------------------- |',
-    '| D0 correction | `VERIFYING` | APP remediation authored; fresh review has not admitted it. |',
-    '| P01 / S01-S08 | `PLANNED`   | D0 merge and P01 external 12-role gate required.            |',
-    '| P02 / S09-S16 | `PLANNED`   | P01 evidence seal required.                                 |',
-    '| P03 / S17-S24 | `PLANNED`   | P02 no-side-effect seal required.                           |',
-    '| P04 / S25-S32 | `PLANNED`   | P03 `EXECUTE_NO_PUSH` seal required.                        |',
-    '| P05 / S33-S40 | `PLANNED`   | P04 `PR_OPEN` seal required; merge disabled.                |',
-    '| P06 / S41-S48 | `PLANNED`   | P05 adversarial seal required.                              |',
-    '| P07 / S49-S56 | `PLANNED`   | P06 burn-in evidence required.                              |',
-    '| P08 / S57-S64 | `PLANNED`   | P07 low-risk evidence required.                             |',
-    '| P09 / S65-S72 | `PLANNED`   | High-risk activation remains prohibited.                    |',
+    ...projection,
     '',
     '## Sprint counts',
     '',

@@ -1,12 +1,14 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { buildProjectionSet } from './projections.mjs';
 import { markdownLinks } from './markdown.mjs';
 import { verifyHistory } from './verify-history.mjs';
+import { verifyApiContract } from './verify-api.mjs';
+import { verifyAuthorityContracts } from './verify-authority.mjs';
 import { verifyMapping } from './verify-mapping.mjs';
 import { verifyProvenance } from './verify-provenance.mjs';
 import { verifyReadability } from './verify-readability.mjs';
+import { verifyTarget } from './verify-target.mjs';
 
 function add(errors, code, message) {
   errors.push({ code, message });
@@ -60,48 +62,6 @@ function verifyRelativeLinks(planRoot) {
   return errors;
 }
 
-function changedPaths(repositoryRoot) {
-  const result = spawnSync('git', ['status', '--porcelain=v1', '--untracked-files=all'], {
-    cwd: repositoryRoot,
-    encoding: 'utf8',
-  });
-  if (result.status !== 0) throw new Error('git status failed');
-  return result.stdout
-    .trimEnd()
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => {
-      const payload = line.slice(3);
-      return payload.includes(' -> ') ? payload.split(' -> ').at(-1) : payload;
-    });
-}
-
-function verifyScope(paths) {
-  const errors = [];
-  const protectedPrefixes = [
-    'aria-kernel/',
-    'tools/aria-poc/',
-    'docs/aria/',
-    '.claude/agents/aria-',
-    '.github/workflows/',
-  ];
-  const allowedPlan = 'docs/plans/2026-09-01-new-aria-autonomous-engineering/';
-  const allowedDesign =
-    'docs/superpowers/specs/2026-09-01-new-aria-autonomous-engineering-design.md';
-  for (const path of paths) {
-    if (protectedPrefixes.some((prefix) => path.startsWith(prefix))) {
-      add(errors, 'PROTECTED_SCOPE', path);
-    } else if (
-      path !== allowedDesign &&
-      path !== 'tools/quality/format-scope.json' &&
-      !path.startsWith(allowedPlan)
-    ) {
-      add(errors, 'PRODUCT_SCOPE', path);
-    }
-  }
-  return errors;
-}
-
 function verifyD0Projection(planRoot) {
   const errors = [];
   const progress = readFileSync(join(planRoot, 'PROGRESS.md'), 'utf8');
@@ -119,15 +79,20 @@ function verifyD0Projection(planRoot) {
 export function verifyD0(planRoot, options = {}) {
   const repositoryRoot = options.repositoryRoot ?? resolve(planRoot, '../../..');
   const errors = [];
-  runCheck(errors, 'PROGRAM_PARITY', () => verifyMapping(planRoot));
+  let targetFacts = null;
+  runCheck(errors, 'TARGET_RESOLUTION', () => {
+    const result = verifyTarget(repositoryRoot, options.target);
+    targetFacts = result.facts;
+    return result.errors;
+  });
+  runCheck(errors, 'PROGRAM_PARITY', () => verifyMapping(planRoot, repositoryRoot));
+  runCheck(errors, 'API_CONTRACT', () => verifyApiContract(planRoot));
+  runCheck(errors, 'AUTHORITY_CONTRACT', () => verifyAuthorityContracts(planRoot));
   runCheck(errors, 'HISTORICAL_EVIDENCE', () => verifyHistory(planRoot, repositoryRoot));
   runCheck(errors, 'READABILITY_POLICY', () => verifyReadability(planRoot, repositoryRoot));
   runCheck(errors, 'VERIFIER_PROVENANCE', () => verifyProvenance(planRoot));
   runCheck(errors, 'PROJECTION_PARITY', () => verifyProjectionParity(planRoot));
   runCheck(errors, 'RELATIVE_LINK', () => verifyRelativeLinks(planRoot));
   runCheck(errors, 'D0_STATE', () => verifyD0Projection(planRoot));
-  runCheck(errors, 'PRODUCT_SCOPE', () =>
-    verifyScope(options.changedPaths ?? changedPaths(repositoryRoot)),
-  );
-  return errors;
+  return { errors, targetFacts };
 }

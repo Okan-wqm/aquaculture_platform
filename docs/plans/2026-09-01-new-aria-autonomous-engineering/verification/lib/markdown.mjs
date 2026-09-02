@@ -1,8 +1,20 @@
 export function tableCells(line) {
-  return line
-    .split('|')
-    .slice(1, -1)
-    .map((cell) => cell.trim());
+  const cells = [];
+  let cell = '';
+  let inCode = false;
+  let escaped = false;
+  for (const character of line) {
+    if (character === '`' && !escaped) inCode = !inCode;
+    if (character === '|' && !inCode && !escaped) {
+      cells.push(cell.trim());
+      cell = '';
+    } else {
+      cell += character;
+    }
+    escaped = character === '\\' && !escaped;
+  }
+  cells.push(cell.trim());
+  return cells.slice(1, -1);
 }
 
 function expandRange(start, end, width, prefix) {
@@ -18,7 +30,7 @@ export function sprintRefs(source) {
   for (const match of source.matchAll(/S(\d{2})(?:[–-]S?(\d{2}))?/gu)) {
     values.push(...expandRange(match[1], match[2], 2, 'S'));
   }
-  return [...new Set(values)];
+  return values;
 }
 
 export function findingRefs(source) {
@@ -27,46 +39,51 @@ export function findingRefs(source) {
   for (const match of normalized.matchAll(/(\d{3})(?:[–-](\d{3}))?/gu)) {
     values.push(...expandRange(match[1], match[2], 3, 'ARIA-AUDIT-'));
   }
-  return [...new Set(values)];
+  return values;
 }
 
 export function acceptanceRefs(source) {
-  return [...new Set(source.match(/ACC-[A-Z0-9-]+/gu) ?? [])];
+  return source.match(/ACC-[A-Z0-9-]+/gu) ?? [];
 }
 
 export function operatorRefs(source) {
-  return [...new Set(source.match(/OP-\d{2}/gu) ?? [])];
+  return source.match(/OP-\d{2}/gu) ?? [];
+}
+
+function cardField(section, name) {
+  const match = section.match(new RegExp(`^- \\*\\*${name}:\\*\\* (.+)\\.$`, 'mu'));
+  return match ? match[1] : undefined;
+}
+
+function parseCard(phaseId, section) {
+  const sprintMatch = section.match(/^(S\d{2})\b/u);
+  const sprintId = sprintMatch ? sprintMatch[1] : undefined;
+  const findingText = cardField(section, 'Finding IDs');
+  const acceptanceText = cardField(section, 'Acceptance IDs');
+  const dependencyText = cardField(section, 'Dependencies');
+  if (!sprintId || !acceptanceText || !dependencyText || !findingText) {
+    throw new Error(`invalid sprint card in ${phaseId}`);
+  }
+  const programScope = /program prevention|ARIA-AUDIT-001`?–`?088/u.test(findingText);
+  const phaseScope = /P\d{2}.*bütün finding/u.test(findingText);
+  return {
+    sprint_id: sprintId,
+    phase_id: phaseId,
+    dependency_text: dependencyText,
+    dependencies: [...sprintRefs(dependencyText), ...operatorRefs(dependencyText)],
+    acceptance_ids: acceptanceRefs(acceptanceText),
+    finding_ids: programScope ? [] : findingRefs(findingText),
+    finding_scope: programScope ? 'program' : phaseScope ? 'phase' : null,
+  };
 }
 
 export function parseCards(files) {
-  const cards = [];
-  for (const { phaseId, text } of files) {
-    for (const section of text.split(/^## /mu).slice(1)) {
-      const sprintId = section.match(/^(S\d{2})\b/u)?.[1];
-      const field = (name) =>
-        section.match(new RegExp(`^- \\*\\*${name}:\\*\\* (.+)\\.$`, 'mu'))?.[1];
-      const findingText = field('Finding IDs');
-      const programScope = /program prevention|ARIA-AUDIT-001`?–`?088/u.test(findingText ?? '');
-      const phaseScope = /P\d{2}.*bütün finding/u.test(findingText ?? '');
-      const scope = programScope ? 'program' : phaseScope ? 'phase' : null;
-      if (!sprintId || !field('Acceptance IDs') || !field('Dependencies') || !findingText) {
-        throw new Error(`invalid sprint card in ${phaseId}`);
-      }
-      cards.push({
-        sprint_id: sprintId,
-        phase_id: phaseId,
-        dependency_text: field('Dependencies'),
-        dependencies: [
-          ...sprintRefs(field('Dependencies')),
-          ...operatorRefs(field('Dependencies')),
-        ],
-        acceptance_ids: acceptanceRefs(field('Acceptance IDs')),
-        finding_ids: programScope ? [] : findingRefs(findingText),
-        finding_scope: scope,
-      });
-    }
-  }
-  return cards;
+  return files.flatMap(({ phaseId, text }) =>
+    text
+      .split(/^## /mu)
+      .slice(1)
+      .map((section) => parseCard(phaseId, section)),
+  );
 }
 
 export function parsePlan(text) {

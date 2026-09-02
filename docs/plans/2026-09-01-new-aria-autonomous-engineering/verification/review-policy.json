@@ -1,0 +1,127 @@
+{
+  "schema_version": "1.0.0",
+  "contract_id": "new-aria-independent-review-dossier-v1",
+  "roles": [
+    "integrity",
+    "identity",
+    "authorization",
+    "execution-containment",
+    "supply-chain",
+    "data-privacy",
+    "cost-capacity",
+    "reliability-dr",
+    "github-delivery",
+    "api-ui",
+    "portability-readability",
+    "appellate"
+  ],
+  "required_artifacts": [
+    "distinct_principal",
+    "immutable_report",
+    "capability_match",
+    "conflict_graph",
+    "deterministic_oracle",
+    "dissent_disposition",
+    "appellate_verdict",
+    "exact_reviewed_target",
+    "zero_unresolved_load_bearing_findings"
+  ],
+  "admission_dossier_keys": [
+    "schema_version",
+    "contract_id",
+    "reviewed_target",
+    "producer",
+    "reviews",
+    "conflict_graph",
+    "oracle",
+    "dissent",
+    "appellate",
+    "unresolved_load_bearing_findings",
+    "freshness",
+    "admission"
+  ],
+  "non_admission_packages": [
+    {
+      "evidence_id": "D0-review-c6065d6d-changes-required",
+      "path": "progress/evidence/D0-review-c6065d6d-changes-required.json",
+      "head_sha": "c6065d6dac97306f147de67ef58a96e3a67524ac",
+      "accepted_findings": [
+        "APP-P1-001",
+        "APP-P1-002",
+        "APP-P1-003",
+        "APP-P1-004",
+        "APP-P1-005",
+        "APP-P1-006",
+        "APP-P1-007",
+        "APP-P1-008",
+        "APP-P1-009",
+        "APP-P1-010",
+        "APP-P1-011",
+        "APP-P1-012",
+        "APP-P1-013",
+        "APP-P1-014",
+        "APP-P1-015",
+        "APP-P1-016",
+        "APP-P1-017",
+        "APP-P2-018"
+      ],
+      "report_roles": [
+        "integrity",
+        "identity",
+        "authorization",
+        "execution-containment",
+        "supply-chain",
+        "data-privacy",
+        "cost-capacity",
+        "reliability-dr",
+        "github-delivery",
+        "api-ui",
+        "portability-readability",
+        "appellate"
+      ],
+      "report_paths": [
+        "reviews/01-integrity.md",
+        "reviews/02-identity.md",
+        "reviews/03-authorization.md",
+        "reviews/04-execution-containment.md",
+        "reviews/05-supply-chain.md",
+        "reviews/06-data-privacy.md",
+        "reviews/07-cost-capacity.md",
+        "reviews/08-reliability-dr.md",
+        "reviews/09-github-delivery.md",
+        "reviews/10-api-ui.md",
+        "reviews/11-portability-readability.md",
+        "reviews/12-appellate.md"
+      ]
+    },
+    {
+      "evidence_id": "D0-review-c139f40f-changes-required",
+      "path": "progress/evidence/D0-review-c139f40f-changes-required.json",
+      "head_sha": "c139f40f69f77c628f0794146a20cb51818bb03d",
+      "accepted_findings": [
+        "D-P1-001",
+        "D-P1-002",
+        "D-P1-003",
+        "D-P1-004",
+        "D-P1-005",
+        "D-P1-006",
+        "D-P1-007",
+        "D-P1-008",
+        "D-P1-009",
+        "D-P1-010",
+        "D-P1-011",
+        "D-P1-012",
+        "D-P2-013",
+        "D-P2-014"
+      ],
+      "report_roles": ["foundations", "platform", "delivery", "root-notes", "appellate"],
+      "report_paths": [
+        "reviews/c139f40f/A-foundations.md",
+        "reviews/c139f40f/B-platform.md",
+        "reviews/c139f40f/C-delivery.md",
+        "reviews/c139f40f/ROOT-notes.md",
+        "reviews/c139f40f/D-appellate.md"
+      ]
+    }
+  ]
+}

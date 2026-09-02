@@ -1,6 +1,8 @@
 {
   "schema_version": "1.0.0",
   "contract_id": "new-aria-twelve-role-gates-v1",
+  "dossier_schema_version": "1.0.0",
+  "dossier_contract_id": "new-aria-independent-review-dossier-v1",
   "roles": [
     "integrity",
     "identity",

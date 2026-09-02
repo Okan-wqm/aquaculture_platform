@@ -72,23 +72,29 @@ title/message digest, baseRef/baseSha, snapshotDigest, permitId
 ```
 
 REST request exact API version'ı ve `sha=expectedHeadSha` taşır; caller idempotency field varmış gibi
-davranılmaz. Response state machine bütün documented status'leri kapsar:
+davranılmaz. Provider body state union'ı exact `pending|merged|enqueued|failed` değerleridir; unknown
+field veya status terminal outcome mint etmez. Ayrı local normalized state machine
+`INTENDED|DISPATCHED|RECONCILING|SUCCEEDED|FAILED|UNKNOWN` kullanır ve provider literal'ı gibi
+sunulmaz. Response contract:
 
 | HTTP  | Davranış                                                                                |
 | ----- | --------------------------------------------------------------------------------------- |
-| `200` | already merged/queue sonucu ayrıştır; independent readback olmadan terminal success yok |
-| `202` | returned provider UUID'yi durable persist et, sonra poll/reconcile et                   |
+| `200` | body `merged` veya `enqueued`; UUID/options persist + independent readback/poll gerekir |
+| `202` | body `pending`; returned provider UUID'yi durable persist et, sonra poll/reconcile et   |
 | `400` | terminal invalid request; no retry                                                      |
 | `403` | permission/rules denial + freeze/incident; no retry                                     |
 | `404` | request/PR/result ayrımı; expired result ise `UNKNOWN`                                  |
-| `409` | returned existing UUID'yi persist/read; options exact değilse terminal conflict         |
+| `409` | existing UUID/options exact ise persist/read; option mismatch terminal conflict         |
 | `422` | validation/state denial; no blind retry                                                 |
 
-Crash provider UUID response'undan önce/sonra ayrı kill point'tir. `202`/`409` UUID persist edilmeden
+Stack membership dispatch öncesi okunur: non-empty veya unknown stack permit tüketmeden ve provider
+call'dan önce deny'dır. Explicit non-default `merge_action` zorunludur; `merge_action=default` deny.
+Crash provider UUID response'undan önce/sonra ayrı kill point'tir. `200`/`202`/`409` UUID persist edilmeden
 poll/adopt yoktur. `GET .../merge-async/{uuid}` sonucu provider'ın 24 saatlik result lifetime'ı
 içinde izlenir; expiry `404` başarı/başarısızlık mint etmez. Independent PR/base/commit/check readback
-tek terminal outcome kanıtlayamazsa `UNKNOWN` + manual reconciliation kalır. Queue cancellation,
-UUID swap, mismatched 409 options ve response loss blind retry üretemez.
+tek terminal outcome kanıtlayamazsa `UNKNOWN` + manual reconciliation kalır. `pending` polling,
+`enqueued` queue readback, queue cancellation, expired-result `404`, UUID swap, mismatched 409
+options ve response loss blind retry üretemez.
 
 ## Atomic dispatch ve outcome
 

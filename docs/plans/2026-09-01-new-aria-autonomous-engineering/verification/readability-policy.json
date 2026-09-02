@@ -1,6 +1,11 @@
 {
   "schema_version": "1.0.0",
   "policy_id": "new-aria-readability-v1",
+  "analysis_engine": {
+    "name": "typescript",
+    "version": "5.9.3",
+    "syntax": "JavaScript/TypeScript ESTree-equivalent compiler AST"
+  },
   "limits": {
     "authored_file_target_lines": 250,
     "authored_file_hard_lines": 400,
@@ -15,17 +20,39 @@
     "migration_exempt": false,
     "d0_verification_layers": {
       "domain": ["verification/lib/canonical.mjs", "verification/lib/markdown.mjs"],
+      "kernel": [
+        "verification/lib/api-contract.mjs",
+        "verification/lib/ast-readability.mjs",
+        "verification/lib/verify-audit-oracle.mjs",
+        "verification/lib/verify-relations.mjs",
+        "verification/lib/verify-target.mjs"
+      ],
       "application": [
         "verification/lib/projections.mjs",
+        "verification/lib/verify-api.mjs",
+        "verification/lib/verify-authority.mjs",
+        "verification/lib/verify-dossier.mjs",
+        "verification/lib/verify-events.mjs",
         "verification/lib/verify-history.mjs",
         "verification/lib/verify-mapping.mjs",
         "verification/lib/verify-provenance.mjs",
         "verification/lib/verify-readability.mjs",
+        "verification/lib/verify-review-evidence.mjs",
         "verification/lib/verify.mjs"
       ],
       "runtime": [
+        "verification/record-verifier-inputs.mjs",
+        "verification/render-api-contract.mjs",
         "verification/render-projections.mjs",
+        "verification/test-contract-regressions.mjs",
+        "verification/test-dossier-controls.mjs",
+        "verification/test-event-controls.mjs",
+        "verification/test-integrity-regressions.mjs",
         "verification/test-negative-controls.mjs",
+        "verification/test-parallel-isolation.mjs",
+        "verification/test-review-evidence-controls.mjs",
+        "verification/test-support.mjs",
+        "verification/test-target-controls.mjs",
         "verification/verify-d0.mjs"
       ]
     }

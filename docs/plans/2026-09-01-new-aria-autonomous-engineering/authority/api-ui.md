@@ -4,8 +4,10 @@
 
 ## Public GraphQL root
 
-ARIA public root'u tam olarak aşağıdaki yedi query ve dokuz mutation'dır; ek root field schema
-review olmadan forbidden'dır:
+Canonical closed SDL, [`graphql/root.graphql`](graphql/root.graphql),
+[`graphql/read-model.graphql`](graphql/read-model.graphql) ve
+[`graphql/commands.graphql`](graphql/commands.graphql) fragments'larının birleşimidir. ARIA public
+root'u tam olarak aşağıdaki yedi query ve dokuz mutation'dır; ek root field forbidden'dır:
 
 ```graphql
 type Query {
@@ -79,7 +81,11 @@ INVALID(fieldErrors)
 UNAVAILABLE(retryAfter, requestStatusLookupId)
 ```
 
-Lost response `requestStatusLookupId` ile aynı command okunur; browser blind mutation retry yapmaz.
+Response-loss recovery client-known `requestId` üzerindedir: same `requestId` + same canonical
+payload digest, original response commit'ten önce kaybolduysa tek dispatch'i sürdürür; commit'ten
+sonra kaybolduysa stored exact result döner ve ikinci command/effect yaratmaz. same `requestId` +
+different payload `INVALID` döner. Unknown input/result fields schema validation'da deny olur.
+`requestStatusLookupId` yalnız diagnostic correlation metadata'sıdır; recovery authority değildir.
 
 ## Operation-specific input ve policy
 

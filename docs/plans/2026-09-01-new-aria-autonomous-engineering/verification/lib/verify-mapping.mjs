@@ -2,6 +2,13 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseStrictJson } from './canonical.mjs';
 import { parseCards, parseMatrix, parseOperatorIndex, parsePlan } from './markdown.mjs';
+import { loadAuditOracle, verifyAuditRows } from './verify-audit-oracle.mjs';
+import { loadReviewPolicy, verifyGatePolicy } from './verify-dossier.mjs';
+import {
+  verifyClosedRelations,
+  verifyGateIdentity,
+  verifyOperatorDomain,
+} from './verify-relations.mjs';
 
 function equal(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
@@ -32,21 +39,6 @@ function verifyRosters(errors, rosters) {
     ['PROGRAM_PARITY', program.map((item) => item.sprint_id), expectedIds('S', 72, 2)],
   ]) {
     if (!equal(actual, expected)) add(errors, code, 'ordered roster mismatch');
-  }
-}
-
-function verifyAuditSnapshot(errors, findings, frozen) {
-  for (let index = 0; index < findings.length; index += 1) {
-    const current = findings[index];
-    const snapshot = frozen[index];
-    if (
-      !snapshot ||
-      current.id !== snapshot.id ||
-      current.title !== snapshot.title ||
-      current.disposition !== snapshot.disposition
-    ) {
-      add(errors, 'AUDIT_SNAPSHOT', `${current.id ?? index}: title/disposition drift`);
-    }
   }
 }
 
@@ -82,7 +74,12 @@ function verifySprintParity(errors, cards, plan, program) {
 function verifyFindingOwners(errors, findings, program) {
   const mapped = new Map(findings.map((finding) => [finding.id, []]));
   for (const sprint of program) {
-    for (const findingId of sprint.owned_finding_ids) mapped.get(findingId)?.push(sprint.sprint_id);
+    for (const findingId of sprint.owned_finding_ids) {
+      const owners = mapped.get(findingId);
+      if (owners) owners.push(sprint.sprint_id);
+      else
+        add(errors, 'CLOSED_RELATION', `${sprint.sprint_id}: unknown owned finding ${findingId}`);
+    }
   }
   for (const finding of findings) {
     const owners = mapped.get(finding.id) ?? [];
@@ -96,19 +93,25 @@ function verifyFindingOwners(errors, findings, program) {
   }
 }
 
-function verifyOperatorIndex(errors, planText, cards) {
-  const declared = parseOperatorIndex(planText);
-  for (const operator of expectedIds('OP-', 8, 2)) {
-    const actual = cards
-      .filter((card) => card.dependencies.includes(operator))
-      .map((card) => card.sprint_id);
-    if (!equal(declared.get(operator) ?? [], actual))
-      add(errors, 'PROGRAM_PARITY', `${operator}: reverse index drift`);
+function verifyGateEntry(errors, cards, gate, index) {
+  const mechanism =
+    index < 4
+      ? 'external-adversarial-review-v1'
+      : 'productized-reviewers-plus-external-appellate-v1';
+  const phaseId = `P${String(index + 1).padStart(2, '0')}`;
+  if (gate.phase_id !== phaseId || gate.mechanism !== mechanism) {
+    add(errors, 'PHASE_GATES', `${gate.phase_id}: mechanism/phase drift`);
   }
+  const card = cards.find((item) => item.sprint_id === gate.sprint_id);
+  if (!card) {
+    add(errors, 'PHASE_GATES', `${gate.phase_id}: gate card missing`);
+    return;
+  }
+  if (!card.finding_scope) add(errors, 'PHASE_GATES', `${gate.phase_id}: card scope missing`);
 }
 
 function verifyGateContract(errors, gates, cards) {
-  const roles = [
+  const expectedRoles = [
     'integrity',
     'identity',
     'authorization',
@@ -123,8 +126,13 @@ function verifyGateContract(errors, gates, cards) {
     'appellate',
   ];
   const gateSprints = ['S08', 'S16', 'S24', 'S32', 'S40', 'S48', 'S56', 'S64', 'S70'];
+  verifyGateIdentity(errors, gates);
+  if (!Array.isArray(gates.roles) || !Array.isArray(gates.gates)) {
+    add(errors, 'PHASE_GATES', 'role or gate roster is not an array');
+    return;
+  }
   if (
-    !equal(gates.roles, roles) ||
+    !equal(gates.roles, expectedRoles) ||
     !equal(
       gates.gates.map((gate) => gate.sprint_id),
       gateSprints,
@@ -134,23 +142,11 @@ function verifyGateContract(errors, gates, cards) {
   if (new Set(gates.roles).size !== 12 || gates.required_artifacts.length !== 9)
     add(errors, 'PHASE_GATES', 'gate requirements incomplete');
   for (let index = 0; index < gates.gates.length; index += 1) {
-    const gate = gates.gates[index];
-    const mechanism =
-      index < 4
-        ? 'external-adversarial-review-v1'
-        : 'productized-reviewers-plus-external-appellate-v1';
-    const card = cards.find((item) => item.sprint_id === gate.sprint_id);
-    if (
-      gate.phase_id !== `P${String(index + 1).padStart(2, '0')}` ||
-      gate.mechanism !== mechanism ||
-      !card?.finding_scope
-    ) {
-      add(errors, 'PHASE_GATES', `${gate.phase_id}: mechanism/card scope drift`);
-    }
+    verifyGateEntry(errors, cards, gates.gates[index], index);
   }
 }
 
-export function verifyMapping(planRoot) {
+export function verifyMapping(planRoot, repositoryRoot) {
   const errors = [];
   const planText = readFileSync(join(planRoot, 'PLAN.md'), 'utf8');
   const cardFiles = expectedIds('P', 9, 2).map((phaseId) => ({
@@ -165,11 +161,14 @@ export function verifyMapping(planRoot) {
   const gates = parseStrictJson(
     readFileSync(join(planRoot, 'verification/phase-gates.json'), 'utf8'),
   );
+  const oracle = loadAuditOracle(planRoot, repositoryRoot, errors);
   verifyRosters(errors, { findings, cards, plan, program, frozen });
-  verifyAuditSnapshot(errors, findings, frozen);
+  verifyAuditRows(errors, findings, frozen, oracle);
   verifySprintParity(errors, cards, plan, program);
   verifyFindingOwners(errors, findings, program);
-  verifyOperatorIndex(errors, planText, cards);
+  verifyClosedRelations(errors, { findings, cards, plan, program });
+  verifyOperatorDomain(errors, parseOperatorIndex(planText), cards);
   verifyGateContract(errors, gates, cards);
+  verifyGatePolicy(errors, gates, loadReviewPolicy(planRoot));
   return errors;
 }

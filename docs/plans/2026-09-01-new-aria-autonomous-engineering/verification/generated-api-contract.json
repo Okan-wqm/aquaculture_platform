@@ -1,0 +1,201 @@
+{
+  "schema_version": "1.0.0",
+  "generated": {
+    "marker": "GENERATED; DO NOT EDIT",
+    "generator": "verification/render-api-contract.mjs",
+    "generator_version": "1.0.0",
+    "inputs": [
+      {
+        "path": "authority/graphql/commands.graphql",
+        "sha256": "a1fe27d7298b1ccb50b26623f96c9f787c4ad301e5e72570dd10fa52d098ce9a"
+      },
+      {
+        "path": "authority/graphql/read-model.graphql",
+        "sha256": "cbd3e2d0e7aa00af1a154bd56b322700490637053a46551c734602e7dda62700"
+      },
+      {
+        "path": "authority/graphql/root.graphql",
+        "sha256": "979657c611fc24c4c7f510c3871fd87e60cb49870f8e813e4b0f12e57b3a6075"
+      }
+    ]
+  },
+  "query_fields": {
+    "ariaOverview": {
+      "type": "AriaOverviewResult!",
+      "arguments": { "workspaceId": "ID!", "asOf": "DateTime" }
+    },
+    "ariaMissions": {
+      "type": "AriaMissionConnectionResult!",
+      "arguments": {
+        "workspaceId": "ID!",
+        "first": "Int",
+        "after": "Cursor",
+        "filter": "MissionFilter",
+        "asOf": "DateTime"
+      }
+    },
+    "ariaMission": {
+      "type": "AriaMissionResult!",
+      "arguments": { "workspaceId": "ID!", "missionId": "ID!", "asOf": "DateTime" }
+    },
+    "ariaTimeline": {
+      "type": "AriaTimelineConnectionResult!",
+      "arguments": {
+        "workspaceId": "ID!",
+        "missionId": "ID",
+        "first": "Int",
+        "after": "Cursor",
+        "asOf": "DateTime"
+      }
+    },
+    "ariaProviderStatus": {
+      "type": "AriaProviderStatusResult!",
+      "arguments": { "workspaceId": "ID!", "asOf": "DateTime" }
+    },
+    "ariaPolicyStatus": {
+      "type": "AriaPolicyStatusResult!",
+      "arguments": { "workspaceId": "ID!", "asOf": "DateTime" }
+    },
+    "ariaProgramProgress": {
+      "type": "AriaProgramProgressResult!",
+      "arguments": { "workspaceId": "ID!", "asOf": "DateTime" }
+    }
+  },
+  "mutation_fields": {
+    "createAriaMissionDraft": {
+      "type": "AriaCommandResult!",
+      "arguments": { "input": "CreateMissionDraftInput!" }
+    },
+    "postAriaConversationMessage": {
+      "type": "AriaCommandResult!",
+      "arguments": { "input": "PostConversationMessageInput!" }
+    },
+    "submitAriaMission": {
+      "type": "AriaCommandResult!",
+      "arguments": { "input": "SubmitMissionInput!" }
+    },
+    "cancelAriaMission": {
+      "type": "AriaCommandResult!",
+      "arguments": { "input": "CancelMissionInput!" }
+    },
+    "retryAriaMission": {
+      "type": "AriaCommandResult!",
+      "arguments": { "input": "RetryMissionInput!" }
+    },
+    "freezeAriaAutonomy": {
+      "type": "AriaCommandResult!",
+      "arguments": { "input": "FreezeAutonomyInput!" }
+    },
+    "resumeAriaAutonomy": {
+      "type": "AriaCommandResult!",
+      "arguments": { "input": "ResumeAutonomyInput!" }
+    },
+    "requestAriaMergeEvaluation": {
+      "type": "AriaCommandResult!",
+      "arguments": { "input": "MergeEvaluationInput!" }
+    },
+    "acknowledgeAriaDecision": {
+      "type": "AriaCommandResult!",
+      "arguments": { "input": "AcknowledgeDecisionInput!" }
+    }
+  },
+  "input_types": {
+    "AcknowledgeDecisionInput": {
+      "requestId": "UUID!",
+      "workspaceId": "ID!",
+      "expectedVersion": "Long!",
+      "clientIssuedAt": "DateTime!",
+      "missionId": "ID!",
+      "decisionId": "ID!",
+      "reason": "String!"
+    },
+    "CancelMissionInput": {
+      "requestId": "UUID!",
+      "workspaceId": "ID!",
+      "expectedVersion": "Long!",
+      "clientIssuedAt": "DateTime!",
+      "missionId": "ID!",
+      "targetAttemptId": "ID!",
+      "reason": "String!"
+    },
+    "CreateMissionDraftInput": {
+      "requestId": "UUID!",
+      "workspaceId": "ID!",
+      "expectedVersion": "Long!",
+      "clientIssuedAt": "DateTime!",
+      "repositoryId": "ID!",
+      "snapshotSha": "String!",
+      "title": "String!"
+    },
+    "FreezeAutonomyInput": {
+      "requestId": "UUID!",
+      "workspaceId": "ID!",
+      "expectedVersion": "Long!",
+      "clientIssuedAt": "DateTime!",
+      "reason": "String!",
+      "scope": "String!"
+    },
+    "MergeEvaluationInput": {
+      "requestId": "UUID!",
+      "workspaceId": "ID!",
+      "expectedVersion": "Long!",
+      "clientIssuedAt": "DateTime!",
+      "missionId": "ID!",
+      "pullRequestNumber": "Int!",
+      "baseSha": "String!",
+      "headSha": "String!",
+      "dossierDigest": "String!",
+      "previewDigest": "String!"
+    },
+    "MissionFilter": {
+      "state": "AriaMissionState",
+      "riskClass": "AriaRiskClass",
+      "repositoryId": "ID"
+    },
+    "PostConversationMessageInput": {
+      "requestId": "UUID!",
+      "workspaceId": "ID!",
+      "expectedVersion": "Long!",
+      "clientIssuedAt": "DateTime!",
+      "missionId": "ID!",
+      "threadId": "ID!",
+      "clientMessageId": "UUID!",
+      "text": "String!",
+      "contextDigest": "String!"
+    },
+    "ResumeAutonomyInput": {
+      "requestId": "UUID!",
+      "workspaceId": "ID!",
+      "expectedVersion": "Long!",
+      "clientIssuedAt": "DateTime!",
+      "incidentId": "ID!",
+      "reconciliationDigest": "String!",
+      "previewDigest": "String!"
+    },
+    "RetryMissionInput": {
+      "requestId": "UUID!",
+      "workspaceId": "ID!",
+      "expectedVersion": "Long!",
+      "clientIssuedAt": "DateTime!",
+      "missionId": "ID!",
+      "failedAttemptId": "ID!",
+      "reason": "String!",
+      "previewDigest": "String!"
+    },
+    "SubmitMissionInput": {
+      "requestId": "UUID!",
+      "workspaceId": "ID!",
+      "expectedVersion": "Long!",
+      "clientIssuedAt": "DateTime!",
+      "missionId": "ID!",
+      "previewDigest": "String!",
+      "snapshotDigest": "String!",
+      "payloadDigest": "String!",
+      "policyDigest": "String!"
+    }
+  },
+  "enums": {
+    "AriaSectionStatus": ["OK", "EMPTY", "MISSING", "CORRUPT", "UNAVAILABLE"],
+    "AriaFreshness": ["CURRENT", "STALE"]
+  }
+}

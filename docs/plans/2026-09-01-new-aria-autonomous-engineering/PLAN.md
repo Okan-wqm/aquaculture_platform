@@ -10,7 +10,8 @@
 - **Normative contracts:** [`authority/INDEX.md`](authority/INDEX.md)
 - **Machine relationship authority:** [`verification/program-map.jsonl`](verification/program-map.jsonl)
 - **Binding review:** [`reviews/INDEX.md`](reviews/INDEX.md) — `CHANGES_REQUIRED` at `c6065d6d...`
-- **Corrective mapping:** [`CORRECTIVE-NOTE.md`](CORRECTIVE-NOTE.md)
+- **Corrective mappings:** [`round 1`](CORRECTIVE-NOTE.md) ·
+  [`round 2`](CORRECTIVE-ROUND-2.md)
 - **İnsan görünümü:** [`PROGRESS.md`](PROGRESS.md)
 - **Makine authority:** [`progress/events.jsonl`](progress/events.jsonl) ve
   [`progress/evidence/`](progress/evidence/)
@@ -44,7 +45,7 @@ canonicalization, exact verifier provenance ve type-specific freshness
 Her sprint isolated branch/worktree kullanır. Red test uygulamadan önce yerelde gözlenir, commit'e
 girmez. Her commit green iken push edilir. Final note: done, remaining, exact tests, reviewed
 head/PR, findings, risks ve next action taşır. Commit kendi SHA'sını içeremediği için evidence
-reviewed implementation SHA'yı bağlar; squash/merge sonrası ayrı ledger-close commit/PR gerçek main
+reviewed implementation SHA'yı bağlar; merge-commit sonrası ayrı ledger-close commit/PR gerçek main
 SHA'yı kaydeder. Evidence yoksa `DONE` yoktur. Merged-only finding `VERIFYING`; yalnız exact deployed
 SHA için current `live_proven` evidence varsa `SOLVED` olur.
 
@@ -73,16 +74,16 @@ bu indeks ID, objective, dependency ve acceptance bağını eksiksiz listeler.
 
 ## Operator prerequisite'leri
 
-| ID      | Sahip / gerekli kanıt                                                                             | Gate                                     |
-| ------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| `OP-01` | Platform Security: exact App/install/repo/token permissions ve effective ruleset/bypass authority | S25, S31, S52                            |
-| `OP-02` | Platform Ops: dedicated control + worker VM, per-role UID/network/resource isolation              | S18, S24, S41                            |
-| `OP-03` | Security: PKI/KMS, issuer/subject/workload/key bindings ve rotation/revoke drill                  | S04, S05, S18, S27, S28, S67             |
-| `OP-04` | Data Ops: `aria` Postgres/CAS, envelope keys, cross-account/region backup ve recovery epoch       | S03, S23, S41, S45, S61, S68             |
-| `OP-05` | AI Ops: Codex CLI ve Claude Code CLI subscriptions, live rate/concurrency limits                  | S14, S20, S21                            |
-| `OP-06` | Release/Incident Owner: paging/ack, human deploy/release, rollback ve on-call authority           | S39, S41, S43, S54, S55, S69             |
-| `OP-07` | SRE: measured headroom/SLO/RPO/RTO, quotas, burn-in ve drill freshness manifest                   | S39, S41, S44, S47-S48, S55-S56, S61-S64 |
-| `OP-08` | Privacy/Legal: DLP, retention/capture, hold/delete authority ve proof surface manifest            | S14, S23, S39, S61                       |
+| ID      | Sahip / gerekli kanıt                                                                                                     | Gate                                     |
+| ------- | ------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `OP-01` | Platform Security: exact App/install/repo/token permissions ve effective ruleset/bypass authority                         | S25, S31, S52                            |
+| `OP-02` | Platform Ops: dedicated control + worker VM, per-role UID/network/resource isolation                                      | S18, S24, S41                            |
+| `OP-03` | Security: complete issuer/voter/assembler topology, PKI/KMS/procedure bindings, collision oracle, rotation/recovery epoch | S04, S05, S18, S27, S28, S50, S58, S67   |
+| `OP-04` | Data Ops: `aria` Postgres/CAS, envelope keys, cross-account/region backup ve recovery epoch                               | S03, S23, S41, S45, S61, S68             |
+| `OP-05` | AI Ops: complete `ToolchainManifest`, clean-build/signer admission, CLI subscriptions ve live limits                      | S14, S20, S21                            |
+| `OP-06` | Release/Incident Owner: paging/ack, human deploy/release, rollback ve on-call authority                                   | S39, S41, S43, S54, S55, S69             |
+| `OP-07` | SRE: measured headroom/SLO/RPO/RTO, quotas, burn-in ve drill freshness manifest                                           | S39, S41, S44, S47-S48, S55-S56, S61-S64 |
+| `OP-08` | Privacy/Legal: DLP, retention/capture, hold/delete authority ve proof surface manifest                                    | S14, S23, S39, S61                       |
 
 Eksik prerequisite ilgili sprint'i `BLOCKED` yapar; scope küçülterek veya sahte evidence ile gate
 geçilmez.
@@ -218,7 +219,7 @@ Detay: [`phases/P07.md`](phases/P07.md)
 | Sprint | Objective                                                 | Dependency                | Acceptance                              |
 | ------ | --------------------------------------------------------- | ------------------------- | --------------------------------------- |
 | S49    | Protected low-risk taxonomy ve classifier                 | S48                       | `ACC-S49`, `ACC-TCB-001`                |
-| S50    | Single-use autonomous merge permit issue/consume          | S49                       | `ACC-S50`, `ACC-SEP-001`, `ACC-TCB-001` |
+| S50    | Single-use autonomous merge permit issue/consume          | S49, `OP-03`              | `ACC-S50`, `ACC-SEP-001`, `ACC-TCB-001` |
 | S51    | Per-base serialization/idempotency/duplicate-effect proof | S50                       | `ACC-S51`, `ACC-EVD-001`                |
 | S52    | Merge execution, 202/409 ve read-after-write reconcile    | S51, `OP-01`              | `ACC-S52`, `ACC-REL-001`, `ACC-EVD-001` |
 | S53    | Exact merged/deployed SHA outcome ve `SOLVED` semantics   | S52                       | `ACC-S53`, `ACC-LIVE-001`               |
@@ -233,7 +234,7 @@ Detay: [`phases/P08.md`](phases/P08.md)
 | Sprint | Objective                                               | Dependency                     | Acceptance                               |
 | ------ | ------------------------------------------------------- | ------------------------------ | ---------------------------------------- |
 | S57    | Protected medium-risk taxonomy/prohibited boundary      | S56                            | `ACC-S57`, `ACC-TCB-001`, `ACC-NOHR-001` |
-| S58    | Bounded multi-authority medium-risk authorization       | S57                            | `ACC-S58`, `ACC-SEP-001`, `ACC-TCB-001`  |
+| S58    | Bounded multi-authority medium-risk authorization       | S57, `OP-03`                   | `ACC-S58`, `ACC-SEP-001`, `ACC-TCB-001`  |
 | S59    | Multi-repository onboarding ve identity collision tests | S58                            | `ACC-S59`, `ACC-ISO-001`                 |
 | S60    | Portable config/package/runtime deployment contract     | S59                            | `ACC-S60`, `ACC-READ-001`, `ACC-ISO-001` |
 | S61    | Backup/PITR/object recovery/regional rebuild drills     | S60, `OP-04`, `OP-07`, `OP-08` | `ACC-S61`, `ACC-LIVE-001`                |
@@ -290,14 +291,19 @@ Machine contract: [`verification/phase-gates.json`](verification/phase-gates.jso
 
 ## Branch, commit, PR ve final-note protokolü
 
-Sprint branch'i `aria/<program-id>/sNN-<slug>`; worktree kayıtlı ve allowlisted root altında olur.
+Her work unit — D0 ve ayrı ayrı S01-S72 — tam bir ayrı PR'dır; bir PR iki sprint veya D0+sprint
+taşıyamaz. Sprint branch'i `aria/<program-id>/sNN-<slug>`; worktree kayıtlı ve allowlisted root
+altında olur.
 Başlangıç canonical `AuthorityRepositoryRef + configured base ref + exact SHA` note'a yazılır;
 bu D0 instance'ında alias `origin/main`'dir fakat portable contract remote adına bağlı değildir.
 TDD kırmızısı gözlenir; yalnız green commits
 repository formatında imzalanır ve her commit sonrası normal push yapılır. Hook bypass, force push,
 credential içeren remote veya legacy ARIA edit'i yasaktır. PR tek sprint scope'u taşır ve required
-checks/authority digest'i pinler. Reviewer reviewed head SHA'yı evidence'a yazar; merge sonrası
-ledger-close ayrı PR/commit ile actual main SHA ve reachability'yi bağlar.
+checks/authority digest'i pinler. Required GitHub Actions `SUCCESS` olmadan merge yasaktır. Hedef
+GitHub `main`; izinli tek yöntem merge commit'tir, squash ve rebase merge yasaktır. Reviewer reviewed
+head SHA'yı evidence'a yazar; merge sonrası ledger-close ayrı PR/commit ile actual main SHA ve
+reachability'yi bağlar. Sonraki sprint yalnız merge commit'in ürettiği exact `origin/main` SHA'dan
+başlar. Machine contract: [`verification/delivery-policy.json`](verification/delivery-policy.json).
 
 ## Risk register
 

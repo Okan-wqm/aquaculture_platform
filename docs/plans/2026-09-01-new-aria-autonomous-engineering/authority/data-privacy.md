@@ -9,22 +9,31 @@ entity'leri `schema: "aria"` bildirir; `public` veya unspecified schema yasaktı
 `apps/aria-service/src/database/migrations`, standalone migration runner ve `SchemaDriftModule`
 kaydıdır; runtime `synchronize`/DDL yoktur. Domain entity'lerinde ORM decorator yoktur.
 
-Authoritative ilişki:
+Authoritative structural ilişki:
 
 ```text
-tenant_id -> workspace_id -> code/base/head_repository_id
-                         -> mission/job/attempt/effect/artifact/evidence/cursor
+WorkspaceRepositoryBinding(tenant_id, workspace_id, code_repository_id) UNIQUE
+MissionRepositoryScope(tenant_id, workspace_id, mission_id,
+  code_repository_id + base_repository_id + head_repository_id + snapshot_sha) UNIQUE
 ```
 
-Ownership alanları immutable ve non-null'dır. Composite primary/foreign keys her child ref'inde
-`tenant_id + workspace_id` taşır; ID-only lookup yoktur. Foreground GraphQL yanında scheduler,
-lease, outbox/inbox, projection, reconciliation, restore, deletion ve CAS adapter'ları scoped
-repository portu kullanır. `getRepository()` yasaktır; structural context olmadan port çağrısı type
-error olur. Opaque artifact/cursor ID tek başına lookup authority vermez.
+Workspace bir ve yalnız bir immutable code repository'ye DB unique/FK ile bağlıdır. Her mission
+immutable base/head repository rolleri ve snapshot'ı yukarıdaki composite key'de taşır. Job,
+attempt, effect, outbox/inbox, projection, artifact, evidence, cursor, CAS admission, reconcile,
+restore ve delete parent/child anahtarları `tenant_id + workspace_id + mission_id +
+code_repository_id + base_repository_id + head_repository_id + snapshot_sha` tuple'ının tamamına
+FK verir. Ownership alanları immutable/non-null'dır; ID-only lookup veya application-only repository
+check yoktur.
 
-S03/S04/S08 iki-workspace matrix'i command, job, effect, inbox/outbox, projection, artifact,
-cursor, reconciliation, delete ve restore'da tenant/workspace/repository swap'ını reddeder. Schema
-invariant unspecified/`public` entity, unscoped port ve incomplete composite key'i fail eder.
+Foreground GraphQL yanında scheduler, lease, projection, reconciliation, restore, deletion ve CAS
+adapter'ları bu exact tuple'ı isteyen scoped repository portu kullanır. `getRepository()` yasaktır;
+structural context olmadan port çağrısı type error olur. Opaque artifact/cursor ID tek başına lookup
+authority vermez.
+
+S03/S04/S08 matrix'i aynı tenant ve aynı workspace içinde code/base/head repository ID'lerini ayrı
+ayrı değiştirir; foreground, background, reconcile, CAS, restore ve delete yollarının tamamı DB/FK
+ve port type boundary'sinde reddeder. İki-workspace swap matrix'i de korunur. Schema invariant
+unspecified/`public` entity, unscoped port veya incomplete composite repository key'i fail eder.
 
 ## Pre-call DLP
 

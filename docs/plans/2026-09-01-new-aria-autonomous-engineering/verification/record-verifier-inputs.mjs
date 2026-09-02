@@ -16,25 +16,35 @@ const repositoryRoot = resolve(
 );
 const planRoot = join(repositoryRoot, 'docs/plans/2026-09-01-new-aria-autonomous-engineering');
 const output = join(planRoot, 'verification/verifier-inputs.jsonl');
+const observedAt = argument('--observed-at');
+if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/u.test(observedAt ?? '')) {
+  throw new Error('--observed-at exact UTC second is required for deterministic regeneration');
+}
 const records = expectedPaths(planRoot).map((path) => ({
-  schema_version: '1.0.0',
+  schema_version: '2.0.0',
   kind: 'input',
   path,
   sha256: sha256File(resolve(planRoot, path)),
 }));
 const metadata = {
-  schema_version: '1.0.0',
+  schema_version: '2.0.0',
   kind: 'metadata',
-  verifier_version: '1.0.0',
+  verifier_version: '2.0.0',
   claim: 'verifier input provenance; not an admission record',
-  recorded_at_utc: new Date().toISOString().replace(/\.\d{3}Z$/u, 'Z'),
-  argv: [
-    'node',
+  recorded_at_utc: observedAt,
+  verifier_script:
     'docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/verify-d0.mjs',
+  required_flags: [
     '--repo-root',
-    '.',
     '--mode',
-    'full',
+    '--base',
+    '--head',
+    '--reviewed-ref',
+    '--base-tree',
+    '--head-tree',
+    '--diff-sha256',
+    '--design-sha256',
+    '--format-scope-sha256',
   ],
   cwd_contract: 'repository root',
   runtime: {

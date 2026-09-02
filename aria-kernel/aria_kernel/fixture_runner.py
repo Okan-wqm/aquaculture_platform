@@ -18,6 +18,7 @@ from .ledger import (
     append_jsonl as append_chained_jsonl,
     verify_jsonl_chunks,
 )
+from .ledger_inline import spill_evidence_validation
 from .state_manifest import surface_for_path
 from .tool_registry import GovernanceError, ensure_tools_dir, get_tool, utc_now
 from .tool_runner import _canonical_json_bytes, _decode_timeout_stream, _parse_tool_output
@@ -642,7 +643,21 @@ def run_fixture_case(
         "timed_out": timed_out,
         "raw_observations_count": len(array_or_empty((output or {}).get("observations"))),
         "raw_findings_count": len(array_or_empty((output or {}).get("findings"))),
-        "evidence_validation": evidence_validation,
+        # ARIA-HIGH-034 — the validation inventory (checked_sources +
+        # evidence_envelopes) grows with the repository; on 2026-09-02 one
+        # baseline case serialised to 1.46 MB and the sealed row broke the
+        # publish. The verdict, error list and source sample stay inline;
+        # the inventory is bounded here, BEFORE the suite hash binds the
+        # row, so evidence_hash covers exactly what is written. The full
+        # inventory is a pure function of the case output (pinned by
+        # output_hash) and the workspace at the cycle's commit.
+        "evidence_validation": spill_evidence_validation(
+            evidence_validation,
+            recovery=(
+                "re-run validate_tool_output_evidence on this case's output "
+                "(output_hash pins it) at the cycle's workspace commit"
+            ),
+        ),
     }
 
 

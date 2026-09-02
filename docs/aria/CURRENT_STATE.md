@@ -2,7 +2,7 @@
 
 Date: 2026-09-02
 Target ref: `origin/main`
-Last verified ARIA authority hash: `286d4ab3ec389fe6801c6edd87123d4e76be9571bf4a724eb0c16b2695bb6119`
+Last verified ARIA authority hash: `667683349b7a7fb4c77af89fe56d38b760037568bb6cf90da0b9a2c995b24770`
 Status: post-snowball mainline hardening in progress
 
 ## Authority Chain
@@ -31,6 +31,9 @@ explicitly marked historical. Runtime behavior must not be inferred from stale p
 - Agent role/lifecycle SSoT: `aria-kernel/aria_kernel/agent_surface.py`
 - Agent request/response contract: `aria-kernel/aria_kernel/agent_contract.py`
 - Transactional append/index primitive: `aria-kernel/aria_kernel/ledger.py`
+- Ledger row-size cap (write side = read side, one constant): `aria-kernel/aria_kernel/ledger.py::LEDGER_ROW_MAX_BYTES`
+- Inline-row byte discipline shared by ledger writers: `aria-kernel/aria_kernel/ledger_inline.py`
+- Runner habitat memory budget (systemd drop-ins, drift-checked by `scripts/aria/provision_runner.sh`): `scripts/aria/runner-habitat/systemd/`
 - Merge authority: `aria-kernel/aria_kernel/merge_authority.py::merge_pr_if_ready`
 - Enterprise risk policy owner: `aria-kernel/aria_kernel/risk_policy.py`
 - Enterprise autonomy unlock owner: `aria-kernel/aria_kernel/autonomy_unlock.py`

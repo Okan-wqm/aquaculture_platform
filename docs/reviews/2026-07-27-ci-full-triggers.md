@@ -324,3 +324,19 @@ integer day increments and payroll year-month formatting. Payroll and leave calc
 that authority, as do the four existing HR query handlers that previously carried private ISO-date
 formatters. A timezone-matrix contract locks identical results under UTC, UTC−6 and UTC+9; the
 payroll and leave regression scenarios pass in all three environments.
+
+## INFRA-HIGH-139 — verified development images silently skipped deployment
+
+Two consecutive main runs (`33632417597` and `33640253692`) built and digest-verified all 28
+selected images, then reported overall success while `deploy-development` was skipped. The
+`deployed/development` baseline consequently remained at `eeb401131`, so each later merge rebuilt
+the same cumulative range without updating the shared environment.
+
+The caller made deployment conditional on a base64 digest manifest crossing a reusable-workflow
+output boundary. An absent output was indistinguishable from an intentional no-op, and GitHub
+classifies a skipped dependent job as successful workflow completion. The manifest is now resolved
+from the immutable SHA tags inside the deploy job, immediately before SSH, and retained in that
+job's environment for digest-pinned rollout and channel promotion. A separate output-contract job
+rejects missing low-entropy selection outputs, while a final delivery-status job turns every
+unexpected build, contract, or deploy skip into a visible failure. Documentation-only and other
+catalog-proven no-image changes remain legitimate no-ops before this delivery lane is entered.

@@ -1328,12 +1328,12 @@ describe('affected development workflow contract', () => {
         'deploy_services',
         'frontend_matrix',
         'full_deploy',
-        'image_digest_manifest',
         'infra_matrix',
         'migration_required',
         'selection_reason',
       ]),
     );
+    expect(parsed.on?.workflow_call?.outputs).not.toHaveProperty('image_digest_manifest');
     for (const job of Object.values(parsed.jobs ?? {})) {
       if (!job.uses) expect(job['runs-on']).toBe('ubuntu-latest');
     }
@@ -1349,6 +1349,61 @@ describe('affected development workflow contract', () => {
     );
     expect(build).not.toContain('appleboy/ssh-action');
     expect(build).not.toContain('droplet-up.sh');
+  });
+
+  it('keeps digest manifests inside the deploy job and fails closed when reusable outputs disappear', () => {
+    const affected = source('.github/workflows/ci-affected.yml');
+    const build = source('.github/workflows/build-images.yml');
+    const deploy = source('.github/workflows/deploy-development.yml');
+    const parsedAffected = workflow('.github/workflows/ci-affected.yml') as {
+      jobs?: Record<
+        string,
+        {
+          readonly if?: string;
+          readonly needs?: string[] | string;
+          readonly steps?: Array<{
+            readonly env?: Record<string, string>;
+            readonly run?: string;
+          }>;
+          readonly with?: Record<string, unknown>;
+        }
+      >;
+    };
+    const parsedDeploy = workflow('.github/workflows/deploy-development.yml') as {
+      on?: { workflow_call?: { inputs?: Record<string, unknown> } };
+    };
+
+    expect(build).not.toContain('image_digest_manifest:');
+    expect(Object.keys(parsedDeploy.on?.workflow_call?.inputs ?? {})).not.toContain(
+      'image_digest_manifest',
+    );
+    expect(affected).not.toContain('outputs.image_digest_manifest');
+    expect(parsedAffected.jobs?.['deploy-development']?.with).not.toHaveProperty(
+      'image_digest_manifest',
+    );
+    expect(deploy).not.toContain('inputs.image_digest_manifest');
+    expect(deploy).toContain('name: Resolve immutable image digest manifest');
+    expect(deploy).toContain('${IMAGE_PREFIX}/${service}:${DEPLOY_SHA}');
+    expect(deploy).toContain('echo "DEPLOY_IMAGE_DIGESTS_B64=$manifest" >> "$GITHUB_ENV"');
+
+    const contract = parsedAffected.jobs?.['development-deploy-contract'];
+    const contractScript = contract?.steps?.map((step) => step.run ?? '').join('\n') ?? '';
+    expect(contract?.if).toContain("needs.build-development-images.result == 'success'");
+    expect(contractScript).toContain('Missing deploy_services output');
+    expect(contractScript).toContain('Missing image_prefix output');
+
+    const deliveryStatus = parsedAffected.jobs?.['development-delivery-status'];
+    const deliveryScript = deliveryStatus?.steps?.map((step) => step.run ?? '').join('\n') ?? '';
+    expect(deliveryStatus?.if).toContain("needs.detect-changes.outputs.deploy_changes == 'true'");
+    expect(deliveryScript).toContain(
+      'build-development-images:${{ needs.build-development-images.result }}',
+    );
+    expect(deliveryScript).toContain('deploy-development:${{ needs.deploy-development.result }}');
+
+    const manifestResolution = deploy.indexOf('name: Resolve immutable image digest manifest');
+    const mutatingSsh = deploy.indexOf('name: Deploy selected images to the development droplet');
+    expect(manifestResolution).toBeGreaterThan(0);
+    expect(manifestResolution).toBeLessThan(mutatingSsh);
   });
 
   it('uses the selected infra matrix for pull-request image builds', () => {

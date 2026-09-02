@@ -15,9 +15,6 @@ on:
       migration_required:
         required: true
         type: boolean
-      image_digest_manifest:
-        required: true
-        type: string
       image_prefix:
         required: true
         type: string
@@ -68,28 +65,22 @@ jobs:
 
       - name: Check selected image contract
         env:
-          DEPLOY_IMAGE_DIGESTS_B64: ${{ inputs.image_digest_manifest }}
           DEPLOY_SERVICES: ${{ inputs.deploy_services }}
           DEPLOY_SHA: ${{ inputs.head_sha }}
+          IMAGE_PREFIX: ${{ inputs.image_prefix }}
         run: |
           set -euo pipefail
           [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$DEPLOY_SERVICES" =~ ^[a-z0-9][a-z0-9._-]*(\ [a-z0-9][a-z0-9._-]*)*$ ]]
-          manifest_file="$(mktemp)"
-          trap 'rm -f "$manifest_file"' EXIT
-          printf '%s' "$DEPLOY_IMAGE_DIGESTS_B64" | base64 --decode > "$manifest_file"
+          [[ "$IMAGE_PREFIX" =~ ^ghcr\.io/[a-z0-9._/-]+$ ]]
+          declare -A seen_services=()
           for service in $DEPLOY_SERVICES; do
-            matches="$(awk -F '\t' -v service="$service" '$1 == service { count += 1 } END { print count + 0 }' "$manifest_file")"
-            if [ "$matches" -ne 1 ]; then
-              echo "::error::Digest manifest must contain exactly one row for ${service}"
+            if [[ -n "${seen_services[$service]+present}" ]]; then
+              echo "::error::Deploy service list contains duplicate entry: ${service}"
               exit 1
             fi
+            seen_services["$service"]=1
           done
-          while IFS=$'\t' read -r service image digest; do
-            [[ " $DEPLOY_SERVICES " == *" $service "* ]]
-            [[ "$image" =~ ^ghcr\.io/[a-z0-9._/-]+$ ]]
-            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
-          done < "$manifest_file"
 
       - name: Capacity preflight on development droplet
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.0.3
@@ -142,10 +133,51 @@ jobs:
             exit 1
           fi
 
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - name: Login to GHCR for immutable digest resolution
+        env:
+          GHCR_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GHCR_PASSWORD" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Resolve immutable image digest manifest
+        env:
+          DEPLOY_SERVICES: ${{ inputs.deploy_services }}
+          DEPLOY_SHA: ${{ inputs.head_sha }}
+          IMAGE_PREFIX: ${{ inputs.image_prefix }}
+        run: |
+          set -euo pipefail
+          : > image-digests.tsv
+          declare -A seen_services=()
+          for service in $DEPLOY_SERVICES; do
+            if [[ -n "${seen_services[$service]+present}" ]]; then
+              echo "::error::Deploy service list contains duplicate entry: ${service}"
+              exit 1
+            fi
+            seen_services["$service"]=1
+            image="${IMAGE_PREFIX}/${service}"
+            digest="$(docker buildx imagetools inspect \
+              "${IMAGE_PREFIX}/${service}:${DEPLOY_SHA}" \
+              --format '{{json .Manifest.Digest}}' | tr -d '"')"
+            if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "::error::Missing immutable digest for ${image}:${DEPLOY_SHA}"
+              exit 1
+            fi
+            printf '%s\t%s\t%s\n' "$service" "$image" "$digest" >> image-digests.tsv
+          done
+          manifest="$(base64 -w0 image-digests.tsv)"
+          echo "DEPLOY_IMAGE_DIGESTS_B64=$manifest" >> "$GITHUB_ENV"
+          {
+            echo '### Development deploy digest manifest'
+            echo ''
+            echo '```text'
+            cat image-digests.tsv
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Deploy selected images to the development droplet
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.0.3
         env:
-          DEPLOY_IMAGE_DIGESTS_B64: ${{ inputs.image_digest_manifest }}
           DEPLOY_MODE: development
           DEPLOY_SERVICES: ${{ inputs.deploy_services }}
           DEPLOY_SHA: ${{ inputs.head_sha }}
@@ -172,16 +204,7 @@ jobs:
             cd "${DEPLOY_CHECKOUT_DIR}"
             bash scripts/deploy/droplet-up.sh
 
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
-
-      - name: Login to GHCR for successful channel promotion
-        env:
-          GHCR_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
-        run: echo "$GHCR_PASSWORD" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-
       - name: Promote verified digests to development-latest
-        env:
-          DEPLOY_IMAGE_DIGESTS_B64: ${{ inputs.image_digest_manifest }}
         run: |
           set -euo pipefail
           manifest_file="$(mktemp)"

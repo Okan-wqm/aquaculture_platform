@@ -163,12 +163,29 @@ void test('an entity edit without a migration surfaces migration:<svc>; with one
     schema_version: 1,
     affected_paths: [
       'apps/farm-service/src/batch/entities/batch.entity.ts',
-      'apps/farm-service/src/database/migrations/1800000000000-add-column.ts',
+      'apps/farm-service/src/database/migrations/1800000000000-add-batch-column.ts',
     ],
     waivers: [],
   });
   assert.equal(withMigration.exitCode, 0);
   assert.equal(withMigration.report.verdict, 'covered');
+
+  // ARIA-AUDIT-056: a migration path that does not CONTENT-BIND to the
+  // touched entity is not coverage. The old path-only predicate accepted
+  // any migration-shaped path — even one naming a different schema.
+  const unrelated = runWitness({
+    schema_version: 1,
+    affected_paths: [
+      'apps/farm-service/src/batch/entities/batch.entity.ts',
+      'apps/farm-service/src/database/migrations/1800000000001-unrelated.ts',
+    ],
+    waivers: [],
+  });
+  assert.equal(unrelated.exitCode, 1);
+  assert.deepEqual(
+    unrelated.report.uncovered.map((n) => n.node_id),
+    ['migration:farm-service'],
+  );
 });
 
 void test('paths owned by no nx project are unmapped, never gaps', () => {

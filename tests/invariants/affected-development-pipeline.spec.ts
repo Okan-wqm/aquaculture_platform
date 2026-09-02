@@ -322,7 +322,13 @@ describe('affected CI range resolver', () => {
           'deployed/development',
         ]),
       ).toEqual({
-        baseSha: '4b825dc642cb6eb9a060e54bf8d69288fbee4904',
+        // The full-rollout base is the repository's ROOT COMMIT — a real
+        // commit every consumer can diff against (root..head = the whole
+        // history = every project affected). The empty-tree sentinel this
+        // replaced looked like a SHA but made `git diff base...head` fatal
+        // ("is a tree, not a commit"), turning the FIRST push after the
+        // lane merged into a permanent red main.
+        baseSha: headSha, // single-commit fixture: its own root
         headSha,
         fullValidation: true,
         reason: 'development-baseline-missing',
@@ -355,7 +361,10 @@ describe('affected CI range resolver', () => {
           'deployed/development',
         ]),
       ).toEqual({
-        baseSha: '4b825dc642cb6eb9a060e54bf8d69288fbee4904',
+        // Root-commit base (see the missing-baseline case): a stale,
+        // non-ancestor deployment tag must not produce a diff base that
+        // kills the CI jobs with "is a tree, not a commit".
+        baseSha: rootSha,
         headSha,
         fullValidation: true,
         reason: 'development-baseline-not-ancestor',
@@ -385,7 +394,11 @@ describe('affected CI range resolver', () => {
           'deployed/development',
         ]),
       ).toEqual({
-        baseSha: '4b825dc642cb6eb9a060e54bf8d69288fbee4904',
+        // Root-commit base (see the missing-baseline case): a baseline
+        // ref pointing at a BLOB must degrade to a diffable commit, never
+        // to the empty-tree sentinel that made `git diff base...head`
+        // fatal.
+        baseSha: headSha, // single-commit fixture: its own root
         headSha,
         fullValidation: true,
         reason: 'development-baseline-invalid',

@@ -41,6 +41,14 @@ class WatchdogSweepTests(unittest.TestCase):
 
 
 class AntiPatternTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # ARIA-AUDIT-015: anti-pattern signatures are resolvable operator
+        # references; fixtures provision the acknowledgment variable the
+        # ack-env grammar resolves.
+        import os as _os
+
+        _os.environ.setdefault("ARIA_TEST_KG_SIGNATURE", "operator-test-signature")
+
     def _mint(self, workspace: Path, pattern_id: str, ref: str) -> None:
         from aria_kernel.knowledge_graph import Pattern, record_anti_pattern
 
@@ -55,7 +63,7 @@ class AntiPatternTests(unittest.TestCase):
             ),
             workspace_root=workspace,
             reason_class="architecture_class",
-            operator_signature="ssh-ed25519-sig:operator-e12c",
+            operator_signature="ack-env:ARIA_TEST_KG_SIGNATURE",
         )
 
     def test_signed_mint_reaches_the_reader_and_the_envelope(self) -> None:

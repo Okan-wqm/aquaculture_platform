@@ -82,12 +82,35 @@ def promote_consensus_findings(
     *,
     repo_root: str | Path,
     base_dir: str | Path | None = None,
+    operator_approval_ref: str | None = None,
 ) -> dict[str, Any]:
-    """Promote every unpromoted ai_consensus true_positive; idempotent."""
+    """Promote every unpromoted ai_consensus true_positive; idempotent.
+
+    ARIA-AUDIT-015: promoting AI-consensus rows into operator-facing
+    findings used to carry no operator gate at all — weaker than a string
+    check. The batch now requires an operator approval reference that
+    RESOLVES (gov:<event>, review:<path>#<id>, ack-env:<VAR>); without
+    one the promotion refuses, which the cycle records as a blocked step
+    rather than a silent empty promotion.
+    """
+    import os
+
     from .finding import emit_finding
+    from .operator_approval import OperatorApprovalUnrecorded, verify_operator_approval_ref
 
     repo_path = Path(repo_root).resolve()
     root = ensure_tools_dir(base_dir)
+    if operator_approval_ref is None:
+        ack = os.environ.get("ARIA_CONSENSUS_PROMOTION_ACK", "").strip()
+        operator_approval_ref = f"ack-env:ARIA_CONSENSUS_PROMOTION_ACK" if ack else None
+    try:
+        verify_operator_approval_ref(
+            operator_approval_ref, base_dir=root, surface="consensus_finding_promotion",
+        )
+    except OperatorApprovalUnrecorded as exc:
+        from .tool_registry import GovernanceError
+
+        raise GovernanceError(f"consensus_promotion_operator_approval: {exc}") from exc
     already = promoted_fingerprints(root)
     promoted: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []

@@ -50,10 +50,16 @@ from aria_kernel.promotion_veto import (
     pending_promotion,
     settle_pending_promotions,
     tool_scope_touches_kernel,
+    verify_panel_approval_token,
     veto_promotion,
 )
 from aria_kernel.readiness import adapter_active_readiness
-from aria_kernel.tool_registry import GovernanceError, get_tool, register_tool
+from aria_kernel.tool_registry import (
+    GovernanceError,
+    get_tool,
+    register_tool,
+    transition_tool,
+)
 
 _FAKE_RUNNER = Path(__file__).resolve().parent / "_helpers" / "fake_tool_runner.py"
 
@@ -436,6 +442,74 @@ class PanelPromotionVetoTests(unittest.TestCase):
             now=deadline + timedelta(seconds=1),
         )
         self.assertEqual(len(token), 64)
+
+    def test_forged_panel_token_cannot_activate_a_shadow_tool(self) -> None:
+        """2026-09-01 controlled reproduction: panel_approval_token='forged'
+        moved a SHADOW tool to ACTIVE on PRESENCE alone — the literal
+        predicate counted a truthy string as the third authority. Presence
+        is not authority: only a MAC that re-derives at consume time is."""
+        self._arm()
+        with self.assertRaisesRegex(
+            GovernanceError, "SHADOW -> ACTIVE requires valid evidence chains",
+        ):
+            transition_tool(
+                "jj2-product", "ACTIVE",
+                reason="forged panel token must not promote",
+                base_dir=self.tools,
+                precision=0.99,
+                critical_false_positives=0,
+                evidence_chains_valid=True,
+                panel_approval_token="forged",
+            )
+        self.assertEqual(
+            get_tool("jj2-product", self.tools)["status"], "SHADOW",
+            "a forged token must leave the lifecycle untouched",
+        )
+
+    def test_minted_panel_token_verifies_at_consume_time_and_activates(self) -> None:
+        """The genuine path stays open: mint after the veto window, then let
+        transition_tool CONSUME the token — verification must re-derive the
+        same mint, not merely see a truthy string."""
+        with patch("aria_kernel.promotion_veto.VETO_WINDOW_HOURS", 0):
+            armed = self._arm()
+        deadline = datetime.strptime(
+            armed["veto_deadline"], "%Y-%m-%dT%H:%M:%SZ",
+        ).replace(tzinfo=timezone.utc)
+        token = compute_panel_approval_token(
+            tool_id="jj2-product", base_dir=self.tools,
+            now=deadline + timedelta(seconds=1),
+        )
+        self.assertIsNotNone(
+            verify_panel_approval_token(
+                token, tool_id="jj2-product", base_dir=self.tools,
+            )
+        )
+        transition_tool(
+            "jj2-product", "ACTIVE",
+            reason="panel-approved promotion, veto window elapsed",
+            base_dir=self.tools,
+            precision=0.99,
+            critical_false_positives=0,
+            evidence_chains_valid=True,
+            panel_approval_token=token,
+        )
+        self.assertEqual(get_tool("jj2-product", self.tools)["status"], "ACTIVE")
+
+    def test_verify_rejects_absent_and_wrong_tokens_without_distinction(self) -> None:
+        """None, a non-token string and a cross-workspace guess all read as
+        "no token" — no failure mode is distinguishable to a forger."""
+        with patch("aria_kernel.promotion_veto.VETO_WINDOW_HOURS", 0):
+            self._arm()
+        self.assertIsNone(
+            verify_panel_approval_token(
+                None, tool_id="jj2-product", base_dir=self.tools,
+            )
+        )
+        self.assertIsNone(
+            verify_panel_approval_token(
+                "f" * 64, tool_id="jj2-product", base_dir=self.tools,
+            )
+        )
 
     def test_no_pending_row_means_no_token(self) -> None:
         with self.assertRaises(PanelApprovalIneligibleError) as ctx:

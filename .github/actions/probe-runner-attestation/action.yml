@@ -32,16 +32,20 @@ inputs:
     required: true
   runner-group:
     description: The runner group this runner is registered in.
-    required: false
-    default: 'self-hosted'
+    required: true
   ephemeral:
-    description: Whether this runner is registered as ephemeral.
-    required: false
-    default: 'true'
+    description: >
+      Whether this runner is registered as ephemeral. No default: a
+      defaulted 'true' asserted an identity the workflow never verified
+      (ARIA-AUDIT-016) — the kernel additionally requires the Actions
+      OIDC channel as platform evidence.
+    required: true
   group-approved:
-    description: Whether the runner group is operator-approved for merges.
-    required: false
-    default: 'true'
+    description: >
+      Whether the runner group is operator-approved for merges. No
+      default: group approval is an operator fact supplied explicitly,
+      never a permissive fallback.
+    required: true
 
 runs:
   using: composite

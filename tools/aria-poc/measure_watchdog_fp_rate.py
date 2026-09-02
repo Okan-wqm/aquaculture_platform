@@ -71,18 +71,24 @@ def measure_fp_rate(
     """
     findings_dir = workspace_root / "aria-findings"
     if not findings_dir.is_dir():
+        # Fail-closed: an absent findings tree cannot evidence a LOW
+        # false-positive rate — it evidences nothing. The gate must say
+        # so instead of reporting a pristine 0.0.
         return {
-            "fp_rate": 0.0,
+            "fp_rate": None,
             "total": 0,
             "withdrawn": 0,
             "resolved": 0,
             "open": 0,
             "in_progress": 0,
+            "unreadable": 0,
+            "unknown_timestamp": 0,
             "window_start": since.isoformat() if since else None,
             "window_end": until.isoformat() if until else None,
             "ceiling": FP_RATE_CEILING,
-            "gate_passes": True,
-            "note": "aria-findings/ directory absent",
+            "status": "unmeasured",
+            "gate_passes": False,
+            "reason": "aria-findings/ directory absent",
         }
 
     total = 0
@@ -90,20 +96,32 @@ def measure_fp_rate(
     resolved = 0
     open_count = 0
     in_progress = 0
+    unreadable = 0
+    unknown_timestamp = 0
 
     for path in sorted(findings_dir.glob("F-*.json")):
         try:
             doc = json.loads(path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
+            # A finding that cannot be read cannot be counted as anything
+            # — least of all as absence of false positives.
+            unreadable += 1
             continue
         if not _is_watchdog_finding(doc):
             continue
 
-        # Window filter
+        # Window filter. A row without a parseable raised_at cannot be
+        # placed inside or outside the window; counting it (dilutes the
+        # rate with a phantom denominator) or dropping it (hides
+        # evidence) are both fail-open, so it is tallied and fails the
+        # gate instead.
         raised_at = _parse_iso(doc.get("raised_at", ""))
-        if since is not None and raised_at is not None and raised_at < since:
+        if raised_at is None:
+            unknown_timestamp += 1
             continue
-        if until is not None and raised_at is not None and raised_at > until:
+        if since is not None and raised_at < since:
+            continue
+        if until is not None and raised_at > until:
             continue
 
         total += 1
@@ -117,22 +135,47 @@ def measure_fp_rate(
         else:
             open_count += 1
 
-    fp_rate = withdrawn / total if total > 0 else 0.0
     window_hours: float | None = None
     if since is not None and until is not None:
         window_hours = (until - since).total_seconds() / 3600.0
 
-    return {
-        "fp_rate": round(fp_rate, 4),
+    base = {
         "total": total,
         "withdrawn": withdrawn,
         "resolved": resolved,
         "open": open_count,
         "in_progress": in_progress,
+        "unreadable": unreadable,
+        "unknown_timestamp": unknown_timestamp,
         "window_start": since.isoformat() if since else None,
         "window_end": until.isoformat() if until else None,
         "window_hours": window_hours,
         "ceiling": FP_RATE_CEILING,
+    }
+    if unreadable or unknown_timestamp:
+        return {
+            **base,
+            "fp_rate": None,
+            "status": "unmeasured",
+            "gate_passes": False,
+            "reason": (
+                f"unreadable={unreadable} unknown_timestamp={unknown_timestamp}: "
+                "evidence exists that cannot be evaluated"
+            ),
+        }
+    if total == 0:
+        return {
+            **base,
+            "fp_rate": None,
+            "status": "unmeasured",
+            "gate_passes": False,
+            "reason": "no watchdog findings in window: a rate from zero evidence is not a zero rate",
+        }
+    fp_rate = withdrawn / total
+    return {
+        **base,
+        "fp_rate": round(fp_rate, 4),
+        "status": "measured",
         "gate_passes": fp_rate <= FP_RATE_CEILING,
     }
 
@@ -164,11 +207,6 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="ISO8601 window end (default: now UTC)",
     )
-    parser.add_argument(
-        "--exit-on-fail",
-        action="store_true",
-        help="Exit code 1 when fp_rate > ceiling (default exit 0)",
-    )
     args = parser.parse_args(argv)
 
     since = _parse_iso(args.since) if args.since else None
@@ -180,9 +218,11 @@ def main(argv: list[str] | None = None) -> int:
         until=until,
     )
     print(json.dumps(result, indent=2))
-    if args.exit_on_fail and not result.get("gate_passes", True):
-        return 1
-    return 0
+    # Fail-closed by default (the audit reproduction: a missing findings
+    # tree used to exit 0 with a pristine fp_rate of 0.0). An unmeasured
+    # gate — absent, empty, unreadable or unplaceable evidence — exits 1
+    # exactly like a measured failure does.
+    return 0 if result.get("gate_passes") else 1
 
 
 if __name__ == "__main__":

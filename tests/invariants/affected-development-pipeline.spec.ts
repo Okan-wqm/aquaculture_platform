@@ -1406,6 +1406,24 @@ describe('affected development workflow contract', () => {
     expect(manifestResolution).toBeLessThan(mutatingSsh);
   });
 
+  it('evaluates deploy eligibility after intentionally skipped validation ancestors', () => {
+    const affected = workflow('.github/workflows/ci-affected.yml') as {
+      jobs?: Record<
+        string,
+        {
+          readonly if?: string;
+          readonly needs?: string[] | string;
+        }
+      >;
+    };
+    const deploy = affected.jobs?.['deploy-development'];
+
+    expect(deploy?.needs).toEqual(['build-development-images', 'development-deploy-contract']);
+    expect(deploy?.if).toContain('always()');
+    expect(deploy?.if).toContain("needs.build-development-images.result == 'success'");
+    expect(deploy?.if).toContain("needs.development-deploy-contract.result == 'success'");
+  });
+
   it('uses the selected infra matrix for pull-request image builds', () => {
     const affected = source('.github/workflows/ci-affected.yml');
 

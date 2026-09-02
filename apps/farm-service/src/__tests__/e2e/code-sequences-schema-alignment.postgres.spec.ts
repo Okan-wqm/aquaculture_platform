@@ -9,9 +9,13 @@
 import 'reflect-metadata';
 
 import { getTenantSchemaName } from '@aquaculture/backend-common';
-import { bootPostgresContainer, HarnessContext, shutdownHarness } from '@platform/migration-harness';
+import {
+  bootPostgresContainer,
+  HarnessContext,
+  shutdownHarness,
+} from '@platform/migration-harness';
 
-import { AlignCodeSequencesSchema1786900000000 } from '../../database/migrations/1786900000000-AlignCodeSequencesSchema';
+import { AlignCodeSequencesSchema1786900000000 } from '../../database/migrations/.archive/2026-05-18T09-42-08-277Z/1786900000000-AlignCodeSequencesSchema';
 
 const TENANT_ID = '4b529829-ea79-48da-982c-cd6fbec8ffb7';
 

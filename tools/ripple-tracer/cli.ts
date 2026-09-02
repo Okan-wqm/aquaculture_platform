@@ -29,10 +29,9 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const REPO_ROOT = resolve(__dirname, '..', '..');
 
 // ---------------------------------------------------------------------------
 // services.yaml parser
@@ -65,9 +64,7 @@ interface ServicesYaml {
  */
 function parseServicesYaml(source: string): ServicesYaml {
   const services: ServiceEntry[] = [];
-  const lines = source
-    .split('\n')
-    .map((l) => (l.includes('#') ? l.slice(0, l.indexOf('#')) : l));
+  const lines = source.split('\n').map((l) => (l.includes('#') ? l.slice(0, l.indexOf('#')) : l));
 
   let current: {
     name: string;
@@ -301,7 +298,7 @@ function renderMarkdown(ripple: RippleSet, yamlServiceCount: number): string {
   if (ripple.producers.length === 0) {
     lines.push(
       '> **No producer found.** Either the event type is spelled wrong, the ' +
-        'subject was not added to the producer service\'s `publish:` list in ' +
+        "subject was not added to the producer service's `publish:` list in " +
         'infrastructure/nats/services.yaml, or the event does not travel over ' +
         'NATS. Fix the producer yaml + regenerate nats.conf + rerun.',
     );
@@ -315,7 +312,9 @@ function renderMarkdown(ripple: RippleSet, yamlServiceCount: number): string {
   lines.push('');
 
   if (ripple.subscribers.length === 0) {
-    lines.push('_No subscribers yet — the event is published but unmatched by any subscribe filter._');
+    lines.push(
+      '_No subscribers yet — the event is published but unmatched by any subscribe filter._',
+    );
   } else {
     lines.push('| Service | Matching subscribe pattern | Description |');
     lines.push('|---|---|---|');
@@ -362,7 +361,10 @@ function renderJson(ripple: RippleSet, yamlServiceCount: number): string {
       event_type: ripple.eventType,
       subject: ripple.subject,
       yaml_service_count: yamlServiceCount,
-      producers: ripple.producers.map((p) => ({ name: p.name, description: p.description ?? null })),
+      producers: ripple.producers.map((p) => ({
+        name: p.name,
+        description: p.description ?? null,
+      })),
       subscribers: ripple.subscribers.map(({ service, matchingPattern }) => ({
         name: service.name,
         description: service.description ?? null,
@@ -378,11 +380,15 @@ function main(): void {
   const parsed = parseArgs(process.argv.slice(2));
   if ('error' in parsed) {
     if (parsed.error === 'help') {
-      console.error('Usage: ripple-tracer --event <EventType> [--subject <override>] [--format markdown|json]');
+      console.error(
+        'Usage: ripple-tracer --event <EventType> [--subject <override>] [--format markdown|json]',
+      );
       process.exit(2);
     }
     console.error(`ripple-tracer: ${parsed.error}`);
-    console.error('Usage: ripple-tracer --event <EventType> [--subject <override>] [--format markdown|json]');
+    console.error(
+      'Usage: ripple-tracer --event <EventType> [--subject <override>] [--format markdown|json]',
+    );
     process.exit(2);
   }
 

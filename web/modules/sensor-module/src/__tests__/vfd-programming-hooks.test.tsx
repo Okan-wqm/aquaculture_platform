@@ -78,9 +78,7 @@ function createMockParameterDefinition(
   };
 }
 
-function createMockChangeSetItem(
-  overrides: Partial<VfdChangeSetItem> = {},
-): VfdChangeSetItem {
+function createMockChangeSetItem(overrides: Partial<VfdChangeSetItem> = {}): VfdChangeSetItem {
   return {
     id: 'csi-001',
     changeSetId: 'cs-001',
@@ -97,9 +95,7 @@ function createMockChangeSetItem(
   };
 }
 
-function createMockChangeSet(
-  overrides: Partial<VfdChangeSet> = {},
-): VfdChangeSet {
+function createMockChangeSet(overrides: Partial<VfdChangeSet> = {}): VfdChangeSet {
   return {
     id: 'cs-001',
     tenantId: 'tenant-1',
@@ -123,9 +119,7 @@ function createMockChangeSet(
   };
 }
 
-function createMockAuditLog(
-  overrides: Partial<VfdParameterAuditLog> = {},
-): VfdParameterAuditLog {
+function createMockAuditLog(overrides: Partial<VfdParameterAuditLog> = {}): VfdParameterAuditLog {
   return {
     id: 'al-001',
     tenantId: 'tenant-1',
@@ -145,9 +139,7 @@ function createMockAuditLog(
   };
 }
 
-function createMockAutomationRule(
-  overrides: Partial<VfdAutomationRule> = {},
-): VfdAutomationRule {
+function createMockAutomationRule(overrides: Partial<VfdAutomationRule> = {}): VfdAutomationRule {
   return {
     id: 'ar-001',
     tenantId: 'tenant-1',
@@ -185,9 +177,7 @@ describe('useVfdParameterDefinitions', () => {
     const defs = [createMockParameterDefinition()];
     mockGraphqlFetch.mockResolvedValue({ vfdParameterDefinitions: defs });
 
-    const { result } = renderHook(() =>
-      useVfdParameterDefinitions('vfd-001'),
-    );
+    const { result } = renderHook(() => useVfdParameterDefinitions('vfd-001'));
 
     await waitFor(() => {
       expect(result.current.definitions).toEqual(defs);
@@ -201,9 +191,7 @@ describe('useVfdParameterDefinitions', () => {
     const defs = [createMockParameterDefinition()];
     mockGraphqlFetch.mockResolvedValue({ vfdParameterDefinitions: defs });
 
-    renderHook(() =>
-      useVfdParameterDefinitions('vfd-001', 'ramp_times'),
-    );
+    renderHook(() => useVfdParameterDefinitions('vfd-001', 'ramp_times'));
 
     await waitFor(() => {
       expect(mockGraphqlFetch).toHaveBeenCalledWith(
@@ -221,9 +209,7 @@ describe('useVfdParameterDefinitions', () => {
     ];
     mockGraphqlFetch.mockResolvedValue({ vfdParameterDefinitions: defs });
 
-    const { result } = renderHook(() =>
-      useVfdParameterDefinitions('vfd-001'),
-    );
+    const { result } = renderHook(() => useVfdParameterDefinitions('vfd-001'));
 
     await waitFor(() => {
       expect(result.current.definitions).toHaveLength(3);
@@ -242,9 +228,7 @@ describe('useVfdParameterDefinitions', () => {
     ];
     mockGraphqlFetch.mockResolvedValue({ vfdParameterDefinitions: defs });
 
-    const { result } = renderHook(() =>
-      useVfdParameterDefinitions('vfd-001'),
-    );
+    const { result } = renderHook(() => useVfdParameterDefinitions('vfd-001'));
 
     await waitFor(() => {
       expect(result.current.definitions).toHaveLength(3);
@@ -263,9 +247,7 @@ describe('useVfdParameterDefinitions', () => {
     ];
     mockGraphqlFetch.mockResolvedValue({ vfdParameterDefinitions: defs });
 
-    const { result } = renderHook(() =>
-      useVfdParameterDefinitions('vfd-001'),
-    );
+    const { result } = renderHook(() => useVfdParameterDefinitions('vfd-001'));
 
     await waitFor(() => {
       expect(result.current.definitions).toHaveLength(3);
@@ -308,9 +290,7 @@ describe('useVfdParameterDefinitions', () => {
   it('handles API errors gracefully', async () => {
     mockGraphqlFetch.mockRejectedValue(new Error('Network error'));
 
-    const { result } = renderHook(() =>
-      useVfdParameterDefinitions('vfd-001'),
-    );
+    const { result } = renderHook(() => useVfdParameterDefinitions('vfd-001'));
 
     await waitFor(() => {
       expect(result.current.error).toBe('Network error');
@@ -324,9 +304,7 @@ describe('useVfdParameterDefinitions', () => {
     const defs = [createMockParameterDefinition()];
     mockGraphqlFetch.mockResolvedValue({ vfdParameterDefinitions: defs });
 
-    const { unmount } = renderHook(() =>
-      useVfdParameterDefinitions('vfd-001'),
-    );
+    const { unmount } = renderHook(() => useVfdParameterDefinitions('vfd-001'));
 
     // Flush initial fetch
     await act(async () => {
@@ -347,9 +325,7 @@ describe('useVfdParameterDefinitions', () => {
   });
 
   it('does not fetch when vfdDeviceId is undefined', async () => {
-    const { result } = renderHook(() =>
-      useVfdParameterDefinitions(undefined),
-    );
+    const { result } = renderHook(() => useVfdParameterDefinitions(undefined));
 
     // Wait a tick
     await act(async () => {
@@ -411,7 +387,9 @@ describe('useVfdChangeSets', () => {
       changeSet = await result.current.createChangeSet({
         vfdDeviceId: 'vfd-001',
         description: 'Test change',
-        items: [{ parameterDefinitionId: 'pd-001', parameterName: 'accel_time', requestedValue: 5 }],
+        items: [
+          { parameterDefinitionId: 'pd-001', parameterName: 'accel_time', requestedValue: 5 },
+        ],
       });
     });
 
@@ -422,7 +400,10 @@ describe('useVfdChangeSets', () => {
 
   it('approves a change set', async () => {
     const initial = [createMockChangeSet({ status: VfdChangeSetStatus.PENDING_APPROVAL })];
-    const approved = createMockChangeSet({ status: VfdChangeSetStatus.APPROVED, approvedBy: 'admin-1' });
+    const approved = createMockChangeSet({
+      status: VfdChangeSetStatus.APPROVED,
+      approvedBy: 'admin-1',
+    });
 
     mockGraphqlFetch
       .mockResolvedValueOnce({ vfdChangeSets: initial })
@@ -454,10 +435,9 @@ describe('useVfdChangeSets', () => {
       await result.current.rejectChangeSet('cs-001', 'Values too aggressive');
     });
 
-    expect(mockGraphqlFetch).toHaveBeenCalledWith(
-      expect.any(String),
-      { input: { changeSetId: 'cs-001', reason: 'Values too aggressive' } },
-    );
+    expect(mockGraphqlFetch).toHaveBeenCalledWith(expect.any(String), {
+      input: { changeSetId: 'cs-001', reason: 'Values too aggressive' },
+    });
   });
 
   it('applies an approved change set', async () => {
@@ -483,10 +463,9 @@ describe('useVfdChangeSets', () => {
       await result.current.rollbackChangeSet('cs-001', 'Causing issues');
     });
 
-    expect(mockGraphqlFetch).toHaveBeenCalledWith(
-      expect.any(String),
-      { input: { changeSetId: 'cs-001', reason: 'Causing issues' } },
-    );
+    expect(mockGraphqlFetch).toHaveBeenCalledWith(expect.any(String), {
+      input: { changeSetId: 'cs-001', reason: 'Causing issues' },
+    });
   });
 
   it('cancels a draft change set', async () => {
@@ -499,19 +478,17 @@ describe('useVfdChangeSets', () => {
       await result.current.cancelChangeSet('cs-001');
     });
 
-    expect(mockGraphqlFetch).toHaveBeenCalledWith(
-      expect.any(String),
-      { changeSetId: 'cs-001' },
-    );
+    expect(mockGraphqlFetch).toHaveBeenCalledWith(expect.any(String), { changeSetId: 'cs-001' });
   });
 
   it('supports pagination with loadMore', async () => {
     const page1 = Array.from({ length: 20 }, (_, i) =>
-      createMockChangeSet({ id: `cs-${i}`, createdAt: `2026-03-20T${String(i).padStart(2, '0')}:00:00Z` }),
+      createMockChangeSet({
+        id: `cs-${i}`,
+        createdAt: `2026-03-20T${String(i).padStart(2, '0')}:00:00Z`,
+      }),
     );
-    const page2 = [
-      createMockChangeSet({ id: 'cs-20', createdAt: '2026-03-19T10:00:00Z' }),
-    ];
+    const page2 = [createMockChangeSet({ id: 'cs-20', createdAt: '2026-03-19T10:00:00Z' })];
 
     mockGraphqlFetch
       .mockResolvedValueOnce({ vfdChangeSets: page1 })
@@ -557,16 +534,12 @@ describe('useVfdChangeSets', () => {
 
     const { result } = renderHook(() => useVfdChangeSets());
 
-    let caughtError: Error | null = null;
     await act(async () => {
-      try {
-        await result.current.approveChangeSet('cs-001');
-      } catch (err) {
-        caughtError = err as Error;
-      }
+      await expect(result.current.approveChangeSet('cs-001')).rejects.toThrow(
+        'Conflict: change set already approved',
+      );
     });
 
-    expect(caughtError?.message).toBe('Conflict: change set already approved');
     expect(result.current.error).toBe('Conflict: change set already approved');
   });
 
@@ -648,12 +621,8 @@ describe('useVfdAuditLog', () => {
   });
 
   it('pagination works correctly via loadMore', async () => {
-    const page1 = Array.from({ length: 50 }, (_, i) =>
-      createMockAuditLog({ id: `al-${i}` }),
-    );
-    const page2 = Array.from({ length: 60 }, (_, i) =>
-      createMockAuditLog({ id: `al-${i}` }),
-    );
+    const page1 = Array.from({ length: 50 }, (_, i) => createMockAuditLog({ id: `al-${i}` }));
+    const page2 = Array.from({ length: 60 }, (_, i) => createMockAuditLog({ id: `al-${i}` }));
 
     mockGraphqlFetch
       .mockResolvedValueOnce({ vfdParameterAuditLog: page1 })
@@ -759,10 +728,7 @@ describe('useVfdAutomationRules', () => {
       await result.current.fetchRules('vfd-001');
     });
 
-    expect(mockGraphqlFetch).toHaveBeenCalledWith(
-      expect.any(String),
-      { vfdDeviceId: 'vfd-001' },
-    );
+    expect(mockGraphqlFetch).toHaveBeenCalledWith(expect.any(String), { vfdDeviceId: 'vfd-001' });
     expect(result.current.rules).toHaveLength(1);
   });
 
@@ -907,10 +873,9 @@ describe('useVfdAutomationRules', () => {
 
     const { result } = renderHook(() => useVfdAutomationRules());
 
-    let caughtError: Error | null = null;
     await act(async () => {
-      try {
-        await result.current.createRule({
+      await expect(
+        result.current.createRule({
           name: 'Test',
           description: 'Test',
           triggerCondition: {},
@@ -918,13 +883,10 @@ describe('useVfdAutomationRules', () => {
           parameterChanges: [],
           requiresApproval: true,
           priority: 100,
-        });
-      } catch (err) {
-        caughtError = err as Error;
-      }
+        }),
+      ).rejects.toThrow('Permission denied');
     });
 
-    expect(caughtError?.message).toBe('Permission denied');
     expect(result.current.error).toBe('Permission denied');
   });
 });

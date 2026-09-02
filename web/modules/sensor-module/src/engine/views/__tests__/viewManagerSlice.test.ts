@@ -33,6 +33,7 @@ describe('ViewManagerSlice', () => {
     const id = store.getState().openOverlay({
       type: 'dialog',
       screenId: 'screen-2',
+      position: { x: 0, y: 0 },
       size: { width: 800, height: 600 },
     });
 
@@ -48,10 +49,12 @@ describe('ViewManagerSlice', () => {
     const id1 = store.getState().openOverlay({
       type: 'card',
       screenId: 'screen-1',
+      position: { x: 0, y: 0 },
     });
     const id2 = store.getState().openOverlay({
       type: 'dialog',
       screenId: 'screen-2',
+      position: { x: 0, y: 0 },
     });
 
     expect(store.getState().overlays).toHaveLength(2);
@@ -64,9 +67,11 @@ describe('ViewManagerSlice', () => {
   });
 
   it('should close all overlays with closeAllOverlays', () => {
-    store.getState().openOverlay({ type: 'card', screenId: 'screen-1' });
-    store.getState().openOverlay({ type: 'dialog', screenId: 'screen-2' });
-    store.getState().openOverlay({ type: 'card', screenId: 'screen-3' });
+    store.getState().openOverlay({ type: 'card', screenId: 'screen-1', position: { x: 0, y: 0 } });
+    store
+      .getState()
+      .openOverlay({ type: 'dialog', screenId: 'screen-2', position: { x: 0, y: 0 } });
+    store.getState().openOverlay({ type: 'card', screenId: 'screen-3', position: { x: 0, y: 0 } });
 
     expect(store.getState().overlays).toHaveLength(3);
 
@@ -79,14 +84,17 @@ describe('ViewManagerSlice', () => {
     const id1 = store.getState().openOverlay({
       type: 'card',
       screenId: 'screen-1',
+      position: { x: 0, y: 0 },
     });
     const id2 = store.getState().openOverlay({
       type: 'card',
       screenId: 'screen-1',
+      position: { x: 0, y: 0 },
     });
     const id3 = store.getState().openOverlay({
       type: 'dialog',
       screenId: 'screen-2',
+      position: { x: 0, y: 0 },
     });
 
     expect(id1).not.toBe(id2);
@@ -99,6 +107,7 @@ describe('ViewManagerSlice', () => {
     store.getState().openOverlay({
       type: 'dialog',
       screenId: 'screen-1',
+      position: { x: 0, y: 0 },
       variableMap: varMap,
     });
 

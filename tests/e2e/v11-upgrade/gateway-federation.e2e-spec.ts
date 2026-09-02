@@ -97,7 +97,6 @@ class MiddlewareOrderController {
   }
 }
 
-
 /**
  * Module that mimics the gateway middleware stack ordering from AppModule.configure().
  *
@@ -223,10 +222,12 @@ class TestRateLimitGuard implements CanActivate {
   static lastResult: { key: string; error: string | null } = { key: '', error: null };
 
   canActivate(context: ExecutionContext): boolean {
-    const req = context.switchToHttp().getRequest<Request & {
-      user?: { sub?: string; tenantId?: string };
-      connection?: { remoteAddress?: string };
-    }>();
+    const req = context.switchToHttp().getRequest<
+      Request & {
+        user?: { sub?: string; tenantId?: string };
+        connection?: { remoteAddress?: string };
+      }
+    >();
 
     try {
       // Mirror production extractClientIp logic
@@ -300,10 +301,12 @@ class TestOpaPolicyGuard implements CanActivate {
   static lastError: string | null = null;
 
   canActivate(context: ExecutionContext): boolean {
-    const req = context.switchToHttp().getRequest<Request & {
-      user?: { sub?: string };
-      connection?: { remoteAddress?: string };
-    }>();
+    const req = context.switchToHttp().getRequest<
+      Request & {
+        user?: { sub?: string };
+        connection?: { remoteAddress?: string };
+      }
+    >();
 
     try {
       // Mirror production buildOpaInput context.ip
@@ -334,9 +337,7 @@ class NullIpTestController {
 })
 class NullIpModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer
-      .apply(NullIpMiddleware, TestLoggingMiddleware)
-      .forRoutes('*');
+    consumer.apply(NullIpMiddleware, TestLoggingMiddleware).forRoutes('*');
   }
 }
 
@@ -474,9 +475,7 @@ class TenantTestController {
 class TenantIsolationModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
     // Mirrors production: .forRoutes('*') to apply to ALL routes
-    consumer
-      .apply(TestTenantContextMiddleware)
-      .forRoutes('*');
+    consumer.apply(TestTenantContextMiddleware).forRoutes('*');
   }
 }
 
@@ -793,7 +792,9 @@ const mockConfigService = {
 
 describe('5. WebSocket Gateway Initialization', () => {
   describe('MessagingGateway', () => {
-    let gateway: InstanceType<typeof import('../../../apps/gateway-api/src/websocket/messaging.gateway').MessagingGateway>;
+    let gateway: InstanceType<
+      typeof import('../../../apps/gateway-api/src/websocket/messaging.gateway').MessagingGateway
+    >;
     let MessagingGatewayClass: typeof import('../../../apps/gateway-api/src/websocket/messaging.gateway').MessagingGateway;
 
     beforeAll(async () => {
@@ -840,29 +841,39 @@ describe('5. WebSocket Gateway Initialization', () => {
   });
 
   describe('SensorReadingsGateway', () => {
-    let gateway: InstanceType<typeof import('../../../apps/gateway-api/src/websocket/sensor-readings.gateway').SensorReadingsGateway>;
+    let gateway: InstanceType<
+      typeof import('../../../apps/gateway-api/src/websocket/sensor-readings.gateway').SensorReadingsGateway
+    >;
     let SensorReadingsGatewayClass: typeof import('../../../apps/gateway-api/src/websocket/sensor-readings.gateway').SensorReadingsGateway;
+    let DeviceOwnershipServiceClass: typeof import('../../../apps/gateway-api/src/websocket/services/device-ownership.service').DeviceOwnershipService;
 
     beforeAll(async () => {
       try {
-        const mod = await import('../../../apps/gateway-api/src/websocket/sensor-readings.gateway');
-        SensorReadingsGatewayClass = mod.SensorReadingsGateway;
+        const [gatewayModule, ownershipModule] = await Promise.all([
+          import('../../../apps/gateway-api/src/websocket/sensor-readings.gateway'),
+          import('../../../apps/gateway-api/src/websocket/services/device-ownership.service'),
+        ]);
+        SensorReadingsGatewayClass = gatewayModule.SensorReadingsGateway;
+        DeviceOwnershipServiceClass = ownershipModule.DeviceOwnershipService;
       } catch {
         // Module may fail to import in isolation; test will be skipped
       }
     });
 
     it('should instantiate without errors', () => {
-      if (!SensorReadingsGatewayClass) {
+      if (!SensorReadingsGatewayClass || !DeviceOwnershipServiceClass) {
         return;
       }
 
       expect(() => {
+        const deviceOwnershipService = new DeviceOwnershipServiceClass(mockConfigService);
         gateway = new SensorReadingsGatewayClass(
           mockJwtService as JwtService,
+          deviceOwnershipService,
           mockConfigService as ConfigService,
           undefined, // sensorAuthService
         );
+        deviceOwnershipService.onModuleDestroy();
       }).not.toThrow();
       expect(gateway).toBeDefined();
     });
@@ -887,7 +898,9 @@ describe('5. WebSocket Gateway Initialization', () => {
   });
 
   describe('STLanguageGateway', () => {
-    let gateway: InstanceType<typeof import('../../../apps/gateway-api/src/websocket/st-language.gateway').STLanguageGateway>;
+    let gateway: InstanceType<
+      typeof import('../../../apps/gateway-api/src/websocket/st-language.gateway').STLanguageGateway
+    >;
     let STLanguageGatewayClass: typeof import('../../../apps/gateway-api/src/websocket/st-language.gateway').STLanguageGateway;
 
     beforeAll(async () => {
@@ -930,9 +943,7 @@ describe('5. WebSocket Gateway Initialization', () => {
       // Uses a test module that mocks external dependencies.
       const moduleFixture: TestingModule = await Test.createTestingModule({
         imports: [JwtModule.register({ secret: 'test-secret-at-least-32-chars-long-for-safety' })],
-        providers: [
-          { provide: ConfigService, useValue: mockConfigService },
-        ],
+        providers: [{ provide: ConfigService, useValue: mockConfigService }],
       }).compile();
 
       expect(moduleFixture).toBeDefined();
@@ -994,9 +1005,7 @@ class CombinedTestController {
 @Module({ controllers: [CombinedTestController] })
 class CombinedModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer
-      .apply(CombinedCorrelationMiddleware, CombinedTenantMiddleware)
-      .forRoutes('*');
+    consumer.apply(CombinedCorrelationMiddleware, CombinedTenantMiddleware).forRoutes('*');
   }
 }
 

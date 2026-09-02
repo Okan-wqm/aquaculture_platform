@@ -1,19 +1,7 @@
 {
   "extends": "./tsconfig.spec.json",
   "compilerOptions": {
-    "types": ["jest", "node"],
-    // Kept `false` here (unlike tsconfig.app.json / tsconfig.spec.json which
-    // now inherit the base `true`): the farm e2e suite has pre-existing,
-    // strict-init-UNRELATED TS2349 breakage (supertest default-import is not
-    // callable in test/batch.e2e-spec.ts), so it does not compile regardless of
-    // this flag. Entity `!` assertions already make this suite's entity usage
-    // strict-clean (0 TS2564); re-enable the flag here once the supertest
-    // typing is fixed.
-    "strictPropertyInitialization": false
+    "types": ["jest", "node"]
   },
-  "include": [
-    "jest.e2e.config.ts",
-    "test/**/*.ts",
-    "src/**/*.d.ts"
-  ]
+  "include": ["jest.e2e.config.ts", "test/**/*.ts", "src/**/*.d.ts"]
 }

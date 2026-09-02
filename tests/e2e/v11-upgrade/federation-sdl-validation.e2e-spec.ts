@@ -23,16 +23,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { GraphQLModule, Resolver, Query, ObjectType, Field, ID, Directive } from '@nestjs/graphql';
-import {
-  ApolloFederationDriver,
-  ApolloFederationDriverConfig,
-} from '@nestjs/apollo';
-import {
-  GraphQLSchema,
-  printSchema,
-  parse,
-  visit,
-} from 'graphql';
+import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
+import { GraphQLSchema, printSchema, parse, visit } from 'graphql';
 import type { DocumentNode, ObjectTypeDefinitionNode } from 'graphql';
 
 // ============================================================================
@@ -388,65 +380,65 @@ function createSubgraphTestModule(
 @Directive('@key(fields: "id")')
 class FarmStub {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field()
-  name: string;
+  name!: string;
 
   @Field()
-  tenantId: string;
+  tenantId!: string;
 }
 
 @ObjectType('Species')
 @Directive('@key(fields: "id")')
 class SpeciesStub {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field()
-  scientificName: string;
+  scientificName!: string;
 
   @Field()
-  commonName: string;
+  commonName!: string;
 
   @Field()
-  tenantId: string;
+  tenantId!: string;
 }
 
 @ObjectType('Batch')
 @Directive('@key(fields: "id")')
 class BatchStub {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field()
-  batchNumber: string;
+  batchNumber!: string;
 
   @Field()
-  tenantId: string;
+  tenantId!: string;
 }
 
 @ObjectType('Tank')
 @Directive('@key(fields: "id")')
 class TankStub {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field()
-  name: string;
+  name!: string;
 
   @Field()
-  tenantId: string;
+  tenantId!: string;
 }
 
 @ObjectType('MessageUser')
 @Directive('@key(fields: "id")')
 class MessageUserStub {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field(() => String, { nullable: true })
-  displayName: string | null;
+  displayName!: string | null;
 }
 
 // ============================================================================
@@ -603,9 +595,7 @@ describe('1. Schema Generation Consistency', () => {
     expect(Object.keys(typeMap).length).toBeGreaterThan(0);
   });
 
-  it.each(
-    SUBGRAPH_REGISTRY.filter((sg) => sg.keyEntities.length > 0),
-  )(
+  it.each(SUBGRAPH_REGISTRY.filter((sg) => sg.keyEntities.length > 0))(
     'should include @key entity types for $name subgraph',
     (subgraph: SubgraphDescriptor) => {
       for (const entityName of subgraph.keyEntities) {
@@ -842,9 +832,7 @@ describe('3. Supergraph Composition Simulation', () => {
     for (const conflict of conflictingTypes) {
       const isKeyEntity =
         conflict.typeName in ALL_KEY_ENTITIES ||
-        subgraphSdls.some((sg) =>
-          sg.structure.keyDirectiveEntities.includes(conflict.typeName),
-        );
+        subgraphSdls.some((sg) => sg.structure.keyDirectiveEntities.includes(conflict.typeName));
 
       expect(isKeyEntity).toBe(true);
     }
@@ -991,11 +979,11 @@ describe('4. Schema Backward Compatibility', () => {
      * how fields are emitted, the count will differ.
      */
     const expectedFieldCounts: Record<string, number> = {
-      Farm: 3,         // id, name, tenantId
-      Species: 4,      // id, scientificName, commonName, tenantId
-      Batch: 3,        // id, batchNumber, tenantId
-      Tank: 3,         // id, name, tenantId
-      MessageUser: 2,  // id, displayName
+      Farm: 3, // id, name, tenantId
+      Species: 4, // id, scientificName, commonName, tenantId
+      Batch: 3, // id, batchNumber, tenantId
+      Tank: 3, // id, name, tenantId
+      MessageUser: 2, // id, displayName
     };
 
     for (const [typeName, expectedCount] of Object.entries(expectedFieldCounts)) {
@@ -1212,8 +1200,16 @@ describe('5. Playground and Introspection Configuration', () => {
        */
       const subgraphNames = SUBGRAPH_REGISTRY.map((sg) => sg.name);
       const expectedSubgraphs = [
-        'auth', 'farm', 'sensor', 'alert', 'hr',
-        'billing', 'hydroponics', 'config', 'notification', 'messaging',
+        'auth',
+        'farm',
+        'sensor',
+        'alert',
+        'hr',
+        'billing',
+        'hydroponics',
+        'config',
+        'notification',
+        'messaging',
       ];
 
       expect(subgraphNames).toEqual(expect.arrayContaining(expectedSubgraphs));

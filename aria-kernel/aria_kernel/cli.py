@@ -482,6 +482,7 @@ def _handle_state_command(args: argparse.Namespace) -> int:
         manifest_path=Path(args.snapshot),
         signature_path=Path(args.signature),
         public_key_path=Path(args.public_key),
+        trust_store=Path(args.trust_store),
     )
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0 if report["valid"] else 1
@@ -796,6 +797,11 @@ def build_parser() -> argparse.ArgumentParser:
     state_verify.add_argument("--snapshot", required=True)
     state_verify.add_argument("--signature", required=True)
     state_verify.add_argument("--public-key", required=True)
+    state_verify.add_argument(
+        "--trust-store", required=True,
+        help="Operator-pinned allowlist (identity keytype blob lines). The key "
+             "carried by the snapshot is a claim, not trust.",
+    )
 
     # Wave 1 §2.3 — the aria/state store. `publish` refuses unless the
     # snapshot it builds names the published tip as its parent; there is

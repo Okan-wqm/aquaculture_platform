@@ -595,6 +595,7 @@ def verify_snapshot_signature(
     manifest_path: Path,
     signature_path: Path,
     public_key_path: Path,
+    trust_store: Path,
     identity: str = "aria-state",
 ) -> dict[str, Any]:
     """Verify a snapshot's signature AND that its root still matches.
@@ -603,6 +604,14 @@ def verify_snapshot_signature(
     manifest whose ``manifest_root`` no longer matches its content proves
     only that someone signed something once; the pair is what says "this
     exact tree state was attested".
+
+    The verifier's TRUST is the operator-pinned ``trust_store`` allowlist
+    (``identity keytype blob [comment]`` lines), not the key that happens
+    to travel with the snapshot: a snapshot carrying its own public key is
+    a CLAIM, and honoring it lets anyone self-sign both the content and
+    the root of trust. The presented key must match a pinned key blob or
+    verification refuses; a missing/empty store refuses too — there is no
+    verification without an anchor chosen outside the artifact.
     """
     if shutil.which("ssh-keygen") is None:
         raise SnapshotError(
@@ -612,17 +621,41 @@ def verify_snapshot_signature(
     for path in (manifest_path, signature_path, public_key_path):
         if not path.exists():
             raise SnapshotError(f"snapshot_verify_input_missing: {path.as_posix()}")
+    if not trust_store.exists() or not trust_store.read_text(encoding="utf-8").strip():
+        raise SnapshotError(
+            f"snapshot_trust_store_missing: {trust_store.as_posix()} — provision the "
+            "operator-pinned allowlist; a snapshot's own carried key is not trust"
+        )
+    pinned = [
+        line.split() for line in trust_store.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    presented_fields = public_key_path.read_text(encoding="utf-8").strip().split()
+    if len(presented_fields) < 2:
+        raise SnapshotError("snapshot_trust_presented_key_unparseable")
+    matching = [
+        fields for fields in pinned
+        if len(fields) >= 3
+        and fields[1] == presented_fields[0]
+        and fields[2] == presented_fields[1]
+    ]
+    if not matching:
+        raise SnapshotError(
+            "snapshot_trust_key_not_pinned: the presented key is not in the "
+            "operator trust store; a self-signed snapshot is a claim, not an "
+            "attestation"
+        )
 
     allowed_signers = signature_path.parent / "allowed_signers"
-    key_line = public_key_path.read_text(encoding="utf-8").strip()
-    allowed_signers.write_text(f"{identity} {key_line}\n", encoding="utf-8")
+    pinned_identity = matching[0][0]
+    allowed_signers.write_text(" ".join(matching[0]) + "\n", encoding="utf-8")
 
     try:
         proc = subprocess.run(
             [
                 "ssh-keygen", "-Y", "verify",
                 "-f", str(allowed_signers),
-                "-I", identity,
+                "-I", pinned_identity,
                 "-n", SIGNATURE_NAMESPACE,
                 "-s", str(signature_path),
             ],

@@ -132,15 +132,23 @@ class PhaseV6_4AutoPromotion(unittest.TestCase):
         A refactor back to `not auto_promote_token` re-opens the
         accepts-on-presence hole and must fail here.
 
+        The forged-token reproduction (2026-09-01) rewrote it a THIRD
+        time, same doctrine for the panel authority: `_panel_promote_
+        verified` — the consume-time MAC verification via
+        `promotion_veto.verify_panel_approval_token` — not the token's
+        PRESENCE. `panel_approval_token='forged'` promoted SHADOW ->
+        ACTIVE on presence alone; a refactor back to
+        `not panel_approval_token` re-opens that hole and must fail here.
+
         The exact predicate (load-bearing order):
 
-            if (not operator_approval and not _auto_promote_verified and not panel_approval_token) or not evidence_chains_valid:
+            if (not operator_approval and not _auto_promote_verified and not _panel_promote_verified) or not evidence_chains_valid:
         """
         import aria_kernel.tool_registry as mod
         src = inspect.getsource(mod.transition_tool)
         literal_predicate = (
             "if (not operator_approval and not _auto_promote_verified "
-            "and not panel_approval_token) or not evidence_chains_valid:"
+            "and not _panel_promote_verified) or not evidence_chains_valid:"
         )
         self.assertIn(
             literal_predicate, src,

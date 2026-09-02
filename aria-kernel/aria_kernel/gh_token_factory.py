@@ -80,6 +80,12 @@ class InstallationTokenLease:
     gh_app_installation_id: str | None
     fallback_active: bool
     minted_at_utc: str
+    # ARIA-AUDIT-017: TTL honesty. provider_expiry is GitHub's own
+    # expires_at for Mode A installation tokens (None in Mode B, where
+    # the operator PAT has no provider-side lifetime and revocation is
+    # local-file deletion only). Consumers that need a provider-enforced
+    # horizon must refuse leases where this is None.
+    provider_expiry: str | None = None
 
 
 _CYCLE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{6,64}$")
@@ -405,6 +411,12 @@ def mint_installation_token(
                 "Content-Type": "application/json",
             },
             data=_json.dumps({
+                # ARIA-AUDIT-017: the lease TTL must be a PROVIDER-side
+                # property, not local fiction. expires_in makes GitHub
+                # itself expire the installation token at the same horizon
+                # the local lease claims; without it the default 1h token
+                # outlives (or undershoots) the lease metadata.
+                "expires_in": max(60, int(ttl_seconds)),
                 "permissions": {
                     "pull_requests": "write",
                     "contents": "write",
@@ -430,6 +442,13 @@ def mint_installation_token(
         if not isinstance(token, str) or not token.strip():
             raise RuntimeError(
                 "mint_installation_token Mode A: API response missing 'token'"
+            )
+        expires_at = data.get("expires_at")
+        if not isinstance(expires_at, str) or not expires_at.strip():
+            raise RuntimeError(
+                "mint_installation_token Mode A: API response missing "
+                "'expires_at' — a lease without provider expiry is local "
+                "fiction (ARIA-AUDIT-017)"
             )
         token_path.write_text(token)
         token_path.chmod(0o600)

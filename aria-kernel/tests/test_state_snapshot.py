@@ -766,6 +766,15 @@ class SnapshotSignatureRoundTripTests(unittest.TestCase):
             roots={"tools": self.tools},
         )
 
+        # Operator provisioning (ARIA-AUDIT-014): the verifier's trust is
+        # a PINNED allowlist, written once by the operator from the keys
+        # they chose to trust — never derived from whatever key a
+        # snapshot happens to carry next to its signature.
+        self.trust_store = self.tmp / "trust" / "allowed_signers"
+        self.trust_store.parent.mkdir(parents=True, exist_ok=True)
+        pub_text = self.key.with_suffix(".pub").read_text(encoding="utf-8").strip()
+        self.trust_store.write_text(f"aria-state {pub_text}\n", encoding="utf-8")
+
     def tearDown(self) -> None:
         shutil.rmtree(self.tmp, ignore_errors=True)
 
@@ -786,6 +795,7 @@ class SnapshotSignatureRoundTripTests(unittest.TestCase):
             manifest_path=signed.manifest_path,
             signature_path=signed.signature_path,
             public_key_path=signed.public_key_path,
+            trust_store=self.trust_store,
         )
         self.assertTrue(report["valid"], report)
         self.assertEqual(report["manifest_root"], self.manifest["manifest_root"])
@@ -799,6 +809,7 @@ class SnapshotSignatureRoundTripTests(unittest.TestCase):
             manifest_path=signed.manifest_path,
             signature_path=signed.signature_path,
             public_key_path=signed.public_key_path,
+            trust_store=self.trust_store,
         )
         self.assertFalse(report["valid"])
         self.assertFalse(report["signature_valid"])
@@ -830,6 +841,7 @@ class SnapshotSignatureRoundTripTests(unittest.TestCase):
             manifest_path=signed.manifest_path,
             signature_path=foreign_sig,
             public_key_path=signed.public_key_path,
+            trust_store=self.trust_store,
         )
         self.assertFalse(
             report["signature_valid"],
@@ -866,9 +878,52 @@ class SnapshotSignatureRoundTripTests(unittest.TestCase):
             manifest_path=second.manifest_path,
             signature_path=second.signature_path,
             public_key_path=second.public_key_path,
+            trust_store=self.trust_store,
         )
         self.assertTrue(report["valid"], report)
         self.assertEqual(report["snapshot_id"], "snap-sig-2")
+
+
+    def test_attacker_key_is_refused_even_with_a_valid_self_signature(self) -> None:
+        """ARIA-AUDIT-014: a snapshot carrying its own key is self-trust.
+
+        The attacker signs a manifest with THEIR key and presents THEIR
+        public key next to the signature. Pre-fix, the verifier built its
+        allowlist from exactly that presented key, so the forgery
+        verified. Now the presented key must match the operator-pinned
+        trust store or verification refuses.
+        """
+        attacker_key = self.tmp / "attacker"
+        subprocess.run(
+            ["ssh-keygen", "-t", "ed25519", "-N", "", "-C", "attacker", "-f", str(attacker_key)],
+            check=True, capture_output=True,
+        )
+        forged = sign_snapshot(
+            self.manifest,
+            out_dir=self.tmp / "forged-store",
+            private_key_path=attacker_key,
+            public_key_path=attacker_key.with_suffix(".pub"),
+            signer_fingerprint="attacker",
+        )
+        with self.assertRaises(SnapshotError) as ctx:
+            verify_snapshot_signature(
+                manifest_path=forged.manifest_path,
+                signature_path=forged.signature_path,
+                public_key_path=forged.public_key_path,
+                trust_store=self.trust_store,
+            )
+        self.assertIn("snapshot_trust_key_not_pinned", str(ctx.exception))
+
+    def test_missing_trust_store_refuses_rather_than_self_trusting(self) -> None:
+        signed = self._sign()
+        with self.assertRaises(SnapshotError) as ctx:
+            verify_snapshot_signature(
+                manifest_path=signed.manifest_path,
+                signature_path=signed.signature_path,
+                public_key_path=signed.public_key_path,
+                trust_store=self.tmp / "trust" / "does-not-exist",
+            )
+        self.assertIn("snapshot_trust_store_missing", str(ctx.exception))
 
 
 class SnapshotAnchorTests(unittest.TestCase):

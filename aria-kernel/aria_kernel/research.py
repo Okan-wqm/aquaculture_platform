@@ -151,13 +151,74 @@ def _normalize_domains(domains: list[str]) -> list[str]:
     return sorted(set(normalized))
 
 
+def _assert_public_http_target(url: str) -> str:
+    """ARIA-AUDIT-023: resolve the host and refuse non-public targets.
+
+    Blocks loopback, private, link-local, reserved and unspecified
+    address classes AFTER DNS resolution (so hostname-based rebinding to
+    an internal address is caught), and only allows http(s) schemes.
+    Returns the resolved host for diagnostics.
+    """
+    import ipaddress
+    import socket
+
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise GovernanceError(f"research fetch scheme not allowed: {parsed.scheme}")
+    host = (parsed.hostname or "").lower()
+    if not host:
+        raise GovernanceError("research fetch URL has no host")
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror as exc:
+        raise GovernanceError(f"research fetch host unresolvable: {host}") from exc
+    for info in infos:
+        address = info[4][0]
+        try:
+            ip = ipaddress.ip_address(address)
+        except ValueError:
+            continue
+        if (
+            ip.is_private or ip.is_loopback or ip.is_link_local
+            or ip.is_reserved or ip.is_unspecified or ip.is_multicast
+        ):
+            raise GovernanceError(
+                f"research fetch target is not a public address: {host} -> {address}"
+            )
+    return host
+
+
 def _fetch_url(url: str) -> tuple[bytes, str]:
-    request = urllib.request.Request(url, headers={"User-Agent": "ARIA-research-fetch/1"})
-    with urllib.request.urlopen(request, timeout=20) as response:
+    # SSRF posture (ARIA-AUDIT-023): every HOP — the initial URL and each
+    # redirect — passes the same public-target assertion, so a redirect to
+    # an internal address cannot ride an allowed first hop. urllib follows
+    # redirects internally, which would skip per-hop checks; the custom
+    # opener disables auto-redirect and the loop below re-validates each
+    # Location before following it (bounded).
+    import urllib.error as _urlerror
+
+    class _NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
+            return None
+
+    opener = urllib.request.build_opener(_NoRedirect)
+    current = url
+    for _hop in range(5):
+        _assert_public_http_target(current)
+        request = urllib.request.Request(current, headers={"User-Agent": "ARIA-research-fetch/1"})
+        try:
+            response = opener.open(request, timeout=20)
+        except _urlerror.HTTPError as exc:
+            location = exc.headers.get("Location") if exc.headers else None
+            if location and 300 <= exc.code < 400:
+                current = urllib.parse.urljoin(current, location)
+                continue
+            raise
         content_type = response.headers.get("content-type", "application/octet-stream")
         if not _allowed_content_type(content_type):
             raise GovernanceError(f"research fetch blocked unsupported content type: {content_type}")
         return response.read(MAX_FETCH_BYTES + 1)[:MAX_FETCH_BYTES], content_type
+    raise GovernanceError("research fetch exceeded redirect budget")
 
 
 def _allowed_content_type(content_type: str) -> bool:

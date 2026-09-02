@@ -23,6 +23,16 @@ class EnterpriseCliSurfaceTests(unittest.TestCase):
         self.tools = Path(self.tmp.name) / "aria-tools"
         set_profile("standard", operator_approval_ref="test-cli-enterprise", base_dir=self.tools)
         (self.tools / "registry.json").write_text('{"tools": []}', encoding="utf-8")
+        # ARIA-AUDIT-015: promotion approval references must resolve to
+        # recorded operator action; seed the governance event the CLI
+        # fixture's gov: ref names.
+        from aria_kernel.tool_registry import append_tools_governance
+
+        append_tools_governance(
+            self.tools,
+            "operator_action",
+            {"event_id": "evt-cli-enterprise-approval", "action": "approve"},
+        )
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -85,7 +95,7 @@ class EnterpriseCliSurfaceTests(unittest.TestCase):
         target_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo_root, text=True).strip()
         bundle = self.tools / "runtime" / "promotion-evidence.json"
         bundle.parent.mkdir(parents=True, exist_ok=True)
-        bundle.write_text(json.dumps({"operator_approval_ref": "op:test", "target_sha": target_sha}), encoding="utf-8")
+        bundle.write_text(json.dumps({"operator_approval_ref": "gov:evt-cli-enterprise-approval", "target_sha": target_sha}), encoding="utf-8")
 
         with redirect_stdout(io.StringIO()) as buf:
             rc = cli_main([
@@ -93,7 +103,7 @@ class EnterpriseCliSurfaceTests(unittest.TestCase):
                 "runtime", "promotion", "approve-v2",
                 "--evidence-bundle", str(bundle),
                 "--workspace-root", str(repo_root),
-                "--operator-approval-ref", "op:test",
+                "--operator-approval-ref", "gov:evt-cli-enterprise-approval",
             ])
         payload = json.loads(buf.getvalue())
         self.assertEqual(rc, 0)
@@ -101,7 +111,7 @@ class EnterpriseCliSurfaceTests(unittest.TestCase):
         self.assertEqual(payload["target_sha"], target_sha)
         self.assertEqual(payload["artifact_verifier_version"], "runtime-artifact-graph-v2")
         rows = load_jsonl(self.tools / "runtime" / "v2-promotions.jsonl")
-        self.assertEqual(rows[-1]["operator_approval_ref"], "op:test")
+        self.assertEqual(rows[-1]["operator_approval_ref"], "gov:evt-cli-enterprise-approval")
 
     def test_autonomy_project_queue_prints_pending_rows(self) -> None:
         with redirect_stdout(io.StringIO()) as buf:

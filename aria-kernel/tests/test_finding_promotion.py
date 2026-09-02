@@ -8,6 +8,7 @@ long-standing confirmed-FP suppression.
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import tempfile
 import unittest
@@ -24,6 +25,13 @@ from aria_kernel.finding_promotion import promote_consensus_findings
 class FindingPromotionTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
+        # ARIA-AUDIT-015: consensus promotion is operator-gated; tests
+        # provision the recorded acknowledgment the gate resolves.
+        self._saved_ack = os.environ.pop("ARIA_CONSENSUS_PROMOTION_ACK", None)
+        os.environ["ARIA_CONSENSUS_PROMOTION_ACK"] = "operator-approved-tests"
+        self.addCleanup(
+            (lambda v: (lambda: os.environ.__setitem__("ARIA_CONSENSUS_PROMOTION_ACK", v) if v else os.environ.pop("ARIA_CONSENSUS_PROMOTION_ACK", None)))(self._saved_ack)
+        )
         self.repo = Path(self.tmp.name) / "repo"
         (self.repo / "apps").mkdir(parents=True)
         (self.repo / "apps" / "target.ts").write_text("export const x = 1;\n")

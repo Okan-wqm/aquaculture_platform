@@ -56,6 +56,30 @@ class GlobEvidenceTrustTests(unittest.TestCase):
         env = self._classify("apps/farm-service/src/*.new.ts")
         self.assertNotEqual(env.trust_grade, "repo_glob_verified")
 
+    def test_uncommitted_match_beyond_the_old_sample_size_is_caught(self) -> None:
+        """The audit reproduction: six matches, the sixth uncommitted.
+
+        The pre-fix verifier graded the whole glob from the first five
+        sorted matches, so an uncommitted file sorting after five
+        committed siblings rode a repo_glob_verified grade. Every match
+        must resolve at the baseline now.
+        """
+        src = self.repo / "apps" / "farm-service" / "src"
+        for i in range(4):  # a, b already committed in setUp -> 6 total
+            (src / f"m{i}.entity.ts").write_text(f"export class M{i} {{}}\n")
+        subprocess.run(["git", "-C", str(self.repo), "add", "-A"], check=True)
+        subprocess.run(
+            ["git", "-C", str(self.repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "more"],
+            check=True,
+        )
+        # The sixth match (sorted last) is UNCOMMITTED.
+        (src / "z-uncommitted.entity.ts").write_text("export class Rogue {}\n")
+
+        env = self._classify("apps/farm-service/src/*.entity.ts")
+
+        self.assertEqual(env.glob_match_count, 7)
+        self.assertNotEqual(env.trust_grade, "repo_glob_verified")
+
     def test_empty_glob_is_distinct_from_missing(self) -> None:
         env = self._classify("apps/does-not-exist/**/*.ts")
         self.assertEqual(env.trust_grade, "empty_glob")

@@ -1315,19 +1315,21 @@ def transition_tool(
     scope is readable, and kernel scope is decided by the runtime glob
     evaluator, not by how the manifest spells its globs.
 
-    What the token is NOT: a value this function verifies. Like the auto-
-    promote token it is a workspace-bound HMAC — but unlike the auto-
-    promote token (whose consume-time MAC verification is wired since
-    ORPHAN-HIGH-787), the panel token's verification lives at its MINT:
-    ``promotion_veto.compute_panel_approval_token`` re-derives the panel
-    approval from the human-required adjudication record before signing,
-    so the kernel-side mint IS the check. Calling the panel token
-    "unforgeable HERE" would describe a consume-time check that does not
-    exist; its load-bearing gates are upstream, at mint.
+    What the token IS, since the forged-token reproduction: a value this
+    function VERIFIES, exactly like the auto-promote token since
+    ORPHAN-HIGH-787. It is a workspace-bound HMAC whose verification
+    originally lived only at its mint — ``promotion_veto.compute_panel_
+    approval_token`` re-derives the panel approval from the human-required
+    adjudication record before signing — but ``transition_tool`` sees
+    caller input, and a truthy-but-forged string passed the literal
+    predicate as authority. ``promotion_veto.verify_panel_approval_token``
+    now re-derives the mint and compares MACs at consume time, so a forged
+    string reads as "no token" and the gates stay upstream (mint) AND
+    downstream (consume).
 
     The literal predicate (I-V6.4-04 source-substring invariant pins):
 
-        if (not operator_approval and not _auto_promote_verified and not panel_approval_token) or not evidence_chains_valid:
+        if (not operator_approval and not _auto_promote_verified and not _panel_promote_verified) or not evidence_chains_valid:
 
     preserves V5's evidence_chains_valid check unchanged; no authority
     can bypass evidence chain integrity — it is still the LAST clause and
@@ -1399,7 +1401,23 @@ def transition_tool(
                     )
                     is not None
                 )
-            if (not operator_approval and not _auto_promote_verified and not panel_approval_token) or not evidence_chains_valid:
+            # Same standard for the panel token, symmetric with the auto
+            # lane: presence is not authority. verify_panel_approval_token
+            # re-derives the mint (kernel scope, panel adjudication, veto
+            # window) and compares MACs in constant time, so a forged
+            # string reads as "no token" instead of as a promotion.
+            # Late import for the same cycle reason as above.
+            _panel_promote_verified = False
+            if panel_approval_token:
+                from .promotion_veto import verify_panel_approval_token
+
+                _panel_promote_verified = (
+                    verify_panel_approval_token(
+                        panel_approval_token, tool_id=tool_id, base_dir=base_dir
+                    )
+                    is not None
+                )
+            if (not operator_approval and not _auto_promote_verified and not _panel_promote_verified) or not evidence_chains_valid:
                 raise GovernanceError(
                     "SHADOW -> ACTIVE requires valid evidence chains and "
                     "(operator_approval OR auto_promote_token OR "

@@ -147,6 +147,32 @@ def main() -> int:
     exit_code, output_text = _invoke_banned_phrase_cli(repo_root, mode=mode)
     violations = _parse_violations(output_text) if exit_code != 0 else []
 
+    # Tool execution and scan result are different typed states. The
+    # banned-phrase CLI exits 0 clean, 1 with violations, 2 on its own
+    # errors (and 127 never runs). A non-zero exit with NO parseable
+    # violations is therefore never a clean scan: it is a scanner that
+    # did not run or did not speak its protocol. Reporting zero
+    # observations for that (the audit reproduction: exit 127 read as
+    # "no banned phrases") turns a dead security gate into a green one.
+    if exit_code != 0 and not violations:
+        sys.stdout.write(json.dumps({
+            "observations": [],
+            "findings": [],
+            "read_paths": [],
+            "evidence_sources": [],
+            "cost_units": 0,
+            "status": "unavailable",
+            "metadata": {
+                "adapter": "banned-phrase-adapter",
+                "phase": "shadow",
+                "mode": mode,
+                "exit_code": exit_code,
+                "violation_count": 0,
+                "reason": "banned-phrase CLI failed without a parseable result",
+            },
+        }))
+        return exit_code or 1
+
     body = {
         "observations": [
             _violation_to_observation(v, cycle_id, idx)

@@ -77,7 +77,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -426,9 +426,23 @@ function main(): void {
   }
   for (const [service, entityPaths] of [...entitiesByService.entries()].sort()) {
     migrationCouplings.push({ service, entity_paths: entityPaths });
+    // ARIA-AUDIT-056: a migration PATH alone is not coverage — any file
+    // named like a migration satisfied the node, whether or not it carries
+    // this entity's schema. The migration file must now CONTENT-BIND: its
+    // text names at least one touched entity's stem (e.g. `farm` from
+    // farm.entity.ts), the coupling a real schema change would exhibit.
+    const entityStems = entityPaths
+      .map((p) => basename(p).replace(/\.entity\.ts$/, '').replace(/\.ts$/, ''))
+      .filter((stem) => stem.length >= 3);
     const hasMigration = input.affected_paths.some((p) => {
       const m = MIGRATION_PATH_RE.exec(p);
-      return m !== null && m[1] === service;
+      if (m === null || m[1] !== service) return false;
+      try {
+        const text = readFileSync(resolve(repoRoot, p), 'utf8');
+        return entityStems.some((stem) => text.includes(stem));
+      } catch {
+        return false;
+      }
     });
     if (!hasMigration) {
       nodes.push({

@@ -174,6 +174,11 @@ class TestV9KnowledgeGraphHashChain(unittest.TestCase):
 
 
 class TestV9AntiPatternGate(unittest.TestCase):
+    def setUp(self) -> None:
+        import os as _os
+
+        _os.environ.setdefault("ARIA_TEST_V9_KG_SIGNATURE", "operator-test-signature")
+
 
     def test_record_anti_pattern_requires_signature(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -192,7 +197,7 @@ class TestV9AntiPatternGate(unittest.TestCase):
                 _kg.record_anti_pattern(
                     p, workspace_root=tmp,
                     reason_class="totally_invented_class",
-                    operator_signature="x" * 32,
+                    operator_signature="ack-env:ARIA_TEST_V9_KG_SIGNATURE",
                 )
 
     def test_record_anti_pattern_requires_pattern_type_match(self):
@@ -202,7 +207,7 @@ class TestV9AntiPatternGate(unittest.TestCase):
                 _kg.record_anti_pattern(
                     p, workspace_root=tmp,
                     reason_class="tool_design",
-                    operator_signature="x" * 32,
+                    operator_signature="ack-env:ARIA_TEST_V9_KG_SIGNATURE",
                 )
 
     def test_record_anti_pattern_canonical_path(self):
@@ -211,7 +216,7 @@ class TestV9AntiPatternGate(unittest.TestCase):
             path = _kg.record_anti_pattern(
                 p, workspace_root=tmp,
                 reason_class="tool_design",
-                operator_signature="x" * 32,
+                operator_signature="ack-env:ARIA_TEST_V9_KG_SIGNATURE",
             )
             self.assertTrue(path.exists())
             self.assertEqual(path.name, "anti-patterns.jsonl")

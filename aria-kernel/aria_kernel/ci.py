@@ -798,8 +798,13 @@ def _gh_pr_snapshot(*, pr_number: int, workspace_root: str | Path) -> dict[str, 
             "branch_protection": branch_protection_block,
             "checks": {"readable": True, "runs": required_runs},
             "workflow_runs": runs,
-            "reviews": {"readable": True, "items": []},
-            "conversations": {"readable": True, "unresolved_count": 0},
+            # ARIA-AUDIT-037: these fields are NOT fetched — fabricating
+            # readable:True with empty items made "no reviews" look like
+            # "reviews fetched and approving". Marked unreadable so
+            # fail-closed consumers treat them as unknown until a real
+            # provider surface supplies them.
+            "reviews": {"readable": False, "items": [], "reason": "not_fetched_by_this_snapshot"},
+            "conversations": {"readable": False, "unresolved_count": 0, "reason": "not_fetched_by_this_snapshot"},
         },
     }
 

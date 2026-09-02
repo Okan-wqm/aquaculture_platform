@@ -501,6 +501,20 @@ def approve_runtime_v2_promotion(
         operator_approval_ref = str(payload.get("operator_approval_ref") or "")
     if not operator_approval_ref.strip():
         raise GovernanceError("runtime_v2_promotion_requires_operator_approval_ref")
+    # ARIA-AUDIT-015: a non-empty string is a claim, not authority. The
+    # reference must resolve against recorded operator action — a
+    # governance event, a review anchor, or an operator-injected
+    # acknowledgment variable — or the promotion refuses.
+    from .operator_approval import OperatorApprovalUnrecorded, verify_operator_approval_ref
+
+    try:
+        verify_operator_approval_ref(
+            operator_approval_ref, base_dir=root, surface="runtime_v2_promotion",
+        )
+    except OperatorApprovalUnrecorded as exc:
+        raise GovernanceError(
+            f"runtime_v2_promotion_operator_approval_unrecorded: {exc}"
+        ) from exc
     bound_workspace = Path(workspace_root).resolve() if workspace_root is not None else _bound_workspace_root(root)
     if bound_workspace is None:
         raise GovernanceError("runtime_v2_promotion_requires_workspace_root")

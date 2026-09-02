@@ -52,6 +52,8 @@ mock fakes covering all V5.2 verdict paths.
 
 from __future__ import annotations
 
+import hashlib
+import re
 import time
 from pathlib import Path
 from typing import Any, Literal, Protocol, TypedDict
@@ -63,6 +65,22 @@ from .agent_invocations import (
 )
 from .agent_surface import TERMINAL_REQUEST_STATES
 from .tool_registry import ensure_tools_dir
+
+# The judge's sealed response must carry an explicit machine-readable
+# verdict line. Transport acceptance of a submission says the judge RAN —
+# never what it concluded; before this contract existed, any accepted
+# row manufactured a `no_gaps` and auto-merge read a review that never
+# happened (audit ARIA-AUDIT-079). Fail-closed by construction: no line,
+# unreadable payload, or hash drift all grade gaps_open.
+_JUDGE_VERDICT_RE = re.compile(
+    r"^\s*VERDICT:\s*(no_gaps|gaps_open)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _judge_verdict_from_payload(payload: str) -> str | None:
+    match = _JUDGE_VERDICT_RE.search(payload)
+    return match.group(1).lower() if match else None
 
 
 # Plan ARIA-V5 §3d v2 — judge agent identifiers (mint envelopes for
@@ -354,10 +372,68 @@ def run_review_runner(
                 }],
             )
 
-        # An accepted, role-bound result exists. ``no_gaps`` is now derived
-        # from evidence a judge actually produced, and the result's
-        # output/transcript hashes are carried so the verdict is
-        # attributable to that submission.
+        # An accepted, role-bound result exists — but transport acceptance
+        # is delivery, not a conclusion. The verdict comes from the judge's
+        # SEALED payload: re-read it, re-verify its content hash against
+        # the accepted row, and require an explicit VERDICT line. Anything
+        # else — missing artifact, hash drift, unparseable text, or a
+        # verdict that is not no_gaps — blocks auto-merge as gaps_open.
+        root = ensure_tools_dir(base_dir)
+        judge_verdict: str | None = None
+        verdict_gap_id = "adversarial_judge_verdict_missing"
+        verdict_gap_detail = (
+            f"accepted result {adversarial_request_id} carries no parseable "
+            "VERDICT line; transport acceptance is not a semantic verdict"
+        )
+        output_ref = accepted_result.get("output_path")
+        if isinstance(output_ref, str) and output_ref:
+            payload_path = root / output_ref
+            try:
+                payload_bytes = payload_path.read_bytes()
+            except OSError:
+                payload_bytes = None
+                verdict_gap_id = "adversarial_judge_output_unreadable"
+                verdict_gap_detail = (
+                    f"accepted result {adversarial_request_id} output artifact "
+                    f"{output_ref} cannot be read"
+                )
+            else:
+                content_hash = "sha256:" + hashlib.sha256(payload_bytes).hexdigest()
+                if content_hash != str(accepted_result.get("output_hash")):
+                    payload_bytes = None
+                    verdict_gap_id = "adversarial_judge_output_hash_drift"
+                    verdict_gap_detail = (
+                        f"accepted result {adversarial_request_id} output artifact "
+                        f"{output_ref} does not hash to the row's output_hash"
+                    )
+                else:
+                    judge_verdict = _judge_verdict_from_payload(
+                        payload_bytes.decode("utf-8", errors="replace")
+                    )
+                    if judge_verdict is not None and judge_verdict != "no_gaps":
+                        verdict_gap_id = "adversarial_judge_gaps_open"
+                        verdict_gap_detail = (
+                            f"adversarial judge verdict for {adversarial_request_id} "
+                            f"is {judge_verdict}"
+                        )
+        if judge_verdict != "no_gaps":
+            return _empty_review_result(
+                plan_id=plan_id,
+                convergence_id=convergence_id,
+                impl_artifacts_ref=impl_artifacts_ref,
+                verdict="gaps_open",
+                rounds_count=round_n,
+                request_ids=request_ids,
+                gaps_found=[{
+                    "id": verdict_gap_id,
+                    "severity": "HIGH",
+                    "evidence_ref": f"cycle:{cycle_id}",
+                    "description": verdict_gap_detail,
+                }],
+            )
+        # Explicit no_gaps from a hash-verified sealed payload: attributable
+        # to the judge's own submission, not to the transport that delivered
+        # it.
         return _empty_review_result(
             plan_id=plan_id,
             convergence_id=convergence_id,

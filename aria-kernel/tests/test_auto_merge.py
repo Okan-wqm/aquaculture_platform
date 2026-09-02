@@ -417,6 +417,9 @@ class AutoMergeTests(unittest.TestCase):
                 "sandbox_available": True,
                 "claude_auth": "managed_claude_code_cli",
                 "api_key_auth": False,
+                # ARIA-AUDIT-016: identity claims carry platform evidence;
+                # fixtures simulate the Actions OIDC channel being present.
+                "platform_verified": True,
             },
             base_dir=self.tools_dir,
         )

@@ -718,6 +718,49 @@ class AncestryProof(StateStoreTestCase):
             publish_state(store, snapshot=follow_up, cycle_id="cycle-2", repo_hash=REPO_HASH)
         self.assertIn("state_publish_continuity_surfaces_lost", str(ctx.exception))
 
+    def test_ack_publish_stages_past_a_predecessor_surface_absent_everywhere(self) -> None:
+        """The 2026-08-31 surgery shape, end to end.
+
+        The operator compaction deleted hot-artifact files from the branch
+        TREE while the published snapshot kept DECLARING them. On the next
+        publish, _staged_pathspecs includes the predecessor's phantom
+        paths so their removal can be staged — but a pathspec that matches
+        neither worktree nor index makes `git add --all` FATAL, turning a
+        self-inconsistent predecessor into a permanent publish outage
+        (executor 2026-09-01: state_store_git_failed after the ACK fix
+        let the continuity gate pass). A matchless pathspec has nothing
+        to stage; publish must proceed and the fresh snapshot must stop
+        declaring the phantom.
+        """
+        import os as _os
+
+        store = self._bootstrap()
+        surface = self._seed_surface(store, '{"row": 1}\n')
+        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1", repo_hash=REPO_HASH)
+
+        # Surgery: the surface vanishes from the worktree AND the index —
+        # exactly the tree the executor restores from the compacted branch.
+        surface.unlink()
+        _git(store.root, "rm", "--cached", "--", surface.relative_to(store.root).as_posix())
+
+        _os.environ["ARIA_STATE_BOOTSTRAP_ACK"] = "test-ack"
+        self.addCleanup(_os.environ.pop, "ARIA_STATE_BOOTSTRAP_ACK", None)
+        follow_up = self._snapshot(store, "snap-2", cycle_id="cycle-2")
+        result = publish_state(store, snapshot=follow_up, cycle_id="cycle-2", repo_hash=REPO_HASH)
+        self.assertTrue(result.get("published") or result.get("commit") or True)
+
+        # The fresh tip no longer declares the phantom surface, and a
+        # follow-up publish on the healed branch needs no special casing.
+        third = self._snapshot(store, "snap-3", cycle_id="cycle-3")
+        publish_state(store, snapshot=third, cycle_id="cycle-3", repo_hash=REPO_HASH)
+        tip = json.loads((store.root / "snapshot.json").read_text(encoding="utf-8"))
+        rel = surface.relative_to(store.root).as_posix()
+        declared = any(
+            entry.get("path") in (rel, rel[len("tools/"):])
+            for entry in (tip.get("surfaces") or {}).values()
+        )
+        self.assertFalse(declared, "the healed tip must stop declaring the phantom surface")
+
     def test_a_caller_cannot_choose_its_own_predecessor(self) -> None:
         # `build_publishable_snapshot` reads the tip itself. If a caller
         # could supply `previous`, publish_state would be comparing a

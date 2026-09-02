@@ -62,6 +62,11 @@ interface V10WireEvent {
   payload?: Record<string, unknown>;
 }
 
+/** Test-only event extension for payload-bearing domain events. */
+interface TestEvent extends IEvent {
+  payload?: Record<string, unknown>;
+}
+
 /**
  * Sensor reading event payload as published by sensor-service (v10).
  * This is the most frequent event type in the platform; if it breaks,
@@ -80,8 +85,8 @@ interface SensorReadingPayload {
 /**
  * Captured events from a mock event handler.
  */
-interface CapturedEventHandler extends IEventHandler<IEvent> {
-  receivedEvents: IEvent[];
+interface CapturedEventHandler extends IEventHandler<TestEvent> {
+  receivedEvents: TestEvent[];
   handleErrors: Error[];
 }
 
@@ -113,9 +118,7 @@ const FIXED_ISO_TIMESTAMP = '2026-03-27T14:30:00.123Z';
  * The SERVICE_NAME config drives the durable consumer name generation
  * (ARCH-020), so we explicitly set it to match event-store-service.
  */
-function createMockConfigService(
-  overrides: Record<string, string> = {},
-): ConfigService {
+function createMockConfigService(overrides: Record<string, string> = {}): ConfigService {
   const config: Record<string, string> = {
     NODE_ENV: 'test',
     NATS_URL: 'nats://localhost:4222',
@@ -134,8 +137,7 @@ function createMockConfigService(
     ),
     getOrThrow: jest.fn(<T = string>(key: string): T => {
       const val = config[key];
-      if (val === undefined)
-        throw new Error(`Config key "${key}" not found`);
+      if (val === undefined) throw new Error(`Config key "${key}" not found`);
       return val as unknown as T;
     }),
   } as unknown as ConfigService;
@@ -157,14 +159,13 @@ function buildV10WireEvent(overrides: Partial<V10WireEvent> = {}): V10WireEvent 
 }
 
 /**
- * Builds a typed IEvent as used in-process (before serialization).
- * timestamp is a Date object here; NatsEventBus.serializeEvent() converts it.
+ * Builds a typed event using the canonical ISO-string timestamp contract.
  */
-function buildDomainEvent(overrides: Partial<IEvent> = {}): IEvent {
+function buildDomainEvent(overrides: Partial<TestEvent> = {}): TestEvent {
   return {
     eventId: crypto.randomUUID(),
     eventType: 'SensorReading',
-    timestamp: new Date(FIXED_ISO_TIMESTAMP),
+    timestamp: FIXED_ISO_TIMESTAMP,
     tenantId: TENANT_ID,
     ...overrides,
   };
@@ -174,9 +175,7 @@ function buildDomainEvent(overrides: Partial<IEvent> = {}): IEvent {
  * Builds a sensor reading event with realistic payload, representing
  * the most common event flowing through the system.
  */
-function buildSensorReadingEvent(
-  overrides: Partial<SensorReadingPayload> = {},
-): IEvent {
+function buildSensorReadingEvent(overrides: Partial<SensorReadingPayload> = {}): IEvent {
   const payload: SensorReadingPayload = {
     sensorId: SENSOR_ID,
     channelId: CHANNEL_ID,
@@ -194,9 +193,8 @@ function buildSensorReadingEvent(
       correlationId: CORRELATION_ID,
       tenantId: TENANT_ID,
     },
-    // Store payload fields in the event for wire transmission
-    ...({ payload } as Record<string, unknown>),
-  } as Partial<IEvent>);
+    payload: { ...payload },
+  });
 }
 
 /**
@@ -207,12 +205,12 @@ function createCapturingHandler(
   eventType: string,
   shouldThrow: boolean = false,
 ): CapturedEventHandler {
-  const receivedEvents: IEvent[] = [];
+  const receivedEvents: TestEvent[] = [];
   const handleErrors: Error[] = [];
   return {
     receivedEvents,
     handleErrors,
-    async handle(event: IEvent): Promise<void> {
+    async handle(event: TestEvent): Promise<void> {
       if (shouldThrow) {
         const error = new Error(`Simulated handler failure for ${event.eventType}`);
         handleErrors.push(error);
@@ -234,6 +232,26 @@ function encodeWireEvent(event: V10WireEvent): Uint8Array {
   return new TextEncoder().encode(JSON.stringify(event));
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function requireRecord(value: unknown, label: string): Record<string, unknown> {
+  if (!isRecord(value)) {
+    throw new Error(`${label} must be an object`);
+  }
+  return value;
+}
+
+function isTestEvent(value: unknown): value is TestEvent {
+  return (
+    isRecord(value) &&
+    typeof value['eventId'] === 'string' &&
+    typeof value['eventType'] === 'string' &&
+    typeof value['timestamp'] === 'string'
+  );
+}
+
 // ============================================================================
 // NatsEventBus Internals Access
 //
@@ -252,35 +270,26 @@ function encodeWireEvent(event: V10WireEvent): Uint8Array {
  * Must stay in sync with the production implementation.
  */
 function replicateSerializeEvent(event: IEvent): string {
-  return JSON.stringify({
-    ...event,
-    timestamp:
-      event.timestamp instanceof Date
-        ? event.timestamp.toISOString()
-        : event.timestamp,
-  });
+  return JSON.stringify(event);
 }
 
 /**
  * Replicates NatsEventBus.deserializeEvent() for assertion purposes.
  * Must stay in sync with the production implementation.
  */
-function replicateDeserializeEvent(data: string): IEvent {
-  const parsed = JSON.parse(data);
-  return {
-    ...parsed,
-    timestamp: new Date(parsed.timestamp),
-  };
+function replicateDeserializeEvent(data: string): TestEvent {
+  const parsed: unknown = JSON.parse(data);
+  if (!isTestEvent(parsed)) {
+    throw new Error('Decoded NATS event payload is missing base event fields');
+  }
+  return parsed;
 }
 
 /**
  * Replicates NatsEventBus.generateConsumerName() for consumer identity tests.
  * Format: {clientId}-{subject with dots/wildcards replaced by dashes}
  */
-function replicateConsumerName(
-  clientId: string,
-  subject: string,
-): string {
+function replicateConsumerName(clientId: string, subject: string): string {
   return `${clientId}-${subject.replace(/[.>*]/g, '-')}`;
 }
 
@@ -348,9 +357,8 @@ describe('NATS Cross-Version Compatibility', () => {
       expect(deserialized.version).toBe(3);
       expect(typeof deserialized.version).toBe('number');
 
-      // Timestamp must be converted back to Date from ISO string
-      expect(deserialized.timestamp).toBeInstanceOf(Date);
-      expect(deserialized.timestamp.toISOString()).toBe(FIXED_ISO_TIMESTAMP);
+      // Timestamp remains the canonical ISO string across the wire boundary.
+      expect(deserialized.timestamp).toBe(FIXED_ISO_TIMESTAMP);
 
       // Metadata must be a plain object with all nested fields intact
       expect(deserialized.metadata).toBeDefined();
@@ -361,13 +369,13 @@ describe('NATS Cross-Version Compatibility', () => {
     /**
      * Validates that field types are preserved through the serialize -> wire ->
      * deserialize round-trip. Specifically targets the types that are most likely
-     * to break: Date (toISOString/new Date), number (JSON numeric), and nested objects.
+     * to break: ISO timestamp strings, numbers, and nested objects.
      */
     it('should preserve field types through serialize-deserialize round-trip', () => {
       const event = buildDomainEvent({
         eventId: '33333333-3333-3333-3333-333333333333',
         eventType: 'FarmCreated',
-        timestamp: new Date('2026-01-15T08:00:00.000Z'),
+        timestamp: '2026-01-15T08:00:00.000Z',
         tenantId: TENANT_ID,
         version: 1,
         metadata: {
@@ -385,11 +393,8 @@ describe('NATS Cross-Version Compatibility', () => {
       expect(typeof deserialized.eventType).toBe('string');
       expect(typeof deserialized.tenantId).toBe('string');
 
-      // Date field -- the critical conversion point
-      expect(deserialized.timestamp).toBeInstanceOf(Date);
-      expect(deserialized.timestamp.getTime()).toBe(
-        new Date('2026-01-15T08:00:00.000Z').getTime(),
-      );
+      // ISO timestamp string -- no runtime Date/type mismatch.
+      expect(deserialized.timestamp).toBe('2026-01-15T08:00:00.000Z');
 
       // Numeric field
       expect(typeof deserialized.version).toBe('number');
@@ -414,14 +419,12 @@ describe('NATS Cross-Version Compatibility', () => {
         tenantId: TENANT_ID,
       };
 
-      const deserialized = replicateDeserializeEvent(
-        JSON.stringify(minimalWireEvent),
-      );
+      const deserialized = replicateDeserializeEvent(JSON.stringify(minimalWireEvent));
 
       expect(deserialized.eventId).toBe(minimalWireEvent.eventId);
       expect(deserialized.eventType).toBe('Heartbeat');
       expect(deserialized.tenantId).toBe(TENANT_ID);
-      expect(deserialized.timestamp).toBeInstanceOf(Date);
+      expect(deserialized.timestamp).toBe(FIXED_ISO_TIMESTAMP);
 
       // Optional fields should not be present (undefined, not null)
       expect(deserialized.correlationId).toBeUndefined();
@@ -460,29 +463,27 @@ describe('NATS Cross-Version Compatibility', () => {
         },
       });
 
-      const deserialized = replicateDeserializeEvent(
-        JSON.stringify(wireEvent),
-      );
+      const deserialized = replicateDeserializeEvent(JSON.stringify(wireEvent));
 
       // Verify deep nesting survived
-      const payload = (deserialized as Record<string, unknown>).payload as Record<
-        string,
-        unknown
-      >;
+      const payload = requireRecord(deserialized.payload, 'payload');
       expect(payload).toBeDefined();
 
-      const alarm = payload.alarm as Record<string, unknown>;
+      const alarm = requireRecord(payload['alarm'], 'payload.alarm');
       expect(alarm.severity).toBe('critical');
       expect(alarm.code).toBe('DO_LOW');
 
-      const threshold = alarm.threshold as Record<string, number>;
+      const threshold = requireRecord(alarm['threshold'], 'payload.alarm.threshold');
       expect(threshold.min).toBe(4.0);
       expect(threshold.max).toBe(14.0);
       expect(threshold.current).toBe(3.2);
       expect(typeof threshold.current).toBe('number');
 
-      const coordinates = (alarm.location as Record<string, unknown>)
-        .coordinates as Record<string, number>;
+      const location = requireRecord(alarm['location'], 'payload.alarm.location');
+      const coordinates = requireRecord(
+        location['coordinates'],
+        'payload.alarm.location.coordinates',
+      );
       expect(coordinates.lat).toBe(37.7749);
       expect(coordinates.lng).toBe(-122.4194);
 
@@ -532,12 +533,12 @@ describe('NATS Cross-Version Compatibility', () => {
         },
       });
       // Attach payload as the sensor-service does
-      const eventWithPayload = {
+      const eventWithPayload = buildDomainEvent({
         ...publishedEvent,
-        payload: sensorPayload,
-      };
+        payload: { ...sensorPayload },
+      });
 
-      const serialized = replicateSerializeEvent(eventWithPayload as IEvent);
+      const serialized = replicateSerializeEvent(eventWithPayload);
 
       // v11 consumer deserializes
       const consumed = replicateDeserializeEvent(serialized);
@@ -547,14 +548,10 @@ describe('NATS Cross-Version Compatibility', () => {
       expect(consumed.eventType).toBe('SensorReading');
       expect(consumed.tenantId).toBe(TENANT_ID);
       expect(consumed.correlationId).toBe(CORRELATION_ID);
-      expect(consumed.timestamp).toBeInstanceOf(Date);
-      expect(consumed.timestamp.toISOString()).toBe(
-        publishedEvent.timestamp.toISOString(),
-      );
+      expect(consumed.timestamp).toBe(publishedEvent.timestamp);
 
       // Payload must be intact for event-store persistence
-      const consumedPayload = (consumed as Record<string, unknown>)
-        .payload as SensorReadingPayload;
+      const consumedPayload = requireRecord(consumed.payload, 'consumed payload');
       expect(consumedPayload.sensorId).toBe(SENSOR_ID);
       expect(consumedPayload.channelId).toBe(CHANNEL_ID);
       expect(consumedPayload.value).toBe(7.42);
@@ -603,11 +600,10 @@ describe('NATS Cross-Version Compatibility', () => {
       expect(handlerEvent.eventType).toBe(wireEvent.eventType);
       expect(handlerEvent.tenantId).toBe(wireEvent.tenantId);
       expect(handlerEvent.correlationId).toBe(wireEvent.correlationId);
-      expect(handlerEvent.timestamp.toISOString()).toBe(wireEvent.timestamp);
+      expect(handlerEvent.timestamp).toBe(wireEvent.timestamp);
 
       // Verify nested payload
-      const payload = (handlerEvent as Record<string, unknown>)
-        .payload as Record<string, unknown>;
+      const payload = requireRecord(handlerEvent.payload, 'handler payload');
       expect(payload.deviceCode).toBe('edge-01');
       expect(payload.uptimeSeconds).toBe(86400);
       expect(payload.firmwareVersion).toBe('2.1.0');
@@ -646,7 +642,7 @@ describe('NATS Cross-Version Compatibility', () => {
 
       expect(handler.receivedEvents).toHaveLength(1);
       expect(handler.receivedEvents[0]!.eventType).toBe('SensorReading');
-      expect(handler.receivedEvents[0]!.timestamp).toBeInstanceOf(Date);
+      expect(handler.receivedEvents[0]!.timestamp).toBe(FIXED_ISO_TIMESTAMP);
     });
   });
 
@@ -672,9 +668,7 @@ describe('NATS Cross-Version Compatibility', () => {
       const consumerName = replicateConsumerName(clientId, subject);
 
       // Must be deterministic
-      expect(consumerName).toBe(
-        `aquaculture-${SERVICE_NAME}-events-SensorReading`,
-      );
+      expect(consumerName).toBe(`aquaculture-${SERVICE_NAME}-events-SensorReading`);
 
       // Running it again must produce the exact same name
       const secondRun = replicateConsumerName(clientId, subject);
@@ -691,24 +685,15 @@ describe('NATS Cross-Version Compatibility', () => {
 
       // Wildcard subject (> is replaced with -)
       const wildcardName = replicateConsumerName(clientId, 'events.>');
-      expect(wildcardName).toBe(
-        `aquaculture-${SERVICE_NAME}-events--`,
-      );
+      expect(wildcardName).toBe(`aquaculture-${SERVICE_NAME}-events--`);
 
       // Multi-token subject
-      const multiTokenName = replicateConsumerName(
-        clientId,
-        'events.sensor.reading.pH',
-      );
-      expect(multiTokenName).toBe(
-        `aquaculture-${SERVICE_NAME}-events-sensor-reading-pH`,
-      );
+      const multiTokenName = replicateConsumerName(clientId, 'events.sensor.reading.pH');
+      expect(multiTokenName).toBe(`aquaculture-${SERVICE_NAME}-events-sensor-reading-pH`);
 
       // Star wildcard
       const starName = replicateConsumerName(clientId, 'events.*');
-      expect(starName).toBe(
-        `aquaculture-${SERVICE_NAME}-events--`,
-      );
+      expect(starName).toBe(`aquaculture-${SERVICE_NAME}-events--`);
     });
 
     /**
@@ -762,14 +747,12 @@ describe('NATS Cross-Version Compatibility', () => {
     it('should configure consumer for explicit ack with correct deliver policy', () => {
       // Default subscription (no startFrom option) -> DeliverPolicy.New
       const defaultOptions: SubscriptionOptions = {};
-      const defaultDeliverPolicy =
-        defaultOptions.startFrom === 'beginning' ? 'all' : 'new';
+      const defaultDeliverPolicy = defaultOptions.startFrom === 'beginning' ? 'all' : 'new';
       expect(defaultDeliverPolicy).toBe('new');
 
       // Start from beginning -> DeliverPolicy.All
       const replayOptions: SubscriptionOptions = { startFrom: 'beginning' };
-      const replayDeliverPolicy =
-        replayOptions.startFrom === 'beginning' ? 'all' : 'new';
+      const replayDeliverPolicy = replayOptions.startFrom === 'beginning' ? 'all' : 'new';
       expect(replayDeliverPolicy).toBe('all');
 
       // ackWait defaults to 30 seconds (in nanoseconds)
@@ -800,44 +783,36 @@ describe('NATS Cross-Version Compatibility', () => {
     it('should preserve exact ISO timestamp through serialize-deserialize', () => {
       const preciseTimestamp = '2026-03-27T14:30:00.123Z';
       const event = buildDomainEvent({
-        timestamp: new Date(preciseTimestamp),
+        timestamp: preciseTimestamp,
       });
 
       const serialized = replicateSerializeEvent(event);
       const deserialized = replicateDeserializeEvent(serialized);
 
-      expect(deserialized.timestamp.toISOString()).toBe(preciseTimestamp);
+      expect(deserialized.timestamp).toBe(preciseTimestamp);
     });
 
     /**
-     * Validates sub-millisecond timestamp handling. JavaScript Date only has
-     * millisecond precision, so sub-ms values should be truncated consistently
-     * (not rounded up on one version and down on another).
+     * Validates sub-millisecond timestamp handling. The wire contract preserves
+     * the source ISO string without a lossy Date conversion.
      */
     it('should handle sub-millisecond timestamps consistently', () => {
-      // JavaScript Date truncates to millisecond precision
       const subMsTimestamp = '2026-03-27T14:30:00.1234567Z';
-      const expectedMs = '2026-03-27T14:30:00.123Z'; // truncated to 3 decimal places
 
       const wireEvent = buildV10WireEvent({
         timestamp: subMsTimestamp,
       });
 
-      const deserialized = replicateDeserializeEvent(
-        JSON.stringify(wireEvent),
-      );
+      const deserialized = replicateDeserializeEvent(JSON.stringify(wireEvent));
 
-      // Date constructor truncates to ms; toISOString() always gives 3 decimals
-      expect(deserialized.timestamp).toBeInstanceOf(Date);
-      expect(deserialized.timestamp.toISOString()).toBe(expectedMs);
+      expect(deserialized.timestamp).toBe(subMsTimestamp);
     });
 
     /**
-     * Validates that timestamps with explicit timezone offsets are correctly
-     * normalized to UTC. A v10 service in a different timezone container
-     * might publish events with "+03:00" offset.
+     * Validates that timestamps with explicit timezone offsets retain their
+     * exact wire representation and remain parseable by a consumer.
      */
-    it('should normalize timezone offsets to UTC', () => {
+    it('should preserve parseable timezone offsets', () => {
       // Timestamp with explicit +03:00 offset (Istanbul timezone)
       const istanbulTimestamp = '2026-03-27T17:30:00.000+03:00';
       const expectedUtc = '2026-03-27T14:30:00.000Z';
@@ -846,11 +821,10 @@ describe('NATS Cross-Version Compatibility', () => {
         timestamp: istanbulTimestamp,
       });
 
-      const deserialized = replicateDeserializeEvent(
-        JSON.stringify(wireEvent),
-      );
+      const deserialized = replicateDeserializeEvent(JSON.stringify(wireEvent));
 
-      expect(deserialized.timestamp.toISOString()).toBe(expectedUtc);
+      expect(deserialized.timestamp).toBe(istanbulTimestamp);
+      expect(new Date(deserialized.timestamp).toISOString()).toBe(expectedUtc);
     });
 
     /**
@@ -867,13 +841,10 @@ describe('NATS Cross-Version Compatibility', () => {
 
       for (const { input, label } of boundaries) {
         const wireEvent = buildV10WireEvent({ timestamp: input });
-        const deserialized = replicateDeserializeEvent(
-          JSON.stringify(wireEvent),
-        );
+        const deserialized = replicateDeserializeEvent(JSON.stringify(wireEvent));
 
-        expect(deserialized.timestamp.toISOString()).toBe(input);
-        // Verify the Date object is valid (not NaN)
-        expect(Number.isNaN(deserialized.timestamp.getTime())).toBe(false);
+        expect(deserialized.timestamp).toBe(input);
+        expect(Number.isNaN(Date.parse(deserialized.timestamp))).toBe(false);
       }
     });
 
@@ -884,7 +855,7 @@ describe('NATS Cross-Version Compatibility', () => {
      */
     it('should always serialize timestamp as ISO string, never epoch number', () => {
       const event = buildDomainEvent({
-        timestamp: new Date('2026-06-15T12:00:00.000Z'),
+        timestamp: '2026-06-15T12:00:00.000Z',
       });
 
       const serialized = replicateSerializeEvent(event);
@@ -926,14 +897,9 @@ describe('NATS Cross-Version Compatibility', () => {
 
       const wireEvents: V10WireEvent[] = services.map((service, index) =>
         buildV10WireEvent({
-          eventId: `${index + 1}0000000-0000-0000-0000-000000000000`.substring(
-            0,
-            36,
-          ),
+          eventId: `${index + 1}0000000-0000-0000-0000-000000000000`.substring(0, 36),
           eventType: `${service.replace('-service', '').charAt(0).toUpperCase()}${service.replace('-service', '').slice(1)}Event`,
-          timestamp: new Date(
-            Date.parse(FIXED_ISO_TIMESTAMP) + index * 100,
-          ).toISOString(),
+          timestamp: new Date(Date.parse(FIXED_ISO_TIMESTAMP) + index * 100).toISOString(),
           metadata: { source: service },
         }),
       );
@@ -956,10 +922,10 @@ describe('NATS Cross-Version Compatibility', () => {
       const uniqueTypes = new Set(eventTypes);
       expect(uniqueTypes.size).toBe(10);
 
-      // All timestamps must be valid Date objects
+      // All timestamps remain valid ISO strings.
       for (const event of deserialized) {
-        expect(event.timestamp).toBeInstanceOf(Date);
-        expect(Number.isNaN(event.timestamp.getTime())).toBe(false);
+        expect(typeof event.timestamp).toBe('string');
+        expect(Number.isNaN(Date.parse(event.timestamp))).toBe(false);
       }
     });
 
@@ -978,9 +944,7 @@ describe('NATS Cross-Version Compatibility', () => {
           buildV10WireEvent({
             eventId: crypto.randomUUID(),
             eventType: 'SensorReading',
-            timestamp: new Date(
-              Date.parse(FIXED_ISO_TIMESTAMP) + i,
-            ).toISOString(),
+            timestamp: new Date(Date.parse(FIXED_ISO_TIMESTAMP) + i).toISOString(),
             payload: { sequenceNumber: i, value: Math.random() * 14 },
           }),
         );
@@ -998,9 +962,8 @@ describe('NATS Cross-Version Compatibility', () => {
       // Verify ordering is maintained by checking sequence numbers
       for (let i = 0; i < eventCount; i++) {
         const received = handler.receivedEvents[i]!;
-        const payload = (received as Record<string, unknown>)
-          .payload as Record<string, number>;
-        expect(payload.sequenceNumber).toBe(i);
+        const payload = requireRecord(received.payload, 'ordered event payload');
+        expect(payload['sequenceNumber']).toBe(i);
       }
     });
 
@@ -1028,12 +991,8 @@ describe('NATS Cross-Version Compatibility', () => {
       });
 
       // Deserialize both (simulating concurrent processing)
-      const deserializedSensor = replicateDeserializeEvent(
-        JSON.stringify(sensorEvent),
-      );
-      const deserializedFarm = replicateDeserializeEvent(
-        JSON.stringify(farmEvent),
-      );
+      const deserializedSensor = replicateDeserializeEvent(JSON.stringify(sensorEvent));
+      const deserializedFarm = replicateDeserializeEvent(JSON.stringify(farmEvent));
 
       // Each event must retain its own fields, not contaminated by the other
       expect(deserializedSensor.eventId).toBe(sensorEvent.eventId);
@@ -1045,10 +1004,8 @@ describe('NATS Cross-Version Compatibility', () => {
       expect(deserializedFarm.tenantId).toBe(farmEvent.tenantId);
 
       // Payloads must not leak between events
-      const sensorPayload = (deserializedSensor as Record<string, unknown>)
-        .payload as Record<string, unknown>;
-      const farmPayload = (deserializedFarm as Record<string, unknown>)
-        .payload as Record<string, unknown>;
+      const sensorPayload = requireRecord(deserializedSensor.payload, 'sensor payload');
+      const farmPayload = requireRecord(deserializedFarm.payload, 'farm payload');
 
       expect(sensorPayload.value).toBe(7.42);
       expect(sensorPayload.name).toBeUndefined(); // Must not have farm's name
@@ -1065,14 +1022,13 @@ describe('NATS Cross-Version Compatibility', () => {
   describe('Error Event Handling', () => {
     /**
      * Verifies that a malformed event (missing required eventId) is handled
-     * gracefully by the deserialization layer -- it should parse without
-     * crashing and the handler should be able to detect the missing field.
+     * by the deserialization layer before it can reach a handler.
      *
      * WHY: A buggy v10 service or a network corruption could produce
      * malformed events. The v11 consumer must not crash; it should NAK
      * the message for redelivery or route it to a dead-letter queue.
      */
-    it('should parse event with missing eventId without crashing', () => {
+    it('should reject an event with missing eventId', () => {
       const malformedWire = {
         // eventId intentionally omitted
         eventType: 'SensorReading',
@@ -1080,22 +1036,16 @@ describe('NATS Cross-Version Compatibility', () => {
         tenantId: TENANT_ID,
       };
 
-      // Deserialization should not throw
-      const deserialized = replicateDeserializeEvent(
-        JSON.stringify(malformedWire),
+      expect(() => replicateDeserializeEvent(JSON.stringify(malformedWire))).toThrow(
+        'missing base event fields',
       );
-
-      expect(deserialized.eventType).toBe('SensorReading');
-      expect(deserialized.eventId).toBeUndefined();
-      expect(deserialized.timestamp).toBeInstanceOf(Date);
     });
 
     /**
      * Verifies that a malformed event (missing eventType) is handled
-     * gracefully. eventType is used for handler routing; a missing eventType
-     * means no handler will match, but the consumer should not crash.
+     * before handler routing can observe an undefined subject.
      */
-    it('should parse event with missing eventType without crashing', () => {
+    it('should reject an event with missing eventType', () => {
       const malformedWire = {
         eventId: crypto.randomUUID(),
         // eventType intentionally omitted
@@ -1103,21 +1053,17 @@ describe('NATS Cross-Version Compatibility', () => {
         tenantId: TENANT_ID,
       };
 
-      const deserialized = replicateDeserializeEvent(
-        JSON.stringify(malformedWire),
+      expect(() => replicateDeserializeEvent(JSON.stringify(malformedWire))).toThrow(
+        'missing base event fields',
       );
-
-      expect(deserialized.eventId).toBe(malformedWire.eventId);
-      expect(deserialized.eventType).toBeUndefined();
-      expect(deserialized.timestamp).toBeInstanceOf(Date);
     });
 
     /**
      * Verifies that an event with an invalid timestamp (not a valid ISO string)
-     * produces an Invalid Date rather than crashing. The handler should detect
-     * this and NAK the message.
+     * remains a string at the event-bus boundary. A domain consumer that
+     * requires a date validates it explicitly.
      */
-    it('should produce Invalid Date for non-ISO timestamp instead of crashing', () => {
+    it('should preserve a non-ISO timestamp for domain validation', () => {
       const malformedWire = {
         eventId: crypto.randomUUID(),
         eventType: 'SensorReading',
@@ -1125,13 +1071,10 @@ describe('NATS Cross-Version Compatibility', () => {
         tenantId: TENANT_ID,
       };
 
-      const deserialized = replicateDeserializeEvent(
-        JSON.stringify(malformedWire),
-      );
+      const deserialized = replicateDeserializeEvent(JSON.stringify(malformedWire));
 
-      // Should be a Date object (not crash), but getTime() returns NaN
-      expect(deserialized.timestamp).toBeInstanceOf(Date);
-      expect(Number.isNaN(deserialized.timestamp.getTime())).toBe(true);
+      expect(deserialized.timestamp).toBe('not-a-valid-date');
+      expect(Number.isNaN(Date.parse(deserialized.timestamp))).toBe(true);
     });
 
     /**
@@ -1147,20 +1090,14 @@ describe('NATS Cross-Version Compatibility', () => {
     });
 
     /**
-     * Verifies that an empty JSON object produces an event with all fields
-     * undefined except timestamp (which becomes Invalid Date).
+     * Verifies that an empty JSON object is rejected as a non-event.
      */
-    it('should handle empty JSON object gracefully', () => {
+    it('should reject an empty JSON object', () => {
       const emptyWire = {};
 
-      const deserialized = replicateDeserializeEvent(JSON.stringify(emptyWire));
-
-      expect(deserialized.eventId).toBeUndefined();
-      expect(deserialized.eventType).toBeUndefined();
-      expect(deserialized.tenantId).toBeUndefined();
-      // timestamp: new Date(undefined) -> Invalid Date
-      expect(deserialized.timestamp).toBeInstanceOf(Date);
-      expect(Number.isNaN(deserialized.timestamp.getTime())).toBe(true);
+      expect(() => replicateDeserializeEvent(JSON.stringify(emptyWire))).toThrow(
+        'missing base event fields',
+      );
     });
 
     /**
@@ -1194,9 +1131,7 @@ describe('NATS Cross-Version Compatibility', () => {
 
       // Failing handler should have thrown
       expect(failingHandler.handleErrors).toHaveLength(1);
-      expect(failingHandler.handleErrors[0]!.message).toContain(
-        'Simulated handler failure',
-      );
+      expect(failingHandler.handleErrors[0]!.message).toContain('Simulated handler failure');
 
       // Success handler should have received the event despite the previous failure
       expect(successHandler.receivedEvents).toHaveLength(1);
@@ -1216,20 +1151,17 @@ describe('NATS Cross-Version Compatibility', () => {
       const maxBackoff = 30_000;
 
       const expectations: Array<{ redeliveryCount: number; expectedMs: number }> = [
-        { redeliveryCount: 0, expectedMs: 1000 },    // 1000 * 2^0 = 1000
-        { redeliveryCount: 1, expectedMs: 2000 },    // 1000 * 2^1 = 2000
-        { redeliveryCount: 2, expectedMs: 4000 },    // 1000 * 2^2 = 4000
-        { redeliveryCount: 3, expectedMs: 8000 },    // 1000 * 2^3 = 8000
-        { redeliveryCount: 4, expectedMs: 16000 },   // 1000 * 2^4 = 16000
-        { redeliveryCount: 5, expectedMs: 30000 },   // 1000 * 2^5 = 32000 -> capped at 30000
-        { redeliveryCount: 10, expectedMs: 30000 },  // Way over cap
+        { redeliveryCount: 0, expectedMs: 1000 }, // 1000 * 2^0 = 1000
+        { redeliveryCount: 1, expectedMs: 2000 }, // 1000 * 2^1 = 2000
+        { redeliveryCount: 2, expectedMs: 4000 }, // 1000 * 2^2 = 4000
+        { redeliveryCount: 3, expectedMs: 8000 }, // 1000 * 2^3 = 8000
+        { redeliveryCount: 4, expectedMs: 16000 }, // 1000 * 2^4 = 16000
+        { redeliveryCount: 5, expectedMs: 30000 }, // 1000 * 2^5 = 32000 -> capped at 30000
+        { redeliveryCount: 10, expectedMs: 30000 }, // Way over cap
       ];
 
       for (const { redeliveryCount, expectedMs } of expectations) {
-        const backoffMs = Math.min(
-          1000 * Math.pow(2, redeliveryCount),
-          maxBackoff,
-        );
+        const backoffMs = Math.min(1000 * Math.pow(2, redeliveryCount), maxBackoff);
         expect(backoffMs).toBe(expectedMs);
       }
     });
@@ -1252,13 +1184,11 @@ describe('NATS Cross-Version Compatibility', () => {
         payload: null,
       };
 
-      const deserialized = replicateDeserializeEvent(
-        JSON.stringify(wireEvent),
-      );
+      const deserialized = replicateDeserializeEvent(JSON.stringify(wireEvent));
 
       expect(deserialized.eventId).toBe(wireEvent.eventId);
       expect(deserialized.eventType).toBe('SystemHealthCheck');
-      expect(deserialized.timestamp).toBeInstanceOf(Date);
+      expect(deserialized.timestamp).toBe(FIXED_ISO_TIMESTAMP);
 
       // Null fields should remain null (not converted to undefined)
       expect(deserialized.correlationId).toBeNull();
@@ -1295,8 +1225,7 @@ describe('NATS Cross-Version Compatibility', () => {
       const deserialized = replicateDeserializeEvent(serialized);
 
       // Verify no truncation
-      const payload = (deserialized as Record<string, unknown>)
-        .payload as Record<string, unknown>;
+      const payload = requireRecord(deserialized.payload, 'large event payload');
       const readings = payload.readings as Array<Record<string, unknown>>;
       expect(readings).toHaveLength(5000);
       expect(readings[0]!.idx).toBe(0);
@@ -1399,9 +1328,7 @@ describe('NATS Cross-Version Compatibility', () => {
     it('should throw when publishing before connection', async () => {
       const event = buildDomainEvent({ eventType: 'TestEvent' });
 
-      await expect(eventBus.publish(event)).rejects.toThrow(
-        'NATS JetStream not connected',
-      );
+      await expect(eventBus.publish(event)).rejects.toThrow('NATS JetStream not connected');
     });
 
     /**
@@ -1413,9 +1340,7 @@ describe('NATS Cross-Version Compatibility', () => {
       const handler = createCapturingHandler('SensorReading');
 
       // Should not throw -- subscription is queued for later activation
-      await expect(
-        eventBus.subscribe('SensorReading', handler),
-      ).resolves.toBeUndefined();
+      await expect(eventBus.subscribe('SensorReading', handler)).resolves.toBeUndefined();
     });
   });
 
@@ -1477,43 +1402,42 @@ describe('NATS Cross-Version Compatibility', () => {
     });
 
     /**
-     * Verifies that v11 serialization converts Date objects to ISO 8601 strings
-     * that v10 consumers can parse back to Date. Tests standard, midnight UTC,
-     * and end-of-year boundary timestamps to catch edge cases where v11 Date
-     * handling might differ (e.g., timezone offset changes, precision truncation).
+     * Verifies that v11 serialization preserves canonical ISO 8601 strings
+     * that v10 consumers can parse. Tests standard, midnight UTC, and
+     * end-of-year boundary timestamps.
      */
-    it('should serialize v11 Date to ISO format consumable by v10', () => {
+    it('should serialize v11 ISO timestamps in a v10-consumable format', () => {
       // Standard timestamp with sub-millisecond precision
-      const standardDate = new Date('2026-06-15T09:30:00.456Z');
+      const standardTimestamp = '2026-06-15T09:30:00.456Z';
       const standardEvent = buildDomainEvent({
         eventType: 'SensorReading',
-        timestamp: standardDate,
+        timestamp: standardTimestamp,
       });
       const standardWire = JSON.parse(replicateSerializeEvent(standardEvent)) as V10WireEvent;
       expect(standardWire.timestamp).toBe('2026-06-15T09:30:00.456Z');
 
       // Midnight UTC boundary -- catches off-by-one day bugs
-      const midnightDate = new Date('2026-01-01T00:00:00.000Z');
+      const midnightTimestamp = '2026-01-01T00:00:00.000Z';
       const midnightEvent = buildDomainEvent({
         eventType: 'SensorReading',
-        timestamp: midnightDate,
+        timestamp: midnightTimestamp,
       });
       const midnightWire = JSON.parse(replicateSerializeEvent(midnightEvent)) as V10WireEvent;
       expect(midnightWire.timestamp).toBe('2026-01-01T00:00:00.000Z');
 
       // End-of-year boundary -- catches year rollover issues
-      const eoyDate = new Date('2025-12-31T23:59:59.999Z');
+      const eoyTimestamp = '2025-12-31T23:59:59.999Z';
       const eoyEvent = buildDomainEvent({
         eventType: 'SensorReading',
-        timestamp: eoyDate,
+        timestamp: eoyTimestamp,
       });
       const eoyWire = JSON.parse(replicateSerializeEvent(eoyEvent)) as V10WireEvent;
       expect(eoyWire.timestamp).toBe('2025-12-31T23:59:59.999Z');
 
-      // Verify all three are parseable back to Date by a v10 consumer
-      expect(new Date(standardWire.timestamp).getTime()).toBe(standardDate.getTime());
-      expect(new Date(midnightWire.timestamp).getTime()).toBe(midnightDate.getTime());
-      expect(new Date(eoyWire.timestamp).getTime()).toBe(eoyDate.getTime());
+      // Verify all three are parseable by a v10 consumer.
+      expect(Date.parse(standardWire.timestamp)).toBe(Date.parse(standardTimestamp));
+      expect(Date.parse(midnightWire.timestamp)).toBe(Date.parse(midnightTimestamp));
+      expect(Date.parse(eoyWire.timestamp)).toBe(Date.parse(eoyTimestamp));
     });
 
     /**
@@ -1609,17 +1533,11 @@ describe('NATS Cross-Version Compatibility', () => {
       const handler3 = createCapturingHandler('AlertTriggered');
 
       // Register handlers before any connection -- should not throw
-      await expect(
-        eventBus.subscribe('SensorReading', handler1),
-      ).resolves.toBeUndefined();
+      await expect(eventBus.subscribe('SensorReading', handler1)).resolves.toBeUndefined();
 
-      await expect(
-        eventBus.subscribe('FarmCreated', handler2),
-      ).resolves.toBeUndefined();
+      await expect(eventBus.subscribe('FarmCreated', handler2)).resolves.toBeUndefined();
 
-      await expect(
-        eventBus.subscribe('AlertTriggered', handler3),
-      ).resolves.toBeUndefined();
+      await expect(eventBus.subscribe('AlertTriggered', handler3)).resolves.toBeUndefined();
 
       // Verify the bus is still in disconnected state (no accidental connect)
       expect(eventBus.isConnected()).toBe(false);

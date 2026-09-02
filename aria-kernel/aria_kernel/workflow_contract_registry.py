@@ -302,7 +302,13 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 # append a commit that descends from the tip, which is exactly
                 # what publishing is. actions:read remains for run/job
                 # introspection; it no longer fetches state.
-                required_permissions=(("contents", "write"), ("actions", "read")),
+                # ARIA-AUDIT-016: id-token reaches the Actions OIDC channel
+                # the attestation probe reads as platform evidence.
+                required_permissions=(
+                    ("contents", "write"),
+                    ("actions", "read"),
+                    ("id-token", "write"),
+                ),
                 token_source="github_actions_artifact_token",
                 network_policy=("github_artifact", "github_git"),
                 dlp_artifact="aria-agent-executor-preflight.json",
@@ -410,6 +416,11 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                     ("actions", "read"),
                     ("checks", "read"),
                     ("pull-requests", "read"),
+                    # ARIA-AUDIT-016: runner attestation reads the Actions
+                    # OIDC token channel as platform evidence; the read-only
+                    # id-token grant is how a job reaches it. Without it the
+                    # probe's identity claims carry no platform proof.
+                    ("id-token", "write"),
                 ),
                 token_source="github_actions_artifact_token",
                 network_policy=("github_artifact", "github_git"),

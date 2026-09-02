@@ -2,10 +2,23 @@
 // @ts-check
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
 const repoRoot = resolve(process.cwd());
+const EMPTY_TREE_SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+const BOOTSTRAP_UNOWNED_BASELINE = join(
+  repoRoot,
+  'scripts/ci/type-check-bootstrap-unowned-baseline.txt',
+);
 
 /** @type {{ base: string; head: string }} */
 const options = {
@@ -68,16 +81,19 @@ const changedFiles = run('git', [
 // ships them with incomplete decorator/type contexts (that is what the
 // cases exercise). Type-checking them as project code fails on exactly
 // the shapes the fixtures exist to carry.
-const TYPE_CHECK_EXEMPT = [/^tools\/aria-adapters\/fixtures\/[^/]+\/workspaces\//];
+const TYPE_CHECK_EXEMPT = [
+  /^tools\/aria-adapters\/fixtures\/[^/]+\/workspaces\//,
+  // Migration squashes retain the replaced chain under
+  // migrations/.archive/<timestamp>/ as forensic evidence. Those snapshots
+  // are deliberately absent from runtime registration, build inputs, and
+  // migration validation; compiling them as live source can also resolve
+  // imports against a directory layout that no longer exists.
+  /(?:^|\/)migrations\/\.archive\//,
+];
 
 const changedTypeScriptFiles = changedFiles
   .filter((file) => /\.(?:c|m)?tsx?$/.test(file))
   .filter((file) => !TYPE_CHECK_EXEMPT.some((pattern) => pattern.test(file)));
-
-if (changedTypeScriptFiles.length === 0) {
-  console.log('No changed TypeScript files require project type-check.');
-  process.exit(0);
-}
 
 function isTestFile(file) {
   return (
@@ -88,8 +104,16 @@ function isTestFile(file) {
   );
 }
 
+function isE2eFile(file) {
+  return (
+    /(?:^|\/)test\//.test(file) ||
+    /(?:^|\/)__tests__\/e2e\//.test(file) ||
+    /\.e2e-spec\.tsx?$/.test(file)
+  );
+}
+
 function firstExisting(candidates) {
-  return candidates.find((candidate) => existsSync(join(repoRoot, candidate)));
+  return candidates.find((candidate) => existsSync(join(repoRoot, candidate))) ?? null;
 }
 
 // WHY: tools/ projects nest to varying depths — `tools/gates/` carries its
@@ -161,6 +185,11 @@ function tsconfigFor(file) {
     return nearestTsconfig(file, root);
   }
 
+  if (isE2eFile(file)) {
+    const e2eConfig = firstExisting([`${root}/tsconfig.e2e.json`]);
+    if (e2eConfig) return e2eConfig;
+  }
+
   const testCandidates = [
     `${root}/tsconfig.spec.json`,
     `${root}/tsconfig.test.json`,
@@ -174,6 +203,73 @@ function tsconfigFor(file) {
   ];
 
   return firstExisting(isTestFile(file) ? testCandidates : productionCandidates);
+}
+
+function readBootstrapUnownedBaseline() {
+  if (!existsSync(BOOTSTRAP_UNOWNED_BASELINE)) {
+    console.error(
+      `type-check-changed-files: missing bootstrap ownership baseline: ${BOOTSTRAP_UNOWNED_BASELINE}`,
+    );
+    process.exit(1);
+  }
+
+  const entries = readFileSync(BOOTSTRAP_UNOWNED_BASELINE, 'utf8')
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith('#'));
+  const sorted = [...new Set(entries)].sort();
+  const invalid = entries.filter(
+    (file) =>
+      file.startsWith('/') || file.split('/').includes('..') || !/\.(?:c|m)?tsx?$/u.test(file),
+  );
+  if (
+    invalid.length > 0 ||
+    entries.length !== sorted.length ||
+    entries.some((v, i) => v !== sorted[i])
+  ) {
+    console.error(
+      'type-check-changed-files: bootstrap ownership baseline must be sorted, unique, relative TypeScript paths.',
+    );
+    for (const file of invalid) console.error(`  - ${file}`);
+    process.exit(1);
+  }
+  return sorted;
+}
+
+function trackedTypeScriptFiles() {
+  return run('git', ['ls-files', '--', '*.ts', '*.tsx', '*.mts', '*.cts'])
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((file) => !TYPE_CHECK_EXEMPT.some((pattern) => pattern.test(file)));
+}
+
+const bootstrapUnownedBaseline = readBootstrapUnownedBaseline();
+const trackedUnowned = trackedTypeScriptFiles().filter((file) => tsconfigFor(file) === null);
+const baselineSet = new Set(bootstrapUnownedBaseline);
+const trackedUnownedSet = new Set(trackedUnowned);
+const staleBaseline = bootstrapUnownedBaseline.filter((file) => !trackedUnownedSet.has(file));
+const untrackedDebt = trackedUnowned.filter((file) => !baselineSet.has(file));
+
+if (staleBaseline.length > 0 || untrackedDebt.length > 0) {
+  if (staleBaseline.length > 0) {
+    console.error(
+      'type-check-changed-files: baseline entries are no longer unowned; remove or correct them:',
+    );
+    for (const file of staleBaseline) console.error(`  - ${file}`);
+  }
+  if (untrackedDebt.length > 0) {
+    console.error(
+      'type-check-changed-files: untracked bootstrap ownership debt; add a tsconfig owner:',
+    );
+    for (const file of untrackedDebt) console.error(`  - ${file}`);
+  }
+  process.exit(1);
+}
+
+if (changedTypeScriptFiles.length === 0) {
+  console.log('No changed TypeScript files require project type-check.');
+  process.exit(0);
 }
 
 function declarationFilesFor(tsconfig) {
@@ -221,7 +317,21 @@ for (const file of changedTypeScriptFiles) {
   tsconfigs.set(tsconfig, files);
 }
 
-if (unmapped.length > 0) {
+if (unmapped.length > 0 && options.base === EMPTY_TREE_SHA) {
+  const unexpected = unmapped.filter((file) => !baselineSet.has(file));
+  const missing = bootstrapUnownedBaseline.filter((file) => !unmapped.includes(file));
+  if (unexpected.length > 0 || missing.length > 0) {
+    console.error(
+      'type-check-changed-files: bootstrap ownership baseline does not match the range:',
+    );
+    for (const file of unexpected) console.error(`  + ${file}`);
+    for (const file of missing) console.error(`  - ${file}`);
+    process.exit(1);
+  }
+  console.log(
+    `type-check-changed-files: bootstrap inherited unowned TypeScript: ${unmapped.length} file(s)`,
+  );
+} else if (unmapped.length > 0) {
   console.error('type-check-changed-files: changed TypeScript files have no known tsconfig owner:');
   for (const file of unmapped) console.error(`  - ${file}`);
   process.exit(1);
@@ -235,10 +345,13 @@ for (const [tsconfig, files] of tsconfigs.entries()) {
 
 const tempRoot = join(repoRoot, '.aria-ci');
 mkdirSync(tempRoot, { recursive: true });
+const tempRunRoot = mkdtempSync(join(tempRoot, 'type-check-'));
+const tempConfig = join(tempRunRoot, 'tsconfig.json');
+process.on('exit', () => {
+  rmSync(tempRunRoot, { recursive: true, force: true });
+});
 
 for (const tsconfig of tsconfigs.keys()) {
-  const tempDir = mkdtempSync(join(tempRoot, 'aqua-changed-tsc-'));
-  const tempConfig = join(tempDir, 'tsconfig.json');
   const files = tsconfigs.get(tsconfig) ?? [];
   writeFileSync(
     tempConfig,

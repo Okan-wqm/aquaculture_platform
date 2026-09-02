@@ -24,7 +24,6 @@
     // Day-one baseline reset folded historical 178xxx migration behaviour
     // into 1800000000000-Baseline. These specs import deleted migration
     // classes by design and are kept only as archaeological context.
-    "src/database/migrations/__tests__/**/*.spec.ts",
-    "src/__tests__/e2e/code-sequences-schema-alignment.postgres.spec.ts"
+    "src/database/migrations/__tests__/**/*.spec.ts"
   ]
 }

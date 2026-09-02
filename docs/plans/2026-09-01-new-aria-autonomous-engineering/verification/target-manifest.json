@@ -4,8 +4,8 @@
   "program_instance": "new-aria-autonomous-engineering:D0:2026-09-01",
   "repository_slug": "Okan-wqm/aquaculture_platform",
   "base_ref": "refs/remotes/origin/main",
-  "base_sha": "5cd847add89ed2b94f65f70f3f1141edda34c352",
-  "base_tree": "d6983e151fa3855bbbb3a1dd2424817a71515c45",
+  "base_sha": "a0a7b965dab836736eec5ba2ecc52a5b414fe610",
+  "base_tree": "fa718385ce094492092bdc07e17d87c4943c693c",
   "reviewed_ref": "refs/remotes/origin/docs/new-aria-autonomous-engineering-plan",
   "head_policy": "CHECKOUT_EXACT",
   "scope_policy": "D0_PLAN_ONLY"

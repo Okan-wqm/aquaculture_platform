@@ -28,6 +28,20 @@ import {
   generateTestPassword,
 } from '../../helpers/tenant.fixture';
 
+describe('hasGraphQLError', () => {
+  it('detects any GraphQL error when no message filter is requested', () => {
+    expect(hasGraphQLError({ errors: [{ message: 'assertion required' }] })).toBe(true);
+    expect(hasGraphQLError({ data: { tenantUsers: [] } })).toBe(false);
+  });
+
+  it('preserves message-filtered error checks', () => {
+    const response = { errors: [{ message: 'Access denied' }] };
+
+    expect(hasGraphQLError(response, /denied/i)).toBe(true);
+    expect(hasGraphQLError(response, 'Unauthorized')).toBe(false);
+  });
+});
+
 describe('Data Isolation Chain', () => {
   let superAdminToken: string;
 

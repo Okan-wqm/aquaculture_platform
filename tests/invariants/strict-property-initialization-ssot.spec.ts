@@ -22,10 +22,9 @@ import * as ts from 'typescript';
  * `strictPropertyInitialization` to `true` (inherited from base — no local
  * `false` override), matching every other backend service.
  *
- * SCOPE NOTE: `apps/farm-service/tsconfig.e2e.json` is intentionally EXCLUDED —
- * its e2e suite has pre-existing, strict-init-unrelated TS2349 (supertest
- * default-import) breakage, so the flag stays `false` there with a documented
- * reason until that suite compiles. See docs/reviews/orphan-findings.md.
+ * Farm's e2e tsconfig is included as well: its historical supertest import
+ * mismatch is fixed, so every farm authoring surface now shares the same
+ * strict-init contract.
  */
 
 const REPO_ROOT = process.cwd();
@@ -60,6 +59,7 @@ function effectiveStrictPropertyInit(relPath: string): boolean | undefined {
 // of these, entities/DTOs could again be authored without `!` and drift.
 const STRICT_INIT_CONFIGS = [
   'apps/farm-service/tsconfig.app.json',
+  'apps/farm-service/tsconfig.e2e.json',
   'apps/farm-service/tsconfig.spec.json',
   'apps/farm-service/tsconfig.build.json',
   'apps/messaging-service/tsconfig.app.json',

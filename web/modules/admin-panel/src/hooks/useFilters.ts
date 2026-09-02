@@ -7,7 +7,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
-export interface UseFiltersOptions<T extends Record<string, unknown>> {
+export interface UseFiltersOptions<T extends object> {
   /** Initial filter values */
   initialFilters: T;
   /** Sync with URL search params */
@@ -20,7 +20,7 @@ export interface UseFiltersOptions<T extends Record<string, unknown>> {
   onChange?: (filters: T) => void;
 }
 
-export interface UseFiltersReturn<T extends Record<string, unknown>> {
+export interface UseFiltersReturn<T extends object> {
   /** Current filter values */
   filters: T;
   /** Debounced filter values (for API calls) */
@@ -41,9 +41,7 @@ export interface UseFiltersReturn<T extends Record<string, unknown>> {
   getFilter: <K extends keyof T>(key: K) => T[K];
 }
 
-export function useFilters<T extends Record<string, unknown>>(
-  options: UseFiltersOptions<T>,
-): UseFiltersReturn<T> {
+export function useFilters<T extends object>(options: UseFiltersOptions<T>): UseFiltersReturn<T> {
   const {
     initialFilters,
     syncUrl = false,

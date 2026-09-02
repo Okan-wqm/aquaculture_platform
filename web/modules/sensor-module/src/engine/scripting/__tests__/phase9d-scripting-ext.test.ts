@@ -27,10 +27,7 @@ import type {
   AlarmLevel,
 } from '../types';
 import { SANDBOX_LIMITS } from '../types';
-import {
-  ScriptExecutor,
-  isPropertyPathSafe,
-} from '../ScriptExecutor';
+import { ScriptExecutor, isPropertyPathSafe } from '../ScriptExecutor';
 import type { ScriptExecutorCallbacks } from '../ScriptExecutor';
 import { getWorkerSource } from '../workerScript';
 import { TagValueBus } from '../../tags/TagValueBus';
@@ -99,11 +96,18 @@ beforeEach(() => {
   MockWorker.instances = [];
   MockWorker.nextBehavior = 'success';
   MockWorker.customHandler = null;
-  (globalThis as Record<string, unknown>).Worker =
-    MockWorker as unknown as typeof Worker;
+  Object.defineProperty(globalThis, 'Worker', {
+    configurable: true,
+    writable: true,
+    value: MockWorker,
+  });
 });
 afterEach(() => {
-  (globalThis as Record<string, unknown>).Worker = OriginalWorker;
+  Object.defineProperty(globalThis, 'Worker', {
+    configurable: true,
+    writable: true,
+    value: OriginalWorker,
+  });
 });
 
 /* ================================================================== */
@@ -135,9 +139,7 @@ function createScript(overrides: Partial<ScadaScript> = {}): ScadaScript {
   };
 }
 
-function createExecutor(
-  callbacks?: ScriptExecutorCallbacks,
-): {
+function createExecutor(callbacks?: ScriptExecutorCallbacks): {
   executor: ScriptExecutor;
   tagBus: TagValueBus;
   eventBus: WidgetEventBus;
@@ -248,9 +250,7 @@ describe('$setProperty API routing', () => {
     const result = await executor.execute(createScript());
 
     expect(onSetProperty).not.toHaveBeenCalled();
-    expect(result.logs).toEqual(
-      expect.arrayContaining([expect.stringContaining('BLOCKED')]),
-    );
+    expect(result.logs).toEqual(expect.arrayContaining([expect.stringContaining('BLOCKED')]));
 
     executor.dispose();
   });
@@ -479,14 +479,16 @@ describe('$closeDialog API routing', () => {
 
     MockWorker.nextBehavior = 'custom';
     MockWorker.customHandler = function (this: MockWorker, req: WorkerRequest) {
-      this.onmessage?.({
-        data: {
-          type: 'api-call',
-          scriptId: req.scriptId,
-          apiMethod: '$closeDialog',
-          apiArgs: [],
-        },
-      } as MessageEvent<WorkerResponse>);
+      this.onmessage?.(
+        new MessageEvent<WorkerResponse>('message', {
+          data: {
+            type: 'api-call',
+            scriptId: req.scriptId,
+            apiMethod: '$closeDialog',
+            apiArgs: [],
+          },
+        }),
+      );
       this.onmessage?.({
         data: { type: 'result', scriptId: req.scriptId, returnValue: undefined },
       } as MessageEvent<WorkerResponse>);
@@ -514,14 +516,16 @@ describe('$closeDialog API routing', () => {
 
     MockWorker.nextBehavior = 'custom';
     MockWorker.customHandler = function (this: MockWorker, req: WorkerRequest) {
-      this.onmessage?.({
-        data: {
-          type: 'api-call',
-          scriptId: req.scriptId,
-          apiMethod: '$closeDialog',
-          apiArgs: [],
-        },
-      } as MessageEvent<WorkerResponse>);
+      this.onmessage?.(
+        new MessageEvent<WorkerResponse>('message', {
+          data: {
+            type: 'api-call',
+            scriptId: req.scriptId,
+            apiMethod: '$closeDialog',
+            apiArgs: [],
+          },
+        }),
+      );
       this.onmessage?.({
         data: { type: 'result', scriptId: req.scriptId, returnValue: undefined },
       } as MessageEvent<WorkerResponse>);
@@ -624,9 +628,7 @@ describe('$setAlarm API routing', () => {
     const result = await executor.execute(createScript());
 
     expect(onAlarm).not.toHaveBeenCalled();
-    expect(result.logs).toEqual(
-      expect.arrayContaining([expect.stringContaining('invalid level')]),
-    );
+    expect(result.logs).toEqual(expect.arrayContaining([expect.stringContaining('invalid level')]));
 
     executor.dispose();
   });

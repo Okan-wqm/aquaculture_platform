@@ -149,12 +149,59 @@ def run_fixture_suite(
     # concern, not content).
     summary = dict(base_summary)
     summary["evidence_hash"] = _compute_suite_evidence_hash(base_summary)
+    # 2026-09-02 cycle 33608801135: bir fixture-run satırı 1MB snapshot
+    # satır sınırını aştı ve publish'i öldürdü (fixture-runs.jsonl:line=7).
+    # Satır, cases içine gömülü evidence_validation ayrıntılarını taşır;
+    # kayıt zaten hash-bağlı (output/stderr/evidence hash'leri durur).
+    # Aşarsa: önce evidence_validation'ın ayrıntı hatalarını sök, hâlâ
+    # büyükse cases'i kimlik alanlarına indir — hash'ler ve geçiş/kalma
+    # kararı her durumda korunur, sadece teşhis ayrıntısı kısılır.
+    summary = _slim_fixture_run_row(summary)
     append_declared_jsonl(
         fixture_runs_path(base_dir),
         summary,
         expected_surface="agent_eval_fixture_runs",
     )
     return summary
+
+
+# Satır bütçesi: snapshot tarafındaki 1MB'ın yarısı — Zincir hash'i ve
+# append_fsync ek yüküyle birlikte güvenli marj.
+_FIXTURE_RUN_ROW_BUDGET_BYTES = 512 * 1024
+
+
+def _canonical_len(row: dict[str, Any]) -> int:
+    import json as _json
+
+    return len(_json.dumps(row, default=str, separators=(",", ":")))
+
+
+def _slim_fixture_run_row(summary: dict[str, Any]) -> dict[str, Any]:
+    import copy as _copy
+
+    row = _copy.deepcopy(summary)
+    if _canonical_len(row) <= _FIXTURE_RUN_ROW_BUDGET_BYTES:
+        return row
+    for case in row.get("cases") or []:
+        if isinstance(case, dict) and isinstance(case.get("evidence_validation"), dict):
+            ev = case["evidence_validation"]
+            case["evidence_validation"] = {
+                "valid": ev.get("valid"),
+                "error_count": len(ev.get("errors") or []),
+                "errors_slimmed": True,
+            }
+    if _canonical_len(row) <= _FIXTURE_RUN_ROW_BUDGET_BYTES:
+        return row
+    row["cases"] = [
+        {k: v for k, v in case.items() if k in (
+            "name", "lane", "passed", "status", "duration_ms",
+            "input_hash", "output_hash", "stderr_hash", "exit_code", "timed_out",
+        )}
+        for case in (row.get("cases") or [])
+        if isinstance(case, dict)
+    ]
+    row["cases_slimmed"] = True
+    return row
 
 
 def _compute_suite_evidence_hash(summary: dict[str, Any]) -> str:

@@ -75,6 +75,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
+  id-token: write  # ARIA-AUDIT-016: attestation needs the Actions OIDC channel
   # PLAN Wave 1 PR 2.6b — contents:write is what the cutover costs. The store
   # publishes by pushing `aria/state`; the branch ruleset bounds that on the
   # SERVER (no force-push, no deletion), so the widest thing this token can do

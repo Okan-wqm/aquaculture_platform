@@ -44503,6 +44503,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/development-deploy-policy.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/doc-cardinality.spec.ts",
       "prettier_managed": true
     },

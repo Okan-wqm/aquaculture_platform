@@ -185,6 +185,7 @@ jobs:
           GHCR_ACTOR: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           IMAGE_PREFIX: ${{ inputs.image_prefix }}
+          PRESERVE_DATA_INFRASTRUCTURE: 'true'
           RUN_DB_MIGRATE: ${{ inputs.migration_required }}
           TAG: ${{ inputs.head_sha }}
         with:
@@ -192,7 +193,7 @@ jobs:
           username: ${{ secrets.DROPLET_USER }}
           key: ${{ secrets.DROPLET_SSH_KEY }}
           command_timeout: 75m
-          envs: DEPLOY_IMAGE_DIGESTS_B64,DEPLOY_MODE,DEPLOY_SERVICES,DEPLOY_SHA,FULL_DEPLOY,GHCR_ACTOR,GHCR_TOKEN,IMAGE_PREFIX,RUN_DB_MIGRATE,TAG,DEPLOY_CHECKOUT_DIR
+          envs: DEPLOY_IMAGE_DIGESTS_B64,DEPLOY_MODE,DEPLOY_SERVICES,DEPLOY_SHA,FULL_DEPLOY,GHCR_ACTOR,GHCR_TOKEN,IMAGE_PREFIX,PRESERVE_DATA_INFRASTRUCTURE,RUN_DB_MIGRATE,TAG,DEPLOY_CHECKOUT_DIR
           script: |
             set -euo pipefail
             cd /var/aqua-saas

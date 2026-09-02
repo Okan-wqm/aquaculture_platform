@@ -212,8 +212,10 @@ describe('deploy SSOT contract', () => {
   it('reloads and proves the NATS ACL before rolling application identities', () => {
     const deploy = read('scripts/deploy/droplet-up.sh');
     const staging = read('.github/workflows/deploy-staging.yml');
-    const fullBranch = deploy.slice(deploy.indexOf('if [ "$FULL_DEPLOY" = "true" ]'));
-    const selectiveBranch = fullBranch.slice(fullBranch.indexOf('else\n  # ── Selective'));
+    const fullBranch = deploy.slice(deploy.indexOf('if deploy_uses_full_stack_path; then'));
+    const selectiveBranch = fullBranch.slice(
+      fullBranch.indexOf('else\n  # ── Application rollout'),
+    );
 
     expect(deploy).toContain('ensure_nats_acl_loaded()');
     expect(deploy).toContain('sha256sum "${mounted_source}"');

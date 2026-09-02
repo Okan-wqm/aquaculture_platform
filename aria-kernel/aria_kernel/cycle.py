@@ -1857,6 +1857,7 @@ def _phase_fixture_refresh(context: PhaseContext) -> dict[str, Any]:
     heartbeat was superseded, so promotion evidence could only rot.
     """
     from .fixture_runner import refresh_fixture_suite
+    from .ledger import LedgerReadLimitError, LedgerRowTooLargeError
 
     refreshed: list[dict[str, Any]] = []
     skipped_no_fixture_set: list[str] = []
@@ -1874,7 +1875,11 @@ def _phase_fixture_refresh(context: PhaseContext) -> dict[str, Any]:
                 base_dir=context.base_dir,
             )
             refreshed.append({"tool_id": tool_id, "status": result.get("status", "ok")})
-        except GovernanceError as exc:
+        # Plan 032 Faz 032a — a ledger line-budget refusal (read OR write) is
+        # one tool's blocked refresh, not the night's death: run 33608801135
+        # lost the whole cycle to a single oversized fixture-runs row because
+        # only GovernanceError was caught here.
+        except (GovernanceError, LedgerReadLimitError, LedgerRowTooLargeError) as exc:
             refreshed.append({"tool_id": tool_id, "status": "blocked", "reason": str(exc)[:200]})
     # ORPHAN-MEDIUM-783 — a blocked refresh is a first-class health signal,
     # not a detail inside the cycle state dict. ORPHAN-HIGH-779's six nights

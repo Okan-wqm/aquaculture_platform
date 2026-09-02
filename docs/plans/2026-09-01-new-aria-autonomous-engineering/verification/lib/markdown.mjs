@@ -51,8 +51,12 @@ export function operatorRefs(source) {
 }
 
 function cardField(section, name) {
-  const match = section.match(new RegExp(`^- \\*\\*${name}:\\*\\* (.+)\\.$`, 'mu'));
-  return match ? match[1] : undefined;
+  const match = section.match(
+    new RegExp(`^- \\*\\*${name}:\\*\\* ([^\\n]+(?:\\n {2,}[^\\n]+)*)$`, 'mu'),
+  );
+  const value = match?.[1].trim();
+  if (!value?.endsWith('.')) return undefined;
+  return value.slice(0, -1).replace(/\\n\\s+/gu, ' ');
 }
 
 function parseCard(phaseId, section) {

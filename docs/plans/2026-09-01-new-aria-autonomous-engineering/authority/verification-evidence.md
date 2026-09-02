@@ -56,10 +56,20 @@ mint edemez.
 Fresh clone canonical argv:
 
 ```text
-node docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/verify-d0.mjs --repo-root . --mode full
-node docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/test-negative-controls.mjs --repo-root .
+env ARIA_D0_AUTHORITY_ROOT=../operator-input ARIA_D0_TARGET_CONTEXT=../operator-input/target-context.json ARIA_D0_TRUST_ROOT=../operator-input/trust-root.json node docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/verify-d0.mjs --repo-root . --mode full
+env ARIA_D0_AUTHORITY_ROOT=../operator-input ARIA_D0_TARGET_CONTEXT=../operator-input/target-context.json ARIA_D0_TRUST_ROOT=../operator-input/trust-root.json node docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/test-negative-controls.mjs --repo-root .
 node docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/render-projections.mjs --repo-root . --check
 ```
+
+İlk komut repo dışındaki operator mount'ından Ed25519 imzalı target context ve bağımsız trust root
+ister; operator ayrıca exact raw trust-root digest'ini `ARIA_D0_TRUST_ROOT_SHA256` ile out-of-band
+sağlar. İmza, signer principal/capability'sini, canonical
+[`target-manifest.json`](../verification/target-manifest.json) raw digest'ini, kapalı manifest'i ve
+exact base/head/tree/diff/design/format facts'lerini bağlar; manifest tek başına trust anchor
+değildir. Manifest exact `origin/main` base SHA/tree'sini, clone'da bulunan
+`refs/remotes/origin/...` reviewed ref'ini ve exact-checkout head politikasını sabitler. Caller
+argümanları yalnız bu dış otoriteyle birebir eşleşirse kabul edilir; imzalı context bile `base=head`
+boş-range seçimini yetkilendiremez.
 
 Minimum runtime Node `20.11.0`; evidence exact observed `node --version`, executable path ve script
 digest'lerini kaydeder. Verifier input manifest'i frozen audit snapshot, PLAN/cards/program map,
@@ -76,6 +86,48 @@ Negative suite missing/duplicate finding/sprint/role, title/disposition drift, o
 OP mismatch, report/script/document/evidence/event tamper, key order, Unicode/numeric invalid input,
 stale proof, projection drift, forbidden product/legacy path ve false `DONE` mutantlarını in-memory/
 temporary copies üzerinde kırmızı görür. Real authority full command green olmadan evidence üretmez.
+
+### Canonical D0 delivery readback
+
+Operator dört external trust digest'ini exact 64-hex değer olarak
+`ARIA_D0_READBACK_TRUST_ROOT_SHA256`, `ARIA_D0_REVIEW_TRUST_ROOT_SHA256`,
+`ARIA_D0_REVIEWER_AUTHORITY_BUNDLE_SHA256` ve `ARIA_D0_TARGET_TRUST_ROOT_SHA256` ortam
+değişkenlerinde out-of-band sağlar. GitHub credential yalnız `GITHUB_TOKEN` ortam değişkeninden
+okunur; argv'ye secret girmez. Fresh clone'da canonical invocation şudur:
+
+<!-- d0-delivery-readback-command -->
+
+```sh
+node docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/verify-delivery-readback.mjs \
+  --repository-root . \
+  --readback-authority-root ../operator-input/delivery \
+  --readback-context-envelope ../operator-input/delivery/readback.json \
+  --readback-trust-root ../operator-input/delivery/trust-root.json \
+  --readback-trust-root-sha256 "$ARIA_D0_READBACK_TRUST_ROOT_SHA256" \
+  --review-artifact-root ../operator-input/review-artifacts \
+  --review-dossier dossier.json \
+  --review-context-envelope ../operator-input/review-admission/context.json \
+  --review-trust-root ../operator-input/review-admission/trust-root.json \
+  --review-authority-root ../operator-input/review-admission \
+  --review-trust-root-sha256 "$ARIA_D0_REVIEW_TRUST_ROOT_SHA256" \
+  --reviewer-authority-root ../operator-input/reviewers \
+  --reviewer-authority-bundle ../operator-input/reviewers/review-authority.json \
+  --reviewer-authority-bundle-sha256 "$ARIA_D0_REVIEWER_AUTHORITY_BUNDLE_SHA256" \
+  --target-authority-root ../operator-input/target \
+  --target-context-envelope ../operator-input/target/target-context.json \
+  --target-trust-root ../operator-input/target/trust-root.json \
+  --target-trust-root-sha256 "$ARIA_D0_TARGET_TRUST_ROOT_SHA256"
+```
+
+CLI yalnız repository ve external authority/artifact location'ları ile out-of-band digest
+pin'lerini kabul eder. Program/work/successor, PR `#1393`, repository, `main`, base/head,
+final-note, dossier, admission ve readback ID caller expectation'ı değildir; verifier bunları live
+GitHub ve cryptographic admission sonucundan türetir. Signed `observed_at`, live `merged_at + 1000ms`
+veya sonrasında olmalıdır. Current GitHub rules/protection yalnız mevcut enforceable control
+kanıtıdır; tarihsel `bypass_used=false` GitHub-live iddiası değildir, `operator_attested` external
+operator beyanıdır. Merge exact `gh pr merge --merge --match-head-commit` ile yapılır; `--admin`
+yasaktır. Command yalnız D0 readback admission'ını doğrular; executor dispatch, cycle dispatch veya
+bunların sırasını başlatmaz ve yetkilendirmez.
 
 ## Type-specific freshness
 
@@ -113,6 +165,16 @@ P01-P09'un **her** promotion gate'i tam on iki ayrı report/principal, role capa
 conflict-of-interest graph, deterministic oracle result, dissent ve appellate disposition, exact
 reviewed head/deployment/authority digest ve sıfır unresolved load-bearing finding ister. Duplicate
 principal/model/session oy sayılmaz; bir role/report/oracle/dissent/appellate çıkarılırsa gate deny.
+
+D0 bootstrap admission'ında bu kimlikler caller string'leri değildir. Exact on iki role credential'ı
+ile ayrı conflict/oracle Ed25519 credential'ları repository dışındaki, SHA-256 değeri out-of-band
+sabitlenmiş kapalı authority bundle'dan gelir. Her report envelope'ı role, principal, session,
+verdict, evidence byte digest'leri, exact target ve reviewer-authority digest'ini imzalar; admission
+oracle input'unu kabul edilmiş canonical report payload'ları ve signed conflict payload'ından yeniden
+hesaplar. Producer artifact committed `verifier-inputs.jsonl` byte'larının, authority artifact ise
+verified signed target-context byte'larının exact kopyası olmak zorundadır. Producer, target operator,
+admission operator, reviewer, appellate, oracle ve conflict principal/session alias'ları fail-closed
+reddedilir.
 
 S33 öncesinde runtime rol roster'ı henüz yoktur; P01-P04 gates operator-authorized
 `external-adversarial-review-v1` mechanism'iyle aynı bağımsız identity/report sözleşmesini uygular.

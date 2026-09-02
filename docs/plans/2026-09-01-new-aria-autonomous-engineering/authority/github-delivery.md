@@ -57,6 +57,29 @@ persist edilir. Timeout reconciliation exact base/head ref'i paginate eder ve ma
 SHA, mission/effect'in tümü eşleşmeden object adopt etmez. Delete/reopen/force-update/fork swap yeni
 object yaratmak yerine `UNKNOWN`/terminal conflict üretir.
 
+### D0 bootstrap delivery readback
+
+D0 bootstrap yalnız `Okan-wqm/aquaculture_platform`, PR `#1393`, `main`, program
+`new-aria-autonomous-engineering`, work unit `D0` ve successor `S01` için geçerlidir. Bunlar CLI
+girdisi değildir. `readback_id`, GitHub'dan yeniden okunan exact reviewed head'in ilk 16 hex
+karakterinden `d0-readback-${reviewed_head_sha[0:16]}` olarak türetilir. Signed payload'ın
+base/head/merge/resulting-main değerleri live provider facts ile birebir eşleşmelidir.
+
+Verifier gerçek on iki-role dossier admission sonucunu çalıştırır. Delivery operator; verified
+producer, admission operator, target operator, on iki reviewer, oracle veya conflict principal ile
+aynı olamaz. Admission'ın reviewed base/head SHA'ları live PR base/head ile exact eşleşir. PR'da
+exact bir immutable OWNER final-note bulunmalı; raw body ve comment natural
+identity digest'leri hem signed readback'e hem admitted dossier/admission digest'lerine bağlıdır.
+Required check'ler exact trusted App kimliğiyle head üzerinde `SUCCESS` olmalı ve her
+`completed_at`, merge zamanından önce olmalıdır. Effective `main` ruleset'inde bypass actor yoktur;
+classic PR-review protection absent/null olmalı ve admin enforcement açık kalmalıdır. Bunlar yalnız
+mevcut enforceable control'lardır: GitHub API geçmiş merge için bypass kullanılmadığını kanıtlamaz.
+Signed payload'daki `bypass_used=false`, `operator_attested` external delivery-operator beyanıdır.
+Operator exact `gh pr merge --merge --match-head-commit` kullanır; `--admin` yasaktır.
+Readback `observed_at`, GitHub'ın saniye çözünürlüklü `merged_at` değerinden en az 1000 ms sonra
+olur. Canonical argv [verification evidence authority](verification-evidence.md)'dedir. Bu verifier
+yalnız D0→S01 admission gerçeğini okur; executor veya cycle sırası yetkilendirmez.
+
 Check identity; repository, head SHA, stable check name, trusted Publisher App ID, `external_id`
 effect ID ve provider check-run ID'dir. Timeout exact ref + `external_id` ile aynı run'ı bulup update
 eder; same-name başka run adopt edilmez. DB unique constraint ve readback concurrent/response-loss

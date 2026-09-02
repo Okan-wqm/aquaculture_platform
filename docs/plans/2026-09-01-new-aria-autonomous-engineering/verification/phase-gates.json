@@ -19,10 +19,13 @@
   ],
   "required_artifacts": [
     "distinct_principal",
+    "oob_pinned_reviewer_authority",
+    "signed_review_envelope",
     "immutable_report",
     "capability_match",
     "conflict_graph",
     "deterministic_oracle",
+    "signed_conflict_oracle",
     "dissent_disposition",
     "appellate_verdict",
     "exact_reviewed_target",

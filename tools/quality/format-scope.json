@@ -32138,13 +32138,67 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/admit-dossier.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/api-policy.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/audit-oracle.json",
       "prettier_managed": true
     },
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/delivery-github-test-fixture.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/delivery-policy.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/delivery-readback-test-fixture.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/delivery-readback.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/dossier-crypto-test-fixture.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/dossier-review-test-fixture.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/dossier-target-test-fixture.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/dossier-test-fixture.mjs",
       "prettier_managed": true
     },
     {
@@ -32157,6 +32211,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/generated-api-contract.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/github-delivery-provider-test-fixture.mjs",
       "prettier_managed": true
     },
     {
@@ -32180,13 +32240,109 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/lib/delivery-policy-identity.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/lib/delivery-readback-contract.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/lib/dossier-admission-result.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/lib/dossier-admission.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/lib/dossier-schema.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/lib/dossier-target.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/lib/github-delivery-provider.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/lib/github-final-note.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/lib/github-ruleset-policy.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/lib/markdown.mjs",
       "prettier_managed": true
     },
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/lib/projection-format.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/lib/projections.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/lib/review-authority.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/lib/review-evidence.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/lib/review-oracle.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/lib/review-view-transform.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/lib/secure-artifact.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/lib/target-manifest.mjs",
       "prettier_managed": true
     },
     {
@@ -32258,6 +32414,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/lib/verify-signature.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/lib/verify-target.mjs",
       "prettier_managed": true
     },
@@ -32312,7 +32474,43 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/target-manifest.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/test-api-closure-order.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/test-contract-regressions.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/test-delivery-controls.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/test-delivery-readback-races.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/test-delivery-readback.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/test-dossier-admission.mjs",
       "prettier_managed": true
     },
     {
@@ -32324,7 +32522,31 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/test-dossier-key-separation.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/test-dossier-resolution.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/test-event-controls.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/test-github-delivery-provider.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/test-github-final-note.mjs",
       "prettier_managed": true
     },
     {
@@ -32348,6 +32570,18 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/test-readability-dependencies.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/test-review-authority-controls.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/test-review-evidence-controls.mjs",
       "prettier_managed": true
     },
@@ -32360,6 +32594,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/test-target-command.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/test-target-controls.mjs",
       "prettier_managed": true
     },
@@ -32367,6 +32607,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/verify-d0.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/verify-delivery-readback.mjs",
       "prettier_managed": true
     },
     {

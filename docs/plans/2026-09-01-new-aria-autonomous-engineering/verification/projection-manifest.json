@@ -6,15 +6,15 @@
   "input_digests": [
     {
       "path": "FINDING-COVERAGE.md",
-      "sha256": "1c8ecc681a9df385d45c1661dbf34002ea01ee7c987b0df29a18ce4dc34dd9ee"
+      "sha256": "9f70beeb92d5cfaf92c9e224405c521af7fa4c9fc6e76715276d64fc5c87a7a5"
     },
     {
       "path": "progress/events.jsonl",
-      "sha256": "6dff453d8d8b18be53b4b57d24328b00ba20e085fd3b269ed5816f21f1679289"
+      "sha256": "11a44957cec3e6de96de46ddd59b76a2aa0887ea464cb39c844055f50289d6f8"
     },
     {
       "path": "verification/readability-policy.json",
-      "sha256": "b1c705c5b5421506d4a083bac2116aa5eeda34b338e39da1e76cda8deb75d163"
+      "sha256": "b4643263e7a5618aaeb77f8e71924034b4b2f105a9858137856a47da5f014309"
     }
   ],
   "generator_argv": [
@@ -24,47 +24,47 @@
     "."
   ],
   "generator_version": "1.0.0",
-  "generator_digest": "f658c906876a0c141f577fab96399535649a15c8b49c57ac1a2b9416a1271d1c",
+  "generator_digest": "66ce87f5bcbc7b04db2628daa416a07340e9646656f7b1911dd365cfb5f80f1b",
   "output_digests": [
     {
       "path": "finding-projections/INDEX.md",
-      "sha256": "a8dddfa65eca197dd22687a135aac70749959bfc9b788c202a53c4f86dbe15f0"
+      "sha256": "db2bec32e9500939e4e06a341c319af3683c3a506a854ae48c6ab52c01eecbba"
     },
     {
       "path": "PROGRESS.md",
-      "sha256": "69311de986d5373ea7af6becd693d5fad5cc0ab896a4d81d91de01c8644cb45a"
+      "sha256": "c6ac4ad0e96e2f20d7daaa593abf5203b68db1f91363ed0284d5311cb4d2b69e"
     },
     {
       "path": "finding-projections/001-011.md",
-      "sha256": "3ee089c2f4a8d14d32abd3a11fc65f8f8877da1daeb949636b72edd20cbcc240"
+      "sha256": "cb45989ca7c76ff1776dbbc1e98a9bafecbe2c72186de0462c8f7a8eb1860e24"
     },
     {
       "path": "finding-projections/012-022.md",
-      "sha256": "f653e92cc8b4267054c112395ed3759a6ae20ec8e52eb14a6e5718bfda449686"
+      "sha256": "f1b7b151113cf12edda12b61f962fa023d9b4ed0e80578cbec06bf074e6fc13b"
     },
     {
       "path": "finding-projections/023-033.md",
-      "sha256": "c8b180f527a21547f4830e4123ef504ee430e195b218f9da03c58281856b9c4e"
+      "sha256": "3f6e796aed5e7f5e705d666f15fff2a96af255c8437b59312a569a1321be42b0"
     },
     {
       "path": "finding-projections/034-044.md",
-      "sha256": "3cebddd345cbae4e3e9c9b752946da5e832168ec938a00a163db37a4d2cc61eb"
+      "sha256": "9ff257aab523b04077379eb33254d123dfbd9736e9f75a56b37f3c5e7e465f49"
     },
     {
       "path": "finding-projections/045-055.md",
-      "sha256": "a281fbfff6bc337df42b752ac34bc9693397302a4bc5266bdd351be7c4b4fc75"
+      "sha256": "fdfa3f241a2f500f5ccf606570de65376c0ebff3cc18a47afa2406d1772beea5"
     },
     {
       "path": "finding-projections/056-066.md",
-      "sha256": "697cb765ddb857ddb5aabd73eabcf0a4ef6884af9a73beedf33f9ad1b39c7497"
+      "sha256": "8f7ef1a211321ab13d20e04514d89537ca05cc73f46a5cd2f14d4ff9562b410b"
     },
     {
       "path": "finding-projections/067-077.md",
-      "sha256": "8f1abb3084fd040f91e81473e22d5557dc870139106c6c73bed287b4611ac99d"
+      "sha256": "f18cde726df7677224bb67a8a43f6b2d21a2fe2c1d24dcc41acee0f7f13e5e33"
     },
     {
       "path": "finding-projections/078-088.md",
-      "sha256": "e0bd3954bbc4d3e58f253292cbdb59dc405069cbf239dd446711c0b08f138cfa"
+      "sha256": "e3b738602e92d519afa487901fc1ee61a44f6c7c3346579bf1c3842990cabd09"
     }
   ],
   "deterministic_check_argv": [

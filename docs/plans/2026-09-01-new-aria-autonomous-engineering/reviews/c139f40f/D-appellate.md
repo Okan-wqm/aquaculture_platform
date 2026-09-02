@@ -1,14 +1,17 @@
+<!-- markdownlint-disable MD013 MD033 -->
+<!-- Historical review text preserves long evidence tokens and placeholders. -->
+
 # Fresh D0 binding appellate review — exact head `c139f40f6`
 
 ## Verdict
 
 `CHANGES_REQUIRED`
 
-The reviewed bytes are cleanly isolated from legacy and product code, preserve the immutable D0
-history, and remain `VERIFYING`. They are not admission-ready. I accept fourteen deduplicated roots:
-twelve P1 contract/enforcement defects and two P2 review/readability defects. I reject the claim that
-same-repository Publisher/Merge separation is impossible, and I reject a premature `Closes:` finding
-against a commit that explicitly closes no appellate finding.
+The reviewed bytes are cleanly isolated from legacy and product code, preserve the immutable D0 history, and
+remain `VERIFYING`. They are not admission-ready. I accept fourteen deduplicated roots: twelve P1
+contract/enforcement defects and two P2 review/readability defects. I reject the claim that same-repository
+Publisher/Merge separation is impossible, and I reject a premature `Closes:` finding against a commit that
+explicitly closes no appellate finding.
 
 Reviewed target:
 
@@ -26,133 +29,129 @@ Reviewed target:
 - **Evidence:** `verification/verify-d0.mjs:7-22` has no immutable base/head input or HEAD assertion.
   `verification/lib/verify.mjs:63-77,119-131` checks only dirty/untracked paths from `git status`, not
   committed `base..head` paths. `verification/lib/verify-provenance.mjs:22-29,37-42,53-70` excludes
-  `tools/quality/format-scope.json`, the reviewed Git objects/diff, and merely syntax-checks claimed
-  runtime metadata instead of comparing it with `process.version`, `process.execPath`, and bytes.
-- **Failure path:** a clean commit can change a protected legacy/product path while the canonical
-  scope input is empty. A substituted runtime can claim arbitrary provenance. Independently changing
-  runtime metadata to `v99.99.99`, `/forged/node`, and 64 `f` characters returned `errors=[]`.
-- **Narrow fix:** require exact base/head and reviewed-ref metadata, assert checkout HEAD/reachability,
-  derive name/status (including renames) from the committed diff, require a clean tree separately,
-  bind the tree/diff and every allowed out-of-plan input, and verify a pinned/hermetic runtime identity.
-- **Test predicate:** a temporary Git repository with a committed forbidden-path change and clean tree
-  must fail; wrong HEAD/ref/tree/diff/format-scope and forged runtime path/version/digest must each fail.
+  `tools/quality/format-scope.json`, the reviewed Git objects/diff, and merely syntax-checks claimed runtime
+  metadata instead of comparing it with `process.version`, `process.execPath`, and bytes.
+- **Failure path:** a clean commit can change a protected legacy/product path while the canonical scope input
+  is empty. A substituted runtime can claim arbitrary provenance. Independently changing runtime metadata to
+  `v99.99.99`, `/forged/node`, and 64 `f` characters returned `errors=[]`.
+- **Narrow fix:** require exact base/head and reviewed-ref metadata, assert checkout HEAD/reachability, derive
+  name/status (including renames) from the committed diff, require a clean tree separately, bind the tree/diff
+  and every allowed out-of-plan input, and verify a pinned/hermetic runtime identity.
+- **Test predicate:** a temporary Git repository with a committed forbidden-path change and clean tree must
+  fail; wrong HEAD/ref/tree/diff/format-scope and forged runtime path/version/digest must each fail.
 
 ### D-P1-002 — Audit and program mapping are mutable self-consistency with open reference domains
 
 - **Maps to:** `APP-P1-002`; accepts A-HIGH-003, C-P1-002, ROOT-P1-003.
 - **Evidence:** `verification/lib/verify-mapping.mjs:25-50` compares the matrix only with the co-authored
   `frozen-audit.jsonl`, not the pinned `85787e610` Git object. Lines `53-107` do not close all finding,
-  sprint, dependency, acceptance, and OP domains; notably `mapped.get(findingId)?.push(...)` silently
-  drops unknown owner IDs. The source commit/path/blob digest is not machine-bound.
-- **Failure path:** changing the 001 title in both current authorities, adding
-  `ARIA-AUDIT-999` to `owned_finding_ids`, and preserving all other relations returned
-  `verifyMapping errors=[]`. Thus exact 88/72 claims can be coherently forged.
-- **Narrow fix:** pin source commit, path, blob SHA, and report digest; independently parse that Git
-  object; validate exact closed rosters and reject every missing/extra/unknown relation; validate the
-  sprint dependency DAG and exact OP reverse domain.
-- **Test predicate:** coordinated matrix+snapshot+projection drift, unknown finding/sprint/OP/
-  acceptance, extra reverse entry, cycle, and dangling dependency must fail after generic digests are
-  refreshed. Current exact bytes must still reproduce 88 findings and 72 cards/rows.
+  sprint, dependency, acceptance, and OP domains; notably `mapped.get(findingId)?.push(...)` silently drops
+  unknown owner IDs. The source commit/path/blob digest is not machine-bound.
+- **Failure path:** changing the 001 title in both current authorities, adding `ARIA-AUDIT-999` to
+  `owned_finding_ids`, and preserving all other relations returned `verifyMapping errors=[]`. Thus exact 88/72
+  claims can be coherently forged.
+- **Narrow fix:** pin source commit, path, blob SHA, and report digest; independently parse that Git object;
+  validate exact closed rosters and reject every missing/extra/unknown relation; validate the sprint
+  dependency DAG and exact OP reverse domain.
+- **Test predicate:** coordinated matrix+snapshot+projection drift, unknown finding/sprint/OP/ acceptance,
+  extra reverse entry, cycle, and dangling dependency must fail after generic digests are refreshed. Current
+  exact bytes must still reproduce 88 findings and 72 cards/rows.
 
 ### D-P1-003 — Event history accepts rehashed illegal semantics and forbidden numeric lexemes
 
 - **Maps to:** `APP-P1-001`; accepts the event/canonicalization portion of A-HIGH-002.
-- **Evidence:** `verification/lib/verify-history.mjs:130-167` verifies hashes and selected tail fields
-  but has no closed event schema, legal transition table, or previous `to_state` to next `from_state`
-  continuity check. `verification/lib/canonical.mjs:27-33,94-100,120-127` accepts `1.0` and `1e0`,
-  contrary to `authority/verification-evidence.md:20-28`'s lexical float prohibition.
+- **Evidence:** `verification/lib/verify-history.mjs:130-167` verifies hashes and selected tail fields but has
+  no closed event schema, legal transition table, or previous `to_state` to next `from_state` continuity
+  check. `verification/lib/canonical.mjs:27-33,94-100,120-127` accepts `1.0` and `1e0`, contrary to
+  `authority/verification-evidence.md:20-28`'s lexical float prohibition.
 - **Failure path:** event 5 changed to `from_state=READY` and rehashed returned `errors=[]`.
   `parseStrictJson('{"a":1.0}')` and `parseStrictJson('{"a":1e0}')` both accepted `{a:1}`.
-- **Narrow fix:** define a closed versioned event schema, explicit state-transition/continuity table,
-  exact row-count/tail rules by event type, and reject decimal-point/exponent number tokens before
-  `JSON.parse`.
-- **Test predicate:** illegal continuity, unknown/missing/extra fields, illegal admission transition,
-  `1.0`, `1e0`, unsafe integer, duplicate key, and altered evidence relation must fail after rehash.
+- **Narrow fix:** define a closed versioned event schema, explicit state-transition/continuity table, exact
+  row-count/tail rules by event type, and reject decimal-point/exponent number tokens before `JSON.parse`.
+- **Test predicate:** illegal continuity, unknown/missing/extra fields, illegal admission transition, `1.0`,
+  `1e0`, unsafe integer, duplicate key, and altered evidence relation must fail after rehash.
 
 ### D-P1-004 — The twelve-role gate validates labels/counts, not independent review evidence
 
 - **Maps to:** `APP-P1-003`; accepts the review portion of A-HIGH-002/A-HIGH-003 and C-P1-004.
 - **Evidence:** `verification/lib/verify-mapping.mjs:110-150` checks the role labels but accepts any nine
-  `required_artifacts`. `verification/lib/verify-history.mjs:100-128` checks 12 report entries without
-  exact roles, distinct principals/sessions/reports, capability match, target freshness, conflict
-  graph, oracle, dissent, appellate identity, or unresolved-finding state. The manifest contains no
-  principal identities. This cannot enforce `CORRECTIVE-NOTE.md:25-30`.
-- **Failure path:** replacing all required artifacts with `junk-0..8` returned mapping success.
-  Duplicating the `integrity` role in review evidence, then recomputing evidence/event digests,
-  returned history `errors=[]`.
-- **Narrow fix:** add a closed phase-review dossier schema and exact ordered artifact contract; require
-  one immutable report and distinct immutable principal/session for every role, capability match,
-  exact target/authority, conflict/dissent/oracle/appellate disposition, freshness, and zero open
-  load-bearing findings. Verify the dossier, not a list of nouns.
-- **Test predicate:** role/report/principal reuse, producer-as-reviewer, junk/missing artifact, stale or
-  wrong target, missing oracle/dissent/appellate, unresolved finding, and unknown field must deny.
+  `required_artifacts`. `verification/lib/verify-history.mjs:100-128` checks 12 report entries without exact
+  roles, distinct principals/sessions/reports, capability match, target freshness, conflict graph, oracle,
+  dissent, appellate identity, or unresolved-finding state. The manifest contains no principal identities.
+  This cannot enforce `CORRECTIVE-NOTE.md:25-30`.
+- **Failure path:** replacing all required artifacts with `junk-0..8` returned mapping success. Duplicating
+  the `integrity` role in review evidence, then recomputing evidence/event digests, returned history
+  `errors=[]`.
+- **Narrow fix:** add a closed phase-review dossier schema and exact ordered artifact contract; require one
+  immutable report and distinct immutable principal/session for every role, capability match, exact
+  target/authority, conflict/dissent/oracle/appellate disposition, freshness, and zero open load-bearing
+  findings. Verify the dossier, not a list of nouns.
+- **Test predicate:** role/report/principal reuse, producer-as-reviewer, junk/missing artifact, stale or wrong
+  target, missing oracle/dissent/appellate, unresolved finding, and unknown field must deny.
 
 ### D-P1-005 — Issuer principals are outside the enforceable topology boundary
 
 - **Maps to:** `APP-P1-004`; accepts B-P1-001.
-- **Evidence:** `authority/identity-authority-tcb.md:64-79` names three issuers, three medium voters,
-  and an assembler, but the enforceable host/UID/mount/secret/RPC/egress/resource manifest and pairwise
-  collision rule at `:81-102` covers only eight runtime roles. P04 S28, P07 S50, and P08 S58 call the
-  issuers external without binding their workload identity, placement, failure domain, KMS/DB socket,
-  egress, rotation, or recovery epoch.
-- **Failure path:** a deployment can colocate a permit issuer with `merge-authority`, or the assembler
-  with a voter, while the stated eight-role pairwise gate remains green; one boundary compromise can
-  then issue and consume authority.
-- **Narrow fix:** add an operator-owned issuer/voter/assembler topology manifest with immutable
-  workload IDs, pairwise failure-domain/UID separation, exclusive KMS/procedure capabilities,
-  authenticated RPC, egress/resources, rotation, and recovery epoch; make S28/S50/S58 depend on it.
-- **Test predicate:** every issuer/voter/assembler/policy-attestor/publisher/merge-authority collision,
-  shared credential/socket/host boundary, self-issue, and single-role compromise must deny.
+- **Evidence:** `authority/identity-authority-tcb.md:64-79` names three issuers, three medium voters, and an
+  assembler, but the enforceable host/UID/mount/secret/RPC/egress/resource manifest and pairwise collision
+  rule at `:81-102` covers only eight runtime roles. P04 S28, P07 S50, and P08 S58 call the issuers external
+  without binding their workload identity, placement, failure domain, KMS/DB socket, egress, rotation, or
+  recovery epoch.
+- **Failure path:** a deployment can colocate a permit issuer with `merge-authority`, or the assembler with a
+  voter, while the stated eight-role pairwise gate remains green; one boundary compromise can then issue and
+  consume authority.
+- **Narrow fix:** add an operator-owned issuer/voter/assembler topology manifest with immutable workload IDs,
+  pairwise failure-domain/UID separation, exclusive KMS/procedure capabilities, authenticated RPC,
+  egress/resources, rotation, and recovery epoch; make S28/S50/S58 depend on it.
+- **Test predicate:** every issuer/voter/assembler/policy-attestor/publisher/merge-authority collision, shared
+  credential/socket/host boundary, self-issue, and single-role compromise must deny.
 
 ### D-P1-006 — Structural data isolation does not carry the promised repository dimension
 
 - **Maps to:** `APP-P1-008`; accepts B-P1-002.
-- **Evidence:** `authority/data-privacy.md:12-27` declares repository ownership and repository-swap
-  negatives but requires every descendant FK to carry only `tenant_id + workspace_id`.
-  `authority/identity-authority-tcb.md:37-40` defines separate code/base/head identities, yet no DB
-  invariant makes descendants join through that tuple or makes workspace-to-all-repository roles
-  one-to-one.
-- **Failure path:** two missions in one workspace with different base/head/fork identity can swap an
-  effect, artifact, cursor, restore, or CAS reference while satisfying every specified composite FK;
-  application checks become the only boundary.
+- **Evidence:** `authority/data-privacy.md:12-27` declares repository ownership and repository-swap negatives
+  but requires every descendant FK to carry only `tenant_id + workspace_id`.
+  `authority/identity-authority-tcb.md:37-40` defines separate code/base/head identities, yet no DB invariant
+  makes descendants join through that tuple or makes workspace-to-all-repository roles one-to-one.
+- **Failure path:** two missions in one workspace with different base/head/fork identity can swap an effect,
+  artifact, cursor, restore, or CAS reference while satisfying every specified composite FK; application
+  checks become the only boundary.
 - **Narrow fix:** include immutable repository-role keys in relevant parent/child constraints, or make
-  workspace-to-code repository structurally one-to-one and require mission-level composite
-  base/head/snapshot keys on every descendant and CAS admission.
-- **Test predicate:** independently mutate code, base, and head repository IDs in same-tenant,
-  same-workspace foreground/background/reconcile/restore/delete paths; every swap must fail at the
-  database/type boundary.
+  workspace-to-code repository structurally one-to-one and require mission-level composite base/head/snapshot
+  keys on every descendant and CAS admission.
+- **Test predicate:** independently mutate code, base, and head repository IDs in same-tenant, same-workspace
+  foreground/background/reconcile/restore/delete paths; every swap must fail at the database/type boundary.
 
 ### D-P1-007 — Full toolchain admission is not sequenced before provider-capable broker work
 
 - **Maps to:** `APP-P1-010`; accepts B-P1-003.
-- **Evidence:** `authority/execution-supply-chain.md:69-89` requires the complete manifest before P03,
-  but no pre-P03 sprint or `PLAN.md:74-88` operator prerequisite owns it. P03 S20/S21 at
-  `phases/P03.md:42-64` may build/use live CLI capability; exact source signer range, dependency/
-  registry/lifecycle set, artifact digests, and two-clean-build witness first appear in S22 at
-  `:66-76`, after S20/S21.
+- **Evidence:** `authority/execution-supply-chain.md:69-89` requires the complete manifest before P03, but no
+  pre-P03 sprint or `PLAN.md:74-88` operator prerequisite owns it. P03 S20/S21 at `phases/P03.md:42-64` may
+  build/use live CLI capability; exact source signer range, dependency/ registry/lifecycle set, artifact
+  digests, and two-clean-build witness first appear in S22 at `:66-76`, after S20/S21.
 - **Failure path:** the executable sprint graph permits a provider process before complete binary,
   plugin/MCP/hook, OS/runtime, lock/registry/lifecycle, signer, SBOM, and reproducible-build admission.
   “Before P03” prose has no owner or dependency edge.
 - **Narrow fix:** create an explicit operator prerequisite or pre-S17 delivery for the complete
-  `ToolchainManifest`; make S20/S21 spawn structurally impossible until it is current. S22 can retain
-  TDD evidence but cannot be the first full provenance seal.
-- **Test predicate:** remove or drift each manifest/build/signer input before S20/S21; provider process
-  count must remain zero. Dependency-graph validation must reject S20/S21 preceding the seal.
+  `ToolchainManifest`; make S20/S21 spawn structurally impossible until it is current. S22 can retain TDD
+  evidence but cannot be the first full provenance seal.
+- **Test predicate:** remove or drift each manifest/build/signer input before S20/S21; provider process count
+  must remain zero. Dependency-graph validation must reject S20/S21 preceding the seal.
 
 ### D-P1-008 — S52 contradicts stack denial and conflates local with provider async states
 
 - **Maps to:** `APP-P1-012`; accepts B-P1-004/C async-status criticism.
 - **Evidence:** `authority/github-delivery.md:41-45` denies any non-empty/unknown stack and forbids
-  `merge_action=default`. P07 S52 at `phases/P07.md:41-51` instead delivers “stack ordering” and tests
-  only out-of-order stacks. It calls `queued|in_progress|succeeded|failed|cancelled|expired|unknown`
-  the official status reconciliation without labeling it a local normalization or mapping GitHub's
-  provider body states.
+  `merge_action=default`. P07 S52 at `phases/P07.md:41-51` instead delivers “stack ordering” and tests only
+  out-of-order stacks. It calls `queued|in_progress|succeeded|failed|cancelled|expired|unknown` the official
+  status reconciliation without labeling it a local normalization or mapping GitHub's provider body states.
 - **Provider fact:** GitHub's official `2026-03-10` async endpoint documents provider body states
   `pending|merged|enqueued|failed`, 200/202/400/403/404/409/422, 24-hour result retention, and stacked
-  expansion. Sources: <https://docs.github.com/en/rest/pulls/pulls?apiVersion=2026-03-10#merge-a-pull-request-asynchronously>
-  and <https://github.github.com/gh-stack/reference/merge-api/>.
-- **Failure path:** implementing the card can accept an ordered stack, causing one permit to merge
-  preceding PRs, or parse documented provider states as unknown/terminal incorrectly.
+  expansion. Sources:
+  <https://docs.github.com/en/rest/pulls/pulls?apiVersion=2026-03-10#merge-a-pull-request-asynchronously> and
+  <https://github.github.com/gh-stack/reference/merge-api/>.
+- **Failure path:** implementing the card can accept an ordered stack, causing one permit to merge preceding
+  PRs, or parse documented provider states as unknown/terminal incorrectly.
 - **Narrow fix:** make S52 deny every non-empty/unknown stack before permit consumption; remove stack
   ordering; define a closed provider response union and a separately named local-state mapping.
 - **Test predicate:** every provider body/HTTP combination, 200 merged-vs-enqueued, 409 option mismatch,
@@ -162,131 +161,129 @@ Reviewed target:
 ### D-P1-009 — Dispatch recovery cannot prove a complete post-cut effect set
 
 - **Maps to:** `APP-P1-013`; accepts B-P1-005.
-- **Evidence:** `authority/operations-reliability.md:52-71` stores immutable journal records and a
-  scalar `dispatchHorizon`, but defines no monotonic sequence, gap/continuity root, generation,
-  count/high-water, or signed exact range. Lines `73-78` require the last backup in a separate region/
-  admin/key domain without explicitly placing the dispatch journal and its deletion/key authority in
-  that protected set.
-- **Failure path:** DB PITR can restore before an external effect while a truncated/lost journal omits
-  it. The restored DB cannot derive it, the journal cannot prove the missing member, and reconciliation
-  can freeze indefinitely or redispatch an already accepted effect.
-- **Narrow fix:** add signed monotonic journal sequence plus hash/Merkle continuity; bind generation,
-  range root/count/high-water, retention floor, recovery epoch, and independent region/admin/delete/
-  key-domain copy into `RecoveryManifest`.
-- **Test predicate:** middle-record omission, prefix/suffix truncation, generation swap, stale high-water,
-  and total primary account/region loss must block all write/effect resume until provider readback and
-  exact journal continuity agree.
+- **Evidence:** `authority/operations-reliability.md:52-71` stores immutable journal records and a scalar
+  `dispatchHorizon`, but defines no monotonic sequence, gap/continuity root, generation, count/high-water, or
+  signed exact range. Lines `73-78` require the last backup in a separate region/ admin/key domain without
+  explicitly placing the dispatch journal and its deletion/key authority in that protected set.
+- **Failure path:** DB PITR can restore before an external effect while a truncated/lost journal omits it. The
+  restored DB cannot derive it, the journal cannot prove the missing member, and reconciliation can freeze
+  indefinitely or redispatch an already accepted effect.
+- **Narrow fix:** add signed monotonic journal sequence plus hash/Merkle continuity; bind generation, range
+  root/count/high-water, retention floor, recovery epoch, and independent region/admin/delete/ key-domain copy
+  into `RecoveryManifest`.
+- **Test predicate:** middle-record omission, prefix/suffix truncation, generation swap, stale high-water, and
+  total primary account/region loss must block all write/effect resume until provider readback and exact
+  journal continuity agree.
 
 ### D-P1-010 — The reservation model is ambiguous for allowed physical retries
 
 - **Maps to:** `APP-P1-014`; accepts B-P1-006.
 - **Evidence:** `authority/operations-reliability.md:5-24` defines one logical reservation with only
   `DISPATCHED -> SETTLED|HELD_UNKNOWN`. Lines `26-36` preserve the original effect/reservation across
-  retryable 429/5xx/outage attempts, but define neither per-dispatch debit/state nor a reservation for
-  the worst-case sum of physical calls. Known-zero, known-charged, and unknown outcomes do not have a
-  complete transition model.
+  retryable 429/5xx/outage attempts, but define neither per-dispatch debit/state nor a reservation for the
+  worst-case sum of physical calls. Known-zero, known-charged, and unknown outcomes do not have a complete
+  transition model.
 - **Failure path:** a known-uncharged retry reuses an already-dispatched reservation without a modeled
-  physical debit; a charged-but-retryable response can either overrun one-call upper bound or be
-  collapsed into one settlement. Different implementations can all satisfy the named states.
+  physical debit; a charged-but-retryable response can either overrun one-call upper bound or be collapsed
+  into one settlement. Different implementations can all satisfy the named states.
 - **Narrow fix:** specify logical-effect versus physical-dispatch accounting: either reserve
   `maxAttempts * perCallUpperBound` and atomically consume/release slices, or create immutable child
   reservations per dispatch. Unknown never retries; every next call needs fresh aggregate debit.
-- **Test predicate:** multi-retry/restart/kill tests must exactly reconcile reserved, known-zero,
-  settled, held-unknown, released, and available balances for every physical call.
+- **Test predicate:** multi-retry/restart/kill tests must exactly reconcile reserved, known-zero, settled,
+  held-unknown, released, and available balances for every physical call.
 
 ### D-P1-011 — ARIA-AUDIT-082 has contradictory projection enums
 
 - **Maps to:** `APP-P1-016`; accepts C-P1-005.
-- **Evidence:** pinned audit source lines 895-906 requires
-  `ok|empty|missing|corrupt|unavailable`. `authority/api-ui.md:54-65` correctly models those five plus
-  independent `CURRENT|STALE` freshness. `FINDING-COVERAGE.md:114` and P06 S46
-  `phases/P06.md:65-75` instead require `absent|pending|current|stale|corrupt`, losing verified empty,
-  missing, unavailable, and the independent freshness dimension.
-- **Failure path:** one implementation can satisfy the matrix/card while collapsing dependency outage
-  into lifecycle state; another can follow the API authority and fail its sprint exit.
-- **Narrow fix:** use the exact five status values and separate two-value freshness across source row,
-  cards, API authority, generated projections, client types, and snapshots.
-- **Test predicate:** a semantic literal-enum invariant must compare every authority; missing,
-  unavailable, verified empty, corrupt, current, and stale fixtures must remain distinguishable.
+- **Evidence:** pinned audit source lines 895-906 requires `ok|empty|missing|corrupt|unavailable`.
+  `authority/api-ui.md:54-65` correctly models those five plus independent `CURRENT|STALE` freshness.
+  `FINDING-COVERAGE.md:114` and P06 S46 `phases/P06.md:65-75` instead require
+  `absent|pending|current|stale|corrupt`, losing verified empty, missing, unavailable, and the independent
+  freshness dimension.
+- **Failure path:** one implementation can satisfy the matrix/card while collapsing dependency outage into
+  lifecycle state; another can follow the API authority and fail its sprint exit.
+- **Narrow fix:** use the exact five status values and separate two-value freshness across source row, cards,
+  API authority, generated projections, client types, and snapshots.
+- **Test predicate:** a semantic literal-enum invariant must compare every authority; missing, unavailable,
+  verified empty, corrupt, current, and stale fixtures must remain distinguishable.
 
 ### D-P1-012 — The public API is not closed and its lost-response recovery is unreachable
 
 - **Maps to:** `APP-P1-016`; accepts C-P1-006.
-- **Evidence:** `authority/api-ui.md:5-44` fixes root names but does not define referenced input,
-  filter, connection, result, or data types. Lines `67-101` give prose fields without exact SDL
-  names/types/nullability. `requestStatusLookupId` is returned only by `UNAVAILABLE` at `:73-82`, while
-  no query exposes command status; a truly lost response cannot deliver a server-generated lookup ID.
-- **Failure path:** implementations can expose incompatible/unbounded nested schemas. If a command
-  commits and transport loses the response, the client has neither the lookup ID nor an authorized
-  recovery operation; blind retry is forbidden, leaving outcome stranded.
+- **Evidence:** `authority/api-ui.md:5-44` fixes root names but does not define referenced input, filter,
+  connection, result, or data types. Lines `67-101` give prose fields without exact SDL
+  names/types/nullability. `requestStatusLookupId` is returned only by `UNAVAILABLE` at `:73-82`, while no
+  query exposes command status; a truly lost response cannot deliver a server-generated lookup ID.
+- **Failure path:** implementations can expose incompatible/unbounded nested schemas. If a command commits and
+  transport loses the response, the client has neither the lookup ID nor an authorized recovery operation;
+  blind retry is forbidden, leaving outcome stranded.
 - **Narrow fix:** add small canonical SDL fragments for every referenced type and generate the client
-  snapshot. Preserve seven queries/nine mutations. Make recovery client-known: same
-  `requestId`+payload replay returns the stored result, or bind a client-generated lookup key to a
-  specified existing query/filter.
-- **Test predicate:** generated-schema/client parity plus response loss before/after commit must prove
-  one command and recoverable exact result; changed-payload replay and unknown fields must deny.
+  snapshot. Preserve seven queries/nine mutations. Make recovery client-known: same `requestId`+payload replay
+  returns the stored result, or bind a client-generated lookup key to a specified existing query/filter.
+- **Test predicate:** generated-schema/client parity plus response loss before/after commit must prove one
+  command and recoverable exact result; changed-payload replay and unknown fields must deny.
 
 ### D-P2-013 — Negative controls race with the required parallel review workflow
 
 - **Maps to:** review tooling; accepts B-P2-007.
-- **Evidence:** `verification/test-negative-controls.mjs:10-12,173-185` creates temporary full copies
-  directly under `docs/plans`. Concurrent `verification/lib/verify.mjs:63-101` classifies another
-  process's copies as product-scope changes.
-- **Observed failure:** while one stock negative suite was running, the canonical full verifier failed
-  with exactly 78 `PRODUCT_SCOPE` errors under another `.d0-negative-*` fixture; the negative suite
-  itself later exited 0 with `PASS negative-controls=23` and cleaned its directory.
-- **Narrow fix:** use agent-owned OS-temp clones/worktrees outside the repository, with unique handles
-  and exact-owner cleanup; make view transformation independent of absolute fixture location.
-- **Test predicate:** two negative suites and one full verifier run concurrently; both suites and the
-  clean verifier must finish deterministically without observing or deleting sibling fixtures.
+- **Evidence:** `verification/test-negative-controls.mjs:10-12,173-185` creates temporary full copies directly
+  under `docs/plans`. Concurrent `verification/lib/verify.mjs:63-101` classifies another process's copies as
+  product-scope changes.
+- **Observed failure:** while one stock negative suite was running, the canonical full verifier failed with
+  exactly 78 `PRODUCT_SCOPE` errors under another `.d0-negative-*` fixture; the negative suite itself later
+  exited 0 with `PASS negative-controls=23` and cleaned its directory.
+- **Narrow fix:** use agent-owned OS-temp clones/worktrees outside the repository, with unique handles and
+  exact-owner cleanup; make view transformation independent of absolute fixture location.
+- **Test predicate:** two negative suites and one full verifier run concurrently; both suites and the clean
+  verifier must finish deterministically without observing or deleting sibling fixtures.
 
 ### D-P2-014 — Readability enforcement is regex-bypassable and does not measure its declared metrics
 
 - **Maps to:** `APP-P2-018`; accepts C-P2-007.
-- **Evidence:** `verification/lib/verify-readability.mjs:37-49` misses single-argument arrows and
-  object/class methods. Lines `52-70` reuse cyclomatic count as “cognitive” complexity. Lines `73-93`
-  miss re-exports and dynamic imports. This is weaker than the numeric policy it claims to enforce.
+- **Evidence:** `verification/lib/verify-readability.mjs:37-49` misses single-argument arrows and object/class
+  methods. Lines `52-70` reuse cyclomatic count as “cognitive” complexity. Lines `73-93` miss re-exports and
+  dynamic imports. This is weaker than the numeric policy it claims to enforce.
 - **Failure path:** appending a 61-line `const oversizedArrow = input => { ... }` to a verifier module
   returned `verifyReadability errors=[]` while staying below the file-level target.
-- **Narrow fix:** use a pinned JS/TS AST rule/walker for all function/method forms, static/dynamic/
-  re-export edges, parameters, cyclomatic complexity, and a real cognitive-complexity algorithm.
-- **Test predicate:** single-arg arrows, methods, callbacks, re-exports, dynamic imports, nested
-  branches, and generated-exception forgery must each fail; all current small modules stay green.
+- **Narrow fix:** use a pinned JS/TS AST rule/walker for all function/method forms, static/dynamic/ re-export
+  edges, parameters, cyclomatic complexity, and a real cognitive-complexity algorithm.
+- **Test predicate:** single-arg arrows, methods, callbacks, re-exports, dynamic imports, nested branches, and
+  generated-exception forgery must each fail; all current small modules stay green.
 
 ## Rejected or narrowed claims
 
 ### C-P1-001 rejected — Same-repository Publisher/Merge separation is provider-feasible
 
-Both creating/updating a Git ref and async merging require GitHub `Contents: write`; the panel is
-correct about that coarse token permission. It is incorrect that this necessarily lets Publisher
-merge an eligible base PR or that a staging repository is the only provider-enforced construction.
-GitHub branch protection supports app-specific push restrictions on the protected base; excluded Apps
-cannot push/merge that branch even if they can write mission refs elsewhere in the same repository.
-Official sources: <https://docs.github.com/en/rest/git/refs?apiVersion=2026-03-10#create-a-reference>,
-<https://docs.github.com/en/rest/pulls/pulls?apiVersion=2026-03-10#merge-a-pull-request-asynchronously>,
-and <https://docs.github.com/en/rest/branches/branch-protection?apiVersion=2026-03-10>.
+Both creating/updating a Git ref and async merging require GitHub `Contents: write`; the panel is correct
+about that coarse token permission. It is incorrect that this necessarily lets Publisher merge an eligible
+base PR or that a staging repository is the only provider-enforced construction. GitHub branch protection
+supports app-specific push restrictions on the protected base; excluded Apps cannot push/merge that branch
+even if they can write mission refs elsewhere in the same repository. Official sources:
+<https://docs.github.com/en/rest/git/refs?apiVersion=2026-03-10#create-a-reference>,
+<https://docs.github.com/en/rest/pulls/pulls?apiVersion=2026-03-10#merge-a-pull-request-asynchronously>, and
+<https://docs.github.com/en/rest/branches/branch-protection?apiVersion=2026-03-10>.
 
-The current contract already requires effective rules/bypass resolution and an otherwise-eligible
-provider denial at `authority/github-delivery.md:7-22`, with live negatives in P04 S25/S26/S32. The
-implementation should make the base-branch App restriction explicit and prove final provider denial,
-but the prescribed separate head repository is not a binding correction.
+The current contract already requires effective rules/bypass resolution and an otherwise-eligible provider
+denial at `authority/github-delivery.md:7-22`, with live negatives in P04 S25/S26/S32. The implementation
+should make the base-branch App restriction explicit and prove final provider denial, but the prescribed
+separate head repository is not a binding correction.
 
 ### C-P2-008 rejected as a current-head violation — no finding is closed yet
 
-The corrective commit has no `Closes:` trailer, but `CORRECTIVE-NOTE.md:6-9` explicitly says no
-`APP-*` finding is claimed closed and D0 remains `VERIFYING`; the event tail agrees. Repository rules
-require `Closes:` on the commit that actually resolves a finding, not a false closure before fresh
-review. The eventual non-rewritten corrective/admission or ledger-close commit must carry one exact
-trailer for every finding it really resolves. Absence now is not evidence of a false resolved state.
+The corrective commit has no `Closes:` trailer, but `CORRECTIVE-NOTE.md:6-9` explicitly says no `APP-*`
+finding is claimed closed and D0 remains `VERIFYING`; the event tail agrees. Repository rules require
+`Closes:` on the commit that actually resolves a finding, not a false closure before fresh review. The
+eventual non-rewritten corrective/admission or ledger-close commit must carry one exact trailer for every
+finding it really resolves. Absence now is not evidence of a false resolved state.
 
 ### Prescriptive overreach narrowed
 
-- B-P1-006 is accepted as an underspecified accounting root, not as proof that every 429/5xx is
-  charged; the defect is that the closed model does not distinguish all physical outcomes.
-- B-P1-003 is accepted because the executable dependency graph has no pre-P03 owner, not because an
-  S20 implementation must necessarily spawn before creating any manifest.
-- Current semantic authorities can legitimately require future live proofs; this review does not
-  demand product implementation during D0.
+- B-P1-006 is accepted as an underspecified accounting root, not as proof that every 429/5xx is charged; the
+  defect is that the closed model does not distinguish all physical outcomes.
+- B-P1-003 is accepted because the executable dependency graph has no pre-P03 owner, not because an S20
+  implementation must necessarily spawn before creating any manifest.
+- Current semantic authorities can legitimately require future live proofs; this review does not demand
+  product implementation during D0.
 
 ## `APP-*` disposition
 
@@ -313,18 +310,18 @@ trailer for every finding it really resolves. Absence now is not evidence of a f
 
 ## Current-byte controls that pass
 
-- Full `base..head` path roster contains 80 files, all under the authorized D0 plan/design/format
-  surface. There is zero diff under legacy ARIA, legacy workflows/state, `apps/aria-service`, or
-  `web/modules/aria`; there is no product implementation.
+- Full `base..head` path roster contains 80 files, all under the authorized D0 plan/design/format surface.
+  There is zero diff under legacy ARIA, legacy workflows/state, `apps/aria-service`, or `web/modules/aria`;
+  there is no product implementation.
 - `PROGRESS.md:10` and event 5 keep D0 `VERIFYING`; event 5 is `CHANGES_REQUIRED`, `admission:false`,
   `VERIFYING -> VERIFYING`.
-- Historical materialization manifest raw SHA-256 is `0dfd4363...`; its c606-to-head diff is empty.
-  The first four event bytes at c606 and current head both hash to `843c2289...`.
-- All 12 tracked raw reports are byte-identical to the controller originals. Current source truth has
-  88 exact headings/titles with zero snapshot/matrix drift; P0 is 24 = 20 confirmed, partial
-  `015/017/044`, refuted `026`. Current PLAN/cards/program are 72/72/72; gates/roles are 9/12.
-- Current authored files stay below 400 lines; authority/phase/verifier modules stay below the
-  authored target. Eleven generated projection files pass exact parity. This does not cure D-P2-014.
+- Historical materialization manifest raw SHA-256 is `0dfd4363...`; its c606-to-head diff is empty. The first
+  four event bytes at c606 and current head both hash to `843c2289...`.
+- All 12 tracked raw reports are byte-identical to the controller originals. Current source truth has 88 exact
+  headings/titles with zero snapshot/matrix drift; P0 is 24 = 20 confirmed, partial `015/017/044`, refuted
+  `026`. Current PLAN/cards/program are 72/72/72; gates/roles are 9/12.
+- Current authored files stay below 400 lines; authority/phase/verifier modules stay below the authored
+  target. Eleven generated projection files pass exact parity. This does not cure D-P2-014.
 
 ## Commands and exact results
 
@@ -366,7 +363,6 @@ git status --porcelain=v1 after cleanup
   => empty tracked/untracked status before this ignored appellate report
 ```
 
-The stock green commands prove that the current files are self-consistent. The accepted hostile
-controls show that the same admission machinery can remain green after semantically forbidden,
-rehash-consistent changes. D0 must stay `VERIFYING`; no fresh admission event, PR merge, or S01 product
-work is authorized from this head.
+The stock green commands prove that the current files are self-consistent. The accepted hostile controls show
+that the same admission machinery can remain green after semantically forbidden, rehash-consistent changes. D0
+must stay `VERIFYING`; no fresh admission event, PR merge, or S01 product work is authorized from this head.

@@ -29,9 +29,9 @@ if (check) {
     process.stderr.write('FAIL generated API contract drift\n');
     process.exitCode = 1;
   } else {
-    process.stdout.write('PASS generated-api-contract queries=7 mutations=9\n');
+    process.stdout.write('PASS generated-api-contract terminal=7Q/9M S06=7Q/0M\n');
   }
 } else {
   writeFileSync(output, expected, 'utf8');
-  process.stdout.write('WROTE generated-api-contract queries=7 mutations=9\n');
+  process.stdout.write('WROTE generated-api-contract terminal=7Q/9M S06=7Q/0M\n');
 }

@@ -1,4 +1,7 @@
-<!-- GENERATED: render-projections.mjs@1.0.0; source-sha256=1c8ecc681a9df385d45c1661dbf34002ea01ee7c987b0df29a18ce4dc34dd9ee; generator-sha256=f658c906876a0c141f577fab96399535649a15c8b49c57ac1a2b9416a1271d1c; DO NOT EDIT -->
+<!-- GENERATED: render-projections.mjs@1.0.0
+source-sha256=9f70beeb92d5cfaf92c9e224405c521af7fa4c9fc6e76715276d64fc5c87a7a5
+generator-sha256=66ce87f5bcbc7b04db2628daa416a07340e9646656f7b1911dd365cfb5f80f1b
+DO NOT EDIT -->
 
 # Yeni ARIA Program Progress — D0 Projection
 
@@ -8,13 +11,15 @@
 - **Program ID:** `new-aria-autonomous-engineering`
 - **Projection generated from event at:** `2026-09-01T21:05:01Z`
 - **D0 state:** `VERIFYING`
-- **Materialization evidence:** [D0-plan-materialization.json](progress/evidence/D0-plan-materialization.json)
+- **Materialization evidence:**
+  [D0-plan-materialization.json](progress/evidence/D0-plan-materialization.json)
 - **Materialization digest:** `0dfd4363797a067ce7ccdfa0a7efbe28b2ee69b2daf2cdcfe2cf2321a3df8558`
-- **Review evidence:** [D0-review-c139f40f-changes-required.json](progress/evidence/D0-review-c139f40f-changes-required.json)
-- **Review evidence digest:** `dad30caa52dac7f16910560472ca54072ee4e2f3ea973f66a5b58b376cfdcc5d`
+- **Review evidence:**
+  [D0-review-c139f40f-changes-required.json](progress/evidence/D0-review-c139f40f-changes-required.json)
+- **Review evidence digest:** `b0d345a407d24b8241d97d526cc87087581fc53a9d2755f874ece02bac38118e`
 - **Review verdict:** `CHANGES_REQUIRED` (non-admission)
 - **Event count:** 6
-- **Event-chain tail:** `355732936afe3b121e88f9f03b09bdef7cbcee2813e2e0a1347da491d47ddc50`
+- **Event-chain tail:** `53b81ee13eaec05a86f0586eb0778f09873a7cc07a1e49fabcd343f875c34644`
 - **Corrective status:** pending fresh external twelve-role review
 - **D0 merge:** pending
 
@@ -51,6 +56,6 @@ D0 program sprint'i değildir; D0 ayrıca `VERIFYING` olarak yukarıda gösteril
 
 1. Corrective head için fresh, exact-head twelve-role reports ve independent appellate verdict.
 2. Fresh verdict `ACCEPTED` ise ayrı immutable admission evidence/event.
-3. D0 PR merge ve actual main SHA için ayrı ledger-close event.
+3. D0 PR merge ve actual main SHA için external signed operator readback.
 
 Bu projection live, merge-authorized veya legacy ARIA replacement iddiası taşımaz.

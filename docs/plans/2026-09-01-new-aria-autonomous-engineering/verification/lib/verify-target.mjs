@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { sha256, sha256File } from './canonical.mjs';
+import { loadTargetAuthority } from './target-manifest.mjs';
 
 const exactSha = /^[a-f0-9]{40}$/u;
 const exactDigest = /^[a-f0-9]{64}$/u;
@@ -162,7 +163,39 @@ function verifyDeclaredFacts(errors, facts, target) {
   }
 }
 
+function verifyManifestBinding(errors, repositoryRoot, target, authority) {
+  try {
+    const { manifest, target: signed } = loadTargetAuthority(repositoryRoot, authority);
+    for (const [field, actual, expected] of [
+      ['base SHA', target.baseSha, manifest.base_sha],
+      ['head SHA', target.headSha, signed.head_sha],
+      ['reviewed ref', target.reviewedRef, signed.reviewed_ref],
+      ['base tree', target.baseTree, signed.base_tree],
+      ['head tree', target.headTree, signed.head_tree],
+      ['diff digest', target.diffSha256, signed.committed_diff_sha256],
+      ['design digest', target.designSha256, signed.design_sha256],
+      ['format-scope digest', target.formatScopeSha256, signed.format_scope_sha256],
+    ]) {
+      if (actual !== expected) add(errors, 'TARGET_MANIFEST', `${field} is not canonical`);
+    }
+    if (resolveCommit(repositoryRoot, manifest.base_ref) !== manifest.base_sha) {
+      add(errors, 'TARGET_MANIFEST', 'canonical base ref does not resolve to canonical base SHA');
+    }
+    const canonicalTree = git(repositoryRoot, [
+      'rev-parse',
+      '--verify',
+      `${manifest.base_sha}^{tree}`,
+    ]).trim();
+    if (canonicalTree !== manifest.base_tree) {
+      add(errors, 'TARGET_MANIFEST', 'canonical base tree does not match canonical base SHA');
+    }
+  } catch (error) {
+    add(errors, 'TARGET_MANIFEST', error instanceof Error ? error.message : String(error));
+  }
+}
+
 function verifyReachability(errors, repositoryRoot, facts) {
+  if (facts.base_sha === facts.head_sha) add(errors, 'TARGET_RANGE', 'base and head must differ');
   if (facts.checkout_sha !== facts.head_sha) add(errors, 'TARGET_HEAD', 'checkout HEAD mismatch');
   if (facts.reviewed_ref_sha !== facts.head_sha)
     add(errors, 'TARGET_REF', 'reviewed ref does not resolve to head');
@@ -176,10 +209,11 @@ function verifyReachability(errors, repositoryRoot, facts) {
   if (ancestor.status !== 0) add(errors, 'TARGET_REACHABILITY', 'base is not ancestor of head');
 }
 
-export function verifyTarget(repositoryRoot, target) {
+export function verifyTarget(repositoryRoot, target, authority = {}) {
   const errors = [];
   validateTargetInput(errors, target);
   if (errors.length > 0) return { errors, facts: null };
+  verifyManifestBinding(errors, repositoryRoot, target, authority);
   try {
     const facts = targetFacts(repositoryRoot, target);
     verifyReachability(errors, repositoryRoot, facts);

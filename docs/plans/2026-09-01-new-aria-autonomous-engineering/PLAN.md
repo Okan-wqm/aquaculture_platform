@@ -8,20 +8,20 @@
   [`../../superpowers/specs/2026-09-01-new-aria-autonomous-engineering-design.md`](../../superpowers/specs/2026-09-01-new-aria-autonomous-engineering-design.md)
 - **Finding authority:** [`FINDING-COVERAGE.md`](FINDING-COVERAGE.md)
 - **Normative contracts:** [`authority/INDEX.md`](authority/INDEX.md)
-- **Machine relationship authority:** [`verification/program-map.jsonl`](verification/program-map.jsonl)
+- **Machine relationship authority:**
+  [`verification/program-map.jsonl`](verification/program-map.jsonl)
 - **Binding review:** [`reviews/INDEX.md`](reviews/INDEX.md) — `CHANGES_REQUIRED` at `c6065d6d...`
-- **Corrective mappings:** [`round 1`](CORRECTIVE-NOTE.md) ·
-  [`round 2`](CORRECTIVE-ROUND-2.md)
+- **Corrective mappings:** [`round 1`](CORRECTIVE-NOTE.md) · [`round 2`](CORRECTIVE-ROUND-2.md)
 - **İnsan görünümü:** [`PROGRESS.md`](PROGRESS.md)
 - **Makine authority:** [`progress/events.jsonl`](progress/events.jsonl) ve
   [`progress/evidence/`](progress/evidence/)
 
 ## Program kararı ve hard constraints
 
-D0 yalnız dokümantasyondur; product code D0 incelenip merge edilmeden başlayamaz. Yeni ARIA,
-legacy ARIA'yı değiştirmez, import etmez veya runtime/data dependency yapmaz. Legacy path'ler yalnız
-frozen audit/karşılaştırma girdisidir. Tek backend root `apps/aria-service`, core `src/kernel`;
-frontend `web/modules/aria`, route `/aria`, federation `ariaModule`, port `5179` olacaktır.
+D0 yalnız dokümantasyondur; product code D0 incelenip merge edilmeden başlayamaz. Yeni ARIA, legacy
+ARIA'yı değiştirmez, import etmez veya runtime/data dependency yapmaz. Legacy path'ler yalnız frozen
+audit/karşılaştırma girdisidir. Tek backend root `apps/aria-service`, core `src/kernel`; frontend
+`web/modules/aria`, route `/aria`, federation `ariaModule`, port `5179` olacaktır.
 
 Postgres ve object store bağımsızdır. NATS kullanılırsa cert-only identity geçerlidir; Kafka ve
 token/user-password identity yasaktır. Provider'lar yalnız Codex CLI ve Claude Code CLI
@@ -30,8 +30,9 @@ subscription'dır; API fallback yoktur. TCB operator-owned'dır ve ARIA tarafın
 
 Okunabilirlik acceptance'tır: cohesive single-responsibility modül hedefi `<=250` fiziksel satır,
 `>400` hard gate; function/complexity/intra-project dependency ve governed generated exception'ın
-numeric authority'si [`verification/readability-policy.json`](verification/readability-policy.json)'dır.
-Migration semantic/complexity review'den muaf değildir.
+numeric authority'si
+[`verification/readability-policy.json`](verification/readability-policy.json)'dır. Migration
+semantic/complexity review'den muaf değildir.
 
 ## Durum, kanıt ve kapanış sözleşmesi
 
@@ -45,9 +46,10 @@ canonicalization, exact verifier provenance ve type-specific freshness
 Her sprint isolated branch/worktree kullanır. Red test uygulamadan önce yerelde gözlenir, commit'e
 girmez. Her commit green iken push edilir. Final note: done, remaining, exact tests, reviewed
 head/PR, findings, risks ve next action taşır. Commit kendi SHA'sını içeremediği için evidence
-reviewed implementation SHA'yı bağlar; merge-commit sonrası ayrı ledger-close commit/PR gerçek main
-SHA'yı kaydeder. Evidence yoksa `DONE` yoktur. Merged-only finding `VERIFYING`; yalnız exact deployed
-SHA için current `live_proven` evidence varsa `SOLVED` olur.
+reviewed implementation SHA'yı bağlar. Merge sonrası ayrı operator repository dışında bir
+`external signed operator readback` üretir; ikinci repository commit/PR veya reviewed source/head
+mutasyonu yasaktır. Evidence yoksa `DONE` yoktur. Merged-only finding `VERIFYING`; yalnız exact
+deployed SHA için current `live_proven` evidence varsa `SOLVED` olur.
 
 Proof class'ları `code_proven`, `live_proven`, `operator_attested`. Her kayıt canonical authority
 repository/ref reachability, immutable input/tool/verifier/report digests, exact argv/tool version,
@@ -69,8 +71,8 @@ instance alias'ıdır. Producer kendi artifact/evidence/admission'ını onaylaya
 | `ACC-NOHR-001`      | High-risk execution/merge disabled kalır ve aktivasyon yeni onaylı program ister.                                              |
 | `ACC-S01`–`ACC-S72` | İlgili sprint kartındaki bounded deliverable, test, evidence ve exit predicate birlikte sağlanır.                              |
 
-Acceptance öğeleri phase kartlarına bölünse de kaybolamaz: `ACC-Snn` authority'si ilgili karttır;
-bu indeks ID, objective, dependency ve acceptance bağını eksiksiz listeler.
+Acceptance öğeleri phase kartlarına bölünse de kaybolamaz: `ACC-Snn` authority'si ilgili karttır; bu
+indeks ID, objective, dependency ve acceptance bağını eksiksiz listeler.
 
 ## Operator prerequisite'leri
 
@@ -293,17 +295,20 @@ Machine contract: [`verification/phase-gates.json`](verification/phase-gates.jso
 
 Her work unit — D0 ve ayrı ayrı S01-S72 — tam bir ayrı PR'dır; bir PR iki sprint veya D0+sprint
 taşıyamaz. Sprint branch'i `aria/<program-id>/sNN-<slug>`; worktree kayıtlı ve allowlisted root
-altında olur.
-Başlangıç canonical `AuthorityRepositoryRef + configured base ref + exact SHA` note'a yazılır;
-bu D0 instance'ında alias `origin/main`'dir fakat portable contract remote adına bağlı değildir.
-TDD kırmızısı gözlenir; yalnız green commits
-repository formatında imzalanır ve her commit sonrası normal push yapılır. Hook bypass, force push,
-credential içeren remote veya legacy ARIA edit'i yasaktır. PR tek sprint scope'u taşır ve required
-checks/authority digest'i pinler. Required GitHub Actions `SUCCESS` olmadan merge yasaktır. Hedef
-GitHub `main`; izinli tek yöntem merge commit'tir, squash ve rebase merge yasaktır. Reviewer reviewed
-head SHA'yı evidence'a yazar; merge sonrası ledger-close ayrı PR/commit ile actual main SHA ve
-reachability'yi bağlar. Sonraki sprint yalnız merge commit'in ürettiği exact `origin/main` SHA'dan
-başlar. Machine contract: [`verification/delivery-policy.json`](verification/delivery-policy.json).
+altında olur. Başlangıç canonical `AuthorityRepositoryRef + configured base ref + exact SHA` note'a
+yazılır; bu D0 instance'ında alias `origin/main`'dir fakat portable contract remote adına bağlı
+değildir. TDD kırmızısı gözlenir; yalnız green commits repository formatında imzalanır ve her commit
+sonrası normal push yapılır. Hook bypass, force push, credential içeren remote veya legacy ARIA
+edit'i yasaktır. PR tek sprint scope'u taşır ve required checks/authority digest'i pinler. Required
+GitHub Actions `SUCCESS` olmadan merge yasaktır. Hedef GitHub `main`; izinli tek yöntem merge
+commit'tir, squash ve rebase merge yasaktır. Reviewer reviewed head SHA'yı aynı work-unit PR final
+note'una bağlar; review sonrası reviewed source/head mutasyonu yasaktır. Tek izinli post-review
+repository effect'i protected target base'e `MERGE_COMMIT` uygulanmasıdır. Merge sonrası farklı
+operator repository dışında `external signed operator readback` üretir ve PR, reviewed head, merge
+yöntemi, merge commit/parents, resulting main ve reachability'yi bağlar. İkinci repository PR/commit
+yasaktır. Sonraki sprint yalnız bu readback kabul edilince merge commit'in ürettiği exact
+`origin/main` SHA'dan başlar. Machine contract:
+[`verification/delivery-policy.json`](verification/delivery-policy.json).
 
 ## Risk register
 
@@ -322,11 +327,11 @@ başlar. Machine contract: [`verification/delivery-policy.json`](verification/de
 
 ## Finding coverage ve audit disposition
 
-[`FINDING-COVERAGE.md`](FINDING-COVERAGE.md), frozen `85787e610` raporundaki
-`ARIA-AUDIT-001`–`088` satırlarını birebir kapsar. Matrix legacy kusur kapanışı değildir; yeni
-sistemin failure mode'u miras almasını engelleyen control/test programıdır. P0 panel sonucu 20
-confirmed, 015/017/044 partially confirmed, 026 refuted olarak korunur. Non-P0 için yalnız source
-report verification kaydı vardır; ikinci panel uydurulmaz.
+[`FINDING-COVERAGE.md`](FINDING-COVERAGE.md), frozen `85787e610` raporundaki `ARIA-AUDIT-001`–`088`
+satırlarını birebir kapsar. Matrix legacy kusur kapanışı değildir; yeni sistemin failure mode'u
+miras almasını engelleyen control/test programıdır. P0 panel sonucu 20 confirmed, 015/017/044
+partially confirmed, 026 refuted olarak korunur. Non-P0 için yalnız source report verification kaydı
+vardır; ikinci panel uydurulmaz.
 
 ## Rollout/cutover ve high-risk kararı
 
@@ -334,7 +339,8 @@ P01-P05 hiçbir production autonomy vermez. P06 S41 shadow öncesi clean-host/ca
 S43'te yalnız disposable bootstrap canary ve S44 sonrası bounded general `PR_ONLY` sağlar. P07 S52
 yalnız disposable sandbox merge; S54 rollback/stop hazır olduktan sonra S55 ilk production low-risk
 canary'dir. P08 yalnız bounded 3-of-3 medium-risk yetki sağlar. Her aşama current evidence,
-capacity/restore/rollback ve required compromise/outage drill'ine bağlıdır. Legacy aktif ve bağımsızdır.
+capacity/restore/rollback ve required compromise/outage drill'ine bağlıdır. Legacy aktif ve
+bağımsızdır.
 
 S65-S72 high-risk readiness evidence ve go/no-go dossier üretir. S72 sonunda high-risk disabled
 kalır. Aktivasyon ancak yeni threat model, operator prerequisites, independent audit ve açık insan

@@ -13,12 +13,13 @@ enum AriaFreshness {
 
 enum AriaMissionState {
   DRAFT
+  SUBMITTED
   PLANNED
-  RUNNING
+  EXECUTING
   VERIFYING
   COMPLETED
-  CANCELLED
   FAILED
+  CANCELLED
   UNKNOWN
 }
 

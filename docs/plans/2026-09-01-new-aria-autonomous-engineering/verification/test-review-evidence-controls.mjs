@@ -15,6 +15,14 @@ withPlanCopy('new-aria-d0-review-valid-', (copy) => {
 
 const cases = [
   ['unknown transform field', (value) => (value.review_provenance.view_transform.unknown = 'deny')],
+  [
+    'missing prose-wrap transform',
+    (value) => value.review_provenance.view_transform.argv_template.splice(5, 2),
+  ],
+  [
+    'preamble digest drift',
+    (value) => (value.review_provenance.view_transform.preamble_sha256 = '0'.repeat(64)),
+  ],
   ['duplicate report role', (value) => (value.reports[1].role = value.reports[0].role)],
   ['duplicate report digest', (value) => (value.reports[1].sha256 = value.reports[0].sha256)],
   [

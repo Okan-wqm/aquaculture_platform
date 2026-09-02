@@ -1,61 +1,25 @@
 #!/usr/bin/env node
 
 import assert from 'node:assert/strict';
-import { sha256 } from './lib/canonical.mjs';
-import { loadReviewPolicy, validateAdmissionDossier } from './lib/verify-dossier.mjs';
+import { createFixture } from './dossier-test-fixture.mjs';
+import { loadReviewPolicy, validateDossierStructure } from './lib/verify-dossier.mjs';
 import { planRoot } from './test-support.mjs';
 
 const policy = loadReviewPolicy(planRoot);
-const headSha = 'a'.repeat(40);
-const authorityDigest = 'b'.repeat(64);
-
-function report(role, index) {
-  return {
-    role,
-    principal_id: `principal-${index}`,
-    session_id: `session-${index}`,
-    report_uri: `reviews/admission/${index}-${role}.json`,
-    report_sha256: sha256(Buffer.from(`report-${index}`, 'utf8')),
-    capabilities: [role],
-    reviewed_head_sha: headSha,
-    authority_bundle_sha256: authorityDigest,
-  };
-}
+const fixture = createFixture();
+const baseline = structuredClone(fixture.dossier);
+fixture.cleanup();
 
 function validDossier() {
-  const reviews = policy.roles.map(report);
-  const appellate = reviews.at(-1);
-  return {
-    schema_version: '1.0.0',
-    contract_id: policy.contract_id,
-    reviewed_target: { head_sha: headSha, authority_bundle_sha256: authorityDigest },
-    producer: {
-      principal_id: 'producer-principal',
-      session_id: 'producer-session',
-      artifact_uri: 'artifacts/program-bundle.json',
-    },
-    reviews,
-    conflict_graph: { result: 'NO_CONFLICTS', evaluated_pairs: 78 },
-    oracle: { id: 'd0-admission-oracle-v1', result: 'PASS', input_digest: 'c'.repeat(64) },
-    dissent: { disposition: 'RESOLVED', unresolved: 0 },
-    appellate: {
-      role: 'appellate',
-      principal_id: appellate.principal_id,
-      report_uri: appellate.report_uri,
-      verdict: 'ACCEPTED',
-    },
-    unresolved_load_bearing_findings: [],
-    freshness: {
-      current: true,
-      observed_at: '2026-09-01T22:00:00Z',
-      valid_until: '2026-09-01T22:05:00Z',
-      invalidation_keys: ['head', 'authority', 'review-policy'],
-    },
-    admission: { accepted: true, reason: 'Exact independent dossier accepted.' },
-  };
+  return structuredClone(baseline);
 }
 
-assert.deepEqual(validateAdmissionDossier(validDossier(), policy), [], 'valid dossier rejected');
+const acceptedDossier = validDossier();
+assert.deepEqual(
+  validateDossierStructure(acceptedDossier, policy),
+  [],
+  'valid dossier structure rejected',
+);
 
 const cases = [
   ['duplicate role', (value) => (value.reviews[1].role = value.reviews[0].role)],
@@ -95,13 +59,41 @@ const cases = [
   ['unknown dossier field', (value) => (value.unknown = 'deny')],
   ['unknown review field', (value) => (value.reviews[0].unknown = 'deny')],
   ['unknown nested field', (value) => (value.oracle.unknown = 'deny')],
+  ['object review principal', (value) => (value.reviews[0].principal_id = { id: 'principal-0' })],
+  ['empty review principal', (value) => (value.reviews[0].principal_id = '')],
+  ['object review session', (value) => (value.reviews[0].session_id = { id: 'session-0' })],
+  ['empty review session', (value) => (value.reviews[0].session_id = '')],
+  ['object review report URI', (value) => (value.reviews[0].report_uri = { path: 'report' })],
+  ['empty review report URI', (value) => (value.reviews[0].report_uri = '')],
+  ['object producer principal', (value) => (value.producer.principal_id = { id: 'producer' })],
+  ['empty producer principal', (value) => (value.producer.principal_id = '')],
+  ['object producer session', (value) => (value.producer.session_id = { id: 'producer' })],
+  ['empty producer session', (value) => (value.producer.session_id = '')],
+  ['object producer artifact URI', (value) => (value.producer.artifact_uri = { path: 'bundle' })],
+  ['empty producer artifact URI', (value) => (value.producer.artifact_uri = '')],
+  [
+    'shared object appellate principal',
+    (value) => {
+      const identity = { id: 'appellate' };
+      value.reviews.at(-1).principal_id = identity;
+      value.appellate.principal_id = identity;
+    },
+  ],
+  [
+    'shared object appellate report URI',
+    (value) => {
+      const uri = { path: 'appellate-report' };
+      value.reviews.at(-1).report_uri = uri;
+      value.appellate.report_uri = uri;
+    },
+  ],
 ];
 
 for (const [name, mutate] of cases) {
   const dossier = validDossier();
   mutate(dossier);
-  const errors = validateAdmissionDossier(dossier, policy);
-  assert(errors.length > 0, `${name}: admission dossier mutant accepted`);
+  const errors = validateDossierStructure(dossier, policy);
+  assert(errors.length > 0, `${name}: malformed dossier structure accepted`);
 }
 
 process.stdout.write(`PASS dossier-controls=${cases.length}\n`);

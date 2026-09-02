@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseStrictJson, sha256, sha256File } from './canonical.mjs';
 import { parseMatrix } from './markdown.mjs';
+import { formatProjection } from './projection-format.mjs';
 
 const ranges = [
   [1, 11],
@@ -19,7 +20,12 @@ function rangeName(start, end) {
 }
 
 function generatedMarker(sourceDigest, generatorDigest) {
-  return `<!-- GENERATED: render-projections.mjs@1.0.0; source-sha256=${sourceDigest}; generator-sha256=${generatorDigest}; DO NOT EDIT -->`;
+  return [
+    '<!-- GENERATED: render-projections.mjs@1.0.0',
+    `source-sha256=${sourceDigest}`,
+    `generator-sha256=${generatorDigest}`,
+    'DO NOT EDIT -->',
+  ].join('\n');
 }
 
 function findingPage(findings, start, end, marker) {
@@ -146,7 +152,7 @@ function progressTables() {
     '',
     '1. Corrective head için fresh, exact-head twelve-role reports ve independent appellate verdict.',
     '2. Fresh verdict `ACCEPTED` ise ayrı immutable admission evidence/event.',
-    '3. D0 PR merge ve actual main SHA için ayrı ledger-close event.',
+    '3. D0 PR merge ve actual main SHA için external signed operator readback.',
     '',
     'Bu projection live, merge-authorized veya legacy ARIA replacement iddiası taşımaz.',
   ];
@@ -167,12 +173,16 @@ function progressProjection(planRoot, marker) {
 }
 
 function generatorDigest(planRoot) {
-  const paths = ['verification/lib/projections.mjs', 'verification/render-projections.mjs'];
+  const paths = [
+    'verification/lib/projection-format.mjs',
+    'verification/lib/projections.mjs',
+    'verification/render-projections.mjs',
+  ];
   const body = paths.map((path) => `${path}\0${sha256File(join(planRoot, path))}\n`).join('');
   return sha256(Buffer.from(body, 'utf8'));
 }
 
-export function buildProjectionSet(planRoot) {
+export function buildProjectionSet(planRoot, repositoryRoot) {
   const inputs = [
     'FINDING-COVERAGE.md',
     'progress/events.jsonl',
@@ -183,16 +193,22 @@ export function buildProjectionSet(planRoot) {
   const sourceDigest = inputDigests[0].sha256;
   const generator = generatorDigest(planRoot);
   const marker = generatedMarker(sourceDigest, generator);
-  const outputs = new Map([
+  const rawOutputs = new Map([
     ['finding-projections/INDEX.md', projectionIndex(marker)],
     ['PROGRESS.md', progressProjection(planRoot, marker)],
   ]);
   for (const [start, end] of ranges) {
-    outputs.set(
+    rawOutputs.set(
       `finding-projections/${rangeName(start, end)}.md`,
       findingPage(findings, start, end, marker),
     );
   }
+  const outputs = new Map(
+    [...rawOutputs].map(([path, content]) => [
+      path,
+      formatProjection(repositoryRoot, join(planRoot, path), content),
+    ]),
+  );
   const manifest = {
     schema_version: '1.0.0',
     owner: 'new-aria-program-authority',

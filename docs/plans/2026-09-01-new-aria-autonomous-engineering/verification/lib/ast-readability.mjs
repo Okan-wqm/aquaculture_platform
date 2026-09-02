@@ -6,6 +6,18 @@ function add(errors, path, message) {
   errors.push({ code: 'READABILITY_LIMIT', message: `${path}: ${message}` });
 }
 
+function parseModule(path, source) {
+  return ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+}
+
+function verifySyntax(errors, path, sourceFile) {
+  for (const diagnostic of sourceFile.parseDiagnostics) {
+    const position = sourceFile.getLineAndCharacterOfPosition(diagnostic.start ?? 0);
+    const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, ' ');
+    add(errors, path, `syntax error ${position.line + 1}:${position.character + 1} ${message}`);
+  }
+}
+
 function isFunction(node) {
   return (
     ts.isFunctionDeclaration(node) ||
@@ -96,13 +108,8 @@ function verifyFunction(errors, path, sourceFile, node, limits) {
 }
 
 export function verifyAstFunctions(errors, path, source, limits) {
-  const sourceFile = ts.createSourceFile(
-    path,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.JS,
-  );
+  const sourceFile = parseModule(path, source);
+  verifySyntax(errors, path, sourceFile);
   function visit(node) {
     if (isFunction(node)) verifyFunction(errors, path, sourceFile, node, limits);
     ts.forEachChild(node, visit);
@@ -119,13 +126,11 @@ function moduleSpecifiers(sourceFile) {
       ts.isStringLiteral(node.moduleSpecifier)
     ) {
       values.push(node.moduleSpecifier.text);
-    } else if (
-      ts.isCallExpression(node) &&
-      node.expression.kind === ts.SyntaxKind.ImportKeyword &&
-      node.arguments.length === 1 &&
-      ts.isStringLiteral(node.arguments[0])
-    ) {
-      values.push(node.arguments[0].text);
+    } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+      const [specifier] = node.arguments;
+      values.push(
+        node.arguments.length === 1 && ts.isStringLiteral(specifier) ? specifier.text : null,
+      );
     }
     ts.forEachChild(node, visit);
   }
@@ -133,28 +138,58 @@ function moduleSpecifiers(sourceFile) {
   return values;
 }
 
-export function verifyAstDependencies(errors, planRoot, policy) {
+function dependencyLayers(policy) {
   const layers = policy.dependency_policy.layers;
   const layerByPath = new Map();
   for (const [layer, paths] of Object.entries(policy.dependency_policy.d0_verification_layers)) {
     for (const path of paths) layerByPath.set(path, layers.indexOf(layer));
   }
-  for (const [sourcePath, sourceLayer] of layerByPath) {
-    const source = readFileSync(join(planRoot, sourcePath), 'utf8');
-    const sourceFile = ts.createSourceFile(
-      sourcePath,
-      source,
-      ts.ScriptTarget.Latest,
-      true,
-      ts.ScriptKind.JS,
-    );
-    for (const specifier of moduleSpecifiers(sourceFile).filter((value) => value.startsWith('.'))) {
-      const targetPath = normalize(join(dirname(sourcePath), specifier)).replaceAll('\\', '/');
-      const targetLayer = layerByPath.get(targetPath);
-      if (targetLayer === undefined || targetLayer > sourceLayer) {
-        add(errors, sourcePath, `forbidden dependency ${targetPath}`);
-      }
+  return layerByPath;
+}
+
+function verifySpecifier(context, specifier) {
+  const { errors, sourcePath, sourceLayer, layerByPath, approvedExternalSpecifiers } = context;
+  if (specifier === null) {
+    add(errors, sourcePath, 'dynamic import requires exactly one string literal argument');
+    return;
+  }
+  if (!specifier.startsWith('.')) {
+    if (!approvedExternalSpecifiers.has(specifier)) {
+      add(errors, sourcePath, `unapproved external dependency ${specifier}`);
     }
+    return;
+  }
+  const targetPath = normalize(join(dirname(sourcePath), specifier)).replaceAll('\\', '/');
+  const targetLayer = layerByPath.get(targetPath);
+  if (targetLayer === undefined || targetLayer > sourceLayer) {
+    add(errors, sourcePath, `forbidden dependency ${targetPath}`);
+  }
+}
+
+function verifySourceDependencies(context, sourcePath, sourceLayer) {
+  const source = readFileSync(join(context.planRoot, sourcePath), 'utf8');
+  const sourceFile = parseModule(sourcePath, source);
+  for (const specifier of moduleSpecifiers(sourceFile)) {
+    verifySpecifier(
+      {
+        ...context,
+        sourcePath,
+        sourceLayer,
+      },
+      specifier,
+    );
+  }
+}
+
+export function verifyAstDependencies(errors, planRoot, policy) {
+  const layerByPath = dependencyLayers(policy);
+  const approvedExternalSpecifiers = new Set(policy.dependency_policy.approved_external_specifiers);
+  for (const [sourcePath, sourceLayer] of layerByPath) {
+    verifySourceDependencies(
+      { errors, planRoot, layerByPath, approvedExternalSpecifiers },
+      sourcePath,
+      sourceLayer,
+    );
   }
 }
 

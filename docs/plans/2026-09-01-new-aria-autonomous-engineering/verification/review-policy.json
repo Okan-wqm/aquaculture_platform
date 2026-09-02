@@ -1,6 +1,26 @@
 {
   "schema_version": "1.0.0",
   "contract_id": "new-aria-independent-review-dossier-v1",
+  "admission_context": {
+    "contract_id": "new-aria-dossier-resolved-context-v3",
+    "envelope_kind": "new-aria-review-dossier-context",
+    "required_invalidation_keys": [
+      "head",
+      "target-authority",
+      "reviewer-authority",
+      "verifier-provenance",
+      "producer-artifact",
+      "authority-artifact",
+      "review-policy",
+      "dossier",
+      "reports",
+      "oracle",
+      "dissent",
+      "appellate",
+      "conflicts"
+    ],
+    "max_freshness_seconds": 300
+  },
   "roles": [
     "integrity",
     "identity",
@@ -17,10 +37,13 @@
   ],
   "required_artifacts": [
     "distinct_principal",
+    "oob_pinned_reviewer_authority",
+    "signed_review_envelope",
     "immutable_report",
     "capability_match",
     "conflict_graph",
     "deterministic_oracle",
+    "signed_conflict_oracle",
     "dissent_disposition",
     "appellate_verdict",
     "exact_reviewed_target",

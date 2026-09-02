@@ -32,9 +32,9 @@ function runCheck(errors, code, check) {
   }
 }
 
-function verifyProjectionParity(planRoot) {
+function verifyProjectionParity(planRoot, repositoryRoot) {
   const errors = [];
-  for (const [relativePath, expected] of buildProjectionSet(planRoot)) {
+  for (const [relativePath, expected] of buildProjectionSet(planRoot, repositoryRoot)) {
     const path = join(planRoot, relativePath);
     if (!existsSync(path) || readFileSync(path, 'utf8') !== expected) {
       add(errors, 'PROJECTION_PARITY', `${relativePath}: missing or drifted`);
@@ -91,7 +91,7 @@ export function verifyD0(planRoot, options = {}) {
   runCheck(errors, 'HISTORICAL_EVIDENCE', () => verifyHistory(planRoot, repositoryRoot));
   runCheck(errors, 'READABILITY_POLICY', () => verifyReadability(planRoot, repositoryRoot));
   runCheck(errors, 'VERIFIER_PROVENANCE', () => verifyProvenance(planRoot));
-  runCheck(errors, 'PROJECTION_PARITY', () => verifyProjectionParity(planRoot));
+  runCheck(errors, 'PROJECTION_PARITY', () => verifyProjectionParity(planRoot, repositoryRoot));
   runCheck(errors, 'RELATIVE_LINK', () => verifyRelativeLinks(planRoot));
   runCheck(errors, 'D0_STATE', () => verifyD0Projection(planRoot));
   return { errors, targetFacts };

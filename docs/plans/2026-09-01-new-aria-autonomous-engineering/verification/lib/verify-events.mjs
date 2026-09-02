@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { eventHash, parseStrictJson, sha256, sha256File } from './canonical.mjs';
 
-const firstFiveDigest = '1dfe5804be9cfabd811efe8f85ff86c8e4f9931799365f3073f5e58794082cb6';
+const firstFiveDigest = '190a408b5215c86d0ee96f443e2029198800c991087a2664acd84d2f3bf68aaa';
 const commonFields = [
   'schema_version',
   'program_id',

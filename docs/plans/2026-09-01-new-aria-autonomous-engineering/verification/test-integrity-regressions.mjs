@@ -125,7 +125,7 @@ withCopy((copy) => {
   mutateJson(copy, 'verification/phase-gates.json', (gates) => {
     gates.required_artifacts = Array.from({ length: 9 }, (_, index) => `junk-${index}`);
   });
-  record('junk gate artifacts', verifyMapping(copy, repositoryRoot), 'PHASE_GATES');
+  record('junk gate artifacts', verifyMapping(copy, repositoryRoot), 'REVIEW_DOSSIER');
 });
 
 withCopy((copy) => {

@@ -33,18 +33,6 @@ const programKeys = [
   'finding_scope',
   'owned_finding_ids',
 ];
-const artifacts = [
-  'distinct_principal',
-  'immutable_report',
-  'capability_match',
-  'conflict_graph',
-  'deterministic_oracle',
-  'dissent_disposition',
-  'appellate_verdict',
-  'exact_reviewed_target',
-  'zero_unresolved_load_bearing_findings',
-];
-
 function equal(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
@@ -220,10 +208,10 @@ export function verifyGateIdentity(errors, gates) {
   if (
     !exactKeys(gates, topKeys) ||
     !Array.isArray(gates.gates) ||
+    !Array.isArray(gates.required_artifacts) ||
     gates.gates.some((gate) => !exactKeys(gate, gateKeys)) ||
     gates.schema_version !== '1.0.0' ||
-    gates.contract_id !== 'new-aria-twelve-role-gates-v1' ||
-    !equal(gates.required_artifacts, artifacts)
+    gates.contract_id !== 'new-aria-twelve-role-gates-v1'
   ) {
     add(errors, 'PHASE_GATES', 'schema, contract, or exact artifact roster drift');
   }

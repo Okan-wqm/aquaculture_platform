@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { buildSchema } from 'graphql';
+import { buildApiContract } from './lib/api-contract.mjs';
 import { parseStrictJson } from './lib/canonical.mjs';
 import { verifyAuthorityContracts } from './lib/verify-authority.mjs';
 import { verifyApiContract } from './lib/verify-api.mjs';
@@ -45,6 +45,19 @@ function authorityCase(name, path, before, after) {
     replace(copy, path, before, after);
     if (!verifyAuthorityContracts(copy).some((error) => error.code === 'AUTHORITY_CONTRACT')) {
       failures.push(`${name}: authority mutant accepted`);
+    }
+  });
+}
+
+function regeneratedApiCase(prefix, mutate, message, failure) {
+  withPlanCopy(prefix, (copy) => {
+    mutate(copy);
+    writeFileSync(
+      join(copy, 'verification/generated-api-contract.json'),
+      `${JSON.stringify(buildApiContract(copy), null, 2)}\n`,
+    );
+    if (!verifyApiContract(copy).some((error) => error.message === message)) {
+      failures.push(failure);
     }
   });
 }
@@ -124,39 +137,6 @@ readabilityCase(
 readabilityCase('re-export dependency', "export { verifyD0 } from '../verify-d0.mjs';");
 readabilityCase('dynamic dependency', "const later = import('../verify-d0.mjs');");
 
-const graphqlRoot = join(planRoot, 'authority/graphql');
-if (!existsSync(graphqlRoot)) {
-  failures.push('GraphQL SDL fragments are missing');
-} else {
-  const sdl = readdirSync(graphqlRoot)
-    .filter((path) => path.endsWith('.graphql'))
-    .sort()
-    .map((path) => readFileSync(join(graphqlRoot, path), 'utf8'))
-    .join('\n');
-  try {
-    const schema = buildSchema(sdl);
-    const queryType = schema.getQueryType();
-    const mutationType = schema.getMutationType();
-    const statusType = schema.getType('AriaSectionStatus');
-    const freshnessType = schema.getType('AriaFreshness');
-    assert(queryType);
-    assert(mutationType);
-    assert(statusType && 'getValues' in statusType);
-    assert(freshnessType && 'getValues' in freshnessType);
-    assert.equal(Object.keys(queryType.getFields()).length, 7);
-    assert.equal(Object.keys(mutationType.getFields()).length, 9);
-    assert.deepEqual(
-      statusType.getValues().map((value) => value.name),
-      ['OK', 'EMPTY', 'MISSING', 'CORRUPT', 'UNAVAILABLE'],
-    );
-    assert.deepEqual(
-      freshnessType.getValues().map((value) => value.name),
-      ['CURRENT', 'STALE'],
-    );
-  } catch (error) {
-    failures.push(`GraphQL schema is not closed: ${error.message}`);
-  }
-}
 requireText('lost response replay', 'authority/api-ui.md', [
   /same `requestId` \+ same canonical\s+payload digest/u,
   /stored exact result/u,
@@ -220,9 +200,47 @@ withPlanCopy('new-aria-d0-delivery-', (copy) => {
   mutateJson(copy, 'verification/delivery-policy.json', (policy) => {
     policy.merge_method = 'SQUASH';
   });
-  replace(copy, 'PLAN.md', "tek yöntem merge commit'tir", "tek yöntem squash'tır");
+  replace(copy, 'PLAN.md', "tek yöntem merge\ncommit'tir", "tek yöntem squash'tır");
   if (!verifyAuthorityContracts(copy).some((error) => error.code === 'AUTHORITY_CONTRACT')) {
     failures.push('delivery merge-method mutant accepted');
+  }
+});
+
+regeneratedApiCase(
+  'new-aria-d0-api-closure-',
+  (copy) =>
+    replace(
+      copy,
+      'authority/graphql/read-model.graphql',
+      '  snapshotSha: String!\n}',
+      '  snapshotSha: String!\n  unreviewedDebug: String\n}',
+    ),
+  'terminal SDL closure drift',
+  'regenerated snapshot accepted an unreviewed object field',
+);
+
+const activeS06 = buildApiContract(planRoot).phase_contracts?.S06;
+if (activeS06?.query_count !== 7 || activeS06?.mutation_count !== 0 || activeS06?.mutation_root) {
+  failures.push('S06 active contract is not exactly 7Q/0M with no Mutation root');
+}
+regeneratedApiCase(
+  'new-aria-d0-api-activation-',
+  (copy) =>
+    mutateJson(copy, 'verification/api-policy.json', (policy) => {
+      policy.mutation_activations[0].sprint = 'S06';
+    }),
+  'phase activation policy drift',
+  'regenerated snapshot accepted an early S06 mutation',
+);
+withPlanCopy('new-aria-d0-api-phase-card-', (copy) => {
+  replace(
+    copy,
+    'phases/P01.md',
+    'Phase-active exact `7Q/0M` SDL',
+    'Phase-active exact `7Q/9M` SDL',
+  );
+  if (!verifyApiContract(copy).some((error) => error.message === 'S06 phase-card parity drift')) {
+    failures.push('S06 phase card accepted the terminal mutation catalog');
   }
 });
 

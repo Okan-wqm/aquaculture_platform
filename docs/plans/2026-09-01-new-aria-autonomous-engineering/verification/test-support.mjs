@@ -3,6 +3,7 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { targetFromManifest } from './lib/target-manifest.mjs';
 
 export const planRoot = fileURLToPath(new URL('..', import.meta.url));
 export const repositoryRoot = fileURLToPath(new URL('../../../..', import.meta.url));
@@ -23,6 +24,9 @@ export function targetArguments() {
     designSha256: argument('--design-sha256'),
     formatScopeSha256: argument('--format-scope-sha256'),
   };
+  if (Object.values(target).every((value) => value === undefined)) {
+    return targetFromManifest(repositoryRoot);
+  }
   assert(
     Object.values(target).every((value) => typeof value === 'string'),
     'exact --base/--head/--reviewed-ref/tree/diff/design/format target arguments are required',

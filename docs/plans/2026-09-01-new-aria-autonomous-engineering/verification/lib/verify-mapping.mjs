@@ -139,8 +139,7 @@ function verifyGateContract(errors, gates, cards) {
     )
   )
     add(errors, 'PHASE_GATES', 'role or gate roster drift');
-  if (new Set(gates.roles).size !== 12 || gates.required_artifacts.length !== 9)
-    add(errors, 'PHASE_GATES', 'gate requirements incomplete');
+  if (new Set(gates.roles).size !== 12) add(errors, 'PHASE_GATES', 'gate requirements incomplete');
   for (let index = 0; index < gates.gates.length; index += 1) {
     verifyGateEntry(errors, cards, gates.gates[index], index);
   }

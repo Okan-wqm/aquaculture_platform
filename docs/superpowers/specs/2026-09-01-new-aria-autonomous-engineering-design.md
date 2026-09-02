@@ -24,18 +24,20 @@ bağımsız ürün sınırı olarak kurulacaktır. Yeni sistemin kendi Postgres 
 kimlikleri, policy kökleri ve yaşam döngüsü vardır. Legacy çıktılar yalnız immutable audit ve
 karşılaştırma girdisidir; runtime veya veri bağımlılığı değildir.
 
-D0 yalnız tasarım ve programı kaydeder. Ürün kodu D0 PR'ı incelenip merge edilmeden başlayamaz.
-Bu belge yeni ARIA'nın canlı, merge yetkili veya mevcut sistemin yerine geçmiş olduğunu iddia etmez.
+D0 yalnız tasarım ve programı kaydeder. Ürün kodu D0 PR'ı incelenip merge edilmeden başlayamaz. Bu
+belge yeni ARIA'nın canlı, merge yetkili veya mevcut sistemin yerine geçmiş olduğunu iddia etmez.
 
 ## Hedefler ve hedef olmayanlar
 
 Hedefler:
 
 - Salt-okunur keşiften kanıtlı düşük/orta risk merge'e kadar kademeli, fail-closed otonomi.
-- Her komut, deneme, effect, approval, artifact ve karar için kalıcı ve yeniden uzlaştırılabilir gerçek.
+- Her komut, deneme, effect, approval, artifact ve karar için kalıcı ve yeniden uzlaştırılabilir
+  gerçek.
 - Producer, reviewer, attestor, publisher ve merge authority arasında bağımsız kimlik ve yetki.
 - Exact SHA, deterministic oracle, negatif kontrol ve güncel canlı kanıtla kapanan bulgular.
-- Tek kaynak kökü ve küçük, cohesive modüller: hedef `<=250` fiziksel satır; `>400` hard review gate.
+- Tek kaynak kökü ve küçük, cohesive modüller: hedef `<=250` fiziksel satır; `>400` hard review
+  gate.
 - Repository/provider taşınabilirliği; ürün GraphQL ve federated web deneyimi.
 
 Hedef olmayanlar:
@@ -95,11 +97,13 @@ artifact'ını onaylayamaz; deterministic oracle ve bağımsız authority identi
 | `policy-attestor` | pinned attestor identity    | signing key handle                 | policy read, attestation write     | artifact üretimi, publish/merge            |
 | `merge-authority` | Merge App identity          | short-lived token + permit consume | guarded merge endpoint             | bypass, release/deploy, policy write       |
 
-Her image ayrı filesystem, UID, secret mount, NetworkPolicy ve Linux capability set'i alır.
-Sekiz rolün tamamı production droplet dışında, pinlenmiş numeric UID/resource sınırlarıyla çalışır;
+Her image ayrı filesystem, UID, secret mount, NetworkPolicy ve Linux capability set'i alır. Sekiz
+rolün tamamı production droplet dışında, pinlenmiş numeric UID/resource sınırlarıyla çalışır;
 provider CLI/child tool'lar ayrı worker VM'dedir. Exact host/mount/RPC/secret/egress/capability
-manifesti [identity](../../plans/2026-09-01-new-aria-autonomous-engineering/authority/identity-authority-tcb.md)
-ve [execution](../../plans/2026-09-01-new-aria-autonomous-engineering/authority/execution-supply-chain.md)
+manifesti
+[identity](../../plans/2026-09-01-new-aria-autonomous-engineering/authority/identity-authority-tcb.md)
+ve
+[execution](../../plans/2026-09-01-new-aria-autonomous-engineering/authority/execution-supply-chain.md)
 authority'sindedir. NATS kullanılırsa kimlik yalnız sertifika CN'dir; CONNECT user/password/token
 yoktur ve durable command/effect gerçeğinin önkoşulu değildir.
 
@@ -110,9 +114,10 @@ Temel erişim predicate'i tam olarak
 workspace header'ı kimlik kaynağı değildir. Human/repository/workload tuple'ları ve human/low/medium
 grant-permit issuer principal'ları
 [identity authority](../../plans/2026-09-01-new-aria-autonomous-engineering/authority/identity-authority-tcb.md)
-ile canonical'dır. Step-up/permit exact issuer, audience, repository/workspace/PR/effect/SHA/payload,
-policy/dossier/ruleset, nonce ve expiry'ye bağlı; short-lived/single-use ve exact effect transaction'ında
-atomik tüketilir. Issuer consumer/producer olamaz.
+ile canonical'dır. Step-up/permit exact issuer, audience,
+repository/workspace/PR/effect/SHA/payload, policy/dossier/ruleset, nonce ve expiry'ye bağlı;
+short-lived/single-use ve exact effect transaction'ında atomik tüketilir. Issuer consumer/producer
+olamaz.
 
 Operator-owned TCB şunları içerir: policy roots, required-check manifest, risk taxonomy, identity
 bindings, key material, step-up policy, deployment/release policy, evidence admission logic ve
@@ -156,9 +161,8 @@ schema/key/encryption/CAS contract'ı
 
 ## Durable protokoller
 
-Sprint/program durumu yalnız:
-`PLANNED -> READY -> IN_PROGRESS -> VERIFYING -> DONE`; side state'ler `BLOCKED`, `SUPERSEDED`.
-Kanıtsız geçiş ve yüzde/partial status yoktur.
+Sprint/program durumu yalnız: `PLANNED -> READY -> IN_PROGRESS -> VERIFYING -> DONE`; side state'ler
+`BLOCKED`, `SUPERSEDED`. Kanıtsız geçiş ve yüzde/partial status yoktur.
 
 ```text
 Mission: DRAFT -> SUBMITTED -> PLANNED -> EXECUTING -> VERIFYING -> TERMINAL
@@ -191,8 +195,8 @@ Yalnız Codex CLI ve Claude Code CLI subscription kullanılır; API fallback yok
 canonical job/attempt/effect/idempotency, lease/fence/cancel/recovery epoch, immutable snapshot,
 reservation, DLP ve toolchain manifest envelope'unu taşır. Response provider/account/model/CLI,
 quota/charge certainty, UTC/exit/usage, sanitized digest ve typed transport result döndürür. Broker
-semantic satisfaction/approval/policy verdict üretmez; credential executor/control'a geçmez.
-Exact process/RPC/envelope contract'ı
+semantic satisfaction/approval/policy verdict üretmez; credential executor/control'a geçmez. Exact
+process/RPC/envelope contract'ı
 [execution authority](../../plans/2026-09-01-new-aria-autonomous-engineering/authority/execution-supply-chain.md)'ndedir.
 
 ## Execution ve artifact admission
@@ -200,18 +204,18 @@ Exact process/RPC/envelope contract'ı
 Her sprint/mission isolated branch ve registered worktree kullanır. Supervisor-owned opaque
 ephemeral VM/volume cleanup; handle-relative no-symlink traversal, mount/inode revalidation, active
 lease/child fencing ve no-recursive-fallback ile path replacement race'ini kaldırır. Executor yalnız
-immutable input snapshot'tan çalışır;
-artifact exact target SHA ve diff'e bağlanır. Secret/DLP taraması env-assignment dahil içerik,
-filename, metadata ve diff kapsamını doğrular. Fetch katmanı DNS çözümü, IP sınıfı, private/
-loopback/link-local aralık, redirect zinciri, rebinding, boyut ve süreyi her hop'ta denetler.
+immutable input snapshot'tan çalışır; artifact exact target SHA ve diff'e bağlanır. Secret/DLP
+taraması env-assignment dahil içerik, filename, metadata ve diff kapsamını doğrular. Fetch katmanı
+DNS çözümü, IP sınıfı, private/ loopback/link-local aralık, redirect zinciri, rebinding, boyut ve
+süreyi her hop'ta denetler.
 
 ## Evidence ve adversarial supervision
 
-Proof class'ları `code_proven`, `live_proven`, `operator_attested` değerleridir. Manifestler immutable
-ve versioned'dır; her yeni verdict yeni evidence+event'tir. Evidence canonical authority repository
-ref reachability, exact executable argv/tool/script/input digest, reviewer, UTC/result/artifact,
-type-specific freshness/invalidators, negatives ve findings taşır. Event hash canonicalization ve
-historical verification
+Proof class'ları `code_proven`, `live_proven`, `operator_attested` değerleridir. Manifestler
+immutable ve versioned'dır; her yeni verdict yeni evidence+event'tir. Evidence canonical authority
+repository ref reachability, exact executable argv/tool/script/input digest, reviewer,
+UTC/result/artifact, type-specific freshness/invalidators, negatives ve findings taşır. Event hash
+canonicalization ve historical verification
 [evidence authority](../../plans/2026-09-01-new-aria-autonomous-engineering/authority/verification-evidence.md)'ndedir.
 
 On iki rol — integrity, identity, authorization, execution containment, supply chain, data/privacy,
@@ -225,9 +229,10 @@ appellate eksikliği promotion'ı bloklar; transport acceptance `no_gaps` ürete
 Publisher narrowed GitHub App token ile branch/PR/check oluşturup provider-visible natural key'le
 reconcile eder; merge yetkisi yoktur. Merge App contents yazabilir fakat effective ruleset bypass
 actor/capability taşımaz. REST `2026-03-10` protocolü local effect ID ile provider merge UUID'yi
-ayırır; exact `sha`, protected `merge_action` ve options digest taşır; `200/202/400/403/404/409/422`,
-24-hour result expiry, stack prohibition, crash ve readback semantics'ini kapatır. Caller
-idempotency field varsayılmaz ve unknown blind retry edilmez. Exact authority:
+ayırır; exact `sha`, protected `merge_action` ve options digest taşır;
+`200/202/400/403/404/409/422`, 24-hour result expiry, stack prohibition, crash ve readback
+semantics'ini kapatır. Caller idempotency field varsayılmaz ve unknown blind retry edilmez. Exact
+authority:
 [`github-delivery.md`](../../plans/2026-09-01-new-aria-autonomous-engineering/authority/github-delivery.md).
 
 Merge release değildir. Human release/deploy gate kalır. Finding yalnız exact deployed SHA için
@@ -242,12 +247,13 @@ Public mutation listesi tam olarak: `createAriaMissionDraft`, `postAriaConversat
 `submitAriaMission`, `cancelAriaMission`, `retryAriaMission`, `freezeAriaAutonomy`,
 `resumeAriaAutonomy`, `requestAriaMergeEvaluation`, `acknowledgeAriaDecision`.
 
-Başka public operation eklemek schema/contract review gerektirir. `web/modules/aria`, federation
-adı `ariaModule`, route `/aria`, development port `5179` kullanır. Sayfalar Overview, Missions,
-Mission Detail/Conversation, Timeline/Evidence, Providers, Policy ve Program Progress'tir. Exact
+Başka public operation eklemek schema/contract review gerektirir. `web/modules/aria`, federation adı
+`ariaModule`, route `/aria`, development port `5179` kullanır. Sayfalar Overview, Missions, Mission
+Detail/Conversation, Timeline/Evidence, Providers, Policy ve Program Progress'tir. Exact
 args/nullability/cursor/idempotency/expected-version/result union, resumable SSE, five-state
 `OK|EMPTY|MISSING|CORRUPT|UNAVAILABLE`, mutation policy, same-origin security ve clean-host
-integration [API/UI authority](../../plans/2026-09-01-new-aria-autonomous-engineering/authority/api-ui.md)'ndedir.
+integration
+[API/UI authority](../../plans/2026-09-01-new-aria-autonomous-engineering/authority/api-ui.md)'ndedir.
 
 Conversation mesajı doğrudan effect doğurmaz. Draft; soru, yanıt, acceptance, risk, budget ve
 immutable snapshot'ı birleştirir. `submitAriaMission` typed özeti kilitler; etkili adım policy ve
@@ -259,10 +265,11 @@ Trace/log/metric; mission, job, attempt, effect, provider call ve GitHub request
 ile bağlanır. SLO'lar queue age, lease loss, reconcile lag, provider error, artifact admission,
 policy denial, cost reservation ve restore doğruluğunu kapsar. PII/secret structured log'a girmez.
 
-Raw prompt retention varsayılanı sıfırdır. Incident raw capture typed privacy grant ile en fazla
-7 gün; sanitized operational data 180 gün; decision, permit, merge ve outcome 3 yıl tutulur.
-Evidence field-level pre-hash redact edilir. Hold/delete independent authority ve durable
-`REQUESTED -> ... -> PROVEN|FAILED` reconciliation ister; bütün expected surfaces bitmeden proof yoktur.
+Raw prompt retention varsayılanı sıfırdır. Incident raw capture typed privacy grant ile en fazla 7
+gün; sanitized operational data 180 gün; decision, permit, merge ve outcome 3 yıl tutulur. Evidence
+field-level pre-hash redact edilir. Hold/delete independent authority ve durable
+`REQUESTED -> ... -> PROVEN|FAILED` reconciliation ister; bütün expected surfaces bitmeden proof
+yoktur.
 
 ## Freeze, kill, resume ve incident davranışı
 
@@ -275,15 +282,15 @@ outstanding effect, stale recovery epoch veya receiver/readiness gap'i varken yo
 
 Hiçbir yeni ARIA rolü production droplet'ta çalışmaz; dedicated control VM ile ayrı worker VM exact
 resource/DB-pool/headroom admission'ından geçer. Charged-unknown reservation, durable cooldown,
-aggregate storage/queue/telemetry quotas, out-of-band kill/paging, dispatch horizon, signed DB/object
-recovery cut, cross-account/region backup ve global failover epoch
+aggregate storage/queue/telemetry quotas, out-of-band kill/paging, dispatch horizon, signed
+DB/object recovery cut, cross-account/region backup ve global failover epoch
 [operations authority](../../plans/2026-09-01-new-aria-autonomous-engineering/authority/operations-reliability.md)'ndedir.
 
 ## Rollout, coexistence ve removal ölçütü
 
-Rollout sırası read-only, isolated no-push, PR delivery, adversarial validation, shadow,
-`PR_ONLY`, low-risk canary ve bounded medium-risk'tir. Legacy karşılaştırması salt-okunur evidence
-olarak kalır; çift yazım ve runtime fallback yoktur. High-risk S65-S72 boyunca yalnız keşfedilir,
+Rollout sırası read-only, isolated no-push, PR delivery, adversarial validation, shadow, `PR_ONLY`,
+low-risk canary ve bounded medium-risk'tir. Legacy karşılaştırması salt-okunur evidence olarak
+kalır; çift yazım ve runtime fallback yoktur. High-risk S65-S72 boyunca yalnız keşfedilir,
 sınıflandırılır ve readiness dossier'ına girer; aktivasyon yasaktır ve yeni onaylı program ister.
 
 Legacy removal bu programın kararı değildir. İlerideki ayrı karar; operator sahipliği, archive
@@ -303,12 +310,14 @@ envanterinin sıfır olduğunu kanıtlamalıdır.
 
 ## Reddedilen alternatifler
 
-- **Legacy üzerinde genişletme:** aktif runtime'ı riske atar ve güven/kimlik/state kusurlarını miras alır.
+- **Legacy üzerinde genişletme:** aktif runtime'ı riske atar ve güven/kimlik/state kusurlarını miras
+  alır.
 - **Legacy kod veya state import'u:** bağımsız ürün ve authority sınırını bozar.
 - **Ayrı kernel package:** tek source root ve yerel anlaşılabilirliği parçalar.
 - **Event-sourced rebuild:** current-state/effect gerçeğine gereksiz ikinci authority ekler.
 - **Shared credential veya model self-review:** principal ayrımını ve non-forgeable onayı yok eder.
 - **API fallback:** subscription-only provider policy ve credential containment'ı ihlal eder.
 - **NATS'i durable truth yapmak:** broker kaybını command/effect kaybına dönüştürür.
-- **Çift yazım veya big-bang replacement:** uzlaştırılamayan authority ve rollback belirsizliği yaratır.
+- **Çift yazım veya big-bang replacement:** uzlaştırılamayan authority ve rollback belirsizliği
+  yaratır.
 - **High-risk aktivasyonu:** bu programın kanıt kapsamını aşar; S72 sonunda kapalı kalır.

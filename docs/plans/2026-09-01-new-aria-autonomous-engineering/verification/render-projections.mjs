@@ -15,7 +15,7 @@ const repositoryRoot = resolve(
 );
 const planRoot = join(repositoryRoot, 'docs/plans/2026-09-01-new-aria-autonomous-engineering');
 const check = process.argv.includes('--check');
-const outputs = buildProjectionSet(planRoot);
+const outputs = buildProjectionSet(planRoot, repositoryRoot);
 const drift = [];
 
 for (const [relativePath, expected] of outputs) {

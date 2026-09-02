@@ -21,84 +21,84 @@
     {
       "role": "integrity",
       "path": "reviews/01-integrity.md",
-      "sha256": "656788c691fd2f44de9bffbfccde97e38a511235c91b30c897733c1bf0801743",
+      "sha256": "059bddd8434f518845924330913da24cd4095615957e28b8d5f4ad9e0a4cf279",
       "source_path": "reviews/source/01-integrity.md.raw",
       "source_sha256": "61b0a8b71351a85cb48954ed7761ffffa7c91b32c7955c3eb2f4f8d9d04723cc"
     },
     {
       "role": "identity",
       "path": "reviews/02-identity.md",
-      "sha256": "a5f1bca7f02dc3d333da88f0bb966198ca9a4e2e61fe1fcb4248a49a395782fd",
+      "sha256": "5eeb90eb64b1d1b5007bd2c963070edb498160bc2eac386fff4f2c01fa63be89",
       "source_path": "reviews/source/02-identity.md.raw",
       "source_sha256": "a5f1bca7f02dc3d333da88f0bb966198ca9a4e2e61fe1fcb4248a49a395782fd"
     },
     {
       "role": "authorization",
       "path": "reviews/03-authorization.md",
-      "sha256": "96a96387d52a9faa157eaa3a69da9e854b803e3c6746f8d539c38194be346322",
+      "sha256": "87f5e52b405b16128b86448c8e6fb1b90fec4cdd3a0ee13696fc4cd5cb01bfec",
       "source_path": "reviews/source/03-authorization.md.raw",
       "source_sha256": "96a96387d52a9faa157eaa3a69da9e854b803e3c6746f8d539c38194be346322"
     },
     {
       "role": "execution-containment",
       "path": "reviews/04-execution-containment.md",
-      "sha256": "47d9111ed0ba840bc91e06a71a97d90485cece8c20cc8f63f575adb12bea2378",
+      "sha256": "9ea9d3c7e101d96939592ca989c6d10f908e0ffccb58a3678ad15893dafd885f",
       "source_path": "reviews/source/04-execution-containment.md.raw",
       "source_sha256": "47d9111ed0ba840bc91e06a71a97d90485cece8c20cc8f63f575adb12bea2378"
     },
     {
       "role": "supply-chain",
       "path": "reviews/05-supply-chain.md",
-      "sha256": "e85469f9bc574924f0352ac893e8bd5a376c619dfa348ccb2a32c1dafd7dcbf5",
+      "sha256": "95fbc464879326571f3e5dfadfe7979e0b0a022a2f17bca7dae95e04ac19bbb5",
       "source_path": "reviews/source/05-supply-chain.md.raw",
       "source_sha256": "e85469f9bc574924f0352ac893e8bd5a376c619dfa348ccb2a32c1dafd7dcbf5"
     },
     {
       "role": "data-privacy",
       "path": "reviews/06-data-privacy.md",
-      "sha256": "8cf2b0fc5c92811146e1afd56e81204ba5121a984b5b4a804da1a46ccc767f45",
+      "sha256": "4463d086c326a09c79713c9b24db472c708236bce2eb1855aaddee41c9233c62",
       "source_path": "reviews/source/06-data-privacy.md.raw",
       "source_sha256": "8cf2b0fc5c92811146e1afd56e81204ba5121a984b5b4a804da1a46ccc767f45"
     },
     {
       "role": "cost-capacity",
       "path": "reviews/07-cost-capacity.md",
-      "sha256": "de4382d74338c9c99327bfa3e655bf769c48eb9d576d81b4f6e3f8ed8bb4d123",
+      "sha256": "df46b5a083f96209fbd49f4fdd358515800d490d1892506b985bde6ac581c08a",
       "source_path": "reviews/source/07-cost-capacity.md.raw",
       "source_sha256": "de4382d74338c9c99327bfa3e655bf769c48eb9d576d81b4f6e3f8ed8bb4d123"
     },
     {
       "role": "reliability-dr",
       "path": "reviews/08-reliability-dr.md",
-      "sha256": "670f835a113accec77c58f36c086fe13e04f9a06bc7da8aada54403075a1feae",
+      "sha256": "2f4338eccef81c0bc45b896ffa1393c46490e011b9d61232de156311339c7679",
       "source_path": "reviews/source/08-reliability-dr.md.raw",
       "source_sha256": "670f835a113accec77c58f36c086fe13e04f9a06bc7da8aada54403075a1feae"
     },
     {
       "role": "github-delivery",
       "path": "reviews/09-github-delivery.md",
-      "sha256": "11e5a72e7995f3cdb57cce6f162869b39f99edb33341c277aaa70f9a3d870411",
+      "sha256": "83f8803aa0693aebb59c7c1c44e995646800e59b9049c194e0fd7af2a912368a",
       "source_path": "reviews/source/09-github-delivery.md.raw",
       "source_sha256": "11e5a72e7995f3cdb57cce6f162869b39f99edb33341c277aaa70f9a3d870411"
     },
     {
       "role": "api-ui",
       "path": "reviews/10-api-ui.md",
-      "sha256": "044e2fceb8e3c86f3303c3a014cdb5a045395633ad776a3b1767a1e15ec7753c",
+      "sha256": "0afed15bb433a6eb9129b0e704a72bb5df9b359cb52c593d290750b95aa04cf1",
       "source_path": "reviews/source/10-api-ui.md.raw",
       "source_sha256": "044e2fceb8e3c86f3303c3a014cdb5a045395633ad776a3b1767a1e15ec7753c"
     },
     {
       "role": "portability-readability",
       "path": "reviews/11-portability-readability.md",
-      "sha256": "5b113ea5dbc2755b8207662bbc87c059aa6cfd80dbbe99fbfa600a1db60410b6",
+      "sha256": "5e632b70b021f6f6fbfd1cdcb45d31e473b5d3cc738277d075ed605e538e2801",
       "source_path": "reviews/source/11-portability-readability.md.raw",
       "source_sha256": "43c9d62c77d98ab3b704f6d18545fbd2b798a11843f02cee6903ed5d3d29f655"
     },
     {
       "role": "appellate",
       "path": "reviews/12-appellate.md",
-      "sha256": "8b18f15641a1a759953cc19aac797767fd90dc1326858150340f765ed9701455",
+      "sha256": "d0cf6038e8c09a0c940906ea4b027748bd0916bccc8b73de77eef2da693af196",
       "source_path": "reviews/source/12-appellate.md.raw",
       "source_sha256": "8b18f15641a1a759953cc19aac797767fd90dc1326858150340f765ed9701455"
     }
@@ -127,16 +127,22 @@
     "source": "controller-materialized specialist reports 01-12",
     "principal_credential_claimed": false,
     "view_transform": {
-      "id": "prettier-markdown-v1",
+      "id": "prettier-markdown-v2",
       "tool": "prettier",
       "tool_version": "3.6.2",
       "argv_template": [
         "prettier",
         "--config",
         ".prettierrc",
+        "--print-width",
+        "110",
+        "--prose-wrap",
+        "always",
         "--stdin-filepath",
         "<reader-view.md>"
       ],
+      "preamble": "<!-- markdownlint-disable MD013 MD033 -->\n<!-- Historical review text preserves long evidence tokens and placeholders. -->\n\n",
+      "preamble_sha256": "c69a8d9ade05e1f592e28ee430515baef4a14497a693e910e5afd302fc47e2af",
       "config_path": ".prettierrc",
       "config_sha256": "43451b0c73dee100561467f79431e2e0b20d3a4f8e72e3c7b19fc94c28227deb",
       "lockfile_path": "package-lock.json",

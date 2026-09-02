@@ -2,12 +2,17 @@
 
 [Authority index](INDEX.md) · Owners: S02, S04, S06-S07, S15, S39, S41, S46, S60.
 
-## Public GraphQL root
+## Terminal GraphQL catalog and phase activation
 
 Canonical closed SDL, [`graphql/root.graphql`](graphql/root.graphql),
 [`graphql/read-model.graphql`](graphql/read-model.graphql) ve
 [`graphql/commands.graphql`](graphql/commands.graphql) fragments'larının birleşimidir. ARIA public
-root'u tam olarak aşağıdaki yedi query ve dokuz mutation'dır; ek root field forbidden'dır:
+terminal catalog'u tam olarak aşağıdaki yedi query ve dokuz mutation'dır; ek root field forbidden'dır.
+Phase-active composition ayrı authority'dir: S06-S08 tam `7Q/0M` çalışır ve `Mutation` root'u SDL,
+resolver ve introspection'da yoktur. S15 create/message/submit/acknowledge, S17 cancel/retry, S30 merge
+evaluation ve S39 freeze/resume mutation'larını etkinleştirir; S46 terminal `7Q/9M` catalog'a ulaşır.
+Machine authority ve semantic SDL closure commitment'ı
+[`verification/api-policy.json`](../verification/api-policy.json) içindedir:
 
 ```graphql
 type Query {
@@ -65,6 +70,11 @@ asOf, authorityVersion, reasonCode, retryable, data
 `CORRUPT|UNAVAILABLE` ise health non-green, prominent ve submit/resume/merge controls disabled'dır.
 `EMPTY` yalnız verified empty; GraphQL data+errors, exception, rejected cursor veya missing source
 empty render edemez.
+
+Aggregate/public lifecycle eşlemesi ilerlemeyi birleştirmez: `DRAFT->DRAFT`,
+`SUBMITTED->SUBMITTED`, `PLANNED->PLANNED`, `EXECUTING->EXECUTING`, `VERIFYING->VERIFYING`,
+`SUCCEEDED->COMPLETED`, `FAILED->FAILED`, `CANCELLED->CANCELLED`. `UNKNOWN` normal lifecycle alias'ı
+değil, fail-closed projection condition'dır.
 
 Her mutation input closed/unknown-field-reject schema'dır ve ortak olarak `requestId: UUID!`,
 `workspaceId: ID!`, `expectedVersion: Long!`, `clientIssuedAt: DateTime!` taşır. Create için

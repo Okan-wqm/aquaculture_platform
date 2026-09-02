@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseStrictJson } from './canonical.mjs';
-
+import { deliveryPolicy } from './delivery-policy-identity.mjs';
 const requiredText = [
   [
     'authority/identity-authority-tcb.md',
@@ -46,6 +46,7 @@ const requiredText = [
       /`409`[\s\S]*option mismatch terminal conflict/u,
       /non-empty veya unknown stack permit tüketmeden/u,
       /`merge_action=default` deny/u,
+      /`operator_attested`[\s\S]*gh pr merge --merge --match-head-commit/u,
     ],
   ],
   [
@@ -74,22 +75,12 @@ const requiredText = [
     ],
   ],
 ];
-const deliveryPolicy = {
-  schema_version: '1.0.0',
-  policy_id: 'new-aria-one-work-unit-per-pr-v1',
-  work_units: 'D0 and each S01-S72 sprint',
-  pull_request_cardinality: 'exactly one work unit',
-  required_check_state: 'GitHub Actions SUCCESS',
-  target_ref: 'refs/heads/main',
-  merge_method: 'MERGE_COMMIT',
-  forbidden_merge_methods: ['SQUASH', 'REBASE'],
-  successor_base: 'exact resulting origin/main SHA',
-};
-
 function add(errors, message) {
   errors.push({ code: 'AUTHORITY_CONTRACT', message });
 }
-
+function semanticText(source) {
+  return source.replace(/\s+/gu, ' ').trim();
+}
 function verifyText(errors, planRoot) {
   for (const [path, patterns] of requiredText) {
     const source = readFileSync(join(planRoot, path), 'utf8');
@@ -101,7 +92,6 @@ function verifyText(errors, planRoot) {
   if (/stack ordering|out-of-order stack/u.test(phase))
     add(errors, 'P07: stack ordering is forbidden');
 }
-
 function verifyDependencies(errors, planRoot) {
   const rows = readFileSync(join(planRoot, 'verification/program-map.jsonl'), 'utf8')
     .trimEnd()
@@ -123,7 +113,6 @@ function verifyDependencies(errors, planRoot) {
     }
   }
 }
-
 function verifyEnums(errors, planRoot) {
   const status = 'OK|EMPTY|MISSING|CORRUPT|UNAVAILABLE';
   const freshness = 'CURRENT|STALE';
@@ -143,12 +132,11 @@ function verifyEnums(errors, planRoot) {
     }
   }
 }
-
 function verifyDelivery(errors, planRoot) {
   const actual = parseStrictJson(
     readFileSync(join(planRoot, 'verification/delivery-policy.json'), 'utf8'),
   );
-  const plan = readFileSync(join(planRoot, 'PLAN.md'), 'utf8');
+  const plan = semanticText(readFileSync(join(planRoot, 'PLAN.md'), 'utf8'));
   if (JSON.stringify(actual) !== JSON.stringify(deliveryPolicy)) {
     add(errors, 'delivery policy identity drift');
   }
@@ -156,12 +144,17 @@ function verifyDelivery(errors, planRoot) {
     /D0 ve ayrı ayrı S01-S72/u,
     /GitHub Actions `SUCCESS` olmadan merge yasaktır/u,
     /tek yöntem merge commit'tir, squash ve rebase merge yasaktır/u,
+    /external signed operator readback/u,
+    /İkinci repository PR\/commit yasaktır/u,
+    /review sonrası reviewed source\/head mutasyonu yasaktır/u,
+    /protected target base'e `MERGE_COMMIT`/u,
     /exact `origin\/main` SHA'dan/u,
   ]) {
     if (!pattern.test(plan)) add(errors, `PLAN delivery rule missing ${pattern.source}`);
   }
+  if (/ledger-close/u.test(plan))
+    add(errors, 'PLAN delivery rule forbids ledger-close repository mutation');
 }
-
 export function verifyAuthorityContracts(planRoot) {
   const errors = [];
   verifyText(errors, planRoot);

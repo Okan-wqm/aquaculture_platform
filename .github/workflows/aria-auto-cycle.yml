@@ -105,6 +105,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
+  id-token: write  # ARIA-AUDIT-016: attestation needs the Actions OIDC channel
   # PLAN Wave 1 PR 2.6b — contents:write is what the cutover costs. The store
   # publishes by pushing `aria/state`, so the lane needs write on this
   # repository's refs. The blast radius is bounded on the SERVER, not here: the
@@ -697,6 +698,8 @@ jobs:
           ANCHOR_EPOCH="${ARIA_JOB_LAUNCH_EPOCH:-$(date +%s)}"
           export ARIA_JOB_DEADLINE_EPOCH=$(( ANCHOR_EPOCH + JOB_TIMEOUT_MINUTES * 60 - 6000 ))
           echo "spawn deadline: $(date -u -d @${ARIA_JOB_DEADLINE_EPOCH} +%H:%M:%SZ) (job cap ${JOB_TIMEOUT_MINUTES}m - 100m margin, anchored $( [ -n "${ARIA_JOB_LAUNCH_EPOCH:-}" ] && echo at-job-launch || echo at-step ))"
+          ARIA_CONSENSUS_PROMOTION_ACK="${{ vars.ARIA_CONSENSUS_PROMOTION_ACK }}" \
+          PYTHONUNBUFFERED=1 \
           PYTHONPATH=aria-kernel python3 -m aria_kernel autonomy run \
             --workspace-root "$GITHUB_WORKSPACE" \
             --tools-dir "$ARIA_TOOLS_DIR" \

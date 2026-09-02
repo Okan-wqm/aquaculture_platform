@@ -5604,6 +5604,24 @@ def _main(argv: list[str] | None = None) -> int:
         # its 1800s + 4-rounds defaults regardless of operator input.
         # This was the root cause of cycle 1 polling for 30 min instead
         # of 5 min on the first observed run.
+        # OOM incelemesi 2026-09-02: --cycle-deadline-seconds yalnızca
+        # döngü-iterasyonları ARASINDA kontrol ediliyordu; tek bir faz sınırın
+        # üzerinde takıldığında hiçbir şey kesmiyordu (90dk koşup OOM ile ölen
+        # süreç). Sınır, mevcut faz-SIGALRM makinesine taşınır:
+        # ARIA_JOB_DEADLINE_EPOCH, iş-epoch'u ile "şimdi + cycle-deadline"
+        # arasındaki minimuma çekilir. Faz içinde kesilme =
+        # PhaseDeadlineExceeded = temiz mühürleme; between-iteration kontrolü
+        # (cycle_deadline_exceeded) yerinde kalır, bu onun kesen eşi.
+        if getattr(args, "cycle_deadline_seconds", 0):
+            _cap = time.time() + args.cycle_deadline_seconds
+            _existing = os.environ.get("ARIA_JOB_DEADLINE_EPOCH")
+            if _existing:
+                try:
+                    _cap = min(_cap, float(_existing))
+                except ValueError:
+                    pass
+            os.environ["ARIA_JOB_DEADLINE_EPOCH"] = str(_cap)
+        
         result = run_autonomy_orchestrator(
             base_dir=args.tools_dir,
             auto_merge_runner=auto_merge_runner,

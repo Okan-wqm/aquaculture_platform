@@ -213,6 +213,18 @@ jobs:
             EFFECTIVE_MOCK="false"
             MOCK_SOURCE="workflow_default_claude"
           fi
+          # Plan 032 Faz 032a — the kill switch is a raw repository variable
+          # and the kernel's boolean parser raises on anything but
+          # true/false, so a value like `enabled` would not force mock: it
+          # would crash the executor after the claim. Refuse it HERE, where
+          # the operator can read the reason, and name the source.
+          case "${EFFECTIVE_MOCK}" in
+            true|false) ;;
+            *)
+              echo "::error::ARIA mock resolution from ${MOCK_SOURCE} is '${EFFECTIVE_MOCK}'; only 'true' or 'false' is accepted" >&2
+              exit 1
+              ;;
+          esac
           echo "effective_mock=${EFFECTIVE_MOCK}" >> "$GITHUB_OUTPUT"
           echo "mock_source=${MOCK_SOURCE}" >> "$GITHUB_OUTPUT"
           if [ "${EFFECTIVE_MOCK}" = "false" ]; then
@@ -644,6 +656,13 @@ jobs:
           MAX_TURNS_PER_RUN: '12'
           MAX_REQUESTS_PER_RUN: '30'
           MAX_TIMEOUT_SECONDS: '1800'
+          # Plan 032 Faz 032a — the dispatcher factories poll for an envelope
+          # consumer INSIDE the cycle, and on this lane no consumer runs
+          # until the executor lane starts after the cycle ends: every poll
+          # structurally lost its full 600s (13/13 in production). Zero
+          # returns the structured fallback at once; the executor still
+          # drains the minted envelope, and the chain brings the answer back.
+          ARIA_DISPATCHER_POLL_TIMEOUT_SECONDS: '0'
           MAX_CYCLES_INPUT: ${{ github.event.inputs.max_cycles }}
           # ORPHAN-HIGH-728 — the resolved verdict, carried as data. A
           # literal here is exactly the drift the gate above exists to

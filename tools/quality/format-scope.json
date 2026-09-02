@@ -28592,6 +28592,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/aria/plans/032-harness-superiority-program.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/aria/plans/2026-05-25-aria-codex-cli-xhigh-architecture-plan.md",
       "prettier_managed": true
     },

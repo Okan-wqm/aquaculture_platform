@@ -2025,6 +2025,48 @@ REQUEST_FAULT_RELEASE_REASONS: frozenset[str] = frozenset({
     "submit_rejected",
 })
 
+# Plan 032 Faz 032a — the executor also releases with PARAMETERISED reasons
+# (an f-string carrying an exit code, a timeout, a validation error class).
+# Their fault ownership is by prefix, and the prefix tables live beside the
+# literal sets so the classification test can scan the executor for
+# ``reason=f"..."`` sites the way it scans ``reason="..."`` ones.
+#
+# * ``claude_cli_exit_<code>`` — see ``classify_release_reason``.
+# * ``submit_timeout_<n>s`` — the kernel submit CLI did not answer inside
+#   its wall clock; a slow submit says nothing about the request.
+HARNESS_FAULT_RELEASE_REASON_PREFIXES: tuple[str, ...] = (
+    "claude_cli_exit_",
+    "submit_timeout_",
+)
+# * ``plan_content_invalid:<errors>`` — the agent's envelope failed the
+#   role's content contract; retrying the same request usually repeats it.
+# * ``agent_refused:<class>`` — the agent declined the request on the
+#   merits (a refusal envelope), which is a statement about the request.
+REQUEST_FAULT_RELEASE_REASON_PREFIXES: tuple[str, ...] = (
+    "plan_content_invalid:",
+    "agent_refused:",
+)
+
+RELEASE_REASON_CLASSES: tuple[str, ...] = ("harness", "request", "unclassified")
+
+
+def classify_release_reason(reason: str) -> str:
+    """Fault ownership of a release reason: ``harness`` | ``request`` |
+    ``unclassified``.
+
+    ``unclassified`` is the honest answer for a reason neither table names.
+    It still COUNTS as the request's fault (fail toward the human, never
+    toward silent infinite retry — the standing rule the counter test pins),
+    but it is surfaced separately so the release site can say so on the
+    governance ledger instead of burying a stale table inside an escalation.
+    """
+    text = str(reason or "")
+    if text in HARNESS_FAULT_RELEASE_REASONS or text.startswith(HARNESS_FAULT_RELEASE_REASON_PREFIXES):
+        return "harness"
+    if text in REQUEST_FAULT_RELEASE_REASONS or text.startswith(REQUEST_FAULT_RELEASE_REASON_PREFIXES):
+        return "request"
+    return "unclassified"
+
 
 def _is_harness_fault_reason(reason: str) -> bool:
     """The dynamic executor reason ``claude_cli_exit_<code>`` is harness-class:
@@ -2034,7 +2076,7 @@ def _is_harness_fault_reason(reason: str) -> bool:
     reasons. A residual exit-code release still says nothing about the
     request; genuinely poisonous work is caught by lease expiry and rejected
     submissions, which stay request-fault."""
-    return reason in HARNESS_FAULT_RELEASE_REASONS or reason.startswith("claude_cli_exit_")
+    return classify_release_reason(reason) == "harness"
 
 
 def _request_fault_requeue_count(rows: list[dict[str, Any]], request_id: str) -> int:
@@ -2744,6 +2786,12 @@ def next_pending_request(
         root / "agent-invocations" / "requests.jsonl",
         expected_surface="agent_invocation_requests",
     )
+    # Plan 032 Faz 032a (I-V12-QUEUE-01) — ONE batch derivation for the whole
+    # queue. The per-request form reloaded all three ledgers per candidate;
+    # on the 725-row backlog of 2026-09-02 the executor's selection step took
+    # 29 minutes (12:42 → 13:11) to answer "nothing pending". The batch form
+    # is the same fold over one load (ORPHAN-HIGH-794 built it for the sweep).
+    states = derive_request_states(base_dir=root)
     for request in requests:
         if _target_is_shadow(root, str(request.get("target_agent") or "")) and not request.get("shadow_eval"):
             continue
@@ -2756,7 +2804,7 @@ def next_pending_request(
         # structurally failing request used to end the entire drain.
         if exclude_request_ids and str(request.get("request_id")) in exclude_request_ids:
             continue
-        state = derive_request_state(request_id=request["request_id"], base_dir=root)
+        state = states.get(str(request.get("request_id") or ""), "PENDING")
         if state not in {"PENDING", "REQUEUED"}:
             continue
         if repo_root is not None:
@@ -3333,6 +3381,16 @@ def release_claim(
                 "reason": reason,
             },
             expected_surface="agent_invocation_claims",
+        )
+    # Plan 032 Faz 032a — a reason neither fault table names is charged to
+    # the request (the standing fail-toward-the-human rule) AND said out
+    # loud, so a stale table is a governance row tonight, not a HUMAN_REQUIRED
+    # escalation someone reverse-engineers next week.
+    if classify_release_reason(reason) == "unclassified":
+        append_tools_governance(
+            root,
+            "unclassified_release_reason",
+            {"claim_id": claim_id, "request_id": request_id, "reason": reason},
         )
     append_tools_governance(
         root,

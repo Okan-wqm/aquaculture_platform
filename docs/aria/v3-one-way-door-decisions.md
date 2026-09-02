@@ -58,6 +58,36 @@ The 4-validator audit on the v3 plan flagged that several architectural decision
 
 **Mitigation:** I-V9-PRESSURE-01 invariant pins the exact 5-member set + lowercase_snake_case values + disjointness from `pressure.py` SOURCE_WEIGHTS. A refactor that drops a member would fail CI before merge.
 
+## 6. Ledger line budget — one writer-side constant (Plan 032 Faz 032a)
+
+**Decision:** `ledger.LEDGER_ROW_MAX_BYTES` (1 MiB) is enforced at append time by `_append_jsonl_locked_body` (`LedgerRowTooLargeError`), and every reader that caps a line (`state_snapshot.SNAPSHOT_LEDGER_ROW_MAX_BYTES`, `fixture_runner.FIXTURE_RUN_LEDGER_MAX_LINE_BYTES`) imports that constant.
+
+**Why one-way:** An append-only hash chain cannot be shrunk after the fact; a row above the reader's cap makes the whole surface unpublishable (run 33608801135, 2026-09-02). Lowering the constant later would orphan already-chained rows; raising it re-admits the failure class.
+
+**Reversibility cost:** Any change needs a `grandfather_line_prefixes`-style migration over every published ledger plus a snapshot re-verification.
+
+**Mitigation:** I-V12-LEDGER-01/02 pin write-time refusal and reader/writer identity.
+
+## 7. `write_driving_surface_reset` governance kind + release-reason prefix tables (Plan 032 Faz 032a)
+
+**Decision:** A write-driving ledger restarting from empty is recorded as a `write_driving_surface_reset` governance row carrying the archived surface hash and an operator approval (`memory_gap.record_surface_reset`). Release-reason fault ownership is by literal OR prefix (`HARNESS_FAULT_RELEASE_REASON_PREFIXES`, `REQUEST_FAULT_RELEASE_REASON_PREFIXES`); an unclassified reason still charges the request and lands an `unclassified_release_reason` row.
+
+**Why one-way:** Both strings land in `governance.jsonl`; the prefix tables decide whether a claims-ledger row counts toward HUMAN_REQUIRED, so renaming either rewrites derived history.
+
+**Reversibility cost:** Ledger-rewrite migration of governance kinds + re-derivation of every request state.
+
+**Mitigation:** I-V12-RELEASE-01/02/03 and I-V12-STATE-03 pin the vocabulary and the ceremony.
+
+## 8. Single ledger authority is the `aria/state` transport (Plan 032 principle 1)
+
+**Decision:** Every producer (GHA lanes, executor, any future daemon) appends through the kernel's locked, hash-chained writers and publishes ONLY through `state_store.publish_with_contention_replay` (fast-forward-only branch + deterministic suffix replay). No producer keeps a private chain head or a second publish path.
+
+**Why one-way:** Two publish paths around one hash-chained ledger is how the ledger diverges (`tests/invariants/aria-single-restore-path.spec.ts` already pins the restore half of this).
+
+**Reversibility cost:** A second authority would require a new transport with its own ancestry proof and a migration of every consumer.
+
+**Mitigation:** The gateway/daemon phases (032f) add an invariant that daemon code imports no publish primitive other than the store API.
+
 ## Themes
 
 - **3 of 5 one-way doors are ledger-anchored** (events, terminal states, candidate sources). The append-only audit-chain semantics are the load-bearing safety guarantee that makes them irreversible without migration.
@@ -69,6 +99,8 @@ The 4-validator audit on the v3 plan flagged that several architectural decision
 - I-V10-MEM-04 — hash-chain integrity at every `lookup_pattern` call
 - I-V9-PRESSURE-01 — `PlanCandidateSource` exact member set
 - I-V9-EVENT-01 — `EVENT_TYPES` contains the 5 V9 implementation types
+- I-V12-LEDGER-01/02 — ledger line budget binds at write time; readers import the writer's constant
+- I-V12-RELEASE-01/02/03, I-V12-STATE-03 — release-reason prefix ownership; surface-reset ceremony
 - I-V9-STATE-01 — `TERMINAL_STATES` contains both V9 terminal states
 - V9.1 frontmatter pin — agent file references `--base snowball`
 

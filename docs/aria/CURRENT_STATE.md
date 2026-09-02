@@ -1,8 +1,8 @@
 # ARIA Current State
 
-Date: 2026-09-02
+Date: 2026-09-03
 Target ref: `origin/main`
-Last verified ARIA authority hash: `48d45bf3f17d88d4829a888fb1381e90617a563887ec80aed8ef665c3a4f79fc`
+Last verified ARIA authority hash: `1f3cb78d8bdb649b70b0619fcb5a9d021635f6ff3385a0a177beb0738a182830`
 Status: post-snowball mainline hardening in progress
 
 ## Authority Chain
@@ -49,6 +49,9 @@ explicitly marked historical. Runtime behavior must not be inferred from stale p
 - Runtime artifact safety boundary: `aria-kernel/aria_kernel/artifact_safety.py`
 - Enterprise autonomy burn-in: `aria-kernel/aria_kernel/burn_in.py`
 - Observe burn-in report schema: `docs/aria/schemas/autonomy-burn-in-report.schema.json`
+- Health readout (Plan 032 Faz 032a): `aria-kernel/aria_kernel/doctor.py::run_doctor`
+- Write-driving surface reset ceremony (Plan 032 Faz 032a): `aria-kernel/aria_kernel/memory_gap.py::record_surface_reset`
+- Release-reason fault ownership (Plan 032 Faz 032a): `aria-kernel/aria_kernel/agent_invocations.py::classify_release_reason`
 
 ## Runtime
 

@@ -699,6 +699,7 @@ jobs:
           export ARIA_JOB_DEADLINE_EPOCH=$(( ANCHOR_EPOCH + JOB_TIMEOUT_MINUTES * 60 - 6000 ))
           echo "spawn deadline: $(date -u -d @${ARIA_JOB_DEADLINE_EPOCH} +%H:%M:%SZ) (job cap ${JOB_TIMEOUT_MINUTES}m - 100m margin, anchored $( [ -n "${ARIA_JOB_LAUNCH_EPOCH:-}" ] && echo at-job-launch || echo at-step ))"
           ARIA_CONSENSUS_PROMOTION_ACK="${{ vars.ARIA_CONSENSUS_PROMOTION_ACK }}" \
+          PYTHONUNBUFFERED=1 \
           PYTHONPATH=aria-kernel python3 -m aria_kernel autonomy run \
             --workspace-root "$GITHUB_WORKSPACE" \
             --tools-dir "$ARIA_TOOLS_DIR" \

@@ -289,7 +289,11 @@ def run_review_runner(
             suggested_prompt=(
                 "Audit the implementation against the convergence-stage "
                 "must_satisfy contract. Surface every gap, no matter "
-                "how minor."
+                "how minor. Close your response with one machine-readable "
+                "verdict line on its own row — exactly 'VERDICT: no_gaps' "
+                "when every criterion is satisfied by the evidence you "
+                "cite, 'VERDICT: gaps_open' otherwise. The merge gate reads "
+                "that line and nothing else."
             ),
             must_satisfy=must_satisfy,
             allowed_scope=[f"cycle/{cycle_id}"],

@@ -268,7 +268,7 @@ Remediation evidence (2026-08-25):
   lock explicitly. Locked checks pass for root `sensor-ingestion` release, the
   edge `scada-display` release profile, and every fuzz binary.
 - The edge release still carries the explicitly tracked `bincode 1.3.3`
-  unmaintained warning (`RUSTSEC-2025-0141`, migration deadline 2026-09-01),
+  unmaintained warning (`RUSTSEC-2025-0141`, tracked by `RUST-MEDIUM-004`),
   whose replacement requires a coordinated wire-format migration. The
   non-shipping fuzz graph also reports `spin 0.9.8` as yanked. Neither is an
   active vulnerability or an unrecorded critical/high release exception.
@@ -278,3 +278,34 @@ Remediation evidence (2026-08-25):
   external setting. Weekly full CI still audits every deployed npm graph
   fail-closed; enabling automated fixes should be coordinated after this branch
   merges and GitHub reindexes the remediated locks.
+
+## RUST-MEDIUM-004 — unmaintained edge serialization dependencies require coordinated replacement
+
+- **Severity:** MEDIUM
+- **State:** OPEN
+- **Owner:** security-reviewer
+- **Deadline:** 2026-12-01
+
+The 2026-09-02 deadline review found that `RUSTSEC-2024-0388` was a stale
+exception: `derivative` is absent from the committed edge lockfile, so the
+exception was removed from both TOML policies and every workflow audit command.
+
+Two informational, unmaintained advisories remain. `bincode 1.3.3` is a direct
+dependency whose persisted bytes are used by the audit HMAC chain and RBAC
+manifest; replacing it changes the wire representation and requires a versioned
+data migration. `atomic-polyfill 1.0.3` is reachable only through the optional
+OPC UA graph (`async-opcua -> postcard -> heapless`). The latest upstream
+`async-opcua 0.19.0` lockfile still contains the same transitive package. RustSec
+lists no patched version for either advisory and classifies both as
+unmaintained, not active vulnerabilities.
+
+Required closure:
+
+- Define and test a versioned replacement format for every persisted bincode
+  payload before changing the encoder.
+- Remove `atomic-polyfill` by upgrading to an upstream OPC UA/postcard graph
+  that no longer enables `heapless-cas`, or maintain a reviewed local fork if
+  upstream remains blocked.
+- Remove each ignore from `deny.toml`, `audit.toml`, and all workflow audit
+  commands in the same commit when its package leaves the lockfile.
+- Re-evaluate both dependency graphs no later than 2026-12-01.

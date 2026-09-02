@@ -1117,13 +1117,51 @@ jobs:
       no_cache: false
     secrets: inherit
 
-  deploy-development:
+  development-deploy-contract:
     needs:
       - build-development-images
     if: >-
+      always() &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.build-development-images.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require reusable image workflow outputs
+        env:
+          DEPLOY_SERVICES: ${{ needs.build-development-images.outputs.deploy_services }}
+          FULL_DEPLOY: ${{ needs.build-development-images.outputs.full_deploy }}
+          IMAGE_PREFIX: ${{ needs.build-development-images.outputs.image_prefix }}
+          MIGRATION_REQUIRED: ${{ needs.build-development-images.outputs.migration_required }}
+          SELECTION_REASON: ${{ needs.build-development-images.outputs.selection_reason }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DEPLOY_SERVICES" ]; then
+            echo '::error::Missing deploy_services output from reusable image workflow'
+            exit 1
+          fi
+          if [ -z "$IMAGE_PREFIX" ]; then
+            echo '::error::Missing image_prefix output from reusable image workflow'
+            exit 1
+          fi
+          [[ "$DEPLOY_SERVICES" =~ ^[a-z0-9][a-z0-9._-]*(\ [a-z0-9][a-z0-9._-]*)*$ ]]
+          [[ "$IMAGE_PREFIX" =~ ^ghcr\.io/[a-z0-9._/-]+$ ]]
+          [[ "$FULL_DEPLOY" == 'true' || "$FULL_DEPLOY" == 'false' ]]
+          [[ "$MIGRATION_REQUIRED" == 'true' || "$MIGRATION_REQUIRED" == 'false' ]]
+          if [ -z "$SELECTION_REASON" ]; then
+            echo '::error::Missing selection_reason output from reusable image workflow'
+            exit 1
+          fi
+
+  deploy-development:
+    needs:
+      - build-development-images
+      - development-deploy-contract
+    if: >-
+      always() &&
       needs.build-development-images.result == 'success' &&
-      needs.build-development-images.outputs.deploy_services != '' &&
-      needs.build-development-images.outputs.image_digest_manifest != ''
+      needs.development-deploy-contract.result == 'success'
     permissions:
       contents: write
       packages: write
@@ -1133,10 +1171,38 @@ jobs:
       deploy_services: ${{ needs.build-development-images.outputs.deploy_services }}
       full_deploy: ${{ needs.build-development-images.outputs.full_deploy == 'true' }}
       migration_required: ${{ needs.build-development-images.outputs.migration_required == 'true' }}
-      image_digest_manifest: ${{ needs.build-development-images.outputs.image_digest_manifest }}
       image_prefix: ${{ needs.build-development-images.outputs.image_prefix }}
       selection_reason: ${{ needs.build-development-images.outputs.selection_reason }}
     secrets: inherit
+
+  development-delivery-status:
+    needs:
+      - detect-changes
+      - build-development-images
+      - development-deploy-contract
+      - deploy-development
+    if: >-
+      always() &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.detect-changes.outputs.deploy_changes == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require successful development delivery
+        run: |
+          set -euo pipefail
+          results=(
+            "build-development-images:${{ needs.build-development-images.result }}"
+            "development-deploy-contract:${{ needs.development-deploy-contract.result }}"
+            "deploy-development:${{ needs.deploy-development.result }}"
+          )
+          for result in "${results[@]}"; do
+            if [[ "$result" != *:success ]]; then
+              echo "::error::Development delivery did not complete: ${result}"
+              exit 1
+            fi
+          done
 
   development-timing-summary:
     needs:
@@ -1546,7 +1612,6 @@ jobs:
           cargo audit --deny warnings \
             --ignore RUSTSEC-2023-0071 \
             --ignore RUSTSEC-2025-0141 \
-            --ignore RUSTSEC-2024-0388 \
             --ignore RUSTSEC-2023-0089 \
             --ignore RUSTSEC-2026-0173 \
             --ignore RUSTSEC-2024-0436

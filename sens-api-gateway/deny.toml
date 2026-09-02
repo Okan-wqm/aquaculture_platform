@@ -49,21 +49,14 @@ ignore = [
     "RUSTSEC-2023-0071",
 
     # -----------------------------------------------------------------
-    # EDGE-CI-003: bincode 1.3.3 unmaintained (RUSTSEC-2025-0141).
-    # Owner: platform-team. Deadline: 2026-09-01 (bincode 2.x migration).
+    # EDGE-CI-003 / RUST-MEDIUM-004: bincode 1.3.3 unmaintained
+    # (RUSTSEC-2025-0141).
+    # Owner: security-reviewer. Deadline: 2026-12-01 (quarterly review).
     # Plan Batch 1 PINS for wire-format stability of audit HMAC chain +
     # canonical bytes. Migration = breaking on-wire change; ADR-level
     # coordinated fleet event (re-sign every live audit record).
     # -----------------------------------------------------------------
     "RUSTSEC-2025-0141",
-
-    # -----------------------------------------------------------------
-    # EDGE-CI-004: derivative 2.2.0 unmaintained (RUSTSEC-2024-0388).
-    # Owner: platform-team. Deadline: 2026-09-01 (async-opcua upstream).
-    # Via async-opcua 0.18 OPC UA binary serialization layer. No active
-    # advisory — unmaintained signal only.
-    # -----------------------------------------------------------------
-    "RUSTSEC-2024-0388",
 
     # -----------------------------------------------------------------
     # EDGE-CI-005 RESOLVED 2026-06-11 (RUST-CVE-001): RUSTSEC-2025-0134
@@ -73,10 +66,12 @@ ignore = [
     # -----------------------------------------------------------------
 
     # -----------------------------------------------------------------
-    # EDGE-CI-006: atomic-polyfill 1.0.3 unmaintained (RUSTSEC-2023-0089).
-    # Owner: platform-team. Deadline: 2026-09-01.
-    # New transitive via async-opcua 0.18. Upstream migrating to
-    # std::sync::atomic. No active vulnerability.
+    # EDGE-CI-006 / RUST-MEDIUM-004: atomic-polyfill 1.0.3 unmaintained
+    # (RUSTSEC-2023-0089).
+    # Owner: security-reviewer. Deadline: 2026-12-01 (quarterly review).
+    # Transitive via async-opcua -> postcard -> heapless. The latest
+    # async-opcua 0.19.0 lock still contains this graph. No active
+    # vulnerability; replacement remains upstream-blocked.
     # -----------------------------------------------------------------
     "RUSTSEC-2023-0089",
 

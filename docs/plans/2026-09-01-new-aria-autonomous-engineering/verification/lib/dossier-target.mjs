@@ -1,36 +1,11 @@
-import { readFileSync, realpathSync } from 'node:fs';
+import { realpathSync } from 'node:fs';
 import { join } from 'node:path';
-import { canonicalJson, parseStrictJson, sha256 } from './canonical.mjs';
+import { canonicalJson, sha256 } from './canonical.mjs';
 import { readSecureArtifact } from './secure-artifact.mjs';
-import { loadVerifiedPayload } from './verify-signature.mjs';
-import { bundleDigest, verifyProvenance } from './verify-provenance.mjs';
-import { verifyTarget } from './verify-target.mjs';
+import { loadVerifiedProvenance } from './verify-provenance.mjs';
+import { verifyAuthorizedTarget } from './verify-target.mjs';
 
 const planPath = 'docs/plans/2026-09-01-new-aria-autonomous-engineering';
-const provenancePath = 'verification/verifier-inputs.jsonl';
-const metadataKeys = [
-  'schema_version',
-  'kind',
-  'verifier_version',
-  'claim',
-  'recorded_at_utc',
-  'verifier_script',
-  'required_flags',
-  'cwd_contract',
-  'runtime',
-  'input_bundle_algorithm',
-  'input_bundle_sha256',
-];
-const recordKeys = ['schema_version', 'kind', 'path', 'sha256'];
-
-function exactKeys(value, keys) {
-  return (
-    value !== null &&
-    typeof value === 'object' &&
-    !Array.isArray(value) &&
-    JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...keys].sort())
-  );
-}
 
 function equal(left, right) {
   return canonicalJson(left) === canonicalJson(right);
@@ -58,63 +33,17 @@ function targetInput(signed) {
   };
 }
 
-function validateProvenanceRecord(record) {
-  if (!exactKeys(record, recordKeys)) throw new Error('verifier provenance record schema drift');
-  if (record.schema_version !== '2.0.0' || record.kind !== 'input') {
-    throw new Error('verifier provenance input record identity mismatch');
-  }
-  if (typeof record.path !== 'string' || record.path.length === 0) {
-    throw new Error('verifier provenance input path is required');
-  }
-  if (!/^[a-f0-9]{64}$/u.test(record.sha256)) {
-    throw new Error('verifier provenance input digest mismatch');
-  }
-}
-
-function validateProvenanceMetadata(metadata, records) {
-  if (!exactKeys(metadata, metadataKeys) || records.length === 0) {
-    throw new Error('verifier provenance metadata schema is closed and required');
-  }
-  if (
-    metadata.input_bundle_algorithm !== 'sha256(path + NUL + sha256 + LF, lexicographic path order)'
-  ) {
-    throw new Error('verifier provenance bundle algorithm mismatch');
-  }
-  if (metadata.input_bundle_sha256 !== bundleDigest(records)) {
-    throw new Error('verifier provenance bundle digest mismatch');
-  }
-}
-
-function parseProvenance(bytes) {
-  if (bytes.length === 0 || bytes.at(-1) !== 0x0a) {
-    throw new Error('verifier provenance must be non-empty newline-terminated JSONL');
-  }
-  const rows = bytes.toString('utf8').trimEnd().split('\n').map(parseStrictJson);
-  const [metadata, ...records] = rows;
-  records.forEach(validateProvenanceRecord);
-  validateProvenanceMetadata(metadata, records);
-  return metadata;
-}
-
-function verifiedTargetContext(repositoryRoot, options, beforeBytes) {
+function verifiedTargetContext(repositoryRoot, options) {
   const authority = targetAuthority(options);
-  const verified = loadVerifiedPayload({
-    repositoryRoot,
-    authorityRoot: authority.authorityRoot,
-    envelopePath: authority.contextPath,
-    trustRootPath: authority.trustRootPath,
-    trustRootSha256: authority.trustRootSha256,
-    expectedKind: 'new-aria-d0-target-authority',
-    expectedCapability: 'd0-target-authority',
-  });
-  const target = targetInput(verified.payload.target ?? {});
-  const result = verifyTarget(repositoryRoot, target, authority);
+  const result = verifyAuthorizedTarget(repositoryRoot, authority);
   if (result.errors.length > 0) {
     throw new Error(`reviewed target rejected: ${result.errors[0].message}`);
   }
-  const afterBytes = readFileSync(options.targetContextEnvelopePath);
-  if (!beforeBytes.equals(afterBytes)) throw new Error('target authority changed during admission');
-  return { target, signer: verified.signer, bytes: afterBytes };
+  return {
+    authority: result.authority,
+    facts: result.facts,
+    target: targetInput(result.authority.target),
+  };
 }
 
 function reviewedTarget(target, signer, authorityBytes, provenanceBytes, metadata) {
@@ -136,26 +65,27 @@ function reviewedTarget(target, signer, authorityBytes, provenanceBytes, metadat
 
 export function resolveDossierTarget(options) {
   const repositoryRoot = realpathSync(options.repositoryRoot);
-  const targetBytes = readFileSync(options.targetContextEnvelopePath);
-  const target = verifiedTargetContext(repositoryRoot, options, targetBytes);
+  const target = verifiedTargetContext(repositoryRoot, options);
   const root = join(repositoryRoot, planPath);
-  const provenanceErrors = verifyProvenance(root);
-  if (provenanceErrors.length > 0) {
-    throw new Error(`verifier provenance rejected: ${provenanceErrors[0].message}`);
-  }
-  const provenanceBytes = readFileSync(join(root, provenancePath));
-  const metadata = parseProvenance(provenanceBytes);
+  const provenance = loadVerifiedProvenance(root, {
+    repositoryRoot,
+    revision: target.facts.head_sha,
+    gitTool: target.facts.git_tool,
+  });
+  const { provenanceBytes } = provenance;
   return {
     reviewedTarget: reviewedTarget(
       target.target,
-      target.signer,
-      target.bytes,
+      target.authority.signer,
+      target.authority.envelopeBytes,
       provenanceBytes,
-      metadata,
+      provenance.metadata,
     ),
-    targetAuthorityBytes: target.bytes,
-    targetSigner: target.signer,
+    gitTool: target.authority.target.git_tool,
+    targetAuthorityBytes: target.authority.envelopeBytes,
+    targetSigner: target.authority.signer,
     provenanceBytes,
+    verifierInputFiles: provenance.files,
   };
 }
 

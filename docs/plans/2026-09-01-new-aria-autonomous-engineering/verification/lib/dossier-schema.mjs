@@ -17,6 +17,7 @@ export const reviewKeys = [
   'role',
   'principal_id',
   'session_id',
+  'agent_execution_id',
   'report_uri',
   'report_sha256',
   'capabilities',

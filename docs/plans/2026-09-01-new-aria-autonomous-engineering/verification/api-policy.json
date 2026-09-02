@@ -3,7 +3,7 @@
   "policy_id": "new-aria-public-api-v1",
   "terminal_closure": {
     "algorithm": "graphql-public-closure-v1",
-    "sha256": "fa78ad738443a48836d5942a8c8c5043dd03da5d34334fa049b33c303400be02"
+    "sha256": "ba7376ce5a8b3faf2995fcadcfa8735de3359f27d083da08ded5418c0bcd1130"
   },
   "query_activation_sprint": "S06",
   "phase_checkpoints": ["S06", "S07", "S08", "S15", "S17", "S30", "S39", "S46"],

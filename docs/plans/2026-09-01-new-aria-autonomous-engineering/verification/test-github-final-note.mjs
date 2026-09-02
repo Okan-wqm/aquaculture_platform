@@ -57,8 +57,8 @@ function response(value, link) {
 async function withComments(pages, run) {
   const originalFetch = globalThis.fetch;
   const calls = [];
-  globalThis.fetch = async (url) => {
-    calls.push(String(url));
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url: String(url), options });
     const page = new URL(url).searchParams.get('page');
     const fixture = pages[Number(page) - 1];
     if (!fixture) throw new Error(`unexpected page ${page}`);
@@ -86,6 +86,10 @@ await withComments(
       expected,
     });
     assert.equal(calls.length, 2, 'all final-note comment pages must be read');
+    assert(
+      calls.every(({ options }) => options.headers['x-github-api-version'] === '2026-03-10'),
+      'final-note requests must use the authority-pinned GitHub API version',
+    );
     assert.equal(result.note.readback_id, expected.readback_id);
     assert.match(result.final_note_sha256, /^[a-f0-9]{64}$/u);
     assert.match(result.final_note_identity_sha256, /^[a-f0-9]{64}$/u);

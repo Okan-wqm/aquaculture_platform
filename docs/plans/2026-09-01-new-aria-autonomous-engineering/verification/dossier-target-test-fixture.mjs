@@ -1,14 +1,15 @@
 import { execFileSync } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { canonicalJson, sha256, sha256File } from './lib/canonical.mjs';
-import { bundleDigest, expectedPaths } from './lib/verify-provenance.mjs';
+import { bundleDigest, expectedPaths, runtimeProvenance } from './lib/verify-provenance.mjs';
+import { REVIEW_ROLE_POLICY } from './lib/review-evidence-policy.mjs';
 import { signedEnvelope } from './dossier-crypto-test-fixture.mjs';
+import { runtimeTools, writeRuntimeFixture } from './target-control-test-fixture.mjs';
 
 const relativePlan = 'docs/plans/2026-09-01-new-aria-autonomous-engineering';
 const reviewedRef = 'refs/remotes/origin/review';
-
 function git(root, args, binary = false) {
   return execFileSync('git', args, { cwd: root, encoding: binary ? null : 'utf8' });
 }
@@ -23,6 +24,32 @@ function writeRepositoryFile(root, path, value) {
   const absolute = join(root, path);
   mkdirSync(join(absolute, '..'), { recursive: true });
   writeFileSync(absolute, value);
+}
+
+function writeReviewSources(root) {
+  const sources = new Set(
+    Object.values(REVIEW_ROLE_POLICY).flatMap(({ source_paths: sourcePaths }) => sourcePaths),
+  );
+  for (const path of sources) {
+    if (!existsSync(join(root, path))) writeRepositoryFile(root, path, `fixture source: ${path}\n`);
+  }
+}
+
+function initializeRepository(root) {
+  git(root, ['init', '-q', '-b', 'main']);
+  git(root, ['config', 'user.name', 'D0 Fixture']);
+  git(root, ['config', 'user.email', 'd0@example.invalid']);
+  git(root, ['config', 'commit.gpgsign', 'false']);
+  writeRepositoryFile(
+    root,
+    'docs/superpowers/specs/2026-09-01-new-aria-autonomous-engineering-design.md',
+    '# fixture design\n',
+  );
+  writeRepositoryFile(root, 'tools/quality/format-scope.json', '{}\n');
+  writeRepositoryFile(root, '.prettierrc', '{}\n');
+  writeRepositoryFile(root, 'package.json', '{"private":true}\n');
+  writeRuntimeFixture(root);
+  writeRepositoryFile(root, `${relativePlan}/BASELINE.md`, 'baseline\n');
 }
 
 function targetManifest(root, baseSha) {
@@ -40,7 +67,7 @@ function targetManifest(root, baseSha) {
   };
 }
 
-function provenanceMetadata(records) {
+function provenanceMetadata(repositoryRoot, records) {
   return {
     schema_version: '2.0.0',
     kind: 'metadata',
@@ -61,24 +88,20 @@ function provenanceMetadata(records) {
       '--format-scope-sha256',
     ],
     cwd_contract: 'repository root',
-    runtime: {
-      node_version: process.version,
-      node_executable: process.execPath,
-      node_executable_sha256: sha256File(process.execPath),
-    },
+    runtime: runtimeProvenance(repositoryRoot),
     input_bundle_algorithm: 'sha256(path + NUL + sha256 + LF, lexicographic path order)',
     input_bundle_sha256: bundleDigest(records),
   };
 }
 
-function writeProvenance(planRoot) {
+function writeProvenance(repositoryRoot, planRoot) {
   const records = expectedPaths(planRoot).map((path) => ({
     schema_version: '2.0.0',
     kind: 'input',
     path,
     sha256: sha256File(resolve(planRoot, path)),
   }));
-  const rows = [provenanceMetadata(records), ...records];
+  const rows = [provenanceMetadata(repositoryRoot, records), ...records];
   const bytes = Buffer.from(`${rows.map(canonicalJson).join('\n')}\n`, 'utf8');
   writeFileSync(join(planRoot, 'verification/verifier-inputs.jsonl'), bytes);
   return bytes;
@@ -120,12 +143,13 @@ function writeTargetAuthority(root, externalRoot, manifest, target) {
   const contextPath = join(authorityRoot, 'target-context.json');
   const trustRootPath = join(authorityRoot, 'trust-root.json');
   const manifestBytes = readFileSync(join(root, relativePlan, 'verification/target-manifest.json'));
+  const authorityTarget = { ...target, ...runtimeTools(root) };
   const payload = {
     contract_id: 'new-aria-d0-target-authority-v1',
     manifest_sha256: sha256(manifestBytes),
     manifest,
     operator_principal_id: 'target-operator',
-    target,
+    target: authorityTarget,
   };
   const trustRootBytes = Buffer.from(
     `${JSON.stringify({
@@ -145,6 +169,7 @@ function writeTargetAuthority(root, externalRoot, manifest, target) {
   writeFileSync(trustRootPath, trustRootBytes);
   return {
     envelopeBytes,
+    target: authorityTarget,
     options: {
       targetAuthorityRoot: authorityRoot,
       targetContextEnvelopePath: contextPath,
@@ -159,17 +184,7 @@ export function createTargetFixture(ownerRoot, policy) {
   const externalRoot = join(ownerRoot, 'external');
   mkdirSync(repositoryRoot, { recursive: true });
   mkdirSync(externalRoot, { recursive: true });
-  git(repositoryRoot, ['init', '-q', '-b', 'main']);
-  git(repositoryRoot, ['config', 'user.name', 'D0 Fixture']);
-  git(repositoryRoot, ['config', 'user.email', 'd0@example.invalid']);
-  git(repositoryRoot, ['config', 'commit.gpgsign', 'false']);
-  writeRepositoryFile(
-    repositoryRoot,
-    'docs/superpowers/specs/2026-09-01-new-aria-autonomous-engineering-design.md',
-    '# fixture design\n',
-  );
-  writeRepositoryFile(repositoryRoot, 'tools/quality/format-scope.json', '{}\n');
-  writeRepositoryFile(repositoryRoot, `${relativePlan}/BASELINE.md`, 'baseline\n');
+  initializeRepository(repositoryRoot);
   const baseSha = commit(repositoryRoot, 'test: establish dossier target base');
   git(repositoryRoot, ['update-ref', 'refs/remotes/origin/main', baseSha]);
   const manifest = targetManifest(repositoryRoot, baseSha);
@@ -184,8 +199,9 @@ export function createTargetFixture(ownerRoot, policy) {
     `${relativePlan}/verification/target-manifest.json`,
     `${JSON.stringify(manifest)}\n`,
   );
+  writeReviewSources(repositoryRoot);
   const planRoot = join(repositoryRoot, relativePlan);
-  const provenanceBytes = writeProvenance(planRoot);
+  const provenanceBytes = writeProvenance(repositoryRoot, planRoot);
   const headSha = commit(repositoryRoot, 'test: establish reviewed dossier target');
   git(repositoryRoot, ['update-ref', reviewedRef, headSha]);
   const signedTarget = declaredTarget(repositoryRoot, baseSha, headSha);
@@ -193,6 +209,7 @@ export function createTargetFixture(ownerRoot, policy) {
   return {
     repositoryRoot,
     externalRoot,
+    gitTool: authority.target.git_tool,
     provenanceBytes,
     targetEnvelopeBytes: authority.envelopeBytes,
     targetOptions: authority.options,
@@ -201,6 +218,7 @@ export function createTargetFixture(ownerRoot, policy) {
       authority_bundle_sha256: sha256(authority.envelopeBytes),
       verifier_inputs_sha256: sha256(provenanceBytes),
       input_bundle_sha256: provenanceMetadata(
+        repositoryRoot,
         expectedPaths(planRoot).map((path) => ({
           path,
           sha256: sha256File(resolve(planRoot, path)),

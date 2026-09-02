@@ -26,7 +26,7 @@ function sameKeys(value, keys) {
   );
 }
 
-export function transformRuntime(errors, repositoryRoot, transform) {
+export function transformRuntime(errors, sourceRepositoryRoot, runtimeRepositoryRoot, transform) {
   const keys = [
     'id',
     'tool',
@@ -69,16 +69,20 @@ export function transformRuntime(errors, repositoryRoot, transform) {
     ['config_path', 'config_sha256'],
     ['lockfile_path', 'lockfile_sha256'],
   ]) {
-    if (sha256File(join(repositoryRoot, transform[pathKey])) !== transform[digestKey]) {
+    if (sha256File(join(sourceRepositoryRoot, transform[pathKey])) !== transform[digestKey]) {
       add(errors, `${transform[pathKey]}: transform digest mismatch`);
     }
   }
-  const prettier = join(repositoryRoot, 'node_modules/.bin/prettier');
-  const version = spawnSync(prettier, ['--version'], { encoding: 'utf8' });
+  const prettier = join(runtimeRepositoryRoot, 'node_modules/prettier/bin/prettier.cjs');
+  const version = spawnSync(process.execPath, [prettier, '--version'], { encoding: 'utf8' });
   if (version.status !== 0 || version.stdout.trim() !== transform.tool_version) {
     add(errors, 'Prettier runtime mismatch');
   }
-  return { prettier, config: join(repositoryRoot, transform.config_path) };
+  return {
+    node: process.execPath,
+    prettier,
+    config: join(sourceRepositoryRoot, transform.config_path),
+  };
 }
 
 function verifyTransforms(errors, planRoot, runtime, reports) {
@@ -94,8 +98,9 @@ function verifyTransforms(errors, planRoot, runtime, reports) {
       return { path, relativePath };
     });
     const result = spawnSync(
-      runtime.prettier,
+      runtime.node,
       [
+        runtime.prettier,
         '--config',
         runtime.config,
         '--print-width',

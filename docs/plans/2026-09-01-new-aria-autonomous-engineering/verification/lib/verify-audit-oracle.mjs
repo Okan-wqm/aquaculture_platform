@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
-import { parseStrictJson, sha256 } from './canonical.mjs';
+import { parseStrictJson } from './canonical.mjs';
+import { readCommitFile } from './git-objects.mjs';
 import { parseMatrix } from './markdown.mjs';
 
 const expectedMetadata = {
@@ -28,26 +28,17 @@ function add(errors, message) {
   errors.push({ code: 'AUDIT_ORACLE', message });
 }
 
-function git(repositoryRoot, args, encoding = null) {
-  const result = spawnSync('git', args, {
-    cwd: repositoryRoot,
-    encoding,
-    maxBuffer: 16 * 1024 * 1024,
-  });
-  if (result.status !== 0) throw new Error(`git ${args[0]} failed`);
-  return result.stdout;
-}
-
-function gitSource(repositoryRoot, metadata) {
-  const blob = git(
+function gitSource(repositoryRoot, metadata, gitTool) {
+  return readCommitFile(
     repositoryRoot,
-    ['rev-parse', `${metadata.commit}:${metadata.path}`],
-    'utf8',
-  ).trim();
-  if (blob !== metadata.blob_oid) throw new Error(`${metadata.path}: blob OID mismatch`);
-  const raw = git(repositoryRoot, ['show', `${metadata.commit}:${metadata.path}`]);
-  if (sha256(raw) !== metadata.raw_sha256) throw new Error(`${metadata.path}: raw digest mismatch`);
-  return raw.toString('utf8');
+    metadata.commit,
+    {
+      path: metadata.path,
+      blob_oid: metadata.blob_oid,
+      sha256: metadata.raw_sha256,
+    },
+    gitTool,
+  ).bytes.toString('utf8');
 }
 
 function titleRows(source) {
@@ -59,7 +50,7 @@ function titleRows(source) {
   return rows;
 }
 
-export function loadAuditOracle(planRoot, repositoryRoot, errors) {
+export function loadAuditOracle(planRoot, repositoryRoot, errors, gitTool) {
   const metadata = parseStrictJson(
     readFileSync(join(planRoot, 'verification/audit-oracle.json'), 'utf8'),
   );
@@ -68,8 +59,10 @@ export function loadAuditOracle(planRoot, repositoryRoot, errors) {
     return [];
   }
   try {
-    const titles = titleRows(gitSource(repositoryRoot, metadata.title_source));
-    const dispositions = parseMatrix(gitSource(repositoryRoot, metadata.disposition_source));
+    const titles = titleRows(gitSource(repositoryRoot, metadata.title_source, gitTool));
+    const dispositions = parseMatrix(
+      gitSource(repositoryRoot, metadata.disposition_source, gitTool),
+    );
     if (titles.length !== 88 || dispositions.length !== 88)
       add(errors, 'oracle row count mismatch');
     return titles.map((title, index) => ({

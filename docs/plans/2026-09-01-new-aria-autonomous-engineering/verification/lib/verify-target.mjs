@@ -1,8 +1,10 @@
-import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
-import { sha256, sha256File } from './canonical.mjs';
-import { loadTargetAuthority } from './target-manifest.mjs';
-
+import { readFileSync, realpathSync } from 'node:fs';
+import { canonicalJson, parseStrictJsonBytes, sha256 } from './canonical.mjs';
+import { readCommitFile } from './git-objects.mjs';
+import { createGitSession, runGit } from './hermetic-git.mjs';
+import { verifyRuntimeDependencies } from './runtime-dependencies.mjs';
+import { collectTargetFacts, resolveCommit } from './target-git-facts.mjs';
+import { loadTargetAuthority, targetManifestPath } from './target-manifest.mjs';
 const exactSha = /^[a-f0-9]{40}$/u;
 const exactDigest = /^[a-f0-9]{64}$/u;
 const exactRef = /^refs\/(?:heads|remotes)\/[A-Za-z0-9][A-Za-z0-9._/-]*$/u;
@@ -24,49 +26,23 @@ const protectedPrefixes = [
 function add(errors, code, message) {
   errors.push({ code, message });
 }
-
-function git(repositoryRoot, args, encoding = 'utf8') {
-  const result = spawnSync('git', ['-c', 'core.quotePath=false', ...args], {
-    cwd: repositoryRoot,
-    encoding,
-    maxBuffer: 16 * 1024 * 1024,
-  });
-  if (result.status !== 0) {
-    const detail = encoding === 'utf8' ? result.stderr.trim() : 'binary command failed';
-    throw new Error(`git ${args[0]} failed${detail ? `: ${detail}` : ''}`);
+function verifyNodeTool(tool) {
+  const executable = realpathSync(process.execPath);
+  const [major, minor] = tool.version.slice(1).split('.').map(Number);
+  if (
+    major < 20 ||
+    (major === 20 && minor < 11) ||
+    tool.version !== process.version ||
+    sha256(readFileSync(executable)) !== tool.executable_sha256
+  ) {
+    throw new Error('Node executable does not match signed target tool facts');
   }
-  return result.stdout;
 }
-
-function resolveCommit(repositoryRoot, value) {
-  return git(repositoryRoot, ['rev-parse', '--verify', `${value}^{commit}`]).trim();
-}
-
-function committedEntries(raw) {
-  const tokens = raw.toString('utf8').split('\0');
-  if (tokens.at(-1) === '') tokens.pop();
-  const entries = [];
-  for (let index = 0; index < tokens.length; ) {
-    const status = tokens[index];
-    index += 1;
-    const oldPath = tokens[index];
-    index += 1;
-    if (/^[RC]/u.test(status)) {
-      entries.push({ status, oldPath, newPath: tokens[index] });
-      index += 1;
-    } else {
-      entries.push({ status, oldPath, newPath: null });
-    }
-  }
-  return entries;
-}
-
 function scopePaths(entries) {
   return entries.flatMap((entry) =>
     entry.newPath ? [entry.oldPath, entry.newPath] : [entry.oldPath],
   );
 }
-
 function verifyScope(errors, paths) {
   for (const path of paths) {
     if (protectedPrefixes.some((prefix) => path.startsWith(prefix))) {
@@ -111,46 +87,6 @@ function validateTargetInput(errors, target) {
   validateReviewedRef(errors, target);
 }
 
-function targetFacts(repositoryRoot, target) {
-  const baseSha = resolveCommit(repositoryRoot, target.baseSha);
-  const headSha = resolveCommit(repositoryRoot, target.headSha);
-  const reviewedRefSha = resolveCommit(repositoryRoot, target.reviewedRef);
-  const checkoutSha = resolveCommit(repositoryRoot, 'HEAD');
-  const baseTree = git(repositoryRoot, ['rev-parse', '--verify', `${baseSha}^{tree}`]).trim();
-  const headTree = git(repositoryRoot, ['rev-parse', '--verify', `${headSha}^{tree}`]).trim();
-  const diff = git(
-    repositoryRoot,
-    [
-      'diff',
-      '--name-status',
-      '-z',
-      '--find-renames',
-      '--find-copies',
-      `${baseSha}..${headSha}`,
-      '--',
-    ],
-    null,
-  );
-  return {
-    base_sha: baseSha,
-    base_tree: baseTree,
-    head_sha: headSha,
-    head_tree: headTree,
-    reviewed_ref: target.reviewedRef,
-    reviewed_ref_sha: reviewedRefSha,
-    checkout_sha: checkoutSha,
-    committed_diff_sha256: sha256(diff),
-    committed_entries: committedEntries(diff),
-    design_sha256: sha256File(
-      join(
-        repositoryRoot,
-        'docs/superpowers/specs/2026-09-01-new-aria-autonomous-engineering-design.md',
-      ),
-    ),
-    format_scope_sha256: sha256File(join(repositoryRoot, 'tools/quality/format-scope.json')),
-  };
-}
-
 function verifyDeclaredFacts(errors, facts, target) {
   for (const [code, actual, expected] of [
     ['TARGET_BASE_TREE', facts.base_tree, target.baseTree],
@@ -163,9 +99,22 @@ function verifyDeclaredFacts(errors, facts, target) {
   }
 }
 
-function verifyManifestBinding(errors, repositoryRoot, target, authority) {
+function verifyManifestBinding(errors, repositoryRoot, target, loaded, gitTool) {
   try {
-    const { manifest, target: signed } = loadTargetAuthority(repositoryRoot, authority);
+    const { manifest, target: signed } = loaded;
+    const manifestBytes = readCommitFile(
+      repositoryRoot,
+      signed.head_sha,
+      { path: targetManifestPath },
+      gitTool,
+    ).bytes;
+    if (
+      sha256(manifestBytes) !== loaded.manifestSha256 ||
+      canonicalJson(parseStrictJsonBytes(manifestBytes, 'committed target manifest')) !==
+        canonicalJson(manifest)
+    ) {
+      add(errors, 'TARGET_MANIFEST', 'signed manifest does not match exact committed bytes');
+    }
     for (const [field, actual, expected] of [
       ['base SHA', target.baseSha, manifest.base_sha],
       ['head SHA', target.headSha, signed.head_sha],
@@ -178,14 +127,14 @@ function verifyManifestBinding(errors, repositoryRoot, target, authority) {
     ]) {
       if (actual !== expected) add(errors, 'TARGET_MANIFEST', `${field} is not canonical`);
     }
-    if (resolveCommit(repositoryRoot, manifest.base_ref) !== manifest.base_sha) {
+    if (resolveCommit(repositoryRoot, manifest.base_ref, gitTool) !== manifest.base_sha) {
       add(errors, 'TARGET_MANIFEST', 'canonical base ref does not resolve to canonical base SHA');
     }
-    const canonicalTree = git(repositoryRoot, [
-      'rev-parse',
-      '--verify',
-      `${manifest.base_sha}^{tree}`,
-    ]).trim();
+    const canonicalTree = runGit(
+      repositoryRoot,
+      ['rev-parse', '--verify', `${manifest.base_sha}^{tree}`],
+      gitTool,
+    ).trim();
     if (canonicalTree !== manifest.base_tree) {
       add(errors, 'TARGET_MANIFEST', 'canonical base tree does not match canonical base SHA');
     }
@@ -194,41 +143,99 @@ function verifyManifestBinding(errors, repositoryRoot, target, authority) {
   }
 }
 
-function verifyReachability(errors, repositoryRoot, facts) {
+function verifyReachability(errors, repositoryRoot, facts, gitTool) {
   if (facts.base_sha === facts.head_sha) add(errors, 'TARGET_RANGE', 'base and head must differ');
   if (facts.checkout_sha !== facts.head_sha) add(errors, 'TARGET_HEAD', 'checkout HEAD mismatch');
   if (facts.reviewed_ref_sha !== facts.head_sha)
     add(errors, 'TARGET_REF', 'reviewed ref does not resolve to head');
-  const ancestor = spawnSync(
-    'git',
-    ['merge-base', '--is-ancestor', facts.base_sha, facts.head_sha],
-    {
-      cwd: repositoryRoot,
-    },
-  );
-  if (ancestor.status !== 0) add(errors, 'TARGET_REACHABILITY', 'base is not ancestor of head');
+  try {
+    runGit(
+      repositoryRoot,
+      ['merge-base', '--is-ancestor', facts.base_sha, facts.head_sha],
+      gitTool,
+    );
+  } catch {
+    add(errors, 'TARGET_REACHABILITY', 'base is not ancestor of head');
+  }
+}
+
+const signedNames = {
+  baseSha: 'base_sha',
+  headSha: 'head_sha',
+  reviewedRef: 'reviewed_ref',
+  baseTree: 'base_tree',
+  headTree: 'head_tree',
+  diffSha256: 'committed_diff_sha256',
+  designSha256: 'design_sha256',
+  formatScopeSha256: 'format_scope_sha256',
+};
+const signedTargetInput = (target) =>
+  Object.fromEntries(Object.entries(signedNames).map(([local, signed]) => [local, target[signed]]));
+
+function verifyLoadedTarget(repositoryRoot, target, loaded, errors) {
+  try {
+    verifyNodeTool(loaded.target.node_tool);
+    const git = createGitSession(loaded.target.git_tool);
+    verifyManifestBinding(errors, repositoryRoot, target, loaded, git);
+    const facts = collectTargetFacts(repositoryRoot, target, git);
+    facts.node_tool = loaded.target.node_tool;
+    facts.runtime_dependencies = loaded.target.runtime_dependencies;
+    if (facts.package_lock_sha256 !== loaded.target.package_lock_sha256) {
+      add(errors, 'TARGET_PACKAGE_LOCK', 'committed package-lock digest is not signed exactly');
+    }
+    verifyRuntimeDependencies(repositoryRoot, loaded.target);
+    verifyReachability(errors, repositoryRoot, facts, git);
+    verifyDeclaredFacts(errors, facts, target);
+    verifyScope(errors, scopePaths(facts.committed_entries));
+    const dirty = runGit(
+      repositoryRoot,
+      ['status', '--porcelain=v1', '-z', '--untracked-files=all'],
+      git,
+      { encoding: null },
+    );
+    if (dirty.length > 0)
+      add(errors, 'WORKTREE_DIRTY', 'repository has tracked, staged, or untracked bytes present');
+    return { errors, facts, authority: loaded };
+  } catch (error) {
+    add(errors, 'TARGET_RESOLUTION', error instanceof Error ? error.message : String(error));
+    return { errors, facts: null, authority: loaded };
+  }
 }
 
 export function verifyTarget(repositoryRoot, target, authority = {}) {
   const errors = [];
   validateTargetInput(errors, target);
   if (errors.length > 0) return { errors, facts: null };
-  verifyManifestBinding(errors, repositoryRoot, target, authority);
+  let loaded;
   try {
-    const facts = targetFacts(repositoryRoot, target);
-    verifyReachability(errors, repositoryRoot, facts);
-    verifyDeclaredFacts(errors, facts, target);
-    verifyScope(errors, scopePaths(facts.committed_entries));
-    const dirty = git(
-      repositoryRoot,
-      ['status', '--porcelain=v1', '-z', '--untracked-files=all'],
-      null,
-    );
-    if (dirty.length > 0)
-      add(errors, 'WORKTREE_DIRTY', 'tracked, staged, or untracked bytes present');
-    return { errors, facts };
+    loaded = loadTargetAuthority(repositoryRoot, authority);
   } catch (error) {
-    add(errors, 'TARGET_RESOLUTION', error instanceof Error ? error.message : String(error));
+    add(errors, 'TARGET_MANIFEST', error instanceof Error ? error.message : String(error));
+    if (target.baseSha === target.headSha) add(errors, 'TARGET_RANGE', 'base and head must differ');
     return { errors, facts: null };
   }
+  return verifyLoadedTarget(repositoryRoot, target, loaded, errors);
+}
+
+export function verifyAuthorizedTarget(repositoryRoot, authority = {}) {
+  let loaded;
+  try {
+    loaded = loadTargetAuthority(repositoryRoot, authority);
+  } catch (error) {
+    return {
+      errors: [
+        {
+          code: 'TARGET_MANIFEST',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      ],
+      facts: null,
+      authority: null,
+    };
+  }
+  const target = signedTargetInput(loaded.target);
+  const errors = [];
+  validateTargetInput(errors, target);
+  if (errors.length > 0) return { errors, facts: null, authority: loaded };
+  return verifyLoadedTarget(repositoryRoot, target, loaded, errors);
 }

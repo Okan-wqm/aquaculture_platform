@@ -1,8 +1,10 @@
 import { createPublicKey, verify } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
-import { readFileSync, realpathSync } from 'node:fs';
-import { isAbsolute, relative, resolve } from 'node:path';
-import { canonicalJson, parseStrictJson, sha256 } from './canonical.mjs';
+import { readFileSync } from 'node:fs';
+import { canonicalJson, parseStrictJsonBytes, sha256 } from './canonical.mjs';
+import {
+  resolveExternalAuthority,
+  resolveExternalAuthorityFile,
+} from './external-authority-path.mjs';
 
 const bundleKeys = [
   'schema_version',
@@ -15,6 +17,7 @@ const bundleKeys = [
   'reviewed_target',
   'producer',
   'admission_operator_principal_id',
+  'independence_assurance',
   'reviewers',
   'oracle',
   'conflict',
@@ -23,6 +26,7 @@ const credentialKeys = [
   'role',
   'principal_id',
   'session_id',
+  'agent_execution_id',
   'key_id',
   'algorithm',
   'capabilities',
@@ -63,44 +67,15 @@ function strictBase64(value, label) {
   return bytes;
 }
 
-function descendant(root, candidate) {
-  const offset = relative(root, candidate);
-  return offset !== '' && !offset.startsWith('..') && !isAbsolute(offset);
-}
-
-function overlaps(left, right) {
-  return left === right || descendant(left, right) || descendant(right, left);
-}
-
-function repositoryTopLevel(repositoryRoot) {
-  const lexical = resolve(repositoryRoot);
-  const real = realpathSync(lexical);
-  const top = execFileSync('git', ['-C', lexical, 'rev-parse', '--show-toplevel'], {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'ignore'],
-  }).trim();
-  if (realpathSync(top) !== real) throw new Error('repository root must be its Git top-level');
-  return { lexical, real };
-}
-
 function externalBundlePath(options) {
   requiredString(options.reviewerAuthorityRoot, 'reviewer authority root');
   requiredString(options.reviewerAuthorityBundlePath, 'reviewer authority bundle path');
-  const repository = repositoryTopLevel(options.repositoryRoot);
-  const rootLexical = resolve(options.reviewerAuthorityRoot);
-  const pathLexical = resolve(options.reviewerAuthorityBundlePath);
-  const rootReal = realpathSync(rootLexical);
-  const pathReal = realpathSync(pathLexical);
-  const repositoryOverlap =
-    overlaps(repository.lexical, rootLexical) || overlaps(repository.real, rootReal);
-  if (
-    repositoryOverlap ||
-    !descendant(rootLexical, pathLexical) ||
-    !descendant(rootReal, pathReal)
-  ) {
-    throw new Error('reviewer authority bundle must be under an external authority root');
-  }
-  return pathReal;
+  const authority = resolveExternalAuthority(options.repositoryRoot, options.reviewerAuthorityRoot);
+  return resolveExternalAuthorityFile(
+    authority,
+    options.reviewerAuthorityBundlePath,
+    'reviewer authority bundle',
+  );
 }
 
 function publicKey(credential) {
@@ -115,7 +90,7 @@ function publicKey(credential) {
 
 function validateCredential(credential, role, capability) {
   if (!exactKeys(credential, credentialKeys)) throw new Error(`${role} credential schema drift`);
-  for (const field of ['principal_id', 'session_id', 'key_id']) {
+  for (const field of ['principal_id', 'session_id', 'agent_execution_id', 'key_id']) {
     requiredString(credential[field], `${role} credential ${field}`);
   }
   if (
@@ -154,6 +129,7 @@ function assertUniqueIdentities(bundle) {
   for (const [label, values] of [
     ['principal', principals],
     ['session', sessions],
+    ['agent execution', credentials.map((credential) => credential.agent_execution_id)],
     ['key', credentials.map((credential) => credential.key_id)],
     ['public key', credentials.map((credential) => credential.public_key_spki_base64)],
   ]) {
@@ -166,7 +142,10 @@ function validateClock(bundle, maxFreshnessSeconds) {
   const validUntil = Date.parse(bundle.valid_until);
   const now = Date.now();
   if (
+    !Number.isSafeInteger(maxFreshnessSeconds) ||
+    maxFreshnessSeconds < 1 ||
     !Number.isFinite(observed) ||
+    !Number.isFinite(validUntil) ||
     observed > now ||
     now >= validUntil ||
     validUntil - observed > maxFreshnessSeconds * 1000
@@ -181,6 +160,7 @@ function validateBundleIdentity(bundle) {
     bundle.schema_version !== '1.0.0' ||
     bundle.kind !== 'new-aria-review-authority-bundle' ||
     bundle.contract_id !== 'new-aria-review-authority-v1' ||
+    bundle.independence_assurance !== 'OPERATOR_ATTESTED' ||
     !Number.isSafeInteger(bundle.authority_epoch) ||
     bundle.authority_epoch < 1
   ) {
@@ -218,7 +198,7 @@ export function loadReviewerAuthority(options, expected) {
   ) {
     throw new Error('reviewer authority bundle must match its out-of-band SHA-256 pin');
   }
-  const bundle = parseStrictJson(bytes.toString('utf8'));
+  const bundle = parseStrictJsonBytes(bytes, 'reviewer authority bundle');
   validateBundle(bundle, expected);
   return { bundle, sha256: sha256(bytes) };
 }
@@ -226,7 +206,7 @@ export function loadReviewerAuthority(options, expected) {
 export function verifyReviewerEnvelope(bytes, credential, expectedKind) {
   let envelope;
   try {
-    envelope = parseStrictJson(bytes.toString('utf8'));
+    envelope = parseStrictJsonBytes(bytes, 'reviewer signed envelope');
   } catch {
     throw new Error('reviewer signed envelope is not strict JSON');
   }

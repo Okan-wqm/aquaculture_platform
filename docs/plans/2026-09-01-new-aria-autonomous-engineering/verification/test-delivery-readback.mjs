@@ -68,7 +68,7 @@ await withReadbackCase(
       merge_commit_sha: mergeSha,
       resulting_main_sha: mergeSha,
     });
-    assert.equal(calls.length, 18, 'provider and final-note facts must both have stable snapshots');
+    assert.equal(calls.length, 26, 'provider facts must bracket both stable final-note snapshots');
   },
 );
 

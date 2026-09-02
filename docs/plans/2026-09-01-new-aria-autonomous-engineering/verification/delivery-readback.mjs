@@ -233,9 +233,11 @@ export async function verifyDeliveryReadback(options) {
   requireStableProviderFacts(live, finalLive);
   const finalNote = await resolvedFinalNote(finalLive, admission, options.githubToken);
   requireStableFinalNote(initialFinalNote, finalNote);
-  validateSignedReadback(payload, evidenceFrom(finalLive, admission, finalNote), signer);
+  const closingLive = await liveDeliveryFacts(options.githubToken);
+  requireStableProviderFacts(finalLive, closingLive);
+  validateSignedReadback(payload, evidenceFrom(closingLive, admission, finalNote), signer);
   assertReadbackFresh(payload);
-  compareProvider(payload, finalLive);
+  compareProvider(payload, closingLive);
   return {
     accepted: true,
     readback_id: payload.readback_id,

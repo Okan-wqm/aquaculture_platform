@@ -1,6 +1,6 @@
-import { readFileSync, realpathSync } from 'node:fs';
-import { join } from 'node:path';
-import { canonicalJson, parseStrictJson, sha256 } from './canonical.mjs';
+import { realpathSync } from 'node:fs';
+import { canonicalJson, parseStrictJsonBytes, sha256 } from './canonical.mjs';
+import { createGitSession } from './hermetic-git.mjs';
 import { createDossierAdmissionResult } from './dossier-admission-result.mjs';
 import { resolveDossierTarget, verifyDossierTargetArtifacts } from './dossier-target.mjs';
 import { loadReviewerAuthority } from './review-authority.mjs';
@@ -11,10 +11,10 @@ import {
   verifySignedOracle,
 } from './review-oracle.mjs';
 import { readSecureArtifact } from './secure-artifact.mjs';
-import { loadReviewPolicy, validateDossierStructure } from './verify-dossier.mjs';
+import { parseReviewPolicy, validateDossierStructure } from './verify-dossier.mjs';
 import { loadVerifiedPayload } from './verify-signature.mjs';
 
-const planPath = 'docs/plans/2026-09-01-new-aria-autonomous-engineering';
+const reviewPolicyPath = 'verification/review-policy.json';
 const contextKeys = [
   'schema_version',
   'contract_id',
@@ -147,7 +147,6 @@ function verifyContext(resources) {
 }
 
 function admissionContext(repositoryRoot, options, policy) {
-  const before = readFileSync(options.contextEnvelopePath);
   const verified = loadVerifiedPayload({
     repositoryRoot,
     authorityRoot: options.authorityRoot,
@@ -157,9 +156,7 @@ function admissionContext(repositoryRoot, options, policy) {
     expectedKind: policy.admission_context.envelope_kind,
     expectedCapability: 'review-dossier-admission',
   });
-  const after = readFileSync(options.contextEnvelopePath);
-  if (!before.equals(after)) throw new Error('signed dossier context changed during admission');
-  return { ...verified, envelopeSha256: sha256(after) };
+  return verified;
 }
 
 function authorityExpectation(dossier, resolved, signer, policy) {
@@ -175,7 +172,8 @@ function authorityExpectation(dossier, resolved, signer, policy) {
   };
 }
 
-function verifiedReviewResources(options, dossier, policy, resolved, admission) {
+function verifiedReviewResources(resources) {
+  const { repositoryRoot, options, dossier, policy, resolved, admission } = resources;
   const reviewer = loadReviewerAuthority(
     options,
     authorityExpectation(dossier, resolved, admission.signer, policy),
@@ -184,7 +182,15 @@ function verifiedReviewResources(options, dossier, policy, resolved, admission) 
   const targetDigest = digest(resolved.reviewedTarget);
   const reviewResources = {
     artifactRoot: options.artifactRoot,
+    repositoryRoot,
+    reviewedHeadSha: resolved.reviewedTarget.head_sha,
+    gitSession: createGitSession(resolved.gitTool),
     authorityDigest: reviewer.sha256,
+    authorityWindow: {
+      observed_at: reviewer.bundle.observed_at,
+      valid_until: reviewer.bundle.valid_until,
+    },
+    dossierObservedAt: dossier.freshness.observed_at,
     targetDigest,
   };
   const reviews = verifySignedReviews(dossier, reviewer.bundle, reviewResources);
@@ -193,14 +199,23 @@ function verifiedReviewResources(options, dossier, policy, resolved, admission) 
 
 export function admitReviewDossier(options) {
   const repositoryRoot = realpathSync(options.repositoryRoot);
-  const policy = loadReviewPolicy(join(repositoryRoot, planPath));
+  const resolved = resolveDossierTarget({ ...options, repositoryRoot });
+  const policyBytes = resolved.verifierInputFiles.get(reviewPolicyPath);
+  if (!policyBytes) throw new Error('committed review policy is missing from verified provenance');
+  const policy = parseReviewPolicy(policyBytes);
   const dossierBytes = readSecureArtifact(options.artifactRoot, options.dossierPath);
-  const dossier = parseStrictJson(dossierBytes.toString('utf8'));
+  const dossier = parseStrictJsonBytes(dossierBytes, 'review dossier');
   const errors = validateDossierStructure(dossier, policy);
   if (errors.length > 0) throw new Error(`dossier structure rejected: ${errors[0].message}`);
   const admission = admissionContext(repositoryRoot, options, policy);
-  const resolved = resolveDossierTarget({ ...options, repositoryRoot });
-  const verified = verifiedReviewResources(options, dossier, policy, resolved, admission);
+  const verified = verifiedReviewResources({
+    repositoryRoot,
+    options,
+    dossier,
+    policy,
+    resolved,
+    admission,
+  });
   const oracleResources = {
     artifactRoot: options.artifactRoot,
     authorityDigest: verified.reviewer.sha256,

@@ -35,9 +35,14 @@ export function targetArguments() {
 }
 
 function copyExternalInputs(ownerRoot) {
-  const design = 'docs/superpowers/specs/2026-09-01-new-aria-autonomous-engineering-design.md';
-  const formatScope = 'tools/quality/format-scope.json';
-  for (const path of [design, formatScope]) {
+  const paths = [
+    '.prettierrc',
+    'package.json',
+    'package-lock.json',
+    'docs/superpowers/specs/2026-09-01-new-aria-autonomous-engineering-design.md',
+    'tools/quality/format-scope.json',
+  ];
+  for (const path of paths) {
     mkdirSync(join(ownerRoot, path, '..'), { recursive: true });
     cpSync(join(repositoryRoot, path), join(ownerRoot, path));
   }

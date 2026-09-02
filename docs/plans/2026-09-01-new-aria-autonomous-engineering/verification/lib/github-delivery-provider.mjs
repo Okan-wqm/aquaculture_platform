@@ -29,7 +29,7 @@ function validTimestamp(value, label) {
 function headers(token) {
   const value = {
     accept: 'application/vnd.github+json',
-    'x-github-api-version': '2022-11-28',
+    'x-github-api-version': '2026-03-10',
     'user-agent': 'new-aria-delivery-readback',
   };
   if (typeof token === 'string' && token.length > 0) value.authorization = `Bearer ${token}`;

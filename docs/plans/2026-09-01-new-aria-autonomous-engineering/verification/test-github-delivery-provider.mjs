@@ -21,6 +21,10 @@ await withFetch(providerResponses(), async (calls) => {
   });
   assert.equal(calls.length, 8, 'all live provider authorities must be queried');
   assert(calls.every(({ options }) => options.headers.authorization === 'Bearer test-token'));
+  assert(
+    calls.every(({ options }) => options.headers['x-github-api-version'] === '2026-03-10'),
+    'live provider requests must use the authority-pinned GitHub API version',
+  );
   assert.deepEqual(
     facts.required_checks.map(({ context }) => context),
     required,

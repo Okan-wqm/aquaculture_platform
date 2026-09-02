@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { verifyReadability } from './lib/verify-readability.mjs';
 import { mutateJson, planRoot, repositoryRoot, withPlanCopy } from './test-support.mjs';
@@ -56,6 +56,20 @@ withPlanCopy('new-aria-layer-assignment-', (copy) => {
   );
 });
 
+withPlanCopy('new-aria-child-process-capability-', (copy, ownerRoot) => {
+  const path = join(copy, 'verification/lib/canonical.mjs');
+  writeFileSync(path, `${readFileSync(path, 'utf8')}\nimport 'node:child_process';\n`);
+  assert.equal(
+    verifyReadability(copy, ownerRoot).some(
+      (error) =>
+        error.code === 'READABILITY_LIMIT' &&
+        error.message === 'verification/lib/canonical.mjs: forbidden child_process capability',
+    ),
+    true,
+    'an unlisted module acquired the process execution capability',
+  );
+});
+
 withPlanCopy('new-aria-syntax-error-', (copy, ownerRoot) => {
   const path = join(copy, 'verification/lib/canonical.mjs');
   writeFileSync(path, `${readFileSync(path, 'utf8')}\nvoid import;\n`);
@@ -67,6 +81,65 @@ withPlanCopy('new-aria-syntax-error-', (copy, ownerRoot) => {
   assert.equal(syntaxErrors.length, 1, 'invalid JavaScript syntax must fail closed exactly once');
   assert.match(syntaxErrors[0].message, /Expression expected\./u);
 });
+
+withPlanCopy('new-aria-graphql-hard-limit-', (copy, ownerRoot) => {
+  const path = join(copy, 'authority/graphql/commands.graphql');
+  appendFileSync(
+    path,
+    `${Array.from({ length: 401 }, (_, index) => `# overflow-${index}`).join('\n')}\n`,
+  );
+  assert.equal(
+    verifyReadability(copy, ownerRoot).some(
+      (error) =>
+        error.code === 'READABILITY_LIMIT' &&
+        error.message.startsWith('authority/graphql/commands.graphql: hard line limit '),
+    ),
+    true,
+    'GraphQL authority files bypassed the authored hard line limit',
+  );
+});
+
+for (const [name, statement, primitive] of [
+  ['eval import', `void eval("import('data:text/javascript,export default 1')");`, 'eval'],
+  [
+    'computed eval import',
+    `void globalThis['e' + 'val']("import('data:text/javascript,export default 1')");`,
+    'eval',
+  ],
+  [
+    'Function constructor',
+    `void new Function("return import('data:text/javascript,0')")();`,
+    'Function',
+  ],
+  ['CommonJS require', `void require('unapproved-package');`, 'require'],
+  ['createRequire', `void createRequire(import.meta.url)('unapproved-package');`, 'createRequire'],
+  [
+    'builtin VM loader',
+    `void process.getBuiltinModule('node:vm').runInThisContext('0');`,
+    'getBuiltinModule',
+  ],
+  ['VM context loader', `void vm.runInNewContext('0');`, 'runInNewContext'],
+  [
+    'Node eval subprocess',
+    `void spawnSync(process.execPath, ['-e', "import('data:text/javascript,0')"]);`,
+    'process.execPath -e',
+  ],
+]) {
+  withPlanCopy(`new-aria-loader-${name.replaceAll(' ', '-')}-`, (copy, ownerRoot) => {
+    const path = join(copy, 'verification/lib/canonical.mjs');
+    appendFileSync(path, `\n${statement}\n`);
+    assert.equal(
+      verifyReadability(copy, ownerRoot).some(
+        (error) =>
+          error.code === 'READABILITY_LIMIT' &&
+          error.message ===
+            `verification/lib/canonical.mjs: forbidden runtime code loader ${primitive}`,
+      ),
+      true,
+      `${name} bypassed the static dependency boundary`,
+    );
+  });
+}
 
 for (const [name, statement, specifier] of [
   ['file URL', "void import('file:///tmp/verify-d0.mjs');", 'file:///tmp/verify-d0.mjs'],

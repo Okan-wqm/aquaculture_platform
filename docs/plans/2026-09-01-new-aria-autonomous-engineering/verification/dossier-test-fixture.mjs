@@ -77,43 +77,8 @@ function createArtifacts(artifactRoot, target) {
   };
 }
 
-export function createFixture() {
-  const ownerRoot = mkdtempSync(join(tmpdir(), 'new-aria-dossier-admission-'));
-  const target = createTargetFixture(ownerRoot, policy);
-  const artifactRoot = join(ownerRoot, 'artifacts');
-  mkdirSync(artifactRoot);
-  const freshness = {
-    observedAt: new Date(Date.now() - 30_000).toISOString(),
-    validUntil: new Date(Date.now() + 90_000).toISOString(),
-  };
-  const producerIdentity = {
-    principal_id: 'producer-principal',
-    session_id: 'producer-session',
-  };
-  const authority = writeReviewerAuthority(target.externalRoot, {
-    roles: policy.roles,
-    reviewedTarget: target.reviewedTarget,
-    producer: producerIdentity,
-    admissionPrincipal,
-    ...freshness,
-  });
-  const artifacts = createArtifacts(artifactRoot, target);
-  const producer = { ...producerIdentity, artifact_uri: artifacts.producer.artifact_uri };
-  const review = createReviewDossier({
-    artifactRoot,
-    target: target.reviewedTarget,
-    authority,
-    producer,
-    policy,
-    freshness,
-  });
-  const { dossier } = review;
-  writeFileSync(join(artifactRoot, 'dossier.json'), `${JSON.stringify(dossier)}\n`);
-  artifacts.conflict = review.conflict.artifact;
-  artifacts.oracle = review.oracle.artifact;
-  const context = buildContext(dossier, artifacts, authority);
-  const admission = writeAdmissionAuthority(target.externalRoot, context);
-  const options = {
+function admissionOptions(target, artifactRoot, authority, admission) {
+  return {
     repositoryRoot: target.repositoryRoot,
     artifactRoot,
     dossierPath: 'dossier.json',
@@ -126,6 +91,52 @@ export function createFixture() {
     reviewerAuthorityBundleSha256: authority.sha256,
     ...target.targetOptions,
   };
+}
+
+export function createFixture() {
+  const ownerRoot = mkdtempSync(join(tmpdir(), 'new-aria-dossier-admission-'));
+  const target = createTargetFixture(ownerRoot, policy);
+  const artifactRoot = join(ownerRoot, 'artifacts');
+  mkdirSync(artifactRoot);
+  const now = Date.now();
+  const freshness = {
+    observedAt: new Date(now - 1_000).toISOString(),
+    validUntil: new Date(now + 268_000).toISOString(),
+  };
+  const reviewerFreshness = {
+    observedAt: new Date(now - 30_000).toISOString(),
+    validUntil: freshness.validUntil,
+  };
+  const producerIdentity = {
+    principal_id: 'producer-principal',
+    session_id: 'producer-session',
+  };
+  const authority = writeReviewerAuthority(target.externalRoot, {
+    roles: policy.roles,
+    reviewedTarget: target.reviewedTarget,
+    producer: producerIdentity,
+    admissionPrincipal,
+    ...reviewerFreshness,
+  });
+  const artifacts = createArtifacts(artifactRoot, target);
+  const producer = { ...producerIdentity, artifact_uri: artifacts.producer.artifact_uri };
+  const review = createReviewDossier({
+    artifactRoot,
+    repositoryRoot: target.repositoryRoot,
+    gitTool: target.gitTool,
+    target: target.reviewedTarget,
+    authority,
+    producer,
+    policy,
+    freshness,
+  });
+  const { dossier } = review;
+  writeFileSync(join(artifactRoot, 'dossier.json'), `${JSON.stringify(dossier)}\n`);
+  artifacts.conflict = review.conflict.artifact;
+  artifacts.oracle = review.oracle.artifact;
+  const context = buildContext(dossier, artifacts, authority);
+  const admission = writeAdmissionAuthority(target.externalRoot, context);
+  const options = admissionOptions(target, artifactRoot, authority, admission);
   const cleanup = () => rmSync(ownerRoot, { recursive: true, force: true });
   return {
     ownerRoot,

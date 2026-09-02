@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
+const fatalUtf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+
 function skipWhitespace(source, state) {
   while (/\s/u.test(source[state.index] ?? '')) state.index += 1;
 }
@@ -128,6 +130,19 @@ export function parseStrictJson(source) {
   const value = JSON.parse(source);
   validateValue(value);
   return value;
+}
+
+export function decodeUtf8Fatal(bytes, label = 'input') {
+  if (!(bytes instanceof Uint8Array)) throw new Error(`${label} must be a byte sequence`);
+  try {
+    return fatalUtf8.decode(bytes);
+  } catch (error) {
+    throw new Error(`${label} must be valid UTF-8`, { cause: error });
+  }
+}
+
+export function parseStrictJsonBytes(bytes, label = 'JSON input') {
+  return parseStrictJson(decodeUtf8Fatal(bytes, label));
 }
 
 export function canonicalJson(value) {

@@ -31,6 +31,29 @@ await withReadbackCase(
   },
 );
 
+await withReadbackCase(
+  () => {},
+  async (authority, _calls, github) => {
+    const originalFetch = globalThis.fetch;
+    let noteReads = 0;
+    globalThis.fetch = async (url, options) => {
+      if (String(url).includes('/issues/1393/comments?') && (noteReads += 1) === 2) {
+        github.bodies.ref.object.sha = '9'.repeat(40);
+      }
+      return originalFetch(url, options);
+    };
+    try {
+      await assert.rejects(
+        verifyDeliveryReadback(authority),
+        /changed during verification/u,
+        'provider mutation during the closing final-note read was accepted',
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  },
+);
+
 async function rejectFinalNoteRace(name, mutate, pattern) {
   await withReadbackCase(
     () => {},
@@ -101,4 +124,4 @@ await withReadbackCase(
 
 suite.cleanup();
 process.removeListener('exit', suite.cleanup);
-process.stdout.write('PASS delivery-readback-races mutants=5\n');
+process.stdout.write('PASS delivery-readback-races mutants=6\n');

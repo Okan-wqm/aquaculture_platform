@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { verifyD0Bootstrap } from './lib/bootstrap-d0.mjs';
 import { eventHash, parseStrictJson } from './lib/canonical.mjs';
-import { verifyD0 } from './lib/verify.mjs';
+import { verifyWorktreeProvenance } from './lib/verify-provenance.mjs';
+import { verifyVerifiedSnapshot } from './lib/verify.mjs';
 import {
   mutateJson,
   planRoot,
@@ -160,13 +163,26 @@ assert.throws(() => parseStrictJson('{"a":-0}'), /negative zero/);
 assert.throws(() => parseStrictJson('{"a":"\\ud800"}'), /Unicode scalar/);
 
 const target = targetArguments();
-const baseline = verifyD0(planRoot, { repositoryRoot, target }).errors;
+const baselineResult = verifyD0Bootstrap(planRoot, { repositoryRoot, target });
+const baseline = baselineResult.errors;
 assert.deepEqual(baseline, [], `baseline verifier errors:\n${JSON.stringify(baseline, null, 2)}`);
+assert(baselineResult.targetFacts, 'baseline target facts are required');
 
 for (const testCase of cases) {
-  withPlanCopy('new-aria-d0-negative-', (scratch) => {
+  withPlanCopy('new-aria-d0-negative-', (scratch, sourceRoot) => {
     testCase.mutate(scratch);
-    const errors = verifyD0(scratch, { repositoryRoot, target }).errors;
+    const errors =
+      testCase.code === 'VERIFIER_PROVENANCE'
+        ? verifyWorktreeProvenance(scratch)
+        : verifyVerifiedSnapshot(
+            {
+              planRoot: scratch,
+              repositoryRoot: sourceRoot,
+              runtimeRepositoryRoot: repositoryRoot,
+            },
+            repositoryRoot,
+            baselineResult.targetFacts,
+          );
     assert(
       errors.some((error) => error.code === testCase.code),
       `${testCase.name}: expected ${testCase.code}, received ${JSON.stringify(errors)}`,
@@ -174,4 +190,12 @@ for (const testCase of cases) {
   });
 }
 
+const suite = spawnSync(
+  process.execPath,
+  [new URL('./run-d0-suite.mjs', import.meta.url).pathname, ...process.argv.slice(2)],
+  { cwd: repositoryRoot, env: process.env, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 },
+);
+process.stdout.write(suite.stdout ?? '');
+process.stderr.write(suite.stderr ?? '');
+assert.equal(suite.status, 0, 'closed D0 suite runner failed');
 process.stdout.write(`PASS negative-controls=${cases.length + 8}\n`);

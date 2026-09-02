@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join, normalize } from 'node:path';
 import ts from 'typescript';
+import { verifyRuntimeLoaders } from './ast-runtime-guards.mjs';
 
 function add(errors, path, message) {
   errors.push({ code: 'READABILITY_LIMIT', message: `${path}: ${message}` });
@@ -148,7 +149,14 @@ function dependencyLayers(policy) {
 }
 
 function verifySpecifier(context, specifier) {
-  const { errors, sourcePath, sourceLayer, layerByPath, approvedExternalSpecifiers } = context;
+  const {
+    errors,
+    sourcePath,
+    sourceLayer,
+    layerByPath,
+    approvedExternalSpecifiers,
+    childProcessModules,
+  } = context;
   if (specifier === null) {
     add(errors, sourcePath, 'dynamic import requires exactly one string literal argument');
     return;
@@ -156,6 +164,9 @@ function verifySpecifier(context, specifier) {
   if (!specifier.startsWith('.')) {
     if (!approvedExternalSpecifiers.has(specifier)) {
       add(errors, sourcePath, `unapproved external dependency ${specifier}`);
+    }
+    if (specifier === 'node:child_process' && !childProcessModules.has(sourcePath)) {
+      add(errors, sourcePath, 'forbidden child_process capability');
     }
     return;
   }
@@ -169,6 +180,7 @@ function verifySpecifier(context, specifier) {
 function verifySourceDependencies(context, sourcePath, sourceLayer) {
   const source = readFileSync(join(context.planRoot, sourcePath), 'utf8');
   const sourceFile = parseModule(sourcePath, source);
+  verifyRuntimeLoaders(context.errors, sourcePath, sourceFile, add);
   for (const specifier of moduleSpecifiers(sourceFile)) {
     verifySpecifier(
       {
@@ -184,9 +196,10 @@ function verifySourceDependencies(context, sourcePath, sourceLayer) {
 export function verifyAstDependencies(errors, planRoot, policy) {
   const layerByPath = dependencyLayers(policy);
   const approvedExternalSpecifiers = new Set(policy.dependency_policy.approved_external_specifiers);
+  const childProcessModules = new Set(policy.dependency_policy.child_process_modules);
   for (const [sourcePath, sourceLayer] of layerByPath) {
     verifySourceDependencies(
-      { errors, planRoot, layerByPath, approvedExternalSpecifiers },
+      { errors, planRoot, layerByPath, approvedExternalSpecifiers, childProcessModules },
       sourcePath,
       sourceLayer,
     );

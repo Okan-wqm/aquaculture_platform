@@ -28,6 +28,10 @@ const cases = [
     (value) => (value.reviews[1].principal_id = value.reviews[0].principal_id),
   ],
   ['duplicate session', (value) => (value.reviews[1].session_id = value.reviews[0].session_id)],
+  [
+    'duplicate agent execution',
+    (value) => (value.reviews[1].agent_execution_id = value.reviews[0].agent_execution_id),
+  ],
   ['duplicate report', (value) => (value.reviews[1].report_uri = value.reviews[0].report_uri)],
   [
     'duplicate report digest',

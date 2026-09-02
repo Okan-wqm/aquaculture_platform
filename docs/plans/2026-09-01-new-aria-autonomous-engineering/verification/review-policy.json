@@ -37,9 +37,12 @@
   ],
   "required_artifacts": [
     "distinct_principal",
+    "distinct_agent_execution",
+    "operator_attested_independence",
     "oob_pinned_reviewer_authority",
     "signed_review_envelope",
     "immutable_report",
+    "unique_semantic_evidence_manifest",
     "capability_match",
     "conflict_graph",
     "deterministic_oracle",

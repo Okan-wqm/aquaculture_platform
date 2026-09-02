@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { extname, join, relative } from 'node:path';
 import { parseStrictJson } from './canonical.mjs';
 import {
@@ -6,19 +6,10 @@ import {
   verifyAstDependencies,
   verifyAstFunctions,
 } from './ast-readability.mjs';
+import { walkRegularFiles } from './secure-tree.mjs';
 
 function add(errors, code, message) {
   errors.push({ code, message });
-}
-
-function filesUnder(root) {
-  const files = [];
-  for (const entry of readdirSync(root)) {
-    const path = join(root, entry);
-    if (statSync(path).isDirectory()) files.push(...filesUnder(path));
-    else files.push(path);
-  }
-  return files;
 }
 
 const expectedLimits = {
@@ -54,6 +45,22 @@ const dependencyIdentity = {
   layers: ['domain', 'kernel', 'application', 'adapters', 'runtime'],
   rule: 'A module may import its own layer or an earlier layer only.',
   migration_exempt: false,
+  child_process_modules: [
+    'verification/dossier-target-test-fixture.mjs',
+    'verification/lib/bootstrap-d0.mjs',
+    'verification/lib/hermetic-git.mjs',
+    'verification/lib/projection-format.mjs',
+    'verification/lib/review-view-transform.mjs',
+    'verification/run-d0-suite.mjs',
+    'verification/target-control-test-fixture.mjs',
+    'verification/test-dossier-admission.mjs',
+    'verification/test-dossier-resolution.mjs',
+    'verification/test-hermetic-git.mjs',
+    'verification/test-negative-controls.mjs',
+    'verification/test-parallel-isolation.mjs',
+    'verification/test-secure-tree.mjs',
+    'verification/test-target-command.mjs',
+  ],
   approved_external_specifiers: [
     'graphql',
     'node:assert/strict',
@@ -71,7 +78,19 @@ const domainModules = new Set(['verification/lib/canonical.mjs', 'verification/l
 const kernelModules = new Set([
   'verification/lib/api-contract.mjs',
   'verification/lib/ast-readability.mjs',
+  'verification/lib/ast-runtime-guards.mjs',
+  'verification/lib/d0-suite.mjs',
   'verification/lib/delivery-readback-contract.mjs',
+  'verification/lib/external-authority-path.mjs',
+  'verification/lib/git-batch-parser.mjs',
+  'verification/lib/git-objects.mjs',
+  'verification/lib/hermetic-git.mjs',
+  'verification/lib/private-node.mjs',
+  'verification/lib/review-evidence-policy.mjs',
+  'verification/lib/review-evidence-semantics.mjs',
+  'verification/lib/runtime-dependencies.mjs',
+  'verification/lib/secure-tree.mjs',
+  'verification/lib/target-git-facts.mjs',
   'verification/lib/target-manifest.mjs',
   'verification/lib/verify-audit-oracle.mjs',
   'verification/lib/verify-relations.mjs',
@@ -83,12 +102,10 @@ const adapterModules = new Set([
   'verification/lib/github-final-note.mjs',
   'verification/lib/github-ruleset-policy.mjs',
 ]);
-
 function verifyLimits(errors, policy) {
   if (JSON.stringify(policy.limits) !== JSON.stringify(expectedLimits))
     add(errors, 'READABILITY_POLICY', 'numeric limit drift');
 }
-
 function verifyEngine(errors, policy) {
   const engine = policy.analysis_engine;
   if (
@@ -100,7 +117,6 @@ function verifyEngine(errors, policy) {
     add(errors, 'READABILITY_POLICY', 'pinned TypeScript AST engine drift');
   }
 }
-
 function verifyGeneratedFieldSchema(errors, policy) {
   if (
     JSON.stringify(policy.generated_exception_required_fields) !==
@@ -108,7 +124,6 @@ function verifyGeneratedFieldSchema(errors, policy) {
   )
     add(errors, 'READABILITY_POLICY', 'generated exception schema drift');
 }
-
 function verifyMatrixException(errors, policy) {
   const exceptions = policy.declarative_exceptions;
   const exception = Array.isArray(exceptions) ? exceptions[0] : null;
@@ -121,7 +136,6 @@ function verifyMatrixException(errors, policy) {
     add(errors, 'READABILITY_POLICY', 'canonical matrix exception drift');
   }
 }
-
 function expectedDependencyLayer(path) {
   if (domainModules.has(path)) return 'domain';
   if (kernelModules.has(path)) return 'kernel';
@@ -129,7 +143,6 @@ function expectedDependencyLayer(path) {
   if (path.startsWith('verification/lib/')) return 'application';
   return 'runtime';
 }
-
 function hasExactRosterShape(rosters) {
   return (
     JSON.stringify(Object.keys(rosters).sort()) ===
@@ -137,14 +150,12 @@ function hasExactRosterShape(rosters) {
     Object.values(rosters).every(Array.isArray)
   );
 }
-
 function verificationModules(planRoot) {
-  return filesUnder(join(planRoot, 'verification'))
+  return walkRegularFiles(join(planRoot, 'verification'))
     .filter((path) => extname(path) === '.mjs')
     .map((path) => relative(planRoot, path).replaceAll('\\', '/'))
     .sort();
 }
-
 function hasExactUniqueRoster(declared, actual) {
   return (
     declared.every((path) => typeof path === 'string') &&
@@ -152,7 +163,6 @@ function hasExactUniqueRoster(declared, actual) {
     JSON.stringify([...declared].sort()) === JSON.stringify(actual)
   );
 }
-
 function hasExactAssignments(rosters) {
   return Object.entries(rosters).every(([layer, paths]) =>
     paths.every((path) => expectedDependencyLayer(path) === layer),
@@ -193,8 +203,8 @@ function verifyPolicy(errors, planRoot, policy) {
 }
 
 function verifyFileLimits(errors, planRoot, repositoryRoot, limits) {
-  const files = filesUnder(planRoot).filter((path) =>
-    ['.md', '.mjs', '.json', '.jsonl'].includes(extname(path)),
+  const files = walkRegularFiles(planRoot).filter((path) =>
+    ['.graphql', '.json', '.jsonl', '.md', '.mjs'].includes(extname(path)),
   );
   files.push(
     join(

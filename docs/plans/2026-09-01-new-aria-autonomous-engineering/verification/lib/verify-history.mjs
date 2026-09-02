@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { parseStrictJson, sha256, sha256File } from './canonical.mjs';
+import { readCommitFile } from './git-objects.mjs';
+import { createGitSession } from './hermetic-git.mjs';
 import { loadReviewPolicy } from './verify-dossier.mjs';
 import { verifyEvents } from './verify-events.mjs';
 import { verifyNonAdmissionPackages } from './verify-review-evidence.mjs';
@@ -13,17 +14,7 @@ function add(errors, message) {
   errors.push({ code: 'HISTORICAL_EVIDENCE', message });
 }
 
-function gitObject(repositoryRoot, revision, path) {
-  const result = spawnSync('git', ['show', `${revision}:${path}`], {
-    cwd: repositoryRoot,
-    encoding: null,
-    maxBuffer: 8 * 1024 * 1024,
-  });
-  if (result.status !== 0) throw new Error(`git show failed for ${revision}:${path}`);
-  return result.stdout;
-}
-
-function verifyHistoricalManifest(planRoot, repositoryRoot) {
+function verifyHistoricalManifest(planRoot, repositoryRoot, gitTool) {
   const errors = [];
   const path = join(planRoot, 'progress/evidence/D0-plan-materialization.json');
   if (sha256File(path) !== oldEvidenceDigest) {
@@ -34,7 +25,11 @@ function verifyHistoricalManifest(planRoot, repositoryRoot) {
   const bundle = [];
   for (const entry of manifest.authority) {
     try {
-      if (sha256(gitObject(repositoryRoot, historicalHead, entry.path)) !== entry.sha256) {
+      if (
+        sha256(
+          readCommitFile(repositoryRoot, historicalHead, { path: entry.path }, gitTool).bytes,
+        ) !== entry.sha256
+      ) {
         add(errors, `${entry.path}: historical digest mismatch`);
       }
       bundle.push(`${entry.path}\0${entry.sha256}\n`);
@@ -48,11 +43,13 @@ function verifyHistoricalManifest(planRoot, repositoryRoot) {
   return errors;
 }
 
-export function verifyHistory(planRoot, repositoryRoot) {
+export function verifyHistory(planRoot, options) {
+  const { gitRepositoryRoot, sourceRepositoryRoot, runtimeRepositoryRoot, gitTool } = options;
   const policy = loadReviewPolicy(planRoot);
+  const git = createGitSession(gitTool);
   return [
-    ...verifyHistoricalManifest(planRoot, repositoryRoot),
-    ...verifyNonAdmissionPackages(planRoot, repositoryRoot, policy),
+    ...verifyHistoricalManifest(planRoot, gitRepositoryRoot, git),
+    ...verifyNonAdmissionPackages(planRoot, sourceRepositoryRoot, policy, runtimeRepositoryRoot),
     ...verifyEvents(planRoot),
   ];
 }

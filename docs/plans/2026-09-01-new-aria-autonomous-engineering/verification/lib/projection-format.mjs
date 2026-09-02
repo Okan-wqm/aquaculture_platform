@@ -1,12 +1,13 @@
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 
-export function formatProjection(repositoryRoot, path, content) {
+export function formatProjection(sourceRepositoryRoot, runtimeRepositoryRoot, path, content) {
   const result = spawnSync(
-    join(repositoryRoot, 'node_modules/.bin/prettier'),
+    process.execPath,
     [
+      join(runtimeRepositoryRoot, 'node_modules/prettier/bin/prettier.cjs'),
       '--config',
-      join(repositoryRoot, '.prettierrc'),
+      join(sourceRepositoryRoot, '.prettierrc'),
       '--prose-wrap',
       'always',
       '--stdin-filepath',

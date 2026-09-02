@@ -1,7 +1,5 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { canonicalJson, parseStrictJson, sha256 } from './canonical.mjs';
 import { loadVerifiedPayload } from './verify-signature.mjs';
+import { assertRuntimeDependencyRoster } from './runtime-dependencies.mjs';
 
 export const targetManifestPath =
   'docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/target-manifest.json';
@@ -18,6 +16,8 @@ const manifestKeys = [
   'schema_version',
   'scope_policy',
 ];
+const gitToolKeys = ['environment_policy', 'executable_sha256', 'logical_name', 'version'];
+const nodeToolKeys = ['environment_policy', 'executable_sha256', 'logical_name', 'version'];
 const payloadKeys = [
   'contract_id',
   'manifest',
@@ -34,6 +34,10 @@ const targetKeys = [
   'committed_diff_sha256',
   'design_sha256',
   'format_scope_sha256',
+  'git_tool',
+  'node_tool',
+  'package_lock_sha256',
+  'runtime_dependencies',
 ];
 const exactSha = /^[a-f0-9]{40}$/u;
 const exactDigest = /^[a-f0-9]{64}$/u;
@@ -63,6 +67,30 @@ function cloneRef(value) {
   return exactRemoteRef.test(value) && !value.includes('..');
 }
 
+function assertGitTool(value) {
+  if (
+    !exactKeys(value, gitToolKeys) ||
+    value.logical_name !== 'git' ||
+    !/^git version (?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(value.version) ||
+    !exactDigest.test(value.executable_sha256) ||
+    value.environment_policy !== 'new-aria-hermetic-git-v1'
+  ) {
+    throw new Error('signed target Git tool identity or policy mismatch');
+  }
+}
+
+function assertNodeTool(value) {
+  if (
+    !exactKeys(value, nodeToolKeys) ||
+    value.logical_name !== 'node' ||
+    !/^v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$/u.test(value.version) ||
+    !exactDigest.test(value.executable_sha256) ||
+    value.environment_policy !== 'new-aria-hermetic-node-v1'
+  ) {
+    throw new Error('signed target Node tool identity or policy mismatch');
+  }
+}
+
 function assertManifest(value) {
   if (!exactKeys(value, manifestKeys)) throw new Error('target manifest schema is open or drifted');
   if (!manifestIdentityMatches(value))
@@ -82,6 +110,9 @@ function assertManifest(value) {
 
 function assertSignedTarget(value, manifest) {
   if (!exactKeys(value, targetKeys)) throw new Error('signed target schema is open or drifted');
+  assertGitTool(value.git_tool);
+  assertNodeTool(value.node_tool);
+  assertRuntimeDependencyRoster(value.runtime_dependencies);
   for (const field of ['base_sha', 'base_tree', 'head_sha', 'head_tree']) {
     if (!exactSha.test(value[field])) throw new Error(`signed target ${field} must be exact SHA`);
   }
@@ -90,12 +121,16 @@ function assertSignedTarget(value, manifest) {
       throw new Error(`signed target ${field} must be exact SHA-256`);
     }
   }
-  if (
-    value.base_sha !== manifest.base_sha ||
-    value.base_tree !== manifest.base_tree ||
-    value.reviewed_ref !== manifest.reviewed_ref ||
-    value.base_sha === value.head_sha
-  ) {
+  if (!exactDigest.test(value.package_lock_sha256)) {
+    throw new Error('signed target package_lock_sha256 must be exact SHA-256');
+  }
+  const contradictions = [
+    value.base_sha !== manifest.base_sha,
+    value.base_tree !== manifest.base_tree,
+    value.reviewed_ref !== manifest.reviewed_ref,
+    value.base_sha === value.head_sha,
+  ];
+  if (contradictions.some(Boolean)) {
     throw new Error('signed target contradicts manifest or selects an empty range');
   }
 }
@@ -110,24 +145,21 @@ function authorityOptions(options) {
 }
 
 export function loadTargetAuthority(repositoryRoot, options = {}) {
-  const raw = readFileSync(join(repositoryRoot, targetManifestPath));
-  const manifest = parseStrictJson(raw.toString('utf8'));
-  assertManifest(manifest);
   const verified = loadVerifiedPayload({
     repositoryRoot,
     ...authorityOptions(options),
     expectedKind: 'new-aria-d0-target-authority',
     expectedCapability: 'd0-target-authority',
   });
-  const { payload, signer } = verified;
+  const { envelopeBytes, payload, signer } = verified;
   if (
     !exactKeys(payload, payloadKeys) ||
     payload.contract_id !== 'new-aria-d0-target-authority-v1' ||
-    payload.manifest_sha256 !== sha256(raw) ||
-    canonicalJson(payload.manifest) !== canonicalJson(manifest)
+    !exactDigest.test(payload.manifest_sha256)
   ) {
-    throw new Error('signed target authority does not bind the committed manifest bytes');
+    throw new Error('signed target authority payload schema or manifest digest mismatch');
   }
+  assertManifest(payload.manifest);
   if (
     typeof payload.operator_principal_id !== 'string' ||
     payload.operator_principal_id.length === 0 ||
@@ -135,8 +167,14 @@ export function loadTargetAuthority(repositoryRoot, options = {}) {
   ) {
     throw new Error('signed target authority principal does not match its trust root');
   }
-  assertSignedTarget(payload.target, manifest);
-  return { manifest, target: payload.target };
+  assertSignedTarget(payload.target, payload.manifest);
+  return {
+    envelopeBytes,
+    manifest: payload.manifest,
+    manifestSha256: payload.manifest_sha256,
+    signer,
+    target: payload.target,
+  };
 }
 
 export function loadTargetManifest(repositoryRoot, options = {}) {

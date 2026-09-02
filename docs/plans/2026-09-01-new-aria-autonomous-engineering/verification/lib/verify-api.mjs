@@ -55,6 +55,10 @@ const lifecycleMapping = {
   FAILED: 'FAILED',
   CANCELLED: 'CANCELLED',
 };
+const immutableTerminalClosure = {
+  algorithm: 'graphql-public-closure-v1',
+  sha256: 'ba7376ce5a8b3faf2995fcadcfa8735de3359f27d083da08ded5418c0bcd1130',
+};
 const commonInput = [
   ['requestId', 'UUID!'],
   ['workspaceId', 'ID!'],
@@ -75,6 +79,9 @@ function apiPolicy(planRoot) {
 }
 
 function verifySchemaClosure(errors, contract, policy) {
+  if (!equal(contract.schema_closure, immutableTerminalClosure)) {
+    add(errors, 'terminal SDL closure differs from immutable D0 authority');
+  }
   if (!equal(contract.schema_closure, policy.terminal_closure)) {
     add(errors, 'terminal SDL closure drift');
   }

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { canonicalJson, parseStrictJson, sha256 } from './canonical.mjs';
+import { canonicalJson, parseStrictJsonBytes, sha256 } from './canonical.mjs';
 import { nestedKeys, reviewKeys, targetKeys } from './dossier-schema.mjs';
 const sha40 = /^[a-f0-9]{40}$/u;
 const sha64 = /^[a-f0-9]{64}$/u;
@@ -33,7 +33,11 @@ function targetDigest(target) {
 }
 
 export function loadReviewPolicy(planRoot) {
-  return parseStrictJson(readFileSync(join(planRoot, 'verification/review-policy.json'), 'utf8'));
+  return parseReviewPolicy(readFileSync(join(planRoot, 'verification/review-policy.json')));
+}
+
+export function parseReviewPolicy(bytes) {
+  return parseStrictJsonBytes(bytes, 'review policy');
 }
 
 function verifyTarget(errors, target) {
@@ -72,7 +76,7 @@ function verifyReview(errors, dossier, review, index) {
     add(errors, `${label}: review schema open or drifted`);
     return;
   }
-  for (const field of ['principal_id', 'session_id', 'report_uri']) {
+  for (const field of ['principal_id', 'session_id', 'agent_execution_id', 'report_uri']) {
     if (!nonEmptyString(review[field])) add(errors, `${label}: ${field} must be a string`);
   }
   if (!sha64.test(review.report_sha256)) add(errors, `${label}: report digest mismatch`);
@@ -96,7 +100,13 @@ function verifyReviews(errors, dossier, policy) {
   ) {
     add(errors, 'role roster drift');
   }
-  for (const field of ['principal_id', 'session_id', 'report_uri', 'report_sha256']) {
+  for (const field of [
+    'principal_id',
+    'session_id',
+    'agent_execution_id',
+    'report_uri',
+    'report_sha256',
+  ]) {
     if (!unique(dossier.reviews.map((review) => review[field]))) add(errors, `${field} reuse`);
   }
   const authorities = dossier.reviews.map((review) => review.reviewer_authority_bundle_sha256);
@@ -138,9 +148,11 @@ function verifyIdentities(errors, dossier) {
     dossier.oracle?.session_id,
     dossier.conflict_graph?.session_id,
   ];
+  const agentExecutions = (dossier.reviews ?? []).map((review) => review.agent_execution_id);
   if (!unique(principals))
     add(errors, 'producer/operator/reviewer/oracle/conflict principal alias');
   if (!unique(sessions)) add(errors, 'producer/reviewer/oracle/conflict session alias');
+  if (!unique(agentExecutions)) add(errors, 'reviewer agent execution alias');
   const expectedPairs = (principals.length * (principals.length - 1)) / 2;
   if (dossier.conflict_graph?.evaluated_pairs !== expectedPairs) {
     add(errors, 'conflict graph does not cover every authority principal pair');

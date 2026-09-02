@@ -4,7 +4,7 @@ import { writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sha256File } from './lib/canonical.mjs';
-import { bundleDigest, expectedPaths } from './lib/verify-provenance.mjs';
+import { bundleDigest, expectedPaths, runtimeProvenance } from './lib/verify-provenance.mjs';
 
 function argument(name, fallback) {
   const index = process.argv.indexOf(name);
@@ -47,11 +47,7 @@ const metadata = {
     '--format-scope-sha256',
   ],
   cwd_contract: 'repository root',
-  runtime: {
-    node_version: process.version,
-    node_executable: process.execPath,
-    node_executable_sha256: sha256File(process.execPath),
-  },
+  runtime: runtimeProvenance(repositoryRoot),
   input_bundle_algorithm: 'sha256(path + NUL + sha256 + LF, lexicographic path order)',
   input_bundle_sha256: bundleDigest(records),
 };

@@ -1,134 +1,19 @@
 #!/usr/bin/env node
 
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { generateKeyPairSync, sign } from 'node:crypto';
 import { copyFileSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { canonicalJson, sha256, sha256File } from './lib/canonical.mjs';
 import { verifyTarget } from './lib/verify-target.mjs';
-
-const manifestPath =
-  'docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/target-manifest.json';
-
-function git(root, args, binary = false) {
-  return execFileSync('git', args, { cwd: root, encoding: binary ? null : 'utf8' });
-}
-
-function commit(root, message) {
-  git(root, ['add', '.']);
-  git(root, ['commit', '-m', message]);
-  return git(root, ['rev-parse', 'HEAD']).trim();
-}
-
-function declaredTarget(root, baseSha, headSha, reviewedRef = 'refs/remotes/origin/review') {
-  const resolve = (value) => git(root, ['rev-parse', '--verify', value]).trim();
-  const diff = git(
-    root,
-    [
-      'diff',
-      '--name-status',
-      '-z',
-      '--find-renames',
-      '--find-copies',
-      `${baseSha}..${headSha}`,
-      '--',
-    ],
-    true,
-  );
-  return {
-    baseSha,
-    headSha,
-    reviewedRef,
-    baseTree: resolve(`${baseSha}^{tree}`),
-    headTree: resolve(`${headSha}^{tree}`),
-    diffSha256: sha256(diff),
-    designSha256: sha256File(
-      join(root, 'docs/superpowers/specs/2026-09-01-new-aria-autonomous-engineering-design.md'),
-    ),
-    formatScopeSha256: sha256File(join(root, 'tools/quality/format-scope.json')),
-  };
-}
-
-function targetManifest(root, baseSha, reviewedRef = 'refs/remotes/origin/review') {
-  return {
-    schema_version: '1.0.0',
-    kind: 'new-aria-d0-verification-target',
-    program_instance: 'new-aria-autonomous-engineering:D0:2026-09-01',
-    repository_slug: 'Okan-wqm/aquaculture_platform',
-    base_ref: 'refs/remotes/origin/main',
-    base_sha: baseSha,
-    base_tree: git(root, ['rev-parse', `${baseSha}^{tree}`]).trim(),
-    reviewed_ref: reviewedRef,
-    head_policy: 'CHECKOUT_EXACT',
-    scope_policy: 'D0_PLAN_ONLY',
-  };
-}
-
-function writeManifest(root, manifest) {
-  const path = join(root, manifestPath);
-  mkdirSync(join(path, '..'), { recursive: true });
-  writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`);
-  return path;
-}
-
-function writeAuthority(root, operatorRoot, manifest, keys = generateKeyPairSync('ed25519')) {
-  const publicDer = keys.publicKey.export({ format: 'der', type: 'spki' });
-  const trustRoot = {
-    schema_version: '1.0.0',
-    kind: 'new-aria-external-trust-root',
-    algorithm: 'Ed25519',
-    key_id: 'operator-test-key',
-    principal_id: 'target-operator',
-    capabilities: ['d0-target-authority'],
-    public_key_spki_base64: publicDer.toString('base64'),
-  };
-  const declared = declaredTarget(
-    root,
-    manifest.base_sha,
-    git(root, ['rev-parse', 'HEAD']).trim(),
-    manifest.reviewed_ref,
-  );
-  const payload = {
-    contract_id: 'new-aria-d0-target-authority-v1',
-    manifest_sha256: sha256File(writeManifest(root, manifest)),
-    manifest,
-    operator_principal_id: trustRoot.principal_id,
-    target: {
-      base_sha: declared.baseSha,
-      base_tree: declared.baseTree,
-      head_sha: declared.headSha,
-      head_tree: declared.headTree,
-      reviewed_ref: declared.reviewedRef,
-      committed_diff_sha256: declared.diffSha256,
-      design_sha256: declared.designSha256,
-      format_scope_sha256: declared.formatScopeSha256,
-    },
-  };
-  const envelope = {
-    schema_version: '1.0.0',
-    kind: 'new-aria-d0-target-authority',
-    algorithm: 'Ed25519',
-    key_id: trustRoot.key_id,
-    payload,
-    signature_base64: sign(null, Buffer.from(canonicalJson(payload)), keys.privateKey).toString(
-      'base64',
-    ),
-  };
-  mkdirSync(operatorRoot, { recursive: true });
-  const contextPath = join(operatorRoot, 'target-context.json');
-  const trustRootPath = join(operatorRoot, 'trust-root.json');
-  const trustRootBytes = Buffer.from(`${JSON.stringify(trustRoot, null, 2)}\n`);
-  writeFileSync(contextPath, `${JSON.stringify(envelope, null, 2)}\n`);
-  writeFileSync(trustRootPath, trustRootBytes);
-  return {
-    authorityRoot: operatorRoot,
-    contextPath,
-    trustRootPath,
-    trustRootSha256: sha256(trustRootBytes),
-  };
-}
+import {
+  commit,
+  declaredTarget,
+  git,
+  targetManifest,
+  writeAuthority,
+  writeManifest,
+  writeRuntimeFixture,
+} from './target-control-test-fixture.mjs';
 
 function expectCode(name, result, code) {
   assert(
@@ -145,6 +30,7 @@ try {
   git(root, ['config', 'user.name', 'D0 Target Test']);
   git(root, ['config', 'user.email', 'd0-target@example.invalid']);
   git(root, ['config', 'commit.gpgsign', 'false']);
+  writeRuntimeFixture(root);
   for (const path of [
     'aria-kernel/frozen.txt',
     'docs/plans/2026-09-01-new-aria-autonomous-engineering/allowed.txt',
@@ -155,6 +41,8 @@ try {
     writeFileSync(join(root, path), `${path}\n`);
   }
   const baseSha = commit(root, 'test: establish target baseline');
+  const manifest = targetManifest(root, baseSha);
+  writeManifest(root, manifest);
   renameSync(
     join(root, 'aria-kernel/frozen.txt'),
     join(root, 'docs/plans/2026-09-01-new-aria-autonomous-engineering/renamed.txt'),
@@ -165,12 +53,30 @@ try {
   git(root, ['update-ref', 'refs/remotes/origin/main', baseSha]);
   git(root, ['update-ref', 'refs/remotes/origin/review', headSha]);
 
-  const manifest = targetManifest(root, baseSha);
   const authority = writeAuthority(root, join(ownerRoot, 'operator'), manifest);
   const declared = declaredTarget(root, baseSha, headSha);
   const result = verifyTarget(root, declared, authority);
+  assert.equal(
+    result.errors.some((error) => error.code === 'TARGET_MANIFEST'),
+    false,
+    `signed manifest with a pinned Git tool was rejected: ${JSON.stringify(result.errors)}`,
+  );
   expectCode('rename old path', result, 'PROTECTED_SCOPE');
   expectCode('product path', result, 'PRODUCT_SCOPE');
+
+  const committedManifestPath = join(
+    root,
+    'docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/target-manifest.json',
+  );
+  writeFileSync(committedManifestPath, Buffer.from([0x7b, 0x80, 0x7d]));
+  const dirtyManifest = verifyTarget(root, declared, authority);
+  assert.equal(
+    dirtyManifest.errors.some((error) => error.code === 'TARGET_MANIFEST'),
+    false,
+    'mutable worktree manifest replaced the signed HEAD manifest snapshot',
+  );
+  expectCode('dirty worktree manifest', dirtyManifest, 'WORKTREE_DIRTY');
+  writeManifest(root, manifest);
 
   const emptyRange = declaredTarget(root, headSha, headSha);
   expectCode(
@@ -189,6 +95,66 @@ try {
   expectCode(
     'coordinated manifest and empty-range rewrite',
     verifyTarget(root, emptyRange, authority),
+    'TARGET_MANIFEST',
+  );
+
+  const missingGitAuthority = writeAuthority(
+    root,
+    join(ownerRoot, 'operator-missing-git'),
+    manifest,
+    (target) => delete target.git_tool,
+  );
+  expectCode(
+    'signed target without a Git tool',
+    verifyTarget(root, declared, missingGitAuthority),
+    'TARGET_MANIFEST',
+  );
+
+  const wrongNodeAuthority = writeAuthority(
+    root,
+    join(ownerRoot, 'operator-wrong-node'),
+    manifest,
+    (target) => (target.node_tool.executable_sha256 = '0'.repeat(64)),
+  );
+  expectCode(
+    'signed target with wrong Node executable digest',
+    verifyTarget(root, declared, wrongNodeAuthority),
+    'TARGET_RESOLUTION',
+  );
+
+  const missingDependencyAuthority = writeAuthority(
+    root,
+    join(ownerRoot, 'operator-missing-runtime-dependency'),
+    manifest,
+    (target) => target.runtime_dependencies.pop(),
+  );
+  expectCode(
+    'signed target with an open runtime dependency roster',
+    verifyTarget(root, declared, missingDependencyAuthority),
+    'TARGET_MANIFEST',
+  );
+
+  const tamperedDependencyAuthority = writeAuthority(
+    root,
+    join(ownerRoot, 'operator-tampered-runtime-dependency'),
+    manifest,
+    (target) => (target.runtime_dependencies[0].package_tree_sha256 = '0'.repeat(64)),
+  );
+  expectCode(
+    'installed runtime bytes disagree with signed dependency facts',
+    verifyTarget(root, declared, tamperedDependencyAuthority),
+    'TARGET_RESOLUTION',
+  );
+
+  const hostBoundManifest = { ...manifest, git_tool: {} };
+  const hostBoundAuthority = writeAuthority(
+    root,
+    join(ownerRoot, 'operator-host-bound-manifest'),
+    hostBoundManifest,
+  );
+  expectCode(
+    'committed manifest with host-specific tool facts',
+    verifyTarget(root, declared, hostBoundAuthority),
     'TARGET_MANIFEST',
   );
 

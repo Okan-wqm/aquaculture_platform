@@ -3,8 +3,9 @@
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { verifyMapping } from './lib/verify-mapping.mjs';
-import { verifyProvenance } from './lib/verify-provenance.mjs';
+import { observeGitTool } from './lib/hermetic-git.mjs';
+import { verifyMapping as verifyMappingPinned } from './lib/verify-mapping.mjs';
+import { verifyWorktreeProvenance } from './lib/verify-provenance.mjs';
 import {
   mutateJson,
   mutateJsonLine,
@@ -15,6 +16,8 @@ import {
 
 const failures = [];
 const withCopy = (run) => withPlanCopy('new-aria-d0-integrity-', run);
+const gitTool = observeGitTool();
+const verifyMapping = (root, repository) => verifyMappingPinned(root, repository, gitTool);
 
 function record(name, errors, code) {
   if (!errors.some((error) => error.code === code)) {
@@ -44,7 +47,7 @@ withCopy((copy) => {
   };
   lines[0] = JSON.stringify(metadata);
   writeFileSync(target, `${lines.join('\n')}\n`);
-  record('forged runtime observation', verifyProvenance(copy), 'VERIFIER_RUNTIME');
+  record('forged runtime observation', verifyWorktreeProvenance(copy), 'VERIFIER_RUNTIME');
 });
 
 withCopy((copy) => {

@@ -1,67 +1,12 @@
 import { canonicalJson, sha256 } from './lib/canonical.mjs';
 import { conflictPairs } from './lib/review-oracle.mjs';
 import { signedEnvelope, writeArtifact } from './dossier-crypto-test-fixture.mjs';
+import { writeReviews } from './dossier-review-artifact-test-fixture.mjs';
 
 const admissionPrincipal = 'admission-operator';
 
 function digest(value) {
   return sha256(Buffer.from(canonicalJson(value), 'utf8'));
-}
-
-function reviewPayload(role, credential, targetDigest, authorityDigest, evidence) {
-  return {
-    schema_version: '1.0.0',
-    contract_id: 'new-aria-review-report-v1',
-    role,
-    principal_id: credential.principal_id,
-    session_id: credential.session_id,
-    capability: role,
-    reviewed_target_sha256: targetDigest,
-    reviewer_authority_bundle_sha256: authorityDigest,
-    verdict: 'ACCEPTED',
-    evidence_artifacts: [evidence],
-    unresolved_load_bearing_findings: [],
-  };
-}
-
-function writeReviews(resources) {
-  const targetDigest = digest(resources.target);
-  const reportPayloads = [];
-  const reviews = resources.authority.reviewerSigners.map((signer, index) => {
-    const role = resources.policy.roles[index];
-    const evidence = writeArtifact(
-      resources.artifactRoot,
-      `evidence/${index}-${role}.md`,
-      Buffer.from(`independent evidence ${index} ${role}\n`, 'utf8'),
-    );
-    const payload = reviewPayload(
-      role,
-      signer.credential,
-      targetDigest,
-      resources.authority.sha256,
-      evidence,
-    );
-    reportPayloads.push(payload);
-    const report = writeArtifact(
-      resources.artifactRoot,
-      `reports/${index}-${role}.json`,
-      signedEnvelope('new-aria-signed-review-report', payload, signer),
-    );
-    return {
-      role,
-      principal_id: signer.credential.principal_id,
-      session_id: signer.credential.session_id,
-      report_uri: report.artifact_uri,
-      report_sha256: report.sha256,
-      capabilities: [role],
-      reviewed_head_sha: resources.target.head_sha,
-      authority_bundle_sha256: resources.target.authority_bundle_sha256,
-      reviewed_target_sha256: targetDigest,
-      reviewer_authority_bundle_sha256: resources.authority.sha256,
-      verdict: 'ACCEPTED',
-    };
-  });
-  return { reviews, reportPayloads };
 }
 
 function identityRoster(resources, reviews) {

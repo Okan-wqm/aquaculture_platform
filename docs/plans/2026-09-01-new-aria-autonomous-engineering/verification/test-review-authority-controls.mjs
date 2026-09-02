@@ -16,6 +16,43 @@ function writeDossier(options, dossier, context, resign) {
   resign();
 }
 
+function authorityExpectation(dossier) {
+  return {
+    roles: policy.roles,
+    reviewedTarget: dossier.reviewed_target,
+    producer: {
+      principal_id: dossier.producer.principal_id,
+      session_id: dossier.producer.session_id,
+    },
+    admissionPrincipal: dossier.admission.operator_principal_id,
+    maxFreshnessSeconds: policy.admission_context.max_freshness_seconds,
+  };
+}
+
+withFixture(({ options, dossier }) => {
+  const bundle = JSON.parse(readFileSync(options.reviewerAuthorityBundlePath, 'utf8'));
+  bundle.valid_until = 'not-a-time';
+  writeFileSync(options.reviewerAuthorityBundlePath, `${JSON.stringify(bundle)}\n`);
+  options.reviewerAuthorityBundleSha256 = sha256(readFileSync(options.reviewerAuthorityBundlePath));
+  assert.throws(
+    () => loadReviewerAuthority(options, authorityExpectation(dossier)),
+    /clock|stale/u,
+    'non-finite reviewer authority expiry accepted',
+  );
+});
+
+withFixture(({ options, dossier }) => {
+  assert.throws(
+    () =>
+      loadReviewerAuthority(options, {
+        ...authorityExpectation(dossier),
+        maxFreshnessSeconds: Number.NaN,
+      }),
+    /clock|freshness/u,
+    'non-finite reviewer authority freshness policy accepted',
+  );
+});
+
 withFixture(({ options }) => {
   delete options.reviewerAuthorityBundleSha256;
   assert.throws(
@@ -35,6 +72,16 @@ for (const [name, mutate, pattern] of [
     'reviewer capability escalation',
     (bundle) => (bundle.reviewers[0].capabilities = ['appellate']),
     /capability/u,
+  ],
+  [
+    'reviewer agent execution alias',
+    (bundle) => (bundle.reviewers[1].agent_execution_id = bundle.reviewers[0].agent_execution_id),
+    /agent execution|alias/u,
+  ],
+  [
+    'cryptographic independence overclaim',
+    (bundle) => (bundle.independence_assurance = 'CRYPTOGRAPHICALLY_PROVEN'),
+    /identity|assurance/u,
   ],
 ]) {
   withFixture(({ options }) => {
@@ -99,20 +146,11 @@ withFixture(({ options, dossier }) => {
           reviewerAuthorityRoot: route,
           reviewerAuthorityBundlePath: join(route, 'review-authority.json'),
         },
-        {
-          roles: policy.roles,
-          reviewedTarget: dossier.reviewed_target,
-          producer: {
-            principal_id: dossier.producer.principal_id,
-            session_id: dossier.producer.session_id,
-          },
-          admissionPrincipal: dossier.admission.operator_principal_id,
-          maxFreshnessSeconds: policy.admission_context.max_freshness_seconds,
-        },
+        authorityExpectation(dossier),
       ),
     /external authority|repository/u,
     'repository-internal reviewer authority symlink route accepted',
   );
 });
 
-process.stdout.write('PASS review-authority-controls=6\n');
+process.stdout.write('PASS review-authority-controls=10\n');

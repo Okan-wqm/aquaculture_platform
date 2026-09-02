@@ -5,17 +5,22 @@ import { spawnSync } from 'node:child_process';
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import {
   cpSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
-  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-
+import { runtimeTools } from './target-control-test-fixture.mjs';
+import {
+  copyVerifiedRuntimeDependencies,
+  observeRuntimeDependencies,
+} from './lib/runtime-dependencies.mjs';
+import { canonicalCommand, invokeWithPackageTripwire } from './target-command-test-fixture.mjs';
 const sourceRoot = fileURLToPath(new URL('../../../..', import.meta.url));
 const planPath = 'docs/plans/2026-09-01-new-aria-autonomous-engineering';
 const manifestPath = `${planPath}/verification/target-manifest.json`;
@@ -153,7 +158,7 @@ function signedTarget(cloneRoot, operatorRoot, headSha) {
     manifest,
     manifest_sha256: sha256(manifestBytes),
     operator_principal_id: trustRoot.principal_id,
-    target: exactTarget(cloneRoot, manifest, headSha),
+    target: { ...exactTarget(cloneRoot, manifest, headSha), ...runtimeTools(cloneRoot) },
   };
   const envelope = {
     schema_version: '1.0.0',
@@ -175,34 +180,19 @@ function signedTarget(cloneRoot, operatorRoot, headSha) {
   return sha256(trustRootBytes);
 }
 
-function canonicalCommand(cloneRoot, script = 'verify-d0.mjs') {
-  const evidence = readFileSync(
-    join(cloneRoot, planPath, 'authority/verification-evidence.md'),
-    'utf8',
-  );
-  const block = evidence.match(/Fresh clone canonical argv:\n\n```text\n(?<body>[\s\S]*?)```/u);
-  assert(block?.groups?.body, 'canonical argv block is missing');
-  const commands = block.groups.body
-    .trim()
-    .split('\n')
-    .filter((line) => line.includes(`/verification/${script}`));
-  assert.equal(commands.length, 1, `exactly one canonical ${script} command is required`);
-  const argv = commands[0].trim().split(/\s+/u);
-  assert(
-    argv.every((value) => !/[<>]/u.test(value)),
-    'canonical argv contains a placeholder',
-  );
-  return argv;
-}
-
 const ownerRoot = mkdtempSync(join(tmpdir(), 'new-aria-d0-command-'));
 const cloneRoot = join(ownerRoot, 'repository');
 try {
   requireSuccess(
-    run('git', ['clone', '--shared', sourceRoot, cloneRoot], { cwd: ownerRoot }),
+    run('git', ['clone', '--no-local', sourceRoot, cloneRoot], { cwd: ownerRoot }),
     'fresh git clone',
   );
-  symlinkSync(join(sourceRoot, 'node_modules'), join(cloneRoot, 'node_modules'), 'dir');
+  copyVerifiedRuntimeDependencies(sourceRoot, cloneRoot, observeRuntimeDependencies(sourceRoot));
+  assert.equal(
+    lstatSync(join(cloneRoot, 'node_modules')).isSymbolicLink(),
+    false,
+    'fresh clone runtime dependencies must be a private copy',
+  );
   git(cloneRoot, ['config', 'user.name', 'D0 Command Test']);
   git(cloneRoot, ['config', 'user.email', 'd0-command@example.invalid']);
   git(cloneRoot, ['config', 'commit.gpgsign', 'false']);
@@ -222,6 +212,11 @@ try {
   });
   requireSuccess(negative, 'documented negative-control command');
   assert.match(negative.stdout, /PASS negative-controls=/u);
+  assert.match(
+    negative.stdout,
+    /PASS D0 suite roster=/u,
+    'canonical negative-control command did not invoke the closed D0 suite runner',
+  );
 
   const cleanEnv = { ...process.env };
   delete cleanEnv.ARIA_D0_TARGET_CONTEXT;
@@ -231,10 +226,11 @@ try {
   const nodeIndex = argv.indexOf('node');
   assert(nodeIndex > 0, 'canonical command must invoke node after explicit environment settings');
   const withoutEnv = argv.slice(nodeIndex);
-  const missingAuthority = run(withoutEnv[0], withoutEnv.slice(1), {
-    cwd: cloneRoot,
-    env: cleanEnv,
-  });
+  const missingAuthority = invokeWithPackageTripwire(
+    cloneRoot,
+    join(ownerRoot, 'third-party-executed'),
+    () => run(withoutEnv[0], withoutEnv.slice(1), { cwd: cloneRoot, env: cleanEnv }),
+  );
   assert.notEqual(missingAuthority.status, 0, 'missing authority environment was accepted');
   assert.match(missingAuthority.stderr, /TARGET_MANIFEST.*authority root/u);
 

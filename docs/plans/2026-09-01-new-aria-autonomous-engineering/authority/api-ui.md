@@ -104,7 +104,7 @@ different payload `INVALID` döner. Unknown input/result fields schema validatio
 | `createAriaMissionDraft`      | repository/workspace snapshot, title; no existing aggregate         | base predicate; no effect                                                   |
 | `postAriaConversationMessage` | mission/thread, clientMessageId, text/contextDigest; DRAFT/QUESTION | no direct effect; no step-up                                                |
 | `submitAriaMission`           | mission, previewDigest, snapshot/payload/policy digest; DRAFT       | fresh single-use step-up + exact preview confirm                            |
-| `cancelAriaMission`           | mission, targetAttemptId, reason; nonterminal                       | dispatch varsa exact preview + step-up; unknown reconcile                   |
+| `cancelAriaMission`           | mission, targetAttemptId, reason, previewDigest; nonterminal        | exact preview + step-up; unknown reconcile                                  |
 | `retryAriaMission`            | mission, failedAttemptId, reason, previewDigest                     | step-up; `UNKNOWN` effect varken deny                                       |
 | `freezeAriaAutonomy`          | mandatory reason + scope                                            | emergency always reachable; no step-up dependency; audit + out-of-band kill |
 | `resumeAriaAutonomy`          | incident, reconciliationDigest, previewDigest                       | fresh step-up; kill readback/current policy required                        |

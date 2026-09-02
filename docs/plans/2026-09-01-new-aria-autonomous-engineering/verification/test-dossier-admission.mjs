@@ -170,11 +170,14 @@ withFixture(({ options }) => {
   symlinkSync(options.authorityRoot, lexicalRoute, 'dir');
   assert.throws(
     () =>
-      admitReviewDossier({
-        ...options,
+      loadVerifiedPayload({
+        repositoryRoot: options.repositoryRoot,
         authorityRoot: lexicalRoute,
-        contextEnvelopePath: join(lexicalRoute, 'context.json'),
+        envelopePath: join(lexicalRoute, 'context.json'),
         trustRootPath: join(lexicalRoute, 'trust-root.json'),
+        trustRootSha256: options.trustRootSha256,
+        expectedKind: 'new-aria-review-dossier-context',
+        expectedCapability: 'review-dossier-admission',
       }),
     /authority|repository|path/u,
     'repository-internal lexical symlink route accepted',

@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { parseStrictJson } from './canonical.mjs';
 import { parseCards, parseMatrix, parseOperatorIndex, parsePlan } from './markdown.mjs';
 import { loadAuditOracle, verifyAuditRows } from './verify-audit-oracle.mjs';
+import { createGitSession } from './hermetic-git.mjs';
 import { loadReviewPolicy, verifyGatePolicy } from './verify-dossier.mjs';
 import {
   verifyClosedRelations,
@@ -145,8 +146,9 @@ function verifyGateContract(errors, gates, cards) {
   }
 }
 
-export function verifyMapping(planRoot, repositoryRoot) {
+export function verifyMapping(planRoot, repositoryRoot, gitTool) {
   const errors = [];
+  const git = createGitSession(gitTool);
   const planText = readFileSync(join(planRoot, 'PLAN.md'), 'utf8');
   const cardFiles = expectedIds('P', 9, 2).map((phaseId) => ({
     phaseId,
@@ -160,7 +162,7 @@ export function verifyMapping(planRoot, repositoryRoot) {
   const gates = parseStrictJson(
     readFileSync(join(planRoot, 'verification/phase-gates.json'), 'utf8'),
   );
-  const oracle = loadAuditOracle(planRoot, repositoryRoot, errors);
+  const oracle = loadAuditOracle(planRoot, repositoryRoot, errors, git);
   verifyRosters(errors, { findings, cards, plan, program, frozen });
   verifyAuditRows(errors, findings, frozen, oracle);
   verifySprintParity(errors, cards, plan, program);

@@ -98,7 +98,8 @@ function verifyReportDigests(errors, planRoot, reports) {
   }
 }
 
-function verifyReports(errors, planRoot, repositoryRoot, manifest, definition) {
+function verifyReports(errors, context, manifest, definition) {
+  const { planRoot, sourceRepositoryRoot, runtimeRepositoryRoot } = context;
   if (!Array.isArray(manifest.reports) || manifest.reports.some((report) => !isRecord(report))) {
     add(errors, `${definition.evidence_id}: reports must be an array`);
     return null;
@@ -107,7 +108,7 @@ function verifyReports(errors, planRoot, repositoryRoot, manifest, definition) {
   verifyReportDigests(errors, planRoot, manifest.reports);
   const provenance = isRecord(manifest.review_provenance) ? manifest.review_provenance : {};
   const transform = provenance.view_transform;
-  const runtime = transformRuntime(errors, repositoryRoot, transform);
+  const runtime = transformRuntime(errors, sourceRepositoryRoot, runtimeRepositoryRoot, transform);
   return runtime === null ? null : { reports: manifest.reports, runtime };
 }
 
@@ -126,14 +127,20 @@ function verifyPackageSemantics(errors, manifest, definition) {
   if (drift) add(errors, `${definition.evidence_id}: false admission or target drift`);
 }
 
-export function verifyNonAdmissionPackages(planRoot, repositoryRoot, policy) {
+export function verifyNonAdmissionPackages(
+  planRoot,
+  sourceRepositoryRoot,
+  policy,
+  runtimeRepositoryRoot = sourceRepositoryRoot,
+) {
   const errors = [];
   const transformations = [];
+  const context = { planRoot, sourceRepositoryRoot, runtimeRepositoryRoot };
   for (const definition of policy.non_admission_packages) {
     const manifest = parseStrictJson(readFileSync(join(planRoot, definition.path), 'utf8'));
     verifyManifestSchema(errors, manifest, definition);
     verifyPackageSemantics(errors, manifest, definition);
-    const transformation = verifyReports(errors, planRoot, repositoryRoot, manifest, definition);
+    const transformation = verifyReports(errors, context, manifest, definition);
     if (transformation !== null) transformations.push(transformation);
   }
   verifyTransformationSet(errors, planRoot, transformations);

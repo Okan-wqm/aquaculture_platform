@@ -7,7 +7,7 @@
     "inputs": [
       {
         "path": "authority/graphql/commands.graphql",
-        "sha256": "a1fe27d7298b1ccb50b26623f96c9f787c4ad301e5e72570dd10fa52d098ce9a"
+        "sha256": "ded89db1e42d1311ae31413e022fb8ca66bffb422b8e4a4721e10de6ded46fdb"
       },
       {
         "path": "authority/graphql/read-model.graphql",
@@ -19,7 +19,7 @@
       },
       {
         "path": "verification/api-policy.json",
-        "sha256": "cdd3c34282f8b846832d24927ef4f42a594efad7853ebdf3844415817b39136b"
+        "sha256": "b347e76a3f76dc6a4d8fead7007df0f05c26172e007b44982d6859734f4b5d68"
       }
     ]
   },
@@ -45,7 +45,7 @@
   },
   "schema_closure": {
     "algorithm": "graphql-public-closure-v1",
-    "sha256": "fa78ad738443a48836d5942a8c8c5043dd03da5d34334fa049b33c303400be02"
+    "sha256": "ba7376ce5a8b3faf2995fcadcfa8735de3359f27d083da08ded5418c0bcd1130"
   },
   "lifecycle_mapping": {
     "DRAFT": "DRAFT",

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { buildProjectionSet } from './projections.mjs';
 import { markdownLinks } from './markdown.mjs';
@@ -6,22 +6,11 @@ import { verifyHistory } from './verify-history.mjs';
 import { verifyApiContract } from './verify-api.mjs';
 import { verifyAuthorityContracts } from './verify-authority.mjs';
 import { verifyMapping } from './verify-mapping.mjs';
-import { verifyProvenance } from './verify-provenance.mjs';
 import { verifyReadability } from './verify-readability.mjs';
-import { verifyTarget } from './verify-target.mjs';
+import { walkRegularFiles } from './secure-tree.mjs';
 
 function add(errors, code, message) {
   errors.push({ code, message });
-}
-
-function filesUnder(root) {
-  const files = [];
-  for (const entry of readdirSync(root)) {
-    const path = join(root, entry);
-    if (statSync(path).isDirectory()) files.push(...filesUnder(path));
-    else files.push(path);
-  }
-  return files;
 }
 
 function runCheck(errors, code, check) {
@@ -32,9 +21,13 @@ function runCheck(errors, code, check) {
   }
 }
 
-function verifyProjectionParity(planRoot, repositoryRoot) {
+function verifyProjectionParity(planRoot, sourceRepositoryRoot, runtimeRepositoryRoot) {
   const errors = [];
-  for (const [relativePath, expected] of buildProjectionSet(planRoot, repositoryRoot)) {
+  for (const [relativePath, expected] of buildProjectionSet(
+    planRoot,
+    sourceRepositoryRoot,
+    runtimeRepositoryRoot,
+  )) {
     const path = join(planRoot, relativePath);
     if (!existsSync(path) || readFileSync(path, 'utf8') !== expected) {
       add(errors, 'PROJECTION_PARITY', `${relativePath}: missing or drifted`);
@@ -50,7 +43,7 @@ function normalizeTarget(target) {
 
 function verifyRelativeLinks(planRoot) {
   const errors = [];
-  for (const path of filesUnder(planRoot).filter((file) => file.endsWith('.md'))) {
+  for (const path of walkRegularFiles(planRoot).filter((file) => file.endsWith('.md'))) {
     for (const link of markdownLinks(readFileSync(path, 'utf8'))) {
       if (/^(?:https?:|mailto:|repo:|#)/u.test(link)) continue;
       const target = normalizeTarget(link);
@@ -76,23 +69,31 @@ function verifyD0Projection(planRoot) {
   return errors;
 }
 
-export function verifyD0(planRoot, options = {}) {
-  const repositoryRoot = options.repositoryRoot ?? resolve(planRoot, '../../..');
+export function verifyVerifiedSnapshot(snapshot, gitRepositoryRoot, targetFacts) {
+  const {
+    planRoot,
+    repositoryRoot: sourceRepositoryRoot,
+    runtimeRepositoryRoot = sourceRepositoryRoot,
+  } = snapshot;
   const errors = [];
-  let targetFacts = null;
-  runCheck(errors, 'TARGET_RESOLUTION', () => {
-    const result = verifyTarget(repositoryRoot, options.target);
-    targetFacts = result.facts;
-    return result.errors;
-  });
-  runCheck(errors, 'PROGRAM_PARITY', () => verifyMapping(planRoot, repositoryRoot));
+  runCheck(errors, 'PROGRAM_PARITY', () =>
+    verifyMapping(planRoot, gitRepositoryRoot, targetFacts.git_tool),
+  );
   runCheck(errors, 'API_CONTRACT', () => verifyApiContract(planRoot));
   runCheck(errors, 'AUTHORITY_CONTRACT', () => verifyAuthorityContracts(planRoot));
-  runCheck(errors, 'HISTORICAL_EVIDENCE', () => verifyHistory(planRoot, repositoryRoot));
-  runCheck(errors, 'READABILITY_POLICY', () => verifyReadability(planRoot, repositoryRoot));
-  runCheck(errors, 'VERIFIER_PROVENANCE', () => verifyProvenance(planRoot));
-  runCheck(errors, 'PROJECTION_PARITY', () => verifyProjectionParity(planRoot, repositoryRoot));
+  runCheck(errors, 'HISTORICAL_EVIDENCE', () =>
+    verifyHistory(planRoot, {
+      gitRepositoryRoot,
+      sourceRepositoryRoot,
+      runtimeRepositoryRoot,
+      gitTool: targetFacts.git_tool,
+    }),
+  );
+  runCheck(errors, 'READABILITY_POLICY', () => verifyReadability(planRoot, sourceRepositoryRoot));
+  runCheck(errors, 'PROJECTION_PARITY', () =>
+    verifyProjectionParity(planRoot, sourceRepositoryRoot, runtimeRepositoryRoot),
+  );
   runCheck(errors, 'RELATIVE_LINK', () => verifyRelativeLinks(planRoot));
   runCheck(errors, 'D0_STATE', () => verifyD0Projection(planRoot));
-  return { errors, targetFacts };
+  return errors;
 }

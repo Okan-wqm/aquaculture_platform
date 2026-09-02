@@ -65,17 +65,29 @@ node docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/render-p
 ister; operator ayrıca exact raw trust-root digest'ini `ARIA_D0_TRUST_ROOT_SHA256` ile out-of-band
 sağlar. İmza, signer principal/capability'sini, canonical
 [`target-manifest.json`](../verification/target-manifest.json) raw digest'ini, kapalı manifest'i ve
-exact base/head/tree/diff/design/format facts'lerini bağlar; manifest tek başına trust anchor
-değildir. Manifest exact `origin/main` base SHA/tree'sini, clone'da bulunan
+exact base/head/tree/diff/design/format facts'leri, Git/Node executable version ve SHA-256
+gözlemleri ile package-lock ve kapalı `graphql`/`prettier`/`typescript` version+tree digest roster'ını
+bağlar; manifest tek başına trust anchor değildir. Her CI/droplet kendi dış imzalı target payload'ını
+üretir. Git logical adı PATH'in ilk executable adayına resolve edilir, realpath'teki byte digest
+imzalı digest ile eşleşir ve digest'i tekrar doğrulanmış özel çalıştırılabilir kopyadan; scrubbed
+env/config; explicit git-dir/work-tree ile çalıştırılır. Böylece sabit host path'i taşınabilirliği
+bozmaz ve doğrulama-sonrası path değişimi oturumu etkileyemez. Manifest exact `origin/main`
+base SHA/tree'sini, clone'da bulunan
 `refs/remotes/origin/...` reviewed ref'ini ve exact-checkout head politikasını sabitler. Caller
 argümanları yalnız bu dış otoriteyle birebir eşleşirse kabul edilir; imzalı context bile `base=head`
 boş-range seçimini yetkilendiremez.
 
-Minimum runtime Node `20.11.0`; evidence exact observed `node --version`, executable path ve script
-digest'lerini kaydeder. Verifier input manifest'i frozen audit snapshot, PLAN/cards/program map,
-finding authority/projections, phase-gate/readability policy, reports, evidence ve events'i exact
-digest'lerle enumerate eder. Relative link, protected legacy diff ve D0 allowed-scope kontrolü aynı
-command içindedir. Verifier runtime service veya promotion authority değildir.
+Minimum runtime Node `20.11.0`; dış imzalı target payload exact observed Node version/executable
+digest'i ile runtime dependency roster'ını taşır. Committed provenance aynı package-lock digest'i ve
+dependency roster'ını ayrıca bağlar; uyuşmazlık fail-closed'dur. Bootstrap yalnız built-in modüllerle
+target/provenance/runtime bağını doğrular, Node'u ve üç package tree'sini özel snapshot'a kopyalayıp
+digest'leri yeniden doğrular; GraphQL/TypeScript/Prettier kullanan semantic worker ancak sonra bu
+snapshot'tan başlar. Verifier input manifest'i frozen audit snapshot, PLAN/cards/program map, finding
+authority/projections, phase-gate/readability policy, reports, evidence ve events'i exact digest'lerle
+enumerate eder. Relative link, protected legacy diff ve D0 allowed-scope kontrolü aynı command
+içindedir. Bu ölçüm compromised host'a karşı hardware trust sağlamaz; D0 güvencesi dış imza,
+committed dual binding ve private executable/package snapshot'ıdır. Verifier runtime service veya
+promotion authority değildir.
 
 `program-map.jsonl` tek machine relation authority'sidir: `finding_ids` kartın explicit prevention
 coverage'ını, `finding_scope` phase/program aggregate challenge'ını, `owned_finding_ids` ise canonical
@@ -163,13 +175,18 @@ github-delivery, api-ui, portability-readability, appellate
 
 P01-P09'un **her** promotion gate'i tam on iki ayrı report/principal, role capability match,
 conflict-of-interest graph, deterministic oracle result, dissent ve appellate disposition, exact
-reviewed head/deployment/authority digest ve sıfır unresolved load-bearing finding ister. Duplicate
-principal/model/session oy sayılmaz; bir role/report/oracle/dissent/appellate çıkarılırsa gate deny.
+reviewed head/deployment/authority digest ve sıfır unresolved load-bearing finding ister. Model
+çeşitliliği güvenlik şartı değildir; aynı model ayrı adversarial agent execution'larında kullanılabilir.
+Duplicate principal/session/agent-execution oy sayılmaz; bir role/report/oracle/dissent/appellate
+çıkarılırsa gate deny.
 
 D0 bootstrap admission'ında bu kimlikler caller string'leri değildir. Exact on iki role credential'ı
 ile ayrı conflict/oracle Ed25519 credential'ları repository dışındaki, SHA-256 değeri out-of-band
 sabitlenmiş kapalı authority bundle'dan gelir. Her report envelope'ı role, principal, session,
-verdict, evidence byte digest'leri, exact target ve reviewer-authority digest'ini imzalar; admission
+operator-attested agent-execution kimliği, verdict, exact target ve reviewer-authority digest'ine
+bağlı unique canonical semantic evidence manifestini imzalar. Manifest inspected source/blob
+digest'leri, role control sonuçları, yürütülen negative control sonuçları ve finding disposition'larını
+taşır; boş, opaque veya roller arasında paylaşılan manifest admission olamaz. Admission
 oracle input'unu kabul edilmiş canonical report payload'ları ve signed conflict payload'ından yeniden
 hesaplar. Producer artifact committed `verifier-inputs.jsonl` byte'larının, authority artifact ise
 verified signed target-context byte'larının exact kopyası olmak zorundadır. Producer, target operator,
@@ -177,7 +194,9 @@ admission operator, reviewer, appellate, oracle ve conflict principal/session al
 reddedilir.
 
 S33 öncesinde runtime rol roster'ı henüz yoktur; P01-P04 gates operator-authorized
-`external-adversarial-review-v1` mechanism'iyle aynı bağımsız identity/report sözleşmesini uygular.
+`external-adversarial-review-v1` mechanism'iyle aynı identity/report sözleşmesini uygular. D0'da
+execution bağımsızlığı kriptografik diye iddia edilmez: ayrı agent execution'larının gerçekten
+çalıştırılması operasyonel zorunluluktur ve assurance açıkça `OPERATOR_ATTESTED` yazılır.
 S33 sonrası productized reviewer orchestration kullanılabilir fakat protected external appellate
 identity ve deterministic oracle sınırı korunur. P05-P09 aynı exact role setini tekrar çalıştırır.
 [`phase-gates.json`](../verification/phase-gates.json) dokuz gate'in machine authority'sidir.

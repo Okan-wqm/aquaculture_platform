@@ -182,7 +182,8 @@ function generatorDigest(planRoot) {
   return sha256(Buffer.from(body, 'utf8'));
 }
 
-export function buildProjectionSet(planRoot, repositoryRoot) {
+export function buildProjectionSet(planRoot, sourceRepositoryRoot, runtimeRepositoryRoot) {
+  const runtimeRoot = runtimeRepositoryRoot ?? sourceRepositoryRoot;
   const inputs = [
     'FINDING-COVERAGE.md',
     'progress/events.jsonl',
@@ -206,7 +207,7 @@ export function buildProjectionSet(planRoot, repositoryRoot) {
   const outputs = new Map(
     [...rawOutputs].map(([path, content]) => [
       path,
-      formatProjection(repositoryRoot, join(planRoot, path), content),
+      formatProjection(sourceRepositoryRoot, runtimeRoot, join(planRoot, path), content),
     ]),
   );
   const manifest = {

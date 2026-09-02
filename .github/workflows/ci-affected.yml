@@ -1159,6 +1159,7 @@ jobs:
       - build-development-images
       - development-deploy-contract
     if: >-
+      always() &&
       needs.build-development-images.result == 'success' &&
       needs.development-deploy-contract.result == 'success'
     permissions:

@@ -16,7 +16,7 @@ last two weeks; both were reproduced on the live host before any fix.
 output for 90 minutes, then `464182 Killed … python3 -m aria_kernel
 autonomy run` (exit 137). Kernel journal at the same second:
 
-```
+```text
 oom-kill:constraint=CONSTRAINT_NONE … global_oom,
   task_memcg=/system.slice/actions.runner.…service, task=python3, pid=464182
 Out of memory: Killed process 464182 (python3) anon-rss:21900kB … oom_score_adj:500
@@ -48,7 +48,7 @@ pushing the machine into a global OOM where the kernel reaches for ARIA.
 
 **Reproduction.** Run 33608801135 (2026-09-02) ran 08:42→12:37, then:
 
-```
+```text
 aria_kernel.ledger.LedgerReadLimitError: immutable_ledger_line_too_large:
   …/.aria-state-store/tools/fixture-runs.jsonl:line=7
 aria_kernel.state_snapshot.SnapshotError: snapshot_surface_line_too_large:fixture-runs.jsonl

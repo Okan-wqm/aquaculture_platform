@@ -340,3 +340,10 @@ job's environment for digest-pinned rollout and channel promotion. A separate ou
 rejects missing low-entropy selection outputs, while a final delivery-status job turns every
 unexpected build, contract, or deploy skip into a visible failure. Documentation-only and other
 catalog-proven no-image changes remain legitimate no-ops before this delivery lane is entered.
+
+Main run `33652901659` then proved a second boundary in the same finding: the output-contract job
+passed, but the reusable deploy call was still skipped because GitHub propagates an implicit
+success check across the full dependency chain, including intentionally skipped specialist jobs.
+The deploy condition now uses `always()` to force evaluation after every ancestor settles and
+then explicitly requires both the image workflow and output contract to be successful. A workflow
+invariant pins that combination so a skipped ancestor cannot silently suppress deployment again.

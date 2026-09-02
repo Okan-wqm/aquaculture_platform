@@ -899,6 +899,7 @@ def produce_dlp_proof(
     runtime_write_paths: list[str],
     surface_paths: dict[str, list[str | Path]],
     base_dir: str | Path | None = None,
+    workspace_root: str | Path | None = None,
 ) -> dict[str, Any]:
     """Scan the run's evidence surfaces and mint the dlp proof.
 
@@ -942,14 +943,26 @@ def produce_dlp_proof(
         if surface == "diff":
             import subprocess as _sp
 
+            if workspace_root is None:
+                # No workspace binding: the scope check cannot run. The
+                # skip is RECORDED on the proof so a caller reading it
+                # sees the diff surface was caller-scoped, not
+                # verifier-derived.
+                per_surface[surface]["diff_scope_check"] = "skipped_no_workspace_root"
+                continue
             repo_dir = Path(workspace_root)
+            probe = None
             try:
-                touched = _sp.run(
+                probe = _sp.run(
                     ["git", "show", "--name-only", "--pretty=format:", head_sha],
                     cwd=repo_dir, capture_output=True, text=True, check=False, timeout=30,
-                ).stdout.split()
+                )
             except (_sp.SubprocessError, OSError, ValueError):
-                touched = []
+                probe = None
+            if probe is None or probe.returncode != 0:
+                per_surface[surface]["diff_scope_check"] = "skipped_head_sha_unresolvable"
+                continue
+            touched = probe.stdout.split()
             diff_text = "\n".join(
                 path.read_text(encoding="utf-8", errors="replace") for path in paths
             )
@@ -1130,6 +1143,7 @@ def produce_readiness_claim(
         runtime_write_paths=list(token_proof["runtime_write_paths"]),
         surface_paths=surface_paths,
         base_dir=root,
+        workspace_root=workspace_root,
     )
 
     # Artifact proof — the verifier demands a proof row matching the

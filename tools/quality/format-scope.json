@@ -34940,6 +34940,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-02-browserslist-floor.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/runbooks/2026-04-14-teardown-rollout.md",
       "prettier_managed": true
     },
@@ -46133,7 +46139,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "ee6a904ac9a7214bf1aeac525a264245b6c8d283f2275129752e153d2adeeb80",
+      "content_sha256": "b99d4d373413f66813b2d42e2cfe0f047754bc89a57fa08a0fa55e9f8ef57edd",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "web/apps/aquamobil/package-lock.json",

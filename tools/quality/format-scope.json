@@ -45978,6 +45978,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/scripts/tsconfig.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/scripts/type-check-all.mjs",
       "prettier_managed": true
     },

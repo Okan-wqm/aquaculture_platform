@@ -1,8 +1,10 @@
 import { spawnSync } from 'node:child_process';
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   symlinkSync,
@@ -40,6 +42,9 @@ interface DeploymentScope {
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const RANGE_RESOLVER = join(REPO_ROOT, 'scripts', 'ci', 'resolve-affected-range.ts');
 const SCOPE_SELECTOR = join(REPO_ROOT, 'scripts', 'ci', 'select-deployment-scope.ts');
+const TYPE_CHECK_CHANGED_FILES = join(REPO_ROOT, 'scripts', 'ci', 'type-check-changed-files.mjs');
+const LINT_CHANGED_FILES = join(REPO_ROOT, 'scripts', 'ci', 'lint-changed-files.mjs');
+const TYPE_CHECK_BOOTSTRAP_BASELINE = 'scripts/ci/type-check-bootstrap-unowned-baseline.txt';
 const SENS_SPECIALIST_REQUIRED_PATH_FILTERS = [
   'sens-api-gateway/**',
   'Cargo.toml',
@@ -181,6 +186,63 @@ function selectRangeScope(repo: string, baseSha: string, headSha: string): Deplo
   );
   expect(result.status).toBe(0);
   return JSON.parse(result.stdout) as DeploymentScope;
+}
+
+function typeCheckBootstrapFixture(baselineEntries: readonly string[]): {
+  readonly headSha: string;
+  readonly repo: string;
+} {
+  const repo = fixtureRepository();
+  mkdirSync(join(repo, 'apps', 'owned', 'src'), { recursive: true });
+  mkdirSync(join(repo, 'apps', 'owned', 'test'), { recursive: true });
+  mkdirSync(join(repo, 'libs', 'inherited', 'src'), { recursive: true });
+  mkdirSync(join(repo, 'node_modules', 'typescript', 'bin'), { recursive: true });
+  mkdirSync(join(repo, 'scripts', 'ci'), { recursive: true });
+  writeFileSync(
+    join(repo, 'tsconfig.base.json'),
+    JSON.stringify({ compilerOptions: { strict: true, types: [] } }),
+  );
+  writeFileSync(
+    join(repo, 'apps', 'owned', 'tsconfig.app.json'),
+    JSON.stringify({ extends: '../../tsconfig.base.json', include: ['src/**/*.ts'] }),
+  );
+  writeFileSync(
+    join(repo, 'apps', 'owned', 'tsconfig.spec.json'),
+    JSON.stringify({ extends: './tsconfig.app.json', include: ['src/**/*.spec.ts'] }),
+  );
+  writeFileSync(
+    join(repo, 'apps', 'owned', 'tsconfig.e2e.json'),
+    JSON.stringify({ extends: './tsconfig.spec.json', include: ['test/**/*.ts'] }),
+  );
+  writeFileSync(join(repo, 'apps', 'owned', 'src', 'index.ts'), 'export const owned = true;\n');
+  writeFileSync(
+    join(repo, 'apps', 'owned', 'test', 'workflow.e2e-spec.ts'),
+    'export const e2e = true;\n',
+  );
+  writeFileSync(
+    join(repo, 'libs', 'inherited', 'src', 'index.ts'),
+    'export const inherited = true;\n',
+  );
+  writeFileSync(join(repo, 'node_modules', 'typescript', 'bin', 'tsc'), 'process.exitCode = 0;\n');
+  writeFileSync(
+    join(repo, TYPE_CHECK_BOOTSTRAP_BASELINE),
+    `${[...baselineEntries].sort().join('\n')}\n`,
+  );
+  git(repo, 'add', '.');
+  git(repo, 'commit', '-m', 'bootstrap fixture');
+  return { headSha: git(repo, 'rev-parse', 'HEAD'), repo };
+}
+
+function runChangedFileTypeCheck(
+  repo: string,
+  baseSha: string,
+  headSha: string,
+): ReturnType<typeof spawnSync> {
+  return spawnSync(
+    process.execPath,
+    [TYPE_CHECK_CHANGED_FILES, '--base', baseSha, '--head', headSha],
+    { cwd: repo, encoding: 'utf8' },
+  );
 }
 
 function representativePathForGlob(filter: string): string {
@@ -940,6 +1002,182 @@ describe('Nx affected graph inputs', () => {
         '{workspaceRoot}/tools/build/**',
       ]),
     );
+  });
+});
+
+describe('first-rollout type-check ownership baseline', () => {
+  const emptyTree = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+
+  it('gives executable tool scripts an ESM-compatible tsconfig owner', () => {
+    const configPath = join(REPO_ROOT, 'tools', 'scripts', 'tsconfig.json');
+
+    expect(existsSync(configPath)).toBe(true);
+    const config = JSON.parse(readFileSync(configPath, 'utf8')) as {
+      compilerOptions?: { module?: string; moduleResolution?: string };
+    };
+    expect(config.compilerOptions).toMatchObject({
+      module: 'ESNext',
+      moduleResolution: 'Bundler',
+    });
+  });
+
+  it('admits only the exact inherited unowned set for the empty-tree bootstrap', () => {
+    const { headSha, repo } = typeCheckBootstrapFixture(['libs/inherited/src/index.ts']);
+    try {
+      const result = runChangedFileTypeCheck(repo, emptyTree, headSha);
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain('bootstrap inherited unowned TypeScript: 1 file(s)');
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('uses a service dedicated e2e tsconfig for its e2e sources', () => {
+    const { headSha, repo } = typeCheckBootstrapFixture(['libs/inherited/src/index.ts']);
+    try {
+      const result = runChangedFileTypeCheck(repo, emptyTree, headSha);
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain('apps/owned/tsconfig.e2e.json');
+      expect(result.stdout).not.toContain('apps/owned/tsconfig.spec.json');
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('removes temporary compiler configs after success and failure', () => {
+    const { headSha, repo } = typeCheckBootstrapFixture(['libs/inherited/src/index.ts']);
+    const tempRoot = join(repo, '.aria-ci');
+    try {
+      const success = runChangedFileTypeCheck(repo, emptyTree, headSha);
+
+      expect(success.status).toBe(0);
+      expect(readdirSync(tempRoot)).toEqual([]);
+
+      writeFileSync(
+        join(repo, 'node_modules', 'typescript', 'bin', 'tsc'),
+        'process.exitCode = 1;\n',
+      );
+      const failure = runChangedFileTypeCheck(repo, emptyTree, headSha);
+
+      expect(failure.status).toBe(1);
+      expect(readdirSync(tempRoot)).toEqual([]);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps forensic migration archives outside bootstrap compilation', () => {
+    const { repo } = typeCheckBootstrapFixture(['libs/inherited/src/index.ts']);
+    const archivedMigration =
+      'apps/owned/src/database/migrations/.archive/2026-01-01/1700000000000-Retired.ts';
+    try {
+      mkdirSync(join(repo, archivedMigration, '..'), { recursive: true });
+      const headSha = commit(
+        repo,
+        archivedMigration,
+        "import { retiredHelper } from './retired-helper';\nexport const retired = retiredHelper;\n",
+        'add forensic migration archive',
+      );
+      const result = runChangedFileTypeCheck(repo, emptyTree, headSha);
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).not.toContain(archivedMigration);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('still rejects a normal-range edit to a baseline-listed unowned file', () => {
+    const { headSha: baseSha, repo } = typeCheckBootstrapFixture(['libs/inherited/src/index.ts']);
+    try {
+      const headSha = commit(
+        repo,
+        'libs/inherited/src/index.ts',
+        'export const inherited = false;\n',
+        'edit inherited file',
+      );
+      const result = runChangedFileTypeCheck(repo, baseSha, headSha);
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('changed TypeScript files have no known tsconfig owner');
+      expect(result.stderr).toContain('libs/inherited/src/index.ts');
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('fails closed when the bootstrap baseline is stale or incomplete', () => {
+    const stale = typeCheckBootstrapFixture(['libs/inherited/src/index.ts', 'legacy/missing.ts']);
+    const incomplete = typeCheckBootstrapFixture([]);
+    try {
+      const staleResult = runChangedFileTypeCheck(stale.repo, emptyTree, stale.headSha);
+      const incompleteResult = runChangedFileTypeCheck(
+        incomplete.repo,
+        emptyTree,
+        incomplete.headSha,
+      );
+
+      expect(staleResult.status).toBe(1);
+      expect(staleResult.stderr).toContain('baseline entries are no longer unowned');
+      expect(staleResult.stderr).toContain('legacy/missing.ts');
+      expect(incompleteResult.status).toBe(1);
+      expect(incompleteResult.stderr).toContain('untracked bootstrap ownership debt');
+      expect(incompleteResult.stderr).toContain('libs/inherited/src/index.ts');
+    } finally {
+      rmSync(stale.repo, { recursive: true, force: true });
+      rmSync(incomplete.repo, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('first-rollout changed-file lint baseline', () => {
+  it('leaves empty-tree validation to full project lint without running the delta linter', () => {
+    const repo = fixtureRepository();
+    try {
+      mkdirSync(join(repo, 'src'), { recursive: true });
+      writeFileSync(join(repo, 'src', 'index.ts'), 'export const bootstrap = true;\n');
+      const eslint = join(repo, 'fake-eslint.cjs');
+      const eslintMarker = join(repo, 'eslint-invoked');
+      writeFileSync(
+        eslint,
+        [
+          '#!/usr/bin/env node',
+          "const { writeFileSync } = require('node:fs');",
+          `writeFileSync(${JSON.stringify(eslintMarker)}, 'invoked');`,
+          "const outputIndex = process.argv.indexOf('--output-file');",
+          'if (outputIndex < 0) process.exit(2);',
+          "writeFileSync(process.argv[outputIndex + 1], '[]');",
+          '',
+        ].join('\n'),
+      );
+      chmodSync(eslint, 0o755);
+      git(repo, 'add', '.');
+      git(repo, 'commit', '-m', 'bootstrap lint fixture');
+      const headSha = git(repo, 'rev-parse', 'HEAD');
+
+      const result = spawnSync(
+        process.execPath,
+        [
+          LINT_CHANGED_FILES,
+          '--base',
+          '4b825dc642cb6eb9a060e54bf8d69288fbee4904',
+          '--head',
+          headSha,
+        ],
+        {
+          cwd: repo,
+          encoding: 'utf8',
+          env: { ...process.env, ESLINT_BIN: eslint },
+        },
+      );
+
+      expect(result.status).toBe(0);
+      expect(existsSync(eslintMarker)).toBe(false);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 });
 

@@ -7,7 +7,7 @@
  */
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
-import * as request from 'supertest';
+import request from 'supertest';
 import { AppModule } from '../src/app.module';
 
 describe('Batch GraphQL API (e2e)', () => {
@@ -113,12 +113,10 @@ describe('Batch GraphQL API (e2e)', () => {
           },
         };
 
-        const response = await request(httpServer)
-          .post('/graphql')
-          .send({
-            query: createBatchMutation,
-            variables,
-          });
+        const response = await request(httpServer).post('/graphql').send({
+          query: createBatchMutation,
+          variables,
+        });
 
         expect(response.body.errors).toBeDefined();
       });

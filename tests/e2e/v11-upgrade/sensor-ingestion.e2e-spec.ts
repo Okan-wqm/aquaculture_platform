@@ -38,16 +38,26 @@ import {
 } from '../../../apps/sensor-service/src/shared-mqtt/mqtt-client.service';
 import { MqttListenerService } from '../../../apps/sensor-service/src/ingestion/mqtt-listener.service';
 import { DataIngestionService } from '../../../apps/sensor-service/src/ingestion/data-ingestion.service';
-import { SensorTopicCacheService, CachedSensorInfo } from '../../../apps/sensor-service/src/ingestion/sensor-topic-cache.service';
+import {
+  SensorTopicCacheService,
+  CachedSensorInfo,
+} from '../../../apps/sensor-service/src/ingestion/sensor-topic-cache.service';
 import { SharedMqttModule } from '../../../apps/sensor-service/src/shared-mqtt/shared-mqtt.module';
-import { Sensor, SensorStatus } from '../../../apps/sensor-service/src/database/entities/sensor.entity';
+import {
+  Sensor,
+  SensorStatus,
+} from '../../../apps/sensor-service/src/database/entities/sensor.entity';
 import { SensorReading } from '../../../apps/sensor-service/src/database/entities/sensor-reading.entity';
 import { SensorDataChannel } from '../../../apps/sensor-service/src/database/entities/sensor-data-channel.entity';
 import { EdgeDeviceService } from '../../../apps/sensor-service/src/edge-device/edge-device.service';
 import { AutomationService } from '../../../apps/sensor-service/src/automation/automation.service';
 import { DeploymentLogService } from '../../../apps/sensor-service/src/automation/services/deployment-log.service';
 import { ScadaDeployLogService } from '../../../apps/sensor-service/src/process/services/scada-deploy-log.service';
-import { IEventBus, IEvent, EventBusHealth } from '../../../platform/libs/event-bus/src/interfaces/event-bus.interface';
+import {
+  IEventBus,
+  IEvent,
+  EventBusHealth,
+} from '../../../platform/libs/event-bus/src/interfaces/event-bus.interface';
 
 // ============================================================================
 // Constants
@@ -79,9 +89,7 @@ type ExpectedEventType = (typeof EXPECTED_EVENT_TYPES)[number];
 // Mock Factories -- London School (mock-first)
 // ============================================================================
 
-function createMockConfigService(
-  overrides: Record<string, string> = {},
-): ConfigService {
+function createMockConfigService(overrides: Record<string, string> = {}): ConfigService {
   const config: Record<string, string> = {
     MQTT_ENABLED: 'true',
     MQTT_BROKER_URL: 'mqtt://localhost:1883',
@@ -93,19 +101,7 @@ function createMockConfigService(
     DATABASE_SYNC: 'false',
     ...overrides,
   };
-  return {
-    get: jest.fn(
-      <T = string>(key: string, defaultValue?: T): T =>
-        (config[key] as unknown as T) ?? defaultValue ?? ('' as unknown as T),
-    ),
-    getOrThrow: jest.fn(
-      <T = string>(key: string): T => {
-        const val = config[key];
-        if (val === undefined) throw new Error(`Config key "${key}" not found`);
-        return val as unknown as T;
-      },
-    ),
-  } as unknown as ConfigService;
+  return new ConfigService(config);
 }
 
 interface MockEventBus extends IEventBus {
@@ -137,16 +133,20 @@ function createMockEventBus(): MockEventBus {
       publishedEvents.push(event);
     }),
     subscribe: jest.fn().mockResolvedValue(undefined),
+    subscribeWildcard: jest.fn().mockResolvedValue(undefined),
+    subscribeForTenant: jest.fn().mockResolvedValue(undefined),
     subscribeTo: jest.fn().mockResolvedValue(undefined),
     unsubscribe: jest.fn().mockResolvedValue(undefined),
     unsubscribeFrom: jest.fn().mockResolvedValue(undefined),
     connect: jest.fn().mockResolvedValue(undefined),
     disconnect: jest.fn().mockResolvedValue(undefined),
     isConnected: jest.fn().mockReturnValue(true),
-    getHealth: jest.fn(async (): Promise<EventBusHealth> => ({
-      isHealthy: true,
-      connectionState: 'connected',
-    })),
+    getHealth: jest.fn(
+      async (): Promise<EventBusHealth> => ({
+        isHealthy: true,
+        connectionState: 'connected',
+      }),
+    ),
     publishedEvents,
   };
 }
@@ -280,9 +280,7 @@ function createSensor(overrides: Partial<Sensor> = {}): Sensor {
   } as Sensor;
 }
 
-function createCachedSensorInfo(
-  overrides: Partial<CachedSensorInfo> = {},
-): CachedSensorInfo {
+function createCachedSensorInfo(overrides: Partial<CachedSensorInfo> = {}): CachedSensorInfo {
   return {
     id: SENSOR_ID,
     name: 'DO Probe Tank-3',
@@ -329,8 +327,11 @@ async function callHandleMessage(
   const raw = typeof payload === 'string' ? payload : JSON.stringify(payload);
   // Access the bound message handler registered via addMessageHandler
   // The service stores it as a private field but registers it during onModuleInit
-  await (service as unknown as { handleMessage(t: string, m: Buffer): Promise<void> })
-    .handleMessage(topic, Buffer.from(raw));
+  const handler: unknown = Reflect.get(service, 'handleMessage');
+  if (typeof handler !== 'function') {
+    throw new Error('MqttListenerService.handleMessage is unavailable');
+  }
+  await Promise.resolve(Reflect.apply(handler, service, [topic, Buffer.from(raw)]));
 }
 
 // ============================================================================
@@ -349,28 +350,31 @@ interface BuildServiceResult {
   sensorTopicCache: jest.Mocked<SensorTopicCacheService>;
 }
 
-function buildMqttListenerService(overrides: {
-  configOverrides?: Record<string, string>;
-  eventBus?: MockEventBus;
-  mqttClient?: jest.Mocked<MqttClientService> | null;
-  sensorTopicCache?: jest.Mocked<SensorTopicCacheService> | null;
-  edgeDeviceService?: jest.Mocked<EdgeDeviceService> | null;
-} = {}): BuildServiceResult {
+function buildMqttListenerService(
+  overrides: {
+    configOverrides?: Record<string, string>;
+    eventBus?: MockEventBus;
+    mqttClient?: jest.Mocked<MqttClientService> | null;
+    sensorTopicCache?: jest.Mocked<SensorTopicCacheService> | null;
+    edgeDeviceService?: jest.Mocked<EdgeDeviceService> | null;
+  } = {},
+): BuildServiceResult {
   const configService = createMockConfigService(overrides.configOverrides);
   const sensorRepo = createMockSensorRepository();
   const readingRepo = createMockReadingRepository();
   const channelRepo = createMockChannelRepository();
   const dataSource = createMockDataSource();
   const eventBus = overrides.eventBus ?? createMockEventBus();
-  const mqttClient = overrides.mqttClient !== undefined
-    ? overrides.mqttClient
-    : createMockMqttClient();
-  const edgeDeviceService = overrides.edgeDeviceService !== undefined
-    ? overrides.edgeDeviceService
-    : createMockEdgeDeviceService();
-  const sensorTopicCache = overrides.sensorTopicCache !== undefined
-    ? overrides.sensorTopicCache
-    : createMockSensorTopicCache();
+  const mqttClient =
+    overrides.mqttClient !== undefined ? overrides.mqttClient : createMockMqttClient();
+  const edgeDeviceService =
+    overrides.edgeDeviceService !== undefined
+      ? overrides.edgeDeviceService
+      : createMockEdgeDeviceService();
+  const sensorTopicCache =
+    overrides.sensorTopicCache !== undefined
+      ? overrides.sensorTopicCache
+      : createMockSensorTopicCache();
 
   // Construct service directly (matches constructor parameter order)
   const service = new (MqttListenerService as unknown as new (
@@ -465,13 +469,15 @@ describe('Sensor Ingestion Pipeline E2E -- NestJS v11 Upgrade Validation', () =>
         (e) => e.eventType === 'SensorReading',
       );
       expect(sensorReadingEvent).toBeDefined();
-      expect(sensorReadingEvent!.tenantId).toBe(TENANT_ID);
-      expect((sensorReadingEvent as unknown as Record<string, unknown>)['sensorId']).toBe(SENSOR_ID);
+      if (!sensorReadingEvent) {
+        throw new Error('SensorReading event was not published');
+      }
+      expect(sensorReadingEvent.tenantId).toBe(TENANT_ID);
+      expect(Reflect.get(sensorReadingEvent, 'sensorId')).toBe(SENSOR_ID);
     });
 
     it('should publish EdgeDeviceHeartbeat event when tenant-prefixed telemetry arrives', async () => {
-      const { service, eventBus, edgeDeviceService } =
-        buildMqttListenerService();
+      const { service, eventBus, edgeDeviceService } = buildMqttListenerService();
 
       // Setup: edge device service finds the device
       edgeDeviceService.findByCode.mockResolvedValue({
@@ -504,8 +510,7 @@ describe('Sensor Ingestion Pipeline E2E -- NestJS v11 Upgrade Validation', () =>
     });
 
     it('should publish EdgeDeviceResponse event when device command response arrives', async () => {
-      const { service, eventBus, edgeDeviceService } =
-        buildMqttListenerService();
+      const { service, eventBus, edgeDeviceService } = buildMqttListenerService();
 
       edgeDeviceService.findByCode.mockResolvedValue({
         id: 'dev-1',
@@ -543,14 +548,10 @@ describe('Sensor Ingestion Pipeline E2E -- NestJS v11 Upgrade Validation', () =>
     });
 
     it('should NOT crash when event bus is unavailable (graceful degradation)', async () => {
-      const { service, sensorTopicCache, channelRepo, dataSource } =
-        buildMqttListenerService({ eventBus: undefined as unknown as MockEventBus });
-
-      // Re-build with null event bus to simulate NATS outage
+      // Rejecting publish models a connected bus becoming unavailable at the
+      // exact boundary exercised by the listener.
       const nullBusResult = buildMqttListenerService();
-      nullBusResult.eventBus.publish.mockRejectedValue(
-        new Error('NATS JetStream not connected'),
-      );
+      nullBusResult.eventBus.publish.mockRejectedValue(new Error('NATS JetStream not connected'));
 
       const cachedInfo = createCachedSensorInfo();
       nullBusResult.sensorTopicCache.getSensorByTopic.mockResolvedValue(cachedInfo);
@@ -594,16 +595,15 @@ describe('Sensor Ingestion Pipeline E2E -- NestJS v11 Upgrade Validation', () =>
       const afterPublish = Date.now();
 
       // The SensorReading event must have a timestamp
-      const event = eventBus.publishedEvents.find(
-        (e) => e.eventType === 'SensorReading',
-      );
+      const event = eventBus.publishedEvents.find((e) => e.eventType === 'SensorReading');
       expect(event).toBeDefined();
 
       const eventTimestamp = event!.timestamp;
-      expect(eventTimestamp).toBeInstanceOf(Date);
+      expect(typeof eventTimestamp).toBe('string');
 
       // Timestamp must be between before and after publish (no timezone shift)
-      const ts = eventTimestamp.getTime();
+      const ts = Date.parse(eventTimestamp);
+      expect(Number.isNaN(ts)).toBe(false);
       expect(ts).toBeGreaterThanOrEqual(beforePublish - 100); // 100ms tolerance
       expect(ts).toBeLessThanOrEqual(afterPublish + 100);
     });
@@ -624,13 +624,11 @@ describe('Sensor Ingestion Pipeline E2E -- NestJS v11 Upgrade Validation', () =>
       const topic = `sensors/${TENANT_ID}/${SENSOR_ID}/data`;
       await callHandleMessage(service, topic, { dissolvedOxygen: 7.0 });
 
-      const event = eventBus.publishedEvents.find(
-        (e) => e.eventType === 'SensorReading',
-      );
+      const event = eventBus.publishedEvents.find((e) => e.eventType === 'SensorReading');
       expect(event).toBeDefined();
 
-      // Verify timestamp is a valid Date with millisecond precision
-      const isoString = event!.timestamp.toISOString();
+      // Verify timestamp is a valid ISO string with millisecond precision
+      const isoString = event!.timestamp;
       // ISO format: 2026-03-30T08:00:00.123Z -- must have .NNNz
       expect(isoString).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
     });
@@ -638,7 +636,7 @@ describe('Sensor Ingestion Pipeline E2E -- NestJS v11 Upgrade Validation', () =>
     it('should serialize timestamp correctly when passed through NATS event bus', async () => {
       // This test validates the NatsEventBus serialize/deserialize round-trip
       // preserves timestamp fidelity (critical for alert-engine thresholds)
-      const knownTimestamp = new Date('2026-03-30T08:00:00.000Z');
+      const knownTimestamp = '2026-03-30T08:00:00.000Z';
 
       const event: IEvent = {
         eventId: 'test-event-001',
@@ -647,30 +645,17 @@ describe('Sensor Ingestion Pipeline E2E -- NestJS v11 Upgrade Validation', () =>
         tenantId: TENANT_ID,
       };
 
-      // Simulate NatsEventBus serialization (from nats-event-bus.ts serializeEvent)
-      const serialized = JSON.stringify({
-        ...event,
-        timestamp:
-          event.timestamp instanceof Date
-            ? event.timestamp.toISOString()
-            : event.timestamp,
-      });
+      // NatsEventBus preserves the canonical ISO-string timestamp.
+      const serialized = JSON.stringify(event);
 
-      // Simulate NatsEventBus deserialization (from nats-event-bus.ts deserializeEvent)
-      const parsed = JSON.parse(serialized);
-      const deserialized: IEvent = {
-        ...parsed,
-        timestamp: new Date(parsed.timestamp),
-      };
+      const deserialized = JSON.parse(serialized) as IEvent;
 
       // Verify round-trip preserves exact timestamp
-      expect(deserialized.timestamp.toISOString()).toBe('2026-03-30T08:00:00.000Z');
-      expect(deserialized.timestamp.getTime()).toBe(knownTimestamp.getTime());
+      expect(deserialized.timestamp).toBe(knownTimestamp);
+      expect(Date.parse(deserialized.timestamp)).toBe(Date.parse(knownTimestamp));
 
       // Verify no timezone offset was introduced
-      expect(deserialized.timestamp.getTimezoneOffset()).toBe(
-        knownTimestamp.getTimezoneOffset(),
-      );
+      expect(new Date(deserialized.timestamp).toISOString()).toBe(knownTimestamp);
     });
 
     it('should not lose sub-second precision through serialize/deserialize cycle', () => {
@@ -727,9 +712,7 @@ describe('Sensor Ingestion Pipeline E2E -- NestJS v11 Upgrade Validation', () =>
 
       // Assert: message handler was registered with MqttClientService
       expect(mqttClient.addMessageHandler).toHaveBeenCalledTimes(1);
-      expect(mqttClient.addMessageHandler).toHaveBeenCalledWith(
-        expect.any(Function),
-      );
+      expect(mqttClient.addMessageHandler).toHaveBeenCalledWith(expect.any(Function));
     });
 
     it('should subscribe to all required MQTT topic patterns during onModuleInit', async () => {
@@ -907,171 +890,66 @@ describe('Sensor Ingestion Pipeline E2E -- NestJS v11 Upgrade Validation', () =>
       }
     });
 
-    it('should execute bootstrapSourceSchema during onModuleInit', async () => {
+    it('should verify migration-owned tables during onApplicationBootstrap', async () => {
       if (!SourceSchemaBootstrapService) {
         return; // Skip if module cannot be resolved
       }
 
       const mockDataSource = createMockDataSource();
-
-      // Setup: search_path returns sensor schema
-      (mockDataSource.query as jest.Mock).mockImplementation(
-        async (sql: string) => {
-          if (sql === 'SHOW search_path') {
-            return [{ search_path: 'sensor, public' }];
-          }
-          if (sql.includes('information_schema.tables')) {
-            // Simulate schema with existing tables (no sync needed)
-            return [
-              { table_name: 'sensor' },
-              { table_name: 'sensor_reading' },
-            ];
-          }
-          return [];
-        },
+      const { MODULE_SCHEMAS } = await import(
+        '../../../libs/backend-common/src/database/schema-manager.service'
       );
-
-      const bootstrapService = new SourceSchemaBootstrapService(mockDataSource);
-
-      // onModuleInit should call bootstrapSourceSchema
-      await bootstrapService.onModuleInit();
-
-      // Verify it queried for the search_path
-      expect(mockDataSource.query).toHaveBeenCalledWith('SHOW search_path');
-    });
-
-    it('should call dropOrphanedIndexes before synchronize when schema is empty', async () => {
-      if (!SourceSchemaBootstrapService) {
-        return;
+      const sensorModule = MODULE_SCHEMAS.find((entry) => entry.sourceSchema === 'sensor');
+      if (!sensorModule) {
+        throw new Error('Sensor schema is missing from MODULE_SCHEMAS');
       }
+      const ownedTables = [
+        ...sensorModule.tables,
+        ...(sensorModule.referenceDataTables ?? []),
+        ...(sensorModule.infrastructureTables ?? []),
+      ].map((table_name) => ({ table_name }));
 
-      const mockDataSource = createMockDataSource();
-      const callOrder: string[] = [];
-
-      (mockDataSource.query as jest.Mock).mockImplementation(
-        async (sql: string) => {
-          if (sql === 'SHOW search_path') {
-            return [{ search_path: 'sensor, public' }];
-          }
-          // First call: schema is empty (no tables)
-          if (sql.includes('information_schema.tables')) {
-            callOrder.push('check_tables');
-            return [];
-          }
-          // CREATE SCHEMA
-          if (sql.includes('CREATE SCHEMA')) {
-            callOrder.push('create_schema');
-            return [];
-          }
-          // pg_indexes query (dropOrphanedIndexes)
-          if (sql.includes('pg_indexes')) {
-            callOrder.push('drop_orphaned_indexes');
-            return []; // No orphaned indexes
-          }
-          // DROP INDEX
-          if (sql.includes('DROP INDEX')) {
-            callOrder.push('drop_index');
-            return [];
-          }
-          return [];
-        },
-      );
-
-      // synchronize must be called AFTER dropOrphanedIndexes
-      (mockDataSource.synchronize as jest.Mock).mockImplementation(async () => {
-        callOrder.push('synchronize');
+      (mockDataSource.query as jest.Mock).mockImplementation(async (sql: string) => {
+        if (sql === 'SHOW search_path') {
+          return [{ search_path: 'sensor, public' }];
+        }
+        if (sql.includes('information_schema.tables')) {
+          return ownedTables;
+        }
+        return [];
       });
 
       const bootstrapService = new SourceSchemaBootstrapService(mockDataSource);
-      await bootstrapService.onModuleInit();
+      await bootstrapService.onApplicationBootstrap();
 
-      // Verify ordering: check tables -> create schema -> drop indexes -> synchronize
-      const checkIdx = callOrder.indexOf('check_tables');
-      const dropIdx = callOrder.indexOf('drop_orphaned_indexes');
-      const syncIdx = callOrder.indexOf('synchronize');
-
-      expect(checkIdx).toBeGreaterThanOrEqual(0);
-      expect(dropIdx).toBeGreaterThan(checkIdx);
-      expect(syncIdx).toBeGreaterThan(dropIdx);
-    });
-
-    it('should drop orphaned indexes when they exist in empty schema', async () => {
-      if (!SourceSchemaBootstrapService) {
-        return;
-      }
-
-      const mockDataSource = createMockDataSource();
-      const droppedIndexes: string[] = [];
-
-      (mockDataSource.query as jest.Mock).mockImplementation(
-        async (sql: string, params?: string[]) => {
-          if (sql === 'SHOW search_path') {
-            return [{ search_path: 'sensor, public' }];
-          }
-          if (sql.includes('information_schema.tables')) {
-            return []; // Empty schema
-          }
-          if (sql.includes('CREATE SCHEMA')) {
-            return [];
-          }
-          if (sql.includes('pg_indexes')) {
-            // Return orphaned indexes that would crash TypeORM sync
-            return [
-              { indexname: 'IDX_abc123_orphaned' },
-              { indexname: 'IDX_def456_orphaned' },
-            ];
-          }
-          if (sql.includes('DROP INDEX')) {
-            droppedIndexes.push(sql);
-            return [];
-          }
-          return [];
-        },
-      );
-
-      (mockDataSource.synchronize as jest.Mock).mockResolvedValue(undefined);
-
-      const bootstrapService = new SourceSchemaBootstrapService(mockDataSource);
-      await bootstrapService.onModuleInit();
-
-      // Verify both orphaned indexes were dropped
-      expect(droppedIndexes).toHaveLength(2);
-      expect(droppedIndexes[0]).toContain('IDX_abc123_orphaned');
-      expect(droppedIndexes[1]).toContain('IDX_def456_orphaned');
-    });
-
-    it('should skip bootstrap if source schema already has tables', async () => {
-      if (!SourceSchemaBootstrapService) {
-        return;
-      }
-
-      const mockDataSource = createMockDataSource();
-
-      (mockDataSource.query as jest.Mock).mockImplementation(
-        async (sql: string) => {
-          if (sql === 'SHOW search_path') {
-            return [{ search_path: 'sensor, public' }];
-          }
-          if (sql.includes('information_schema.tables')) {
-            // Schema already has tables
-            return [
-              { table_name: 'sensor' },
-              { table_name: 'sensor_reading' },
-              { table_name: 'sensor_data_channel' },
-            ];
-          }
-          return [];
-        },
-      );
-
-      const bootstrapService = new SourceSchemaBootstrapService(mockDataSource);
-      await bootstrapService.onModuleInit();
-
-      // synchronize should NOT be called when tables exist
+      expect(mockDataSource.query).toHaveBeenCalledWith('SHOW search_path');
       expect(mockDataSource.synchronize).not.toHaveBeenCalled();
     });
 
-    it('should not crash the service if bootstrap fails (non-fatal)', async () => {
+    it('should reject an empty source schema without runtime synchronize', async () => {
+      if (!SourceSchemaBootstrapService) {
+        return;
+      }
+
+      const mockDataSource = createMockDataSource();
+      (mockDataSource.query as jest.Mock).mockImplementation(async (sql: string) => {
+        if (sql === 'SHOW search_path') {
+          return [{ search_path: 'sensor, public' }];
+        }
+        if (sql.includes('information_schema.tables')) {
+          return [];
+        }
+        return [];
+      });
+
+      const bootstrapService = new SourceSchemaBootstrapService(mockDataSource);
+      await expect(bootstrapService.onApplicationBootstrap()).rejects.toThrow(
+        /is empty AFTER application bootstrap/,
+      );
+      expect(mockDataSource.synchronize).not.toHaveBeenCalled();
+    });
+
+    it('should propagate database failures so deployment health checks fail', async () => {
       if (!SourceSchemaBootstrapService) {
         return;
       }
@@ -1079,37 +957,31 @@ describe('Sensor Ingestion Pipeline E2E -- NestJS v11 Upgrade Validation', () =>
       const mockDataSource = createMockDataSource();
 
       // Simulate database connection error
-      (mockDataSource.query as jest.Mock).mockRejectedValue(
-        new Error('Connection refused'),
-      );
+      (mockDataSource.query as jest.Mock).mockRejectedValue(new Error('Connection refused'));
 
       const bootstrapService = new SourceSchemaBootstrapService(mockDataSource);
-
-      // onModuleInit should NOT throw (logs error but continues)
-      await expect(bootstrapService.onModuleInit()).resolves.toBeUndefined();
+      await expect(bootstrapService.onApplicationBootstrap()).rejects.toThrow('Connection refused');
     });
 
-    it('should warn and skip if no source schema found in search_path', async () => {
+    it('should reject a connection without an explicit source schema', async () => {
       if (!SourceSchemaBootstrapService) {
         return;
       }
 
       const mockDataSource = createMockDataSource();
 
-      (mockDataSource.query as jest.Mock).mockImplementation(
-        async (sql: string) => {
-          if (sql === 'SHOW search_path') {
-            // No non-public schemas in search_path
-            return [{ search_path: 'public' }];
-          }
-          return [];
-        },
-      );
+      (mockDataSource.query as jest.Mock).mockImplementation(async (sql: string) => {
+        if (sql === 'SHOW search_path') {
+          // No non-public schemas in search_path
+          return [{ search_path: 'public' }];
+        }
+        return [];
+      });
 
       const bootstrapService = new SourceSchemaBootstrapService(mockDataSource);
-      await bootstrapService.onModuleInit();
-
-      // Should not attempt to synchronize (no schema to bootstrap)
+      await expect(bootstrapService.onApplicationBootstrap()).rejects.toThrow(
+        /No source schema found/,
+      );
       expect(mockDataSource.synchronize).not.toHaveBeenCalled();
     });
   });
@@ -1142,9 +1014,7 @@ describe('Sensor Ingestion Pipeline E2E -- NestJS v11 Upgrade Validation', () =>
       await Promise.all(promises);
 
       // All 10 should have produced SensorReading events
-      const sensorEvents = eventBus.publishedEvents.filter(
-        (e) => e.eventType === 'SensorReading',
-      );
+      const sensorEvents = eventBus.publishedEvents.filter((e) => e.eventType === 'SensorReading');
       expect(sensorEvents).toHaveLength(10);
 
       // All events should have the correct tenantId (no cross-contamination)
@@ -1154,8 +1024,7 @@ describe('Sensor Ingestion Pipeline E2E -- NestJS v11 Upgrade Validation', () =>
     });
 
     it('should reject invalid JSON payloads gracefully', async () => {
-      const { service, eventBus, sensorTopicCache } =
-        buildMqttListenerService();
+      const { service, eventBus, sensorTopicCache } = buildMqttListenerService();
 
       const cachedInfo = createCachedSensorInfo();
       sensorTopicCache.getSensorByTopic.mockResolvedValue(cachedInfo);
@@ -1164,14 +1033,10 @@ describe('Sensor Ingestion Pipeline E2E -- NestJS v11 Upgrade Validation', () =>
       const invalidJson = '{ broken json :::';
 
       // Should not throw
-      await expect(
-        callHandleMessage(service, topic, invalidJson),
-      ).resolves.toBeUndefined();
+      await expect(callHandleMessage(service, topic, invalidJson)).resolves.toBeUndefined();
 
       // Should NOT publish any event for invalid data
-      const sensorEvents = eventBus.publishedEvents.filter(
-        (e) => e.eventType === 'SensorReading',
-      );
+      const sensorEvents = eventBus.publishedEvents.filter((e) => e.eventType === 'SensorReading');
       expect(sensorEvents).toHaveLength(0);
     });
 
@@ -1180,9 +1045,7 @@ describe('Sensor Ingestion Pipeline E2E -- NestJS v11 Upgrade Validation', () =>
 
       const topic = `sensors/${TENANT_ID}/${SENSOR_ID}/data`;
 
-      await expect(
-        callHandleMessage(service, topic, ''),
-      ).resolves.toBeUndefined();
+      await expect(callHandleMessage(service, topic, '')).resolves.toBeUndefined();
 
       expect(eventBus.publishedEvents).toHaveLength(0);
     });
@@ -1206,13 +1069,11 @@ describe('Sensor Ingestion Pipeline E2E -- NestJS v11 Upgrade Validation', () =>
       });
 
       // Route topics to correct sensor info
-      sensorTopicCache.getSensorByTopic.mockImplementation(
-        async (topic: string) => {
-          if (topic.includes(TENANT_A)) return cachedInfoA;
-          if (topic.includes(TENANT_B)) return cachedInfoB;
-          return null;
-        },
-      );
+      sensorTopicCache.getSensorByTopic.mockImplementation(async (topic: string) => {
+        if (topic.includes(TENANT_A)) return cachedInfoA;
+        if (topic.includes(TENANT_B)) return cachedInfoB;
+        return null;
+      });
 
       channelRepo.find.mockResolvedValue([createChannel()]);
 
@@ -1229,20 +1090,14 @@ describe('Sensor Ingestion Pipeline E2E -- NestJS v11 Upgrade Validation', () =>
       (dataSource.query as jest.Mock).mockResolvedValue([]);
 
       // Send messages for both tenants
-      await callHandleMessage(
-        service,
-        `sensors/${TENANT_A}/sensor-a/data`,
-        { dissolvedOxygen: 7.5 },
-      );
-      await callHandleMessage(
-        service,
-        `sensors/${TENANT_B}/sensor-b/data`,
-        { dissolvedOxygen: 8.1 },
-      );
+      await callHandleMessage(service, `sensors/${TENANT_A}/sensor-a/data`, {
+        dissolvedOxygen: 7.5,
+      });
+      await callHandleMessage(service, `sensors/${TENANT_B}/sensor-b/data`, {
+        dissolvedOxygen: 8.1,
+      });
 
-      const events = eventBus.publishedEvents.filter(
-        (e) => e.eventType === 'SensorReading',
-      );
+      const events = eventBus.publishedEvents.filter((e) => e.eventType === 'SensorReading');
 
       // Each event must carry its own tenant's ID
       const tenantAEvents = events.filter((e) => e.tenantId === TENANT_A);

@@ -281,7 +281,7 @@ describe('Copy/Paste GroupId Remapping', () => {
   /* -------------------------------------------------------------- */
 
   it('widgets without groupId are unaffected by paste', () => {
-    const clipboard = [
+    const clipboard: Array<{ id: string; groupId: string | null | undefined }> = [
       { id: 'w1', groupId: null },
       { id: 'w2', groupId: undefined },
     ];

@@ -6,19 +6,34 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import DOMPurify from 'dompurify';
+import DOMPurify, { type Config } from 'dompurify';
 
 // ---- SVG Sanitization Config (mirrors CustomSvgRenderer) ----
 
-const DOMPURIFY_CONFIG: DOMPurify.Config = {
+const DOMPURIFY_CONFIG: Config = {
   USE_PROFILES: { svg: true, svgFilters: true },
   FORBID_TAGS: ['foreignObject', 'script', 'iframe', 'embed', 'object', 'base', 'form'],
   FORBID_ATTR: ['xlink:href', 'formaction', 'action', 'srcdoc'],
   ADD_TAGS: [
-    'use', 'symbol', 'defs', 'clipPath', 'mask', 'pattern', 'marker',
-    'linearGradient', 'radialGradient', 'stop', 'filter',
-    'feGaussianBlur', 'feOffset', 'feMerge', 'feMergeNode', 'feFlood',
-    'feComposite', 'feBlend', 'feColorMatrix',
+    'use',
+    'symbol',
+    'defs',
+    'clipPath',
+    'mask',
+    'pattern',
+    'marker',
+    'linearGradient',
+    'radialGradient',
+    'stop',
+    'filter',
+    'feGaussianBlur',
+    'feOffset',
+    'feMerge',
+    'feMergeNode',
+    'feFlood',
+    'feComposite',
+    'feBlend',
+    'feColorMatrix',
   ],
   ALLOW_DATA_ATTR: false,
 };
@@ -80,7 +95,8 @@ describe('SVG XSS Sanitization', () => {
 
   // Test 3: foreignObject -- SVG icinde HTML embed etmek icin kullanilir, XSS riski
   it('strips <foreignObject> tags', () => {
-    const malicious = '<svg><foreignObject><body><script>alert(1)</script></body></foreignObject></svg>';
+    const malicious =
+      '<svg><foreignObject><body><script>alert(1)</script></body></foreignObject></svg>';
     const result = sanitizeSvg(malicious);
     expect(result).not.toContain('foreignObject');
     expect(result).not.toContain('<script');
@@ -97,7 +113,8 @@ describe('SVG XSS Sanitization', () => {
 
   // Test 5: Gecerli SVG seklileri korunmali -- false positive olmamali
   it('preserves valid SVG shapes and attributes', () => {
-    const valid = '<svg viewBox="0 0 100 100"><rect x="10" y="10" width="80" height="80" fill="blue"/><circle cx="50" cy="50" r="20" fill="red"/><line x1="0" y1="0" x2="100" y2="100" stroke="black"/><text x="10" y="50">Hello</text></svg>';
+    const valid =
+      '<svg viewBox="0 0 100 100"><rect x="10" y="10" width="80" height="80" fill="blue"/><circle cx="50" cy="50" r="20" fill="red"/><line x1="0" y1="0" x2="100" y2="100" stroke="black"/><text x="10" y="50">Hello</text></svg>';
     const result = sanitizeSvg(valid);
     expect(result).toContain('<rect');
     expect(result).toContain('<circle');
@@ -108,7 +125,8 @@ describe('SVG XSS Sanitization', () => {
 
   // Ek: iframe, embed, object tag'lari da engellenmeli
   it('strips iframe, embed, and object tags', () => {
-    const malicious = '<svg><iframe src="evil.html"/><embed src="evil.swf"/><object data="evil.swf"/></svg>';
+    const malicious =
+      '<svg><iframe src="evil.html"/><embed src="evil.swf"/><object data="evil.swf"/></svg>';
     const result = sanitizeSvg(malicious);
     expect(result).not.toContain('<iframe');
     expect(result).not.toContain('<embed');
@@ -117,7 +135,8 @@ describe('SVG XSS Sanitization', () => {
 
   // Ek: SVG filter elementleri korunmali
   it('preserves SVG filter elements', () => {
-    const valid = '<svg><defs><filter id="blur"><feGaussianBlur stdDeviation="5"/></filter></defs><rect filter="url(#blur)" width="100" height="100"/></svg>';
+    const valid =
+      '<svg><defs><filter id="blur"><feGaussianBlur stdDeviation="5"/></filter></defs><rect filter="url(#blur)" width="100" height="100"/></svg>';
     const result = sanitizeSvg(valid);
     expect(result).toContain('<filter');
     expect(result).toContain('feGaussianBlur');

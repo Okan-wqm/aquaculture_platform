@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 
 const repoRoot = resolve(process.cwd());
+const EMPTY_TREE_SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 
 /** @type {{ base: string; head: string }} */
 const options = {
@@ -433,6 +434,13 @@ const changedFiles = changedTypeScriptFiles();
 
 if (changedFiles.length === 0) {
   console.log('No changed TypeScript files require file-level lint.');
+  process.exit(0);
+}
+
+if (options.base === EMPTY_TREE_SHA) {
+  console.log(
+    'File-level lint delta has no parent snapshot during bootstrap; full project lint owns validation.',
+  );
   process.exit(0);
 }
 

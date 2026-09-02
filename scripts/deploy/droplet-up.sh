@@ -23,6 +23,8 @@
 #   GITHUB_ACTOR      — actor username for GHCR login
 #   GHCR_TOKEN        — GITHUB_TOKEN with packages:read scope
 #   IMAGE_PREFIX      — GHCR image prefix (defaults to this repository)
+#   PRESERVE_DATA_INFRASTRUCTURE — "true" only for development application
+#                       rollouts; production defaults to "false"
 #   RUN_DB_MIGRATE    — "true" by default; "false" only for catalog-proven
 #                       frontend-only development deploys
 # =============================================================================
@@ -39,12 +41,16 @@ set -euo pipefail
 # pins to DEPLOY_SHA before we cd into it below.
 # shellcheck source=scripts/deploy/deploy-paths.sh
 source "${DEPLOY_SOURCE_REPO:-/var/aqua-saas}/scripts/deploy/deploy-paths.sh"
+# shellcheck source=scripts/deploy/lib/deployment-mode-policy.sh
+source scripts/deploy/lib/deployment-mode-policy.sh
 
 IMAGE_PREFIX="${IMAGE_PREFIX:-ghcr.io/okan-wqm/aquaculture_platform}"
 TAG="${TAG:-${DEPLOY_SHA:-}}"
 export TAG
 RUN_DB_MIGRATE="${RUN_DB_MIGRATE:-true}"
 export RUN_DB_MIGRATE
+PRESERVE_DATA_INFRASTRUCTURE="${PRESERVE_DATA_INFRASTRUCTURE:-false}"
+export PRESERVE_DATA_INFRASTRUCTURE
 GATEWAY_IMAGE_REF="${IMAGE_PREFIX}/gateway-api:latest"
 DEPLOY_RELEASE_ID="${DEPLOY_RELEASE_ID:-${DEPLOY_SHA:-unknown}-$(date -u +%Y%m%dT%H%M%SZ)}"
 export DEPLOY_RELEASE_ID
@@ -68,8 +74,11 @@ fi
 . "${CATALOG_DEPLOY_ENV}"
 APPLICATION_IMAGE_SERVICES="${CATALOG_APPLICATION_IMAGE_SERVICES:?generated application image services missing}"
 FRONTEND_IMAGE_SERVICES="${CATALOG_FRONTEND_IMAGE_SERVICES:?generated frontend image services missing}"
+INFRA_IMAGE_SERVICES="${CATALOG_INFRA_IMAGE_SERVICES:?generated infra image services missing}"
 GATEWAY_RECOMPOSITION_SERVICES="${CATALOG_GATEWAY_RECOMPOSITION_SERVICES:?generated gateway recomposition services missing}"
 SERVICE_DB_ROLES="${CATALOG_SERVICE_DB_ROLE_PREFIXES:?generated service DB role prefixes missing}"
+
+validate_data_infrastructure_policy
 
 validate_migration_policy() {
   case "${RUN_DB_MIGRATE}" in
@@ -233,7 +242,7 @@ run_db_migrate_or_exit() {
   set +e
   timeout --kill-after=30s "${DB_MIGRATE_TIMEOUT_SECONDS}s" \
     docker compose -f docker-compose.droplet.yml \
-      up --no-build --abort-on-container-exit \
+      up --no-deps --no-build --abort-on-container-exit \
       --exit-code-from db-migrate db-migrate
   DB_MIGRATE_STATUS=$?
   set -e
@@ -468,7 +477,7 @@ rollback_deployed_services() {
 
   local scope_services=()
   local svc
-  if [ "${FULL_DEPLOY:-false}" = "true" ]; then
+  if deploy_uses_full_stack_path; then
     for svc in ${APPLICATION_IMAGE_SERVICES}; do
       [ "$svc" = "db-migrate" ] && continue
       scope_services+=("$svc")
@@ -505,14 +514,6 @@ rollback_deployed_services() {
   fi
 
   docker compose -f docker-compose.droplet.yml up -d --no-deps --no-build --force-recreate "${scope_services[@]}"
-}
-
-restartable_deploy_services() {
-  local svc
-  for svc in ${DEPLOY_SERVICES}; do
-    [ "$svc" = "db-migrate" ] && continue
-    echo "$svc"
-  done
 }
 
 # NATS authorization is loaded only when the broker starts. A selective deploy
@@ -1113,6 +1114,8 @@ if [ ${#MISSING[@]} -gt 0 ]; then
 fi
 echo "  OK: ${REQUIRED_SECRET_COUNT} required secrets present"
 
+configure_preserved_compose_interpolation "${DEPLOY_ENV_FILE}"
+
 echo "=== Pre-flight: compose interpolation ==="
 if ! docker compose -f docker-compose.droplet.yml config --quiet; then
   echo "::error::docker-compose.droplet.yml interpolation failed."
@@ -1175,7 +1178,7 @@ export BOOT_SIGNAL_SINCE
 BOOT_SIGNAL_SINCE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "Boot signal log window starts at: ${BOOT_SIGNAL_SINCE}"
 
-if [ "$FULL_DEPLOY" = "true" ]; then
+if deploy_uses_full_stack_path; then
   # ── Full deploy mode (workflow_dispatch "all" or first deploy) ──
   echo "=== FULL DEPLOY: Pulling infrastructure images sequentially ==="
   for svc in $(docker compose -f docker-compose.droplet.yml config --services); do
@@ -1407,8 +1410,8 @@ if [ "$FULL_DEPLOY" = "true" ]; then
   sleep 15
 
 else
-  # ── Selective deploy mode (only affected services) ──
-  echo "=== SELECTIVE DEPLOY: ${DEPLOY_SERVICES} ==="
+  # ── Application rollout (affected services or all development images) ──
+  echo "=== APPLICATION ROLLOUT: ${DEPLOY_SERVICES} ==="
 
   # ARCH-031: Pre-deploy NATS JetStream storage maintenance (selective path).
   echo "=== NATS JetStream storage maintenance ==="
@@ -1457,17 +1460,23 @@ else
   generate_credential "WEBHOOK_ENCRYPTION_KEY"
 
   if [ "$RUN_DB_MIGRATE" = "true" ]; then
-    echo "=== Ensuring migration infrastructure is running ==="
-    docker compose -f docker-compose.droplet.yml up -d --no-build postgres redis minio 2>&1
-    sleep 5
+    if [ "${PRESERVE_DATA_INFRASTRUCTURE}" = "true" ]; then
+      echo "=== Proving preserved migration infrastructure is healthy ==="
+      assert_preserved_migration_infrastructure
+    else
+      echo "=== Ensuring migration infrastructure is running ==="
+      docker compose -f docker-compose.droplet.yml up -d --no-build postgres redis minio 2>&1
+      sleep 5
+    fi
   else
     echo "=== Frontend-only development deploy: migration infrastructure unchanged ==="
   fi
 
   echo "=== Pulling affected images sequentially: ${DEPLOY_SERVICES} ==="
-  for svc in ${DEPLOY_SERVICES}; do
+  while IFS= read -r svc; do
+    [ -n "${svc}" ] || continue
     pull_deploy_image_required "$svc"
-  done
+  done < <(rollout_image_services)
 
   # ─────────────────────────────────────────────────────────────
   # ADR-033 — one-shot authoritative schema migration container.

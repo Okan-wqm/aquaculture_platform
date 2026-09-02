@@ -1,17 +1,9 @@
 # ARIA kernel security defects — three controlled reproductions
 
 **Date:** 2026-09-01 · **Agent:** zcode · **Cycle:** 2026-09-01 advisory-gate-recovery
-<<<<<<< HEAD
-
-# **Findings:** ARIA-CRITICAL (forged panel token), ARIA-CRITICAL (out-of-repo prune), ARIA-HIGH
-
-(compaction archive loss) — registered on the rebased branch before merge; this document is their
-shared evidence.
-
-**Findings:** ARIA-CRITICAL-031 (forged panel token) · ARIA-CRITICAL-032 (out-of-repo prune
-deletion) · ARIA-HIGH-033 (compaction archive loss) — closed by this branch.
-
-> > > > > > > fix/aria-kernel-security-defects
+**Findings:** ARIA-CRITICAL-031 (forged panel token) · ARIA-CRITICAL-032
+(out-of-repo prune deletion) · ARIA-HIGH-033 (compaction archive loss) — closed
+by this branch; this document is their shared evidence.
 
 Each defect below was reproduced in a controlled setting before any fix was
 written, then pinned by a regression test that fails on the pre-fix code.

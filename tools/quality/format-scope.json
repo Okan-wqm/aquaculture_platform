@@ -35863,6 +35863,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/superpowers/specs/2026-08-24-tenant-setup-memory-kernel-design.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/superpowers/specs/2026-08-26-aquamobil-v4-safe-integration-design.md",
       "prettier_managed": true
     },

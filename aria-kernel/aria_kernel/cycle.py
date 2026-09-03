@@ -525,6 +525,104 @@ def build_phase_context(
     )
 
 
+def _seal_open_cycle_after_raise(
+    *,
+    base_dir: str | Path | None,
+    workspace_root: str | Path,
+    cycle_id: str,
+    exc: BaseException,
+) -> bool:
+    """Seal a cycle whose run raised after its ``started`` row was appended.
+
+    ARIA-HIGH-037. ``run_enterprise_cycle`` owns the cycles.jsonl lifecycle,
+    and every path it KNOWS about (stop, continuity abort, pre-phase abort,
+    phase failure, completion) appends a terminal row. An exception that
+    escapes the function — a ``propagate`` phase raising, or the mid-phase
+    deadline alarm (``PhaseDeadlineExceeded``) firing inside one — reached
+    none of those branches, so the started row stayed open. The integrity
+    verifier then refused the entire state (``cycle has started event
+    without terminal event``) and the lane quarantined instead of
+    publishing: on 2026-09-03 the deadline that exists to make the night
+    publishable produced the one state that could not be published.
+
+    The seal is derived from the ledger, not from control flow: it appends
+    a ``failed`` terminal row only when the cycle's LAST row is ``started``.
+    A raise before the started row leaves nothing to seal (no orphan
+    terminal), and a cycle already sealed by the normal path is untouched.
+    The governance row names the exception so the failure is diagnosable
+    from the ledger the next morning, not from a lost stderr.
+
+    Returns True when a terminal row was appended.
+    """
+    if not cycle_id or base_dir is None:
+        # No bound tools root means nothing was appended under one — the
+        # binding resolver is deliberately NOT called here: it creates the
+        # tools tree, and a refusal that happened before the started row
+        # (an unknown mode, say) must leave no ledger behind it.
+        return False
+    root = Path(base_dir)
+    path = root / "cycles.jsonl"
+    if not path.exists():
+        return False
+    # "Open" is decided by the same reader the publish verifier uses
+    # (integrity._verify_cycle_lifecycle via _cycle_lifecycle_snapshot), so
+    # the seal and the verifier can never disagree about what an unsealed
+    # cycle is. An unreadable ledger reports no incomplete cycles here and
+    # is left for the verifier to refuse — sealing onto a broken chain
+    # would only bury the corruption.
+    incomplete = _cycle_lifecycle_snapshot(root).get("incomplete_cycles") or []
+    if not any(
+        isinstance(entry, dict) and str(entry.get("cycle_id")) == cycle_id
+        for entry in incomplete
+    ):
+        return False
+    append_tools_governance(
+        root,
+        "cycle_raised_before_seal",
+        {
+            "schema_version": 1,
+            "cycle_id": cycle_id,
+            "error_type": type(exc).__name__,
+            "error": str(exc)[:2000],
+        },
+    )
+    event = _failed_event(cycle_id, git_head_sha_at_cycle=_git_head_sha(Path(workspace_root)))
+    append_declared_jsonl(path, event, expected_surface="cycles")
+    update_tools_index(root)
+    return True
+
+
+def _sealed_cycle_ledger(fn: Callable[..., dict[str, Any]]) -> Callable[..., dict[str, Any]]:
+    """Wrap ``run_enterprise_cycle`` so no exception can leave a cycle open.
+
+    The seal runs on the way OUT and the exception keeps propagating — the
+    orchestrator still records the cycle as failed and exits non-zero; what
+    changes is that the state it leaves behind verifies. If sealing itself
+    raises (a locked ledger, a full disk), the original exception is what
+    the caller sees, with the seal failure attached as a note.
+    """
+    import functools
+
+    @functools.wraps(fn)
+    def wrapper(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        try:
+            return fn(*args, **kwargs)
+        except Exception as exc:
+            try:
+                _seal_open_cycle_after_raise(
+                    base_dir=kwargs.get("base_dir"),
+                    workspace_root=kwargs.get("workspace_root", "."),
+                    cycle_id=str(kwargs.get("cycle_id") or ""),
+                    exc=exc,
+                )
+            except Exception as seal_exc:  # noqa: BLE001 - never mask the cause
+                exc.add_note(f"cycle seal failed: {type(seal_exc).__name__}: {seal_exc}")
+            raise
+
+    return wrapper
+
+
+@_sealed_cycle_ledger
 def run_enterprise_cycle(
     *,
     workspace_root: str | Path,

@@ -1105,7 +1105,10 @@ describe('Bootstrap from scratch (fresh-volume init + full migration chain)', ()
                 rolcreaterole,
                 rolreplication,
                 rolbypassrls
-           FROM pg_roles
+           -- pg_roles masks rolpassword as ********, including passwordless
+           -- roles. This bootstrap probe runs as the database superuser, so
+           -- pg_authid is the authoritative source for the NULL assertion.
+           FROM pg_catalog.pg_authid
           WHERE rolname = 'sensor_aggregate_owner'`,
       )) as Array<{
         has_no_password: boolean;

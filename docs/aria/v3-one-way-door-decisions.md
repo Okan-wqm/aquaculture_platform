@@ -383,6 +383,28 @@ quarantines; CLOSED only after CLEANUP_VERIFIED. `mission.BINDING_KEYS` gains `c
 
 **Mitigation:** I-V13-GRANT-01..02, I-V13-VAULT-01, I-V13-CAMPAIGN-01..02.
 
+## 23. Typed probes, policy proxy (single egress), ZAP under policy (Plan 033 Faz 033f)
+
+**Decision:** the LLM never receives network bash. An `AttackRecipe` is a CLOSED list of typed steps
+(`probe.STEP_KINDS`); any step key in `FORBIDDEN_STEP_KEYS` (shell/script/python/command/…), a
+mutation above its risk floor, a hostless HTTP/GraphQL step, a recipe without a positive control +
+assertion, or a mutating recipe without cleanup is refused. `probe.evaluate` folds into the closed
+`PROBE_VERDICTS`; a missing/failed positive control is HARNESS_ERROR and truncation/unreachability
+is never clean. The `policy_proxy.PolicyEngine` is the single egress: it re-validates the grant on
+every hop — scheme, exact host allowlist, DNS answer pinned to the first-seen IP set (rebinding →
+deny), metadata/loopback/out-of-lab addresses (via scope_policy), body size, atomic budget, GraphQL
+effect catalog (unknown mutation root field / persisted query → deny), no credential cross-origin
+forwarding, redirect depth; `stop()` denies everything after. ZAP runs only from a sha256-pinned
+image (`zap.pin.json`; floating tag / missing pin fails closed — ARIA never invents a digest) with
+an Automation-Framework-allowlisted plan scoped to grant hosts; alerts are UNVERIFIED leads.
+
+**Why one-way:** this is the containment boundary for all active traffic; a gap here is a real-world
+egress, not a bug.
+
+**Reversibility cost:** Re-running every active probe through a changed gate; re-pinning ZAP.
+
+**Mitigation:** I-V13-PROBE-01, I-V13-NETGATE-01, I-V13-SSRF-01, I-V13-CANCEL-01, I-V13-ZAP-01.
+
 ## Themes
 
 - **3 of 5 one-way doors are ledger-anchored** (events, terminal states, candidate sources). The

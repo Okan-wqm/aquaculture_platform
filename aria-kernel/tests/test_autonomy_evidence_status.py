@@ -1590,6 +1590,15 @@ def alias_factory(root):
                     f"{KERNEL}report.py",
                     "consumer",
                 ),
+                # Plan 032 Faz 032a — the doctor reads cycle lifecycle bytes
+                # through integrity verification to REPORT health; it decides
+                # nothing and cannot authorize a cycle.
+                (
+                    "cycle_runtime",
+                    "cycles",
+                    f"{KERNEL}doctor.py",
+                    "consumer",
+                ),
                 (
                     "executor",
                     "agent_invocation_results",

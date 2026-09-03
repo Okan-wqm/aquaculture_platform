@@ -425,6 +425,19 @@ def _handle_state_command(args: argparse.Namespace) -> int:
     )
     from .tool_registry import tools_dir
 
+    if args.state_command == "acknowledge-surface-reset":
+        from .memory_gap import record_surface_reset
+
+        row = record_surface_reset(
+            surface=args.surface,
+            archived_sha256=args.archived_sha256,
+            reason=args.reason,
+            operator_approval_ref=args.operator_approval_ref,
+            base_dir=args.tools_dir,
+        )
+        print(json.dumps(row, indent=2, sort_keys=True))
+        return 0
+
     if args.state_command == "snapshot":
         roots: dict[str, Path] = {"tools": tools_dir(args.tools_dir)}
         if args.workspace_base:
@@ -802,6 +815,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Operator-pinned allowlist (identity keytype blob lines). The key "
              "carried by the snapshot is a claim, not trust.",
     )
+    # Plan 032 Faz 032a — a write-driving ledger that restarts from empty
+    # (the 2026-08-31 plan-ledger loss) is a governance event with the
+    # archived surface's hash and an operator approval, never a silent gap.
+    state_reset_ack = add_subparser(
+        state_sub, "acknowledge-surface-reset",
+        help="Record that a write-driving ledger restarts from empty: archived "
+             "surface hash + operator approval, on the governance ledger.",
+    )
+    state_reset_ack.add_argument("--surface", required=True,
+                                 help="Manifest surface name (e.g. plan_convergence_events).")
+    state_reset_ack.add_argument("--archived-sha256", required=True,
+                                 help="sha256 of the surface as last published (git blob or file hash).")
+    state_reset_ack.add_argument("--reason", required=True)
+    state_reset_ack.add_argument("--operator-approval-ref", required=True,
+                                 help="gov:<event_id> | review:<path>#<id> | ack-env:<VAR>")
 
     # Wave 1 §2.3 — the aria/state store. `publish` refuses unless the
     # snapshot it builds names the published tip as its parent; there is
@@ -2804,6 +2832,14 @@ def build_parser() -> argparse.ArgumentParser:
     curate_parser.add_argument("--acknowledge", action="store_true")
     curate_parser.add_argument("--reason", default=None)
     curate_parser.add_argument("--cycle-id", default=None)
+
+    # Plan 032 Faz 032a — one readout of ARIA's own health (read-only).
+    doctor_parser = add_subparser(sub, "doctor")
+    add_workspace_args(doctor_parser)
+    doctor_parser.add_argument(
+        "--json", action="store_true",
+        help="Print the full report as JSON instead of the one-line-per-check text.",
+    )
 
     return parser
 
@@ -5813,6 +5849,19 @@ def _main(argv: list[str] | None = None) -> int:
         state = AutonomyStateReducer.derive_current(args.tools_dir)
         print(json.dumps(state.to_dict(), indent=2, sort_keys=True))
         return 0
+
+    if args.command == "doctor":
+        from .doctor import render_doctor_text, run_doctor
+
+        report = run_doctor(
+            base_dir=args.tools_dir,
+            workspace_root=getattr(args, "workspace_root", None) or Path.cwd(),
+        )
+        if args.json:
+            print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
+        else:
+            print(render_doctor_text(report))
+        return report.exit_code
 
     if args.command == "integrity" and args.integrity_command == "rollback-tools-v2-to-v1":
         result = rollback_tools_v2_to_v1(

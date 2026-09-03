@@ -70,5 +70,12 @@ class PlanCandidateSource(str, Enum):
     via V8.14 ``_evidence_refs_from_hunks``. Lowest priority; fires
     as last-resort when no other lane has candidates."""
 
+    GITHUB_ISSUE = "github_issue"
+    """Plan 032 Faz 032f — open missions the event gateway minted from
+    GitHub issues labelled ``aria`` (``gateway.router`` →
+    ``mission.open_mission(source_kind="github_issue")``). Ranked next to
+    FAILING_CI: a person filed it, but it is not signed operator feedback.
+    One-way door 14."""
+
 
 __all__ = ("PlanCandidateSource",)

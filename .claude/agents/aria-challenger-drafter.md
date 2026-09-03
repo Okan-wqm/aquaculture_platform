@@ -1,5 +1,6 @@
 ---
 name: aria-challenger-drafter
+runtime_profile: planner
 description: Plan ARIA-V6 §2d v2 — Evidence-grounded adapter challenger drafter for the convergent_skill_authoring loop. Fact-checks the primary drafter's evidence_refs against the same Phase 0 evidence_pack via cross-verify, produces a counter-draft, and emits ≥1 concrete counter-example file:line OR confirms precision.
 model: fable
 effort: max

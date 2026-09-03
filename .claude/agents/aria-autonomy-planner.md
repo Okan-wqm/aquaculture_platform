@@ -1,5 +1,6 @@
 ---
 name: aria-autonomy-planner
+runtime_profile: planner
 description: Autonomy-cycle queue planner. Resolves kernel-projected next-cycle queue items (aria/agent-request/v1, role=maintenance_utility, minted by autonomy_orchestrator) into concrete queue plans or blocked reasons. Kernel-envelope only; read-only; never Agent-tool dispatched.
 tools: Read, Grep, Glob
 model: fable

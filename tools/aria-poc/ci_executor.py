@@ -47,6 +47,7 @@ if str(_THIS_DIR) not in sys.path:
     sys.path.insert(0, str(_THIS_DIR))
 
 from claude_runtime import (
+    spawn_settings_hash,
     CLAUDE_MOCK_ENV_VAR,
     ClaudeAuthFailure,
     ClaudeCreditExhausted,
@@ -174,6 +175,20 @@ LEASE_TOKEN_ENV_VAR = "ARIA_LEASE_TOKEN"
 # Lives on stderr so the consumer-loop log file captures it without
 # interfering with the kernel submit-result stdout JSON contract.
 _CI_T0 = time.monotonic()
+
+
+# Plan 032 Faz 032b — the code tree the executor dispatches into.
+# Plan 032 Faz 032d — a write lane whose scoped credential cannot be minted
+# is released, never run blind. EX_CONFIG keeps the code distinct from the
+# Claude CLI's own exits in `claude_cli_exit_<n>` release reasons.
+DELIVERY_CREDENTIAL_EXIT = 78
+# Plan 032 Faz 032c — the checkpoint taken before a write-capable spawn. A
+# constant (not a `reason="..."` literal) so I-V12-RELEASE-02's scan of release
+# sites does not read a checkpoint reason as a claim release.
+_PRE_SPAWN_CHECKPOINT_REASON = "pre_spawn"
+# Plan 032 Faz 032h — a drain child may run inside its own worktree; the
+# drain exports ARIA_WORKSPACE_ROOT and every workspace-bound path follows.
+_REPO_ROOT = Path(os.environ.get("ARIA_WORKSPACE_ROOT") or Path(__file__).resolve().parents[2]).resolve()
 
 
 def _stage(msg: str) -> None:
@@ -1006,6 +1021,79 @@ def _clear_stale_dispatch_artifacts(output_path: Path, transcript_path: Path) ->
     transcript_path.unlink(missing_ok=True)
 
 
+
+def _decide_session_and_recovery(
+    *,
+    tools_dir: Path,
+    repo: Path,
+    request_id: str,
+    claim_id: str,
+    agent_id: str,
+    lease_token: str,
+    subagent_type: str,
+    request_envelope: dict[str, Any],
+    prompt_hash: str,
+) -> tuple[str | None, bool]:
+    """Plan 032 Faz 032c — (session_id, resume), or (None, False) after a
+    human_required recovery decision released the claim.
+
+    Mock dispatches skip all of it: there is no session to bind and no
+    workspace write to checkpoint.
+    """
+    if _MOCK_MODE_AT_ENTRY:
+        return "mock-session", False
+    from aria_kernel.agent_runtime_profile import read_agent_runtime_profile
+    from aria_kernel.checkpoint import take_checkpoint
+    from aria_kernel.recovery import classify_recovery, gh_remote_reader
+    from aria_kernel.session_continuity import decide_session, session_fingerprint
+
+    profile = read_agent_runtime_profile(subagent_type, repo_root=_REPO_ROOT)
+    recording = UsageRecording(request_id=request_id, role=str(request_envelope.get("role") or ""),
+                               target_agent=subagent_type, base_dir=tools_dir)
+    fingerprint = session_fingerprint(
+        target_sha=str(request_envelope.get("target_sha") or ""),
+        profile_id=profile.profile_id,
+        prompt_hash=prompt_hash,
+        settings_hash=spawn_settings_hash(agent_profile=profile, usage_recording=recording, workspace_root=_REPO_ROOT),
+        model=profile.model,
+    )
+    decision = classify_recovery(
+        request_id, base_dir=tools_dir, fingerprint=fingerprint, remote_reader=gh_remote_reader(_REPO_ROOT),
+    )
+    if decision.decision == "human_required":
+        sys.stderr.write(f"recovery_unresolved_external_effect: {request_id} {decision.reason}\n")
+        _release_claim(
+            tools_dir=tools_dir, repo=repo, claim_id=claim_id, agent_id=agent_id,
+            lease_token=lease_token, reason="recovery_unresolved_external_effect",
+        )
+        return None, False
+    session_id, resume = decide_session(request_id=request_id, claim_id=claim_id, fingerprint=fingerprint, base_dir=tools_dir)
+    if profile.write_capable:
+        try:
+            take_checkpoint(workspace_root=_REPO_ROOT, request_id=request_id, reason=_PRE_SPAWN_CHECKPOINT_REASON, base_dir=tools_dir)
+        except Exception as exc:  # noqa: BLE001 — a checkpoint that cannot be taken is named, not fatal
+            sys.stderr.write(f"checkpoint_pre_spawn_failed: {type(exc).__name__}\n")
+    return session_id, resume
+
+
+def _rollback_after_blocked_spawn(*, tools_dir: Path, request_id: str, subagent_type: str, why: str) -> None:
+    """Plan 032 Faz 032c — a write-capable spawn that ended blocked has its
+    LOCAL edits put back (hand edits preserved); external effects are left to
+    the recovery classifier, never to a blind reset."""
+    try:
+        from aria_kernel.agent_runtime_profile import read_agent_runtime_profile
+        from aria_kernel.checkpoint import list_checkpoints, restore_checkpoint
+        from aria_kernel.tool_registry import append_tools_governance, ensure_tools_dir
+
+        profile = read_agent_runtime_profile(subagent_type, repo_root=_REPO_ROOT)
+        if not profile.write_capable or not list_checkpoints(request_id, base_dir=tools_dir):
+            return
+        result = restore_checkpoint(workspace_root=_REPO_ROOT, request_id=request_id, base_dir=tools_dir)
+        append_tools_governance(ensure_tools_dir(tools_dir), "implementation_rolled_back",
+                                {"request_id": request_id, "why": why, **result})
+    except Exception as exc:  # noqa: BLE001
+        sys.stderr.write(f"rollback_after_blocked_spawn_failed: {type(exc).__name__}\n")
+
 def invoke_claude_cli(
     *,
     request_id: str,
@@ -1025,6 +1113,9 @@ def invoke_claude_cli(
     # sites), no row is written — V8 backward-compat preserved.
     request_envelope: dict[str, Any] | None = None,
     tools_dir: Path | None = None,
+    session_id: str | None = None,
+    resume: bool = False,
+    spawn_control: Any | None = None,
 ) -> int:
     """Call the Claude Code CLI; mock path for tests + CI dry-runs.
 
@@ -1216,6 +1307,38 @@ def invoke_claude_cli(
             # The summary is telemetry; a dispatch outcome must never fail
             # because the telemetry channel did. Name it on stderr instead.
             sys.stderr.write(f"dispatch_summary_unwritable: {summary_exc}\n")
+    # Plan 032 Faz 032d — scoped delivery credential for external-write
+    # profiles (today: the implementer). Minted here, exported ONLY into this
+    # spawn's env, revoked in `finally`. Every other profile gets no GitHub
+    # credential at all. ARIA_REQUEST_ID / ARIA_CLAIM_ID ride along so the
+    # kernel CLI the agent runs keys its intent/receipt rows on the request.
+    from aria_kernel.delivery_credentials import (
+        DeliveryCredentialError,
+        issue_delivery_credentials,
+        revoke_delivery_credentials,
+    )
+
+    delivery_credential = None
+    spawn_extra_env: dict[str, str] = {"ARIA_REQUEST_ID": str(request_id)}
+    if claim_id:
+        spawn_extra_env["ARIA_CLAIM_ID"] = str(claim_id)
+    if bool(getattr(agent_profile, "external_writes", False)):
+        try:
+            _deadline = os.environ.get("ARIA_JOB_DEADLINE_EPOCH")
+            delivery_credential = issue_delivery_credentials(
+                profile=agent_profile,
+                request_id=request_id,
+                cycle_id=(request_envelope or {}).get("cycle_id"),
+                workspace_root=_REPO_ROOT,
+                base_dir=tools_dir,
+                deadline_epoch=float(_deadline) if _deadline else None,
+            )
+        except DeliveryCredentialError as exc:
+            _stage(f"delivery_credential_refused request_id={request_id} {exc}")
+            _emit_dispatch_summary(outcome="failed", failure=None, exit_code=DELIVERY_CREDENTIAL_EXIT)
+            return DELIVERY_CREDENTIAL_EXIT
+        if delivery_credential is not None:
+            spawn_extra_env.update(delivery_credential.env)
     try:
         # Model dispatch with the fable→opus fallback policy (credit + refusal),
         # applied by the claude_runtime SSoT helper. The executor supplies the
@@ -1227,6 +1350,17 @@ def invoke_claude_cli(
                 timeout_seconds=timeout_seconds,
                 model=model,
                 effort=effort,
+                # Plan 032 Faz 032b — the workspace is EXPLICIT: the sandbox
+                # binds it and the agent runs in it. Pre-fix no cwd was passed
+                # and containment bound whatever Path.cwd() happened to be.
+                cwd=_REPO_ROOT,
+                agent_profile=agent_profile,
+                # Plan 032 Faz 032c — the kernel's session decision.
+                session_id=session_id,
+                resume=resume,
+                extra_env=spawn_extra_env,
+                # Plan 032 Faz 032e — operator cancel polling + progress tail.
+                spawn_control=spawn_control,
                 # E17-d — per-spawn usage accounting. This callsite is the
                 # seam where the full identity is in scope: request_id +
                 # envelope role + subagent_type are REQUIRED parameters of
@@ -1342,10 +1476,16 @@ def invoke_claude_cli(
                 )
                 return 1
 
+        # Plan 032 Faz 032i — the token-economy governor may lower the effort
+        # one rung while a fresh downgrade recommendation stands (governance
+        # row per application); the profile's effort is the ceiling.
+        from aria_kernel.token_economy import effective_effort
+
+        _effort = effective_effort(agent_profile.effort, target_agent=subagent_type, role=role, base_dir=tools_dir, request_id=request_id)
         completed = run_with_model_fallback(
             run=_dispatch_attempt,
             model=agent_profile.model,
-            effort=agent_profile.effort,
+            effort=_effort,
             on_credit=_on_credit,
             on_refusal=_on_refusal,
         )
@@ -1425,6 +1565,11 @@ def invoke_claude_cli(
             contract = "tools/aria-poc/ci_executor_contract_proven.md"
             raise ClaudeCliUnavailable(f"{exc}; see {contract}") from exc
         raise
+    finally:
+        # Plan 032 Faz 032d — the scoped credential dies with the spawn, on
+        # every path out of it.
+        if delivery_credential is not None:
+            revoke_delivery_credentials(delivery_credential, request_id=request_id, base_dir=tools_dir)
     # Plan ARIA-V7 §2g v2 + V7.10 envelope-extraction fix.
     #
     # WHY: claude -p stream-json emits JSONL events
@@ -2316,6 +2461,38 @@ def main(argv: list[str] | None = None) -> int:
     timeout = _max_timeout_seconds()
     transcript_output_path = expected_output_path.with_suffix(".transcript.jsonl")
     _publish_artifact_paths(expected_output_path, transcript_output_path)
+    # Plan 032 Faz 032c — recovery FIRST: a request whose previous attempt
+    # left an external intent without a receipt is not re-run blind. Then
+    # the session decision (fresh vs resume, fingerprint-bound) and, for a
+    # write-capable envelope, a pre-spawn checkpoint of the workspace.
+    _session_id, _resume = _decide_session_and_recovery(
+        tools_dir=tools_dir, repo=repo, request_id=request_id, claim_id=claim_id,
+        agent_id=agent_id, lease_token=lease_token, subagent_type=subagent_type,
+        request_envelope=request_envelope, prompt_hash=_computed_prompt_hash,
+    )
+    if _session_id is None:
+        return 0  # released to HUMAN_REQUIRED by the recovery classifier
+    # Plan 032 Faz 032e — operator control. A cancel recorded after the claim
+    # is honoured BEFORE the spawn (release with the operator fault domain);
+    # during the spawn the runtime polls the same ledger and stops the
+    # process group; every stream-json event feeds the sanitized progress
+    # file the operator tails.
+    from aria_kernel.control import OPERATOR_CANCELLED_RELEASE_REASON, is_cancelled, record_cancel_outcome
+    from aria_kernel.progress import ProgressWriter
+    from claude_runtime import SpawnControl
+
+    if is_cancelled(request_id, tools_dir):
+        record_cancel_outcome(request_id, outcome="before_spawn", base_dir=tools_dir, detail={"claim_id": claim_id})
+        _release_claim(
+            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+            agent_id=agent_id, lease_token=lease_token,
+            reason=OPERATOR_CANCELLED_RELEASE_REASON,
+        )
+        return 0
+    _spawn_control = SpawnControl(
+        should_cancel=lambda: is_cancelled(request_id, tools_dir),
+        on_event=ProgressWriter(request_id, base_dir=tools_dir, claim_id=claim_id).write,
+    )
     _run_started_at = time.monotonic()
     try:
         # Plan 024 v3 §B-8 — pass real lease identity + role from
@@ -2326,6 +2503,8 @@ def main(argv: list[str] | None = None) -> int:
         cli_exit = invoke_claude_cli(
             request_id=request_id,
             subagent_type=subagent_type,
+            session_id=_session_id,
+            resume=_resume,
             prompt_file=prompt_file,
             output_path=expected_output_path,
             transcript_path=transcript_output_path,
@@ -2344,7 +2523,16 @@ def main(argv: list[str] | None = None) -> int:
             # the V3.1-D2 _MOCK_MODE_AT_ENTRY frozen sentinel.
             request_envelope=request_envelope,
             tools_dir=tools_dir,
+            spawn_control=_spawn_control,
         )
+        if cli_exit != 0:
+            # Plan 032 Faz 032c — a write-capable spawn that ended non-zero has
+            # its LOCAL edits put back from the pre-spawn checkpoint (hand
+            # edits preserved). External effects are the recovery classifier's.
+            _rollback_after_blocked_spawn(
+                tools_dir=tools_dir, request_id=request_id, subagent_type=subagent_type,
+                why=f"cli_exit_{cli_exit}",
+            )
     except ClaudeAuthFailure as exc:
         # An expired session is not "the agent ran and failed" — nothing ran.
         # It was released as a generic `claude_cli_exit_1` for five consecutive
@@ -2411,10 +2599,15 @@ def main(argv: list[str] | None = None) -> int:
         # routes to primary_silent verdict OR a later consumer
         # attempts a fresh claim. Pre-V7 leak: CLI exit != 0 kept
         # the claim active, blocking re-claims for the lease window.
+        if _spawn_control.cancelled:
+            # Plan 032 Faz 032e — the operator stopped it: operator fault
+            # domain, terminal state, requeue budget untouched.
+            record_cancel_outcome(request_id, outcome=_spawn_control.cancel_signal or "sigterm", base_dir=tools_dir,
+                                  detail={"claim_id": claim_id, "cli_exit": cli_exit, "events_seen": _spawn_control.events_seen})
         _release_claim(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
             agent_id=agent_id, lease_token=lease_token,
-            reason=f"claude_cli_exit_{cli_exit}",
+            reason=(OPERATOR_CANCELLED_RELEASE_REASON if _spawn_control.cancelled else f"claude_cli_exit_{cli_exit}"),
         )
         return 1
 

@@ -27227,6 +27227,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "aria-kernel/aria_kernel/data/mcp_registry.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "aria-kernel/aria_kernel/data/runtime_profiles.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "aria-kernel/closure-reachability-baseline.json",
       "prettier_managed": true
     },
@@ -28385,6 +28397,17 @@
       "owner": "docs",
       "path": "docs/aria/ENTERPRISE_AUTONOMY_SSOT.md",
       "prettier_managed": true
+    },
+    {
+      "class": "generated",
+      "content_sha256": "ae0fb13c5ba591961503749fe487e233b1548368182663fde6006a8b881d4323",
+      "hash_policy": "sha256",
+      "owner": "codegen-owner",
+      "path": "docs/aria/generated/harness-parity.md",
+      "prettier_managed": false,
+      "reason": "generated artifact; source generator is canonical",
+      "review_required": true,
+      "source_of_truth": "generator"
     },
     {
       "class": "generated",
@@ -35012,6 +35035,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/runbooks/aria-gateway.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/runbooks/aria-github-app-setup.md",
       "prettier_managed": true
     },
@@ -36525,6 +36554,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "infrastructure/monitoring/grafana/dashboards/aquaculture-overview.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "infrastructure/monitoring/grafana/dashboards/aria-kernel-dashboard.json",
       "prettier_managed": true
     },
     {

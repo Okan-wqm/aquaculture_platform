@@ -1,5 +1,6 @@
 ---
 name: aria-adversarial-judge
+runtime_profile: judge_glm
 description: Read-only adversarial ARIA judge that attempts to falsify sampled findings and identify stale, self-referential, or insufficient evidence.
 model: glm-5.3
 effort: max

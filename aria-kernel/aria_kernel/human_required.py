@@ -119,6 +119,14 @@ def record_human_required(
             "path": out_path.relative_to(root).as_posix(),
         },
     )
+    # Plan 032 Faz 032e — a person is needed; say so on the configured channels.
+    from .notify import notify_best_effort
+
+    notify_best_effort(
+        kind="human_required_opened", key=request_id, base_dir=root,
+        title=f"ARIA HUMAN_REQUIRED [{sev}] {request_id}",
+        body=f"reason: {reason}\nsla_deadline: {record['sla_deadline']}\nresolve: aria-kernel human-required resolve --request-id {request_id}",
+    )
     return record
 
 

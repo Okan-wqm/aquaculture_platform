@@ -30,7 +30,7 @@ from .tool_registry import ensure_tools_dir_readonly
 # aria-agent-executor.yml `REQUIRED_CLAUDE_VERSION`) and provision_runner.sh
 # names as CLAUDE_FLOOR. Pinned here so the doctor and the lanes cannot drift;
 # tests/test_doctor.py compares the three literals.
-CLAUDE_CLI_VERSION_FLOOR = "2.1.197"
+CLAUDE_CLI_VERSION_FLOOR = "2.1.221"
 
 CHECK_STATUSES: tuple[str, ...] = ("ok", "warn", "fail")
 DOCTOR_EXIT_HEALTHY = 0
@@ -231,6 +231,104 @@ def _check_plan_ledger(tools_dir: Path) -> DoctorCheck:
     return DoctorCheck("plan_ledger", "ok", detail=detail)
 
 
+def _check_delivery(tools_dir: Path) -> DoctorCheck:
+    """Plan 032 Faz 032d — the last mile has a reader. Duplicate PRs are a
+    fault (fail); an accepted result with no PR is a false success (warn —
+    the request may still be mid-flight); the SLO itself is detail."""
+    from .delivery_closure import compute_delivery_closure
+
+    summary = compute_delivery_closure(base_dir=tools_dir).summary
+    if summary["duplicate_prs"]:
+        return DoctorCheck("delivery_closure", "fail", "duplicate_prs", summary)
+    if summary["false_success"] or summary["unresolved_intents"]:
+        return DoctorCheck("delivery_closure", "warn", "false_success_or_unresolved_intents", summary)
+    if not summary["implementation_requests"]:
+        return DoctorCheck("delivery_closure", "ok", "no_implementation_requests", summary)
+    return DoctorCheck("delivery_closure", "ok", "", summary)
+
+
+def _check_queue(tools_dir: Path) -> DoctorCheck:
+    """Plan 032 Faz 032e — queue depth by derived state + open HUMAN_REQUIRED."""
+    from collections import Counter
+
+    from .agent_invocations import derive_request_states
+    from .human_required import list_human_required
+    from .mission import list_open_missions
+
+    states = Counter(derive_request_states(base_dir=tools_dir).values())
+    open_hr = list_human_required(base_dir=tools_dir)
+    missions = Counter(str(m.get("state") or "") for m in list_open_missions(base_dir=tools_dir))
+    detail = {"requests_by_state": dict(sorted(states.items())), "human_required_open": len(open_hr),
+              "missions_open_by_state": dict(sorted(missions.items()))}
+    if open_hr:
+        return DoctorCheck("queue", "warn", f"human_required_open:{len(open_hr)}", detail)
+    return DoctorCheck("queue", "ok", "", detail)
+
+
+def _check_control(tools_dir: Path) -> DoctorCheck:
+    """Plan 032 Faz 032e — an operator pause is health information, not illness."""
+    from .control import effective_control
+
+    state = effective_control(tools_dir)
+    if state.paused_all:
+        return DoctorCheck("control", "warn", "executor_paused", state.to_dict())
+    return DoctorCheck("control", "ok", "", state.to_dict())
+
+
+def _check_notifications(tools_dir: Path) -> DoctorCheck:
+    """Plan 032 Faz 032e — a channel that keeps failing means nobody hears."""
+    from .notify import configured_channels, read_outbox
+
+    rows = read_outbox(tools_dir)
+    recent = rows[-50:]
+    failed = [r for r in recent if r.get("status") == "failed"]
+    detail = {"configured_channels": list(configured_channels()), "recent_rows": len(recent), "recent_failed": len(failed)}
+    if failed:
+        return DoctorCheck("notifications", "warn", f"recent_failures:{len(failed)}", detail)
+    return DoctorCheck("notifications", "ok", "" if detail["configured_channels"] else "no_channel_configured", detail)
+
+
+def _check_gateway(tools_dir: Path, *, stale_after_seconds: float = 300.0) -> DoctorCheck:
+    """Plan 032 Faz 032f — the droplet daemon's heartbeat. Absent = not
+    deployed on this host (ok, informational); stale = it died quietly."""
+    import json
+    from datetime import datetime, timezone
+
+    from .gateway.inbox import inbox_summary
+    from .gateway.server import HEARTBEAT_RELPATH
+
+    path = tools_dir.joinpath(*HEARTBEAT_RELPATH)
+    inbox = inbox_summary(tools_dir)
+    if not path.exists():
+        return DoctorCheck("gateway", "ok", "gateway_not_running_here", {"inbox": inbox})
+    try:
+        beat = json.loads(path.read_text(encoding="utf-8"))
+        stamp = datetime.fromisoformat(str(beat.get("recorded_at")).replace("Z", "+00:00"))
+    except (OSError, ValueError):
+        return DoctorCheck("gateway", "warn", "heartbeat_unreadable", {"inbox": inbox})
+    age = (datetime.now(timezone.utc) - stamp).total_seconds()
+    detail = {"heartbeat_age_seconds": int(age), "inbox": inbox, "last_ran": beat.get("ran")}
+    if age > stale_after_seconds:
+        return DoctorCheck("gateway", "warn", "gateway_heartbeat_stale", detail)
+    if inbox["pending"] > 50:
+        return DoctorCheck("gateway", "warn", f"inbox_backlog:{inbox['pending']}", detail)
+    return DoctorCheck("gateway", "ok", "", detail)
+
+
+def _check_economy(tools_dir: Path) -> DoctorCheck:
+    """Plan 032 Faz 032i — a standing effort downgrade is information; no accepted
+    result across a busy agent is a warning."""
+    from .token_economy import read_recommendations, usage_per_accepted_result
+
+    stats = usage_per_accepted_result(base_dir=tools_dir)
+    downgrades = [f"{r['target_agent']}/{r['role']}" for r in read_recommendations(tools_dir) if r.get("kind") == "effort" and r.get("action") == "downgrade"]
+    starved = [f"{s.target_agent}/{s.role}" for s in stats if s.spawns >= 5 and s.accepted == 0]
+    detail = {"stats": [s.to_dict() for s in stats][:20], "downgrades": downgrades[-5:], "starved": starved}
+    if starved:
+        return DoctorCheck("economy", "warn", f"spawns_without_accepted_result:{len(starved)}", detail)
+    return DoctorCheck("economy", "ok", "" if stats else "no_usage_rows", detail)
+
+
 def run_doctor(
     *,
     base_dir: str | Path | None = None,
@@ -264,6 +362,12 @@ def run_doctor(
         _guarded("breakers", lambda: _check_breakers(tools_dir)),
         _guarded("host_lease", lambda: _check_host_lease(tools_dir)),
         _guarded("plan_ledger", lambda: _check_plan_ledger(tools_dir)),
+        _guarded("delivery_closure", lambda: _check_delivery(tools_dir)),
+        _guarded("queue", lambda: _check_queue(tools_dir)),
+        _guarded("control", lambda: _check_control(tools_dir)),
+        _guarded("notifications", lambda: _check_notifications(tools_dir)),
+        _guarded("gateway", lambda: _check_gateway(tools_dir)),
+        _guarded("economy", lambda: _check_economy(tools_dir)),
     )
     return DoctorReport(
         checks=(*store_checks, *host_checks),

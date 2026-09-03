@@ -68,10 +68,12 @@ class InstallationTokenLease:
     in this mode so the audit trail captures shim activations.
 
     The Tier-1 invariant the orchestrator depends on: this dataclass
-    is the ONLY way aria-implementer receives a token; the token
-    never appears in env nor in tool-invocation argv (it goes into
-    an ephemeral credentials file the Bash sandbox reads on demand
-    via ``gh auth status`` + restores the env to a clean state).
+    is the ONLY way aria-implementer receives a token. Plan 032 Faz 032d
+    (`delivery_credentials`) is its sole consumer: the token rides ONE
+    spawn's built environment as ``GH_TOKEN`` for a profile that declares
+    ``external_writes`` — never argv, never a file the agent can read —
+    and is revoked when that spawn ends. The earlier "credentials file the
+    sandbox reads on demand" design had no reader and is superseded.
     """
 
     cycle_id: str

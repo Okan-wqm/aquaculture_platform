@@ -143,6 +143,7 @@ class GenesisPolicyTests(unittest.TestCase):
                 # E25-a (ORPHAN-710) — rhythm.backlog_cap, consumed by
                 # cycle._backlog_below_cap via rhythm_policy.
                 "rhythm",
+                "executor",  # Plan 032 Faz 032h — drain concurrency block
                 # E24-a (ORPHAN-711) — watchdog_pull: runtime telemetry
                 # feed + detector thresholds, consumed by
                 # aria_watchdog.run_watchdog_sweep.

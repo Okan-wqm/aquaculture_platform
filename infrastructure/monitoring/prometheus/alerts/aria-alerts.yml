@@ -1,0 +1,87 @@
+# =============================================================================
+# ARIA kernel — operator alert rules (Plan 032 Faz 032e)
+# =============================================================================
+# Source of every series: `aria-kernel telemetry export --format prometheus`
+# (aria_kernel/telemetry.py::_store_metrics), written to the node-exporter
+# textfile directory by infrastructure/aria/aria-telemetry.timer. Every
+# metric named below is pinned to the exporter by
+# tests/invariants/v12/test_phase_v12_e_ops.py (I-V12-TELEM-01).
+#
+# severity: critical -> page; warning -> ticket; info -> dashboard only.
+# =============================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: aria-kernel-alerts
+  namespace: monitoring
+  labels:
+    app: aria-kernel
+    role: alert-rules
+spec:
+  groups:
+    - name: aria.kernel
+      interval: 60s
+      rules:
+        - alert: AriaBreakerTripped
+          expr: max(aria_breaker_tripped) == 1
+          for: 5m
+          labels:
+            severity: critical
+            team: aria-core
+          annotations:
+            summary: "ARIA breaker tripped ({{ $labels.breaker }})"
+            description: "A failure or cost breaker is open; no agent work runs until an operator resets it (aria-kernel breaker reset)."
+        - alert: AriaHumanRequiredOpen
+          expr: sum(aria_human_required_open) > 0
+          for: 30m
+          labels:
+            severity: warning
+            team: aria-core
+          annotations:
+            summary: "ARIA has {{ $value }} HUMAN_REQUIRED request(s) open"
+            description: "Requests escalated to a person are waiting; see aria-kernel human-required list."
+        - alert: AriaExecutorPaused
+          expr: aria_executor_paused == 1
+          for: 6h
+          labels:
+            severity: info
+            team: aria-core
+          annotations:
+            summary: "ARIA executor has been paused for over 6h"
+            description: "aria-kernel control pause is in effect; resume with aria-kernel control resume."
+        - alert: AriaDeliverySloGap
+          expr: aria_delivery_false_success > 0 or aria_delivery_duplicate_prs > 0
+          for: 10m
+          labels:
+            severity: critical
+            team: aria-core
+          annotations:
+            summary: "ARIA delivery closure reports false success or duplicate PRs"
+            description: "aria-kernel delivery status — an accepted implementation with no PR, or two PRs for one request."
+        - alert: AriaNotificationsFailing
+          expr: sum(increase(aria_notifications_total{status="failed"}[1h])) > 0
+          for: 15m
+          labels:
+            severity: warning
+            team: aria-core
+          annotations:
+            summary: "ARIA notification channel failures in the last hour"
+            description: "Outbox rows with status=failed; check aria-kernel notify channels and channel credentials."
+        - alert: AriaTelemetryReaderErrors
+          expr: sum(aria_telemetry_reader_errors_total) > 0
+          for: 15m
+          labels:
+            severity: warning
+            team: aria-core
+          annotations:
+            summary: "ARIA telemetry reader errors ({{ $labels.reader }})"
+            description: "A store reader failed while exporting; the dashboard is partial until it is fixed."
+        - alert: AriaQueueStalled
+          expr: sum(aria_agent_requests{state=~"PENDING|REQUEUED"}) > 50
+          for: 24h
+          labels:
+            severity: warning
+            team: aria-core
+          annotations:
+            summary: "ARIA queue has stayed above 50 pending requests for a day"
+            description: "The executor lane is not keeping up or is refusing; run aria-kernel doctor."

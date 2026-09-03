@@ -1,5 +1,6 @@
 ---
 name: aria-evidence-judge
+runtime_profile: judge_opus
 description: Read-only ARIA judge that validates sampled findings or beliefs against repo evidence and emits structured verdicts for AI consensus.
 model: opus
 effort: max

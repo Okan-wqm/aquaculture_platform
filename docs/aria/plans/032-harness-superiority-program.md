@@ -3,7 +3,7 @@ Live authority is docs/aria/CURRENT_STATE.md plus executable contracts. -->
 
 # ARIA Plan 032 — Harness Superiority Program
 
-> **Status:** Faz 032a in progress (2026-09-02). Faz sırası 2026-09-02 ikinci incelemeyle
+> **Status:** Faz 032a delivered (PR #1401, 2026-09-03); Faz 032b-1 in progress (2026-09-03). Faz sırası 2026-09-02 ikinci incelemeyle
 > yeniden kesildi: tek-worker delivery closure 032d'ye çekildi, güvenlik zarfı 032b'ye toplandı.
 > **Branch:** `feat/aria-032a-cycle-repair` (Faz 032a); her faz kendi branch'ini açar.
 
@@ -111,6 +111,18 @@ düzenleme 0 (`state_compact` dışı); aynı request'in duplicate processing'i 
 ## Faz 032b — Minimum secure execution envelope
 
 Yazma-yetkili agent'ın çalıştığı zarf, hooks'tan ÖNCE kapanır; dış yazma 032c'ye kadar kapalı.
+
+Teslimat 032b-1 (2026-09-03, PR stacked on #1401): kernel-owned runtime profiles
+(`aria_kernel/data/runtime_profiles.json` + `runtime_profiles.py`; 18 ajan `runtime_profile:`
+referansı + mirror doğrulaması, I-V12-PROFILE-01..05); spawn ortamı `agent_env.build_agent_env` ile
+KURULUR (baseline + CLI auth + profil passthrough; secret-şekilli isimler düşer; sentetik HOME/XDG;
+`CLAUDE_CONFIG_DIR` açıkça türetilir ve sandbox'a ro-bind), governance
+`claude_subprocess_env_filtered` (yalnız isimler); `--disallowedTools` profilden türetilir
+(verilmeyen tool'lar + `external_writes: false` iken `Bash(git push*)`, `Bash(gh pr create*)`,
+`Bash(gh api*)`… — her izin modunda bağlayıcı); `wrap_bash_in_sandbox(write_scope=)` workspace'i
+ro, yalnız scope'u rw bağlar; `ci_executor` spawn'a açık `cwd` geçer (I-V12-ENV-01..05).
+Kalan 032b-2: canonical CommandPolicy + `--settings`/hooks + sanitized journal + canlı probe;
+032b-3: release reason v2.
 
 - **Runtime profiles (kernel-owned)** — `aria_kernel/data/runtime-profiles/<role>.json`:
   `model_tier`, `effort`, `tools`, `write_scope`, `env_passthrough`, `budget_usd_per_run`,

@@ -176,6 +176,10 @@ LEASE_TOKEN_ENV_VAR = "ARIA_LEASE_TOKEN"
 _CI_T0 = time.monotonic()
 
 
+# Plan 032 Faz 032b — the code tree the executor dispatches into.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
 def _stage(msg: str) -> None:
     elapsed = time.monotonic() - _CI_T0
     sys.stderr.write(f"[ci-stage t={elapsed:7.2f}s] {msg}\n")
@@ -1227,6 +1231,11 @@ def invoke_claude_cli(
                 timeout_seconds=timeout_seconds,
                 model=model,
                 effort=effort,
+                # Plan 032 Faz 032b — the workspace is EXPLICIT: the sandbox
+                # binds it and the agent runs in it. Pre-fix no cwd was passed
+                # and containment bound whatever Path.cwd() happened to be.
+                cwd=_REPO_ROOT,
+                agent_profile=agent_profile,
                 # E17-d — per-spawn usage accounting. This callsite is the
                 # seam where the full identity is in scope: request_id +
                 # envelope role + subagent_type are REQUIRED parameters of

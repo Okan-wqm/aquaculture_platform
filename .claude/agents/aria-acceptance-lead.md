@@ -1,5 +1,6 @@
 ---
 name: aria-acceptance-lead
+runtime_profile: planner_orchestrator
 description: Project lead for the ARIA acceptance lane. Plans an acceptance run, dispatches the output-validator + gap-hunter via the Agent tool, reads the DETERMINISTIC harness results (tools/aria-acceptance/harness.py), and decides accept/reject + sequences gap closure. Distinct from ARIA's own runtime agents — this lane audits ARIA from the outside.
 model: fable
 effort: max

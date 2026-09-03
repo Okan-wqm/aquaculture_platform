@@ -1,0 +1,95 @@
+{
+  "$schema": "aria/runtime-profiles/v1",
+  "schema_version": 1,
+  "_doc": "Plan 032 Faz 032b — kernel-owned runtime profiles. This file is the AUTHORITY for what an ARIA agent may run as: model tier, effort, Claude tools, write scope, environment passthrough, external-write permission, per-run budget and concurrency. Agent markdown under .claude/agents/ REFERENCES a profile by id (`runtime_profile:`) and MIRRORS model/effort/tools for the Claude Code loader; a mirror that disagrees with this file fails validation, and this file lives under READONLY_PATHS + the authority hash, so an agent cannot widen its own envelope by editing prose it can reach.",
+  "profiles": {
+    "planner": {
+      "description": "Read-only planning and drafting on the most capable tier.",
+      "model": "fable",
+      "effort": "max",
+      "tools": ["Read", "Grep", "Glob"],
+      "write_scope": [],
+      "env_passthrough": [],
+      "external_writes": false,
+      "budget_usd_per_run": 0.5,
+      "max_concurrent": 2
+    },
+    "planner_orchestrator": {
+      "description": "Read-only lead that may dispatch sub-agents (Agent tool).",
+      "model": "fable",
+      "effort": "max",
+      "tools": ["Read", "Grep", "Glob", "Agent"],
+      "write_scope": [],
+      "env_passthrough": [],
+      "external_writes": false,
+      "budget_usd_per_run": 0.5,
+      "max_concurrent": 1
+    },
+    "judge_opus": {
+      "description": "Read-only evidence/adversarial judgment and review on the opus tier.",
+      "model": "opus",
+      "effort": "max",
+      "tools": ["Read", "Grep", "Glob"],
+      "write_scope": [],
+      "env_passthrough": [],
+      "external_writes": false,
+      "budget_usd_per_run": 0.5,
+      "max_concurrent": 3
+    },
+    "judge_glm": {
+      "description": "Read-only judgment on the cross-provider glm tier (vendor diversity for the judge pair).",
+      "model": "glm-5.3",
+      "effort": "max",
+      "tools": ["Read", "Grep", "Glob"],
+      "write_scope": [],
+      "env_passthrough": [],
+      "external_writes": false,
+      "budget_usd_per_run": 0.5,
+      "max_concurrent": 3
+    },
+    "arbiter": {
+      "description": "Read-only consensus arbitration; sees judge outputs only.",
+      "model": "fable",
+      "effort": "max",
+      "tools": ["Read"],
+      "write_scope": [],
+      "env_passthrough": [],
+      "external_writes": false,
+      "budget_usd_per_run": 0.5,
+      "max_concurrent": 1
+    },
+    "implementer": {
+      "description": "Write-capable implementer. Workspace-wide write scope minus READONLY_PATHS; external writes (push, PR, comments, gh api) stay CLOSED until Faz 032c recovery lands.",
+      "model": "opus",
+      "effort": "max",
+      "tools": ["Read", "Grep", "Glob", "Edit", "Write", "Bash"],
+      "write_scope": ["**"],
+      "env_passthrough": ["ARIA_TOOLS_DIR", "ARIA_WORKSPACE_ROOT"],
+      "external_writes": false,
+      "budget_usd_per_run": 0.5,
+      "max_concurrent": 1
+    },
+    "worker": {
+      "description": "Write-capable worker / gap fixer in an assigned worktree; same envelope as the implementer.",
+      "model": "opus",
+      "effort": "max",
+      "tools": ["Read", "Grep", "Glob", "Edit", "Write", "Bash"],
+      "write_scope": ["**"],
+      "env_passthrough": ["ARIA_TOOLS_DIR", "ARIA_WORKSPACE_ROOT"],
+      "external_writes": false,
+      "budget_usd_per_run": 0.5,
+      "max_concurrent": 1
+    },
+    "validator": {
+      "description": "Read-only validator that may run test/lint commands (Bash) but never edits.",
+      "model": "opus",
+      "effort": "max",
+      "tools": ["Read", "Grep", "Glob", "Bash"],
+      "write_scope": [],
+      "env_passthrough": ["ARIA_TOOLS_DIR"],
+      "external_writes": false,
+      "budget_usd_per_run": 0.5,
+      "max_concurrent": 1
+    }
+  }
+}

@@ -284,6 +284,7 @@ def main(argv: list[str] | None = None) -> int:
                 model=model,
                 effort=effort,
                 cwd=worktree_path,
+                agent_profile=profile,
                 # E17-d — per-spawn usage accounting. role="unknown" is
                 # deliberate, not a placeholder: the aria/dispatch-request
                 # lane's assignment row carries NO role field (see

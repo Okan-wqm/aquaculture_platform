@@ -28,7 +28,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 
 
 CLAUDE_BINARY_ENV_VAR = "CLAUDE_CLI_BINARY"
@@ -483,6 +483,7 @@ def build_claude_exec_argv(
     effort: str | None = None,
     skip_permissions: bool = True,
     permission_mode: str | None = None,
+    disallowed_tools: Sequence[str] = (),
 ) -> list[str]:
     """Build the live Claude Code CLI invocation argv.
 
@@ -524,6 +525,14 @@ def build_claude_exec_argv(
         argv.extend(["--permission-mode", permission_mode])
     elif skip_permissions:
         argv.append("--dangerously-skip-permissions")
+    # Plan 032 Faz 032b — the profile's tool envelope, enforced by the CLI
+    # itself. Bare names remove tools the profile does not grant; scoped
+    # `Bash(...)` rules close the external-write channels. Deny rules bind in
+    # every permission mode, bypassPermissions included, so this holds even
+    # though the spawn skips prompts.
+    if disallowed_tools:
+        argv.append("--disallowedTools")
+        argv.extend(str(rule) for rule in disallowed_tools)
     return argv
 
 
@@ -592,6 +601,8 @@ def _apply_write_containment(
     skip_permissions: bool,
     permission_mode: str | None,
     workspace_root: str | Path | None,
+    write_scope: Sequence[str] | None = None,
+    extra_ro_binds: Sequence[str] = (),
 ) -> list[str]:
     """Wrap a write-capable spawn so READONLY_PATHS are enforced by the OS.
 
@@ -625,6 +636,7 @@ def _apply_write_containment(
     try:
         return wrap_bash_in_sandbox(
             argv, workspace_root=workspace, allow_network=True,
+            write_scope=write_scope, extra_ro_binds=extra_ro_binds,
         )
     except SandboxUnavailable as exc:
         if _parse_bool(
@@ -799,6 +811,65 @@ def _record_usage_best_effort(
         _note("record_failed", str(exc))
 
 
+
+def _envelope_from_profile(agent_profile: Any | None) -> tuple[tuple[str, ...], Sequence[str] | None, tuple[str, ...]]:
+    """(disallowed_tools, write_scope, env_passthrough) for a spawn.
+
+    A caller with no kernel profile (legacy/operator paths) gets the EMPTY
+    envelope: no tool grant to derive denies from, the legacy whole-workspace
+    scope, no passthrough. The never-granted tools are still denied.
+    """
+    from aria_kernel.runtime_profiles import ALWAYS_DENIED_TOOLS, disallowed_tools_for
+
+    profile_id = getattr(agent_profile, "profile_id", None)
+    if agent_profile is None or not profile_id:
+        return tuple(ALWAYS_DENIED_TOOLS), None, ()
+    from aria_kernel.runtime_profiles import profile_by_id
+
+    kernel = profile_by_id(str(profile_id))
+    scope: Sequence[str] | None = tuple(kernel.write_scope) if kernel.write_capable else ()
+    return disallowed_tools_for(kernel), scope, tuple(kernel.env_passthrough)
+
+
+def _build_spawn_env(*, passthrough: Sequence[str], extra: dict[str, str]) -> tuple[dict[str, str], Any | None]:
+    """Build the agent environment through the kernel; fail CLOSED if the
+    kernel is unimportable — a copied environment is the defect this closes."""
+    try:
+        from aria_kernel.agent_env import build_agent_env
+    except ImportError as exc:  # pragma: no cover - kernel always importable in lanes
+        raise ClaudePolicyViolation(
+            f"claude_spawn_env_builder_unavailable: cannot import agent_env ({exc}); "
+            "refusing to spawn with a copied environment"
+        ) from exc
+    built = build_agent_env(os.environ, profile_passthrough=passthrough, extra=extra)
+    return built.env, built.report
+
+
+def _cleanup_spawn_home(home: str) -> None:
+    try:
+        from aria_kernel.agent_env import cleanup_synthetic_home
+    except ImportError:  # pragma: no cover
+        return
+    cleanup_synthetic_home(home)
+
+
+def _record_env_report_best_effort(*, recording: UsageRecording, report: Any) -> None:
+    """`claude_subprocess_env_filtered` — names only; never a spawn failure."""
+    try:
+        from aria_kernel.tool_registry import append_tools_governance, ensure_tools_dir
+
+        append_tools_governance(
+            ensure_tools_dir(recording.base_dir),
+            "claude_subprocess_env_filtered",
+            {
+                "request_id": recording.request_id,
+                "target_agent": recording.target_agent,
+                **report.to_governance(),
+            },
+        )
+    except Exception:  # noqa: BLE001 — accounting must not fail the spawn
+        return
+
 def run_claude_exec(
     *,
     prompt_text: str,
@@ -810,16 +881,23 @@ def run_claude_exec(
     skip_permissions: bool = True,
     permission_mode: str | None = None,
     usage_recording: UsageRecording | None = None,
+    agent_profile: Any | None = None,
 ) -> ClaudeRunResult:
     preflight_claude_auth()
     assert_write_runner_ok(skip_permissions=skip_permissions, permission_mode=permission_mode)
     _assert_budget_before_spawn()
     timeout_seconds = _clamp_timeout_to_job_deadline(timeout_seconds)
+    # Plan 032 Faz 032b — the envelope is the agent's KERNEL profile (or the
+    # empty envelope when the caller has none): the tool deny list, the write
+    # scope and the environment passthrough all derive from it here, at the
+    # spawn, never from prose in the agent file.
+    disallowed_tools, write_scope, passthrough = _envelope_from_profile(agent_profile)
     argv = build_claude_exec_argv(
         model=model,
         effort=effort,
         skip_permissions=skip_permissions,
         permission_mode=permission_mode,
+        disallowed_tools=disallowed_tools,
     )
     # ORPHAN-CRITICAL-427 — containment is applied HERE, by the code that
     # spawns the process, not by prose in the agent's own instruction file.
@@ -827,11 +905,22 @@ def run_claude_exec(
     # wrapped so READONLY_PATHS are ro-bind: a write under aria-kernel/ or
     # .github/ then fails with EROFS at the syscall level instead of
     # depending on the agent choosing to obey.
+    # The spawn environment is BUILT (agent_env), never copied: baseline +
+    # CLI auth + profile passthrough, secrets dropped by name. Built before
+    # containment so the managed-login directory it derived can be ro-bound.
+    spawn_env, env_report = _build_spawn_env(
+        passthrough=passthrough,
+        extra={**({"IS_SANDBOX": "1"} if _sandbox_acknowledged() else {}),
+               **provider_redirect_env(model)},
+    )
+    config_dir = env_report.claude_config_dir if env_report is not None else None
     argv = _apply_write_containment(
         argv,
         skip_permissions=skip_permissions,
         permission_mode=permission_mode,
         workspace_root=cwd,
+        write_scope=write_scope,
+        extra_ro_binds=(config_dir,) if config_dir else (),
     )
     # ORPHAN-MEDIUM-459 — resource limits, applied by the spawner for the same
     # reason containment is. `apply_resource_limits` shipped with the sandbox
@@ -849,25 +938,27 @@ def run_claude_exec(
     # The subprocess timeout below stays 30s looser so the cgroup/`timeout`
     # limit fires first and its exit status is what the caller sees.
     argv = _apply_resource_limits(argv, timeout_seconds=timeout_seconds)
-    # In an acknowledged sandbox, pass IS_SANDBOX=1 so the CLI permits the full
-    # bypass even under root; the non-root runner path needs no env change.
-    run_env = os.environ.copy()
-    if _sandbox_acknowledged():
-        run_env["IS_SANDBOX"] = "1"
-    # ORPHAN-HIGH-764 — vendor redirect, scoped to THIS spawn. A model with no
-    # redirect entry changes nothing here, so the managed Claude session stays
-    # the default for every Anthropic tier.
-    run_env.update(provider_redirect_env(model))
-    proc = subprocess.run(
-        argv,
-        input=prompt_text,
-        capture_output=True,
-        text=True,
-        timeout=timeout_seconds + 30,
-        check=False,
-        cwd=str(cwd) if cwd is not None else None,
-        env=run_env,
-    )
+    # IS_SANDBOX (root bypass acknowledgement) and the vendor redirect
+    # (ORPHAN-HIGH-764, scoped to THIS spawn) were folded into the built
+    # environment above; nothing else from the runner's environment reaches
+    # the agent. Names only are recorded, best-effort, next to usage.
+    if usage_recording is not None and env_report is not None:
+        _record_env_report_best_effort(recording=usage_recording, report=env_report)
+    run_env = spawn_env
+    try:
+        proc = subprocess.run(
+            argv,
+            input=prompt_text,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds + 30,
+            check=False,
+            cwd=str(cwd) if cwd is not None else None,
+            env=run_env,
+        )
+    finally:
+        if env_report is not None:
+            _cleanup_spawn_home(env_report.home)
     events = parse_claude_jsonl(proc.stdout)
     final_message = extract_final_message(events)
     usage = extract_usage(events)

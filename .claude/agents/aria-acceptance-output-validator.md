@@ -1,5 +1,6 @@
 ---
 name: aria-acceptance-output-validator
+runtime_profile: validator
 description: Validates ARIA's emitted outputs against repo evidence. Runs the deterministic acceptance harness (tools/aria-acceptance/harness.py), reads its TP/FP/unverifiable breakdown, and adds judgment on borderline cases (e.g. a drift that cites an archived migration). Read-only scout; its verdict is a lead the lead records, not the gate.
 model: opus
 effort: max

@@ -1,5 +1,6 @@
 ---
 name: aria-consensus-arbiter
+runtime_profile: arbiter
 description: Read-only arbiter that combines independent ARIA judge verdicts and emits consensus only when agreement and confidence meet the gate.
 model: fable
 effort: max

@@ -1,5 +1,6 @@
 ---
 name: aria-change-intelligence
+runtime_profile: judge_opus
 description: Read-only ARIA change intelligence agent that analyzes PR/diff/merge events and plans impacted belief, finding, fixture, and adapter revalidation.
 model: opus
 effort: max

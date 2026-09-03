@@ -765,13 +765,59 @@ def sandbox_backend() -> str | None:
 SANDBOX_HOME = "/tmp/aria-agent-home"
 
 
+
+def scope_directories(workspace: Path, write_scope: Sequence[str]) -> list[Path]:
+    """The workspace directories a write scope names, or ``[workspace]`` for
+    the whole-tree scope. A glob's writable root is the path before its first
+    wildcard component; entries that escape the workspace are refused."""
+    dirs: list[Path] = []
+    for entry in write_scope:
+        text = str(entry).strip()
+        if text in ("**", ".", "", "**/*"):
+            return [workspace]
+        parts: list[str] = []
+        for part in Path(text).parts:
+            if any(ch in part for ch in "*?["):
+                break
+            parts.append(part)
+        candidate = (workspace / Path(*parts)).resolve() if parts else workspace
+        try:
+            candidate.relative_to(workspace)
+        except ValueError as exc:
+            raise PathEscape(f"write_scope_escapes_workspace:{text}") from exc
+        if candidate not in dirs:
+            dirs.append(candidate)
+    return dirs
+
+
+def _workspace_binds(workspace: Path, write_scope: Sequence[str] | None) -> list[str]:
+    if write_scope is None:
+        return ["--bind", str(workspace), str(workspace)]
+    scoped = scope_directories(workspace, write_scope)
+    if scoped == [workspace]:
+        return ["--bind", str(workspace), str(workspace)]
+    flags = ["--ro-bind", str(workspace), str(workspace)]
+    for directory in scoped:
+        if directory.is_dir():
+            flags.extend(["--bind", str(directory), str(directory)])
+    return flags
+
 def wrap_bash_in_sandbox(
     argv: list[str],
     *,
     workspace_root: str | Path,
     allow_network: bool = False,
+    write_scope: Sequence[str] | None = None,
+    extra_ro_binds: Sequence[str | Path] = (),
 ) -> list[str]:
     """Hard-fail check 8c — Bash sandbox wrapper.
+
+    Plan 032 Faz 032b — ``write_scope`` narrows the writable tree: when given,
+    the workspace is mounted READ-ONLY and only the scope's directories are
+    re-bound writable (``**`` / ``.`` means the whole workspace, the legacy
+    shape). READONLY_PATHS are ro-bound on top either way, so a scope can
+    never re-open the kernel. ``extra_ro_binds`` mounts host paths read-only
+    (the managed Claude login directory is the one caller today).
 
     Returns the argv prefixed with bwrap flags pinning:
       * Workspace mounted writable
@@ -804,7 +850,7 @@ def wrap_bash_in_sandbox(
             "--proc", "/proc",
             "--dev", "/dev",
             "--tmpfs", "/tmp",
-            "--bind", str(workspace), str(workspace),
+            *_workspace_binds(workspace, write_scope),
             "--chdir", str(workspace),
             # The agent runtime needs a HOME it can WRITE.
             #
@@ -840,6 +886,10 @@ def wrap_bash_in_sandbox(
             full = workspace / ro
             if full.exists():
                 wrap.extend(["--ro-bind", str(full), str(full)])
+        for extra in extra_ro_binds:
+            extra_path = Path(extra)
+            if extra_path.exists():
+                wrap.extend(["--ro-bind", str(extra_path), str(extra_path)])
         if allow_network:
             # Existence-guarded for the same reason _system_ro_binds is: bwrap
             # aborts on a bind source it cannot find, so an unconditional bind

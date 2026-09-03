@@ -27227,6 +27227,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "aria-kernel/aria_kernel/data/runtime_profiles.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "aria-kernel/closure-reachability-baseline.json",
       "prettier_managed": true
     },

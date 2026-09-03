@@ -36528,6 +36528,18 @@
       "prettier_managed": true
     },
     {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "infrastructure/aria/security-lab/production-deny-inventory.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "infrastructure/aria/security-lab/zap.pin.json",
+      "prettier_managed": true
+    },
+    {
       "class": "generated",
       "content_sha256": "7bcc709eaba218535e6afe87d3a2abb86d1ce1aec7671617f7e4e1733f25b60a",
       "hash_policy": "sha256",

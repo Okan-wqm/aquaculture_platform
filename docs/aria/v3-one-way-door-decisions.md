@@ -345,6 +345,66 @@ substitute for the un-provable "no vulnerabilities" claim.
 
 **Mitigation:** I-V13-GRAPH-01..02, I-V13-STALE-01, I-V13-ASSURE-01..02.
 
+## 21. Security scope policy, ephemeral lab, persona broker (Plan 033 Faz 033d)
+
+**Decision:** `scope_policy.RISK_CLASSES` (R0..R4) and `CEILINGS` are closed and repo-owned; the
+production deny inventory lives at `infrastructure/aria/security-lab/production-deny-inventory.json`
+and an unreadable or incomplete inventory caps automatic risk at R0 (fail-closed). Every target that
+is not inside the campaign's own lab network — production hosts, metadata, loopback, link-local,
+public, out-of-scope private, partially-rebinding hosts — is `R4_FORBIDDEN`. A lab lease can only be
+written by a `TRUSTED_PROVISIONERS` identity (no register-target CLI exists); images must be sha256
+pinned; attestation refuses lab/production overlap; a campaign needs a clean teardown receipt.
+Persona secrets never enter a ledger.
+
+**Why one-way:** these are the boundaries the whole active lane trusts; loosening any of them is a
+production-safety change, not a feature.
+
+**Reversibility cost:** Re-attesting every lab; re-auditing every grant issued under the old policy.
+
+**Mitigation:** I-V13-SCOPE-01..02, I-V13-LAB-01..02, I-V13-TEARDOWN-01, I-V13-PERSONA-01.
+
+## 22. CampaignGrant (EdDSA JWS), Evidence Vault, campaign lifecycle (Plan 033 Faz 033e)
+
+**Decision:** the CampaignGrant is the ONLY cryptographic signature in ARIA: compact JWS with
+`alg=EdDSA` (any other alg/typ, a bad signature, an expired or not-yet-valid window, a mismatched
+bound digest, an R4 class or an R3 class without a human approval ref bound to an exact recipe
+digest is refused); the private key lives outside the workspace; a JTI activates for exactly one
+`campaign_run_id`. Raw security evidence never enters a ledger, Git or `aria/state`: the ledger row
+is metadata + digest + redacted preview + ref, the bytes go to an AES-256-GCM vault outside the
+workspace and tools dir (per-campaign DEK wrapped by a KEK read from an FD), truncated objects are
+flagged, seals are write-once, purges leave receipts. `campaign.STATES` / `TRANSITIONS` /
+`REQUIRED_INPUTS` are closed and ordered; inputs are write-once; cleanup without a teardown receipt
+quarantines; CLOSED only after CLEANUP_VERIFIED. `mission.BINDING_KEYS` gains `campaign_run_ids` +
+`grant_jtis`. If the signing/AEAD backend is missing the lane fails closed.
+
+**Why one-way:** these are the trust anchors the policy proxy and every campaign verdict rely on.
+
+**Reversibility cost:** Re-issuing every grant under a new scheme; re-encrypting the vault.
+
+**Mitigation:** I-V13-GRANT-01..02, I-V13-VAULT-01, I-V13-CAMPAIGN-01..02.
+
+## 23. Typed probes, policy proxy (single egress), ZAP under policy (Plan 033 Faz 033f)
+
+**Decision:** the LLM never receives network bash. An `AttackRecipe` is a CLOSED list of typed steps
+(`probe.STEP_KINDS`); any step key in `FORBIDDEN_STEP_KEYS` (shell/script/python/command/…), a
+mutation above its risk floor, a hostless HTTP/GraphQL step, a recipe without a positive control +
+assertion, or a mutating recipe without cleanup is refused. `probe.evaluate` folds into the closed
+`PROBE_VERDICTS`; a missing/failed positive control is HARNESS_ERROR and truncation/unreachability
+is never clean. The `policy_proxy.PolicyEngine` is the single egress: it re-validates the grant on
+every hop — scheme, exact host allowlist, DNS answer pinned to the first-seen IP set (rebinding →
+deny), metadata/loopback/out-of-lab addresses (via scope_policy), body size, atomic budget, GraphQL
+effect catalog (unknown mutation root field / persisted query → deny), no credential cross-origin
+forwarding, redirect depth; `stop()` denies everything after. ZAP runs only from a sha256-pinned
+image (`zap.pin.json`; floating tag / missing pin fails closed — ARIA never invents a digest) with
+an Automation-Framework-allowlisted plan scoped to grant hosts; alerts are UNVERIFIED leads.
+
+**Why one-way:** this is the containment boundary for all active traffic; a gap here is a real-world
+egress, not a bug.
+
+**Reversibility cost:** Re-running every active probe through a changed gate; re-pinning ZAP.
+
+**Mitigation:** I-V13-PROBE-01, I-V13-NETGATE-01, I-V13-SSRF-01, I-V13-CANCEL-01, I-V13-ZAP-01.
+
 ## Themes
 
 - **3 of 5 one-way doors are ledger-anchored** (events, terminal states, candidate sources). The

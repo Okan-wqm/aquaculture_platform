@@ -3061,6 +3061,12 @@ def build_parser() -> argparse.ArgumentParser:
     add_subparser(graph_sub, "show")
     cov_p = add_subparser(security_sub, "coverage")
     cov_p.add_argument("--workspace-root", default=".")
+    zap_p = add_subparser(security_sub, "zap")
+    zap_sub = zap_p.add_subparsers(dest="security_zap_command", required=True)
+    zap_v = add_subparser(zap_sub, "validate")
+    zap_v.add_argument("--plan", required=True, help="Automation Framework plan (JSON file)")
+    zap_v.add_argument("--allowed-host", action="append", default=[], help="grant-allowed lab host (repeatable)")
+    zap_v.add_argument("--workspace-root", default=".")
 
     return parser
 
@@ -6266,6 +6272,17 @@ def _main(argv: list[str] | None = None) -> int:
             cov = compute_coverage(profile_row=prof, pack_manifests=select_packs(prof), base_dir=args.tools_dir)
             print(json.dumps(cov, indent=2, sort_keys=True))
             return 0 if cov["ready"] else 1
+        if args.security_command == "zap":
+            from .security.zap import ZapPolicyError, build_zap_job
+
+            try:
+                plan = json.loads(Path(args.plan).read_text(encoding="utf-8"))
+                job = build_zap_job(plan, workspace_root=args.workspace_root, allowed_hosts=tuple(args.allowed_host))
+            except (OSError, ValueError, ZapPolicyError) as exc:
+                print(f"zap job refused: {exc}", file=sys.stderr)
+                return 1
+            print(json.dumps(job, indent=2, sort_keys=True))
+            return 0
 
     if args.command == "mcp":
         from . import mcp_client

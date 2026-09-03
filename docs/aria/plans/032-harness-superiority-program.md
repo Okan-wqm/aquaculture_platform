@@ -284,6 +284,12 @@ karşılığı doğrulanamadığı için sözlüğe alınmadı (one-way door ile
 
 ## Faz 032g — MCP client/server
 
+Teslimat 032g (2026-09-03): `aria_kernel/data/mcp_registry.json` (kernel-owned, kapalı şema; env
+passthrough yalnız AD, secret-şekilli adlar yükleme anında reddedilir; http yalnız https) + `mcp_client.py`
+(`mcp_config_for_profile`: yalnız profilin `mcp_servers`'ı, karantinadakiler düşer, profilsiz spawn boş
+doküman; `mcp_tool_rules`: adlandırılmayan sunucular `mcp__<server>` ile, hariç tutulan yazma araçları adıyla
+`--disallowedTools`'a; `record_mcp_call` → `mcp/tool-calls.jsonl`; ≥10 çağrı ve hata oranı ≥0.5 → `mcp/quarantine.jsonl`
+
 - CLI floor ≥ 2.1.221; `mcp/registry.json` + `mcp_client.py` (`--strict-mcp-config`,
   include/exclude,
   quarantine); `aria-kernel mcp serve` önce read-only; yazma araçları `ack_ledger` tek-kullanımlık

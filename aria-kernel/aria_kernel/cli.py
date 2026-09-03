@@ -2955,6 +2955,21 @@ def build_parser() -> argparse.ArgumentParser:
     event_route = add_subparser(event_sub, "route")
     event_route.add_argument("--workspace-root", default=".")
 
+    # Plan 032 Faz 032g — MCP: the kernel's own server + registry/health/config views.
+    mcp_parser = add_subparser(sub, "mcp")
+    mcp_sub = mcp_parser.add_subparsers(dest="mcp_command", required=True)
+    mcp_serve = add_subparser(mcp_sub, "serve")
+    mcp_serve.add_argument("--workspace-root", default=".")
+    mcp_serve.add_argument("--allow-writes", action="store_true", help="operator only: expose human_required_resolve / runtime_signal_ingest")
+    add_subparser(mcp_sub, "registry")
+    mcp_health = add_subparser(mcp_sub, "health")
+    mcp_health.add_argument("--server", default=None)
+    mcp_release = add_subparser(mcp_sub, "release")
+    mcp_release.add_argument("--server", required=True)
+    mcp_release.add_argument("--operator-ref", required=True)
+    mcp_config = add_subparser(mcp_sub, "config")
+    mcp_config.add_argument("--profile", required=True)
+
     return parser
 
 
@@ -6007,6 +6022,31 @@ def _main(argv: list[str] | None = None) -> int:
         if args.checkpoint_command == "prune":
             print(json.dumps(_cp.prune_checkpoints(workspace_root=args.workspace_root, base_dir=args.tools_dir), indent=2, sort_keys=True))
             return 0
+
+    if args.command == "mcp":
+        from . import mcp_client
+
+        if args.mcp_command == "serve":
+            from .mcp_server import AriaMcpServer
+
+            return AriaMcpServer(base_dir=args.tools_dir, workspace_root=args.workspace_root, allow_writes=args.allow_writes).serve()
+        if args.mcp_command == "registry":
+            registry = mcp_client.load_mcp_registry()
+            print(json.dumps({name: spec.__dict__ for name, spec in registry.servers.items()}, indent=2, sort_keys=True, default=list))
+            return 0
+        if args.mcp_command == "health":
+            registry = mcp_client.load_mcp_registry()
+            names = [args.server] if args.server else sorted(registry.servers)
+            print(json.dumps([mcp_client.evaluate_mcp_health(n, base_dir=args.tools_dir) for n in names], indent=2, sort_keys=True))
+            return 0
+        if args.mcp_command == "release":
+            print(json.dumps(mcp_client.release_quarantine(args.server, base_dir=args.tools_dir, operator_ref=args.operator_ref), indent=2, sort_keys=True))
+            return 0
+        from .runtime_profiles import profile_by_id
+
+        print(json.dumps({"config": mcp_client.mcp_config_for_profile(profile_by_id(args.profile), base_dir=args.tools_dir),
+                          "disallowed_tools": list(mcp_client.mcp_tool_rules(profile_by_id(args.profile)))}, indent=2, sort_keys=True))
+        return 0
 
     if args.command == "gateway":
         if args.gateway_command == "status":

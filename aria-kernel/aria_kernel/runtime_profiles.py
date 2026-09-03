@@ -31,6 +31,8 @@ JSON is a load-time refusal, never a silently ignored field.
 """
 from __future__ import annotations
 
+import re
+
 import json
 from dataclasses import dataclass
 from functools import lru_cache
@@ -76,7 +78,9 @@ EXTERNAL_WRITE_DENY_RULES: tuple[str, ...] = (
 _PROFILE_KEYS: frozenset[str] = frozenset({
     "description", "model", "effort", "tools", "write_scope", "env_passthrough",
     "external_writes", "budget_usd_per_run", "max_concurrent",
+    "mcp_servers",
 })
+_OPTIONAL_KEYS: frozenset[str] = frozenset({"description", "mcp_servers"})
 
 
 @dataclass(frozen=True)
@@ -91,6 +95,8 @@ class RuntimeProfile:
     budget_usd_per_run: float
     max_concurrent: int
     description: str = ""
+    # Plan 032 Faz 032g — MCP servers (registry names) this profile may load.
+    mcp_servers: tuple[str, ...] = ()
 
     @property
     def write_capable(self) -> bool:
@@ -105,7 +111,7 @@ def _validate_profile(profile_id: str, raw: dict[str, Any]) -> RuntimeProfile:
     from .agent_runtime_profile import VALID_EFFORTS, VALID_MODELS
 
     unknown = sorted(set(raw) - _PROFILE_KEYS)
-    missing = sorted(_PROFILE_KEYS - {"description"} - set(raw))
+    missing = sorted(_PROFILE_KEYS - _OPTIONAL_KEYS - set(raw))
     if unknown or missing:
         raise GovernanceError(
             f"runtime_profile_shape:{profile_id}:unknown={unknown}:missing={missing}"
@@ -137,6 +143,9 @@ def _validate_profile(profile_id: str, raw: dict[str, Any]) -> RuntimeProfile:
     concurrency = raw["max_concurrent"]
     if not isinstance(concurrency, int) or isinstance(concurrency, bool) or concurrency < 1:
         raise GovernanceError(f"runtime_profile_concurrency:{profile_id}")
+    mcp_servers = tuple(str(n) for n in (raw.get("mcp_servers") or []))
+    if len(set(mcp_servers)) != len(mcp_servers) or any(not re.match(r"^[a-z][a-z0-9_-]{1,31}$", n) for n in mcp_servers):
+        raise GovernanceError(f"runtime_profile_mcp_servers:{profile_id}:{mcp_servers}")
     return RuntimeProfile(
         profile_id=profile_id,
         model=str(raw["model"]),
@@ -148,6 +157,7 @@ def _validate_profile(profile_id: str, raw: dict[str, Any]) -> RuntimeProfile:
         budget_usd_per_run=float(budget),
         max_concurrent=int(concurrency),
         description=str(raw.get("description") or ""),
+        mcp_servers=mcp_servers,
     )
 
 

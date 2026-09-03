@@ -489,6 +489,9 @@ def build_claude_exec_argv(
     disallowed_tools: Sequence[str] = (),
     session_id: str | None = None,
     resume: bool = False,
+    # Plan 032 Faz 032g — MCP: the kernel's config, strictly (repo .mcp.json never loads).
+    mcp_config_path: str | Path | None = None,
+    strict_mcp_config: bool = False,
 ) -> list[str]:
     """Build the live Claude Code CLI invocation argv.
 
@@ -543,6 +546,10 @@ def build_claude_exec_argv(
     # flag is the CLI's.
     if session_id:
         argv.extend(["--resume" if resume else "--session-id", session_id])
+    if strict_mcp_config:
+        argv.append("--strict-mcp-config")
+    if mcp_config_path is not None:
+        argv.extend(["--mcp-config", str(mcp_config_path)])
     return argv
 
 
@@ -838,7 +845,11 @@ def _envelope_from_profile(agent_profile: Any | None) -> tuple[tuple[str, ...], 
 
     kernel = profile_by_id(str(profile_id))
     scope: Sequence[str] | None = tuple(kernel.write_scope) if kernel.write_capable else ()
-    return disallowed_tools_for(kernel), scope, tuple(kernel.env_passthrough)
+    # Plan 032 Faz 032g — MCP servers the profile does not name are closed as
+    # tools too (`mcp__<server>`), on top of the strict config below.
+    from aria_kernel.mcp_client import mcp_tool_rules
+
+    return (*disallowed_tools_for(kernel), *mcp_tool_rules(kernel)), scope, tuple(kernel.env_passthrough)
 
 
 
@@ -862,6 +873,20 @@ def spawn_settings_hash(*, agent_profile: Any | None, usage_recording: UsageReco
             "request_id": usage_recording.request_id,
         }
     return settings_hash(build_settings(profile_by_id(str(profile_id)), hook_context=hook_context))
+
+def _write_spawn_mcp_config(*, agent_profile: Any | None, base_dir: Any | None) -> Path:
+    """Plan 032 Faz 032g — the `--mcp-config` document for this spawn."""
+    from aria_kernel.mcp_client import mcp_config_for_profile, write_mcp_config_file
+
+    profile_id = getattr(agent_profile, "profile_id", None)
+    if not profile_id:
+        return write_mcp_config_file({"mcpServers": {}}, label="noprofile")
+    from aria_kernel.runtime_profiles import profile_by_id
+
+    kernel = profile_by_id(str(profile_id))
+    config = mcp_config_for_profile(kernel, base_dir=base_dir)
+    return write_mcp_config_file(config, label=str(profile_id))
+
 
 def _write_spawn_settings(
     *,
@@ -1107,6 +1132,11 @@ def run_claude_exec(
     )
     if settings_path is not None:
         argv.extend(["--settings", str(settings_path)])
+    # Plan 032 Faz 032g — MCP config per spawn, ALWAYS strict: only the kernel
+    # registry servers the profile names (minus quarantined); a profile-less
+    # spawn gets an empty document, i.e. no MCP server at all.
+    mcp_config_path = _write_spawn_mcp_config(agent_profile=agent_profile, base_dir=getattr(usage_recording, "base_dir", None))
+    argv.extend(["--strict-mcp-config", "--mcp-config", str(mcp_config_path)])
     # ORPHAN-CRITICAL-427 — containment is applied HERE, by the code that
     # spawns the process, not by prose in the agent's own instruction file.
     # A write-capable shape (full permission bypass or acceptEdits) gets

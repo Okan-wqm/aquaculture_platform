@@ -67,6 +67,9 @@ _EXPECTED_CLAUDE_FLAGS = {
     "--dangerously-skip-permissions",
     # Plan 032 Faz 032b — the kernel runtime profile's tool envelope.
     "--disallowedTools",
+    # Plan 032 Faz 032g — MCP: the kernel registry only, strictly.
+    "--strict-mcp-config",
+    "--mcp-config",
 }
 
 

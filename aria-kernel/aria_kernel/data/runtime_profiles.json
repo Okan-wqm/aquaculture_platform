@@ -12,7 +12,8 @@
       "env_passthrough": [],
       "external_writes": false,
       "budget_usd_per_run": 0.5,
-      "max_concurrent": 2
+      "max_concurrent": 2,
+      "mcp_servers": ["aria"]
     },
     "planner_orchestrator": {
       "description": "Read-only lead that may dispatch sub-agents (Agent tool).",
@@ -23,7 +24,8 @@
       "env_passthrough": [],
       "external_writes": false,
       "budget_usd_per_run": 0.5,
-      "max_concurrent": 1
+      "max_concurrent": 1,
+      "mcp_servers": ["aria"]
     },
     "judge_opus": {
       "description": "Read-only evidence/adversarial judgment and review on the opus tier.",
@@ -34,7 +36,8 @@
       "env_passthrough": [],
       "external_writes": false,
       "budget_usd_per_run": 0.5,
-      "max_concurrent": 3
+      "max_concurrent": 3,
+      "mcp_servers": []
     },
     "judge_glm": {
       "description": "Read-only judgment on the cross-provider glm tier (vendor diversity for the judge pair).",
@@ -45,7 +48,8 @@
       "env_passthrough": [],
       "external_writes": false,
       "budget_usd_per_run": 0.5,
-      "max_concurrent": 3
+      "max_concurrent": 3,
+      "mcp_servers": []
     },
     "arbiter": {
       "description": "Read-only consensus arbitration; sees judge outputs only.",
@@ -56,7 +60,8 @@
       "env_passthrough": [],
       "external_writes": false,
       "budget_usd_per_run": 0.5,
-      "max_concurrent": 1
+      "max_concurrent": 1,
+      "mcp_servers": []
     },
     "implementer": {
       "description": "Write-capable implementer. Workspace-wide write scope minus READONLY_PATHS; the ONLY profile with external_writes — a scoped, per-spawn GH token (delivery_credentials) for `git push origin aria-impl-*` and the kernel's own `pr create`; every other external write stays denied by CommandPolicy + hooks (Faz 032d).",
@@ -67,7 +72,8 @@
       "env_passthrough": ["ARIA_TOOLS_DIR", "ARIA_WORKSPACE_ROOT"],
       "external_writes": true,
       "budget_usd_per_run": 0.5,
-      "max_concurrent": 1
+      "max_concurrent": 1,
+      "mcp_servers": ["aria"]
     },
     "worker": {
       "description": "Write-capable worker / gap fixer in an assigned worktree; same envelope as the implementer.",
@@ -78,7 +84,8 @@
       "env_passthrough": ["ARIA_TOOLS_DIR", "ARIA_WORKSPACE_ROOT"],
       "external_writes": false,
       "budget_usd_per_run": 0.5,
-      "max_concurrent": 1
+      "max_concurrent": 1,
+      "mcp_servers": []
     },
     "validator": {
       "description": "Read-only validator that may run test/lint commands (Bash) but never edits.",
@@ -89,7 +96,8 @@
       "env_passthrough": ["ARIA_TOOLS_DIR"],
       "external_writes": false,
       "budget_usd_per_run": 0.5,
-      "max_concurrent": 1
+      "max_concurrent": 1,
+      "mcp_servers": ["aria"]
     }
   }
 }

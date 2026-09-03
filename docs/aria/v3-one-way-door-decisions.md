@@ -201,6 +201,16 @@ publish primitive other than the store API.
 
 **Mitigation:** I-V12-GW-01..06; `experiment_night` / `adapter_run:<id>` were deliberately left OUT of the action vocabulary until their kernel counterpart is verified.
 
+## 15. MCP registry, strict per-spawn config, call ledger + quarantine (Plan 032 Faz 032g)
+
+**Decision:** `aria_kernel/data/mcp_registry.json` is the only source of MCP servers an autonomous spawn may load; every spawn carries `--strict-mcp-config` with a kernel-written document (profile's `mcp_servers` minus quarantined). `mcp/tool-calls.jsonl` and `mcp/quarantine.jsonl` are declared ledgers; the quarantine rule (≥10 calls, error rate ≥ 0.5 over the last 50) and the `mcp__<server>` / `mcp__<server>__<tool>` deny projection are fixed. The kernel's own server exposes a closed read-tool set; write tools require `--allow-writes` + an approval ref recorded on governance. CLI floor 2.1.221.
+
+**Why one-way:** Runtime profiles, hooks and the doctor derive MCP exposure from these rows; an agent that once had a server cannot be argued to have had another.
+
+**Reversibility cost:** Re-projecting every profile's tool rules; rewriting the health fold.
+
+**Mitigation:** I-V12-MCP-01..05.
+
 ## Themes
 
 - **3 of 5 one-way doors are ledger-anchored** (events, terminal states, candidate sources). The

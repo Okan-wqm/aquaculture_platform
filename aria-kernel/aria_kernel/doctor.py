@@ -30,7 +30,7 @@ from .tool_registry import ensure_tools_dir_readonly
 # aria-agent-executor.yml `REQUIRED_CLAUDE_VERSION`) and provision_runner.sh
 # names as CLAUDE_FLOOR. Pinned here so the doctor and the lanes cannot drift;
 # tests/test_doctor.py compares the three literals.
-CLAUDE_CLI_VERSION_FLOOR = "2.1.197"
+CLAUDE_CLI_VERSION_FLOOR = "2.1.221"
 
 CHECK_STATUSES: tuple[str, ...] = ("ok", "warn", "fail")
 DOCTOR_EXIT_HEALTHY = 0

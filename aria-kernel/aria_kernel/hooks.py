@@ -184,6 +184,13 @@ def sanitize_journal_entry(payload: Mapping[str, Any]) -> dict[str, Any]:
             "command_hash": "sha256:" + hashlib.sha256(" ".join(argv).encode("utf-8")).hexdigest(),
             "redaction_types": sorted(redaction_types),
         })
+    elif tool.startswith("mcp__"):
+        # Plan 032 Faz 032g — an MCP call: server + tool, never the arguments.
+        from .mcp_client import split_mcp_tool
+
+        server, mcp_tool = split_mcp_tool(tool) or ("?", "?")
+        entry.update({"command_family": "mcp", "mcp_server": server, "mcp_tool": mcp_tool,
+                      "input_hash": "sha256:" + hashlib.sha256(json.dumps(tool_input, sort_keys=True, default=str).encode("utf-8")).hexdigest()})
     elif tool in WRITE_TOOL_NAMES or tool in {"Read"}:
         target = _write_target(payload)
         entry["files_touched"] = [target] if target else []
@@ -294,6 +301,15 @@ def run_hook(
     if verb == "post-tool":
         try:
             record_journal(payload, base_dir=base_dir, request_id=request_id, session_id=session_id, tool_use_id=tool_use_id)
+            tool = _tool_name(payload)
+            if tool.startswith("mcp__"):
+                # Plan 032 Faz 032g — MCP calls feed the health ledger that quarantines a failing server.
+                from .mcp_client import record_mcp_call
+
+                response = payload.get("tool_response")
+                failed = bool(isinstance(response, Mapping) and (response.get("is_error") or response.get("isError")))
+                record_mcp_call(tool_name=tool, ok=not failed, base_dir=base_dir, request_id=request_id, session_id=session_id,
+                                error_class="ToolError" if failed else None)
         except Exception as exc:  # noqa: BLE001 — PostToolUse cannot block; say so on stderr-shaped stdout
             return EXIT_ALLOW, json.dumps({"aria_journal": f"unrecorded:{type(exc).__name__}"})
         return EXIT_ALLOW, ""

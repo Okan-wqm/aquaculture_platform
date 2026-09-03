@@ -3067,6 +3067,12 @@ def build_parser() -> argparse.ArgumentParser:
     zap_v.add_argument("--plan", required=True, help="Automation Framework plan (JSON file)")
     zap_v.add_argument("--allowed-host", action="append", default=[], help="grant-allowed lab host (repeatable)")
     zap_v.add_argument("--workspace-root", default=".")
+    sdoc = add_subparser(security_sub, "doctor")
+    sdoc.add_argument("--workspace-root", default=".")
+    sreg = add_subparser(security_sub, "regression")
+    sreg_sub = sreg.add_subparsers(dest="security_regression_command", required=True)
+    sreg_list = add_subparser(sreg_sub, "list")
+    sreg_list.add_argument("--scope", choices=("impacted_pr", "release"), default=None)
 
     return parser
 
@@ -6282,6 +6288,23 @@ def _main(argv: list[str] | None = None) -> int:
                 print(f"zap job refused: {exc}", file=sys.stderr)
                 return 1
             print(json.dumps(job, indent=2, sort_keys=True))
+        if args.security_command == "doctor":
+            from .doctor import DOCTOR_EXIT_HEALTHY, DOCTOR_EXIT_UNHEALTHY
+            from .security.ops import security_doctor
+            from .security.packs import select_packs
+            from .security.profile import compile_profile
+
+            prof = compile_profile(workspace_root=args.workspace_root).to_row()
+            checks = security_doctor(profile_row=prof, pack_manifests=select_packs(prof), base_dir=args.tools_dir)
+            for check in checks:
+                print(f"[{check.status}] {check.name}: {check.reason}")
+            return DOCTOR_EXIT_HEALTHY if all(c.status != "fail" for c in checks) else DOCTOR_EXIT_UNHEALTHY
+
+        if args.security_command == "regression":
+            from .security.regression import list_regressions
+
+            for rec in list_regressions(scope=args.scope, base_dir=args.tools_dir):
+                print(json.dumps(rec.__dict__, sort_keys=True))
             return 0
 
     if args.command == "mcp":

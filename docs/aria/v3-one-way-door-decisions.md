@@ -423,6 +423,25 @@ downgrading either would let an unproven or partially-covered change read as saf
 
 **Mitigation:** I-V13-REPRO-01, I-V13-READINESS-01, I-V13-MERGE-01.
 
+## 25. Autonomous remediation, permanent regressions, security doctor (Plan 033 Faz 033h)
+
+**Decision:** `remediation.STATES`/`TRANSITIONS` are closed and ordered: a remediation opens only on
+a finding the reproduction ledger CONFIRMED; the fix is proven only by the SAME sealed recipe
+re-running dual-GREEN (two independent executors, two clean labs, passing positive controls) at the
+fix head SHA; a permanent regression bound to the finding must be locked; READY_FOR_MERGE needs a
+ready SecurityReadinessProof; the flow never merges (merge_authority does). A regression recipe must
+be minimized, synthetic and deterministic with a closed scope; a run whose positive control fails or
+whose verdict errors is HARNESS_ERROR, never a pass. `ops.security_doctor` fails on quarantined
+packs, coverage gaps, unverified cleanup or open CRITICAL/HIGH; the fitness instrument is unknown
+when it cannot see and red on any gap or confirmed vulnerability.
+
+**Why one-way:** this defines what "fixed" means for the security lane; a softer definition would
+let unproven or unguarded fixes close findings.
+
+**Reversibility cost:** Re-verifying every remediation; re-registering every regression recipe.
+
+**Mitigation:** I-V13-REGRESS-01, I-V13-REMEDIATE-01, I-V13-OPS-01, I-V13-FITNESS-01.
+
 ## Themes
 
 - **3 of 5 one-way doors are ledger-anchored** (events, terminal states, candidate sources). The

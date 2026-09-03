@@ -676,6 +676,9 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("security_evidence", "security/evidence.jsonl", "ledger", "security", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     # Plan 033 Faz 033g — dual-executor reproduction + static proof ledger.
     StateSurface("security_reproduction", "security/reproduction.jsonl", "ledger", "security", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    # Plan 033 Faz 033h — permanent regression recipes/runs + remediation flow.
+    StateSurface("security_regressions", "security/regressions.jsonl", "ledger", "security", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("security_remediation", "security/remediation.jsonl", "ledger", "security", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("genesis_lifecycle_events", "genesis-lifecycle/events.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True),
     StateSurface("operator_provenance", "operator-provenance/events.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True),
     StateSurface("enterprise_readiness_claims", "enterprise/readiness-claims.jsonl", "ledger", "readiness", "runtime", True, "append_fsync", True, profile_surface="pr_merge", observe_class="action"),

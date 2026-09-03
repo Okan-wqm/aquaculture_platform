@@ -384,3 +384,24 @@ failure boundary, so an early unhealthy dependency records `service_recreate` an
 same migration-aware rollback policy as later health failures. Because this rollout applied 61
 forward migrations, recovery remains fix-forward by design rather than restoring older code
 against a newer schema.
+
+Main run `33702339780` proved a fifth boundary after all validation jobs and all 28 GitHub-hosted
+image builds passed. Capacity-preflight attempts 1 and 2 both exhausted the 12-minute SSH command
+budget while deleting safe, unused app images one at a time; deployment never started and the
+development baseline correctly remained at `eeb401131`. Attempt 2 began with 37.97 GB free and
+physically deleted four old images, reaching 45.69 GB free, but `safe_image_gc` never re-evaluated
+the canonical capacity verdict inside its candidate loops. It also paid repeated Docker daemon
+round trips: `docker system df` four times per auto-GC gate, three full image inventories, and one
+container inspect call per container. Scheduled capacity maintenance had the same unbounded sweep
+shape and repeatedly reached its own timeout, which allowed old generations to accumulate between
+deploys.
+
+Automatic GC now derives its stopping target from the initial verdict: a hard failure deletes only
+until hard failures clear, while an initial warning deletes until warnings clear. The target is
+re-evaluated with the cheap filesystem/inode verdict after every successful removal, and reaching
+it skips the remaining image and temp-cache passes. Each GC pass captures one reusable image
+inventory and inspects all containers in one batch; Docker storage accounting runs once in the
+final diagnostic instead of four times in the verdict path. Scheduled maintenance uses this same
+bounded auto-GC gate, so its behavior and deploy preflight can no longer diverge. Executable shell
+fixtures lock both stopping levels and the bounded Docker metadata-call count without touching the
+host daemon.

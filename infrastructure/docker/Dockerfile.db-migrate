@@ -52,8 +52,14 @@ ENV NPM_CONFIG_FETCH_RETRIES=5 \
 # are in the root package.json so installing production deps here
 # pulls everything this container needs.
 COPY package*.json ./
+# The root production graph contains this repository-local package. npm links
+# file dependencies instead of copying them, so its target must be part of the
+# immutable image before dependency installation.
+COPY --chown=nestjs:nodejs tools/vendor/apollo-playground-disabled ./tools/vendor/apollo-playground-disabled
 RUN --mount=type=cache,target=/root/.npm,sharing=shared \
     npm ci --omit=dev --ignore-scripts --no-audit && \
+    npm ls --omit=dev --all >/dev/null && \
+    node -e "require('@apollo/server-plugin-landing-page-graphql-playground')" && \
     chown -R nestjs:nodejs /app/node_modules
 
 # Bundle layout: host-built dist/apps/db-migrate/* mirrors the same

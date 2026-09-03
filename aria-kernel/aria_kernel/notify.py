@@ -187,6 +187,8 @@ def notify(
     if kind not in NOTIFY_EVENT_KINDS:
         raise ValueError(f"unknown notify kind {kind!r}")
     env = os.environ if environ is None else environ
+    # WHY the row stamp derives from `now`: the dedup window compares the injected clock
+    # against recorded rows; a wall-clock stamp made a fixed-date test flip on the calendar.
     stamp = now or datetime.now(timezone.utc)
     root = ensure_tools_dir(base_dir)
     path = root.joinpath(*OUTBOX_RELPATH)
@@ -202,7 +204,7 @@ def notify(
     rows: list[dict[str, Any]] = []
     for channel in targets:
         row: dict[str, Any] = {
-            "schema_version": 1, "recorded_at": utc_now(), "kind": kind, "signature": signature,
+            "schema_version": 1, "recorded_at": stamp.replace(microsecond=0).isoformat(), "kind": kind, "signature": signature,
             "channel": channel, "title": title[:200], "status": "failed", "detail": {},
         }
         if channel == "unconfigured":

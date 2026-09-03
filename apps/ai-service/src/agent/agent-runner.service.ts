@@ -131,10 +131,7 @@ export class AgentRunnerService {
     // FAZ1-BYOK: the process-global Anthropic client is gone. Each request runs
     // against the tenant's own decrypted key, resolved below and passed to the
     // provider per call — no platform key, no shared client.
-    this.maxToolLoops = this.configService.get<number>(
-      'AI_MAX_TOOL_LOOPS',
-      10,
-    );
+    this.maxToolLoops = this.configService.get<number>('AI_MAX_TOOL_LOOPS', 10);
   }
 
   async chat(request: ChatRequest): Promise<ChatResponse> {
@@ -163,30 +160,21 @@ export class AgentRunnerService {
       config.hourlyRequestLimit,
     );
     if (!rateLimitCheck.allowed) {
-      throw new Error(
-        `Rate limit exceeded. Resets at ${rateLimitCheck.resetAt.toISOString()}`,
-      );
+      throw new Error(`Rate limit exceeded. Resets at ${rateLimitCheck.resetAt.toISOString()}`);
     }
 
-    // 3. Check token budget
-    const budgetCheck = await this.tokenBudget.checkBudget(
-      request.tenantId,
-      config.monthlyTokenBudget,
-    );
-    if (!budgetCheck.allowed) {
-      throw new Error(
-        `Monthly token budget exceeded (${budgetCheck.used}/${config.monthlyTokenBudget})`,
-      );
-    }
+    // 3. Token budget: enforced ATOMICALLY per provider call below
+    // (SEC-MEDIUM-075 — the old read-then-spend pre-check raced; every
+    // concurrent request passed it and all spent). reserveBudget is the
+    // single enforcement point.
 
     // 4. Resolve agent profile (persona tier authorized against the caller's
     // tenant-RBAC capabilities — roles feed the admin bypass, resourcePermissions
     // the ai_personas:<tier> grant).
-    const profile = await this.profileService.resolveProfile(
-      request.tenantId,
-      request.persona,
-      { roles: request.userRoles, resourcePermissions: request.resourcePermissions },
-    );
+    const profile = await this.profileService.resolveProfile(request.tenantId, request.persona, {
+      roles: request.userRoles,
+      resourcePermissions: request.resourcePermissions,
+    });
 
     // 5. Get or create conversation
     let conversationId = request.conversationId;
@@ -205,11 +193,7 @@ export class AgentRunnerService {
     // returns null, preventing cross-tenant conversation hydration and
     // prompt-injection via foreign conversation history (CRITICAL-001).
     const existingConversation = conversationId
-      ? await this.conversationService.getById(
-          conversationId,
-          request.tenantId,
-          request.userId,
-        )
+      ? await this.conversationService.getById(conversationId, request.tenantId, request.userId)
       : null;
 
     const messages: LlmMessage[] = [];
@@ -218,6 +202,16 @@ export class AgentRunnerService {
     if (existingConversation?.messages) {
       for (const msg of existingConversation.messages) {
         if (msg.role === 'user' || msg.role === 'assistant') {
+          // SEC-LOW-088 (2026-08-23 scan №33): replayed history is untrusted
+          // context (stored strings can carry tenant-editable data). An entry
+          // failing the filter is DROPPED, not passed through — the model
+          // never sees the payload.
+          if (!this.aiSafety.scanUntrustedContext(msg.content, request.tenantId)) {
+            this.logger.warn(
+              `AI safety dropped a history entry from conversation ${conversationId} (indirect-injection patterns)`,
+            );
+            continue;
+          }
           messages.push({
             role: msg.role,
             content: [{ type: 'text', text: msg.content }],
@@ -234,16 +228,11 @@ export class AgentRunnerService {
 
     // Save user message to conversation
     // SECURITY: addMessage now requires tenantId + userId ownership check
-    await this.conversationService.addMessage(
-      conversationId,
-      request.tenantId,
-      request.userId,
-      {
-        role: 'user',
-        content: request.message,
-        timestamp: new Date().toISOString(),
-      },
-    );
+    await this.conversationService.addMessage(conversationId, request.tenantId, request.userId, {
+      role: 'user',
+      content: request.message,
+      timestamp: new Date().toISOString(),
+    });
 
     // 7. SECURITY: Pre-process input through AI safety pipeline (jailbreak filter + prompt hardening)
     const safetyResult = this.aiSafety.preProcess(
@@ -257,9 +246,7 @@ export class AgentRunnerService {
       this.logger.warn(
         `AI safety rejected input for tenant ${request.tenantId}: ${safetyResult.rejectionReason}`,
       );
-      throw new Error(
-        'Your message was flagged by our safety system and cannot be processed.',
-      );
+      throw new Error('Your message was flagged by our safety system and cannot be processed.');
     }
 
     // Use hardened system prompt if instruction hierarchy is active
@@ -316,6 +303,14 @@ export class AgentRunnerService {
       // runaway loop cannot trip the breaker for everyone, and one provider's
       // outage does not trip the other.
       let response;
+      // SEC-MEDIUM-075: reserve the per-call ceiling BEFORE the billable
+      // call; settle to actual usage right after. Concurrent requests can no
+      // longer all pass one shared pre-check.
+      await this.tokenBudget.reserveBudget(
+        request.tenantId,
+        config.monthlyTokenBudget,
+        profile.persona.maxTokensPerTurn,
+      );
       try {
         response = await this.breaker.execute({
           serviceName: `${credential.provider}-api`,
@@ -334,6 +329,15 @@ export class AgentRunnerService {
             ),
         });
       } catch (err) {
+        // The call never produced billable tokens — refund the reservation
+        // (budget-exceeded errors already rolled their reservation back).
+        if (!(err instanceof Error && err.message.includes('token budget'))) {
+          await this.tokenBudget.settleReservation(
+            request.tenantId,
+            profile.persona.maxTokensPerTurn,
+            0,
+          );
+        }
         // A rejected key is a tenant-actionable configuration problem, not a
         // transient outage — surface it as AI_KEY_MISSING so the UI prompts for
         // a new key instead of showing a generic failure.
@@ -356,6 +360,13 @@ export class AgentRunnerService {
       // excluded (billed at ~0.1x input; see TokenUsageBreakdown docblock).
       totalTokens.total +=
         response.usage.input + response.usage.output + response.usage.cacheCreation;
+
+      // SEC-MEDIUM-075: refund the unused part of this call's reservation.
+      await this.tokenBudget.settleReservation(
+        request.tenantId,
+        profile.persona.maxTokensPerTurn,
+        response.usage.input + response.usage.output + response.usage.cacheCreation,
+      );
 
       // Process response content
       const textBlocks: string[] = [];
@@ -388,8 +399,7 @@ export class AgentRunnerService {
       for (const toolUse of toolUseBlocks) {
         // SECURITY: Validate tool call through safety pipeline before execution.
         const toolMeta = this.toolRegistry.getClaudeToolDefinitions([toolUse.name]);
-        const toolSchema: Record<string, unknown> =
-          toolMeta[0]?.input_schema ?? {};
+        const toolSchema: Record<string, unknown> = toolMeta[0]?.input_schema ?? {};
         const urls = Object.values(toolUse.input).filter(
           (v): v is string => typeof v === 'string' && /^https?:\/\//i.test(v),
         );
@@ -465,12 +475,21 @@ export class AgentRunnerService {
           result: result.data,
         });
 
+        // SEC-LOW-088 (2026-08-23 scan №33): tool output is untrusted context
+        // (tenant data like tank/sensor names rides inside) — a payload
+        // failing the filter is replaced wholesale, keeping the tool loop
+        // alive without handing the payload to the model.
+        let toolContent = result.success ? JSON.stringify(result.data) : `Error: ${result.error}`;
+        if (!this.aiSafety.scanUntrustedContext(toolContent, request.tenantId)) {
+          this.logger.warn(
+            `AI safety replaced tool result of ${toolUse.name} (indirect-injection patterns)`,
+          );
+          toolContent = '[Tool output removed by the safety filter]';
+        }
         toolResults.push({
           type: 'tool_result',
           toolUseId: toolUse.id,
-          content: result.success
-            ? JSON.stringify(result.data)
-            : `Error: ${result.error}`,
+          content: toolContent,
           isError: !result.success,
         });
       }
@@ -488,9 +507,7 @@ export class AgentRunnerService {
     finalMessage = postResult.outputText;
 
     if (postResult.piiRedacted) {
-      this.logger.warn(
-        `AI safety redacted PII from output for tenant ${request.tenantId}`,
-      );
+      this.logger.warn(`AI safety redacted PII from output for tenant ${request.tenantId}`);
     }
 
     // 11. Durable per-turn cost ledger (ORPHAN-MEDIUM-380): append one
@@ -503,9 +520,7 @@ export class AgentRunnerService {
     // break the chat path. Redis (step 13) remains the fast enforcement
     // cache; this row is the durable SSoT.
     const flaggedCategories: string[] = [
-      ...(safetyResult.inputFilter?.flaggedPatterns ?? []).map(
-        (pattern) => `input:${pattern}`,
-      ),
+      ...(safetyResult.inputFilter?.flaggedPatterns ?? []).map((pattern) => `input:${pattern}`),
       ...(postResult.piiRedacted ? ['output:pii_redacted'] : []),
     ];
     await this.turnLedger.recordTurn({
@@ -524,21 +539,17 @@ export class AgentRunnerService {
 
     // 12. Save assistant response to conversation
     // SECURITY: addMessage requires tenantId + userId ownership check
-    await this.conversationService.addMessage(
-      conversationId,
-      request.tenantId,
-      request.userId,
-      {
-        role: 'assistant',
-        content: finalMessage,
-        toolUse: toolCalls,
-        timestamp: new Date().toISOString(),
-      },
-    );
+    await this.conversationService.addMessage(conversationId, request.tenantId, request.userId, {
+      role: 'assistant',
+      content: finalMessage,
+      toolUse: toolCalls,
+      timestamp: new Date().toISOString(),
+    });
 
     // 13. Update token usage (total = input + output + cacheCreation — see
     // the TokenUsageBreakdown docblock for the budget semantics)
-    await this.tokenBudget.addUsage(request.tenantId, totalTokens.total);
+    // SEC-MEDIUM-075: budget accounting happened per call via
+    // reserve/settle — a final addUsage here would double-count.
     await this.conversationService.updateTokenCount(
       conversationId,
       request.tenantId,

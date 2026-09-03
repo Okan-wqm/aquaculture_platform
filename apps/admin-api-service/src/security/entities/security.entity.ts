@@ -54,17 +54,34 @@ export type SecurityEventType =
   | 'device_anomaly'
   | 'time_anomaly';
 
-export type SecurityEventStatus = 'detected' | 'investigating' | 'confirmed' | 'mitigated' | 'false_positive' | 'escalated';
+export type SecurityEventStatus =
+  | 'detected'
+  | 'investigating'
+  | 'confirmed'
+  | 'mitigated'
+  | 'false_positive'
+  | 'escalated';
 
 export type ThreatLevel = 'low' | 'medium' | 'high' | 'critical';
 
 export type ComplianceType = 'gdpr' | 'ccpa' | 'hipaa' | 'pci_dss' | 'sox' | 'iso27001';
 
-export type DataRequestType = 'access' | 'deletion' | 'portability' | 'rectification' | 'restriction';
+export type DataRequestType =
+  | 'access'
+  | 'deletion'
+  | 'portability'
+  | 'rectification'
+  | 'restriction';
 
 export type DataRequestStatus = 'pending' | 'in_progress' | 'completed' | 'rejected' | 'expired';
 
-export type IncidentStatus = 'open' | 'investigating' | 'contained' | 'eradicated' | 'recovered' | 'closed';
+export type IncidentStatus =
+  | 'open'
+  | 'investigating'
+  | 'contained'
+  | 'eradicated'
+  | 'recovered'
+  | 'closed';
 
 export type IncidentSeverity = 'low' | 'medium' | 'high' | 'critical';
 

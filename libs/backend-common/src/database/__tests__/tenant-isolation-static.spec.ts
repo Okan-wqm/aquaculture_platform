@@ -62,7 +62,10 @@ describe('Tenant Isolation Static Analysis', () => {
       // 194 → 195: feeding_record_provenance — the immutable ledger that lets a
       // backfill rollback tell its own rows from live drain writes
       // (FARM-CRITICAL-241). It is per-tenant, so it must fan out.
-      expect(tenantTotal).toBe(195);
+      // 195 → 196: sensor's telemetry_archive_events ledger moved to the
+      // per-tenant clone list (ADR-011 tenant_id rule) — erasure drops a
+      // tenant's archive history with its schema.
+      expect(tenantTotal).toBe(196);
     });
 
     it('every module should have a sourceSchema', () => {
@@ -111,7 +114,10 @@ describe('Tenant Isolation Static Analysis', () => {
       // deliberately when a migration adds/removes a per-tenant table.
       // (Platform-level modules are intentionally not pinned here; their
       // `tables` lists churn with registry completeness, not fan-out.)
-      expect(counts['sensor']).toBe(46);
+      // 46 → 47: telemetry_archive_events joined the per-tenant clone list
+      // (ADR-011 tenant_id rule — erasure drops the archive history with
+      // the schema).
+      expect(counts['sensor']).toBe(47);
       // 85 → 91: feeding_protocols_v2, feeding_protocol_assignments,
       // feeding_day_plans, feeding_meals, feeding_forecast_snapshots and
       // farm_incident_media. 91 → 95: environmental scene, versioned coverage

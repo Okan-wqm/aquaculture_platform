@@ -4,23 +4,27 @@
  * Endpoints for activity logging, queries, and statistics.
  */
 
-import {
-  Controller,
-  Get,
-  Post,
-  Query,
-  Param,
-  Body,
-  HttpCode,
-  HttpStatus,
-} from '@nestjs/common';
+import { Controller, Get, Post, Query, Param, Body, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Type, Transform } from 'class-transformer';
 
-import { IsOptional, IsNumber, IsString, IsIn, IsBoolean, Min, Max, MaxLength } from 'class-validator';
+import {
+  IsOptional,
+  IsNumber,
+  IsString,
+  IsIn,
+  IsBoolean,
+  Min,
+  Max,
+  MaxLength,
+} from 'class-validator';
 
 import { ActivityLog, ActivityCategory, ActivitySeverity } from '../entities/security.entity';
-import { ActivityLoggingService, ActivityQueryOptions, ActivityStats } from '../services/activity-logging.service';
+import {
+  ActivityLoggingService,
+  ActivityQueryOptions,
+  ActivityStats,
+} from '../services/activity-logging.service';
 import { ACTIVITY_LOG_SORT_FIELDS, ActivityLogSortField } from '../sorting/activity-log-sort';
 
 // ============================================================================
@@ -50,7 +54,15 @@ export class QueryActivitiesDto {
   userId?: string;
 
   @IsOptional()
-  @IsIn(['user_action', 'system_event', 'api_call', 'data_access', 'security_event', 'configuration', 'authentication'])
+  @IsIn([
+    'user_action',
+    'system_event',
+    'api_call',
+    'data_access',
+    'security_event',
+    'configuration',
+    'authentication',
+  ])
   category?: ActivityCategory;
 
   @IsOptional()
@@ -104,7 +116,15 @@ export class QueryActivitiesDto {
 }
 
 class LogActivityDto {
-  @IsIn(['user_action', 'system_event', 'api_call', 'data_access', 'security_event', 'configuration', 'authentication'])
+  @IsIn([
+    'user_action',
+    'system_event',
+    'api_call',
+    'data_access',
+    'security_event',
+    'configuration',
+    'authentication',
+  ])
   category!: ActivityCategory;
 
   @IsString()
@@ -223,9 +243,7 @@ export class ActivityLogController {
    * Query activity logs
    */
   @Get()
-  async queryActivities(
-    @Query() query: QueryActivitiesDto,
-  ): Promise<{
+  async queryActivities(@Query() query: QueryActivitiesDto): Promise<{
     data: ActivityLog[];
     total: number;
     page: number;
@@ -242,7 +260,10 @@ export class ActivityLogController {
       entityType: query.entityType,
       entityId: query.entityId,
       ipAddress: query.ipAddress,
-      success: query.success !== undefined ? query.success === true || String(query.success) === 'true' : undefined,
+      success:
+        query.success !== undefined
+          ? query.success === true || String(query.success) === 'true'
+          : undefined,
       startDate: query.startDate ? new Date(query.startDate) : undefined,
       endDate: query.endDate ? new Date(query.endDate) : undefined,
       searchQuery: query.searchQuery,
@@ -292,9 +313,7 @@ export class ActivityLogController {
    * Get activity statistics
    */
   @Get('stats/overview')
-  async getActivityStats(
-    @Query() query: ActivityStatsQueryDto,
-  ): Promise<ActivityStats> {
+  async getActivityStats(@Query() query: ActivityStatsQueryDto): Promise<ActivityStats> {
     return this.activityService.getActivityStats({
       tenantId: query.tenantId,
       startDate: query.startDate ? new Date(query.startDate) : undefined,

@@ -238,6 +238,8 @@ networks:
 
 volumes:
   postgres_data:
+  redis_auth_data:
+    name: aqua_redis_auth_data
   redis_data:
   nats_data:
   minio_data:
@@ -542,6 +544,41 @@ services:
       timeout: 5s
       retries: 5
 
+  # SEC-HIGH-108 (2026-08-23 scan №53): dedicated noeviction Redis for the
+  # authorization namespace (jti blacklist, user epoch, rate-limit counters).
+  # On the shared allkeys-lru instance, memory pressure could EVICT a jti
+  # revocation marker — resurrecting a revoked access token. Revocation state
+  # is small (bounded by active-token count × TTL) and must never be evicted:
+  # noeviction makes Redis reject writes under pressure instead of silently
+  # dropping a security decision.
+  redis-auth:
+    logging: *default-logging
+    image: redis:7-alpine
+    container_name: aqua-redis-auth
+    restart: unless-stopped
+    command: >-
+      redis-server
+      --requirepass ${REDIS_AUTH_PASSWORD:?REDIS_AUTH_PASSWORD required}
+      --maxmemory 64mb
+      --maxmemory-policy noeviction
+      --appendonly yes
+      --appendfsync everysec
+      --save 900 1
+    volumes:
+      - redis_auth_data:/data
+    networks:
+      - aqua-internal
+    deploy:
+      resources:
+        limits:
+          memory: 96M
+          cpus: '0.15'
+    healthcheck:
+      test: ['CMD-SHELL', 'REDISCLI_AUTH=${REDIS_AUTH_PASSWORD} redis-cli ping']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
   nats:
     logging: *default-logging
     # Pinned 2026-04-05. To update: verify changelog at https://github.com/nats-io/nats-server/releases, test in staging first.
@@ -571,8 +608,12 @@ services:
     deploy:
       resources:
         limits:
-          memory: 192M
-          cpus: '0.25'
+          # 100-tenant readiness Task 0 (SENSOR-HIGH-090): the 192M/0.25 floor
+          # starved a file-store JetStream node on the MQTT hot path. The
+          # deploy gate (droplet-capacity.sh broker_capacity_error_lines)
+          # enforces this floor — raise both together.
+          memory: 512M
+          cpus: '1.0'
     healthcheck:
       # SEC-H01: Use HTTP monitoring endpoint (enabled in nats.conf http_port: 8222)
       test: ['CMD', 'wget', '-q', '--spider', 'http://localhost:8222/healthz']
@@ -662,6 +703,8 @@ services:
       DATABASE_PASSWORD: ${GATEWAY_SERVICE_DB_PASS:?GATEWAY_SERVICE_DB_PASS required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
+      # SEC-HIGH-108 (№53): authorization namespace on the noeviction instance
+      REDIS_AUTH_URL: redis://:${REDIS_AUTH_PASSWORD:?REDIS_AUTH_PASSWORD required}@redis-auth:6379
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-gateway-env
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
@@ -800,6 +843,8 @@ services:
       # DATABASE_QUERY_LOGGING_ALLOW_IN_PRODUCTION — see resolveDatabaseLogging).
       DATABASE_LOGGING: ${DATABASE_LOGGING:-false}
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
+      # SEC-HIGH-108 (№53): authorization namespace on the noeviction instance
+      REDIS_AUTH_URL: redis://:${REDIS_AUTH_PASSWORD:?REDIS_AUTH_PASSWORD required}@redis-auth:6379
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-auth-env
       JWT_PRIVATE_KEY_PATH: /etc/ssl/jwt/private.pem
@@ -946,6 +991,10 @@ services:
       SERVICE_NAME: sensor-service
       NODE_ENV: production
       SENSOR_SERVICE_PORT: 3000
+      # SEC-MEDIUM-070 (2026-08-23 scan №15): same proxy-trust fix as
+      # admin-api — otherwise the provisioning/installer rate limits share
+      # one global bucket keyed on the nginx container IP.
+      TRUST_PROXY: '1'
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
@@ -967,6 +1016,8 @@ services:
       MQTT_SENSOR_SERVICE_HASH: ${MQTT_SENSOR_SERVICE_HASH:?MQTT_SENSOR_SERVICE_HASH is required}
       MQTT_USERNAME: sensor_service
       MQTT_PASSWORD: ${MQTT_SENSOR_SERVICE_PASSWORD:?MQTT_SENSOR_SERVICE_PASSWORD is required}
+      # SENSOR-CRITICAL-086: stable persistent-session identity for delayed PUBACK
+      MQTT_CLIENT_ID: aqua-sensor-service
       # SEC-C02: No hardcoded default — credential encryption key must be provided externally
       CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?CREDENTIAL_ENCRYPTION_KEY is required}
       MQTT_BROKER_HOST: app.suderra.com
@@ -1021,6 +1072,55 @@ services:
       retries: 3
       start_period: 90s
 
+  # ==========================================================================
+  # sensor-ingestion — Rust sidecar (ADR-025). Task 3 (100-tenant
+  # readiness plan) restored the REAL pipeline: drain → topic parse →
+  # cache/lookup → payload validate → batch → per-tenant COPY + upsert
+  # with the transactional outbox, dispatcher publishing to the
+  # telemetry root under an awaited PubAck. Deployed PILOT-GATED: the
+  # per-tenant [ingest_backend] policy still defaults to `node`, so
+  # ZERO tenants route here until an operator flips one via the
+  # admin-api policy surface (ADR-027 strangler fig).
+  # ==========================================================================
+  sensor-ingestion:
+    logging: *default-logging
+    image: ghcr.io/okan-wqm/aquaculture_platform/sensor-ingestion:${TAG:?TAG required}
+    container_name: aqua-sensor-ingestion
+    restart: unless-stopped
+    user: '65532:65532'
+    environment:
+      RUST_LOG: ${SENSOR_INGESTION_LOG:-info}
+      SENSOR_INGESTION_CONFIG: /etc/sensor-ingestion/config.toml
+      # ADR-015: identity surface — the invariant reads these; the
+      # sidecar's TOML points its nats/postgres cert paths at the SAME
+      # mounted files.
+      NATS_URL: tls://nats:4222
+      NATS_TLS_CA: /etc/ssl/nats-ca.pem
+      NATS_TLS_CERT: /etc/ssl/nats-clients/sensor-ingestion-cert.pem
+      NATS_TLS_KEY: /etc/ssl/nats-clients/sensor-ingestion-key.pem
+      NATS_TLS_ENABLED: 'true'
+    volumes:
+      - ./infrastructure/sensor-ingestion/config.toml:/etc/sensor-ingestion/config.toml:ro
+      - ./certs/sensor-ingestion:/etc/sensor-ingestion/certs:ro
+      - *nats-ca-mount
+      - ./certs/nats/clients/sensor-ingestion-cert.pem:/etc/ssl/nats-clients/sensor-ingestion-cert.pem:ro
+      - ./certs/nats/clients/sensor-ingestion-key.pem:/etc/ssl/nats-clients/sensor-ingestion-key.pem:ro
+    networks:
+      - aqua-internal
+    deploy:
+      resources:
+        limits:
+          # PLAN.md § Faz 2 container budget.
+          memory: ${SENSOR_INGESTION_MEMORY:-256M}
+          cpus: '${SENSOR_INGESTION_CPUS:-0.35}'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+
   admin-api-service:
     logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/admin-api-service:${TAG:?TAG required}
@@ -1030,6 +1130,11 @@ services:
       SERVICE_NAME: admin-api-service
       NODE_ENV: production
       PORT: 3000
+      # SEC-MEDIUM-069 (2026-08-23 scan №14): nginx is the trusted proxy hop —
+      # without trust-proxy, every request's req.ip is the nginx container IP
+      # and the shared PASSWORD_RESET throttle (3/h, byIp) keys ONE global
+      # bucket: 3 requests lock password reset platform-wide.
+      TRUST_PROXY: '1'
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       ADMIN_CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
@@ -2043,6 +2148,25 @@ services:
       resources:
         limits:
           memory: 128M
+
+  # NATS server/JetStream metrics for the DROPLET Prometheus (100-tenant
+  # readiness Task 0, SENSOR-HIGH-091). Server-level collector only —
+  # per-consumer ack-pending arrives with the Task 2 stream work (nats-surveyor).
+  nats-exporter:
+    logging: *default-logging
+    image: nats-io/prometheus-nats-exporter:0.20.2
+    container_name: aqua-nats-exporter
+    restart: unless-stopped
+    # -prefix nats renames jetstream_* metrics to nats_server_jetstream_*
+    # (the naming the alert rules and Grafana dashboards expect). The NATS
+    # monitoring endpoint is plain HTTP on the internal docker network only.
+    command: ['-varz', '-js=server', '-prefix', 'nats', 'http://nats:8222']
+    networks:
+      - aqua-internal
+    deploy:
+      resources:
+        limits:
+          memory: 64M
 
   alertmanager:
     logging: *default-logging

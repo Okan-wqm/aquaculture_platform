@@ -372,6 +372,8 @@ services:
       # Requires simulator stack to be on the same Docker network (aqua-network)
       # Start simulators: docker compose -f infrastructure/simulators/docker-compose.simulators.yml up -d
       MQTT_BROKER_URL: mqtt://aqua-mosquitto:1883
+      # SENSOR-CRITICAL-086: stable persistent-session identity for delayed PUBACK
+      MQTT_CLIENT_ID: aqua-sensor-service
       # OpenTelemetry Tracing
       ENABLE_TRACING: ${ENABLE_TRACING:-true}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces

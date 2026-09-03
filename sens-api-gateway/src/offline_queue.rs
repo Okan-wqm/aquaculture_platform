@@ -373,6 +373,49 @@ const DEFAULT_MAX_DISK_BYTES: u64 = 50 * 1024 * 1024;
 /// # Resource Limits (v1.2.0)
 /// Enforces both message count limit and disk size limit to prevent
 /// unbounded resource consumption (IEC 62443 SL2 FR5).
+/// Task 1.7 (100-tenant readiness plan): the queue is FULL and the message
+/// was REFUSED. Admitted telemetry is never silently evicted — a full queue
+/// must fail loudly so the caller (and the operator, via the 100% alarm)
+/// knows durability is at risk, instead of discovering data loss later.
+#[derive(Debug, thiserror::Error)]
+#[error("offline queue full ({kind}): {current}/{cap} — message REFUSED, not evicted")]
+pub struct QueueFullError {
+    pub kind: QueueFullKind,
+    pub current: u64,
+    pub cap: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QueueFullKind {
+    Rows,
+    DiskBytes,
+}
+
+impl std::fmt::Display for QueueFullKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            QueueFullKind::Rows => write!(f, "rows"),
+            QueueFullKind::DiskBytes => write!(f, "disk-bytes"),
+        }
+    }
+}
+
+/// True when the error is the explicit queue-full refusal (downcast-friendly
+/// for callers that distinguish "backpressure" from other failures).
+pub fn is_queue_full(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<QueueFullError>().is_some()
+}
+
+/// Task 1.7 fill-level bands (70 / 85 / 100 percent of the row OR disk cap,
+/// whichever is closer to full) surfaced as alarms by the enqueue path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QueueAlarmLevel {
+    Normal,
+    Warn70,
+    High85,
+    Full100,
+}
+
 pub struct OfflineQueue {
     /// Database connection (protected by mutex for sync access)
     conn: Mutex<Connection>,
@@ -567,45 +610,6 @@ impl OfflineQueue {
         .unwrap_or(0)
     }
 
-    /// Evict oldest low-priority messages until disk usage is under limit (v1.2.0)
-    /// v1.2.6: Added bounds validation to prevent SQL injection via format string
-    fn evict_for_disk_space(&self, conn: &Connection, evict_count: usize) -> Result<usize> {
-        // v1.2.6: Validate evict_count to prevent potential issues
-        // Max reasonable eviction is 10000 messages at once
-        const MAX_EVICT_COUNT: usize = 10000;
-        if evict_count == 0 {
-            return Ok(0);
-        }
-        let safe_count = evict_count.min(MAX_EVICT_COUNT);
-
-        // Note: SQLite LIMIT doesn't support parameters, but evict_count is
-        // already validated as usize and bounded above
-        let result = conn.execute(
-            &format!(
-                "DELETE FROM message_queue WHERE id IN (
-                    SELECT id FROM message_queue
-                    ORDER BY priority ASC, created_at ASC
-                    LIMIT {}
-                )",
-                safe_count
-            ),
-            [],
-        );
-
-        match result {
-            Ok(deleted) => {
-                if deleted > 0 {
-                    warn!("Evicted {} messages due to disk space limit", deleted);
-                }
-                Ok(deleted)
-            }
-            Err(e) => Err(anyhow::anyhow!(
-                "Failed to evict messages for disk space: {}",
-                e
-            )),
-        }
-    }
-
     /// Initialize database schema
     fn init_schema(&self) -> Result<()> {
         let conn = acquire_sqlite_lock(&self.conn, &self.poison_health_verified)?;
@@ -703,37 +707,35 @@ impl OfflineQueue {
     ) -> Result<i64> {
         let conn = acquire_sqlite_lock(&self.conn, &self.poison_health_verified)?;
 
-        // Check current queue size
-        let mut current_size: usize = conn
+        // Task 1.7 (100-tenant readiness plan): a full queue REFUSES the
+        // message with an explicit QueueFullError. The previous behavior —
+        // evicting the oldest low-priority row to make room — silently
+        // destroyed ADMITTED telemetry: the broker had already handed it
+        // over on the durability promise of this queue. Backpressure must
+        // be visible (caller sees the error; the 100% alarm fires), never
+        // a quiet drop-oldest.
+        let current_size: u64 = conn
             .query_row("SELECT COUNT(*) FROM message_queue", [], |row| row.get(0))
             .context("Failed to query queue size")?;
 
-        // If at message count capacity, remove oldest low-priority message
-        if current_size >= self.max_size {
-            self.evict_one(&conn)?;
-            current_size = current_size.saturating_sub(1);
+        if current_size >= self.max_size as u64 {
+            return Err(anyhow::anyhow!(QueueFullError {
+                kind: QueueFullKind::Rows,
+                current: current_size,
+                cap: self.max_size as u64,
+            }));
         }
 
-        // v1.2.0: Check disk size limit and evict if necessary
-        // v1.2.6: Loop until under limit to prevent disk exhaustion
+        // Disk guard: same no-silent-loss contract by row count and by
+        // bytes (0 = no limit, retained for operator override).
         if self.max_disk_bytes > 0 {
-            let mut db_size = self.get_db_size(&conn);
-            let mut eviction_rounds = 0;
-            const MAX_EVICTION_ROUNDS: usize = 10; // Prevent infinite loop
-
-            while db_size >= self.max_disk_bytes
-                && current_size > 0
-                && eviction_rounds < MAX_EVICTION_ROUNDS
-            {
-                // Evict 10% of messages (min 5, max 50) to reclaim disk space.
-                // Use the actual deleted count returned by evict_for_disk_space() to avoid
-                // current_size drifting below the real SQLite row count when partial
-                // deletion occurs (e.g., SQLite busy timeout, WAL lock contention).
-                let evict_target = (current_size / 10).max(5).min(50);
-                let actually_deleted = self.evict_for_disk_space(&conn, evict_target)?;
-                current_size = current_size.saturating_sub(actually_deleted);
-                db_size = self.get_db_size(&conn);
-                eviction_rounds += 1;
+            let db_size = self.get_db_size(&conn);
+            if db_size >= self.max_disk_bytes {
+                return Err(anyhow::anyhow!(QueueFullError {
+                    kind: QueueFullKind::DiskBytes,
+                    current: db_size,
+                    cap: self.max_disk_bytes,
+                }));
             }
         }
 
@@ -747,6 +749,34 @@ impl OfflineQueue {
         .context("Failed to enqueue message")?;
 
         let id = conn.last_insert_rowid();
+
+        // Task 1.7: 70/85/100 fill bands — surfaced as alarms so an
+        // approaching-full queue is operated on BEFORE it refuses.
+        match self.alarm_level(&conn) {
+            QueueAlarmLevel::Full100 => {
+                error!(
+                    "offline queue FULL (100%): rows={}/{} — enqueue now refusing",
+                    current_size + 1,
+                    self.max_size
+                );
+            }
+            QueueAlarmLevel::High85 => {
+                warn!(
+                    "offline queue fill ≥85%: rows={}/{}",
+                    current_size + 1,
+                    self.max_size
+                );
+            }
+            QueueAlarmLevel::Warn70 => {
+                warn!(
+                    "offline queue fill ≥70%: rows={}/{}",
+                    current_size + 1,
+                    self.max_size
+                );
+            }
+            QueueAlarmLevel::Normal => {}
+        }
+
         debug!(
             "Enqueued message {} to '{}' (priority={:?})",
             id, topic, priority
@@ -755,25 +785,29 @@ impl OfflineQueue {
         Ok(id)
     }
 
-    /// Remove oldest low-priority message to make room
-    fn evict_one(&self, conn: &Connection) -> Result<()> {
-        // Find and remove the oldest message with lowest priority
-        let result = conn.execute(
-            "DELETE FROM message_queue WHERE id = (
-                SELECT id FROM message_queue
-                ORDER BY priority ASC, created_at ASC
-                LIMIT 1
-            )",
-            [],
-        );
-
-        match result {
-            Ok(1) => {
-                warn!("Evicted oldest low-priority message (queue at capacity)");
-                Ok(())
-            }
-            Ok(_) => Ok(()), // Nothing to evict
-            Err(e) => Err(anyhow::anyhow!("Failed to evict message: {}", e)),
+    /// Task 1.7: the 70/85/100 fill bands over the tighter of the row and
+    /// disk caps (disk contributes only when a limit is configured).
+    fn alarm_level(&self, conn: &Connection) -> QueueAlarmLevel {
+        let mut worst_percent: u64 = 0;
+        if self.max_size > 0 {
+            let rows: u64 = conn
+                .query_row("SELECT COUNT(*) FROM message_queue", [], |row| row.get(0))
+                .unwrap_or(0);
+            worst_percent = (rows.saturating_mul(100)) / self.max_size as u64;
+        }
+        if self.max_disk_bytes > 0 {
+            let db_size = self.get_db_size(conn);
+            let disk_percent = (db_size.saturating_mul(100)) / self.max_disk_bytes;
+            worst_percent = worst_percent.max(disk_percent);
+        }
+        if worst_percent >= 100 {
+            QueueAlarmLevel::Full100
+        } else if worst_percent >= 85 {
+            QueueAlarmLevel::High85
+        } else if worst_percent >= 70 {
+            QueueAlarmLevel::Warn70
+        } else {
+            QueueAlarmLevel::Normal
         }
     }
 
@@ -1464,12 +1498,25 @@ impl AsyncOfflineQueue {
         let queue = self.inner.clone();
         let topic = topic.to_string();
         let payload = payload.to_string();
+        let topic_for_log = topic.clone();
 
         let result = tokio::task::spawn_blocking(move || {
             queue.enqueue(&topic, &payload, priority, qos, retain)
         })
         .await
         .map_err(|e| anyhow::anyhow!("spawn_blocking join error: {}", e))?;
+
+        // Task 1.7: classify the explicit queue-full refusal — the caller
+        // must be able to distinguish backpressure (raise entitlement
+        // caps / drain) from a genuine storage failure.
+        if let Err(ref err) = result {
+            if is_queue_full(err) {
+                error!(
+                    "offline queue REFUSED message on '{}' — full; admitted telemetry is never evicted",
+                    topic_for_log
+                );
+            }
+        }
 
         // Batch 105: on successful enqueue, bump the
         // "queued_total" lifetime counter + refresh the
@@ -1834,11 +1881,13 @@ mod tests {
         assert!(queue.is_empty());
     }
 
+    /// Task 1.7 (100-tenant readiness plan): a full queue REFUSES with an
+    /// explicit QueueFullError — admitted telemetry is never silently
+    /// evicted (the old drop-oldest destroyed durability promises).
     #[test]
-    fn test_capacity_eviction() {
+    fn test_capacity_refusal_never_evicts() {
         let queue = OfflineQueue::in_memory(3).unwrap();
 
-        // Fill queue
         queue
             .enqueue("msg1", "1", MessagePriority::Low, 1, false)
             .unwrap();
@@ -1848,21 +1897,92 @@ mod tests {
         queue
             .enqueue("msg3", "3", MessagePriority::High, 1, false)
             .unwrap();
-
         assert_eq!(queue.len(), 3);
 
-        // Add another - should evict lowest priority (msg1)
-        queue
+        // The 4th message is REFUSED — even for a Critical priority, even
+        // though msg1 is old and Low: nothing admitted is ever dropped.
+        let err = queue
             .enqueue("msg4", "4", MessagePriority::Critical, 1, false)
-            .unwrap();
+            .expect_err("full queue must refuse");
+        assert!(
+            is_queue_full(&err),
+            "expected QueueFullError, got: {:#}",
+            err
+        );
+        let qf = err.downcast_ref::<QueueFullError>().unwrap();
+        assert_eq!(qf.kind, QueueFullKind::Rows);
+        assert_eq!(qf.cap, 3);
 
+        // Row count unchanged — no silent eviction happened.
         assert_eq!(queue.len(), 3);
-
-        // Verify msg1 was evicted
         let messages = queue.peek_batch(10).unwrap();
         let topics: Vec<&str> = messages.iter().map(|m| m.topic.as_str()).collect();
-        assert!(!topics.contains(&"msg1"));
-        assert!(topics.contains(&"msg4"));
+        assert!(topics.contains(&"msg1"));
+        assert!(!topics.contains(&"msg4"));
+    }
+
+    /// Task 1.7: the disk cap has the same no-silent-loss contract — with a
+    /// disk limit smaller than the fresh schema itself, the very first
+    /// enqueue refuses by DISK-BYTES.
+    #[test]
+    fn test_disk_cap_refusal_is_explicit() {
+        ensure_key_sandbox();
+        let path = std::env::temp_dir().join(format!(
+            "offline-queue-diskfull-{}-{}.sqlite",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let queue = OfflineQueue::with_disk_limit(&path, 100, 0, 1).unwrap();
+
+        let err = queue
+            .enqueue("t", "p", MessagePriority::Normal, 1, false)
+            .expect_err("disk cap must refuse");
+        assert!(
+            is_queue_full(&err),
+            "expected QueueFullError, got: {:#}",
+            err
+        );
+        let qf = err.downcast_ref::<QueueFullError>().unwrap();
+        assert_eq!(qf.kind, QueueFullKind::DiskBytes);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Task 1.7: 70/85/100 fill bands over the row cap.
+    #[test]
+    fn test_alarm_level_bands() {
+        let queue = OfflineQueue::in_memory(100).unwrap();
+
+        let level = |queue: &OfflineQueue| {
+            let conn = acquire_sqlite_lock(&queue.conn, &queue.poison_health_verified).unwrap();
+            queue.alarm_level(&conn)
+        };
+
+        assert_eq!(level(&queue), QueueAlarmLevel::Normal);
+
+        for i in 0..70 {
+            queue
+                .enqueue(&format!("t{}", i), "p", MessagePriority::Normal, 1, false)
+                .unwrap();
+        }
+        assert_eq!(level(&queue), QueueAlarmLevel::Warn70);
+
+        for i in 70..85 {
+            queue
+                .enqueue(&format!("t{}", i), "p", MessagePriority::Normal, 1, false)
+                .unwrap();
+        }
+        assert_eq!(level(&queue), QueueAlarmLevel::High85);
+
+        for i in 85..100 {
+            queue
+                .enqueue(&format!("t{}", i), "p", MessagePriority::Normal, 1, false)
+                .unwrap();
+        }
+        assert_eq!(level(&queue), QueueAlarmLevel::Full100);
     }
 
     #[test]

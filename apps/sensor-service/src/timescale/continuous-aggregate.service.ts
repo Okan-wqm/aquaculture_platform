@@ -1,4 +1,8 @@
-import { listTenantSchemas, validateTenantSchemaName } from '@aquaculture/backend-common/database';
+import {
+  getTenantSchemaName,
+  listTenantSchemas,
+  validateTenantSchemaName,
+} from '@aquaculture/backend-common/database';
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -67,6 +71,22 @@ export class ContinuousAggregateService implements OnApplicationBootstrap {
    * applies to schema delivery.
    */
   async onApplicationBootstrap(): Promise<void> {
+    // Task 4.3 (plan Task 4): the boot SWEEP is retired as the primary
+    // provisioning path — the tenant provisioner's post-step owns cagg
+    // creation for NEW tenants, and existing tenants enter through the
+    // rate-limited RECONCILE queue. The boot pass below is a reconciler
+    // SAFETY NET only: env-gated, off by default at 100-tenant scale
+    // (a 100-schema DDL sweep on every replica restart is minutes of
+    // boot), on for small deployments that have not yet run the
+    // one-shot reconcile.
+    const mode =
+      this.configService.get('SENSOR_CAGG_BOOT_RECONCILE', 'true') === 'true';
+    if (!mode) {
+      this.logger.log(
+        'SENSOR_CAGG_BOOT_RECONCILE=false — cagg provisioning owned by the provisioner post-step',
+      );
+      return;
+    }
     await this.ensureAggregates();
   }
 
@@ -232,7 +252,7 @@ export class ContinuousAggregateService implements OnApplicationBootstrap {
       {
         label: 'metrics_1min refresh policy',
         sql: `SELECT add_continuous_aggregate_policy('metrics_1min',
-          start_offset => INTERVAL '3 minutes',
+          start_offset => INTERVAL '24 hours',
           end_offset => INTERVAL '1 minute',
           schedule_interval => INTERVAL '1 minute',
           if_not_exists => TRUE)`,
@@ -275,7 +295,7 @@ export class ContinuousAggregateService implements OnApplicationBootstrap {
       {
         label: 'metrics_1hour refresh policy',
         sql: `SELECT add_continuous_aggregate_policy('metrics_1hour',
-          start_offset => INTERVAL '3 hours',
+          start_offset => INTERVAL '7 days',
           end_offset => INTERVAL '1 hour',
           schedule_interval => INTERVAL '1 hour',
           if_not_exists => TRUE)`,
@@ -318,7 +338,7 @@ export class ContinuousAggregateService implements OnApplicationBootstrap {
       {
         label: 'metrics_1day refresh policy',
         sql: `SELECT add_continuous_aggregate_policy('metrics_1day',
-          start_offset => INTERVAL '3 days',
+          start_offset => INTERVAL '30 days',
           end_offset => INTERVAL '1 day',
           schedule_interval => INTERVAL '1 day',
           if_not_exists => TRUE)`,
@@ -343,19 +363,25 @@ export class ContinuousAggregateService implements OnApplicationBootstrap {
   }
 
   /**
-   * Returns the last completed refresh time for each known aggregate.
+   * Task 4.4: the last completed refresh per aggregate FOR ONE TENANT.
+   *
+   * The previous signature filtered `view_name = ANY(...)` UNQUALIFIED —
+   * with N tenant schemas the same three view names appear N times and the
+   * dedup Map kept an ARBITRARY tenant's row. Now requires tenantId and
+   * filters `view_schema` through the validated SSoT.
    */
-  async getRefreshStatus(): Promise<Array<{
+  async getRefreshStatus(tenantId: string): Promise<Array<{
     viewName: string;
     lastRefresh: Date | null;
     behindBy: string | null;
   }>> {
+    const viewSchema = validateTenantSchemaName(getTenantSchemaName(tenantId));
     const rows: Array<{ view_name: string; last_run_started_at: Date | null }> =
       await this.dataSource.query(
         `SELECT view_name, last_run_started_at
          FROM timescaledb_information.continuous_aggregate_stats
-         WHERE view_name = ANY($1)`,
-        [ContinuousAggregateService.KNOWN_AGGREGATES],
+         WHERE view_schema = $1 AND view_name = ANY($2)`,
+        [viewSchema, ContinuousAggregateService.KNOWN_AGGREGATES],
       );
 
     const byName = new Map(rows.map((r) => [r.view_name, r]));
@@ -378,6 +404,7 @@ export class ContinuousAggregateService implements OnApplicationBootstrap {
    * for routine refreshes.
    */
   async refresh(
+    tenantId: string,
     viewName: string,
     startTime: Date,
     endTime: Date,
@@ -388,13 +415,34 @@ export class ContinuousAggregateService implements OnApplicationBootstrap {
       throw new Error(`Unknown continuous aggregate: ${viewName}`);
     }
 
+    // Task 4.4: REFUSING a window older than the lower tier's retention
+    // horizon. metrics_1min rows older than 1 year are GONE; refreshing
+    // metrics_1hour over such a window would recompute those buckets from
+    // an EMPTY 1min view and WIPE the 5-year materialization — the exact
+    // operator "fix" footgun the plan names.
+    const horizon = ContinuousAggregateService.REFRESH_HORIZONS[viewName];
+    if (horizon !== undefined && startTime < new Date(Date.now() - horizon)) {
+      throw new Error(
+        `Refresh window starts ${startTime.toISOString()}, before the ` +
+          `${viewName} lower-tier retention horizon (${horizon / 86_400_000} days) — ` +
+          `refreshing would recompute from dropped source data and wipe the materialization`,
+      );
+    }
+
+    const viewSchema = validateTenantSchemaName(getTenantSchemaName(tenantId));
     this.logger.log(
-      `Manual refresh of ${viewName} from ${startTime.toISOString()} to ${endTime.toISOString()}`,
+      `Manual refresh of ${viewSchema}.${viewName} from ${startTime.toISOString()} to ${endTime.toISOString()}`,
     );
 
     await this.dataSource.query(
       `CALL refresh_continuous_aggregate($1, $2, $3)`,
-      [viewName, startTime, endTime],
+      [`${viewSchema}.${viewName}`, startTime, endTime],
     );
   }
+
+  /** Lower-tier retention horizons (ms) a refresh may NEVER cross. */
+  private static readonly REFRESH_HORIZONS: Readonly<Record<string, number>> = {
+    metrics_1hour: 365 * 24 * 60 * 60 * 1000, // 1min retained 1y
+    metrics_1day: 365 * 24 * 60 * 60 * 1000, // 1hour retained 5y, but 1min lineage caps us
+  };
 }

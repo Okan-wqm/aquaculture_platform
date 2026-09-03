@@ -5,6 +5,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan, In } from 'typeorm';
 import { safeSortField, safeSortOrder } from '@aquaculture/backend-common/pagination';
+import { safeRegex } from '@aquaculture/backend-common/security';
 
 import {
   ErrorOccurrence,
@@ -20,6 +21,7 @@ import {
   ERROR_GROUP_SORT_FIELDS,
   ErrorGroupSortField,
 } from '../sorting/error-group-sort';
+import { clampLimit } from '../../shared/sort-field.util';
 
 // ============================================================================
 // Interfaces
@@ -68,7 +70,8 @@ export interface AlertNotification {
 export class ErrorTrackingService {
   private readonly logger = new Logger(ErrorTrackingService.name);
   private alertCooldowns: Map<string, Date> = new Map();
-  private notificationHandlers: Map<string, (notification: AlertNotification) => Promise<void>> = new Map();
+  private notificationHandlers: Map<string, (notification: AlertNotification) => Promise<void>> =
+    new Map();
 
   constructor(
     @InjectRepository(ErrorOccurrence)
@@ -321,8 +324,14 @@ export class ErrorTrackingService {
       }
 
       // Merge affected tenants and releases
-      const tenants = new Set([...(target.affectedTenants || []), ...(source.affectedTenants || [])]);
-      const releases = new Set([...(target.affectedReleases || []), ...(source.affectedReleases || [])]);
+      const tenants = new Set([
+        ...(target.affectedTenants || []),
+        ...(source.affectedTenants || []),
+      ]);
+      const releases = new Set([
+        ...(target.affectedReleases || []),
+        ...(source.affectedReleases || []),
+      ]);
       target.affectedTenants = Array.from(tenants);
       target.affectedReleases = Array.from(releases);
     }
@@ -371,18 +380,19 @@ export class ErrorTrackingService {
       );
     }
 
+    // SEC-HIGH №1 / №17 (2026-08-23 scan): the sort column comes from the
+    // ERROR_GROUP_SORT_COLUMNS map keyed by the validated field, and the page
+    // limit is clamped — `orderBy` interpolates verbatim and `.take(limit)`
+    // otherwise accepts any number.
     const normalizedSortField = safeSortField(
       params.sortBy,
       ERROR_GROUP_SORT_FIELDS,
       'lastSeenAt',
     ) as ErrorGroupSortField;
-    query.orderBy(
-      ERROR_GROUP_SORT_COLUMNS[normalizedSortField],
-      safeSortOrder(params.sortOrder),
-    );
+    query.orderBy(ERROR_GROUP_SORT_COLUMNS[normalizedSortField], safeSortOrder(params.sortOrder));
 
     const page = params.page || 1;
-    const limit = params.limit || 20;
+    const limit = clampLimit(params.limit, 20, 100);
     query.skip((page - 1) * limit).take(limit);
 
     const [items, total] = await query.getManyAndCount();
@@ -496,10 +506,7 @@ export class ErrorTrackingService {
     return this.alertRuleRepo.save(rule);
   }
 
-  async updateAlertRule(
-    id: string,
-    data: Partial<ErrorAlertRule>,
-  ): Promise<ErrorAlertRule> {
+  async updateAlertRule(id: string, data: Partial<ErrorAlertRule>): Promise<ErrorAlertRule> {
     const rule = await this.alertRuleRepo.findOne({ where: { id } });
     if (!rule) {
       throw new NotFoundException(`Alert rule not found: ${id}`);
@@ -567,8 +574,10 @@ export class ErrorTrackingService {
 
     // Check message pattern
     if (conditions.messagePattern) {
-      const regex = new RegExp(conditions.messagePattern, 'i');
-      if (!regex.test(group.message)) {
+      // SEC-LOW №11 (2026-08-23 scan): user pattern through the shared
+      // ReDoS gate — unsafe/invalid patterns fail closed (no match).
+      const regex = safeRegex(conditions.messagePattern, 'i');
+      if (!regex || !regex.test(group.message)) {
         return false;
       }
     }
@@ -723,7 +732,12 @@ export class ErrorTrackingService {
     // Top error groups
     const topErrorGroups = await this.groupRepo.find({
       where: {
-        status: In([ErrorStatus.NEW, ErrorStatus.ACKNOWLEDGED, ErrorStatus.IN_PROGRESS, ErrorStatus.RECURRING]),
+        status: In([
+          ErrorStatus.NEW,
+          ErrorStatus.ACKNOWLEDGED,
+          ErrorStatus.IN_PROGRESS,
+          ErrorStatus.RECURRING,
+        ]),
       },
       order: { occurrenceCount: 'DESC' },
       take: 10,
@@ -832,7 +846,8 @@ export class ErrorTrackingService {
   async clearExpiredCooldowns(): Promise<void> {
     const now = Date.now();
     for (const [key, timestamp] of this.alertCooldowns.entries()) {
-      if (now - timestamp.getTime() > 24 * 60 * 60 * 1000) { // 24 hours
+      if (now - timestamp.getTime() > 24 * 60 * 60 * 1000) {
+        // 24 hours
         this.alertCooldowns.delete(key);
       }
     }

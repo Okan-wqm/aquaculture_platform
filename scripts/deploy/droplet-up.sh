@@ -204,6 +204,55 @@ generate_credential() {
   fi
 }
 
+# SEC-HIGH-109 (2026-08-23 scan №54): provision MinIO per-service users with
+# per-prefix policies. Idempotent: `mc admin policy attach` on an existing
+# user is a no-op; the mc container uses the ROOT credential (the only place
+# it remains legitimate — provisioning only, never handed to app services).
+provision_minio_service_credentials() {
+  echo "=== Provisioning MinIO per-service credentials (SEC-HIGH-109) ==="
+  local MINIO_ENDPOINT="http://aqua-minio:9000"
+  local MINIO_ROOT_USER_VAL MINIO_ROOT_PASSWORD_VAL
+  MINIO_ROOT_USER_VAL=$(read_env_file_value MINIO_USER)
+  MINIO_ROOT_PASSWORD_VAL=$(read_env_file_value MINIO_PASSWORD)
+  if [ -z "${MINIO_ROOT_USER_VAL}" ] || [ -z "${MINIO_ROOT_PASSWORD_VAL}" ]; then
+    echo "::error::MINIO_USER / MINIO_PASSWORD missing from ${DEPLOY_ENV_FILE}"
+    return 1
+  fi
+
+  local SVC ACCESS_KEY SECRET_KEY
+  for SVC in gateway farm sensor messaging; do
+    ACCESS_KEY=$(read_env_file_value "MINIO_$(echo "${SVC}" | tr '[:lower:]' '[:upper:]')_ACCESS_KEY")
+    SECRET_KEY=$(read_env_file_value "MINIO_$(echo "${SVC}" | tr '[:lower:]' '[:upper:]')_SECRET_KEY")
+    if [ -z "${ACCESS_KEY}" ] || [ -z "${SECRET_KEY}" ]; then
+      echo "::error::MINIO_${SVC^^}_ACCESS_KEY/SECRET_KEY missing (should have been generated)"
+      return 1
+    fi
+
+    # Prefix policy: the service reads/writes ONLY its own top-level prefix.
+    local POLICY_NAME="aquaculture-${SVC}-service"
+    local POLICY_JSON
+    POLICY_JSON=$(cat <<POLICY
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket", "s3:GetBucketLocation"],
+      "Resource": ["arn:aws:s3:::${MINIO_BUCKET:-aquaculture}", "arn:aws:s3:::${MINIO_BUCKET:-aquaculture}/${SVC}/*"]
+    }
+  ]
+}
+POLICY
+)
+
+    if docker run --rm       --network aquaculture_internal       -e MC_HOST_aqua="http://${MINIO_ROOT_USER_VAL}:${MINIO_ROOT_PASSWORD_VAL}@aqua-minio:9000"       minio/mc:latest       sh -c "mc admin policy create aqua ${POLICY_NAME} '${POLICY_JSON}' 2>/dev/null || mc admin policy update aqua ${POLICY_NAME} '${POLICY_JSON}'; mc admin user add aqua ${ACCESS_KEY} ${SECRET_KEY} 2>/dev/null || true; mc admin policy attach aqua ${POLICY_NAME} --user ${ACCESS_KEY}"       2>&1 | grep -v '^Created\|^Updated\|^Added\|^Attached' ; then
+      echo "  ${SVC}: MinIO user + prefix policy provisioned"
+    else
+      echo "::warning::MinIO provisioning for ${SVC} failed (non-fatal — verify manually)"
+    fi
+  done
+}
+
 redact_sensitive() {
   sed -E \
     -e 's/([A-Za-z0-9_]*(PASSWORD|TOKEN|SECRET|PRIVATE_KEY|API_KEY|ACCESS_KEY|PEPPER)[A-Za-z0-9_]*=)[^[:space:]]+/\1[REDACTED]/gI' \
@@ -1080,6 +1129,21 @@ for SVC in ${SERVICE_DB_ROLES}; do
   generate_credential "${SVC}_SERVICE_DB_PASS" "${ENV_FILE}"
 done
 
+# ──────────────────────────────────────────────────────────────────────────
+# SEC-HIGH-108 / SEC-HIGH-109 (2026-08-23 scan №53/№54): infrastructure
+# per-service credentials — the noeviction auth-Redis password, and the
+# MinIO per-service access keys (provisioned as policies below).
+# ──────────────────────────────────────────────────────────────────────────
+generate_credential REDIS_AUTH_PASSWORD "${ENV_FILE}"
+
+# SEC-HIGH-109 (№54): MinIO per-service access keys — the four object-store
+# consumers get dedicated credentials; the root credential stops being shared.
+MINIO_CONSUMER_SERVICES="gateway farm sensor messaging"
+for SVC in ${MINIO_CONSUMER_SERVICES}; do
+  generate_credential "MINIO_${SVC^^}_ACCESS_KEY" "${ENV_FILE}"
+  generate_credential "MINIO_${SVC^^}_SECRET_KEY" "${ENV_FILE}"
+done
+
 # Phase A2a — ensure required secrets exist in .env BEFORE interpolation.
 # ORDERING IS LOAD-BEARING (INFRA-HIGH-007, 2026-06-11): this bootstrap
 # used to run as Phase A4, AFTER the compose interpolation check — so a
@@ -1483,6 +1547,20 @@ else
   else
     echo "=== Frontend-only development deploy: migration infrastructure unchanged ==="
   fi
+
+  # ─────────────────────────────────────────────────────────────────────
+  # SEC-HIGH-108 / SEC-HIGH-109 (2026-08-23 scan №53/№54): infrastructure
+  # credential provisioning after the infra containers are up.
+  #
+  # №53: the noeviction auth-Redis (redis-auth) starts alongside the others
+  #      (compose dependency), so its :?-required password just needs to
+  #      exist — generated above.
+  # №54: MinIO per-service access keys — the four object-store consumers
+  #      get dedicated credentials with per-prefix bucket policies; the
+  #      shared root credential stops being handed to application services.
+  # ─────────────────────────────────────────────────────────────────────
+  provision_minio_service_credentials
+
 
   echo "=== Pulling affected images sequentially: ${DEPLOY_SERVICES} ==="
   while IFS= read -r svc; do

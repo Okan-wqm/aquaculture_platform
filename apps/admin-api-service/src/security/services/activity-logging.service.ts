@@ -239,9 +239,10 @@ export class ActivityLoggingService implements OnModuleInit {
     sessionId?: string;
     metadata?: Record<string, unknown>;
   }): Promise<void> {
-    const changedFields = params.previousValue && params.newValue
-      ? this.getChangedFields(params.previousValue, params.newValue)
-      : undefined;
+    const changedFields =
+      params.previousValue && params.newValue
+        ? this.getChangedFields(params.previousValue, params.newValue)
+        : undefined;
 
     await this.logActivity({
       category: 'user_action',
@@ -407,10 +408,7 @@ export class ActivityLoggingService implements OnModuleInit {
   /**
    * Get recent login attempts for IP
    */
-  async getRecentLoginAttempts(
-    ipAddress: string,
-    minutes = 15,
-  ): Promise<LoginAttempt[]> {
+  async getRecentLoginAttempts(ipAddress: string, minutes = 15): Promise<LoginAttempt[]> {
     const since = new Date(Date.now() - minutes * 60 * 1000);
     return this.loginAttemptRepository.find({
       where: {
@@ -543,10 +541,7 @@ export class ActivityLoggingService implements OnModuleInit {
   /**
    * Update session activity
    */
-  async updateSessionActivity(
-    sessionToken: string,
-    path: string,
-  ): Promise<void> {
+  async updateSessionActivity(sessionToken: string, path: string): Promise<void> {
     await this.sessionRepository.update(
       { sessionToken, isActive: true },
       {
@@ -664,6 +659,8 @@ export class ActivityLoggingService implements OnModuleInit {
       qb.andWhere('activity.tags && ARRAY[:...tags]', { tags });
     }
 
+    // SEC-HIGH №1 (2026-08-23 scan): orderBy interpolates verbatim — the column
+    // comes from the ACTIVITY_LOG_SORT_COLUMNS map keyed by the validated field.
     const normalizedSortField = safeSortField(
       sortBy,
       ACTIVITY_LOG_SORT_FIELDS,
@@ -820,7 +817,7 @@ export class ActivityLoggingService implements OnModuleInit {
     // Activity over time (last 30 days by default)
     const activityOverTime = await this.activityRepository
       .createQueryBuilder('activity')
-      .select("DATE(activity.createdAt)", 'date')
+      .select('DATE(activity.createdAt)', 'date')
       .addSelect('COUNT(*)', 'count')
       .where(tenantId ? 'activity.tenantId = :tenantId' : '1=1', { tenantId })
       .andWhere(startDate ? 'activity.createdAt >= :startDate' : '1=1', { startDate })

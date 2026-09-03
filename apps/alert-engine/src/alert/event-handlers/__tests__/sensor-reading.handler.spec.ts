@@ -47,6 +47,9 @@ jest.mock('@aquaculture/backend-common/database', () => ({
   },
 }));
 
+import { IEventBus } from '@platform/event-bus';
+
+import { AlertEvaluationService } from '../../services/alert-evaluation.service';
 import { SensorReadingEventHandler } from '../sensor-reading.handler';
 
 // ---------------------------------------------------------------------------
@@ -68,9 +71,11 @@ const mockEventBus = {
 };
 
 function createHandler(): SensorReadingEventHandler {
+  const evaluationService: Partial<AlertEvaluationService> = mockEvaluationService;
+  const eventBus: Partial<IEventBus> = mockEventBus;
   return new SensorReadingEventHandler(
-    mockEvaluationService as any,
-    mockEventBus as any,
+    evaluationService as AlertEvaluationService,
+    eventBus as IEventBus,
   );
 }
 
@@ -133,9 +138,7 @@ describe('SensorReadingEventHandler', () => {
           readings: { temperature: 25 },
         } as any);
 
-        expect(
-          mockEvaluationService.evaluateSensorReading,
-        ).not.toHaveBeenCalled();
+        expect(mockEvaluationService.evaluateSensorReading).not.toHaveBeenCalled();
       },
     );
   });
@@ -252,11 +255,9 @@ describe('SensorReadingEventHandler', () => {
       // Track whether evaluateSensorReading is called during mockRun's callback
       let evaluatedInsideRun = false;
       mockRun.mockImplementation((_ctx: any, fn: () => any) => {
-        mockEvaluationService.evaluateSensorReading.mockImplementation(
-          async () => {
-            evaluatedInsideRun = true;
-          },
-        );
+        mockEvaluationService.evaluateSensorReading.mockImplementation(async () => {
+          evaluatedInsideRun = true;
+        });
         return fn();
       });
 
@@ -277,14 +278,14 @@ describe('SensorReadingEventHandler', () => {
   // 5. Handle evaluation errors gracefully
   // -------------------------------------------------------------------------
   describe('error handling', () => {
-    it('should handle evaluation errors gracefully (no re-throw)', async () => {
+    it('rethrows evaluation failures so the event-bus NAKs for redelivery (Task 1.5)', async () => {
       const handler = createHandler();
 
       mockEvaluationService.evaluateSensorReading.mockRejectedValueOnce(
         new Error('DB connection lost'),
       );
 
-      // Should NOT throw — errors are caught and logged
+      // Logged AND rethrown — a lost DB write must redeliver, not ack.
       await expect(
         handler.handle({
           eventId: 'evt-9',
@@ -294,10 +295,10 @@ describe('SensorReadingEventHandler', () => {
           sensorId: 'sensor-1',
           readings: { temperature: 25 },
         } as any),
-      ).resolves.toBeUndefined();
+      ).rejects.toThrow('DB connection lost');
     });
 
-    it('should handle requestContextStorage.run errors gracefully', async () => {
+    it('rethrows storage-context failures too (same redelivery contract)', async () => {
       const handler = createHandler();
 
       mockRun.mockRejectedValueOnce(new Error('AsyncLocalStorage failure'));
@@ -311,7 +312,7 @@ describe('SensorReadingEventHandler', () => {
           sensorId: 'sensor-1',
           readings: { temperature: 25 },
         } as any),
-      ).resolves.toBeUndefined();
+      ).rejects.toThrow('AsyncLocalStorage failure');
     });
   });
 });

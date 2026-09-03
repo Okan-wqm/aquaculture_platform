@@ -350,6 +350,7 @@ export type AlertHistory = {
   ruleName: Scalars['String']['output'];
   sensorId?: Maybe<Scalars['String']['output']>;
   severity: AlertSeverity;
+  sourceEventId?: Maybe<Scalars['String']['output']>;
   tenantId: Scalars['String']['output'];
   triggeredAt: Scalars['DateTime']['output'];
   triggeringData: Scalars['JSON']['output'];
@@ -9632,6 +9633,7 @@ export type Mutation = {
   dismissReportDraft: RegulatoryReportDraft;
   duplicateProcess: ProcessResultType;
   editMessage: Message;
+  emergencyRollbackVfdChangeSet: VfdChangeSet;
   emergencyStopVfd: VfdCommandResult;
   /** End quarantine for a health event */
   endHealthEventQuarantine: HealthEvent;
@@ -11548,6 +11550,11 @@ export type MutationDuplicateProcessArgs = {
 export type MutationEditMessageArgs = {
   id: Scalars['ID']['input'];
   input: EditMessageInput;
+};
+
+
+export type MutationEmergencyRollbackVfdChangeSetArgs = {
+  input: RollbackVfdChangeSetInput;
 };
 
 
@@ -25271,19 +25278,23 @@ export type WebAuthnLoginChallengeResponse = {
 };
 
 export type WebAuthnRegisterCredentialInput = {
+  /** Base64url-encoded attestation object (contains the signed authenticator data and the COSE public key) */
+  attestationObject: Scalars['String']['input'];
+  /** Base64url-encoded authenticator data (present on some platforms) */
+  authenticatorData?: InputMaybe<Scalars['String']['input']>;
   /** Challenge string that was used during registration */
   challenge: Scalars['String']['input'];
   /** Base64url-encoded attestation client data JSON */
   clientDataJSON: Scalars['String']['input'];
   /** Base64url-encoded credential ID from navigator.credentials.create() */
   credentialId: Scalars['String']['input'];
+  /** Current account password (re-authentication required to add a biometric credential) */
+  currentPassword: Scalars['String']['input'];
   /** Device name for this credential */
   deviceName?: InputMaybe<Scalars['String']['input']>;
-  /** Origin of the request (e.g., https://example.com) */
-  origin: Scalars['String']['input'];
-  /** Base64url-encoded raw public key (COSE format) */
-  publicKey: Scalars['String']['input'];
-  /** Supported transports (usb, nfc, ble, internal) */
+  /** COSE algorithm identifier the authenticator chose (e.g. -7 ES256, -257 RS256) */
+  publicKeyAlgorithm: Scalars['Int']['input'];
+  /** Supported transports (usb, nfc, ble, internal, hybrid, smart-card) */
   transports?: InputMaybe<Array<Scalars['String']['input']>>;
 };
 
@@ -25325,10 +25336,10 @@ export type WebAuthnVerifyLoginInput = {
   clientDataJSON: Scalars['String']['input'];
   /** Base64url-encoded credential ID */
   credentialId: Scalars['String']['input'];
-  /** Origin of the request */
-  origin: Scalars['String']['input'];
   /** Base64url-encoded signature */
   signature: Scalars['String']['input'];
+  /** Base64url-encoded user handle (what the authenticator stored) */
+  userHandle: Scalars['String']['input'];
 };
 
 export type WeekDay =

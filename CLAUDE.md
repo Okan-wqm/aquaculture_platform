@@ -42,7 +42,7 @@ Nx monorepo: NestJS microservices (`apps/`), React microfrontends (`web/`), plat
 ### Backend Services (`apps/`) — 17 services (15 runtime + `sensor-ingestion` Rust sidecar + `db-migrate` CLI)
 | Service | Schema | Responsibility |
 |---|---|---|
-| `gateway-api` | — | API gateway, auth guard, rate limiting, CSP, OPA |
+| `gateway-api` | — | API gateway, auth guard, rate limiting, CSP |
 | `auth-service` | `auth` | JWT (RS256), RBAC, tenant provisioning, refresh rotation, MFA |
 | `farm-service` | `farm` | Farm, pond, batch, feed, harvest, water quality (schema-per-tenant) |
 | `sensor-service` | `sensor` | Sensor ingestion, calibration, aggregation, MQTT/LoRaWAN (schema-per-tenant) |

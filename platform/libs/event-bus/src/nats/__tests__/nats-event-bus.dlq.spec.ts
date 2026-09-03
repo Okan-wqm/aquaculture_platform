@@ -1,0 +1,210 @@
+import 'reflect-metadata';
+import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
+// NATS v3: connect from @nats-io/transport-node; jetstream()/jetstreamManager()
+// are top-level in @nats-io/jetstream.
+import { jetstream, jetstreamManager } from '@nats-io/jetstream';
+import type { NatsConnection } from '@nats-io/nats-core';
+import { connect } from '@nats-io/transport-node';
+import { Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+
+import type { DlqEnvelope } from '../dlq-envelope';
+
+import { NatsEventBus } from '../nats-event-bus';
+
+jest.mock('@aquaculture/backend-common/nats', () => ({
+  buildNatsConnectionOptions: jest.fn(),
+}));
+
+jest.mock('@nats-io/transport-node', () => {
+  const actual =
+    jest.requireActual<typeof import('@nats-io/transport-node')>('@nats-io/transport-node');
+  return { ...actual, connect: jest.fn() };
+});
+
+jest.mock('@nats-io/jetstream', () => {
+  const actual = jest.requireActual('@nats-io/jetstream');
+  return { ...actual, jetstream: jest.fn(), jetstreamManager: jest.fn() };
+});
+
+/**
+ * Task 1 Step 1.6 (SENSOR-HIGH-093): the dead-letter chain. A message that
+ * keeps failing is moved to AQUACULTURE_DLQ as an envelope — the original
+ * is ACKed only AFTER the DLQ copy's PubAck; if the DLQ hop itself fails,
+ * the original is NAK'd (never acked into loss).
+ */
+describe('NatsEventBus dead-letter chain (Task 1.6)', () => {
+  let consumeCallback: ((msg: unknown) => void) | null;
+  let jsPublish: jest.Mock;
+  let bus: NatsEventBus;
+
+  const EVENT = {
+    eventId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    eventType: 'SensorReading',
+    timestamp: '2026-08-24T00:00:00.000Z',
+    tenantId: '11111111-1111-4111-8111-111111111111',
+    version: 1,
+    aggregateId: 's',
+    aggregateType: 'Sensor',
+    sensorId: 's',
+    readings: { temperature: 1 },
+  };
+
+  function makeMsg(deliveryCount: number): {
+    string: () => string;
+    subject: string;
+    seq: number;
+    info: { deliveryCount: number };
+    ack: jest.Mock;
+    nak: jest.Mock;
+  } {
+    return {
+      string: () => JSON.stringify(EVENT),
+      subject: 'events.11111111-1111-4111-8111-111111111111.SensorReading',
+      seq: 77,
+      info: { deliveryCount },
+      ack: jest.fn(),
+      nak: jest.fn(),
+    };
+  }
+
+  async function boot(): Promise<void> {
+    const configService = new ConfigService();
+    const values: Record<string, unknown> = {
+      NATS_URL: 'tls://nats:4222',
+      NATS_STREAM_NAME: 'AQUACULTURE_EVENTS',
+      SERVICE_NAME: 'sensor-service',
+      NATS_MAX_RECONNECT_ATTEMPTS: '2',
+    };
+    jest
+      .spyOn(configService, 'get')
+      .mockImplementation((key: string, defaultValue?: unknown) =>
+        key in values ? values[key] : defaultValue,
+      );
+
+    consumeCallback = null;
+    jsPublish = jest.fn().mockResolvedValue({ stream: 'AQUACULTURE_DLQ', seq: 1 });
+
+    const connection = Object.assign({} as NatsConnection, {
+      status: () => ({
+        [Symbol.asyncIterator]: () => ({
+          next: () => Promise.resolve({ done: true, value: undefined }),
+        }),
+      }),
+      closed: () => new Promise<void>(() => undefined),
+      drain: jest.fn(() => Promise.resolve()),
+      close: jest.fn(() => Promise.resolve()),
+      isClosed: () => false,
+    });
+    jest.mocked(connect).mockResolvedValue(connection as never);
+
+    jest.mocked(jetstreamManager).mockResolvedValue(
+      Object.assign({} as never, {
+        streams: {
+          info: jest.fn().mockRejectedValueOnce(new Error('not found')).mockResolvedValue({}),
+          update: jest.fn().mockResolvedValue(undefined),
+          add: jest.fn().mockResolvedValue({}),
+        },
+        consumers: { add: jest.fn().mockResolvedValue({}) },
+      }),
+    );
+
+    jest.mocked(jetstream).mockReturnValue(
+      Object.assign({} as never, {
+        publish: jsPublish,
+        consumers: {
+          get: jest.fn().mockResolvedValue({
+            consume: (opts: { callback: (msg: unknown) => void }) => {
+              consumeCallback = opts.callback;
+              return Promise.resolve({ stop: jest.fn() });
+            },
+          }),
+        },
+      }),
+    );
+
+    bus = new NatsEventBus(configService);
+    await bus.connect();
+    await bus.subscribeTo('events.*.SensorReading', {
+      handle: () => Promise.reject(new Error('db down')),
+    } as never);
+    await new Promise((r) => setTimeout(r, 0));
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.spyOn(Logger.prototype, 'error').mockImplementation();
+    jest.spyOn(Logger.prototype, 'log').mockImplementation();
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+    jest.mocked(buildNatsConnectionOptions).mockReturnValue({
+      servers: ['tls://nats:4222'],
+      reconnect: true,
+      maxReconnectAttempts: 2,
+      reconnectTimeWait: 1,
+      authMode: 'mtls-cert',
+    } as never);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  function requireCallback(): (msg: unknown) => void {
+    if (!consumeCallback) throw new Error('consume callback was not captured');
+    return consumeCallback;
+  }
+
+  it('NAKs with backoff while under the delivery threshold — no DLQ, no ack', async () => {
+    await boot();
+    const msg = makeMsg(2);
+    await requireCallback()(msg);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(msg.nak).toHaveBeenCalled();
+    expect(msg.ack).not.toHaveBeenCalled();
+    expect(jsPublish).not.toHaveBeenCalled();
+  });
+
+  it('dead-letters at the threshold: envelope PubAck BEFORE the original ack', async () => {
+    await boot();
+    const msg = makeMsg(5);
+    await requireCallback()(msg);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(jsPublish).toHaveBeenCalledTimes(1);
+    const firstCall = jsPublish.mock.calls[0];
+    if (!firstCall) throw new Error('js.publish was not called');
+    const [subject, body, opts] = firstCall as [string, string, { msgID?: string }];
+    expect(subject).toBe('dlq.11111111-1111-4111-8111-111111111111.SensorReading');
+    const envelope = JSON.parse(body) as DlqEnvelope;
+    expect(envelope['originalSubject']).toBe(msg.subject);
+    expect(envelope['originalStream']).toBe('AQUACULTURE_EVENTS');
+    expect(envelope['deliveryCount']).toBe(5);
+    expect(envelope['failureClass']).toBe('handler-failure');
+    expect(Buffer.from(envelope['payloadBase64'], 'base64').toString('utf8')).toBe(
+      JSON.stringify(EVENT),
+    );
+    // Identity-preserving msgID: replay tooling relies on it for dedup.
+    expect(opts?.msgID).toContain('77');
+
+    expect(msg.ack).toHaveBeenCalledTimes(1);
+    // Ordering: the DLQ copy must be durably stored BEFORE the original dies.
+    const publishOrder = jsPublish.mock.invocationCallOrder[0];
+    const ackOrder = msg.ack.mock.invocationCallOrder[0];
+    if (publishOrder === undefined || ackOrder === undefined) {
+      throw new Error('ordering evidence missing');
+    }
+    expect(publishOrder).toBeLessThan(ackOrder);
+  });
+
+  it('never acks into loss when the DLQ hop itself fails — NAK instead', async () => {
+    await boot();
+    jsPublish.mockRejectedValue(new Error('dlq stream unavailable'));
+    const msg = makeMsg(9);
+    await requireCallback()(msg);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(msg.ack).not.toHaveBeenCalled();
+    expect(msg.nak).toHaveBeenCalled();
+  });
+});

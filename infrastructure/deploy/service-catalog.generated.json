@@ -3,7 +3,7 @@
     "generatedFrom": "platform/libs/service-catalog/src/index.ts",
     "generator": "scripts/service-catalog/generate-artifacts.ts",
     "generatorVersion": 4,
-    "catalogHash": "07170535306a24842dd83234b57f98561512c609bcfe37dbae3c950101917a3e",
+    "catalogHash": "c0a47ec1834f86eb16889d70ebd442bd71e15a971d2d0a5893f1c83761f2f046",
     "note": "do not edit by hand"
   },
   "activeDropletComposeServices": [
@@ -16,6 +16,7 @@
     "auth-service",
     "farm-service",
     "sensor-service",
+    "sensor-ingestion",
     "hr-service",
     "hydroponics-service",
     "messaging-service",
@@ -31,6 +32,8 @@
     "cadvisor",
     "node-exporter",
     "alertmanager",
+    "nats-exporter",
+    "redis-auth",
     "nginx",
     "shell",
     "dashboard",
@@ -429,6 +432,7 @@
     "OBSERVABILITY_SERVICE_DB_PASS",
     "PASSWORD_PEPPER",
     "POSTGRES_PASSWORD",
+    "REDIS_AUTH_PASSWORD",
     "REDIS_PASSWORD",
     "SENSOR_SERVICE_DB_PASS",
     "SENTINEL_HUB_ENCRYPTION_KEY",

@@ -279,6 +279,11 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'sensor_protocols',
       'processes',
 
+      // Task 4 (SENSOR-HIGH-094): append-only per-tenant archive ledger —
+      // every tenant's schema carries its own copy, so erasure drops the
+      // history with the schema (no cross-tenant residue).
+      'telemetry_archive_events',
+
       // VFD (Variable Frequency Drive) entities
       // vfd_register_mappings is intentionally NOT here — it is global
       // cross-tenant reference data pinned to `sensor` (see infrastructureTables

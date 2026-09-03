@@ -59,6 +59,7 @@ import {
 import { Invitation, InvitationStatus } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { User } from '../entities/user.entity';
+import { WebAuthnCredential } from '../entities/webauthn-credential.entity';
 
 import { MfaService } from './mfa.service';
 import { DurableAccessTokenInvalidationService } from './durable-access-token-invalidation.service';
@@ -119,6 +120,17 @@ export function decodeRefreshTokenTransport(token: string): string {
     return token;
   }
 }
+
+/**
+ * SEC-MEDIUM-113 (2026-08-23 scan №58): a benign two-tab refresh race (both
+ * tabs fire refresh with the same pre-rotation cookie) previously landed in
+ * reuse CONTAINMENT — all-session logout plus a false CRITICAL alert. A
+ * short tolerance window lets the loser re-mint from the same family once;
+ * the re-mint flips the reason to 'Token refreshed (grace)' so a second
+ * presentation of the same row still contains. A stolen-token replay inside
+ * the window gains exactly one mint — the inherent, bounded cost of grace.
+ */
+const REFRESH_ROTATION_GRACE_MS = 60_000;
 
 @Injectable()
 export class AuthenticationService {
@@ -1126,6 +1138,46 @@ export class AuthenticationService {
       if (token.expiresAt.getTime() <= Date.now()) {
         return {};
       }
+      // SEC-MEDIUM-113 (№58): one grace re-mint for a JUST-rotated token
+      // (reason 'Token refreshed', within the window). The re-mint flips the
+      // reason to the grace marker, so a second presentation of the SAME row
+      // falls through to containment below.
+      const revokedAtMs = token.revokedAt?.getTime();
+      const rotatedWithinGrace =
+        token.revokedReason === 'Token refreshed' &&
+        revokedAtMs !== undefined &&
+        Date.now() - revokedAtMs <= REFRESH_ROTATION_GRACE_MS;
+      if (rotatedWithinGrace) {
+        const claimed = await this.preTenantAuthRepository(manager, RefreshToken).update(
+          { id: token.id, revokedReason: 'Token refreshed' },
+          { revokedReason: 'Token refreshed (grace)' },
+        );
+        if (claimed.affected === 1) {
+          this.logger.warn(
+            JSON.stringify({
+              event: 'refresh_token_grace_replay',
+              tokenId: token.id,
+              familyId: token.familyId ?? undefined,
+            }),
+          );
+          if (!user.isActive) {
+            throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
+          }
+          await this.assertTenantOperationalForRefresh(manager, user);
+          const payload = await this.tokenService.generateTokens(
+            user,
+            token.ipAddress ?? undefined,
+            token.userAgent ?? undefined,
+            {
+              familyId: token.familyId ?? undefined,
+              rememberMe: token.rememberMe,
+              manager,
+              establishSession: false,
+            },
+          );
+          return { payload };
+        }
+      }
       const containment = await this.containRefreshTokenReuse(manager, token);
       return containment ? { containment } : {};
     }
@@ -1694,6 +1746,14 @@ export class AuthenticationService {
         actionToken.consumedAt = new Date();
         await actionTokenRepository.save(actionToken);
       }
+
+      // SEC-CRITICAL-002 (2026-08-23 scan №38): a password reset invalidates
+      // every second factor bound to the previous credential set. WebAuthn
+      // credentials deleted here cannot survive the victim rotating their
+      // password, closing the "biometric backdoor outlives reset" chain.
+      // Same transaction as the password write — no window where the new
+      // password is live while old biometric credentials still authenticate.
+      await manager.delete(WebAuthnCredential, { userId: user.id });
 
       const invalidatedAt = new Date();
       await refreshTokenRepository.update(

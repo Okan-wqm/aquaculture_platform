@@ -116,9 +116,10 @@ pub fn read_or_create_v1_secret() -> Result<Vec<u8>> {
     }
 
     // Generate a new random key.
-    use rand::RngCore;
+    // SEC-LOW-122 (2026-08-23 scan №67): key material from the OS CSPRNG
+    // (rand's ThreadRng disclaims CSPRNG suitability for key material).
     let mut key = vec![0u8; 32];
-    rand::rng().fill_bytes(&mut key);
+    getrandom::getrandom(&mut key).map_err(|e| anyhow::anyhow!("OS CSPRNG unavailable: {e}"))?;
 
     if let Some(parent) = secret_path.parent() {
         std::fs::create_dir_all(parent).with_context(|| {

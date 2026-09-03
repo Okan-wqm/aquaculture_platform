@@ -147,6 +147,10 @@ getrandom = "0.2"
 # HMAC-SHA256 for database encryption key derivation (IEC 62443 FR4)
 hmac = "0.12"
 rand = "0.9"
+# rand_core 0.6 pinned for argon2's password-hash salt generation — the
+# argon2 re-export is feature-gated and rand 0.9's rngs implement a newer,
+# incompatible rand_core. Same crate version password-hash itself uses.
+rand_core = { version = "0.6", features = ["getrandom"] }
 
 # UUID generation for unique MQTT client IDs (IEC 62443 FR1 - client impersonation prevention)
 uuid = { version = "1.0", features = ["v4"] }

@@ -33,6 +33,7 @@ import { TenantUserCountReconcileService } from './services/tenant-user-count-re
 import { TenantUserManagementService } from './services/tenant-user-management.service';
 import { TenantService } from './services/tenant.service';
 import { UserLifecycleService } from './services/user-lifecycle.service';
+import { EventDedupService } from '@aquaculture/backend-common/event-dedup';
 
 @Module({
   imports: [
@@ -86,11 +87,19 @@ import { UserLifecycleService } from './services/user-lifecycle.service';
     // DATA-LOW-001: projects billing.subscriptions state (the SSoT) onto the
     // auth.tenants subscription columns via the TenantSubscriptionChanged event.
     TenantSubscriptionProjectionHandler,
+    EventDedupService,
   ],
   // SEC-HIGH-052: export MobileSettingsService so TokenService (authentication
   // module) can inject the SINGLE mobile-feature read path. No DI cycle —
   // no tenant provider injects an authentication provider.
-  exports: [TenantService, TenantAdminService, TenantRoleService, UserLifecycleService, MobileSettingsService, TypeOrmModule],
+  exports: [
+    TenantService,
+    TenantAdminService,
+    TenantRoleService,
+    UserLifecycleService,
+    MobileSettingsService,
+    TypeOrmModule,
+  ],
 })
 export class TenantModule {
   private readonly moduleClass = TenantModule.name;

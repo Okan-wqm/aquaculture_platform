@@ -2201,6 +2201,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1808300000000-SecurityEntityEditCompanion.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/modules/__tests__/modules.controller.spec.ts",
       "prettier_managed": true
     },
@@ -2549,6 +2555,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/shared/__tests__/sort-field.util.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/shared/authenticated-request.ts",
       "prettier_managed": true
     },
@@ -2574,6 +2586,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/shared/response.interceptor.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/shared/sort-field.util.ts",
       "prettier_managed": true
     },
     {
@@ -3347,6 +3365,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/cost/__tests__/token-budget-reserve.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/cost/__tests__/turn-ledger.service.spec.ts",
       "prettier_managed": true
     },
@@ -3479,6 +3503,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/ai-service/src/outbox/ai-outbox.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/safety/__tests__/ai-safety-scan-context.spec.ts",
       "prettier_managed": true
     },
     {
@@ -4206,6 +4236,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/alert-engine/src/database/migrations/1801100000000-AddAlertHistorySourceEventId.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/alert-engine/src/escalation/__tests__/acknowledgment-tracker.service.spec.ts",
       "prettier_managed": true
     },
@@ -4919,6 +4955,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/migrations/1808500000000-ResetWebAuthnCredentialsForAttestationVerification.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/migrations/support/concurrent-index.spec.ts",
       "prettier_managed": true
     },
@@ -5039,7 +5081,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/__tests__/user-federation.resolver.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/__tests__/validate-token.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/__tests__/webauthn.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -5322,12 +5376,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/services/user-site-assignment-reader.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/auth-service/src/modules/authentication/services/webauthn.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -6047,6 +6095,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/billing/__tests__/telemetry-capacity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/billing/billing-decimal.resolver.ts",
       "prettier_managed": true
     },
@@ -6245,6 +6299,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/billing/entities/telemetry-capacity-entitlement.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/billing/event-handlers/configuration-changed.handler.ts",
       "prettier_managed": true
     },
@@ -6419,6 +6479,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/billing/services/telemetry-capacity.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/common/guards/jwt-auth.guard.ts",
       "prettier_managed": true
     },
@@ -6580,6 +6646,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/billing-service/src/database/migrations/1801900000000-AddPlanTierFreeEnumValue.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/database/migrations/1802100000000-AddPlanChangeOperationSaga.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/database/migrations/1802200000000-CreateTelemetryCapacityEntitlements.ts",
       "prettier_managed": true
     },
     {
@@ -10288,6 +10366,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/database/migrations/1808600000000-ProtectFeedingRecordBackfillProvenance.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1808700000000-AddSensorTemperatureEventId.ts",
       "prettier_managed": true
     },
     {
@@ -17726,7 +17810,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "643780c486a4a2e95d147b61d0e996427ef6e48d5e79c0e07c4fceaca1d9e7ae",
+      "content_sha256": "ff7a18613a0208abec0e25140ab4e10ccf43467a07f872849ab6d418eeb2b9f1",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "apps/gateway-api/src/config/federated-subgraphs.generated.ts",
@@ -19912,6 +19996,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/hr-service/src/leave/events/leave.events.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/hr-service/src/leave/handlers/__tests__/create-leave-request.handler.spec.ts",
       "prettier_managed": true
     },
     {
@@ -23924,6 +24014,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/aggregation/__tests__/time-bucket.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/aggregation/time-bucket.service.ts",
       "prettier_managed": true
     },
@@ -23932,6 +24028,83 @@
       "owner": "source",
       "path": "apps/sensor-service/src/app.module.ts",
       "prettier_managed": true
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "b28a98ba0fc3e85fe3e4fbab2cc185d35cefd7c21b3ee9915db6c09614f1041e",
+      "hash_policy": "sha256",
+      "owner": "archive-owner",
+      "path": "apps/sensor-service/src/archive/__tests__/telemetry-retention-orchestrator.service.spec.ts",
+      "prettier_managed": false,
+      "reason": "historical archive content is hash-pinned evidence",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "43f864012dcdffe2656020bf1157be174c89b2e181bd6eb86fc64779f7843758",
+      "hash_policy": "sha256",
+      "owner": "archive-owner",
+      "path": "apps/sensor-service/src/archive/entities/telemetry-archive-event.entity.ts",
+      "prettier_managed": false,
+      "reason": "historical archive content is hash-pinned evidence",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "3be3c1c57db22e09586321ad86336d29444f82bc1ed65eebcea83bd70afc1afd",
+      "hash_policy": "sha256",
+      "owner": "archive-owner",
+      "path": "apps/sensor-service/src/archive/parquet/__tests__/telemetry-archive-codec.spec.ts",
+      "prettier_managed": false,
+      "reason": "historical archive content is hash-pinned evidence",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "785e45fe750022153fb8674d281d2aa3763246fd6ca6f89610976a40d2aabb6b",
+      "hash_policy": "sha256",
+      "owner": "archive-owner",
+      "path": "apps/sensor-service/src/archive/parquet/telemetry-archive-codec.ts",
+      "prettier_managed": false,
+      "reason": "historical archive content is hash-pinned evidence",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "5c69881a43e14e96a477e1a8f6bd852658ac9a1876a9a70b5140cda6b7276374",
+      "hash_policy": "sha256",
+      "owner": "archive-owner",
+      "path": "apps/sensor-service/src/archive/parquet/telemetry-parquet-exporter.service.ts",
+      "prettier_managed": false,
+      "reason": "historical archive content is hash-pinned evidence",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "e15748176c1e95baed750707772457df70dc598d5f9463b2e13abdb433861c8f",
+      "hash_policy": "sha256",
+      "owner": "archive-owner",
+      "path": "apps/sensor-service/src/archive/parquet/telemetry-parquet-verifier.service.ts",
+      "prettier_managed": false,
+      "reason": "historical archive content is hash-pinned evidence",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "843477bf9fb69c83c99018c6474b1aae8203ae70879b0c2a140bfcb3ff201180",
+      "hash_policy": "sha256",
+      "owner": "archive-owner",
+      "path": "apps/sensor-service/src/archive/telemetry-retention-orchestrator.service.ts",
+      "prettier_managed": false,
+      "reason": "historical archive content is hash-pinned evidence",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
       "class": "canonical_source",
@@ -24279,6 +24452,36 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/common/transaction.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/compliance/erasure/__tests__/sensor-erasure-hooks.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/compliance/erasure/erased-tenant-tombstone.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/compliance/erasure/erasure.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/compliance/erasure/mqtt-auth-cache-invalidation.hook.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/compliance/erasure/published-outbox-purge.hook.ts",
       "prettier_managed": true
     },
     {
@@ -24833,6 +25036,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1817000000000-CreateTelemetryArchiveLedger.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1818000000000-EnforceSingleActiveVfdChangeSet.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/deploy-artifact/__tests__/artifact-immutability.spec.ts",
       "prettier_managed": true
     },
@@ -24905,6 +25120,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/edge-device/__tests__/command-envelope-signer.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/edge-device/__tests__/device-directory.spec.ts",
       "prettier_managed": true
     },
@@ -24942,6 +25163,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/edge-device/__tests__/provisioning-token-hashing.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/edge-device/command-envelope-signer.service.ts",
       "prettier_managed": true
     },
     {
@@ -26465,6 +26692,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/sensor/services/__tests__/metric-query.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/sensor/services/__tests__/sensor-ingestion.service.spec.ts",
       "prettier_managed": true
     },
@@ -26543,6 +26776,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/shared-mqtt/__tests__/mqtt-client.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/shared-mqtt/index.ts",
       "prettier_managed": true
     },
@@ -26562,12 +26801,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/stream-processing/anomaly-detector.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/stream-processing/kafka-streams.service.ts",
       "prettier_managed": true
     },
     {
@@ -27631,6 +27864,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "crates/tenant-context/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "crates/tenant-context/tests/schema-golden.json",
       "prettier_managed": true
     },
     {
@@ -34966,6 +35205,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/security/2026-08-23-vuln-scan-findings.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/sensor-expert/2026-04-04-full-codebase-audit.md",
       "prettier_managed": true
     },
@@ -35050,6 +35295,24 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/zcode/2026-08-24-100-tenant-readiness.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/zcode/2026-08-28-post-merge-ci-repair.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/zcode/2026-08-28-telemetry-capacity-entitlement.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/zcode/2026-08-31-aria-required-checks.md",
       "prettier_managed": true
     },
@@ -35087,6 +35350,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/zcode/2026-09-02-browserslist-floor.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-03-100-tenant-readiness-integration.md",
       "prettier_managed": true
     },
     {
@@ -35368,7 +35637,31 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/runbooks/monitoring/host-cpu-sustained-high.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/runbooks/monitoring/host-memory-low.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/runbooks/monitoring/jetstream-storage-high.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/runbooks/monitoring/monitoring-target-down.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/runbooks/monitoring/nats-exporter-down.md",
       "prettier_managed": true
     },
     {
@@ -35543,6 +35836,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/security/2026-04-12-hardening-gap-report.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/security/2026-08-23-security-vulnerability-scan-report.md",
       "prettier_managed": true
     },
     {
@@ -36599,7 +36898,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "d03d44c5a1b5f339e29ab6280d8166752f1e8afdf314f0d6d872573815154715",
+      "content_sha256": "2a8ae02a57adbaef4ebca0e6e4578ea27a222f2e5d55dd842e1b3262ae371993",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/apollo-router/codegen-schema.generated.json",
@@ -36622,7 +36921,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "7bcc709eaba218535e6afe87d3a2abb86d1ce1aec7671617f7e4e1733f25b60a",
+      "content_sha256": "ad384e6d48c64c2259c1e4ceb6aa30db54ac6a952534e02a14c3e3b4568d8128",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/deploy/service-catalog.generated.json",
@@ -38419,6 +38718,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/event-dedup/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/filters/http-exception.filter.ts",
       "prettier_managed": true
     },
@@ -38474,6 +38779,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/graphql/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/graphql/subgraph-security.preset.ts",
       "prettier_managed": true
     },
     {
@@ -39163,6 +39474,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/security/__tests__/safe-regex.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/security/__tests__/security-event-subject-contract.spec.ts",
       "prettier_managed": true
     },
@@ -39259,6 +39576,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/security/ip-validation/ip-validator.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/security/ip-validation/ip-validator.service.ts",
       "prettier_managed": true
     },
@@ -39266,6 +39589,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/security/README.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/security/safe-regex/index.ts",
       "prettier_managed": true
     },
     {
@@ -39565,6 +39894,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/websocket/__tests__/tenant-socket-guards.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/websocket/build-ws-cors-config.ts",
       "prettier_managed": true
     },
@@ -39572,6 +39907,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/websocket/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/websocket/tenant-socket-guards.ts",
       "prettier_managed": true
     },
     {
@@ -39716,6 +40057,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/event-contracts/src/billing/plan-catalog.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/billing/telemetry-capacity.ts",
       "prettier_managed": true
     },
     {
@@ -41601,7 +41948,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "ed579436fa42675fd9a6ff31eede4d00d76254906bd69a317bde858835c5a520",
+      "content_sha256": "baecf169fdabe15f0433ac069c8422a748a65ba2604e7d05a08491caf72dc3f9",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -41721,7 +42068,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "platform/libs/event-bus/src/nats/__tests__/nats-event-bus.dlq.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "platform/libs/event-bus/src/nats/__tests__/nats-event-bus.signals.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "platform/libs/event-bus/src/nats/__tests__/nats-event-bus.telemetry.spec.ts",
       "prettier_managed": true
     },
     {
@@ -41733,7 +42092,25 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "platform/libs/event-bus/src/nats/__tests__/schema-validation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "platform/libs/event-bus/src/nats/dlq-envelope.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "platform/libs/event-bus/src/nats/event-bus-config.factory.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "platform/libs/event-bus/src/nats/event-route-registry.ts",
       "prettier_managed": true
     },
     {
@@ -44631,6 +45008,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/telemetry-architecture-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/telemetry-storage-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/tenant-aware-migration-ddl-guard.spec.ts",
       "prettier_managed": true
     },
@@ -44674,6 +45063,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/tenant-schema-cache-module-registered.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/tenant-schema-golden.spec.ts",
       "prettier_managed": true
     },
     {
@@ -46161,6 +46556,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/scripts/seed-finding-registry.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/scripts/telemetry-dlq-replay.ts",
       "prettier_managed": true
     },
     {
@@ -52055,6 +52456,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/__tests__/reading-dedup.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/__tests__/scada-transform.test.ts",
       "prettier_managed": true
     },
@@ -54977,6 +55384,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/hooks/reading-dedup.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/hooks/socketFactory.ts",
       "prettier_managed": true
     },
@@ -57196,7 +57609,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "c35b4eb1faa9160180b2eda1fdf28ab08e6deadba399a667a4b98fce26652ed1",
+      "content_sha256": "8f84256cbf29d1e386098e610557a008cd9e03b200d842ae08ea071eb0556dad",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",

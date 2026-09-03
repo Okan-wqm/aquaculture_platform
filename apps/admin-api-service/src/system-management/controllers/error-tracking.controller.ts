@@ -13,7 +13,21 @@ import {
 import { ApiTags } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 
-import { IsString, IsOptional, IsObject, IsArray, IsNumber, IsBoolean, IsUUID, IsIn, MaxLength, ArrayMaxSize } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsObject,
+  IsArray,
+  IsNumber,
+  IsBoolean,
+  IsUUID,
+  IsIn,
+  IsInt,
+  Min,
+  Max,
+  MaxLength,
+  ArrayMaxSize,
+} from 'class-validator';
 
 import { ErrorGroup, ErrorSeverity, ErrorStatus, ErrorContext } from '../entities/error-tracking.entity';
 import { ErrorTrackingService, ErrorReport } from '../services/error-tracking.service';
@@ -23,6 +37,13 @@ import { ERROR_GROUP_SORT_FIELDS, ErrorGroupSortField } from '../sorting/error-g
 // DTOs
 // ============================================================================
 
+/**
+ * SEC-HIGH №1/№17 (2026-08-23 scan): the groups query previously bound bare
+ * @Query primitives with NO runtime validation — `sortBy` reached
+ * `orderBy(`g.${sortBy}`)` verbatim (SQL injection) and `limit` reached
+ * `.take()` uncapped. The DTO validates both at the boundary; `sortBy` is
+ * typed against the ERROR_GROUP_SORT_FIELDS allowlist.
+ */
 export class QueryErrorGroupsDto {
   @IsOptional()
   @IsString()
@@ -51,12 +72,15 @@ export class QueryErrorGroupsDto {
 
   @IsOptional()
   @Type(() => Number)
-  @IsNumber()
+  @IsInt()
+  @Min(1)
   page?: number;
 
   @IsOptional()
   @Type(() => Number)
-  @IsNumber()
+  @IsInt()
+  @Min(1)
+  @Max(100)
   limit?: number;
 
   @IsOptional()
@@ -332,10 +356,7 @@ export class ErrorTrackingController {
   }
 
   @Post('groups/:id/resolve')
-  async resolveErrorGroup(
-    @Param('id') id: string,
-    @Body() dto: ResolveErrorGroupDto,
-  ) {
+  async resolveErrorGroup(@Param('id') id: string, @Body() dto: ResolveErrorGroupDto) {
     return this.errorTrackingService.updateErrorGroupStatus(
       id,
       ErrorStatus.RESOLVED,
@@ -355,17 +376,12 @@ export class ErrorTrackingController {
   }
 
   @Post('groups/:id/assign')
-  async assignErrorGroup(
-    @Param('id') id: string,
-    @Body() dto: AssignErrorGroupDto,
-  ) {
+  async assignErrorGroup(@Param('id') id: string, @Body() dto: AssignErrorGroupDto) {
     return this.errorTrackingService.assignErrorGroup(id, dto.assigneeId);
   }
 
   @Post('groups/merge')
-  async mergeErrorGroups(
-    @Body() dto: MergeErrorGroupsDto,
-  ) {
+  async mergeErrorGroups(@Body() dto: MergeErrorGroupsDto) {
     return this.errorTrackingService.mergeErrorGroups(dto.targetId, dto.sourceIds);
   }
 
@@ -430,10 +446,7 @@ export class ErrorTrackingController {
   }
 
   @Put('alert-rules/:id')
-  async updateAlertRule(
-    @Param('id') id: string,
-    @Body() dto: UpdateErrorAlertRuleDto,
-  ) {
+  async updateAlertRule(@Param('id') id: string, @Body() dto: UpdateErrorAlertRuleDto) {
     return this.errorTrackingService.updateAlertRule(id, dto);
   }
 

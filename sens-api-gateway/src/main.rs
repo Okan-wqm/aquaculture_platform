@@ -1440,11 +1440,13 @@ impl AppState {
         // path is the only valid derivation).
         let queue = if let Some(ref keystore) = self.keystore {
             let deployment_uuid = self.config.device_id.clone().into_bytes();
+            // Task 1.7: caps come from the entitlement-derived formula when
+            // provisioned (msgs/s × 3600 rows; × avg bytes × 1.2 disk).
             match crate::offline_queue::OfflineQueue::with_keystore_derivation(
                 &db_path,
-                self.config.offline_queue.max_size,
+                self.config.offline_queue.effective_max_size(),
                 self.config.offline_queue.max_age_secs,
-                self.config.offline_queue.max_disk_bytes,
+                self.config.offline_queue.effective_max_disk_bytes(),
                 keystore.clone(),
                 deployment_uuid,
             )
@@ -1462,9 +1464,9 @@ impl AppState {
         } else {
             match crate::offline_queue::OfflineQueue::with_disk_limit(
                 &db_path,
-                self.config.offline_queue.max_size,
+                self.config.offline_queue.effective_max_size(),
                 self.config.offline_queue.max_age_secs,
-                self.config.offline_queue.max_disk_bytes,
+                self.config.offline_queue.effective_max_disk_bytes(),
             ) {
                 Ok(q) => q,
                 Err(e) => {
@@ -1490,7 +1492,7 @@ impl AppState {
             // `offline_queue_size / offline_queue_capacity
             // > 0.9` (queue-is-filling alarm) work out of
             // the box.
-            hs.set_offline_queue_capacity(self.config.offline_queue.max_size as u64);
+            hs.set_offline_queue_capacity(self.config.offline_queue.effective_max_size() as u64);
         }
         self.offline_queue = Some(std::sync::Arc::new(async_queue));
 

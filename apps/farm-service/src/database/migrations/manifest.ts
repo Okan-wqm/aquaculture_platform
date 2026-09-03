@@ -90,6 +90,11 @@ import { AddSuperAdminCrossTenantAuditAction1807900000000 } from './180790000000
 import { AddSatelliteCoverageProvenance1808000000000 } from './1808000000000-AddSatelliteCoverageProvenance';
 import { RestoreAuditImmutabilityContract1808500000000 } from './1808500000000-RestoreAuditImmutabilityContract';
 import { ProtectFeedingRecordBackfillProvenance1808600000000 } from './1808600000000-ProtectFeedingRecordBackfillProvenance';
+// Renumbered 1808600000000 -> 1808700000000 on this merge to resolve a timestamp
+// collision with main's ProtectFeedingRecordBackfillProvenance1808600000000;
+// migrations are append-only + ordered and this branch never merged, so no
+// deployed database ran the old number.
+import { AddSensorTemperatureEventId1808700000000 } from './1808700000000-AddSensorTemperatureEventId';
 
 /**
  * Canonical farm-service migration class list.
@@ -177,4 +182,5 @@ export const FARM_MIGRATIONS = [
   AddSatelliteCoverageProvenance1808000000000,
   RestoreAuditImmutabilityContract1808500000000,
   ProtectFeedingRecordBackfillProvenance1808600000000,
+  AddSensorTemperatureEventId1808700000000,
 ] as const;

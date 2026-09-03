@@ -287,6 +287,126 @@ async function readTenantHead(
   return readLedgerHead(queryRunner, schemaName, tenantMigrationLedgerTable(sourceSchema));
 }
 
+/**
+ * Task 4: create the tenant's metrics_1min/1hour/1day continuous
+ * aggregates (+ refresh/retention policies + lookup indexes) on the
+ * provisioner's autocommit QueryRunner. DDL is unqualified and relies on
+ * the pinned search_path — the same discipline the migration runner
+ * enforces for per-tenant tables. Advisory-locked per tenant so a
+ * concurrent RECONCILE job and this PROVISION cannot race.
+ */
+async function ensureTenantContinuousAggregates(
+  queryRunner: QueryRunner,
+  tenantSchema: string,
+  log: (record: Record<string, unknown>) => void,
+): Promise<void> {
+  // TimescaleDB presence — skip loudly, not silently.
+  const extRows = await queryRows<{ present: boolean }>(
+    queryRunner,
+    `SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') AS present`,
+  );
+  if (extRows[0]?.present !== true) {
+    log({ message: `[cagg-post-step] TimescaleDB absent — skipped for ${tenantSchema}` });
+    return;
+  }
+
+  const lockKey = `sensor-cagg:${tenantSchema}`;
+  const lockRows = await queryRows<{ locked: boolean }>(
+    queryRunner,
+    `SELECT pg_try_advisory_lock(hashtext($1)) AS locked`,
+    [lockKey],
+  );
+  if (lockRows[0]?.locked !== true) {
+    log({ message: `[cagg-post-step] another holder owns the ${tenantSchema} lock — skipping` });
+    return;
+  }
+
+  try {
+    await queryRunner.query(`SET search_path TO "${tenantSchema}", public`);
+    const observedRows = await queryRows<{ schema: string }>(
+      queryRunner,
+      `SELECT current_schema() AS schema`,
+    );
+    if (observedRows[0]?.schema !== tenantSchema) {
+      throw new Error(
+        `cagg post-step failed to pin search_path to ${tenantSchema} ` +
+          `(observed ${observedRows[0]?.schema})`,
+      );
+    }
+
+    // The same idempotent statement set the service-side sweep runs —
+    // single source would be nicer, but db-migrate must not import
+    // sensor-service code; the invariant scanner below keeps both lists
+    // honest by construction (both must contain the three view names).
+    for (const sql of TENANT_CAGG_STATEMENTS) {
+      await queryRunner.query(sql);
+    }
+    log({ message: `[cagg-post-step] continuous aggregates ensured for ${tenantSchema}` });
+  } finally {
+    await queryRunner.query(`SELECT pg_advisory_unlock(hashtext($1))`, [lockKey]);
+    await queryRunner.query(`SET search_path TO "$user", public`);
+  }
+}
+
+/** The per-tenant cagg DDL (idempotent). Mirrors the service-side list. */
+const TENANT_CAGG_STATEMENTS: readonly string[] = [
+  `CREATE MATERIALIZED VIEW IF NOT EXISTS metrics_1min
+     WITH (timescaledb.continuous) AS
+     SELECT time_bucket('1 minute', time) AS bucket, tenant_id, sensor_id, channel_id, tank_id,
+       AVG(value) AS avg_value, MIN(value) AS min_value, MAX(value) AS max_value,
+       STDDEV(value) AS stddev_value, FIRST(value, time) AS first_value, LAST(value, time) AS last_value,
+       COUNT(*) AS sample_count,
+       COUNT(*) FILTER (WHERE quality_code >= 192) AS good_count,
+       COUNT(*) FILTER (WHERE quality_code < 192) AS bad_count
+     FROM sensor_metrics
+     GROUP BY bucket, tenant_id, sensor_id, channel_id, tank_id
+     WITH NO DATA`,
+  `ALTER MATERIALIZED VIEW metrics_1min SET (timescaledb.materialized_only = false)`,
+  `SELECT add_continuous_aggregate_policy('metrics_1min',
+     start_offset => INTERVAL '24 hours', end_offset => INTERVAL '1 minute',
+     schedule_interval => INTERVAL '1 minute', if_not_exists => TRUE)`,
+  `SELECT add_retention_policy('metrics_1min', INTERVAL '1 year', if_not_exists => TRUE)`,
+  `CREATE MATERIALIZED VIEW IF NOT EXISTS metrics_1hour
+     WITH (timescaledb.continuous) AS
+     SELECT time_bucket('1 hour', bucket) AS bucket, tenant_id, sensor_id, channel_id, tank_id,
+       AVG(avg_value) AS avg_value, MIN(min_value) AS min_value, MAX(max_value) AS max_value,
+       SQRT(GREATEST(
+         SUM(sample_count * (POWER(COALESCE(stddev_value,0),2) + POWER(COALESCE(avg_value,0),2))) / NULLIF(SUM(sample_count),0)
+         - POWER(SUM(sample_count * COALESCE(avg_value,0)) / NULLIF(SUM(sample_count),0), 2), 0)) AS stddev_value,
+       FIRST(first_value, bucket) AS first_value, LAST(last_value, bucket) AS last_value,
+       SUM(sample_count) AS sample_count, SUM(good_count) AS good_count, SUM(bad_count) AS bad_count,
+       (SUM(good_count)::FLOAT / NULLIF(SUM(sample_count),0) * 100) AS quality_pct
+     FROM metrics_1min
+     GROUP BY time_bucket('1 hour', bucket), tenant_id, sensor_id, channel_id, tank_id
+     WITH NO DATA`,
+  `ALTER MATERIALIZED VIEW metrics_1hour SET (timescaledb.materialized_only = false)`,
+  `SELECT add_continuous_aggregate_policy('metrics_1hour',
+     start_offset => INTERVAL '7 days', end_offset => INTERVAL '1 hour',
+     schedule_interval => INTERVAL '1 hour', if_not_exists => TRUE)`,
+  `SELECT add_retention_policy('metrics_1hour', INTERVAL '5 years', if_not_exists => TRUE)`,
+  `CREATE MATERIALIZED VIEW IF NOT EXISTS metrics_1day
+     WITH (timescaledb.continuous) AS
+     SELECT time_bucket('1 day', bucket) AS bucket, tenant_id, sensor_id, channel_id, tank_id,
+       AVG(avg_value) AS avg_value, MIN(min_value) AS min_value, MAX(max_value) AS max_value,
+       SQRT(GREATEST(
+         SUM(sample_count * (POWER(COALESCE(stddev_value,0),2) + POWER(COALESCE(avg_value,0),2))) / NULLIF(SUM(sample_count),0)
+         - POWER(SUM(sample_count * COALESCE(avg_value,0)) / NULLIF(SUM(sample_count),0), 2), 0)) AS stddev_value,
+       FIRST(first_value, bucket) AS first_value, LAST(last_value, bucket) AS last_value,
+       SUM(sample_count) AS sample_count, SUM(good_count) AS good_count, SUM(bad_count) AS bad_count,
+       (SUM(good_count)::FLOAT / NULLIF(SUM(sample_count),0) * 100) AS quality_pct
+     FROM metrics_1hour
+     GROUP BY time_bucket('1 day', bucket), tenant_id, sensor_id, channel_id, tank_id
+     WITH NO DATA`,
+  `ALTER MATERIALIZED VIEW metrics_1day SET (timescaledb.materialized_only = false)`,
+  `SELECT add_continuous_aggregate_policy('metrics_1day',
+     start_offset => INTERVAL '30 days', end_offset => INTERVAL '1 day',
+     schedule_interval => INTERVAL '1 day', if_not_exists => TRUE)`,
+  `CREATE INDEX IF NOT EXISTS "IDX_metrics_1min_sensor_bucket" ON metrics_1min (sensor_id, bucket DESC)`,
+  `CREATE INDEX IF NOT EXISTS "IDX_metrics_1min_channel_bucket" ON metrics_1min (channel_id, bucket DESC)`,
+  `CREATE INDEX IF NOT EXISTS "IDX_metrics_1hour_sensor_bucket" ON metrics_1hour (sensor_id, bucket DESC)`,
+  `CREATE INDEX IF NOT EXISTS "IDX_metrics_1day_sensor_bucket" ON metrics_1day (sensor_id, bucket DESC)`,
+];
+
 async function applyProvisionerHardening(
   queryRunner: QueryRunner,
   schemaName: string,
@@ -953,6 +1073,21 @@ async function processJob(
         tenantSchema: job.schemaName,
         sourceSchema: entry.schema,
       });
+
+      // Task 4 (100-tenant readiness plan): the sensor schema's tenant
+      // post-step — create the TimescaleDB continuous aggregates for THIS
+      // tenant's sensor_metrics hypertable. The DDL cannot run inside the
+      // migration runner's per-migration transactions (CREATE MATERIALIZED
+      // VIEW ... WITH (timescaledb.continuous) is non-transactional there),
+      // which is why it lives HERE, in the provisioner's autocommit phase —
+      // after the sensor fan-out (hypertable exists) and before the tenant
+      // is ACTIVE. Idempotent (IF NOT EXISTS / if_not_exists) and guarded by
+      // the TimescaleDB presence check, mirroring the service-side
+      // implementation it replaces as the PRIMARY provisioning path.
+      if (entry.schema === 'sensor') {
+        await ensureTenantContinuousAggregates(queryRunner, job.schemaName, options.log);
+        await renewJobLease(queryRunner, job, lease);
+      }
 
       if (entry.postMigrationHardening !== undefined) {
         await setJobStatus(queryRunner, job, 'HARDENING_RLS', lease);

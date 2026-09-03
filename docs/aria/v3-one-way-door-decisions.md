@@ -295,6 +295,22 @@ for any surface removed from the list.
 **Mitigation:** I-V12-MEM-01..02 (incl. the D4 embedder ranking + degradation test), I-V12-ECON-01,
 I-V12-SELF-01..02.
 
+## 18. Security lane foundations: CRITICAL severity, Security Profile, prerequisite gate (Plan 033 Faz 033a)
+
+**Decision:** `finding.SEVERITIES` gains `CRITICAL` as the top rank (added at the front, existing ranks
+preserved). `security/profile.jsonl` is a declared, content-addressed Repository Security Profile with a
+closed `PROVENANCE` (`OBSERVED|INFERRED|OPERATOR_ASSERTED`) and closed `ISOLATION_STRATEGIES`; the
+profile answers "what exists" and carries NO attack authorization. `security prerequisites` is a
+fail-closed gate over a closed `REQUIRED_CAPABILITIES` list — no security campaign runs on a kernel
+missing a Plan 032 capability.
+
+**Why one-way:** Severity ranks are compared across the finding pipeline; the profile digest feeds pack
+selection and campaign identity; the prerequisite list is the safety floor for every later phase.
+
+**Reversibility cost:** Re-ranking recorded findings; re-compiling every profile snapshot.
+
+**Mitigation:** I-V13-SEVERITY-01..03, I-V13-SECPROF-01..05, I-V13-BOOT-01..04.
+
 ## Themes
 
 - **3 of 5 one-way doors are ledger-anchored** (events, terminal states, candidate sources). The

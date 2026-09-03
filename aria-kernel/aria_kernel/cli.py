@@ -3027,6 +3027,21 @@ def build_parser() -> argparse.ArgumentParser:
     self_propose.add_argument("--proposed-change", required=True)
     self_propose.add_argument("--validation-command", default=None)
 
+    # Plan 033 — Autonomous Security Engineering (kernel-internal). Grows per phase;
+    # 033a ships the fail-closed prerequisite gate.
+    security_parser = add_subparser(sub, "security")
+    security_sub = security_parser.add_subparsers(dest="security_command", required=True)
+    security_prereq = add_subparser(security_sub, "prerequisites")
+    security_prereq.add_argument("--json", action="store_true")
+    security_profile_p = add_subparser(security_sub, "profile")
+    security_profile_sub = security_profile_p.add_subparsers(dest="security_profile_command", required=True)
+    sp_compile = add_subparser(security_profile_sub, "compile")
+    sp_compile.add_argument("--workspace-root", default=".")
+    sp_compile.add_argument("--repo-sha", default=None)
+    sp_compile.add_argument("--record", action="store_true")
+    sp_compile.add_argument("--json", action="store_true")
+    add_subparser(security_profile_sub, "show")
+
     return parser
 
 
@@ -6165,6 +6180,26 @@ def _main(argv: list[str] | None = None) -> int:
         problems = [r for r in records if r["problems"]]
         print(json.dumps({"rows": len(records), "problems": problems}, indent=2, sort_keys=True))
         return 0 if not problems else 1
+
+    if args.command == "security":
+        if args.security_command == "prerequisites":
+            from .security.prerequisites import render_prerequisites_text, run_prerequisites
+
+            report = run_prerequisites()
+            print(json.dumps(report.to_dict(), indent=2, sort_keys=True) if args.json else render_prerequisites_text(report))
+            return report.exit_code
+        if args.security_command == "profile":
+            from .security.profile import compile_profile, latest_profile, record_profile, render_profile_text
+
+            if args.security_profile_command == "show":
+                row = latest_profile(base_dir=args.tools_dir)
+                print(json.dumps(row, indent=2, sort_keys=True) if row else "no profile compiled yet")
+                return 0
+            snap = compile_profile(workspace_root=args.workspace_root, repo_sha=args.repo_sha)
+            if args.record:
+                record_profile(snap, base_dir=args.tools_dir)
+            print(json.dumps(snap.to_row(), indent=2, sort_keys=True) if args.json else render_profile_text(snap))
+            return 0
 
     if args.command == "mcp":
         from . import mcp_client

@@ -97,6 +97,22 @@ export async function ensureTenantSensorContinuousAggregateAuthority(
       );
     }
 
+    // The Timescale scheduler executes policies as the continuous aggregate
+    // owner. Give that dedicated passwordless role only the source read access
+    // required to maintain this tenant's rollups.
+    await executor.query(
+      `REVOKE ALL ON SCHEMA "${schema}" FROM ${SENSOR_CONTINUOUS_AGGREGATE_OWNER_ROLE}`,
+    );
+    await executor.query(
+      `GRANT USAGE ON SCHEMA "${schema}" TO ${SENSOR_CONTINUOUS_AGGREGATE_OWNER_ROLE}`,
+    );
+    await executor.query(
+      `REVOKE ALL ON TABLE "${schema}"."sensor_metrics" FROM ${SENSOR_CONTINUOUS_AGGREGATE_OWNER_ROLE}`,
+    );
+    await executor.query(
+      `GRANT SELECT ON TABLE "${schema}"."sensor_metrics" TO ${SENSOR_CONTINUOUS_AGGREGATE_OWNER_ROLE}`,
+    );
+
     // Create the complete rollup dependency chain before scheduling refresh or
     // retention jobs. Timescale workers can otherwise race the owner transfer
     // and form a catalog-lock deadlock as soon as the first policy is added.

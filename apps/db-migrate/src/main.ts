@@ -544,8 +544,8 @@ async function grantTenantLedgerReadAccess(
 /**
  * Continuous aggregates cannot be created inside the migration runner's
  * transaction. Run their canonical DDL after fan-out on one autocommit control
- * connection, then align ownership to the sensor NOLOGIN owner role before any
- * runtime container can start.
+ * connection, then align ownership to the dedicated passwordless TimescaleDB
+ * worker role before any runtime container can start.
  */
 async function alignTenantSensorContinuousAggregateAuthority(
   database: RunSchemaOptions['database'],

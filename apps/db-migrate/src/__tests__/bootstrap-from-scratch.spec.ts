@@ -1097,6 +1097,37 @@ describe('Bootstrap from scratch (fresh-volume init + full migration chain)', ()
       );
       expect(result.timescalePresent).toBe(true);
 
+      const aggregateOwnerRoles = (await queryRunner.query(
+        `SELECT rolcanlogin,
+                rolpassword IS NULL AS has_no_password,
+                rolsuper,
+                rolcreatedb,
+                rolcreaterole,
+                rolreplication,
+                rolbypassrls
+           FROM pg_roles
+          WHERE rolname = 'sensor_aggregate_owner'`,
+      )) as Array<{
+        has_no_password: boolean;
+        rolbypassrls: boolean;
+        rolcanlogin: boolean;
+        rolcreatedb: boolean;
+        rolcreaterole: boolean;
+        rolreplication: boolean;
+        rolsuper: boolean;
+      }>;
+      expect(aggregateOwnerRoles).toEqual([
+        {
+          has_no_password: true,
+          rolbypassrls: false,
+          rolcanlogin: true,
+          rolcreatedb: false,
+          rolcreaterole: false,
+          rolreplication: false,
+          rolsuper: false,
+        },
+      ]);
+
       const aggregates = (await queryRunner.query(
         `SELECT view_name,
                 view_owner,
@@ -1114,17 +1145,17 @@ describe('Bootstrap from scratch (fresh-volume init + full migration chain)', ()
       expect(aggregates).toEqual([
         {
           view_name: 'metrics_1day',
-          view_owner: 'sensor_schema_owner',
+          view_owner: 'sensor_aggregate_owner',
           runtime_can_select: true,
         },
         {
           view_name: 'metrics_1hour',
-          view_owner: 'sensor_schema_owner',
+          view_owner: 'sensor_aggregate_owner',
           runtime_can_select: true,
         },
         {
           view_name: 'metrics_1min',
-          view_owner: 'sensor_schema_owner',
+          view_owner: 'sensor_aggregate_owner',
           runtime_can_select: true,
         },
       ]);

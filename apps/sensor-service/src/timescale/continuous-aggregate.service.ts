@@ -178,8 +178,8 @@ export class ContinuousAggregateService implements OnApplicationBootstrap {
 
   /**
    * Production-side read-only gate. The db-migrate phase must have created all
-   * rollups, assigned the NOLOGIN sensor owner role, and granted sensor runtime
-   * SELECT before this service is allowed to become ready.
+   * rollups, assigned the dedicated TimescaleDB worker owner role, and granted
+   * sensor runtime SELECT before this service is allowed to become ready.
    */
   private async verifyAggregateAuthorityForTenant(
     queryRunner: QueryRunner,

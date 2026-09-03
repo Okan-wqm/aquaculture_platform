@@ -49,7 +49,7 @@ describe('tenant sensor continuous-aggregate authority', () => {
     expect(result).toEqual({
       tenantSchema: TENANT_SCHEMA,
       timescalePresent: true,
-      ownerRole: 'sensor_schema_owner',
+      ownerRole: 'sensor_aggregate_owner',
       runtimeRole: 'sensor_service',
       aggregates: ['metrics_1min', 'metrics_1hour', 'metrics_1day'],
     });
@@ -59,9 +59,16 @@ describe('tenant sensor continuous-aggregate authority', () => {
     );
     for (const aggregate of ['metrics_1min', 'metrics_1hour', 'metrics_1day']) {
       expect(sql).toContain(
-        `ALTER MATERIALIZED VIEW "${TENANT_SCHEMA}"."${aggregate}" OWNER TO sensor_schema_owner`,
+        `ALTER MATERIALIZED VIEW "${TENANT_SCHEMA}"."${aggregate}" OWNER TO sensor_aggregate_owner`,
       );
     }
+    expect(sql).toContain(`GRANT USAGE ON SCHEMA "${TENANT_SCHEMA}" TO sensor_aggregate_owner`);
+    expect(sql).toContain(
+      `REVOKE ALL ON TABLE "${TENANT_SCHEMA}"."sensor_metrics" FROM sensor_aggregate_owner`,
+    );
+    expect(sql).toContain(
+      `GRANT SELECT ON TABLE "${TENANT_SCHEMA}"."sensor_metrics" TO sensor_aggregate_owner`,
+    );
     expect(
       sql.some(
         (statement) =>

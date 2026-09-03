@@ -39,9 +39,9 @@ function createHarness(
     tenants = [TENANT_A],
     failFor,
     aggregateRows = [
-      { view_name: 'metrics_1min', view_owner: 'sensor_schema_owner' },
-      { view_name: 'metrics_1hour', view_owner: 'sensor_schema_owner' },
-      { view_name: 'metrics_1day', view_owner: 'sensor_schema_owner' },
+      { view_name: 'metrics_1min', view_owner: 'sensor_aggregate_owner' },
+      { view_name: 'metrics_1hour', view_owner: 'sensor_aggregate_owner' },
+      { view_name: 'metrics_1day', view_owner: 'sensor_aggregate_owner' },
     ],
   } = opts;
 
@@ -216,7 +216,7 @@ describe('ContinuousAggregateService — aggregate authority', () => {
       authoritative: true,
       aggregateRows: [
         { view_name: 'metrics_1min', view_owner: 'admin_schema_owner' },
-        { view_name: 'metrics_1hour', view_owner: 'sensor_schema_owner' },
+        { view_name: 'metrics_1hour', view_owner: 'sensor_aggregate_owner' },
       ],
     });
 

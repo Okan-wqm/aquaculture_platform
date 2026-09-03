@@ -68,8 +68,11 @@ image to crash even though its static CI checks had passed.
 
 Resolution: the canonical continuous-aggregate SQL now has one shared definition. The
 non-transactional `db-migrate` phase creates or reconciles every existing tenant's rollups, assigns
-them to `sensor_schema_owner`, and grants the runtime role read access before services start. The
-tenant schema provisioner runs the same authority path for both new and reconciled tenants.
+them to the passwordless `sensor_aggregate_owner` LOGIN role required by TimescaleDB background
+workers, and grants the runtime role read access before services start. The ordinary
+`sensor_schema_owner` remains NOLOGIN and the aggregate owner receives no password or elevated
+cluster capability. The tenant schema provisioner runs the same authority path for both new and
+reconciled tenants.
 Production sensor bootstrap is now a read-only, fail-closed check for all expected views, their
 owner, and actual query access; only non-authoritative local development retains runtime creation.
 Unit and wiring contract tests cover DDL failure cleanup, unsafe schemas, ownership drift, missing

@@ -16,7 +16,11 @@ export const SENSOR_CONTINUOUS_AGGREGATE_NAMES = [
 
 export type SensorContinuousAggregateName = (typeof SENSOR_CONTINUOUS_AGGREGATE_NAMES)[number];
 
-export const SENSOR_CONTINUOUS_AGGREGATE_OWNER_ROLE = 'sensor_schema_owner';
+/**
+ * Dedicated passwordless LOGIN owner required by TimescaleDB background jobs.
+ * Ordinary schema ownership remains on the NOLOGIN sensor_schema_owner role.
+ */
+export const SENSOR_CONTINUOUS_AGGREGATE_OWNER_ROLE = 'sensor_aggregate_owner';
 export const SENSOR_CONTINUOUS_AGGREGATE_RUNTIME_ROLE = 'sensor_service';
 export const SENSOR_CONTINUOUS_AGGREGATE_LOCK_PREFIX = 'sensor-continuous-aggregate-bootstrap:';
 

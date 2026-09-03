@@ -428,6 +428,26 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("proposals", "proposals/proposals.jsonl", "ledger", "planning", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
     StateSurface("cycle_incremental_plans", "cycle-state/incremental-plans.jsonl", "ledger", "planning", "runtime", True, "append_fsync", True),
     StateSurface("context_audits", "context-audits.jsonl", "ledger", "context_audits", "runtime", True, "append_fsync", True, profile_surface="context_audits", observe_class="observation"),
+    # Plan 032 Faz 032b-2 — hook verdicts (observation) and the sanitized work journal (write-driving: recovery reads it).
+    StateSurface("hook_decisions", "hooks/decisions.jsonl", "ledger", "hooks", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("agent_work_journal", "agent-invocations/work-journal.jsonl", "ledger", "work_journal", "runtime", True, "append_fsync", True, profile_surface="agent_claim", observe_class="action"),
+    # Plan 032 Faz 032c — checkpoints (observation), sessions, external-effect intents/receipts and recovery decisions (write-driving).
+    StateSurface("checkpoints_index", "checkpoints/index.jsonl", "ledger", "checkpoints", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("agent_sessions", "agent-invocations/sessions.jsonl", "ledger", "agent_sessions", "runtime", True, "append_fsync", True, profile_surface="agent_claim", observe_class="action"),
+    StateSurface("external_effects", "recovery/external-effects.jsonl", "ledger", "recovery", "runtime", True, "append_fsync", True, profile_surface="agent_claim", observe_class="action"),
+    StateSurface("recovery_decisions", "recovery/decisions.jsonl", "ledger", "recovery", "runtime", True, "append_fsync", True, profile_surface="agent_claim", observe_class="action"),
+    # Plan 032 Faz 032e — operator control commands (must work under every profile, frozen included), notification outbox, sanitized live progress.
+    StateSurface("control_commands", "control/commands.jsonl", "ledger", "control", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
+    StateSurface("notifications_outbox", "notifications/outbox.jsonl", "ledger", "notifications", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("agent_progress", "run-artifacts/hot/*/progress.jsonl", "ledger", "runtime_artifacts", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    # Plan 032 Faz 032f — event gateway: inbox (accepted/routed/rejected), schedule table, heartbeat.
+    StateSurface("gateway_inbox", "gateway/inbox.jsonl", "ledger", "gateway", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
+    StateSurface("gateway_schedules", "gateway/schedules.jsonl", "ledger", "gateway", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
+    StateSurface("gateway_heartbeat", "gateway/heartbeat.json", "artifact", "gateway", "runtime", True, "rewrite_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("gateway_telemetry", "gateway/telemetry.prom", "artifact", "gateway", "runtime", True, "rewrite_fsync", False, profile_surface="observation", observe_class="observation"),
+    # Plan 032 Faz 032g — MCP call ledger (client + server side) and server quarantine.
+    StateSurface("mcp_tool_calls", "mcp/tool-calls.jsonl", "ledger", "mcp", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("mcp_quarantine", "mcp/quarantine.jsonl", "ledger", "mcp", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
     StateSurface("handoffs", "handoffs.jsonl", "ledger", "handoffs", "runtime", True, "append_fsync", True, profile_surface="handoffs", observe_class="observation"),
     StateSurface("agent_evals", "agent-evals/runs.jsonl", "ledger", "agent_evals", "runtime", True, "append_fsync", True, profile_surface="agent_evals", observe_class="action"),
     StateSurface("agent_eval_fixtures", "agent-evals/fixtures.jsonl", "ledger", "agent_evals", "runtime", True, "append_fsync", True, profile_surface="agent_evals", observe_class="action"),
@@ -638,6 +658,10 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("skill_genesis_drafts", "skill-genesis/drafts.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True),
     StateSurface("skill_genesis_sandbox", "skill-genesis/sandbox.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True),
     StateSurface("skill_genesis_materializations", "skill-genesis/materializations.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True),
+    # Plan 032 Faz 032h — curator proposals + operator decisions (never an effect on a skill file).
+    StateSurface("skill_curation_proposals", "skill-genesis/curation-proposals.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    # Plan 032 Faz 032i — token-economy recommendations (effort downgrades, cap calibration observations).
+    StateSurface("economy_recommendations", "economy/recommendations.jsonl", "ledger", "economy", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("genesis_lifecycle_events", "genesis-lifecycle/events.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True),
     StateSurface("operator_provenance", "operator-provenance/events.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True),
     StateSurface("enterprise_readiness_claims", "enterprise/readiness-claims.jsonl", "ledger", "readiness", "runtime", True, "append_fsync", True, profile_surface="pr_merge", observe_class="action"),

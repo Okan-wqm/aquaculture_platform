@@ -137,12 +137,35 @@ _FRONTMATTER_RX = re.compile(r"\A---\n(.*?)\n---", re.DOTALL)
 
 @dataclass(frozen=True)
 class AgentRuntimeProfile:
-    """Resolved tier for one agent. ``source`` records how it was derived."""
+    """Resolved envelope for one agent. ``source`` records how it was derived.
+
+    Plan 032 Faz 032b — the envelope is more than a tier. When the agent's
+    frontmatter names a kernel-owned ``runtime_profile``, model/effort/tools/
+    write_scope/env_passthrough/external_writes come from
+    ``runtime_profiles.json`` (the authority the agent cannot edit) and the
+    frontmatter is only a mirror. ``source`` then reads ``kernel_profile``;
+    a mirror that disagrees with the kernel is recorded as
+    ``kernel_profile_mirror_drift`` and the KERNEL value is what runs.
+    Legacy agents without the key keep the frontmatter-only resolution.
+    """
 
     agent_name: str
     model: str
     effort: str
-    source: str  # "frontmatter" | "default_missing_file" | "default_invalid"
+    source: str  # "kernel_profile" | "kernel_profile_mirror_drift" | "frontmatter" | "default_missing_file" | "default_invalid"
+    profile_id: str | None = None
+    tools: tuple[str, ...] = ()
+    write_scope: tuple[str, ...] = ()
+    env_passthrough: tuple[str, ...] = ()
+    external_writes: bool = False
+    budget_usd_per_run: float | None = None
+    max_concurrent: int | None = None
+
+    @property
+    def write_capable(self) -> bool:
+        from .runtime_profiles import WRITE_TOOLS
+
+        return bool(WRITE_TOOLS & set(self.tools))
 
 
 def _repo_root() -> Path:
@@ -185,6 +208,30 @@ def _read_profile_cached(agent_name: str, repo_root_str: str | None) -> AgentRun
     text = path.read_text(encoding="utf-8")
     raw_model = _parse_frontmatter_field(text, "model")
     raw_effort = _parse_frontmatter_field(text, "effort")
+    # Plan 032 Faz 032b — a kernel-owned profile is the authority when named.
+    from .runtime_profiles import RUNTIME_PROFILE_FRONTMATTER_KEY, load_runtime_profiles
+
+    profile_id = _parse_frontmatter_field(text, RUNTIME_PROFILE_FRONTMATTER_KEY)
+    if profile_id:
+        kernel = load_runtime_profiles().get(profile_id)
+        if kernel is None:
+            # Naming an unknown profile is an invalid frontmatter, and the
+            # fail-safe is the same as any other invalid field: the most
+            # expensive read-only tier, with no envelope widening.
+            return AgentRuntimeProfile(agent_name, DEFAULT_MODEL, DEFAULT_EFFORT, "default_invalid")
+        source = "kernel_profile"
+        if raw_model != kernel.model or raw_effort != kernel.effort:
+            source = "kernel_profile_mirror_drift"
+        return AgentRuntimeProfile(
+            agent_name, kernel.model, kernel.effort, source,
+            profile_id=kernel.profile_id,
+            tools=kernel.tools,
+            write_scope=kernel.write_scope,
+            env_passthrough=kernel.env_passthrough,
+            external_writes=kernel.external_writes,
+            budget_usd_per_run=kernel.budget_usd_per_run,
+            max_concurrent=kernel.max_concurrent,
+        )
     model = raw_model if raw_model in VALID_MODELS else DEFAULT_MODEL
     effort = raw_effort if raw_effort in VALID_EFFORTS else DEFAULT_EFFORT
     source = "frontmatter"

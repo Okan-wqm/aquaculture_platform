@@ -40,7 +40,8 @@ Embedder = Callable[[str], "list[float]"]
 EMBEDDER_CMD_ENV = "ARIA_EMBEDDER_CMD"
 EMBEDDER_MODEL_ID_ENV = "ARIA_EMBEDDER_MODEL_ID"
 _EMBED_TIMEOUT_SECONDS = 60
-_KNOWN_KINDS = frozenset({"finding", "belief", "convention"})
+# Plan 032 Faz 032i (D4) — decisions with a stated reason are embeddable too.
+_KNOWN_KINDS = frozenset({"finding", "belief", "convention", "decision"})
 
 
 def _embeddings_path(base_dir: str | Path | None = None) -> Path:

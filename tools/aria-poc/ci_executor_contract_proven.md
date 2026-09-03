@@ -23,6 +23,11 @@ ci_executor:
     - --effort
     - max
     - --dangerously-skip-permissions
+    - --disallowedTools
+    - "<derived from the agent's kernel runtime profile: ungranted tools + external-write rules + mcp__<server> for servers the profile does not name>"
+    - --strict-mcp-config
+    - --mcp-config
+    - "<per-spawn document written by aria_kernel.mcp_client from data/mcp_registry.json: only the profile's mcp_servers, minus quarantined; empty without a profile>"
   stdin: "<contents of aria-tools/agent-invocations/prompts/${REQUEST_ID}.md>"
   persisted_output: "<sanitized aria/agent-response/v1 envelope at expected_output_path>"
   raw_jsonl_persisted: false
@@ -44,6 +49,11 @@ worker_executor:
     - --effort
     - max
     - --dangerously-skip-permissions
+    - --disallowedTools
+    - "<derived from the agent's kernel runtime profile: ungranted tools + external-write rules + mcp__<server> for servers the profile does not name>"
+    - --strict-mcp-config
+    - --mcp-config
+    - "<per-spawn document written by aria_kernel.mcp_client from data/mcp_registry.json: only the profile's mcp_servers, minus quarantined; empty without a profile>"
   stdin: "<contents of aria-tools/dispatch/prompts/${ASSIGNMENT_ID}.md>"
   cwd: "<assigned worktree path>"
   raw_jsonl_persisted: false
@@ -52,8 +62,15 @@ worker_executor:
     - CLAUDE_CLI_MOCK
 ```
 
+The per-agent `--disallowedTools` list is derived by
+`aria_kernel.runtime_profiles.disallowed_tools_for` from the agent's kernel-owned
+runtime profile (Plan 032 Faz 032b): every Claude tool the profile does not grant,
+plus the external-write rules (`Bash(git push*)`, `Bash(gh pr create*)`, `Bash(gh api*)`, …)
+while the profile's `external_writes` is false. Deny rules bind in every permission
+mode, so the envelope holds under `--dangerously-skip-permissions`.
+
 The per-agent `--model` and `--effort` values are resolved from the dispatched
-agent's frontmatter `model:`/`effort:` tiers by
+agent's frontmatter `model:`/`effort:` tiers (mirrors of the kernel profile) by
 `aria_kernel.agent_runtime_profile.read_agent_runtime_profile` (fail-safe: the
 most expensive tier). The `fable`/`xhigh` values above are the fail-safe
 defaults; scout-tier agents may resolve to cheaper aliases/levels, and the CLI
@@ -88,7 +105,7 @@ human approving each tool call (the autonomy `codex exec` previously provided).
 ```yaml
 verification_mode: runtime-preflight
 verified_at_commit: PENDING-OPERATOR-LIVE-INVOCATION
-claude_cli_version_minimum: claude-code 2.1.197
+claude_cli_version_minimum: claude-code 2.1.221
 verified_by_operator_handle: github-actions:self-hosted-claude-runner
 verified_at_iso8601: workflow-run-time
 finding_closed: DEBT-2026-06-29-CLAUDE-CLI-MIGRATION

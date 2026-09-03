@@ -57,6 +57,7 @@ POLICY_KEYS = {
     # pauses work-minting phases (watchdog_sweep, experiment_author) until
     # ARIA finishes what it already opened. Consumed by
     # cycle._backlog_below_cap via rhythm_policy.
+    "executor",
     "rhythm",
     # E24-a (ORPHAN-711) — runtime telemetry pull: where the watchdog reads
     # production metrics from, and the thresholds its detectors apply.
@@ -139,6 +140,34 @@ RHYTHM_DEFAULTS: dict[str, Any] = {
     # remains the code-side floor the decider falls back to.
     "min_interval_hours": 6.0,
 }
+
+
+EXECUTOR_DEFAULTS: dict[str, Any] = {
+    # Plan 032 Faz 032h — drain parallelism. 1 = today's serial lane. Raise
+    # only after the 032d delivery SLO has held (operator decision, one-way
+    # door 16); each concurrent request runs in its own git worktree when
+    # `worktree_per_request` is on, so two agents never share a checkout.
+    "max_concurrent": 1,
+    "worktree_per_request": False,
+}
+
+
+def executor_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
+    """Plan 032 Faz 032h — typed accessor for the executor block."""
+    if repo_root is not None:
+        merged = load_policy(repo_root)
+    else:
+        raw = json.loads(
+            (Path(__file__).resolve().parent / "data" / DEFAULT_FILENAME).read_text(encoding="utf-8")
+        )
+        merged = raw if isinstance(raw, dict) else {}
+    block = dict(EXECUTOR_DEFAULTS)
+    raw_block = merged.get("executor")
+    if isinstance(raw_block, dict):
+        block.update({k: raw_block[k] for k in EXECUTOR_DEFAULTS if k in raw_block})
+    block["max_concurrent"] = max(1, min(8, int(block["max_concurrent"])))
+    block["worktree_per_request"] = bool(block["worktree_per_request"])
+    return block
 
 
 def rhythm_policy(repo_root: str | Path | None = None) -> dict[str, Any]:

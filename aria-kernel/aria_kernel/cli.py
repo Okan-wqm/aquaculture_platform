@@ -2841,6 +2841,192 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print the full report as JSON instead of the one-line-per-check text.",
     )
 
+    # Plan 032 Faz 032b-2 — the Claude Code hook entry points. The CLI reads
+    # the hook payload on stdin and prints the protocol's decision JSON.
+    hook_parser = add_subparser(sub, "hook")
+    hook_sub = hook_parser.add_subparsers(dest="hook_command", required=True)
+    for verb in ("pre-tool", "post-tool", "session"):
+        hook_verb = add_subparser(hook_sub, verb)
+        hook_verb.add_argument("--workspace-root", required=True)
+        hook_verb.add_argument("--request-id", required=True)
+
+    # Plan 032 Faz 032c — checkpoints, sessions, recovery, search.
+    checkpoint_parser = add_subparser(sub, "checkpoint")
+    checkpoint_sub = checkpoint_parser.add_subparsers(dest="checkpoint_command", required=True)
+    for verb in ("list", "diff", "restore", "take", "prune"):
+        cp_verb = add_subparser(checkpoint_sub, verb)
+        cp_verb.add_argument("--workspace-root", default=".")
+        if verb != "prune":
+            cp_verb.add_argument("--request-id", required=True)
+        if verb in ("diff", "restore"):
+            cp_verb.add_argument("--seq", type=int, default=None)
+        if verb == "restore":
+            cp_verb.add_argument("--file", action="append", default=None, dest="files")
+            cp_verb.add_argument("--all-files", action="store_true", help="Restore every file the checkpoint holds (hand edits NOT preserved).")
+        if verb == "take":
+            cp_verb.add_argument("--reason", default="operator")
+    session_parser = add_subparser(sub, "session")
+    session_sub = session_parser.add_subparsers(dest="session_command", required=True)
+    session_list = add_subparser(session_sub, "list")
+    session_list.add_argument("--request-id", required=True)
+    recovery_parser = add_subparser(sub, "recovery")
+    recovery_sub = recovery_parser.add_subparsers(dest="recovery_command", required=True)
+    recovery_classify = add_subparser(recovery_sub, "classify")
+    recovery_classify.add_argument("--request-id", required=True)
+    recovery_classify.add_argument("--workspace-root", default=".")
+    recovery_classify.add_argument("--fingerprint", default=None)
+    recovery_classify.add_argument("--offline", action="store_true", help="Do not ask GitHub; unresolved intents stay unresolved.")
+    search_parser = add_subparser(sub, "search")
+    search_parser.add_argument("query")
+    search_parser.add_argument("--workspace-root", default=".")
+    search_parser.add_argument("--kind", action="append", default=None, dest="kinds")
+    search_parser.add_argument("--rebuild", action="store_true")
+    search_parser.add_argument("--limit", type=int, default=20)
+
+    # Plan 032 Faz 032d — delivery closure: what each implementation request
+    # actually delivered, derived from effect ledgers.
+    delivery_parser = add_subparser(sub, "delivery")
+    delivery_sub = delivery_parser.add_subparsers(dest="delivery_command", required=True)
+    delivery_status = add_subparser(delivery_sub, "status")
+    delivery_status.add_argument("--json", action="store_true")
+
+    # Plan 032 Faz 032e — operator control plane, notifications, live progress.
+    control_parser = add_subparser(sub, "control")
+    control_sub = control_parser.add_subparsers(dest="control_command", required=True)
+    for verb in ("pause", "resume", "cancel"):
+        verb_parser = add_subparser(control_sub, verb)
+        verb_parser.add_argument("--request-id", default=None, required=(verb == "cancel"))
+        verb_parser.add_argument("--reason", default="")
+        verb_parser.add_argument("--operator-ref", default=None)
+    add_subparser(control_sub, "status")
+    notify_parser = add_subparser(sub, "notify")
+    notify_sub = notify_parser.add_subparsers(dest="notify_command", required=True)
+    notify_send = add_subparser(notify_sub, "send")
+    notify_send.add_argument("--kind", required=True)
+    notify_send.add_argument("--title", required=True)
+    notify_send.add_argument("--body", default="")
+    notify_send.add_argument("--key", default=None)
+    notify_send.add_argument("--channel", action="append", default=None, dest="channels")
+    notify_send.add_argument("--dry-run", action="store_true")
+    add_subparser(notify_sub, "channels")
+    tail_parser = add_subparser(sub, "tail")
+    tail_parser.add_argument("request_id")
+    tail_parser.add_argument("-n", "--last", type=int, default=20)
+    tail_parser.add_argument("--follow", action="store_true")
+    tail_parser.add_argument("--json", action="store_true")
+    tail_parser.add_argument("--max-wait-seconds", type=float, default=None)
+
+    # Plan 032 Faz 032f — event gateway, schedule table, offline event ingest.
+    gateway_parser = add_subparser(sub, "gateway")
+    gateway_sub = gateway_parser.add_subparsers(dest="gateway_command", required=True)
+    gateway_serve = add_subparser(gateway_sub, "serve")
+    gateway_serve.add_argument("--workspace-root", default=".")
+    gateway_serve.add_argument("--host", default="127.0.0.1")
+    gateway_serve.add_argument("--port", type=int, default=8787)
+    gateway_serve.add_argument("--poll-interval-seconds", type=float, default=60.0)
+    gateway_serve.add_argument("--max-iterations", type=int, default=None)
+    gateway_serve.add_argument("--no-http", action="store_true", help="scheduler ticks only (no webhook listener)")
+    add_subparser(gateway_sub, "status")
+    schedule_parser = add_subparser(sub, "schedule")
+    schedule_sub = schedule_parser.add_subparsers(dest="schedule_command", required=True)
+    schedule_add = add_subparser(schedule_sub, "add")
+    schedule_add.add_argument("--name", required=True)
+    schedule_add.add_argument("--action", required=True)
+    schedule_add.add_argument("--cron", required=True)
+    schedule_add.add_argument("--operator-ref", default=None)
+    for verb in ("pause", "resume", "remove"):
+        verb_parser = add_subparser(schedule_sub, verb)
+        verb_parser.add_argument("--name", required=True)
+        verb_parser.add_argument("--operator-ref", default=None)
+    add_subparser(schedule_sub, "list")
+    schedule_run = add_subparser(schedule_sub, "run")
+    schedule_run.add_argument("--action", required=True)
+    schedule_run.add_argument("--workspace-root", default=".")
+    event_parser = add_subparser(sub, "event")
+    event_sub = event_parser.add_subparsers(dest="event_command", required=True)
+    event_ingest = add_subparser(event_sub, "ingest")
+    event_ingest.add_argument("--source", choices=["github", "alertmanager", "operator"], required=True)
+    event_ingest.add_argument("--payload-file", required=True)
+    event_ingest.add_argument("--github-event", default=None, help="X-GitHub-Event value for --source github")
+    event_ingest.add_argument("--delivery-id", default=None)
+    event_ingest.add_argument("--actor", default=None)
+    event_ingest.add_argument("--route", action="store_true", help="route immediately instead of leaving it for the daemon")
+    event_ingest.add_argument("--workspace-root", default=".")
+    event_route = add_subparser(event_sub, "route")
+    event_route.add_argument("--workspace-root", default=".")
+
+    # Plan 032 Faz 032g — MCP: the kernel's own server + registry/health/config views.
+    mcp_parser = add_subparser(sub, "mcp")
+    mcp_sub = mcp_parser.add_subparsers(dest="mcp_command", required=True)
+    mcp_serve = add_subparser(mcp_sub, "serve")
+    mcp_serve.add_argument("--workspace-root", default=".")
+    mcp_serve.add_argument("--allow-writes", action="store_true", help="operator only: expose human_required_resolve / runtime_signal_ingest")
+    add_subparser(mcp_sub, "registry")
+    mcp_health = add_subparser(mcp_sub, "health")
+    mcp_health.add_argument("--server", default=None)
+    mcp_release = add_subparser(mcp_sub, "release")
+    mcp_release.add_argument("--server", required=True)
+    mcp_release.add_argument("--operator-ref", required=True)
+    mcp_config = add_subparser(mcp_sub, "config")
+    mcp_config.add_argument("--profile", required=True)
+
+    # Plan 032 Faz 032h — skill curation (proposals only), rollback, shadow compare; parity table.
+    skill_parser = add_subparser(sub, "skill")
+    skill_sub = skill_parser.add_subparsers(dest="skill_command", required=True)
+    skill_curate = add_subparser(skill_sub, "curate")
+    skill_curate.add_argument("--workspace-root", default=".")
+    skill_curate.add_argument("--similarity", type=float, default=None)
+    skill_curate.add_argument("--unused-days", type=int, default=None)
+    skill_proposals = add_subparser(skill_sub, "proposals")
+    skill_proposals.add_argument("--open", action="store_true")
+    skill_decide = add_subparser(skill_sub, "decide")
+    skill_decide.add_argument("--proposal-id", required=True)
+    skill_decide.add_argument("--decision", choices=["accepted", "rejected"], required=True)
+    skill_decide.add_argument("--operator-approval-ref", required=True)
+    skill_decide.add_argument("--note", default="")
+    skill_rollback = add_subparser(skill_sub, "rollback")
+    skill_rollback.add_argument("--draft-id", required=True)
+    skill_rollback.add_argument("--operator-approval-ref", required=True)
+    skill_rollback.add_argument("--workspace-root", default=None)
+    skill_shadow = add_subparser(skill_sub, "shadow-compare")
+    skill_shadow.add_argument("--draft-id", required=True)
+    skill_shadow.add_argument("--workspace-root", default=".")
+    parity_parser = add_subparser(sub, "parity")
+    parity_sub = parity_parser.add_subparsers(dest="parity_command", required=True)
+    parity_generate = add_subparser(parity_sub, "generate")
+    parity_generate.add_argument("--workspace-root", default=".")
+    parity_generate.add_argument("--output", default="docs/aria/generated/harness-parity.md")
+    parity_check = add_subparser(parity_sub, "check")
+    parity_check.add_argument("--workspace-root", default=".")
+
+    # Plan 032 Faz 032i — decision memory, token economy, self-improvement lane.
+    context_compile = add_subparser(context_sub, "compile")
+    context_compile.add_argument("--request-id", default=None)
+    context_compile.add_argument("--query", default=None)
+    context_compile.add_argument("--budget-tokens", type=int, default=None)
+    economy_parser = add_subparser(sub, "economy")
+    economy_sub = economy_parser.add_subparsers(dest="economy_command", required=True)
+    economy_stats = add_subparser(economy_sub, "stats")
+    economy_stats.add_argument("--window-days", type=int, default=None)
+    economy_recommend = add_subparser(economy_sub, "recommend")
+    economy_recommend.add_argument("--window-days", type=int, default=None)
+    economy_recommend.add_argument("--threshold-tokens", type=float, default=None)
+    economy_recommend.add_argument("--dry-run", action="store_true")
+    self_parser = add_subparser(sub, "self-improve")
+    self_sub = self_parser.add_subparsers(dest="self_command", required=True)
+    self_scan = add_subparser(self_sub, "scan")
+    self_scan.add_argument("--workspace-root", default=".")
+    self_open = add_subparser(self_sub, "open")
+    self_open.add_argument("--workspace-root", default=".")
+    self_open.add_argument("--max-new", type=int, default=3)
+    self_propose = add_subparser(self_sub, "propose")
+    self_propose.add_argument("--workspace-root", default=".")
+    self_propose.add_argument("--mission-id", required=True)
+    self_propose.add_argument("--evidence", action="append", required=True, dest="evidence_paths")
+    self_propose.add_argument("--problem", required=True)
+    self_propose.add_argument("--proposed-change", required=True)
+    self_propose.add_argument("--validation-command", default=None)
+
     return parser
 
 
@@ -5848,6 +6034,291 @@ def _main(argv: list[str] | None = None) -> int:
         from .autonomy_state import AutonomyStateReducer
         state = AutonomyStateReducer.derive_current(args.tools_dir)
         print(json.dumps(state.to_dict(), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "hook":
+        from .hooks import run_hook
+
+        try:
+            payload = json.loads(sys.stdin.read() or "{}")
+        except ValueError:
+            payload = {}
+        exit_code, stdout = run_hook(
+            args.hook_command,
+            payload if isinstance(payload, dict) else {},
+            base_dir=args.tools_dir,
+            workspace_root=args.workspace_root,
+            request_id=args.request_id,
+        )
+        if stdout:
+            print(stdout)
+        return exit_code
+
+    if args.command == "checkpoint":
+        from . import checkpoint as _cp
+
+        if args.checkpoint_command == "list":
+            rows = [c.__dict__ for c in _cp.list_checkpoints(args.request_id, base_dir=args.tools_dir)]
+            print(json.dumps(rows, indent=2, sort_keys=True))
+            return 0
+        if args.checkpoint_command == "take":
+            taken = _cp.take_checkpoint(workspace_root=args.workspace_root, request_id=args.request_id,
+                                        reason=args.reason, base_dir=args.tools_dir, min_interval_seconds=0)
+            print(json.dumps(taken.__dict__ if taken else {"folded": True}, indent=2, sort_keys=True))
+            return 0
+        if args.checkpoint_command == "diff":
+            print(_cp.diff_checkpoint(workspace_root=args.workspace_root, request_id=args.request_id, seq=args.seq, base_dir=args.tools_dir))
+            return 0
+        if args.checkpoint_command == "restore":
+            result = _cp.restore_checkpoint(
+                workspace_root=args.workspace_root, request_id=args.request_id, seq=args.seq,
+                files=args.files, preserve_hand_edits=not args.all_files, base_dir=args.tools_dir,
+            )
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0
+        if args.checkpoint_command == "prune":
+            print(json.dumps(_cp.prune_checkpoints(workspace_root=args.workspace_root, base_dir=args.tools_dir), indent=2, sort_keys=True))
+            return 0
+
+    if args.command == "context" and args.context_command == "compile":
+        from .context_compiler import compile_context
+
+        request: dict[str, Any] = {"request_id": args.request_id, "suggested_prompt": args.query or ""}
+        if args.request_id:
+            from .ledger import load_declared_jsonl
+            from .tool_registry import ensure_tools_dir
+
+            requests_path = ensure_tools_dir(args.tools_dir) / "agent-invocations" / "requests.jsonl"
+            rows = load_declared_jsonl(requests_path, expected_surface="agent_invocation_requests") if requests_path.exists() else []
+            request = next((r for r in rows if r.get("request_id") == args.request_id), request)
+        kwargs = {"budget_tokens": args.budget_tokens} if args.budget_tokens else {}
+        print(json.dumps(compile_context(request=request, base_dir=args.tools_dir, record=False, **kwargs).to_dict(), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "economy":
+        from . import token_economy as te
+
+        kwargs = {"window_days": args.window_days} if args.window_days else {}
+        stats = te.usage_per_accepted_result(base_dir=args.tools_dir, **kwargs)
+        if args.economy_command == "stats":
+            print(json.dumps([s.to_dict() for s in stats], indent=2, sort_keys=True))
+            return 0
+        rec_kwargs = {"threshold_tokens": args.threshold_tokens} if args.threshold_tokens else {}
+        rows = [*te.recommend_efforts(stats, **rec_kwargs), *te.calibrate_role_caps(stats)]
+        if not args.dry_run:
+            rows = te.record_recommendations(rows, base_dir=args.tools_dir)
+        print(json.dumps(rows, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "self-improve":
+        from . import self_improvement as si
+
+        if args.self_command == "scan":
+            print(json.dumps([s.__dict__ for s in si.scan_signals(base_dir=args.tools_dir, workspace_root=args.workspace_root)], indent=2, sort_keys=True))
+            return 0
+        if args.self_command == "open":
+            print(json.dumps(si.open_self_improvement_missions(base_dir=args.tools_dir, workspace_root=args.workspace_root, max_new=args.max_new), indent=2, sort_keys=True))
+            return 0
+        kwargs = {"validation_command": args.validation_command} if args.validation_command else {}
+        print(json.dumps(si.propose_self_change(mission_id=args.mission_id, base_dir=args.tools_dir, workspace_root=args.workspace_root,
+                                                evidence_paths=args.evidence_paths, problem=args.problem, proposed_change=args.proposed_change, **kwargs),
+                         indent=2, sort_keys=True, default=str))
+        return 0
+
+    if args.command == "skill":
+        from . import skill_curator
+
+        if args.skill_command == "curate":
+            kwargs = {}
+            if args.similarity is not None:
+                kwargs["similarity_threshold"] = args.similarity
+            if args.unused_days is not None:
+                kwargs["unused_days"] = args.unused_days
+            print(json.dumps(skill_curator.propose_curation(args.workspace_root, base_dir=args.tools_dir, **kwargs), indent=2, sort_keys=True))
+            return 0
+        if args.skill_command == "proposals":
+            print(json.dumps(skill_curator.list_curation_proposals(base_dir=args.tools_dir, open_only=args.open), indent=2, sort_keys=True))
+            return 0
+        if args.skill_command == "decide":
+            print(json.dumps(skill_curator.decide_curation(args.proposal_id, decision=args.decision, operator_approval_ref=args.operator_approval_ref,
+                                                           base_dir=args.tools_dir, note=args.note), indent=2, sort_keys=True))
+            return 0
+        if args.skill_command == "rollback":
+            print(json.dumps(skill_curator.rollback_skill_materialization(draft_id=args.draft_id, base_dir=args.tools_dir,
+                                                                          operator_approval_ref=args.operator_approval_ref,
+                                                                          workspace_root=args.workspace_root), indent=2, sort_keys=True))
+            return 0
+        print(json.dumps(skill_curator.shadow_compare(draft_id=args.draft_id, workspace_root=args.workspace_root, base_dir=args.tools_dir), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "parity":
+        from .harness_parity import check_parity, render_parity_report
+
+        if args.parity_command == "generate":
+            text = render_parity_report(repo_root=args.workspace_root)
+            out = Path(args.workspace_root) / args.output
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(text, encoding="utf-8")
+            print(str(out))
+            return 0
+        records = check_parity(repo_root=args.workspace_root)
+        problems = [r for r in records if r["problems"]]
+        print(json.dumps({"rows": len(records), "problems": problems}, indent=2, sort_keys=True))
+        return 0 if not problems else 1
+
+    if args.command == "mcp":
+        from . import mcp_client
+
+        if args.mcp_command == "serve":
+            from .mcp_server import AriaMcpServer
+
+            return AriaMcpServer(base_dir=args.tools_dir, workspace_root=args.workspace_root, allow_writes=args.allow_writes).serve()
+        if args.mcp_command == "registry":
+            registry = mcp_client.load_mcp_registry()
+            print(json.dumps({name: spec.__dict__ for name, spec in registry.servers.items()}, indent=2, sort_keys=True, default=list))
+            return 0
+        if args.mcp_command == "health":
+            registry = mcp_client.load_mcp_registry()
+            names = [args.server] if args.server else sorted(registry.servers)
+            print(json.dumps([mcp_client.evaluate_mcp_health(n, base_dir=args.tools_dir) for n in names], indent=2, sort_keys=True))
+            return 0
+        if args.mcp_command == "release":
+            print(json.dumps(mcp_client.release_quarantine(args.server, base_dir=args.tools_dir, operator_ref=args.operator_ref), indent=2, sort_keys=True))
+            return 0
+        from .runtime_profiles import profile_by_id
+
+        print(json.dumps({"config": mcp_client.mcp_config_for_profile(profile_by_id(args.profile), base_dir=args.tools_dir),
+                          "disallowed_tools": list(mcp_client.mcp_tool_rules(profile_by_id(args.profile)))}, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "gateway":
+        if args.gateway_command == "status":
+            from .gateway.inbox import inbox_summary
+            from .gateway.scheduler import fold_schedules
+
+            print(json.dumps({"inbox": inbox_summary(args.tools_dir),
+                              "schedules": {n: s.__dict__ for n, s in fold_schedules(args.tools_dir).items()}}, indent=2, sort_keys=True))
+            return 0
+        from .gateway.daemon import run_gateway_daemon
+        from .gateway.server import GatewayConfig
+
+        result = run_gateway_daemon(
+            base_dir=args.tools_dir, workspace_root=args.workspace_root,
+            config=GatewayConfig(host=args.host, port=args.port), max_iterations=args.max_iterations,
+            poll_interval_seconds=args.poll_interval_seconds, serve_http=not args.no_http,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result.get("exits_clean") else 1
+
+    if args.command == "schedule":
+        from .gateway import scheduler
+
+        if args.schedule_command == "add":
+            print(json.dumps(scheduler.add_schedule(name=args.name, action=args.action, cron=args.cron, base_dir=args.tools_dir,
+                                                    operator_ref=args.operator_ref), indent=2, sort_keys=True))
+            return 0
+        if args.schedule_command in {"pause", "resume", "remove"}:
+            print(json.dumps(scheduler.change_schedule(args.schedule_command, name=args.name, base_dir=args.tools_dir,
+                                                       operator_ref=args.operator_ref), indent=2, sort_keys=True))
+            return 0
+        if args.schedule_command == "list":
+            print(json.dumps({n: s.__dict__ for n, s in scheduler.fold_schedules(args.tools_dir).items()}, indent=2, sort_keys=True))
+            return 0
+        result = scheduler.run_action(args.action, base_dir=args.tools_dir, workspace_root=args.workspace_root)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["status"] != "failed" else 1
+
+    if args.command == "event":
+        from .gateway import inbox as gateway_inbox
+        from .gateway import normalize as gateway_normalize
+        from .gateway.router import drain_inbox, route_event
+
+        if args.event_command == "route":
+            print(json.dumps(drain_inbox(base_dir=args.tools_dir, workspace_root=args.workspace_root), indent=2, sort_keys=True))
+            return 0
+        payload = json.loads(Path(args.payload_file).read_text(encoding="utf-8"))
+        delivery = args.delivery_id or f"cli:{gateway_normalize.payload_digest(payload)[7:31]}"
+        if args.source == "github":
+            if not args.github_event:
+                raise SystemExit("--github-event is required for --source github")
+            event = gateway_normalize.normalize_github(args.github_event, delivery, payload)
+            events = [event] if event is not None else []
+        elif args.source == "alertmanager":
+            events = gateway_normalize.normalize_alertmanager(delivery, payload)
+        else:
+            events = [gateway_normalize.normalize_operator(delivery, payload, actor=args.actor or "cli")]
+        out = []
+        for event in events:
+            row = gateway_inbox.record_event(event, base_dir=args.tools_dir)
+            entry: dict[str, Any] = {"delivery_id": event.delivery_id, "kind": event.kind, "accepted": row is not None}
+            if row is not None and args.route:
+                outcome = route_event(event, base_dir=args.tools_dir, workspace_root=args.workspace_root)
+                entry["action"], entry["refs"], entry["error"] = outcome.action, outcome.refs, outcome.error
+            out.append(entry)
+        print(json.dumps(out, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "control":
+        from .control import effective_control, record_control
+
+        if args.control_command == "status":
+            print(json.dumps(effective_control(args.tools_dir).to_dict(), indent=2, sort_keys=True))
+            return 0
+        row = record_control(args.control_command, base_dir=args.tools_dir, request_id=args.request_id,
+                             operator_ref=args.operator_ref, reason=args.reason)
+        print(json.dumps({"command": row, "effective": effective_control(args.tools_dir).to_dict()}, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "notify":
+        from .notify import CHANNEL_ENV_NAMES, configured_channels, notify
+
+        if args.notify_command == "channels":
+            print(json.dumps({"configured": list(configured_channels()), "env_names": CHANNEL_ENV_NAMES}, indent=2, sort_keys=True))
+            return 0
+        rows = notify(kind=args.kind, title=args.title, body=args.body, key=args.key, base_dir=args.tools_dir,
+                      channels=args.channels, dry_run=args.dry_run)
+        print(json.dumps(rows, indent=2, sort_keys=True))
+        return 0 if all(r["status"] != "failed" for r in rows) else 1
+
+    if args.command == "tail":
+        from .progress import render_progress_row, tail_progress
+
+        for row in tail_progress(args.request_id, base_dir=args.tools_dir, last=args.last, follow=args.follow,
+                                 max_wait_seconds=args.max_wait_seconds):
+            print(json.dumps(row, sort_keys=True) if args.json else render_progress_row(row), flush=True)
+        return 0
+
+    if args.command == "delivery" and args.delivery_command == "status":
+        from .delivery_closure import compute_delivery_closure, render_delivery_text
+
+        report = compute_delivery_closure(base_dir=args.tools_dir)
+        print(json.dumps(report.to_dict(), indent=2, sort_keys=True) if args.json else render_delivery_text(report))
+        return 0
+
+    if args.command == "session" and args.session_command == "list":
+        from .session_continuity import sessions_for
+
+        print(json.dumps(sessions_for(args.request_id, base_dir=args.tools_dir), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "recovery" and args.recovery_command == "classify":
+        from .recovery import classify_recovery, gh_remote_reader
+
+        decision = classify_recovery(
+            args.request_id, base_dir=args.tools_dir, fingerprint=args.fingerprint,
+            remote_reader=None if args.offline else gh_remote_reader(args.workspace_root),
+        )
+        print(json.dumps(decision.to_dict(), indent=2, sort_keys=True))
+        return 0 if decision.decision != "human_required" else 3
+
+    if args.command == "search":
+        from .search import rebuild_index, search
+
+        if args.rebuild:
+            counts = rebuild_index(workspace_root=args.workspace_root, base_dir=args.tools_dir)
+            print(json.dumps({"rebuilt": counts}, sort_keys=True), file=sys.stderr)
+        hits = search(args.query, workspace_root=args.workspace_root, kinds=args.kinds, limit=args.limit)
+        print(json.dumps([h.__dict__ for h in hits], indent=2, sort_keys=True))
         return 0
 
     if args.command == "doctor":

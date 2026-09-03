@@ -15,7 +15,13 @@ import {
   TOKEN_BLACKLIST,
   USER_TOKEN_REVOCATION,
 } from '@aquaculture/backend-common/security';
-import { ExecutionContext, HttpException, HttpStatus, UnauthorizedException, ForbiddenException } from '@nestjs/common';
+import {
+  ExecutionContext,
+  HttpException,
+  HttpStatus,
+  UnauthorizedException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
@@ -32,7 +38,9 @@ jest.mock('@aquaculture/backend-common/auth', () => {
   );
   return {
     ...actual,
-    getJwtVerifyOptions: jest.fn(() => ({ secret: 'a-very-secure-test-secret-that-is-at-least-32-chars-long' })),
+    getJwtVerifyOptions: jest.fn(() => ({
+      secret: 'a-very-secure-test-secret-that-is-at-least-32-chars-long',
+    })),
   };
 });
 
@@ -59,7 +67,7 @@ describe('PlatformAdminGuard', () => {
   // APA-367: the guard now REQUIRES both revocation stores. Default them to
   // "token valid" so the existing signature/RBAC tests are unaffected; the
   // revocation describe-block flips them per-case.
-  let isValidToken: jest.Mock;
+  let isBlacklisted: jest.Mock;
   let isTokenValid: jest.Mock;
   // APA-369: per-IP failed-auth limiter + security-event publisher. Defaults:
   // limiter allows (so existing 401 tests still throw 401, not 429); event
@@ -77,9 +85,7 @@ describe('PlatformAdminGuard', () => {
     requiredRoles?: string[];
   }): ExecutionContext {
     const request: MockRequest = {
-      headers: overrides.authHeader !== undefined
-        ? { authorization: overrides.authHeader }
-        : {},
+      headers: overrides.authHeader !== undefined ? { authorization: overrides.authHeader } : {},
       method: overrides.method || 'GET',
       url: overrides.url || '/test',
     };
@@ -107,7 +113,11 @@ describe('PlatformAdminGuard', () => {
     } as unknown as ExecutionContext;
   }
 
-  function signToken(payload: Partial<JwtPayload>, secret = TEST_JWT_SECRET, options?: jwt.SignOptions): string {
+  function signToken(
+    payload: Partial<JwtPayload>,
+    secret = TEST_JWT_SECRET,
+    options?: jwt.SignOptions,
+  ): string {
     const defaults: JwtPayload = {
       sub: 'user-123',
       email: 'admin@test.com',
@@ -122,7 +132,7 @@ describe('PlatformAdminGuard', () => {
 
   beforeEach(async () => {
     nodeEnv = 'development';
-    isValidToken = jest.fn().mockResolvedValue(true);
+    isBlacklisted = jest.fn().mockResolvedValue(false);
     isTokenValid = jest.fn().mockResolvedValue(true);
     checkLimit = jest.fn().mockReturnValue({ allowed: true, remaining: 99 });
     publishTokenRejected = jest.fn().mockResolvedValue(undefined);
@@ -151,10 +161,10 @@ describe('PlatformAdminGuard', () => {
             ),
           },
         },
-        // APA-367: revocation stores are REQUIRED injections. isValidToken covers
+        // APA-367: revocation stores are REQUIRED injections. isBlacklisted covers
         // the per-jti + `token:blacklist:` bulk namespace; isTokenValid covers the
         // `user_blacklist:` epoch (force-logout / deletion / RBAC reduction).
-        { provide: TOKEN_BLACKLIST, useValue: { isValidToken } },
+        { provide: TOKEN_BLACKLIST, useValue: { isBlacklisted } },
         { provide: USER_TOKEN_REVOCATION, useValue: { isTokenValid } },
         // APA-369: per-IP failed-auth limiter + incident-pipeline event publisher.
         { provide: IpRateLimiterService, useValue: { checkLimit } },
@@ -205,7 +215,9 @@ describe('PlatformAdminGuard', () => {
     it('should reject requests with non-Bearer scheme', async () => {
       const context = createMockExecutionContext({ authHeader: 'Basic abc123' });
       await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
-      await expect(guard.canActivate(context)).rejects.toThrow('Invalid authorization header format');
+      await expect(guard.canActivate(context)).rejects.toThrow(
+        'Invalid authorization header format',
+      );
     });
 
     it('should reject Bearer without token', async () => {
@@ -253,9 +265,10 @@ describe('PlatformAdminGuard', () => {
       const parts = token.split('.');
       const encodedPayload = parts[1];
       if (!encodedPayload) throw new Error('JWT payload segment missing');
-      const payload = JSON.parse(
-        Buffer.from(encodedPayload, 'base64url').toString(),
-      ) as Record<string, unknown>;
+      const payload = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString()) as Record<
+        string,
+        unknown
+      >;
       payload.roles = ['HACKED_ROLE'];
       parts[1] = Buffer.from(JSON.stringify(payload)).toString('base64url');
       const tamperedToken = parts.join('.');
@@ -342,17 +355,17 @@ describe('PlatformAdminGuard', () => {
   // ========================================================================
   describe('Token revocation (APA-367)', () => {
     it('rejects a valid-signature SUPER_ADMIN token whose jti is individually blacklisted', async () => {
-      isValidToken.mockResolvedValue(false);
+      isBlacklisted.mockResolvedValue(true);
       const token = signToken({ sub: 'admin-1', jti: 'revoked-jti', roles: ['SUPER_ADMIN'] });
       const context = createMockExecutionContext({ authHeader: `Bearer ${token}` });
       await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
       await expect(guard.canActivate(context)).rejects.toThrow('Token has been revoked');
-      expect(isValidToken).toHaveBeenCalledWith('revoked-jti', 'admin-1', expect.any(Date));
+      expect(isBlacklisted).toHaveBeenCalledWith('revoked-jti');
     });
 
     it('rejects a token issued before a user-level revocation epoch (force-logout / deletion)', async () => {
       // Per-jti store says clean, but the user_blacklist epoch invalidates it.
-      isValidToken.mockResolvedValue(true);
+      isBlacklisted.mockResolvedValue(false);
       isTokenValid.mockResolvedValue(false);
       const token = signToken({ sub: 'admin-2', roles: ['SUPER_ADMIN'] });
       const context = createMockExecutionContext({ authHeader: `Bearer ${token}` });
@@ -365,7 +378,7 @@ describe('PlatformAdminGuard', () => {
       const token = signToken({ sub: 'admin-3', jti: 'live-jti', roles: ['SUPER_ADMIN'] });
       const context = createMockExecutionContext({ authHeader: `Bearer ${token}` });
       await expect(guard.canActivate(context)).resolves.toBe(true);
-      expect(isValidToken).toHaveBeenCalledWith('live-jti', 'admin-3', expect.any(Date));
+      expect(isBlacklisted).toHaveBeenCalledWith('live-jti');
       expect(isTokenValid).toHaveBeenCalledWith('admin-3', expect.any(Date));
     });
   });

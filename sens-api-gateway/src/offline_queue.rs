@@ -164,35 +164,11 @@ fn load_or_create_db_secret() -> Result<Vec<u8>> {
     crate::db_secret::read_or_create_v1_secret()
 }
 
-/// Apply SQLCipher encryption key to a newly opened database connection.
-///
-/// Uses HMAC-SHA256(machine_id, secret_key) as the encryption key.
-/// The hex-encoded PRAGMA key format prevents SQL injection.
-///
-/// **Legacy v1-only path.** The manifest-aware variant
-/// is `apply_pragma_key_hex` below, called by
-/// `OfflineQueue::with_keystore_derivation` (PR-195
-/// Batch #13). This function stays in place for the
-/// legacy `with_disk_limit` constructor — operators on
-/// agents that haven't migrated to v2 still rely on
-/// the cached v1 derivation.
-fn apply_db_encryption_key(conn: &Connection) -> Result<()> {
-    let hex_key = derive_db_encryption_key()?;
-    apply_pragma_key_hex(conn, &hex_key)
-}
-
-/// Apply a pre-derived SQLCipher PRAGMA key (lower-hex
-/// 64 chars) to a newly-opened connection. Extracted
-/// so both the legacy v1-only path and the
-/// manifest-aware path (PR-195 Batch #13
-/// `with_keystore_derivation`) share the same
-/// PRAGMA-emit logic — no drift between the two
-/// callers in how the key statement is constructed.
-fn apply_pragma_key_hex(conn: &Connection, hex: &str) -> Result<()> {
-    conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex))
-        .context("Failed to apply SQLCipher database encryption key")?;
-    Ok(())
-}
+// EDGE-HIGH-026: the former `apply_db_encryption_key` / `apply_pragma_key_hex`
+// helpers were deleted — the SQLCipher PRAGMA-key ceremony (raw key +
+// journal/synchronous/busy_timeout/auto_vacuum) now lives ONLY in
+// `crate::db::sqlcipher_factory`. `derive_db_encryption_key` (above) stays
+// here as the v1 key-material SSoT the factory delegates to.
 
 /// 2026-04-29 enterprise shutdown fsync helper.
 ///
@@ -445,13 +421,16 @@ impl OfflineQueue {
         max_age_secs: u64,
         max_disk_bytes: u64,
     ) -> Result<Self> {
-        let conn = Connection::open(db_path)
-            .with_context(|| format!("Failed to open queue database: {}", db_path.display()))?;
-
-        // Apply SQLCipher database key derived from the device machine-id (IEC 62443 FR4).
-        // This encrypts the database at rest so physical access to the device does not
-        // expose queued telemetry or PLC state.
-        apply_db_encryption_key(&conn)?;
+        // EDGE-HIGH-026: open + key via the canonical SQLCipher factory
+        // (v1 device-secret key). Encrypts the database at rest (IEC 62443
+        // FR4) so physical access to the device does not expose queued
+        // telemetry or PLC state; the factory owns the PRAGMA key + WAL /
+        // synchronous / busy_timeout / auto_vacuum sequence.
+        let conn = crate::db::sqlcipher_factory::open_device_secret(
+            db_path,
+            "offline_queue",
+            crate::db::sqlcipher_factory::PragmaProfile::DEFAULT,
+        )?;
 
         let queue = Self {
             conn: Mutex::new(conn),
@@ -518,46 +497,26 @@ impl OfflineQueue {
         keystore: std::sync::Arc<dyn crate::keystore::Keystore>,
         deployment_uuid: Vec<u8>,
     ) -> Result<Self> {
-        // Read the v1 inputs the resolver may need (the
-        // resolver only uses them on the v1 / missing-
-        // manifest path; v2 path ignores them — but we
-        // populate unconditionally so the resolver
-        // always has the option, mirroring the v2
-        // shim's caller contract).
-        let machine_id = crate::machine_id::read()
-            .context("OfflineQueue with_keystore_derivation: machine_id read failed")?;
-        let secret_key = load_or_create_db_secret()?;
-        let v1_inputs = crate::db_migration::consumer_key_resolver::V1Inputs {
-            machine_id: machine_id.into_bytes(),
-            secret_key,
-        };
-
-        // ConsumerContext for OfflineQueue (device-
-        // bound per ADR-031): deployment_uuid required;
-        // program_artifact_sha256 None.
+        // EDGE-HIGH-026: open + key via the canonical SQLCipher factory's
+        // resolver path. The factory assembles the v1 inputs (machine-id +
+        // device secret) internally and owns the PRAGMA key + durability
+        // sequence. ConsumerContext for OfflineQueue is device-bound per
+        // ADR-031: deployment_uuid required; program_artifact_sha256 None.
         let ctx = crate::db_migration::consumer_context::ConsumerContext {
             deployment_uuid,
             program_artifact_sha256: None,
         };
-
-        let resolved = crate::db_migration::consumer_key_resolver::resolve_consumer_pragma_key(
+        let opened = crate::db::sqlcipher_factory::open_resolved(
             db_path,
             crate::keystore::purpose::KeyPurpose::SqlCipherOfflineQueue,
             &ctx,
             keystore.as_ref(),
-            &v1_inputs,
+            crate::db::sqlcipher_factory::PragmaProfile::DEFAULT,
         )
-        .await
-        .map_err(|e| {
-            anyhow::anyhow!("OfflineQueue with_keystore_derivation: resolver failed: {e}")
-        })?;
-
-        let conn = Connection::open(db_path)
-            .with_context(|| format!("Failed to open queue database: {}", db_path.display()))?;
-        apply_pragma_key_hex(&conn, resolved.pragma_key_hex.as_str())?;
+        .await?;
 
         let queue = Self {
-            conn: Mutex::new(conn),
+            conn: Mutex::new(opened.conn),
             db_path: Some(db_path.to_path_buf()),
             max_size,
             max_age_secs,
@@ -572,7 +531,7 @@ impl OfflineQueue {
             max_size,
             max_age_secs,
             max_disk_bytes / (1024 * 1024),
-            resolved.current_version,
+            opened.key_version,
         );
 
         Ok(queue)
@@ -653,10 +612,10 @@ impl OfflineQueue {
 
         conn.execute_batch(
             "
-            -- Enable WAL mode for better concurrent access
-            PRAGMA journal_mode=WAL;
-            PRAGMA synchronous=NORMAL;
-            PRAGMA busy_timeout=5000;
+            -- PR935-MEDIUM-002: journal_mode / synchronous / busy_timeout are
+            -- owned by the SQLCipher factory at open (this store's NORMAL floor
+            -- + the scoped durable_commit for the seq high-water-mark). Schema
+            -- init no longer re-emits them.
 
             -- Message queue table
             CREATE TABLE IF NOT EXISTS message_queue (
@@ -677,11 +636,57 @@ impl OfflineQueue {
             -- Index for expiration cleanup
             CREATE INDEX IF NOT EXISTS idx_queue_created
             ON message_queue (created_at);
+
+            -- EDGE-CRITICAL-004: persisted high-water-mark for the outbound
+            -- edge_seq idempotency counter. A single row (id=1) whose
+            -- reserved_hwm only ever increases; a Hi/Lo allocator reserves
+            -- blocks from it so the seq is strictly monotonic and never
+            -- reused across restarts (a crash loses at most a block, which is
+            -- harmless — the dedup key needs uniqueness, not contiguity).
+            CREATE TABLE IF NOT EXISTS edge_seq_state (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                reserved_hwm INTEGER NOT NULL DEFAULT 0
+            );
             ",
         )
         .context("Failed to initialize queue schema")?;
 
         Ok(())
+    }
+
+    /// EDGE-CRITICAL-004: reserve a contiguous block of `block` edge_seq
+    /// values and return the new reserved high-water-mark. The reserved
+    /// block is `[hwm - block, hwm)`. The persisted `reserved_hwm` only
+    /// ever increases, so across restarts the next boot resumes strictly
+    /// above every value ever handed out — no reuse is possible.
+    pub fn reserve_seq_block(&self, block: u64) -> Result<u64> {
+        let conn = acquire_sqlite_lock(&self.conn, &self.poison_health_verified)?;
+        // Ensure the singleton row exists, then bump it atomically and read
+        // back the new value. `INSERT OR IGNORE` + `UPDATE ... RETURNING` is
+        // one connection-serialized transaction under the lock.
+        conn.execute(
+            "INSERT OR IGNORE INTO edge_seq_state (id, reserved_hwm) VALUES (1, 0)",
+            [],
+        )
+        .context("Failed to seed edge_seq_state")?;
+        // PR935-HIGH-004: this high-water-mark commit MUST survive a power cut.
+        // The queue runs at synchronous=NORMAL for the hot telemetry INSERT
+        // path (WAL frames fsync only at checkpoint), but a lost hwm commit
+        // would rewind reserved_hwm and re-issue already-handed-out
+        // (device_id, edge_seq) pairs, which the backend dedup would then drop
+        // as replays — silently discarding fresh telemetry and alarms. Scope
+        // synchronous=FULL to THIS commit only (it happens once per `block`
+        // messages, so the fsync is amortized ~1/256).
+        let new_hwm: i64 = crate::db::sqlcipher_factory::durable_commit(&conn, |conn| {
+            conn.query_row(
+                "UPDATE edge_seq_state SET reserved_hwm = reserved_hwm + ?1
+                  WHERE id = 1 RETURNING reserved_hwm",
+                params![block as i64],
+                |row| row.get(0),
+            )
+            .context("Failed to reserve edge_seq block")
+        })?;
+        Ok(new_hwm as u64)
     }
 
     /// Enqueue a message
@@ -1125,9 +1130,11 @@ impl OfflineQueue {
     /// windows as far as the underlying filesystem allows.
     pub fn checkpoint_and_fsync(&self) -> Result<()> {
         let conn = acquire_sqlite_lock(&self.conn, &self.poison_health_verified)?;
+        // A deliberate shutdown-flush durability RAISE (NORMAL floor → FULL) +
+        // WAL checkpoint, not a store opener re-emitting the factory's sequence.
         conn.execute_batch(
             "
-            PRAGMA synchronous=FULL;
+            PRAGMA synchronous=FULL; -- INVARIANT-ALLOW: sqlcipher-durability
             PRAGMA wal_checkpoint(FULL);
             ",
         )
@@ -1360,6 +1367,21 @@ pub struct IntegrityCheckResult {
 /// let queue = AsyncOfflineQueue::new(OfflineQueue::new(path, 1000, 3600)?);
 /// queue.enqueue_async("topic", "payload", MessagePriority::Normal, 1, false).await?;
 /// ```
+/// EDGE-CRITICAL-004: in-memory half of the Hi/Lo `edge_seq` allocator.
+/// `next` is the next id to hand out; `ceiling` is the exclusive top of the
+/// currently-reserved block. When `next == ceiling` a new block is reserved
+/// from the persisted `edge_seq_state` high-water-mark.
+#[derive(Default)]
+struct EdgeSeqAllocator {
+    next: u64,
+    ceiling: u64,
+}
+
+/// EDGE-CRITICAL-004: how many `edge_seq` values to reserve per SQLite
+/// round-trip. Keeps the telemetry hot path (io_data every 100-500 ms) off a
+/// per-message disk write; a crash wastes at most this many ids (harmless).
+const EDGE_SEQ_BLOCK: u64 = 256;
+
 pub struct AsyncOfflineQueue {
     inner: std::sync::Arc<OfflineQueue>,
     /// Optional HealthState for Batch 105 observability
@@ -1368,6 +1390,10 @@ pub struct AsyncOfflineQueue {
     /// increment the offline-queue counter family +
     /// update the queue-size gauge. None = no-op.
     health_state: Option<crate::health::HealthState>,
+    /// EDGE-CRITICAL-004: Hi/Lo allocator state for the outbound edge_seq
+    /// idempotency counter. Guarded by an async mutex; the block-reserve
+    /// SQLite write happens under it via spawn_blocking.
+    edge_seq: tokio::sync::Mutex<EdgeSeqAllocator>,
 }
 
 impl AsyncOfflineQueue {
@@ -1376,6 +1402,7 @@ impl AsyncOfflineQueue {
         Self {
             inner: std::sync::Arc::new(queue),
             health_state: None,
+            edge_seq: tokio::sync::Mutex::new(EdgeSeqAllocator::default()),
         }
     }
 
@@ -1384,7 +1411,31 @@ impl AsyncOfflineQueue {
         Self {
             inner: queue,
             health_state: None,
+            edge_seq: tokio::sync::Mutex::new(EdgeSeqAllocator::default()),
         }
+    }
+
+    /// EDGE-CRITICAL-004: allocate the next strictly-monotonic, never-reused
+    /// `edge_seq`. Hands out from the in-memory block; reserves a fresh block
+    /// from the persisted high-water-mark (via spawn_blocking) when exhausted.
+    /// The value survives restart because the persisted `reserved_hwm` only
+    /// increases, so `(device_id, edge_seq)` is a stable idempotency key a
+    /// backend consumer can dedup store-and-forward replays against.
+    pub async fn alloc_edge_seq(&self) -> Result<u64> {
+        let mut alloc = self.edge_seq.lock().await;
+        if alloc.next >= alloc.ceiling {
+            let queue = std::sync::Arc::clone(&self.inner);
+            let new_ceiling =
+                tokio::task::spawn_blocking(move || queue.reserve_seq_block(EDGE_SEQ_BLOCK))
+                    .await
+                    .map_err(|e| anyhow::anyhow!("spawn_blocking join error: {}", e))??;
+            // The reserved block is [new_ceiling - EDGE_SEQ_BLOCK, new_ceiling).
+            alloc.next = new_ceiling.saturating_sub(EDGE_SEQ_BLOCK);
+            alloc.ceiling = new_ceiling;
+        }
+        let seq = alloc.next;
+        alloc.next += 1;
+        Ok(seq)
     }
 
     /// Batch 105 observability wire. Attach a HealthState so
@@ -1595,14 +1646,22 @@ impl Clone for AsyncOfflineQueue {
         Self {
             inner: self.inner.clone(),
             health_state: self.health_state.clone(),
+            // EDGE-CRITICAL-004: a fresh allocator per clone is safe — each
+            // reserves its own non-overlapping block from the shared,
+            // atomically-bumped persisted high-water-mark, so no two clones
+            // can hand out the same edge_seq.
+            edge_seq: tokio::sync::Mutex::new(EdgeSeqAllocator::default()),
         }
     }
 }
 
+/// Test-only key-path sandbox shared by every in-crate test that reaches
+/// `derive_db_encryption_key` — the offline queue and, since the SCADA store
+/// derives its keystore-less key through the same device-secret path, the
+/// `ScadaDb` package-lifecycle tests. One owner, so no test module can seed a
+/// second `SUDERRA_DB_KEY_PATH` that races the process-wide `OnceLock` latch.
 #[cfg(test)]
-mod tests {
-    use super::*;
-
+pub(crate) mod test_support {
     /// Test-wide shared key-path sandbox (Batch 88 / 90 / 96
     /// architecture). Set ONCE on first backup-test
     /// invocation; the Batch 96 `OnceLock<String>` cache
@@ -1637,7 +1696,7 @@ mod tests {
             path
         });
 
-    fn ensure_key_sandbox() {
+    pub(crate) fn ensure_key_sandbox() {
         let path = &*TEST_KEY_PATH_INIT;
         match std::fs::read(path) {
             Ok(bytes) if bytes.len() >= crate::db_secret::MIN_SECRET_KEY_LEN => {}
@@ -1650,6 +1709,67 @@ mod tests {
         // inheriting a transient path left by another env-mutating test.
         unsafe {
             std::env::set_var("SUDERRA_DB_KEY_PATH", path);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::test_support::ensure_key_sandbox;
+    use super::*;
+
+    // EDGE-CRITICAL-004: the outbound edge_seq idempotency counter.
+
+    #[test]
+    fn reserve_seq_block_is_monotonic_and_non_overlapping() {
+        let queue = OfflineQueue::in_memory(100).unwrap();
+        let a = queue.reserve_seq_block(256).unwrap();
+        let b = queue.reserve_seq_block(256).unwrap();
+        let c = queue.reserve_seq_block(10).unwrap();
+        // Each reservation advances the high-water-mark by exactly `block`.
+        assert_eq!(a, 256);
+        assert_eq!(b, 512);
+        assert_eq!(c, 522);
+        // Blocks [0,256), [256,512), [512,522) do not overlap.
+    }
+
+    #[tokio::test]
+    async fn alloc_edge_seq_is_strictly_monotonic() {
+        let queue = AsyncOfflineQueue::new(OfflineQueue::in_memory(100).unwrap());
+        let mut prev = None;
+        // Cross a block boundary (EDGE_SEQ_BLOCK = 256) to exercise re-reserve.
+        for _ in 0..300u32 {
+            let seq = queue.alloc_edge_seq().await.unwrap();
+            if let Some(p) = prev {
+                assert_eq!(seq, p + 1, "edge_seq must be strictly monotonic +1");
+            }
+            prev = Some(seq);
+        }
+    }
+
+    #[test]
+    fn reserve_seq_block_never_regresses_across_reopen() {
+        ensure_key_sandbox();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("oq-seq.db");
+
+        let handed_out_ceiling;
+        {
+            let queue = OfflineQueue::new(&path, 100, 3600).expect("open 1");
+            let _ = queue.reserve_seq_block(256).unwrap();
+            handed_out_ceiling = queue.reserve_seq_block(256).unwrap(); // hwm = 512
+        }
+        // Reopen the SAME db file — a fresh boot must resume STRICTLY above
+        // every id ever handed out, so no seq can be reused.
+        {
+            let queue = OfflineQueue::new(&path, 100, 3600).expect("open 2");
+            let after_reopen = queue.reserve_seq_block(256).unwrap();
+            assert!(
+                after_reopen > handed_out_ceiling,
+                "reserved hwm must not regress across restart (was {}, got {})",
+                handed_out_ceiling,
+                after_reopen
+            );
         }
     }
 
@@ -2023,7 +2143,10 @@ mod tests {
         // Seed the DB encrypted under v2.
         {
             let conn = Connection::open(&db_path).expect("open");
-            apply_pragma_key_hex(&conn, &v2_hex).expect("apply v2 key");
+            // Seeds a v2-encrypted DB fixture directly, not via a production opener.
+            // INVARIANT-ALLOW: sqlcipher-test-seed
+            conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", v2_hex))
+                .expect("apply v2 key");
             conn.execute_batch(
                 "CREATE TABLE seed (id INTEGER PRIMARY KEY); \
                  INSERT INTO seed VALUES (1);",

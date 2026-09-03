@@ -106,6 +106,9 @@ mod keystore;
 // db-migrate-cli + per-consumer migration follow in subsequent D-3 batches.
 #[allow(dead_code)] // D-3 boot-detector + migration binary wire consumers; primitives pre-staged.
 mod db_migration;
+// EDGE-HIGH-026: canonical SQLCipher connection factory (steady-state open
+// ceremony SSoT). Stores route their open + PRAGMA key through db::sqlcipher_factory.
+mod db;
 // Batch #338 — cross-cutting IO primitives shared by sidecar-persisting
 // modules (closes audit MEDIUM-004 finding). The first primitive is
 // `atomic_json_sidecar::write_atomic_json` which does the full 6-step
@@ -4851,8 +4854,16 @@ async fn run_agent(
     });
     shutdown_coordinator.register_task("telemetry", telemetry_handle);
 
-    // Step 6b: Start I/O poll loop
-    tokio::spawn(io_poll::io_poll_loop(state.clone()));
+    // Step 6b: Start I/O poll loop (EDGE-HIGH-015: shutdown-
+    // coordinated so the always-on sensor/actuator poll loop stops
+    // BEFORE the safe-state phase instead of racing it, and releases
+    // its Arc<AppState> so the graph can Drop deterministically).
+    let io_poll_shutdown = shutdown_coordinator.subscribe();
+    let io_poll_handle = tokio::spawn(shutdown::run_until_shutdown(
+        io_poll::io_poll_loop(state.clone()),
+        io_poll_shutdown,
+    ));
+    shutdown_coordinator.register_task("io_poll", io_poll_handle);
 
     // Batch 206 Faz 6 wire + Batch 225 E-1 closure: spawn
     // the watch publisher task ONLY when the agent has a
@@ -5538,19 +5549,29 @@ async fn run_agent(
             .join("scada.db")
             .to_string_lossy()
             .to_string();
-        let scada_db = match scada_db::ScadaDb::new(&scada_db_path) {
-            Ok(db) => {
-                info!("SCADA database initialized: {}", scada_db_path);
-                Some(Arc::new(db))
-            }
-            Err(e) => {
-                warn!(
-                    "Failed to initialize SCADA database: {}. Runtime features degraded.",
-                    e
-                );
-                None
-            }
+        // EDGE-CRITICAL-002: the SCADA store's at-rest key is derived via
+        // the keystore/TPM-aware consumer-key resolver (device-bound),
+        // replacing the machine-id-only key + universal fallback.
+        let (scada_keystore, scada_deployment_uuid) = {
+            let s = state.read().await;
+            (s.keystore.clone(), s.config.device_id.clone().into_bytes())
         };
+        let scada_db =
+            match scada_db::ScadaDb::new(&scada_db_path, scada_keystore, scada_deployment_uuid)
+                .await
+            {
+                Ok(db) => {
+                    info!("SCADA database initialized: {}", scada_db_path);
+                    Some(Arc::new(db))
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to initialize SCADA database: {}. Runtime features degraded.",
+                        e
+                    );
+                    None
+                }
+            };
 
         // Create command channel for WS → I/O routing
         let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::channel::<scada_types::ScadaCommand>(64);
@@ -5580,12 +5601,35 @@ async fn run_agent(
             state_guard.scada_db = None;
         }
 
-        // Spawn command executor task
+        // Spawn command executor task (EDGE-HIGH-015: shutdown-
+        // coordinated — it exits on the shutdown broadcast and refuses
+        // to drive an actuator once shutdown has begun, so an HMI write
+        // can never overwrite the safe-state value in the
+        // safe-state→disconnect window).
         let cmd_state = state.clone();
-        tokio::spawn(async move {
+        let mut exec_shutdown = shutdown_coordinator.subscribe();
+        let exec_handle = tokio::spawn(async move {
             use crate::process_image::{ProtocolConfig, TagQuality};
 
-            while let Some(cmd) = cmd_rx.recv().await {
+            loop {
+                let cmd = tokio::select! {
+                    biased;
+                    _ = exec_shutdown.recv() => break,
+                    maybe = cmd_rx.recv() => match maybe {
+                        Some(c) => c,
+                        None => break,
+                    },
+                };
+                // Never drive an actuator once shutdown has begun —
+                // mirrors the MQTT command gate (dispatch_lifecycle).
+                if cmd_state
+                    .read()
+                    .await
+                    .is_shutting_down
+                    .load(std::sync::atomic::Ordering::Acquire)
+                {
+                    continue;
+                }
                 let result = async {
                     let s = cmd_state.read().await;
                     let config = s
@@ -5669,6 +5713,7 @@ async fn run_agent(
                 let _ = cmd.response_tx.send(result);
             }
         });
+        shutdown_coordinator.register_task("scada_cmd_executor", exec_handle);
 
         info!("SCADA display server started with full HMI runtime");
     }
@@ -5832,6 +5877,43 @@ async fn run_agent(
             .store(true, std::sync::atomic::Ordering::Release);
     }
     info!("Shutdown race gate flipped: new commands will be rejected with ServiceShuttingDown");
+
+    // EDGE-HIGH-015 / PR935-HIGH-003: whole-sequence shutdown deadline. The
+    // coordinator now drains tasks CONCURRENTLY (src/shutdown.rs), so the
+    // whole drain is bounded to one `shutdown_timeout_secs` regardless of task
+    // count, and the safe-state phase below is reached in well under this
+    // ceiling. This watchdog is the last-resort backstop for a wedge in
+    // safe-state / flush itself.
+    //
+    // Two correctness properties the previous tokio-task watchdog lacked:
+    //   1. It runs on a DETACHED OS THREAD, not a tokio task. The wedge class
+    //      this backstop exists for includes CPU-bound / blocking tasks that
+    //      starve the 2-worker runtime — a `tokio::time::sleep` timer would be
+    //      starved alongside them and never fire, degrading to the SIGKILL it
+    //      was built to pre-empt. `std::thread::sleep` is immune to runtime
+    //      starvation.
+    //   2. It exits NON-ZERO. A forced exit that skipped the safe-state /
+    //      flush phases is a FAILURE; systemd `Restart=on-failure`, the
+    //      hardware watchdog, and the PLC-side fail-safe must all see it as
+    //      one. Exiting 0 previously told monitoring the shutdown was clean.
+    let hard_deadline_secs = shutdown_timeout_secs
+        .saturating_mul(2)
+        .saturating_add(10)
+        .min(80);
+    std::thread::Builder::new()
+        .name("shutdown-watchdog".into())
+        .spawn(move || {
+            std::thread::sleep(Duration::from_secs(hard_deadline_secs));
+            // eprintln!, not tracing: a wedged runtime may also stall a
+            // tracing appender; stderr is the robust last-resort sink.
+            eprintln!(
+                "FATAL: graceful shutdown exceeded {hard_deadline_secs}s hard deadline — \
+                 forcing non-zero exit. Safe-state may be incomplete; external \
+                 watchdog / PLC fail-safe must take over."
+            );
+            std::process::exit(1);
+        })
+        .expect("failed to spawn shutdown-watchdog thread");
 
     shutdown_coordinator
         .shutdown(Duration::from_secs(shutdown_timeout_secs))

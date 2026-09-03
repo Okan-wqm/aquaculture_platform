@@ -34027,6 +34027,18 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/edge-expert/2026-07-11-sens-gateway-e2e-audit.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/edge-expert/2026-07-12-pr935-e2e-review.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/edge-plan/2026-04-19-edge-hardening.md",
       "prettier_managed": true
     },

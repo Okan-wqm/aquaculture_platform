@@ -343,9 +343,9 @@ impl CommandHandler {
 
         // VERIFY — pure; nothing applied on failure.
         let verified = match verify_bundle(&params, tenant_id, |msg, sig_bytes| {
-            use ed25519_dalek::Verifier;
+            // verify_strict: reject non-canonical/malleable signatures (crate-wide SSoT).
             pubkey
-                .verify(msg, &ed25519_dalek::Signature::from_bytes(sig_bytes))
+                .verify_strict(msg, &ed25519_dalek::Signature::from_bytes(sig_bytes))
                 .is_ok()
         }) {
             Ok(v) => v,
@@ -559,7 +559,7 @@ impl CommandHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ed25519_dalek::{Signer, SigningKey, Verifier};
+    use ed25519_dalek::{Signer, SigningKey};
 
     fn sign_manifest(manifest: &str, tenant: &str) -> (String, String) {
         let sha = sha256_hex(manifest.as_bytes());
@@ -582,7 +582,7 @@ mod tests {
     fn verifier() -> impl FnOnce(&[u8], &[u8; 64]) -> bool {
         let key = SigningKey::from_bytes(&[1u8; 32]).verifying_key();
         move |msg: &[u8], sig: &[u8; 64]| {
-            key.verify(msg, &ed25519_dalek::Signature::from_bytes(sig))
+            key.verify_strict(msg, &ed25519_dalek::Signature::from_bytes(sig))
                 .is_ok()
         }
     }

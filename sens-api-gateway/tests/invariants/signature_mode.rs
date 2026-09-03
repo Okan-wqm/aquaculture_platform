@@ -113,3 +113,40 @@ fn signature_mode_hc6_rollout_ordering_discipline() {
         "HC-6 rollout progresses Disabled -> Permissive -> Enforcing through Permissive stage";
     assert!(!_contract.is_empty());
 }
+
+#[test]
+fn release_build_rejects_disabled_signature_mode_and_legacy_mtls() {
+    // EDGE-HIGH-010 WIRE-STATUS INVARIANT: the fail-open
+    // security-posture defaults (SignatureMode::Disabled,
+    // MtlsMode::Legacy) stay the `#[default]` for debug builds
+    // and staged rollouts, but a RELEASE build MUST fail to boot
+    // rather than silently accept unsigned commands / log-only
+    // pinning. `validate_faz2_security_coherence` carries a
+    // `#[cfg(not(debug_assertions))]` gate that bails on both.
+    //
+    // Why grep (Tier-3): the gate is compiled OUT of debug/test
+    // builds, so a runtime assertion here cannot exercise it —
+    // a source-read is the detection that catches the
+    // silent-regression class (someone deletes the release gate).
+    let src = std::fs::read_to_string("src/config.rs").expect(
+        "release-gate invariant runs from the sens-api-gateway/ working dir per cargo convention",
+    );
+    let coherence_idx = src
+        .find("fn validate_faz2_security_coherence")
+        .expect("validate_faz2_security_coherence must exist — it is the security-posture gate");
+    let coherence = &src[coherence_idx..];
+
+    assert!(
+        coherence.contains("#[cfg(not(debug_assertions))]"),
+        "EDGE-HIGH-010 regression: validate_faz2_security_coherence lost its \
+         release-build gate — fail-open defaults could ship in a release binary."
+    );
+    assert!(
+        coherence.contains("SignatureMode::Disabled"),
+        "EDGE-HIGH-010: release gate no longer rejects signature_mode=disabled."
+    );
+    assert!(
+        coherence.contains("MtlsMode::Legacy"),
+        "EDGE-HIGH-010: release gate no longer rejects mtls.mode=legacy."
+    );
+}

@@ -1870,6 +1870,20 @@ pub struct KeystoreConfig {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub acceptance_path: Option<std::path::PathBuf>,
 
+    /// Acceptance-ceremony ed25519 verifying key, 64-char hex
+    /// (EDGE-HIGH-011). The acceptance token is signed by the
+    /// central PLATFORM_KEY_CEREMONY authority (ADR-018 §5); this is
+    /// the trust anchor that keeps the weaker FileBacked master-key
+    /// tier unavailable unless the ceremony signed off. REQUIRED in
+    /// FileBacked mode — boot fails closed when absent. The enforcement
+    /// lives in the keystore bootstrap (`keystore/bootstrap.rs`
+    /// `build_production_keystore_from_config`, which injects the real
+    /// verify_strict closure and refuses to construct FileBacked acceptance
+    /// without this key), NOT in `validate_faz2_security_coherence`
+    /// (PR935-LOW-008: the prior cross-reference was wrong).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub acceptance_pubkey_hex: Option<String>,
+
     /// Argon2id memory cost (KiB). Default: 65536 (64 MiB).
     /// Must be >= 19456 (OWASP 2024 floor).
     #[serde(default = "default_argon2_memory_kib")]
@@ -1901,6 +1915,7 @@ impl Default for KeystoreConfig {
             passphrase_path: None,
             salt_path: None,
             acceptance_path: None,
+            acceptance_pubkey_hex: None,
             argon2_memory_kib: default_argon2_memory_kib(),
             argon2_iterations: default_argon2_iterations(),
             argon2_parallelism: default_argon2_parallelism(),
@@ -2801,6 +2816,15 @@ pub struct ModbusRegisterConfig {
 
     /// Poll interval in milliseconds (overrides device default)
     pub poll_interval_ms: Option<u64>,
+
+    /// Fail-safe value driven on safe-state (EDGE-HIGH-012). For a
+    /// `coil` output, non-zero = energize (e.g. a life-support aerator
+    /// that must fail-ON, not de-energize to OFF); for a `holding`
+    /// output, the raw register value. `None` defaults to de-energize
+    /// (coil=false / register=0), preserving the pre-EDGE-HIGH-012
+    /// behavior for unclassified outputs.
+    #[serde(default)]
+    pub safe_state_value: Option<u16>,
 }
 
 /// GPIO pin configuration
@@ -2825,6 +2849,12 @@ pub struct GpioConfig {
 
     /// Debounce time in milliseconds (input only)
     pub debounce_ms: Option<u64>,
+
+    /// Fail-safe level driven on safe-state (EDGE-HIGH-012).
+    /// `Some(true)` = HIGH (fail-ON), `Some(false)` = LOW. `None`
+    /// defaults to LOW, preserving pre-EDGE-HIGH-012 behavior.
+    #[serde(default)]
+    pub safe_state_level: Option<bool>,
 }
 
 // Default value functions
@@ -3684,6 +3714,41 @@ impl AgentConfig {
             anyhow::bail!(
                 "Config coherence: mtls.mode=strict requires mtls.enforce_fingerprint_pinning=true (Strict mode's primary contract is fingerprint enforcement)"
             );
+        }
+
+        // EDGE-HIGH-010: release builds MUST NOT run a fail-open
+        // command-authentication or TLS-pinning posture.
+        // `signature_mode=disabled` accepts any command with no
+        // signature check (FR1/FR2) and `mtls.mode=legacy` makes
+        // cert pinning log-only (FR4). Both are intentional
+        // debug/dev-rollout defaults (HC-1 / Batch-27 backward
+        // compat) — the enums keep those `#[default]`s so debug
+        // builds and staged rollouts still work — but shipping them
+        // in a RELEASE build silently disables the controls the
+        // product asserts. Fail closed; mirror the api_url release
+        // gate above. Operators stage a rollout via a debug build or
+        // an explicit `permissive`/`warn` step, never Disabled/Legacy
+        // in release.
+        #[cfg(not(debug_assertions))]
+        {
+            if matches!(
+                self.signature_mode,
+                crate::command_envelope::envelope::SignatureMode::Disabled
+            ) {
+                anyhow::bail!(
+                    "Config coherence: signature_mode=disabled is not allowed in release \
+                     builds (unsigned commands accepted — IEC 62443 FR1/FR2). Set \
+                     signature_mode to `permissive` or `enforcing`; use a debug build for \
+                     local development."
+                );
+            }
+            if matches!(self.mtls.mode, crate::mtls::MtlsMode::Legacy) {
+                anyhow::bail!(
+                    "Config coherence: mtls.mode=legacy is not allowed in release builds \
+                     (cert pinning is log-only — IEC 62443 FR4). Set mtls.mode to `warn` \
+                     or `strict`; use a debug build for local development."
+                );
+            }
         }
 
         // Rule 2: max_command_skew_secs should be reasonable

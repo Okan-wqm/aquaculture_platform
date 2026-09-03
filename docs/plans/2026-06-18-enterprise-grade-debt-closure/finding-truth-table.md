@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `4fa32cb93aaff4df4b2241caa61191b463e4599ff6fa1323d207b12515d62d61`
+Registry tip: `3e3facc413eaed0e8723b1829ad44d0d36765433ef4555e2b7f5b595c590d9d7`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -145,6 +145,14 @@ its historical main-reachable fix provenance, so it is
 ARIA control-plane gaps as `real-open`; Tasks 10, 12, and 19 own their live
 proof predicates.
 
+Updated 2026-09-03 (sens-api-gateway audit merge, PR #935): reconciling the
+edge audit's 59 registry rows onto main's chain added three active CRITICALs —
+`EDGE-CRITICAL-002` (SCADA store key derivation), `EDGE-CRITICAL-003` (unsigned
+legacy command bypass) and `EDGE-CRITICAL-004` (replay without an idempotency
+key). All three are `already-fixed-needs-close`: the fixes are on the merged
+audit branch and their rows stay OPEN only until the post-merge close ceremony
+records a main-reachable closing commit (PROC-HIGH-001).
+
 Allowed truth buckets:
 
 - `real-open`
@@ -208,6 +216,9 @@ Allowed truth buckets:
 | `ARIA-CRITICAL-031`     | OPEN           | 2026-09-01   | zcode                      | already-fixed-needs-close |
 | `ARIA-CRITICAL-032`     | OPEN           | 2026-09-01   | zcode                      | already-fixed-needs-close |
 | `SUPPLY-CRITICAL-002`   | IN-PROGRESS    | 2026-08-25   | security-reviewer          | already-fixed-needs-close |
+| `EDGE-CRITICAL-002`     | OPEN           | 2026-07-12   | edge-expert                | already-fixed-needs-close |
+| `EDGE-CRITICAL-003`     | OPEN           | 2026-07-12   | edge-expert                | already-fixed-needs-close |
+| `EDGE-CRITICAL-004`     | OPEN           | 2026-07-12   | edge-expert                | already-fixed-needs-close |
 
 ## Mutation Rules
 
@@ -242,6 +253,30 @@ Allowed truth buckets:
   `createTenantQueryKey` pattern and wired the DevicesPage VFD tab and detail route
   to VFD data, so registered drives are visible. The registry row stays OPEN only
   until the post-merge close ceremony records a main-reachable closing commit.
+- `EDGE-CRITICAL-002` (SCADA store SQLCipher key derived from machine-id with a
+  universal `default-machine-id` fallback): the sens-api-gateway audit branch
+  (PR #935) routes `ScadaDb::new` through the keystore consumer-key resolver
+  (`KeyPurpose::SqlCipherScadaDisplay`), deletes the constant fallback, rekeys an
+  existing machine-id-keyed store in place, and moves every SQLCipher open onto
+  the single `src/db/sqlcipher_factory.rs` ceremony guarded by
+  `tests/invariants/sqlcipher_factory_ssot.rs` (commits 988d590d4 + 23f6c4424).
+  The registry row stays OPEN only until the post-merge close ceremony records a
+  main-reachable closing commit.
+- `EDGE-CRITICAL-003` (legacy non-envelope MQTT commands bypass ed25519
+  verification even in `signature_mode=Enforcing`): the same branch wires
+  `legacy_policy_for_command` into `commands/mqtt_dispatch.rs` so unsigned
+  mutating legacy commands are rejected while enforcing, pinned by
+  `tests/invariants/legacy_command_signature_gate.rs` (commit 4cab2827c). The
+  registry row stays OPEN only until the post-merge close ceremony records a
+  main-reachable closing commit.
+- `EDGE-CRITICAL-004` (offline-queue drain replays telemetry without a
+  `(device_id, edge_seq)` idempotency key): the same branch stamps every
+  telemetry-class publish with `device_id` and a power-loss-durable `edge_seq`
+  high-water mark (`offline_queue.rs`, `publish_helpers.rs`,
+  `outbound_publisher.rs`) and documents the consumer contract in
+  `sensorprotocols/mqtt-protocol.md` (commit da33f9068). The registry row stays
+  OPEN only until the post-merge close ceremony records a main-reachable closing
+  commit.
 
 The 2026-06-20 registry close follow-up left no OTHER active CRITICAL in
 `already-fixed-needs-close`; reconciled items moved to `Resolved Evidence`.

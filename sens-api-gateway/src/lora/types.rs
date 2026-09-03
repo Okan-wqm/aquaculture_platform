@@ -423,6 +423,11 @@ pub struct LoRaStats {
     /// Join storm korumasi nedeniyle reddedilen join-request sayisi (mevcut periyot)
     #[serde(default)]
     pub join_storm_rejects: u64,
+    /// Frame-counter replay korumasi nedeniyle reddedilen uplink sayisi
+    /// (EDGE-HIGH-017). FR6 timely-response telemetri sinyali — replay
+    /// denemelerini gozlemlenebilir kilar.
+    #[serde(default)]
+    pub replay_rejects: u64,
 }
 
 #[cfg(test)]

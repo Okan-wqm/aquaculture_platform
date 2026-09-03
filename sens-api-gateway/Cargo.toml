@@ -583,6 +583,26 @@ path = "src/main.rs"
 name = "app_state_wired"
 path = "tests/invariants/app_state_wired.rs"
 
+# EDGE-MEDIUM-011 — deploy/firmware ed25519 gates use verify_strict.
+[[test]]
+name = "deploy_verify_strict"
+path = "tests/invariants/deploy_verify_strict.rs"
+
+# EDGE-CRITICAL-003 — legacy command dispatch enforces LegacyPolicy.
+[[test]]
+name = "legacy_command_signature_gate"
+path = "tests/invariants/legacy_command_signature_gate.rs"
+
+# EDGE-HIGH-011 — keystore acceptance verify is not stubbed open.
+[[test]]
+name = "keystore_acceptance_verify"
+path = "tests/invariants/keystore_acceptance_verify.rs"
+
+# EDGE-HIGH-015 — control loops registered with shutdown coordinator.
+[[test]]
+name = "shutdown_task_registration"
+path = "tests/invariants/shutdown_task_registration.rs"
+
 # Batch 24 Sprint 6.3 partial invariant — prctl + panic hook.
 [[test]]
 name = "process_hardening"
@@ -735,6 +755,13 @@ path = "tests/invariants/db_migration_v1_legacy_key.rs"
 [[test]]
 name = "db_migration_wire_status"
 path = "tests/invariants/db_migration_wire_status.rs"
+
+# EDGE-HIGH-026 — SQLCipher PRAGMA-key ceremony SSoT. Source-grep Tier-3
+# gate: only db::sqlcipher_factory (+ the sanctioned migration internals /
+# scada_db migration-opener / marked test seeds) may emit a raw PRAGMA key.
+[[test]]
+name = "sqlcipher_factory_ssot"
+path = "tests/invariants/sqlcipher_factory_ssot.rs"
 
 # Batch #354 — Faz 5 Core Gap E-4 (UM-001) AuditActorLabel
 # invariant seal. Tier-3 grep gate banning the legacy

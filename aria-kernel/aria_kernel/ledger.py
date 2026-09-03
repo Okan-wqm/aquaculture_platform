@@ -63,6 +63,39 @@ class LedgerReadLimitError(RuntimeError):
     pass
 
 
+# ARIA-HIGH-034 — the ONE row-size cap, owned by the append primitive.
+#
+# WHY here and not only in the snapshot builder: the 1 MiB line limit used to
+# live solely on the READ side (`state_snapshot.SNAPSHOT_MAX_LEDGER_LINE_BYTES`
+# via `verify_jsonl_chunks`). A writer could append any size; the failure
+# surfaced hours later as `snapshot_surface_line_too_large` while PUBLISHING —
+# after the cycle's work was done and with the oversized row already sealed
+# into the hash chain, unremovable. Two writers were patched one at a time
+# (runs.jsonl in #1328, then fixture-runs.jsonl on 2026-09-02) while 240+
+# append callsites stayed unbounded. Binding the cap at the primitive makes
+# an unpublishable row impossible to append anywhere: the writer fails at
+# the moment it holds the payload, with the surface and the byte count in
+# the message, before the chain advances.
+#
+# WHAT: measured on the exact bytes the primitive writes (canonical JSON +
+# newline), which is also what the snapshot reader measures per line — so
+# write-side and read-side agree by construction. The snapshot module
+# imports this constant; it has no number of its own.
+LEDGER_ROW_MAX_BYTES = 1024 * 1024
+
+
+class LedgerRowTooLargeError(RuntimeError):
+    """A row offered to the append primitive would exceed LEDGER_ROW_MAX_BYTES.
+
+    Raised BEFORE the row is written: the ledger, its chain and its index are
+    untouched. Writers that legitimately carry large derived payloads bound
+    them with ``ledger_inline.spill_oversized_inline`` (digest stub inline,
+    bulk elsewhere) — this error is the signal that a writer has not.
+    """
+
+    pass
+
+
 def json_nesting_within_limit(content: str, *, max_depth: int = 128) -> bool:
     """Reject pathological JSON nesting before handing input to ``json``.
 
@@ -1171,15 +1204,23 @@ def _append_jsonl_locked_body(
     stored = dict(record)
     stored["previous_ledger_hash"] = previous_hash
     stored["ledger_hash"] = _record_hash(stored, previous_hash)
+    line = (
+        json.dumps(stored, sort_keys=True, separators=(",", ":")) + "\n"
+    ).encode("utf-8")
+    # ARIA-HIGH-034 — refuse BEFORE the fd is opened: the chain tail, the
+    # index and the file are exactly as the verifier accepted them above.
+    # `len(line)` is the same quantity the snapshot reader compares per
+    # line (`verify_jsonl_chunks` measures the terminated raw line).
+    if len(line) > LEDGER_ROW_MAX_BYTES:
+        raise LedgerRowTooLargeError(
+            f"ledger_row_too_large:{path.as_posix()}:"
+            f"bytes={len(line)}:cap={LEDGER_ROW_MAX_BYTES}: the row would "
+            "be unpublishable (snapshot line cap); bound the writer's inline "
+            "payload with ledger_inline.spill_oversized_inline"
+        )
     fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
     try:
-        os.write(
-            fd,
-            (
-                json.dumps(stored, sort_keys=True, separators=(",", ":"))
-                + "\n"
-            ).encode("utf-8"),
-        )
+        os.write(fd, line)
         os.fsync(fd)
     finally:
         os.close(fd)

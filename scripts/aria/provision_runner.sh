@@ -114,6 +114,41 @@ elif [ "$DRY_RUN" -eq 1 ] || [ ! -f "${RUNNER_ROOT}/svc.sh" ]; then
 else
   (cd "$RUNNER_ROOT" && ./svc.sh install "$RUNNER_USER" && ./svc.sh start) && ok "service installed + started"
 fi
+
+# ARIA-HIGH-034 — memory discipline is part of the habitat, not a hand edit
+# on the host. The two drop-ins are repo-tracked (WHY inside each file) and
+# must match byte-for-byte: a drifted copy is exactly the state in which the
+# 2026-09-01/02 producer lane died (2G cap hit 8 996 times, OOMPolicy=stop
+# cancelling the queued job on every kill).
+section "Memory discipline (systemd drop-ins — repo copy is the SSoT)"
+HABITAT_SYSTEMD="${REPO_ROOT}/scripts/aria/runner-habitat/systemd"
+reload_needed=0
+while IFS='|' read -r src dst; do
+  if [ ! -f "$src" ]; then bad "repo copy missing: ${src}"; continue; fi
+  if cmp -s "$src" "$dst" 2>/dev/null; then
+    ok "$(basename "$dst") matches repo copy"
+  elif [ "$DRY_RUN" -eq 1 ]; then
+    bad "$(basename "$dst") drifted or missing at ${dst} (apply mode installs the repo copy)"
+  else
+    install -o root -g root -m 0644 -D "$src" "$dst" && ok "installed ${dst}"
+    reload_needed=1
+  fi
+done <<EOF
+${HABITAT_SYSTEMD}/actions-runner.limits.conf|/etc/systemd/system/${SERVICE_NAME}.d/limits.conf
+${HABITAT_SYSTEMD}/user-.slice.d/50-aria-memory-discipline.conf|/etc/systemd/system/user-.slice.d/50-aria-memory-discipline.conf
+EOF
+if [ "$reload_needed" -eq 1 ]; then
+  # daemon-reload re-applies resource-control properties to RUNNING units
+  # (verified live 2026-09-02: MemoryMax moved 2G→3G without a restart), so
+  # an in-flight job is never cancelled to pick the new budget up.
+  systemctl daemon-reload && ok "systemd reloaded (limits applied to running units)"
+fi
+# Effective values, not file contents: what the kernel enforces right now.
+for probe in "${SERVICE_NAME}|OOMPolicy|continue" "${SERVICE_NAME}|MemoryMax|3221225472" "user-.slice|MemoryMax|3221225472"; do
+  unit="${probe%%|*}"; rest="${probe#*|}"; prop="${rest%%|*}"; want="${rest##*|}"
+  have="$(systemctl show "$unit" -p "$prop" --value 2>/dev/null || echo unreadable)"
+  if [ "$have" = "$want" ]; then ok "${unit} ${prop}=${have}"; else bad "${unit} ${prop}=${have} (want ${want})"; fi
+done
 # Labels live SERVER-side (not in .runner), so verify via API when gh is usable; never guess.
 if command -v gh >/dev/null 2>&1 && labels="$(gh api "repos/${REPO_SLUG}/actions/runners" \
     --jq ".runners[] | select(.name==\"${RUNNER_NAME}\") | [.labels[].name] | sort | join(\",\")" 2>/dev/null)"; then

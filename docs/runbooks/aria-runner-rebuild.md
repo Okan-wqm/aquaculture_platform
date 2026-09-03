@@ -28,17 +28,19 @@ only.
 
 ## Live-machine facts (the target shape)
 
-| Fact               | Value                                                                                       |
-| ------------------ | ------------------------------------------------------------------------------------------- |
-| Repository         | `Okan-wqm/aquaculture_platform`                                                             |
-| Runner user        | `gharunner`                                                                                 |
-| Runner root        | `/home/gharunner/actions-runner`                                                            |
-| Runner name        | `suderra-droplet-claude`                                                                    |
-| Labels             | `self-hosted`, `linux`, `claude` (both lanes pin `runs-on: [self-hosted, linux, claude]`)   |
-| systemd service    | `actions.runner.Okan-wqm-aquaculture_platform.suderra-droplet-claude.service`               |
-| Secrets file       | `/home/gharunner/actions-runner/.env` (keys: `ARIA_GH_TOKEN`, `ARIA_OBSERVABILITY_API_KEY`) |
-| Claude CLI floor   | `2.1.197` (both lanes' preflight rejects older)                                             |
-| Workspace checkout | `/home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform`            |
+| Fact               | Value                                                                                                                               |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Repository         | `Okan-wqm/aquaculture_platform`                                                                                                     |
+| Runner user        | `gharunner`                                                                                                                         |
+| Runner root        | `/home/gharunner/actions-runner`                                                                                                    |
+| Runner name        | `suderra-droplet-claude`                                                                                                            |
+| Labels             | `self-hosted`, `linux`, `claude` (both lanes pin `runs-on: [self-hosted, linux, claude]`)                                           |
+| systemd service    | `actions.runner.Okan-wqm-aquaculture_platform.suderra-droplet-claude.service`                                                       |
+| Secrets file       | `/home/gharunner/actions-runner/.env` (keys: `ARIA_GH_TOKEN`, `ARIA_OBSERVABILITY_API_KEY`)                                         |
+| Claude CLI floor   | `2.1.197` (both lanes' preflight rejects older)                                                                                     |
+| Workspace checkout | `/home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform`                                                    |
+| Runner limits      | `MemoryHigh=2300M MemoryMax=3G OOMPolicy=continue CPUQuota=200%` (`scripts/aria/runner-habitat/systemd/actions-runner.limits.conf`) |
+| Session limits     | `user-.slice MemoryHigh=2816M MemoryMax=3G` (`scripts/aria/runner-habitat/systemd/user-.slice.d/50-aria-memory-discipline.conf`)    |
 
 Exactly ONE runner carries this label set. Both lanes share one
 persistent workspace serialized by the `aria-selfhosted-workspace`
@@ -95,6 +97,42 @@ PYTHONPATH=aria-kernel python3 -c \
 (Python provisioned per-run by `setup-aria-kernel` inside jobs; Node 20
 by `actions/setup-node`; repo-local `node_modules` by
 `ensure-node-deps`. None of those are host installs.)
+
+## Step 1b — Memory discipline: the host is shared (2 min)
+
+The droplet runs the production compose stack, this runner AND the
+operator's interactive agent sessions. The GitHub runner marks every job
+process `oom_score_adj=500` (its `ProcessInvokerWrapper` does this — not
+configurable), so whenever the _whole machine_ runs out of memory the
+kernel kills the ARIA cycle first, regardless of who consumed the memory
+(ARIA-HIGH-034: a 22 MB cycle process killed while sessions held 3.2 GiB).
+The budget therefore has to be enforced per tenant of the box:
+
+```bash
+# both drop-ins are repo copies; the provision script installs + drift-checks them
+scripts/aria/provision_runner.sh            # apply (root)
+scripts/aria/provision_runner.sh --dry-run  # verify: expect ✓ on OOMPolicy/MemoryMax probes
+```
+
+| Unit                                | Budget                                                   | Effect when exceeded                                                                                                                                               |
+| ----------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| runner service                      | `MemoryHigh=2300M`, `MemoryMax=3G`, `OOMPolicy=continue` | throttled first; a killed job process fails _that_ job only — the listener stays up and the queued job runs                                                        |
+| `user-.slice` (every login session) | `MemoryHigh=2816M`, `MemoryMax=3G`                       | sessions are reclaimed/swapped, then the largest session process is killed _inside the slice_ — a runaway agent CLI can no longer take the machine to a global OOM |
+
+`OOMPolicy=continue` replaces the default `stop`: with `stop`, one
+OOM-killed job process took the runner service down, systemd restarted
+it, and the job queued behind the restart was cancelled too — that pair
+is every "cancelled" producer run between 2026-08-17 and 2026-09-01.
+
+`systemctl daemon-reload` applies changed limits to running units; no
+job is cancelled to pick a new budget up. Effective values, not file
+contents, are the verdict:
+
+```bash
+systemctl show actions.runner.Okan-wqm-aquaculture_platform.suderra-droplet-claude.service -p MemoryMax -p OOMPolicy
+systemctl show user-0.slice -p MemoryMax -p MemoryCurrent
+cat /sys/fs/cgroup/system.slice/actions.runner.*.service/memory.events   # `max N` = times the cap was hit
+```
 
 ## Step 2 — Runner install + registration (10 min)
 

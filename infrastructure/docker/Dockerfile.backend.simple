@@ -47,6 +47,10 @@ ARG SERVICE_NAME
 
 # Copy package files for production dependency installation
 COPY package*.json ./
+# npm installs repository-local file dependencies as symlinks. Copy the
+# fail-closed Apollo package before npm ci so the local link stays valid both
+# while the image is built and when the non-root service starts.
+COPY --chown=nestjs:nodejs tools/vendor/apollo-playground-disabled ./tools/vendor/apollo-playground-disabled
 
 # Install ONLY production dependencies.
 # 2026-04-30: Docker images must use the same strict peer-dependency policy as CI.
@@ -54,6 +58,8 @@ COPY package*.json ./
 # production must see before an image is published.
 RUN --mount=type=cache,target=/root/.npm,sharing=shared \
     npm ci --omit=dev --ignore-scripts --no-audit && \
+    npm ls --omit=dev --all >/dev/null && \
+    node -e "require('@apollo/server-plugin-landing-page-graphql-playground')" && \
     chown -R nestjs:nodejs /app/node_modules
 
 # Copy the pre-built service from host's dist folder

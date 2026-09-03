@@ -345,6 +345,24 @@ substitute for the un-provable "no vulnerabilities" claim.
 
 **Mitigation:** I-V13-GRAPH-01..02, I-V13-STALE-01, I-V13-ASSURE-01..02.
 
+## 21. Security scope policy, ephemeral lab, persona broker (Plan 033 Faz 033d)
+
+**Decision:** `scope_policy.RISK_CLASSES` (R0..R4) and `CEILINGS` are closed and repo-owned; the
+production deny inventory lives at `infrastructure/aria/security-lab/production-deny-inventory.json`
+and an unreadable or incomplete inventory caps automatic risk at R0 (fail-closed). Every target that
+is not inside the campaign's own lab network — production hosts, metadata, loopback, link-local,
+public, out-of-scope private, partially-rebinding hosts — is `R4_FORBIDDEN`. A lab lease can only be
+written by a `TRUSTED_PROVISIONERS` identity (no register-target CLI exists); images must be sha256
+pinned; attestation refuses lab/production overlap; a campaign needs a clean teardown receipt.
+Persona secrets never enter a ledger.
+
+**Why one-way:** these are the boundaries the whole active lane trusts; loosening any of them is a
+production-safety change, not a feature.
+
+**Reversibility cost:** Re-attesting every lab; re-auditing every grant issued under the old policy.
+
+**Mitigation:** I-V13-SCOPE-01..02, I-V13-LAB-01..02, I-V13-TEARDOWN-01, I-V13-PERSONA-01.
+
 ## Themes
 
 - **3 of 5 one-way doors are ledger-anchored** (events, terminal states, candidate sources). The

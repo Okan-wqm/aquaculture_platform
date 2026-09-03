@@ -667,6 +667,13 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     # Plan 033 Faz 033c — attack graph index (full graph is a content-addressed artifact) + assurance coverage ledger.
     StateSurface("security_attack_graph", "security/attack-graph.jsonl", "ledger", "security", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("security_assurance", "security/assurance.jsonl", "ledger", "security", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    # Plan 033 Faz 033d-e — lab leases/teardowns, persona metadata, campaign runs, grant receipts, evidence index (metadata+digest only).
+    StateSurface("security_lab_leases", "security/lab-leases.jsonl", "ledger", "security", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("security_lab_teardowns", "security/lab-teardowns.jsonl", "ledger", "security", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("security_personas", "security/personas.jsonl", "ledger", "security", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("security_campaigns", "security/campaigns.jsonl", "ledger", "security", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("security_grants", "security/grants.jsonl", "ledger", "security", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("security_evidence", "security/evidence.jsonl", "ledger", "security", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("genesis_lifecycle_events", "genesis-lifecycle/events.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True),
     StateSurface("operator_provenance", "operator-provenance/events.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True),
     StateSurface("enterprise_readiness_claims", "enterprise/readiness-claims.jsonl", "ledger", "readiness", "runtime", True, "append_fsync", True, profile_surface="pr_merge", observe_class="action"),

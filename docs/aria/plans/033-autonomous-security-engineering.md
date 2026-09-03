@@ -29,28 +29,28 @@ Makineyle doğrulanan başlangıç sınırları (2026-09-03):
 
 - `finding.py` SEVERITIES'de CRITICAL yoktu → 033a ekledi (kayıpsız, en üst rank).
 - `merge_authority.py` tek merge yolu (AST-yasak) → ikinci merge executor'ı yok; 033 PR + kanıt
-üretir, merge insan kararı.
+  üretir, merge insan kararı.
 - `wrap_bash_in_sandbox(allow_network=True)` host ağını paylaşır → aktif izolasyon için kullanılmaz;
-policy proxy tek egress.
+  policy proxy tek egress.
 - `judge_fanout` metni yorumlar, exploit'i yeniden koşmaz → bağımsız doğrulama = iki executor + iki
-temiz lab.
+  temiz lab.
 - Aqua yüzeyi NestJS REST + Apollo federation + Rust edge + React; Django YOK; tenant izolasyonu
-hibrit (schema-per-tenant + ALS/GUC + RLS defense-in-depth + meşru istisnalar).
+  hibrit (schema-per-tenant + ALS/GUC + RLS defense-in-depth + meşru istisnalar).
 - Scanner gerçeği: Trivy → Code Scanning SARIF, Gitleaks → Actions artifact; Snyk/CodeQL/Semgrep/ZAP
-kurulu değil → `not_configured` (asla temiz sayılmaz).
+  kurulu değil → `not_configured` (asla temiz sayılmaz).
 
 ## İlkeler (her fazda)
 
 - Kapalı sözlükler: RiskClass R0..R4, ProofClass, ProbeVerdict, AssuranceStatus,
   campaign/remediation
-state'leri — hepsi tuple, hiçbiri env/issue/LLM metniyle genişlemez.
+  state'leri — hepsi tuple, hiçbiri env/issue/LLM metniyle genişlemez.
 - Her yeni ledger `state_manifest.StateSurface` ile declared; yazıcı `append_declared_jsonl`.
 - Ham güvenlik kanıtı Git'e, `aria/state`'e veya public artifact'e YAZILMAZ; ledger yalnız
-metadata + digest + redakte önizleme + ref.
+  metadata + digest + redakte önizleme + ref.
 - LLM'e network bash yok; typed recipe + policy proxy + pinned-digest ZAP.
 - Sahte-yeşil yok: pack çalışmaması, harness hatası, bayat kanıt, truncation → asla temiz sonuç.
 - Operatörün vereceği şeyi ARIA icat etmez (CIDR, ZAP digest, imza anahtarı, KEK, lab provisioner);
-eksikse fail-closed.
+  eksikse fail-closed.
 
 ## Faz 033a — Önkoşul kapısı, CRITICAL severity, Security Profile (delivered, #1410)
 

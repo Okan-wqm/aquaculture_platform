@@ -295,17 +295,18 @@ for any surface removed from the list.
 **Mitigation:** I-V12-MEM-01..02 (incl. the D4 embedder ranking + degradation test), I-V12-ECON-01,
 I-V12-SELF-01..02.
 
-## 18. Security lane foundations: CRITICAL severity, Security Profile, prerequisite gate (Plan 033 Faz 033a)
+## 18. Security foundations: CRITICAL severity, profile, prerequisite gate (Plan 033 Faz 033a)
 
-**Decision:** `finding.SEVERITIES` gains `CRITICAL` as the top rank (added at the front, existing ranks
-preserved). `security/profile.jsonl` is a declared, content-addressed Repository Security Profile with a
-closed `PROVENANCE` (`OBSERVED|INFERRED|OPERATOR_ASSERTED`) and closed `ISOLATION_STRATEGIES`; the
-profile answers "what exists" and carries NO attack authorization. `security prerequisites` is a
-fail-closed gate over a closed `REQUIRED_CAPABILITIES` list — no security campaign runs on a kernel
-missing a Plan 032 capability.
+**Decision:** `finding.SEVERITIES` gains `CRITICAL` as the top rank (added at the front, existing
+ranks preserved). `security/profile.jsonl` is a declared, content-addressed Repository Security
+Profile with a closed `PROVENANCE` (`OBSERVED|INFERRED|OPERATOR_ASSERTED`) and closed
+`ISOLATION_STRATEGIES`; the profile answers "what exists" and carries NO attack authorization.
+`security prerequisites` is a fail-closed gate over a closed `REQUIRED_CAPABILITIES` list — no
+security campaign runs on a kernel missing a Plan 032 capability.
 
-**Why one-way:** Severity ranks are compared across the finding pipeline; the profile digest feeds pack
-selection and campaign identity; the prerequisite list is the safety floor for every later phase.
+**Why one-way:** Severity ranks are compared across the finding pipeline; the profile digest feeds
+pack selection and campaign identity; the prerequisite list is the safety floor for every later
+phase.
 
 **Reversibility cost:** Re-ranking recorded findings; re-compiling every profile snapshot.
 
@@ -313,8 +314,8 @@ selection and campaign identity; the prerequisite list is the safety floor for e
 
 ## 19. Security packs + SARIF ingest: closed, passive, untrusted-input (Plan 033 Faz 033b)
 
-**Decision:** `packs.PACK_NAMES` is closed (`api`, `multi_tenant`); a pack is selected only when
-the compiled profile says its surface exists, runs bounded deterministic rules, and emits UNVERIFIED
+**Decision:** `packs.PACK_NAMES` is closed (`api`, `multi_tenant`); a pack is selected only when the
+compiled profile says its surface exists, runs bounded deterministic rules, and emits UNVERIFIED
 `external_scanner` leads (never canonical findings). `scanner_ingest.SCANNER_SOURCES` is closed
 (Trivy=code-scanning, Gitleaks=artifact, Snyk/CodeQL/Semgrep=not_configured — never counted clean);
 SARIF is untrusted (version/size/list checks, path-traversal and scheme URIs dropped, malformed
@@ -333,8 +334,9 @@ scanner noise out of the canonical finding ledger; the source list decides what 
 pack digests, built_at, staleness horizon); the full graph is an artifact, the ledger holds the
 digest + counts; a graph past its horizon is STALE and may not drive a campaign. `assurance` has a
 closed status vocabulary; coverage folds against the APPLICABLE (asset, control) set — never a
-Cartesian product — and a once-clean cell whose evidence is no longer fresh reads STALE, never clean.
-Fleet-ready = required cells with not_tested = 0, unknown = 0 and zero confirmed vulnerabilities.
+Cartesian product — and a once-clean cell whose evidence is no longer fresh reads STALE, never
+clean. Fleet-ready = required cells with not_tested = 0, unknown = 0 and zero confirmed
+vulnerabilities.
 
 **Why one-way:** Campaign identity binds a graph digest; the coverage verdict is the honest
 substitute for the un-provable "no vulnerabilities" claim.

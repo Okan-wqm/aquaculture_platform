@@ -2053,6 +2053,12 @@ REQUEST_FAULT_RELEASE_REASON_PREFIXES: tuple[str, ...] = (
 RELEASE_REASON_CLASSES: tuple[str, ...] = ("harness", "request", "unclassified")
 
 
+# Plan 032 Faz 032e — a person stopped the run. Neither the harness nor the
+# request is at fault; the requeue budget is untouched and the state is
+# terminal (CANCELLED_BY_OPERATOR).
+OPERATOR_RELEASE_REASONS: frozenset[str] = frozenset({"operator_cancelled"})
+
+
 def classify_release_reason(reason: str) -> str:
     """Fault ownership of a release reason: ``harness`` | ``request`` |
     ``unclassified``.
@@ -2064,6 +2070,8 @@ def classify_release_reason(reason: str) -> str:
     governance ledger instead of burying a stale table inside an escalation.
     """
     text = str(reason or "")
+    if text in OPERATOR_RELEASE_REASONS:
+        return "operator"
     if text in HARNESS_FAULT_RELEASE_REASONS or text.startswith(HARNESS_FAULT_RELEASE_REASON_PREFIXES):
         return "harness"
     if text in REQUEST_FAULT_RELEASE_REASONS or text.startswith(REQUEST_FAULT_RELEASE_REASON_PREFIXES):
@@ -2097,6 +2105,7 @@ def _request_fault_requeue_count(rows: list[dict[str, Any]], request_id: str) ->
         if row.get("request_id") == request_id
         and row.get("event") in ("requeued", "human_required")
         and not _is_harness_fault_reason(str(row.get("reason") or ""))
+        and str(row.get("reason") or "") not in OPERATOR_RELEASE_REASONS
     )
 
 
@@ -2268,6 +2277,12 @@ def derive_request_state(
             return "SUBMITTED"
 
     # If a HUMAN_REQUIRED event was emitted, that is sticky.
+    # Plan 032 Faz 032e — an operator cancel is terminal for anything that
+    # did not already land an accepted result. Derived from the control
+    # ledger (not from a claim row) so a cancel before the first claim binds.
+    from .control import CANCELLED_BY_OPERATOR_STATE, effective_control
+    if effective_control(root).is_cancelled(request_id):
+        return CANCELLED_BY_OPERATOR_STATE
     if any(row.get("event") == "human_required" and row.get("request_id") == request_id for row in claims):
         return "HUMAN_REQUIRED"
 

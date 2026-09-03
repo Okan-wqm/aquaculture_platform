@@ -252,6 +252,24 @@ def _next_pending_for_role(
     return None, None
 
 
+def _operator_paused(tools_dir: Path) -> bool:
+    """Plan 032 Faz 032e — `control pause` stops the drain from claiming."""
+    try:
+        from aria_kernel.control import effective_control, record_pause_skip
+
+        state = effective_control(tools_dir)
+    except Exception as exc:  # noqa: BLE001 — an unreadable control ledger is a stop, not a crash
+        _engine._stage(f"drain_control_unreadable {type(exc).__name__}")
+        return True
+    if state.paused_all:
+        try:
+            record_pause_skip(base_dir=tools_dir, request_id=None, where="drain")
+        except Exception:  # noqa: BLE001
+            pass
+        return True
+    return False
+
+
 def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
     """Consume pending agent requests until the queue, cap, or clock runs out.
 
@@ -317,6 +335,10 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
         )
 
     while True:
+        # Plan 032 Faz 032e — operator pause: nothing new is claimed.
+        if _operator_paused(tools_dir):
+            stop_reason = "operator_paused"
+            break
         if len(attempted) >= _engine._max_requests():
             stop_reason = "max_requests_reached"
             break

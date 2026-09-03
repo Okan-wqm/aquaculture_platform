@@ -181,6 +181,16 @@ publish primitive other than the store API.
 
 **Mitigation:** I-V12-DLV-01..07 pin the grant's singularity, the names-only governance rows, the executor bracket (issue → export → revoke) and the state derivation.
 
+## 13. Operator control ledger, `CANCELLED_BY_OPERATOR`, notification outbox (Plan 032 Faz 032e)
+
+**Decision:** `control/commands.jsonl` with closed verbs `pause|resume|cancel` (cancel sticky, per request); derived terminal state `CANCELLED_BY_OPERATOR` bound to the control ledger, not to a claim row; release reason `operator_cancelled` is the OPERATOR fault domain (never a requeue burn). `notifications/outbox.jsonl` with closed `NOTIFY_EVENT_KINDS`/`NOTIFY_CHANNELS`/`NOTIFY_STATUSES`; `run-artifacts/hot/<request>/progress.jsonl` as the sanitized progress ledger.
+
+**Why one-way:** Every consumer of request state (drain, doctor, telemetry, compaction) treats `CANCELLED_BY_OPERATOR` as terminal; alert rules and dashboards are keyed on the outbox and telemetry series.
+
+**Reversibility cost:** Re-deriving request states for every cancelled request; rewriting alert rules.
+
+**Mitigation:** I-V12-CTRL-01..04, I-V12-PROG-01, I-V12-NOTIFY-01, I-V12-TELEM-01, I-V12-OPS-01.
+
 ## Themes
 
 - **3 of 5 one-way doors are ledger-anchored** (events, terminal states, candidate sources). The

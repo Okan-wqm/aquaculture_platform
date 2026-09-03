@@ -226,6 +226,25 @@ CI reconciliation`. **Auto-merge yok**; dış yazma yalnız `aria-impl-*` branch
 
 ## Faz 032e — Operasyon yüzeyi (observability + control)
 
+Teslimat 032e (2026-09-03): `control.py` — `control/commands.jsonl` (declared, her profilde yazılabilir)
+`pause|resume|cancel`; fold = `effective_control` (pause/resume son satır kazanır, cancel yapışkan);
+drain loop pause'da claim almaz (`operator_paused`), executor spawn öncesi cancel'ı `operator_cancelled`
+ile release eder, spawn sırasında `claude_runtime.SpawnControl` control ledger'ı 2 s'de bir yoklar →
+process group SIGTERM → grace sonrası SIGKILL; 032c checkpoint'i geri yüklenir; türetilmiş durum
+`CANCELLED_BY_OPERATOR` (terminal; claim'den bağımsız, control ledger'ından), `operator_cancelled` =
+OPERATOR fault domain (requeue bütçesi yanmaz). `progress.py` — stream-json olayları sanitize edilerek
+(`secret_scrub`, journal argv redaksiyonu, 240 karakter önizleme) `run-artifacts/hot/<request>/progress.jsonl`'a
+(declared, hash-chained) yazılır; CLI `tail <request_id> [--follow]`. `notify.py` — kapalı olay sözlüğü,
+kanallar `stdout|github_issue|email|telegram` yalnız env ADLARIYLA konfigüre, imza bazlı 6 saat dedup,
+`notifications/outbox.jsonl` her denemeyi (`sent|failed|deduped|dry_run|unconfigured`) kaydeder;
+üreticiler: `human_required_recorded`, `circuit_breaker_tripped`, `cost_budget_breaker_tripped`, cycle
+failed (orchestrator). `telemetry._store_metrics` — kuyruk/mission/breaker/control/delivery/bildirim/maliyet
+serileri; `infrastructure/monitoring/prometheus/alerts/aria-alerts.yml` (7 kural), Grafana
+`aria-kernel-dashboard.json`, `scripts/aria/aria-telemetry-textfile.sh` + `infrastructure/aria/
+aria-telemetry.{service,timer}` (node-exporter textfile, 5 dk). `doctor` organları `queue|control|notifications`.
+CLI: `control pause|resume|cancel|status`, `notify send|channels`, `tail`. Gateway sağlığı 032f'de eklenir.
+Çalıştırılmayan testler: `tests/invariants/v12/test_phase_v12_e_ops.py`.
+
 - `doctor` tam; Prometheus metrik seti + Alertmanager kuralları + Grafana; `tail <request_id>`;
   dead-letter/dedup.
 - **Control** — `control pause|resume|cancel`: cancel → yeni tool dispatch durur → SIGTERM process

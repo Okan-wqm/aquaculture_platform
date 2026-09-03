@@ -24,8 +24,11 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
+import threading
+import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Sequence
@@ -943,6 +946,116 @@ def _record_env_report_best_effort(*, recording: UsageRecording, report: Any) ->
     except Exception:  # noqa: BLE001 — accounting must not fail the spawn
         return
 
+@dataclass
+class SpawnControl:
+    """Plan 032 Faz 032e — the executor's handle on a live spawn.
+
+    `should_cancel` is polled every `poll_seconds`; when it answers True the
+    whole process group (timeout wrapper, bwrap, claude) gets SIGTERM, then
+    SIGKILL after `grace_seconds`, and `cancelled`/`cancel_signal` say what
+    happened. `on_event` receives every parsed stream-json event as it
+    lands (the sanitized progress writer); it must never raise — it is
+    guarded here anyway. With no control the spawn runs exactly as before.
+    """
+
+    should_cancel: Callable[[], bool] | None = None
+    on_event: Callable[[dict[str, Any]], Any] | None = None
+    poll_seconds: float = 2.0
+    grace_seconds: float = 15.0
+    cancelled: bool = False
+    cancel_signal: str | None = None
+    events_seen: int = 0
+
+
+def _signal_group(proc: "subprocess.Popen[str]", sig: int) -> None:
+    try:
+        os.killpg(proc.pid, sig)
+    except ProcessLookupError:
+        pass
+
+
+def _run_spawn(
+    argv: list[str],
+    *,
+    input_text: str,
+    timeout_seconds: float,
+    cwd: str | None,
+    env: dict[str, str],
+    control: SpawnControl | None,
+) -> "subprocess.CompletedProcess[str]":
+    """The one subprocess seam: buffered run without a control, streamed
+    + cancellable run with one. Both return a CompletedProcess."""
+    if control is None:
+        return subprocess.run(
+            argv, input=input_text, capture_output=True, text=True,
+            timeout=timeout_seconds, check=False, cwd=cwd, env=env,
+        )
+    proc = subprocess.Popen(
+        argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, cwd=cwd, env=env, start_new_session=True,
+    )
+    out_lines: list[str] = []
+    err_chunks: list[str] = []
+
+    def _pump_stdout() -> None:
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            out_lines.append(line)
+            if control.on_event is None:
+                continue
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(event, dict):
+                control.events_seen += 1
+                try:
+                    control.on_event(event)
+                except Exception:  # noqa: BLE001 — a progress observer never fails the spawn
+                    pass
+
+    def _pump_stderr() -> None:
+        assert proc.stderr is not None
+        err_chunks.append(proc.stderr.read())
+
+    pumps = (threading.Thread(target=_pump_stdout, daemon=True), threading.Thread(target=_pump_stderr, daemon=True))
+    for pump in pumps:
+        pump.start()
+    try:
+        assert proc.stdin is not None
+        proc.stdin.write(input_text)
+        proc.stdin.close()
+    except (BrokenPipeError, OSError):
+        pass
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        try:
+            proc.wait(timeout=control.poll_seconds)
+            break
+        except subprocess.TimeoutExpired:
+            pass
+        if control.should_cancel is not None and control.should_cancel():
+            _signal_group(proc, signal.SIGTERM)
+            control.cancel_signal = "sigterm"
+            try:
+                proc.wait(timeout=control.grace_seconds)
+            except subprocess.TimeoutExpired:
+                _signal_group(proc, signal.SIGKILL)
+                control.cancel_signal = "sigkill"
+                proc.wait()
+            control.cancelled = True
+            break
+        if time.monotonic() > deadline:
+            _signal_group(proc, signal.SIGKILL)
+            proc.wait()
+            for pump in pumps:
+                pump.join(timeout=5)
+            raise subprocess.TimeoutExpired(argv, timeout_seconds, output="".join(out_lines), stderr="".join(err_chunks))
+    for pump in pumps:
+        pump.join(timeout=5)
+    return subprocess.CompletedProcess(argv, proc.returncode, "".join(out_lines), "".join(err_chunks))
+
+
 def run_claude_exec(
     *,
     prompt_text: str,
@@ -961,6 +1074,8 @@ def run_claude_exec(
     # delivery credential, ARIA_REQUEST_ID). Values are never logged; the env
     # report carries names only.
     extra_env: dict[str, str] | None = None,
+    # Plan 032 Faz 032e — cancel polling + live progress observer.
+    spawn_control: SpawnControl | None = None,
 ) -> ClaudeRunResult:
     preflight_claude_auth()
     assert_write_runner_ok(skip_permissions=skip_permissions, permission_mode=permission_mode)
@@ -1043,15 +1158,15 @@ def run_claude_exec(
         _record_env_report_best_effort(recording=usage_recording, report=env_report)
     run_env = spawn_env
     try:
-        proc = subprocess.run(
+        # Plan 032 Faz 032e — one seam: buffered without a control, streamed
+        # and cancellable (process group) with one.
+        proc = _run_spawn(
             argv,
-            input=prompt_text,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds + 30,
-            check=False,
+            input_text=prompt_text,
+            timeout_seconds=timeout_seconds + 30,
             cwd=str(cwd) if cwd is not None else None,
             env=run_env,
+            control=spawn_control,
         )
     finally:
         if env_report is not None:

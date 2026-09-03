@@ -436,6 +436,10 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("agent_sessions", "agent-invocations/sessions.jsonl", "ledger", "agent_sessions", "runtime", True, "append_fsync", True, profile_surface="agent_claim", observe_class="action"),
     StateSurface("external_effects", "recovery/external-effects.jsonl", "ledger", "recovery", "runtime", True, "append_fsync", True, profile_surface="agent_claim", observe_class="action"),
     StateSurface("recovery_decisions", "recovery/decisions.jsonl", "ledger", "recovery", "runtime", True, "append_fsync", True, profile_surface="agent_claim", observe_class="action"),
+    # Plan 032 Faz 032e — operator control commands (must work under every profile, frozen included), notification outbox, sanitized live progress.
+    StateSurface("control_commands", "control/commands.jsonl", "ledger", "control", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
+    StateSurface("notifications_outbox", "notifications/outbox.jsonl", "ledger", "notifications", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("agent_progress", "run-artifacts/hot/*/progress.jsonl", "ledger", "runtime_artifacts", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("handoffs", "handoffs.jsonl", "ledger", "handoffs", "runtime", True, "append_fsync", True, profile_surface="handoffs", observe_class="observation"),
     StateSurface("agent_evals", "agent-evals/runs.jsonl", "ledger", "agent_evals", "runtime", True, "append_fsync", True, profile_surface="agent_evals", observe_class="action"),
     StateSurface("agent_eval_fixtures", "agent-evals/fixtures.jsonl", "ledger", "agent_evals", "runtime", True, "append_fsync", True, profile_surface="agent_evals", observe_class="action"),

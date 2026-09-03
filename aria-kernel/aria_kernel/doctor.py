@@ -247,6 +247,47 @@ def _check_delivery(tools_dir: Path) -> DoctorCheck:
     return DoctorCheck("delivery_closure", "ok", "", summary)
 
 
+def _check_queue(tools_dir: Path) -> DoctorCheck:
+    """Plan 032 Faz 032e — queue depth by derived state + open HUMAN_REQUIRED."""
+    from collections import Counter
+
+    from .agent_invocations import derive_request_states
+    from .human_required import list_human_required
+    from .mission import list_open_missions
+
+    states = Counter(derive_request_states(base_dir=tools_dir).values())
+    open_hr = list_human_required(base_dir=tools_dir)
+    missions = Counter(str(m.get("state") or "") for m in list_open_missions(base_dir=tools_dir))
+    detail = {"requests_by_state": dict(sorted(states.items())), "human_required_open": len(open_hr),
+              "missions_open_by_state": dict(sorted(missions.items()))}
+    if open_hr:
+        return DoctorCheck("queue", "warn", f"human_required_open:{len(open_hr)}", detail)
+    return DoctorCheck("queue", "ok", "", detail)
+
+
+def _check_control(tools_dir: Path) -> DoctorCheck:
+    """Plan 032 Faz 032e — an operator pause is health information, not illness."""
+    from .control import effective_control
+
+    state = effective_control(tools_dir)
+    if state.paused_all:
+        return DoctorCheck("control", "warn", "executor_paused", state.to_dict())
+    return DoctorCheck("control", "ok", "", state.to_dict())
+
+
+def _check_notifications(tools_dir: Path) -> DoctorCheck:
+    """Plan 032 Faz 032e — a channel that keeps failing means nobody hears."""
+    from .notify import configured_channels, read_outbox
+
+    rows = read_outbox(tools_dir)
+    recent = rows[-50:]
+    failed = [r for r in recent if r.get("status") == "failed"]
+    detail = {"configured_channels": list(configured_channels()), "recent_rows": len(recent), "recent_failed": len(failed)}
+    if failed:
+        return DoctorCheck("notifications", "warn", f"recent_failures:{len(failed)}", detail)
+    return DoctorCheck("notifications", "ok", "" if detail["configured_channels"] else "no_channel_configured", detail)
+
+
 def run_doctor(
     *,
     base_dir: str | Path | None = None,
@@ -281,6 +322,9 @@ def run_doctor(
         _guarded("host_lease", lambda: _check_host_lease(tools_dir)),
         _guarded("plan_ledger", lambda: _check_plan_ledger(tools_dir)),
         _guarded("delivery_closure", lambda: _check_delivery(tools_dir)),
+        _guarded("queue", lambda: _check_queue(tools_dir)),
+        _guarded("control", lambda: _check_control(tools_dir)),
+        _guarded("notifications", lambda: _check_notifications(tools_dir)),
     )
     return DoctorReport(
         checks=(*store_checks, *host_checks),

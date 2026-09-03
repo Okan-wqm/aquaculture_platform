@@ -2890,6 +2890,32 @@ def build_parser() -> argparse.ArgumentParser:
     delivery_status = add_subparser(delivery_sub, "status")
     delivery_status.add_argument("--json", action="store_true")
 
+    # Plan 032 Faz 032e — operator control plane, notifications, live progress.
+    control_parser = add_subparser(sub, "control")
+    control_sub = control_parser.add_subparsers(dest="control_command", required=True)
+    for verb in ("pause", "resume", "cancel"):
+        verb_parser = add_subparser(control_sub, verb)
+        verb_parser.add_argument("--request-id", default=None, required=(verb == "cancel"))
+        verb_parser.add_argument("--reason", default="")
+        verb_parser.add_argument("--operator-ref", default=None)
+    add_subparser(control_sub, "status")
+    notify_parser = add_subparser(sub, "notify")
+    notify_sub = notify_parser.add_subparsers(dest="notify_command", required=True)
+    notify_send = add_subparser(notify_sub, "send")
+    notify_send.add_argument("--kind", required=True)
+    notify_send.add_argument("--title", required=True)
+    notify_send.add_argument("--body", default="")
+    notify_send.add_argument("--key", default=None)
+    notify_send.add_argument("--channel", action="append", default=None, dest="channels")
+    notify_send.add_argument("--dry-run", action="store_true")
+    add_subparser(notify_sub, "channels")
+    tail_parser = add_subparser(sub, "tail")
+    tail_parser.add_argument("request_id")
+    tail_parser.add_argument("-n", "--last", type=int, default=20)
+    tail_parser.add_argument("--follow", action="store_true")
+    tail_parser.add_argument("--json", action="store_true")
+    tail_parser.add_argument("--max-wait-seconds", type=float, default=None)
+
     return parser
 
 
@@ -5942,6 +5968,36 @@ def _main(argv: list[str] | None = None) -> int:
         if args.checkpoint_command == "prune":
             print(json.dumps(_cp.prune_checkpoints(workspace_root=args.workspace_root, base_dir=args.tools_dir), indent=2, sort_keys=True))
             return 0
+
+    if args.command == "control":
+        from .control import effective_control, record_control
+
+        if args.control_command == "status":
+            print(json.dumps(effective_control(args.tools_dir).to_dict(), indent=2, sort_keys=True))
+            return 0
+        row = record_control(args.control_command, base_dir=args.tools_dir, request_id=args.request_id,
+                             operator_ref=args.operator_ref, reason=args.reason)
+        print(json.dumps({"command": row, "effective": effective_control(args.tools_dir).to_dict()}, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "notify":
+        from .notify import CHANNEL_ENV_NAMES, configured_channels, notify
+
+        if args.notify_command == "channels":
+            print(json.dumps({"configured": list(configured_channels()), "env_names": CHANNEL_ENV_NAMES}, indent=2, sort_keys=True))
+            return 0
+        rows = notify(kind=args.kind, title=args.title, body=args.body, key=args.key, base_dir=args.tools_dir,
+                      channels=args.channels, dry_run=args.dry_run)
+        print(json.dumps(rows, indent=2, sort_keys=True))
+        return 0 if all(r["status"] != "failed" for r in rows) else 1
+
+    if args.command == "tail":
+        from .progress import render_progress_row, tail_progress
+
+        for row in tail_progress(args.request_id, base_dir=args.tools_dir, last=args.last, follow=args.follow,
+                                 max_wait_seconds=args.max_wait_seconds):
+            print(json.dumps(row, sort_keys=True) if args.json else render_progress_row(row), flush=True)
+        return 0
 
     if args.command == "delivery" and args.delivery_command == "status":
         from .delivery_closure import compute_delivery_closure, render_delivery_text

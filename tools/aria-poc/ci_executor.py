@@ -1109,6 +1109,7 @@ def invoke_claude_cli(
     tools_dir: Path | None = None,
     session_id: str | None = None,
     resume: bool = False,
+    spawn_control: Any | None = None,
 ) -> int:
     """Call the Claude Code CLI; mock path for tests + CI dry-runs.
 
@@ -1352,6 +1353,8 @@ def invoke_claude_cli(
                 session_id=session_id,
                 resume=resume,
                 extra_env=spawn_extra_env,
+                # Plan 032 Faz 032e — operator cancel polling + progress tail.
+                spawn_control=spawn_control,
                 # E17-d — per-spawn usage accounting. This callsite is the
                 # seam where the full identity is in scope: request_id +
                 # envelope role + subagent_type are REQUIRED parameters of
@@ -2457,6 +2460,27 @@ def main(argv: list[str] | None = None) -> int:
     )
     if _session_id is None:
         return 0  # released to HUMAN_REQUIRED by the recovery classifier
+    # Plan 032 Faz 032e — operator control. A cancel recorded after the claim
+    # is honoured BEFORE the spawn (release with the operator fault domain);
+    # during the spawn the runtime polls the same ledger and stops the
+    # process group; every stream-json event feeds the sanitized progress
+    # file the operator tails.
+    from aria_kernel.control import OPERATOR_CANCELLED_RELEASE_REASON, is_cancelled, record_cancel_outcome
+    from aria_kernel.progress import ProgressWriter
+    from claude_runtime import SpawnControl
+
+    if is_cancelled(request_id, tools_dir):
+        record_cancel_outcome(request_id, outcome="before_spawn", base_dir=tools_dir, detail={"claim_id": claim_id})
+        _release_claim(
+            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+            agent_id=agent_id, lease_token=lease_token,
+            reason=OPERATOR_CANCELLED_RELEASE_REASON,
+        )
+        return 0
+    _spawn_control = SpawnControl(
+        should_cancel=lambda: is_cancelled(request_id, tools_dir),
+        on_event=ProgressWriter(request_id, base_dir=tools_dir, claim_id=claim_id).write,
+    )
     _run_started_at = time.monotonic()
     try:
         # Plan 024 v3 §B-8 — pass real lease identity + role from
@@ -2487,6 +2511,7 @@ def main(argv: list[str] | None = None) -> int:
             # the V3.1-D2 _MOCK_MODE_AT_ENTRY frozen sentinel.
             request_envelope=request_envelope,
             tools_dir=tools_dir,
+            spawn_control=_spawn_control,
         )
         if cli_exit != 0:
             # Plan 032 Faz 032c — a write-capable spawn that ended non-zero has
@@ -2562,10 +2587,15 @@ def main(argv: list[str] | None = None) -> int:
         # routes to primary_silent verdict OR a later consumer
         # attempts a fresh claim. Pre-V7 leak: CLI exit != 0 kept
         # the claim active, blocking re-claims for the lease window.
+        if _spawn_control.cancelled:
+            # Plan 032 Faz 032e — the operator stopped it: operator fault
+            # domain, terminal state, requeue budget untouched.
+            record_cancel_outcome(request_id, outcome=_spawn_control.cancel_signal or "sigterm", base_dir=tools_dir,
+                                  detail={"claim_id": claim_id, "cli_exit": cli_exit, "events_seen": _spawn_control.events_seen})
         _release_claim(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
             agent_id=agent_id, lease_token=lease_token,
-            reason=f"claude_cli_exit_{cli_exit}",
+            reason=(OPERATOR_CANCELLED_RELEASE_REASON if _spawn_control.cancelled else f"claude_cli_exit_{cli_exit}"),
         )
         return 1
 

@@ -65,7 +65,9 @@ def read_outbox(base_dir: str | Path | None = None) -> list[dict[str, Any]]:
 def configured_channels(environ: Mapping[str, str] | None = None) -> tuple[str, ...]:
     env = os.environ if environ is None else environ
     selected = [c.strip() for c in str(env.get(CHANNEL_SELECTOR_ENV) or "").split(",") if c.strip()]
-    candidates = selected or list(NOTIFY_CHANNELS)
+    # `stdout` is never implied: a daemon's journal is not a person's inbox, and an
+    # event that only reached stdout must show as `unconfigured` in the outbox.
+    candidates = selected or [c for c in NOTIFY_CHANNELS if c != "stdout"]
     out: list[str] = []
     for channel in candidates:
         if channel not in NOTIFY_CHANNELS:

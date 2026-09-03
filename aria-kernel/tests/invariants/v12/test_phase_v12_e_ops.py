@@ -111,9 +111,9 @@ class ControlFolds(_Store):
             must_satisfy=[{"id": "x", "criterion": "y"}], allowed_scope=["apps/**"], convergence_id="conv-1",
             base_dir=self.tools,
         )
-        self.assertEqual(derive_request_state(req["request_id"], base_dir=self.tools), "PENDING")
+        self.assertEqual(derive_request_state(request_id=req["request_id"], base_dir=self.tools), "PENDING")
         control.record_control("cancel", base_dir=self.tools, request_id=req["request_id"])
-        self.assertEqual(derive_request_state(req["request_id"], base_dir=self.tools), control.CANCELLED_BY_OPERATOR_STATE)
+        self.assertEqual(derive_request_state(request_id=req["request_id"], base_dir=self.tools), control.CANCELLED_BY_OPERATOR_STATE)
         self.assertEqual(classify_release_reason(control.OPERATOR_CANCELLED_RELEASE_REASON), "operator")
         rows = [
             {"request_id": "AIR-1", "event": "requeued", "reason": "operator_cancelled"},
@@ -171,7 +171,8 @@ class SpawnIsCancellable(unittest.TestCase):
         self.assertIn("ProgressWriter(request_id, base_dir=tools_dir, claim_id=claim_id).write", executor)
         drain = (_POC / "ci_executor_drain.py").read_text(encoding="utf-8")
         self.assertIn('stop_reason = "operator_paused"', drain)
-        self.assertLess(drain.index("if _operator_paused(tools_dir):"), drain.index("_next_pending_for_role(\n"))
+        body = drain.index("def drain_pending(")
+        self.assertLess(drain.index("if _operator_paused(tools_dir):", body), drain.index("_next_pending_for_role(\n", body))
 
 
 class ProgressIsSanitized(_Store):
@@ -179,7 +180,7 @@ class ProgressIsSanitized(_Store):
         token = "ghp_" + "A" * 40
         event = {"type": "assistant", "message": {"content": [
             {"type": "text", "text": f"pushing with {token} now"},
-            {"type": "tool_use", "name": "Bash", "input": {"command": f"git push origin aria-impl-1 # {token}"}},
+            {"type": "tool_use", "name": "Bash", "input": {"command": f"git push origin aria-impl-0abc12 --token {token}"}},
             {"type": "tool_use", "name": "Edit", "input": {"file_path": "/w/apps/x.py"}},
         ]}}
         row = progress.sanitize_stream_event(event)
@@ -265,9 +266,15 @@ class TelemetryAndAssets(_Store):
 
     def test_I_V12_TELEM_01_series_and_asset_references(self) -> None:
         names = self._emitted_names()
-        for expected in ("aria_agent_requests", "aria_human_required_open", "aria_breaker_tripped", "aria_executor_paused",
+        for expected in ("aria_human_required_open", "aria_breaker_tripped", "aria_executor_paused",
                          "aria_cancelled_requests", "aria_delivery_verified_prs", "aria_delivery_slo_met", "aria_cost_usd_total"):
             self.assertIn(expected, names)
+        self.assertNotIn("aria_agent_requests", names, "no requests → no per-state series (never a fabricated zero)")
+        from aria_kernel.agent_invocations import create_agent_invocation_request
+
+        create_agent_invocation_request(target_agent="aria-challenger-planner", role="challenger_plan", suggested_prompt="p",
+                                        must_satisfy=[{"id": "x", "criterion": "y"}], allowed_scope=["apps/**"], convergence_id="c", base_dir=self.tools)
+        self.assertIn("aria_agent_requests", self._emitted_names())
         text = telemetry._prometheus(telemetry._store_metrics(self.tools))
         self.assertIn("aria_executor_paused 0", text.replace("{}", ""))
         # conditional series: only with rows — assert the exporter names them
@@ -308,7 +315,8 @@ class TelemetryAndAssets(_Store):
         script = (_REPO_ROOT / "scripts/aria/aria-telemetry-textfile.sh").read_text(encoding="utf-8")
         self.assertIn("aria-telemetry-textfile.sh", service)
         self.assertIn("OnUnitActiveSec=", timer)
-        self.assertIn("telemetry export --format prometheus", script)
+        self.assertIn("telemetry export", script)
+        self.assertIn("--format prometheus", script)
         self.assertIn(".prom", script)
 
 

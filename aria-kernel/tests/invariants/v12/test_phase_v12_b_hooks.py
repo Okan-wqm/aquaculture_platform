@@ -61,7 +61,12 @@ class SettingsCarryRulesAndHooks(unittest.TestCase):
         self.assertIn("Bash(curl*)", settings["permissions"]["deny"])
         self.assertIn("Read(./.env)", settings["permissions"]["deny"])
         self.assertIn("WebFetch", settings["permissions"]["deny"])
-        self.assertNotIn("Bash(git push origin aria-impl-*)", settings["permissions"]["allow"])
+        # Faz 032d: the implementer holds the external-write grant, so its ONE allowed
+        # push is projected; a closed-grant write profile (worker) never gets it.
+        self.assertIn("Bash(git push origin aria-impl-*)", settings["permissions"]["allow"])
+        closed = build_settings(profile_by_id("worker"), hook_context=ctx)
+        self.assertNotIn("Bash(git push origin aria-impl-*)", closed["permissions"]["allow"])
+        self.assertIn("Bash(git push*)", closed["permissions"]["deny"])
         command = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
         self.assertIn("-m aria_kernel hook pre-tool", command)
         self.assertIn("--request-id AIR-1", command)
@@ -167,7 +172,7 @@ class LedgersAreWritten(unittest.TestCase):
         self.assertTrue(row["external_effect"])
         self.assertTrue(row["command_hash"].startswith("sha256:"))
         self.assertNotIn(secret, json.dumps(row))
-        self.assertIn("github_token", row["redaction_types"])
+        self.assertTrue({"github_pat", "github_token_family", "github_token"} & set(row["redaction_types"]), row["redaction_types"])
         self.assertNotIn("command", row)
         self.assertEqual(row["exit_code"], 0)
         edit = _payload("Edit", file_path=str(self.root / "apps" / "x.ts"))

@@ -137,9 +137,17 @@ class TheSpawnUsesTheBuiltEnv(unittest.TestCase):
                  mock.patch.object(claude_runtime, "_apply_resource_limits", side_effect=lambda argv, **kw: argv), \
                  mock.patch.object(claude_runtime.subprocess, "run", side_effect=fake_run):
                 profile = type("P", (), {"profile_id": "implementer"})()
+                # Faz 032b-2 (I-V12-HOOK-01): a write-capable profiled spawn needs the
+                # ledger + workspace so its hooks can decide and journal.
+                from aria_kernel.tool_registry import ensure_tools_dir
+
+                recording = claude_runtime.UsageRecording(
+                    request_id="AIR-env", role="implementation", target_agent="aria-implementer",
+                    base_dir=ensure_tools_dir(Path(tmp) / "aria-tools"),
+                )
                 result = claude_runtime.run_claude_exec(
                     prompt_text="hi", timeout_seconds=60, model="opus", effort="max",
-                    cwd=tmp, agent_profile=profile,
+                    cwd=tmp, agent_profile=profile, usage_recording=recording,
                 )
         self.assertEqual(result.returncode, 0)
         env = captured["env"]
@@ -152,7 +160,9 @@ class TheSpawnUsesTheBuiltEnv(unittest.TestCase):
         self.assertEqual(captured["containment"]["extra_ro_binds"], (str(real_home / ".claude"),))
         argv = captured["argv"]
         self.assertIn("--disallowedTools", argv)
-        self.assertIn("Bash(git push*)", argv)
+        # Faz 032d: the implementer is the ONE profile holding the external-write grant,
+        # so the push rule is NOT projected for it (I-V12-DLV-01 pins the singularity).
+        self.assertNotIn("Bash(git push*)", argv)
         self.assertIn("WebFetch", argv)
         self.assertNotIn("Bash", argv[argv.index("--disallowedTools"):], "the implementer keeps Bash")
         self.assertFalse(Path(env["HOME"]).exists(), "the synthetic home is removed after the spawn")

@@ -96,7 +96,8 @@ def _validate_server(name: str, raw: Mapping[str, Any]) -> McpServerSpec:
         raise GovernanceError(f"mcp_server_tools_shape:{name}")
     include = tuple(str(p) for p in (tools.get("include") or ["*"]))
     exclude = tuple(str(p) for p in (tools.get("exclude") or []))
-    timeout = int(raw.get("timeout_seconds") or 30)
+    raw_timeout = raw.get("timeout_seconds")
+    timeout = 30 if raw_timeout is None else int(raw_timeout)
     if not (1 <= timeout <= 300):
         raise GovernanceError(f"mcp_server_timeout:{name}")
     return McpServerSpec(

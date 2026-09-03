@@ -269,8 +269,10 @@ thread + tick; ARIA_STOP/SIGTERM). `PlanCandidateSource.GITHUB_ISSUE` (+ `scan_g
 FAILING_CI katmanı; I-V9-PRESSURE-01 güncellendi, one-way door 14). `doctor` organı `gateway`. Sistem:
 `infrastructure/aria/aria-gateway.service`, nginx `/aria/webhook/` + `/aria/status` (rate limit zone),
 `provision_runner.sh` unit + env-adı bölümü, runbook `docs/runbooks/aria-gateway.md`. CLI: `gateway serve|status`,
-`schedule add|pause|resume|remove|list|run`, `event ingest|route`. `experiment_night` ve `adapter_run:<id>` aksiyonları
-karşılığı doğrulanamadığı için sözlüğe alınmadı (one-way door ile eklenir).
+`schedule add|pause|resume|remove|list|run`, `event ingest|route`. Test turu (2026-09-03) sonrası eklendi:
+`experiment_night` → `experiment_night.run_night_experiments` (gateway cycle id `gw-exp-*`), `adapter_run:<tool_id>` →
+`tool_runner.run_tool` (id, ekleme ve tetikleme anında registry'de ACTIVE olmalı; `validate_action`). Sözlük yine
+kapalıdır: tek parametreli biçim adapter id'dir, metin taşıyan aksiyon yoktur (one-way door 14 güncellendi).
 Çalıştırılmayan testler: `tests/invariants/v12/test_phase_v12_f_gateway.py`
 (+ güncellenen `tests/invariants/v9/test_phase_v9_0_a_plan_candidate_source.py` üye kümesi).
 
@@ -343,9 +345,10 @@ merge_authority, human_required, workflows, genesis_policy.json) reddedilir (gov
 `self_change_authority_surface_refused`); `apply_engine` self_change'i kernel-change lane dışında reddetmeye
 devam eder. Scheduler aksiyonları `self_improve|economy` (one-way door 17). CLI: `context compile`,
 `economy stats|recommend`, `self-improve scan|open|propose`. Parity raporu yeniden üretildi (25/25 doğrulandı).
-`semantic_memory` embedder karar türü tanımadığı için (`_KNOWN_KINDS`) bellek sıralaması terim örtüşmesiyle
-yapılır — embedding entegrasyonu D4 (aşağıda). Çalıştırılmayan testler:
-`tests/invariants/v12/test_phase_v12_i_self_improvement.py`.
+D4 kapandı (2026-09-03): `semantic_memory._KNOWN_KINDS` `decision` türünü tanır; `context_compiler.embed_decisions`
+karar başına bir embedding (ref id ile idempotent) yazar, `rank_decisions` embedder yapılandırılmışsa `nearest()`
+benzerliğini birincil anahtar yapar, embedder hata verirse leksikal sıralamaya düşer (asla belleksiz kalmaz).
+Testler (2026-09-03 turu): `test_phase_v12_i_self_improvement.py` koşuldu ve yeşil.
 
 Operatör yönü (2026-09-02): ARIA token-ekonomik olmalı, neyi neden yaptığını hatırlamalı ve kendi
 kodunu yazıp kendini geliştirebilmeli — ama kendi yetkisini kendisi genişletemeden.
@@ -401,10 +404,10 @@ PYTHONPATH=aria-kernel python3 -m aria_kernel doctor --tools-dir <store>/tools  
 # governance: anchor_expired ~ 0, challenger_drafted_poll_timeout 0, ledger_row_too_large 0
 ```
 
-## Assumptions & deferred — ARIA-032-D4 (owner: aria-core, due 2026-10-15)
+## Assumptions & deferred — ARIA-032-D4 (owner: aria-core) — CLOSED 2026-09-03
 
-- `context_compiler` decision ranking is lexical; `semantic_memory` gains a `decision` kind and the pack
-  uses `nearest()` when an embedder is configured. Until then the lexical ranking is the authority.
+- `semantic_memory` has the `decision` kind; `context_compiler.rank_decisions` uses `nearest()` when an
+  embedder is configured (`ARIA_EMBEDDER_CMD`), lexical otherwise. Nothing deferred.
 
 ## Assumptions & deferred — ARIA-032-D1 (owner: aria-core, due 2026-10-15)
 

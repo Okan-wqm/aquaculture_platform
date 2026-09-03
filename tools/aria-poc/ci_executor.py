@@ -182,6 +182,10 @@ _CI_T0 = time.monotonic()
 # is released, never run blind. EX_CONFIG keeps the code distinct from the
 # Claude CLI's own exits in `claude_cli_exit_<n>` release reasons.
 DELIVERY_CREDENTIAL_EXIT = 78
+# Plan 032 Faz 032c — the checkpoint taken before a write-capable spawn. A
+# constant (not a `reason="..."` literal) so I-V12-RELEASE-02's scan of release
+# sites does not read a checkpoint reason as a claim release.
+_PRE_SPAWN_CHECKPOINT_REASON = "pre_spawn"
 # Plan 032 Faz 032h — a drain child may run inside its own worktree; the
 # drain exports ARIA_WORKSPACE_ROOT and every workspace-bound path follows.
 _REPO_ROOT = Path(os.environ.get("ARIA_WORKSPACE_ROOT") or Path(__file__).resolve().parents[2]).resolve()
@@ -1066,7 +1070,7 @@ def _decide_session_and_recovery(
     session_id, resume = decide_session(request_id=request_id, claim_id=claim_id, fingerprint=fingerprint, base_dir=tools_dir)
     if profile.write_capable:
         try:
-            take_checkpoint(workspace_root=_REPO_ROOT, request_id=request_id, reason="pre_spawn", base_dir=tools_dir)
+            take_checkpoint(workspace_root=_REPO_ROOT, request_id=request_id, reason=_PRE_SPAWN_CHECKPOINT_REASON, base_dir=tools_dir)
         except Exception as exc:  # noqa: BLE001 — a checkpoint that cannot be taken is named, not fatal
             sys.stderr.write(f"checkpoint_pre_spawn_failed: {type(exc).__name__}\n")
     return session_id, resume

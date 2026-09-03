@@ -65,7 +65,9 @@ def authority_surface_violations(paths: list[str]) -> list[str]:
     """Paths that are outside the kernel scope or on an authority surface."""
     bad: list[str] = []
     for raw in paths:
-        path = str(raw).lstrip("./")
+        path = str(raw)
+        while path.startswith("./"):
+            path = path[2:]
         if not any(path.startswith(prefix) for prefix in SELF_CHANGE_ALLOWED_PREFIXES):
             bad.append(f"outside_kernel_scope:{path}")
             continue

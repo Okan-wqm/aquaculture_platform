@@ -74,7 +74,13 @@ class TheGrantIsSingular(unittest.TestCase):
         self.assertEqual(holders, ["implementer"])
         allow, deny = claude_permission_rules(external_writes=True)
         self.assertTrue(any(claude_rule_matches(r, "git push origin aria-impl-0abc12") for r in allow), allow)
-        self.assertTrue(any(claude_rule_matches(r, "git push --force origin main") for r in deny), deny)
+        # The Claude-rule layer carries no force-push deny (allow rules do not restrict
+        # under bypass); the HOOK layer's allowlist is what refuses it — assert there.
+        from aria_kernel.implementation_safety import verify_bash_command_allowed
+
+        verify_bash_command_allowed(["git", "push", "origin", "aria-impl-0abc12"])
+        with self.assertRaises(Exception):
+            verify_bash_command_allowed(["git", "push", "--force", "origin", "main"])
         self.assertTrue(any(claude_rule_matches(r, "gh api repos/x/y -X DELETE") for r in deny), deny)
 
 

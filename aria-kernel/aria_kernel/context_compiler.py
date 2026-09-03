@@ -133,19 +133,61 @@ def collect_decisions(*, base_dir: str | Path | None = None, limit: int = 400) -
     return out[-limit:]
 
 
-def rank_decisions(decisions: list[DecisionRecord], *, query: str, k: int = MAX_DECISIONS) -> list[DecisionRecord]:
-    """Overlap with the request first, recency second; deterministic."""
+def decision_ref_id(decision: DecisionRecord) -> str:
+    return f"{decision.source}:{decision.ref}:{hashlib.sha256(decision.text().encode('utf-8')).hexdigest()[:12]}"
+
+
+def embed_decisions(decisions: list[DecisionRecord], *, base_dir: str | Path | None = None, embedder: Any | None = None) -> int:
+    """D4 — record an embedding per decision once (idempotent on ref id); 0 without a model."""
+    from .semantic_memory import _embeddings_path, configured_embedder, record_embedding
+
+    resolved = embedder if embedder is not None else configured_embedder()
+    if resolved is None:
+        return 0
+    path = _embeddings_path(base_dir)
+    known: set[str] = set()
+    if path.exists():
+        for row in read_jsonl(path):
+            if row.get("kind") == "decision" and row.get("model_id") == resolved[1]:
+                known.add(str(row.get("ref_id")))
+    written = 0
+    for decision in decisions:
+        ref_id = decision_ref_id(decision)
+        if ref_id in known:
+            continue
+        record_embedding(kind="decision", ref_id=ref_id, text=decision.text(), base_dir=base_dir, embedder=resolved)
+        known.add(ref_id)
+        written += 1
+    return written
+
+
+def rank_decisions(decisions: list[DecisionRecord], *, query: str, k: int = MAX_DECISIONS,
+                   base_dir: str | Path | None = None, embedder: Any | None = None) -> list[DecisionRecord]:
+    """Semantic similarity when an embedder is configured (D4), else term overlap;
+    recency breaks ties; deterministic either way."""
+    from .semantic_memory import configured_embedder, nearest
+
+    resolved = embedder if embedder is not None else configured_embedder()
+    similarity: dict[str, float] = {}
+    if resolved is not None and query.strip() and decisions:
+        try:
+            embed_decisions(decisions, base_dir=base_dir, embedder=resolved)
+            for hit in nearest(text=query, k=max(k * 4, 32), kind="decision", base_dir=base_dir, embedder=resolved):
+                similarity[str(hit.get("ref_id"))] = float(hit.get("similarity") or 0.0)
+        except Exception:  # noqa: BLE001 — a failing embedder degrades to lexical ranking, never to no memory
+            similarity = {}
     q = _terms(query)
     scored = []
     for index, decision in enumerate(decisions):
         overlap = len(q & _terms(decision.text())) if q else 0
-        scored.append((-overlap, -index, decision))
-    scored.sort(key=lambda t: (t[0], t[1]))
-    return [d for _, _, d in scored[:k]]
+        sim = similarity.get(decision_ref_id(decision), 0.0) if similarity else 0.0
+        scored.append((-round(sim, 6), -overlap, -index, decision))
+    scored.sort(key=lambda t: (t[0], t[1], t[2]))
+    return [d for _, _, _, d in scored[:k]]
 
 
 def compile_context(*, request: Mapping[str, Any], base_dir: str | Path | None = None, budget_tokens: int = DEFAULT_PACK_TOKENS,
-                    decisions: list[DecisionRecord] | None = None, record: bool = True) -> ContextPack:
+                    decisions: list[DecisionRecord] | None = None, record: bool = True, embedder: Any | None = None) -> ContextPack:
     from .context_budget_gate import estimate_tokens
 
     root = ensure_tools_dir(base_dir)
@@ -154,7 +196,7 @@ def compile_context(*, request: Mapping[str, Any], base_dir: str | Path | None =
     query += " " + " ".join(str(r) for r in (request.get("evidence_refs") or []) + (request.get("allowed_scope") or []))
     chosen: list[DecisionRecord] = []
     used = 0
-    for decision in rank_decisions(pool, query=query):
+    for decision in rank_decisions(pool, query=query, base_dir=root, embedder=embedder):
         cost = estimate_tokens(decision.text()) + 8
         if used + cost > budget_tokens:
             break
@@ -187,4 +229,5 @@ def render_decision_memory(pack: Mapping[str, Any] | None) -> str:
 
 
 __all__ = ["CONTEXT_PACK_EVENT", "DECISION_SOURCES", "DEFAULT_PACK_TOKENS", "GOVERNANCE_WHY_KEYS", "MAX_DECISIONS",
-           "ContextPack", "DecisionRecord", "collect_decisions", "compile_context", "rank_decisions", "render_decision_memory"]
+           "ContextPack", "DecisionRecord", "collect_decisions", "compile_context", "decision_ref_id", "embed_decisions",
+           "rank_decisions", "render_decision_memory"]

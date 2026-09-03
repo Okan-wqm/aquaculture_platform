@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+from typing import Any
 import sys
 import time
 from pathlib import Path
@@ -252,6 +253,16 @@ def _next_pending_for_role(
     return None, None
 
 
+class _FinishedChild:
+    """A completed serial child wearing the Popen `wait()` shape `_settle` expects."""
+
+    def __init__(self, completed: "subprocess.CompletedProcess[Any]") -> None:
+        self.returncode = completed.returncode
+
+    def wait(self) -> int:
+        return self.returncode
+
+
 def _executor_policy(repo_root: Path) -> dict:
     """Plan 032 Faz 032h — the kernel's executor block (max_concurrent, worktree_per_request)."""
     try:
@@ -391,7 +402,13 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
             f"drain_dispatch request_id={request_id} target={target_agent or '-'} "
             f"concurrency={len(inflight) + 1}/{max_concurrent} worktree={'yes' if worktree else 'no'}"
         )
-        proc = subprocess.Popen(child_argv, env=child_env, cwd=str(cwd))
+        if max_concurrent <= 1:
+            # Serial lane (the default): the same blocking `subprocess.run` the
+            # lane always used, so its contract — and every test that fakes the
+            # child through `subprocess.run` — is byte-identical to pre-032h.
+            proc: Any = _FinishedChild(subprocess.run(child_argv, env=child_env, cwd=str(cwd)))
+        else:
+            proc = subprocess.Popen(child_argv, env=child_env, cwd=str(cwd))
         inflight.append({"request": request, "request_id": request_id, "output": child_output, "proc": proc, "worktree": worktree})
 
     def _settle(entry: dict) -> None:

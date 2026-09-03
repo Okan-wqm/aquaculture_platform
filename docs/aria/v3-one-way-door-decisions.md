@@ -199,7 +199,7 @@ publish primitive other than the store API.
 
 **Reversibility cost:** Re-routing every inbox row; re-ranking candidates; rewriting the pressure-source invariant.
 
-**Mitigation:** I-V12-GW-01..06; `experiment_night` / `adapter_run:<id>` were deliberately left OUT of the action vocabulary until their kernel counterpart is verified.
+**Mitigation:** I-V12-GW-01..06. Amendment 2026-09-03: `experiment_night` (→ `experiment_night.run_night_experiments`) joined the vocabulary and `adapter_run:<tool_id>` is the ONE parameterised form — the parameter is a tool id validated against the registry's ACTIVE set (`scheduler.validate_action`), never text.
 
 ## 15. MCP registry, strict per-spawn config, call ledger + quarantine (Plan 032 Faz 032g)
 
@@ -229,7 +229,7 @@ publish primitive other than the store API.
 
 **Reversibility cost:** Re-minting open requests; re-ledgering recommendations; a security review for any surface removed from the list.
 
-**Mitigation:** I-V12-MEM-01..02, I-V12-ECON-01, I-V12-SELF-01..02.
+**Mitigation:** I-V12-MEM-01..02 (incl. the D4 embedder ranking + degradation test), I-V12-ECON-01, I-V12-SELF-01..02.
 
 ## Themes
 

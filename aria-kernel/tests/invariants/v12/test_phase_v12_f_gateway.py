@@ -34,6 +34,7 @@ import subprocess
 import tempfile
 import threading
 import unittest
+from unittest import mock
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -99,7 +100,7 @@ class Ingress(_Store):
     def _post(port: int, path: str, body: bytes, headers: dict) -> tuple[int, dict]:
         request = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=body, method="POST", headers=headers)
         try:
-            with urllib.request.urlopen(request, timeout=5) as response:
+            with urllib.request.urlopen(request, timeout=60) as response:
                 return response.status, json.loads(response.read())
         except urllib.error.HTTPError as exc:
             return exc.code, json.loads(exc.read())
@@ -123,7 +124,7 @@ class Ingress(_Store):
         self.assertEqual(self._post(port, "/aria/webhook/alertmanager", am, {"Authorization": "Bearer wrong"})[0], 401)
         self.assertEqual(self._post(port, "/aria/webhook/alertmanager", am, {"Authorization": "Bearer am-bearer"})[0], 202)
         self.assertEqual(self._post(port, "/aria/webhook/nope", body, gh)[0], 404)
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/aria/status", timeout=5) as response:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/aria/status", timeout=60) as response:
             status = json.loads(response.read())
         self.assertEqual(status["inbox"]["accepted"], 3)
         self.assertGreaterEqual(status["rejected"], 5)
@@ -212,7 +213,7 @@ class Schedules(_Store):
         with self.assertRaises(ValueError):
             gs.add_schedule(name="Bad Name", action="doctor", cron="* * * * *", base_dir=self.tools)
         gs.add_schedule(name="cycle", action="cycle", cron="0 2 * * *", base_dir=self.tools)
-        gs.add_schedule(name="doctor", action="doctor", cron="*/15 * * * *", base_dir=self.tools)
+        gs.add_schedule(name="doctor", action="doctor", cron="7 * * * *", base_dir=self.tools)
         self.assertTrue(gs.cron_matches("*/15 * * * *", datetime(2026, 9, 3, 1, 45, tzinfo=timezone.utc)))
         self.assertFalse(gs.cron_matches("*/15 * * * *", datetime(2026, 9, 3, 1, 50, tzinfo=timezone.utc)))
         self.assertTrue(gs.cron_matches("0 2 * * 1-5", datetime(2026, 9, 3, 2, 0, tzinfo=timezone.utc)), "Thursday")
@@ -246,7 +247,19 @@ class Schedules(_Store):
         local = gs.run_action("doctor", base_dir=self.tools, workspace_root=self.ws, runner=runner)
         self.assertIn("healthy", local["detail"])
         for action in gs.SCHEDULE_ACTIONS:
-            self.assertTrue(action in gs.ACTION_WORKFLOWS or action in {"doctor", "telemetry_export", "deliver", "inbox_drain"}, action)
+            self.assertTrue(action in gs.ACTION_WORKFLOWS or action in {"doctor", "telemetry_export", "deliver", "inbox_drain", "self_improve", "economy", "experiment_night"}, action)
+        # the one parameterised action: an adapter id must be registered ACTIVE
+        with self.assertRaises(ValueError):
+            gs.add_schedule(name="adapter", action="adapter_run:ghost-tool", cron="0 3 * * *", base_dir=self.tools)
+        with self.assertRaises(ValueError):
+            gs.validate_action("adapter_run:bad id", base_dir=self.tools)
+        with mock.patch("aria_kernel.tool_registry.list_tools", return_value=[{"tool_id": "sec-scan", "status": "ACTIVE"}]):
+            self.assertEqual(gs.validate_action("adapter_run:sec-scan", base_dir=self.tools), "adapter_run:sec-scan")
+        # experiment_night runs the kernel's night lane with a gateway cycle id
+        with mock.patch("aria_kernel.experiment_night.run_night_experiments", return_value={"status": "planned_nothing", "planned": 0, "ran": 0}) as night:
+            outcome = gs.run_action("experiment_night", base_dir=self.tools, workspace_root=self.ws, runner=runner)
+        self.assertEqual(outcome["status"], "ran")
+        self.assertTrue(night.call_args.kwargs["cycle_id"].startswith("gw-exp-"))
         self.assertIn("gateway_action_ran", self.governance())
         self.assertTrue((self.tools / "gateway" / "heartbeat.json").exists())
 

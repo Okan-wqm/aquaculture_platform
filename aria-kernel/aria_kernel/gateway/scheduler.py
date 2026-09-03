@@ -17,7 +17,14 @@ SCHEDULES_RELPATH: tuple[str, ...] = ("gateway", "schedules.jsonl")
 SCHEDULE_EVENTS: tuple[str, ...] = ("add", "pause", "resume", "remove", "ran")
 # Closed vocabulary. Every entry maps to a kernel command or a repo workflow —
 # there is no action that takes text to hand to a model.
-SCHEDULE_ACTIONS: tuple[str, ...] = ("cycle", "drain", "daily_report", "doctor", "telemetry_export", "deliver", "inbox_drain", "self_improve", "economy")
+SCHEDULE_ACTIONS: tuple[str, ...] = ("cycle", "drain", "daily_report", "doctor", "telemetry_export", "deliver", "inbox_drain",
+                                     "self_improve", "economy", "experiment_night")
+# The one parameterised action: `adapter_run:<tool_id>` runs a REGISTERED, ACTIVE
+# adapter through tool_runner.run_tool — the id is validated against the tool
+# registry when the schedule is added and again when it fires. No other
+# parameter shape exists; there is still no action that carries text.
+ADAPTER_RUN_PREFIX = "adapter_run:"
+_TOOL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 ACTION_WORKFLOWS: dict[str, tuple[str, dict[str, str]]] = {
     "cycle": ("aria-auto-cycle.yml", {"mode": "cycle"}),
     "drain": ("aria-agent-executor.yml", {}),
@@ -106,18 +113,34 @@ def fold_schedules(base_dir: str | Path | None = None) -> dict[str, Schedule]:
         elif name in table and event == "resume":
             table[name]["paused"] = False
         elif name in table and event == "ran":
-            table[name]["last_ran_at"] = row.get("recorded_at")
+            table[name]["last_ran_at"] = row.get("ran_at") or row.get("recorded_at")
         elif event == "remove":
             table.pop(name, None)
     return {name: Schedule(name=name, action=str(v["action"]), cron=str(v["cron"]), paused=bool(v["paused"]),
                            last_ran_at=v["last_ran_at"], added_at=str(v["added_at"])) for name, v in table.items()}
 
 
+def validate_action(action: str, *, base_dir: str | Path | None = None) -> str:
+    """Closed vocabulary + the one parameterised form (`adapter_run:<active tool id>`)."""
+    if action in SCHEDULE_ACTIONS:
+        return action
+    if action.startswith(ADAPTER_RUN_PREFIX):
+        tool_id = action[len(ADAPTER_RUN_PREFIX):]
+        if not _TOOL_ID_RE.match(tool_id):
+            raise ValueError(f"adapter_run tool id {tool_id!r} is not a tool id")
+        from ..tool_registry import list_tools
+
+        active = {str(t.get("tool_id")) for t in list_tools(status="ACTIVE", base_dir=base_dir)}
+        if tool_id not in active:
+            raise ValueError(f"adapter_run:{tool_id} — tool is not registered ACTIVE (known active: {sorted(active)})")
+        return action
+    raise ValueError(f"unknown action {action!r}; the vocabulary is closed: {SCHEDULE_ACTIONS} + {ADAPTER_RUN_PREFIX}<active tool id>")
+
+
 def add_schedule(*, name: str, action: str, cron: str, base_dir: str | Path | None = None, operator_ref: str | None = None) -> dict[str, Any]:
     if not _NAME_RE.match(name):
         raise ValueError(f"schedule name {name!r} must match {_NAME_RE.pattern}")
-    if action not in SCHEDULE_ACTIONS:
-        raise ValueError(f"unknown action {action!r}; the vocabulary is closed: {SCHEDULE_ACTIONS}")
+    action = validate_action(action, base_dir=base_dir)
     expr = validate_cron(cron)
     row = _append(base_dir, {"event": "add", "name": name, "action": action, "cron": expr, "operator_ref": operator_ref})
     append_tools_governance(ensure_tools_dir(base_dir), "gateway_schedule_changed", {"event": "add", "name": name, "action": action, "cron": expr})
@@ -151,12 +174,11 @@ def _default_runner(argv: list[str]) -> "subprocess.CompletedProcess[str]":
 
 
 def run_action(action: str, *, base_dir: str | Path | None, workspace_root: str | Path, runner: Runner | None = None,
-               schedule_name: str | None = None, ref: str = "main") -> dict[str, Any]:
+               schedule_name: str | None = None, ref: str = "main", ran_at: str | None = None) -> dict[str, Any]:
     """Execute one closed action. Workflow actions respect the operator pause
     and the host lease; local actions run in-process."""
-    if action not in SCHEDULE_ACTIONS:
-        raise ValueError(f"unknown action {action!r}")
     root = ensure_tools_dir(base_dir)
+    action = validate_action(action, base_dir=root)
     run = runner or _default_runner
     result: dict[str, Any] = {"action": action, "status": "ran", "detail": {}}
     if action in ACTION_WORKFLOWS:
@@ -217,8 +239,26 @@ def run_action(action: str, *, base_dir: str | Path | None, workspace_root: str 
         stats = usage_per_accepted_result(base_dir=root)
         rows = record_recommendations([*recommend_efforts(stats), *calibrate_role_caps(stats)], base_dir=root)
         result["detail"] = {"stats": len(stats), "recommendations": len(rows), "downgrades": sum(1 for r in rows if r.get("action") == "downgrade")}
+    elif action == "experiment_night":
+        from ..experiment_night import run_night_experiments
+
+        cycle_id = "gw-exp-" + utc_now().replace(":", "").replace("-", "")[:15]
+        outcome = run_night_experiments(workspace_root, cycle_id=cycle_id, base_dir=root)
+        result["detail"] = {"cycle_id": cycle_id, "status": outcome.get("status"), "planned": outcome.get("planned"), "ran": outcome.get("ran")}
+    elif action.startswith(ADAPTER_RUN_PREFIX):
+        from ..tool_runner import run_tool
+
+        tool_id = action[len(ADAPTER_RUN_PREFIX):]
+        cycle_id = "gw-adapter-" + utc_now().replace(":", "").replace("-", "")[:15]
+        outcome = run_tool(tool_id, {}, cycle_id, workspace_root=workspace_root, base_dir=root)
+        result["detail"] = {"tool_id": tool_id, "cycle_id": cycle_id, "envelope_status": (outcome.get("envelope") or {}).get("status")}
+        if (outcome.get("envelope") or {}).get("status") not in (None, "ok"):
+            result["status"] = "failed"
     if schedule_name:
-        _append(root, {"event": "ran", "name": schedule_name, "action": action, "status": result["status"], "detail": result["detail"]})
+        # `ran_at` is the scheduler's clock (the minute the slot fired), not the wall
+        # clock of the write — the once-per-minute rule folds on it.
+        _append(root, {"event": "ran", "name": schedule_name, "action": action, "status": result["status"], "detail": result["detail"],
+                       "ran_at": ran_at or utc_now()})
     append_tools_governance(root, "gateway_action_ran", {"action": action, "schedule": schedule_name, "status": result["status"]})
     return result
 
@@ -235,7 +275,7 @@ def tick(*, base_dir: str | Path | None, workspace_root: str | Path, now: dateti
         from .router import drain_inbox
 
         routed = drain_inbox(base_dir=root, workspace_root=workspace_root)
-    ran = [run_action(s.action, base_dir=root, workspace_root=workspace_root, runner=runner, schedule_name=s.name)
+    ran = [run_action(s.action, base_dir=root, workspace_root=workspace_root, runner=runner, schedule_name=s.name, ran_at=stamp.isoformat())
            for s in due_schedules(now=stamp, base_dir=root)]
     beat = {"schema_version": 1, "recorded_at": utc_now(), "tick_at": stamp.isoformat(), "routed": len(routed),
             "ran": [r["action"] + ":" + r["status"] for r in ran]}

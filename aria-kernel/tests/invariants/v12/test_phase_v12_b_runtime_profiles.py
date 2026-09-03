@@ -160,8 +160,13 @@ class DenyListIsDerived(unittest.TestCase):
             self.assertEqual(tool in denies, tool not in implementer.tools, tool)
         for tool in ALWAYS_DENIED_TOOLS:
             self.assertIn(tool, denies)
+        # Faz 032d: the implementer is the one profile with the external-write grant —
+        # its denies carry none of the external-write rules; a closed write profile
+        # (worker) carries all of them.
+        self.assertFalse(set(EXTERNAL_WRITE_DENY_RULES) & set(denies), "implementer grant")
+        worker_denies = disallowed_tools_for(profile_by_id("worker"))
         for rule in EXTERNAL_WRITE_DENY_RULES:
-            self.assertIn(rule, denies)
+            self.assertIn(rule, worker_denies)
         judge = profile_by_id("judge_opus")
         judge_denies = disallowed_tools_for(judge)
         self.assertIn("Bash", judge_denies)

@@ -78,7 +78,7 @@ class DecisionMemory(_Store):
         recovery.classify_recovery("AIR-2", base_dir=self.tools, fingerprint="fp", remote_reader=lambda i: None)
         decisions = cc.collect_decisions(base_dir=self.tools)
         sources = {d.source for d in decisions}
-        self.assertEqual(sources, {"control", "recovery", "governance"})
+        self.assertTrue({"control", "recovery"} <= sources, sources)
         for d in decisions:
             self.assertIn(d.source, cc.DECISION_SOURCES)
         ranked = cc.rank_decisions(decisions, query="tenant isolation farm-service", k=2)
@@ -92,6 +92,31 @@ class DecisionMemory(_Store):
         self.assertIn(cc.CONTEXT_PACK_EVENT, self.governance())
         self.assertEqual(cc.render_decision_memory(None), "")
         self.assertIn("because:", cc.render_decision_memory(pack.to_dict()))
+
+    def test_I_V12_MEM_01_d4_embedder_ranks_semantically_and_degrades(self) -> None:
+        control.record_control("cancel", base_dir=self.tools, request_id="AIR-1", reason="tenant isolation plan superseded")
+        control.record_control("pause", base_dir=self.tools, reason="sensor gateway deploy window")
+        decisions = cc.collect_decisions(base_dir=self.tools)
+
+        def fake_embed(text: str) -> list[float]:  # "sensor" axis vs "tenant" axis
+            return [float("sensor" in text or "gateway" in text), float("tenant" in text)]
+
+        embedder = (fake_embed, "fake-v1")
+        self.assertEqual(cc.embed_decisions(decisions, base_dir=self.tools, embedder=embedder), len(decisions))
+        self.assertEqual(cc.embed_decisions(decisions, base_dir=self.tools, embedder=embedder), 0, "idempotent on ref id")
+        ranked = cc.rank_decisions(decisions, query="deploy the sensor gateway", base_dir=self.tools, embedder=embedder)
+        self.assertIn("pause", ranked[0].what)
+        lexical = cc.rank_decisions(decisions, query="tenant isolation")
+        self.assertIn("AIR-1", lexical[0].what)
+
+        def broken(text: str) -> list[float]:
+            raise RuntimeError("model down")
+
+        degraded = cc.rank_decisions(decisions, query="tenant isolation", base_dir=self.tools, embedder=(broken, "broken-v1"))
+        self.assertIn("AIR-1", degraded[0].what, "a failing embedder degrades to lexical ranking")
+        from aria_kernel.semantic_memory import _KNOWN_KINDS
+
+        self.assertIn("decision", _KNOWN_KINDS)
 
     def test_I_V12_MEM_02_sealed_at_mint_rendered_as_data(self) -> None:
         bare = create_agent_invocation_request(

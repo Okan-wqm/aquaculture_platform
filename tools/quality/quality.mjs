@@ -221,6 +221,18 @@ function classifyFormatFile(path) {
       'serialized agent inventory transcript; content is hash-pinned evidence',
     );
   }
+  const newAriaPlan = 'docs/plans/2026-09-01-new-aria-autonomous-engineering/';
+  if (
+    path.startsWith(`${newAriaPlan}reviews/`) ||
+    path.startsWith(`${newAriaPlan}progress/evidence/`)
+  ) {
+    return excluded(
+      path,
+      'archive_immutable',
+      'new-aria-evidence-authority',
+      'append-only historical evidence is hash-pinned and must retain its original bytes',
+    );
+  }
   if (path.includes('/.archive/') || path.includes('/archive/')) {
     return excluded(
       path,

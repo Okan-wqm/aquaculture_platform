@@ -9,6 +9,149 @@ function read(path: string): string {
   return readFileSync(join(REPO_ROOT, path), 'utf8');
 }
 
+interface CapacityAutoGcScenario {
+  initialFreeBytes: string;
+  reclaimedPerImageBytes: string;
+  projectedPullBytes: string;
+  projectedReserveGib: string;
+}
+
+interface CapacityAutoGcResult {
+  status: number | null;
+  stdout: string;
+  stderr: string;
+  removals: string[];
+  dockerInvocations: string[];
+}
+
+function runCapacityAutoGcScenario(scenario: CapacityAutoGcScenario): CapacityAutoGcResult {
+  const fakeBin = mkdtempSync(join(tmpdir(), 'aqua-capacity-auto-gc-'));
+  const dockerPath = join(fakeBin, 'docker');
+  const dfPath = join(fakeBin, 'df');
+  const removalState = join(fakeBin, 'removal-count');
+  const removalLog = join(fakeBin, 'removals.log');
+  const dockerInvocationLog = join(fakeBin, 'docker-invocations.log');
+  writeFileSync(removalState, '0\n');
+  writeFileSync(removalLog, '');
+  writeFileSync(dockerInvocationLog, '');
+  writeFileSync(
+    dockerPath,
+    [
+      '#!/usr/bin/env bash',
+      'set -euo pipefail',
+      'printf "%s\\0" "$*" >> "${DOCKER_INVOCATION_LOG}"',
+      'case "${1:-}" in',
+      '  info)',
+      '    printf "%s\\n" "${DOCKER_ROOT_DIR}"',
+      '    ;;',
+      '  system)',
+      '    printf "TYPE TOTAL ACTIVE SIZE RECLAIMABLE\\nImages 3 0 6GB 6GB\\n"',
+      '    ;;',
+      '  ps)',
+      '    printf "running-a\\nrunning-b\\n"',
+      '    ;;',
+      '  inspect)',
+      '    printf "sha256:running-image-a\\nsha256:running-image-b\\n"',
+      '    ;;',
+      '  image)',
+      '    case "${2:-}" in',
+      '      prune) printf "Total reclaimed space: 0B\\n" ;;',
+      '      ls)',
+      '        printf "%s\\n" \\',
+      '          "${IMAGE_PREFIX}/svc-a 1111111111111111111111111111111111111111 image-a" \\',
+      '          "${IMAGE_PREFIX}/svc-b 2222222222222222222222222222222222222222 image-b" \\',
+      '          "${IMAGE_PREFIX}/svc-c 3333333333333333333333333333333333333333 image-c"',
+      '        ;;',
+      '    esac',
+      '    ;;',
+      '  rmi)',
+      '    count="$(< "${RMI_STATE_FILE}")"',
+      '    count=$((count + 1))',
+      '    printf "%s\\n" "${count}" > "${RMI_STATE_FILE}"',
+      '    printf "%s\\n" "${2}" >> "${RMI_LOG}"',
+      '    printf "Deleted: %s\\n" "${2}"',
+      '    ;;',
+      'esac',
+      '',
+    ].join('\n'),
+  );
+  writeFileSync(
+    dfPath,
+    [
+      '#!/usr/bin/env bash',
+      'set -euo pipefail',
+      'count="$(< "${RMI_STATE_FILE}")"',
+      'avail=$((INITIAL_FREE_BYTES + count * RECLAIMED_PER_IMAGE_BYTES))',
+      'mode=bytes',
+      'for arg in "$@"; do',
+      '  case "${arg}" in',
+      '    -Pi) mode=inodes ;;',
+      '    -k) mode=kilobytes ;;',
+      '  esac',
+      'done',
+      'case "${mode}" in',
+      '  inodes)',
+      '    printf "Filesystem Inodes IUsed IFree IUse%% Mounted-on\\n/dev/fake 1000 100 900 10%% /\\n"',
+      '    ;;',
+      '  kilobytes)',
+      '    printf "Avail\\n%s\\n" "$((avail / 1024))"',
+      '    ;;',
+      '  bytes)',
+      '    printf "Filesystem 1-blocks Used Available Capacity Mounted-on\\n"',
+      '    printf "/dev/fake %s %s %s 1%% /\\n" "${FS_SIZE_BYTES}" "$((FS_SIZE_BYTES - avail))" "${avail}"',
+      '    ;;',
+      'esac',
+      '',
+    ].join('\n'),
+  );
+  chmodSync(dockerPath, 0o755);
+  chmodSync(dfPath, 0o755);
+
+  try {
+    const result = spawnSync(
+      'bash',
+      [join(REPO_ROOT, 'scripts/deploy/droplet-capacity.sh'), 'gate'],
+      {
+        env: {
+          ...process.env,
+          PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+          TMPDIR: fakeBin,
+          DOCKER_ROOT_DIR: fakeBin,
+          DOCKER_INVOCATION_LOG: dockerInvocationLog,
+          RMI_STATE_FILE: removalState,
+          RMI_LOG: removalLog,
+          INITIAL_FREE_BYTES: scenario.initialFreeBytes,
+          RECLAIMED_PER_IMAGE_BYTES: scenario.reclaimedPerImageBytes,
+          FS_SIZE_BYTES: '10737418240',
+          IMAGE_PREFIX: 'ghcr.io/example/aqua',
+          DEPLOY_SHA: 'ffffffffffffffffffffffffffffffffffffffff',
+          FULL_DEPLOY: 'false',
+          DEPLOY_SERVICES: 'svc-a svc-b svc-c',
+          DEPLOY_PROJECTED_PULL_BYTES: scenario.projectedPullBytes,
+          SELECTIVE_HARD_FREE_GIB: '0',
+          SELECTIVE_WARN_FREE_GIB: '3',
+          SELECTIVE_HARD_FREE_PERCENT: '0',
+          SELECTIVE_PROJECTED_RESERVE_GIB: scenario.projectedReserveGib,
+          HARD_INODE_FREE_PERCENT: '0',
+          WARN_INODE_FREE_PERCENT: '0',
+          CAPACITY_GC_MODE: 'auto',
+          CAPACITY_DISK_USAGE_MODE: 'off',
+        },
+        encoding: 'utf8',
+      },
+    );
+    return {
+      status: result.status,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      removals: readFileSync(removalLog, 'utf8').trim().split('\n').filter(Boolean),
+      dockerInvocations: readFileSync(dockerInvocationLog, 'utf8').split('\0').filter(Boolean),
+    };
+  } finally {
+    rmSync(fakeBin, { recursive: true, force: true });
+  }
+}
+
 function uncommentedLines(text: string): string[] {
   return text
     .split('\n')
@@ -373,17 +516,68 @@ describe('deploy SSOT contract', () => {
 
   it('keeps safe image GC to one post-GC deep traversal', () => {
     const maintenance = read('.github/workflows/deploy-capacity-maintenance.yml');
-    const safeImageGcBlock = /safe-image-gc\)\n[\s\S]*?\n\s+;;/.exec(maintenance)?.[0] ?? '';
+    const safeImageGcBlock =
+      /safe-image-gc\s*\|\s*gate\)\n[\s\S]*?\n\s+;;/.exec(maintenance)?.[0] ?? '';
 
     expect(safeImageGcBlock).not.toEqual('');
     expect(safeImageGcBlock).toContain(
-      'CAPACITY_DISK_USAGE_MODE=off bash scripts/deploy/droplet-capacity.sh report',
+      'CAPACITY_GC_MODE=auto CAPACITY_DISK_USAGE_MODE=deep bash scripts/deploy/droplet-capacity.sh gate',
     );
-    expect(safeImageGcBlock).toContain('bash scripts/deploy/droplet-capacity.sh gc');
-    expect(safeImageGcBlock).toContain(
-      'CAPACITY_GC_MODE=off CAPACITY_DISK_USAGE_MODE=deep bash scripts/deploy/droplet-capacity.sh gate',
-    );
+    expect(safeImageGcBlock).not.toContain('droplet-capacity.sh report');
+    expect(safeImageGcBlock).not.toContain('droplet-capacity.sh gc');
     expect((safeImageGcBlock.match(/CAPACITY_DISK_USAGE_MODE=deep/g) ?? []).length).toBe(1);
+  });
+
+  it('stops automatic image GC once a hard verdict becomes warning-only', () => {
+    const result = runCapacityAutoGcScenario({
+      initialFreeBytes: '1610612736',
+      reclaimedPerImageBytes: '805306368',
+      projectedPullBytes: '1073741824',
+      projectedReserveGib: '1',
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.removals).toEqual([
+      'ghcr.io/example/aqua/svc-a:1111111111111111111111111111111111111111',
+    ]);
+    expect(result.stdout).toContain('Capacity GC target met: hard failures cleared');
+    expect(result.stdout).toContain('Capacity preflight: PASS with warnings');
+  });
+
+  it('continues automatic image GC until an initial warning clears', () => {
+    const result = runCapacityAutoGcScenario({
+      initialFreeBytes: '1610612736',
+      reclaimedPerImageBytes: '805306368',
+      projectedPullBytes: '0',
+      projectedReserveGib: '0',
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.removals).toEqual([
+      'ghcr.io/example/aqua/svc-a:1111111111111111111111111111111111111111',
+      'ghcr.io/example/aqua/svc-b:2222222222222222222222222222222222222222',
+    ]);
+    expect(result.stdout).toContain('Capacity GC target met: warnings cleared');
+    expect(result.stdout).toContain('Capacity preflight: PASS');
+  });
+
+  it('bounds Docker metadata discovery during capacity recovery', () => {
+    const result = runCapacityAutoGcScenario({
+      initialFreeBytes: '1610612736',
+      reclaimedPerImageBytes: '805306368',
+      projectedPullBytes: '1073741824',
+      projectedReserveGib: '1',
+    });
+    const systemDfCalls = result.dockerInvocations.filter((call) => call.startsWith('system df'));
+    const imageListCalls = result.dockerInvocations.filter((call) => call.startsWith('image ls'));
+    const inspectCalls = result.dockerInvocations.filter((call) => call.startsWith('inspect '));
+
+    expect(systemDfCalls).toHaveLength(1);
+    expect(imageListCalls).toHaveLength(2);
+    expect(inspectCalls).toHaveLength(1);
+    expect(inspectCalls[0]).toContain('running-a running-b');
   });
 
   it('executes one bounded disjoint frontier and rejects over-limit timeouts before invocation', () => {
@@ -617,7 +811,6 @@ describe('deploy SSOT contract', () => {
     }
 
     try {
-      const startedAt = Date.now();
       const report = spawnSync(
         'bash',
         [join(REPO_ROOT, 'scripts/deploy/droplet-capacity.sh'), 'report'],
@@ -633,10 +826,12 @@ describe('deploy SSOT contract', () => {
           encoding: 'utf8',
         },
       );
-      const elapsedMs = Date.now() - startedAt;
       expect(report.error).toBeUndefined();
       expect(report.status).toBe(0);
-      expect(elapsedMs).toBeLessThan(6_000);
+      // The observable contract is that the completed /opt result survives
+      // beside the explicit three-second timeout verdict. Host scheduling can
+      // delay spawnSync after both child processes have already produced those
+      // results, so parent wall-clock time is not evidence of this behavior.
       expect(report.stdout).toContain('bytes=4096 path=/opt');
       expect(report.stdout).toContain(
         `disk_usage_unavailable path=${fakeBin} reason=du_timeout detail=124 global_timeout_seconds=3 scope_timeout_seconds=`,
@@ -709,7 +904,6 @@ describe('deploy SSOT contract', () => {
     }
 
     try {
-      const startedAt = Date.now();
       const report = spawnSync(
         'bash',
         [join(REPO_ROOT, 'scripts/deploy/droplet-capacity.sh'), 'report'],
@@ -728,7 +922,6 @@ describe('deploy SSOT contract', () => {
       );
       expect(report.error).toBeUndefined();
       expect(report.status).toBe(0);
-      expect(Date.now() - startedAt).toBeLessThan(4_000);
       expect(report.stdout).toContain(`bytes=4096 path=${hotspotScopes[4]}`);
       for (const blockedScope of hotspotScopes.slice(0, 4)) {
         expect(report.stdout).toContain(
@@ -736,6 +929,9 @@ describe('deploy SSOT contract', () => {
         );
       }
       const timeoutInvocations = readFileSync(invocationLog, 'utf8').trim().split('\n');
+      // Every blocked worker must consume the fixed quantum and the fifth
+      // scope must actually start. Those side effects prove slot release
+      // deterministically; elapsed parent-process time measures host load.
       for (const hotspotScope of hotspotScopes) {
         expect(timeoutInvocations).toContain(`15s\t${hotspotScope}`);
       }
@@ -1075,7 +1271,7 @@ describe('deploy SSOT contract', () => {
     );
     expect(maintenance).toContain('workflow_dispatch:');
     expect(maintenance).toContain('safe-image-gc');
-    expect(maintenance).toContain('bash scripts/deploy/droplet-capacity.sh gc');
+    expect(maintenance).not.toContain('bash scripts/deploy/droplet-capacity.sh gc');
     expect(maintenance).toContain(
       'CAPACITY_GC_MODE=auto CAPACITY_DISK_USAGE_MODE=deep bash scripts/deploy/droplet-capacity.sh gate',
     );

@@ -828,12 +828,13 @@ capacity_core_snapshot() {
       "${path}" "${inodes_total}" "${inodes_free}" "${inode_free_pct}"
   done < <(runtime_paths)
 
-  echo ""
-  docker system df 2>/dev/null || true
 }
 
 capacity_diagnostic_snapshot() {
   disk_usage_snapshot || echo "  disk_usage_unavailable reason=unexpected_diagnostic_failure"
+  echo ""
+  echo "Docker storage usage:"
+  docker system df 2>/dev/null || true
   docker_image_inventory || echo "  docker_image_inventory_unavailable reason=unexpected_diagnostic_failure"
   return 0
 }
@@ -938,20 +939,22 @@ capacity_failures() {
 
 protected_image_ids_file() {
   local file="$1"
+  local image_inventory_file="$2"
   : > "${file}"
 
-  docker ps -aq 2>/dev/null | while IFS= read -r cid; do
-    [ -n "${cid}" ] || continue
-    docker inspect --format='{{.Image}}' "${cid}" 2>/dev/null || true
-  done >> "${file}"
+  local -a container_ids=()
+  mapfile -t container_ids < <(docker ps -aq 2>/dev/null || true)
+  if [ "${#container_ids[@]}" -gt 0 ]; then
+    docker inspect --format='{{.Image}}' "${container_ids[@]}" 2>/dev/null >> "${file}" || true
+  fi
 
   if [ -n "${ROLLBACK_MANIFEST}" ] && [ -s "${ROLLBACK_MANIFEST}" ]; then
     awk -F '\t' 'NF >= 2 {print $2}' "${ROLLBACK_MANIFEST}" >> "${file}" || true
   fi
 
   if [ -n "${DEPLOY_SHA}" ]; then
-    docker image ls --format '{{.Repository}}:{{.Tag}} {{.ID}}' 2>/dev/null |
-      awk -v sha="${DEPLOY_SHA}" '$1 ~ ":" sha "$" {print $2}' >> "${file}" || true
+    awk -v sha="${DEPLOY_SHA}" '$2 == sha {print $3}' \
+      "${image_inventory_file}" >> "${file}" || true
   fi
 
   sort -u "${file}" -o "${file}"
@@ -973,6 +976,27 @@ is_protected_id() {
   ' "${file}" 2>/dev/null
 }
 
+capacity_gc_target_met() {
+  [ -n "${GC_CAPACITY_TARGET_RC:-}" ] || return 1
+  [ "${GC_DRY_RUN:-false}" != "true" ] || return 1
+
+  local current_rc
+  if capacity_failures >/dev/null 2>&1; then
+    current_rc=0
+  else
+    current_rc=$?
+  fi
+  [ "${current_rc}" -le "${GC_CAPACITY_TARGET_RC}" ] || return 1
+
+  CAPACITY_GC_TARGET_MET=true
+  if [ "${GC_CAPACITY_TARGET_RC}" -eq 0 ]; then
+    echo "Capacity GC target met: warnings cleared; stopping safe image GC."
+  else
+    echo "Capacity GC target met: hard failures cleared; stopping safe image GC."
+  fi
+  return 0
+}
+
 gc_remove_ref() {
   # GC_DRY_RUN=true lists what WOULD be removed without touching the
   # daemon — operator-auditable enumeration before any destructive run.
@@ -987,16 +1011,27 @@ gc_remove_ref() {
 safe_image_gc() {
   echo "=== Safe image-only GC ==="
   echo "Policy: dangling images + unused old app SHA tags + superseded rollback retags + unclassified app tags (default-deny); volumes/containers/networks/build-cache untouched."
-  local before after reclaimed
-  before=$(docker system df --format '{{.Size}}' 2>/dev/null | head -1 || true)
+  local docker_root_path before_fs before_size before_free before_mount
+  local after_fs after_size after_free after_mount reclaimed_bytes
+  docker_root_path="$(docker_root)"
+  IFS="$(printf '\t')" read -r before_fs before_size before_free before_mount \
+    < <(df_bytes_row "${docker_root_path}") || true
+  CAPACITY_GC_TARGET_MET=false
 
   if [ "${GC_DRY_RUN:-false}" != "true" ]; then
     docker image prune -f --filter "dangling=true" 2>&1 || true
+    capacity_gc_target_met || true
   fi
 
   local protected
+  local image_inventory
   protected="$(mktemp)"
-  protected_image_ids_file "${protected}"
+  image_inventory="$(mktemp)"
+  if [ "${CAPACITY_GC_TARGET_MET}" != "true" ]; then
+    docker image ls --format '{{.Repository}} {{.Tag}} {{.ID}}' \
+      > "${image_inventory}" 2>/dev/null || true
+    protected_image_ids_file "${protected}" "${image_inventory}"
+  fi
 
   # Rollback-retag retention (INFRA-HIGH-013). Every deploy retags the
   # previously-running generation as rollback-<sha>-<ts> — a full image
@@ -1009,7 +1044,8 @@ safe_image_gc() {
   # images this droplet only ever PULLED from GHCR (pull-only runtime,
   # ADR-033), so deletion loses nothing that is not re-pullable.
   local repo tag id ref removed_rollback=0 skipped=0
-  while read -r repo tag id; do
+  if [ "${CAPACITY_GC_TARGET_MET}" != "true" ]; then
+    while read -r repo tag id; do
       [ -n "${repo:-}" ] || continue
       case "${repo}" in
         "${IMAGE_PREFIX}"/*) ;;
@@ -1027,10 +1063,15 @@ safe_image_gc() {
       echo "  remove superseded rollback retag ${repo}:${tag} ${id}"
       gc_remove_ref "${repo}:${tag}"
       removed_rollback=$((removed_rollback + 1))
-  done < <(docker image ls --format '{{.Repository}} {{.Tag}} {{.ID}}' 2>/dev/null)
+      if capacity_gc_target_met; then
+        break
+      fi
+    done < "${image_inventory}"
+  fi
 
   local removed=0 removed_untagged=0 removed_unclassified=0
-  while read -r repo tag id; do
+  if [ "${CAPACITY_GC_TARGET_MET}" != "true" ]; then
+    while read -r repo tag id; do
       [ -n "${repo:-}" ] || continue
       case "${repo}" in
         "${IMAGE_PREFIX}"/*) ;;
@@ -1047,6 +1088,9 @@ safe_image_gc() {
         echo "  remove unused untagged app image ${repo}@${id}"
         gc_remove_ref "${id}"
         removed_untagged=$((removed_untagged + 1))
+        if capacity_gc_target_met; then
+          break
+        fi
         continue
       fi
 
@@ -1076,19 +1120,30 @@ safe_image_gc() {
         gc_remove_ref "${ref}"
         removed_unclassified=$((removed_unclassified + 1))
       fi
-  done < <(docker image ls --format '{{.Repository}} {{.Tag}} {{.ID}}' 2>/dev/null)
+      if capacity_gc_target_met; then
+        break
+      fi
+    done < "${image_inventory}"
+  fi
 
-  rm -f "${protected}"
+  rm -f "${protected}" "${image_inventory}"
 
   # Untagging alone reclaims nothing while sibling tags or freshly
   # orphaned layers remain — the historical before=after symptom. A final
   # dangling-only prune converts the untag passes into actual bytes.
-  if [ "${GC_DRY_RUN:-false}" != "true" ]; then
+  if [ "${GC_DRY_RUN:-false}" != "true" ] && \
+    [ "${CAPACITY_GC_TARGET_MET}" != "true" ]; then
     docker image prune -f --filter "dangling=true" 2>&1 || true
+    capacity_gc_target_met || true
   fi
 
-  after=$(docker system df --format '{{.Size}}' 2>/dev/null | head -1 || true)
-  echo "Safe GC complete; removed_tags=${removed:-0} removed_untagged=${removed_untagged:-0} removed_rollback_retags=${removed_rollback:-0} removed_unclassified=${removed_unclassified:-0} skipped_protected=${skipped:-0} dry_run=${GC_DRY_RUN:-false} before=${before:-unknown} after=${after:-unknown}"
+  IFS="$(printf '\t')" read -r after_fs after_size after_free after_mount \
+    < <(df_bytes_row "${docker_root_path}") || true
+  reclaimed_bytes="unknown"
+  if [[ "${before_free:-}" =~ ^[0-9]+$ ]] && [[ "${after_free:-}" =~ ^[0-9]+$ ]]; then
+    reclaimed_bytes=$((after_free - before_free))
+  fi
+  echo "Safe GC complete; removed_tags=${removed:-0} removed_untagged=${removed_untagged:-0} removed_rollback_retags=${removed_rollback:-0} removed_unclassified=${removed_unclassified:-0} skipped_protected=${skipped:-0} dry_run=${GC_DRY_RUN:-false} before_free_bytes=${before_free:-unknown} after_free_bytes=${after_free:-unknown} reclaimed_bytes=${reclaimed_bytes} capacity_target_met=${CAPACITY_GC_TARGET_MET}"
 }
 
 # =============================================================================
@@ -1181,12 +1236,16 @@ run_gate() {
 
   if [ "${rc}" -ne 0 ] && [ "${CAPACITY_GC_MODE}" = "auto" ]; then
     echo "Capacity preflight: warning/failure before GC; running one safe image-only GC pass."
+    GC_CAPACITY_TARGET_RC=$((rc - 1))
     safe_image_gc
+    unset GC_CAPACITY_TARGET_RC
     # Images are not always where the space is. On 2026-08-09 every image
     # backed a running container and the shortfall was entirely regenerable
     # build caches in TMPDIR, so an image-only response reported "nothing to
     # reclaim" beside a disk that was 98% full.
-    safe_tmp_gc
+    if [ "${CAPACITY_GC_TARGET_MET}" != "true" ]; then
+      safe_tmp_gc
+    fi
     capacity_core_snapshot
     write_capacity_json
     set +e

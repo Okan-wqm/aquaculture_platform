@@ -86,7 +86,7 @@ report's `P0-*` / `NEW-*` labels are the analysis names and these are the tracke
 | `ORPHAN-CRITICAL-460` | fresh coverage lens        | CRITICAL | a shell operator after an allowed prefix bypassed the allowlist, the denylist and the force-push check at once                                                 |
 | `ORPHAN-CRITICAL-461` | fresh coverage lens        | CRITICAL | broader-scope claims, globs, empty surface lists, an echoed test suite, and every gh-api route that writes `main` all passed                                   |
 | `ORPHAN-HIGH-462`     | fresh coverage lens        | HIGH     | a specialist submitting garbage was recorded as a clean review, so hardening two sides of the gate made garbage better than silence                            |
-| `ORPHAN-MEDIUM-463`   | observed in CI             | MEDIUM   | `deploy-ssot-contract`'s hostile-filename test is flaky under parallel workers, in a required check                                                            |
+| `ORPHAN-MEDIUM-463`   | observed in CI             | MEDIUM   | `deploy-ssot-contract` used scheduler-dependent wall-clock limits in a required parallel check                                                                 |
 | `ORPHAN-MEDIUM-464`   | operator decision          | MEDIUM   | one pushed commit's missing trailer required an allowlist exception the author would not grant himself                                                         |
 
 Every ID above is listed here on purpose: this document is the `Closes:` target for all of them, and
@@ -1305,6 +1305,15 @@ defect on its own: it trains reviewers to re-run instead of read, which is how a
 eventually gets waved through. Not fixed here — the root cause is a race in deploy capacity tooling,
 a different domain from this branch, and guessing at a timing fix without reproducing it is how the
 next finding gets created.
+
+**Resolved from a reproduced failure on 2026-09-03.** An affected Nx run on a four-core shared host
+failed two parent-process elapsed-time assertions at 6.238 seconds and 17.518 seconds while the same
+capacity fixtures passed in isolation and every functional output remained correct. The tests
+already recorded the deterministic contracts: the explicit timeout budget and exit status, the
+completed disjoint-scope evidence, all four blocked worker invocations, and proof that the fifth
+scope started. The scheduler-dependent `Date.now()` assertions are removed while those behavioral
+assertions remain. CPU contention can no longer fail a required check after the bounded worker
+behavior has succeeded, and deleting or bypassing the production timeout still fails the fixture.
 
 ### `ORPHAN-MEDIUM-464` — the exception, and who granted it
 

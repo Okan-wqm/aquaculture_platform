@@ -49,6 +49,7 @@ TAG="${TAG:-${DEPLOY_SHA:-}}"
 export TAG
 RUN_DB_MIGRATE="${RUN_DB_MIGRATE:-true}"
 export RUN_DB_MIGRATE
+CONTAINER_LOG_TIMEOUT_SECONDS="${CONTAINER_LOG_TIMEOUT_SECONDS:-30}"
 PRESERVE_DATA_INFRASTRUCTURE="${PRESERVE_DATA_INFRASTRUCTURE:-false}"
 export PRESERVE_DATA_INFRASTRUCTURE
 GATEWAY_IMAGE_REF="${IMAGE_PREFIX}/gateway-api:latest"
@@ -221,10 +222,15 @@ dump_nonhealthy_container_logs() {
   echo "=== Logs from non-healthy/restarting containers (${label}) ==="
   for c in $(docker ps -a --format '{{.Names}}' --filter "label=com.docker.compose.project=aqua-saas"); do
     HEALTH=$(docker inspect --format='{{.State.Health.Status}}' "$c" 2>/dev/null || echo "none")
+    RUNNING=$(docker inspect --format='{{.State.Running}}' "$c" 2>/dev/null || echo "false")
     RESTARTS=$(docker inspect --format='{{.RestartCount}}' "$c" 2>/dev/null || echo "0")
+    if [ "$HEALTH" = "none" ] && [ "$RUNNING" = "true" ] && [ "$RESTARTS" -eq 0 ] 2>/dev/null; then
+      continue
+    fi
     if [ "$HEALTH" != "healthy" ] || [ "$RESTARTS" -gt 0 ] 2>/dev/null; then
-      echo "--- $c (health=$HEALTH, restarts=$RESTARTS) last 200 lines ---"
-      docker logs --tail 200 "$c" 2>&1 | redact_sensitive || true
+      echo "--- $c (running=$RUNNING, health=$HEALTH, restarts=$RESTARTS) last 200 lines ---"
+      timeout --kill-after=5s "${CONTAINER_LOG_TIMEOUT_SECONDS}s" \
+        docker logs --tail 200 "$c" 2>&1 | redact_sensitive || true
     fi
   done
 }

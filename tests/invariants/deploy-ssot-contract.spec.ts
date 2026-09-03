@@ -409,6 +409,16 @@ describe('deploy SSOT contract', () => {
     expect(deploy).not.toContain('up -d --no-build --remove-orphans');
   });
 
+  it('bounds failure log collection and skips healthy running containers without healthchecks', () => {
+    const deploy = read('scripts/deploy/droplet-up.sh');
+    const diagnostics = /dump_nonhealthy_container_logs\(\) \{[\s\S]*?\n\}/.exec(deploy)?.[0] ?? '';
+
+    expect(diagnostics).not.toEqual('');
+    expect(diagnostics).toContain("RUNNING=$(docker inspect --format='{{.State.Running}}'");
+    expect(diagnostics).toContain('[ "$HEALTH" = "none" ] && [ "$RUNNING" = "true" ]');
+    expect(diagnostics).toContain('timeout --kill-after=5s "${CONTAINER_LOG_TIMEOUT_SECONDS}s"');
+  });
+
   it('reports droplet capacity evidence without mutating data-bearing storage', () => {
     const capacity = read('scripts/deploy/droplet-capacity.sh');
     const duFunction = /du_frontier_snapshot\(\) \{[\s\S]*?\n\}/.exec(capacity)?.[0] ?? '';

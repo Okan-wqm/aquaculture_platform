@@ -33781,6 +33781,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/codex/2026-09-03-development-runtime-health-gates.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/codex/2026-09-03-new-aria-immutable-evidence-format-scope.md",
       "prettier_managed": true
     },
@@ -44323,6 +44329,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/runtime-lifecycle-timer-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/runtime-module-wiring.spec.ts",
       "prettier_managed": true
     },
     {

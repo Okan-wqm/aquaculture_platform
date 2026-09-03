@@ -14,10 +14,15 @@ from .tool_registry import ensure_tools_dir, utc_now
 
 READINESS_SCHEMA = "aria/enterprise-readiness-claim/v2"
 BRANCH_PROTECTION_SCHEMA = "aria/branch-protection-proof/v3"
+# Mirrors .github/manifests/main-required-status-checks.json (the governed
+# SSOT, findings EDGE-CRITICAL-001 / INFRA-CRITICAL-044 / INFRA-HIGH-084).
+# The kernel rejected every readiness claim since INFRA-HIGH-084 added
+# `build-status` to the manifest but this tuple was left behind.
 REQUIRED_MERGE_STATUS_CHECKS: tuple[str, ...] = (
     "sens-enterprise-summary",
     "merge-gate",
     "aria-merge-authority",
+    "build-status",
 )
 REQUIRED_DLP_SCANNED_SURFACES: tuple[str, ...] = (
     "diff",

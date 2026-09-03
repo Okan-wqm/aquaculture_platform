@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from aria_kernel.enterprise_readiness import (
+    REQUIRED_MERGE_STATUS_CHECKS,
     READINESS_SCHEMA,
     assert_enterprise_readiness_claim,
     consume_waiver,
@@ -108,7 +109,7 @@ class EnterpriseReadinessGateTests(unittest.TestCase):
         target_ref = "refs/heads/main"
         head_ref = "aria/readiness"
         head_sha = "a" * 40
-        required_checks = ["sens-enterprise-summary", "merge-gate", "aria-merge-authority"]
+        required_checks = list(REQUIRED_MERGE_STATUS_CHECKS)
         artifact_ref = {
             "schema_version": 2,
             "artifact_id": "artifact-1",

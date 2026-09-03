@@ -131,6 +131,13 @@ RHYTHM_DEFAULTS: dict[str, Any] = {
     # fires — the ceiling exists for the pile-up failure mode, not for
     # steady state.
     "backlog_cap": 25,
+    # Plan 032 Faz 032a — the chain's minimum spacing (SI-5 brake) becomes
+    # policy: a plan needs at least three executor→cycle turns
+    # (challenger → cross_review → evaluate), and at the 6h code default that
+    # is a full day per plan against a 3-day anchor. The default stays 6h;
+    # the operator override lowers it. `cycle_rhythm.MIN_CYCLE_INTERVAL_HOURS`
+    # remains the code-side floor the decider falls back to.
+    "min_interval_hours": 6.0,
 }
 
 

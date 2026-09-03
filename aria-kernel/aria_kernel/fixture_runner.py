@@ -12,6 +12,7 @@ from typing import Any, Iterator
 from .evidence_validator import validate_tool_output_evidence
 from .implementation_safety import BashAllowlistMiss, BashDenylistHit, verify_bash_command_allowed
 from .ledger import (
+    LEDGER_ROW_MAX_BYTES,
     LedgerIntegrityError,
     LedgerReadLimitError,
     append_declared_jsonl,
@@ -32,7 +33,7 @@ SEMANTIC_FIXTURE_REQUIRED_TOOLS = {
 
 FIXTURE_RUN_SCHEMA = "aria/agent-eval-fixture-run/v1"
 FIXTURE_RUN_LEDGER_MAX_BYTES = 64 * 1024 * 1024
-FIXTURE_RUN_LEDGER_MAX_LINE_BYTES = 1024 * 1024
+FIXTURE_RUN_LEDGER_MAX_LINE_BYTES = LEDGER_ROW_MAX_BYTES  # ARIA-HIGH-034 / I-V12-LEDGER-02: the reader's cap IS the writer's
 FIXTURE_RUN_LEDGER_MAX_ROWS = 100_000
 _FIXTURE_RUN_READ_CHUNK_BYTES = 1024 * 1024
 _FIXTURE_RUN_SURFACE = "agent_eval_fixture_runs"

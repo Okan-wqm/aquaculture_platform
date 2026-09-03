@@ -32,8 +32,17 @@
 
 import { strict as assert } from 'node:assert';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 
 const REPO_ROOT = process.cwd();
 const MANIFEST = join(REPO_ROOT, 'tools', 'quality', 'format-scope.json');
@@ -41,6 +50,51 @@ const GENERATOR = join(REPO_ROOT, 'tools', 'quality', 'quality.mjs');
 
 /** Fields removed because they are derived from `entries` and change on every branch. */
 const BANNED_DERIVED_SCALARS = ['file_count', 'managed_count', 'managed_file_list_sha256'];
+
+function withoutGitEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(env).filter(([key]) => !key.startsWith('GIT_')));
+}
+
+function verifyImmutableEvidenceClassification(): void {
+  const root = mkdtempSync(join(tmpdir(), 'format-scope-evidence-'));
+  const poisonedIndex = join(root, 'caller-index-must-not-be-used');
+  const childEnv = withoutGitEnvironment({ ...process.env, GIT_INDEX_FILE: poisonedIndex });
+  const plan = 'docs/plans/2026-09-01-new-aria-autonomous-engineering';
+  const paths = [
+    `${plan}/reviews/01-integrity.md`,
+    `${plan}/reviews/c139f40f/A-foundations.md`,
+    `${plan}/progress/evidence/review.json`,
+    `${plan}/PLAN.md`,
+  ];
+  try {
+    const generator = join(root, 'tools/quality/quality.mjs');
+    mkdirSync(dirname(generator), { recursive: true });
+    copyFileSync(GENERATOR, generator);
+    for (const path of paths) {
+      mkdirSync(dirname(join(root, path)), { recursive: true });
+      writeFileSync(join(root, path), `${path}\n`);
+    }
+    execFileSync('git', ['init', '-b', 'main'], { cwd: root, env: childEnv, stdio: 'pipe' });
+    execFileSync('git', ['add', '.'], { cwd: root, env: childEnv, stdio: 'pipe' });
+    execFileSync('node', [generator, 'format-scope', 'generate'], {
+      cwd: root,
+      env: childEnv,
+      stdio: 'pipe',
+    });
+    assert.equal(existsSync(poisonedIndex), false, 'fixture mutated its caller Git index');
+    const generated = JSON.parse(
+      readFileSync(join(root, 'tools/quality/format-scope.json'), 'utf8'),
+    ) as { entries: Array<Record<string, unknown>> };
+    const entries = new Map(generated.entries.map((entry) => [entry.path, entry]));
+    for (const path of paths.slice(0, 3)) {
+      assert.equal(entries.get(path)?.class, 'archive_immutable', `${path} is mutable`);
+      assert.equal(entries.get(path)?.prettier_managed, false, `${path} is formatter-owned`);
+    }
+    assert.equal(entries.get(paths[3])?.prettier_managed, true, 'live plan docs must stay managed');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
 
 function run(): void {
   const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8')) as Record<string, unknown>;
@@ -84,6 +138,7 @@ function run(): void {
   // And it must still be FRESH by the existing gate — this spec must never
   // become a way to pass while the manifest drifts.
   execFileSync('node', [GENERATOR, 'format-scope', 'check'], { cwd: REPO_ROOT, stdio: 'pipe' });
+  verifyImmutableEvidenceClassification();
 
   process.stdout.write(
     `format-scope-derived-scalars: ok (${entries.length} entries, no derived scalars)\n`,

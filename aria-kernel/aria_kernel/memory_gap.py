@@ -39,7 +39,88 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .state_manifest import surface_by_name, surface_key_name
 from .state_snapshot import snapshot_continuity, snapshots_are_linked
+
+
+def write_driving_lost(lost: tuple[str, ...] | list[str]) -> tuple[str, ...]:
+    """Plan 032 Faz 032a — the subset of lost surfaces whose absence changes
+    what ARIA DOES next, not only what it remembers.
+
+    The 2026-08-31 acknowledged reduction dropped ``plans/*.jsonl`` with the
+    run and finding archives; the ack downgraded every loss alike, and the
+    convergence drainer then re-started the same plan every night because
+    its state machine had no ledger to resume from. A write-driving ledger
+    is declared as such in the manifest; naming those losses separately is
+    what lets the report and the doctor say "the store forgot what it was
+    doing", not merely "the store is smaller". Unknown keys are skipped —
+    this is a classifier over declared names, not a validator.
+    """
+    driving: list[str] = []
+    for key in lost:
+        try:
+            surface = surface_by_name(surface_key_name(str(key)))
+        except KeyError:
+            continue
+        if surface.write_driving and surface.state_class == "ledger":
+            driving.append(str(key))
+    return tuple(driving)
+
+
+SURFACE_RESET_EVENT = "write_driving_surface_reset"
+_SHA256_HEX = 64
+
+
+def record_surface_reset(
+    *,
+    surface: str,
+    archived_sha256: str,
+    reason: str,
+    operator_approval_ref: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Plan 032 Faz 032a — a write-driving ledger restarting from empty is a
+    RECORDED decision, not a silent gap.
+
+    The 2026-08-31 compaction dropped ``plans/*.jsonl`` and the revert did
+    not bring it back; the honest clean start is fine, but "every decision is
+    on the chain" must include the decision to forget. The row names the
+    surface, the hash of what was archived (a git blob sha or file digest the
+    operator computed from the last published tip), the reason, and an
+    operator approval that resolves OUTSIDE the caller's own message
+    (``operator_approval`` grammar). Refuses a surface that is not a
+    write-driving ledger — resetting a passive artifact needs no ceremony,
+    and a ceremony that accepts anything proves nothing.
+    """
+    from .operator_approval import verify_operator_approval_ref
+    from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
+
+    try:
+        declared = surface_by_name(surface)
+    except KeyError as exc:
+        raise GovernanceError(f"surface_reset_unknown_surface:{surface}") from exc
+    if not (declared.write_driving and declared.state_class == "ledger"):
+        raise GovernanceError(f"surface_reset_not_write_driving_ledger:{surface}")
+    digest = archived_sha256.strip().lower().removeprefix("sha256:")
+    if len(digest) != _SHA256_HEX or any(c not in "0123456789abcdef" for c in digest):
+        raise GovernanceError("surface_reset_archived_sha256_invalid")
+    if not reason.strip():
+        raise GovernanceError("surface_reset_reason_required")
+    root = ensure_tools_dir(base_dir)
+    approval = verify_operator_approval_ref(
+        operator_approval_ref, base_dir=root, surface="surface_reset",
+    )
+    return append_tools_governance(
+        root,
+        SURFACE_RESET_EVENT,
+        {
+            "surface": surface,
+            "path_pattern": declared.path_pattern,
+            "archived_sha256": f"sha256:{digest}",
+            "reason": reason.strip(),
+            "operator_approval": approval,
+        },
+    )
 
 # Verdict vocabulary. Closed on purpose: a fourth status invented at a callsite
 # is a fourth branch every consumer has to learn about from the wild.
@@ -373,6 +454,14 @@ def assess_memory_continuity(
         reasons.append(
             f"state_continuity_surfaces_lost_operator_acknowledged:{_ack}"
         )
+        # Plan 032 Faz 032a — the ack silences the block, not the fact: a
+        # write-driving ledger among the losses is named on its own row so
+        # the daily report and the doctor can tell amnesia from thinning.
+        driving = write_driving_lost(lost)
+        if driving:
+            reasons.append(
+                "state_continuity_write_driving_lost:" + ",".join(driving)
+            )
         return ContinuityVerdict(
             status=GAP_UNKNOWN,
             reference_kind=reference_kind,

@@ -345,6 +345,16 @@ jobs:
             EFFECTIVE_MOCK="false"
             MOCK_SOURCE="workflow_default_claude"
           fi
+          # Plan 032 Faz 032a — see aria-auto-cycle.yml: the kernel's boolean
+          # parser raises on anything but true/false, so an unexpected kill
+          # switch value must fail this step by name, not crash the executor.
+          case "${EFFECTIVE_MOCK}" in
+            true|false) ;;
+            *)
+              echo "::error::ARIA mock resolution from ${MOCK_SOURCE} is '${EFFECTIVE_MOCK}'; only 'true' or 'false' is accepted" >&2
+              exit 1
+              ;;
+          esac
           echo "effective_mock=${EFFECTIVE_MOCK}" >> "$GITHUB_OUTPUT"
           echo "mock_source=${MOCK_SOURCE}" >> "$GITHUB_OUTPUT"
           if [ "${EFFECTIVE_MOCK}" = "false" ]; then

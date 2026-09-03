@@ -345,6 +345,123 @@ substitute for the un-provable "no vulnerabilities" claim.
 
 **Mitigation:** I-V13-GRAPH-01..02, I-V13-STALE-01, I-V13-ASSURE-01..02.
 
+## 21. Security scope policy, ephemeral lab, persona broker (Plan 033 Faz 033d)
+
+**Decision:** `scope_policy.RISK_CLASSES` (R0..R4) and `CEILINGS` are closed and repo-owned; the
+production deny inventory lives at `infrastructure/aria/security-lab/production-deny-inventory.json`
+and an unreadable or incomplete inventory caps automatic risk at R0 (fail-closed). Every target that
+is not inside the campaign's own lab network — production hosts, metadata, loopback, link-local,
+public, out-of-scope private, partially-rebinding hosts — is `R4_FORBIDDEN`. A lab lease can only be
+written by a `TRUSTED_PROVISIONERS` identity (no register-target CLI exists); images must be sha256
+pinned; attestation refuses lab/production overlap; a campaign needs a clean teardown receipt.
+Persona secrets never enter a ledger.
+
+**Why one-way:** these are the boundaries the whole active lane trusts; loosening any of them is a
+production-safety change, not a feature.
+
+**Reversibility cost:** Re-attesting every lab; re-auditing every grant issued under the old policy.
+
+**Mitigation:** I-V13-SCOPE-01..02, I-V13-LAB-01..02, I-V13-TEARDOWN-01, I-V13-PERSONA-01.
+
+## 22. CampaignGrant (EdDSA JWS), Evidence Vault, campaign lifecycle (Plan 033 Faz 033e)
+
+**Decision:** the CampaignGrant is the ONLY cryptographic signature in ARIA: compact JWS with
+`alg=EdDSA` (any other alg/typ, a bad signature, an expired or not-yet-valid window, a mismatched
+bound digest, an R4 class or an R3 class without a human approval ref bound to an exact recipe
+digest is refused); the private key lives outside the workspace; a JTI activates for exactly one
+`campaign_run_id`. Raw security evidence never enters a ledger, Git or `aria/state`: the ledger row
+is metadata + digest + redacted preview + ref, the bytes go to an AES-256-GCM vault outside the
+workspace and tools dir (per-campaign DEK wrapped by a KEK read from an FD), truncated objects are
+flagged, seals are write-once, purges leave receipts. `campaign.STATES` / `TRANSITIONS` /
+`REQUIRED_INPUTS` are closed and ordered; inputs are write-once; cleanup without a teardown receipt
+quarantines; CLOSED only after CLEANUP_VERIFIED. `mission.BINDING_KEYS` gains `campaign_run_ids` +
+`grant_jtis`. If the signing/AEAD backend is missing the lane fails closed.
+
+**Why one-way:** these are the trust anchors the policy proxy and every campaign verdict rely on.
+
+**Reversibility cost:** Re-issuing every grant under a new scheme; re-encrypting the vault.
+
+**Mitigation:** I-V13-GRANT-01..02, I-V13-VAULT-01, I-V13-CAMPAIGN-01..02.
+
+## 23. Typed probes, policy proxy (single egress), ZAP under policy (Plan 033 Faz 033f)
+
+**Decision:** the LLM never receives network bash. An `AttackRecipe` is a CLOSED list of typed steps
+(`probe.STEP_KINDS`); any step key in `FORBIDDEN_STEP_KEYS` (shell/script/python/command/…), a
+mutation above its risk floor, a hostless HTTP/GraphQL step, a recipe without a positive control +
+assertion, or a mutating recipe without cleanup is refused. `probe.evaluate` folds into the closed
+`PROBE_VERDICTS`; a missing/failed positive control is HARNESS_ERROR and truncation/unreachability
+is never clean. The `policy_proxy.PolicyEngine` is the single egress: it re-validates the grant on
+every hop — scheme, exact host allowlist, DNS answer pinned to the first-seen IP set (rebinding →
+deny), metadata/loopback/out-of-lab addresses (via scope_policy), body size, atomic budget, GraphQL
+effect catalog (unknown mutation root field / persisted query → deny), no credential cross-origin
+forwarding, redirect depth; `stop()` denies everything after. ZAP runs only from a sha256-pinned
+image (`zap.pin.json`; floating tag / missing pin fails closed — ARIA never invents a digest) with
+an Automation-Framework-allowlisted plan scoped to grant hosts; alerts are UNVERIFIED leads.
+
+**Why one-way:** this is the containment boundary for all active traffic; a gap here is a real-world
+egress, not a bug.
+
+**Reversibility cost:** Re-running every active probe through a changed gate; re-pinning ZAP.
+
+**Mitigation:** I-V13-PROBE-01, I-V13-NETGATE-01, I-V13-SSRF-01, I-V13-CANCEL-01, I-V13-ZAP-01.
+
+## 24. Dual-executor reproduction + source-bound readiness proof (Plan 033 Faz 033g)
+
+**Decision:** a security finding is CONFIRMED only by `reproduction.dual_reproduce`: two independent
+executor principals, two separate clean labs, the SAME sealed recipe digest, both positive controls
+passing, both observing the violation. One-green, a harness error, a shared principal/lab or a
+recipe-digest mismatch never confirm. `STATIC_CLAIM_TYPES` (secret_exposure, rls_gap) are proven by
+a repo-verified deterministic prover instead. `readiness.SecurityReadinessProof` is source-bound to
+a head SHA and RECOMPUTED from the assurance + reproduction ledgers (a claimed closure counts only
+if the ledger confirms the pre-fix red); it is not ready with any coverage gap, unclosed finding,
+open CRITICAL/HIGH, or zero required cells, and `ZERO_TOLERANCE_CONTROLS` are always required.
+
+**Why one-way:** this is the definition of "proven" and of "ready to merge" for the security lane;
+downgrading either would let an unproven or partially-covered change read as safe.
+
+**Reversibility cost:** Re-running every dual reproduction; re-deriving every readiness proof.
+
+**Mitigation:** I-V13-REPRO-01, I-V13-READINESS-01, I-V13-MERGE-01.
+
+## 25. Autonomous remediation, permanent regressions, security doctor (Plan 033 Faz 033h)
+
+**Decision:** `remediation.STATES`/`TRANSITIONS` are closed and ordered: a remediation opens only on
+a finding the reproduction ledger CONFIRMED; the fix is proven only by the SAME sealed recipe
+re-running dual-GREEN (two independent executors, two clean labs, passing positive controls) at the
+fix head SHA; a permanent regression bound to the finding must be locked; READY_FOR_MERGE needs a
+ready SecurityReadinessProof; the flow never merges (merge_authority does). A regression recipe must
+be minimized, synthetic and deterministic with a closed scope; a run whose positive control fails or
+whose verdict errors is HARNESS_ERROR, never a pass. `ops.security_doctor` fails on quarantined
+packs, coverage gaps, unverified cleanup or open CRITICAL/HIGH; the fitness instrument is unknown
+when it cannot see and red on any gap or confirmed vulnerability.
+
+**Why one-way:** this defines what "fixed" means for the security lane; a softer definition would
+let unproven or unguarded fixes close findings.
+
+**Reversibility cost:** Re-verifying every remediation; re-registering every regression recipe.
+
+**Mitigation:** I-V13-REGRESS-01, I-V13-REMEDIATE-01, I-V13-OPS-01, I-V13-FITNESS-01.
+
+## 26. Semantic parity corpus, qualifying burn-in, agent retirement gate (Plan 033 Faz 033i)
+
+**Decision:** `parity.REMOVABLE_SECURITY_AGENTS` = (security-reviewer, auth-security-expert);
+`RETAINED_AGENTS` = (database-reviewer) — never removable. Retirement requires ALL of
+`RETIREMENT_THRESHOLD` (critical recall 1.0, other recall ≥ 0.95, secure false-positive ≤ 0.02, 30
+consecutive QUALIFYING shadow cycles, zero agent-only unresolved CRITICAL/HIGH, zero boundary
+violations), zero remaining kernel runtime dependencies, and explicit operator approval. A cycle
+qualifies only if non-mock, on a qualifying lab lease, with ≥ 1 applicable control, a passing
+positive control and sealed evidence; any non-qualifying cycle resets the streak.
+`retirement_readiness` reports and never deletes. The paired secure/vulnerable corpus is run by the
+kernel's own packs; it already caught one real gap (the RLS checker was gated on RLS being present —
+`rls_coverage` now applies to every strategy except database-per-tenant).
+
+**Why one-way:** this is the only path by which security agents may be removed; a softer gate would
+let the kernel replace reviewers it has not proven to match.
+
+**Reversibility cost:** Re-running the burn-in from zero.
+
+**Mitigation:** I-V13-PARITY-01, I-V13-SELF-01, I-V13-RETIRE-01; I-V13-PACK-02 (corrected).
+
 ## Themes
 
 - **3 of 5 one-way doors are ledger-anchored** (events, terminal states, candidate sources). The

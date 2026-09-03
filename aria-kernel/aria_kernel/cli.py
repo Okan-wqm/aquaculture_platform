@@ -6273,12 +6273,10 @@ def _main(argv: list[str] | None = None) -> int:
             print(json.dumps(cov, indent=2, sort_keys=True))
             return 0 if cov["ready"] else 1
         if args.security_command == "zap":
-            from pathlib import Path as _P
-
             from .security.zap import ZapPolicyError, build_zap_job
 
             try:
-                plan = json.loads(_P(args.plan).read_text(encoding="utf-8"))
+                plan = json.loads(Path(args.plan).read_text(encoding="utf-8"))
                 job = build_zap_job(plan, workspace_root=args.workspace_root, allowed_hosts=tuple(args.allowed_host))
             except (OSError, ValueError, ZapPolicyError) as exc:
                 print(f"zap job refused: {exc}", file=sys.stderr)

@@ -28,19 +28,20 @@ only.
 
 ## Live-machine facts (the target shape)
 
-| Fact               | Value                                                                                                                               |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Repository         | `Okan-wqm/aquaculture_platform`                                                                                                     |
-| Runner user        | `gharunner`                                                                                                                         |
-| Runner root        | `/home/gharunner/actions-runner`                                                                                                    |
-| Runner name        | `suderra-droplet-claude`                                                                                                            |
-| Labels             | `self-hosted`, `linux`, `claude` (both lanes pin `runs-on: [self-hosted, linux, claude]`)                                           |
-| systemd service    | `actions.runner.Okan-wqm-aquaculture_platform.suderra-droplet-claude.service`                                                       |
-| Secrets file       | `/home/gharunner/actions-runner/.env` (keys: `ARIA_GH_TOKEN`, `ARIA_OBSERVABILITY_API_KEY`)                                         |
-| Claude CLI floor   | `2.1.197` (both lanes' preflight rejects older)                                                                                     |
-| Workspace checkout | `/home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform`                                                    |
-| Runner limits      | `MemoryHigh=2300M MemoryMax=3G OOMPolicy=continue CPUQuota=200%` (`scripts/aria/runner-habitat/systemd/actions-runner.limits.conf`) |
-| Session limits     | `user-.slice MemoryHigh=2816M MemoryMax=3G` (`scripts/aria/runner-habitat/systemd/user-.slice.d/50-aria-memory-discipline.conf`)    |
+| Fact               | Value                                                                                                                                             |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Repository         | `Okan-wqm/aquaculture_platform`                                                                                                                   |
+| Runner user        | `gharunner`                                                                                                                                       |
+| Runner root        | `/home/gharunner/actions-runner`                                                                                                                  |
+| Runner name        | `suderra-droplet-claude`                                                                                                                          |
+| Labels             | `self-hosted`, `linux`, `claude` (both lanes pin `runs-on: [self-hosted, linux, claude]`)                                                         |
+| systemd service    | `actions.runner.Okan-wqm-aquaculture_platform.suderra-droplet-claude.service`                                                                     |
+| Secrets file       | `/home/gharunner/actions-runner/.env` (keys: `ARIA_GH_TOKEN`, `ARIA_OBSERVABILITY_API_KEY`)                                                       |
+| Claude CLI floor   | `2.1.197` (both lanes' preflight rejects older)                                                                                                   |
+| Workspace checkout | `/home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform`                                                                  |
+| Runner limits      | `MemoryHigh=2300M MemoryMax=3G OOMPolicy=continue CPUQuota=200% CPUWeight=400` (`scripts/aria/runner-habitat/systemd/actions-runner.limits.conf`) |
+| Session limits     | `user-.slice MemoryHigh=2816M MemoryMax=3G` (`scripts/aria/runner-habitat/systemd/user-.slice.d/50-aria-memory-discipline.conf`)                  |
+| Session CPU share  | `user.slice CPUWeight=50` against `system.slice` 100 (`scripts/aria/runner-habitat/systemd/user.slice.d/50-aria-cpu-discipline.conf`)             |
 
 Exactly ONE runner carries this label set. Both lanes share one
 persistent workspace serialized by the `aria-selfhosted-workspace`
@@ -114,10 +115,19 @@ scripts/aria/provision_runner.sh            # apply (root)
 scripts/aria/provision_runner.sh --dry-run  # verify: expect ✓ on OOMPolicy/MemoryMax probes
 ```
 
-| Unit                                | Budget                                                   | Effect when exceeded                                                                                                                                               |
-| ----------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| runner service                      | `MemoryHigh=2300M`, `MemoryMax=3G`, `OOMPolicy=continue` | throttled first; a killed job process fails _that_ job only — the listener stays up and the queued job runs                                                        |
-| `user-.slice` (every login session) | `MemoryHigh=2816M`, `MemoryMax=3G`                       | sessions are reclaimed/swapped, then the largest session process is killed _inside the slice_ — a runaway agent CLI can no longer take the machine to a global OOM |
+| Unit                                | Budget                                                                                              | Effect when exceeded                                                                                                                                               |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| runner service                      | `MemoryHigh=2300M`, `MemoryMax=3G`, `OOMPolicy=continue`, `CPUWeight=400` (`CPUQuota=200%` ceiling) | throttled first; a killed job process fails _that_ job only — the listener stays up and the queued job runs                                                        |
+| `user-.slice` (every login session) | `MemoryHigh=2816M`, `MemoryMax=3G`                                                                  | sessions are reclaimed/swapped, then the largest session process is killed _inside the slice_ — a runaway agent CLI can no longer take the machine to a global OOM |
+
+CPU is a share, not a cap: under cgroup v2 a `Nice=` value only orders tasks
+inside one cgroup, so the runner's old `Nice=10` never counted against its
+neighbours. `CPUWeight=400` on the service (four containers' worth among
+`system.slice` siblings) and `CPUWeight=50` on `user.slice` (against
+`system.slice`'s 100) let the producer lane and the platform outrank an
+interactive test suite when everything is busy — 2026-09-03 the first
+post-fix cycle sat 40+ minutes in one step at 20 % CPU
+(`cpu.pressure some=53%`) behind two terminal suites.
 
 `OOMPolicy=continue` replaces the default `stop`: with `stop`, one
 OOM-killed job process took the runner service down, systemd restarted

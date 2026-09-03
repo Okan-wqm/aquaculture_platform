@@ -24,6 +24,8 @@ from .state_manifest import (
 __all__ = [
     "LedgerIntegrityError",
     "LedgerReadLimitError",
+    "LedgerRowTooLargeError",
+    "LEDGER_ROW_MAX_BYTES",
     "REPLAY_TRANSPORT_SCHEMA_PREFIX",
     "ROW_FORMAT_VERSION",
     "StateTransaction",

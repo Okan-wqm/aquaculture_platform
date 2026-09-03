@@ -3,7 +3,7 @@
 Bu evalscript'leri Sentinel Hub Dashboard'da Configuration Instance'a ekleyin.
 
 **Dashboard URL:** https://shapps.dataspace.copernicus.eu/
-**Instance ID:** <your-configuration-instance-id>
+**Instance ID:** `<your-configuration-instance-id>`
 
 ---
 
@@ -204,7 +204,7 @@ function evaluatePixel(sample) {
 
 1. https://shapps.dataspace.copernicus.eu/ adresine git
 2. Sol menüden **Configuration Utility** seç
-3. Instance'ı seç: `wqmtest` (<your-configuration-instance-id>)
+3. Instance'ı seç: `wqmtest` (`<your-configuration-instance-id>`)
 4. **Layers** sekmesine git
 5. Her katman için:
    - **Add Layer** tıkla

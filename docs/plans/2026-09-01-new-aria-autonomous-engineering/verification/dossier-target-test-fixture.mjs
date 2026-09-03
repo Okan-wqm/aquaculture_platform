@@ -7,25 +7,28 @@ import { bundleDigest, expectedPaths, runtimeProvenance } from './lib/verify-pro
 import { REVIEW_ROLE_POLICY } from './lib/review-evidence-policy.mjs';
 import { signedEnvelope } from './dossier-crypto-test-fixture.mjs';
 import { runtimeTools, writeRuntimeFixture } from './target-control-test-fixture.mjs';
+import {
+  commitSignaturePolicy,
+  createCommitSigner,
+  expectedCommitSignatureFacts,
+  writeSignedCommit,
+} from './commit-signature-test-fixture.mjs';
 
 const relativePlan = 'docs/plans/2026-09-01-new-aria-autonomous-engineering';
 const reviewedRef = 'refs/remotes/origin/review';
 function git(root, args, binary = false) {
   return execFileSync('git', args, { cwd: root, encoding: binary ? null : 'utf8' });
 }
-
 function commit(root, message) {
   git(root, ['add', '.']);
   git(root, ['commit', '-q', '-m', message]);
   return git(root, ['rev-parse', 'HEAD']).trim();
 }
-
 function writeRepositoryFile(root, path, value) {
   const absolute = join(root, path);
   mkdirSync(join(absolute, '..'), { recursive: true });
   writeFileSync(absolute, value);
 }
-
 function writeReviewSources(root) {
   const sources = new Set(
     Object.values(REVIEW_ROLE_POLICY).flatMap(({ source_paths: sourcePaths }) => sourcePaths),
@@ -34,7 +37,6 @@ function writeReviewSources(root) {
     if (!existsSync(join(root, path))) writeRepositoryFile(root, path, `fixture source: ${path}\n`);
   }
 }
-
 function initializeRepository(root) {
   git(root, ['init', '-q', '-b', 'main']);
   git(root, ['config', 'user.name', 'D0 Fixture']);
@@ -51,7 +53,6 @@ function initializeRepository(root) {
   writeRuntimeFixture(root);
   writeRepositoryFile(root, `${relativePlan}/BASELINE.md`, 'baseline\n');
 }
-
 function targetManifest(root, baseSha) {
   return {
     schema_version: '1.0.0',
@@ -66,7 +67,6 @@ function targetManifest(root, baseSha) {
     scope_policy: 'D0_PLAN_ONLY',
   };
 }
-
 function provenanceMetadata(repositoryRoot, records) {
   return {
     schema_version: '2.0.0',
@@ -93,7 +93,6 @@ function provenanceMetadata(repositoryRoot, records) {
     input_bundle_sha256: bundleDigest(records),
   };
 }
-
 function writeProvenance(repositoryRoot, planRoot) {
   const records = expectedPaths(planRoot).map((path) => ({
     schema_version: '2.0.0',
@@ -106,7 +105,6 @@ function writeProvenance(repositoryRoot, planRoot) {
   writeFileSync(join(planRoot, 'verification/verifier-inputs.jsonl'), bytes);
   return bytes;
 }
-
 function declaredTarget(root, baseSha, headSha) {
   const object = (value) => git(root, ['rev-parse', '--verify', value]).trim();
   const diff = git(
@@ -135,16 +133,21 @@ function declaredTarget(root, baseSha, headSha) {
     format_scope_sha256: sha256File(join(root, 'tools/quality/format-scope.json')),
   };
 }
-
-function writeTargetAuthority(root, externalRoot, manifest, target) {
+function writeTargetAuthority(root, externalRoot, manifest, values) {
+  const { commitSigner, signatureFacts, target } = values;
   const { privateKey, publicKey } = generateKeyPairSync('ed25519');
   const signer = { credential: { key_id: 'target-key-1' }, privateKey };
   const authorityRoot = join(externalRoot, 'target');
   const contextPath = join(authorityRoot, 'target-context.json');
   const trustRootPath = join(authorityRoot, 'trust-root.json');
   const manifestBytes = readFileSync(join(root, relativePlan, 'verification/target-manifest.json'));
-  const authorityTarget = { ...target, ...runtimeTools(root) };
+  const authorityTarget = {
+    ...target,
+    ...runtimeTools(root),
+    introduced_commit_signatures_sha256: signatureFacts.digest,
+  };
   const payload = {
+    commit_signature_policy: commitSignaturePolicy([commitSigner]),
     contract_id: 'new-aria-d0-target-authority-v1',
     manifest_sha256: sha256(manifestBytes),
     manifest,
@@ -178,16 +181,7 @@ function writeTargetAuthority(root, externalRoot, manifest, target) {
     },
   };
 }
-
-export function createTargetFixture(ownerRoot, policy) {
-  const repositoryRoot = join(ownerRoot, 'repository');
-  const externalRoot = join(ownerRoot, 'external');
-  mkdirSync(repositoryRoot, { recursive: true });
-  mkdirSync(externalRoot, { recursive: true });
-  initializeRepository(repositoryRoot);
-  const baseSha = commit(repositoryRoot, 'test: establish dossier target base');
-  git(repositoryRoot, ['update-ref', 'refs/remotes/origin/main', baseSha]);
-  const manifest = targetManifest(repositoryRoot, baseSha);
+function materializeTarget(repositoryRoot, policy, commitSigner, baseSha) {
   writeRepositoryFile(repositoryRoot, `${relativePlan}/D0-candidate.md`, 'candidate\n');
   writeRepositoryFile(
     repositoryRoot,
@@ -197,34 +191,60 @@ export function createTargetFixture(ownerRoot, policy) {
   writeRepositoryFile(
     repositoryRoot,
     `${relativePlan}/verification/target-manifest.json`,
-    `${JSON.stringify(manifest)}\n`,
+    `${JSON.stringify(targetManifest(repositoryRoot, baseSha))}\n`,
   );
   writeReviewSources(repositoryRoot);
   const planRoot = join(repositoryRoot, relativePlan);
   const provenanceBytes = writeProvenance(repositoryRoot, planRoot);
-  const headSha = commit(repositoryRoot, 'test: establish reviewed dossier target');
+  const headSha = writeSignedCommit(
+    repositoryRoot,
+    'test: establish reviewed dossier target',
+    commitSigner,
+  );
   git(repositoryRoot, ['update-ref', reviewedRef, headSha]);
   const signedTarget = declaredTarget(repositoryRoot, baseSha, headSha);
-  const authority = writeTargetAuthority(repositoryRoot, externalRoot, manifest, signedTarget);
-  return {
+  const signatureFacts = expectedCommitSignatureFacts(repositoryRoot, baseSha, headSha);
+  return { planRoot, provenanceBytes, signatureFacts, signedTarget };
+}
+export function createTargetFixture(ownerRoot, policy) {
+  const repositoryRoot = join(ownerRoot, 'repository');
+  const externalRoot = join(ownerRoot, 'external');
+  mkdirSync(repositoryRoot, { recursive: true });
+  mkdirSync(externalRoot, { recursive: true });
+  initializeRepository(repositoryRoot);
+  const commitSigner = createCommitSigner('dossier-commit-key', 'dossier-committer');
+  const baseSha = commit(repositoryRoot, 'test: establish dossier target base');
+  git(repositoryRoot, ['update-ref', 'refs/remotes/origin/main', baseSha]);
+  const manifest = targetManifest(repositoryRoot, baseSha);
+  const target = materializeTarget(repositoryRoot, policy, commitSigner, baseSha);
+  const fixture = {
     repositoryRoot,
     externalRoot,
-    gitTool: authority.target.git_tool,
-    provenanceBytes,
-    targetEnvelopeBytes: authority.envelopeBytes,
-    targetOptions: authority.options,
-    reviewedTarget: {
-      ...signedTarget,
+    provenanceBytes: target.provenanceBytes,
+  };
+  fixture.refreshAuthority = () => {
+    const authority = writeTargetAuthority(repositoryRoot, externalRoot, manifest, {
+      commitSigner,
+      signatureFacts: target.signatureFacts,
+      target: target.signedTarget,
+    });
+    fixture.gitTool = authority.target.git_tool;
+    fixture.targetEnvelopeBytes = authority.envelopeBytes;
+    fixture.targetOptions = authority.options;
+    fixture.reviewedTarget = {
+      ...target.signedTarget,
       authority_bundle_sha256: sha256(authority.envelopeBytes),
-      verifier_inputs_sha256: sha256(provenanceBytes),
+      verifier_inputs_sha256: sha256(target.provenanceBytes),
       input_bundle_sha256: provenanceMetadata(
         repositoryRoot,
-        expectedPaths(planRoot).map((path) => ({
+        expectedPaths(target.planRoot).map((path) => ({
           path,
-          sha256: sha256File(resolve(planRoot, path)),
+          sha256: sha256File(resolve(target.planRoot, path)),
         })),
       ).input_bundle_sha256,
       target_operator_principal_id: 'target-operator',
-    },
+    };
+    return fixture;
   };
+  return fixture.refreshAuthority();
 }

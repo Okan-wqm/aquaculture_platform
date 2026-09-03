@@ -5,12 +5,17 @@ import { join } from 'node:path';
 import { canonicalJson, sha256, sha256File } from './lib/canonical.mjs';
 import { observeGitTool } from './lib/hermetic-git.mjs';
 import { observeRuntimeDependencies } from './lib/runtime-dependencies.mjs';
+import { commitSignaturePolicy, createCommitSigner } from './commit-signature-test-fixture.mjs';
 
 const manifestPath =
   'docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/target-manifest.json';
 
-export function git(root, args, binary = false) {
-  return execFileSync('git', args, { cwd: root, encoding: binary ? null : 'utf8' });
+export function git(root, args, binary = false, options = {}) {
+  return execFileSync('git', args, {
+    cwd: root,
+    encoding: binary ? null : 'utf8',
+    input: options.input,
+  });
 }
 
 export function commit(root, message) {
@@ -118,6 +123,14 @@ function trustRoot(keys) {
   };
 }
 
+export function commitSignatureAuthority() {
+  const signer = createCommitSigner();
+  return {
+    signer,
+    policy: commitSignaturePolicy([signer]),
+  };
+}
+
 function authorityTarget(root, manifest, mutateTarget) {
   const target = declaredTarget(
     root,
@@ -153,16 +166,26 @@ function signedAuthority(payload, root, keys) {
   };
 }
 
-export function writeAuthority(root, operatorRoot, manifest, mutateTarget = () => {}) {
-  const keys = generateKeyPairSync('ed25519');
+export function writeAuthority(
+  root,
+  operatorRoot,
+  manifest,
+  mutateTarget = () => {},
+  options = {},
+) {
+  const keys = options.operatorKeys ?? generateKeyPairSync('ed25519');
   const authorityRoot = trustRoot(keys);
+  const target = authorityTarget(root, manifest, mutateTarget);
+  target.introduced_commit_signatures_sha256 = options.commitSignaturesSha256 ?? '0'.repeat(64);
+  const signatureAuthority = options.commitSignaturePolicy ?? commitSignatureAuthority().policy;
   const payload = {
     contract_id: 'new-aria-d0-target-authority-v1',
     manifest_sha256: sha256File(writeManifest(root, manifest)),
     manifest,
     operator_principal_id: authorityRoot.principal_id,
-    target: authorityTarget(root, manifest, mutateTarget),
+    target,
   };
+  payload.commit_signature_policy = signatureAuthority;
   const envelope = signedAuthority(payload, authorityRoot, keys);
   const contextPath = join(operatorRoot, 'target-context.json');
   const trustRootPath = join(operatorRoot, 'trust-root.json');

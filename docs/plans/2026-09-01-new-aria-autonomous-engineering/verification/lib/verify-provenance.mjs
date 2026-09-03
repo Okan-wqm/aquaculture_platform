@@ -7,22 +7,14 @@ import {
   assertRuntimeDependencyRoster,
   observeRuntimeDependencies,
 } from './runtime-dependencies.mjs';
-import { walkRegularFiles } from './secure-tree.mjs';
+import { classifyPlanArtifact, planPrefix, regularArtifactEntry } from './artifact-policy.mjs';
+import {
+  expectedPaths,
+  provenanceExternalPaths as externalPaths,
+  provenanceManifestPath as manifestPath,
+} from './provenance-artifacts.mjs';
 
-const manifestPath = 'verification/verifier-inputs.jsonl';
-const designPath = '../../superpowers/specs/2026-09-01-new-aria-autonomous-engineering-design.md';
-const formatScopePath = '../../../tools/quality/format-scope.json';
-const prettierConfigPath = '../../../.prettierrc';
-const packageJsonPath = '../../../package.json';
 const packageLockPath = '../../../package-lock.json';
-const externalPaths = [
-  designPath,
-  formatScopePath,
-  prettierConfigPath,
-  packageJsonPath,
-  packageLockPath,
-];
-const extensions = ['.md', '.mjs', '.json', '.jsonl', '.graphql', '.raw', '.gitattributes'];
 const portableRuntime = {
   node: {
     logical_name: 'node',
@@ -45,13 +37,7 @@ function exactKeys(value, keys) {
   );
 }
 
-export function expectedPaths(planRoot) {
-  const paths = walkRegularFiles(planRoot)
-    .map((path) => relative(planRoot, path).replaceAll('\\', '/'))
-    .filter((path) => extensions.some((extension) => path.endsWith(extension)))
-    .filter((path) => path !== manifestPath);
-  return [...paths, ...externalPaths].sort();
-}
+export { expectedPaths };
 
 export function bundleDigest(records) {
   return sha256(
@@ -191,14 +177,16 @@ export function loadVerifiedProvenance(planRoot, { repositoryRoot, revision, git
   const external = externalPaths.map((path) => posix.normalize(`${prefix}/${path}`));
   const tree = listCommitTree(repositoryRoot, revision, [prefix, ...external], git);
   for (const entry of tree) {
-    if (entry.mode !== '100644' || entry.type !== 'blob') {
+    if (!regularArtifactEntry(entry)) {
       throw new Error(`${entry.path}: committed tree mode must be regular non-executable blob`);
+    }
+    if (entry.path.startsWith(`${planPrefix}`) && !classifyPlanArtifact(entry.path)) {
+      throw new Error(`${entry.path}: artifact type is denied`);
     }
   }
   const relativePaths = tree
     .filter(({ path }) => path.startsWith(`${prefix}/`))
     .map(({ path }) => path.slice(prefix.length + 1))
-    .filter((path) => extensions.some((extension) => path.endsWith(extension)))
     .filter((path) => path !== manifestPath);
   const expected = [...relativePaths, ...externalPaths].sort();
   const sources = new Map(expected.map((path) => [path, posix.normalize(`${prefix}/${path}`)]));

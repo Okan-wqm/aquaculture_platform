@@ -1,6 +1,7 @@
 import { sha256 } from './canonical.mjs';
 import { listCommitTree, readCommitEntries } from './git-objects.mjs';
 import { runGit } from './hermetic-git.mjs';
+import { planPrefix } from './artifact-policy.mjs';
 
 const designFile = 'docs/superpowers/specs/2026-09-01-new-aria-autonomous-engineering-design.md';
 const formatFile = 'tools/quality/format-scope.json';
@@ -37,12 +38,34 @@ function regularEntry(entries, path) {
   return entry;
 }
 
-function inspectEntries(repositoryRoot, headSha, changed, git) {
-  const paths = [...new Set([...changed, designFile, formatFile, packageLockFile])];
+function inspectSources(repositoryRoot, headSha, git) {
+  const paths = [designFile, formatFile, packageLockFile];
   const tree = listCommitTree(repositoryRoot, headSha, paths, git);
   const byPath = new Map(tree.map((entry) => [entry.path, entry]));
-  changed.forEach((path) => regularEntry(byPath, path));
   return byPath;
+}
+
+function listTree(repositoryRoot, revision, paths, git) {
+  return paths.length === 0 ? [] : listCommitTree(repositoryRoot, revision, paths, git);
+}
+
+function scopeTreeEntries(repositoryRoot, baseSha, headSha, entries, git) {
+  const oldPaths = entries
+    .filter(({ status }) => !status.startsWith('A'))
+    .map(({ oldPath }) => oldPath);
+  const newPaths = entries
+    .filter(({ status }) => !status.startsWith('D'))
+    .map((entry) => entry.newPath ?? entry.oldPath);
+  return [
+    ...listTree(repositoryRoot, baseSha, [...new Set(oldPaths)], git).map((entry) => ({
+      ...entry,
+      revision: 'old',
+    })),
+    ...listTree(repositoryRoot, headSha, [...new Set(newPaths)], git).map((entry) => ({
+      ...entry,
+      revision: 'new',
+    })),
+  ];
 }
 
 export function collectTargetFacts(repositoryRoot, target, git) {
@@ -75,10 +98,7 @@ export function collectTargetFacts(repositoryRoot, target, git) {
     { encoding: null },
   );
   const entries = committedEntries(diff);
-  const changed = entries
-    .filter(({ status }) => !status.startsWith('D'))
-    .map((entry) => entry.newPath ?? entry.oldPath);
-  const inspected = inspectEntries(repositoryRoot, headSha, changed, git);
+  const inspected = inspectSources(repositoryRoot, headSha, git);
   const sources = [
     regularEntry(inspected, designFile),
     regularEntry(inspected, formatFile),
@@ -95,6 +115,8 @@ export function collectTargetFacts(repositoryRoot, target, git) {
     checkout_sha: checkoutSha,
     committed_diff_sha256: sha256(diff),
     committed_entries: entries,
+    plan_tree_entries: listCommitTree(repositoryRoot, headSha, planPrefix.slice(0, -1), git),
+    scope_tree_entries: scopeTreeEntries(repositoryRoot, baseSha, headSha, entries, git),
     design_sha256: sha256(blobs.get(designFile).bytes),
     format_scope_sha256: sha256(blobs.get(formatFile).bytes),
     package_lock_sha256: sha256(blobs.get(packageLockFile).bytes),

@@ -1,5 +1,6 @@
 import { loadVerifiedPayload } from './verify-signature.mjs';
 import { assertRuntimeDependencyRoster } from './runtime-dependencies.mjs';
+import { assertCommitSignaturePolicy } from './commit-signatures.mjs';
 
 export const targetManifestPath =
   'docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/target-manifest.json';
@@ -19,6 +20,7 @@ const manifestKeys = [
 const gitToolKeys = ['environment_policy', 'executable_sha256', 'logical_name', 'version'];
 const nodeToolKeys = ['environment_policy', 'executable_sha256', 'logical_name', 'version'];
 const payloadKeys = [
+  'commit_signature_policy',
   'contract_id',
   'manifest',
   'manifest_sha256',
@@ -34,6 +36,7 @@ const targetKeys = [
   'committed_diff_sha256',
   'design_sha256',
   'format_scope_sha256',
+  'introduced_commit_signatures_sha256',
   'git_tool',
   'node_tool',
   'package_lock_sha256',
@@ -116,7 +119,12 @@ function assertSignedTarget(value, manifest) {
   for (const field of ['base_sha', 'base_tree', 'head_sha', 'head_tree']) {
     if (!exactSha.test(value[field])) throw new Error(`signed target ${field} must be exact SHA`);
   }
-  for (const field of ['committed_diff_sha256', 'design_sha256', 'format_scope_sha256']) {
+  for (const field of [
+    'committed_diff_sha256',
+    'design_sha256',
+    'format_scope_sha256',
+    'introduced_commit_signatures_sha256',
+  ]) {
     if (!exactDigest.test(value[field])) {
       throw new Error(`signed target ${field} must be exact SHA-256`);
     }
@@ -167,12 +175,18 @@ export function loadTargetAuthority(repositoryRoot, options = {}) {
   ) {
     throw new Error('signed target authority principal does not match its trust root');
   }
+  const commitSignaturePolicy = assertCommitSignaturePolicy(payload.commit_signature_policy, {
+    manifest: payload.manifest,
+    operatorKeySha256: signer.public_key_sha256,
+    operatorPrincipalId: signer.principalId,
+  });
   assertSignedTarget(payload.target, payload.manifest);
   return {
     envelopeBytes,
     manifest: payload.manifest,
     manifestSha256: payload.manifest_sha256,
     signer,
+    commitSignaturePolicy,
     target: payload.target,
   };
 }

@@ -72,6 +72,29 @@ await withReadbackCase(
   },
 );
 
+const actualNow = Date.now;
+const agedNow = actualNow() + 901_000;
+Date.now = () => agedNow;
+try {
+  await withReadbackCase(
+    () => {},
+    async (authority) => {
+      assert.equal(
+        (await verifyDeliveryReadback(authority)).accepted,
+        true,
+        'fresh same-head authorities were not issued after an aged suite clock',
+      );
+    },
+  );
+} finally {
+  Date.now = actualNow;
+}
+
+function setBoundedObservation(value, observedAt) {
+  value.observed_at = observedAt;
+  value.valid_until = new Date(Date.parse(observedAt) + 299_000).toISOString();
+}
+
 for (const [name, mutate, pattern, signer] of [
   ['program replay', (value) => (value.program_id = 'other-program'), /program/u],
   ['cross-sprint replay', (value) => (value.successor_work_unit_id = 'S02'), /successor/u],
@@ -91,18 +114,18 @@ for (const [name, mutate, pattern, signer] of [
   [
     'pre-merge observation',
     (value, github) =>
-      (value.observed_at = new Date(Date.parse(github.mergedAt) - 1).toISOString()),
+      setBoundedObservation(value, new Date(Date.parse(github.mergedAt) - 1).toISOString()),
     /strictly after/u,
   ],
   [
     'merge-time observation',
-    (value, github) => (value.observed_at = github.mergedAt),
+    (value, github) => setBoundedObservation(value, github.mergedAt),
     /strictly after/u,
   ],
   [
     'ambiguous same-second observation',
     (value, github) =>
-      (value.observed_at = new Date(Date.parse(github.mergedAt) + 500).toISOString()),
+      setBoundedObservation(value, new Date(Date.parse(github.mergedAt) + 500).toISOString()),
     /strictly after/u,
   ],
   [
@@ -187,4 +210,6 @@ await withReadbackCase(
 
 suite.cleanup();
 process.removeListener('exit', suite.cleanup);
-process.stdout.write('PASS delivery-readback online=stable-snapshots mutants=25 cli=bound\n');
+process.stdout.write(
+  'PASS delivery-readback online=stable-snapshots freshness=renewed mutants=25 cli=bound\n',
+);

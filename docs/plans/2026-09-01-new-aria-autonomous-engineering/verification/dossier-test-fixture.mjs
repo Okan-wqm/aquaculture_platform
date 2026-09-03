@@ -93,19 +93,10 @@ function admissionOptions(target, artifactRoot, authority, admission) {
   };
 }
 
-export function createFixture() {
-  const ownerRoot = mkdtempSync(join(tmpdir(), 'new-aria-dossier-admission-'));
-  const target = createTargetFixture(ownerRoot, policy);
-  const artifactRoot = join(ownerRoot, 'artifacts');
-  mkdirSync(artifactRoot);
-  const now = Date.now();
+function materializeDossier(target, artifactRoot, now = Date.now()) {
   const freshness = {
     observedAt: new Date(now - 1_000).toISOString(),
     validUntil: new Date(now + 268_000).toISOString(),
-  };
-  const reviewerFreshness = {
-    observedAt: new Date(now - 30_000).toISOString(),
-    validUntil: freshness.validUntil,
   };
   const producerIdentity = {
     principal_id: 'producer-principal',
@@ -116,7 +107,8 @@ export function createFixture() {
     reviewedTarget: target.reviewedTarget,
     producer: producerIdentity,
     admissionPrincipal,
-    ...reviewerFreshness,
+    observedAt: new Date(now - 30_000).toISOString(),
+    validUntil: freshness.validUntil,
   });
   const artifacts = createArtifacts(artifactRoot, target);
   const producer = { ...producerIdentity, artifact_uri: artifacts.producer.artifact_uri };
@@ -136,17 +128,47 @@ export function createFixture() {
   artifacts.oracle = review.oracle.artifact;
   const context = buildContext(dossier, artifacts, authority);
   const admission = writeAdmissionAuthority(target.externalRoot, context);
-  const options = admissionOptions(target, artifactRoot, authority, admission);
-  const cleanup = () => rmSync(ownerRoot, { recursive: true, force: true });
   return {
-    ownerRoot,
-    options,
+    options: admissionOptions(target, artifactRoot, authority, admission),
     dossier,
     context,
     resign: admission.resign,
     authority,
+  };
+}
+
+export function createFixture() {
+  const ownerRoot = mkdtempSync(join(tmpdir(), 'new-aria-dossier-admission-'));
+  const target = createTargetFixture(ownerRoot, policy);
+  const artifactRoot = join(ownerRoot, 'artifacts');
+  mkdirSync(artifactRoot);
+  let current = materializeDossier(target, artifactRoot);
+  const cleanup = () => rmSync(ownerRoot, { recursive: true, force: true });
+  const fixture = {
+    ownerRoot,
+    get options() {
+      return current.options;
+    },
+    get dossier() {
+      return current.dossier;
+    },
+    get context() {
+      return current.context;
+    },
+    get resign() {
+      return current.resign;
+    },
+    get authority() {
+      return current.authority;
+    },
+    refreshAuthority() {
+      target.refreshAuthority();
+      current = materializeDossier(target, artifactRoot);
+      return fixture;
+    },
     cleanup,
   };
+  return fixture;
 }
 
 export function withFixture(run) {

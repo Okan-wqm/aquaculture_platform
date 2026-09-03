@@ -15,6 +15,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createGitSession, observeGitTool, resolveGitTool, runGit } from './lib/hermetic-git.mjs';
+import { readCommitEntries } from './lib/git-objects.mjs';
 
 function executable(path, source) {
   writeFileSync(path, source);
@@ -74,6 +75,7 @@ try {
   ]) {
     assert.equal(childEnvironment.includes(secret), false, `${secret} leaked into Git`);
   }
+  assert.match(childEnvironment, /^GIT_NO_LAZY_FETCH=1$/mu);
   delete process.env.GIT_EXTERNAL_DIFF;
   delete process.env.GIT_CONFIG_COUNT;
   delete process.env.GIT_CONFIG_KEY_0;
@@ -116,6 +118,58 @@ try {
     /tracked\.txt/u,
     'repository-local core.worktree hid a tracked mutation',
   );
+
+  const source = join(ownerRoot, 'promisor-source');
+  const promisor = join(ownerRoot, 'promisor-clone');
+  const lazyFetchRan = join(ownerRoot, 'lazy-fetch-ran');
+  mkdirSync(source);
+  execFileSync(trustedPath, ['init', '-q'], { cwd: source });
+  execFileSync(trustedPath, ['config', 'uploadpack.allowFilter', 'true'], { cwd: source });
+  writeFileSync(join(source, 'payload.md'), 'promised payload\n');
+  execFileSync(trustedPath, ['add', 'payload.md'], { cwd: source });
+  execFileSync(
+    trustedPath,
+    [
+      '-c',
+      'user.name=Fixture',
+      '-c',
+      'user.email=f@example.invalid',
+      'commit',
+      '-q',
+      '-m',
+      'payload',
+    ],
+    { cwd: source },
+  );
+  const blob = execFileSync(trustedPath, ['rev-parse', 'HEAD:payload.md'], {
+    cwd: source,
+    encoding: 'utf8',
+  }).trim();
+  execFileSync(trustedPath, [
+    '-c',
+    'protocol.file.allow=always',
+    'clone',
+    '-q',
+    '--no-checkout',
+    '--filter=blob:none',
+    `file://${source}`,
+    promisor,
+  ]);
+  execFileSync(
+    trustedPath,
+    ['config', 'remote.origin.uploadpack', `/usr/bin/touch ${lazyFetchRan}`],
+    {
+      cwd: promisor,
+    },
+  );
+  assert.throws(() =>
+    readCommitEntries(
+      promisor,
+      [{ mode: '100644', oid: blob, path: 'payload.md', type: 'blob' }],
+      trustedFacts,
+    ),
+  );
+  assert.equal(existsSync(lazyFetchRan), false, 'cat-file launched a lazy-fetch transport helper');
 } finally {
   process.env.PATH = originalPath;
   delete process.env.GITHUB_TOKEN;

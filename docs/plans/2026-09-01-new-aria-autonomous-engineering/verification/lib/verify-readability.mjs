@@ -1,12 +1,12 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { extname, join, relative } from 'node:path';
+import { join } from 'node:path';
 import { parseStrictJson } from './canonical.mjs';
+import { typescriptVersion, verifyAstDependencies } from './ast-readability.mjs';
 import {
-  typescriptVersion,
-  verifyAstDependencies,
-  verifyAstFunctions,
-} from './ast-readability.mjs';
-import { walkRegularFiles } from './secure-tree.mjs';
+  authoredCodeModules,
+  verifyReadabilityArtifacts,
+  verifyReadabilityFileLimits,
+} from './readability-artifacts.mjs';
 
 function add(errors, code, message) {
   errors.push({ code, message });
@@ -47,6 +47,7 @@ const dependencyIdentity = {
   migration_exempt: false,
   child_process_modules: [
     'verification/dossier-target-test-fixture.mjs',
+    'verification/commit-signature-test-fixture.mjs',
     'verification/lib/bootstrap-d0.mjs',
     'verification/lib/hermetic-git.mjs',
     'verification/lib/projection-format.mjs',
@@ -77,8 +78,11 @@ const dependencyIdentity = {
 const domainModules = new Set(['verification/lib/canonical.mjs', 'verification/lib/markdown.mjs']);
 const kernelModules = new Set([
   'verification/lib/api-contract.mjs',
+  'verification/lib/artifact-policy.mjs',
   'verification/lib/ast-readability.mjs',
   'verification/lib/ast-runtime-guards.mjs',
+  'verification/lib/commit-scope.mjs',
+  'verification/lib/commit-signatures.mjs',
   'verification/lib/d0-suite.mjs',
   'verification/lib/delivery-readback-contract.mjs',
   'verification/lib/external-authority-path.mjs',
@@ -86,10 +90,13 @@ const kernelModules = new Set([
   'verification/lib/git-objects.mjs',
   'verification/lib/hermetic-git.mjs',
   'verification/lib/private-node.mjs',
+  'verification/lib/repository-integrity.mjs',
   'verification/lib/review-evidence-policy.mjs',
   'verification/lib/review-evidence-semantics.mjs',
   'verification/lib/runtime-dependencies.mjs',
   'verification/lib/secure-tree.mjs',
+  'verification/lib/ssh-signature.mjs',
+  'verification/lib/target-artifacts.mjs',
   'verification/lib/target-git-facts.mjs',
   'verification/lib/target-manifest.mjs',
   'verification/lib/verify-audit-oracle.mjs',
@@ -150,12 +157,6 @@ function hasExactRosterShape(rosters) {
     Object.values(rosters).every(Array.isArray)
   );
 }
-function verificationModules(planRoot) {
-  return walkRegularFiles(join(planRoot, 'verification'))
-    .filter((path) => extname(path) === '.mjs')
-    .map((path) => relative(planRoot, path).replaceAll('\\', '/'))
-    .sort();
-}
 function hasExactUniqueRoster(declared, actual) {
   return (
     declared.every((path) => typeof path === 'string') &&
@@ -186,7 +187,7 @@ function verifyDependencyPolicy(errors, planRoot, policy) {
     return;
   }
   const declared = Object.values(rosters).flat();
-  if (!hasExactUniqueRoster(declared, verificationModules(planRoot))) {
+  if (!hasExactUniqueRoster(declared, authoredCodeModules(planRoot))) {
     add(errors, 'READABILITY_POLICY', 'dependency layer roster is not exact and unique');
   }
   if (!hasExactAssignments(rosters)) {
@@ -200,34 +201,7 @@ function verifyPolicy(errors, planRoot, policy) {
   verifyGeneratedFieldSchema(errors, policy);
   verifyMatrixException(errors, policy);
   verifyDependencyPolicy(errors, planRoot, policy);
-}
-
-function verifyFileLimits(errors, planRoot, repositoryRoot, limits) {
-  const files = walkRegularFiles(planRoot).filter((path) =>
-    ['.graphql', '.json', '.jsonl', '.md', '.mjs'].includes(extname(path)),
-  );
-  files.push(
-    join(
-      repositoryRoot,
-      'docs/superpowers/specs/2026-09-01-new-aria-autonomous-engineering-design.md',
-    ),
-  );
-  for (const path of files) {
-    const source = readFileSync(path, 'utf8');
-    const lines = source.split('\n').length - (source.endsWith('\n') ? 1 : 0);
-    const local = path.startsWith(planRoot)
-      ? relative(planRoot, path).replaceAll('\\', '/')
-      : relative(repositoryRoot, path).replaceAll('\\', '/');
-    if (lines > limits.authored_file_hard_lines)
-      add(errors, 'READABILITY_LIMIT', `${local}: hard line limit ${lines}`);
-    if (
-      /^(?:authority|phases|verification)\//u.test(local) &&
-      lines > limits.authored_file_target_lines
-    ) {
-      add(errors, 'READABILITY_LIMIT', `${local}: authored target ${lines}`);
-    }
-    if (extname(path) === '.mjs') verifyAstFunctions(errors, local, source, limits);
-  }
+  verifyReadabilityArtifacts(errors, planRoot);
 }
 
 export function verifyReadability(planRoot, repositoryRoot) {
@@ -235,7 +209,7 @@ export function verifyReadability(planRoot, repositoryRoot) {
   const policyPath = join(planRoot, 'verification/readability-policy.json');
   const policy = parseStrictJson(readFileSync(policyPath, 'utf8'));
   verifyPolicy(errors, planRoot, policy);
-  verifyFileLimits(errors, planRoot, repositoryRoot, policy.limits);
+  verifyReadabilityFileLimits(errors, planRoot, repositoryRoot, policy.limits);
   verifyAstDependencies(errors, planRoot, policy);
   const manifestPath = join(planRoot, 'verification/projection-manifest.json');
   if (!existsSync(manifestPath)) add(errors, 'READABILITY_POLICY', 'projection manifest missing');

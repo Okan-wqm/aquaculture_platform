@@ -1,27 +1,17 @@
 import { readFileSync, realpathSync } from 'node:fs';
 import { canonicalJson, parseStrictJsonBytes, sha256 } from './canonical.mjs';
+import { commitScopeEntries } from './commit-scope.mjs';
+import { verifyIntroducedCommitSignatures } from './commit-signatures.mjs';
 import { readCommitFile } from './git-objects.mjs';
 import { createGitSession, runGit } from './hermetic-git.mjs';
 import { verifyRuntimeDependencies } from './runtime-dependencies.mjs';
+import { rawCommitRange, repositoryMetadataViolation } from './repository-integrity.mjs';
 import { collectTargetFacts, resolveCommit } from './target-git-facts.mjs';
 import { loadTargetAuthority, targetManifestPath } from './target-manifest.mjs';
+import { verifyTargetArtifacts } from './target-artifacts.mjs';
 const exactSha = /^[a-f0-9]{40}$/u;
 const exactDigest = /^[a-f0-9]{64}$/u;
 const exactRef = /^refs\/(?:heads|remotes)\/[A-Za-z0-9][A-Za-z0-9._/-]*$/u;
-const allowedPlan = 'docs/plans/2026-09-01-new-aria-autonomous-engineering/';
-const allowedFiles = new Set([
-  'docs/superpowers/specs/2026-09-01-new-aria-autonomous-engineering-design.md',
-  'tools/quality/format-scope.json',
-]);
-const protectedPrefixes = [
-  'aria-kernel/',
-  'tools/aria-poc/',
-  'docs/aria/',
-  '.claude/agents/aria-',
-  '.github/workflows/',
-  'apps/aria-service/',
-  'web/modules/aria/',
-];
 
 function add(errors, code, message) {
   errors.push({ code, message });
@@ -38,21 +28,6 @@ function verifyNodeTool(tool) {
     throw new Error('Node executable does not match signed target tool facts');
   }
 }
-function scopePaths(entries) {
-  return entries.flatMap((entry) =>
-    entry.newPath ? [entry.oldPath, entry.newPath] : [entry.oldPath],
-  );
-}
-function verifyScope(errors, paths) {
-  for (const path of paths) {
-    if (protectedPrefixes.some((prefix) => path.startsWith(prefix))) {
-      add(errors, 'PROTECTED_SCOPE', path);
-    } else if (!path.startsWith(allowedPlan) && !allowedFiles.has(path)) {
-      add(errors, 'PRODUCT_SCOPE', path);
-    }
-  }
-}
-
 const shaFields = [
   ['baseSha', 'base'],
   ['headSha', 'head'],
@@ -143,19 +118,23 @@ function verifyManifestBinding(errors, repositoryRoot, target, loaded, gitTool) 
   }
 }
 
-function verifyReachability(errors, repositoryRoot, facts, gitTool) {
+function verifyReachability(errors, facts) {
   if (facts.base_sha === facts.head_sha) add(errors, 'TARGET_RANGE', 'base and head must differ');
   if (facts.checkout_sha !== facts.head_sha) add(errors, 'TARGET_HEAD', 'checkout HEAD mismatch');
   if (facts.reviewed_ref_sha !== facts.head_sha)
     add(errors, 'TARGET_REF', 'reviewed ref does not resolve to head');
+}
+
+function verifyCommitSignatures(errors, commits, facts, loaded) {
   try {
-    runGit(
-      repositoryRoot,
-      ['merge-base', '--is-ancestor', facts.base_sha, facts.head_sha],
-      gitTool,
-    );
-  } catch {
-    add(errors, 'TARGET_REACHABILITY', 'base is not ancestor of head');
+    const verified = verifyIntroducedCommitSignatures(commits, loaded.commitSignaturePolicy);
+    facts.introduced_commit_signatures = verified.records;
+    facts.introduced_commit_signatures_sha256 = verified.digest;
+    if (verified.digest !== loaded.target.introduced_commit_signatures_sha256) {
+      add(errors, 'COMMIT_SIGNATURE', 'introduced commit signature digest mismatch');
+    }
+  } catch (error) {
+    add(errors, 'COMMIT_SIGNATURE', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -176,17 +155,36 @@ function verifyLoadedTarget(repositoryRoot, target, loaded, errors) {
   try {
     verifyNodeTool(loaded.target.node_tool);
     const git = createGitSession(loaded.target.git_tool);
+    const metadataViolation = repositoryMetadataViolation(repositoryRoot, git);
+    if (metadataViolation) {
+      add(errors, metadataViolation.code, metadataViolation.message);
+      return { errors, facts: null, authority: loaded };
+    }
     verifyManifestBinding(errors, repositoryRoot, target, loaded, git);
+    if (target.baseSha === target.headSha) {
+      add(errors, 'TARGET_RANGE', 'base and head must differ');
+      return { errors, facts: null, authority: loaded };
+    }
+    let commits;
+    try {
+      commits = rawCommitRange(repositoryRoot, target.baseSha, target.headSha, git);
+    } catch (error) {
+      add(errors, 'TARGET_GRAPH', error instanceof Error ? error.message : String(error));
+      return { errors, facts: null, authority: loaded };
+    }
     const facts = collectTargetFacts(repositoryRoot, target, git);
+    facts.introduced_commits = commits.commits.map(({ sha }) => sha);
+    facts.commit_scope_entries = commitScopeEntries(repositoryRoot, commits, git);
     facts.node_tool = loaded.target.node_tool;
     facts.runtime_dependencies = loaded.target.runtime_dependencies;
     if (facts.package_lock_sha256 !== loaded.target.package_lock_sha256) {
       add(errors, 'TARGET_PACKAGE_LOCK', 'committed package-lock digest is not signed exactly');
     }
     verifyRuntimeDependencies(repositoryRoot, loaded.target);
-    verifyReachability(errors, repositoryRoot, facts, git);
+    verifyReachability(errors, facts);
     verifyDeclaredFacts(errors, facts, target);
-    verifyScope(errors, scopePaths(facts.committed_entries));
+    errors.push(...verifyTargetArtifacts(facts));
+    verifyCommitSignatures(errors, commits.commits, facts, loaded);
     const dirty = runGit(
       repositoryRoot,
       ['status', '--porcelain=v1', '-z', '--untracked-files=all'],

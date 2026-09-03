@@ -29,6 +29,8 @@ const fixedArguments = [
   '-c',
   'core.hooksPath=/dev/null',
   '-c',
+  'core.commitGraph=false',
+  '-c',
   'diff.external=',
 ];
 const cleanEnvironment = Object.freeze({
@@ -40,6 +42,7 @@ const cleanEnvironment = Object.freeze({
   GIT_TERMINAL_PROMPT: '0',
   GIT_OPTIONAL_LOCKS: '0',
   GIT_NO_REPLACE_OBJECTS: '1',
+  GIT_NO_LAZY_FETCH: '1',
 });
 
 function digestFile(path) {

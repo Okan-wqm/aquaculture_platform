@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { verifyTarget } from './lib/verify-target.mjs';
 import {
   commit,
+  commitSignatureAuthority,
   declaredTarget,
   git,
   targetManifest,
@@ -22,6 +23,16 @@ function expectCode(name, result, code) {
   );
 }
 
+function expectCodes(name, result, codes) {
+  const received = new Set(result.errors.map(({ code }) => code));
+  const missing = codes.filter((code) => !received.has(code));
+  assert.deepEqual(
+    missing,
+    [],
+    `${name}: missing ${missing.join(', ')}, received ${JSON.stringify(result.errors)}`,
+  );
+}
+
 const ownerRoot = mkdtempSync(join(tmpdir(), 'new-aria-d0-target-owner-'));
 const root = join(ownerRoot, 'repository');
 try {
@@ -33,7 +44,7 @@ try {
   writeRuntimeFixture(root);
   for (const path of [
     'aria-kernel/frozen.txt',
-    'docs/plans/2026-09-01-new-aria-autonomous-engineering/allowed.txt',
+    'docs/plans/2026-09-01-new-aria-autonomous-engineering/allowed.md',
     'docs/superpowers/specs/2026-09-01-new-aria-autonomous-engineering-design.md',
     'tools/quality/format-scope.json',
   ]) {
@@ -45,7 +56,11 @@ try {
   writeManifest(root, manifest);
   renameSync(
     join(root, 'aria-kernel/frozen.txt'),
-    join(root, 'docs/plans/2026-09-01-new-aria-autonomous-engineering/renamed.txt'),
+    join(root, 'docs/plans/2026-09-01-new-aria-autonomous-engineering/renamed.md'),
+  );
+  writeFileSync(
+    join(root, 'docs/plans/2026-09-01-new-aria-autonomous-engineering/rogue.ts'),
+    'throw new Error("D0 code disguise");\n',
   );
   mkdirSync(join(root, 'apps/example'), { recursive: true });
   writeFileSync(join(root, 'apps/example/product.txt'), 'product\n');
@@ -63,6 +78,23 @@ try {
   );
   expectCode('rename old path', result, 'PROTECTED_SCOPE');
   expectCode('product path', result, 'PRODUCT_SCOPE');
+
+  const committer = commitSignatureAuthority();
+  const hardenedAuthority = writeAuthority(
+    root,
+    join(ownerRoot, 'operator-hardened'),
+    manifest,
+    () => {},
+    {
+      commitSignaturePolicy: committer.policy,
+      commitSignaturesSha256: '0'.repeat(64),
+    },
+  );
+  const hardened = verifyTarget(root, declared, hardenedAuthority);
+  expectCodes('independent target policy rejections', hardened, [
+    'D0_ARTIFACT_POLICY',
+    'COMMIT_SIGNATURE',
+  ]);
 
   const committedManifestPath = join(
     root,

@@ -2,20 +2,19 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { createHash, generateKeyPairSync, sign } from 'node:crypto';
-import {
-  cpSync,
-  lstatSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { cpSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runtimeTools } from './target-control-test-fixture.mjs';
+import { sha256 } from './lib/canonical.mjs';
+import { writeAuthority } from './target-control-test-fixture.mjs';
+import {
+  commitSignaturePolicy,
+  createCommitSigner,
+  expectedCommitSignatureFacts,
+  signerFromCommit,
+  writeSignedCommit,
+} from './commit-signature-test-fixture.mjs';
 import {
   copyVerifiedRuntimeDependencies,
   observeRuntimeDependencies,
@@ -47,25 +46,6 @@ function git(root, args, encoding = 'utf8') {
   return result.stdout;
 }
 
-function sha256(bytes) {
-  return createHash('sha256').update(bytes).digest('hex');
-}
-
-function sha256File(path) {
-  return sha256(readFileSync(path));
-}
-
-function canonical(value) {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
-  if (value !== null && typeof value === 'object') {
-    return `{${Object.keys(value)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`)
-      .join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
-
 function copyCandidate(cloneRoot) {
   const destination = join(cloneRoot, planPath);
   rmSync(destination, { recursive: true, force: true });
@@ -77,7 +57,7 @@ function copyCandidate(cloneRoot) {
   }
 }
 
-function prepareCandidate(cloneRoot) {
+function prepareCandidate(cloneRoot, signer) {
   copyCandidate(cloneRoot);
   git(cloneRoot, ['add', planPath, designPath]);
   const commands = [
@@ -100,84 +80,39 @@ function prepareCandidate(cloneRoot) {
   ];
   requireSuccess(run(process.execPath, provenance, { cwd: cloneRoot }), 'provenance generation');
   git(cloneRoot, ['add', planPath, designPath, formatScopePath]);
-  git(cloneRoot, ['commit', '-m', 'test: materialize exact D0 candidate']);
-  const headSha = git(cloneRoot, ['rev-parse', 'HEAD']).trim();
+  const headSha = writeSignedCommit(cloneRoot, 'test: materialize exact D0 candidate', signer);
   git(cloneRoot, ['update-ref', reviewedRef, headSha]);
   return headSha;
 }
 
-function exactTarget(cloneRoot, manifest, headSha) {
-  const resolve = (value) => git(cloneRoot, ['rev-parse', '--verify', value]).trim();
-  const diff = git(
-    cloneRoot,
-    [
-      'diff',
-      '--name-status',
-      '-z',
-      '--find-renames',
-      '--find-copies',
-      `${manifest.base_sha}..${headSha}`,
-      '--',
-    ],
-    null,
-  );
-  return {
-    base_sha: manifest.base_sha,
-    base_tree: resolve(`${manifest.base_sha}^{tree}`),
-    head_sha: headSha,
-    head_tree: resolve(`${headSha}^{tree}`),
-    reviewed_ref: reviewedRef,
-    committed_diff_sha256: sha256(diff),
-    design_sha256: sha256File(
-      join(
-        cloneRoot,
-        'docs/superpowers/specs/2026-09-01-new-aria-autonomous-engineering-design.md',
-      ),
-    ),
-    format_scope_sha256: sha256File(join(cloneRoot, 'tools/quality/format-scope.json')),
-  };
+function commitSigners(cloneRoot, baseSha, headSha) {
+  const commits = git(cloneRoot, ['rev-list', `${baseSha}..${headSha}`])
+    .trim()
+    .split('\n')
+    .filter(Boolean);
+  const signers = new Map();
+  for (const commit of commits) {
+    const signer = signerFromCommit(cloneRoot, commit, 'pending', 'pending');
+    const digest = sha256(signer.publicKeySpki);
+    signers.set(digest, {
+      ...signer,
+      keyId: `commit-${digest}`,
+      principalId: `committer-${digest}`,
+    });
+  }
+  return [...signers.values()];
 }
 
 function signedTarget(cloneRoot, operatorRoot, headSha) {
-  const manifestBytes = readFileSync(join(cloneRoot, manifestPath));
-  const manifest = JSON.parse(manifestBytes.toString('utf8'));
-  const keys = generateKeyPairSync('ed25519');
-  const trustRoot = {
-    schema_version: '1.0.0',
-    kind: 'new-aria-external-trust-root',
-    algorithm: 'Ed25519',
-    key_id: 'operator-test-key',
-    principal_id: 'target-operator',
-    capabilities: ['d0-target-authority'],
-    public_key_spki_base64: keys.publicKey
-      .export({ format: 'der', type: 'spki' })
-      .toString('base64'),
-  };
-  const payload = {
-    contract_id: 'new-aria-d0-target-authority-v1',
-    manifest,
-    manifest_sha256: sha256(manifestBytes),
-    operator_principal_id: trustRoot.principal_id,
-    target: { ...exactTarget(cloneRoot, manifest, headSha), ...runtimeTools(cloneRoot) },
-  };
-  const envelope = {
-    schema_version: '1.0.0',
-    kind: 'new-aria-d0-target-authority',
-    algorithm: 'Ed25519',
-    key_id: trustRoot.key_id,
-    payload,
-    signature_base64: sign(null, Buffer.from(canonical(payload)), keys.privateKey).toString(
-      'base64',
+  const manifest = JSON.parse(readFileSync(join(cloneRoot, manifestPath), 'utf8'));
+  const facts = expectedCommitSignatureFacts(cloneRoot, manifest.base_sha, headSha);
+  const authority = writeAuthority(cloneRoot, operatorRoot, manifest, () => {}, {
+    commitSignaturePolicy: commitSignaturePolicy(
+      commitSigners(cloneRoot, manifest.base_sha, headSha),
     ),
-  };
-  mkdirSync(operatorRoot, { recursive: true });
-  const trustRootBytes = Buffer.from(`${JSON.stringify(trustRoot, null, 2)}\n`);
-  writeFileSync(
-    join(operatorRoot, 'target-context.json'),
-    `${JSON.stringify(envelope, null, 2)}\n`,
-  );
-  writeFileSync(join(operatorRoot, 'trust-root.json'), trustRootBytes);
-  return sha256(trustRootBytes);
+    commitSignaturesSha256: facts.digest,
+  });
+  return authority.trustRootSha256;
 }
 
 const ownerRoot = mkdtempSync(join(tmpdir(), 'new-aria-d0-command-'));
@@ -198,7 +133,7 @@ try {
   git(cloneRoot, ['config', 'commit.gpgsign', 'false']);
   const baseSha = JSON.parse(readFileSync(join(sourceRoot, manifestPath), 'utf8')).base_sha;
   git(cloneRoot, ['update-ref', 'refs/remotes/origin/main', baseSha]);
-  const headSha = prepareCandidate(cloneRoot);
+  const headSha = prepareCandidate(cloneRoot, createCommitSigner('candidate-key', 'candidate'));
   const trustRootSha256 = signedTarget(cloneRoot, join(ownerRoot, 'operator-input'), headSha);
   const argv = canonicalCommand(cloneRoot);
   const authorityEnv = { ...process.env, ARIA_D0_TRUST_ROOT_SHA256: trustRootSha256 };
@@ -234,9 +169,22 @@ try {
   assert.notEqual(missingAuthority.status, 0, 'missing authority environment was accepted');
   assert.match(missingAuthority.stderr, /TARGET_MANIFEST.*authority root/u);
 
+  const refreshedTrustRootSha256 = signedTarget(
+    cloneRoot,
+    join(ownerRoot, 'operator-input'),
+    headSha,
+  );
+  const refreshedEnv = {
+    ...process.env,
+    ARIA_D0_TRUST_ROOT_SHA256: refreshedTrustRootSha256,
+  };
+  const refreshedArgv = canonicalCommand(cloneRoot);
   git(cloneRoot, ['commit', '--allow-empty', '-m', 'test: advance candidate after signature']);
   git(cloneRoot, ['update-ref', reviewedRef, git(cloneRoot, ['rev-parse', 'HEAD']).trim()]);
-  const staleSignature = run(argv[0], argv.slice(1), { cwd: cloneRoot, env: authorityEnv });
+  const staleSignature = run(refreshedArgv[0], refreshedArgv.slice(1), {
+    cwd: cloneRoot,
+    env: refreshedEnv,
+  });
   assert.notEqual(staleSignature.status, 0, 'old signature accepted a different exact head commit');
   assert.match(staleSignature.stderr, /TARGET_HEAD|TARGET_REF/u);
 } finally {

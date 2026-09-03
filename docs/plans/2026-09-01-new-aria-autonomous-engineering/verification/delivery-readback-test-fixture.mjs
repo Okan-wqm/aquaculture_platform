@@ -51,7 +51,7 @@ function payload(fixture, admission, now) {
     producer_principal_id: admission.producer_principal_id,
     operator_principal_id: 'delivery-operator',
     observed_at: new Date(now - 5_000).toISOString(),
-    valid_until: new Date(now + 60_000).toISOString(),
+    valid_until: new Date(now + 294_000).toISOString(),
     invalidation_facts: {
       main_sha: mergeSha,
       head_sha: expected.reviewedHeadSha,
@@ -120,13 +120,22 @@ async function runReadbackCase(dossier, admission, testCase) {
   }
 }
 
+function runFreshReadbackCase(dossier, testCase) {
+  dossier.refreshAuthority();
+  const admission = admitReviewDossier(dossier.options);
+  const signerOverride =
+    typeof testCase.signerOverride === 'function'
+      ? testCase.signerOverride(dossier)
+      : testCase.signerOverride;
+  return runReadbackCase(dossier, admission, { ...testCase, signerOverride });
+}
+
 export function createReadbackSuite() {
   const dossier = createDossierFixture();
-  const admission = admitReviewDossier(dossier.options);
   return {
     withReadbackCase: (mutator, run, principalId = 'delivery-operator', signerOverride) =>
-      runReadbackCase(dossier, admission, { mutator, run, principalId, signerOverride }),
-    reviewerSigner: dossier.authority.reviewerSigners[0],
+      runFreshReadbackCase(dossier, { mutator, run, principalId, signerOverride }),
+    reviewerSigner: (current) => current.authority.reviewerSigners[0],
     cleanup: dossier.cleanup,
   };
 }

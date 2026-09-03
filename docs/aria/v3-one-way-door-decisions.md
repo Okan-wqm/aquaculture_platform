@@ -442,6 +442,26 @@ let unproven or unguarded fixes close findings.
 
 **Mitigation:** I-V13-REGRESS-01, I-V13-REMEDIATE-01, I-V13-OPS-01, I-V13-FITNESS-01.
 
+## 26. Semantic parity corpus, qualifying burn-in, agent retirement gate (Plan 033 Faz 033i)
+
+**Decision:** `parity.REMOVABLE_SECURITY_AGENTS` = (security-reviewer, auth-security-expert);
+`RETAINED_AGENTS` = (database-reviewer) — never removable. Retirement requires ALL of
+`RETIREMENT_THRESHOLD` (critical recall 1.0, other recall ≥ 0.95, secure false-positive ≤ 0.02, 30
+consecutive QUALIFYING shadow cycles, zero agent-only unresolved CRITICAL/HIGH, zero boundary
+violations), zero remaining kernel runtime dependencies, and explicit operator approval. A cycle
+qualifies only if non-mock, on a qualifying lab lease, with ≥ 1 applicable control, a passing
+positive control and sealed evidence; any non-qualifying cycle resets the streak.
+`retirement_readiness` reports and never deletes. The paired secure/vulnerable corpus is run by the
+kernel's own packs; it already caught one real gap (the RLS checker was gated on RLS being present —
+`rls_coverage` now applies to every strategy except database-per-tenant).
+
+**Why one-way:** this is the only path by which security agents may be removed; a softer gate would
+let the kernel replace reviewers it has not proven to match.
+
+**Reversibility cost:** Re-running the burn-in from zero.
+
+**Mitigation:** I-V13-PARITY-01, I-V13-SELF-01, I-V13-RETIRE-01; I-V13-PACK-02 (corrected).
+
 ## Themes
 
 - **3 of 5 one-way doors are ledger-anchored** (events, terminal states, candidate sources). The

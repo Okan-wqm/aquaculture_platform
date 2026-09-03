@@ -3073,6 +3073,11 @@ def build_parser() -> argparse.ArgumentParser:
     sreg_sub = sreg.add_subparsers(dest="security_regression_command", required=True)
     sreg_list = add_subparser(sreg_sub, "list")
     sreg_list.add_argument("--scope", choices=("impacted_pr", "release"), default=None)
+    spar = add_subparser(security_sub, "parity")
+    spar_sub = spar.add_subparsers(dest="security_parity_command", required=True)
+    add_subparser(spar_sub, "corpus")
+    sret = add_subparser(spar_sub, "retirement")
+    sret.add_argument("--kernel-root", default=None)
 
     return parser
 
@@ -6306,6 +6311,19 @@ def _main(argv: list[str] | None = None) -> int:
             for rec in list_regressions(scope=args.scope, base_dir=args.tools_dir):
                 print(json.dumps(rec.__dict__, sort_keys=True))
             return 0
+        if args.security_command == "parity":
+            from pathlib import Path as _P
+
+            from .security.parity import retirement_readiness, run_corpus
+
+            if args.security_parity_command == "corpus":
+                res = run_corpus()
+                print(json.dumps({k: v for k, v in res.items()}, indent=2, sort_keys=True))
+                return 0 if res["all_correct"] else 1
+            kernel_root = args.kernel_root or str(_P(__file__).resolve().parent)
+            report = retirement_readiness(kernel_root=kernel_root, base_dir=args.tools_dir)
+            print(json.dumps(report, indent=2, sort_keys=True))
+            return 0 if report["ready"] else 1
 
     if args.command == "mcp":
         from . import mcp_client

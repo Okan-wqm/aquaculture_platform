@@ -57,7 +57,13 @@ class Packs(unittest.TestCase):
             prof = _repo(root, nestjs=False, rls=False)
             sel = {m.name: m.applicable for m in packs.select_packs(prof)}
             self.assertFalse(sel["api"], "no NestJS → api not applicable")
-            self.assertFalse(sel["multi_tenant"], "no RLS/hybrid → not applicable")
+            # WHY applicable even with NO RLS: the 033i parity corpus proved that gating the
+            # RLS checker on RLS being present made a repo without RLS invisible — the
+            # absence of the control switched its checker off. Only database-per-tenant
+            # legitimately has nothing to check.
+            self.assertTrue(sel["multi_tenant"], "no RLS → the RLS checker must still run and report the gap")
+            per_db = {**prof, "claims": [{**c, "value": "database_per_tenant"} if c.get("key") == "isolation_strategy" else c for c in prof["claims"]]}
+            self.assertFalse({m.name: m.applicable for m in packs.select_packs(per_db)}["multi_tenant"], "database_per_tenant → nothing to check")
 
     def test_I_V13_PACK_03_rls_coverage(self) -> None:
         with tempfile.TemporaryDirectory() as t:

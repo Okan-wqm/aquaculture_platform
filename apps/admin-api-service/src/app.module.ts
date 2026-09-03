@@ -315,16 +315,7 @@ const getAdminStoragePort = (configService: ConfigService): number => {
           reflector,
           configService,
           jwtService,
-          {
-            // Read-side adapter over the auth-owned TOKEN_BLACKLIST writer:
-            // admin-api enforces revocation, it never writes. Only the per-jti
-            // `token:blacklist:` namespace is checked here; the
-            // `user_blacklist:{userId}` epoch is checked by the
-            // userTokenRevocation store below — together they mirror the
-            // gateway's composite isValidToken decision without duplicating it.
-            isValidToken: (jti: string): Promise<boolean> =>
-              tokenBlacklist.isBlacklisted(jti).then((blacklisted) => !blacklisted),
-          },
+          tokenBlacklist,
           userTokenRevocation,
           failedAuthIpLimiter,
           securityEvents,

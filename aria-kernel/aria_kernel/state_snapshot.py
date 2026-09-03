@@ -52,6 +52,7 @@ from pathlib import Path
 from typing import Any, Iterable, Iterator, Mapping
 
 from .ledger import (
+    LEDGER_ROW_MAX_BYTES,
     LedgerIntegrityError,
     LedgerReadLimitError,
     canonical_json,
@@ -72,7 +73,10 @@ SNAPSHOT_SCHEMA = "aria/state-snapshot/v1"
 MAX_SNAPSHOT_JSON_BYTES = 4 * 1024 * 1024
 SNAPSHOT_MAX_SURFACE_BLOB_BYTES = 128 * 1024 * 1024
 SNAPSHOT_MAX_INPUT_BYTES = 1280 * 1024 * 1024
-SNAPSHOT_MAX_LEDGER_LINE_BYTES = 1024 * 1024
+# ARIA-HIGH-034 — not a number of its own: the read-side line cap IS the
+# append primitive's row cap, so a writer can never seal a row the
+# publisher would later refuse.
+SNAPSHOT_MAX_LEDGER_LINE_BYTES = LEDGER_ROW_MAX_BYTES
 SNAPSHOT_MAX_LEDGER_ROWS = 1_000_000
 SNAPSHOT_MAX_SURFACE_ENTRIES = 10_000
 SNAPSHOT_MAX_DISCOVERY_WORK = 100_000

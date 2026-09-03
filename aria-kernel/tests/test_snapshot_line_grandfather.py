@@ -12,6 +12,7 @@ published tip.
 
 from __future__ import annotations
 
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -20,7 +21,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from aria_kernel import autonomy_evidence, state_snapshot, state_store
-from aria_kernel.ledger import append_jsonl
+from aria_kernel.ledger import _record_hash, _stamped_for_surface, append_jsonl, read_jsonl
 from aria_kernel.state_snapshot import SnapshotError
 from aria_kernel.state_store import publish_state, tools_root
 
@@ -31,12 +32,22 @@ _FAT_PADDING = "x" * (1100 * 1024)  # > 1 MiB serialized
 
 class LineCapGrandfatherTests(StateStoreTestCase):
     def _append_fat_row(self, store) -> None:
-        """One chain-valid row whose serialized size exceeds the 1 MiB cap."""
-        append_jsonl(
-            tools_root(store) / "runs.jsonl",
-            {"note": _FAT_PADDING},
-            test_fixture=True,
-        )
+        """One chain-valid row whose serialized size exceeds the 1 MiB cap.
+
+        Written the way the pre-cap code wrote it — straight to the file
+        with the chain fields computed by the same helpers the primitive
+        uses. ARIA-HIGH-034 made ``append_jsonl`` refuse such a row, which
+        is exactly why an INHERITED one can only come from history: this
+        helper is that history.
+        """
+        path = tools_root(store) / "runs.jsonl"
+        rows = read_jsonl(path) if path.exists() else []
+        previous_hash = str(rows[-1]["ledger_hash"]) if rows else None
+        stored = dict(_stamped_for_surface(path, {"note": _FAT_PADDING}))
+        stored["previous_ledger_hash"] = previous_hash
+        stored["ledger_hash"] = _record_hash(stored, previous_hash)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(stored, sort_keys=True, separators=(",", ":")) + "\n")
 
     def _publish(self, store, snapshot_id: str, cycle_id: str):
         return publish_state(

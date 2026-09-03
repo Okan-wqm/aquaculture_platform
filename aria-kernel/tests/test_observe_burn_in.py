@@ -28,6 +28,32 @@ sys.modules["aria_kernel_test_helpers_git_fixtures_burn_in"] = git_fixtures
 _spec.loader.exec_module(git_fixtures)
 
 
+def _verdict_diagnostics(report: dict) -> str:
+    """Why a burn-in report did not pass — what the bare verdict hides.
+
+    2026-09-02: the full CI suite failed this module twice with only
+    ``'failed' != 'passed'`` while every local run (any order) passed; the
+    report's own reasons were computed, written to a temp dir and never
+    shown. The assertion message now carries them.
+    """
+    cycles = report.get("cycles") if isinstance(report.get("cycles"), list) else []
+    invalid = {
+        str(row.get("cycle_id")): row.get("validity_reasons")
+        for row in cycles
+        if isinstance(row, dict) and row.get("valid_cycle") is not True
+    }
+    return json.dumps(
+        {
+            "acceptance_conditions": report.get("acceptance_conditions"),
+            "failure_reports": report.get("failure_reports"),
+            "disallowed_actions_observed": report.get("disallowed_actions_observed"),
+            "invalid_cycles": invalid,
+        },
+        indent=2,
+        default=str,
+    )
+
+
 class ObserveBurnInTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory(prefix="aria-burn-in-")
@@ -60,10 +86,10 @@ class ObserveBurnInTests(unittest.TestCase):
         )
 
         self.assertEqual(report["schema_version"], "aria/autonomy-burn-in-report/v1")
-        self.assertEqual(report["acceptance_verdict"], "passed")
+        self.assertEqual(report["acceptance_verdict"], "passed", _verdict_diagnostics(report))
         self.assertEqual(report["profile"], "observe")
         self.assertEqual(report["cycle_attempts"], 30)
-        self.assertEqual(report["valid_cycles"], 30)
+        self.assertEqual(report["valid_cycles"], 30, _verdict_diagnostics(report))
         self.assertEqual(report["disallowed_actions_observed"], [])
         self.assertIn("cycles.json", report["artifact_hashes"])
         self.assertTrue((self.output_dir / "evidence-bundle.json").exists())
@@ -93,6 +119,11 @@ class ObserveBurnInTests(unittest.TestCase):
             min_valid_cycles=20,
             output_dir=self.output_dir,
         )
+        # The contradiction only exists if the run itself passed with every
+        # cycle valid; a run that already lost cycles cannot be made
+        # contradictory by flipping one more, so name that state instead
+        # of reporting a missing exception.
+        self.assertEqual(report["acceptance_verdict"], "passed", _verdict_diagnostics(report))
         mismatch = copy.deepcopy(report)
         mismatch["cycles"][0]["valid_cycle"] = False
         with self.assertRaisesRegex(GovernanceError, "valid_cycle_count_mismatch"):

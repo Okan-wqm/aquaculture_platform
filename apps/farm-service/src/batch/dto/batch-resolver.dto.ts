@@ -133,7 +133,6 @@ export class TransferBatchInput extends MobileCommandEnvelopeInput {
   @Field({ nullable: true }) @IsOptional() transferredAt?: Date;
   @Field({ nullable: true }) @IsOptional() @IsString() transferReason?: string;
   @Field({ nullable: true }) @IsOptional() @IsString() notes?: string;
-  @Field(() => Boolean, { nullable: true, defaultValue: false, description: 'Kapasite kontrolünü atla' }) @IsOptional() skipCapacityCheck?: boolean;
 }
 
 @InputType()

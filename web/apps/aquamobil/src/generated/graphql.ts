@@ -89,6 +89,47 @@ export type CreateChannelInput = {
   type: ChannelType;
 };
 
+export type CreateWaterQualityInput = {
+  /** Batch ID */
+  batchId?: string | number | null | undefined;
+  /** Stable client command UUID generated before first submission */
+  clientCommandId?: string | null | undefined;
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: string | null | undefined;
+  /** Stable per-installation device identifier */
+  deviceId?: string | null | undefined;
+  /** Dynamic parameters (tenant-configured JSONB) */
+  dynamicParameters: Record<string, unknown>;
+  /** Equipment ID */
+  equipmentId: string | number;
+  /** Idempotency key for offline retry safety */
+  idempotencyKey?: string | number | null | undefined;
+  /** Ölçüm tarihi */
+  measuredAt: string;
+  /** Ölçümü yapan kullanıcı */
+  measuredBy?: string | number | null | undefined;
+  /** Notlar */
+  notes?: string | null | undefined;
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: string | null | undefined;
+  /** SHA-256 hash of the command payload before envelope fields are added */
+  payloadHash?: string | null | undefined;
+  /** Havuz ID */
+  pondId?: string | number | null | undefined;
+  /** Federation id of the sensor reading that produced this measurement */
+  relatedSensorReadingId?: string | number | null | undefined;
+  /** Optional mobile command payload schema version */
+  schemaVersion?: string | null | undefined;
+  /** Site ID */
+  siteId?: string | number | null | undefined;
+  /** Ölçüm kaynağı */
+  source: WaterQualityMeasurementSource;
+  /** Tank ID */
+  tankId?: string | number | null | undefined;
+  /** Hava durumu */
+  weatherConditions?: string | null | undefined;
+};
+
 export type EditMessageInput = {
   /** Stable client command UUID generated before first submission */
   clientCommandId?: string | null | undefined;
@@ -105,6 +146,62 @@ export type EditMessageInput = {
   /** Optional mobile command payload schema version */
   schemaVersion?: string | null | undefined;
 };
+
+/** Category of equipment type */
+export type EquipmentCategory =
+  | 'AERATION'
+  | 'CAGE'
+  | 'ELECTRICAL'
+  | 'FEEDING'
+  | 'FILTRATION'
+  | 'HARVESTING'
+  | 'HEATING_COOLING'
+  | 'MONITORING'
+  | 'OTHER'
+  | 'PLUMBING'
+  | 'POND'
+  | 'PUMP'
+  | 'SAFETY'
+  | 'TANK'
+  | 'TRANSPORT'
+  | 'WATER_TREATMENT';
+
+export type EquipmentFilterInput = {
+  /** Filter by equipment type categories (tank, pond, cage, etc.) */
+  categories?: Array<EquipmentCategory> | null | undefined;
+  departmentId?: string | number | null | undefined;
+  equipmentTypeId?: string | number | null | undefined;
+  hasWarranty?: boolean | null | undefined;
+  isActive?: boolean | null | undefined;
+  /** Filter only tank equipment */
+  isTank?: boolean | null | undefined;
+  /** Filter equipment visible in Sensor Module */
+  isVisibleInSensor?: boolean | null | undefined;
+  /** Filter by parent equipment */
+  parentEquipmentId?: string | number | null | undefined;
+  /** Only get root equipment (no parent) */
+  rootOnly?: boolean | null | undefined;
+  search?: string | null | undefined;
+  siteId?: string | number | null | undefined;
+  status?: EquipmentStatus | null | undefined;
+  /** Filter by system */
+  systemId?: string | number | null | undefined;
+};
+
+/** Status of the equipment */
+export type EquipmentStatus =
+  | 'ACTIVE'
+  | 'CLEANING'
+  | 'DECOMMISSIONED'
+  | 'FALLOW'
+  | 'HARVESTING'
+  | 'MAINTENANCE'
+  | 'OPERATIONAL'
+  | 'OUT_OF_SERVICE'
+  | 'PREPARING'
+  | 'QUARANTINE'
+  | 'REPAIR'
+  | 'STANDBY';
 
 /** Günlük yemleme planının yaşam döngüsü durumu (K-7 tam enum) */
 export type FeedingDayPlanStatus =
@@ -195,6 +292,21 @@ export type NotificationPreference =
   | 'MENTIONS'
   /** No notifications */
   | 'NONE';
+
+/** Data type of a water quality parameter value */
+export type ParameterDataType =
+  | 'BOOLEAN'
+  | 'ENUM'
+  | 'NUMBER';
+
+/** Logical grouping for water quality parameters */
+export type ParameterGroup =
+  | 'BASIC'
+  | 'BIOLOGICAL'
+  | 'CUSTOM'
+  | 'METALS'
+  | 'NITROGEN_CYCLE'
+  | 'ORGANIC';
 
 export type ReceiptStatus =
   | 'DELIVERED'
@@ -374,6 +486,22 @@ export type UpdateChannelInput = {
   /** Updated channel name */
   name?: string | null | undefined;
 };
+
+/** Ölçüm kaynağı */
+export type WaterQualityMeasurementSource =
+  | 'CALIBRATION'
+  | 'LAB_ANALYSIS'
+  | 'MANUAL'
+  | 'SENSOR_AUTOMATIC'
+  | 'SENSOR_TRIGGERED';
+
+/** Su kalitesi durumu */
+export type WaterQualityStatus =
+  | 'ACCEPTABLE'
+  | 'CRITICAL'
+  | 'OPTIMAL'
+  | 'UNKNOWN'
+  | 'WARNING';
 
 export type FarmDashboardInsightsQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -854,6 +982,27 @@ export type MobileLatestReadingsBatchQueryVariables = Exact<{
 
 export type MobileLatestReadingsBatchQuery = { latestReadingsBatch: Array<{ id: string, sensorId: string, timestamp: string, readings: { temperature: number | null, ph: number | null, dissolvedOxygen: number | null, salinity: number | null, ammonia: number | null, nitrite: number | null, nitrate: number | null, turbidity: number | null, waterLevel: number | null } }> };
 
+export type EquipmentListQueryVariables = Exact<{
+  filter?: EquipmentFilterInput | null | undefined;
+}>;
+
+
+export type EquipmentListQuery = { equipmentList: { items: Array<{ id: string, name: string, code: string, equipmentType: { category: EquipmentCategory, name: string } | null }> } };
+
+export type EquipmentParametersQueryVariables = Exact<{
+  equipmentId: string | number;
+}>;
+
+
+export type EquipmentParametersQuery = { equipmentParameters: Array<{ parameterConfig: { id: string, code: string, name: string, unit: string, dataType: ParameterDataType, precision: number, group: ParameterGroup, optimalMin: number | null, optimalMax: number | null, warningMin: number | null, warningMax: number | null, criticalMin: number | null, criticalMax: number | null, enumValues: Array<string> | null, displayOrder: number, isRequired: boolean, chartColor: string } }> };
+
+export type CreateWaterQualityMeasurementMutationVariables = Exact<{
+  input: CreateWaterQualityInput;
+}>;
+
+
+export type CreateWaterQualityMeasurementMutation = { createWaterQualityMeasurement: { id: string, overallStatus: WaterQualityStatus, hasAlarm: boolean } };
+
 export const MobileAlertFieldsFragmentDoc = {"kind":"Document","definitions":[{"kind":"FragmentDefinition","name":{"kind":"Name","value":"MobileAlertFields"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"AlertHistory"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"ruleId"}},{"kind":"Field","name":{"kind":"Name","value":"ruleName"}},{"kind":"Field","name":{"kind":"Name","value":"farmId"}},{"kind":"Field","name":{"kind":"Name","value":"pondId"}},{"kind":"Field","name":{"kind":"Name","value":"sensorId"}},{"kind":"Field","name":{"kind":"Name","value":"severity"}},{"kind":"Field","name":{"kind":"Name","value":"message"}},{"kind":"Field","name":{"kind":"Name","value":"triggeredAt"}},{"kind":"Field","name":{"kind":"Name","value":"acknowledged"}},{"kind":"Field","name":{"kind":"Name","value":"acknowledgedAt"}},{"kind":"Field","name":{"kind":"Name","value":"acknowledgedBy"}},{"kind":"Field","name":{"kind":"Name","value":"acknowledgementNote"}},{"kind":"Field","name":{"kind":"Name","value":"resolved"}},{"kind":"Field","name":{"kind":"Name","value":"resolvedAt"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}}]}}]} as unknown as DocumentNode<MobileAlertFieldsFragment, unknown>;
 export const MessageFieldsFragmentDoc = {"kind":"Document","definitions":[{"kind":"FragmentDefinition","name":{"kind":"Name","value":"MessageFields"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"Message"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"channelId"}},{"kind":"Field","name":{"kind":"Name","value":"senderId"}},{"kind":"Field","name":{"kind":"Name","value":"content"}},{"kind":"Field","name":{"kind":"Name","value":"contentType"}},{"kind":"Field","name":{"kind":"Name","value":"parentId"}},{"kind":"Field","name":{"kind":"Name","value":"forwardedFrom"}},{"kind":"Field","name":{"kind":"Name","value":"isDeleted"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}},{"kind":"Field","name":{"kind":"Name","value":"editedAt"}},{"kind":"Field","name":{"kind":"Name","value":"sender"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"firstName"}},{"kind":"Field","name":{"kind":"Name","value":"lastName"}},{"kind":"Field","name":{"kind":"Name","value":"profileImageUrl"}},{"kind":"Field","name":{"kind":"Name","value":"isOnline"}}]}},{"kind":"Field","name":{"kind":"Name","value":"attachments"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"originalFilename"}},{"kind":"Field","name":{"kind":"Name","value":"mimeType"}},{"kind":"Field","name":{"kind":"Name","value":"fileSize"}},{"kind":"Field","name":{"kind":"Name","value":"width"}},{"kind":"Field","name":{"kind":"Name","value":"height"}},{"kind":"Field","name":{"kind":"Name","value":"durationSeconds"}},{"kind":"Field","name":{"kind":"Name","value":"thumbnailUrl"}},{"kind":"Field","name":{"kind":"Name","value":"downloadUrl"}}]}},{"kind":"Field","name":{"kind":"Name","value":"receipts"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"userId"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"deliveredAt"}},{"kind":"Field","name":{"kind":"Name","value":"readAt"}}]}},{"kind":"Field","name":{"kind":"Name","value":"reactionSummary"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"emoji"}},{"kind":"Field","name":{"kind":"Name","value":"count"}},{"kind":"Field","name":{"kind":"Name","value":"userIds"}},{"kind":"Field","name":{"kind":"Name","value":"hasReacted"}}]}}]}}]} as unknown as DocumentNode<MessageFieldsFragment, unknown>;
 export const ChannelFieldsFragmentDoc = {"kind":"Document","definitions":[{"kind":"FragmentDefinition","name":{"kind":"Name","value":"ChannelFields"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"Channel"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"type"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"description"}},{"kind":"Field","name":{"kind":"Name","value":"avatarUrl"}},{"kind":"Field","name":{"kind":"Name","value":"createdBy"}},{"kind":"Field","name":{"kind":"Name","value":"isArchived"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}},{"kind":"Field","name":{"kind":"Name","value":"updatedAt"}},{"kind":"Field","name":{"kind":"Name","value":"aiPersona"}},{"kind":"Field","name":{"kind":"Name","value":"aiServiceUrl"}},{"kind":"Field","name":{"kind":"Name","value":"unreadCount"}},{"kind":"Field","name":{"kind":"Name","value":"memberCount"}},{"kind":"Field","name":{"kind":"Name","value":"lastMessage"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"MessageFields"}}]}},{"kind":"Field","name":{"kind":"Name","value":"members"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"channelId"}},{"kind":"Field","name":{"kind":"Name","value":"userId"}},{"kind":"Field","name":{"kind":"Name","value":"role"}},{"kind":"Field","name":{"kind":"Name","value":"notificationPreference"}},{"kind":"Field","name":{"kind":"Name","value":"lastReadAt"}},{"kind":"Field","name":{"kind":"Name","value":"joinedAt"}},{"kind":"Field","name":{"kind":"Name","value":"leftAt"}},{"kind":"Field","name":{"kind":"Name","value":"user"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"firstName"}},{"kind":"Field","name":{"kind":"Name","value":"lastName"}},{"kind":"Field","name":{"kind":"Name","value":"profileImageUrl"}},{"kind":"Field","name":{"kind":"Name","value":"isOnline"}}]}}]}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"MessageFields"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"Message"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"channelId"}},{"kind":"Field","name":{"kind":"Name","value":"senderId"}},{"kind":"Field","name":{"kind":"Name","value":"content"}},{"kind":"Field","name":{"kind":"Name","value":"contentType"}},{"kind":"Field","name":{"kind":"Name","value":"parentId"}},{"kind":"Field","name":{"kind":"Name","value":"forwardedFrom"}},{"kind":"Field","name":{"kind":"Name","value":"isDeleted"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}},{"kind":"Field","name":{"kind":"Name","value":"editedAt"}},{"kind":"Field","name":{"kind":"Name","value":"sender"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"firstName"}},{"kind":"Field","name":{"kind":"Name","value":"lastName"}},{"kind":"Field","name":{"kind":"Name","value":"profileImageUrl"}},{"kind":"Field","name":{"kind":"Name","value":"isOnline"}}]}},{"kind":"Field","name":{"kind":"Name","value":"attachments"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"originalFilename"}},{"kind":"Field","name":{"kind":"Name","value":"mimeType"}},{"kind":"Field","name":{"kind":"Name","value":"fileSize"}},{"kind":"Field","name":{"kind":"Name","value":"width"}},{"kind":"Field","name":{"kind":"Name","value":"height"}},{"kind":"Field","name":{"kind":"Name","value":"durationSeconds"}},{"kind":"Field","name":{"kind":"Name","value":"thumbnailUrl"}},{"kind":"Field","name":{"kind":"Name","value":"downloadUrl"}}]}},{"kind":"Field","name":{"kind":"Name","value":"receipts"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"userId"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"deliveredAt"}},{"kind":"Field","name":{"kind":"Name","value":"readAt"}}]}},{"kind":"Field","name":{"kind":"Name","value":"reactionSummary"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"emoji"}},{"kind":"Field","name":{"kind":"Name","value":"count"}},{"kind":"Field","name":{"kind":"Name","value":"userIds"}},{"kind":"Field","name":{"kind":"Name","value":"hasReacted"}}]}}]}}]} as unknown as DocumentNode<ChannelFieldsFragment, unknown>;
@@ -924,3 +1073,6 @@ export const MobileApproveAndSubmitReportDraftDocument = {"kind":"Document","def
 export const GetWarehouseSummaryDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"GetWarehouseSummary"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"warehouseSummary"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"totalItems"}},{"kind":"Field","name":{"kind":"Name","value":"lowStockAlertCount"}},{"kind":"Field","name":{"kind":"Name","value":"todaysMovementCount"}},{"kind":"Field","name":{"kind":"Name","value":"lowStockItems"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"itemType"}},{"kind":"Field","name":{"kind":"Name","value":"currentQty"}},{"kind":"Field","name":{"kind":"Name","value":"minQty"}},{"kind":"Field","name":{"kind":"Name","value":"unit"}}]}},{"kind":"Field","name":{"kind":"Name","value":"recentMovements"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"movementType"}},{"kind":"Field","name":{"kind":"Name","value":"itemName"}},{"kind":"Field","name":{"kind":"Name","value":"quantity"}},{"kind":"Field","name":{"kind":"Name","value":"unit"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}}]}},{"kind":"Field","name":{"kind":"Name","value":"feedCoverage"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"feedId"}},{"kind":"Field","name":{"kind":"Name","value":"feedCode"}},{"kind":"Field","name":{"kind":"Name","value":"feedName"}},{"kind":"Field","name":{"kind":"Name","value":"daysOfCover"}},{"kind":"Field","name":{"kind":"Name","value":"stockoutDate"}},{"kind":"Field","name":{"kind":"Name","value":"coverageStatus"}}]}}]}}]}}]} as unknown as DocumentNode<GetWarehouseSummaryQuery, GetWarehouseSummaryQueryVariables>;
 export const MobileTankSensorsDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"MobileTankSensors"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"tankId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"sensorRawList"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"tankId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"tankId"}}},{"kind":"Argument","name":{"kind":"Name","value":"limit"},"value":{"kind":"IntValue","value":"50"}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"type"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"unit"}},{"kind":"Field","name":{"kind":"Name","value":"lastSeenAt"}}]}}]}}]} as unknown as DocumentNode<MobileTankSensorsQuery, MobileTankSensorsQueryVariables>;
 export const MobileLatestReadingsBatchDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"MobileLatestReadingsBatch"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"sensorIds"}},"type":{"kind":"NonNullType","type":{"kind":"ListType","type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"latestReadingsBatch"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"sensorIds"},"value":{"kind":"Variable","name":{"kind":"Name","value":"sensorIds"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"sensorId"}},{"kind":"Field","name":{"kind":"Name","value":"timestamp"}},{"kind":"Field","name":{"kind":"Name","value":"readings"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"temperature"}},{"kind":"Field","name":{"kind":"Name","value":"ph"}},{"kind":"Field","name":{"kind":"Name","value":"dissolvedOxygen"}},{"kind":"Field","name":{"kind":"Name","value":"salinity"}},{"kind":"Field","name":{"kind":"Name","value":"ammonia"}},{"kind":"Field","name":{"kind":"Name","value":"nitrite"}},{"kind":"Field","name":{"kind":"Name","value":"nitrate"}},{"kind":"Field","name":{"kind":"Name","value":"turbidity"}},{"kind":"Field","name":{"kind":"Name","value":"waterLevel"}}]}}]}}]}}]} as unknown as DocumentNode<MobileLatestReadingsBatchQuery, MobileLatestReadingsBatchQueryVariables>;
+export const EquipmentListDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"EquipmentList"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"filter"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"EquipmentFilterInput"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"equipmentList"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"filter"},"value":{"kind":"Variable","name":{"kind":"Name","value":"filter"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"items"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"code"}},{"kind":"Field","name":{"kind":"Name","value":"equipmentType"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"category"}},{"kind":"Field","name":{"kind":"Name","value":"name"}}]}}]}}]}}]}}]} as unknown as DocumentNode<EquipmentListQuery, EquipmentListQueryVariables>;
+export const EquipmentParametersDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"EquipmentParameters"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"equipmentId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"equipmentParameters"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"equipmentId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"equipmentId"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"parameterConfig"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"code"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"unit"}},{"kind":"Field","name":{"kind":"Name","value":"dataType"}},{"kind":"Field","name":{"kind":"Name","value":"precision"}},{"kind":"Field","name":{"kind":"Name","value":"group"}},{"kind":"Field","name":{"kind":"Name","value":"optimalMin"}},{"kind":"Field","name":{"kind":"Name","value":"optimalMax"}},{"kind":"Field","name":{"kind":"Name","value":"warningMin"}},{"kind":"Field","name":{"kind":"Name","value":"warningMax"}},{"kind":"Field","name":{"kind":"Name","value":"criticalMin"}},{"kind":"Field","name":{"kind":"Name","value":"criticalMax"}},{"kind":"Field","name":{"kind":"Name","value":"enumValues"}},{"kind":"Field","name":{"kind":"Name","value":"displayOrder"}},{"kind":"Field","name":{"kind":"Name","value":"isRequired"}},{"kind":"Field","name":{"kind":"Name","value":"chartColor"}}]}}]}}]}}]} as unknown as DocumentNode<EquipmentParametersQuery, EquipmentParametersQueryVariables>;
+export const CreateWaterQualityMeasurementDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"CreateWaterQualityMeasurement"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"CreateWaterQualityInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"createWaterQualityMeasurement"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"overallStatus"}},{"kind":"Field","name":{"kind":"Name","value":"hasAlarm"}}]}}]}}]} as unknown as DocumentNode<CreateWaterQualityMeasurementMutation, CreateWaterQualityMeasurementMutationVariables>;

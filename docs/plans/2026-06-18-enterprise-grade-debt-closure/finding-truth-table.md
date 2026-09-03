@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `3e3facc413eaed0e8723b1829ad44d0d36765433ef4555e2b7f5b595c590d9d7`
+Registry tip: `087ab11c3d283ce0f252891a4ac5d13fc9bf13acec59cdb5e5b1ef6becba7837`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -153,6 +153,14 @@ key). All three are `already-fixed-needs-close`: the fixes are on the merged
 audit branch and their rows stay OPEN only until the post-merge close ceremony
 records a main-reachable closing commit (PROC-HIGH-001).
 
+Updated 2026-09-03 (farm + AquaMobil agent audit merge, PR #1243): the
+2026-08-16 audit cycle raised `MOB-CRITICAL-018` (AquaMobil water-quality submit
+sent a `parameters` field the farm-service input no longer declares). The same
+branch fixes it by letting GraphQL codegen own the input type and pins the
+invariant with `tests/invariants/aquamobil-input-mirror-parity.spec.ts`, so it is
+`already-fixed-needs-close` until the post-merge close ceremony records a
+main-reachable closing commit.
+
 Allowed truth buckets:
 
 - `real-open`
@@ -219,6 +227,7 @@ Allowed truth buckets:
 | `EDGE-CRITICAL-002`     | OPEN           | 2026-07-12   | edge-expert                | already-fixed-needs-close |
 | `EDGE-CRITICAL-003`     | OPEN           | 2026-07-12   | edge-expert                | already-fixed-needs-close |
 | `EDGE-CRITICAL-004`     | OPEN           | 2026-07-12   | edge-expert                | already-fixed-needs-close |
+| `MOB-CRITICAL-018`      | OPEN           | 2026-08-16   | mobile-app-auditor         | already-fixed-needs-close |
 
 ## Mutation Rules
 
@@ -277,6 +286,16 @@ Allowed truth buckets:
   `sensorprotocols/mqtt-protocol.md` (commit da33f9068). The registry row stays
   OPEN only until the post-merge close ceremony records a main-reachable closing
   commit.
+- `MOB-CRITICAL-018` (AquaMobil water-quality submit sent a `parameters` field
+  the farm-service input no longer declares, so every measurement was rejected
+  while the offline lane rendered success): the farm + AquaMobil audit branch
+  (PR #1243) moves the mutation onto a `.graphql` operation document so
+  `CreateWaterQualityInput` is generated from the farm subgraph schema, deletes
+  the hand-written mirror from `web/apps/aquamobil/src/types/index.ts`, and pins
+  the rule that no AquaMobil input type may be hand-written with
+  `tests/invariants/aquamobil-input-mirror-parity.spec.ts` (commit 2f5ef21eb).
+  The registry row stays OPEN only until the post-merge close ceremony records a
+  main-reachable closing commit.
 
 The 2026-06-20 registry close follow-up left no OTHER active CRITICAL in
 `already-fixed-needs-close`; reconciled items moved to `Resolved Evidence`.

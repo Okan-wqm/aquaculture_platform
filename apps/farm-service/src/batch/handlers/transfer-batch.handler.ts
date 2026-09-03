@@ -220,25 +220,32 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
       // Centralised in TankCapacityService — the status/biomass/density
       // invariant is enforced from a single implementation across
       // allocate / transfer / deploy. Hard mode: transferring into a
-      // stocked tank must not breach welfare limits, period (no admin
+      // stocked tank must not breach welfare limits, period. There is no
       // override path on transfer because the caller has an obvious
-      // alternative: split the transfer or use the GRADING/HARVEST
-      // flow). skipCapacityCheck is honoured for the pre-existing
-      // escape hatch used by internal reconciliation jobs.
-      if (!payload.skipCapacityCheck) {
-        const destTankBatch = await queryRunner.manager.findOne(TankBatch, {
-          where: { tenantId, tankId: payload.destinationTankId },
-        });
-        this.tankCapacityService.enforce({
-          mode: 'hard',
-          equipment: destinationTank,
-          existing: {
-            salmonBiomassKg: Number(destinationTank.currentBiomass || 0),
-            cleanerBiomassKg: Number(destTankBatch?.cleanerFishBiomassKg || 0),
-          },
-          incomingBiomassKg: biomassKg,
-        });
-      }
+      // alternative: split the transfer, or use the GRADING/HARVEST flow.
+      //
+      // This used to sit behind `if (!payload.skipCapacityCheck)`. That input
+      // was a plain Boolean on a mutation any MODULE_USER may call, with no
+      // role floor, no reason and no audit row — a life-safety gate anyone
+      // could switch off from the public schema. No caller in the repository
+      // ever set it true, so the escape hatch its comment claimed to serve did
+      // not exist. Removing the field is what makes the bypass unreachable;
+      // leaving the check unconditional is only the visible half.
+      // Read separately from the pre-state row fetched further down: this one is
+      // taken before the transfer writes, and the two must not be collapsed into
+      // one variable just because they query the same row.
+      const destTankBatchAtCapacityCheck = await queryRunner.manager.findOne(TankBatch, {
+        where: { tenantId, tankId: payload.destinationTankId },
+      });
+      this.tankCapacityService.enforce({
+        mode: 'hard',
+        equipment: destinationTank,
+        existing: {
+          salmonBiomassKg: Number(destinationTank.currentBiomass || 0),
+          cleanerBiomassKg: Number(destTankBatchAtCapacityCheck?.cleanerFishBiomassKg || 0),
+        },
+        incomingBiomassKg: biomassKg,
+      });
 
       const transferDate = payload.transferredAt || new Date();
 

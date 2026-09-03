@@ -1,17 +1,22 @@
 import { DynamicMeasurementForm } from '@aquaculture/farm-shared';
 import type { ParameterFieldConfig } from '@aquaculture/farm-shared';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { gql } from 'graphql-tag';
 import { BlockTitle, List, ListInput } from 'konsta/react';
 import { ArrowLeft, Droplets, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import type { JSX } from 'react';
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
+import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
+import type { CreateWaterQualityInput } from '@/generated/graphql';
+import {
+  CREATE_WQ_MUTATION,
+  EQUIPMENT_LIST_QUERY,
+  EQUIPMENT_PARAMS_QUERY,
+} from '@/graphql/water-quality.operations';
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
-import type { CreateWaterQualityInput } from '@/types';
 import { isRecoverableNetworkError } from '@/utils/network-error';
 import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
@@ -39,40 +44,6 @@ interface EquipmentParameterConfig {
 }
 
 type FieldValue = number | string | boolean;
-
-// ============================================================================
-// GRAPHQL
-// ============================================================================
-
-/**
- * Fetch all active equipment using the equipmentList query.
- * Uses { isActive: true } filter to match the web RecordTab behavior,
- * ensuring non-tank equipment (sensors, pumps, filters) with
- * status='operational' are included alongside tank equipment (status='active').
- */
-const EQUIPMENT_LIST_QUERY = gql`
-  query EquipmentList($filter: EquipmentFilterInput) {
-    equipmentList(filter: $filter) { items { id name code equipmentType { category name } } }
-  }
-`;
-
-const EQUIPMENT_PARAMS_QUERY = gql`
-  query EquipmentParameters($equipmentId: ID!) {
-    equipmentParameters(equipmentId: $equipmentId) {
-      parameterConfig {
-        id code name unit dataType precision group
-        optimalMin optimalMax warningMin warningMax criticalMin criticalMax
-        enumValues displayOrder isRequired chartColor
-      }
-    }
-  }
-`;
-
-const CREATE_WQ_MUTATION = gql`
-  mutation CreateWaterQualityMeasurement($input: CreateWaterQualityInput!) {
-    createWaterQualityMeasurement(input: $input) { id overallStatus hasAlarm }
-  }
-`;
 
 // ============================================================================
 // MRU (Most Recently Used)
@@ -104,6 +75,7 @@ export function WaterQualityRecordPage(): JSX.Element {
 
   const [selectedEquipmentId, setSelectedEquipmentId] = useState(routeEquipmentId || '');
   const [showSuccess, setShowSuccess] = useState(false);
+  const [queuedOperationId, setQueuedOperationId] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isQueueSubmitting, setIsQueueSubmitting] = useState(false);
 
@@ -209,7 +181,6 @@ export function WaterQualityRecordPage(): JSX.Element {
         measuredAt: new Date().toISOString(),
         source: 'MANUAL',
         idempotencyKey: crypto.randomUUID(),
-        parameters: {},
         dynamicParameters,
         ...(notes.trim() ? { notes: notes.trim() } : {}),
         ...(weatherConditions?.trim() ? { weatherConditions: weatherConditions.trim() } : {}),
@@ -218,20 +189,25 @@ export function WaterQualityRecordPage(): JSX.Element {
       try {
         if (isOnline) {
           await createMeasurement(input);
+          addMRU(selectedEquipmentId);
+          setShowSuccess(true);
+          setTimeout(() => navigate('/'), 1500);
         } else {
-          await addToQueue('createWaterQuality', input);
+          // Queued is NOT recorded. Keep the operationId and let QueuedStatusBadge
+          // report the op's real sync status, the way every other record page does —
+          // a green "Measurement Recorded!" for a write the server has never seen is
+          // how a rejected measurement looked like a successful one for months.
+          const { id: opId } = await addToQueue('createWaterQuality', input);
+          addMRU(selectedEquipmentId);
+          setQueuedOperationId(opId);
         }
-        addMRU(selectedEquipmentId);
-        setShowSuccess(true);
-        setTimeout(() => navigate('/'), 1500);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to record measurement';
         if (isRecoverableNetworkError(error)) {
           try {
-            await addToQueue('createWaterQuality', input);
+            const { id: opId } = await addToQueue('createWaterQuality', input);
             addMRU(selectedEquipmentId);
-            setShowSuccess(true);
-            setTimeout(() => navigate('/'), 1500);
+            setQueuedOperationId(opId);
             return;
           } catch (queueError) {
             setSubmitError(queueError instanceof Error ? queueError.message : 'Failed to queue measurement');
@@ -253,6 +229,33 @@ export function WaterQualityRecordPage(): JSX.Element {
     },
     [],
   );
+
+  // -- Queued screen ---------------------------------------------------------
+  // A queued measurement is on the device, not in the database. QueuedStatusBadge
+  // reports the operation's real state (pending / syncing / synced / failed), so a
+  // contract rejection surfaces as "Sync Failed" instead of hiding behind a tick.
+  if (queuedOperationId) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-amber-50 dark:bg-amber-900/10 px-6">
+        <div className="w-20 h-20 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center mb-4">
+          <Droplets size={48} className="text-amber-600" />
+        </div>
+        <h2 className="text-xl font-bold text-amber-700 dark:text-amber-300">Saved to device</h2>
+        <p className="text-amber-600 dark:text-amber-400 text-sm mt-1 text-center">
+          This measurement is not recorded until it reaches the server.
+        </p>
+        <div className="mt-4">
+          <QueuedStatusBadge operationId={queuedOperationId} />
+        </div>
+        <button
+          onClick={() => navigate('/')}
+          className="mt-6 px-5 py-2.5 rounded-xl bg-amber-600 text-white font-medium touch-feedback"
+        >
+          Back to home
+        </button>
+      </div>
+    );
+  }
 
   // -- Success screen --------------------------------------------------------
   if (showSuccess) {

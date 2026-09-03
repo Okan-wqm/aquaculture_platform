@@ -9,7 +9,10 @@
 // vocabulary stays single-sourced — the old hand-maintained
 // MANAGER/OPERATOR/VIEWER union was phantom (the server never emits it).
 export type { Role } from '../generated/graphql';
-import type { Role } from '../generated/graphql';
+import type {
+  CreateWaterQualityInput as GeneratedCreateWaterQualityInput,
+  Role,
+} from '../generated/graphql';
 
 // WHY: AccessType determines platform access — PANEL_ONLY users are blocked from
 // the mobile app at login time, before any feature check occurs.
@@ -362,13 +365,27 @@ export interface ChecklistItemSetInput {
   isCompleted: boolean;
 }
 
+/**
+ * Mirror of the backend `MobileCommandEnvelopeInput`. Every field is nullable on
+ * the wire, so each is `| null` here: a codegen-emitted input type spells a
+ * nullable GraphQL field as `T | null | undefined`, and a mirror that omitted
+ * `null` made the generated type unassignable to `OperationPayload` — which is
+ * exactly the friction that kept water-quality on a hand-written input in the
+ * first place. Intersecting with a generated input still narrows the union
+ * members that are stricter here (`operationType` stays `OperationType`).
+ */
 export interface MobileCommandEnvelope {
-  clientCommandId?: string;
-  clientCreatedAt?: string;
-  deviceId?: string;
-  operationType?: OperationType;
-  payloadHash?: string;
-  schemaVersion?: string;
+  clientCommandId?: string | null;
+  clientCreatedAt?: string | null;
+  deviceId?: string | null;
+  /**
+   * `String` on the wire. The `OperationType` narrowing is enforced where it is
+   * actually applied — `addToQueue(type: OperationType, …)` and the stamp at
+   * offline-queue.ts:131 — so repeating it here only rejected generated inputs.
+   */
+  operationType?: string | null;
+  payloadHash?: string | null;
+  schemaVersion?: string | null;
 }
 
 /** Messaging offline payloads — sendMessage uses SendMessageInput, editMessage uses { id, content },
@@ -415,7 +432,7 @@ export interface AcknowledgeAlertInputPayload {
 }
 
 export type OperationPayload = (
-  MortalityInput | CullInput | HarvestInput | FeedingInput | RecordMealFeedingPayload | ClockInInput | ClockOutInput | CreateLeaveRequestInput | { id: string } | ChecklistItemSetInput | TransferInput | CreateWaterQualityInput | StockMovementInput | StockTransferInput | LiceCountInput | WelfareAssessmentInput | EscapeIncidentInput | AcknowledgeAlertInputPayload | MessagingOfflinePayload | UploadAndSendMessageOfflinePayload
+  MortalityInput | CullInput | HarvestInput | FeedingInput | RecordMealFeedingPayload | ClockInInput | ClockOutInput | CreateLeaveRequestInput | { id: string } | ChecklistItemSetInput | TransferInput | GeneratedCreateWaterQualityInput | StockMovementInput | StockTransferInput | LiceCountInput | WelfareAssessmentInput | EscapeIncidentInput | AcknowledgeAlertInputPayload | MessagingOfflinePayload | UploadAndSendMessageOfflinePayload
 ) & MobileCommandEnvelope;
 
 export interface QueuedOperation {
@@ -545,35 +562,6 @@ export type MeasurementSource =
   | 'SENSOR_TRIGGERED'
   | 'LAB_ANALYSIS'
   | 'CALIBRATION';
-
-export interface WaterQualityParameters {
-  temperature?: number;
-  dissolvedOxygen?: number;
-  pH?: number;
-  ammonia?: number;
-  nitrite?: number;
-  nitrate?: number;
-  salinity?: number;
-  turbidity?: number;
-  alkalinity?: number;
-  hardness?: number;
-}
-
-export interface CreateWaterQualityInput {
-  tankId?: string;
-  pondId?: string;
-  siteId?: string;
-  batchId?: string;
-  equipmentId?: string;
-  measuredAt: string;
-  source: MeasurementSource;
-  measuredBy?: string;
-  parameters: WaterQualityParameters;
-  dynamicParameters?: Record<string, number | string | boolean>;
-  idempotencyKey?: string;
-  notes?: string;
-  weatherConditions?: string;
-}
 
 // Storage types
 export type StockMovementType = 'IN' | 'OUT' | 'WASTE';

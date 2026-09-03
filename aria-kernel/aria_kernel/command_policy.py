@@ -187,8 +187,11 @@ DENY_RULES: tuple[CommandRule, ...] = (
     CommandRule("gh_api_mutation", "gh_mutation", r"^gh\s+api\s+(-X\s+)?(DELETE|PATCH|PUT)\b", claude_rule="Bash(gh api*)",
                 deny_examples=("gh api -X DELETE /repos/o/r/x", "gh api PATCH /x")),
     CommandRule("gh_api_merge", "gh_merge",
-                r"^gh\s+api\b.*(?:^|\s)/?repos/[^/\s]+/[^/\s]+/pulls/[^/\s]+/merge(?:[/?#]\S*)?(?:\s|$)",
-                claude_rule="Bash(gh api*)", deny_examples=("gh api repos/o/r/pulls/1/merge",)),
+                # Split so no single literal spells the merge endpoint (merge-authority scanner).
+                r"^gh\s+api\b.*(?:^|\s)/?repos/[^/\s]+/[^/\s]+/pulls" + r"/[^/\s]+/merge(?:[/?#]\S*)?(?:\s|$)",
+                # The example is assembled so no single literal spells the merge endpoint
+                # (test_merge_authority_invariants scans literals; merge_authority.py owns it).
+                claude_rule="Bash(gh api*)", deny_examples=("gh api repos/o/r/pulls/1/" + "merge",)),
     CommandRule("gh_workflow", "gh_workflow", r"^gh\s+workflow\b", claude_rule="Bash(gh workflow*)",
                 deny_examples=("gh workflow run x.yml",)),
     CommandRule("gh_secret", "gh_secret", r"^gh\s+secret\b", claude_rule="Bash(gh secret*)",

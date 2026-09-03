@@ -363,6 +363,26 @@ production-safety change, not a feature.
 
 **Mitigation:** I-V13-SCOPE-01..02, I-V13-LAB-01..02, I-V13-TEARDOWN-01, I-V13-PERSONA-01.
 
+## 22. CampaignGrant (EdDSA JWS), Evidence Vault, campaign lifecycle (Plan 033 Faz 033e)
+
+**Decision:** the CampaignGrant is the ONLY cryptographic signature in ARIA: compact JWS with
+`alg=EdDSA` (any other alg/typ, a bad signature, an expired or not-yet-valid window, a mismatched
+bound digest, an R4 class or an R3 class without a human approval ref bound to an exact recipe
+digest is refused); the private key lives outside the workspace; a JTI activates for exactly one
+`campaign_run_id`. Raw security evidence never enters a ledger, Git or `aria/state`: the ledger row
+is metadata + digest + redacted preview + ref, the bytes go to an AES-256-GCM vault outside the
+workspace and tools dir (per-campaign DEK wrapped by a KEK read from an FD), truncated objects are
+flagged, seals are write-once, purges leave receipts. `campaign.STATES` / `TRANSITIONS` /
+`REQUIRED_INPUTS` are closed and ordered; inputs are write-once; cleanup without a teardown receipt
+quarantines; CLOSED only after CLEANUP_VERIFIED. `mission.BINDING_KEYS` gains `campaign_run_ids` +
+`grant_jtis`. If the signing/AEAD backend is missing the lane fails closed.
+
+**Why one-way:** these are the trust anchors the policy proxy and every campaign verdict rely on.
+
+**Reversibility cost:** Re-issuing every grant under a new scheme; re-encrypting the vault.
+
+**Mitigation:** I-V13-GRANT-01..02, I-V13-VAULT-01, I-V13-CAMPAIGN-01..02.
+
 ## Themes
 
 - **3 of 5 one-way doors are ledger-anchored** (events, terminal states, candidate sources). The

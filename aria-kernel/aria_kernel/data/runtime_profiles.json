@@ -59,13 +59,13 @@
       "max_concurrent": 1
     },
     "implementer": {
-      "description": "Write-capable implementer. Workspace-wide write scope minus READONLY_PATHS; external writes (push, PR, comments, gh api) stay CLOSED until Faz 032c recovery lands.",
+      "description": "Write-capable implementer. Workspace-wide write scope minus READONLY_PATHS; the ONLY profile with external_writes — a scoped, per-spawn GH token (delivery_credentials) for `git push origin aria-impl-*` and the kernel's own `pr create`; every other external write stays denied by CommandPolicy + hooks (Faz 032d).",
       "model": "opus",
       "effort": "max",
       "tools": ["Read", "Grep", "Glob", "Edit", "Write", "Bash"],
       "write_scope": ["**"],
       "env_passthrough": ["ARIA_TOOLS_DIR", "ARIA_WORKSPACE_ROOT"],
-      "external_writes": false,
+      "external_writes": true,
       "budget_usd_per_run": 0.5,
       "max_concurrent": 1
     },

@@ -2883,6 +2883,13 @@ def build_parser() -> argparse.ArgumentParser:
     search_parser.add_argument("--rebuild", action="store_true")
     search_parser.add_argument("--limit", type=int, default=20)
 
+    # Plan 032 Faz 032d — delivery closure: what each implementation request
+    # actually delivered, derived from effect ledgers.
+    delivery_parser = add_subparser(sub, "delivery")
+    delivery_sub = delivery_parser.add_subparsers(dest="delivery_command", required=True)
+    delivery_status = add_subparser(delivery_sub, "status")
+    delivery_status.add_argument("--json", action="store_true")
+
     return parser
 
 
@@ -5935,6 +5942,13 @@ def _main(argv: list[str] | None = None) -> int:
         if args.checkpoint_command == "prune":
             print(json.dumps(_cp.prune_checkpoints(workspace_root=args.workspace_root, base_dir=args.tools_dir), indent=2, sort_keys=True))
             return 0
+
+    if args.command == "delivery" and args.delivery_command == "status":
+        from .delivery_closure import compute_delivery_closure, render_delivery_text
+
+        report = compute_delivery_closure(base_dir=args.tools_dir)
+        print(json.dumps(report.to_dict(), indent=2, sort_keys=True) if args.json else render_delivery_text(report))
+        return 0
 
     if args.command == "session" and args.session_command == "list":
         from .session_continuity import sessions_for

@@ -197,5 +197,4 @@ plan + the hard-fail check registry.
 - **Finish or refuse.** Apply, validate, gate, open the PR and submit the
   response envelope in one run. If the plan is infeasible, emit the refusal
   envelope — never end with an unexecuted plan or a partial diff.
-- **Coding standards.** Every diff conforms to
-  `@.claude/agents/_shared/aria-code-writing-standards.md`.
+- **Coding standards.** Every diff conforms to `@.claude/agents/_shared/aria-code-writing-standards.md`.

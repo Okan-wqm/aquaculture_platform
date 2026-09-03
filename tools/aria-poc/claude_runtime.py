@@ -957,6 +957,10 @@ def run_claude_exec(
     agent_profile: Any | None = None,
     session_id: str | None = None,
     resume: bool = False,
+    # Plan 032 Faz 032d — per-spawn additions the executor computed (scoped
+    # delivery credential, ARIA_REQUEST_ID). Values are never logged; the env
+    # report carries names only.
+    extra_env: dict[str, str] | None = None,
 ) -> ClaudeRunResult:
     preflight_claude_auth()
     assert_write_runner_ok(skip_permissions=skip_permissions, permission_mode=permission_mode)
@@ -1003,7 +1007,8 @@ def run_claude_exec(
                **provider_redirect_env(model),
                # The hooks run `python3 -m aria_kernel` inside the sandbox;
                # the kernel rides PYTHONPATH there exactly as in the lanes.
-               **({"PYTHONPATH": str(Path(cwd).resolve() / "aria-kernel")} if cwd is not None else {})},
+               **({"PYTHONPATH": str(Path(cwd).resolve() / "aria-kernel")} if cwd is not None else {}),
+               **(dict(extra_env) if extra_env else {})},
     )
     config_dir = env_report.claude_config_dir if env_report is not None else None
     argv = _apply_write_containment(

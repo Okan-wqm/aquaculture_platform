@@ -171,6 +171,16 @@ publish primitive other than the store API.
 
 **Mitigation:** I-V12-CKPT-01..05, I-V12-SESS-01..03, I-V12-RECV-01..04 pin the shapes; `POLICY_VERSION` is part of the fingerprint so a policy change invalidates resumes by construction.
 
+## 12. `DELIVERY_STATES` + the scoped credential rides the spawn env (Plan 032 Faz 032d)
+
+**Decision:** `delivery_closure.DELIVERY_STATES` is a closed vocabulary derived only from effect ledgers; `DELIVERED_STATES = {ci_green, merged}` is the definition of "verified". Exactly one runtime profile (`implementer`) carries `external_writes`; its GitHub credential is the `gh_token_factory` lease placed in ONE spawn's built environment as `GH_TOKEN` (+ env-only git credential helper) and revoked when the spawn ends — the earlier "credentials file the sandbox reads" design is superseded. Intent/receipt rows written from inside a spawn are keyed on `ARIA_REQUEST_ID`.
+
+**Why one-way:** The SLO that gates 032e+ (verified PRs ≥ 3, false-success 0, duplicate 0) is computed from these states; the credential path is what every implementer PR in the ledger will have been produced under.
+
+**Reversibility cost:** Re-deriving every delivery record; re-keying intent rows written under the request id.
+
+**Mitigation:** I-V12-DLV-01..07 pin the grant's singularity, the names-only governance rows, the executor bracket (issue → export → revoke) and the state derivation.
+
 ## Themes
 
 - **3 of 5 one-way doors are ledger-anchored** (events, terminal states, candidate sources). The

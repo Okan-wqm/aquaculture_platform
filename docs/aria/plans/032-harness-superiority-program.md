@@ -197,6 +197,24 @@ human_required`. Kill/restart testleri (mock executor SIGKILL → resume, duplic
 
 ## Faz 032d — Tek-worker repository delivery closure
 
+Teslimat 032d (2026-09-03): `delivery_credentials.py` — `external_writes: true` olan TEK profil
+(implementer) için spawn anında `gh_token_factory` scoped lease mint edilir, yalnız o spawn'ın inşa
+edilmiş env'ine `GH_TOKEN` + env-only git credential helper (`GIT_CONFIG_*` → `gh auth git-credential`)
+olarak girer, `finally`'de revoke edilir; governance `delivery_credential_issued|revoked|refused` (isim +
+mod + TTL, asla değer) ve PAT modunda `installation_token_fallback_active`. Mint başarısız → spawn koşmaz
+(`DELIVERY_CREDENTIAL_EXIT=78`). Executor her spawn'a `ARIA_REQUEST_ID`/`ARIA_CLAIM_ID` verir; `pr_manager`
+push/PR-create intent-receipt'lerini spawn içinde agent request'e (dışarıda `proposal:<id>`) anahtarlar
+ve postcondition'a `proposal_id` yazar → recovery sınıflandırması ve closure raporu etkiyi görür.
+`delivery_closure.py` — implementation request başına kapalı `DELIVERY_STATES`
+(`dispatched … ci_green|merged|duplicate|human_required`) ve SLO özeti (verified ≥3, false-success 0,
+duplicate 0) yalnız etki ledger'larından (external-effects, pr-lifecycle, own-pr-checks, merge-outcomes,
+recovery decisions) türetilir; `doctor` organı `delivery_closure` (duplicate=fail, false-success=warn);
+CLI `delivery status [--json]`. `aria-implementer.md` 200 satır tavanına geri çekildi (jest
+`agent-size-limit`). Bağımsız doğrulayıcı = mevcut Gate B (`review_runner`) + own_pr_ci; auto-merge yok.
+Çalıştırılmayan testler: `tests/invariants/v12/test_phase_v12_d_delivery.py`
+(+ güncellenen `test_phase_v12_b_runtime_profiles.py` iki assertion). Canlı kabul (≥3 `aria-impl-*` PR)
+operatör adımıdır; rapor `aria-kernel delivery status` ile ölçülür.
+
 - `CONVERGED → stage_converged_plan_for_pr → implementer (032b zarfı + 032c checkpoint) → izole
 worktree → testler → bağımsız validator (Gate B) → pr create (intent/receipt) → own_pr_ci canlı
 CI reconciliation`. **Auto-merge yok**; dış yazma yalnız `aria-impl-*` branch push + PR.

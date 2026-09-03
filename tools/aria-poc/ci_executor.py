@@ -178,6 +178,10 @@ _CI_T0 = time.monotonic()
 
 
 # Plan 032 Faz 032b — the code tree the executor dispatches into.
+# Plan 032 Faz 032d — a write lane whose scoped credential cannot be minted
+# is released, never run blind. EX_CONFIG keeps the code distinct from the
+# Claude CLI's own exits in `claude_cli_exit_<n>` release reasons.
+DELIVERY_CREDENTIAL_EXIT = 78
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -1296,6 +1300,38 @@ def invoke_claude_cli(
             # The summary is telemetry; a dispatch outcome must never fail
             # because the telemetry channel did. Name it on stderr instead.
             sys.stderr.write(f"dispatch_summary_unwritable: {summary_exc}\n")
+    # Plan 032 Faz 032d — scoped delivery credential for external-write
+    # profiles (today: the implementer). Minted here, exported ONLY into this
+    # spawn's env, revoked in `finally`. Every other profile gets no GitHub
+    # credential at all. ARIA_REQUEST_ID / ARIA_CLAIM_ID ride along so the
+    # kernel CLI the agent runs keys its intent/receipt rows on the request.
+    from aria_kernel.delivery_credentials import (
+        DeliveryCredentialError,
+        issue_delivery_credentials,
+        revoke_delivery_credentials,
+    )
+
+    delivery_credential = None
+    spawn_extra_env: dict[str, str] = {"ARIA_REQUEST_ID": str(request_id)}
+    if claim_id:
+        spawn_extra_env["ARIA_CLAIM_ID"] = str(claim_id)
+    if bool(getattr(agent_profile, "external_writes", False)):
+        try:
+            _deadline = os.environ.get("ARIA_JOB_DEADLINE_EPOCH")
+            delivery_credential = issue_delivery_credentials(
+                profile=agent_profile,
+                request_id=request_id,
+                cycle_id=(request_envelope or {}).get("cycle_id"),
+                workspace_root=_REPO_ROOT,
+                base_dir=tools_dir,
+                deadline_epoch=float(_deadline) if _deadline else None,
+            )
+        except DeliveryCredentialError as exc:
+            _stage(f"delivery_credential_refused request_id={request_id} {exc}")
+            _emit_dispatch_summary(outcome="failed", failure=None, exit_code=DELIVERY_CREDENTIAL_EXIT)
+            return DELIVERY_CREDENTIAL_EXIT
+        if delivery_credential is not None:
+            spawn_extra_env.update(delivery_credential.env)
     try:
         # Model dispatch with the fable→opus fallback policy (credit + refusal),
         # applied by the claude_runtime SSoT helper. The executor supplies the
@@ -1315,6 +1351,7 @@ def invoke_claude_cli(
                 # Plan 032 Faz 032c — the kernel's session decision.
                 session_id=session_id,
                 resume=resume,
+                extra_env=spawn_extra_env,
                 # E17-d — per-spawn usage accounting. This callsite is the
                 # seam where the full identity is in scope: request_id +
                 # envelope role + subagent_type are REQUIRED parameters of
@@ -1513,6 +1550,11 @@ def invoke_claude_cli(
             contract = "tools/aria-poc/ci_executor_contract_proven.md"
             raise ClaudeCliUnavailable(f"{exc}; see {contract}") from exc
         raise
+    finally:
+        # Plan 032 Faz 032d — the scoped credential dies with the spawn, on
+        # every path out of it.
+        if delivery_credential is not None:
+            revoke_delivery_credentials(delivery_credential, request_id=request_id, base_dir=tools_dir)
     # Plan ARIA-V7 §2g v2 + V7.10 envelope-extraction fix.
     #
     # WHY: claude -p stream-json emits JSONL events

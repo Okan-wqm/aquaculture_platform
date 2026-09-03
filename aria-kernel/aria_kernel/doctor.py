@@ -231,6 +231,22 @@ def _check_plan_ledger(tools_dir: Path) -> DoctorCheck:
     return DoctorCheck("plan_ledger", "ok", detail=detail)
 
 
+def _check_delivery(tools_dir: Path) -> DoctorCheck:
+    """Plan 032 Faz 032d — the last mile has a reader. Duplicate PRs are a
+    fault (fail); an accepted result with no PR is a false success (warn —
+    the request may still be mid-flight); the SLO itself is detail."""
+    from .delivery_closure import compute_delivery_closure
+
+    summary = compute_delivery_closure(base_dir=tools_dir).summary
+    if summary["duplicate_prs"]:
+        return DoctorCheck("delivery_closure", "fail", "duplicate_prs", summary)
+    if summary["false_success"] or summary["unresolved_intents"]:
+        return DoctorCheck("delivery_closure", "warn", "false_success_or_unresolved_intents", summary)
+    if not summary["implementation_requests"]:
+        return DoctorCheck("delivery_closure", "ok", "no_implementation_requests", summary)
+    return DoctorCheck("delivery_closure", "ok", "", summary)
+
+
 def run_doctor(
     *,
     base_dir: str | Path | None = None,
@@ -264,6 +280,7 @@ def run_doctor(
         _guarded("breakers", lambda: _check_breakers(tools_dir)),
         _guarded("host_lease", lambda: _check_host_lease(tools_dir)),
         _guarded("plan_ledger", lambda: _check_plan_ledger(tools_dir)),
+        _guarded("delivery_closure", lambda: _check_delivery(tools_dir)),
     )
     return DoctorReport(
         checks=(*store_checks, *host_checks),

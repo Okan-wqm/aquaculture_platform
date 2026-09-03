@@ -64,9 +64,10 @@ class ProfilesAreClosedAndKernelOwned(unittest.TestCase):
         self.assertTrue(profiles)
         rel = profiles_path().relative_to(_REPO_ROOT).as_posix()
         self.assertTrue(any(rel.startswith(ro) for ro in READONLY_PATHS), rel)
-        for profile in profiles.values():
+        for profile_id, profile in profiles.items():
             self.assertNotIn("WebFetch", profile.tools)
-            self.assertFalse(profile.external_writes, "032b keeps external writes closed")
+            # Faz 032d: the implementer is the ONLY profile holding the grant.
+            self.assertEqual(profile.external_writes, profile_id == "implementer", profile_id)
 
     def test_I_V12_PROFILE_01_unknown_keys_tools_models_refuse(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -127,7 +128,7 @@ class ResolutionUsesTheKernel(unittest.TestCase):
         self.assertEqual(implementer.profile_id, "implementer")
         self.assertEqual(implementer.write_scope, ("**",))
         self.assertTrue(implementer.write_capable)
-        self.assertFalse(implementer.external_writes)
+        self.assertTrue(implementer.external_writes, "Faz 032d grant")
         judge = arp.read_agent_runtime_profile("aria-adversarial-judge", repo_root=_REPO_ROOT)
         self.assertEqual((judge.model, judge.profile_id, judge.write_capable), ("glm-5.3", "judge_glm", False))
 

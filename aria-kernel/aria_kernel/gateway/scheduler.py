@@ -17,7 +17,7 @@ SCHEDULES_RELPATH: tuple[str, ...] = ("gateway", "schedules.jsonl")
 SCHEDULE_EVENTS: tuple[str, ...] = ("add", "pause", "resume", "remove", "ran")
 # Closed vocabulary. Every entry maps to a kernel command or a repo workflow —
 # there is no action that takes text to hand to a model.
-SCHEDULE_ACTIONS: tuple[str, ...] = ("cycle", "drain", "daily_report", "doctor", "telemetry_export", "deliver", "inbox_drain")
+SCHEDULE_ACTIONS: tuple[str, ...] = ("cycle", "drain", "daily_report", "doctor", "telemetry_export", "deliver", "inbox_drain", "self_improve", "economy")
 ACTION_WORKFLOWS: dict[str, tuple[str, dict[str, str]]] = {
     "cycle": ("aria-auto-cycle.yml", {"mode": "cycle"}),
     "drain": ("aria-agent-executor.yml", {}),
@@ -206,6 +206,17 @@ def run_action(action: str, *, base_dir: str | Path | None, workspace_root: str 
 
         routed = drain_inbox(base_dir=root, workspace_root=workspace_root)
         result["detail"] = {"routed": len(routed), "errors": sum(1 for r in routed if r.get("error"))}
+    elif action == "self_improve":
+        from ..self_improvement import open_self_improvement_missions
+
+        opened = open_self_improvement_missions(base_dir=root, workspace_root=workspace_root)
+        result["detail"] = {"missions": [o["mission_id"] for o in opened], "new": sum(1 for o in opened if not o["idempotent"])}
+    elif action == "economy":
+        from ..token_economy import calibrate_role_caps, recommend_efforts, record_recommendations, usage_per_accepted_result
+
+        stats = usage_per_accepted_result(base_dir=root)
+        rows = record_recommendations([*recommend_efforts(stats), *calibrate_role_caps(stats)], base_dir=root)
+        result["detail"] = {"stats": len(stats), "recommendations": len(rows), "downgrades": sum(1 for r in rows if r.get("action") == "downgrade")}
     if schedule_name:
         _append(root, {"event": "ran", "name": schedule_name, "action": action, "status": result["status"], "detail": result["detail"]})
     append_tools_governance(root, "gateway_action_ran", {"action": action, "schedule": schedule_name, "status": result["status"]})

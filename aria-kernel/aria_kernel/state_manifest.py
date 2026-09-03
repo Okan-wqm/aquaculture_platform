@@ -660,6 +660,8 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("skill_genesis_materializations", "skill-genesis/materializations.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True),
     # Plan 032 Faz 032h — curator proposals + operator decisions (never an effect on a skill file).
     StateSurface("skill_curation_proposals", "skill-genesis/curation-proposals.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    # Plan 032 Faz 032i — token-economy recommendations (effort downgrades, cap calibration observations).
+    StateSurface("economy_recommendations", "economy/recommendations.jsonl", "ledger", "economy", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("genesis_lifecycle_events", "genesis-lifecycle/events.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True),
     StateSurface("operator_provenance", "operator-provenance/events.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True),
     StateSurface("enterprise_readiness_claims", "enterprise/readiness-claims.jsonl", "ledger", "readiness", "runtime", True, "append_fsync", True, profile_surface="pr_merge", observe_class="action"),

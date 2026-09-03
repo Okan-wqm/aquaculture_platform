@@ -221,6 +221,16 @@ publish primitive other than the store API.
 
 **Mitigation:** I-V12-SKILL-01..03, I-V12-PAR-01..02.
 
+## 17. Decision memory in the sealed prompt, economy ledger, authority surfaces (Plan 032 Faz 032i)
+
+**Decision:** `decision_memory` is a prompt-affecting request field (claim projection carries it; the prompt hash seals it); `DECISION_SOURCES` and `GOVERNANCE_WHY_KEYS` are closed. `economy/recommendations.jsonl` with closed `RECOMMENDATION_KINDS`/`RECOMMENDATION_ACTIONS`; the governor lowers effort by ONE rung, never below `medium`, only while a recommendation is younger than 7 days. `self_improvement.AUTHORITY_SURFACES` and `SELF_CHANGE_ALLOWED_PREFIXES` are the boundary a self-change proposal can never cross; every proposal opens a HUMAN_REQUIRED adjudication. `SCHEDULE_ACTIONS` extended by exactly `self_improve` and `economy`.
+
+**Why one-way:** Prompt hashes minted with the pack are verified on every claim; effort downgrades change what every spawn costs; the authority-surface list is the machine-readable form of "ARIA never widens its own permissions".
+
+**Reversibility cost:** Re-minting open requests; re-ledgering recommendations; a security review for any surface removed from the list.
+
+**Mitigation:** I-V12-MEM-01..02, I-V12-ECON-01, I-V12-SELF-01..02.
+
 ## Themes
 
 - **3 of 5 one-way doors are ledger-anchored** (events, terminal states, candidate sources). The

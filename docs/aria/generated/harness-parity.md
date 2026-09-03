@@ -2,7 +2,7 @@
 
 # ARIA vs harness agents — parity table (machine-verified)
 
-Rows: 25 · verified: 23 · superior: 22 · parity: 2 · partial: 1
+Rows: 25 · verified: 25 · superior: 22 · parity: 2 · partial: 1
 
 | Capability | Hermes-style harness | ARIA owner | CLI | Test | Status | Verified |
 |---|---|---|---|---|---|---|
@@ -29,8 +29,8 @@ Rows: 25 · verified: 23 · superior: 22 · parity: 2 · partial: 1
 | MCP server | none | `aria_kernel.mcp_server.AriaMcpServer` | `aria-kernel mcp serve` | `aria-kernel/tests/invariants/v12/test_phase_v12_g_mcp.py` | superior | yes |
 | Skill lifecycle | auto-created skills | `aria_kernel.skill_curator.propose_curation` | `aria-kernel skill curate` | `aria-kernel/tests/invariants/v12/test_phase_v12_h_skill_parallel.py` | superior | yes |
 | Parallel delegation | subagents | `aria_kernel.genesis_policy.executor_policy` | `aria-kernel doctor` | `aria-kernel/tests/invariants/v12/test_phase_v12_h_skill_parallel.py` | partial | yes |
-| Decision memory / context economy | memory file | `aria_kernel.context_compiler.compile_context` | `aria-kernel context compile` | `aria-kernel/tests/invariants/v12/test_phase_v12_i_self_improvement.py` | superior | NO: import_failed:aria_kernel.context_compiler:ModuleNotFoundError; cli_unknown:context compile; test_missing:aria-kernel/tests/invariants/v12/test_phase_v12_i_self_improvement.py |
-| Self-improvement | none | `aria_kernel.self_improvement.open_self_improvement_missions` | `aria-kernel self-improve scan` | `aria-kernel/tests/invariants/v12/test_phase_v12_i_self_improvement.py` | superior | NO: import_failed:aria_kernel.self_improvement:ModuleNotFoundError; cli_unknown:self-improve scan; test_missing:aria-kernel/tests/invariants/v12/test_phase_v12_i_self_improvement.py |
+| Decision memory / context economy | memory file | `aria_kernel.context_compiler.compile_context` | `aria-kernel context compile` | `aria-kernel/tests/invariants/v12/test_phase_v12_i_self_improvement.py` | superior | yes |
+| Self-improvement | none | `aria_kernel.self_improvement.open_self_improvement_missions` | `aria-kernel self-improve scan` | `aria-kernel/tests/invariants/v12/test_phase_v12_i_self_improvement.py` | superior | yes |
 
 Notes:
 

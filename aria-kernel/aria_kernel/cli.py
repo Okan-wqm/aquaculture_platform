@@ -2999,6 +2999,34 @@ def build_parser() -> argparse.ArgumentParser:
     parity_check = add_subparser(parity_sub, "check")
     parity_check.add_argument("--workspace-root", default=".")
 
+    # Plan 032 Faz 032i — decision memory, token economy, self-improvement lane.
+    context_compile = add_subparser(context_sub, "compile")
+    context_compile.add_argument("--request-id", default=None)
+    context_compile.add_argument("--query", default=None)
+    context_compile.add_argument("--budget-tokens", type=int, default=None)
+    economy_parser = add_subparser(sub, "economy")
+    economy_sub = economy_parser.add_subparsers(dest="economy_command", required=True)
+    economy_stats = add_subparser(economy_sub, "stats")
+    economy_stats.add_argument("--window-days", type=int, default=None)
+    economy_recommend = add_subparser(economy_sub, "recommend")
+    economy_recommend.add_argument("--window-days", type=int, default=None)
+    economy_recommend.add_argument("--threshold-tokens", type=float, default=None)
+    economy_recommend.add_argument("--dry-run", action="store_true")
+    self_parser = add_subparser(sub, "self-improve")
+    self_sub = self_parser.add_subparsers(dest="self_command", required=True)
+    self_scan = add_subparser(self_sub, "scan")
+    self_scan.add_argument("--workspace-root", default=".")
+    self_open = add_subparser(self_sub, "open")
+    self_open.add_argument("--workspace-root", default=".")
+    self_open.add_argument("--max-new", type=int, default=3)
+    self_propose = add_subparser(self_sub, "propose")
+    self_propose.add_argument("--workspace-root", default=".")
+    self_propose.add_argument("--mission-id", required=True)
+    self_propose.add_argument("--evidence", action="append", required=True, dest="evidence_paths")
+    self_propose.add_argument("--problem", required=True)
+    self_propose.add_argument("--proposed-change", required=True)
+    self_propose.add_argument("--validation-command", default=None)
+
     return parser
 
 
@@ -6051,6 +6079,50 @@ def _main(argv: list[str] | None = None) -> int:
         if args.checkpoint_command == "prune":
             print(json.dumps(_cp.prune_checkpoints(workspace_root=args.workspace_root, base_dir=args.tools_dir), indent=2, sort_keys=True))
             return 0
+
+    if args.command == "context" and args.context_command == "compile":
+        from .context_compiler import compile_context
+
+        request: dict[str, Any] = {"request_id": args.request_id, "suggested_prompt": args.query or ""}
+        if args.request_id:
+            from .ledger import load_declared_jsonl
+
+            requests_path = ensure_tools_dir(args.tools_dir) / "agent-invocations" / "requests.jsonl"
+            rows = load_declared_jsonl(requests_path, expected_surface="agent_invocation_requests") if requests_path.exists() else []
+            request = next((r for r in rows if r.get("request_id") == args.request_id), request)
+        kwargs = {"budget_tokens": args.budget_tokens} if args.budget_tokens else {}
+        print(json.dumps(compile_context(request=request, base_dir=args.tools_dir, record=False, **kwargs).to_dict(), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "economy":
+        from . import token_economy as te
+
+        kwargs = {"window_days": args.window_days} if args.window_days else {}
+        stats = te.usage_per_accepted_result(base_dir=args.tools_dir, **kwargs)
+        if args.economy_command == "stats":
+            print(json.dumps([s.to_dict() for s in stats], indent=2, sort_keys=True))
+            return 0
+        rec_kwargs = {"threshold_tokens": args.threshold_tokens} if args.threshold_tokens else {}
+        rows = [*te.recommend_efforts(stats, **rec_kwargs), *te.calibrate_role_caps(stats)]
+        if not args.dry_run:
+            rows = te.record_recommendations(rows, base_dir=args.tools_dir)
+        print(json.dumps(rows, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "self-improve":
+        from . import self_improvement as si
+
+        if args.self_command == "scan":
+            print(json.dumps([s.__dict__ for s in si.scan_signals(base_dir=args.tools_dir, workspace_root=args.workspace_root)], indent=2, sort_keys=True))
+            return 0
+        if args.self_command == "open":
+            print(json.dumps(si.open_self_improvement_missions(base_dir=args.tools_dir, workspace_root=args.workspace_root, max_new=args.max_new), indent=2, sort_keys=True))
+            return 0
+        kwargs = {"validation_command": args.validation_command} if args.validation_command else {}
+        print(json.dumps(si.propose_self_change(mission_id=args.mission_id, base_dir=args.tools_dir, workspace_root=args.workspace_root,
+                                                evidence_paths=args.evidence_paths, problem=args.problem, proposed_change=args.proposed_change, **kwargs),
+                         indent=2, sort_keys=True, default=str))
+        return 0
 
     if args.command == "skill":
         from . import skill_curator

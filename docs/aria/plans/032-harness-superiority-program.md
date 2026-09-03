@@ -323,6 +323,30 @@ kararıdır (032d SLO ≥ 2 hafta). Parity raporunun 032i satırları 032i tesli
 
 ## Faz 032i — Self-improvement lane + decision memory + token economy
 
+Teslimat 032i (2026-09-03): `context_compiler.py` — karar belleği yalnız GEREKÇE taşıyan satırlardan
+(recovery decisions, control komutları, kürasyon kararları, human-required kayıtları, plan/mission olayları,
+`reason|rationale` taşıyan governance) toplanır; sıralama deterministik (request ile terim örtüşmesi, sonra
+yenilik), token bütçesine kesilir, hash-adresli pack; `create_agent_invocation_request` MINT anında
+`row["decision_memory"]` olarak ekler → prompt hash mühürler; renderer `<derived_context
+section="decision_memory">` VERİ bloğu üretir; claim projeksiyon alan listesine `decision_memory` eklendi.
+`token_economy.py` — `usage_per_accepted_result` (context-usage × accepted results, 14 gün penceresi),
+`recommend_efforts` (≥5 spawn ve eşik üstü ya da hiç kabul yok → BİR basamak `downgrade`, taban `medium`,
+`human_required_packet` hariç), `calibrate_role_caps` (gözlem), `economy/recommendations.jsonl` (declared),
+`effective_effort` executor'da spawn öncesi (7 gün TTL; governance `effort_downgraded_by_economy`); telemetri
+`aria_tokens_per_accepted_result`, doctor organı `economy`. `self_improvement.py` — sinyaller (capability gap,
+funnel stall, delivery SLO gap, MCP karantina, doctor fail) → `source_kind=self_improvement` mission
+(idempotent, çağrı başına ≤3) → `propose_self_change` = `self_change` proposal + HUMAN_REQUIRED
+`self_change_adjudication`; kanıt yolları kernel kapsamında olmalı ve `AUTHORITY_SURFACES` (command_policy,
+implementation_safety, runtime_profiles(+json), mcp_registry, hooks, claude_settings, agent_env,
+delivery_credentials, gh_token_factory, control, self_improvement, runtime_profile, auto_action_gate,
+merge_authority, human_required, workflows, genesis_policy.json) reddedilir (governance
+`self_change_authority_surface_refused`); `apply_engine` self_change'i kernel-change lane dışında reddetmeye
+devam eder. Scheduler aksiyonları `self_improve|economy` (one-way door 17). CLI: `context compile`,
+`economy stats|recommend`, `self-improve scan|open|propose`. Parity raporu yeniden üretildi (25/25 doğrulandı).
+`semantic_memory` embedder karar türü tanımadığı için (`_KNOWN_KINDS`) bellek sıralaması terim örtüşmesiyle
+yapılır — embedding entegrasyonu D4 (aşağıda). Çalıştırılmayan testler:
+`tests/invariants/v12/test_phase_v12_i_self_improvement.py`.
+
 Operatör yönü (2026-09-02): ARIA token-ekonomik olmalı, neyi neden yaptığını hatırlamalı ve kendi
 kodunu yazıp kendini geliştirebilmeli — ama kendi yetkisini kendisi genişletemeden.
 
@@ -376,6 +400,11 @@ PYTHONPATH=aria-kernel python3 -m aria_kernel doctor --tools-dir <store>/tools  
 # aria/state: plans/*.jsonl mevcut, challenger_plan accepted + bridge ok, sonra >=3 CONVERGED;
 # governance: anchor_expired ~ 0, challenger_drafted_poll_timeout 0, ledger_row_too_large 0
 ```
+
+## Assumptions & deferred — ARIA-032-D4 (owner: aria-core, due 2026-10-15)
+
+- `context_compiler` decision ranking is lexical; `semantic_memory` gains a `decision` kind and the pack
+  uses `nearest()` when an embedder is configured. Until then the lexical ranking is the authority.
 
 ## Assumptions & deferred — ARIA-032-D1 (owner: aria-core, due 2026-10-15)
 

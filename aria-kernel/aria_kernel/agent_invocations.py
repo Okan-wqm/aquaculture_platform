@@ -557,6 +557,24 @@ def _render_established_knowledge(established_knowledge: Any) -> str:
     return "\n".join(lines) + "\n\n"
 
 
+def _render_decision_memory(decision_memory: Any) -> str:
+    """Plan 032 Faz 032i — prior decisions and their reasons, as DATA."""
+    from .context_compiler import render_decision_memory
+
+    return render_decision_memory(decision_memory if isinstance(decision_memory, dict) else None)
+
+
+def _decision_memory_for_request(row: dict[str, Any], *, base_dir: Path) -> dict[str, Any] | None:
+    """Compile the pack; None when nothing applies or the ledgers are unreadable."""
+    try:
+        from .context_compiler import compile_context
+
+        pack = compile_context(request=row, base_dir=base_dir)
+    except Exception:  # noqa: BLE001 — memory is orientation; a mint never fails for it
+        return None
+    return pack.to_dict() if pack.decisions else None
+
+
 def _render_recent_intent(recent_intent: Any) -> str:
     """Why the files in scope are the way they are — recent commit intent.
 
@@ -722,6 +740,7 @@ def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | 
         request.get("established_knowledge")
     )
     recent_intent_block = _render_recent_intent(request.get("recent_intent"))
+    decision_memory_block = _render_decision_memory(request.get("decision_memory"))
 
     # Z8 — render-version dispatch. Absent field = historical row = v1,
     # because the prompt hash was sealed over the untagged text and replay
@@ -742,6 +761,9 @@ def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | 
         )
         recent_intent_block = _tagged(
             "derived_context", 'section="recent_intent"', recent_intent_block
+        )
+        decision_memory_block = _tagged(
+            "derived_context", 'section="decision_memory"', decision_memory_block
         )
         evidence_block = f"<evidence_payload>\n{evidence_block}\n</evidence_payload>"
         data_notice = (
@@ -783,6 +805,7 @@ def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | 
         f"{repository_map_block}"
         f"{established_knowledge_block}"
         f"{recent_intent_block}"
+        f"{decision_memory_block}"
         f"## Validation commands\n\n"
         f"{_bullet_list(validation_cmds, lambda c: '`' + c.get('cmd', str(c)) + '`' if isinstance(c, dict) else '`' + str(c) + '`')}\n"
         f"{must_satisfy_block}\n"
@@ -1161,6 +1184,11 @@ def create_agent_invocation_request(
     recent_intent = _recent_intent_for_refs(evidence_refs, repo_root=context_repo_root)
     if recent_intent is not None:
         row["recent_intent"] = recent_intent
+    # Plan 032 Faz 032i — decision memory: what ARIA decided before and why,
+    # compiled from the ledgers at MINT time so the prompt hash seals it.
+    decision_memory = _decision_memory_for_request(row, base_dir=root)
+    if decision_memory is not None:
+        row["decision_memory"] = decision_memory
     # E17-b — the quoted evidence lines, packed above so the budget audit
     # could see them. Attached here beside the other mint-time context
     # sections; absent when nothing was packed, so a request never carries an
@@ -2871,6 +2899,8 @@ _FUSED_ENVELOPE_KEYS: tuple[str, ...] = (
     # projection the same object the hash was minted over.
     "established_knowledge",
     "recent_intent",
+    # Plan 032 Faz 032i — the decision-memory pack is part of the sealed prompt.
+    "decision_memory",
     # E17-b — the quoted evidence bytes the prompt hash was minted over. A
     # claim response that dropped them would re-render a prompt with no
     # excerpt section and fail the binding on every request that carried one.

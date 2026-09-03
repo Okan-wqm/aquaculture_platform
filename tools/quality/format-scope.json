@@ -28400,6 +28400,17 @@
     },
     {
       "class": "generated",
+      "content_sha256": "ae0fb13c5ba591961503749fe487e233b1548368182663fde6006a8b881d4323",
+      "hash_policy": "sha256",
+      "owner": "codegen-owner",
+      "path": "docs/aria/generated/harness-parity.md",
+      "prettier_managed": false,
+      "reason": "generated artifact; source generator is canonical",
+      "review_required": true,
+      "source_of_truth": "generator"
+    },
+    {
+      "class": "generated",
       "content_sha256": "cae5da883ea37298b134f258ec5aab755770b00d32e948a2f4a82f38c08e6915",
       "hash_policy": "sha256",
       "owner": "codegen-owner",

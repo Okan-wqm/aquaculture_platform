@@ -315,6 +315,20 @@ def _check_gateway(tools_dir: Path, *, stale_after_seconds: float = 300.0) -> Do
     return DoctorCheck("gateway", "ok", "", detail)
 
 
+def _check_economy(tools_dir: Path) -> DoctorCheck:
+    """Plan 032 Faz 032i — a standing effort downgrade is information; no accepted
+    result across a busy agent is a warning."""
+    from .token_economy import read_recommendations, usage_per_accepted_result
+
+    stats = usage_per_accepted_result(base_dir=tools_dir)
+    downgrades = [f"{r['target_agent']}/{r['role']}" for r in read_recommendations(tools_dir) if r.get("kind") == "effort" and r.get("action") == "downgrade"]
+    starved = [f"{s.target_agent}/{s.role}" for s in stats if s.spawns >= 5 and s.accepted == 0]
+    detail = {"stats": [s.to_dict() for s in stats][:20], "downgrades": downgrades[-5:], "starved": starved}
+    if starved:
+        return DoctorCheck("economy", "warn", f"spawns_without_accepted_result:{len(starved)}", detail)
+    return DoctorCheck("economy", "ok", "" if stats else "no_usage_rows", detail)
+
+
 def run_doctor(
     *,
     base_dir: str | Path | None = None,
@@ -353,6 +367,7 @@ def run_doctor(
         _guarded("control", lambda: _check_control(tools_dir)),
         _guarded("notifications", lambda: _check_notifications(tools_dir)),
         _guarded("gateway", lambda: _check_gateway(tools_dir)),
+        _guarded("economy", lambda: _check_economy(tools_dir)),
     )
     return DoctorReport(
         checks=(*store_checks, *host_checks),

@@ -195,10 +195,24 @@ def _store_metrics(root: Path) -> list[dict[str, Any]]:
         out.extend(_metric("aria_cost_usd_by_role", value, {"role": role}) for role, value in sorted(by_role.items()))
         return out
 
+    def _economy() -> list[dict[str, Any]]:
+        from .token_economy import read_recommendations, usage_per_accepted_result
+
+        out = []
+        for stat in usage_per_accepted_result(base_dir=root):
+            labels = {"target_agent": stat.target_agent, "role": stat.role}
+            out.append(_metric("aria_spawns_total", stat.spawns, labels))
+            out.append(_metric("aria_accepted_results_total", stat.accepted, labels))
+            if stat.tokens_per_accepted is not None:
+                out.append(_metric("aria_tokens_per_accepted_result", stat.tokens_per_accepted, labels))
+        active = sum(1 for r in read_recommendations(root) if r.get("kind") == "effort" and r.get("action") == "downgrade")
+        out.append(_metric("aria_effort_downgrades_recommended", active, {}))
+        return out
+
     metrics: list[dict[str, Any]] = []
     for name, reader in (("agent_requests", _requests), ("human_required", _human_required), ("missions", _missions),
                          ("breakers", _breakers), ("control", _control), ("delivery", _delivery),
-                         ("notifications", _notifications), ("cost", _cost)):
+                         ("notifications", _notifications), ("cost", _cost), ("economy", _economy)):
         metrics.extend(_guarded_metrics(name, reader))
     return metrics
 

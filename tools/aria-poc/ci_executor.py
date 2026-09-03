@@ -1472,10 +1472,16 @@ def invoke_claude_cli(
                 )
                 return 1
 
+        # Plan 032 Faz 032i — the token-economy governor may lower the effort
+        # one rung while a fresh downgrade recommendation stands (governance
+        # row per application); the profile's effort is the ceiling.
+        from aria_kernel.token_economy import effective_effort
+
+        _effort = effective_effort(agent_profile.effort, target_agent=subagent_type, role=role, base_dir=tools_dir, request_id=request_id)
         completed = run_with_model_fallback(
             run=_dispatch_attempt,
             model=agent_profile.model,
-            effort=agent_profile.effort,
+            effort=_effort,
             on_credit=_on_credit,
             on_refusal=_on_refusal,
         )

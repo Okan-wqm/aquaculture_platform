@@ -1553,6 +1553,41 @@ describe('affected development workflow contract', () => {
     expect(droplet).toContain('done < <(rollout_image_services)');
   });
 
+  it('makes production backend dependency trees self-contained before image publication', () => {
+    const activeDockerfiles = [
+      'infrastructure/docker/Dockerfile.backend.simple',
+      'infrastructure/docker/Dockerfile.db-migrate',
+    ];
+
+    for (const dockerfilePath of activeDockerfiles) {
+      const dockerfile = source(dockerfilePath);
+      const vendorCopy = dockerfile.indexOf(
+        'COPY --chown=nestjs:nodejs tools/vendor/apollo-playground-disabled ./tools/vendor/apollo-playground-disabled',
+      );
+      const dependencyInstall = dockerfile.indexOf('npm ci --omit=dev');
+
+      expect(vendorCopy).toBeGreaterThan(0);
+      expect(vendorCopy).toBeLessThan(dependencyInstall);
+      expect(dockerfile).toContain('npm ls --omit=dev --all');
+      expect(dockerfile).toContain(
+        'node -e "require(\'@apollo/server-plugin-landing-page-graphql-playground\')"',
+      );
+    }
+  });
+
+  it('handles compose startup failure inside the deployment rollback boundary', () => {
+    const droplet = source('scripts/deploy/droplet-up.sh');
+
+    expect(droplet).toContain(
+      'if ! docker compose -f docker-compose.droplet.yml up -d --no-build 2>&1; then',
+    );
+    expect(droplet).toContain(
+      'if ! docker compose -f docker-compose.droplet.yml up -d --no-deps --no-build --force-recreate ${RESTART_SERVICES} 2>&1; then',
+    );
+    expect(droplet).toContain('record_release_ledger "failed" "service_recreate"');
+    expect(droplet).toContain('rollback_and_record "service_recreate" || true');
+  });
+
   it('leaves the production stop-line enabled in its dedicated workflow', () => {
     const production = source('.github/workflows/deploy-digitalocean.yml');
 

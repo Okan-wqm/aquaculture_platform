@@ -1388,7 +1388,13 @@ if deploy_uses_full_stack_path; then
 
   echo "=== Starting all services ==="
   record_release_ledger "apps_restarting" ""
-  docker compose -f docker-compose.droplet.yml up -d --no-build 2>&1
+  if ! docker compose -f docker-compose.droplet.yml up -d --no-build 2>&1; then
+    echo "::error::Full-stack service recreation failed before the health gate."
+    dump_nonhealthy_container_logs "service-recreate-failure"
+    record_release_ledger "failed" "service_recreate"
+    rollback_and_record "service_recreate" || true
+    exit 1
+  fi
 
   echo "=== Waiting 90s for services to bootstrap ==="
   sleep 90
@@ -1502,7 +1508,13 @@ else
   if [ -n "${RESTART_SERVICES}" ]; then
     echo "=== Restarting affected services (no-deps): ${RESTART_SERVICES} ==="
     record_release_ledger "apps_restarting" ""
-    docker compose -f docker-compose.droplet.yml up -d --no-deps --no-build --force-recreate ${RESTART_SERVICES} 2>&1
+    if ! docker compose -f docker-compose.droplet.yml up -d --no-deps --no-build --force-recreate ${RESTART_SERVICES} 2>&1; then
+      echo "::error::Selected service recreation failed before the health gate."
+      dump_nonhealthy_container_logs "service-recreate-failure"
+      record_release_ledger "failed" "service_recreate"
+      rollback_and_record "service_recreate" || true
+      exit 1
+    fi
   else
     echo "=== No long-running services requested; db-migrate-only deploy complete ==="
   fi

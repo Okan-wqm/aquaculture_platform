@@ -100,7 +100,7 @@ class Ingress(_Store):
     def _post(port: int, path: str, body: bytes, headers: dict) -> tuple[int, dict]:
         request = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=body, method="POST", headers=headers)
         try:
-            with urllib.request.urlopen(request, timeout=60) as response:
+            with urllib.request.urlopen(request, timeout=60) as response:  # allowlist-external-network: loopback gateway under test (127.0.0.1, ephemeral port)
                 return response.status, json.loads(response.read())
         except urllib.error.HTTPError as exc:
             return exc.code, json.loads(exc.read())
@@ -124,7 +124,7 @@ class Ingress(_Store):
         self.assertEqual(self._post(port, "/aria/webhook/alertmanager", am, {"Authorization": "Bearer wrong"})[0], 401)
         self.assertEqual(self._post(port, "/aria/webhook/alertmanager", am, {"Authorization": "Bearer am-bearer"})[0], 202)
         self.assertEqual(self._post(port, "/aria/webhook/nope", body, gh)[0], 404)
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/aria/status", timeout=60) as response:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/aria/status", timeout=60) as response:  # allowlist-external-network: loopback gateway under test
             status = json.loads(response.read())
         self.assertEqual(status["inbox"]["accepted"], 3)
         self.assertGreaterEqual(status["rejected"], 5)

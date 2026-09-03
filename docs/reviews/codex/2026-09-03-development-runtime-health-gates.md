@@ -57,3 +57,20 @@ rollout, full-scope rollback capture, rollback retagging, and service recreation
 mapping. Deploying `db-migrate` therefore recreates `tenant-schema-provisioner` with the immutable
 SHA image, while frontend-only rollouts leave it untouched. Executable invariants pin the catalog
 mapping, restart order, image-reference resolution, and generated-artifact parity.
+
+## SENSOR-HIGH-104
+
+The same failed development deployment exposed a second sensor bootstrap failure after the Nest
+module wiring was corrected. `sensor-service`, running as the DML-only `sensor_service` database
+role, attempted `ALTER MATERIALIZED VIEW` against tenant continuous aggregates owned by
+`admin_schema_owner`. This made production runtime a competing DDL authority and caused the new
+image to crash even though its static CI checks had passed.
+
+Resolution: the canonical continuous-aggregate SQL now has one shared definition. The
+non-transactional `db-migrate` phase creates or reconciles every existing tenant's rollups, assigns
+them to `sensor_schema_owner`, and grants the runtime role read access before services start. The
+tenant schema provisioner runs the same authority path for both new and reconciled tenants.
+Production sensor bootstrap is now a read-only, fail-closed check for all expected views, their
+owner, and actual query access; only non-authoritative local development retains runtime creation.
+Unit and wiring contract tests cover DDL failure cleanup, unsafe schemas, ownership drift, missing
+views, both provisioner paths, and the release migration sweep.

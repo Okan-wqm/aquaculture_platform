@@ -25,6 +25,7 @@ import {
   type RunSchemaOptions,
 } from './migration-orchestrator';
 import { SCHEMA_REGISTRY, type SchemaPostMigrationHardening } from './schema-registry';
+import { ensureTenantSensorContinuousAggregateAuthority } from './tenant-sensor-continuous-aggregate-authority';
 
 type TenantSchemaJobStatus =
   | 'REQUESTED'
@@ -823,6 +824,23 @@ async function processReconcileJob(
       });
     }
 
+    await renewJobLease(queryRunner, job, lease);
+    const sensorAggregates = await ensureTenantSensorContinuousAggregateAuthority(
+      queryRunner,
+      job.schemaName,
+    );
+    await renewJobLease(queryRunner, job, lease);
+    options.log({
+      level: sensorAggregates.timescalePresent ? 'info' : 'warn',
+      message: sensorAggregates.timescalePresent
+        ? 'Sensor continuous-aggregate authority aligned'
+        : 'TimescaleDB absent — sensor continuous-aggregate authority skipped',
+      context: 'TenantSchemaProvisioner',
+      jobId: job.id,
+      tenantSchema: job.schemaName,
+      aggregates: sensorAggregates.aggregates,
+    });
+
     await grantTenantMessagingPartitionAuthority(queryRunner, {
       tenantSchema: job.schemaName,
     });
@@ -965,6 +983,23 @@ async function processJob(
         await renewJobLease(queryRunner, job, lease);
       }
     }
+
+    await setJobStatus(queryRunner, job, 'APPLYING_GRANTS', lease);
+    const sensorAggregates = await ensureTenantSensorContinuousAggregateAuthority(
+      queryRunner,
+      job.schemaName,
+    );
+    await renewJobLease(queryRunner, job, lease);
+    options.log({
+      level: sensorAggregates.timescalePresent ? 'info' : 'warn',
+      message: sensorAggregates.timescalePresent
+        ? 'Sensor continuous-aggregate authority aligned'
+        : 'TimescaleDB absent — sensor continuous-aggregate authority skipped',
+      context: 'TenantSchemaProvisioner',
+      jobId: job.id,
+      tenantSchema: job.schemaName,
+      aggregates: sensorAggregates.aggregates,
+    });
 
     // DATA-HIGH-006: the messaging partition definer function
     // (platform.create_messaging_partition, owner messaging_schema_owner)

@@ -212,7 +212,8 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
     postMigrationHardening: TENANT_SCHEMA_POST_MIGRATION_HARDENING,
     reason:
       'Feeds telemetry into farm-service batch/harvest pipelines. ' +
-      'Installs TimescaleDB hypertables + continuous aggregates — ' +
+      'Installs TimescaleDB hypertables before the db-migrate autocommit ' +
+      'continuous-aggregate authority phase — ' +
       'must settle before alert-engine subscribes to its aggregate ' +
       'column shape.',
   },

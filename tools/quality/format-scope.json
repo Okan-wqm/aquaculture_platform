@@ -7171,6 +7171,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/db-migrate/src/__tests__/tenant-sensor-continuous-aggregate-authority.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/db-migrate/src/cli-args.ts",
       "prettier_managed": true
     },
@@ -7214,6 +7220,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/db-migrate/src/tenant-schema-provisioner.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/db-migrate/src/tenant-sensor-continuous-aggregate-authority.ts",
       "prettier_managed": true
     },
     {
@@ -38045,6 +38057,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/database/schema-version-gate.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/sensor-continuous-aggregate-definition.ts",
       "prettier_managed": true
     },
     {

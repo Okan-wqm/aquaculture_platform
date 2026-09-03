@@ -831,6 +831,51 @@ def _envelope_from_profile(agent_profile: Any | None) -> tuple[tuple[str, ...], 
     return disallowed_tools_for(kernel), scope, tuple(kernel.env_passthrough)
 
 
+
+def _write_spawn_settings(
+    *,
+    agent_profile: Any | None,
+    usage_recording: UsageRecording | None,
+    workspace_root: str | Path | None,
+    write_capable: bool,
+) -> Path | None:
+    """The `--settings` document for this spawn, or None for the profile-less
+    legacy shape. Fail-closed: a write-capable spawn under a kernel profile
+    without a settings file is refused rather than run on prose."""
+    profile_id = getattr(agent_profile, "profile_id", None)
+    if not profile_id:
+        return None
+    try:
+        from aria_kernel.claude_settings import build_settings, write_settings_file
+        from aria_kernel.runtime_profiles import profile_by_id
+    except ImportError as exc:  # pragma: no cover
+        raise ClaudePolicyViolation(
+            f"claude_settings_builder_unavailable: {exc}; refusing a profiled spawn without its settings"
+        ) from exc
+    kernel = profile_by_id(str(profile_id))
+    hook_context = None
+    if usage_recording is not None and workspace_root is not None:
+        hook_context = {
+            "python": sys.executable or "python3",
+            "kernel_root": str(Path(workspace_root).resolve() / "aria-kernel"),
+            "tools_dir": str(Path(usage_recording.base_dir).resolve()),
+            "workspace_root": str(Path(workspace_root).resolve()),
+            "request_id": usage_recording.request_id,
+        }
+    elif write_capable:
+        raise ClaudePolicyViolation(
+            "claude_write_spawn_without_hook_context: a write-capable spawn needs a "
+            "ledger (usage_recording.base_dir) and a workspace so its hooks can decide and journal"
+        )
+    settings = build_settings(kernel, hook_context=hook_context)
+    import tempfile
+
+    directory = Path(os.environ.get("RUNNER_TEMP") or tempfile.gettempdir()) / "aria-spawn-settings"
+    return write_settings_file(
+        settings, directory=directory,
+        request_id=(usage_recording.request_id if usage_recording is not None else f"preview-{os.getpid()}"),
+    )
+
 def _build_spawn_env(*, passthrough: Sequence[str], extra: dict[str, str]) -> tuple[dict[str, str], Any | None]:
     """Build the agent environment through the kernel; fail CLOSED if the
     kernel is unimportable — a copied environment is the defect this closes."""
@@ -899,6 +944,18 @@ def run_claude_exec(
         permission_mode=permission_mode,
         disallowed_tools=disallowed_tools,
     )
+    # Plan 032 Faz 032b-2 — the per-spawn settings file: permission rules
+    # compiled from the command policy + the kernel hooks. A write-capable
+    # spawn under a kernel profile MUST carry it (I-V12-HOOK-01); a spawn
+    # with no profile or no ledger context carries permission rules only.
+    settings_path = _write_spawn_settings(
+        agent_profile=agent_profile,
+        usage_recording=usage_recording,
+        workspace_root=cwd,
+        write_capable=_is_write_capable(skip_permissions=skip_permissions, permission_mode=permission_mode),
+    )
+    if settings_path is not None:
+        argv.extend(["--settings", str(settings_path)])
     # ORPHAN-CRITICAL-427 — containment is applied HERE, by the code that
     # spawns the process, not by prose in the agent's own instruction file.
     # A write-capable shape (full permission bypass or acceptEdits) gets
@@ -911,7 +968,10 @@ def run_claude_exec(
     spawn_env, env_report = _build_spawn_env(
         passthrough=passthrough,
         extra={**({"IS_SANDBOX": "1"} if _sandbox_acknowledged() else {}),
-               **provider_redirect_env(model)},
+               **provider_redirect_env(model),
+               # The hooks run `python3 -m aria_kernel` inside the sandbox;
+               # the kernel rides PYTHONPATH there exactly as in the lanes.
+               **({"PYTHONPATH": str(Path(cwd).resolve() / "aria-kernel")} if cwd is not None else {})},
     )
     config_dir = env_report.claude_config_dir if env_report is not None else None
     argv = _apply_write_containment(

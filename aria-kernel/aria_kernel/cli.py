@@ -2841,6 +2841,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print the full report as JSON instead of the one-line-per-check text.",
     )
 
+    # Plan 032 Faz 032b-2 — the Claude Code hook entry points. The CLI reads
+    # the hook payload on stdin and prints the protocol's decision JSON.
+    hook_parser = add_subparser(sub, "hook")
+    hook_sub = hook_parser.add_subparsers(dest="hook_command", required=True)
+    for verb in ("pre-tool", "post-tool", "session"):
+        hook_verb = add_subparser(hook_sub, verb)
+        hook_verb.add_argument("--workspace-root", required=True)
+        hook_verb.add_argument("--request-id", required=True)
+
     return parser
 
 
@@ -5849,6 +5858,24 @@ def _main(argv: list[str] | None = None) -> int:
         state = AutonomyStateReducer.derive_current(args.tools_dir)
         print(json.dumps(state.to_dict(), indent=2, sort_keys=True))
         return 0
+
+    if args.command == "hook":
+        from .hooks import run_hook
+
+        try:
+            payload = json.loads(sys.stdin.read() or "{}")
+        except ValueError:
+            payload = {}
+        exit_code, stdout = run_hook(
+            args.hook_command,
+            payload if isinstance(payload, dict) else {},
+            base_dir=args.tools_dir,
+            workspace_root=args.workspace_root,
+            request_id=args.request_id,
+        )
+        if stdout:
+            print(stdout)
+        return exit_code
 
     if args.command == "doctor":
         from .doctor import render_doctor_text, run_doctor

@@ -141,6 +141,26 @@ and a migration of every consumer.
 **Mitigation:** The gateway/daemon phases (032f) add an invariant that daemon code imports no
 publish primitive other than the store API.
 
+## 9. Hook decision + work-journal ledgers (Plan 032 Faz 032b-2)
+
+**Decision:** Two new declared surfaces: `hooks/decisions.jsonl` (every PreToolUse verdict) and `agent-invocations/work-journal.jsonl` (one SANITIZED row per completed tool call: `command_family`, `argv_redacted`, `command_hash`, `external_effect`, `files_touched` — never the raw command). The journal is write-driving: Faz 032c recovery reads it.
+
+**Why one-way:** Both are hash-chained ledgers published to `aria/state`; the journal's field set is what recovery and the session fingerprint reason over.
+
+**Reversibility cost:** A rewrite migration of both surfaces plus every reader of `command_family` / `external_effect`.
+
+**Mitigation:** I-V12-HOOK-03/04 pin the row shape and the redaction; `command_policy.COMMAND_FAMILIES` is a closed vocabulary.
+
+## 10. `RELEASE_REASON_CODES` (Plan 032 Faz 032b-3)
+
+**Decision:** Claim release/requeue rows carry `reason_code` (closed vocabulary in `release_reason.py`), `reason_detail` and `fault_domain` next to the legacy `reason` string.
+
+**Why one-way:** Ledger-anchored strings on `agent-invocations/claims.jsonl`; `fault_domain` is what the requeue budget reads.
+
+**Reversibility cost:** Ledger rewrite + re-derivation of request states.
+
+**Mitigation:** I-V12-REASON-01/02 pin the mapping and the row fields; adding a code is forward-compatible, renaming one is not.
+
 ## Themes
 
 - **3 of 5 one-way doors are ledger-anchored** (events, terminal states, candidate sources). The

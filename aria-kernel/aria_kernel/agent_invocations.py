@@ -3344,6 +3344,12 @@ def release_claim(
                 f"claim {claim_id} already terminal ({terminal.get('event')})"
             )
         request_id = claim_event["request_id"]
+        # Plan 032 Faz 032b-3 — the structured envelope rides NEXT TO the
+        # legacy string: readers that exist keep `reason`; new readers use
+        # `reason_code` / `reason_detail` / `fault_domain`.
+        from .release_reason import parse_release_reason
+
+        structured = parse_release_reason(reason).to_row_fields()
         row = {
             "schema_version": 1,
             "event": "released",
@@ -3351,6 +3357,7 @@ def release_claim(
             "request_id": request_id,
             "agent_id": agent_id,
             "reason": reason,
+            **structured,
             "released_at": _iso(now),
         }
         transaction.append_declared_jsonl(
@@ -3379,6 +3386,7 @@ def release_claim(
                 "at": _iso(now),
                 "requeue_count": requeue_count,
                 "reason": reason,
+                **structured,
             },
             expected_surface="agent_invocation_claims",
         )

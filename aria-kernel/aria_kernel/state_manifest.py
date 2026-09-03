@@ -428,6 +428,9 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("proposals", "proposals/proposals.jsonl", "ledger", "planning", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
     StateSurface("cycle_incremental_plans", "cycle-state/incremental-plans.jsonl", "ledger", "planning", "runtime", True, "append_fsync", True),
     StateSurface("context_audits", "context-audits.jsonl", "ledger", "context_audits", "runtime", True, "append_fsync", True, profile_surface="context_audits", observe_class="observation"),
+    # Plan 032 Faz 032b-2 — hook verdicts (observation) and the sanitized work journal (write-driving: recovery reads it).
+    StateSurface("hook_decisions", "hooks/decisions.jsonl", "ledger", "hooks", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("agent_work_journal", "agent-invocations/work-journal.jsonl", "ledger", "work_journal", "runtime", True, "append_fsync", True, profile_surface="agent_claim", observe_class="action"),
     StateSurface("handoffs", "handoffs.jsonl", "ledger", "handoffs", "runtime", True, "append_fsync", True, profile_surface="handoffs", observe_class="observation"),
     StateSurface("agent_evals", "agent-evals/runs.jsonl", "ledger", "agent_evals", "runtime", True, "append_fsync", True, profile_surface="agent_evals", observe_class="action"),
     StateSurface("agent_eval_fixtures", "agent-evals/fixtures.jsonl", "ledger", "agent_evals", "runtime", True, "append_fsync", True, profile_surface="agent_evals", observe_class="action"),

@@ -45,6 +45,8 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from collections.abc import Sequence
+
+from . import command_policy as _command_policy
 from typing import Any, Callable
 
 from .text_safety import contains_bidi_or_control
@@ -99,44 +101,13 @@ READONLY_PATHS: tuple[str, ...] = (
 # allowlist below and the refspec-aware ``no_force_push`` check build on
 # this fragment, so "what counts as an ARIA branch" cannot drift between
 # the command ARIA is allowed to run and the ref it is allowed to write.
-ARIA_IMPL_BRANCH_FRAGMENT: str = r"aria-impl-[a-f0-9]{6,32}"
+ARIA_IMPL_BRANCH_FRAGMENT: str = _command_policy.ARIA_IMPL_BRANCH_FRAGMENT
 
-ALLOWED_BASH_COMMANDS: frozenset[re.Pattern[str]] = frozenset({
-    re.compile(r"^(?:/[\w./-]+/)?python3?(\.\d+)?\s+[\w./-]+\.py(\s+\S+)*\s*$"),
-    re.compile(r"^(?:/[\w./-]+/)?python3?(\.\d+)?\s+-m\s+unittest(\s+\S+)*\s*$"),
-    re.compile(r"^node\s+(\./)?node_modules/ts-node/dist/bin\.js(\s+\S+)*\s*$"),
-    re.compile(r"^git\s+add(\s+\S+)*\s*$"),
-    re.compile(r"^git\s+commit(\s+-[a-zA-Z]+)*(\s+-m\s+.+)?$"),
-    re.compile(r"^git\s+diff(\s+\S+)*\s*$"),
-    re.compile(r"^git\s+log(\s+\S+)*\s*$"),
-    re.compile(r"^git\s+status(\s+\S+)*\s*$"),
-    re.compile(r"^git\s+rev-parse(\s+\S+)*\s*$"),
-    re.compile(rf"^git\s+push\s+origin\s+{ARIA_IMPL_BRANCH_FRAGMENT}(\s+\S+)*\s*$"),
-    # Wave 0 §0.7 — the ONE sanctioned PR-opening path: the kernel CLI's
-    # `pr create`, which routes through pr_manager.open_pr_for_action
-    # (ARIA_PR_BASE guard, GATE_PRE_PR_OPEN, breaker producer, change-id
-    # anchor). Scoped to the `pr` subcommand on purpose: the rest of the
-    # kernel CLI is operator surface, not implementer surface.
-    re.compile(r"^(?:/[\w./-]+/)?python3?(\.\d+)?\s+-m\s+aria_kernel\s+pr\s+create(\s+\S+)*\s*$"),
-    # ORPHAN-CRITICAL-727 — the gate that MAKES `pr create` openable, admitted
-    # the same way and for the same reason. `open_pr_for_action` refuses an
-    # action that is not `ready_for_pr` with a `validation_gate_ref`, and the
-    # only promoter is `apply_engine.gate_apply_action`, which had CLI-only
-    # callers: the implementer could be told to open a PR but had no reachable
-    # command that produced the ids the PR opener demands. Scoped to the
-    # `gate` subcommand — `apply scan-diff` is operator surface.
-    re.compile(r"^(?:/[\w./-]+/)?python3?(\.\d+)?\s+-m\s+aria_kernel\s+apply\s+gate(\s+\S+)*\s*$"),
-    re.compile(r"^gh\s+pr\s+checks(\s+\S+)*\s*$"),
-    re.compile(r"^gh\s+pr\s+view(\s+\S+)*\s*$"),
-    re.compile(r"^gh\s+pr\s+diff(\s+\S+)*\s*$"),
-    re.compile(r"^npm\s+test(\s+\S+)*\s*$"),
-    re.compile(r"^nx\s+(affected|test|lint|build)(\s+\S+)*\s*$"),
-    re.compile(r"^pytest(\s+\S+)*\s*$"),
-    re.compile(r"^cargo\s+(test|check|build|fmt|clippy)(\s+\S+)*\s*$"),
-    re.compile(r"^npm\s+run\s+(type-check|format|lint)(\s+\S+)*\s*$"),
-    re.compile(r"^prettier(\s+\S+)*\s*$"),
-    re.compile(r"^eslint(\s+\S+)*\s*$"),
-})
+# Plan 032 Faz 032b-2 — DERIVED from the canonical policy (command_policy.py).
+# The patterns are the same matchers this module always carried; they now
+# have one home that also compiles to the Claude permission layer and to
+# the PreToolUse hook, and proves on examples that the enforcers agree.
+ALLOWED_BASH_COMMANDS: frozenset[re.Pattern[str]] = _command_policy.allowed_regexes()
 # Wave 0 §0.7 transition row — the raw `gh pr create` path the kernel CLI
 # replaces. Not in ALLOWED_BASH_COMMANDS any more: it is honoured only
 # while ARIA_EXECUTOR_PR_VIA_KERNEL is unset, so a lane that sets the
@@ -169,49 +140,7 @@ FORBIDDEN_ABSOLUTE_PYTHON_SCRIPT_PREFIXES: tuple[str, ...] = (
 # command somehow passed the allowlist, the deny pattern set fires
 # first. Defense-in-depth. Patterns target argv-0 (the binary name)
 # OR specific dangerous flags.
-DENIED_BASH_COMMANDS: frozenset[re.Pattern[str]] = frozenset({
-    re.compile(r"^(curl|wget|nc|ncat|telnet|ftp)\b"),  # net egress
-    re.compile(r"^(ssh|scp|rsync)\b"),                  # remote
-    re.compile(r"^(dd|mkfifo)\b"),                      # filesystem primitives
-    re.compile(r"^(eval|exec|source|\.)\s"),            # shell primitives
-    re.compile(r"^sh\s+-c\b"),                          # subshell
-    re.compile(r"^bash\s+-c\b"),                        # subshell
-    re.compile(r"^(chmod|chown)\s+777\b"),              # over-permissive
-    re.compile(r"^(sudo|su)\b"),                        # privilege escalation
-    re.compile(r"^(apt|apt-get|yum|dnf|pacman|brew)\b"),  # pkg install
-    re.compile(r"^(docker|kubectl|helm)\b"),            # orchestration
-    re.compile(r"^gh\s+api\s+(-X\s+)?(DELETE|PATCH|PUT)\b"),  # GH API mutation
-    re.compile(r"^gh\s+api\b.*(?:^|\s)/?repos/[^/\s]+/[^/\s]+/pulls/[^/\s]+/merge(?:[/?#]\S*)?(?:\s|$)"),
-    re.compile(r"^gh\s+workflow\b"),                    # workflow mutation
-    re.compile(r"^gh\s+secret\b"),                      # secret list/set
-    re.compile(r"^gh\s+release\b"),                     # release create
-    re.compile(r"^gh\s+pr\s+merge\b"),                  # merge authority only
-    re.compile(r"^(env|printenv|set)\s*$"),             # env exfil bare dump
-    re.compile(r"\$GH_TOKEN\b"),                        # token reference
-    re.compile(r"\$GITHUB_TOKEN\b"),
-    re.compile(r"\.env(\.|\b)"),                        # .env access
-    re.compile(r"id_rsa\b"),                            # ssh key access
-    re.compile(r"--force\b"),                           # any force flag
-    re.compile(r"--no-verify\b"),                       # hook bypass
-    re.compile(r"--no-gpg-sign\b"),                     # signing bypass
-    re.compile(r"--force-with-lease\b"),
-    # ORPHAN-HIGH-454 — the SHORT form of force-push, scoped to `git push`.
-    # Only the long spellings were denied, while the push allowlist entry
-    # ends in `(\s+\S+)*`, which happily admits a flag: `git push origin
-    # aria-impl-abc123 -f` matched the allowlist and hit no deny pattern.
-    #
-    # Scoped to `git push` rather than denied globally, because a bare `-f`
-    # is harmless — even meaningful — elsewhere, and a denylist that refuses
-    # safe commands gets worked around. Bundled clusters are covered
-    # (`-fu`, `-uf`), and the left lookbehind keeps `report-f.md` from
-    # matching. `-n` deliberately has NO global pattern: on `git commit` it
-    # is `--no-verify`, but on `git log` it is a count and on `git push` it
-    # is `--dry-run`, so it is handled argv-token-wise in
-    # `_check_no_no_verify` where the subcommand is known.
-    re.compile(r"^git\s+push\b.*(?<![\w-])-[a-zA-Z]*f[a-zA-Z]*(?:\s|$)"),
-    re.compile(r"\bgit\s+push\s+(?:\+|.+:refs/heads/main\b|origin\s+\+)"),
-    re.compile(r"core\.hooksPath"),                     # hooks bypass via config
-})
+DENIED_BASH_COMMANDS: frozenset[re.Pattern[str]] = _command_policy.denied_regexes()
 
 # Plan ARIA-V9.0-D — FORBIDDEN_GH_API_PATHS — even if `gh api` were
 # allowed, these paths are admin/permission-sensitive and forbidden

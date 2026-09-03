@@ -3,7 +3,7 @@ Live authority is docs/aria/CURRENT_STATE.md plus executable contracts. -->
 
 # ARIA Plan 032 — Harness Superiority Program
 
-> **Status:** Faz 032a delivered (PR #1401, 2026-09-03); Faz 032b-1 in progress (2026-09-03). Faz sırası 2026-09-02 ikinci incelemeyle
+> **Status:** Faz 032a delivered (PR #1401, 2026-09-03); Faz 032b-1/2/3 coded 2026-09-03 (tests written, NOT run — see "Çalıştırılmayan testler"); 032c+ coded in sequence on the same stacked branch. Faz sırası 2026-09-02 ikinci incelemeyle
 > yeniden kesildi: tek-worker delivery closure 032d'ye çekildi, güvenlik zarfı 032b'ye toplandı.
 > **Branch:** `feat/aria-032a-cycle-repair` (Faz 032a); her faz kendi branch'ini açar.
 
@@ -121,8 +121,21 @@ KURULUR (baseline + CLI auth + profil passthrough; secret-şekilli isimler düş
 (verilmeyen tool'lar + `external_writes: false` iken `Bash(git push*)`, `Bash(gh pr create*)`,
 `Bash(gh api*)`… — her izin modunda bağlayıcı); `wrap_bash_in_sandbox(write_scope=)` workspace'i
 ro, yalnız scope'u rw bağlar; `ci_executor` spawn'a açık `cwd` geçer (I-V12-ENV-01..05).
-Kalan 032b-2: canonical CommandPolicy + `--settings`/hooks + sanitized journal + canlı probe;
-032b-3: release reason v2.
+Teslimat 032b-2 (2026-09-03): `command_policy.py` — tek kanonik politika (kernel regex'leri
+DERIVED, `ALLOWED/DENIED_BASH_COMMANDS` desen-eşit; Claude projeksiyonları; örnek doğrulaması
+`verify_examples`), `claude_settings.py` — spawn başına `--settings` (permission allow/deny + 5 hook),
+`hooks.py` — PreToolUse kararı (policy + READONLY_PATHS + path-escape; hata = deny), PostToolUse
+sanitized journal (`agent-invocations/work-journal.jsonl`), session hook'ları → `handoff_ledger`;
+`hooks/decisions.jsonl`; CLI `hook pre-tool|post-tool|session`; `tools/aria-poc/hook_probe.py` +
+capability-probe adımı (I-V12-POLICY-01..04, I-V12-HOOK-01..06).
+Teslimat 032b-3: `release_reason.py` — `{reason_code, reason_detail, fault_domain}` zarfı claim
+release/requeue satırlarında (I-V12-REASON-01/02).
+
+Çalıştırılmayan testler (operatör talimatı 2026-09-03 — commit başına sonra koşulacak):
+`tests/invariants/v12/test_phase_v12_b_command_policy.py`, `test_phase_v12_b_hooks.py`,
+`test_phase_v12_b_release_reason.py`; ayrıca 032b-1 için koşulanlar
+(`test_phase_v12_b_runtime_profiles.py`, `test_phase_v12_b_agent_env.py`: yeşil) hariç tam suite ve
+jest 032b üzerinde koşulmadı. Canlı probe (`hook_probe.py`) runner'da koşulmadı.
 
 - **Runtime profiles (kernel-owned)** — `aria_kernel/data/runtime-profiles/<role>.json`:
   `model_tier`, `effort`, `tools`, `write_scope`, `env_passthrough`, `budget_usd_per_run`,

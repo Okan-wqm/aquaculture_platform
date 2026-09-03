@@ -1,0 +1,1696 @@
+from __future__ import annotations
+
+import json
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
+
+from .governance_reader import read_governance_rows
+from .ledger import append_declared_jsonl, load_jsonl_verified, read_jsonl
+from .snapshot import file_counts_from_payload
+from .tool_health import runs_path
+from .tool_registry import ensure_tools_dir, utc_now
+
+
+def run_reflection(
+    *,
+    cycle_id: str,
+    base_dir: str | Path | None = None,
+    repo_root: str | Path | None = None,
+    convergence_result: dict[str, Any] | None = None,
+    review_result: dict[str, Any] | None = None,
+    pedagogy_lint_result: dict[str, Any] | None = None,
+    skill_genesis_result: dict[str, Any] | None = None,
+    calibration_result: dict[str, Any] | None = None,
+    recommendation_result: dict[str, Any] | None = None,
+    proactive_result: dict[str, Any] | None = None,
+    cycle_runner_result: dict[str, Any] | None = None,
+    judge_replay_result: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    # Plan ARIA-V5 §3f v2 — reflection schema v1 → v2 additive bump.
+    # Three optional kwargs let the autonomy orchestrator inject its
+    # post-drain Gate A (convergence) and Gate B (review) verdicts
+    # plus the V5.3 pedagogy-lint snapshot into the reflection row.
+    # When ANY of the three is None, the corresponding sub-object is
+    # emitted as null in the JSON — direct CLI callers
+    # (``aria-kernel cycle run``) preserve the legacy v1 contract
+    # while the orchestrator path produces a v2-shaped row.
+    # Backward compatibility: all existing reflection consumers use
+    # ``.get(key, default)`` access (verified by Plan v2 §3f
+    # Validator 1); v1 readers tolerate the new fields transparently.
+    # Plan ARIA-V3.2 §2b hotfix (F-010 subfinding D2) — reflection
+    # MUST operate on an absolute ``base_dir`` so
+    # ``_gate_activity_summary`` reads from the canonical
+    # aria-tools/governance.jsonl, NOT a shadow tree created by
+    # tool_registry.tools_dir()'s CWD-relative fallback.
+    #
+    # The V3.2 first-attempt RAISED on relative paths, but the
+    # CLI's normal path (`cycle.py:397` → ``base_dir=root`` where
+    # ``root`` traces back to ``Path('aria-tools')``) passes a
+    # relative literal — the strict raise broke every cycle in
+    # the operator-replay path. The hotfix converts the strict
+    # raise to a non-destructive ``.resolve()`` so relative
+    # becomes absolute deterministically against the current cwd
+    # WITHOUT rejecting the call.
+    #
+    # The DEEPER CWD-shadow-tree class (when cwd is wrong) is the
+    # blast-radius case tracked under Plan ARIA-V3.3 §2 (F-010-D4).
+    # The Tier-1 ``tools_dir`` rewrite there does walk-up-to-find-
+    # bound-identity which closes the shadow-tree class entirely.
+    # Invariants I-V3.2-04..06 lock this hotfix's contract.
+    if base_dir is not None:
+        base_dir = Path(base_dir).resolve()
+    root = ensure_tools_dir(base_dir)
+    # Plan 026R §A.2 — hot-path consumers move from `load_jsonl` (silent
+    # accept of tampered / hashless rows) to `load_jsonl_verified` which
+    # raises `LedgerIntegrityError` on chain mismatch, missing
+    # `ledger_hash`, or canonical drift. All four ledgers below are
+    # written via `append_jsonl` so every row is hash-chained at write
+    # time; a strict read here is the read-side gate that catches mid-
+    # flight tamper or partial-write visible to a reader.
+    all_runs = load_jsonl_verified(runs_path(base_dir))
+    runs = [row for row in all_runs if row.get("cycle_id") == cycle_id]
+    tool_runtime = _tool_runtime_table(runs, all_runs, cycle_id)
+    pressure_payload = _load_pressure(root, cycle_id)
+    pressures = pressure_payload.get("summary", {})
+    # ORPHAN-HIGH-627 — only the sources whose standing the evidence actually
+    # moved: multiplier 1.0 is the silent default, not news.
+    calibrated_weights = {
+        source: detail
+        for source, detail in (pressure_payload.get("calibrated_weights") or {}).items()
+        if isinstance(detail, dict) and detail.get("multiplier") not in (None, 1.0)
+    }
+    auto_merge_decisions = [
+        row
+        for row in load_jsonl_verified(root / "auto-merge-decisions.jsonl")
+        if row.get("cycle_id") == cycle_id
+    ]
+    beliefs = _latest_by_id(
+        load_jsonl_verified(root / "memory" / "beliefs.jsonl"), "belief_id"
+    )
+    top_pressures = pressure_payload.get("pressures", [])[:3] if isinstance(pressure_payload.get("pressures"), list) else []
+    committed = _committed_findings_and_debts(root, repo_root_override=repo_root)
+    human_required = _human_required_summary(root)
+    phase_digest_summary = _phase_digest_summary(root)
+    gate_activity = _gate_activity_summary(root)
+    reflection = {
+        # Plan ARIA-V7 §3 Phase 7.7 — schema_version v2 → v3
+        # (additive bump). New optional sub-objects (skill_genesis,
+        # calibration, cycle_runner) carry the V7.4 + V7.6 + V7.1
+        # producer outputs. v2 readers tolerate the new fields
+        # via `.get(key, default)` access (validated by V5.4
+        # consumer audit; same pattern applies to v3).
+        "schema_version": 3,
+        "recorded_at": utc_now(),
+        "cycle_id": cycle_id,
+        "coverage": _coverage(root, cycle_id),
+        "tool_run_count": len(runs),
+        "ok_run_count": sum(1 for run in runs if run.get("status") == "ok"),
+        "failed_run_count": sum(1 for run in runs if run.get("status") != "ok"),
+        "operator_facing_findings": sum(_emitted_count(run, "findings") for run in runs),
+        "operator_facing_observations": sum(_emitted_count(run, "observations") for run in runs),
+        "suppressed_shadow_findings": sum(run.get("runner", {}).get("raw_findings_count", 0) for run in runs)
+        - sum(_emitted_count(run, "findings") for run in runs),
+        "invalid_evidence_count": _invalid_evidence_count(runs),
+        "snapshot_outside_path_count": _snapshot_outside_path_count(runs),
+        "tool_runtime": tool_runtime,
+        "belief_summary": _belief_summary(beliefs),
+        "pressure_summary": pressures,
+        # ORPHAN-HIGH-627 — evidence-scaled source weights (only movers).
+        "calibrated_weights": calibrated_weights,
+        "top_pressures": top_pressures,
+        "tool_health": _tool_health(runs),
+        "auto_merge_summary": _auto_merge_summary(auto_merge_decisions),
+        "committed_findings": committed["findings"],
+        "committed_debts": committed["debts"],
+        "human_required": human_required,
+        "phase_digest_summary": phase_digest_summary,
+        "gate_activity": gate_activity,
+        # Plan ARIA-V5 §3f v2 — convergence + review + pedagogy sub-
+        # objects. Direct CLI path (no orchestrator kwargs) emits
+        # null; orchestrator path populates with real verdicts so
+        # the daily report covers the full cycle including Gate A
+        # and Gate B outcomes.
+        "convergence": _build_convergence_telemetry(
+            convergence_result, review_result,
+        ),
+        "pedagogy": _build_pedagogy_telemetry(pedagogy_lint_result),
+        # Plan ARIA-V7 §3 Phase 7.7 — V7 producer telemetry. Direct
+        # CLI path (no orchestrator kwargs) emits null sentinels;
+        # orchestrator path populates with real producer outputs.
+        "skill_genesis": skill_genesis_result if skill_genesis_result else None,
+        "calibration": calibration_result if calibration_result else None,
+        # What ARIA would change about its own scoring if an operator agreed.
+        # Produced every cycle by the calibration_recommendation phase and
+        # shown here, because a recommendation nobody sees is the same as one
+        # nobody makes.
+        "calibration_recommendation": recommendation_result if recommendation_result else None,
+        "proactive": proactive_result if proactive_result else None,
+        "cycle_runner": cycle_runner_result if cycle_runner_result else None,
+        # C6/E8 — judge_replay travels on the reflection row, because the
+        # sealed CycleRow is frozen+slotted and CANNOT carry it: the old
+        # renderer read row.get("judge_replay") from cycles.jsonl, a field
+        # no constructor could ever write, so the Replay Recall section
+        # was structurally unreachable.
+        "judge_replay": judge_replay_result if judge_replay_result else None,
+        # Which of ARIA's learning inputs are actually receiving data. A
+        # counter that reads 0 for months does not distinguish "no data yet"
+        # from "the producer chain is severed" — judged_judges sat at zero
+        # while three separate defects starved it, and every one was found by
+        # a human noticing. This section is the machine noticing.
+        "dataflow_health": _compute_dataflow_health(root),
+        # Y5 (ORPHAN-706) — the bridge's role×transition matrix. Twelve
+        # judge results failed to fold ("verdict None") and ten burned to
+        # permanent_fail with no report line anywhere; the truth lived only
+        # in agent-result-bridge-status.jsonl. This is that ledger's first
+        # reader.
+        "bridge_health": _compute_bridge_health(root),
+        "next_cycle_plan": [
+            {
+                "pressure_id": item.get("pressure_id"),
+                "recommended_action": item.get("recommended_action"),
+                "candidate_tools": item.get("candidate_tools", []),
+                # Carried so the queue writer below can refuse a blocked
+                # pressure; without this key the projection silently
+                # laundered the blocked state back into schedulable work.
+                "blocked_by": item.get("blocked_by", []),
+            }
+            for item in top_pressures
+        ],
+    }
+    append_declared_jsonl(root / "reflections.jsonl", reflection, expected_surface="reflections")
+    _write_daily_report(root, reflection)
+    # Plan 026R §F.2 — also enqueue next_cycle_plan items into the
+    # bounded scheduler queue so the §F.1 autonomy orchestrator can
+    # drain them at the start of the following cycle. Pre-§F.2 the
+    # items existed only in the reflection JSONL row + text report —
+    # no machine-readable queue for the orchestrator to consume.
+    # The queue caps depth via ARIA_NEXT_CYCLE_QUEUE_DEPTH (default 32);
+    # items beyond the cap return None and are silently dropped at the
+    # writer side (queue-bloat protection — orchestrator drain is the
+    # only sink). Pressure_id is the queue's idempotency key surface.
+    from .next_cycle_queue import append_pending as _enqueue_next_cycle
+    for item in reflection.get("next_cycle_plan", []):
+        pressure_id = item.get("pressure_id")
+        if not isinstance(pressure_id, str) or not pressure_id:
+            continue
+        # A blocked pressure is operator-facing work, not schedulable work.
+        # Enqueuing one mints an agent request that can never run — the
+        # planner's first accepted response traced a queue item that had been
+        # re-enqueued this way every cycle since 2026-08-08.
+        if item.get("blocked_by"):
+            continue
+        _enqueue_next_cycle(
+            base_dir=root,
+            source_cycle_id=cycle_id,
+            pressure_id=pressure_id,
+            recommended_action=item.get("recommended_action"),
+            candidate_tools=list(item.get("candidate_tools") or []),
+        )
+    return reflection
+
+
+def _load_pressure(root: Path, cycle_id: str) -> dict[str, Any]:
+    path = root / "pressure" / f"{cycle_id}.json"
+    if not path.exists():
+        return {}
+    with path.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    return payload if isinstance(payload, dict) else {}
+
+
+def _resolve_repo_root(tools_root: Path) -> Path | None:
+    """Read the bound repo_root from the tools-dir identity file.
+
+    Reflection is invoked with `base_dir` = tools-root only, but committed
+    findings/debts live under the repo root (`aria-findings/`, `aria-debts/`).
+    Use the bound identity to locate them; return None if the binding is
+    unset (no committed surfaces to report).
+    """
+    identity_path = tools_root / "repo_identity.json"
+    if not identity_path.exists():
+        return None
+    try:
+        identity = json.loads(identity_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    bound = identity.get("bound_repo_root")
+    if not bound:
+        return None
+    candidate = Path(bound)
+    return candidate if candidate.exists() else None
+
+
+def _gate_activity_summary(tools_root: Path, *, window_hours: int = 24) -> dict[str, Any]:
+    """Plan 017 Phase 6.2 — aggregate governance event counts by kind.
+
+    Walks aria-tools/governance.jsonl, partitions events by `kind`, and
+    returns top-N counts plus a 24h-window subset (events recorded within
+    the last `window_hours`). The daily report renders this so the
+    operator can see at a glance which gates fired in the cycle window.
+    """
+    governance = tools_root / "governance.jsonl"
+    if not governance.exists():
+        return {"total_events": 0, "by_kind": {}, "recent_24h": {}}
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=window_hours)
+    by_kind: dict[str, int] = {}
+    recent: dict[str, int] = {}
+    # Plan 026R §A.3 — strict governance.jsonl reader for gate-activity
+    # summary. Pre-§A.3 silent-skip on corrupt rows would understate
+    # gate activity (operator dashboard misled). Strict raises via the
+    # governance_reader contract.
+    total = 0
+    for row in read_governance_rows(governance, base_dir=tools_root):
+        kind = str(row.get("kind") or "?")
+        by_kind[kind] = by_kind.get(kind, 0) + 1
+        total += 1
+        ts_str = row.get("ts")
+        if isinstance(ts_str, str):
+            try:
+                ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            except ValueError:
+                ts = None
+            if ts is not None and ts >= cutoff:
+                recent[kind] = recent.get(kind, 0) + 1
+    return {
+        "total_events": total,
+        "by_kind": dict(sorted(by_kind.items(), key=lambda kv: kv[1], reverse=True)),
+        "recent_24h": dict(sorted(recent.items(), key=lambda kv: kv[1], reverse=True)),
+        "window_hours": window_hours,
+    }
+
+
+def _human_required_summary(tools_root: Path) -> dict[str, Any]:
+    """Plan 016 Faz D9 — surface the HUMAN_REQUIRED ledger at the top of daily reports.
+
+    Returns: {open: <int>, breaching_sla: <int>, items: [<sorted by deadline>...]}.
+    """
+    from .human_required import list_human_required
+
+    items = list_human_required(base_dir=tools_root, include_resolved=False)
+    if not items:
+        return {"open": 0, "breaching_sla": 0, "items": [], "tiers": {}}
+    now = datetime.now(timezone.utc)
+    breaching = 0
+    tiers: dict[str, int] = {}
+    for item in items:
+        deadline = item.get("sla_deadline")
+        recorded = item.get("recorded_at")
+        if not isinstance(deadline, str):
+            continue
+        try:
+            dt = datetime.fromisoformat(deadline.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if dt < now:
+            breaching += 1
+            # X4 (ORPHAN-699) — the critical_observation N+k*SLA ladder,
+            # applied to the operator-triage queue: a breach used to be one
+            # report line forever; now age relative to the SLA window sets
+            # an escalation tier the renderer amplifies. Tier is derived,
+            # never stored — the ledger stays append-only and re-renders
+            # honestly as time passes.
+            try:
+                start = datetime.fromisoformat(str(recorded).replace("Z", "+00:00"))
+                window = (dt - start) or None
+            except (ValueError, TypeError):
+                window = None
+            tier = "breach"
+            if window:
+                age_windows = (now - dt) / window
+                if age_windows >= 5:
+                    tier = "critical_attention"
+                elif age_windows >= 3:
+                    tier = "sustained_breach"
+                elif age_windows >= 2:
+                    tier = "escalated"
+            item["sla_tier"] = tier
+            tiers[tier] = tiers.get(tier, 0) + 1
+    return {"open": len(items), "breaching_sla": breaching, "items": items[:5], "tiers": tiers}
+
+
+def _normalize_finding_status(row: dict[str, Any]) -> str | None:
+    """Plan ARIA-V3.1 §2b — schema normalization for finding rows.
+
+    Pre-V3.1 the corpus carries TWO schema variants:
+      * F-001..F-007 use ``status: "OPEN" | "WITHDRAWN" | "RESOLVED"``
+      * F-008..F-009 use ``state: "OPEN" | "RESOLVED"``
+    Both encode the same state-machine vocabulary; the aggregator
+    must read whichever field is populated. The normalised value is
+    written back to ``row["status"]`` so downstream consumers see one
+    field regardless of source schema.
+    """
+    status = row.get("status")
+    if status is None:
+        status = row.get("state")
+    if status is not None:
+        row["status"] = status
+    return status
+
+
+def _scan_findings_filesystem(findings_dir: Path) -> dict[str, Any]:
+    """Plan ARIA-V3.1 §2b — single-SSoT filesystem scan.
+
+    The previous ``_index.json`` snapshot pattern accumulated drift
+    (F-008 + F-009 invisible to the daily report; DEBT-001 stuck at
+    OPEN seven days after retirement). V3.1 pivots: each ``F-*.json``
+    file IS the authoritative state; the aggregator re-derives the
+    summary on every reflection cycle. ``_index.json`` remains for
+    external-tool consumption but is NEVER on the critical path.
+    """
+    empty = {"total": 0, "open": 0, "recent": []}
+    if not findings_dir.exists() or not findings_dir.is_dir():
+        return dict(empty)
+    rows: list[dict[str, Any]] = []
+    for path in sorted(findings_dir.glob("F-*.json")):
+        # Plan ARIA-V3.1 §2b — _index.json is gitignored from the
+        # scan (its filename does not match F-*.json), so a
+        # mistakenly-named index file cannot pollute the corpus.
+        try:
+            row = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(row, dict):
+            continue
+        _normalize_finding_status(row)
+        rows.append(row)
+    # E15-b — findings grouped by microservice (operator direction:
+    # reports and missions speak in service terms). Legacy docs derive
+    # their dimension at read time through the same seam the mint uses.
+    from .service_dimension import finding_dimension_paths, services_for_paths
+
+    by_service: dict[str, dict[str, int]] = {}
+    for row in rows:
+        services = row.get("services") or services_for_paths(
+            finding_dimension_paths(row)
+        )
+        for svc in services or ["(no service dimension)"]:
+            bucket = by_service.setdefault(svc, {"total": 0, "open": 0})
+            bucket["total"] += 1
+            if row.get("status") == "OPEN":
+                bucket["open"] += 1
+    return {
+        "total": len(rows),
+        "open": sum(1 for r in rows if r.get("status") == "OPEN"),
+        "by_service": by_service,
+        "recent": sorted(
+            rows, key=lambda r: r.get("created_at", ""), reverse=True
+        )[:5],
+    }
+
+
+def _scan_debts_filesystem(debts_dir: Path) -> dict[str, Any]:
+    """Plan ARIA-V3.1 §2b — single-SSoT filesystem scan for debts.
+
+    Same pivot rationale as findings. Debts use a single
+    ``current_status`` field across the corpus, so no schema
+    normalization is required.
+    """
+    empty = {"total": 0, "open": 0, "overdue": 0, "recent": []}
+    if not debts_dir.exists() or not debts_dir.is_dir():
+        return dict(empty)
+    rows: list[dict[str, Any]] = []
+    for path in sorted(debts_dir.glob("DEBT-*.json")):
+        try:
+            row = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(row, dict):
+            continue
+        rows.append(row)
+    now = datetime.now(timezone.utc)
+    open_rows = [
+        r for r in rows
+        if r.get("current_status") in {"OPEN", "IN_PROGRESS"}
+    ]
+    overdue = 0
+    for row in open_rows:
+        due_iso = row.get("due_date")
+        if not due_iso:
+            continue
+        try:
+            due = datetime.fromisoformat(str(due_iso).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if due.tzinfo is None:
+            due = due.replace(tzinfo=timezone.utc)
+        if due < now:
+            overdue += 1
+    return {
+        "total": len(rows),
+        "open": len(open_rows),
+        "overdue": overdue,
+        "recent": sorted(
+            rows, key=lambda r: r.get("due_date", ""), reverse=False
+        )[:5],
+    }
+
+
+def _committed_findings_and_debts(
+    tools_root: Path,
+    *,
+    repo_root_override: str | Path | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Plan ARIA-V3.1 §2b — filesystem-scan SSoT for findings + debts.
+
+    Pre-V3.1 this function read ``aria-findings/_index.json`` +
+    ``aria-debts/_index.json`` as authoritative snapshots. Both
+    indexes accumulated drift relative to disk (the V3 plan added
+    F-008 + F-009 + retired DEBT-2026-05-08-001, but the index
+    files were last regenerated 2026-05-08 and 2026-05-11 — the
+    fresh-run daily report under-reported by 2 findings + showed
+    a retired debt as still open).
+
+    V3.1 pivots: each ``F-*.json`` and ``DEBT-*.json`` file IS the
+    authoritative state. The aggregator re-derives the summary
+    from a filesystem scan on every reflection cycle. The cost is
+    O(file count) per cycle (≤30 files in practice); the gain is
+    a single SSoT with no index-sync debt.
+
+    ``repo_root_override`` lets a worktree-aware caller (e.g.
+    cycle.py running on snowball when tools-dir was first bound by
+    main) point at the active worktree directly. Without it, fall
+    back to the recorded binding.
+    """
+    empty_findings = {"total": 0, "open": 0, "recent": []}
+    empty_debts = {"total": 0, "open": 0, "overdue": 0, "recent": []}
+    if repo_root_override is not None:
+        candidate = Path(repo_root_override)
+        repo_root = candidate if candidate.exists() else None
+    else:
+        repo_root = _resolve_repo_root(tools_root)
+    if repo_root is None:
+        return {"findings": empty_findings, "debts": empty_debts}
+
+    # D3 — read WHERE THE WRITERS WRITE. Both emitters resolve through
+    # workspace.repo_state_root (finding.findings_dir / debt._debts_dir);
+    # this reader used to rebuild `repo_root / "aria-findings"` by hand,
+    # so under a redirected state root the report said "no committed
+    # findings yet" over a directory that existed somewhere else.
+    from .finding import findings_dir
+    from .workspace import repo_state_root
+
+    findings_summary = _scan_findings_filesystem(findings_dir(repo_root))
+    debts_summary = _scan_debts_filesystem(
+        repo_state_root(Path(repo_root)) / "aria-debts"
+    )
+    return {"findings": findings_summary, "debts": debts_summary}
+
+
+def _build_convergence_telemetry(
+    convergence_result: dict[str, Any] | None,
+    review_result: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Plan ARIA-V5 §3f v2 — assemble the reflection ``convergence``
+    sub-object from orchestrator-supplied Gate A + Gate B results.
+
+    Returns ``None`` when BOTH inputs are None — preserves direct
+    CLI path's legitimately-skipped semantics. When either is
+    supplied, returns a v2-shaped sub-object with ``pre_impl``
+    (Gate A) + ``post_impl`` (Gate B) blocks.
+
+    Field schema (operator-facing, all int/str types):
+      pre_impl.rounds_count, arbiter_verdict, gaps_found_count,
+              plan_id, token_cost_estimate,
+              resumed_from_persistence, convergence_id
+      post_impl.rounds_count, review_verdict, gaps_found_count,
+                impl_artifacts_ref, auto_merge_blocked_by
+    """
+    if convergence_result is None and review_result is None:
+        return None
+    pre_impl: dict[str, Any] | None = None
+    if convergence_result is not None:
+        pre_impl = {
+            "rounds_count": int(convergence_result.get("rounds_count", 0)),
+            "arbiter_verdict": str(
+                convergence_result.get("arbiter_verdict", "split"),
+            ),
+            "gaps_found_count": len(
+                convergence_result.get("unsatisfied_items", []),
+            ),
+            "plan_id": convergence_result.get("plan_id"),
+            "token_cost_estimate": int(
+                convergence_result.get("token_cost_estimate", 0),
+            ),
+            "resumed_from_persistence": bool(
+                convergence_result.get("resumed_from_persistence", False),
+            ),
+            "convergence_id": convergence_result.get("convergence_id"),
+        }
+    post_impl: dict[str, Any] | None = None
+    if review_result is not None:
+        verdict = str(review_result.get("review_verdict", "gaps_open"))
+        post_impl = {
+            "rounds_count": int(review_result.get("rounds_count", 0)),
+            "review_verdict": verdict,
+            "gaps_found_count": len(review_result.get("gaps_found", [])),
+            "impl_artifacts_ref": review_result.get("impl_artifacts_ref"),
+            "auto_merge_blocked_by": (
+                None if verdict == "no_gaps" else f"review_{verdict}"
+            ),
+        }
+    return {"pre_impl": pre_impl, "post_impl": post_impl}
+
+
+def _build_pedagogy_telemetry(
+    pedagogy_lint_result: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Plan ARIA-V5 §3f v2 — assemble the reflection ``pedagogy``
+    sub-object from V5.3 pedagogy-lint output.
+
+    Returns ``None`` until V5.3 (commit C4) wires the lint
+    runner. Once C4 lands, ``pedagogy_lint_result`` carries
+    ``lint_pass_rate`` (float), ``violation_count`` (int), and
+    ``agents_scanned`` (int) — the three operational metrics
+    surfaced via ``/aria-status`` per Plan v2 §7.
+    """
+    if pedagogy_lint_result is None:
+        return None
+    return {
+        "lint_pass_rate": float(
+            pedagogy_lint_result.get("lint_pass_rate", 0.0),
+        ),
+        "violation_count": int(
+            pedagogy_lint_result.get("violation_count", 0),
+        ),
+        "agents_scanned": int(
+            pedagogy_lint_result.get("agents_scanned", 0),
+        ),
+    }
+
+
+def _render_convergence_section(reflection: dict[str, Any]) -> list[str]:
+    """Plan ARIA-V5 §3f v2 — render the daily report's Convergence
+    section. Gated on ``schema_version >= 2`` AND a non-null
+    ``convergence`` sub-object. Returns an empty list otherwise so
+    the report layout is unchanged for v1-shaped rows.
+    """
+    if int(reflection.get("schema_version", 1)) < 2:
+        return []
+    convergence = reflection.get("convergence")
+    if not convergence:
+        return []
+    pre = convergence.get("pre_impl")
+    post = convergence.get("post_impl")
+    lines = ["## Convergence", ""]
+    if pre is not None:
+        lines.extend([
+            f"- Pre-impl rounds: {pre.get('rounds_count', 0)}",
+            f"- Arbiter verdict: {pre.get('arbiter_verdict', '?')}",
+            f"- Pre-impl gaps: {pre.get('gaps_found_count', 0)}",
+            f"- Plan: {pre.get('plan_id', '?')}",
+            f"- Resumed from persistence: {pre.get('resumed_from_persistence', False)}",
+            "",
+        ])
+    if post is not None:
+        lines.extend([
+            f"- Post-impl rounds: {post.get('rounds_count', 0)}",
+            f"- Review verdict: {post.get('review_verdict', '?')}",
+            f"- Post-impl gaps: {post.get('gaps_found_count', 0)}",
+            f"- Auto-merge blocked by: {post.get('auto_merge_blocked_by') or '(unblocked)'}",
+            "",
+        ])
+    return lines
+
+
+def _render_pedagogy_section(reflection: dict[str, Any]) -> list[str]:
+    """Plan ARIA-V5 §3f v2 — render the daily report's Pedagogy
+    section. Gated on ``schema_version >= 2`` AND a non-null
+    ``pedagogy`` sub-object (V5.3 lint emits this).
+    """
+    if int(reflection.get("schema_version", 1)) < 2:
+        return []
+    pedagogy = reflection.get("pedagogy")
+    if not pedagogy:
+        return []
+    return [
+        "## Pedagogy",
+        "",
+        f"- Lint pass rate: {pedagogy.get('lint_pass_rate', 0.0):.2%}",
+        f"- Violations: {pedagogy.get('violation_count', 0)}",
+        f"- Agents scanned: {pedagogy.get('agents_scanned', 0)}",
+        "",
+    ]
+
+
+def _render_calibration_section(reflection: dict[str, Any]) -> list[str]:
+    """Plan 024 §A — render the daily report's Judge Calibration section.
+    Gated on a non-null ``calibration`` sub-object (the per-cycle
+    judge_calibration phase emits it)."""
+    calibration = reflection.get("calibration")
+    if not calibration:
+        return []
+    judges = calibration.get("judges") or []
+    degraded = calibration.get("degraded_judges") or []
+    lines = [
+        "## Judge Calibration",
+        "",
+        f"- Judges scored: {calibration.get('judged_judges', 0)}",
+        f"- Degraded (precision < {calibration.get('precision_floor', 0.0)}): "
+        f"{', '.join(degraded) if degraded else 'none'}",
+    ]
+    for j in judges:
+        lines.append(
+            f"  - {j.get('judge_id')}: precision={j.get('precision')} "
+            f"recall={j.get('recall')} n={j.get('samples')} [{j.get('status')}]"
+        )
+    lines.append("")
+    return lines
+
+
+def _render_label_queue_section(root: Path) -> list[str]:
+    """Samples awaiting an operator verdict, each with its ready-made command.
+
+    The labeling channel failed ergonomically before it failed technically:
+    the kernel printed a CLI verb into every judgment sample that did not
+    exist, and even after the verbs became real, an operator had to dig
+    sample ids out of a raw ledger. The report is where the operator already
+    looks; the command they need is now one copy-paste away. Renders nothing
+    when nothing waits — an empty heading every day teaches the reader to
+    skip the heading.
+    """
+    try:
+        from .strict_jsonl_reader import read_strict_jsonl
+        samples = list(read_strict_jsonl(root / "judgment-samples.jsonl", on_corruption="tolerant"))
+    except OSError:
+        samples = []
+    # E20 — an empty sample queue must NOT hide the seeding backlog; the
+    # two are independent halves of the same labeling economy.
+    pending = [s for s in samples if not s.get("labels_complete")] or samples
+    latest = pending[-3:]
+    lines = ["", "## Labels wanted", ""]
+    for sample in latest:
+        items = sample.get("items") or []
+        sid = sample.get("sample_id", "?")
+        lines.append(f"- sample `{sid}` — {len(items)} finding(s) awaiting a verdict")
+        batch = sample.get("batch_cli")
+        if batch:
+            lines.append(f"  - batch: `{batch}`")
+        for item in items[:5]:
+            fid = item.get("finding_id", "?")
+            lines.append(
+                f"  - `aria-kernel feedback record --tool-id {sample.get('tool_id','?')} "
+                f"--run-id {item.get('run_id','?')} --finding-id {fid} "
+                f"--verdict true_positive|false_positive --note \"...\"`"
+            )
+    # E20 (ORPHAN-672) — the seeding backlog joins the same section: the
+    # ledger grew on every live finding with no reader anywhere, so the
+    # calibration bottleneck (how much label work waits) was invisible.
+    # First real reader of list_seeding_backlog; renders only when work
+    # actually waits, same empty-heading discipline as above.
+    try:
+        from .calibration_bootstrap import list_seeding_backlog
+
+        backlog = list_seeding_backlog(base_dir=root)
+    except OSError:
+        backlog = {}
+    if backlog.get("total_unlabeled"):
+        lines.append("")
+        lines.append(
+            f"- Seeding backlog: {backlog['total_unlabeled']} unlabeled row(s) "
+            "awaiting `python -m aria_kernel.calibration_bootstrap label ...`"
+        )
+        top = sorted(
+            backlog.get("tools", {}).items(),
+            key=lambda item: -item[1].get("unlabeled", 0),
+        )[:5]
+        for tool_id, counts in top:
+            if counts.get("unlabeled"):
+                lines.append(
+                    f"  - {tool_id}: {counts['unlabeled']} unlabeled / {counts['seeded']} seeded"
+                )
+    if len(lines) == 3:
+        # Header-only — nothing waits on either half; keep the
+        # empty-heading discipline (render nothing).
+        return []
+    return lines
+
+
+# The learning inputs whose starvation must be announced, each read from the
+# ledger its PRODUCER actually writes (Kalibre Zekâ Z5a, ORPHAN-HIGH-628).
+# The first draft extracted these keys from cycles.jsonl rows — which the
+# CycleRow schema (cycle.py, v3) structurally cannot carry, verified against
+# the live store: every window was [0,0,0,0,0] by construction, so the
+# sentinel would have fired three false alarms at the fifth completed cycle
+# and then cried wolf forever. A sentinel that thinks it measures and
+# doesn't is worse than none.
+SIGNAL_WINDOW_CYCLES = 5
+
+
+def _judged_judges_series(root: Path) -> list[int]:
+    from .judge_calibration import calibration_path
+    from .strict_jsonl_reader import read_strict_jsonl
+
+    path = calibration_path(root)
+    if not path.exists():
+        return []
+    rows = list(read_strict_jsonl(path, on_corruption="tolerant"))
+    return [int(row.get("judged_judges") or 0) for row in rows[-SIGNAL_WINDOW_CYCLES:]]
+
+
+def _labelled_tool_series(root: Path) -> list[int]:
+    # Same eligibility as goldset.propose_goldsets_for_labelled_tools: a
+    # tool counts once it has any labelled ground truth. JJ-1 — the SAME
+    # predicate, not a hand-copied source_type tuple. The copy that used to
+    # stand here still admitted 2-judge consensus after the producer stopped
+    # accepting it, so this sentinel would have reported labelled_tool_count
+    # healthy while the goldset producer starved: the "sentinel that thinks
+    # it measures and doesn't" failure this very file warns about above.
+    from .feedback_store import is_ground_truth_row, load_feedback
+
+    labelled = {
+        str(row.get("tool_id"))
+        for row in load_feedback(base_dir=root)
+        if row.get("verdict") in ("true_positive", "false_positive")
+        and is_ground_truth_row(row)
+    }
+    return [len(labelled)]
+
+
+def _synced_tool_series(root: Path) -> list[int]:
+    from .tool_registry import list_tools
+
+    return [len(list_tools(base_dir=root))]
+
+
+WATCHED_SIGNALS: dict[str, dict[str, Any]] = {
+    "judged_judges": {
+        "series_fn": "_judged_judges_series",
+        "producer_chain": "accepted results -> judge fan-out -> judge_calibration.jsonl",
+    },
+    "labelled_tool_count": {
+        "series_fn": "_labelled_tool_series",
+        "producer_chain": "operator feedback -> operator-feedback.jsonl",
+    },
+    "synced_tool_ids": {
+        "series_fn": "_synced_tool_series",
+        "producer_chain": "tools/aria-adapters/*.tool.json -> registry.json",
+    },
+}
+
+
+def _compute_dataflow_health(root: Path) -> dict[str, Any]:
+    """Report which watched signals stayed zero across the recent window.
+
+    Starvation requires a FULL window of zeros AND enough completed-cycle
+    history: fewer completed cycles than the window is "insufficient
+    history", not an alarm — a brand-new store must not open with three
+    starvation flags. Cycle history still comes from cycles.jsonl (row
+    COUNT is exactly what its schema does carry); the VALUES come from
+    each signal's own producer ledger.
+    """
+    from .ledger import load_declared_jsonl
+
+    try:
+        rows = load_declared_jsonl(root / "cycles.jsonl", expected_surface="cycles")
+    except Exception:
+        rows = []
+    completed = sum(1 for row in rows if row.get("status") == "completed")
+    history_full = completed >= SIGNAL_WINDOW_CYCLES
+    signals: dict[str, Any] = {}
+    starved: list[str] = []
+    for name, spec in WATCHED_SIGNALS.items():
+        try:
+            # Resolved through the module at CALL time (not captured at
+            # import) so tests can patch the series functions and the dict
+            # cannot hold a stale reference.
+            values = globals()[spec["series_fn"]](root)
+        except Exception:
+            values = []
+        # An EMPTY producer ledger after a full history window IS the
+        # starved case — the producer never wrote at all, which is the
+        # strongest form of the signal this sentinel exists for.
+        is_starved = history_full and all(v == 0 for v in values)
+        signals[name] = {
+            "window_values": values,
+            "starved": is_starved,
+            "producer_chain": spec["producer_chain"],
+        }
+        if is_starved:
+            starved.append(name)
+    return {
+        "window_cycles": min(completed, SIGNAL_WINDOW_CYCLES),
+        "signals": signals,
+        "starved": starved,
+    }
+
+
+def _phase_digest_summary(tools_root: Path) -> dict[str, Any]:
+    """X3 (ORPHAN-700) — the latest sealed cycle's phase digests.
+
+    First reader of the metrics row's ``phase_digests`` (schema v2). The
+    absence of a digest for a phase is REPORTED as absence — that is the
+    zero-vs-absent distinction this train exists for.
+    """
+    path = tools_root / "observability" / "cycle-metrics.jsonl"
+    if not path.exists():
+        return {}
+    try:
+        rows = read_jsonl(
+            path,
+            expected_surface="observability_cycle_metrics",
+        )
+    except OSError:
+        return {}
+    if not rows:
+        return {}
+    latest = rows[-1]
+    return {
+        "cycle_id": latest.get("cycle_id"),
+        "digests": latest.get("phase_digests") or {},
+    }
+
+
+def _render_experiment_night_section(reflection: dict[str, Any]) -> list[str]:
+    """X3 — the bench's night, visible. Silent when no digest exists yet
+    (pre-X3 rows), loud about 'ran empty' when the digest says zero."""
+    summary = reflection.get("phase_digest_summary") or {}
+    digests = summary.get("digests") or {}
+    night = digests.get("experiment_night")
+    if night is None:
+        return []
+    lines = ["", "## Experiment Night", ""]
+    planned = night.get("planned_problem", 0)
+    if not planned and not night.get("planned_regression", 0):
+        lines.append(
+            "- ran EMPTY: zero admissible experiments "
+            f"(unresolvable bindings: {night.get('unresolvable_bindings', 0)}) — "
+            "a finding-bound, red-contract experiment is what admits a candidate"
+        )
+    else:
+        lines.append(f"- problem runs planned: {planned}")
+        lines.append(f"- regression re-runs planned: {night.get('planned_regression', 0)}")
+        lines.append(f"- reproduced: {night.get('reproduced', 0)} | refuted: {night.get('refuted', 0)}")
+        lines.append(f"- regressions detected: {night.get('regressions', 0)} | still fixed: {night.get('still_fixed', 0)}")
+        skipped = night.get("skipped_problem", 0) + night.get("skipped_regression", 0)
+        if skipped:
+            lines.append(f"- skipped over budget: {skipped}")
+    if night.get("errors", 0):
+        lines.append(f"- errors: {night.get('errors')}")
+    return lines
+
+
+def _render_watchdog_section(reflection: dict[str, Any]) -> list[str]:
+    """X3 — the watchdog's sweep, visible (silent pre-X3)."""
+    summary = reflection.get("phase_digest_summary") or {}
+    digests = summary.get("digests") or {}
+    sweep = digests.get("watchdog_sweep")
+    if sweep is None:
+        return []
+    return [
+        "",
+        "## Watchdog Sweep",
+        "",
+        f"- candidates: {sweep.get('candidates', 0)}",
+        f"- emitted: {sweep.get('emitted', 0)} (suppressed: {sweep.get('suppressed', 0)})",
+    ]
+
+
+def _compute_bridge_health(root: Path) -> dict[str, Any]:
+    """Y5 (ORPHAN-706) — fold agent-result-bridge-status.jsonl to a
+    role×transition matrix plus the distinct error signatures behind the
+    non-ok transitions. Missing ledger → empty dict (young store)."""
+    path = root / "agent-invocations" / "agent-result-bridge-status.jsonl"
+    if not path.exists():
+        return {}
+    matrix: dict[str, dict[str, int]] = {}
+    error_signatures: dict[str, int] = {}
+    try:
+        rows = read_jsonl(
+            path,
+            expected_surface="agent_result_bridge_status",
+        )
+    except OSError:
+        return {}
+    for row in rows:
+        role = str(row.get("role") or "unknown")
+        transition = str(row.get("transition") or "unknown")
+        matrix.setdefault(role, {})[transition] = matrix.get(role, {}).get(transition, 0) + 1
+        if transition in ("pending_retry", "permanent_fail"):
+            detail = str(row.get("error_detail") or "")[:80]
+            if detail:
+                error_signatures[detail] = error_signatures.get(detail, 0) + 1
+    return {"matrix": matrix, "error_signatures": error_signatures}
+
+
+def _render_bridge_health_section(reflection: dict[str, Any]) -> list[str]:
+    """Y5 — non-ok bridge transitions become report lines; an all-ok (or
+    empty) ledger renders nothing, per the empty-heading rule below."""
+    health = reflection.get("bridge_health") or {}
+    matrix = health.get("matrix") or {}
+    troubled = {
+        role: counts for role, counts in sorted(matrix.items())
+        if any(t in counts for t in ("pending_retry", "permanent_fail"))
+    }
+    if not troubled:
+        return []
+    lines = ["", "## Bridge Health", ""]
+    for role, counts in troubled.items():
+        rendered = ", ".join(f"{t}: {n}" for t, n in sorted(counts.items()))
+        lines.append(f"- {role} — {rendered}")
+    for signature, count in sorted(
+        (health.get("error_signatures") or {}).items(), key=lambda kv: -kv[1],
+    )[:5]:
+        lines.append(f"- `{signature}` ×{count}")
+    return lines
+
+
+def _render_dataflow_health_section(reflection: dict[str, Any]) -> list[str]:
+    """SIGNAL STARVED lines for the daily report — only when something is.
+
+    A section that renders an empty heading every day teaches the reader to
+    skip the heading (the calibration section learned this first).
+    """
+    health = reflection.get("dataflow_health") or {}
+    starved = health.get("starved") or []
+    if not starved:
+        return []
+    lines = ["", "## Signal starvation", ""]
+    for name in starved:
+        spec = (health.get("signals") or {}).get(name) or {}
+        lines.append(
+            f"- SIGNAL STARVED: `{name}` — zero across the last "
+            f"{health.get('window_cycles')} completed cycles. Producer chain: "
+            f"{spec.get('producer_chain', 'unknown')}. A zero this old is a "
+            "severed feed until proven otherwise."
+        )
+    return lines
+
+
+def _render_calibration_recommendation_section(reflection: dict[str, Any]) -> list[str]:
+    """The weight changes ARIA would make to its own scoring, if approved.
+
+    The write path (`pressure weight-override`) has always existed and had
+    nothing feeding it: the producer was reachable only from a superseded
+    driver, and the reader from nowhere at all. Rendering the recommendation
+    is the half that makes the operator's approval possible — an unread
+    recommendation is indistinguishable from one that was never computed.
+
+    Applying it stays a human act, deliberately. A system that silently
+    reweights its own scoring can rationalise anything it later measures.
+    """
+    recommendation = reflection.get("calibration_recommendation") or {}
+    movers_present = bool(reflection.get("calibrated_weights"))
+    if not recommendation and not movers_present:
+        return []
+    weights = recommendation.get("pressure_weight_recommendations") or []
+    tools = recommendation.get("tool_recommendations") or []
+    sources = recommendation.get("source_effectiveness") or []
+    if not weights and not tools and not sources and not movers_present:
+        return []
+    lines = [
+        "## Calibration Recommendations (advisory)",
+        "",
+    ]
+    if weights:
+        lines.append("Pressure-source weights ARIA would change:")
+        for row in weights:
+            lines.append(
+                f"  - {row.get('source')}: {row.get('current_weight')} -> "
+                f"{row.get('recommended_weight')} ({row.get('reason', 'no reason given')})"
+            )
+        lines.append("")
+        lines.append(
+            "  Apply with `aria-kernel pressure weight-override` — approval is an "
+            "operator act, not a cycle outcome."
+        )
+    if tools:
+        lines.append("")
+        lines.append(f"Tool-level recommendations: {len(tools)}")
+        for row in tools[:5]:
+            lines.append(f"  - {row.get('tool_id')}: {row.get('recommendation', 'see ledger')}")
+    movers = reflection.get("calibrated_weights") or {}
+    if movers:
+        # ORPHAN-HIGH-627 — the weights evidence actually moved this cycle:
+        # base → effective, with the label counts that moved them. Multiplier
+        # 1.0 is the silent default, not news.
+        lines.append("")
+        lines.append("Evidence-scaled weights (Beta posterior over labels):")
+        for source, d in sorted(movers.items()):
+            lines.append(
+                f"  - {source}: {d.get('base')} -> {round(d.get('weight', 0), 1)} "
+                f"(x{round(d.get('multiplier', 1.0), 3)}, "
+                f"tp {d.get('tp', 0)} / fp {d.get('fp', 0)})"
+            )
+    if sources:
+        # FAZ 4c — the effectiveness ranking that justifies (or indicts) a
+        # weight recommendation, from the same cycle's ledger. First render
+        # of rank_pressure_sources' output anywhere.
+        lines.append("")
+        lines.append("Pressure-source effectiveness (converged/minted):")
+        for row in sources[:8]:
+            minted = int(row.get("cycles_minted", 0) or 0)
+            converged = int(row.get("cycles_converged", 0) or 0)
+            rate = converged / minted if minted else 0.0
+            lines.append(
+                f"  - {row.get('source_type')}: {rate:.0%} "
+                f"(minted {minted}, converged {converged}, "
+                f"merged {int(row.get('cycles_merged', 0) or 0)}, "
+                f"avg ${float(row.get('avg_cost_usd', 0) or 0):.2f})"
+            )
+    lines.append("")
+    return lines
+
+
+def _render_proactive_section(reflection: dict[str, Any]) -> list[str]:
+    """Plan 027 §D3 — render the daily report's Proactive Priorities section:
+    the impact x opportunity ranking of where to invest next, shown even when
+    no reactive pressure fired."""
+    proactive = reflection.get("proactive")
+    if not proactive:
+        return []
+    top = proactive.get("top") or []
+    if not top:
+        return []
+    lines = [
+        "## Proactive Priorities (impact x opportunity)",
+        "",
+        f"- Calibration degraded: {proactive.get('calibration_degraded', False)}",
+    ]
+    for t in top:
+        reasons = ", ".join(t.get("reasons") or []) or "—"
+        lines.append(
+            f"  - {t.get('tool_id')}: priority={t.get('priority')} "
+            f"(impact={t.get('impact')} x opportunity={t.get('opportunity')}) [{reasons}]"
+        )
+    lines.append("")
+    return lines
+
+
+# --- FAZ 6b — the daily report becomes the ONE published dashboard. Each
+# section below is the FIRST reader of a ledger that was written every cycle
+# and read by nothing: plan_016 counters had no scheduled caller,
+# observability dashboards.jsonl had zero readers, mission events reached no
+# operator surface, and quarantine state was visible only via CLI. Report-time
+# reads over append-only ledgers; every section is silent (not broken) when
+# its ledger does not exist yet.
+
+
+def _render_plan016_section(root: Path) -> list[str]:
+    try:
+        from .plan_016_metrics import compute_plan_016_metrics
+
+        metrics = compute_plan_016_metrics(base_dir=root)
+    except Exception:
+        return []
+    if not metrics:
+        return []
+    return [
+        "## Plan-016 Counters",
+        "",
+        *[f"- {name}: {value}" for name, value in sorted(metrics.items())],
+        "",
+    ]
+
+
+def _render_observability_section(root: Path) -> list[str]:
+    try:
+        from .observability import list_observability_dashboards
+
+        dashboards = list_observability_dashboards(base_dir=root)
+    except Exception:
+        return []
+    if not dashboards:
+        return []
+    latest = dashboards[-1]
+    rolling = latest.get("rolling_slo") or {}
+    alerts = latest.get("alerts") or []
+    lines = [
+        "## SLO / Alerts",
+        "",
+        f"- SLO state: {rolling.get('slo_state', 'unknown')} "
+        f"(window {rolling.get('window', 0)}, "
+        f"p50 {rolling.get('duration_p50_ms', 0)}ms, "
+        f"p95 {rolling.get('duration_p95_ms', 0)}ms)",
+        f"- Alerts this cycle: {len(alerts)}",
+    ]
+    # M10/E8 — read the fields the producer actually writes.
+    # `_record_alerts` emits {reason, slo_state, observed}; this renderer
+    # read alert_kind/kind + message/detail — none of which exist — so
+    # every alert an operator ever saw rendered as "None: ". A writer-
+    # reader field mismatch is invisible to CI until someone reads the
+    # report next to the producer, which is what the E8 sweep is.
+    for alert in alerts[:5]:
+        if isinstance(alert, dict):
+            lines.append(
+                f"  - {alert.get('reason', 'unknown')} "
+                f"[{alert.get('slo_state', '?')}] "
+                f"observed={alert.get('observed')}"
+            )
+    # M10/E8 — alerts.jsonl gets its first reader. The ledger had three
+    # writers' worth of history and no consumer: the inline `alerts` list
+    # above shows only THIS cycle, so a degradation trend across nights
+    # was invisible. One honest window line makes the ledger load-bearing.
+    try:
+        from .observability import alerts_path
+
+        # Same trust level as the producer: _record_alerts appends via the
+        # hash-chained append_jsonl, so the verified loader is its mirror.
+        history = load_jsonl_verified(alerts_path(root))
+    except Exception:
+        history = []
+    if history:
+        recent = history[-20:]
+        by_reason: dict[str, int] = {}
+        for row in recent:
+            key = str(row.get("reason") or "unknown")
+            by_reason[key] = by_reason.get(key, 0) + 1
+        summary = ", ".join(f"{k}×{v}" for k, v in sorted(by_reason.items()))
+        lines.append(f"- Alert history (last {len(recent)} rows): {summary}")
+    lines.append("")
+    return lines
+
+
+def _render_learning_events_section(root: Path) -> list[str]:
+    """M9/E8 — the learning journal's FIRST reader.
+
+    Three writers (memory belief/convention recording, goldset promotion,
+    pr-tracking merge outcomes) appended to memory/learning-events.jsonl and
+    nothing ever read it: a system billed as never-forgetting kept a journal
+    of what it learned that no decision or report consumed. This section is
+    deliberately a summary, not a dump — the ledger stays the archive; the
+    report answers "did ARIA learn anything tonight, and what kind?".
+    """
+    try:
+        from .ledger import load_declared_jsonl
+
+        rows = load_declared_jsonl(
+            root / "memory" / "learning-events.jsonl",
+            expected_surface="memory_learning_events",
+        )
+    except Exception:
+        return []
+    if not rows:
+        return []
+    recent = rows[-50:]
+    by_type: dict[str, int] = {}
+    for row in recent:
+        key = str(row.get("event_type") or "unknown")
+        by_type[key] = by_type.get(key, 0) + 1
+    lines = [
+        "## Learning Events",
+        "",
+        f"- Journal rows: {len(rows)} total",
+        "- Last "
+        + str(len(recent))
+        + ": "
+        + ", ".join(f"{k}×{v}" for k, v in sorted(by_type.items())),
+    ]
+    last = recent[-1]
+    lines.append(
+        f"- Most recent: {last.get('event_type')} → "
+        f"{last.get('target_type')}:{str(last.get('target_id'))[:60]} "
+        f"(cycle {last.get('cycle_id')})"
+    )
+    lines.append("")
+    return lines
+
+
+def _render_mission_section(root: Path) -> list[str]:
+    path = root / "missions" / "mission-events.jsonl"
+    if not path.exists():
+        return []
+    try:
+        from .ledger import load_declared_jsonl
+
+        rows = load_declared_jsonl(path, expected_surface="mission_events")
+    except Exception:
+        return []
+    if not rows:
+        return []
+    state: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        mission_id = str(row.get("mission_id") or "")
+        if not mission_id:
+            continue
+        entry = state.setdefault(mission_id, {"state": "opened"})
+        if row.get("event") == "opened":
+            entry.update({
+                "title": row.get("title"),
+                "source_kind": row.get("source_kind"),
+                "priority": row.get("priority"),
+            })
+        if row.get("to_state"):
+            entry["state"] = row.get("to_state")
+    by_state: dict[str, int] = {}
+    for entry in state.values():
+        by_state[str(entry["state"])] = by_state.get(str(entry["state"]), 0) + 1
+    active = [
+        (mid, entry) for mid, entry in state.items()
+        if entry.get("state") not in ("folded", "closed", "abandoned")
+    ]
+    lines = [
+        "## Missions",
+        "",
+        f"- Total: {len(state)} ("
+        + ", ".join(f"{name}: {count}" for name, count in sorted(by_state.items()))
+        + ")",
+    ]
+    for mid, entry in sorted(active, key=lambda kv: str(kv[1].get("priority")))[:8]:
+        lines.append(
+            f"- [{entry.get('state')}] {entry.get('title') or mid} "
+            f"({entry.get('source_kind')}, priority {entry.get('priority')})"
+        )
+    lines.append("")
+    return lines
+
+
+def _render_quarantine_section(root: Path) -> list[str]:
+    try:
+        from .tool_registry import list_tools
+
+        quarantined = list_tools(status="QUARANTINED", base_dir=root)
+    except Exception:
+        return []
+    if not quarantined:
+        return []
+    lines = [
+        "## Quarantined Tools",
+        "",
+    ]
+    for tool in quarantined:
+        lines.append(
+            f"- {tool.get('tool_id')}: "
+            f"{str(tool.get('quarantine_reason') or tool.get('status_reason') or 'no reason recorded')[:120]}"
+        )
+    lines.append("")
+    return lines
+
+
+def _render_replay_recall_section(reflection: dict[str, Any]) -> list[str]:
+    # C6/E8 — reads the reflection row, not cycles.jsonl: the sealed
+    # CycleRow is frozen+slotted with no judge_replay field, so the old
+    # `row.get("judge_replay")` lookup matched nothing, ever, and this
+    # section was structurally unreachable. The judge_replay phase result
+    # now travels run_reflection's producer-kwargs pipe like every other
+    # producer output.
+    replay = reflection.get("judge_replay") or {}
+    tools = replay.get("tools") or []
+    if not tools:
+        return []
+    # Z2d — the per-tool rows are {tool_id, status, replayed_items}; recall
+    # lives at the PHASE level (`replay_recall`, the calibration dict over
+    # the replay: group). The first draft read row["recall"], which does
+    # not exist, so recall never rendered.
+    recall_summary = replay.get("replay_recall") or {}
+    lines = [
+        "## Judge Replay Recall",
+        "",
+        f"- Replay-judged judges: {recall_summary.get('judged_judges', 0)}",
+        f"- Cycle: `{reflection.get('cycle_id')}`",
+    ]
+    for row in tools[:8]:
+        if not isinstance(row, dict):
+            continue
+        lines.append(
+            f"- {row.get('tool_id')}: {row.get('status')}"
+            + (
+                f" (replayed {row.get('replayed_items')})"
+                if row.get("replayed_items")
+                else ""
+            )
+        )
+    lines.append("")
+    return lines
+
+
+def _render_rule_health_section(root: Path) -> list[str]:
+    """D4 — per-rule TP/FP from ground truth; silent until data exists."""
+    try:
+        from .rule_health import quarantined_rules, rule_stats
+
+        stats = rule_stats(root)
+    except Exception:
+        return []
+    if not stats:
+        return []
+    quarantined = quarantined_rules(root)
+    lines = [
+        "## Rule Health",
+        "",
+        "| Tool | Rule | Judged | TP | FP | Quarantined |",
+        "| --- | --- | ---: | ---: | ---: | --- |",
+    ]
+    for (tool_id, rule), bucket in sorted(stats.items()):
+        lines.append(
+            f"| {tool_id} | {rule} | {bucket['judged']} | "
+            f"{bucket['true_positive']} | {bucket['false_positive']} | "
+            f"{'YES' if (tool_id, rule) in quarantined else 'no'} |"
+        )
+    lines.append("")
+    return lines
+
+
+def _render_duel_ratings_section(root: Path) -> list[str]:
+    """Z6 — read-time Bradley-Terry scores over the duel ledger.
+
+    The ledger stores OUTCOMES (verdicts per direction); the scores are
+    recomputed here at render time from those rows alone, so the number an
+    operator reads is the number replay derives — nothing stored, nothing
+    to drift. Silent until the ledger holds at least one decided duel.
+    """
+    try:
+        from .calibrated_intelligence import bradley_terry
+        from .genesis_superiority import duel_observations
+
+        observations = duel_observations(base_dir=root)
+    except Exception:
+        return []
+    if not observations:
+        return []
+    ratings = bradley_terry(observations)
+    lines = [
+        "## Duel Ratings",
+        "",
+        f"- Decided duels: {len(observations)}",
+        "- Ratings (Bradley-Terry, recomputed from the ledger at read time):",
+    ]
+    for agent_id, strength in sorted(
+        ratings.items(), key=lambda item: (-item[1], item[0])
+    ):
+        lines.append(f"  - `{agent_id}`: {strength:.4f}")
+    lines.append("")
+    return lines
+
+
+def _render_own_pr_ci_section(root: Path) -> list[str]:
+    """ARIA's own PRs that are red in CI — the operator's 'it wrote wrong
+    code' view (ORPHAN-HIGH-626). Silent when nothing is red."""
+    try:
+        from .own_pr_ci import load_open_own_pr_reds
+
+        reds = load_open_own_pr_reds(base_dir=root)
+    except Exception:
+        return []
+    if not reds:
+        return []
+    lines = [
+        "## Own PR CI",
+        "",
+    ]
+    for red in sorted(reds, key=lambda r: r.get("pr_number") or 0):
+        jobs = red.get("red_jobs") or []
+        lines.append(
+            f"- PR #{red.get('pr_number')} (`{red.get('head_ref')}`) RED: "
+            f"{', '.join(str(j) for j in jobs) or 'failed checks'} "
+            f"(since {str(red.get('recorded_at') or '')[:16]})"
+        )
+    lines.append("")
+    return lines
+
+
+def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
+    day = str(reflection["recorded_at"])[:10]
+    path = root / "reports" / "daily" / f"{day}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    file_counts = file_counts_from_payload(reflection.get("coverage", {}))
+    hr = reflection.get("human_required") or {"open": 0, "breaching_sla": 0, "items": []}
+    hr_open = hr.get("open", 0)
+    hr_breach = hr.get("breaching_sla", 0)
+    ga = reflection.get("gate_activity") or {"total_events": 0, "by_kind": {}, "recent_24h": {}, "window_hours": 24}
+    ga_recent = ga.get("recent_24h") or {}
+    top_recent = list(ga_recent.items())[:8]
+    lines = [
+        f"# ARIA Daily Report {day}",
+        "",
+        "## Gate Activity",
+        "",
+        f"- Total governance events: {ga.get('total_events', 0)}",
+        f"- Events in last {ga.get('window_hours', 24)}h: {sum(ga_recent.values())}",
+        *(
+            [f"  - {kind}: {count}" for kind, count in top_recent]
+            or ["  - (no governance events in window)"]
+        ),
+        "",
+        "## HUMAN_REQUIRED",
+        "",
+        f"- Open: {hr_open}",
+        f"- Breaching SLA: {hr_breach}",
+        *(
+            [
+                f"- **ESKALASYON**: {count} item(s) at tier '{tier}' — operator action overdue"
+                for tier, count in sorted((hr.get("tiers") or {}).items())
+                if tier != "breach" and count
+            ]
+        ),
+        *(
+            [
+                f"- {item.get('request_id')} [{item.get('severity')}]"
+                + (f" tier={item.get('sla_tier')}" if item.get('sla_tier') and item.get('sla_tier') != 'breach' else "")
+                + f" sla {item.get('sla_deadline')} — {item.get('reason', '')[:80]}"
+                for item in hr.get("items") or []
+            ]
+            or ["- (no operator-triage queue items)"]
+        ),
+        "",
+        "## Coverage",
+        "",
+        f"- Git tracked: {file_counts.get('git_tracked', 0)}",
+        f"- Working-tree: {file_counts.get('working_tree', 0)}",
+        f"- Allowed: {file_counts.get('allowed', 0)}",
+        f"- Generated: {file_counts.get('generated', 0)}",
+        f"- Fated: {file_counts.get('fated', 0)}",
+        f"- Discovery complete: {reflection['coverage'].get('complete', False)}",
+        f"- Snapshot mode: {reflection['coverage'].get('snapshot_mode', 'unknown')}",
+        f"- Dirty snapshot: {reflection['coverage'].get('dirty_snapshot', False)}",
+        f"- Dirty path count: {reflection['coverage'].get('dirty_path_count', 0)}",
+        "",
+        "## Beliefs",
+        "",
+        f"- Total: {reflection['belief_summary'].get('total', 0)}",
+        f"- Supported: {reflection['belief_summary'].get('supported', 0)}",
+        "",
+        "## Stale / Revalidation",
+        "",
+        f"- Needs revalidation: {reflection['belief_summary'].get('needs_revalidation', 0)}",
+        f"- Stale: {reflection['belief_summary'].get('stale', 0)}",
+        "",
+        "## Top Pressures",
+        "",
+        *[
+            f"- {item.get('pressure_id')}: {item.get('score')} - {item.get('reason')}"
+            for item in reflection.get("top_pressures", [])
+        ],
+        *_render_experiment_night_section(reflection),
+        *_render_watchdog_section(reflection),
+        *_render_bridge_health_section(reflection),
+        "",
+        "## Tool Health",
+        "",
+        f"- Cycle: `{reflection['cycle_id']}`",
+        f"- Tool runs: {reflection['tool_run_count']}",
+        f"- OK runs: {reflection['ok_run_count']}",
+        f"- Failed runs: {reflection['failed_run_count']}",
+        f"- Operator-facing findings: {reflection['operator_facing_findings']}",
+        f"- Operator-facing observations: {reflection['operator_facing_observations']}",
+        f"- Suppressed SHADOW findings: {reflection['suppressed_shadow_findings']}",
+        f"- Invalid evidence count: {reflection['invalid_evidence_count']}",
+        f"- Snapshot outside path count: {reflection['snapshot_outside_path_count']}",
+        f"- Pressure: {reflection['pressure_summary']}",
+        "",
+        "### Raw Adapter Runtime",
+        "",
+        "| Tool | Raw findings | Raw observations | Emitted findings | Emitted observations | Suppressed SHADOW findings | Invalid evidence | Delta vs previous cycle |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        *[
+            "| {tool_id} | {raw_findings} | {raw_observations} | {emitted_findings} | {emitted_observations} | {suppressed_shadow_findings} | {invalid_evidence_count} | {raw_finding_delta_vs_prev_cycle} |".format(**row)
+            for row in reflection.get("tool_runtime", [])
+        ],
+        "",
+        "## Auto-Merge",
+        "",
+        f"- Eligible: {reflection['auto_merge_summary'].get('eligible', 0)}",
+        f"- Blocked: {reflection['auto_merge_summary'].get('blocked', 0)}",
+        f"- Merged: {reflection['auto_merge_summary'].get('merged', 0)}",
+        f"- Failed: {reflection['auto_merge_summary'].get('failed', 0)}",
+        "",
+        # Plan ARIA-V5 §3f v2 — Convergence + Pedagogy sections render
+        # only when reflection schema_version >= 2 AND the orchestrator
+        # supplied verdicts. Direct CLI path emits null sub-objects so
+        # the sections appear empty / are skipped entirely.
+        *_render_convergence_section(reflection),
+        *_render_pedagogy_section(reflection),
+        *_render_calibration_section(reflection),
+        *_render_calibration_recommendation_section(reflection),
+        *_render_dataflow_health_section(reflection),
+        *_render_label_queue_section(root),
+        *_render_own_pr_ci_section(root),
+        *_render_proactive_section(reflection),
+        # FAZ 6b — the report is the one published dashboard: counters, SLO,
+        # missions, quarantine, replay recall (each ledger's first reader).
+        *_render_plan016_section(root),
+        *_render_observability_section(root),
+        *_render_learning_events_section(root),
+        *_render_mission_section(root),
+        *_render_quarantine_section(root),
+        *_render_replay_recall_section(reflection),
+        *_render_duel_ratings_section(root),
+        *_render_rule_health_section(root),
+        "## Committed Findings",
+        "",
+        f"- Total: {reflection.get('committed_findings', {}).get('total', 0)}",
+        f"- Open: {reflection.get('committed_findings', {}).get('open', 0)}",
+        *(
+            [f"- Recent: {row.get('finding_id')} [{row.get('severity')}] ({row.get('claim_type')}) — {row.get('claim_summary', '')[:80]}"
+             for row in reflection.get('committed_findings', {}).get('recent', [])]
+            or ["- (no committed findings yet)"]
+        ),
+        "",
+        # E15-b — the operator reads the platform per microservice; the
+        # report groups findings on the same axis (open-count descending).
+        "### Findings by service",
+        "",
+        *(
+            [
+                f"- {svc}: {counts.get('open', 0)} open / {counts.get('total', 0)} total"
+                for svc, counts in sorted(
+                    reflection.get('committed_findings', {}).get('by_service', {}).items(),
+                    key=lambda item: (-item[1].get('open', 0), item[0]),
+                )
+            ]
+            or ["- (no service-dimensioned findings yet)"]
+        ),
+        "",
+        "## Open Debts",
+        "",
+        f"- Total: {reflection.get('committed_debts', {}).get('total', 0)}",
+        f"- Open: {reflection.get('committed_debts', {}).get('open', 0)}",
+        f"- Overdue: {reflection.get('committed_debts', {}).get('overdue', 0)}",
+        *(
+            [f"- {row.get('debt_id')} [{row.get('severity')}] due {row.get('due_date', '')} — owner {row.get('permanent_fix_owner')} (originating {row.get('originating_finding_id')})"
+             for row in reflection.get('committed_debts', {}).get('recent', [])]
+            or ["- (no committed debts yet)"]
+        ),
+        "",
+        "## Next Cycle Plan",
+        "",
+        *[
+            f"- {item.get('pressure_id')}: {item.get('recommended_action')}"
+            for item in reflection.get("next_cycle_plan", [])
+        ],
+        "",
+    ]
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def _emitted_count(run: dict[str, Any], kind: str) -> int:
+    """ORPHAN-HIGH-798 — int-tolerant emitted count across row generations.
+
+    Pre-798 rows carry inline arrays (`emitted_findings: [...]`); post-798
+    rows carry `emitted_counts: {"findings": N}` (the arrays moved to the
+    artifact payload; the row keeps only the count). Both must read the
+    same number.
+    """
+    counts = run.get("emitted_counts")
+    if isinstance(counts, dict):
+        return int(counts.get(kind, 0))
+    legacy = run.get(f"emitted_{kind}")
+    if isinstance(legacy, list):
+        return len(legacy)
+    if isinstance(legacy, int):
+        return legacy
+    return 0
+
+
+def _coverage(root: Path, cycle_id: str) -> dict[str, Any]:
+    path = root / "discovery" / cycle_id / "COMPLETION_PROOF.json"
+    if not path.exists():
+        return {}
+    import json
+
+    with path.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    return payload if isinstance(payload, dict) else {}
+
+
+def _belief_summary(beliefs: list[dict[str, Any]]) -> dict[str, int]:
+    statuses = ["supported", "contradicted", "needs_revalidation", "stale", "withdrawn"]
+    summary = {"total": len(beliefs)}
+    for status in statuses:
+        summary[status] = sum(1 for belief in beliefs if belief.get("status") == status)
+    return summary
+
+
+def _tool_health(runs: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "tools": sorted({str(run.get("tool_id")) for run in runs if run.get("tool_id")}),
+        "quarantine_signals": sum(1 for run in runs if run.get("status") in ("evidence_error", "scope_violation")),
+    }
+
+
+def _tool_runtime_table(
+    runs: list[dict[str, Any]],
+    all_runs: list[dict[str, Any]],
+    cycle_id: str,
+) -> list[dict[str, Any]]:
+    rows = []
+    for run in sorted(runs, key=lambda item: str(item.get("tool_id"))):
+        tool_id = str(run.get("tool_id") or "")
+        raw_findings = int(run.get("runner", {}).get("raw_findings_count") or 0)
+        raw_observations = int(run.get("runner", {}).get("raw_observations_count") or 0)
+        emitted_findings = _emitted_count(run, "findings")
+        emitted_observations = _emitted_count(run, "observations")
+        previous = _previous_tool_run(all_runs, tool_id, cycle_id)
+        previous_raw = int(previous.get("runner", {}).get("raw_findings_count") or 0) if previous else 0
+        rows.append(
+            {
+                "tool_id": tool_id,
+                "raw_findings": raw_findings,
+                "raw_observations": raw_observations,
+                "emitted_findings": emitted_findings,
+                "emitted_observations": emitted_observations,
+                "suppressed_shadow_findings": max(0, raw_findings - emitted_findings),
+                "invalid_evidence_count": _invalid_evidence_count([run]),
+                "snapshot_outside_path_count": _snapshot_outside_path_count([run]),
+                "raw_finding_delta_vs_prev_cycle": raw_findings - previous_raw,
+                "previous_cycle_id": previous.get("cycle_id") if previous else None,
+            },
+        )
+    return rows
+
+
+def _invalid_evidence_count(runs: list[dict[str, Any]]) -> int:
+    return sum(1 for run in runs for error in _validation_errors(run) if str(error.get("code", "")).endswith("_outside_snapshot") or str(error.get("code")) in {"read_path_outside_snapshot", "evidence_outside_snapshot"})
+
+
+def _snapshot_outside_path_count(runs: list[dict[str, Any]]) -> int:
+    paths = set()
+    for run in runs:
+        for error in _validation_errors(run):
+            if str(error.get("code", "")).endswith("_outside_snapshot") or str(error.get("code")) in {"read_path_outside_snapshot", "evidence_outside_snapshot"}:
+                path = error.get("path")
+                if isinstance(path, str) and path:
+                    paths.add(path)
+    return len(paths)
+
+
+def _validation_errors(run: dict[str, Any]) -> list[dict[str, Any]]:
+    errors = run.get("evidence_validation", {}).get("errors", [])
+    return [error for error in errors if isinstance(error, dict)] if isinstance(errors, list) else []
+
+
+def _previous_tool_run(all_runs: list[dict[str, Any]], tool_id: str, cycle_id: str) -> dict[str, Any] | None:
+    previous = [
+        run
+        for run in all_runs
+        if run.get("tool_id") == tool_id and run.get("cycle_id") != cycle_id and str(run.get("cycle_id")) < cycle_id
+    ]
+    return previous[-1] if previous else None
+
+
+def _auto_merge_summary(decisions: list[dict[str, Any]]) -> dict[str, int]:
+    return {
+        "eligible": sum(1 for row in decisions if row.get("decision") == "eligible"),
+        "blocked": sum(1 for row in decisions if row.get("decision") == "blocked"),
+        "merged": sum(1 for row in decisions if row.get("decision") == "merged"),
+        "failed": sum(1 for row in decisions if row.get("decision") == "failed"),
+    }
+
+
+def _latest_by_id(rows: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
+    latest: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        value = row.get(key)
+        if isinstance(value, str) and value:
+            latest[value] = row
+    return list(latest.values())

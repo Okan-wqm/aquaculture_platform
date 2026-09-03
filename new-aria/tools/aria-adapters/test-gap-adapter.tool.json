@@ -1,0 +1,65 @@
+{
+  "tool_id": "test-gap-adapter",
+  "kind": "adapter",
+  "version": "1.1.0",
+  "status": "SHADOW",
+  "declared_scope": [
+    "apps/**/*.{ts,tsx}",
+    "libs/**/*.{ts,tsx}",
+    "platform/libs/**/*.{ts,tsx}",
+    "web/**/*.{ts,tsx}"
+  ],
+  "output_schema": {
+    "type": "object",
+    "required": ["observations", "findings", "read_paths", "evidence_sources"]
+  },
+  "fixture_set": "tools/aria-adapters/fixtures/test-gap-adapter",
+  "health_thresholds": {
+    "max_cost_units": 5500
+  },
+  "default_input": {
+    "roots": ["apps", "libs", "platform/libs", "web"],
+    "includeWriteBoundaryFindings": false
+  },
+  "allowed_read_globs": [
+    "apps/**/*.ts",
+    "apps/**/*.tsx",
+    "libs/**/*.ts",
+    "libs/**/*.tsx",
+    "platform/libs/**/*.ts",
+    "platform/libs/**/*.tsx",
+    "web/**/*.ts",
+    "web/**/*.tsx"
+  ],
+  "forbidden_read_globs": [
+    ".claude/**",
+    ".git/**",
+    "agent-workspace/**",
+    ".aria-poc/**",
+    "aria-tools/**",
+    "node_modules/**",
+    "dist/**",
+    "coverage/**",
+    "build/**",
+    "tmp/**"
+  ],
+  "claim_types": ["test_gap"],
+  "owner": "platform",
+  "runner": {
+    "type": "subprocess",
+    "argv": [
+      "npx",
+      "ts-node",
+      "--project",
+      "tools/gates/tsconfig.json",
+      "tools/aria-adapters/test-gap-adapter.ts"
+    ],
+    "cwd": ".",
+    "timeout_ms": 180000,
+    "stdin_json": true,
+    "node_max_old_space_mb": 3072
+  },
+  "freshness_window_hours": 168,
+  "parse_window_signature": "sha256:ddf30a8910c1c38fe624009d58cc057efa8d6af46dd25e0fa7d652dd43d28507",
+  "schema_version": 1
+}

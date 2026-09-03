@@ -89,6 +89,10 @@ const KNOWN_UNRUNNABLE_SPECS: ReadonlySet<string> = new Set([
   'web/apps/aquamobil',
   'tools/lint-gates',
   'tools/worktree-audit',
+  // new-aria/ is a verbatim transport copy of the ARIA surface that leaves this
+  // repository as-is; its gate specs are run by new-aria/package.json
+  // (aria:gates:test) in the destination repository, never by a lane here.
+  'new-aria',
 ]);
 
 function isKnownUnrunnable(relPath: string): boolean {

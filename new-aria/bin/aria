@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# WHY: one entrypoint for the container and for operators, so every invocation
+# imports the kernel from THIS tree (PYTHONPATH) and never from a stray install.
+# WHAT: forwards every argument to the kernel CLI (`aria-kernel ...`).
+set -euo pipefail
+ARIA_HOME="${ARIA_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+export PYTHONDONTWRITEBYTECODE=1
+export PYTHONUNBUFFERED=1
+export PYTHONPATH="${ARIA_HOME}/aria-kernel:${ARIA_HOME}${PYTHONPATH:+:$PYTHONPATH}"
+cd "${ARIA_HOME}"
+exec python3 -m aria_kernel "$@"

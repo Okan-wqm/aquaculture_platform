@@ -1,0 +1,22 @@
+{
+  "name": "real-repo-baseline",
+  "lane": "real_repo_baseline",
+  "input": {
+    "roots": ["apps", "libs", "platform/libs", "web"]
+  },
+  "expected": {
+    "status": "ok",
+    "required_observations": [
+      "test_gap_source_file",
+      "test_gap_test_file",
+      "test_gap_coverage_summary"
+    ],
+    "required_observation_values": [
+      {
+        "type": "test_gap_coverage_summary",
+        "details.scanMode": "import_graph_v1"
+      }
+    ],
+    "max_findings": 300
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "$schema": "aria/failure-mode-vocab/v3",
+  "version": 3,
+  "modes": [
+    {"id": "adapter_missing"},
+    {"id": "dynamic_option_provider"},
+    {"id": "evidence_contradiction"},
+    {"id": "evidence_gap"},
+    {"id": "framework_convention_false_positive"},
+    {"id": "schema_drift"},
+    {"id": "scope_violation"},
+    {"id": "tenant_isolation_bypass"},
+    {"id": "tool_unhealthy"}
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "$schema": "aria/agent-eval-fixture/v1",
+  "expected_evidence_refs": [
+    "docs/aria/reviews/2026-05-07-plan-016-implementation-review.md:71",
+    "docs/aria/reviews/2026-05-07-plan-016-implementation-review.md:98"
+  ],
+  "expected_verdict_class": "WITHDRAWN_AS_FALSE_POSITIVE",
+  "fixture_hash": "0058ef9617599c5f",
+  "fixture_id": "F002_ADVERSARIAL_JUDGE_STALENESS",
+  "input_envelope": {
+    "$schema": "aria/agent-request/v1",
+    "claim_summary": "Plan 016 SHADOW arc: every adapter run hits empty stub; finding cites prior reviews recorded > 14 days ago without re-validation",
+    "evidence_refs": [
+      "docs/aria/reviews/2026-05-07-plan-016-implementation-review.md:71",
+      "docs/aria/reviews/2026-05-07-plan-016-implementation-review.md:98"
+    ],
+    "finding_id": "F-002",
+    "must_satisfy": [
+      {
+        "id": "MS-1",
+        "rule": "verdict_class identifies staleness or self-reference"
+      },
+      {
+        "id": "MS-2",
+        "rule": "evidence_refs include the original review documents"
+      }
+    ],
+    "schema_version": 1
+  },
+  "max_rounds": 3,
+  "max_tokens": 32000,
+  "pinned_commit_sha": "c3cf7a2ebe5e547c9cd11230f780be6df548bd1c",
+  "recorded_at": "2026-08-05T10:51:14+00:00",
+  "role": "adversarial_judgment",
+  "schema_version": 1,
+  "target_agent": "aria-adversarial-judge"
+}

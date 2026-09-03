@@ -288,6 +288,11 @@ export default [
       // decorator/import shapes the cases exercise. Linting them as
       // project code fails on exactly what they exist to contain.
       'tools/aria-adapters/fixtures/*/workspaces/**',
+      // new-aria/ is a verbatim transport copy of the ARIA surface, moved as-is to
+      // its own repository. Its TypeScript is linted at the canonical paths above;
+      // no parserOptions.project covers the mirrored paths, so typed rules would
+      // fail to parse rather than lint.
+      'new-aria/**',
     ],
   },
 

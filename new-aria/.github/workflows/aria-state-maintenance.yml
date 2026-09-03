@@ -1,0 +1,98 @@
+name: ARIA State Maintenance
+
+# =============================================================================
+# Why this exists: the aria/state branch accumulated 842MB of historical
+# data (runs, raw-findings, hot artifacts). The nightly cycle OOMs on
+# restore because cloning 842MB on a 7.8GB shared runner exceeds memory.
+# The auto-compact at cycle-end never fires because the cycle can't
+# complete — a catch-22.
+#
+# This lane breaks the loop: it runs INDEPENDENTLY of the cycle (on a
+# GitHub-hosted runner with no memory constraint), compacts the state,
+# and pushes the slim branch. The cycle then restores a small state.
+#
+# It also cleans hot artifacts — the single biggest contributor (529MB
+# from old cycles' tool_run.json files) that the JSONL-only compact
+# never touched.
+# =============================================================================
+
+on:
+  schedule:
+    # 15:13 UTC daily — two hours before the 17:13 UTC cycle
+    - cron: '13 15 * * *'
+  workflow_dispatch:
+    inputs:
+      retain_days:
+        description: 'Days of data to retain (default 7)'
+        default: '7'
+        required: false
+
+permissions:
+  contents: write
+  actions: read
+  issues: write
+
+concurrency:
+  group: aria-state-maintenance
+  cancel-in-progress: false
+
+jobs:
+  compact:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-aria-kernel
+
+      - name: Clone aria/state branch
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch aria/state \
+            "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" \
+            /tmp/state-store
+          du -sh /tmp/state-store/tools/ || echo "empty state"
+
+      - name: Compact surfaces and strip old artifacts (canonical CLI)
+        # ARIA-AUDIT-001: this step used to carry an INLINE copy of the
+        # compactor. It silently skipped malformed lines, rewrote ledgers
+        # without re-chaining the hash chain, and pushed the result green —
+        # a second implementation drifting from the kernel's. The lane now
+        # runs the one canonical compactor (aria_kernel.state_compact via
+        # the CLI), which fails on malformed rows, re-chains every rewrite,
+        # archives pristine stripped rows, and records a governance event.
+        # JSONL surfaces AND the hot-artifact/FATES cleanup live there.
+        env:
+          RETAIN_DAYS: ${{ github.event.inputs.retain_days || '7' }}
+        run: |
+          set -euo pipefail
+          BEFORE=$(du -sb /tmp/state-store/tools/ | cut -f1)
+          PYTHONPATH=aria-kernel python3 -m aria_kernel state compact \
+            --tools-dir /tmp/state-store/tools \
+            --retain-days "$RETAIN_DAYS"
+          AFTER=$(du -sb /tmp/state-store/tools/ | cut -f1)
+          echo "compact_result: before=${BEFORE} after=${AFTER} saved=$((BEFORE - AFTER))"
+
+      - name: Commit and push compacted state
+        run: |
+          set -euo pipefail
+          cd /tmp/state-store
+          git config user.name "aria-state-maintenance"
+          git config user.email "aria-state-maintenance@users.noreply.github.com"
+          if git diff --quiet; then
+            echo "No changes — state already compact"
+            exit 0
+          fi
+          git add -A
+          git commit -m "chore(state): automated compaction — stripped old runs/findings/artifacts"
+          git push origin aria/state
+          echo "PUSHED compacted state"
+
+      - name: Report size
+        if: always()
+        run: |
+          du -sh /tmp/state-store/tools/ 2>/dev/null || echo "N/A"
+          echo "Branch size after compaction: $(du -sh /tmp/state-store/tools/ 2>/dev/null | cut -f1)"

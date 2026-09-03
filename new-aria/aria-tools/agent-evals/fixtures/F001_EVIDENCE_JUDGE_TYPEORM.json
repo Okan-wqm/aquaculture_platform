@@ -1,0 +1,39 @@
+{
+  "$schema": "aria/agent-eval-fixture/v1",
+  "expected_evidence_refs": [
+    "apps/observability-service/src/database/migrations/1806300000000-AddMigrationBackfillProgress.ts:1",
+    "apps/observability-service/src/database/migrations/1806100000000-AddSchemaObjectHistory.ts:1",
+    "apps/observability-service/src/database/migrations/1805000000000-AddTenantCostRollup.ts:1"
+  ],
+  "expected_verdict_class": "ACCEPTED",
+  "fixture_hash": "4d2a364a481ebc5b",
+  "fixture_id": "F001_EVIDENCE_JUDGE_TYPEORM",
+  "input_envelope": {
+    "$schema": "aria/agent-request/v1",
+    "claim_summary": "TypeORM migration boilerplate duplication across services",
+    "evidence_refs": [
+      "apps/observability-service/src/database/migrations/1806300000000-AddMigrationBackfillProgress.ts:1",
+      "apps/observability-service/src/database/migrations/1806100000000-AddSchemaObjectHistory.ts:1",
+      "apps/observability-service/src/database/migrations/1805000000000-AddTenantCostRollup.ts:1"
+    ],
+    "finding_id": "F-001",
+    "must_satisfy": [
+      {
+        "id": "MS-1",
+        "rule": "evidence_refs cite at least 3 migration files"
+      },
+      {
+        "id": "MS-2",
+        "rule": "verdict_class is ACCEPTED or WITHDRAWN_AS_FALSE_POSITIVE"
+      }
+    ],
+    "schema_version": 1
+  },
+  "max_rounds": 3,
+  "max_tokens": 32000,
+  "pinned_commit_sha": "c3cf7a2ebe5e547c9cd11230f780be6df548bd1c",
+  "recorded_at": "2026-08-05T10:51:14+00:00",
+  "role": "evidence_judgment",
+  "schema_version": 1,
+  "target_agent": "aria-evidence-judge"
+}

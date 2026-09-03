@@ -1,0 +1,34 @@
+{
+  "name": "new-aria",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Standalone transport copy of the ARIA repository-shaped intelligence surface: kernel, executor, adapters, agent prompts, contracts, CI lanes. Moved as-is to its own repository and run in Docker.",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22.0.0",
+    "npm": ">=10.0.0"
+  },
+  "scripts": {
+    "aria": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel:. python3 -m aria_kernel",
+    "aria:compile": "PYTHONPATH=aria-kernel python3 -c \"from pathlib import Path; [compile(p.read_text(encoding='utf-8'), str(p), 'exec') for p in Path('aria-kernel').rglob('*.py') if '__pycache__' not in p.parts]\"",
+    "aria:test:unit": "bash scripts/ci/aria-suite-run.sh",
+    "aria:test:poc": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:aria-kernel python3 -m unittest discover tools/aria-poc/invariants -p '*test*.py'",
+    "aria:test:shared": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:aria-kernel python3 -m unittest discover tools/shared/invariants -p '*test*.py'",
+    "aria:adapters:test": "bash scripts/ci/aria-adapters-test.sh",
+    "aria:gates:test": "npx ts-node --project tools/gates/tsconfig.json tools/gates/aria-authority-hash.spec.ts && npx ts-node --project tools/gates/tsconfig.json tools/gates/plan-coverage-witness.spec.ts",
+    "aria:pedagogy:lint": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel.pedagogy_lint --agents-dir .claude/agents --allowlist tests/invariants/agent-pedagogy.allowlist.json --strict --format text",
+    "aria:specialist-review:dry-run": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel specialist-review dry-run --agents-dir .claude/agents",
+    "aria:acceptance": "PYTHONDONTWRITEBYTECODE=1 python3 tools/aria-acceptance/harness.py",
+    "aria:burnin:observe": "PYTHONPATH=aria-kernel python3 -m aria_kernel autonomy burn-in observe",
+    "aria:authority-hash": "npx ts-node --project tools/gates/tsconfig.json tools/gates/aria-authority-hash.ts",
+    "aria:authority-hash:write": "npx ts-node --project tools/gates/tsconfig.json tools/gates/aria-authority-hash.ts --write",
+    "aria:ci:all": "npm run aria:compile && npm run aria:test:unit && npm run aria:test:poc && npm run aria:test:shared && npm run aria:adapters:test && npm run aria:gates:test && npm run aria:pedagogy:lint && npm run aria:specialist-review:dry-run",
+    "docker:build": "docker build -t new-aria:local .",
+    "docker:smoke": "docker compose --profile smoke run --rm smoke"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.9",
+    "ts-node": "10.9.2",
+    "typescript": "5.9.3"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "schema_version": 2,
+  "tool_id": "fixture-tool",
+  "status": "SHADOW",
+  "action": "none",
+  "reason": "fixture",
+  "metrics": {}
+}

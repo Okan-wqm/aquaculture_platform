@@ -1,0 +1,158 @@
+name: ARIA Operational Proof
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aria-operational-proof-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    # Measured hosted suite time has exceeded 45 minutes, and the observe
+    # burn-in adds about 19 minutes. Include setup and variance headroom.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-aria-kernel
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund --prefer-offline --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
+
+      - name: Compile ARIA kernel
+        run: npm run aria:compile
+
+      - name: Run ARIA unit and invariant suite
+        run: npm run aria:test:unit
+
+      - name: Run ARIA docs/runtime SSoT invariant
+        run: npm run aria:docs:ssot
+
+      - name: Persist enterprise workflow preflight
+        env:
+          PROOF_DIR: ${{ runner.temp }}/aria-operational-proof
+          PYTHONPATH: aria-kernel
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          from aria_kernel.preflight import verify_workflow_preflight
+
+          proof_dir = Path(os.environ["PROOF_DIR"])
+          verdict = verify_workflow_preflight(
+              workflow_id="aria-operational-proof",
+              job_id="proof",
+              profile="strict",
+              workspace_root=os.environ["GITHUB_WORKSPACE"],
+              allowed_write_roots=[str(proof_dir)],
+              path_allowlist=[str(proof_dir)],
+              external_root_allowlist=[str(Path(os.environ["RUNNER_TEMP"]).resolve())],
+              network_policy=["github_artifact"],
+              network_enforcement_evidence="actions/upload-artifact only after local burn-in proof",
+              token_provenance="github_actions_artifact_token",
+              require_github_app=False,
+              dlp_mode="fail_closed",
+              dlp_scan_clean=True,
+              audit_reason="persist ARIA observe burn-in proof artifact",
+              audit_artifact_path=proof_dir / "workflow-preflight.json",
+          )
+          if not verdict.valid:
+              raise SystemExit(";".join(verdict.reasons))
+          PY
+
+      - name: Run observe burn-in proof
+        env:
+          ARIA_DRY_RUN: 'true'
+          CLAUDE_CODE_MOCK: 'true'
+          # Step-wide so the bare python3 heredocs (proof summary at the end
+          # of this step) import aria_kernel exactly like the prefixed CLI
+          # invocations do — the first live run failed only in the summary
+          # wrapper because the prefix was per-invocation.
+          PYTHONPATH: 'aria-kernel:.'
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          set -euo pipefail
+
+          export PROOF_DIR="$RUNNER_TEMP/aria-operational-proof"
+          export TOOLS_DIR="$(mktemp -d "$RUNNER_TEMP/aria-tools.XXXXXX")"
+          export WORKSPACE_BASE="$(mktemp -d "$RUNNER_TEMP/aria-workspaces.XXXXXX")"
+          export BURN_IN_OUTPUT_DIR="$TOOLS_DIR/burn-in/run-${{ github.run_id }}"
+          mkdir -p "$PROOF_DIR"
+
+          PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel:. python3 -m aria_kernel \
+            integrity migrate-tools-bootstrap \
+            --tools-dir "$TOOLS_DIR" \
+            --workspace-root "$GITHUB_WORKSPACE" \
+            --acknowledge \
+            --reason "gha observe burn-in bootstrap"
+
+          PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel:. python3 -m aria_kernel \
+            autonomy burn-in observe \
+            --tools-dir "$TOOLS_DIR" \
+            --workspace-root "$GITHUB_WORKSPACE" \
+            --workspace-base "$WORKSPACE_BASE" \
+            --target-ref "$GITHUB_SHA" \
+            --cycles 30 \
+            --min-valid-cycles 20 \
+            --output-dir "$BURN_IN_OUTPUT_DIR" \
+            > "$PROOF_DIR/autonomy-burn-in-report.stdout.json"
+
+          cp -R "$BURN_IN_OUTPUT_DIR"/. "$PROOF_DIR"/
+
+          python3 - <<'PY' > "$PROOF_DIR/proof-summary.json"
+          import json
+          import os
+          from pathlib import Path
+
+          from aria_kernel.burn_in import verify_burn_in_artifact_bundle
+
+          proof_dir = Path(os.environ["PROOF_DIR"])
+          bundle_verdict = verify_burn_in_artifact_bundle(proof_dir)
+          report = json.loads((proof_dir / "autonomy-burn-in-report.json").read_text())
+          summary = {
+              "schema_version": 1,
+              "status": report["acceptance_verdict"],
+              "target_sha": os.environ["GITHUB_SHA"],
+              "tools_dir": os.environ["TOOLS_DIR"],
+              "workspace_base": os.environ["WORKSPACE_BASE"],
+              "burn_in_report": "autonomy-burn-in-report.json",
+              "evidence_bundle": "evidence-bundle.json",
+              "cycle_attempts": report["cycle_attempts"],
+              "valid_cycles": report["valid_cycles"],
+              "acceptance_conditions": report["acceptance_conditions"],
+              "report_hash": bundle_verdict["report_hash"],
+              "evidence_bundle_hash": bundle_verdict["evidence_bundle_hash"],
+          }
+          print(json.dumps(summary, indent=2, sort_keys=True))
+          PY
+
+      - name: Verify post-run clean worktree
+        run: |
+          status="$(git status --porcelain --untracked-files=all)"
+          if [ -n "$status" ]; then
+            printf '%s\n' "$status"
+            exit 1
+          fi
+
+      - name: Upload ARIA operational proof
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: aria-operational-proof-${{ github.sha }}
+          path: ${{ runner.temp }}/aria-operational-proof/
+          if-no-files-found: error
+          retention-days: 365

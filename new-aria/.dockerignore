@@ -1,0 +1,18 @@
+# Build context = the tracked tree only; runtime state and toolchains are
+# recreated inside the image or mounted as volumes.
+.git
+node_modules
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.mimosa
+aria-tools/*
+!aria-tools/repo_identity.json
+!aria-tools/agent-evals
+!aria-tools/reports
+aria-findings
+.aria-ci
+.aria-poc
+.aria-state-store
+.env
+.env.*

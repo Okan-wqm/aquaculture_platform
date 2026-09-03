@@ -1,1 +1,4 @@
 .codex-worktrees/**
+# new-aria/ is a verbatim transport copy of the ARIA surface (moved to its own
+# repository + Docker); its project.json/package.json must not join this graph.
+new-aria/**

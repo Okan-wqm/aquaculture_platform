@@ -1,0 +1,774 @@
+name: aria-agent-executor
+
+# Plan ARIA-V3 §B1 — scheduled CI executor for ARIA's bound-agent
+# pipeline. Runs once per off-hours window OR on manual dispatch; pulls
+# the next pending agent request from the kernel's queue, invokes the
+# Claude Code CLI via a managed login session, submits the result.
+#
+# Argv contract status (DEBT-2026-05-08-001 retired by V3 §B1): the
+# kernel-side argv shape is now PROVEN — see
+# tools/aria-poc/ci_executor_contract_proven.md (locked by invariant
+# I-V3-21). The workflow ships with CLAUDE_CLI_MOCK default flipped
+# to 'false' (production); `vars.ARIA_MOCK_KILL_SWITCH` is read
+# AHEAD of the default so operators can keep mock active without
+# editing this file (INFRA-MEDIUM-011). The operator's single
+# supervised live invocation populates the verified_at_commit /
+# claude_cli_version_minimum fields in the proven-contract doc.
+#
+# Lease-token redaction:
+#   - LEASE token flows ONLY through ARIA_LEASE_TOKEN env var.
+#   - artifact upload limited to expected_output_path only.
+#   - the GHA log ::add-mask:: directive masks any accidental leak.
+
+on:
+  # ORPHAN-724 — the drain FOLLOWS the producer. Cycle and executor were
+  # two unrelated crons: the night lost 1+ hours between seal and drain,
+  # and every daytime cycle needed a human to dispatch the drain after it.
+  # workflow_run chains them — each completed cycle is followed by a
+  # drain — while the cron stays as the safety net for a night where the
+  # cycle lane itself never ran. The shared concurrency group already
+  # serializes the pair, and a cron firing mid-drain just waits in the
+  # group's pending slot.
+  workflow_run:
+    workflows: ["aria-auto-cycle"]
+    types: [completed]
+  schedule:
+    # 02:00 UTC daily (off-hours for most ARIA contributors)
+    # 29 past, not :00 — same top-of-hour congestion as the cycle cron;
+    # order vs the cycle is not load-bearing (the shared group serializes).
+    - cron: '29 2 * * *'
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: 'Specific request ID to process (overrides next-pending lookup)'
+        required: false
+        type: string
+      mock:
+        description: 'Run in mock mode (no real Claude Code CLI invocation)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      breaker_quarantine_reason:
+        description: >-
+          RC-6 RECOVERY MODE. Non-empty turns this run into a breaker-evidence
+          repair instead of an agent run: restore, quarantine the undecodable
+          rows of the failure ledger, republish. No request is claimed and no
+          agent is invoked -- a repair must be one auditable transaction, not a
+          repair mixed with a night's work. Requires operator_approval_ref.
+        required: false
+        type: string
+      operator_approval_ref:
+        description: >-
+          Audit reference recorded against the quarantine (issue, incident or
+          approval ID). Required whenever breaker_quarantine_reason is set; the
+          kernel refuses the operation without one.
+        required: false
+        type: string
+
+# Z1 (ORPHAN-712) — shared self-hosted workspace group; see
+# dataflow-integrity-watchdog.yml for the measured wipe this prevents.
+concurrency:
+  group: aria-selfhosted-workspace
+  cancel-in-progress: false
+
+permissions:
+  id-token: write  # ARIA-AUDIT-016: attestation needs the Actions OIDC channel
+  # PLAN Wave 1 PR 2.6b — contents:write is what the cutover costs. The store
+  # publishes by pushing `aria/state`; the branch ruleset bounds that on the
+  # SERVER (no force-push, no deletion), so the widest thing this token can do
+  # to the branch is append a commit descending from the tip.
+  contents: write
+  # ORPHAN-CRITICAL-420 S1 — actions:read remains for run/job introspection.
+  # The queue bridge between the 01:00 producer and this 02:00 consumer is the
+  # aria/state branch now, not an artifact.
+  actions: read
+
+jobs:
+  executor:
+    runs-on: [self-hosted, linux, claude]
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-aria-kernel
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '22'
+
+      # Plan ARIA-V3 §B1 INFRA-CRITICAL-003 — verify the pinned Claude
+      # Code CLI floor BEFORE the executor step. The proven-contract doc
+      # (tools/aria-poc/ci_executor_contract_proven.md) is the SSoT
+      # for the argv shape; this step ensures the binary that
+      # interprets that argv is present and version-pinned. The
+      # --ignore-scripts flag satisfies V2 I-25 clause 4
+      # (INFRA-CRITICAL-001 supply chain).
+      - name: Pre-flight - Claude Code CLI present
+        # RC-6 — skipped in recovery mode. A breaker repair invokes no agent, and
+        # refusing the run because the Claude CLI is absent would make the
+        # recovery lever depend on the very lane that may be broken.
+        if: inputs.breaker_quarantine_reason == ''
+        run: |
+          set -euo pipefail
+          REQUIRED_CLAUDE_VERSION="2.1.221"
+          CLAUDE_VERSION="$(claude --version | awk '{print $1}')"
+          python3 - "$REQUIRED_CLAUDE_VERSION" "$CLAUDE_VERSION" <<'PY'
+          import sys
+          def parse(value):
+              return tuple(int(part) for part in value.split('.'))
+          required = parse(sys.argv[1])
+          current = parse(sys.argv[2])
+          if current < required:
+              raise SystemExit(f"claude-code {sys.argv[2]} is below required {sys.argv[1]}")
+          print(f"claude-code {sys.argv[2]} satisfies required {sys.argv[1]}")
+          PY
+      # ORPHAN-CRITICAL-420 S1 — moved AHEAD of the state restore.
+      # workflow_contracts rejects a preflight that runs after the job's
+      # first governed mutation, and the restore writes the whole state
+      # tree, so the restore cannot precede this step. Moving it here also
+      # means it can no longer name request-scoped paths: the request_id
+      # does not exist until the queue has been restored and read.
+      - name: Persist enterprise workflow preflight
+        env:
+          PYTHONPATH: aria-kernel
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          from aria_kernel.preflight import verify_workflow_preflight
+
+          # PLAN Wave 1 PR 2.6b — the executor restores and republishes the
+          # durable store, so the declared write root is the store worktree.
+          # It was `aria-tools` in the checkout; after the cutover nothing
+          # writes there, and a declared root nothing writes to is a claim
+          # that has stopped describing the run.
+          allowed = [".aria-state-store"]
+          verdict = verify_workflow_preflight(
+              workflow_id="aria-agent-executor",
+              job_id="executor",
+              profile="autonomous",
+              workspace_root=os.environ["GITHUB_WORKSPACE"],
+              allowed_write_roots=allowed,
+              path_allowlist=allowed,
+              # `github_git` is the reach the cutover added: fetch and push of
+              # the state branch over the repository remote. Kept separate from
+              # `github_artifact` because they are different credentials with
+              # different blast radii.
+              network_policy=["github_artifact", "github_git"],
+              network_enforcement_evidence=(
+                  "state restore/publish limited to the aria/state branch over "
+                  "the repository remote; artifact upload limited to the "
+                  "run-scoped aria-state-cache-<run_id> and "
+                  "quarantine-evidence-<run_id> names and the exact response "
+                  "envelope path, all via the Actions artifact API"
+              ),
+              token_provenance="github_actions_artifact_token",
+              require_github_app=False,
+              dlp_mode="fail_closed",
+              dlp_scan_clean=True,
+              audit_reason="restore, extend and republish the durable aria/state store around one bound-agent invocation",
+              audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "aria-agent-executor-preflight.json",
+              external_root_allowlist=[str(Path(os.environ["RUNNER_TEMP"]).resolve())],
+          )
+          if not verdict.valid:
+              raise SystemExit(";".join(verdict.reasons))
+          PY
+
+      # ORPHAN-CRITICAL-420 S1 — bridge the agent-invocation queue.
+      # The 01:00 aria-auto-cycle mints requests into the state store; this
+      # 02:00 executor is the only consumer that claims them (agent
+      # next-pending filters on no role). Without this step the two lanes sat
+      # either side of an unbridged boundary and next_pending_request always
+      # returned None.
+      # It runs BEFORE the lease check on purpose: the lease ledger lives in
+      # the same tree, so an unrestored one made the cross-host lease unable
+      # to observe a held lease at all.
+      - name: Restore ARIA state from the aria/state branch
+        id: restore_state
+        # RC-6 — one definition, both lanes. The two hand-copied heredocs that
+        # used to sit here had already drifted: only the executor's carried the
+        # ORPHAN-CRITICAL-484/488 restore-proof outputs, so the producer lane
+        # could publish a bootstrap-empty tree over the accumulated state. The
+        # action's header records what that cost.
+        #
+        # PLAN Wave 1 PR 2.6b — the transport is the durable store now, not the
+        # 30-day artifact. The output contract is unchanged, deliberately: the
+        # publish gate below still reads `restored` / `bootstrap`. The action
+        # also EXPORTS the store binding into the job environment, which is why
+        # every `--tools-dir` below names "$ARIA_TOOLS_DIR" and never a literal.
+        uses: ./.github/actions/restore-aria-state
+        with:
+          bootstrap-ack: ${{ vars.ARIA_STATE_BOOTSTRAP_ACK }}
+      - name: Pre-flight — cross-host autonomous-loop lease check
+        id: lease_check
+        run: |
+          set -euo pipefail
+          PYTHONPATH=aria-kernel python3 - <<'PY' 2>&1 | head -20
+          import json
+          import os
+          import sys
+
+          from aria_kernel.autonomous_host_lease import lease_state
+
+          # The store's tools root, from the binding the restore exported. A
+          # literal would read an empty lease ledger in the ephemeral checkout
+          # and report "no lease held" — a false clear, which is
+          # ORPHAN-CRITICAL-469 with the gate still green.
+          state = lease_state(os.environ['ARIA_TOOLS_DIR'])
+          print(json.dumps(state))
+          if state['state'] == 'fresh':
+              host = state.get('host_id', '')
+              # If the fresh lease is held by a local (non-GHA) host
+              # we refuse. GHA-runner-held leases come from prior
+              # cron runs and should be allowed to renew through the
+              # acquire_lease path below.
+              if not host.startswith('gha-runner:'):
+                  print(f'::warning::autonomous_host_lease_blocked: held by {host}', file=sys.stderr)
+                  with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as f:
+                      f.write('blocked=true\n')
+                      f.write(f'blocked_host={host}\n')
+                  sys.exit(0)
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as f:
+              f.write('blocked=false\n')
+          PY
+
+      # This step ANNOUNCES the skip; it does not perform it. `exit 0` ends a
+      # STEP, never the JOB, so before the per-step guards below existed a
+      # lease-blocked run walked straight on: it claimed a request, invoked an
+      # agent against a tree another host was actively mutating, and then
+      # discarded the result at the publish gate (which does carry the guard).
+      # The abort is the `blocked != 'true'` condition on EVERY step from here
+      # down, mirroring the sibling producer aria-auto-cycle.yml.
+      - name: Skip autonomous loop when local lease is fresh
+        if: steps.lease_check.outputs.blocked == 'true'
+        run: |
+          echo "Local host holds autonomous-loop lease; exiting cleanly per Plan ARIA-V3 §2n."
+          exit 0
+
+      # RC-6 second half — recovery runs WHERE THE STATE LIVES.
+      #
+      # `quarantine_breaker_evidence` moves the undecodable rows of
+      # autonomous-failures.jsonl to a sidecar so the breaker can be judged on
+      # the surviving evidence. It shipped with a CLI, and that CLI operates on
+      # a local `--tools-dir` — while the ledger travels between runs in the
+      # durable store. An operator running it on their laptop repairs a copy
+      # nothing reads. In the artifact era the only lever that reached the real
+      # ledger was deleting the artifact, which also destroyed the agent queue
+      # ORPHAN-CRITICAL-469 exists to carry: the recovery path for one breaker
+      # was the destruction of an unrelated subsystem. On the branch that lever
+      # is gone entirely — history is append-only — which makes this in-band
+      # repair step the ONLY route, not merely the better one.
+      #
+      # WHY HERE AND NOT IN A NEW WORKFLOW. A recovery workflow would need its
+      # own restore and its own publish -- a second transaction around a
+      # hash-chained ledger, which is how a ledger diverges. This job already
+      # restores, verifies and republishes; the repair is one step inside that
+      # existing transaction.
+      #
+      # WHY BEFORE THE CLAUDE PREFLIGHT. A recovery must not depend on the agent
+      # path being healthy. The steps below refuse the job when the Claude CLI
+      # or its managed session is absent, and a runner in that state is exactly
+      # where an operator still needs to repair a breaker.
+      #
+      # WHY IT STILL CARRIES THE LEASE GUARD. The repair mutates the same tree a
+      # local daemon may be holding; publishing over it would race.
+      - name: Quarantine damaged breaker evidence (recovery dispatch)
+        id: breaker_quarantine
+        if: steps.lease_check.outputs.blocked != 'true' && inputs.breaker_quarantine_reason != ''
+        env:
+          # Plan 024 v3 §B-3 — operator text reaches the shell through the
+          # environment, never through `${{ }}` splicing into the script source.
+          QUARANTINE_REASON: ${{ inputs.breaker_quarantine_reason }}
+          QUARANTINE_APPROVAL_REF: ${{ inputs.operator_approval_ref }}
+        run: |
+          set -euo pipefail
+          if [ -z "${QUARANTINE_APPROVAL_REF:-}" ]; then
+            echo "::error::operator_approval_ref is required with breaker_quarantine_reason" >&2
+            exit 1
+          fi
+          # Validate BEFORE any use, per the §B-3 pattern. The kernel validates
+          # again; this refuses early with a message naming the input rather
+          # than surfacing an argparse error from three layers down.
+          if ! [[ "$QUARANTINE_APPROVAL_REF" =~ ^[A-Za-z0-9/_.:#-]{1,128}$ ]]; then
+            echo "::error::operator_approval_ref has an unexpected format" >&2
+            exit 1
+          fi
+          if ! [[ "$QUARANTINE_REASON" =~ ^[A-Za-z0-9\ _.,:;()/#-]{8,256}$ ]]; then
+            echo "::error::breaker_quarantine_reason must be 8-256 plain characters" >&2
+            exit 1
+          fi
+          # `--acknowledge` is the kernel's own refusal-to-guess gate; dispatching
+          # this workflow with a reason and an approval ref IS the acknowledgement.
+          # Exits non-zero when the breaker is still tripped after the repair,
+          # which is the CORRECT outcome for real in-window failures: quarantine
+          # makes the state evaluable, it does not clear it. The publish below
+          # runs under `always()`, so the repaired tree is still republished.
+          PYTHONPATH=aria-kernel python3 -m aria_kernel breaker quarantine \
+            --tools-dir "$ARIA_TOOLS_DIR" \
+            --acknowledge \
+            --reason "$QUARANTINE_REASON" \
+            --operator-approval-ref "$QUARANTINE_APPROVAL_REF"
+
+      # Plan ARIA-V3 §B1 INFRA-CRITICAL-002 — refuse to start when
+      # the workflow is in live mode but managed Claude Code auth is
+      # absent. The kill switch (vars.ARIA_MOCK_KILL_SWITCH) is read
+      # AHEAD of the workflow default — operator opt-out path (Plan
+      # ARIA-V3 §B1 INFRA-MEDIUM-011). The mock_source value flows
+      # into the ci_executor via CLAUDE_CLI_MOCK_SOURCE so the
+      # claude_mock_mode_resolved audit event (AUDITTRAIL-HIGH-009)
+      # records exactly which layer decided the mock state.
+      - name: Pre-flight - Claude Code auth + mock-mode kill-switch resolution
+        id: preflight
+        # RC-6 — see the CLI floor above: a recovery run needs no managed
+        # Claude session, and this step hard-fails the job without one.
+        if: steps.lease_check.outputs.blocked != 'true' && inputs.breaker_quarantine_reason == ''
+        env:
+          KILL_SWITCH: ${{ vars.ARIA_MOCK_KILL_SWITCH }}
+          INPUT_MOCK: ${{ github.event.inputs.mock }}
+        run: |
+          set -euo pipefail
+          if [ -n "${KILL_SWITCH:-}" ]; then
+            EFFECTIVE_MOCK="${KILL_SWITCH}"
+            MOCK_SOURCE="kill_switch"
+          elif [ -n "${INPUT_MOCK:-}" ]; then
+            EFFECTIVE_MOCK="${INPUT_MOCK}"
+            MOCK_SOURCE="workflow_dispatch_input"
+          else
+            EFFECTIVE_MOCK="false"
+            MOCK_SOURCE="workflow_default_claude"
+          fi
+          # Plan 032 Faz 032a — see aria-auto-cycle.yml: the kernel's boolean
+          # parser raises on anything but true/false, so an unexpected kill
+          # switch value must fail this step by name, not crash the executor.
+          case "${EFFECTIVE_MOCK}" in
+            true|false) ;;
+            *)
+              echo "::error::ARIA mock resolution from ${MOCK_SOURCE} is '${EFFECTIVE_MOCK}'; only 'true' or 'false' is accepted" >&2
+              exit 1
+              ;;
+          esac
+          echo "effective_mock=${EFFECTIVE_MOCK}" >> "$GITHUB_OUTPUT"
+          echo "mock_source=${MOCK_SOURCE}" >> "$GITHUB_OUTPUT"
+          if [ "${EFFECTIVE_MOCK}" = "false" ]; then
+            if env | grep -E '^(ANTHROPIC_API_KEY|CLAUDE_API_KEY|ANTHROPIC_AUTH_TOKEN)=' >/dev/null; then
+              echo "::error::API-key Claude mode is disallowed for ARIA; use a managed Claude Code login on the trusted runner." >&2
+              exit 1
+            fi
+            claude --version >/tmp/aria-claude-auth.txt 2>/tmp/aria-claude-auth.err \
+              || { echo "::error::Claude Code CLI preflight failed" >&2; cat /tmp/aria-claude-auth.err >&2; exit 1; }
+            CLAUDE_AUTH_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+            if [ ! -f "${CLAUDE_AUTH_DIR}/.credentials.json" ] && [ ! -f "${CLAUDE_AUTH_DIR}/config.json" ]; then
+              echo "::error::Claude Code managed-auth session not found on the trusted runner" >&2
+              exit 1
+            fi
+          fi
+
+      - name: Find next pending request
+        id: pending
+        # RC-6 — a recovery run claims nothing. Leaving request_id empty is what
+        # skips the executor, the envelope upload and the sandbox provisioning:
+        # they are already guarded on it, so recovery mode needs no second
+        # condition threaded through each of them.
+        if: steps.lease_check.outputs.blocked != 'true' && inputs.breaker_quarantine_reason == ''
+        env:
+          # Plan 024 v3 §B-3 — env-only interpolation; raw shell access
+          # to ${{ github.event.inputs.request_id }} is closed because
+          # GHA expands the substitution into the script source where
+          # an attacker-controlled value can escape quoting.
+          REQUEST_ID_INPUT: ${{ github.event.inputs.request_id }}
+        run: |
+          set -euo pipefail
+          if [ -n "${REQUEST_ID_INPUT:-}" ]; then
+            # Plan 024 v3 §B-3 — request_id regex matches the kernel's
+            # AIR-* request_id schema (alphanumeric + - + _, ≤ 64 chars).
+            if ! [[ "$REQUEST_ID_INPUT" =~ ^[A-Za-z0-9_-]{1,64}$ ]]; then
+              echo "::error::invalid request_id format: $REQUEST_ID_INPUT" >&2
+              exit 1
+            fi
+            echo "request_id=${REQUEST_ID_INPUT}" >> "$GITHUB_OUTPUT"
+            echo "targeted=true" >> "$GITHUB_OUTPUT"
+          else
+            # The id resolved here only decides whether the run proceeds
+            # (empty → clean skip). WHICH requests run is the drain loop's
+            # decision below — it re-reads the queue per iteration.
+            REQ_ID=$(PYTHONPATH=aria-kernel python3 -m aria_kernel agent next-pending \
+              --tools-dir "$ARIA_TOOLS_DIR" | jq -r '.request_id // empty')
+            echo "request_id=${REQ_ID}" >> "$GITHUB_OUTPUT"
+            echo "targeted=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Plan 020 Phase 3.C — session_start handoff snapshot.
+      # WHY here: every CI executor run is a discrete session boundary.
+      # Snapshotting at start captures "what was open before we touched
+      # anything" — the operator-readable diff against session_stop is
+      # how an audit reviewer reconstructs what the run actually changed
+      # without having to grep governance.jsonl by timestamp.
+      - name: Handoff snapshot — session_start
+        id: handoff_start
+        if: steps.lease_check.outputs.blocked != 'true'
+        run: |
+          set -euo pipefail
+          SESSION_ID="gha-aria-agent-executor-${{ github.run_id }}-${{ github.run_attempt }}"
+          echo "session_id=${SESSION_ID}" >> "$GITHUB_OUTPUT"
+          PYTHONPATH=aria-kernel python3 -m aria_kernel handoff snapshot \
+            --session-id "${SESSION_ID}" \
+            --trigger session_start \
+            --tools-dir "$ARIA_TOOLS_DIR" \
+            --repo-root .
+
+      - name: Skip if no pending request
+        # RC-6 — excluded in recovery mode, where request_id is empty BY DESIGN.
+        # Announcing "no pending requests" for a deliberate repair would be a
+        # message that misdescribes the run, which is the class of defect this
+        # branch keeps closing.
+        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id == '' && inputs.breaker_quarantine_reason == ''
+        run: echo "no pending requests; exiting cleanly"
+
+      # ORPHAN-CRITICAL-439 — the containment layer needs a backend to exist.
+      # claude_runtime._apply_write_containment refuses every write-capable
+      # spawn when sandbox_backend() is None, so without this the executor
+      # does not run unconfined, it does not run at all — and the failure
+      # looks like an agent problem rather than a missing package.
+      # RC-9 — one definition, called by both lanes. The pair of steps that
+      # used to sit here was duplicated between aria-agent-executor and
+      # aria-auto-cycle, with a comment saying they were copied so the lanes
+      # could not drift; copying is how they drift. The action also probes
+      # BEFORE installing, so an already-provisioned runner needs no apt call.
+      - name: Ensure a verified sandbox backend
+        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
+        uses: ./.github/actions/ensure-sandbox-backend
+
+      # FAZ 5a — attestation producer on the executor lane too: the merge
+      # A2 — the executor lane never provisioned the node deps the agent
+      # validation commands need, so FAZ 5's pre-claim gate refused its
+      # first live dispatch with `env_deps_missing` (run 31456376668). The
+      # gate was right; the lane was the fault. Same shared action as the
+      # producer lane — one definition, no drift.
+      - name: Provision the node dependencies the adapter manifests declare
+        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
+        uses: ./.github/actions/ensure-node-deps
+
+      # gate keys rows by readiness claim, and this lane's host is part of
+      # the environment those claims describe. Idempotent per claim triple.
+      - name: Probe and record runner attestation
+        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
+        uses: ./.github/actions/probe-runner-attestation
+        with:
+          tools-dir: ${{ env.ARIA_TOOLS_DIR }}
+
+      - name: Run CI executor
+        id: executor
+        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
+        env:
+          CLAUDE_CLI_MOCK: ${{ steps.preflight.outputs.effective_mock }}
+          CLAUDE_CLI_MOCK_SOURCE: ${{ steps.preflight.outputs.mock_source }}
+          ARIA_CLAUDE_REQUIRE_USAGE: '1'
+          # Wave 0 §0.7 — executor-lane PRs open through the kernel CLI
+          # (pr_manager gate + breaker producer) only; the raw
+          # `gh pr create` allowlist row is refused under this flag. The
+          # flag and the legacy row are deleted together after one green
+          # scheduled run (docs/plans/2026-08-02-aria-full-autonomy-program).
+          ARIA_EXECUTOR_PR_VIA_KERNEL: '1'
+          MAX_TURNS_PER_RUN: '12'
+          MAX_REQUESTS_PER_RUN: '30'
+          MAX_TIMEOUT_SECONDS: '1800'
+          # The whole drain loop INCLUDING the last child's worst case must
+          # fit in this window (the loop starts a child only when
+          # elapsed + MAX_TIMEOUT_SECONDS <= budget). 7200s of loop inside
+          # the 150-minute job leaves a full 30 minutes for restore,
+          # integrity verification, publish and artifacts — the first live
+          # night (run 31542485896) was reaped mid-child by the old
+          # 45-minute timeout and its two submitted results died
+          # unpublished with the runner.
+          ARIA_DRAIN_BUDGET_SECONDS: '7200'
+        run: |
+          # ORPHAN-722 — PR identity. PRs opened with the job token are
+          # authored by github-actions[bot], and GitHub parks bot-PR
+          # workflows in action_required (anti-recursion, not a repo
+          # setting), so ARIA's own PRs could never go green unattended
+          # (#1266/#1195 sat with ZERO check runs). The machine-local
+          # fine-grained PAT (runner .env, ARIA_GH_TOKEN) takes
+          # precedence; the job token stays the fallback so a token-less
+          # runner degrades to today's behavior instead of failing.
+          if [ -n "${ARIA_GH_TOKEN:-}" ]; then
+            export GH_TOKEN="$ARIA_GH_TOKEN"
+            echo "gh identity: machine PAT (ARIA_GH_TOKEN)"
+          else
+            echo "gh identity: job token fallback"
+          fi
+          set -euo pipefail
+          if [ "${{ steps.pending.outputs.targeted }}" = "true" ]; then
+            # Operator-targeted dispatch: exactly the named request.
+            PYTHONPATH=aria-kernel python3 tools/aria-poc/ci_executor.py \
+              "${{ steps.pending.outputs.request_id }}"
+          else
+            # Scheduled run: drain the queue up to MAX_REQUESTS_PER_RUN /
+            # the wall-clock budget. One request per night against a
+            # producer that mints many per cycle was a queue that could
+            # only grow (162 pending judge requests by 2026-08-11).
+            PYTHONPATH=aria-kernel python3 tools/aria-poc/ci_executor.py --drain
+          fi
+
+      - name: Upload response envelope (artefact)
+        # `drained == '0'` is a drain night where the queue emptied between
+        # the pending probe and the loop (or every child failed before
+        # publishing a path): there is nothing to upload, and
+        # `if-no-files-found: error` would turn "no work" into a red.
+        # Targeted runs never set `drained`, so the guard is a no-op there.
+        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != '' && steps.executor.outputs.drained != '0'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          # Limited scope — response envelope plus its transcript anchor. claims.jsonl +
+          # runs.jsonl deliberately excluded (lease token / over-disclosure
+          # protection per spike doc artefact policy).
+          name: aria-response-${{ steps.pending.outputs.request_id }}
+          path: |
+            ${{ steps.executor.outputs.envelope_path }}
+            ${{ steps.executor.outputs.transcript_path }}
+          # The paths come from the executor step, which is the only thing
+          # that knows where it wrote. The previous spelling rebuilt them from
+          # the request id (`outputs/<id>.json`) while the request envelope
+          # names `outputs/<group>/<round>-<role>-<id>.md`, so every run that
+          # claimed a request died here with `if-no-files-found: error` AFTER
+          # the agent work had already succeeded and been submitted.
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
+      # Plan 020 Phase 3.C — session_stop handoff snapshot.
+      # WHY here (post-upload, always): runs even when the executor
+      # short-circuits the request lookup ("no pending requests; exiting
+      # cleanly") so the audit trail still captures session boundary
+      # state. The if: always() pairs with handoff_start so an audit
+      # reviewer can diff session_start vs session_stop snapshots and
+      # see exactly what the run touched (or did not touch).
+      - name: Handoff snapshot — session_stop
+        if: always() && steps.lease_check.outputs.blocked != 'true' && steps.handoff_start.outputs.session_id != ''
+        run: |
+          set -euo pipefail
+          PYTHONPATH=aria-kernel python3 -m aria_kernel handoff snapshot \
+            --session-id "${{ steps.handoff_start.outputs.session_id }}" \
+            --trigger session_stop \
+            --tools-dir "$ARIA_TOOLS_DIR" \
+            --repo-root .
+
+      # ORPHAN-CRITICAL-420 S1 — the return half of the queue bridge.
+      # Without a publish the executor's own writes (claims, results,
+      # governance, handoffs) die with the runner, so the next auto-cycle
+      # would re-mint work this run already claimed. Verified BEFORE
+      # publishing, mirroring aria-auto-cycle: only an integrity-clean tree
+      # is allowed to become the next run's starting state.
+      - name: Verify ARIA state integrity
+        id: integrity
+        # ALSO guarded on the restore having produced a store. `ARIA_TOOLS_DIR`
+        # is exported by the restore action on its SUCCESS path only, so when
+        # the checkout is refused this step ran anyway and died on
+        # `ARIA_TOOLS_DIR: unbound variable` — a second, louder failure five
+        # steps below the real one, which then became the job's headline while
+        # the refusal scrolled past. Verifying integrity without a restored tree
+        # was never meaningful; skipping leaves `state_valid` empty, which the
+        # fail step already reads as "not proven".
+        if: always() && steps.lease_check.outputs.blocked != 'true' && (steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true')
+        run: |
+          set -uo pipefail
+          # RUNNER_TEMP, not /tmp — the only external write root this job's
+          # contract allows (external_root_allowlist).
+          VERDICT="${RUNNER_TEMP}/aria-integrity-verdict.json"
+          VERDICT_ERR="${RUNNER_TEMP}/aria-integrity-verdict.err"
+          if PYTHONPATH=aria-kernel python3 -m aria_kernel integrity verify \
+               --tools-dir "$ARIA_TOOLS_DIR" \
+               --workspace-root "$GITHUB_WORKSPACE" > "$VERDICT" 2>"$VERDICT_ERR"; then
+            echo "state_valid=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "state_valid=false" >> "$GITHUB_OUTPUT"
+          fi
+          {
+            echo '### ARIA state integrity'
+            echo '```json'
+            head -c 4000 "$VERDICT" 2>/dev/null || echo '{}'
+            echo '```'
+            if [ -s "$VERDICT_ERR" ]; then
+              echo '```'
+              tail -20 "$VERDICT_ERR"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # PLAN Wave 1 PR 2.6b — publish to the durable store. The `if:` is
+      # unchanged from the artifact era: state_valid plus the restore proof is
+      # what stops a partial or bootstrap-empty tree publishing, and that did
+      # not depend on the transport. What the store adds is fast-forward-only
+      # push, so a tree that does not descend from the tip is rejected by the
+      # server rather than caught by a gate.
+      # The credential is minted here and consumed by the next step only. Kept
+      # out of `.git/config` so it cannot outlive the push.
+      - name: Mint the aria/state push credential
+        id: publish_credential
+        if: always() && steps.lease_check.outputs.blocked != 'true' && steps.integrity.outputs.state_valid == 'true' && (steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true')
+        env:
+          PUBLISH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          HEADER="$(printf 'x-access-token:%s' "$PUBLISH_TOKEN" | base64 -w0)"
+          echo "::add-mask::${HEADER}"
+          echo "header=${HEADER}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish ARIA state to the aria/state branch
+        if: always() && steps.lease_check.outputs.blocked != 'true' && steps.integrity.outputs.state_valid == 'true' && (steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true')
+        env:
+          # persist-credentials stays FALSE on the checkout, deliberately: a
+          # persisted token is readable by every later step, including the
+          # Claude CLI subprocess this lane exists to run. So the credential
+          # lives in THIS STEP'S environment only.
+          #
+          # GIT_CONFIG_* is git's own env form of `-c`, so it reaches
+          # state_store's git calls without state_store knowing about tokens —
+          # `_run_git` passes no `env=`, so the subprocess inherits this and
+          # nothing else does. No token is written to .git/config, which is
+          # what would have leaked it forward.
+          GIT_CONFIG_COUNT: '1'
+          GIT_CONFIG_KEY_0: http.https://github.com/.extraheader
+          GIT_CONFIG_VALUE_0: 'AUTHORIZATION: basic ${{ steps.publish_credential.outputs.header }}'
+        run: |
+          set -euo pipefail
+          PYTHONPATH=aria-kernel python3 -m aria_kernel state publish \
+            --repo-root . \
+            --snapshot-id "executor-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --cycle-id "executor-${GITHUB_RUN_ID}"
+
+      # FORENSIC CACHE ONLY, under a run-scoped name nothing restores from, so
+      # it cannot become a second source of truth for one hash-chained ledger.
+      - name: Cache ARIA state tree (non-authoritative)
+        if: always() && steps.lease_check.outputs.blocked != 'true' && steps.integrity.outputs.state_valid == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: aria-state-cache-${{ github.run_id }}
+          path: |
+            .aria-state-store/
+            !.aria-state-store/tools/human-required/genesis:*
+          # The four pre-rename genesis escalations (2026-08-18 04:03) keep
+          # their colon filenames on the live store — renaming a
+          # ledger-referenced record would break hash-chained refs
+          # (ORPHAN-714) — and GitHub's uploader rejects ':' in paths, so
+          # the forensic copy must EXCLUDE them or every sealed run stays
+          # red at this step. The records themselves remain in the
+          # authoritative aria/state publish; only this non-authoritative
+          # artifact skips them.
+          retention-days: 30
+          # The store root is a dot-directory and `.gitkeep` markers hold its
+          # empty subtrees; a forensic copy that dropped them would not
+          # reproduce the tree it claims to preserve.
+          include-hidden-files: true
+          if-no-files-found: error
+          overwrite: true
+
+      # Unverified state is preserved for forensics under the same run-scoped
+      # naming discipline. Nothing restores from it.
+      - name: Quarantine unverified ARIA state
+        # The blocked guard matches the sibling producer and the publish/fail
+        # steps either side of it: when the lease check refused the run the
+        # integrity step above is skipped, so state_valid is the empty string
+        # and an unguarded `!= 'true'` would quarantine a tree this run never
+        # touched — turning every blocked night into a forensics artifact.
+        if: always() && steps.lease_check.outputs.blocked != 'true' && (steps.integrity.outputs.state_valid != 'true' || (steps.restore_state.outputs.restored != 'true' && steps.restore_state.outputs.bootstrap != 'true'))
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: quarantine-evidence-${{ github.run_id }}
+          path: |
+            .aria-state-store/
+            !.aria-state-store/tools/human-required/genesis:*
+            ${{ runner.temp }}/aria-integrity-verdict.json
+            ${{ runner.temp }}/aria-integrity-verdict.err
+          retention-days: 30
+          include-hidden-files: true
+          if-no-files-found: warn
+          overwrite: true
+
+      - name: Fail when ARIA state was not published
+        # ORPHAN-CRITICAL-484 — mirrors the sibling producer
+        # (aria-auto-cycle.yml). Without this the executor can do real work,
+        # publish NOTHING, and still report green. In the artifact era that
+        # failure was absorbing: each such night buried the good artifact one
+        # run deeper until the 30-day retention window closed. On the branch
+        # the history survives, so what is lost is only THIS run's work — the
+        # difference between a wasted night and a forgotten month.
+        if: always() && steps.lease_check.outputs.blocked != 'true' && (steps.integrity.outputs.state_valid != 'true' || (steps.restore_state.outputs.restored != 'true' && steps.restore_state.outputs.bootstrap != 'true'))
+        run: |
+          set -euo pipefail
+          # NAME THE GATE THAT REFUSED, not just the consequence. "State was
+          # not published" is true of every failure here and identifies none of
+          # them; a run whose CHECKOUT was refused reported it, and the reason
+          # sat five steps above under a different error. The outputs below
+          # already distinguish the cases — this reads them instead of leaving
+          # the operator to.
+          if [ "${{ steps.restore_state.outputs.restored }}" != "true" ] \
+             && [ "${{ steps.restore_state.outputs.bootstrap }}" != "true" ]; then
+            echo "::error::ARIA state was NOT published: the aria/state CHECKOUT did not produce a store, so this run never had one. The refusal is reported by the restore step above."
+          elif [ "${{ steps.integrity.outputs.state_valid }}" != "true" ]; then
+            echo "::error::ARIA state was NOT published: the store was restored but failed integrity verification, so publishing it would persist a tree ARIA cannot read back."
+          else
+            echo "::error::ARIA state was NOT published to the aria/state branch."
+          fi
+          echo "state_valid=${{ steps.integrity.outputs.state_valid }}"
+          echo "restored=${{ steps.restore_state.outputs.restored }}"
+          echo "bootstrap=${{ steps.restore_state.outputs.bootstrap }}"
+          echo "The tree is preserved as quarantine-evidence-${{ github.run_id }}."
+          exit 1
+
+      # SI-5 (ORPHAN-HIGH-740) — the chain's RETURN edge. ORPHAN-724 gave
+      # the loop its forward edge (cycle -> executor); the pace of the loop
+      # still belonged to a clock ARIA cannot see, and that clock is
+      # measurably unreliable here: three nights of scheduled triggers
+      # fired 60-75 minutes late (02:13, 02:19, 03:21 against 01:13/02:29)
+      # and one cycle was evicted outright by a running drain.
+      #
+      # The DECISION is not in this script: cycle_rhythm.evaluate_cycle_chain
+      # owns it, so the three brakes (minimum interval, backlog ceiling,
+      # empty drain) are unit-tested and every refusal has a name. The cron
+      # stays as the floor — this edge can only make the rhythm faster than
+      # a broken scheduler, never faster than the interval allows.
+      - name: Chain the next cycle when the rhythm allows it
+        if: always() && steps.lease_check.outputs.blocked != 'true'
+        env:
+          GH_TOKEN: ${{ env.ARIA_GH_TOKEN || github.token }}
+          DRAINED: ${{ steps.executor.outputs.drained }}
+        run: |
+          # NOT `continue-on-error` — the enterprise gate rejects that
+          # pattern by name (`workflows_do_not_continue_on_error`) and it
+          # is right to: a step that cannot fail hides every failure,
+          # including the ones nobody predicted. The property this step
+          # actually needs is narrower — a chain that cannot decide must
+          # not colour a drain that earned its own verdict — so the two
+          # commands that could fail handle their own failure out loud
+          # and the step itself has nothing left to hide.
+          set -uo pipefail
+          LAST_CYCLE_STARTED_AT=$(gh api "repos/${{ github.repository }}/actions/workflows/aria-auto-cycle.yml/runs?per_page=1" --jq '.workflow_runs[0].run_started_at // ""' 2>/dev/null || echo "")
+          export LAST_CYCLE_STARTED_AT
+          # The decider always exits 0 and prints a named verdict, including
+          # `chain_undecidable:<Type>` — that contract is unit-tested, so
+          # this line cannot fail the step.
+          DECISION=$(python3 tools/aria/chain_next_cycle.py)
+          echo "chain decision: ${DECISION}"
+          case "${DECISION}" in
+            *'"dispatch": true'*)
+              if gh workflow run aria-auto-cycle.yml --ref main; then
+                echo "::notice::chained the next cycle"
+              else
+                # A dispatch the API refused is worth SAYING and not worth
+                # failing a successful drain over: the cron floor still
+                # fires, so the cost is one late cycle.
+                echo "::warning::chain dispatch refused by the API; the cron floor still applies"
+              fi
+              ;;
+            *)
+              echo "::notice::chain declined — see the reason above"
+              ;;
+          esac

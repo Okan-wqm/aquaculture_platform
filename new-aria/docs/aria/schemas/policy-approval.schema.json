@@ -1,0 +1,26 @@
+{
+  "$id": "aria/policy-approval/v1",
+  "type": "object",
+  "required": [
+    "$schema",
+    "schema_version",
+    "policy_id",
+    "required_stages",
+    "max_expiry_hours",
+    "separation_of_duties"
+  ],
+  "properties": {
+    "$schema": { "const": "aria/policy-approval/v1" },
+    "schema_version": { "const": 1 },
+    "policy_id": { "type": "string", "minLength": 1 },
+    "required_stages": {
+      "type": "array",
+      "items": { "enum": ["risk_owner", "exception_owner"] },
+      "uniqueItems": true,
+      "minItems": 2
+    },
+    "max_expiry_hours": { "type": "integer", "minimum": 1 },
+    "separation_of_duties": { "const": true }
+  },
+  "additionalProperties": true
+}

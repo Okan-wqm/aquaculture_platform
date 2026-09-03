@@ -1,0 +1,9 @@
+{
+  "$schema": "aria/genesis-policy/v1",
+  "schema_version": 1,
+  "_comment": "Operator override for ARIA Phase-4.1 genesis hook gating. Copy to genesis_policy.json (without .template) and edit. Missing file uses package defaults from aria-kernel/aria_kernel/data/genesis_policy_default.json. Override keys are merged onto defaults; unknown keys ignored.",
+  "enable_request_generation": true,
+  "max_requests_per_cycle": 5,
+  "materialization_requires_acknowledge": true,
+  "fitness_staleness_threshold_days": 7
+}

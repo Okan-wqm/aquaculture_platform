@@ -157,6 +157,10 @@ const EXEMPT_PATHS: readonly RegExp[] = [
   /^tools\/gates\/banned-construct\.ts$/,
   /^tools\/gates\/banned-construct\.spec\.ts$/,
   /^tests\/invariants\/fixtures\//,
+  // new-aria/ is a verbatim transport copy of the ARIA surface destined for its
+  // own repository; every construct in it exists at a canonical path that is
+  // range-grandfathered here. The copy is not authored code.
+  /^new-aria\//,
   // The ESLint gate-preservation baseline (A2) embeds the very constructs
   // it tests as fixture STRINGS — getRepository(), JSON.stringify(x,y,2),
   // JWT_SECRET reads — to prove the no-restricted-* gates fire on them.

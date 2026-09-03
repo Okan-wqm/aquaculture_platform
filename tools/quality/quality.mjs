@@ -210,6 +210,14 @@ function classifyFormatFile(path) {
       'nested worktree content is not repo authority',
     );
   }
+  if (path.startsWith('new-aria/')) {
+    return excluded(
+      path,
+      'archive_immutable',
+      'aria-transport-copy',
+      'verbatim transport copy of the ARIA surface; formatting authority is the canonical root path',
+    );
+  }
   if (path.startsWith('agent-workspace/')) {
     return excluded(path, 'runtime_evidence', 'agent-workspace', 'agent runtime workspace output');
   }

@@ -1,0 +1,543 @@
+{
+  "$schema": "aria/pedagogy-registry/v1",
+  "comment": "Plan ARIA-V4 §2a — per-agent pedagogy tier declaration. Single source of truth for which agents stay imperative (Tier-1) vs hybrid (Tier-2) vs full-narrative (Tier-3). Each agent's frontmatter MUST declare a `pedagogy-tier:` field matching this registry; invariant I-V4-02 enforces co-equality. Adding or modifying an entry requires operator review per the V4 conservative-tier-1 scope decision.",
+  "consequence_leak_allowlist": [
+    {
+      "agent_name": "aria-drafter",
+      "rationale": "Describing how a recursive Agent() spawn or aria-kernel/** mutation would propagate IS the attack-surface manual. Tier-2 hybrid for this agent OMITS the consequence section on these specific rules — the invariant lock is non-negotiable; reasoning latitude is the failure mode.",
+      "rule_class": "kernel-self-modification"
+    },
+    {
+      "agent_name": "aria-drafter",
+      "rationale": "Same rationale as kernel-self-modification: detailing what reading .env*/credentials/ could expose teaches the attack. Imperative-only.",
+      "rule_class": "secret-exfiltration"
+    }
+  ],
+  "invariant_locks": {
+    "I-V4-01": "Every aria-*.md agent file (under .claude/agents/aria-*.md OR .claude/agents/_maintenance/aria-*.md) MUST declare `pedagogy-tier:` in frontmatter.",
+    "I-V4-02": "The frontmatter `pedagogy-tier:` value MUST match the entry in `_pedagogy-registry.json` for the same agent.",
+    "I-V4-03": "The `pedagogy-tier:` value MUST be one of {1, 2, 3}; values outside this enum are rejected at PR time."
+  },
+  "plan": "Plan ARIA-V4",
+  "schema_version": 1,
+  "tier_assignments": {
+    "access-boundary-auditor": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "accessibility-auditor": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "admin-expert": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "ai-safety-auditor": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 3,
+      "rationale": "Style/quality/docs agent; full narrative for extrapolation; operator 'orneklerle' plural-mandatory enforced."
+    },
+    "alert-engine-expert": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "api-reference-writer": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 3,
+      "rationale": "Style/quality/docs agent; full narrative for extrapolation; operator 'orneklerle' plural-mandatory enforced."
+    },
+    "architectural-arbiter": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "architecture-writer": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 3,
+      "rationale": "Style/quality/docs agent; full narrative for extrapolation; operator 'orneklerle' plural-mandatory enforced."
+    },
+    "aria-acceptance-gap-fixer": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Plan 030 write-tier gap fixer; hybrid imperative+narrative; consequence-chain teaches why a fix is root-cause + tested and opens a draft PR, never auto-merges."
+    },
+    "aria-acceptance-gap-hunter": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Plan 030 read-only gap hunter; hybrid imperative+narrative; consequence-chain teaches why every gap claim must cite file:line evidence."
+    },
+    "aria-acceptance-lead": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Plan 030 acceptance-lane project lead; hybrid imperative+narrative; consequence-chain teaches why the deterministic harness verdict, not an agent opinion, is the gate."
+    },
+    "aria-acceptance-output-validator": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Plan 030 read-only output validator; hybrid imperative+narrative; consequence-chain teaches why a borderline drift verdict is a lead, not the gate."
+    },
+    "aria-adversarial-judge": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 3,
+      "rationale": "Read-only adversarial judge. Style prohibitions about falsification methodology + silence-vs-explicit-disagreement benefit from narrative. No safety rules."
+    },
+    "aria-autonomy-planner": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 1,
+      "rationale": "Queue-projection utility; machine-parsed envelope contract; bare imperatives only."
+    },
+    "aria-challenger-drafter": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Plan ARIA-V6 §2d v2 — evidence-grounded adapter challenger for the convergent_skill_authoring loop. Hybrid form REQUIRED: imperative headlines for the three Tier-1 constraints (100% validation, evidence-grounded debate, mutual hallucination guarantee) + narrative bodies explaining peer-audit discipline + counter-example sourcing from real fixtures. Cross-fact-check duty against primary's refs via Path.exists + git show; speculation rejected."
+    },
+    "aria-challenger-planner": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Adversarial counter-planner. Hybrid form: imperative headlines for separation-of-duties + envelope-discipline + banned-phrase rejection + narrative bodies explaining how primary-planner blind spots emerge."
+    },
+    "aria-change-intelligence": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 3,
+      "rationale": "Read-only impact analyzer. Style prohibitions about self-output-as-evidence + remediation-proposal separation benefit from narrative."
+    },
+    "aria-completeness-critic": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 3,
+      "rationale": "Read-only coverage-waiver adjudicator (plan-coverage gate PR-2). Narrative form lets the agent reason about the accept-only-what-you-verified discipline and untrusted-tag DATA handling; fail-closed kernel folding means no self-modification surface (tools: Read, Grep, Glob)."
+    },
+    "aria-consensus-arbiter": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 1,
+      "rationale": "Consensus-gate math (Plan ARIA-V2). Aggregation arithmetic over independent judge verdicts is parameterized by literal threshold constants (mean confidence ≥ 0.80, ≥2 unique judge_ids). Adding narrative would degrade grep-stability + signal-to-noise of the arithmetic gates."
+    },
+    "aria-cross-reviewer": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 3,
+      "rationale": "Read-only ARIA-V8 bidirectional plan cross-reviewer. Narrative form lets the agent reason about prompt-injection defense (untrusted-tag DATA discipline) and content-hash verification — both are narrative-extrapolation-friendly. No self-modification surface (tools: Read, Grep, Glob)."
+    },
+    "aria-drafter": {
+      "consequence_leak_protections": [
+        "kernel-self-modification",
+        "secret-exfiltration"
+      ],
+      "pedagogy_tier": 2,
+      "rationale": "Maintenance-bound genesis drafter. Hybrid form REQUIRED because the agent runs under autonomous profile + writes to disk. Tier-1 safety rules (kernel-immutability, secret-exfiltration, recursive Agent() spawn) MUST stay imperative-only with consequence-leak protections; architectural rules (DraftIntent shape, banned-phrase compliance, evidence-ref allowlist) get narrative bodies."
+    },
+    "aria-evidence-judge": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 3,
+      "rationale": "Read-only judge. Style/quality prohibitions about evidence grounding + verdict shape benefit from narrative extrapolation. No safety or self-modification rules."
+    },
+    "aria-goldset-curator": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 3,
+      "rationale": "Read-only fixture curator. Style prohibitions about TP/FP threshold + operator-review-only-write-path benefit from narrative."
+    },
+    "aria-implementer": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 3,
+      "rationale": "Plan ARIA-V9.1 — first WRITER agent (Edit+Write+Bash). High-prohibition density: SECURITY CONTRACT + Self-Modification + Network Egress + Safety Disable + Canonical Validation + Tool Discipline. Tier-3 narrative form lets each prohibition carry an Example block so the LLM sees the canonical refusal pattern in-context. Safety rules pinned by V9.0-D HARD_FAIL_CHECKS registry + V9.0-D READONLY_PATHS frozenset; the agent's narrative complements the kernel-side Tier-1 anchors."
+    },
+    "aria-primary-drafter": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Plan ARIA-V6 §2d v2 — evidence-grounded adapter primary drafter for the convergent_skill_authoring loop. Hybrid form REQUIRED: imperative headlines for the three Tier-1 constraints (100% validation, evidence-grounded debate, mutual hallucination guarantee) + narrative bodies explaining why ≥3 evidence_refs/rule + Phase 0 evidence_pack binding prevent hallucinated rule space. Authoring duty (not safety duty); no consequence_leak protections needed."
+    },
+    "aria-primary-planner": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural planner. Hybrid form: imperative headlines for safety/contract rules (refusal discipline, never-invoke-Agent, recursive-impact discipline) + narrative bodies explaining why architectural-first planning prevents specific failure modes."
+    },
+    "aria-prompt-writer": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 3,
+      "rationale": "Maintenance-bound prompt renderer. The agent that AUTHORS narrative pedagogy must itself BE narrative (recursive coherence). No safety or self-modification rules in scope; renders other agents' prompts but does not execute them."
+    },
+    "aria-worker": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 1,
+      "rationale": "Kernel-leased assignment executor; machine-parsed contract + write tools; bare imperatives only (safety/identity class)."
+    },
+    "audit-trail-completeness-auditor": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "auth-security-expert": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 1,
+      "rationale": "Security-critical class; consequence-leak risk if narrative inlined describes attack surface."
+    },
+    "billing-expert": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "billing-reconciliation-auditor": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "build-validator": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "button-action-auditor": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "chart-widget-auditor": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "circuit-breaker-auditor": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "commercial-legal-writer": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 3,
+      "rationale": "Style/quality/docs agent; full narrative for extrapolation; operator 'orneklerle' plural-mandatory enforced."
+    },
+    "compliance-evidence-writer": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 3,
+      "rationale": "Style/quality/docs agent; full narrative for extrapolation; operator 'orneklerle' plural-mandatory enforced."
+    },
+    "compliance-expert": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 1,
+      "rationale": "Security-critical class; consequence-leak risk if narrative inlined describes attack surface."
+    },
+    "context-manager": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "contract-parity-enforcer": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "data-expert": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "data-readback-auditor": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "database-reviewer": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "db-audit-farm-operations": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "db-audit-farm-platform": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "db-audit-farm-production": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "db-audit-identity-billing": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "db-audit-ops-infra": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "db-audit-people-messaging": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "db-audit-platform-admin": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "db-audit-sensor": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "deployment-runbook-writer": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 3,
+      "rationale": "Style/quality/docs agent; full narrative for extrapolation; operator 'orneklerle' plural-mandatory enforced."
+    },
+    "edge-docs-orchestrator": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 3,
+      "rationale": "Style/quality/docs agent; full narrative for extrapolation; operator 'orneklerle' plural-mandatory enforced."
+    },
+    "edge-expert": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "edge-industrial-auditor": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "farm-expert": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "file-transfer-auditor": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "form-write-auditor": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "frontend-expert": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 1,
+      "rationale": "Security-critical class; consequence-leak risk if narrative inlined describes attack surface."
+    },
+    "gdpr-erasure-executor": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 1,
+      "rationale": "Security-critical class; consequence-leak risk if narrative inlined describes attack surface."
+    },
+    "hr-expert": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "implementation-planner": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 3,
+      "rationale": "Style/quality/docs agent; full narrative for extrapolation; operator 'orneklerle' plural-mandatory enforced."
+    },
+    "infra-expert": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "job-queue-auditor": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "legal-hold-auditor": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 1,
+      "rationale": "Security-critical class; consequence-leak risk if narrative inlined describes attack surface."
+    },
+    "list-visibility-auditor": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "mcp-expert": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "memory-leak-auditor": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "messaging-expert": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "mobile-app-auditor": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "multi-tenant-saas-expert": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "observability-expert": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "operations-sla-writer": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 3,
+      "rationale": "Style/quality/docs agent; full narrative for extrapolation; operator 'orneklerle' plural-mandatory enforced."
+    },
+    "orchestrator": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "performance-expert": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "platform-kernel-expert": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "product-audit-arbiter": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "product-audit-context-manager": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "product-audit-orchestrator": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "product-overview-writer": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 3,
+      "rationale": "Style/quality/docs agent; full narrative for extrapolation; operator 'orneklerle' plural-mandatory enforced."
+    },
+    "prompt-writer": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 3,
+      "rationale": "Style/quality/docs agent; full narrative for extrapolation; operator 'orneklerle' plural-mandatory enforced."
+    },
+    "protocol-reference-writer": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 3,
+      "rationale": "Style/quality/docs agent; full narrative for extrapolation; operator 'orneklerle' plural-mandatory enforced."
+    },
+    "realtime-sync-auditor": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "root-cause-auditor": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "schema-surface-parity-auditor": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "security-architecture-writer": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 1,
+      "rationale": "Security-critical class; consequence-leak risk if narrative inlined describes attack surface."
+    },
+    "security-reviewer": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 1,
+      "rationale": "Security-critical class; consequence-leak risk if narrative inlined describes attack surface."
+    },
+    "sensor-expert": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "siemens-integration-writer": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 3,
+      "rationale": "Style/quality/docs agent; full narrative for extrapolation; operator 'orneklerle' plural-mandatory enforced."
+    },
+    "siemens-rfp-responder": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 3,
+      "rationale": "Style/quality/docs agent; full narrative for extrapolation; operator 'orneklerle' plural-mandatory enforced."
+    },
+    "supply-chain-auditor": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 1,
+      "rationale": "Security-critical class; consequence-leak risk if narrative inlined describes attack surface."
+    },
+    "table-grid-auditor": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "tenant-isolation-auditor": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "test-evidence-writer": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 3,
+      "rationale": "Style/quality/docs agent; full narrative for extrapolation; operator 'orneklerle' plural-mandatory enforced."
+    },
+    "test-runner": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "ui-action-mapper": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "webhook-ingress-auditor": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    },
+    "workflow-state-auditor": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
+    }
+  },
+  "tier_definitions": {
+    "1": {
+      "applies_to": "machine-parsed contracts + safety/identity + self-modification + separation-of-duties + consensus-gate math",
+      "label": "imperative",
+      "rationale": "DeepMind Sparrow (2022) shows short atomic imperatives outperform compound rationales for refusal tasks. Tier-1 prohibitions consume reasoning latitude as the failure mode.",
+      "shape": "bare imperative prohibition; no temptation/consequence narrative; grep-stable"
+    },
+    "2": {
+      "applies_to": "architectural principles where reasoning aids extrapolation but the rule remains non-negotiable",
+      "label": "hybrid",
+      "rationale": "Anthropic + OpenAI cookbook show ~15-25% reduction in policy-edge-case failures for architectural rules when narrative explains the WHY. The imperative headline preserves grep-stability + scanner compatibility.",
+      "shape": "imperative headline (grep-stable, ≤140 chars) + narrative body (Temptation / Why-looks-correct / Downstream-consequence / Correct-path-with-invariant)"
+    },
+    "3": {
+      "applies_to": "style/quality guidance where extrapolation matters and consequence is recoverable",
+      "label": "narrative",
+      "rationale": "Style + quality + extrapolation-heavy rules benefit most from causal pedagogy. No safety risk if narrative is exploited because the consequences are bounded + recoverable.",
+      "shape": "full 4-section narrative for every prohibition (Temptation / Why-looks-correct / Downstream-consequence / Correct-path-with-invariant); narrative MUST end on the invariant being protected, NEVER on the consequence (rationalization-channel mitigation)"
+    }
+  }
+}

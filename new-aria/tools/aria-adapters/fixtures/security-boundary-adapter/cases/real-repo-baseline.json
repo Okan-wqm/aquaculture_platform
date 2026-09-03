@@ -1,0 +1,15 @@
+{
+  "name": "real-repo-baseline",
+  "lane": "real_repo_baseline",
+  "input": {
+    "roots": ["apps", "libs/backend-common/src", "platform/libs", "web", "tools/eslint-rules"]
+  },
+  "expected": {
+    "status": "ok",
+    "required_observations": [
+      "security_boundary_endpoint",
+      "security_sensitive_sink"
+    ],
+    "max_findings": 150
+  }
+}

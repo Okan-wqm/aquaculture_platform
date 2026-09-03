@@ -1,0 +1,1 @@
+{"$schema":"aria/feedback-event/v1","event_id":"FB-external-dynamic-option","kind":"confirmed_signal","source":"external_scanner","refs":["web/modules/hr-module/src/c.tsx:3"],"summary":"external scanner confirms dynamic option provider","capability_gap_key":"frontend:dynamic_option_provider:tsx","trusted":false,"schema_version":1}

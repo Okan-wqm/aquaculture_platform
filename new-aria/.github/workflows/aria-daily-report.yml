@@ -1,0 +1,342 @@
+name: aria-daily-report
+
+# Plan 022 §M-4 — daily ARIA report automation.
+# Plan 023 v3 §D-2 — superseded by PR-based report publishing.
+# Plan 024 v3 §B-3 — input injection closure + iki-job split:
+#   * Workflow-level permissions defaults to contents:read; only the
+#     commit-report job overrides to contents:write so generated reports
+#     can be published through the shared automation PR upsert script.
+#     A workflow_dispatch input injection in the read-only generate
+#     job has no PR/push capability.
+#   * generate-report exports `date` as a job output via $GITHUB_OUTPUT;
+#     commit-report reads it via needs.generate-report.outputs.date.
+#     env: alone does NOT cross job boundaries in GHA.
+#   * Date input regex-validated (^[0-9]{4}-[0-9]{2}-[0-9]{2}$) before
+#     it is ever interpolated into a shell command. Path containment
+#     check via realpath -m ensures the report path stays inside
+#     aria-tools/reports/daily/. Both checks live in env: blocks (no
+#     raw ${{ github.event.inputs.* }} inside `run:` shell scripts).
+
+on:
+  schedule:
+    - cron: '0 6 * * *'  # 06:00 UTC daily
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'YYYY-MM-DD (UTC) date for the report; defaults to today.'
+        required: false
+        type: string
+
+permissions:
+  # Plan 024 v3 §B-3 — workflow-level default contents:read.
+  # commit-report job overrides to contents:write at job scope.
+  contents: read
+
+concurrency:
+  group: aria-daily-report
+  cancel-in-progress: false
+
+jobs:
+  generate-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+    outputs:
+      date: ${{ steps.target.outputs.date }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          # Plan ARIA-V2 §3.7 INFRA-HIGH-004 — generate-report is the
+          # read-only job; PR credentials are only available in commit-report.
+          persist-credentials: false
+      - uses: ./.github/actions/setup-aria-kernel
+
+      - name: Validate date input + compute target
+        id: target
+        env:
+          # Plan 024 v3 §B-3 — env-only interpolation; raw shell access
+          # to ${{ github.event.inputs.date }} is closed.
+          DATE_INPUT: ${{ github.event.inputs.date }}
+        run: |
+          set -euo pipefail
+          if [ -n "${DATE_INPUT:-}" ]; then
+            if ! [[ "$DATE_INPUT" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+              echo "::error::invalid date format (expected YYYY-MM-DD): $DATE_INPUT" >&2
+              exit 1
+            fi
+            DATE="$DATE_INPUT"
+          else
+            DATE="$(date -u +%F)"
+          fi
+          REPORT="aria-tools/reports/daily/${DATE}.md"
+          # Plan 024 v3 §B-3 — path containment.
+          mkdir -p "$(dirname "$REPORT")"
+          REPORT_REAL="$(realpath -m "$REPORT")"
+          REPORTS_REAL="$(realpath aria-tools/reports/daily)"
+          case "$REPORT_REAL" in
+            "$REPORTS_REAL"/*) ;;
+            *)
+              echo "::error::report path escapes daily reports dir: $REPORT_REAL" >&2
+              exit 1
+              ;;
+          esac
+          echo "date=${DATE}" >> "$GITHUB_OUTPUT"
+
+      - name: Persist enterprise workflow preflight
+        env:
+          REPORT_DATE: ${{ steps.target.outputs.date }}
+          PYTHONPATH: aria-kernel
+        run: |
+          set -euo pipefail
+          REPORT="aria-tools/reports/daily/${REPORT_DATE}.md"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          from aria_kernel.preflight import verify_workflow_preflight
+
+          report = f"aria-tools/reports/daily/{os.environ['REPORT_DATE']}.md"
+          # FAZ 6a — the durable store joins the write roots: the anchor now
+          # reads the reflection report out of the restored aria/state store
+          # (and the restore materialises it), so declaring only the repo-
+          # local report path would describe the pre-FAZ-6 lane.
+          allowed = [report, ".aria-state-store"]
+          verdict = verify_workflow_preflight(
+              workflow_id="aria-daily-report",
+              job_id="generate-report",
+              profile="standard",
+              workspace_root=os.environ["GITHUB_WORKSPACE"],
+              allowed_write_roots=allowed,
+              path_allowlist=allowed,
+              # `github_git` is the aria/state fetch — a different credential
+              # and blast radius from artifact upload, declared separately.
+              network_policy=["github_artifact", "github_git"],
+              network_enforcement_evidence="actions/upload-artifact receives only the generated daily report; git reach is the aria/state restore",
+              token_provenance="github_actions_artifact_token",
+              require_github_app=False,
+              dlp_mode="fail_closed",
+              dlp_scan_clean=True,
+              audit_reason="generate and upload daily ARIA report artifact",
+              audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "aria-daily-report-generate-preflight.json",
+              external_root_allowlist=[str(Path(os.environ["RUNNER_TEMP"]).resolve())],
+          )
+          if not verdict.valid:
+              raise SystemExit(";".join(verdict.reasons))
+          PY
+
+      # FAZ 6a — bind the durable store BEFORE the anchor is generated. The
+      # anchor used to read the ephemeral checkout's empty aria-tools, so the
+      # published PR carried a stub with null fields while the real report
+      # accumulated unread in aria/state: two writers, one filename. With the
+      # store restored, the anchor pins the DURABLE ledger tails and carries
+      # the reflection report for the same date as its body.
+      - name: Restore ARIA state from the aria/state branch
+        uses: ./.github/actions/restore-aria-state
+        with:
+          bootstrap-ack: ${{ vars.ARIA_STATE_BOOTSTRAP_ACK }}
+
+      - name: Generate daily chain-tip anchor (Plan ARIA-V2 §3.9)
+        env:
+          REPORT_DATE: ${{ steps.target.outputs.date }}
+        run: |
+          set -euo pipefail
+          # Plan ARIA-V2 §3.9 + I-26 — replace the pre-§3.9 heredoc stub
+          # with the dedicated CLI subcommand that emits a YAML-
+          # frontmatter anchor pinning the governance.jsonl tail hash,
+          # workspace ledger tail, sealed cycle ids, and integrity
+          # index chain root. The CLI is idempotent: a pre-existing
+          # anchor for the same date is preserved unchanged.
+          REPORT="aria-tools/reports/daily/${REPORT_DATE}.md"
+          # Invoked as a module, not as an installed console script: the
+          # kernel package is deliberately never installed (one import
+          # source — the checkout on PYTHONPATH), so `-m` is the same entry
+          # point every other ARIA workflow already uses.
+          # --tools-dir names the RESTORED store (the binding the restore
+          # action exported), never the ephemeral checkout's aria-tools.
+          PYTHONPATH=aria-kernel python3 -m aria_kernel report daily \
+            --emit-anchor \
+            --date "${REPORT_DATE}" \
+            --output-path "${REPORT}" \
+            --tools-dir "${ARIA_TOOLS_DIR}" \
+            --workspace-root . | tee "${RUNNER_TEMP}/daily-anchor-emit.json"
+          # C2/E8 — a stub body is a failure, not a report. Publishing an
+          # anchor whose body is the placeholder means the reflection
+          # producer chain is severed for this date; a green lane over a
+          # stub is exactly the failures-dressed-as-answers class (F7).
+          BODY=$(python3 -c "import json,sys; print(json.load(open('${RUNNER_TEMP}/daily-anchor-emit.json')).get('report_body',''))")
+          if [ "${BODY}" != "reflection" ]; then
+            echo "::error::daily anchor body is '${BODY:-missing}', not the reflection report — the producer chain is severed for ${REPORT_DATE}" >&2
+            exit 1
+          fi
+
+      - name: Upload report as artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: aria-daily-report-${{ steps.target.outputs.date }}
+          path: aria-tools/reports/daily/${{ steps.target.outputs.date }}.md
+          if-no-files-found: error
+          retention-days: 365
+
+  commit-report:
+    needs: generate-report
+    # ORPHAN-HIGH-736 (F-4) — this job OPENS the daily-report PR, and a PR
+    # opened with the ephemeral job token parks every check suite in
+    # `action_required` (measured on #1282: 7 suites, zero checks started,
+    # merge blocked until a human presses Approve). The PAT identity that
+    # fixes this (ORPHAN-722) lives in the self-hosted runner's .env — so
+    # the job moves to that runner instead of distributing a new secret.
+    # generate-report stays hosted: it is read-only and needs no identity.
+    runs-on: [self-hosted, linux, claude]
+    timeout-minutes: 10
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      # Plan 024 v3 §B-3 — write scope localized to this job only.
+      contents: write
+      # This job's last step opens a pull request. A `permissions:` block makes
+      # every scope it does not name `none`, so with contents alone `gh pr
+      # create` fails with "Resource not accessible by integration" — which is
+      # what every scheduled run of this workflow has done. The report itself
+      # is committed with contents:write; this is the scope for publishing it.
+      pull-requests: write
+    steps:
+      # Z1 (ORPHAN-706) — a self-hosted job that checks out at the DEFAULT
+      # path shares the persistent ARIA workspace with the cycle and the
+      # executor; the store is that workspace. This job needs the runner
+      # only for its PAT identity (ORPHAN-736), never for ARIA's state, so
+      # it checks out into its OWN directory — the same structural
+      # isolation dataflow-integrity-watchdog uses, and the reason it may
+      # keep its own concurrency group instead of occupying the shared
+      # group's single pending slot.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: report-checkout
+          ref: main
+          persist-credentials: false
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-aria-kernel
+
+      - name: Persist enterprise workflow preflight
+        env:
+          REPORT_DATE: ${{ needs.generate-report.outputs.date }}
+          PYTHONPATH: aria-kernel
+        working-directory: report-checkout
+        run: |
+          set -euo pipefail
+          REPORT="aria-tools/reports/daily/${REPORT_DATE}.md"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          from aria_kernel.preflight import verify_workflow_preflight
+
+          report = f"aria-tools/reports/daily/{os.environ['REPORT_DATE']}.md"
+          verdict = verify_workflow_preflight(
+              workflow_id="aria-daily-report",
+              job_id="commit-report",
+              profile="standard",
+              workspace_root=os.environ["GITHUB_WORKSPACE"],
+              allowed_write_roots=[report],
+              path_allowlist=[report],
+              network_policy=["github_api"],
+              network_enforcement_evidence="GitHub PR API via automation/open-report-pr.sh",
+              token_provenance="github_app:installation",
+              dlp_mode="fail_closed",
+              dlp_scan_clean=True,
+              audit_reason="publish daily ARIA report through automation PR",
+              audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "aria-daily-report-preflight.json",
+              external_root_allowlist=[str(Path(os.environ["RUNNER_TEMP"]).resolve())],
+          )
+          if not verdict.valid:
+              raise SystemExit(";".join(verdict.reasons))
+          PY
+
+      - name: Download report artifact
+        uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e # v4
+        with:
+          name: aria-daily-report-${{ needs.generate-report.outputs.date }}
+          path: report-checkout/aria-tools/reports/daily/
+
+      - name: Open or update daily report PR
+        env:
+          # Plan 024 v3 §B-3 — read date via needs.<job>.outputs.* (env
+          # does not cross job boundaries; this is the canonical
+          # GHA inter-job data transfer mechanism).
+          REPORT_DATE: ${{ needs.generate-report.outputs.date }}
+          GH_TOKEN: ${{ secrets.ARIA_GITHUB_APP_TOKEN || github.token }}
+          PR_TOKEN_SOURCE: ${{ secrets.ARIA_GITHUB_APP_TOKEN && 'aria-github-app' || 'actions-default' }}
+        working-directory: report-checkout
+        run: |
+          set -euo pipefail
+          # ORPHAN-722 identity ladder, verbatim from the cycle lane: the
+          # fine-grained PAT (runner .env, ARIA_GH_TOKEN) takes precedence
+          # so the PR carries the machine identity whose checks RUN.
+          if [ -n "${ARIA_GH_TOKEN:-}" ]; then
+            export GH_TOKEN="$ARIA_GH_TOKEN"
+            export PR_TOKEN_SOURCE="machine-pat"
+            echo "gh identity: machine PAT (ARIA_GH_TOKEN)"
+          else
+            echo "gh identity: ${PR_TOKEN_SOURCE} fallback"
+          fi
+          REPORT="aria-tools/reports/daily/${REPORT_DATE}.md"
+          BODY_FILE="$RUNNER_TEMP/aria-daily-report-body.md"
+          # The body is rendered by python from the environment, not by the
+          # shell. An UNQUOTED heredoc was here, and markdown code spans are
+          # written with backticks: the shell ran `${REPORT}` and
+          # `.github/workflows/aria-daily-report.yml` as commands, which is
+          # where the "Permission denied" lines in every run log came from.
+          # It also made the body a command-substitution surface on a path
+          # that is otherwise carefully sanitised. Values now reach the body
+          # as data through os.environ and are never parsed by a shell.
+          REPORT="$REPORT" REPORT_DATE="$REPORT_DATE" python3 - > "$BODY_FILE" <<'PY'
+          import os
+
+          print(f"Daily ARIA report for **{os.environ['REPORT_DATE']}**.")
+          print()
+          print(f"Generated report: `{os.environ['REPORT']}`.")
+          print()
+          # FAZ 6a — the body used to be three empty lines and a filename;
+          # the reviewer had to open the diff to learn anything. Carry the
+          # report's leading sections (past the anchor frontmatter, before
+          # the per-tool tables) so the PR reads as the day's summary.
+          try:
+              text = open(os.environ["REPORT"], encoding="utf-8").read()
+          except OSError:
+              text = ""
+          if text.startswith("---\n"):
+              end = text.find("\n---\n", 4)
+              if end != -1:
+                  text = text[end + 5:]
+          lines = text.strip().splitlines()
+          cut = next(
+              (i for i, line in enumerate(lines)
+               if line.startswith("### Raw Adapter Runtime")),
+              len(lines),
+          )
+          summary = lines[: min(cut, 80)]
+          if summary:
+              print("\n".join(summary))
+              print()
+          print("This PR is created by `.github/workflows/aria-daily-report.yml`.")
+          PY
+
+          export PR_BRANCH="automation/aria-daily-report-${REPORT_DATE}"
+          export PR_TITLE="chore(aria-reports): daily ${REPORT_DATE}"
+          export PR_BODY_FILE="$BODY_FILE"
+          export COMMIT_MESSAGE="chore(aria-reports): daily ${REPORT_DATE}"
+          export CHANGED_PATHS="$REPORT"
+          bash tools/scripts/automation/open-report-pr.sh
+
+      # ADR-036 — upload the enterprise-preflight audit proof so the
+      # commit-report job's governed-write decision is retained as CI evidence.
+      - name: Upload commit-report preflight proof
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: aria-daily-report-commit-preflight-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/aria-daily-report-preflight.json
+          if-no-files-found: error
+          retention-days: 365

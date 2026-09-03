@@ -1,0 +1,826 @@
+"""ADR-036 — per-job CI-workflow governance registry (single SSoT).
+
+This module is the ONE definition of the governed-workflow contract set.
+``workflow_contracts.py``, ``preflight.py`` and ``docs_ssot.py`` all import
+``WORKFLOW_CONTRACTS`` (and the nested dataclasses) FROM here — there is no
+second copy of the contract dict anywhere (CLAUDE.md root-cause SSoT rule).
+
+Contract model (nested, per-job):
+
+* ``WorkflowJobContract`` — the per-job governance unit. A job is the GitHub
+  Actions unit that holds a ``permissions:`` scope + a ``steps:`` list, so the
+  per-job granularity is what lets ADR-036 verify permissions, the
+  SHA-pinned upload-artifact step, the preflight-call shape and the
+  write-path allowlist independently for every job in a workflow.
+* ``WorkflowContract`` — a workflow groups one-or-more ``WorkflowJobContract``.
+* ``AuditedWorkflowExclusion`` — a workflow that is discovered + owned but
+  deliberately NOT contract-verified, with an owner + reason + expiry so the
+  exclusion is auditable rather than silent.
+
+D1 (ADR-036) — the 3 ``aria-kernel*`` test workflows carry NO governed ARIA
+write authority (they write only the ephemeral ``./.aria-ci`` scratch tree,
+clean the worktree post-run, and never upload a governed artifact). They are
+modelled as ``AuditedWorkflowExclusion`` so they stay in the governed
+inventory (owner + reason + discovery-presence enforced) WITHOUT fabricating a
+``verify_workflow_preflight`` step or a governed upload-artifact step that
+would misrepresent their write surface. The canonical ``13b94c505`` blob put
+them under audited-exclusion with ``expires_at=2026-07-05`` — a dated
+time-bomb that would silently expire and red the registry. D1's recorded
+consequence is exactly "Rejects the canonical's expires_at=2026-07-05
+time-bomb": we keep the audited-exclusion shape but pin ``expires_at`` to the
+non-expiring ``date.max`` sentinel (``9999-12-31``) so there is no time-bomb.
+See ADR-036 §Decision Points D1 and the convergence spec for the full
+rationale (this is a deliberate, documented divergence from the spec's
+"FULL contract" letter in favour of its stated D1 consequence — forcing
+governed-write structure into pure test workflows is not an architectural
+root-cause fix, it is a misrepresentation of their write authority).
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+from dataclasses import asdict, dataclass
+from datetime import date
+from pathlib import Path
+
+
+@dataclass(frozen=True)
+class WorkflowAbortGate:
+    """A step whose output must abort every later step in the job.
+
+    GitHub Actions has no job-level abort: ``exit 0`` inside a ``run:`` block
+    ends the STEP and the job continues to the next one. The ONLY mechanism
+    that stops the remainder of a job is a per-step ``if:``, so a gate is real
+    only when every later step carries it. ``aria-agent-executor`` shipped the
+    announce-and-``exit 0`` shape with no guard on any downstream step, so a
+    lease-blocked run claimed a request, invoked an agent against a tree
+    another host was mutating, and discarded the result at the publish gate.
+
+    ``guard_output`` is the step output the gate writes (e.g.
+    ``steps.lease_check.outputs.blocked``); both the continue-expression and
+    its inverse are DERIVED from it, so the two spellings cannot drift apart.
+    """
+
+    gate_step: str
+    guard_output: str
+    # ORPHAN-HIGH-497 — the ONE step permitted to carry the inverse guard.
+    # The exemption used to be global, so any step could spell
+    # ``blocked == 'true'`` and pass: a one-character edit (`!=` to `==`)
+    # turned a real worker step into one that runs ONLY while another host
+    # holds the lease, which is ORPHAN-CRITICAL-469 restored with the
+    # contract gate still green.
+    announce_step: str = ""
+
+    @property
+    def guard_expression(self) -> str:
+        """Every step after the gate must carry this to run when unblocked."""
+        return f"{self.guard_output} != 'true'"
+
+    @property
+    def skip_expression(self) -> str:
+        """...or this, for a step that exists only to announce the block."""
+        return f"{self.guard_output} == 'true'"
+
+
+@dataclass(frozen=True)
+class WorkflowJobContract:
+    job_id: str
+    preflight_step: str
+    first_governed_mutation_step: str
+    allowed_write_path_patterns: tuple[str, ...]
+    preflight_artifact_path_pattern: str
+    upload_artifact_name_pattern: str
+    upload_artifact_path_patterns: tuple[str, ...]
+    retention_days: int
+    required_permissions: tuple[tuple[str, str], ...]
+    token_source: str
+    network_policy: tuple[str, ...]
+    dlp_artifact: str
+    clean_worktree_policy: str
+    external_root_allowlist: tuple[str, ...] = ()
+    # Minimum effective ``timeout-minutes`` for a job whose steps run
+    # ``autonomy burn-in observe``. A burn-in is all-or-nothing (the kernel
+    # pins 30 cycle attempts; a partial run yields ZERO ladder evidence), so a
+    # timeout sized below the measured workload silently destroys the whole
+    # run — run 28577469404 died this way under a flat 50-minute limit.
+    # ``None`` means the job runs no burn-in step (and the verifier rejects a
+    # burn-in step appearing in such a job — both directions are enforced).
+    burn_in_timeout_floor_minutes: int | None = None
+    # ORPHAN-HIGH-472 — the job's ordinary (non-burn-in) ``timeout-minutes``.
+    # Pinned here so the kernel can derive its own wall-clock ceiling from the
+    # same number the runner enforces, instead of carrying a second constant
+    # that drifts. ``_verify_job_contract`` rejects a YAML/contract mismatch,
+    # so the two cannot diverge silently.
+    #
+    # This exists because of WHO stops the run. Today an over-running cycle is
+    # killed by GitHub: the job dies mid-step, the claimed request keeps its
+    # lease until expiry, no governance row is written and the breaker never
+    # sees it. ARIA has to stop itself first for the halt to be observable.
+    job_timeout_minutes: int | None = None
+    # ORPHAN-CRITICAL-469 regression surface. ``first_governed_mutation_step``
+    # pins ONE step name and its position relative to the preflight, and
+    # nothing else: mutation testing showed the whole suite stayed green when
+    # the restore step was moved AFTER "Find next pending request" (the exact
+    # bug — the queue is read before it is restored, so next_pending_request
+    # always sees a bootstrap-empty tree) and when the publish and quarantine
+    # steps were deleted outright. Only renaming or deleting the restore step
+    # was caught, so 469 could be reintroduced verbatim with the suite green.
+    #
+    # These three fields close that as DECLARED contract, deliberately by step
+    # NAME rather than by index: an index contract breaks on the first
+    # unrelated step insertion, and a contract that breaks for unrelated
+    # reasons gets edited until it stops complaining — which is how the thing
+    # it was pinning ends up moved.
+    #
+    # ``required_steps`` — steps that must EXIST in the job.
+    required_steps: tuple[str, ...] = ()
+    # ``step_order`` — (earlier, later) pairs; both must exist and the first
+    # must appear strictly before the second.
+    step_order: tuple[tuple[str, str], ...] = ()
+    # ``abort_gate`` — the lease/kill gate whose guard every later step must
+    # carry (see WorkflowAbortGate). ``None`` = this job has no such gate.
+    abort_gate: WorkflowAbortGate | None = None
+
+
+@dataclass(frozen=True)
+class WorkflowContract:
+    workflow_id: str
+    workflow_file: str
+    job_contracts: tuple[WorkflowJobContract, ...]
+
+
+@dataclass(frozen=True)
+class AuditedWorkflowExclusion:
+    workflow_id: str
+    reason: str
+    owner: str
+    expires_at: str
+
+
+# ``date.max`` (9999-12-31) is a valid ISO date that never satisfies the
+# ``expires_at <= date.today()`` expiry check in ``_verify_audited_exclusions``.
+# It is the "audited but non-expiring" sentinel (ADR-036 D1 — no time-bomb).
+_NEVER_EXPIRES = date.max.isoformat()
+
+
+# Regex fragments for the upload-artifact path / name patterns. These match the
+# GitHub-expression interpolations EXACTLY as the live YAMLs emit them, after
+# ``_normalize_workflow_path`` collapses ``${{ runner.temp }}`` -> ``runner-temp``.
+_RUNNER_TEMP = r"runner-temp"
+_RUN_ID_ATTEMPT = r"\$\{\{\s*github\.run_id\s*\}\}-\$\{\{\s*github\.run_attempt\s*\}\}"
+_REQUEST_ID = r"\$\{\{\s*steps\.pending\.outputs\.request_id\s*\}\}"
+_REPORT_DATE = r"[0-9]{4}-[0-9]{2}-[0-9]{2}"
+_REPORT_DATE_EXPR = r"\$\{\{\s*steps\.target\.outputs\.date\s*\}\}"
+
+
+# Step names quoted from the live YAMLs. Named constants because each one is
+# referenced from several ordering pairs below, and a typo'd literal would
+# silently weaken the contract into a no-op rather than fail loudly. Note the
+# two lease steps differ by an em-dash vs hyphen — the verifier matches the
+# YAML text exactly, so the difference is preserved rather than normalized.
+#
+# PLAN Wave 1 PR 2.6b — the restore/publish step names moved with the transport.
+# They are not cosmetic: "Restore aria-tools state from previous run" described
+# an artifact download, and a contract that keeps describing the old mechanism
+# is a contract a reader trusts about the wrong thing. The two lanes share ONE
+# restore name now because they share one action.
+_RESTORE_STEP = "Restore ARIA state from the aria/state branch"
+_PUBLISH_STEP = "Publish ARIA state to the aria/state branch"
+_EXECUTOR_RESTORE_STEP = _RESTORE_STEP
+_EXECUTOR_LEASE_STEP = "Pre-flight — cross-host autonomous-loop lease check"
+_EXECUTOR_PENDING_STEP = "Find next pending request"
+_EXECUTOR_WORK_STEP = "Run CI executor"
+# RC-6 — the operator's only route to the breaker ledger that lives in the
+# durable store. Declared here so deleting it is a contract failure rather than
+# a quiet loss of the recovery lever, which is how ORPHAN-HIGH-465 (a recovery
+# function with no command surface) happened once. On the branch transport this
+# step is the ONLY route: deleting an artifact was a lever, deleting history is
+# not one.
+_EXECUTOR_BREAKER_QUARANTINE_STEP = "Quarantine damaged breaker evidence (recovery dispatch)"
+_CYCLE_RESTORE_STEP = _RESTORE_STEP
+_CYCLE_LEASE_STEP = "Pre-flight - cross-host autonomous-loop lease check"
+# ORPHAN-HIGH-728 — the step no longer names a fixed profile, because the
+# profile is now a verdict bounded by an operator ceiling. The old name
+# asserted `standard` in a place a contract could not check, which is how it
+# kept describing the lane after the lane changed.
+_CYCLE_WORK_STEP = "Run the nightly cycle under the resolved profile"
+
+# The two steps that decide and then DECLARE the night's authority. Contracted
+# because their ORDER is the boundary: a run that reached the work step
+# without resolving the profile would be running an unbounded one, and a run
+# that resolved it without re-declaring it would leave the audit artifact
+# asserting an authority the run did not take.
+_CYCLE_PROFILE_GATE_STEP = "Resolve the cycle profile within the operator ceiling"
+_CYCLE_RESOLVED_PREFLIGHT_STEP = (
+    "Persist enterprise workflow preflight for the resolved profile"
+)
+
+# The store worktree, as the workflow path allowlist spells it. One constant
+# because four contract fields and two YAMLs have to agree on it.
+_STORE_ROOT = r"\.aria-state-store"
+_RUN_ID = r"\$\{\{\s*github\.run_id\s*\}\}"
+
+
+# All contract VALUES below are re-derived from main's LIVE workflow YAMLs
+# (ADR-036: structure is portable from 13b94c505, values are NOT — they target
+# a divergent YAML generation). Job keys are the YAML-true keys
+# (executor / generate-report / commit-report / generate / eval / sweep / proof).
+WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
+    "aria-operational-proof": WorkflowContract(
+        workflow_id="aria-operational-proof",
+        workflow_file=".github/workflows/aria-operational-proof.yml",
+        job_contracts=(
+            WorkflowJobContract(
+                job_id="proof",
+                preflight_step="Persist enterprise workflow preflight",
+                first_governed_mutation_step="Run observe burn-in proof",
+                allowed_write_path_patterns=(
+                    rf"^{_RUNNER_TEMP}/aria-operational-proof$",
+                ),
+                preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-operational-proof/workflow-preflight\.json$",
+                upload_artifact_name_pattern=r"^aria-operational-proof-\$\{\{\s*github\.sha\s*\}\}$",
+                upload_artifact_path_patterns=(rf"^{_RUNNER_TEMP}/aria-operational-proof$",),
+                retention_days=365,
+                required_permissions=(("contents", "read"),),
+                token_source="github_actions_artifact_token",
+                network_policy=("github_artifact",),
+                dlp_artifact="workflow-preflight.json",
+                clean_worktree_policy="pre_and_post",
+                external_root_allowlist=("RUNNER_TEMP",),
+                # MOCK-mode burn-in (dry-run cycles, minutes-scale); the live
+                # YAML's measured 90-minute combined suite + burn-in budget
+                # satisfies this burn-in floor.
+                burn_in_timeout_floor_minutes=30,
+            ),
+        ),
+    ),
+    "aria-agent-executor": WorkflowContract(
+        workflow_id="aria-agent-executor",
+        workflow_file=".github/workflows/aria-agent-executor.yml",
+        job_contracts=(
+            WorkflowJobContract(
+                job_id="executor",
+                preflight_step="Persist enterprise workflow preflight",
+                first_governed_mutation_step=_EXECUTOR_RESTORE_STEP,
+                # ORPHAN-CRITICAL-420 S1 — the executor restores and
+                # republishes the whole state tree to bridge the
+                # agent-invocation queue across the 01:00/02:00 lane
+                # boundary, so its write root is the tree, as the producer
+                # cycle's already is. The pre-S1 six-file list could not
+                # survive the move: the preflight must run BEFORE the
+                # restore (workflow_contracts rejects a preflight after the
+                # first governed mutation), and before the restore there is
+                # no request_id with which to name request-scoped paths.
+                #
+                # PLAN Wave 1 PR 2.6b — that tree is the store worktree now.
+                # `aria-tools` in the checkout is no longer written at all, so
+                # leaving it declared would have been a write root nothing
+                # writes to, next to a real one nothing declared.
+                allowed_write_path_patterns=(
+                    rf"^{_STORE_ROOT}(/.*)?$",
+                ),
+                preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-agent-executor-preflight\.json$",
+                upload_artifact_name_pattern=rf"^aria-response-{_REQUEST_ID}$",
+                # These pins used to spell the envelope path themselves —
+                # `outputs/<request_id>.json` — while `agent_invocations.py`
+                # names it `outputs/<group>/<round>-<role>-<request_id>.md`.
+                # Two spellings of one path, and the contract test pinned the
+                # WRONG one, so the gate certified the mismatch instead of
+                # catching it and every executor run that claimed a request
+                # died on upload after its work had succeeded. The producer
+                # now publishes the real paths as step outputs, and what this
+                # pins is that derivation: the workflow may not re-guess.
+                upload_artifact_path_patterns=(
+                    r"^\$\{\{ steps\.executor\.outputs\.envelope_path \}\}$",
+                    r"^\$\{\{ steps\.executor\.outputs\.transcript_path \}\}$",
+                ),
+                retention_days=7,
+                # contents:write is what the cutover costs: the lane publishes
+                # by pushing `aria/state`. The blast radius is bounded on the
+                # SERVER — the branch ruleset blocks force-pushes and deletions,
+                # so the widest thing this token can do to the state branch is
+                # append a commit that descends from the tip, which is exactly
+                # what publishing is. actions:read remains for run/job
+                # introspection; it no longer fetches state.
+                # ARIA-AUDIT-016: id-token reaches the Actions OIDC channel
+                # the attestation probe reads as platform evidence.
+                required_permissions=(
+                    ("contents", "write"),
+                    ("actions", "read"),
+                    ("id-token", "write"),
+                ),
+                token_source="github_actions_artifact_token",
+                network_policy=("github_artifact", "github_git"),
+                dlp_artifact="aria-agent-executor-preflight.json",
+                clean_worktree_policy="pre_and_post",
+                external_root_allowlist=("RUNNER_TEMP",),
+                job_timeout_minutes=150,
+                required_steps=(
+                    _EXECUTOR_RESTORE_STEP,
+                    _EXECUTOR_LEASE_STEP,
+                    _EXECUTOR_BREAKER_QUARANTINE_STEP,
+                    _EXECUTOR_PENDING_STEP,
+                    _EXECUTOR_WORK_STEP,
+                    _PUBLISH_STEP,
+                    "Quarantine unverified ARIA state",
+                    "Fail when ARIA state was not published",
+                ),
+                step_order=(
+                    # ORPHAN-CRITICAL-469 itself: the restore must precede the
+                    # lease preflight (lease_state reads the restored tree, so
+                    # a bootstrap-empty one cannot observe a held lease) AND
+                    # the queue read (next_pending_request on an unrestored
+                    # tree always answers None — the stranded-queue bug).
+                    (_EXECUTOR_RESTORE_STEP, _EXECUTOR_LEASE_STEP),
+                    (_EXECUTOR_RESTORE_STEP, _EXECUTOR_PENDING_STEP),
+                    # RC-6 — the repair mutates the RESTORED tree and must be
+                    # inside the same transaction that republishes it. Both
+                    # bounds are load-bearing: before the restore it would
+                    # quarantine a bootstrap-empty ledger and report a clean
+                    # no-op, and after the publish it would repair a tree
+                    # nothing goes on to persist.
+                    (_EXECUTOR_RESTORE_STEP, _EXECUTOR_BREAKER_QUARANTINE_STEP),
+                    (_EXECUTOR_BREAKER_QUARANTINE_STEP, _PUBLISH_STEP),
+                    # The return half of the bridge: publish, quarantine and
+                    # the not-published failure are the run's terminal
+                    # accounting and must follow the work, never precede it.
+                    (_EXECUTOR_WORK_STEP, _PUBLISH_STEP),
+                    (_EXECUTOR_WORK_STEP, "Quarantine unverified ARIA state"),
+                    (_EXECUTOR_WORK_STEP, "Fail when ARIA state was not published"),
+                ),
+                abort_gate=WorkflowAbortGate(
+                    gate_step=_EXECUTOR_LEASE_STEP,
+                    guard_output="steps.lease_check.outputs.blocked",
+                    announce_step="Skip autonomous loop when local lease is fresh",
+                ),
+            ),
+        ),
+    ),
+    "aria-auto-cycle": WorkflowContract(
+        workflow_id="aria-auto-cycle",
+        workflow_file=".github/workflows/aria-auto-cycle.yml",
+        job_contracts=(
+            WorkflowJobContract(
+                job_id="cycle",
+                preflight_step="Persist enterprise workflow preflight",
+                first_governed_mutation_step=_CYCLE_RESTORE_STEP,
+                # The producer cycle owns the whole state tree (cycles,
+                # autonomy_state, pressure, budget shards, cost-attribution,
+                # governance, handoffs, locks, burn-in evidence,
+                # agent-invocations) plus the findings seed surface the nightly
+                # fresh-scan seeder re-derives from repo truth.
+                #
+                # PLAN Wave 1 PR 2.6b — all of it lives under the store
+                # worktree now, so ONE pattern replaces two. `aria-findings/`
+                # in the checkout is not a write root any more: the seeder
+                # resolves through the kernel's `repo_state_root`, which the
+                # restore binds at the store.
+                allowed_write_path_patterns=(
+                    rf"^{_STORE_ROOT}(/.*)?$",
+                ),
+                # ORPHAN-HIGH-728 — TWO preflight artifacts on this lane. The
+                # pre-restore one declares the lane's structural ceiling (it
+                # runs before the store is bound and cannot know the night's
+                # profile); the `-resolved` one declares what the profile gate
+                # actually chose, which is what makes
+                # `frozen_profile_blocks_mutating_workflow` reachable here.
+                # The suffix is contracted rather than free-form so a third
+                # artifact cannot appear without this line changing.
+                preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-auto-cycle-preflight(-resolved)?\.json$",
+                # The governed upload is the FORENSIC CACHE, and the run-scoped
+                # name is the contract's own statement that it is not
+                # authoritative. Under the old canonical name the artifact WAS
+                # the state, which is what made ORPHAN-CRITICAL-484 reachable:
+                # an upload cannot enforce ancestry, so `overwrite: true` could
+                # bury the accumulated tree under a bootstrap-empty one. Pinning
+                # `-<run_id>` here means a future edit back to a fixed name
+                # fails the contract rather than silently restoring the hazard.
+                upload_artifact_name_pattern=rf"^aria-state-cache-{_RUN_ID}$",
+                # ORPHAN-720 — the forensic copy EXCLUDES the four pre-rename
+                # `genesis:<hash>` records: GitHub's uploader rejects ':' in
+                # paths and renaming a ledger-referenced record would break
+                # hash-chained refs. Pinning the exclusion line means a future
+                # edit that silently drops it fails the contract instead of
+                # resurrecting the every-sealed-run-red failure mode.
+                upload_artifact_path_patterns=(
+                    rf"^{_STORE_ROOT}$",
+                    rf"^!{_STORE_ROOT}/tools/human-required/genesis:\*$",
+                ),
+                retention_days=30,
+                # checks:read + pull-requests:read — ORPHAN-HIGH-626: the
+                # pr_ci_scan phase reads the check verdicts of ARIA's own
+                # open PRs. Read-only pair; the write blast radius is
+                # unchanged (contents:write on refs, ruleset-bounded).
+                required_permissions=(
+                    ("contents", "write"),
+                    ("actions", "read"),
+                    ("checks", "read"),
+                    ("pull-requests", "read"),
+                    # ARIA-AUDIT-016: runner attestation reads the Actions
+                    # OIDC token channel as platform evidence; the read-only
+                    # id-token grant is how a job reaches it. Without it the
+                    # probe's identity claims carry no platform proof.
+                    ("id-token", "write"),
+                ),
+                token_source="github_actions_artifact_token",
+                network_policy=("github_artifact", "github_git"),
+                dlp_artifact="aria-auto-cycle-preflight.json",
+                clean_worktree_policy="pre_and_post",
+                external_root_allowlist=("RUNNER_TEMP",),
+                # Operator decision (2026-08-13): the night's window is
+                # unbounded — the 360-minute platform ceiling, one value for
+                # every mode. Smoke runs 1-3 proved the 50-minute cap was the
+                # binding constraint; the ORPHAN-661/662 deadline pair keeps
+                # any value safe (the night seals + publishes at the wall).
+                burn_in_timeout_floor_minutes=120,
+                job_timeout_minutes=360,
+                # The producer is the shape aria-agent-executor mirrors, so it
+                # carries the same declared constraints — a reference
+                # implementation that is itself unpinned is a reference that
+                # drifts, and the consumer would be corrected to match it.
+                required_steps=(
+                    _CYCLE_RESTORE_STEP,
+                    _CYCLE_LEASE_STEP,
+                    _CYCLE_PROFILE_GATE_STEP,
+                    _CYCLE_RESOLVED_PREFLIGHT_STEP,
+                    _CYCLE_WORK_STEP,
+                    _PUBLISH_STEP,
+                    "Quarantine unverified ARIA state",
+                    "Fail on unverified ARIA state",
+                ),
+                step_order=(
+                    (_CYCLE_RESTORE_STEP, _CYCLE_LEASE_STEP),
+                    # The profile is resolved AFTER the restore, because the
+                    # operator ceiling and the acceptance ladder both live in
+                    # the durable store, and DECLARED before the work step.
+                    (_CYCLE_RESTORE_STEP, _CYCLE_PROFILE_GATE_STEP),
+                    (_CYCLE_PROFILE_GATE_STEP, _CYCLE_RESOLVED_PREFLIGHT_STEP),
+                    (_CYCLE_RESOLVED_PREFLIGHT_STEP, _CYCLE_WORK_STEP),
+                    (_CYCLE_WORK_STEP, _PUBLISH_STEP),
+                    (_CYCLE_WORK_STEP, "Quarantine unverified ARIA state"),
+                    (_CYCLE_WORK_STEP, "Fail on unverified ARIA state"),
+                ),
+                abort_gate=WorkflowAbortGate(
+                    gate_step=_CYCLE_LEASE_STEP,
+                    guard_output="steps.lease_check.outputs.blocked",
+                    announce_step="Skip when local lease is fresh",
+                ),
+            ),
+        ),
+    ),
+    "aria-agent-eval": WorkflowContract(
+        workflow_id="aria-agent-eval",
+        workflow_file=".github/workflows/aria-agent-eval.yml",
+        job_contracts=(
+            WorkflowJobContract(
+                job_id="eval",
+                preflight_step="Persist enterprise workflow preflight",
+                # The restore is now the first governed mutation, exactly as in
+                # the producer lane: it binds the durable store before anything
+                # writes a row. Naming the fixture run here would leave the
+                # restore ungoverned, which is the step that decides WHICH
+                # ledger the eval appends to.
+                first_governed_mutation_step=_RESTORE_STEP,
+                # The eval ledger moved into the durable store. It used to be
+                # written into the ephemeral checkout and thrown away with the
+                # runner, which is why `agent-eval delta` could never assemble
+                # two windows and answered `insufficient_evidence` forever.
+                allowed_write_path_patterns=(
+                    rf"^{_STORE_ROOT}(/.*)?$",
+                ),
+                preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-agent-eval-preflight\.json$",
+                upload_artifact_name_pattern=rf"^aria-agent-eval-proof-{_RUN_ID_ATTEMPT}$",
+                upload_artifact_path_patterns=(rf"^{_RUNNER_TEMP}/aria-agent-eval-preflight\.json$",),
+                retention_days=7,
+                # `contents: write` is what persistence costs. The token can
+                # only append a commit descending from the aria/state tip —
+                # which is what publishing is — and the branch is the only
+                # thing it may touch.
+                required_permissions=(("contents", "write"),),
+                token_source="github_actions_artifact_token",
+                # The eval still reaches no third-party network; the fixtures
+                # are local. `github_git` is the state branch fetch and push,
+                # declared separately from artifact access because they are
+                # different credentials with different blast radii.
+                network_policy=("github_artifact", "github_git"),
+                dlp_artifact="aria-agent-eval-preflight.json",
+                clean_worktree_policy="pre_and_post",
+                external_root_allowlist=("RUNNER_TEMP",),
+            ),
+        ),
+    ),
+    "aria-daily-report": WorkflowContract(
+        workflow_id="aria-daily-report",
+        workflow_file=".github/workflows/aria-daily-report.yml",
+        job_contracts=(
+            WorkflowJobContract(
+                job_id="generate-report",
+                preflight_step="Persist enterprise workflow preflight",
+                # FAZ 6a — the restore is now the first governed mutation,
+                # exactly as in the producer + eval lanes: the anchor reads
+                # the reflection report and the durable ledger tails out of
+                # the restored store, so binding the store IS the step that
+                # decides what the published report contains. The anchor used
+                # to read the ephemeral checkout's empty aria-tools and
+                # publish a stub with null fields — two writers, one filename.
+                first_governed_mutation_step=_RESTORE_STEP,
+                allowed_write_path_patterns=(
+                    rf"^aria-tools/reports/daily/{_REPORT_DATE}\.md$",
+                    rf"^{_STORE_ROOT}(/.*)?$",
+                ),
+                preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-daily-report-generate-preflight\.json$",
+                upload_artifact_name_pattern=rf"^aria-daily-report-{_REPORT_DATE_EXPR}$",
+                upload_artifact_path_patterns=(
+                    rf"^aria-tools/reports/daily/{_REPORT_DATE_EXPR}\.md$",
+                ),
+                retention_days=365,
+                required_permissions=(("contents", "read"),),
+                token_source="github_actions_artifact_token",
+                # `github_git` is the aria/state restore — a different
+                # credential and blast radius from artifact upload.
+                network_policy=("github_artifact", "github_git"),
+                dlp_artifact="aria-daily-report-generate-preflight.json",
+                clean_worktree_policy="pre_and_post",
+                external_root_allowlist=("RUNNER_TEMP",),
+            ),
+            WorkflowJobContract(
+                job_id="commit-report",
+                preflight_step="Persist enterprise workflow preflight",
+                first_governed_mutation_step="Open or update daily report PR",
+                allowed_write_path_patterns=(rf"^aria-tools/reports/daily/{_REPORT_DATE}\.md$",),
+                preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-daily-report-preflight\.json$",
+                upload_artifact_name_pattern=rf"^aria-daily-report-commit-preflight-{_RUN_ID_ATTEMPT}$",
+                upload_artifact_path_patterns=(rf"^{_RUNNER_TEMP}/aria-daily-report-preflight\.json$",),
+                retention_days=365,
+                # This job's governed mutation IS opening a pull request, so it
+                # needs the same pair finding-state-sweep declares. The contract
+                # and the YAML both omitted it, which is why the parity check
+                # stayed green while every scheduled run died on "Resource not
+                # accessible by integration": parity proves the two agree, not
+                # that either is sufficient for the step named right above.
+                required_permissions=(("contents", "write"), ("pull-requests", "write")),
+                token_source="github_app:installation",
+                network_policy=("github_api",),
+                dlp_artifact="aria-daily-report-preflight.json",
+                clean_worktree_policy="pre_and_post",
+                external_root_allowlist=("RUNNER_TEMP",),
+            ),
+        ),
+    ),
+    # ORPHAN-HIGH-763 — promoted from AUDITED_WORKFLOW_EXCLUSIONS: the lane
+    # is the PR-head evidence producer for the readiness-claim chain, so its
+    # shape is now governed. The claim assembled by aria-readiness-claim
+    # carries THIS lane's (workflow_id, job_id, run id) identity through
+    # produce_token_proof, which demands a full WorkflowJobContract here —
+    # under the old exclusion the token proof would have refused with
+    # token_proof_workflow_contract_unknown and the merge lock stayed
+    # unsatisfiable no matter how many producers were added.
+    "aria-merge-authority": WorkflowContract(
+        workflow_id="aria-merge-authority",
+        workflow_file=".github/workflows/aria-merge-authority.yml",
+        job_contracts=(
+            WorkflowJobContract(
+                job_id="aria-merge-authority",
+                preflight_step="Persist enterprise workflow preflight",
+                # The evidence artifact upload is the lane's one governed
+                # write: the claim's artifact proof cites it by id + digest
+                # with produced_by_workflow_run_id = this lane's run.
+                first_governed_mutation_step="Upload merge-authority preflight proof",
+                allowed_write_path_patterns=(
+                    rf"^{_RUNNER_TEMP}/aria-merge-authority-preflight\.json$",
+                ),
+                preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-merge-authority-preflight\.json$",
+                upload_artifact_name_pattern=rf"^aria-merge-authority-proof-{_RUN_ID_ATTEMPT}$",
+                upload_artifact_path_patterns=(
+                    rf"^{_RUNNER_TEMP}/aria-merge-authority-preflight\.json$",
+                ),
+                retention_days=7,
+                required_permissions=(("contents", "read"),),
+                token_source="github_actions_artifact_token",
+                # The lane reads the repo (checkout) and uploads its proof
+                # artifact; it pushes no state and opens no PR.
+                network_policy=("github_artifact",),
+                dlp_artifact="aria-merge-authority-preflight.json",
+                clean_worktree_policy="pre_and_post",
+                external_root_allowlist=("RUNNER_TEMP",),
+                job_timeout_minutes=30,
+            ),
+        ),
+    ),
+    # ORPHAN-HIGH-763 — the claim assembler lane. Runs on workflow_run after
+    # aria-merge-authority completes successfully on a PR head: records the
+    # COMPLETED run as its ci_workflow_run evidence row (a run's own
+    # conclusion only exists post-completion — recording it mid-run would be
+    # self-declaration, not evidence), assembles the claim under the
+    # completed lane's identity, and publishes the claims ledger to
+    # aria/state. Fail-closed by construction: without the GitHub App
+    # installation configured, mint falls back to PAT and the claim is
+    # poisoned loudly instead of passing.
+    "aria-readiness-claim": WorkflowContract(
+        workflow_id="aria-readiness-claim",
+        workflow_file=".github/workflows/aria-readiness-claim.yml",
+        job_contracts=(
+            WorkflowJobContract(
+                job_id="claim",
+                preflight_step="Persist enterprise workflow preflight",
+                first_governed_mutation_step=_RESTORE_STEP,
+                allowed_write_path_patterns=(
+                    rf"^{_STORE_ROOT}(/.*)?$",
+                ),
+                preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-readiness-claim-preflight\.json$",
+                upload_artifact_name_pattern=rf"^aria-readiness-claim-proof-{_RUN_ID_ATTEMPT}$",
+                upload_artifact_path_patterns=(
+                    rf"^{_RUNNER_TEMP}/aria-readiness-claim-preflight\.json$",
+                ),
+                retention_days=7,
+                required_permissions=(("contents", "write"), ("actions", "read")),
+                token_source="github_actions_artifact_token",
+                network_policy=("github_api", "github_artifact", "github_git"),
+                dlp_artifact="aria-readiness-claim-preflight.json",
+                clean_worktree_policy="pre_and_post",
+                external_root_allowlist=("RUNNER_TEMP",),
+                job_timeout_minutes=15,
+            ),
+        ),
+    ),
+    "finding-state-sweep": WorkflowContract(
+        workflow_id="finding-state-sweep",
+        workflow_file=".github/workflows/finding-state-sweep.yml",
+        job_contracts=(
+            WorkflowJobContract(
+                job_id="sweep",
+                preflight_step="Persist enterprise workflow preflight",
+                first_governed_mutation_step="Apply sweep",
+                allowed_write_path_patterns=(r"^docs/reviews/_registry/findings\.jsonl$",),
+                preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/finding-state-sweep-preflight\.json$",
+                upload_artifact_name_pattern=rf"^finding-state-sweep-proof-{_RUN_ID_ATTEMPT}$",
+                upload_artifact_path_patterns=(rf"^{_RUNNER_TEMP}/finding-state-sweep-preflight\.json$",),
+                retention_days=365,
+                required_permissions=(("contents", "write"), ("pull-requests", "write")),
+                token_source="github_app:installation",
+                network_policy=("github_api",),
+                dlp_artifact="finding-state-sweep-preflight.json",
+                clean_worktree_policy="pre_and_post",
+                external_root_allowlist=("RUNNER_TEMP",),
+            ),
+        ),
+    ),
+    "rule-health-report": WorkflowContract(
+        workflow_id="rule-health-report",
+        workflow_file=".github/workflows/rule-health-report.yml",
+        job_contracts=(
+            WorkflowJobContract(
+                job_id="generate",
+                preflight_step="Persist enterprise workflow preflight",
+                first_governed_mutation_step="Generate report",
+                allowed_write_path_patterns=(
+                    r"^docs/reviews/rule-health/[0-9]{4}-[0-9]{2}-[0-9]{2}-rule-health-[0-9]{4}-[0-9]{2}\.md$",
+                ),
+                preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/rule-health-report-preflight\.json$",
+                upload_artifact_name_pattern=rf"^rule-health-report-proof-{_RUN_ID_ATTEMPT}$",
+                upload_artifact_path_patterns=(rf"^{_RUNNER_TEMP}/rule-health-report-preflight\.json$",),
+                retention_days=365,
+                required_permissions=(("contents", "write"), ("pull-requests", "write")),
+                token_source="github_app:installation",
+                network_policy=("github_api",),
+                dlp_artifact="rule-health-report-preflight.json",
+                clean_worktree_policy="pre_and_post",
+                external_root_allowlist=("RUNNER_TEMP",),
+            ),
+        ),
+    ),
+}
+
+
+# ADR-036 D1 — the 3 test-only kernel workflows carry no governed ARIA write
+# authority; audited-excluded with a non-expiring sentinel (no time-bomb).
+AUDITED_WORKFLOW_EXCLUSIONS: dict[str, AuditedWorkflowExclusion] = {
+    "aria-kernel": AuditedWorkflowExclusion(
+        workflow_id="aria-kernel",
+        reason="test-only kernel validation workflow; writes only ephemeral ./.aria-ci, "
+        "verifies a clean worktree post-run, and uploads no governed ARIA artifact",
+        owner="aria-kernel",
+        expires_at=_NEVER_EXPIRES,
+    ),
+    "aria-kernel-fast": AuditedWorkflowExclusion(
+        workflow_id="aria-kernel-fast",
+        reason="test-only fast kernel validation workflow; writes only ephemeral .aria-ci "
+        "and uploads no governed ARIA artifact",
+        owner="aria-kernel",
+        expires_at=_NEVER_EXPIRES,
+    ),
+    "aria-state-maintenance": AuditedWorkflowExclusion(
+        workflow_id="aria-state-maintenance",
+        reason="utility maintenance lane; clones aria/state to /tmp, compacts JSONL surfaces "
+        "and strips old hot artifacts, pushes the slim branch; performs no governed ARIA "
+        "mutation and uploads no ARIA artifact — the output IS the aria/state branch itself",
+        owner="aria-kernel",
+        expires_at=_NEVER_EXPIRES,
+    ),
+    "aria-external-watchdog": AuditedWorkflowExclusion(
+        workflow_id="aria-external-watchdog",
+        reason="external liveness watchdog; reads the aria/state branch tip and the watched "
+        "lanes' run history through the GitHub API only, writes no repository or governed "
+        "ARIA state, and uploads no artifact. EXCLUDED RATHER THAN CONTRACTED BY DESIGN: a "
+        "contract is asserted by a preflight step that imports this kernel, and every failure "
+        "this watchdog exists to catch is a failure of that kernel - a watchman that dies of "
+        "the illness it watches for is not a watchman. Its shape is pinned instead by "
+        "tests/invariants/aria-external-watchdog-contract.spec.ts, which scans the YAML from "
+        "outside and fails if a kernel import ever appears in it",
+        owner="aria-kernel",
+        expires_at=_NEVER_EXPIRES,
+    ),
+    "aria-runner-capability-probe": AuditedWorkflowExclusion(
+        workflow_id="aria-runner-capability-probe",
+        reason="RC-9 operator diagnostic; workflow_dispatch only, declares "
+        "`permissions: contents: read`, mutates nothing on the runner or in the "
+        "repository, and uploads no governed ARIA artifact — it prints host "
+        "capabilities so the sandbox provisioning design is chosen from evidence "
+        "instead of guesswork",
+        owner="aria-kernel",
+        expires_at=_NEVER_EXPIRES,
+    ),
+}
+
+
+def workflow_contract_registry() -> dict[str, WorkflowContract]:
+    return dict(WORKFLOW_CONTRACTS)
+
+
+def workflow_job_contract(workflow_id: str, job_id: str) -> WorkflowJobContract | None:
+    contract = WORKFLOW_CONTRACTS.get(workflow_id)
+    if contract is None:
+        return None
+    for job in contract.job_contracts:
+        if job.job_id == job_id:
+            return job
+    return None
+
+
+def workflow_hash(path: Path) -> str:
+    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def workflow_contract_hash(contract: WorkflowContract) -> str:
+    payload = json.dumps(asdict(contract), sort_keys=True, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def workflow_job_contract_hash(workflow_id: str, job_id: str) -> str | None:
+    contract = WORKFLOW_CONTRACTS.get(workflow_id)
+    job = workflow_job_contract(workflow_id, job_id)
+    if contract is None or job is None:
+        return None
+    payload = {
+        "workflow_id": workflow_id,
+        "workflow_file": contract.workflow_file,
+        "job_contract": asdict(job),
+    }
+    return "sha256:" + hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+# Minutes reserved between ARIA's self-imposed ceiling and the runner's hard
+# kill. The steps AFTER the agent runs still have to complete for the run to
+# have happened at all — submit the result, publish the aria-tools tree,
+# upload the artifact. A ceiling equal to the job timeout would stop ARIA at
+# the exact moment it can no longer record that it stopped.
+WALL_CLOCK_RESERVE_MINUTES = 5
+
+
+def cycle_wall_clock_cap_seconds(workflow_id: str, *, job_id: str | None = None) -> int | None:
+    """ARIA's own ceiling for a lane, derived from the pinned job timeout.
+
+    Returns None when the lane declares no timeout, which callers must treat
+    as "no self-imposed ceiling" rather than "unlimited" — the runner's own
+    timeout still applies, it just kills instead of halting.
+    """
+    contract = WORKFLOW_CONTRACTS.get(workflow_id)
+    if contract is None:
+        return None
+    for job in contract.job_contracts:
+        if job_id is not None and job.job_id != job_id:
+            continue
+        if job.job_timeout_minutes is None:
+            return None
+        budget = job.job_timeout_minutes - WALL_CLOCK_RESERVE_MINUTES
+        return max(0, budget) * 60
+    return None
+
+
+__all__ = [
+    "AUDITED_WORKFLOW_EXCLUSIONS",
+    "WALL_CLOCK_RESERVE_MINUTES",
+    "WORKFLOW_CONTRACTS",
+    "cycle_wall_clock_cap_seconds",
+    "AuditedWorkflowExclusion",
+    "WorkflowAbortGate",
+    "WorkflowContract",
+    "WorkflowJobContract",
+    "workflow_contract_hash",
+    "workflow_contract_registry",
+    "workflow_hash",
+    "workflow_job_contract",
+    "workflow_job_contract_hash",
+]

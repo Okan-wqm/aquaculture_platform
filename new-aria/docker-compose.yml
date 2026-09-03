@@ -1,0 +1,37 @@
+# new-aria — run the ARIA kernel on its own, outside the monorepo.
+#
+#   docker compose build
+#   docker compose run --rm aria --help
+#   docker compose --profile smoke run --rm smoke      # bootstrap -> discovery -> integrity verify
+#
+# /workspace is the repository ARIA observes (mount your target repo there);
+# /data holds ARIA's own tools root + workspaces (durable volume).
+services:
+  aria:
+    build:
+      context: .
+      args:
+        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-2.1.259}
+    image: new-aria:local
+    environment:
+      CLAUDE_CLI_MOCK: ${CLAUDE_CLI_MOCK:-1}
+      ARIA_CLAUDE_REQUIRE_USAGE: ${ARIA_CLAUDE_REQUIRE_USAGE:-1}
+      ARIA_TOOLS_DIR: /data/aria-tools
+      ARIA_WORKSPACE_ROOT: /workspace
+    volumes:
+      - aria-data:/data
+      - ${ARIA_WORKSPACE:-.}:/workspace
+    command: ["--help"]
+
+  smoke:
+    profiles: ["smoke"]
+    image: new-aria:local
+    environment:
+      CLAUDE_CLI_MOCK: "1"
+    volumes:
+      - aria-data:/data
+      - ${ARIA_WORKSPACE:-.}:/workspace:ro
+    entrypoint: ["bash", "/opt/new-aria/scripts/docker/smoke.sh"]
+
+volumes:
+  aria-data: {}

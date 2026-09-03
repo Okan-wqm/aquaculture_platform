@@ -1,0 +1,55 @@
+name: aria-kernel-fast
+
+# Plan ARIA-V2 §3.7 (Phase 6) — fast pre-merge gate.
+#   * ORPHAN-MEDIUM-769 — PR-ONLY by design. The push: trigger is gone:
+#   aria-kernel.yml already runs on EVERY main push with no paths filter
+#   (ARIA-V-007 — mainline re-push must re-evaluate the kernel), so fast
+#   re-firing on push duplicated the always-on suite at ~90% overlap
+#   (three suites fired per non-docs merge; aria-kernel-full.yml, a
+#   strict subset of aria-kernel, was deleted in the same change).
+#   Fast's job is the PR-early signal, which push never was.
+#   * Same hardening surface as aria-kernel.yml.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "aria-kernel/**"
+      - "scripts/ci/aria-suite-run.sh"
+      - "docs/aria/**"
+      - "docs/adr/**"
+      - ".github/workflows/aria-kernel*.yml"
+      - "tools/aria-poc/**"
+      - "tools/shared/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aria-kernel-fast-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unittest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Plan ARIA-V2 §Phase 1 CRITICAL-020 — the kernel's pyyaml dep. The
+      # install it used to do by hand here now lives in the composite action
+      # above, so every kernel-running job provisions the same way.
+      - uses: ./.github/actions/setup-aria-kernel
+      # Single semantic partition authority for the whole Python suite.
+      - run: bash scripts/ci/aria-suite-run.sh
+      # Plan ARIA-V5 §3e Phase 2 — pedagogy lint in --strict mode
+      # (allowlist ignored; permanently enforcing). Fast PR feedback.
+      - name: Run pedagogy lint (Plan ARIA-V5 §3e)
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel.pedagogy_lint --agents-dir .claude/agents --allowlist tests/invariants/agent-pedagogy.allowlist.json --strict --format text
+      # Plan ARIA-V6 §3 V6.5 (C5) — specialist-review dry-run validates
+      # the Lane-A inventory + role mapping. Warn-mode at C5; the --strict
+      # flip is a tracked decision (ORPHAN-LOW-774: owner + criterion +
+      # deadline).
+      - name: Specialist-review dry-run (Plan ARIA-V6 §3 V6.5)
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel specialist-review dry-run --agents-dir .claude/agents

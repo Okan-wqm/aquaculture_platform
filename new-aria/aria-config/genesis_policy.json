@@ -1,0 +1,16 @@
+{
+  "$schema": "aria/genesis-policy/v1",
+  "schema_version": 1,
+  "_comment": "Operator override (X1, 2026-08-16). cost_caps_usd raised for the revived judgment chain: ARIA runs on Claude Code CLI subscription auth, so the USD figures are internal accounting weights, not billable spend — the operator confirmed raising them has no real cost. daily 5->25 sizes one full autonomous night (cycle + 64 judge envelopes + experiments); monthly scales accordingly; per_run stays at the default so a single runaway spawn still trips the breaker. Plan 032 Faz 032a (2026-09-02): agent_request_anchor.max_age_seconds 3d->7d because a plan needs at least three executor→cycle turns (challenger → cross_review → evaluate) and 528/528 anchor refusals on the live store were age expiries, never unreachable commits; rhythm.min_interval_hours 6->2 so those turns can chain inside one evening (the code default stays 6h, the ceiling is 12 cycles/day).",
+  "cost_caps_usd": {
+    "daily": 25.0,
+    "monthly": 300.0,
+    "per_run": 0.5
+  },
+  "agent_request_anchor": {
+    "max_age_seconds": 604800
+  },
+  "rhythm": {
+    "min_interval_hours": 2.0
+  }
+}

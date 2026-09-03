@@ -1,0 +1,2 @@
+{"schema_version":1,"at":"2026-05-04T00:00:00+00:00","cycle_id":"cycle-v1","event":"started"}
+{"schema_version":1,"at":"2026-05-04T00:01:00+00:00","cycle_id":"cycle-v1","event":"completed","tool_decision_count":1}

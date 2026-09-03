@@ -1,0 +1,22 @@
+{
+  "name": "semantic-archive-exclusion",
+  "lane": "semantic_regression",
+  "input": {
+    "roots": [
+      "tools/aria-adapters/fixtures/test-gap-adapter/workspaces/semantic-archive/apps/billing-service/src"
+    ]
+  },
+  "expected": {
+    "status": "ok",
+    "required_findings": ["migration_without_test"],
+    "findings_count": 1
+  },
+  "curation": {
+    "curator": "claude/E13 spot-audit FP fixes (operator-verified classes, session 2026-08-14)",
+    "gold_set": {
+      "true_positive_count": 1,
+      "known_false_positive_count": 1,
+      "false_positive_classes": ["archived_dead_corpus"]
+    }
+  }
+}

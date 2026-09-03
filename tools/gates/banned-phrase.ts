@@ -272,6 +272,11 @@ const EXEMPT_PATHS: readonly RegExp[] = [
   /^tools\/gates\/banned-phrase\.test\.(ts|mjs)$/,
   /^tools\/scripts\/seed-finding-registry\.(mjs|ts)$/, // finding seed text references banned phrases by name (meta-text)
   /^tests\/invariants\//,
+  // new-aria/ is a verbatim transport copy of the ARIA surface (kernel, executor,
+  // agent prompts, ADRs, plans) destined for its own repository. Every line in it
+  // already exists at a canonical path that is either exempt above or governed
+  // by range-mode grandfathering; the copy is not authored prose.
+  /^new-aria\//,
   // HR performance domain: GoalStatus.DEFERRED is a legitimate enum value
   // for the performance-management domain (a deferred goal is parked but
   // not cancelled — see Workday/SuccessFactors GoalStatus models). Renaming

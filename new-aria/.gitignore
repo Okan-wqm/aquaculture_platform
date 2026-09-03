@@ -1,0 +1,157 @@
+# new-aria — standalone transport copy of the ARIA surface.
+#
+# WHY: this folder is moved as-is to its own repository and run in Docker
+# independently of the aquaculture monorepo, so the runtime-state ignore
+# rules ARIA relies on (declared in the monorepo root .gitignore) must
+# travel with it. The ARIA blocks below are copied verbatim from that root
+# file; the generic block covers Python/Node/Docker byproducts.
+
+# --- generic byproducts ---
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mimosa/
+node_modules/
+dist/
+coverage/
+.venv/
+*.log
+.env
+.env.local
+.env.*.local
+.DS_Store
+artifacts/
+
+# --- ARIA runtime state (verbatim from monorepo root .gitignore, block A) ---
+# ARIA Phase-1 PoC runtime output (tools/aria-poc/poc.py is committed; outputs are not)
+.aria-poc/
+.aria-ci/
+artifacts/
+.full-review/
+aria-kernel/aria-tools/
+.aria-state-store/
+.aria-state-store.writers.jsonl
+# ARIA runtime state trees — created at runtime by the kernel/workflows
+# (cycle ledgers, artifact-restored state, fresh-scan seed findings);
+# runtime writes must never dirty the discovery/burn-in worktree
+# (ORPHAN-LOW-306).
+#
+# ORPHAN-HIGH-434 — this MUST stay `aria-tools/*`, not `aria-tools/`.
+# git does not descend into an excluded DIRECTORY, so with the bare
+# `aria-tools/` form every negation further down this file was inert,
+# including `!aria-tools/reports/daily/**`. `git add` on a daily
+# chain-tip anchor exited 1 and no anchor was committed between
+# 2026-05-08 and 2026-07-26 — the governance chain-tips existed only
+# inside expiring CI artifacts while the workflow reported success.
+# The `/*` form excludes the children instead of the directory, so the
+# ancestor re-includes below can fire. Reverting this line to
+# `aria-tools/` re-breaks the audit trail silently; the invariant in
+# aria-kernel/tests/test_daily_report_anchor_invariant.py is what
+# catches it.
+aria-tools/*
+# Re-include the ANCESTOR of every tracked entry, not just the leaf. git does
+# not descend into an excluded directory, so a negation deeper in this file can
+# only fire if each directory above it is re-included here. The tracked
+# allowlist is declared below (repo_identity.json, agent-evals/fixtures/,
+# reports/daily/) and enforced by
+# aria-kernel/tests/test_aria_tools_tracked_allowlist.py; before this block only
+# reports/daily/ actually worked, so a new eval fixture or a repo_identity
+# schema bump could not be staged at all.
+!aria-tools/reports/
+!aria-tools/agent-evals/
+!aria-tools/repo_identity.json
+aria-findings/
+aria-tools/.archive/
+aria-tools/.backups/
+# Plan 019 Phase 0.3 — recursive_impact runtime artifacts (live evidence
+# already lives in runs.jsonl + governance.jsonl; per-compute graph dumps
+# under aria-tools/impact-graphs/ are throwaway snapshots).
+aria-tools/impact-graphs/
+
+# --- ARIA runtime state (verbatim from monorepo root .gitignore, block B) ---
+# Plan ARIA-V2 §Phase 1 minimal entries (full sweep arrives in Phase 5).
+# Per-clone runtime binding state — committed schema-stamp form of
+# repo_identity.json stays tracked; runtime ledgers + lock files are
+# operator-private.
+aria-tools/*.lock
+aria-tools/integrity_index.json
+aria-tools/runs.jsonl
+aria-tools/cycles.jsonl
+aria-tools/governance.jsonl
+aria-tools/health.jsonl
+aria-tools/cycle-diffs.jsonl
+aria-tools/raw-findings.jsonl
+aria-tools/reflections.jsonl
+aria-tools/findings.jsonl
+aria-tools/reviews.jsonl
+aria-tools/operator-feedback.jsonl
+aria-tools/feedback-consensus-uncertainties.jsonl
+aria-tools/quarantine.jsonl
+aria-tools/autonomy_state.jsonl
+aria-tools/migration_state.json
+aria-tools/daemons/
+aria-tools/quarantine/
+aria-tools/diagnostics/
+
+# Plan ARIA-V2 §3.4 — full per-clone runtime state sweep (Phase 5).
+# GDPR rationale: ARIA_ACTOR defaults to <user>@<hostname> (personal
+# data per GDPR Art 4); operator --reason text is free-text PII-
+# adjacent. Storing the runtime ledgers only on the operator's
+# machine is data-minimization-correct, and the committed daily
+# anchor (Phase 6) replaces git history as the audit-trust source.
+# Tracked allowlist enforced by aria-kernel/tests/test_aria_tools_tracked_allowlist.py (I-23):
+#   - aria-tools/repo_identity.json     (v3 schema stamp, version fields only)
+#   - aria-tools/agent-evals/fixtures/   (eval fixtures)
+#   - aria-tools/reports/daily/          (daily chain-tip anchors, Phase 6)
+aria-tools/registry.json
+aria-tools/registry-stub-allowlist.json
+aria-tools/agent-invocations/
+aria-tools/agent-network/
+aria-tools/capability-gaps/
+aria-tools/change-ledger/
+aria-tools/cycle-diff/
+aria-tools/cycle-state/
+aria-tools/cycle-metrics/
+aria-tools/dashboards/
+aria-tools/discovery/
+aria-tools/dispatch/
+aria-tools/fitness/
+aria-tools/memory/
+aria-tools/observability/
+aria-tools/plans/
+aria-tools/pressure/
+aria-tools/problem_clusters.jsonl
+aria-tools/triage/
+aria-tools/workspaces/
+# Within aria-tools/agent-evals/ only the fixtures/ subdir is tracked.
+aria-tools/agent-evals/*
+!aria-tools/agent-evals/fixtures/
+!aria-tools/agent-evals/fixtures/**
+# Within aria-tools/reports/ only the committed daily anchors are tracked.
+aria-tools/reports/*
+!aria-tools/reports/daily/
+!aria-tools/reports/daily/**
+
+# Plan ARIA-V3 §A2 + §A5 + §B0 + §B2 — autonomous-loop runtime
+# state. Each entry is operator-local; never committed.
+# Tracked allowlist enforced by I-23 (test_aria_tools_tracked_allowlist).
+aria-tools/audit/
+aria-tools/acks/
+aria-tools/secrets/
+aria-tools/breakers/
+aria-tools/budget/
+aria-tools/locks/
+aria-tools/preflight/
+aria-findings/
+# Per-cycle ed25519 signing keys + scoped-token files minted by
+# gh_token_factory under profile=autonomous. PRIVATE KEY MATERIAL -
+# never stageable; aria-debts/ itself stays tracked (debt JSONs).
+# ORPHAN-HIGH-518 (salvaged from PR #936's branch-local ORPHAN-HIGH-334).
+aria-debts/keys/
+
+# Plan ARIA-V4 §2e — inter-agent question envelope ledger. Hash-
+# chained (gitignored per V2 I-23 update); operator-local audit
+# trail of cross-agent tier-classification questions.
+aria-tools/agent-questions.jsonl
+aria-tools/agent-questions.jsonl.lock
+.aria-acceptance-poc-tmp/

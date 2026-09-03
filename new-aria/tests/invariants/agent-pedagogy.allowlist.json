@@ -1,0 +1,5 @@
+{
+  "$schema": "aria/pedagogy-allowlist/v1",
+  "comment": "Empty by design (ARIA-V5 §3e Phase 2 — permanent enforcement). All 84 agents now carry their V5 §3e narrative pairings, so the C4 grandfather entries are removed. pedagogy_lint runs --strict in CI (aria-kernel{,-fast,-full}.yml) and in the V5.3 invariant, which IGNORES this allowlist — a new un-narrated imperative reds the gate regardless of any entry added here. Do not re-add grandfather entries; narrate the agent (a **Why:**/**Consequence:**/**Example:** within 6 lines below the imperative) instead.",
+  "entries": {}
+}

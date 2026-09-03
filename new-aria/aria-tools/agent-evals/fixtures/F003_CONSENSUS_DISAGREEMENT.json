@@ -1,0 +1,37 @@
+{
+  "$schema": "aria/agent-eval-fixture/v1",
+  "expected_evidence_refs": [
+    "aria-tools/judgments/jg-test-disagree-01-evidence.json",
+    "aria-tools/judgments/jg-test-disagree-01-adversarial.json"
+  ],
+  "expected_verdict_class": "JUDGMENT_DISAGREEMENT",
+  "fixture_hash": "cd76ac354a02c17c",
+  "fixture_id": "F003_CONSENSUS_DISAGREEMENT",
+  "input_envelope": {
+    "$schema": "aria/agent-request/v1",
+    "claim_summary": "Two judges disagree: evidence_judge=ACCEPTED, adversarial_judge=WITHDRAWN_AS_FALSE_POSITIVE",
+    "evidence_refs": [
+      "aria-tools/judgments/jg-test-disagree-01-evidence.json",
+      "aria-tools/judgments/jg-test-disagree-01-adversarial.json"
+    ],
+    "judgment_group_id": "jg-test-disagree-01",
+    "must_satisfy": [
+      {
+        "id": "MS-1",
+        "rule": "verdict_class is JUDGMENT_DISAGREEMENT"
+      },
+      {
+        "id": "MS-2",
+        "rule": "evidence_refs include both judge envelopes"
+      }
+    ],
+    "schema_version": 1
+  },
+  "max_rounds": 2,
+  "max_tokens": 16000,
+  "pinned_commit_sha": "c3cf7a2ebe5e547c9cd11230f780be6df548bd1c",
+  "recorded_at": "2026-08-05T10:51:15+00:00",
+  "role": "consensus_arbitration",
+  "schema_version": 1,
+  "target_agent": "aria-consensus-arbiter"
+}

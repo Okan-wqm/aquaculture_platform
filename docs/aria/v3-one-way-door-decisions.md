@@ -405,6 +405,63 @@ egress, not a bug.
 
 **Mitigation:** I-V13-PROBE-01, I-V13-NETGATE-01, I-V13-SSRF-01, I-V13-CANCEL-01, I-V13-ZAP-01.
 
+## 24. Dual-executor reproduction + source-bound readiness proof (Plan 033 Faz 033g)
+
+**Decision:** a security finding is CONFIRMED only by `reproduction.dual_reproduce`: two independent
+executor principals, two separate clean labs, the SAME sealed recipe digest, both positive controls
+passing, both observing the violation. One-green, a harness error, a shared principal/lab or a
+recipe-digest mismatch never confirm. `STATIC_CLAIM_TYPES` (secret_exposure, rls_gap) are proven by
+a repo-verified deterministic prover instead. `readiness.SecurityReadinessProof` is source-bound to
+a head SHA and RECOMPUTED from the assurance + reproduction ledgers (a claimed closure counts only
+if the ledger confirms the pre-fix red); it is not ready with any coverage gap, unclosed finding,
+open CRITICAL/HIGH, or zero required cells, and `ZERO_TOLERANCE_CONTROLS` are always required.
+
+**Why one-way:** this is the definition of "proven" and of "ready to merge" for the security lane;
+downgrading either would let an unproven or partially-covered change read as safe.
+
+**Reversibility cost:** Re-running every dual reproduction; re-deriving every readiness proof.
+
+**Mitigation:** I-V13-REPRO-01, I-V13-READINESS-01, I-V13-MERGE-01.
+
+## 25. Autonomous remediation, permanent regressions, security doctor (Plan 033 Faz 033h)
+
+**Decision:** `remediation.STATES`/`TRANSITIONS` are closed and ordered: a remediation opens only on
+a finding the reproduction ledger CONFIRMED; the fix is proven only by the SAME sealed recipe
+re-running dual-GREEN (two independent executors, two clean labs, passing positive controls) at the
+fix head SHA; a permanent regression bound to the finding must be locked; READY_FOR_MERGE needs a
+ready SecurityReadinessProof; the flow never merges (merge_authority does). A regression recipe must
+be minimized, synthetic and deterministic with a closed scope; a run whose positive control fails or
+whose verdict errors is HARNESS_ERROR, never a pass. `ops.security_doctor` fails on quarantined
+packs, coverage gaps, unverified cleanup or open CRITICAL/HIGH; the fitness instrument is unknown
+when it cannot see and red on any gap or confirmed vulnerability.
+
+**Why one-way:** this defines what "fixed" means for the security lane; a softer definition would
+let unproven or unguarded fixes close findings.
+
+**Reversibility cost:** Re-verifying every remediation; re-registering every regression recipe.
+
+**Mitigation:** I-V13-REGRESS-01, I-V13-REMEDIATE-01, I-V13-OPS-01, I-V13-FITNESS-01.
+
+## 26. Semantic parity corpus, qualifying burn-in, agent retirement gate (Plan 033 Faz 033i)
+
+**Decision:** `parity.REMOVABLE_SECURITY_AGENTS` = (security-reviewer, auth-security-expert);
+`RETAINED_AGENTS` = (database-reviewer) — never removable. Retirement requires ALL of
+`RETIREMENT_THRESHOLD` (critical recall 1.0, other recall ≥ 0.95, secure false-positive ≤ 0.02, 30
+consecutive QUALIFYING shadow cycles, zero agent-only unresolved CRITICAL/HIGH, zero boundary
+violations), zero remaining kernel runtime dependencies, and explicit operator approval. A cycle
+qualifies only if non-mock, on a qualifying lab lease, with ≥ 1 applicable control, a passing
+positive control and sealed evidence; any non-qualifying cycle resets the streak.
+`retirement_readiness` reports and never deletes. The paired secure/vulnerable corpus is run by the
+kernel's own packs; it already caught one real gap (the RLS checker was gated on RLS being present —
+`rls_coverage` now applies to every strategy except database-per-tenant).
+
+**Why one-way:** this is the only path by which security agents may be removed; a softer gate would
+let the kernel replace reviewers it has not proven to match.
+
+**Reversibility cost:** Re-running the burn-in from zero.
+
+**Mitigation:** I-V13-PARITY-01, I-V13-SELF-01, I-V13-RETIRE-01; I-V13-PACK-02 (corrected).
+
 ## Themes
 
 - **3 of 5 one-way doors are ledger-anchored** (events, terminal states, candidate sources). The

@@ -110,8 +110,12 @@ def _rule_public_write_guard(root: Path) -> list[Lead]:
 
 PACK_RULES: dict[str, tuple[PackRule, ...]] = {
     "multi_tenant": (
+        # WHY not only when RLS already exists: the parity corpus (033i) showed that gating the
+        # RLS checker on RLS being present made a repo with NO RLS invisible — the absence of
+        # the control switched the control's checker off. Only a database-per-tenant design
+        # legitimately has no RLS to check; every other strategy gets a defense-in-depth lead.
         PackRule("rls_coverage", "high",
-                 lambda p: _profile_claim(p, "isolation_strategy") in ("row_level_security", "hybrid"),
+                 lambda p: _profile_claim(p, "isolation_strategy") != "database_per_tenant",
                  _rule_rls_coverage),
     ),
     "api": (

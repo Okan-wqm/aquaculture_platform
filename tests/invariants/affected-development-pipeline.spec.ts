@@ -1514,7 +1514,7 @@ describe('affected development workflow contract', () => {
     expect(droplet).toContain('CATALOG_GATEWAY_RECOMPOSITION_SERVICES');
     expect(droplet).not.toContain('BACKEND_PATTERN=');
     expect(droplet).toMatch(
-      /if \[ "\$RUN_DB_MIGRATE" = "true" \]; then\s+echo "=== Ensuring migration infrastructure is running ==="/,
+      /if \[ "\$RUN_DB_MIGRATE" = "true" \]; then\s+if \[ "\$\{PRESERVE_DATA_INFRASTRUCTURE\}" = "true" \]; then\s+echo "=== Proving preserved migration infrastructure is healthy ==="\s+assert_preserved_migration_infrastructure\s+else\s+echo "=== Ensuring migration infrastructure is running ==="/,
     );
     expect(droplet).toMatch(
       /if \[ "\$RUN_DB_MIGRATE" = "true" \]; then\s+run_db_migrate_or_exit "selective deploy"/,
@@ -1526,6 +1526,31 @@ describe('affected development workflow contract', () => {
       /new Set<string>\(\s*migrationRequired \? \['db-migrate', \.\.\.deployServices\] : deployServices,?\s*\)/,
     );
     expect(production).not.toContain('RUN_DB_MIGRATE:');
+  });
+
+  it('separates a full development image rollout from persistent infrastructure mutation', () => {
+    const development = source('.github/workflows/deploy-development.yml');
+    const production = source('.github/workflows/deploy-digitalocean.yml');
+    const droplet = source('scripts/deploy/droplet-up.sh');
+
+    expect(development).toContain("PRESERVE_DATA_INFRASTRUCTURE: 'true'");
+    expect(development).toContain(
+      'envs: DEPLOY_IMAGE_DIGESTS_B64,DEPLOY_MODE,DEPLOY_SERVICES,DEPLOY_SHA,FULL_DEPLOY,GHCR_ACTOR,GHCR_TOKEN,IMAGE_PREFIX,PRESERVE_DATA_INFRASTRUCTURE,RUN_DB_MIGRATE,TAG,DEPLOY_CHECKOUT_DIR',
+    );
+    expect(production).not.toContain('PRESERVE_DATA_INFRASTRUCTURE:');
+
+    expect(droplet).toContain('source scripts/deploy/lib/deployment-mode-policy.sh');
+    expect(droplet).toContain(
+      'INFRA_IMAGE_SERVICES="${CATALOG_INFRA_IMAGE_SERVICES:?generated infra image services missing}"',
+    );
+    expect(droplet).toContain('validate_data_infrastructure_policy');
+    expect(droplet).toContain('configure_preserved_compose_interpolation');
+    expect(droplet).toContain('if deploy_uses_full_stack_path; then');
+    expect(droplet).toContain('assert_preserved_migration_infrastructure');
+    expect(droplet).toMatch(
+      /docker compose -f docker-compose\.droplet\.yml \\\n+\s+up --no-deps --no-build --abort-on-container-exit \\\n+\s+--exit-code-from db-migrate db-migrate/,
+    );
+    expect(droplet).toContain('done < <(rollout_image_services)');
   });
 
   it('leaves the production stop-line enabled in its dedicated workflow', () => {

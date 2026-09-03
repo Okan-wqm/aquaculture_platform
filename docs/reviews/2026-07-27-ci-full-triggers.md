@@ -347,3 +347,21 @@ success check across the full dependency chain, including intentionally skipped 
 The deploy condition now uses `always()` to force evaluation after every ancestor settles and
 then explicitly requires both the image workflow and output contract to be successful. A workflow
 invariant pins that combination so a skipped ancestor cannot silently suppress deployment again.
+
+Main run `33661365269` proved a third delivery boundary after the skip chain was repaired: all 28
+immutable images were built on GitHub-hosted runners and digest-verified, and the development
+capacity preflight passed, but the SSH rollout stopped before any container action because the
+shared droplet script interpreted the selector's `full_deploy=true` as permission to replace the
+entire production-style stack. That path requires the deliberately unprovisioned WAL-G/Spaces
+activation contract, so Compose correctly failed closed at interpolation while the healthy legacy
+PostgreSQL container remained untouched.
+
+Image-selection breadth and infrastructure-mutation authority are now separate contracts. The
+development workflow explicitly preserves persistent data infrastructure; an executable policy
+rejects every unsafe mode pairing, filters catalog infrastructure images from droplet pulls and
+restarts, proves the existing PostgreSQL/Redis/MinIO containers healthy with read-only inspection,
+and runs the migration container with `--no-deps`. Compose receives inert interpolation coordinates
+only inside that structurally non-infrastructure development path, without shadowing real values
+once they are provisioned. Production retains the original full-stack behavior and strict WAL-G
+stop-line, while every selected image—including protected infrastructure images—continues to be
+built and digest-verified in GitHub before the application rollout.

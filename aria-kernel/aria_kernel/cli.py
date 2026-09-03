@@ -2916,6 +2916,45 @@ def build_parser() -> argparse.ArgumentParser:
     tail_parser.add_argument("--json", action="store_true")
     tail_parser.add_argument("--max-wait-seconds", type=float, default=None)
 
+    # Plan 032 Faz 032f — event gateway, schedule table, offline event ingest.
+    gateway_parser = add_subparser(sub, "gateway")
+    gateway_sub = gateway_parser.add_subparsers(dest="gateway_command", required=True)
+    gateway_serve = add_subparser(gateway_sub, "serve")
+    gateway_serve.add_argument("--workspace-root", default=".")
+    gateway_serve.add_argument("--host", default="127.0.0.1")
+    gateway_serve.add_argument("--port", type=int, default=8787)
+    gateway_serve.add_argument("--poll-interval-seconds", type=float, default=60.0)
+    gateway_serve.add_argument("--max-iterations", type=int, default=None)
+    gateway_serve.add_argument("--no-http", action="store_true", help="scheduler ticks only (no webhook listener)")
+    add_subparser(gateway_sub, "status")
+    schedule_parser = add_subparser(sub, "schedule")
+    schedule_sub = schedule_parser.add_subparsers(dest="schedule_command", required=True)
+    schedule_add = add_subparser(schedule_sub, "add")
+    schedule_add.add_argument("--name", required=True)
+    schedule_add.add_argument("--action", required=True)
+    schedule_add.add_argument("--cron", required=True)
+    schedule_add.add_argument("--operator-ref", default=None)
+    for verb in ("pause", "resume", "remove"):
+        verb_parser = add_subparser(schedule_sub, verb)
+        verb_parser.add_argument("--name", required=True)
+        verb_parser.add_argument("--operator-ref", default=None)
+    add_subparser(schedule_sub, "list")
+    schedule_run = add_subparser(schedule_sub, "run")
+    schedule_run.add_argument("--action", required=True)
+    schedule_run.add_argument("--workspace-root", default=".")
+    event_parser = add_subparser(sub, "event")
+    event_sub = event_parser.add_subparsers(dest="event_command", required=True)
+    event_ingest = add_subparser(event_sub, "ingest")
+    event_ingest.add_argument("--source", choices=["github", "alertmanager", "operator"], required=True)
+    event_ingest.add_argument("--payload-file", required=True)
+    event_ingest.add_argument("--github-event", default=None, help="X-GitHub-Event value for --source github")
+    event_ingest.add_argument("--delivery-id", default=None)
+    event_ingest.add_argument("--actor", default=None)
+    event_ingest.add_argument("--route", action="store_true", help="route immediately instead of leaving it for the daemon")
+    event_ingest.add_argument("--workspace-root", default=".")
+    event_route = add_subparser(event_sub, "route")
+    event_route.add_argument("--workspace-root", default=".")
+
     return parser
 
 
@@ -5968,6 +6007,73 @@ def _main(argv: list[str] | None = None) -> int:
         if args.checkpoint_command == "prune":
             print(json.dumps(_cp.prune_checkpoints(workspace_root=args.workspace_root, base_dir=args.tools_dir), indent=2, sort_keys=True))
             return 0
+
+    if args.command == "gateway":
+        if args.gateway_command == "status":
+            from .gateway.inbox import inbox_summary
+            from .gateway.scheduler import fold_schedules
+
+            print(json.dumps({"inbox": inbox_summary(args.tools_dir),
+                              "schedules": {n: s.__dict__ for n, s in fold_schedules(args.tools_dir).items()}}, indent=2, sort_keys=True))
+            return 0
+        from .gateway.daemon import run_gateway_daemon
+        from .gateway.server import GatewayConfig
+
+        result = run_gateway_daemon(
+            base_dir=args.tools_dir, workspace_root=args.workspace_root,
+            config=GatewayConfig(host=args.host, port=args.port), max_iterations=args.max_iterations,
+            poll_interval_seconds=args.poll_interval_seconds, serve_http=not args.no_http,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result.get("exits_clean") else 1
+
+    if args.command == "schedule":
+        from .gateway import scheduler
+
+        if args.schedule_command == "add":
+            print(json.dumps(scheduler.add_schedule(name=args.name, action=args.action, cron=args.cron, base_dir=args.tools_dir,
+                                                    operator_ref=args.operator_ref), indent=2, sort_keys=True))
+            return 0
+        if args.schedule_command in {"pause", "resume", "remove"}:
+            print(json.dumps(scheduler.change_schedule(args.schedule_command, name=args.name, base_dir=args.tools_dir,
+                                                       operator_ref=args.operator_ref), indent=2, sort_keys=True))
+            return 0
+        if args.schedule_command == "list":
+            print(json.dumps({n: s.__dict__ for n, s in scheduler.fold_schedules(args.tools_dir).items()}, indent=2, sort_keys=True))
+            return 0
+        result = scheduler.run_action(args.action, base_dir=args.tools_dir, workspace_root=args.workspace_root)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["status"] != "failed" else 1
+
+    if args.command == "event":
+        from .gateway import inbox as gateway_inbox
+        from .gateway import normalize as gateway_normalize
+        from .gateway.router import drain_inbox, route_event
+
+        if args.event_command == "route":
+            print(json.dumps(drain_inbox(base_dir=args.tools_dir, workspace_root=args.workspace_root), indent=2, sort_keys=True))
+            return 0
+        payload = json.loads(Path(args.payload_file).read_text(encoding="utf-8"))
+        delivery = args.delivery_id or f"cli:{gateway_normalize.payload_digest(payload)[7:31]}"
+        if args.source == "github":
+            if not args.github_event:
+                raise SystemExit("--github-event is required for --source github")
+            event = gateway_normalize.normalize_github(args.github_event, delivery, payload)
+            events = [event] if event is not None else []
+        elif args.source == "alertmanager":
+            events = gateway_normalize.normalize_alertmanager(delivery, payload)
+        else:
+            events = [gateway_normalize.normalize_operator(delivery, payload, actor=args.actor or "cli")]
+        out = []
+        for event in events:
+            row = gateway_inbox.record_event(event, base_dir=args.tools_dir)
+            entry: dict[str, Any] = {"delivery_id": event.delivery_id, "kind": event.kind, "accepted": row is not None}
+            if row is not None and args.route:
+                outcome = route_event(event, base_dir=args.tools_dir, workspace_root=args.workspace_root)
+                entry["action"], entry["refs"], entry["error"] = outcome.action, outcome.refs, outcome.error
+            out.append(entry)
+        print(json.dumps(out, indent=2, sort_keys=True))
+        return 0
 
     if args.command == "control":
         from .control import effective_control, record_control

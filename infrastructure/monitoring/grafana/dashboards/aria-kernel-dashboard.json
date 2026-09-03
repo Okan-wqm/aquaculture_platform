@@ -5,10 +5,7 @@
   "schemaVersion": 39,
   "version": 1,
   "refresh": "1m",
-  "tags": [
-    "aria",
-    "kernel"
-  ],
+  "tags": ["aria", "kernel"],
   "timezone": "utc",
   "time": {
     "from": "now-7d",

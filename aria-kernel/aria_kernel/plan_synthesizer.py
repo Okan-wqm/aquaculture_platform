@@ -835,7 +835,35 @@ _SOURCE_PRIORITY: dict[str, int] = {
     PlanCandidateSource.ORPHAN_FINDING.value: 2,
     PlanCandidateSource.F_FINDING.value: 3,
     PlanCandidateSource.GIT_DIFF.value: 4,
+    # Plan 032 Faz 032f — filed by a person, unsigned: same tier as failing CI.
+    PlanCandidateSource.GITHUB_ISSUE.value: 1,
 }
+
+
+def scan_github_issue_missions(workspace_root: str | Path) -> list[dict[str, Any]]:
+    """Plan 032 Faz 032f source — open missions the gateway opened from
+    GitHub issues labelled ``aria``. Reads the mission fold only; the
+    issue body never enters a candidate (the mission title is the
+    gateway's 200-char, label-gated summary)."""
+    from .mission import list_open_missions
+
+    tools_root = Path(workspace_root) / "aria-tools"
+    if not (tools_root / "missions").exists():
+        return []
+    candidates: list[dict[str, Any]] = []
+    for mission in list_open_missions(base_dir=tools_root):
+        if str(mission.get("source_kind") or "") != "github_issue":
+            continue
+        candidates.append({
+            "source_type": PlanCandidateSource.GITHUB_ISSUE.value,
+            "candidate_id": str(mission.get("mission_id")),
+            "source_id": mission.get("source_id"),
+            "mission_state": mission.get("state"),
+            "priority": mission.get("priority") if isinstance(mission.get("priority"), int) else 1,
+            "created_at": mission.get("opened_at"),
+            "title_hint": str(mission.get("title") or "")[:200],
+        })
+    return candidates[:_MAX_CANDIDATES_PER_SOURCE]
 
 
 def rank_candidate_sources(
@@ -860,6 +888,7 @@ def rank_candidate_sources(
         (PlanCandidateSource.FAILING_CI.value, scan_failing_ci),
         (PlanCandidateSource.ORPHAN_FINDING.value, scan_orphan_findings),
         (PlanCandidateSource.F_FINDING.value, scan_f_findings),
+        (PlanCandidateSource.GITHUB_ISSUE.value, scan_github_issue_missions),
     ):
         t0 = time.monotonic()
         try:

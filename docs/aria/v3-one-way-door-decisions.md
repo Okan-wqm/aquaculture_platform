@@ -191,6 +191,16 @@ publish primitive other than the store API.
 
 **Mitigation:** I-V12-CTRL-01..04, I-V12-PROG-01, I-V12-NOTIFY-01, I-V12-TELEM-01, I-V12-OPS-01.
 
+## 14. Gateway vocabularies + `PlanCandidateSource.GITHUB_ISSUE` (Plan 032 Faz 032f)
+
+**Decision:** `gateway.normalize.EVENT_KINDS`, `gateway.router.ROUTE_ACTIONS` and `gateway.scheduler.SCHEDULE_ACTIONS` are closed; the schedule table can never carry a free prompt. `gateway/inbox.jsonl` (accepted/routed/rejected per delivery id) and `gateway/schedules.jsonl` are declared ledgers. `PlanCandidateSource` gains exactly one member, `GITHUB_ISSUE` (mission `source_kind="github_issue"`), ranked at the FAILING_CI tier.
+
+**Why one-way:** Inbox rows are replayed by the router and audited by the doctor; the candidate-source member set is pinned by I-V9-PRESSURE-01 and consumed by the synthesizer's ranking.
+
+**Reversibility cost:** Re-routing every inbox row; re-ranking candidates; rewriting the pressure-source invariant.
+
+**Mitigation:** I-V12-GW-01..06; `experiment_night` / `adapter_run:<id>` were deliberately left OUT of the action vocabulary until their kernel counterpart is verified.
+
 ## Themes
 
 - **3 of 5 one-way doors are ledger-anchored** (events, terminal states, candidate sources). The

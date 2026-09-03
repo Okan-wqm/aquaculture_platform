@@ -440,6 +440,11 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("control_commands", "control/commands.jsonl", "ledger", "control", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
     StateSurface("notifications_outbox", "notifications/outbox.jsonl", "ledger", "notifications", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("agent_progress", "run-artifacts/hot/*/progress.jsonl", "ledger", "runtime_artifacts", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    # Plan 032 Faz 032f — event gateway: inbox (accepted/routed/rejected), schedule table, heartbeat.
+    StateSurface("gateway_inbox", "gateway/inbox.jsonl", "ledger", "gateway", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
+    StateSurface("gateway_schedules", "gateway/schedules.jsonl", "ledger", "gateway", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
+    StateSurface("gateway_heartbeat", "gateway/heartbeat.json", "artifact", "gateway", "runtime", True, "rewrite_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("gateway_telemetry", "gateway/telemetry.prom", "artifact", "gateway", "runtime", True, "rewrite_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("handoffs", "handoffs.jsonl", "ledger", "handoffs", "runtime", True, "append_fsync", True, profile_surface="handoffs", observe_class="observation"),
     StateSurface("agent_evals", "agent-evals/runs.jsonl", "ledger", "agent_evals", "runtime", True, "append_fsync", True, profile_surface="agent_evals", observe_class="action"),
     StateSurface("agent_eval_fixtures", "agent-evals/fixtures.jsonl", "ledger", "agent_evals", "runtime", True, "append_fsync", True, profile_surface="agent_evals", observe_class="action"),

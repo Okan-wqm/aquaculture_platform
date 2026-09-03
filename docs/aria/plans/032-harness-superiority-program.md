@@ -254,6 +254,26 @@ CLI: `control pause|resume|cancel|status`, `notify send|channels`, `tail`. Gatew
 
 ## Faz 032f — Gateway, webhook, scheduler
 
+Teslimat 032f (2026-09-03): paket `aria_kernel/gateway/` — `normalize.py` (kapalı `EVENT_KINDS`: 8 GitHub,
+2 Alertmanager, `operator.command`; issue gövdesi asla inbox'a girmez, yalnız digest), `inbox.py`
+(`gateway/inbox.jsonl` declared; delivery-id başına bir kabul, `routed|rejected` satırları yan yana,
+`gateway_rejected` governance), `router.py` (deterministik, kapalı `ROUTE_ACTIONS`: `aria` etiketli issue →
+`mission.open_mission(source_kind="github_issue")` (idempotent), PR → `pr_tracking.observe_pr_event`, CI/alert →
+`runtime_signal_bridge.ingest_runtime_signal(telemetry|incident)`, operator verb → `control` ledger; istisna =
+outcome satırı), `server.py` (stdlib HTTP 127.0.0.1:8787; GitHub HMAC `X-Hub-Signature-256`, Alertmanager/operator
+bearer, actor allowlist, 1 MiB gövde, replay 409, dakikalık rate limit, `/aria/status` salt-okunur), `scheduler.py`
+(`gateway/schedules.jsonl`; kapalı `SCHEDULE_ACTIONS = cycle|drain|daily_report|doctor|telemetry_export|deliver|
+inbox_drain`, serbest prompt yok; 5 alanlı cron, dakikada bir; workflow aksiyonları `gh workflow run` ve operator
+pause'da atlanır; heartbeat `gateway/heartbeat.json`), `daemon.py` (pid lock + `autonomous_host_lease` + HTTP
+thread + tick; ARIA_STOP/SIGTERM). `PlanCandidateSource.GITHUB_ISSUE` (+ `scan_github_issue_missions`, öncelik =
+FAILING_CI katmanı; I-V9-PRESSURE-01 güncellendi, one-way door 14). `doctor` organı `gateway`. Sistem:
+`infrastructure/aria/aria-gateway.service`, nginx `/aria/webhook/` + `/aria/status` (rate limit zone),
+`provision_runner.sh` unit + env-adı bölümü, runbook `docs/runbooks/aria-gateway.md`. CLI: `gateway serve|status`,
+`schedule add|pause|resume|remove|list|run`, `event ingest|route`. `experiment_night` ve `adapter_run:<id>` aksiyonları
+karşılığı doğrulanamadığı için sözlüğe alınmadı (one-way door ile eklenir).
+Çalıştırılmayan testler: `tests/invariants/v12/test_phase_v12_f_gateway.py`
+(+ güncellenen `tests/invariants/v9/test_phase_v9_0_a_plan_candidate_source.py` üye kümesi).
+
 - NEW `aria_kernel/gateway/` (stdlib HTTP, 127.0.0.1 bind; HMAC + replay window + body limit +
   read timeout + content-type + actor/repo allowlist + `author_association` kontrolü + payload
   minimization/retention + key rotation); kapalı `EVENT_KINDS`; idempotent `events/inbox.jsonl`;

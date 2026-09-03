@@ -36524,6 +36524,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "infrastructure/monitoring/grafana/dashboards/aria-kernel-dashboard.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "infrastructure/monitoring/grafana/dashboards/billing-dashboard.json",
       "prettier_managed": true
     },

@@ -288,6 +288,33 @@ def _check_notifications(tools_dir: Path) -> DoctorCheck:
     return DoctorCheck("notifications", "ok", "" if detail["configured_channels"] else "no_channel_configured", detail)
 
 
+def _check_gateway(tools_dir: Path, *, stale_after_seconds: float = 300.0) -> DoctorCheck:
+    """Plan 032 Faz 032f — the droplet daemon's heartbeat. Absent = not
+    deployed on this host (ok, informational); stale = it died quietly."""
+    import json
+    from datetime import datetime, timezone
+
+    from .gateway.inbox import inbox_summary
+    from .gateway.server import HEARTBEAT_RELPATH
+
+    path = tools_dir.joinpath(*HEARTBEAT_RELPATH)
+    inbox = inbox_summary(tools_dir)
+    if not path.exists():
+        return DoctorCheck("gateway", "ok", "gateway_not_running_here", {"inbox": inbox})
+    try:
+        beat = json.loads(path.read_text(encoding="utf-8"))
+        stamp = datetime.fromisoformat(str(beat.get("recorded_at")).replace("Z", "+00:00"))
+    except (OSError, ValueError):
+        return DoctorCheck("gateway", "warn", "heartbeat_unreadable", {"inbox": inbox})
+    age = (datetime.now(timezone.utc) - stamp).total_seconds()
+    detail = {"heartbeat_age_seconds": int(age), "inbox": inbox, "last_ran": beat.get("ran")}
+    if age > stale_after_seconds:
+        return DoctorCheck("gateway", "warn", "gateway_heartbeat_stale", detail)
+    if inbox["pending"] > 50:
+        return DoctorCheck("gateway", "warn", f"inbox_backlog:{inbox['pending']}", detail)
+    return DoctorCheck("gateway", "ok", "", detail)
+
+
 def run_doctor(
     *,
     base_dir: str | Path | None = None,
@@ -325,6 +352,7 @@ def run_doctor(
         _guarded("queue", lambda: _check_queue(tools_dir)),
         _guarded("control", lambda: _check_control(tools_dir)),
         _guarded("notifications", lambda: _check_notifications(tools_dir)),
+        _guarded("gateway", lambda: _check_gateway(tools_dir)),
     )
     return DoctorReport(
         checks=(*store_checks, *host_checks),

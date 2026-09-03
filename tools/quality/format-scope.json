@@ -34924,6 +34924,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/rule-health/2026-09-01-rule-health-2026-08.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/security-reviewer/2026-04-04-full-platform-audit.md",
       "prettier_managed": true
     },

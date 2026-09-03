@@ -34934,6 +34934,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/zcode/2026-08-31-aria-required-checks.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/zcode/2026-08-31-sensor-release-dockerfile.md",
       "prettier_managed": true
     },

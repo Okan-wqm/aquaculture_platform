@@ -4,14 +4,11 @@ import { DataSource, QueryRunner } from 'typeorm';
 import { ContinuousAggregateService } from '../continuous-aggregate.service';
 
 /**
- * SENSOR-MEDIUM-066/068 (OPEN-ADR-030-CAGG): the bootstrap that creates the
- * metrics_1min/1hour/1day continuous aggregates. A tenant's telemetry lives in
- * that tenant's own schema, so its rollups must too — the bootstrap SWEEPS the
- * tenant schemas and ensures the three views inside each. These tests lock the
- * guard rails (config switch, TimescaleDB presence, per-tenant advisory lock,
- * search_path pin + verification, no pin leaked back to the pool) and that one
- * tenant's failure neither aborts the sweep nor passes silently. The DDL itself
- * is validated against real TimescaleDB by CI's bootstrap-from-scratch gate.
+ * The production bootstrap read-only-verifies db-migrate's per-tenant rollups;
+ * non-authoritative local development creates the same canonical definition.
+ * These tests lock both modes, including ownership/missing-view failures,
+ * TimescaleDB presence, advisory locking, search_path cleanup, and complete
+ * tenant sweeps.
  */
 const TENANT_A = 'tenant_3333333333334333';
 const TENANT_B = 'tenant_4444444444444444';
@@ -26,13 +23,27 @@ interface Harness {
 function createHarness(
   opts: {
     enabled?: boolean;
+    authoritative?: boolean;
     timescale?: boolean;
     lock?: boolean;
     tenants?: string[];
     failFor?: string;
+    aggregateRows?: Array<{ view_name: string; view_owner: string }>;
   } = {},
 ): Harness {
-  const { enabled = true, timescale = true, lock = true, tenants = [TENANT_A], failFor } = opts;
+  const {
+    enabled = true,
+    authoritative = false,
+    timescale = true,
+    lock = true,
+    tenants = [TENANT_A],
+    failFor,
+    aggregateRows = [
+      { view_name: 'metrics_1min', view_owner: 'sensor_aggregate_owner' },
+      { view_name: 'metrics_1hour', view_owner: 'sensor_aggregate_owner' },
+      { view_name: 'metrics_1day', view_owner: 'sensor_aggregate_owner' },
+    ],
+  } = opts;
 
   // The schema the runner is currently pinned to, so current_schema() answers
   // truthfully and the service's own pin verification is actually exercised.
@@ -41,6 +52,9 @@ function createHarness(
   const query = jest.fn((sql: string): Promise<unknown> => {
     const text = String(sql);
     if (text.includes('pg_extension')) return Promise.resolve([{ exists: timescale }]);
+    if (text.includes('timescaledb_information.continuous_aggregates')) {
+      return Promise.resolve(aggregateRows);
+    }
     if (text.includes('pg_try_advisory_lock')) return Promise.resolve([{ locked: lock }]);
     const pin = text.match(/SET search_path TO "([^"]+)"/);
     if (pin) {
@@ -69,9 +83,18 @@ function createHarness(
     query: dataSourceQuery as DataSource['query'],
   };
 
-  const get = jest.fn((_key: string, def?: unknown): unknown =>
-    enabled ? (def ?? 'true') : 'false',
-  );
+  const get = jest.fn((key: string, def?: unknown): unknown => {
+    if (key === 'SENSOR_CONTINUOUS_AGGREGATES_ENABLED') {
+      return enabled ? 'true' : 'false';
+    }
+    if (key === 'DB_MIGRATE_AUTHORITATIVE') {
+      return authoritative ? 'true' : 'false';
+    }
+    if (key === 'NODE_ENV' || key === 'AQUA_ENV') {
+      return 'test';
+    }
+    return def;
+  });
   const configService: Partial<ConfigService> = { get: get as ConfigService['get'] };
 
   const service = new ContinuousAggregateService(
@@ -86,7 +109,7 @@ function issuedSql(query: jest.Mock): string[] {
   return query.mock.calls.map((c) => String(c[0]));
 }
 
-describe('ContinuousAggregateService — bootstrap (OPEN-ADR-030-CAGG)', () => {
+describe('ContinuousAggregateService — aggregate authority', () => {
   afterEach(() => jest.restoreAllMocks());
 
   it('creates the three aggregates inside the tenant schema when enabled + TimescaleDB present', async () => {
@@ -175,6 +198,31 @@ describe('ContinuousAggregateService — bootstrap (OPEN-ADR-030-CAGG)', () => {
     // Lock was never acquired → never unlocked.
     expect(sql.some((s) => s.includes('pg_advisory_unlock'))).toBe(false);
     expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it('verifies db-migrate-owned aggregates without runtime DDL in authoritative mode', async () => {
+    const { service, query } = createHarness({ authoritative: true });
+
+    await service.ensureAggregates();
+
+    const sql = issuedSql(query);
+    expect(sql.some((statement) => statement.includes('continuous_aggregates'))).toBe(true);
+    expect(sql.some((statement) => statement.includes('CREATE MATERIALIZED VIEW'))).toBe(false);
+    expect(sql.some((statement) => statement.includes('ALTER MATERIALIZED VIEW'))).toBe(false);
+  });
+
+  it('fails boot when an authoritative aggregate is missing or has the wrong owner', async () => {
+    const { service } = createHarness({
+      authoritative: true,
+      aggregateRows: [
+        { view_name: 'metrics_1min', view_owner: 'admin_schema_owner' },
+        { view_name: 'metrics_1hour', view_owner: 'sensor_aggregate_owner' },
+      ],
+    });
+
+    await expect(service.ensureAggregates()).rejects.toThrow(
+      /metrics_1min owner=admin_schema_owner.*metrics_1day missing/,
+    );
   });
 
   it('onApplicationBootstrap delegates to ensureAggregates', async () => {

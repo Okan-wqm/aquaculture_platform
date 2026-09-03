@@ -29,7 +29,8 @@
  *   4. Assert schema-level invariants: schemas exist, the previously
  *      missing baseline tables now exist, the previously missing
  *      `auth.users` columns now exist, the sensor hypertable was
- *      created, and each service's migration ledger is non-empty
+ *      created, db-migrate can owner-align a real tenant's continuous
+ *      aggregates, and each service's migration ledger is non-empty
  *      (proving the migrations actually ran).
  *
  * # When this test fails
@@ -84,6 +85,7 @@ import {
   runPlatformBootstrap,
   resolvePlatformBootstrapSqlDir,
 } from '../platform-bootstrap.service';
+import { ensureTenantSensorContinuousAggregateAuthority } from '../tenant-sensor-continuous-aggregate-authority';
 
 // Constructor type for the @Entity / migration classes this spec loads
 // dynamically. TypeORM's DataSource `entities`/`migrations` options accept
@@ -1067,6 +1069,107 @@ describe('Bootstrap from scratch (fresh-volume init + full migration chain)', ()
       }
     },
   );
+
+  it('db-migrate creates tenant sensor rollups with owner and runtime read access', async () => {
+    const tenantSchema = 'tenant_aaaaaaaaaaaaaaaa';
+    const db = probeDs();
+    const queryRunner = db.createQueryRunner();
+
+    await queryRunner.connect();
+    try {
+      await queryRunner.query(`DROP SCHEMA IF EXISTS "${tenantSchema}" CASCADE`);
+      await queryRunner.query(`CREATE SCHEMA "${tenantSchema}"`);
+      await queryRunner.query(
+        `CREATE TABLE "${tenantSchema}"."sensor_metrics"
+         (LIKE "sensor"."sensor_metrics" INCLUDING ALL)`,
+      );
+      await queryRunner.query(
+        `SELECT create_hypertable(
+           '"${tenantSchema}"."sensor_metrics"',
+           'time',
+           if_not_exists => true
+         )`,
+      );
+
+      const result = await ensureTenantSensorContinuousAggregateAuthority(
+        queryRunner,
+        tenantSchema,
+      );
+      expect(result.timescalePresent).toBe(true);
+
+      const aggregateOwnerRoles = (await queryRunner.query(
+        `SELECT rolcanlogin,
+                rolpassword IS NULL AS has_no_password,
+                rolsuper,
+                rolcreatedb,
+                rolcreaterole,
+                rolreplication,
+                rolbypassrls
+           -- pg_roles masks rolpassword as ********, including passwordless
+           -- roles. This bootstrap probe runs as the database superuser, so
+           -- pg_authid is the authoritative source for the NULL assertion.
+           FROM pg_catalog.pg_authid
+          WHERE rolname = 'sensor_aggregate_owner'`,
+      )) as Array<{
+        has_no_password: boolean;
+        rolbypassrls: boolean;
+        rolcanlogin: boolean;
+        rolcreatedb: boolean;
+        rolcreaterole: boolean;
+        rolreplication: boolean;
+        rolsuper: boolean;
+      }>;
+      expect(aggregateOwnerRoles).toEqual([
+        {
+          has_no_password: true,
+          rolbypassrls: false,
+          rolcanlogin: true,
+          rolcreatedb: false,
+          rolcreaterole: false,
+          rolreplication: false,
+          rolsuper: false,
+        },
+      ]);
+
+      const aggregates = (await queryRunner.query(
+        `SELECT view_name,
+                view_owner,
+                has_table_privilege(
+                  'sensor_service',
+                  format('%I.%I', view_schema, view_name),
+                  'SELECT'
+                ) AS runtime_can_select
+           FROM timescaledb_information.continuous_aggregates
+          WHERE view_schema = $1
+          ORDER BY view_name`,
+        [tenantSchema],
+      )) as Array<{ view_name: string; view_owner: string; runtime_can_select: boolean }>;
+
+      expect(aggregates).toEqual([
+        {
+          view_name: 'metrics_1day',
+          view_owner: 'sensor_aggregate_owner',
+          runtime_can_select: true,
+        },
+        {
+          view_name: 'metrics_1hour',
+          view_owner: 'sensor_aggregate_owner',
+          runtime_can_select: true,
+        },
+        {
+          view_name: 'metrics_1min',
+          view_owner: 'sensor_aggregate_owner',
+          runtime_can_select: true,
+        },
+      ]);
+    } finally {
+      try {
+        await queryRunner.query(`DROP SCHEMA IF EXISTS "${tenantSchema}" CASCADE`);
+      } finally {
+        await queryRunner.release();
+      }
+    }
+  });
 
   it('billing.plans exists (squash-restoration target)', async () => {
     const rows = await probeDs().query<{ table_name: string }[]>(

@@ -38,3 +38,42 @@ the workflow from reporting the already-known health failure.
 Resolution: diagnostics distinguish container running state from explicit health, skip stable
 running containers without healthchecks, and bound every selected log read with a 30-second timeout
 plus a five-second kill grace. The deployment invariant pins both behaviors.
+
+## DEPLOY-HIGH-010
+
+The corrected full development build in run
+[`33764504697`](https://github.com/Okan-wqm/aquaculture_platform/actions/runs/33764504697)
+selected and successfully ran the new `db-migrate` image, but left
+`tenant-schema-provisioner` stopped on the previous image. The catalog models the provisioner as a
+distinct compose service whose `imageName` is `db-migrate`; the selective rollout incorrectly
+assumed image-selection names and compose-restart names were identical. The stopped provisioner
+could not claim the queued legacy-tenant reconciliation, so downstream farm and sensor health
+checks remained fail-closed. The deployment failed and correctly skipped digest promotion and the
+development baseline update.
+
+Resolution: the service catalog now derives every active compose consumer whose image name differs
+from its compose name and emits that mapping into both generated deploy artifacts. Selective
+rollout, full-scope rollback capture, rollback retagging, and service recreation consume the same
+mapping. Deploying `db-migrate` therefore recreates `tenant-schema-provisioner` with the immutable
+SHA image, while frontend-only rollouts leave it untouched. Executable invariants pin the catalog
+mapping, restart order, image-reference resolution, and generated-artifact parity.
+
+## SENSOR-HIGH-104
+
+The same failed development deployment exposed a second sensor bootstrap failure after the Nest
+module wiring was corrected. `sensor-service`, running as the DML-only `sensor_service` database
+role, attempted `ALTER MATERIALIZED VIEW` against tenant continuous aggregates owned by
+`admin_schema_owner`. This made production runtime a competing DDL authority and caused the new
+image to crash even though its static CI checks had passed.
+
+Resolution: the canonical continuous-aggregate SQL now has one shared definition. The
+non-transactional `db-migrate` phase creates or reconciles every existing tenant's rollups, assigns
+them to the passwordless `sensor_aggregate_owner` LOGIN role required by TimescaleDB background
+workers, and grants the runtime role read access before services start. The ordinary
+`sensor_schema_owner` remains NOLOGIN and the aggregate owner receives no password or elevated
+cluster capability. The tenant schema provisioner runs the same authority path for both new and
+reconciled tenants.
+Production sensor bootstrap is now a read-only, fail-closed check for all expected views, their
+owner, and actual query access; only non-authoritative local development retains runtime creation.
+Unit and wiring contract tests cover DDL failure cleanup, unsafe schemas, ownership drift, missing
+views, both provisioner paths, and the release migration sweep.

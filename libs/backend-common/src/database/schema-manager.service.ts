@@ -265,8 +265,8 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // sensor_metrics is a PER-TENANT TimescaleDB hypertable: a tenant's
       // telemetry lives in that tenant's schema. Delivered by migration
       // 1815000000000 (unqualified, so provisioning's migration replay creates
-      // one per tenant); its rollups are ensured per tenant by
-      // ContinuousAggregateService, and SensorMetricWriterService derives the
+      // one per tenant); its rollups are delivered per tenant by db-migrate's
+      // autocommit authority, and SensorMetricWriterService derives the
       // destination schema from each row's tenantId so the process-wide
       // ingestion singletons write to the right tenant without an ambient
       // search_path.

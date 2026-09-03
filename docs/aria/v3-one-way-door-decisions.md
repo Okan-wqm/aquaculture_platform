@@ -405,6 +405,24 @@ egress, not a bug.
 
 **Mitigation:** I-V13-PROBE-01, I-V13-NETGATE-01, I-V13-SSRF-01, I-V13-CANCEL-01, I-V13-ZAP-01.
 
+## 24. Dual-executor reproduction + source-bound readiness proof (Plan 033 Faz 033g)
+
+**Decision:** a security finding is CONFIRMED only by `reproduction.dual_reproduce`: two independent
+executor principals, two separate clean labs, the SAME sealed recipe digest, both positive controls
+passing, both observing the violation. One-green, a harness error, a shared principal/lab or a
+recipe-digest mismatch never confirm. `STATIC_CLAIM_TYPES` (secret_exposure, rls_gap) are proven by
+a repo-verified deterministic prover instead. `readiness.SecurityReadinessProof` is source-bound to
+a head SHA and RECOMPUTED from the assurance + reproduction ledgers (a claimed closure counts only
+if the ledger confirms the pre-fix red); it is not ready with any coverage gap, unclosed finding,
+open CRITICAL/HIGH, or zero required cells, and `ZERO_TOLERANCE_CONTROLS` are always required.
+
+**Why one-way:** this is the definition of "proven" and of "ready to merge" for the security lane;
+downgrading either would let an unproven or partially-covered change read as safe.
+
+**Reversibility cost:** Re-running every dual reproduction; re-deriving every readiness proof.
+
+**Mitigation:** I-V13-REPRO-01, I-V13-READINESS-01, I-V13-MERGE-01.
+
 ## Themes
 
 - **3 of 5 one-way doors are ledger-anchored** (events, terminal states, candidate sources). The

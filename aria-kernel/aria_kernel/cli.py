@@ -3027,6 +3027,41 @@ def build_parser() -> argparse.ArgumentParser:
     self_propose.add_argument("--proposed-change", required=True)
     self_propose.add_argument("--validation-command", default=None)
 
+    # Plan 033 — Autonomous Security Engineering (kernel-internal). Grows per phase;
+    # 033a ships the fail-closed prerequisite gate.
+    security_parser = add_subparser(sub, "security")
+    security_sub = security_parser.add_subparsers(dest="security_command", required=True)
+    security_prereq = add_subparser(security_sub, "prerequisites")
+    security_prereq.add_argument("--json", action="store_true")
+    security_profile_p = add_subparser(security_sub, "profile")
+    security_profile_sub = security_profile_p.add_subparsers(dest="security_profile_command", required=True)
+    sp_compile = add_subparser(security_profile_sub, "compile")
+    sp_compile.add_argument("--workspace-root", default=".")
+    sp_compile.add_argument("--repo-sha", default=None)
+    sp_compile.add_argument("--record", action="store_true")
+    sp_compile.add_argument("--json", action="store_true")
+    add_subparser(security_profile_sub, "show")
+    security_pack_p = add_subparser(security_sub, "pack")
+    security_pack_sub = security_pack_p.add_subparsers(dest="security_pack_command", required=True)
+    add_subparser(security_pack_sub, "list").add_argument("--workspace-root", default=".")
+    pack_run = add_subparser(security_pack_sub, "run")
+    pack_run.add_argument("--pack", required=True)
+    pack_run.add_argument("--workspace-root", default=".")
+    pack_run.add_argument("--service", default="repo")
+    pack_run.add_argument("--record", action="store_true")
+    sarif_p = add_subparser(security_sub, "ingest-sarif")
+    sarif_p.add_argument("--file", required=True)
+    sarif_p.add_argument("--service", default="repo")
+    sarif_p.add_argument("--tool-hint", default=None)
+    graph_p = add_subparser(security_sub, "graph")
+    graph_sub = graph_p.add_subparsers(dest="security_graph_command", required=True)
+    gbuild = add_subparser(graph_sub, "build")
+    gbuild.add_argument("--workspace-root", default=".")
+    gbuild.add_argument("--record", action="store_true")
+    add_subparser(graph_sub, "show")
+    cov_p = add_subparser(security_sub, "coverage")
+    cov_p.add_argument("--workspace-root", default=".")
+
     return parser
 
 
@@ -6165,6 +6200,72 @@ def _main(argv: list[str] | None = None) -> int:
         problems = [r for r in records if r["problems"]]
         print(json.dumps({"rows": len(records), "problems": problems}, indent=2, sort_keys=True))
         return 0 if not problems else 1
+
+    if args.command == "security":
+        if args.security_command == "prerequisites":
+            from .security.prerequisites import render_prerequisites_text, run_prerequisites
+
+            report = run_prerequisites()
+            print(json.dumps(report.to_dict(), indent=2, sort_keys=True) if args.json else render_prerequisites_text(report))
+            return report.exit_code
+        if args.security_command == "profile":
+            from .security.profile import compile_profile, latest_profile, record_profile, render_profile_text
+
+            if args.security_profile_command == "show":
+                row = latest_profile(base_dir=args.tools_dir)
+                print(json.dumps(row, indent=2, sort_keys=True) if row else "no profile compiled yet")
+                return 0
+            snap = compile_profile(workspace_root=args.workspace_root, repo_sha=args.repo_sha)
+            if args.record:
+                record_profile(snap, base_dir=args.tools_dir)
+            print(json.dumps(snap.to_row(), indent=2, sort_keys=True) if args.json else render_profile_text(snap))
+            return 0
+        if args.security_command == "pack":
+            from .security.packs import record_pack_leads, run_pack, select_packs
+            from .security.profile import compile_profile
+
+            prof = compile_profile(workspace_root=args.workspace_root).to_row()
+            if args.security_pack_command == "list":
+                print(json.dumps([m.to_dict() for m in select_packs(prof)], indent=2, sort_keys=True))
+                return 0
+            leads = run_pack(args.pack, workspace_root=args.workspace_root, profile_row=prof)
+            if args.record:
+                record_pack_leads(args.pack, leads, service=args.service, base_dir=args.tools_dir)
+            print(json.dumps([{"rule_id": l.rule_id, "severity": l.severity, "summary": l.summary, "code_refs": list(l.code_refs)} for l in leads], indent=2, sort_keys=True))
+            return 0
+        if args.security_command == "ingest-sarif":
+            from .security.scanner_ingest import ingest_sarif
+
+            document = json.loads(Path(args.file).read_text(encoding="utf-8"))
+            out = ingest_sarif(document, service=args.service, base_dir=args.tools_dir, tool_hint=args.tool_hint)
+            print(json.dumps(out, indent=2, sort_keys=True))
+            return 0 if out["status"] == "ingested" else 1
+        if args.security_command == "graph":
+            from .security.attack_graph import build_graph, latest_graph_row, record_graph
+            from .security.packs import select_packs
+            from .security.profile import compile_profile
+
+            if args.security_graph_command == "show":
+                row = latest_graph_row(base_dir=args.tools_dir)
+                print(json.dumps(row, indent=2, sort_keys=True) if row else "no graph built yet")
+                return 0
+            prof = compile_profile(workspace_root=args.workspace_root).to_row()
+            digests = tuple(m.digest for m in select_packs(prof) if m.applicable)
+            snap = build_graph(workspace_root=args.workspace_root, profile_row=prof, pack_digests=digests)
+            if args.record:
+                record_graph(snap, base_dir=args.tools_dir)
+            print(json.dumps(snap.index_row(), indent=2, sort_keys=True))
+            return 0
+
+        if args.security_command == "coverage":
+            from .security.assurance import compute_coverage
+            from .security.packs import select_packs
+            from .security.profile import compile_profile
+
+            prof = compile_profile(workspace_root=args.workspace_root).to_row()
+            cov = compute_coverage(profile_row=prof, pack_manifests=select_packs(prof), base_dir=args.tools_dir)
+            print(json.dumps(cov, indent=2, sort_keys=True))
+            return 0 if cov["ready"] else 1
 
     if args.command == "mcp":
         from . import mcp_client

@@ -38,3 +38,22 @@ the workflow from reporting the already-known health failure.
 Resolution: diagnostics distinguish container running state from explicit health, skip stable
 running containers without healthchecks, and bound every selected log read with a 30-second timeout
 plus a five-second kill grace. The deployment invariant pins both behaviors.
+
+## DEPLOY-HIGH-010
+
+The corrected full development build in run
+[`33764504697`](https://github.com/Okan-wqm/aquaculture_platform/actions/runs/33764504697)
+selected and successfully ran the new `db-migrate` image, but left
+`tenant-schema-provisioner` stopped on the previous image. The catalog models the provisioner as a
+distinct compose service whose `imageName` is `db-migrate`; the selective rollout incorrectly
+assumed image-selection names and compose-restart names were identical. The stopped provisioner
+could not claim the queued legacy-tenant reconciliation, so downstream farm and sensor health
+checks remained fail-closed. The deployment failed and correctly skipped digest promotion and the
+development baseline update.
+
+Resolution: the service catalog now derives every active compose consumer whose image name differs
+from its compose name and emits that mapping into both generated deploy artifacts. Selective
+rollout, full-scope rollback capture, rollback retagging, and service recreation consume the same
+mapping. Deploying `db-migrate` therefore recreates `tenant-schema-provisioner` with the immutable
+SHA image, while frontend-only rollouts leave it untouched. Executable invariants pin the catalog
+mapping, restart order, image-reference resolution, and generated-artifact parity.

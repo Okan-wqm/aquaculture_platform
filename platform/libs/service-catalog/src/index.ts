@@ -1112,6 +1112,26 @@ export function activeDropletComposeServices(): readonly string[] {
   return activeDropletServices().map((entry) => entry.composeServiceName);
 }
 
+export interface SharedImageRestartService {
+  readonly imageService: string;
+  readonly composeService: string;
+}
+
+/**
+ * Long-running compose services whose image is built and selected under a
+ * different catalog service name. A selective image rollout must recreate
+ * these consumers too; otherwise they keep running stale bytes indefinitely.
+ */
+export function sharedImageRestartServices(): readonly SharedImageRestartService[] {
+  return activeDropletServices()
+    .flatMap((entry) =>
+      typeof entry.imageName === 'string' && entry.imageName !== entry.composeServiceName
+        ? [{ imageService: entry.imageName, composeService: entry.composeServiceName }]
+        : [],
+    )
+    .sort((left, right) => left.composeService.localeCompare(right.composeService));
+}
+
 export function imageBuildTargets(): readonly string[] {
   return activeDropletServices()
     .filter((entry) => entry.buildKind !== 'infra')

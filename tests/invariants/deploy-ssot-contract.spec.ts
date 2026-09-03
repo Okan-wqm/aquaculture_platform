@@ -409,6 +409,64 @@ describe('deploy SSOT contract', () => {
     expect(deploy).not.toContain('up -d --no-build --remove-orphans');
   });
 
+  it('restarts long-running compose consumers when their shared image is deployed', () => {
+    const generated = read('infrastructure/deploy/service-catalog.deploy.vars');
+    const deploy = read('scripts/deploy/droplet-up.sh');
+    expect(generated).toContain(
+      "CATALOG_SHARED_IMAGE_RESTART_SERVICES='db-migrate:tenant-schema-provisioner'",
+    );
+    expect(deploy).toContain(
+      'SHARED_IMAGE_RESTART_SERVICES="${CATALOG_SHARED_IMAGE_RESTART_SERVICES:?generated shared image restart services missing}"',
+    );
+    expect(deploy).toContain(
+      'DEPLOY_SERVICES="${APPLICATION_IMAGE_SERVICES}" restartable_deploy_services',
+    );
+    expect(deploy).toContain('image_service_for_compose_service "${svc}"');
+
+    const result = spawnSync(
+      'bash',
+      [
+        '-c',
+        [
+          'source scripts/deploy/lib/deployment-mode-policy.sh',
+          "DEPLOY_SERVICES='db-migrate farm-service'",
+          "SHARED_IMAGE_RESTART_SERVICES='db-migrate:tenant-schema-provisioner'",
+          'restartable_deploy_services',
+          'image_service_for_compose_service tenant-schema-provisioner',
+          'image_service_for_compose_service farm-service',
+        ].join('; '),
+      ],
+      { cwd: REPO_ROOT, encoding: 'utf8' },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.stdout.trim().split('\n')).toEqual([
+      'tenant-schema-provisioner',
+      'farm-service',
+      'db-migrate',
+      'farm-service',
+    ]);
+
+    const frontendOnly = spawnSync(
+      'bash',
+      [
+        '-c',
+        [
+          'source scripts/deploy/lib/deployment-mode-policy.sh',
+          "DEPLOY_SERVICES='shell'",
+          "SHARED_IMAGE_RESTART_SERVICES='db-migrate:tenant-schema-provisioner'",
+          'restartable_deploy_services',
+        ].join('; '),
+      ],
+      { cwd: REPO_ROOT, encoding: 'utf8' },
+    );
+
+    expect(frontendOnly.status).toBe(0);
+    expect(frontendOnly.stderr).toBe('');
+    expect(frontendOnly.stdout.trim()).toBe('shell');
+  });
+
   it('bounds failure log collection and skips healthy running containers without healthchecks', () => {
     const deploy = read('scripts/deploy/droplet-up.sh');
     const diagnostics = /dump_nonhealthy_container_logs\(\) \{[\s\S]*?\n\}/.exec(deploy)?.[0] ?? '';

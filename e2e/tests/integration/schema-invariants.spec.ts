@@ -234,6 +234,7 @@ const MOVED_TABLES: Array<[string, string]> = [
   ['channel_detection_log', 'sensor'],
   ['device_tokens', 'notification'],
   ['weather_settings', 'farm'],
+  ['sentinel_hub_settings', 'farm'],
   // P7 — moderate
   ['sensor_type_definitions', 'sensor'],
   ['feeder_calibrations', 'farm'],

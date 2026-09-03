@@ -101,6 +101,25 @@ class NetGate(unittest.TestCase):
         eng.stop()
         self.assertFalse(eng.decide(method="GET", url=f"http://{HOST}/x").allow)
 
+    @unittest.skipUnless(G.backend_available(), "cryptography (Ed25519) not installed — grant lane is fail-closed here")
+    def test_I_V13_NETGATE_02_engine_only_from_verified_token(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as t:
+            ws = Path(t) / "ws"
+            ws.mkdir()
+            priv, pub = G.generate_keypair(Path(t) / "keys", workspace_root=ws)
+            token = G.GrantSigner(priv, workspace_root=ws).sign(_claims())
+            eng = PP.PolicyEngine.from_token(token, pub.read_bytes(), inventory=_inv(), resolver=lambda h: ("10.99.0.5",),
+                                             expected={"campaign_run_id": "run-1"})
+            self.assertTrue(eng.decide(method="GET", url=f"http://{HOST}/x").allow)
+            h, p, s = token.split(".")
+            with self.assertRaises(G.GrantError):
+                PP.PolicyEngine.from_token(f"{h}.{p}.{s[:-4]}AAAA", pub.read_bytes(), inventory=_inv(), resolver=lambda h: ("10.99.0.5",))
+            with self.assertRaises(G.GrantError):
+                PP.PolicyEngine.from_token(token, pub.read_bytes(), inventory=_inv(), resolver=lambda h: ("10.99.0.5",),
+                                           expected={"campaign_run_id": "run-2"})
+
     def test_I_V13_NETGATE_01_graphql_effect_catalog(self) -> None:
         eng, _ = self._engine()
         self.assertTrue(eng.decide(method="POST", url=f"http://{HOST}/graphql", body=b'{"query":"mutation { updateFarm(id:1){id} }"}').allow)
@@ -148,7 +167,7 @@ class Ssrf(unittest.TestCase):
         self.addCleanup(proxy.stop)
 
         def via(url):
-            c = http.client.HTTPConnection(*proxy.address, timeout=5)
+            c = http.client.HTTPConnection(*proxy.address, timeout=5)  # allowlist-external-network: loopback only — connects to the in-test ProxyServer on 127.0.0.1, whose dialer targets the in-test HTTPServer
             c.request("GET", url)
             r = c.getresponse()
             return r.status, r.read()
@@ -193,6 +212,18 @@ class Zap(unittest.TestCase):
                     {**plan, "jobs": [{"type": "spider"}]}):
             with self.assertRaises(Z.ZapPolicyError):
                 Z.validate_automation_plan(bad, allowed_hosts=(HOST,))
+        with self.assertRaises(Z.ZapPolicyError):
+            Z.build_zap_job(plan, workspace_root=WS, allowed_hosts=(HOST,))  # repo pin empty → no job, ever
+        with tempfile.TemporaryDirectory() as t:
+            p = Path(t) / "infrastructure" / "aria" / "security-lab"
+            p.mkdir(parents=True)
+            (p / "zap.pin.json").write_text(json.dumps({"image": "ghcr.io/zaproxy/zaproxy", "digest": "sha256:" + "f" * 64, "pinned_by": "op", "pinned_at": "2026-09-03"}), encoding="utf-8")
+            job = Z.build_zap_job(plan, workspace_root=t, allowed_hosts=(HOST,))
+            self.assertEqual(job["image_reference"], "ghcr.io/zaproxy/zaproxy@sha256:" + "f" * 64)
+            self.assertEqual(job["jobs"][-1], "report")
+            self.assertTrue(job["plan_digest"].startswith("sha256:"))
+            with self.assertRaises(Z.ZapPolicyError):
+                Z.build_zap_job({**plan, "jobs": [{"type": "script"}, {"type": "report"}]}, workspace_root=t, allowed_hosts=(HOST,))
         leads = Z.alerts_to_leads({"site": [{"alerts": [{"pluginid": "10021", "name": "X missing", "riskdesc": "Low (Medium)", "instances": [{}]}]}]}, service="api")
         self.assertEqual(leads[0]["trust_grade"], "runtime_unverified")
         self.assertEqual(leads[0]["source"], "external_scanner")

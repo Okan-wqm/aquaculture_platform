@@ -10,6 +10,7 @@ it under the dual-executor rule.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -83,6 +84,16 @@ def validate_automation_plan(plan: dict[str, Any], *, allowed_hosts: tuple[str, 
     return kinds
 
 
+def build_zap_job(plan: dict[str, Any], *, workspace_root: str | Path, allowed_hosts: tuple[str, ...]) -> dict[str, Any]:
+    """The only way a ZAP job comes into existence: a pinned image AND a validated plan.
+    Fails closed on an unpinned image or a plan outside the allowlist."""
+    pin = load_zap_pin(workspace_root)
+    jobs = validate_automation_plan(plan, allowed_hosts=allowed_hosts)
+    plan_digest = "sha256:" + hashlib.sha256(json.dumps(plan, sort_keys=True).encode("utf-8")).hexdigest()
+    return {"image_reference": pin["reference"], "image_digest": pin["digest"], "jobs": jobs,
+            "allowed_hosts": list(allowed_hosts), "plan_digest": plan_digest}
+
+
 def alerts_to_leads(report: dict[str, Any], *, service: str) -> list[dict[str, Any]]:
     """ZAP JSON report → UNVERIFIED leads (external_scanner). Never findings."""
     leads: list[dict[str, Any]] = []
@@ -99,4 +110,4 @@ def alerts_to_leads(report: dict[str, Any], *, service: str) -> list[dict[str, A
 
 
 __all__ = ["ALLOWED_JOBS", "FORBIDDEN_JOB_HINTS", "ZAP_PIN_RELPATH", "ZapPolicyError", "alerts_to_leads",
-           "load_zap_pin", "validate_automation_plan"]
+           "build_zap_job", "load_zap_pin", "validate_automation_plan"]

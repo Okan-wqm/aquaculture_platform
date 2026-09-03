@@ -23,7 +23,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
-from .grant import GrantClaims
+from .grant import GrantClaims, verify_grant
 from .scope_policy import MAX_BODY_BYTES, MAX_RESPONSE_BYTES, Budget, DenyInventory, classify_target
 
 MAX_REDIRECT_HOPS = 3
@@ -72,6 +72,17 @@ class PolicyEngine:
         self._stopped = False
         self._lock = threading.Lock()
         self.decisions: list[Decision] = []
+
+    @classmethod
+    def from_token(cls, token: str, public_key_raw: bytes, *, inventory: DenyInventory, resolver: Resolver,
+                   allowed_graphql_effects: tuple[str, ...] = (), clock: Callable[[], datetime] | None = None,
+                   expected: dict[str, Any] | None = None) -> "PolicyEngine":
+        """The production path: an engine exists only for a grant that VERIFIED (signature,
+        alg, window, structure, expected bindings). A forged or expired token builds nothing."""
+        now = clock() if clock else None
+        claims = verify_grant(token, public_key_raw, now=now, expected=expected)
+        return cls(grant=claims, inventory=inventory, resolver=resolver,
+                   allowed_graphql_effects=allowed_graphql_effects, clock=clock)
 
     def stop(self) -> None:
         with self._lock:

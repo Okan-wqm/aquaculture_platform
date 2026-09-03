@@ -7,7 +7,9 @@ interface IssuedQuery {
   parameters?: readonly unknown[];
 }
 
-function createExecutor(options: { failOnCreate?: boolean; timescale?: boolean } = {}): {
+function createExecutor(
+  options: { deadlockOnceOnOwner?: boolean; failOnCreate?: boolean; timescale?: boolean } = {},
+): {
   executor: { query(sql: string, parameters?: readonly unknown[]): Promise<unknown> };
   queries: IssuedQuery[];
 } {
@@ -23,6 +25,14 @@ function createExecutor(options: { failOnCreate?: boolean; timescale?: boolean }
       }
       if (options.failOnCreate === true && sql.includes('CREATE MATERIALIZED VIEW')) {
         return Promise.reject(new Error('aggregate DDL failed'));
+      }
+      if (
+        options.deadlockOnceOnOwner === true &&
+        sql.includes('ALTER MATERIALIZED VIEW') &&
+        sql.includes('OWNER TO') &&
+        queries.filter((query) => query.sql.includes('OWNER TO')).length === 1
+      ) {
+        return Promise.reject(Object.assign(new Error('deadlock detected'), { code: '40P01' }));
       }
       return Promise.resolve([]);
     },
@@ -59,8 +69,25 @@ describe('tenant sensor continuous-aggregate authority', () => {
           statement.includes('TO sensor_service'),
       ),
     ).toBe(true);
+    const finalOwnerAlignment = Math.max(
+      ...sql.map((statement, index) => (statement.includes('OWNER TO') ? index : -1)),
+    );
+    const firstPolicyCreation = sql.findIndex((statement) =>
+      statement.includes('add_continuous_aggregate_policy'),
+    );
+    expect(finalOwnerAlignment).toBeLessThan(firstPolicyCreation);
     expect(sql.some((statement) => statement.includes('pg_advisory_unlock'))).toBe(true);
     expect(sql).toContain('SET search_path TO "$user", public');
+  });
+
+  it('retries an ownership deadlock before maintenance jobs are created', async () => {
+    const { executor, queries } = createExecutor({ deadlockOnceOnOwner: true });
+
+    await expect(
+      ensureTenantSensorContinuousAggregateAuthority(executor, TENANT_SCHEMA),
+    ).resolves.toMatchObject({ timescalePresent: true });
+
+    expect(queries.filter((query) => query.sql.includes('OWNER TO'))).toHaveLength(4);
   });
 
   it('skips aggregate DDL when TimescaleDB is not installed', async () => {

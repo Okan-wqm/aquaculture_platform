@@ -26,6 +26,31 @@ function qualifiedName(schema: string, relation: string): string {
   return `"${schema}"."${relation}"`;
 }
 
+const OWNER_ALIGNMENT_MAX_ATTEMPTS = 3;
+
+function isDeadlock(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === '40P01';
+}
+
+async function alignAggregateOwner(
+  executor: TenantSensorContinuousAggregateExecutor,
+  relation: string,
+): Promise<void> {
+  for (let attempt = 1; attempt <= OWNER_ALIGNMENT_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      await executor.query(
+        `ALTER MATERIALIZED VIEW ${relation} OWNER TO ${SENSOR_CONTINUOUS_AGGREGATE_OWNER_ROLE}`,
+      );
+      return;
+    } catch (error: unknown) {
+      if (!isDeadlock(error) || attempt === OWNER_ALIGNMENT_MAX_ATTEMPTS) {
+        throw error;
+      }
+      await executor.query(`SELECT pg_sleep($1)`, [attempt * 0.25]);
+    }
+  }
+}
+
 /**
  * Create/align one tenant's sensor rollups on an autocommit db-migrate
  * connection. Production runtime roles intentionally have no schema CREATE or
@@ -72,18 +97,25 @@ export async function ensureTenantSensorContinuousAggregateAuthority(
       );
     }
 
+    // Create the complete rollup dependency chain before scheduling refresh or
+    // retention jobs. Timescale workers can otherwise race the owner transfer
+    // and form a catalog-lock deadlock as soon as the first policy is added.
     for (const statement of SENSOR_CONTINUOUS_AGGREGATE_STATEMENTS) {
+      if (statement.phase !== 'definition') continue;
       await executor.query(statement.sql);
     }
 
     for (const aggregate of SENSOR_CONTINUOUS_AGGREGATE_NAMES) {
       const relation = qualifiedName(schema, aggregate);
-      await executor.query(
-        `ALTER MATERIALIZED VIEW ${relation} OWNER TO ${SENSOR_CONTINUOUS_AGGREGATE_OWNER_ROLE}`,
-      );
+      await alignAggregateOwner(executor, relation);
       await executor.query(
         `GRANT SELECT ON TABLE ${relation} TO ${SENSOR_CONTINUOUS_AGGREGATE_RUNTIME_ROLE}`,
       );
+    }
+
+    for (const statement of SENSOR_CONTINUOUS_AGGREGATE_STATEMENTS) {
+      if (statement.phase !== 'maintenance') continue;
+      await executor.query(statement.sql);
     }
 
     return {

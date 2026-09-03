@@ -22,6 +22,7 @@ export const SENSOR_CONTINUOUS_AGGREGATE_LOCK_PREFIX = 'sensor-continuous-aggreg
 
 export interface SensorContinuousAggregateStatement {
   readonly label: string;
+  readonly phase: 'definition' | 'maintenance';
   readonly sql: string;
 }
 
@@ -30,6 +31,7 @@ export const SENSOR_CONTINUOUS_AGGREGATE_STATEMENTS: readonly SensorContinuousAg
   [
     {
       label: 'create metrics_1min',
+      phase: 'definition',
       sql: `
         CREATE MATERIALIZED VIEW IF NOT EXISTS metrics_1min
         WITH (timescaledb.continuous) AS
@@ -51,10 +53,12 @@ export const SENSOR_CONTINUOUS_AGGREGATE_STATEMENTS: readonly SensorContinuousAg
     },
     {
       label: 'metrics_1min real-time',
+      phase: 'definition',
       sql: `ALTER MATERIALIZED VIEW metrics_1min SET (timescaledb.materialized_only = false)`,
     },
     {
       label: 'metrics_1min refresh policy',
+      phase: 'maintenance',
       sql: `SELECT add_continuous_aggregate_policy('metrics_1min',
         start_offset => INTERVAL '3 minutes',
         end_offset => INTERVAL '1 minute',
@@ -63,10 +67,12 @@ export const SENSOR_CONTINUOUS_AGGREGATE_STATEMENTS: readonly SensorContinuousAg
     },
     {
       label: 'metrics_1min retention',
+      phase: 'maintenance',
       sql: `SELECT add_retention_policy('metrics_1min', INTERVAL '1 year', if_not_exists => TRUE)`,
     },
     {
       label: 'create metrics_1hour',
+      phase: 'definition',
       sql: `
         CREATE MATERIALIZED VIEW IF NOT EXISTS metrics_1hour
         WITH (timescaledb.continuous) AS
@@ -94,10 +100,12 @@ export const SENSOR_CONTINUOUS_AGGREGATE_STATEMENTS: readonly SensorContinuousAg
     },
     {
       label: 'metrics_1hour real-time',
+      phase: 'definition',
       sql: `ALTER MATERIALIZED VIEW metrics_1hour SET (timescaledb.materialized_only = false)`,
     },
     {
       label: 'metrics_1hour refresh policy',
+      phase: 'maintenance',
       sql: `SELECT add_continuous_aggregate_policy('metrics_1hour',
         start_offset => INTERVAL '3 hours',
         end_offset => INTERVAL '1 hour',
@@ -106,10 +114,12 @@ export const SENSOR_CONTINUOUS_AGGREGATE_STATEMENTS: readonly SensorContinuousAg
     },
     {
       label: 'metrics_1hour retention',
+      phase: 'maintenance',
       sql: `SELECT add_retention_policy('metrics_1hour', INTERVAL '5 years', if_not_exists => TRUE)`,
     },
     {
       label: 'create metrics_1day',
+      phase: 'definition',
       sql: `
         CREATE MATERIALIZED VIEW IF NOT EXISTS metrics_1day
         WITH (timescaledb.continuous) AS
@@ -137,10 +147,12 @@ export const SENSOR_CONTINUOUS_AGGREGATE_STATEMENTS: readonly SensorContinuousAg
     },
     {
       label: 'metrics_1day real-time',
+      phase: 'definition',
       sql: `ALTER MATERIALIZED VIEW metrics_1day SET (timescaledb.materialized_only = false)`,
     },
     {
       label: 'metrics_1day refresh policy',
+      phase: 'maintenance',
       sql: `SELECT add_continuous_aggregate_policy('metrics_1day',
         start_offset => INTERVAL '3 days',
         end_offset => INTERVAL '1 day',
@@ -149,18 +161,22 @@ export const SENSOR_CONTINUOUS_AGGREGATE_STATEMENTS: readonly SensorContinuousAg
     },
     {
       label: 'metrics_1min sensor index',
+      phase: 'maintenance',
       sql: `CREATE INDEX IF NOT EXISTS "IDX_metrics_1min_sensor_bucket" ON metrics_1min (sensor_id, bucket DESC)`,
     },
     {
       label: 'metrics_1min channel index',
+      phase: 'maintenance',
       sql: `CREATE INDEX IF NOT EXISTS "IDX_metrics_1min_channel_bucket" ON metrics_1min (channel_id, bucket DESC)`,
     },
     {
       label: 'metrics_1hour sensor index',
+      phase: 'maintenance',
       sql: `CREATE INDEX IF NOT EXISTS "IDX_metrics_1hour_sensor_bucket" ON metrics_1hour (sensor_id, bucket DESC)`,
     },
     {
       label: 'metrics_1day sensor index',
+      phase: 'maintenance',
       sql: `CREATE INDEX IF NOT EXISTS "IDX_metrics_1day_sensor_bucket" ON metrics_1day (sensor_id, bucket DESC)`,
     },
   ];

@@ -664,6 +664,9 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("economy_recommendations", "economy/recommendations.jsonl", "ledger", "economy", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     # Plan 033 Faz 033a — Repository Security Profile snapshots (derived, content-addressed; no authorization).
     StateSurface("security_profile", "security/profile.jsonl", "ledger", "security", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    # Plan 033 Faz 033c — attack graph index (full graph is a content-addressed artifact) + assurance coverage ledger.
+    StateSurface("security_attack_graph", "security/attack-graph.jsonl", "ledger", "security", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("security_assurance", "security/assurance.jsonl", "ledger", "security", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("genesis_lifecycle_events", "genesis-lifecycle/events.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True),
     StateSurface("operator_provenance", "operator-provenance/events.jsonl", "ledger", "genesis", "runtime", True, "append_fsync", True),
     StateSurface("enterprise_readiness_claims", "enterprise/readiness-claims.jsonl", "ledger", "readiness", "runtime", True, "append_fsync", True, profile_surface="pr_merge", observe_class="action"),

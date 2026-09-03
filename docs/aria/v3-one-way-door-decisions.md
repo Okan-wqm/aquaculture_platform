@@ -327,6 +327,22 @@ scanner noise out of the canonical finding ledger; the source list decides what 
 
 **Mitigation:** I-V13-PACK-01..05, I-V13-SARIF-01..04.
 
+## 20. Attack graph (versioned) + assurance coverage (honest) (Plan 033 Faz 033c)
+
+**Decision:** `attack_graph` snapshots are content-addressed and bound to (repo SHA, profile digest,
+pack digests, built_at, staleness horizon); the full graph is an artifact, the ledger holds the
+digest + counts; a graph past its horizon is STALE and may not drive a campaign. `assurance` has a
+closed status vocabulary; coverage folds against the APPLICABLE (asset, control) set — never a
+Cartesian product — and a once-clean cell whose evidence is no longer fresh reads STALE, never clean.
+Fleet-ready = required cells with not_tested = 0, unknown = 0 and zero confirmed vulnerabilities.
+
+**Why one-way:** Campaign identity binds a graph digest; the coverage verdict is the honest
+substitute for the un-provable "no vulnerabilities" claim.
+
+**Reversibility cost:** Re-deriving every graph; re-folding coverage against a changed cell set.
+
+**Mitigation:** I-V13-GRAPH-01..02, I-V13-STALE-01, I-V13-ASSURE-01..02.
+
 ## Themes
 
 - **3 of 5 one-way doors are ledger-anchored** (events, terminal states, candidate sources). The

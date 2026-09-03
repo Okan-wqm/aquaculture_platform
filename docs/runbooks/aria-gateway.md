@@ -1,14 +1,14 @@
-<!-- ARIA-HISTORICAL: Plan 032 Faz 032f runbook. Authority for the gateway's code paths is aria-kernel/aria_kernel/gateway/. -->
+<!-- ARIA-HISTORICAL: Plan 032 Faz 032f runbook.
+Authority for the gateway's code paths is aria-kernel/aria_kernel/gateway/. -->
 
 # ARIA event gateway — operator runbook
 
-The gateway is the droplet daemon that turns GitHub webhooks, Alertmanager
-notifications and operator commands into rows on `gateway/inbox.jsonl`, routes
-them deterministically (issue labelled `aria` → mission; PR events →
-`pr-events.jsonl`; failed CI / firing alerts → runtime signals; operator
-command → `control/commands.jsonl`) and runs a closed-vocabulary schedule
-table (`cycle | drain | daily_report | doctor | telemetry_export | deliver |
-inbox_drain`). There is no action that hands text to a model.
+The gateway is the droplet daemon that turns GitHub webhooks, Alertmanager notifications and
+operator commands into rows on `gateway/inbox.jsonl`, routes them deterministically (issue labelled
+`aria` → mission; PR events → `pr-events.jsonl`; failed CI / firing alerts → runtime signals;
+operator command → `control/commands.jsonl`) and runs a closed-vocabulary schedule table (`cycle |
+drain | daily_report | doctor | telemetry_export | deliver | inbox_drain`). There is no action that
+hands text to a model.
 
 ## Install (droplet)
 
@@ -30,12 +30,11 @@ sudo nginx -t && sudo systemctl reload nginx     # infrastructure/nginx/droplet.
 
 ## GitHub webhook
 
-Repository → Settings → Webhooks → Add: payload URL
-`https://app.suderra.com/aria/webhook/github`, content type `application/json`,
-secret = `ARIA_GITHUB_WEBHOOK_SECRET`, events: **Issues, Issue comments, Pull
-requests, Check suites, Workflow runs**. Every delivery is verified with
-`X-Hub-Signature-256`; a replayed `X-GitHub-Delivery` is refused with 409 and
-recorded as `gateway_rejected`.
+Repository → Settings → Webhooks → Add: payload URL `https://app.suderra.com/aria/webhook/github`,
+content type `application/json`, secret = `ARIA_GITHUB_WEBHOOK_SECRET`, events: **Issues, Issue
+comments, Pull requests, Check suites, Workflow runs**. Every delivery is verified with
+`X-Hub-Signature-256`; a replayed `X-GitHub-Delivery` is refused with 409 and recorded as
+`gateway_rejected`.
 
 ## Alertmanager
 
@@ -58,9 +57,9 @@ curl -sS -X POST https://app.suderra.com/aria/webhook/operator \
   -H 'Content-Type: application/json' -d '{"verb":"pause","reason":"deploy window"}'
 ```
 
-The actor must be in `ARIA_GATEWAY_ACTOR_ALLOWLIST`; the verb vocabulary is
-`pause | resume | cancel` (cancel needs `request_id`). The same commands work
-offline: `aria-kernel control pause|resume|cancel`.
+The actor must be in `ARIA_GATEWAY_ACTOR_ALLOWLIST`; the verb vocabulary is `pause | resume |
+cancel` (cancel needs `request_id`). The same commands work offline: `aria-kernel control
+pause|resume|cancel`.
 
 ## Schedules
 
@@ -72,9 +71,9 @@ aria-kernel schedule list | pause | resume | remove --name <name>
 aria-kernel schedule run --action inbox_drain      # run one action now
 ```
 
-Workflow actions call `gh workflow run <workflow> --ref main` and are skipped
-while `control pause` is in effect. Every run lands on
-`gateway/schedules.jsonl` (`ran`) and `governance.jsonl` (`gateway_action_ran`).
+Workflow actions call `gh workflow run <workflow> --ref main` and are skipped while `control pause`
+is in effect. Every run lands on `gateway/schedules.jsonl` (`ran`) and `governance.jsonl`
+(`gateway_action_ran`).
 
 ## Health
 
@@ -82,7 +81,8 @@ while `control pause` is in effect. Every run lands on
 - `curl -s https://app.suderra.com/aria/status` → read-only JSON (no secrets).
 - `aria-kernel gateway status` → inbox counts + schedule table.
 - Stop cleanly: `touch /var/aqua-saas/aria-tools/ARIA_STOP` or `systemctl stop aria-gateway`.
-- A second instance exits with `daemon_already_running`; a lease held by another host exits with `host_lease_blocked`.
+- A second instance exits with `daemon_already_running`; a lease held by another host exits with
+  `host_lease_blocked`.
 
 ## Offline replay / testing
 

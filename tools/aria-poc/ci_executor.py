@@ -182,7 +182,9 @@ _CI_T0 = time.monotonic()
 # is released, never run blind. EX_CONFIG keeps the code distinct from the
 # Claude CLI's own exits in `claude_cli_exit_<n>` release reasons.
 DELIVERY_CREDENTIAL_EXIT = 78
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+# Plan 032 Faz 032h — a drain child may run inside its own worktree; the
+# drain exports ARIA_WORKSPACE_ROOT and every workspace-bound path follows.
+_REPO_ROOT = Path(os.environ.get("ARIA_WORKSPACE_ROOT") or Path(__file__).resolve().parents[2]).resolve()
 
 
 def _stage(msg: str) -> None:

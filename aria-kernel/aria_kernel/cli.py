@@ -2970,6 +2970,35 @@ def build_parser() -> argparse.ArgumentParser:
     mcp_config = add_subparser(mcp_sub, "config")
     mcp_config.add_argument("--profile", required=True)
 
+    # Plan 032 Faz 032h — skill curation (proposals only), rollback, shadow compare; parity table.
+    skill_parser = add_subparser(sub, "skill")
+    skill_sub = skill_parser.add_subparsers(dest="skill_command", required=True)
+    skill_curate = add_subparser(skill_sub, "curate")
+    skill_curate.add_argument("--workspace-root", default=".")
+    skill_curate.add_argument("--similarity", type=float, default=None)
+    skill_curate.add_argument("--unused-days", type=int, default=None)
+    skill_proposals = add_subparser(skill_sub, "proposals")
+    skill_proposals.add_argument("--open", action="store_true")
+    skill_decide = add_subparser(skill_sub, "decide")
+    skill_decide.add_argument("--proposal-id", required=True)
+    skill_decide.add_argument("--decision", choices=["accepted", "rejected"], required=True)
+    skill_decide.add_argument("--operator-approval-ref", required=True)
+    skill_decide.add_argument("--note", default="")
+    skill_rollback = add_subparser(skill_sub, "rollback")
+    skill_rollback.add_argument("--draft-id", required=True)
+    skill_rollback.add_argument("--operator-approval-ref", required=True)
+    skill_rollback.add_argument("--workspace-root", default=None)
+    skill_shadow = add_subparser(skill_sub, "shadow-compare")
+    skill_shadow.add_argument("--draft-id", required=True)
+    skill_shadow.add_argument("--workspace-root", default=".")
+    parity_parser = add_subparser(sub, "parity")
+    parity_sub = parity_parser.add_subparsers(dest="parity_command", required=True)
+    parity_generate = add_subparser(parity_sub, "generate")
+    parity_generate.add_argument("--workspace-root", default=".")
+    parity_generate.add_argument("--output", default="docs/aria/generated/harness-parity.md")
+    parity_check = add_subparser(parity_sub, "check")
+    parity_check.add_argument("--workspace-root", default=".")
+
     return parser
 
 
@@ -6022,6 +6051,47 @@ def _main(argv: list[str] | None = None) -> int:
         if args.checkpoint_command == "prune":
             print(json.dumps(_cp.prune_checkpoints(workspace_root=args.workspace_root, base_dir=args.tools_dir), indent=2, sort_keys=True))
             return 0
+
+    if args.command == "skill":
+        from . import skill_curator
+
+        if args.skill_command == "curate":
+            kwargs = {}
+            if args.similarity is not None:
+                kwargs["similarity_threshold"] = args.similarity
+            if args.unused_days is not None:
+                kwargs["unused_days"] = args.unused_days
+            print(json.dumps(skill_curator.propose_curation(args.workspace_root, base_dir=args.tools_dir, **kwargs), indent=2, sort_keys=True))
+            return 0
+        if args.skill_command == "proposals":
+            print(json.dumps(skill_curator.list_curation_proposals(base_dir=args.tools_dir, open_only=args.open), indent=2, sort_keys=True))
+            return 0
+        if args.skill_command == "decide":
+            print(json.dumps(skill_curator.decide_curation(args.proposal_id, decision=args.decision, operator_approval_ref=args.operator_approval_ref,
+                                                           base_dir=args.tools_dir, note=args.note), indent=2, sort_keys=True))
+            return 0
+        if args.skill_command == "rollback":
+            print(json.dumps(skill_curator.rollback_skill_materialization(draft_id=args.draft_id, base_dir=args.tools_dir,
+                                                                          operator_approval_ref=args.operator_approval_ref,
+                                                                          workspace_root=args.workspace_root), indent=2, sort_keys=True))
+            return 0
+        print(json.dumps(skill_curator.shadow_compare(draft_id=args.draft_id, workspace_root=args.workspace_root, base_dir=args.tools_dir), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "parity":
+        from .harness_parity import check_parity, render_parity_report
+
+        if args.parity_command == "generate":
+            text = render_parity_report(repo_root=args.workspace_root)
+            out = Path(args.workspace_root) / args.output
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(text, encoding="utf-8")
+            print(str(out))
+            return 0
+        records = check_parity(repo_root=args.workspace_root)
+        problems = [r for r in records if r["problems"]]
+        print(json.dumps({"rows": len(records), "problems": problems}, indent=2, sort_keys=True))
+        return 0 if not problems else 1
 
     if args.command == "mcp":
         from . import mcp_client

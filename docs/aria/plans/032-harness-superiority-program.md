@@ -297,6 +297,23 @@ doküman; `mcp_tool_rules`: adlandırılmayan sunucular `mcp__<server>` ile, har
 
 ## Faz 032h — Skill lifecycle + paralellik
 
+Teslimat 032h (2026-09-03): `skill_curator.py` — kürator yalnız OKUR (`.claude/skills`, ajan dosyalarındaki
+referanslar, work journal'daki okumalar) ve `skill-genesis/curation-proposals.jsonl`'a kanıtlı
+`PROPOSE_ARCHIVE|PROPOSE_MERGE` satırları yazar (imza dedup); karar `decide_curation` ile yalnız operatör
+onay ref'iyle (`accepted|rejected`), dosyaya asla dokunmaz. `rollback_skill_materialization(draft_id,
+operator_approval_ref)` — tracked dosya `git restore --source=HEAD`, untracked silinir; `status=rolled_back`
+satırı + governance; ikinci rollback ve skill dışı hedef reddedilir. `shadow_compare(draft_id)` — sandbox
+satırı (karar/fixture sayısı) ile mevcut dosyanın fixture blokları → kapalı `SHADOW_VERDICTS`. Paralellik:
+`genesis_policy.executor_policy()` (`executor.max_concurrent` default 1, [1,8] clamp; `worktree_per_request`
+default false); drain `_launch/_settle` ayrımıyla in-flight çocukları politika kadar sınırlar, request başına
+`git worktree add --detach aria-worktrees/req-<id> <target_sha>` + iş sonu `remove --force`; executor
+`ARIA_WORKSPACE_ROOT`'u workspace kökü olarak alır. Merge otoritesi/ladder değişmedi (auto-merge yok).
+`harness_parity.py` — 25 satırlık yetenek → modül → CLI → test tablosu; `check_parity` her satırı import/CLI/
+dosya ile doğrular; `docs/aria/generated/harness-parity.md` üretilir (`parity generate|check`). CLI: `skill
+curate|proposals|decide|rollback|shadow-compare`, `parity generate|check`. `max_concurrent>1` açmak operatör
+kararıdır (032d SLO ≥ 2 hafta). Parity raporunun 032i satırları 032i teslimiyle doğrulanır (rapor 032i'de yeniden
+üretilir). Çalıştırılmayan testler: `tests/invariants/v12/test_phase_v12_h_skill_parallel.py`.
+
 - `skill curate` yalnız `PROPOSE_ARCHIVE|PROPOSE_MERGE` üretir (panel/promotion authority onayı);
   `skill rollback` (eksik CLI); shadow karşılaştırma.
 - Drain paralelliği: 032d SLO ≥ 2 hafta tutunca `executor.max_concurrent=2`, request başına

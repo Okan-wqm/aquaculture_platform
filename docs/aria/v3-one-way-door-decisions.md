@@ -211,6 +211,16 @@ publish primitive other than the store API.
 
 **Mitigation:** I-V12-MCP-01..05.
 
+## 16. Curation is proposal-only; executor concurrency is policy (Plan 032 Faz 032h)
+
+**Decision:** `skill-genesis/curation-proposals.jsonl` with closed `CURATION_KINDS = PROPOSE_ARCHIVE|PROPOSE_MERGE` and `CURATION_DECISIONS = accepted|rejected` (operator ref required); no code path archives or merges a skill on its own. `genesis_policy.executor` (`max_concurrent` clamped to [1, 8], `worktree_per_request`) is the only way to run more than one drain child; raising it above 1 is an operator decision after the 032d SLO has held. `docs/aria/generated/harness-parity.md` is generated from `harness_parity.PARITY_TABLE` and must match it.
+
+**Why one-way:** The panel/veto promotion path is the trust boundary for skills; parallel children share nothing but the store, so the policy block is what bounds contention.
+
+**Reversibility cost:** Re-keying proposals; re-validating every parallel-safety assumption.
+
+**Mitigation:** I-V12-SKILL-01..03, I-V12-PAR-01..02.
+
 ## Themes
 
 - **3 of 5 one-way doors are ledger-anchored** (events, terminal states, candidate sources). The

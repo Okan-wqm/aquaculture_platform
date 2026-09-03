@@ -1,4 +1,5 @@
-<!-- ARIA-HISTORICAL: Historical plan document. Live authority is docs/aria/CURRENT_STATE.md plus executable contracts. -->
+<!-- ARIA-HISTORICAL: Historical plan document.
+Live authority is docs/aria/CURRENT_STATE.md plus executable contracts. -->
 
 # ARIA Plan 032 — Harness Superiority Program
 
@@ -33,7 +34,8 @@ Beş yük taşıyan mekanizma (Faz 032a bunları kapatır):
    request'ler `aria/state`'e ulaşmıyor.
 2. `plans/*.jsonl` (write-driving) 2026-08-31 elle compaction'da silinmiş → `fold_plan_state`=None
    → drainer her gece `start_plan` + 1 challenger (treadmill).
-3. Cycle-içi dispatcher poll'u GHA lane'de yapısal olarak kaybediyor (executor cycle'dan SONRA koşar).
+3. Cycle-içi dispatcher poll'u GHA lane'de yapısal olarak kaybediyor (executor cycle'dan SONRA
+   koşar).
 4. Anchor ömrü 3 gün, bir plan ≥3 executor→cycle turu ister; 528 `anchor_expired`; seçim yolu
    tek-request türetimle 29 dk tarıyor (batch form var, kullanılmıyor).
 5. Parametreli release reason'lar (`submit_timeout_*`, `plan_content_invalid:*`, `agent_refused:*`)
@@ -71,7 +73,8 @@ runner'ı boşa yakmamak için).
 
 1. **Ledger yazma/okuma tavanı paritesi** — `ledger._append_jsonl_locked_body` satırı yazmadan
    ÖNCE `LEDGER_ROW_MAX_BYTES` (= snapshot okuma tavanı) ile karşılaştırır; aşarsa
-   `LedgerRowTooLargeError("ledger_row_too_large:...")` (ARIA-HIGH-034 ile geldi) (I-V12-LEDGER-01). Okuyucular sabiti
+   `LedgerRowTooLargeError("ledger_row_too_large:...")` (ARIA-HIGH-034 ile geldi) (I-V12-LEDGER-01).
+   Okuyucular sabiti
    ledger'dan import eder (I-V12-LEDGER-02). `fixture_runner` 512 KiB bütçesi (#1395) korunur;
    `_phase_fixture_refresh` limit hatalarını tool-bazlı `blocked` kaydeder (I-V12-LEDGER-03).
 2. **Write-driving ledger koruması + audit'li sıfırlama** — `compact_state` sahip olmadığı
@@ -122,7 +125,8 @@ Yazma-yetkili agent'ın çalıştığı zarf, hooks'tan ÖNCE kapanır; dış ya
 - **Exact cwd + write scope** — `ci_executor` spawn'a `cwd=workspace`; `wrap_bash_in_sandbox(
 write_scope=)` workspace ro, scope rw.
 - **Canonical CommandPolicy** — NEW `aria_kernel/command_policy.py`: kural nesneleri →
-  `to_regex()` (kernel), `to_claude_rule()` (`permissions.allow/deny`), `examples` (pozitif/negatif);
+  `to_regex()` (kernel), `to_claude_rule()` (`permissions.allow/deny`), `examples`
+  (pozitif/negatif);
   invariant her kural için üç hedefin aynı örnek kümesinde aynı kararı verdiğini koşar.
   `ALLOWED_BASH_COMMANDS`/`DENIED_BASH_COMMANDS` bu modülden türetilir.
 - **Hooks** — spawn başına `--settings` (permission rules + hooks); NEW `aria_kernel/hooks.py`:
@@ -186,7 +190,8 @@ CI reconciliation`. **Auto-merge yok**; dış yazma yalnız `aria-impl-*` branch
 
 ## Faz 032g — MCP client/server
 
-- CLI floor ≥ 2.1.221; `mcp/registry.json` + `mcp_client.py` (`--strict-mcp-config`, include/exclude,
+- CLI floor ≥ 2.1.221; `mcp/registry.json` + `mcp_client.py` (`--strict-mcp-config`,
+  include/exclude,
   quarantine); `aria-kernel mcp serve` önce read-only; yazma araçları `ack_ledger` tek-kullanımlık
   token (actor, action, target, expiry, nonce, consumed) ile.
 
@@ -235,7 +240,7 @@ sonucunu yanlış raporlama oranı · rollback başarı oranı · insan müdahal
 
 ## Acceptance
 
-```
+```text
 # Faz 032a — kernel
 bash scripts/ci/aria-suite-run.sh \
   aria-kernel/tests/invariants/v12/test_phase_v12_a_ledger_write_cap.py \

@@ -484,6 +484,8 @@ def build_claude_exec_argv(
     skip_permissions: bool = True,
     permission_mode: str | None = None,
     disallowed_tools: Sequence[str] = (),
+    session_id: str | None = None,
+    resume: bool = False,
 ) -> list[str]:
     """Build the live Claude Code CLI invocation argv.
 
@@ -533,6 +535,11 @@ def build_claude_exec_argv(
     if disallowed_tools:
         argv.append("--disallowedTools")
         argv.extend(str(rule) for rule in disallowed_tools)
+    # Plan 032 Faz 032c — a bound session: fresh (`--session-id`) or resumed
+    # (`--resume`) — the decision is the kernel's (session_continuity), the
+    # flag is the CLI's.
+    if session_id:
+        argv.extend(["--resume" if resume else "--session-id", session_id])
     return argv
 
 
@@ -832,6 +839,27 @@ def _envelope_from_profile(agent_profile: Any | None) -> tuple[tuple[str, ...], 
 
 
 
+
+def spawn_settings_hash(*, agent_profile: Any | None, usage_recording: UsageRecording | None, workspace_root: str | Path | None) -> str | None:
+    """The hash of the settings document a spawn WOULD carry — the policy half
+    of the session fingerprint (Faz 032c). None for the profile-less shape."""
+    profile_id = getattr(agent_profile, "profile_id", None)
+    if not profile_id:
+        return None
+    from aria_kernel.claude_settings import build_settings, settings_hash
+    from aria_kernel.runtime_profiles import profile_by_id
+
+    hook_context = None
+    if usage_recording is not None and workspace_root is not None:
+        hook_context = {
+            "python": sys.executable or "python3",
+            "kernel_root": str(Path(workspace_root).resolve() / "aria-kernel"),
+            "tools_dir": str(Path(usage_recording.base_dir).resolve()),
+            "workspace_root": str(Path(workspace_root).resolve()),
+            "request_id": usage_recording.request_id,
+        }
+    return settings_hash(build_settings(profile_by_id(str(profile_id)), hook_context=hook_context))
+
 def _write_spawn_settings(
     *,
     agent_profile: Any | None,
@@ -927,6 +955,8 @@ def run_claude_exec(
     permission_mode: str | None = None,
     usage_recording: UsageRecording | None = None,
     agent_profile: Any | None = None,
+    session_id: str | None = None,
+    resume: bool = False,
 ) -> ClaudeRunResult:
     preflight_claude_auth()
     assert_write_runner_ok(skip_permissions=skip_permissions, permission_mode=permission_mode)
@@ -943,6 +973,8 @@ def run_claude_exec(
         skip_permissions=skip_permissions,
         permission_mode=permission_mode,
         disallowed_tools=disallowed_tools,
+        session_id=session_id,
+        resume=resume,
     )
     # Plan 032 Faz 032b-2 — the per-spawn settings file: permission rules
     # compiled from the command policy + the kernel hooks. A write-capable

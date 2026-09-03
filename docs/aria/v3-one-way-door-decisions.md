@@ -161,6 +161,16 @@ publish primitive other than the store API.
 
 **Mitigation:** I-V12-REASON-01/02 pin the mapping and the row fields; adding a code is forward-compatible, renaming one is not.
 
+## 11. Checkpoint, session, external-effect and recovery ledgers (Plan 032 Faz 032c)
+
+**Decision:** Four declared surfaces — `checkpoints/index.jsonl` (refs `refs/aria/<request>/<seq>` in a shadow store OUTSIDE the workspace), `agent-invocations/sessions.jsonl` (claim ↔ Claude session id + fingerprint), `recovery/external-effects.jsonl` (intent/receipt pairs with `idempotency_key`), `recovery/decisions.jsonl` (closed `RECOVERY_DECISIONS`). `EXTERNAL_EFFECT_KINDS` and the fingerprint inputs are closed.
+
+**Why one-way:** Recovery decides from these rows whether a request is re-run, resumed or handed to a person; the fingerprint's input set defines when a session may be resumed.
+
+**Reversibility cost:** Ledger rewrite plus re-deriving every pending recovery decision.
+
+**Mitigation:** I-V12-CKPT-01..05, I-V12-SESS-01..03, I-V12-RECV-01..04 pin the shapes; `POLICY_VERSION` is part of the fingerprint so a policy change invalidates resumes by construction.
+
 ## Themes
 
 - **3 of 5 one-way doors are ledger-anchored** (events, terminal states, candidate sources). The

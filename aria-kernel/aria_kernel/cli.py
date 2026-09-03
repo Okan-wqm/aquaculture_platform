@@ -2850,6 +2850,39 @@ def build_parser() -> argparse.ArgumentParser:
         hook_verb.add_argument("--workspace-root", required=True)
         hook_verb.add_argument("--request-id", required=True)
 
+    # Plan 032 Faz 032c — checkpoints, sessions, recovery, search.
+    checkpoint_parser = add_subparser(sub, "checkpoint")
+    checkpoint_sub = checkpoint_parser.add_subparsers(dest="checkpoint_command", required=True)
+    for verb in ("list", "diff", "restore", "take", "prune"):
+        cp_verb = add_subparser(checkpoint_sub, verb)
+        cp_verb.add_argument("--workspace-root", default=".")
+        if verb != "prune":
+            cp_verb.add_argument("--request-id", required=True)
+        if verb in ("diff", "restore"):
+            cp_verb.add_argument("--seq", type=int, default=None)
+        if verb == "restore":
+            cp_verb.add_argument("--file", action="append", default=None, dest="files")
+            cp_verb.add_argument("--all-files", action="store_true", help="Restore every file the checkpoint holds (hand edits NOT preserved).")
+        if verb == "take":
+            cp_verb.add_argument("--reason", default="operator")
+    session_parser = add_subparser(sub, "session")
+    session_sub = session_parser.add_subparsers(dest="session_command", required=True)
+    session_list = add_subparser(session_sub, "list")
+    session_list.add_argument("--request-id", required=True)
+    recovery_parser = add_subparser(sub, "recovery")
+    recovery_sub = recovery_parser.add_subparsers(dest="recovery_command", required=True)
+    recovery_classify = add_subparser(recovery_sub, "classify")
+    recovery_classify.add_argument("--request-id", required=True)
+    recovery_classify.add_argument("--workspace-root", default=".")
+    recovery_classify.add_argument("--fingerprint", default=None)
+    recovery_classify.add_argument("--offline", action="store_true", help="Do not ask GitHub; unresolved intents stay unresolved.")
+    search_parser = add_subparser(sub, "search")
+    search_parser.add_argument("query")
+    search_parser.add_argument("--workspace-root", default=".")
+    search_parser.add_argument("--kind", action="append", default=None, dest="kinds")
+    search_parser.add_argument("--rebuild", action="store_true")
+    search_parser.add_argument("--limit", type=int, default=20)
+
     return parser
 
 
@@ -5876,6 +5909,58 @@ def _main(argv: list[str] | None = None) -> int:
         if stdout:
             print(stdout)
         return exit_code
+
+    if args.command == "checkpoint":
+        from . import checkpoint as _cp
+
+        if args.checkpoint_command == "list":
+            rows = [c.__dict__ for c in _cp.list_checkpoints(args.request_id, base_dir=args.tools_dir)]
+            print(json.dumps(rows, indent=2, sort_keys=True))
+            return 0
+        if args.checkpoint_command == "take":
+            taken = _cp.take_checkpoint(workspace_root=args.workspace_root, request_id=args.request_id,
+                                        reason=args.reason, base_dir=args.tools_dir, min_interval_seconds=0)
+            print(json.dumps(taken.__dict__ if taken else {"folded": True}, indent=2, sort_keys=True))
+            return 0
+        if args.checkpoint_command == "diff":
+            print(_cp.diff_checkpoint(workspace_root=args.workspace_root, request_id=args.request_id, seq=args.seq, base_dir=args.tools_dir))
+            return 0
+        if args.checkpoint_command == "restore":
+            result = _cp.restore_checkpoint(
+                workspace_root=args.workspace_root, request_id=args.request_id, seq=args.seq,
+                files=args.files, preserve_hand_edits=not args.all_files, base_dir=args.tools_dir,
+            )
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0
+        if args.checkpoint_command == "prune":
+            print(json.dumps(_cp.prune_checkpoints(workspace_root=args.workspace_root, base_dir=args.tools_dir), indent=2, sort_keys=True))
+            return 0
+
+    if args.command == "session" and args.session_command == "list":
+        from .session_continuity import sessions_for
+
+        print(json.dumps(sessions_for(args.request_id, base_dir=args.tools_dir), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "recovery" and args.recovery_command == "classify":
+        from .recovery import classify_recovery, gh_remote_reader
+
+        decision = classify_recovery(
+            args.request_id, base_dir=args.tools_dir, fingerprint=args.fingerprint,
+            remote_reader=None if args.offline else gh_remote_reader(args.workspace_root),
+        )
+        print(json.dumps(decision.to_dict(), indent=2, sort_keys=True))
+        return 0 if decision.decision != "human_required" else 3
+
+    if args.command == "search":
+        from .search import rebuild_index, search
+
+        if args.rebuild:
+            counts = rebuild_index(workspace_root=args.workspace_root, base_dir=args.tools_dir)
+            print(json.dumps({"rebuilt": counts}, sort_keys=True), file=sys.stderr)
+        hits = search(args.query, workspace_root=args.workspace_root, kinds=args.kinds, limit=args.limit)
+        print(json.dumps([h.__dict__ for h in hits], indent=2, sort_keys=True))
+        return 0
 
     if args.command == "doctor":
         from .doctor import render_doctor_text, run_doctor

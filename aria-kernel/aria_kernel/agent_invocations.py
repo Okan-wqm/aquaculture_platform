@@ -2019,6 +2019,9 @@ HARNESS_FAULT_RELEASE_REASONS: frozenset[str] = frozenset({
 # fault, a rejected submission is the work's, and an expired lease means the
 # agent hung — a request that repeatedly hangs its agent must escalate.
 REQUEST_FAULT_RELEASE_REASONS: frozenset[str] = frozenset({
+    # Plan 032 Faz 032c — the recovery classifier could not resolve an
+    # external intent left by a previous attempt; a person must look.
+    "recovery_unresolved_external_effect",
     "lease_expired",
     "request_envelope_missing_expected_output_path",
     "request_envelope_missing_role",

@@ -168,6 +168,18 @@ exit, duration_ms, external_effect}`; ham komut asla ledger'a girmez.
 
 ## Faz 032c — Checkpoint, session continuity, recovery
 
+Teslimat 032c (2026-09-03): `checkpoint.py` (shadow bare git store `~/.aria/workspaces/<repo_hash>/
+checkpoints/store`, `refs/aria/<request>/<seq>`, take/diff/restore(hand-edit korumalı)/prune; PreToolUse
+hook yazma öncesi tetikler; executor write-capable spawn öncesi alır, non-zero çıkışta yerel rollback +
+`implementation_rolled_back`); `session_continuity.py` (claim'e bağlı Claude session id, fingerprint =
+target_sha+profile+prompt_hash+settings_hash+model family+policy version; `--session-id`/`--resume`);
+`recovery.py` (intent/receipt ledger, `gh` remote reader, `idempotent_replay|resume|external_effect_check|
+human_required`; executor human_required'da `recovery_unresolved_external_effect` ile release eder;
+`pr_manager` push/PR-create'i intent/receipt ile sarar); `search.py` (SQLite FTS5 türev indeks, workspace
+dışı). CLI: `checkpoint`, `session`, `recovery classify`, `search`.
+Çalıştırılmayan testler: `tests/invariants/v12/test_phase_v12_c_checkpoint.py`,
+`test_phase_v12_c_session_recovery.py`, `test_phase_v12_c_search.py`.
+
 - **Checkpoint** — NEW `aria_kernel/checkpoint.py`: shadow bare git store
   `~/.aria/workspaces/<repo_hash>/checkpoints/` (workspace dışı, publish edilmez, agent'a
   görünmez); ref `refs/aria/<request_id>/<n>`; turn başına bir; `list|diff|restore(files,

@@ -231,6 +231,21 @@ def journal_rows_for(request_id: str, *, base_dir: str | Path | None) -> list[di
             if row.get("request_id") == request_id]
 
 
+
+def _take_pre_write_checkpoint(*, base_dir, workspace_root, request_id: str, session_id: str, tool_use_id: str) -> None:
+    try:
+        from .checkpoint import take_checkpoint
+
+        touched = [p for row in journal_rows_for(request_id, base_dir=base_dir) for p in (row.get("files_touched") or [])]
+        take_checkpoint(workspace_root=workspace_root, request_id=request_id, reason="pre_write",
+                        base_dir=base_dir, journal_files=touched)
+    except Exception as exc:  # noqa: BLE001
+        try:
+            record_decision(HookVerdict("allow", f"checkpoint_skipped:{type(exc).__name__}", "checkpoint", EXIT_ALLOW),
+                            base_dir=base_dir, request_id=request_id, session_id=session_id, tool_use_id=tool_use_id)
+        except Exception:  # noqa: BLE001
+            return
+
 _SESSION_TRIGGERS = {"SessionStart": "session_start", "SessionEnd": "session_stop", "PreCompact": "pre_compact"}
 
 
@@ -268,6 +283,13 @@ def run_hook(
             record_decision(verdict, base_dir=base_dir, request_id=request_id, session_id=session_id, tool_use_id=tool_use_id)
         except Exception as exc:  # noqa: BLE001 — a decision that cannot be recorded is a deny
             verdict = HookVerdict("deny", f"decision_unrecordable:{type(exc).__name__}", verdict.tool_name, EXIT_BLOCK)
+        if verdict.decision == "allow" and verdict.tool_name in WRITE_TOOL_NAMES:
+            # Plan 032 Faz 032c — the safety net BEFORE the first write of a
+            # turn (folded within the checkpoint's own interval). Best-effort:
+            # a checkpoint that cannot be taken must not turn an allowed edit
+            # into a denied one; it is named on the decision ledger instead.
+            _take_pre_write_checkpoint(base_dir=base_dir, workspace_root=workspace_root, request_id=request_id,
+                                       session_id=session_id, tool_use_id=tool_use_id)
         return verdict.exit_code, verdict.to_stdout()
     if verb == "post-tool":
         try:

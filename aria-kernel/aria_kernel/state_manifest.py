@@ -431,6 +431,11 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     # Plan 032 Faz 032b-2 — hook verdicts (observation) and the sanitized work journal (write-driving: recovery reads it).
     StateSurface("hook_decisions", "hooks/decisions.jsonl", "ledger", "hooks", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("agent_work_journal", "agent-invocations/work-journal.jsonl", "ledger", "work_journal", "runtime", True, "append_fsync", True, profile_surface="agent_claim", observe_class="action"),
+    # Plan 032 Faz 032c — checkpoints (observation), sessions, external-effect intents/receipts and recovery decisions (write-driving).
+    StateSurface("checkpoints_index", "checkpoints/index.jsonl", "ledger", "checkpoints", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("agent_sessions", "agent-invocations/sessions.jsonl", "ledger", "agent_sessions", "runtime", True, "append_fsync", True, profile_surface="agent_claim", observe_class="action"),
+    StateSurface("external_effects", "recovery/external-effects.jsonl", "ledger", "recovery", "runtime", True, "append_fsync", True, profile_surface="agent_claim", observe_class="action"),
+    StateSurface("recovery_decisions", "recovery/decisions.jsonl", "ledger", "recovery", "runtime", True, "append_fsync", True, profile_surface="agent_claim", observe_class="action"),
     StateSurface("handoffs", "handoffs.jsonl", "ledger", "handoffs", "runtime", True, "append_fsync", True, profile_surface="handoffs", observe_class="observation"),
     StateSurface("agent_evals", "agent-evals/runs.jsonl", "ledger", "agent_evals", "runtime", True, "append_fsync", True, profile_surface="agent_evals", observe_class="action"),
     StateSurface("agent_eval_fixtures", "agent-evals/fixtures.jsonl", "ledger", "agent_evals", "runtime", True, "append_fsync", True, profile_surface="agent_evals", observe_class="action"),

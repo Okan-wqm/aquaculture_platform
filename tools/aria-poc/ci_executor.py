@@ -47,6 +47,7 @@ if str(_THIS_DIR) not in sys.path:
     sys.path.insert(0, str(_THIS_DIR))
 
 from claude_runtime import (
+    spawn_settings_hash,
     CLAUDE_MOCK_ENV_VAR,
     ClaudeAuthFailure,
     ClaudeCreditExhausted,
@@ -1010,6 +1011,79 @@ def _clear_stale_dispatch_artifacts(output_path: Path, transcript_path: Path) ->
     transcript_path.unlink(missing_ok=True)
 
 
+
+def _decide_session_and_recovery(
+    *,
+    tools_dir: Path,
+    repo: Path,
+    request_id: str,
+    claim_id: str,
+    agent_id: str,
+    lease_token: str,
+    subagent_type: str,
+    request_envelope: dict[str, Any],
+    prompt_hash: str,
+) -> tuple[str | None, bool]:
+    """Plan 032 Faz 032c — (session_id, resume), or (None, False) after a
+    human_required recovery decision released the claim.
+
+    Mock dispatches skip all of it: there is no session to bind and no
+    workspace write to checkpoint.
+    """
+    if _MOCK_MODE_AT_ENTRY:
+        return "mock-session", False
+    from aria_kernel.agent_runtime_profile import read_agent_runtime_profile
+    from aria_kernel.checkpoint import take_checkpoint
+    from aria_kernel.recovery import classify_recovery, gh_remote_reader
+    from aria_kernel.session_continuity import decide_session, session_fingerprint
+
+    profile = read_agent_runtime_profile(subagent_type, repo_root=_REPO_ROOT)
+    recording = UsageRecording(request_id=request_id, role=str(request_envelope.get("role") or ""),
+                               target_agent=subagent_type, base_dir=tools_dir)
+    fingerprint = session_fingerprint(
+        target_sha=str(request_envelope.get("target_sha") or ""),
+        profile_id=profile.profile_id,
+        prompt_hash=prompt_hash,
+        settings_hash=spawn_settings_hash(agent_profile=profile, usage_recording=recording, workspace_root=_REPO_ROOT),
+        model=profile.model,
+    )
+    decision = classify_recovery(
+        request_id, base_dir=tools_dir, fingerprint=fingerprint, remote_reader=gh_remote_reader(_REPO_ROOT),
+    )
+    if decision.decision == "human_required":
+        sys.stderr.write(f"recovery_unresolved_external_effect: {request_id} {decision.reason}\n")
+        _release_claim(
+            tools_dir=tools_dir, repo=repo, claim_id=claim_id, agent_id=agent_id,
+            lease_token=lease_token, reason="recovery_unresolved_external_effect",
+        )
+        return None, False
+    session_id, resume = decide_session(request_id=request_id, claim_id=claim_id, fingerprint=fingerprint, base_dir=tools_dir)
+    if profile.write_capable:
+        try:
+            take_checkpoint(workspace_root=_REPO_ROOT, request_id=request_id, reason="pre_spawn", base_dir=tools_dir)
+        except Exception as exc:  # noqa: BLE001 — a checkpoint that cannot be taken is named, not fatal
+            sys.stderr.write(f"checkpoint_pre_spawn_failed: {type(exc).__name__}\n")
+    return session_id, resume
+
+
+def _rollback_after_blocked_spawn(*, tools_dir: Path, request_id: str, subagent_type: str, why: str) -> None:
+    """Plan 032 Faz 032c — a write-capable spawn that ended blocked has its
+    LOCAL edits put back (hand edits preserved); external effects are left to
+    the recovery classifier, never to a blind reset."""
+    try:
+        from aria_kernel.agent_runtime_profile import read_agent_runtime_profile
+        from aria_kernel.checkpoint import list_checkpoints, restore_checkpoint
+        from aria_kernel.tool_registry import append_tools_governance, ensure_tools_dir
+
+        profile = read_agent_runtime_profile(subagent_type, repo_root=_REPO_ROOT)
+        if not profile.write_capable or not list_checkpoints(request_id, base_dir=tools_dir):
+            return
+        result = restore_checkpoint(workspace_root=_REPO_ROOT, request_id=request_id, base_dir=tools_dir)
+        append_tools_governance(ensure_tools_dir(tools_dir), "implementation_rolled_back",
+                                {"request_id": request_id, "why": why, **result})
+    except Exception as exc:  # noqa: BLE001
+        sys.stderr.write(f"rollback_after_blocked_spawn_failed: {type(exc).__name__}\n")
+
 def invoke_claude_cli(
     *,
     request_id: str,
@@ -1029,6 +1103,8 @@ def invoke_claude_cli(
     # sites), no row is written — V8 backward-compat preserved.
     request_envelope: dict[str, Any] | None = None,
     tools_dir: Path | None = None,
+    session_id: str | None = None,
+    resume: bool = False,
 ) -> int:
     """Call the Claude Code CLI; mock path for tests + CI dry-runs.
 
@@ -1236,6 +1312,9 @@ def invoke_claude_cli(
                 # and containment bound whatever Path.cwd() happened to be.
                 cwd=_REPO_ROOT,
                 agent_profile=agent_profile,
+                # Plan 032 Faz 032c — the kernel's session decision.
+                session_id=session_id,
+                resume=resume,
                 # E17-d — per-spawn usage accounting. This callsite is the
                 # seam where the full identity is in scope: request_id +
                 # envelope role + subagent_type are REQUIRED parameters of
@@ -2325,6 +2404,17 @@ def main(argv: list[str] | None = None) -> int:
     timeout = _max_timeout_seconds()
     transcript_output_path = expected_output_path.with_suffix(".transcript.jsonl")
     _publish_artifact_paths(expected_output_path, transcript_output_path)
+    # Plan 032 Faz 032c — recovery FIRST: a request whose previous attempt
+    # left an external intent without a receipt is not re-run blind. Then
+    # the session decision (fresh vs resume, fingerprint-bound) and, for a
+    # write-capable envelope, a pre-spawn checkpoint of the workspace.
+    _session_id, _resume = _decide_session_and_recovery(
+        tools_dir=tools_dir, repo=repo, request_id=request_id, claim_id=claim_id,
+        agent_id=agent_id, lease_token=lease_token, subagent_type=subagent_type,
+        request_envelope=request_envelope, prompt_hash=_computed_prompt_hash,
+    )
+    if _session_id is None:
+        return 0  # released to HUMAN_REQUIRED by the recovery classifier
     _run_started_at = time.monotonic()
     try:
         # Plan 024 v3 §B-8 — pass real lease identity + role from
@@ -2335,6 +2425,8 @@ def main(argv: list[str] | None = None) -> int:
         cli_exit = invoke_claude_cli(
             request_id=request_id,
             subagent_type=subagent_type,
+            session_id=_session_id,
+            resume=_resume,
             prompt_file=prompt_file,
             output_path=expected_output_path,
             transcript_path=transcript_output_path,
@@ -2354,6 +2446,14 @@ def main(argv: list[str] | None = None) -> int:
             request_envelope=request_envelope,
             tools_dir=tools_dir,
         )
+        if cli_exit != 0:
+            # Plan 032 Faz 032c — a write-capable spawn that ended non-zero has
+            # its LOCAL edits put back from the pre-spawn checkpoint (hand
+            # edits preserved). External effects are the recovery classifier's.
+            _rollback_after_blocked_spawn(
+                tools_dir=tools_dir, request_id=request_id, subagent_type=subagent_type,
+                why=f"cli_exit_{cli_exit}",
+            )
     except ClaudeAuthFailure as exc:
         # An expired session is not "the agent ran and failed" — nothing ran.
         # It was released as a generic `claude_cli_exit_1` for five consecutive

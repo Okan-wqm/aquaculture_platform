@@ -27,7 +27,7 @@ RELEASE_REASON_CODES: tuple[str, ...] = (
     "PROMPT_HASH_BINDING_MISMATCH", "SUBMIT_TIMEOUT",
     "LEASE_EXPIRED", "REQUEST_ENVELOPE_MISSING_EXPECTED_OUTPUT_PATH", "REQUEST_ENVELOPE_MISSING_ROLE",
     "SUBMIT_REJECTED", "PLAN_CONTENT_INVALID", "AGENT_REFUSED",
-    "OPERATOR_CANCELLED",
+    "OPERATOR_CANCELLED", "RECOVERY_UNRESOLVED_EXTERNAL_EFFECT",
     "UNCLASSIFIED",
 )
 FAULT_DOMAINS: tuple[str, ...] = ("harness", "request", "operator", "unclassified")
@@ -46,6 +46,7 @@ _LITERALS: dict[str, tuple[str, str]] = {
     "request_envelope_missing_role": ("REQUEST_ENVELOPE_MISSING_ROLE", "request"),
     "submit_rejected": ("SUBMIT_REJECTED", "request"),
     "operator_cancelled": ("OPERATOR_CANCELLED", "operator"),
+    "recovery_unresolved_external_effect": ("RECOVERY_UNRESOLVED_EXTERNAL_EFFECT", "request"),
 }
 _PREFIXES: tuple[tuple[str, str, str], ...] = (
     ("claude_cli_exit_", "CLAUDE_CLI_EXIT", "harness"),

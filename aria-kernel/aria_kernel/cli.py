@@ -3041,6 +3041,18 @@ def build_parser() -> argparse.ArgumentParser:
     sp_compile.add_argument("--record", action="store_true")
     sp_compile.add_argument("--json", action="store_true")
     add_subparser(security_profile_sub, "show")
+    security_pack_p = add_subparser(security_sub, "pack")
+    security_pack_sub = security_pack_p.add_subparsers(dest="security_pack_command", required=True)
+    add_subparser(security_pack_sub, "list").add_argument("--workspace-root", default=".")
+    pack_run = add_subparser(security_pack_sub, "run")
+    pack_run.add_argument("--pack", required=True)
+    pack_run.add_argument("--workspace-root", default=".")
+    pack_run.add_argument("--service", default="repo")
+    pack_run.add_argument("--record", action="store_true")
+    sarif_p = add_subparser(security_sub, "ingest-sarif")
+    sarif_p.add_argument("--file", required=True)
+    sarif_p.add_argument("--service", default="repo")
+    sarif_p.add_argument("--tool-hint", default=None)
 
     return parser
 
@@ -6200,6 +6212,26 @@ def _main(argv: list[str] | None = None) -> int:
                 record_profile(snap, base_dir=args.tools_dir)
             print(json.dumps(snap.to_row(), indent=2, sort_keys=True) if args.json else render_profile_text(snap))
             return 0
+        if args.security_command == "pack":
+            from .security.packs import record_pack_leads, run_pack, select_packs
+            from .security.profile import compile_profile
+
+            prof = compile_profile(workspace_root=args.workspace_root).to_row()
+            if args.security_pack_command == "list":
+                print(json.dumps([m.to_dict() for m in select_packs(prof)], indent=2, sort_keys=True))
+                return 0
+            leads = run_pack(args.pack, workspace_root=args.workspace_root, profile_row=prof)
+            if args.record:
+                record_pack_leads(args.pack, leads, service=args.service, base_dir=args.tools_dir)
+            print(json.dumps([{"rule_id": l.rule_id, "severity": l.severity, "summary": l.summary, "code_refs": list(l.code_refs)} for l in leads], indent=2, sort_keys=True))
+            return 0
+        if args.security_command == "ingest-sarif":
+            from .security.scanner_ingest import ingest_sarif
+
+            document = json.loads(Path(args.file).read_text(encoding="utf-8"))
+            out = ingest_sarif(document, service=args.service, base_dir=args.tools_dir, tool_hint=args.tool_hint)
+            print(json.dumps(out, indent=2, sort_keys=True))
+            return 0 if out["status"] == "ingested" else 1
 
     if args.command == "mcp":
         from . import mcp_client

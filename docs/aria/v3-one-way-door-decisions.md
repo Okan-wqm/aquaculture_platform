@@ -311,6 +311,22 @@ selection and campaign identity; the prerequisite list is the safety floor for e
 
 **Mitigation:** I-V13-SEVERITY-01..03, I-V13-SECPROF-01..05, I-V13-BOOT-01..04.
 
+## 19. Security packs + SARIF ingest: closed, passive, untrusted-input (Plan 033 Faz 033b)
+
+**Decision:** `packs.PACK_NAMES` is closed (`api`, `multi_tenant`); a pack is selected only when
+the compiled profile says its surface exists, runs bounded deterministic rules, and emits UNVERIFIED
+`external_scanner` leads (never canonical findings). `scanner_ingest.SCANNER_SOURCES` is closed
+(Trivy=code-scanning, Gitleaks=artifact, Snyk/CodeQL/Semgrep=not_configured — never counted clean);
+SARIF is untrusted (version/size/list checks, path-traversal and scheme URIs dropped, malformed
+quarantined via governance). The RLS-coverage rule's exception allowlist is fixed.
+
+**Why one-way:** Pack digests feed campaign identity; a lead's unverified trust grade is what keeps
+scanner noise out of the canonical finding ledger; the source list decides what "measured" means.
+
+**Reversibility cost:** Re-running every pack; re-classifying ingested signals.
+
+**Mitigation:** I-V13-PACK-01..05, I-V13-SARIF-01..04.
+
 ## Themes
 
 - **3 of 5 one-way doors are ledger-anchored** (events, terminal states, candidate sources). The

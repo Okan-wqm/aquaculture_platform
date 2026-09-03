@@ -4,6 +4,8 @@ import { canonicalJson, sha256 } from './lib/canonical.mjs';
 
 const magic = Buffer.from('SSHSIG', 'ascii');
 const spkiPrefix = Buffer.from('302a300506032b6570032100', 'hex');
+const armorBegin = '-----BEGIN SSH SIGNATURE-----';
+const armorEnd = '-----END SSH SIGNATURE-----';
 let timestamp = Math.floor(Date.now() / 1_000) - 3_600;
 const instant = (seconds) => new Date(seconds * 1_000).toISOString().replace('.000Z', 'Z');
 
@@ -118,26 +120,51 @@ export function writeSignedCommit(root, message, signer, additionalParents = [])
 }
 
 function readString(bytes, state) {
+  if (state.offset + 4 > bytes.length) throw new Error('commit SSH signature is truncated');
   const size = bytes.readUInt32BE(state.offset);
   state.offset += 4;
+  if (size > bytes.length - state.offset) throw new Error('commit SSH signature is truncated');
   const value = bytes.subarray(state.offset, state.offset + size);
   state.offset += size;
   return value;
 }
 
-function commitSignature(root, commit) {
-  const raw = runGit(root, ['cat-file', 'commit', commit], { binary: true });
+function extractSignatureBlob(raw) {
   const lines = raw.toString('utf8').split('\n');
   const start = lines.findIndex((line) => line.startsWith('gpgsig '));
+  if (start < 0) throw new Error('commit SSH signature is missing');
   const armorLines = [lines[start].slice('gpgsig '.length)];
   let index = start + 1;
   while (lines[index]?.startsWith(' ')) armorLines.push(lines[index++].slice(1));
-  const blob = Buffer.from(armorLines.slice(1, -1).join(''), 'base64');
+  if (armorLines[0] !== armorBegin || armorLines.at(-1) !== armorEnd) {
+    throw new Error('commit SSH signature armor is invalid');
+  }
+  return Buffer.from(armorLines.slice(1, -1).join(''), 'base64');
+}
+
+function signerKey(blob) {
+  if (
+    blob.length < magic.length + 4 ||
+    !blob.subarray(0, magic.length).equals(magic) ||
+    blob.readUInt32BE(magic.length) !== 1
+  ) {
+    throw new Error('commit SSH signature payload is invalid');
+  }
   const state = { offset: magic.length + 4 };
   const keyBlob = readString(blob, state);
   const keyState = { offset: 0 };
-  readString(keyBlob, keyState);
+  const algorithm = readString(keyBlob, keyState).toString('ascii');
   const rawKey = readString(keyBlob, keyState);
+  if (algorithm !== 'ssh-ed25519' || rawKey.length !== 32 || keyState.offset !== keyBlob.length) {
+    throw new Error('commit signer key is not canonical Ed25519');
+  }
+  return rawKey;
+}
+
+function commitSignature(root, commit) {
+  const raw = runGit(root, ['cat-file', 'commit', commit], { binary: true });
+  const blob = extractSignatureBlob(raw);
+  const rawKey = signerKey(blob);
   return { blob, spki: Buffer.concat([spkiPrefix, rawKey]) };
 }
 

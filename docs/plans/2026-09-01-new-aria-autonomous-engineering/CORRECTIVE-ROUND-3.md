@@ -68,6 +68,18 @@ GREEN:
 - `node verification/test-readability-dependencies.mjs` -> `PASS readability-dependencies`; all
   authored verification modules remain at or below 250 lines.
 
+## D0-ARCH-P1-002
+
+Merging a newer protected `main` left the target manifest pinned to its previous base. The exact
+fresh-clone command therefore treated imported main commits as D0-authored commits. Its test
+fixture then decoded a GitHub PGP armor payload as SSHSIG without checking the armor, magic,
+version or string bounds, producing an untyped `ERR_OUT_OF_RANGE` instead of a closed rejection.
+
+The manifest is re-pinned to the merge's exact protected-main parent and its provenance is
+regenerated. The fixture now rejects missing/non-SSH armor, invalid SSHSIG magic/version, truncated
+strings and non-canonical Ed25519 key blobs deterministically. A PGP-armored mutant first reproduced
+the range error and now proves the typed denial; imported main commits are outside `base..head`.
+
 ### Remaining risk
 
 The new SSHSIG implementation intentionally accepts only canonical Ed25519/`git`/SHA-512 policy.

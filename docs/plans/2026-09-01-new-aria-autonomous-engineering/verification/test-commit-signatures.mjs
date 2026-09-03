@@ -57,6 +57,16 @@ function rewriteNoncanonicalArmor(root, commit) {
   return changed;
 }
 
+function rewriteAsPgpArmor(root, commit) {
+  const raw = git(root, ['cat-file', 'commit', commit], true).toString('utf8');
+  const pgp = 'gpgsig -----BEGIN PGP SIGNATURE-----\n AAECAwQ=\n -----END PGP SIGNATURE-----';
+  const rewritten = raw.replace(signatureExpression, pgp);
+  assert.notEqual(rewritten, raw, 'test signature was not replaced');
+  return git(root, ['hash-object', '-t', 'commit', '-w', '--stdin'], false, {
+    input: Buffer.from(rewritten),
+  }).trim();
+}
+
 function authorityResult(context, name, head, policy, signatureDigest) {
   git(context.root, ['update-ref', 'HEAD', head]);
   git(context.root, ['update-ref', 'refs/remotes/origin/review', head]);
@@ -135,6 +145,12 @@ try {
     `operator/committer key reuse was accepted: ${JSON.stringify(reused.errors)}`,
   );
   assert.match(reused.errors[0].message, /operator key cannot authorize repository commits/u);
+
+  const pgpArmored = rewriteAsPgpArmor(root, validHead);
+  assert.throws(
+    () => expectedCommitSignatureFacts(root, baseSha, pgpArmored),
+    /commit SSH signature armor is invalid/u,
+  );
 
   git(root, ['update-ref', 'HEAD', validHead]);
   git(root, ['commit', '--allow-empty', '-m', 'test: unsigned target head']);

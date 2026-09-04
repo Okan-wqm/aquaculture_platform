@@ -24,6 +24,40 @@ export function commitMessageClosesFinding(message: string, findingId: string): 
 export interface FindingTrailerTarget {
   readonly id: string;
   readonly review_file?: string;
+  /**
+   * Closing commits an override reopen has REJECTED as closure evidence: their
+   * `Closes:` trailer names this finding, but the finding was reopened on the
+   * judgement that the change did not close it (a version-gated tracking
+   * finding swept shut, a fix later found partial). Neither the ceremony nor
+   * the derivation may count them again; only a NEW closing commit may.
+   */
+  readonly rejected_closing_commits?: readonly string[] | null;
+}
+
+function shaMatches(candidate: string, sha: string): boolean {
+  const a = candidate.toLowerCase();
+  const b = sha.toLowerCase();
+  return a.length >= 7 && (a.startsWith(b) || b.startsWith(a));
+}
+
+/** True when `sha` is one of the finding's rejected closing commits. */
+export function findingRejectsClosure(finding: FindingTrailerTarget, sha: string): boolean {
+  return (finding.rejected_closing_commits ?? []).some((rejected) => shaMatches(rejected, sha));
+}
+
+/**
+ * Closure admission guard shared by `close` and `reconcile`: a commit an
+ * override reopen rejected is refused as a closer, whatever its trailer says.
+ */
+export function closureAdmissible(finding: FindingTrailerTarget, sha: string): TraceabilityResult {
+  if (!findingRejectsClosure(finding, sha)) return { ok: true };
+  return {
+    ok: false,
+    reason:
+      `commit ${sha} was rejected as a closer of ${finding.id} by an override reopen ` +
+      `(rejected_closing_commits). The finding closes only through a NEW commit that ` +
+      `carries its Closes: trailer.`,
+  };
 }
 
 function normalizeReviewPath(value: string): string {

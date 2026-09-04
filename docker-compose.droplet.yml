@@ -602,7 +602,16 @@ services:
       - nats_data:/data
       - ./infrastructure/docker/nats/nats.conf:/etc/nats/nats.conf:ro
       - ./infrastructure/docker/nats/nats-tls-enabled.conf:/etc/nats/nats-tls.conf:ro
-      - ./certs/nats:/etc/nats/certs:ro
+      # INFRA-CRITICAL-101. The broker used to bind ./certs/nats wholesale, and
+      # that directory holds clients/ — every service's private key. With the
+      # certificate CN as the NATS identity (ADR-015), a broker container that
+      # can read farm_service-key.pem can also SPEAK as farm_service, so the
+      # component enforcing the identity boundary held the material to forge
+      # every identity behind it. nats-tls-enabled.conf names exactly three
+      # files; those three are mounted, and nothing else is reachable.
+      - ./certs/nats/nats-cert.pem:/etc/nats/certs/nats-cert.pem:ro
+      - ./certs/nats/nats-key.pem:/etc/nats/certs/nats-key.pem:ro
+      - ./certs/nats/ca-cert.pem:/etc/nats/certs/ca-cert.pem:ro
     networks:
       - aqua-internal
     deploy:

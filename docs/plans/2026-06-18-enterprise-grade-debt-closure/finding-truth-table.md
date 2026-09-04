@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `1daa377bc3b35c9252928ee32b66b2437550dff76fc089f6f331f2c1d16d07dd`
+Registry tip: `b99b5dae2596844ec07be70dcea83df2f952f1e982e4e222d737dd79e9ea84ae`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -171,6 +171,15 @@ commits. The integration review also raised `SENSOR-CRITICAL-104` as `real-open`
 JetStream stream limits (~7.75 GiB) exceed the droplet's 2 GB file store while the capacity gate
 still passes, so the 60-minute telemetry buffer cannot be created as configured.
 
+Updated 2026-09-04 (production-host control-plane slice recovery, PR #1022): carrying the branch's
+finding ledger onto main's chain added twelve active `INFRA-CRITICAL` rows from the 2026-07-19
+security review of the deploy lanes (INFRA-CRITICAL-096 is BLOCKED and therefore not active).
+`INFRA-CRITICAL-082` and `INFRA-CRITICAL-101` are fixed by the recovered slices and are
+`already-fixed-needs-close`; the other ten stay `real-open` in the state the branch left them
+(IN-PROGRESS or OPEN) — their workflow-level fixes wait on the owner's secret-naming and DR
+evidence-chain decisions recorded in
+`docs/reviews/infra-expert/2026-09-04-production-host-control-plane-integration.md`.
+
 Allowed truth buckets:
 
 - `real-open`
@@ -245,6 +254,18 @@ Allowed truth buckets:
 | `SEC-CRITICAL-092`      | OPEN           | 2026-08-23   | security-scan              | already-fixed-needs-close |
 | `SEC-CRITICAL-093`      | OPEN           | 2026-08-23   | security-scan              | already-fixed-needs-close |
 | `SENSOR-CRITICAL-104`   | OPEN           | 2026-09-03   | zcode                      | real-open                 |
+| `INFRA-CRITICAL-080`    | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-081`    | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-082`    | IN-PROGRESS    | 2026-07-19   | security-reviewer          | already-fixed-needs-close |
+| `INFRA-CRITICAL-083`    | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-085`    | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-090`    | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-093`    | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-095`    | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-097`    | OPEN           | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-098`    | OPEN           | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-100`    | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-101`    | IN-PROGRESS    | 2026-07-19   | security-reviewer          | already-fixed-needs-close |
 
 ## Mutation Rules
 
@@ -336,6 +357,13 @@ Allowed truth buckets:
   password reset, MFA/tenant gates skipped): PR #1338 invalidates credentials on reset and closes
   the gate bypass (commit 55a8471d4). The registry row stays OPEN only until the post-merge close
   ceremony records a main-reachable closing commit.
+- `INFRA-CRITICAL-082` (the Linux platform-binary installer executed downloaded native code before
+  any integrity check): recovered from PR #1022 onto the integration head (commit 50b35f433). The
+  registry row stays OPEN only until the post-merge close ceremony records a main-reachable closing
+  commit.
+- `INFRA-CRITICAL-101` (the production certificate store exposed every NATS service identity to the
+  broker host): recovered from PR #1022 onto the integration head (commit bfc47855e). The registry
+  row stays OPEN only until the post-merge close ceremony records a main-reachable closing commit.
 
 The 2026-06-20 registry close follow-up left no OTHER active CRITICAL in
 `already-fixed-needs-close`; reconciled items moved to `Resolved Evidence`.

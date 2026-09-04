@@ -939,19 +939,18 @@ jobs:
       # ADR-015: `infrastructure/nats/services.yaml` is the single source
       # of truth for NATS authorization. `scripts/nats/generate-nats-conf.py`
       # regenerates the `authorization.users[]` block in nats.conf between
-      # `# BEGIN GENERATED` / `# END GENERATED` sentinels. Running the
-      # generator and asserting `git diff --quiet` catches the most common
-      # drift pattern (operator edits services.yaml but forgets to run the
-      # generator, OR hand-edits the generated block).
+      # `# BEGIN GENERATED` / `# END GENERATED` sentinels, and the Helm
+      # certificate roster beside it. This step asks whether the COMMIT is
+      # fresh, so it must not write: the previous form ran the generator and
+      # then asked git whether the tree got dirty, which repaired the checkout
+      # before judging it — every later step in this job then read the repaired
+      # artifact while the commit under test still carried the stale one.
+      # `--check` compares and reports; exit 3 is drift specifically, so it is
+      # distinguishable from a malformed services.yaml (1) or missing
+      # sentinels (2). Proven by tests/invariants/nats-conf-generator-check.spec.ts.
       - name: Phase A3 — NATS SSoT drift (broker ACL and certificate roster)
         run: |
-          python3 scripts/nats/generate-nats-conf.py
-          if [ -n "$(git status --porcelain -- infrastructure/docker/nats/nats.conf infrastructure/helm/aquaculture/files/nats-service-identities.yaml)" ]; then
-            echo "::error::NATS generated artifacts drifted from infrastructure/nats/services.yaml"
-            echo "Run 'python3 scripts/nats/generate-nats-conf.py' locally and commit the diff."
-            git diff -- infrastructure/docker/nats/nats.conf infrastructure/helm/aquaculture/files/nats-service-identities.yaml | head -100
-            exit 1
-          fi
+          python3 scripts/nats/generate-nats-conf.py --check
           echo "OK: broker ACL and Helm certificate roster match services.yaml"
 
       # ── Phase A3 — cert CN list structural SSoT check ────────────────────

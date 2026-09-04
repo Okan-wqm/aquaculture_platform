@@ -1,4 +1,10 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
@@ -21,6 +27,40 @@ export class RecordPaymentHandler implements ICommandHandler<RecordPaymentComman
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
   ) {}
+
+  /**
+   * Read one persisted monetary column as Money, or fail as a server-side
+   * integrity error.
+   *
+   * PostgreSQL NUMERIC can hold NaN, and a column TypeScript types as Decimal
+   * can arrive as something else after a bad write or a driver change. The
+   * handler previously guarded only `amountDue`, so a corrupt `amountPaid` or
+   * `total` reached `Money.of` further down — AFTER the Payment row had been
+   * created and saved — where it surfaced either as an unclassified
+   * DecimalError or, worse, as NaN propagating silently into the invoice's new
+   * `amountPaid` and `amountDue`. Both are server-state defects, not client
+   * mistakes, so they are 500s: a 400 tells the caller to fix a request that
+   * was never wrong.
+   *
+   * The message names the field and the invoice and carries no persisted
+   * value, so the response cannot leak the corrupt monetary state.
+   */
+  private requirePersistedMoney(
+    amount: Decimal,
+    currency: string,
+    invoiceId: string,
+    field: 'amount due' | 'amount paid' | 'total',
+  ): Money {
+    if (!Decimal.isDecimal(amount) || !amount.isFinite()) {
+      throw new InternalServerErrorException(`Invoice ${invoiceId} has invalid ${field} value`);
+    }
+
+    try {
+      return Money.of(amount, currency);
+    } catch {
+      throw new InternalServerErrorException(`Invoice ${invoiceId} has invalid ${field} value`);
+    }
+  }
 
   async execute(command: RecordPaymentCommand): Promise<Payment> {
     const { tenantId, input, userId } = command;
@@ -75,11 +115,28 @@ export class RecordPaymentHandler implements ICommandHandler<RecordPaymentComman
         );
       }
 
-      // Validate payment amount against amount due using Money for precision
-      if (!Decimal.isDecimal(invoice.amountDue) || !invoice.amountDue.isFinite()) {
-        throw new BadRequestException(`Invoice ${invoice.id} has invalid amount due value`);
-      }
-      const amountDueMoney = Money.of(invoice.amountDue, invoice.currency);
+      // Every persisted monetary column this transaction will read or write is
+      // proven here, BEFORE the Payment row is created — a corrupt `total` or
+      // `amountPaid` discovered after the save would leave a recorded payment
+      // whose invoice could not be updated.
+      const amountDueMoney = this.requirePersistedMoney(
+        invoice.amountDue,
+        invoice.currency,
+        invoice.id,
+        'amount due',
+      );
+      const currentPaidMoney = this.requirePersistedMoney(
+        invoice.amountPaid,
+        invoice.currency,
+        invoice.id,
+        'amount paid',
+      );
+      const totalMoney = this.requirePersistedMoney(
+        invoice.total,
+        invoice.currency,
+        invoice.id,
+        'total',
+      );
       const paymentMoney = Money.of(input.amount, paymentCurrency);
 
       if (paymentMoney.greaterThan(amountDueMoney)) {
@@ -113,9 +170,7 @@ export class RecordPaymentHandler implements ICommandHandler<RecordPaymentComman
       const savedPayment = await manager.save(Payment, payment);
 
       // Update invoice with Money-based precision arithmetic
-      const currentPaidMoney = Money.of(invoice.amountPaid, invoice.currency);
       const newAmountPaidMoney = currentPaidMoney.add(paymentMoney);
-      const totalMoney = Money.of(invoice.total, invoice.currency);
       const newAmountDueMoney = totalMoney.subtract(newAmountPaidMoney);
 
       invoice.amountPaid = newAmountPaidMoney.toDecimal();

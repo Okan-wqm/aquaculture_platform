@@ -346,9 +346,21 @@ describe('deploy SSOT contract', () => {
     expect(helpers).toContain('aquaculture.natsClientSecretName');
     expect(helpers).toContain('secretName: {{ include "aquaculture.natsClientSecretName"');
 
-    expect(certGenerator).toContain('validate_per_service_client_cert');
-    expect(certGenerator).toContain('subject=CN=${svc_user}');
-    expect(certGenerator).toContain('openssl verify -CAfile');
+    // The generator's per-service skip path must still prove the identity it is
+    // about to reuse: the certificate's subject IS the NATS identity (ADR-015),
+    // so skipping on mere file presence would let a relabelled or mismatched
+    // pair keep a service's authorization. These pin the PROPERTIES — subject
+    // equality, CA verification, key/certificate binding — rather than the
+    // helper's spelling, which moved when the generator gained staged atomic
+    // publication (`validate_per_service_client_cert` became
+    // `validate_existing_client_set` over a shared `validate_certificate_key_pair`).
+    expect(certGenerator).toContain('validate_existing_client_set');
+    expect(certGenerator).toContain('"CN=${svc_user}" "${svc_user} client"');
+    expect(certGenerator).toContain('validate_certificate_key_pair');
+    expect(certGenerator).toContain('certificate subject');
+    expect(certGenerator).toContain('does not match');
+    expect(certGenerator).toContain('openssl verify \\');
+    expect(certGenerator).toContain('-CAfile "${ca_path}"');
     expect(certGenerator).toContain('certificate and private key do not match');
   });
 

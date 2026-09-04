@@ -92,3 +92,49 @@ Resolution: terminality is computed once by the worker and passed as the existin
 parameter that both lease and completion fields consume. A real PostgreSQL integration test
 claims a failing reconciliation job and verifies that the production worker persists `FAILED`,
 the error message, and `completed_at` through the same query path.
+
+## DEPLOY-HIGH-012
+
+The recovery deployment in run
+[`33827285364`](https://github.com/Okan-wqm/aquaculture_platform/actions/runs/33827285364)
+correctly waited for the previous provisioner's lease, committed the reconciliation job, and
+allowed `farm-service` to become healthy. The farm container emitted both required structured boot
+signals, but fourteen fail-closed bootstrap retries made its deploy-window log stream larger than
+Node's default child-process buffer. `spawnSync` returned an `ENOBUFS` error with no successful exit
+status; the signal reader silently converted that invocation failure into an empty log and reported
+both real signals as missing, forcing an unnecessary rollback.
+
+Resolution: the signal reader uses an explicit 32 MiB bounded buffer for the five-minute evidence
+window, parses both child output streams for Docker/Compose compatibility, and treats child-process
+or non-zero Docker failures as invocation errors instead of synthetic missing-signal evidence. The
+affected-development invariant pins the buffer and fail-closed error handling so verbose recovery
+logs cannot silently erase deployment evidence again.
+
+## DEPLOY-HIGH-013
+
+The same run's final health round reported `farm-service` as `health=n/a state=running` while the
+container was in a fourteen-restart bootstrap loop. `docker compose ps --format json` temporarily
+omitted the health status between restarts, and the health gate inferred from that empty field that
+the image declared no healthcheck. It therefore accepted momentary process liveness even though
+Docker still had a configured healthcheck and the application had not completed bootstrap.
+
+Resolution: each polling round now batches an authoritative `docker inspect` for the Compose
+containers and records both the image's healthcheck declaration and Docker's current health state.
+Only a container that Docker proves has no healthcheck may fall back to running-state liveness; a
+declared check with an empty or starting status remains unsatisfied. Inspect failures and malformed
+results fail the gate as invocation errors rather than weakening it.
+
+## DEPLOY-HIGH-014
+
+Attempt 2 of run
+[`33827285364`](https://github.com/Okan-wqm/aquaculture_platform/actions/runs/33827285364)
+passed immutable digest resolution, container health, structured boot signals, and every critical
+`/health/ready` probe. The final release-ledger SQL gate nevertheless failed before public smoke
+because `:'migration_required'` appeared inside a dollar-quoted `DO` body. `psql` does not perform
+client-variable interpolation inside that body, so PostgreSQL received the colon token literally
+and rejected it with a syntax error.
+
+Resolution: the verifier now transfers `migration_required` into PostgreSQL session state with
+`set_config`, alongside the existing release ID and Git SHA values, and reads it into a typed
+PL/pgSQL boolean before evaluating the ledger. The invariant forbids the quoted-body substitution
+form and pins the typed session boundary.

@@ -964,12 +964,14 @@ verify_release_ledger_sql() {
     -v migration_required="${RUN_DB_MIGRATE}" <<'SQL'
 SELECT set_config('aqua.deploy_release_id', :'release_id', false);
 SELECT set_config('aqua.deploy_git_sha', :'git_sha', false);
+SELECT set_config('aqua.deploy_migration_required', :'migration_required', false);
 
 DO $$
 DECLARE
   rel platform.release_ledger%ROWTYPE;
   expected_release_id text := current_setting('aqua.deploy_release_id');
   expected_git_sha text := current_setting('aqua.deploy_git_sha');
+  migration_required boolean := current_setting('aqua.deploy_migration_required')::boolean;
 BEGIN
   SELECT *
     INTO rel
@@ -983,7 +985,7 @@ BEGIN
     RAISE EXCEPTION 'release ledger row missing for release_id=%', expected_release_id;
   END IF;
 
-  IF :'migration_required'::boolean
+  IF migration_required
      AND (rel.expected_heads = '{}'::jsonb
        OR rel.applied_heads = '{}'::jsonb
        OR rel.expected_heads <> rel.applied_heads) THEN

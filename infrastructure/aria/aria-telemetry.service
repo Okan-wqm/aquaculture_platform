@@ -10,12 +10,30 @@ After=network-online.target
 Type=oneshot
 User=gharunner
 Group=gharunner
-WorkingDirectory=/var/aqua-saas
+WorkingDirectory=/var/lib/aria/code
 EnvironmentFile=-/etc/aria/aria.env
-Environment=ARIA_REPO_ROOT=/var/aqua-saas
-ExecStart=/var/aqua-saas/scripts/aria/aria-telemetry-textfile.sh
+Environment=ARIA_REPO_ROOT=/var/lib/aria/code
+Environment=ARIA_TEXTFILE_DIR=/var/aqua-saas/aria-tools/telemetry
+# WORKSPACE BASE: the kernel defaults to $HOME/.aria/workspaces, which
+# ProtectHome=read-only correctly refuses. StateDirectory makes systemd create
+# /var/lib/aria-runtime owned by this unit's user and add it to ReadWritePaths,
+# so the hardening stays and no directory has to be hand-chowned.
+StateDirectory=aria-runtime
+Environment=ARIA_WORKSPACE_BASE=/var/lib/aria-runtime/workspaces
+ExecStart=/var/lib/aria/code/scripts/aria/aria-telemetry-textfile.sh
+# The exporter never needs write access to a system directory: it writes to a
+# staging file it owns, and systemd publishes it as root (`+` prefix) with an
+# atomic rename onto the same filesystem. node-exporter therefore never sees a
+# half-written file, and a compromised exporter cannot touch /var/lib.
+# 0644 before the rename: node-exporter reads this file from inside a container
+# as a different uid, and mktemp's 0600 would make every series invisible while
+# the export itself looked healthy.
+ExecStartPost=+/bin/sh -c 'chmod 0644 /var/aqua-saas/aria-tools/telemetry/aria.prom && mv -f /var/aqua-saas/aria-tools/telemetry/aria.prom /var/lib/node_exporter/textfile/aria.prom'
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/var/lib/node_exporter/textfile_collector /var/aqua-saas/aria-tools
+# `textfile_collector` does not exist on this host. node-exporter reads
+# /var/lib/node_exporter/textfile (docker-compose.droplet.yml). Naming a missing
+# path in ReadWritePaths makes systemd fail the unit before ExecStart runs.
+ReadWritePaths=/var/lib/node_exporter/textfile /var/aqua-saas/aria-tools

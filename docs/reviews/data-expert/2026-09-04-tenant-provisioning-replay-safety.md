@@ -161,6 +161,85 @@ advisory, in one named audit leg, bound to the packages it was reviewed
 against, with an owner, an argument, a registry finding and an expiry after
 which the gate fails closed again.
 
+## Findings from the gate's first live run
+
+The three above were found by reading. The three below were found by running:
+`tenant-provisioning-replay.spec.ts` provisioned a real tenant against a real
+database for the first time, and the tenant came out with `farm` and none of the
+other six services.
+
+### ADMIN-CRITICAL-008 — the dry-run guard cannot read the table it guards
+
+`admin.reject_dry_run_schema_deletion_job()`
+(`1807500000000-PersistTenantErasureDryRunMode.ts:196-235`) fires BEFORE INSERT
+OR UPDATE on `platform.tenant_schema_jobs`. It is SECURITY DEFINER owned by
+`admin_schema_owner`, and that role has no SELECT on
+`admin.tenant_erasure_operations` — see INFRA-HIGH-146 for why.
+
+That alone would have been visible on day one. What hid it is the guard's shape:
+
+```sql
+IF NEW.job_type = 'DELETE' AND EXISTS (SELECT … FROM admin.tenant_erasure_operations …)
+```
+
+PL/pgSQL evaluates that as ONE query. Under a **custom** plan the `AND`
+short-circuits and the subquery is never touched, so a PROVISION or RECONCILE
+job passes. After the fifth execution in a session PL/pgSQL promotes the cached
+plan to a **generic** one, the subquery's relation is permission-checked at
+executor start whatever `job_type` holds, and every later write to the job row
+fails with `permission denied for table tenant_erasure_operations`.
+
+So a short job succeeds and a long one dies partway through. Provisioning a real
+tenant is long — it heartbeats through the replay. It crossed the threshold
+after the farm schema:
+
+```text
+"message":"Tenant schema provisioner failed to write job failure evidence",
+"error":"permission denied for table tenant_erasure_operations"
+  at executeLeaseBoundUpdate (apps/db-migrate/src/tenant-schema-provisioner.ts:121)
+  at renewJobLease (…:133)
+```
+
+Both halves were reproduced on PostgreSQL 16 rather than inferred: the same
+statement passes under a custom plan and raises this error under
+`plan_cache_mode = force_generic_plan`.
+
+**Fix:** nested `IF`s, so the subquery is a separate SPI plan prepared only for
+DELETE jobs and no plan shape can make another job type depend on a privilege it
+has no business needing; **and** `GRANT SELECT` to the definer, so the guard
+works for the DELETE jobs it exists to judge instead of failing closed on them
+with a privilege error that reads like corruption. Either alone leaves a hole.
+
+### DATA-HIGH-014 — the farm outbox is cloned into every new tenant
+
+`1800200000000-CreateFarmOutboxTable.ts` creates `farm_outbox` with unqualified
+DDL and is not `@SourceOnlyMigration`, so a tenant pass resolves it into
+`tenant_<uuid>`. `farm_outbox` is in `MODULE_SCHEMAS.farm.infrastructureTables`,
+and that entry's own comment says it is not cloned. The messaging equivalent
+carries the decorator; farm's did not. An outbox cloned per tenant silently
+swallows platform-wide events.
+
+### INFRA-HIGH-146 — bootstrap hardening runs before the tables it hardens exist
+
+Stage 008 states the invariant that every relation in a schema is owned by
+`<svc>_schema_owner` and granted to `<svc>_service`, and implements it with
+`ALTER TABLE … OWNER TO` and `GRANT … ON ALL TABLES IN SCHEMA`. Both are
+point-in-time over the relations that exist when they run — and they run in
+Phase 0, before the Phase 1 migration loop that creates most of them
+(`main.ts:1283-1320`). Every table a migration creates is outside the invariant
+until some later deploy's Phase 0 sweeps it up, and on a from-scratch install
+there is no later deploy. ADMIN-CRITICAL-008 is one casualty of this; it is
+fixed at the guard, and the class is not.
+
+**Not fixed in the PR that raised it** (owner @okan-wqm, deadline 2026-10-15).
+Re-running the hardening stage after Phase 1 is the fix, and it re-owns every
+table in every schema — the bootstrap needs `timescaledb` and `pgvector`, so
+that can be exercised nowhere but CI, and shipping it untested alongside the
+provisioning fix would risk the fix. Note that in CI the bootstrap and the
+migrations run as the same superuser, so `ALTER DEFAULT PRIVILEGES` masks the
+grant half there; a production split between the bootstrap role and `db_migrate`
+would not be masked.
+
 ## Context for DATA-CRITICAL-010
 
 The three findings above were surfaced while planning the fix for

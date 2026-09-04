@@ -2201,6 +2201,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1808300000000-HardenDryRunSchemaDeletionGuard.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/modules/__tests__/modules.controller.spec.ts",
       "prettier_managed": true
     },

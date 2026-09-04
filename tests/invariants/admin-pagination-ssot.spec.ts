@@ -79,9 +79,18 @@ function productionFiles(): string[] {
   return out;
 }
 
+/** A line the scanner already proved to exist; an out-of-range index is a scanner bug. */
+function lineAt(lines: string[], index: number): string {
+  const line = lines[index];
+  if (line === undefined) {
+    throw new Error(`admin-pagination-ssot: line index ${index} out of range (${lines.length})`);
+  }
+  return line;
+}
+
 /** `file:line` locations, so a failure names the exact place to fix. */
 function locations(file: string, lines: string[], hits: number[]): string[] {
-  return hits.map((index) => `${file}:${index + 1}  ${lines[index].trim()}`);
+  return hits.map((index) => `${file}:${index + 1}  ${lineAt(lines, index).trim()}`);
 }
 
 const FIELD_LINE =
@@ -94,14 +103,15 @@ const FIELD_LINE =
 function localPageShapes(lines: string[]): number[] {
   const hits: number[] = [];
   for (let i = 0; i < lines.length; i += 1) {
-    if (!lines[i].trimEnd().endsWith('{')) continue;
+    if (!lineAt(lines, i).trimEnd().endsWith('{')) continue;
 
     let depth = 0;
     const body: string[] = [];
     for (let j = i; j < lines.length; j += 1) {
-      depth += (lines[j].match(/\{/g) ?? []).length;
-      depth -= (lines[j].match(/\}/g) ?? []).length;
-      if (j > i) body.push(lines[j]);
+      const line = lineAt(lines, j);
+      depth += (line.match(/\{/g) ?? []).length;
+      depth -= (line.match(/\}/g) ?? []).length;
+      if (j > i) body.push(line);
       if (depth === 0) break;
       // A body longer than a page contract is some other object.
       if (body.length > 12) break;
@@ -110,8 +120,8 @@ function localPageShapes(lines: string[]): number[] {
 
     const fields = new Set<string>();
     for (const line of body) {
-      const match = FIELD_LINE.exec(line);
-      if (match) fields.add(match[1]);
+      const field = FIELD_LINE.exec(line)?.[1];
+      if (field !== undefined) fields.add(field);
     }
     if (fields.has('totalPages') && (fields.has('items') || fields.has('hasNextPage'))) {
       hits.push(i);
@@ -129,8 +139,8 @@ const TOTAL_PAGES_ENTRY = /^\s*totalPages\s*\??\s*:\s*(.+?)\s*[,;]?\s*$/;
 const TYPE_ANNOTATION = /^(?:number|Scalars\[)/;
 
 function handBuiltTotalPages(line: string): boolean {
-  const match = TOTAL_PAGES_ENTRY.exec(line);
-  return match !== null && !TYPE_ANNOTATION.test(match[1]);
+  const rhs = TOTAL_PAGES_ENTRY.exec(line)?.[1];
+  return rhs !== undefined && !TYPE_ANNOTATION.test(rhs);
 }
 
 /** `Math.ceil(<something>total<something> / …)` — the duplicated derivation. */

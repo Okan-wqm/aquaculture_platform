@@ -1773,6 +1773,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/messaging/__tests__/messaging-admin.controller.monitoring.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/messaging/messaging-admin.controller.ts",
       "prettier_managed": true
     },
@@ -22328,6 +22334,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.monitoring.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts",
       "prettier_managed": true
     },
@@ -23008,6 +23020,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/messaging-service/src/migrations/1802100000000-DropTenantAiSettings.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/messaging-service/src/monitoring/monitoring.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/messaging-service/src/monitoring/services/__tests__/monitoring-stats.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/messaging-service/src/monitoring/services/monitoring-stats.service.ts",
       "prettier_managed": true
     },
     {
@@ -49068,6 +49098,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/services/types/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/services/types/messaging.ts",
       "prettier_managed": true
     },
     {

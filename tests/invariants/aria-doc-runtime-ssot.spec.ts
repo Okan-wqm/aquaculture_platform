@@ -643,7 +643,12 @@ describe('ARIA live runtime/documentation SSoT', () => {
     ) as PullRequestWorkflow;
     const jobs = Object.values(workflow.jobs ?? {});
     expect(jobs).toHaveLength(1);
-    expect(jobs[0]?.['timeout-minutes']).toBe(90);
+    // 150, not 90: the suite alone consumed 35.6 min in run 33113524069 before
+    // the burn-in started, and a completing cycle now costs ~5.5 min locally
+    // (~37 min for 30 cycles on a hosted runner). 90 left ~17 min of margin
+    // against a 19-minute estimate made when cycles were cheaper, so the lane
+    // failed on the clock and reported it as a proof failure.
+    expect(jobs[0]?.['timeout-minutes']).toBe(150);
     expect(
       (jobs[0]?.steps ?? []).filter((step) => step.run === 'npm run aria:test:unit'),
     ).toHaveLength(1);

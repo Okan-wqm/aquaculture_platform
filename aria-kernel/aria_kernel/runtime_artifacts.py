@@ -310,7 +310,16 @@ def resolve_artifact_payload(
         ref = ArtifactRefV2.from_dict(artifact_ref)
     except GovernanceError:
         return None
-    path = _resolve_uri(ensure_tools_dir(base_dir), ref.uri)
+    # WHY not ensure_tools_dir: this is a pure READ path that
+    # verify_runtime_artifacts calls once per raw-findings row. Each
+    # ensure_tools_dir re-globs the whole tools tree (_prepare_tools_dirs)
+    # and rewrites integrity_index.json inside a locked transaction
+    # (update_tools_index) — ~0.5 s on a 2k-row store, so verification
+    # paid a 15-20 minute O(store^2) tax and the nightly cycle hit its
+    # wall-clock deadline before the planner ever ran. A read must not
+    # write-init the root; resolve it the way _artifact_root already does.
+    root = Path(base_dir) if base_dir is not None else ensure_tools_dir(None)
+    path = _resolve_uri(root, ref.uri)
     if not path.exists() or not path.is_file():
         return None
     return _cached_artifact_payload(path, ref.sha256)

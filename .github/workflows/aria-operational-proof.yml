@@ -15,7 +15,12 @@ jobs:
     runs-on: ubuntu-latest
     # Measured hosted suite time has exceeded 45 minutes, and the observe
     # burn-in adds about 19 minutes. Include setup and variance headroom.
-    timeout-minutes: 90
+    # Raised 90 -> 150 on 2026-09-04: the suite alone consumed 35.6 min in run
+    # 33113524069 before the burn-in started, and a completing cycle now costs
+    # ~5.5 min locally (~37 min for 30 cycles on a hosted runner). 90 left
+    # ~17 min of margin against a 19-minute estimate made when cycles were
+    # cheaper — a timeout dressed as a proof failure.
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -74,6 +79,20 @@ jobs:
           if not verdict.valid:
               raise SystemExit(";".join(verdict.reasons))
           PY
+
+      # WHY the durable store is restored for a proof that runs in a throwaway
+      # tools dir: since 2026-08-03 every enterprise cycle runs a
+      # `state_continuity` preflight. With no `.aria-state-store` on disk,
+      # `resolve_continuity_reference` falls back to the committed daily anchor
+      # and `snapshots_are_linked` can never be satisfied by a freshly built
+      # probe — GAP_CRITICAL, blocks_action, all 30 cycles abort, exit 1. The
+      # store is the CONTINUITY REFERENCE here, not the burn-in's workspace:
+      # the burn-in still writes only into its own mktemp TOOLS_DIR below, so
+      # this cannot publish burn-in cycles into real state. No bootstrap-ack is
+      # passed on purpose — the branch exists, so an unacknowledged bootstrap
+      # must stay a refusal.
+      - name: Restore ARIA state as the continuity reference
+        uses: ./.github/actions/restore-aria-state
 
       - name: Run observe burn-in proof
         env:

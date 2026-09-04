@@ -7,6 +7,13 @@
 #   cp infrastructure/aria/aria-gateway.service /etc/systemd/system/
 #   systemctl daemon-reload && systemctl enable --now aria-gateway.service
 # Stop cleanly: touch /var/aqua-saas/aria-tools/ARIA_STOP  (or systemctl stop → SIGTERM)
+# CODE ROOT (2026-09-04): /var/lib/aria/code, a deploy-independent worktree.
+# It used to be /var/aqua-saas — a bare repo (core.bare=true) whose file tree
+# predates Plan 032f and has no gateway package, so ExecStart died with
+# `invalid choice: 'gateway'` and crash-looped against Restart=on-failure.
+# The deploy checkout is deliberately NOT used: deploy-paths.sh force-detaches
+# it on every deploy and removes it when unhealthy.
+# Refresh with: git -C /var/lib/aria/code fetch origin main && git -C /var/lib/aria/code checkout --detach origin/main
 [Unit]
 Description=ARIA event gateway (webhook ingress + closed-vocabulary scheduler)
 After=network-online.target
@@ -16,11 +23,17 @@ Wants=network-online.target
 Type=simple
 User=gharunner
 Group=gharunner
-WorkingDirectory=/var/aqua-saas
+WorkingDirectory=/var/lib/aria/code
 EnvironmentFile=-/etc/aria/aria.env
-Environment=PYTHONPATH=/var/aqua-saas/aria-kernel
+Environment=PYTHONPATH=/var/lib/aria/code/aria-kernel
 Environment=ARIA_TOOLS_DIR=/var/aqua-saas/aria-tools
-ExecStart=/usr/bin/python3 -m aria_kernel gateway serve --workspace-root /var/aqua-saas --tools-dir /var/aqua-saas/aria-tools --host 127.0.0.1 --port 8787 --poll-interval-seconds 60
+# WORKSPACE BASE: the kernel defaults to $HOME/.aria/workspaces, which
+# ProtectHome=read-only correctly refuses. StateDirectory makes systemd create
+# /var/lib/aria-runtime owned by this unit's user and add it to ReadWritePaths,
+# so the hardening stays and no directory has to be hand-chowned.
+StateDirectory=aria-runtime
+Environment=ARIA_WORKSPACE_BASE=/var/lib/aria-runtime/workspaces
+ExecStart=/usr/bin/python3 -m aria_kernel gateway serve --workspace-root /var/lib/aria/code --tools-dir /var/aqua-saas/aria-tools --host 127.0.0.1 --port 8787 --poll-interval-seconds 60
 Restart=on-failure
 RestartSec=10s
 KillSignal=SIGTERM

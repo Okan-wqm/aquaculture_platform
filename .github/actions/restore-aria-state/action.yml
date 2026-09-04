@@ -54,6 +54,18 @@ inputs:
       docs/runbooks/aria-state-branch-bootstrap.md.
     required: false
     default: ''
+  token:
+    description: >-
+      Token used to READ the `aria/state` branch. Defaults to the job's
+      `github.token`. The publish side has always been authenticated; the
+      restore side fell back to anonymous git, which is what made both ARIA
+      lanes intermittently fail with `could not read Username for
+      'https://github.com'`. Read and write now travel the same credential
+      path. It is set in the checkout step's environment only, never written
+      to `.git/config`, so it cannot outlive the step or reach a later
+      subprocess.
+    required: false
+    default: ''
 
 outputs:
   restored:
@@ -84,11 +96,38 @@ outputs:
 runs:
   using: composite
   steps:
+    # The credential lives in one step's environment, mirroring the publish
+    # side exactly (see aria-agent-executor.yml "Mint the aria/state push
+    # credential"). count=0 when no token is available, which makes git
+    # ignore KEY_0/VALUE_0 entirely rather than send a malformed header —
+    # an unauthenticated read of a public repo still works, it is just no
+    # longer the only path.
+    - name: Mint the aria/state read credential
+      id: read_credential
+      shell: bash
+      env:
+        RESTORE_TOKEN: ${{ inputs.token || github.token }}
+      run: |
+        set -euo pipefail
+        if [ -z "${RESTORE_TOKEN:-}" ]; then
+          echo "count=0" >> "$GITHUB_OUTPUT"
+          echo "header=" >> "$GITHUB_OUTPUT"
+          echo "no token available; aria/state will be read anonymously"
+        else
+          HEADER="$(printf 'x-access-token:%s' "$RESTORE_TOKEN" | base64 -w0)"
+          echo "::add-mask::${HEADER}"
+          echo "count=1" >> "$GITHUB_OUTPUT"
+          echo "header=${HEADER}" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Check out the aria/state store
       id: restore
       shell: bash
       env:
         ARIA_STATE_BOOTSTRAP_ACK: ${{ inputs.bootstrap-ack }}
+        GIT_CONFIG_COUNT: ${{ steps.read_credential.outputs.count }}
+        GIT_CONFIG_KEY_0: http.https://github.com/.extraheader
+        GIT_CONFIG_VALUE_0: 'AUTHORIZATION: basic ${{ steps.read_credential.outputs.header }}'
       run: |
         set -uo pipefail
         # NOT `set -e`. A refusal (exit 3) and a transport failure (exit 1) are

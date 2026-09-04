@@ -252,6 +252,10 @@ EXPECTED_PRODUCERS = {
 EXPECTED_CONSUMERS = {
     "cycle_runtime": (
         f"{KERNEL}autonomy_state.py", f"{KERNEL}burn_in.py",
+        # cycle.py both produces and consumes this surface: the deadline seal
+        # reads its own lifecycle rows so it cannot write a second terminal row
+        # over one an abort path already wrote.
+        f"{KERNEL}cycle.py",
         f"{KERNEL}runtime_artifacts.py",
         f"{KERNEL}trailer_scan.py",
     ),

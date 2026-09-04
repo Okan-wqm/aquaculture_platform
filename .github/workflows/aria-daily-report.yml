@@ -44,7 +44,7 @@ jobs:
     permissions:
       contents: read
     outputs:
-      date: ${{ steps.target.outputs.date }}
+      date: ${{ steps.resolved.outputs.date }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -88,7 +88,7 @@ jobs:
 
       - name: Persist enterprise workflow preflight
         env:
-          REPORT_DATE: ${{ steps.target.outputs.date }}
+          REPORT_DATE: ${{ steps.resolved.outputs.date }}
           PYTHONPATH: aria-kernel
         run: |
           set -euo pipefail
@@ -139,9 +139,42 @@ jobs:
         with:
           bootstrap-ack: ${{ vars.ARIA_STATE_BOOTSTRAP_ACK }}
 
+      # WHY the date is resolved HERE and not in `target`: the reflection
+      # report for a date is written by the CYCLE for that date. This lane
+      # ran at 06:00 UTC and asked for `date -u +%F` — a date whose cycle
+      # had not run yet — so the anchor could only ever be the `stub` body
+      # the guard below correctly refuses. Asking the restored store which
+      # date it actually HAS makes the report cover the last completed
+      # cycle instead of a day that has not happened. An explicit
+      # workflow_dispatch date still wins: operator intent is not guessed at.
+      - name: Resolve the report date from the restored store
+        id: resolved
+        env:
+          DATE_INPUT: ${{ github.event.inputs.date }}
+          TARGET_DATE: ${{ steps.resolved.outputs.date }}
+        run: |
+          set -euo pipefail
+          if [ -n "${DATE_INPUT:-}" ]; then
+            echo "date=${TARGET_DATE}" >> "$GITHUB_OUTPUT"
+            echo "explicit date requested: ${TARGET_DATE}"
+            exit 0
+          fi
+          STORE_REPORTS="${ARIA_TOOLS_DIR:-aria-tools}/reports/daily"
+          NEWEST=""
+          if [ -d "$STORE_REPORTS" ]; then
+            NEWEST="$(find "$STORE_REPORTS" -maxdepth 1 -type f -name '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].md' -printf '%f\n' \
+              | sed 's/\.md$//' | sort | tail -1)"
+          fi
+          if [ -z "$NEWEST" ]; then
+            echo "::error::no reflection report exists in the restored store (${STORE_REPORTS}); the producer lane aria-auto-cycle.yml has not published one. Reporting on a date with no cycle would emit a stub." >&2
+            exit 1
+          fi
+          echo "date=${NEWEST}" >> "$GITHUB_OUTPUT"
+          echo "reporting on the newest completed cycle date: ${NEWEST}"
+
       - name: Generate daily chain-tip anchor (Plan ARIA-V2 §3.9)
         env:
-          REPORT_DATE: ${{ steps.target.outputs.date }}
+          REPORT_DATE: ${{ steps.resolved.outputs.date }}
         run: |
           set -euo pipefail
           # Plan ARIA-V2 §3.9 + I-26 — replace the pre-§3.9 heredoc stub
@@ -176,8 +209,8 @@ jobs:
       - name: Upload report as artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: aria-daily-report-${{ steps.target.outputs.date }}
-          path: aria-tools/reports/daily/${{ steps.target.outputs.date }}.md
+          name: aria-daily-report-${{ steps.resolved.outputs.date }}
+          path: aria-tools/reports/daily/${{ steps.resolved.outputs.date }}.md
           if-no-files-found: error
           retention-days: 365
 

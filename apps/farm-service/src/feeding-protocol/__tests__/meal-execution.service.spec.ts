@@ -38,7 +38,6 @@ import {
 import { Feed } from '../../feed/entities/feed.entity';
 import { FeedingRecord } from '../../feeding/entities/feeding-record.entity';
 import { StockMovementService } from '../../storage/services/stock-movement.service';
-import { FeedAllocationService } from '../../storage/services/feed-allocation.service';
 import { realFinalizationService } from './helpers/meal-finalization-double';
 import { Batch, BatchStatus } from '../../batch/entities/batch.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
@@ -281,17 +280,6 @@ function makeHarness(opts: HarnessOpts = {}) {
     }),
   });
 
-  // FARM-CRITICAL-245 tahsis motoru — harness tek dilim döner.
-  const allocateForDeduction = jest.fn();
-  allocateForDeduction.mockImplementation(
-    async (_m: unknown, _t: unknown, args: { quantityKg: number }) => ({
-      slices: [{ storageLocationId: 'loc-1', lotNumber: 'LOT-A', quantityKg: args.quantityKg }],
-      usedSiteFallback: false,
-      poolTotalKg: args.quantityKg,
-    }),
-  );
-  const feedAllocation = stub<FeedAllocationService>({ allocateForDeduction });
-
   const service = new MealExecutionService(
     stub<DataSource>({}),
     receiptService,
@@ -305,7 +293,6 @@ function makeHarness(opts: HarnessOpts = {}) {
     feedingLedger,
     batchDomainService,
     stockMovementService,
-    feedAllocation,
     outbox,
   );
 

@@ -52,6 +52,8 @@ import { Chemical } from '../../chemical/entities/chemical.entity';
 import { Consumable } from '../../consumable/entities/consumable.entity';
 import { ConditionWarning } from '../dto/stock-movement.response';
 import { LotMixService } from './lot-mix.service';
+import { FeedAllocationService } from './feed-allocation.service';
+import type { FeedAllocationResult } from './feed-allocation.service';
 import { StockMutationLockAuthority } from './stock-mutation-lock.authority';
 import { stockQuantityUnits } from './stock-quantity';
 import {
@@ -171,6 +173,11 @@ export class StockMovementService {
     // kilit. Satır kilidi HENÜZ VAR OLMAYAN satırı koruyamaz; iki eşzamanlı
     // giriş aynı (tenant, lokasyon, tip, item, lot) için iki satır yaratabilirdi.
     private readonly mutationLocks: StockMutationLockAuthority,
+    // The FEFO allocator sits BEHIND resolveFeedDeductionLocation, not beside
+    // it: feeding asks this service where to deduct from, and this service is
+    // the only thing that asks the allocator. Two entry points would be two
+    // places for the fail-closed rule to drift.
+    private readonly feedAllocation: FeedAllocationService,
   ) {}
 
   /**
@@ -420,110 +427,71 @@ export class StockMovementService {
   }
 
   /**
-   * Resolve which storage location + lot a feeding OUT deduction should
-   * draw from, for a feed the caller knows only by `feedId`.
+   * Resolve WHERE a feeding OUT deduction draws from, for a feed the caller
+   * knows only by `feedId`. This is the single entry point feeding uses; no
+   * caller may reach the allocator around it.
    *
    * # The data-model impedance this solves
    *
    * A feeding event names a feed (and tank/batch), not a concrete storage
    * location, whereas `storage_inventory` keys on
-   * `(tenantId, storageLocationId, itemType, itemId, lotNumber)`. This
-   * method finds the FEFO-preferred lot of the feed ACROSS every storage
-   * location and returns that location + lot so the caller can issue a
-   * concrete OUT `recordMovement`. It is the same FEFO lot-selection the
-   * old (now-deleted) async storage event handler performed inline — moved
-   * here so it runs INSIDE the feeding transaction.
+   * `(tenantId, storageLocationId, itemType, itemId, lotNumber)`. This method
+   * turns "feed X, N kg, as of D, optionally lot L, preferably site S" into the
+   * concrete `(location, lot, kg)` slices the caller then issues as OUT
+   * movements, INSIDE the feeding transaction.
    *
-   * # Supplied-lot binding (Blocker-4 correctness)
+   * # Why it returns a PLAN and not one row
    *
-   * When the feeding payload names a concrete feed batch (`lotNumber`), the
-   * deduction MUST draw from THAT lot — not from whatever FEFO would pick.
-   * So this resolves the location of the SUPPLIED lot: it constrains the read
-   * to `inv.lotNumber = :lotNumber`. If that specific lot is absent from
-   * storage (it may exist only in feed_inventory), the read returns null and
-   * the caller routes into the no-usable-lot policy with a lot-specific
-   * message — it does NOT silently fall through to a different FEFO lot, which
-   * would deduct from the wrong physical stock and break lot traceability.
-   * When no `lotNumber` is supplied, FEFO selects across all lots as before.
+   * It used to return a single FEFO row, and `decreaseInventory` then failed the
+   * whole tenant transaction when that one row was short. Because the row key is
+   * location+lot, that is routine even for a tenant that never uses lot numbers:
+   * a warehouse plus a silo is two rows, and pour arithmetic leaves 0.2-2 kg
+   * remainders. A 150 kg meal was refused with "Available: 0.3 kg" while the site
+   * held 3000 kg (FARM-CRITICAL-245). The insufficiency decision now comes from
+   * the POOL, and the deduction cascades across lots in FEFO order — one
+   * immutable `stock_movements` row per slice, because aggregating them into one
+   * would destroy the EU 178/2002 lot trace.
    *
-   * FEFO with the same three compliance guarantees the decrement enforces:
-   *   1. deterministic tiebreak (expiryDate, receivedDate, lotNumber)
-   *   2. expired-lot exclusion (never feed fish an expired lot)
-   *   3. as-of scoping (a backdated feeding cannot pull from a lot that
-   *      arrived after the feeding occurred)
+   * # The contract this keeps (FARM-CRITICAL-237, PR #1244)
    *
-   * Returns `null` when NO storage location stocks a usable lot of the feed
-   * (or of the supplied lot). After the single-ledger cutover, callers always
-   * treat that result as an actual shortage and fail closed. Mutable projection
-   * presence is never an authority-mode switch: a depleted row may be removed,
-   * but that cannot revive the retired feed_inventory compatibility path.
+   * There is NO non-deducting success path. The `feedHasStoragePresence`
+   * predicate that used to gate this call is gone: it read a MUTABLE projection,
+   * so a feed whose last lot was consumed answered "not storage-tracked" exactly
+   * like a feed the tenant never storage-managed, and feeding committed with no
+   * movement at all. Unresolvable stock is a real shortage and fails closed —
+   * now by throwing `InsufficientFeedStockError` carrying the pool total the
+   * operator actually has, which is strictly more than the previous `null`
+   * carried. Deleting a projection row can no longer revive the retired
+   * feed_inventory path, because there is no branch left to revive.
+   *
+   * Supplied-lot binding survives the change: when the payload names a concrete
+   * feed batch, allocation is constrained to THAT lot, so a missing lot fails
+   * closed with a lot-specific message rather than silently drawing from a
+   * different physical lot.
+   *
+   * @throws InsufficientFeedStockError when the eligible pool cannot cover `quantityKg`
    */
   async resolveFeedDeductionLocation(
     manager: EntityManager,
     tenantId: string,
     feedId: string,
+    quantityKg: number,
     asOf: Date,
     lotNumber?: string,
     /**
      * D-9 site kapsamı: verilirse önce ÜNİTENİN SİTESİNİN lokasyonlarındaki
-     * lotlar denenir (düşüm + forecast aynı kapsamı okur); site'ta uygun lot
-     * yoksa belgeli tenant-geneli fallback (`usedSiteFallback=true`) uygulanır.
+     * lotlar tüketilir (düşüm + forecast aynı kapsamı okur), site havuzu
+     * yetmezse tenant-geneli lotlarla DEVAM edilir (`usedSiteFallback=true`).
      */
     siteId?: string,
-  ): Promise<{ storageLocationId: string; lotNumber?: string; usedSiteFallback: boolean } | null> {
-    const buildQuery = (scopeSiteId?: string) => {
-      const query = tenantManagerRepo(manager, StorageInventory, tenantId)
-        .createQueryBuilder('inv')
-        .andWhere('inv.itemType = :itemType', { itemType: StorageItemType.FEED })
-        .andWhere('inv.itemId = :itemId', { itemId: feedId })
-        .andWhere('inv.quantity > 0')
-        .andWhere('(inv.expiryDate IS NULL OR inv.expiryDate > :today)', { today: new Date() })
-        .andWhere('(inv.receivedDate IS NULL OR inv.receivedDate <= :asOf)', { asOf });
-      if (scopeSiteId) {
-        // Join şartı TypeORM PROPERTY sözdiziminde yazılır (`inv.storageLocationId`),
-        // tırnaklı kolon adıyla DEĞİL: `StorageInventory.storageLocationId` →
-        // `storage_location_id`, `StorageLocation.siteId` → `site_id` (entity'de
-        // açık `name:`). Tırnaklı `inv."storageLocationId"` ifadesini TypeORM
-        // property-eşlemesine sokmaz, SQL'e birebir geçirir ve her site-kapsamlı
-        // düşüm `42703 column inv.storageLocationId does not exist` ile patlardı
-        // (FARM-CRITICAL-237). Eşleme sorumluluğu ORM'de kalır.
-        query.innerJoin(
-          StorageLocation,
-          'loc',
-          'loc.id = inv.storageLocationId AND loc.siteId = :scopeSiteId',
-          { scopeSiteId },
-        );
-      }
-      // Supplied-lot binding: when a concrete feed batch is named, resolve the
-      // location of THAT lot only, so the OUT deduction hits the physical lot
-      // the operator declared (and never a different FEFO lot).
-      if (lotNumber) {
-        query.andWhere('inv.lotNumber = :lotNumber', { lotNumber });
-      }
-      return query
-        .orderBy('inv.expiryDate', 'ASC', 'NULLS LAST')
-        .addOrderBy('inv.receivedDate', 'ASC', 'NULLS LAST')
-        .addOrderBy('inv.lotNumber', 'ASC')
-        .getOne();
-    };
-
-    if (siteId) {
-      const siteScoped = await buildQuery(siteId);
-      if (siteScoped) {
-        return {
-          storageLocationId: siteScoped.storageLocationId,
-          lotNumber: siteScoped.lotNumber,
-          usedSiteFallback: false,
-        };
-      }
-    }
-    const inventory = await buildQuery(undefined);
-    if (!inventory) return null;
-    return {
-      storageLocationId: inventory.storageLocationId,
-      lotNumber: inventory.lotNumber,
-      usedSiteFallback: !!siteId,
-    };
+  ): Promise<FeedAllocationResult> {
+    return this.feedAllocation.allocateForDeduction(manager, tenantId, {
+      feedId,
+      quantityKg,
+      asOf,
+      lotNumber,
+      siteId,
+    });
   }
 
   /**

@@ -31,7 +31,6 @@ import { EntityManager } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
 
 import { FeedingLedgerService } from '../services/feeding-ledger.service';
-import { FeedAllocationService } from '../../storage/services/feed-allocation.service';
 import { MovementType } from '../../storage/entities/stock-movement.entity';
 import { StockMovementService } from '../../storage/services/stock-movement.service';
 import { FinanceSettingsService } from '../../finance/services/finance-settings.service';
@@ -87,7 +86,7 @@ const STORED: StoredMovement[] = [
 interface Harness {
   service: FeedingLedgerService;
   recordMovement: jest.Mock;
-  allocateForDeduction: jest.Mock;
+  resolveFeedDeductionLocation: jest.Mock;
   manager: EntityManager;
   boundParams: unknown[][];
   /** Bu senaryonun defter satırlarını değiştirir (varsayılan: `STORED`). */
@@ -121,19 +120,26 @@ function makeHarness(): Harness {
   });
 
   const recordMovement = jest.fn().mockResolvedValue(undefined);
-  const allocateForDeduction = jest.fn().mockResolvedValue({ slices: [], usedSiteScope: false });
+  const resolveFeedDeductionLocation = jest
+    .fn()
+    .mockResolvedValue({ slices: [], usedSiteFallback: false, poolTotalKg: 0 });
 
+  // Tahsis motoru ARTIK ledger'ın collaborator'ı değil: yemleme depoya TEK
+  // giriş olan `resolveFeedDeductionLocation` üzerinden gider ve motor onun
+  // ARKASINDA yaşar (FARM-CRITICAL-237 / PR #1244 sözleşmesi).
   const service = new FeedingLedgerService(
-    stub<StockMovementService>({ recordMovement }),
+    stub<StockMovementService>({
+      recordMovement,
+      resolveFeedDeductionLocation,
+    }),
     stub<FinanceSettingsService>({}),
     stub<OutboxPublisher>({}),
-    stub<FeedAllocationService>({ allocateForDeduction }),
   );
 
   return {
     service,
     recordMovement,
-    allocateForDeduction,
+    resolveFeedDeductionLocation,
     manager: stub<EntityManager>({ query }),
     boundParams,
     storedOverride: (rows) => {
@@ -230,7 +236,7 @@ describe('FeedingLedgerService.applyStockCorrection — hareket tipi bağlanmas�
 
   it('yukarı düzeltmeyi çok-lotlu tahsis motorundan geçirir (erken çıkışa düşmez)', async () => {
     const h = makeHarness();
-    h.allocateForDeduction.mockResolvedValue({
+    h.resolveFeedDeductionLocation.mockResolvedValue({
       slices: [{ storageLocationId: LOCATION_A, lotNumber: 'LOT-A', quantityKg: 5 }],
       usedSiteScope: false,
     });
@@ -241,7 +247,7 @@ describe('FeedingLedgerService.applyStockCorrection — hareket tipi bağlanmas�
     });
 
     // Erken çıkış YUKARI dalından da önce geliyordu; eski hâlde bu hiç çağrılmazdı.
-    expect(h.allocateForDeduction).toHaveBeenCalledTimes(1);
+    expect(h.resolveFeedDeductionLocation).toHaveBeenCalledTimes(1);
     expect(h.recordMovement).toHaveBeenCalledWith(
       h.manager,
       expect.objectContaining({ movementType: MovementType.OUT, quantity: 5 }),

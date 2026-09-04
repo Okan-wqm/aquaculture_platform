@@ -204,6 +204,11 @@ describe('Feeding record tenant isolation on real Postgres', () => {
       new SiteAuthorizationService(),
       outboxPublisher,
       mutationLocks,
+      // W2 / FARM-CRITICAL-245: çok-lotlu FEFO tahsis motoru, yemlemenin depoya
+      // tek girişi olan `resolveFeedDeductionLocation`ın ARKASINDA. GERÇEK örnek —
+      // bu spec yazımların doğru tenant şemasına düştüğünü kanıtlıyor ve tahsis
+      // motoru artık o yazım yolunun parçası.
+      new FeedAllocationService(mutationLocks),
     );
     // P-05 tek yem yazma yolu: handler artık GERÇEK FeedingLedgerService'e
     // delege eder (kayıt + batch aggregate + FEFO düşüm + outbox tek noktada).
@@ -214,10 +219,6 @@ describe('Feeding record tenant isolation on real Postgres', () => {
       stockMovementService,
       new FinanceSettingsService(dataSource),
       outboxPublisher,
-      // W2 / FARM-CRITICAL-245: çok-lotlu FEFO tahsis motoru. GERÇEK örnek —
-      // bu spec'in amacı yazımların doğru tenant şemasına düştüğünü kanıtlamak,
-      // ve tahsis motoru artık o yazım yolunun parçası.
-      new FeedAllocationService(mutationLocks),
     );
     createFeedingRecord = new CreateFeedingRecordHandler(
       feedingRecordRepository,

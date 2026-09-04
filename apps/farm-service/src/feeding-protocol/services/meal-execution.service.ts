@@ -60,7 +60,6 @@ import { Feed } from '../../feed/entities/feed.entity';
 import { BatchDomainService } from '../../batch/services/batch-domain.service';
 import { resolveTankSiteId } from '../../batch/utils/tank-lookup.util';
 import { StockMovementService } from '../../storage/services/stock-movement.service';
-import { FeedAllocationService } from '../../storage/services/feed-allocation.service';
 import { MovementType } from '../../storage/entities/stock-movement.entity';
 import { StorageItemType } from '../../storage/entities/storage-inventory.entity';
 import type { FeedingRecordUpdatedEvent } from '@platform/event-contracts';
@@ -120,8 +119,6 @@ export class MealExecutionService {
     private readonly feedingLedger: FeedingLedgerService,
     private readonly batchDomainService: BatchDomainService,
     private readonly stockMovementService: StockMovementService,
-    // Çok-lotlu FEFO tahsisi — düşüm ve yukarı düzeltme aynı motordan geçer.
-    private readonly feedAllocation: FeedAllocationService,
     private readonly outboxPublisher: OutboxPublisher,
   ) {}
 

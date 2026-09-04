@@ -36,7 +36,6 @@ import { FeedingRecord, FeedingMethod } from '../entities/feeding-record.entity'
 import { Batch } from '../../batch/entities/batch.entity';
 import { Feed } from '../../feed/entities/feed.entity';
 import { StockMovementService } from '../../storage/services/stock-movement.service';
-import { FeedAllocationService } from '../../storage/services/feed-allocation.service';
 import { MovementType } from '../../storage/entities/stock-movement.entity';
 import { StorageItemType } from '../../storage/entities/storage-inventory.entity';
 import { FinanceSettingsService } from '../../finance/services/finance-settings.service';
@@ -99,8 +98,6 @@ export class FeedingLedgerService {
     private readonly stockMovementService: StockMovementService,
     private readonly financeSettings: FinanceSettingsService,
     private readonly outboxPublisher: OutboxPublisher,
-    // Çok-lotlu FEFO tahsis motoru (FARM-CRITICAL-245).
-    private readonly feedAllocation: FeedAllocationService,
   ) {}
 
   /**
@@ -214,13 +211,20 @@ export class FeedingLedgerService {
     // değil HAVUZ TOPLAMINDAN verilir ve düşüm gerekirse birden çok lota
     // kaskad eder. Eskiden tek satır seçiliyordu; 0.3 kg'lık artık lot,
     // sitede 3000 kg varken 150 kg'lık öğünü komple reddediyordu.
-    const allocation = await this.feedAllocation.allocateForDeduction(manager, tenantId, {
-      feedId: params.feedId,
-      quantityKg: params.actualAmountKg,
-      asOf: params.feedingDate,
-      lotNumber: params.feedBatchNumber,
-      siteId: params.siteId,
-    });
+    //
+    // Çağrı `resolveFeedDeductionLocation` üzerinden gider, tahsis motoruna
+    // DOĞRUDAN değil: FARM-CRITICAL-237/PR #1244'ün fail-closed sözleşmesi o
+    // metodun sözleşmesidir ve yemlemenin depoya tek girişi odur. Motoru
+    // buradan çağırmak sözleşmenin ETRAFINDAN dolaşmak olurdu.
+    const allocation = await this.stockMovementService.resolveFeedDeductionLocation(
+      manager,
+      tenantId,
+      params.feedId,
+      params.actualAmountKg,
+      params.feedingDate,
+      params.feedBatchNumber,
+      params.siteId,
+    );
 
     const baseKey =
       params.mealId != null && params.pourIndex != null
@@ -321,12 +325,16 @@ export class FeedingLedgerService {
     }
 
     if (params.deltaKg > 0) {
-      const allocation = await this.feedAllocation.allocateForDeduction(manager, tenantId, {
-        feedId: params.feedId,
-        quantityKg: params.deltaKg,
-        asOf: new Date(),
-        siteId: params.siteId,
-      });
+      // Yukarı düzeltme de aynı tek girişten geçer (yukarıdaki gerekçe).
+      const allocation = await this.stockMovementService.resolveFeedDeductionLocation(
+        manager,
+        tenantId,
+        params.feedId,
+        params.deltaKg,
+        new Date(),
+        undefined,
+        params.siteId,
+      );
       for (const [index, slice] of allocation.slices.entries()) {
         await this.stockMovementService.recordMovement(
           manager,

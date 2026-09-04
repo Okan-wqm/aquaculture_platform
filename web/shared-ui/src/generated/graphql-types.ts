@@ -6270,52 +6270,6 @@ export type FeedingDayPlan = {
   feedId: Scalars['ID']['output'];
   feedName: Scalars['String']['output'];
   fishCount: Scalars['Int']['output'];
-  id: Scalars['ID']['output'];
-  meals?: Maybe<Array<FeedingMeal>>;
-  mealsPlanned: Scalars['Int']['output'];
-  mixedBatch: Scalars['Boolean']['output'];
-  planDate: Scalars['String']['output'];
-  plannedTotalKg: Scalars['Float']['output'];
-  protocolId: Scalars['ID']['output'];
-  recalcLog: Scalars['JSON']['output'];
-  rollupAppliedAt?: Maybe<Scalars['DateTime']['output']>;
-  siteId: Scalars['ID']['output'];
-  skipReason?: Maybe<Scalars['String']['output']>;
-  snapshot: Scalars['JSON']['output'];
-  status: FeedingDayPlanStatus;
-  temperatureSource: Scalars['String']['output'];
-  tenantId: Scalars['ID']['output'];
-  unitCode: Scalars['String']['output'];
-  unitId: Scalars['ID']['output'];
-  unitName: Scalars['String']['output'];
-  unitType: FeedingUnitType;
-  unplannedActualKg: Scalars['Float']['output'];
-  updatedAt: Scalars['DateTime']['output'];
-  usingDefaultTemperature: Scalars['Boolean']['output'];
-  waterTempC?: Maybe<Scalars['Float']['output']>;
-  weightCvPercent?: Maybe<Scalars['Float']['output']>;
-};
-
-/** Günlük yemleme planının yaşam döngüsü durumu (K-7 tam enum) */
-export type FeedingDayPlanStatus =
-  | 'CANCELLED'
-  | 'COMPLETED'
-  | 'IN_PROGRESS'
-  | 'PLANNED'
-  | 'SKIPPED';
-
-export type FeedingDayPlan = {
-  assignmentId: Scalars['ID']['output'];
-  avgWeightG: Scalars['Float']['output'];
-  biomassKg: Scalars['Float']['output'];
-  createdAt: Scalars['DateTime']['output'];
-  effectiveRatePercent: Scalars['Float']['output'];
-  expectedFcr: Scalars['Float']['output'];
-  fcrResolvedSource: FcrResolvedSource;
-  feedCode: Scalars['String']['output'];
-  feedId: Scalars['ID']['output'];
-  feedName: Scalars['String']['output'];
-  fishCount: Scalars['Int']['output'];
   growthApplicationMode: Scalars['String']['output'];
   id: Scalars['ID']['output'];
   meals?: Maybe<Array<FeedingMeal>>;
@@ -6397,40 +6351,6 @@ export type FeedingMatrix2DResponse = {
   /** Weight axis values (grams) */
   weights: Array<Scalars['Float']['output']>;
 };
-
-export type FeedingMeal = {
-  actualKg: Scalars['Float']['output'];
-  createdAt: Scalars['DateTime']['output'];
-  dayPlanId: Scalars['ID']['output'];
-  fedAt?: Maybe<Scalars['DateTime']['output']>;
-  fedBy?: Maybe<Scalars['ID']['output']>;
-  feedId: Scalars['ID']['output'];
-  feedingMethod?: Maybe<Scalars['String']['output']>;
-  id: Scalars['ID']['output'];
-  mealIndex: Scalars['Int']['output'];
-  notes?: Maybe<Scalars['String']['output']>;
-  percentOfDaily: Scalars['Float']['output'];
-  plannedKg: Scalars['Float']['output'];
-  pours: Scalars['JSON']['output'];
-  recalculatedAt?: Maybe<Scalars['DateTime']['output']>;
-  scheduledAt: Scalars['DateTime']['output'];
-  siteId: Scalars['ID']['output'];
-  status: FeedingMealStatus;
-  tenantId: Scalars['ID']['output'];
-  unitId: Scalars['ID']['output'];
-  updatedAt: Scalars['DateTime']['output'];
-  varianceKg?: Maybe<Scalars['Float']['output']>;
-  variancePercent?: Maybe<Scalars['Float']['output']>;
-};
-
-/** Öğün yaşam döngüsü durumu (K-7 + D-8 tam enum) */
-export type FeedingMealStatus =
-  | 'CANCELLED'
-  | 'FED'
-  | 'MISSED'
-  | 'PARTIALLY_FED'
-  | 'SCHEDULED'
-  | 'SKIPPED';
 
 export type FeedingMeal = {
   actualKg: Scalars['Float']['output'];
@@ -6842,12 +6762,6 @@ export type FeedingTemperatureRangeInput = {
   min: Scalars['Float']['input'];
   unit?: Scalars['String']['input'];
 };
-
-/** Yemleme ünitesi türü (fiziksel yapı) */
-export type FeedingUnitType =
-  | 'CAGE'
-  | 'POND'
-  | 'TANK';
 
 /** Yemleme ünitesi türü (fiziksel yapı) */
 export type FeedingUnitType =
@@ -14926,6 +14840,7 @@ export type ProtocolAssignment = {
   endedAt?: Maybe<Scalars['DateTime']['output']>;
   id: Scalars['ID']['output'];
   lastTransitionAt?: Maybe<Scalars['DateTime']['output']>;
+  manualBandIndex?: Maybe<Scalars['Int']['output']>;
   overrides: Scalars['JSON']['output'];
   protocolId: Scalars['ID']['output'];
   siteId: Scalars['ID']['output'];
@@ -15050,66 +14965,6 @@ export type ProtocolDetailsType = {
   isActive: Scalars['Boolean']['output'];
   name: Scalars['String']['output'];
   subcategory: Scalars['String']['output'];
-};
-
-/** Protokolün beklenen-FCR çözüm kaynağı ayarı */
-export type ProtocolFcrSource =
-  | 'BAND'
-  | 'FEED'
-  | 'MATRIX';
-
-export type ProtocolFeedForecast = {
-  alerts: Array<ProtocolFeedForecastAlert>;
-  computedAt: Scalars['DateTime']['output'];
-  horizonDays: Scalars['Int']['output'];
-  mortalityAssumption: ProtocolFeedForecastMortalityAssumption;
-  perFeed: Array<ProtocolFeedForecastPerFeed>;
-  perUnit: Array<ProtocolFeedForecastPerUnit>;
-  siteScopeKey: Scalars['String']['output'];
-};
-
-export type ProtocolFeedForecastAlert = {
-  days: Scalars['Int']['output'];
-  feedId: Scalars['ID']['output'];
-  type: Scalars['String']['output'];
-  unitId?: Maybe<Scalars['ID']['output']>;
-};
-
-export type ProtocolFeedForecastMortalityAssumption = {
-  applied: Scalars['Boolean']['output'];
-  source: Scalars['String']['output'];
-};
-
-export type ProtocolFeedForecastPerFeed = {
-  coverageFromAdoptionDays?: Maybe<Scalars['Int']['output']>;
-  currentStockKg: Scalars['Float']['output'];
-  dailyConsumptionSeries: Array<Scalars['Float']['output']>;
-  daysOfCover?: Maybe<Scalars['Int']['output']>;
-  feedCode: Scalars['String']['output'];
-  feedId: Scalars['ID']['output'];
-  feedName: Scalars['String']['output'];
-  firstConsumptionDate?: Maybe<Scalars['String']['output']>;
-  leadTimeSource: Scalars['String']['output'];
-  procurementLeadTimeDays: Scalars['Int']['output'];
-  remainingStockSeries: Array<Scalars['Float']['output']>;
-  reorderDate?: Maybe<Scalars['String']['output']>;
-  reorderQuantityKg?: Maybe<Scalars['Float']['output']>;
-  stockoutDate?: Maybe<Scalars['String']['output']>;
-};
-
-export type ProtocolFeedForecastPerUnit = {
-  currentFeedId?: Maybe<Scalars['ID']['output']>;
-  transitions: Array<ProtocolFeedForecastTransition>;
-  unitCode: Scalars['String']['output'];
-  unitId: Scalars['ID']['output'];
-  unitName: Scalars['String']['output'];
-};
-
-export type ProtocolFeedForecastTransition = {
-  daysFromNow: Scalars['Int']['output'];
-  estimatedDate: Scalars['String']['output'];
-  fromFeedId: Scalars['ID']['output'];
-  toFeedId: Scalars['ID']['output'];
 };
 
 /** Protokolün beklenen-FCR çözüm kaynağı ayarı */
@@ -18530,26 +18385,6 @@ export type RecordLiceCountInput = {
   seaTemperatureC?: InputMaybe<Scalars['Float']['input']>;
   siteId: Scalars['ID']['input'];
   tankId: Scalars['ID']['input'];
-};
-
-export type RecordMealFeedingInput = {
-  /** Stable client command UUID generated before first submission */
-  clientCommandId?: InputMaybe<Scalars['String']['input']>;
-  /** ISO timestamp when the mobile client created the command */
-  clientCreatedAt?: InputMaybe<Scalars['String']['input']>;
-  /** Stable per-installation device identifier */
-  deviceId?: InputMaybe<Scalars['String']['input']>;
-  feedingMethod?: InputMaybe<Scalars['String']['input']>;
-  finalize?: Scalars['Boolean']['input'];
-  mealId: Scalars['ID']['input'];
-  notes?: InputMaybe<Scalars['String']['input']>;
-  /** Mobile operation type, e.g. recordMortality or transferStock */
-  operationType?: InputMaybe<Scalars['String']['input']>;
-  /** SHA-256 hash of the command payload before envelope fields are added */
-  payloadHash?: InputMaybe<Scalars['String']['input']>;
-  pourKg: Scalars['Float']['input'];
-  /** Optional mobile command payload schema version */
-  schemaVersion?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type RecordMealFeedingInput = {
@@ -25162,15 +24997,6 @@ export type VirkestoffType =
   | 'HYDROGENPEROKSID'
   | 'IMIDAKLOPRID'
   | 'TEFLUBENZURON';
-
-export type WarehouseFeedCoverage = {
-  coverageStatus: Scalars['String']['output'];
-  daysOfCover?: Maybe<Scalars['Int']['output']>;
-  feedCode: Scalars['String']['output'];
-  feedId: Scalars['ID']['output'];
-  feedName: Scalars['String']['output'];
-  stockoutDate?: Maybe<Scalars['String']['output']>;
-};
 
 export type WarehouseFeedCoverage = {
   coverageStatus: Scalars['String']['output'];

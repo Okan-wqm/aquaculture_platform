@@ -152,10 +152,13 @@ describe('stubMember', () => {
   it('produces a value the enclosing stub accepts for an overloaded member', async () => {
     const saved: Meal[] = [];
     const repo = stub<Repo>({
+      // Not `async`: the signature returns a Promise, and an `async` body with
+      // nothing to await is a promise wrapper spelled the long way — which is
+      // exactly what @typescript-eslint/require-await refuses.
       save: stubMember<Repo['save']>(
-        jest.fn(async (row: Meal) => {
+        jest.fn((row: Meal) => {
           saved.push(row);
-          return row;
+          return Promise.resolve(row);
         }),
       ),
     });
@@ -169,7 +172,7 @@ describe('stubMember', () => {
     // checks it. This test exists to pin that stubMember is scoped to ONE member
     // and is not a way to opt the whole object out.
     const repo = stub<Repo>({
-      find: jest.fn(async () => []),
+      find: jest.fn(() => Promise.resolve([])),
       save: stubMember<Repo['save']>(jest.fn()),
     });
 

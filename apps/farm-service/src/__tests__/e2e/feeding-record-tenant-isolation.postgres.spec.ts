@@ -49,6 +49,7 @@ import {
 } from '../../feeding/entities/feeding-record.entity';
 import { CreateFeedingRecordHandler } from '../../feeding/handlers/create-feeding-record.handler';
 import { FeedingLedgerService } from '../../feeding/services/feeding-ledger.service';
+import { FinanceSettings } from '../../finance/entities/finance-settings.entity';
 import { FinanceSettingsService } from '../../finance/services/finance-settings.service';
 import { GetFeedingRecordsHandler } from '../../feeding/query-handlers/get-feeding-records.handler';
 import { GetFeedingSummaryHandler } from '../../feeding/query-handlers/get-feeding-summary.handler';
@@ -137,6 +138,15 @@ describe('Feeding record tenant isolation on real Postgres', () => {
         StockMovement,
         StorageLotMix,
         FeedingRecord,
+        // The feeding write path resolves the tenant's currency through
+        // FinanceSettingsService.getDefaultCurrencyInTx, which reads through the
+        // caller's manager on purpose (a settings row written earlier in the
+        // same transaction must be visible) and therefore does NOT fail open the
+        // way the cached, out-of-transaction getDefaultCurrency does. Omitting
+        // the entity made every feeding write die on `No metadata for
+        // "FinanceSettings"`. No fixture row is needed — an absent row resolves
+        // to the platform default.
+        FinanceSettings,
         FarmOutbox,
       ],
       synchronize: true,
@@ -335,6 +345,11 @@ describe('Feeding record tenant isolation on real Postgres', () => {
         feedName: 'Shared Salmon Feed',
         totalKg: 10,
         percentage: 100,
+        // Per-feed cost is part of the declared result shape
+        // (get-feeding-summary.query.ts) and the resolver maps it to
+        // byFeedType.cost / costDecimal; this expectation predated it. It
+        // agrees with totalFeedCost above because this tenant fed one feed.
+        cost: 25,
       },
     ]);
 
@@ -502,9 +517,30 @@ describe('Feeding record tenant isolation on real Postgres', () => {
     return { site, department, species, tank, batch, feed, storageLocation, storageLot };
   }
 
+  /**
+   * The tenant column's DATABASE name for a table, from the entity metadata.
+   *
+   * The two helpers below used to hardcode `"tenantId"`, which is only the
+   * spelling the older farm entities use — the storage module names it
+   * `tenant_id`, so counting rows in `stock_movements` failed with
+   * `column "tenantId" does not exist` rather than with a tenant-isolation
+   * verdict. Asking the metadata makes the helper right for whichever spelling
+   * the table under test carries, and loud about a table that maps no tenant
+   * column at all.
+   */
+  function tenantColumn(table: string): string {
+    const metadata = dataSource!.entityMetadatas.find((entity) => entity.tableName === table);
+    const column = metadata?.findColumnWithPropertyName('tenantId');
+    if (!column) {
+      throw new Error(`No entity in this spec's DataSource maps a tenantId column for "${table}"`);
+    }
+    return column.databaseName;
+  }
+
   async function tenantRowCount(table: string, tenantId: string): Promise<number> {
     const rows: Array<{ count: string }> = await dataSource!.query(
-      `SELECT COUNT(*)::text AS count FROM "${getTenantSchemaName(tenantId)}"."${table}" WHERE "tenantId" = $1`,
+      `SELECT COUNT(*)::text AS count FROM "${getTenantSchemaName(tenantId)}"."${table}" ` +
+        `WHERE "${tenantColumn(table)}" = $1`,
       [tenantId],
     );
     return Number(rows[0]?.count ?? 0);
@@ -512,7 +548,7 @@ describe('Feeding record tenant isolation on real Postgres', () => {
 
   async function sourceTenantRowCount(table: string, tenantId: string): Promise<number> {
     const rows: Array<{ count: string }> = await dataSource!.query(
-      `SELECT COUNT(*)::text AS count FROM "farm"."${table}" WHERE "tenantId" = $1`,
+      `SELECT COUNT(*)::text AS count FROM "farm"."${table}" WHERE "${tenantColumn(table)}" = $1`,
       [tenantId],
     );
     return Number(rows[0]?.count ?? 0);
@@ -571,6 +607,9 @@ async function createTenantSchema(dataSource: DataSource, schema: string): Promi
   );
   await dataSource.query(
     `CREATE TABLE "${schema}"."feeding_records" (LIKE "farm"."feeding_records" INCLUDING ALL)`,
+  );
+  await dataSource.query(
+    `CREATE TABLE "${schema}"."finance_settings" (LIKE "farm"."finance_settings" INCLUDING ALL)`,
   );
 }
 

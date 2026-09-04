@@ -488,8 +488,23 @@ def _handle_state_command(args: argparse.Namespace) -> int:
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result["continuity"]["status"] in {"ok", "genesis"} else 1
 
-    if args.state_command in {"checkout", "publish", "verify-store"}:
+    # ORPHAN-CRITICAL-806 — the routing set has to name every subcommand
+    # that _handle_state_store_command owns. `compact` lives there (its
+    # handler is the first branch of that function) but was missing here,
+    # so `state compact` fell past this line into the verify-snapshot tail
+    # below and died on `args.snapshot`, an option it never declares. The
+    # daily maintenance lane is the only caller, so compaction simply
+    # stopped running — silently, as an AttributeError about the wrong
+    # argument.
+    if args.state_command in {"compact", "checkout", "publish", "verify-store"}:
         return _handle_state_store_command(args)
+
+    # The tail is verify-snapshot's, and says so. Falling through to it was
+    # what turned a missing route into a crash in an unrelated command; an
+    # unrouted subcommand now names itself instead of borrowing another
+    # command's arguments.
+    if args.state_command != "verify-snapshot":
+        raise GovernanceError(f"state_subcommand_not_routed:{args.state_command}")
 
     report = verify_snapshot_signature(
         manifest_path=Path(args.snapshot),

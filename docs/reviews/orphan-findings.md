@@ -11150,3 +11150,21 @@ All 158 dropped rows landed in the archive.
 **What this says about the class.** ORPHAN-HIGH-800 removed a warning that was always on. This removed a FAILURE that was always on. Both had the same shape: a check comparing a record against reality where nothing kept the record true, and in both cases the noise was indistinguishable from the signal it was supposed to carry. The nightly cycle's green will now mean the night went well, which is the only condition under which a red is worth reading.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-CRITICAL-806 — the compaction command was never routed, so the thing that keeps the store honest stopped running — RESOLVED
+
+Severity: CRITICAL (the upstream half of ORPHAN-CRITICAL-805: the repair that would have kept the artifact index truthful could not execute at all).
+
+**Defect.** `_handle_state_command` routes `{"checkout", "publish", "verify-store"}` to `_handle_state_store_command` and lets everything else fall through to the verify-snapshot tail, which reads `args.snapshot`. `compact` is declared in the parser and implemented as the FIRST branch of `_handle_state_store_command` — and was absent from the routing set. So `aria-kernel state compact` fell past its own handler into another command's tail and died with `AttributeError: 'Namespace' object has no attribute 'snapshot'`, naming an option it does not declare.
+
+**Why it went unnoticed for three days.** Commit `5cd847add` (2026-09-02 09:38) retired the maintenance lane's inline compactor in favour of this command — correctly, since the inline copy had diverged. The lane is compact's only caller. Its run history is exactly the switch: success 2026-08-31, success 2026-09-01, then failure on 09-02, 09-03 and 09-04. The lane went red the day it started using the command, and the error message pointed at an argument belonging to a different subcommand, so it read as a CLI-contract problem rather than a missing route.
+
+**What it cost.** Compaction is what removes swept artifacts' rows from `run-artifacts/artifact-index.jsonl`. With it dead, the index kept rows for files that earlier sweeps had already deleted, `verify_artifacts` reported them as `run_artifact_missing`, and `cycle._runtime_status` turned that into `integrity_failed` on every nightly cycle (ORPHAN-CRITICAL-805). Two defects, one visible symptom: the night reporting failure while doing everything right.
+
+**Fix, in two parts.** `compact` joins the routing set. And the tail stops being a catch-all: it now belongs to `verify-snapshot` explicitly, and any subcommand that reaches the dispatcher without a route raises `state_subcommand_not_routed:<name>`. A missing route was survivable as a crash in an unrelated command precisely because nothing said "this is not routed"; now it says so.
+
+**Verified end to end.** With the route restored, `state compact --dry-run` against the production runner's store returns a real result: `artifact_index_rows_dropped: 158`, the same 158 rows `verify_artifacts` reports as missing. Before the fix the identical command produced only the AttributeError.
+
+**Pins.** `compact` is declared; `compact` reaches its handler and returns 0 (the exact call that used to raise); an unrouted name raises the named refusal and does NOT complain about `snapshot`. Falsified in the reverting direction: restoring the old routing set makes the second pin fail with the original AttributeError.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

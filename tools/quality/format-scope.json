@@ -33925,6 +33925,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/data-expert/2026-09-04-tenant-provisioning-replay-safety.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/database-reviewer/2026-04-10-full-repo-audit.md",
       "prettier_managed": true
     },

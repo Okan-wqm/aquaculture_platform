@@ -2,7 +2,6 @@
  * Avatar tests — initials fallback, image mode, deterministic background.
  */
 import { render, screen } from '@testing-library/react';
-import React from 'react';
 import { describe, it, expect } from 'vitest';
 
 import { Avatar } from '../Avatar';

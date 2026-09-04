@@ -77,6 +77,7 @@ APPLICATION_IMAGE_SERVICES="${CATALOG_APPLICATION_IMAGE_SERVICES:?generated appl
 FRONTEND_IMAGE_SERVICES="${CATALOG_FRONTEND_IMAGE_SERVICES:?generated frontend image services missing}"
 INFRA_IMAGE_SERVICES="${CATALOG_INFRA_IMAGE_SERVICES:?generated infra image services missing}"
 GATEWAY_RECOMPOSITION_SERVICES="${CATALOG_GATEWAY_RECOMPOSITION_SERVICES:?generated gateway recomposition services missing}"
+SHARED_IMAGE_RESTART_SERVICES="${CATALOG_SHARED_IMAGE_RESTART_SERVICES:?generated shared image restart services missing}"
 SERVICE_DB_ROLES="${CATALOG_SERVICE_DB_ROLE_PREFIXES:?generated service DB role prefixes missing}"
 
 validate_data_infrastructure_policy
@@ -345,12 +346,23 @@ is_application_image_service() {
 
 image_ref_for_service() {
   local svc="$1"
-  echo "${IMAGE_PREFIX}/${svc}:latest"
+  local image_service
+  image_service="$(image_service_for_compose_service "${svc}")"
+  echo "${IMAGE_PREFIX}/${image_service}:latest"
 }
 
 deploy_tag_ref_for_service() {
   local svc="$1"
-  echo "${IMAGE_PREFIX}/${svc}:${DEPLOY_SHA}"
+  local image_service
+  image_service="$(image_service_for_compose_service "${svc}")"
+  echo "${IMAGE_PREFIX}/${image_service}:${DEPLOY_SHA}"
+}
+
+rollback_tag_ref_for_service() {
+  local svc="$1"
+  local image_service
+  image_service="$(image_service_for_compose_service "${svc}")"
+  echo "${IMAGE_PREFIX}/${image_service}:rollback-${DEPLOY_RELEASE_ID}"
 }
 
 digest_ref_for_service() {
@@ -462,8 +474,8 @@ capture_rollback_manifest() {
   local health
   local running
   local restarts
-  for svc in ${APPLICATION_IMAGE_SERVICES}; do
-    [ "$svc" = "db-migrate" ] && continue
+  while IFS= read -r svc; do
+    [ -n "${svc}" ] || continue
     container_id=$(docker compose -f docker-compose.droplet.yml ps -q "$svc" 2>/dev/null || true)
     if [ -z "${container_id}" ]; then
       continue
@@ -485,7 +497,7 @@ capture_rollback_manifest() {
     if [ -n "${image_id}" ]; then
       printf '%s\t%s\n' "$svc" "$image_id" >> "${ROLLBACK_MANIFEST}"
     fi
-  done
+  done < <(DEPLOY_SERVICES="${APPLICATION_IMAGE_SERVICES}" restartable_deploy_services)
 
   local captured
   captured=$(wc -l < "${ROLLBACK_MANIFEST}" 2>/dev/null || echo 0)
@@ -495,7 +507,7 @@ capture_rollback_manifest() {
     while IFS="$(printf '\t')" read -r svc image_id; do
       [ -n "${svc}" ] || continue
       [ -n "${image_id}" ] || continue
-      docker tag "${image_id}" "${IMAGE_PREFIX}/${svc}:rollback-${DEPLOY_RELEASE_ID}" 2>/dev/null || true
+      docker tag "${image_id}" "$(rollback_tag_ref_for_service "${svc}")" 2>/dev/null || true
     done < "${ROLLBACK_MANIFEST}"
     sha256sum "${ROLLBACK_MANIFEST}" | awk '{print $1}' > "${DEPLOY_STATE_DIR}/rollback-images.sha256"
     echo "  Rollback manifest sha256: $(cat "${DEPLOY_STATE_DIR}/rollback-images.sha256")"
@@ -533,10 +545,10 @@ rollback_deployed_services() {
   local scope_services=()
   local svc
   if deploy_uses_full_stack_path; then
-    for svc in ${APPLICATION_IMAGE_SERVICES}; do
-      [ "$svc" = "db-migrate" ] && continue
+    while IFS= read -r svc; do
+      [ -n "$svc" ] || continue
       scope_services+=("$svc")
-    done
+    done < <(DEPLOY_SERVICES="${APPLICATION_IMAGE_SERVICES}" restartable_deploy_services)
   else
     while IFS= read -r svc; do
       [ -n "$svc" ] || continue
@@ -1001,12 +1013,14 @@ verify_release_ledger_sql() {
     -v migration_required="${RUN_DB_MIGRATE}" <<'SQL'
 SELECT set_config('aqua.deploy_release_id', :'release_id', false);
 SELECT set_config('aqua.deploy_git_sha', :'git_sha', false);
+SELECT set_config('aqua.deploy_migration_required', :'migration_required', false);
 
 DO $$
 DECLARE
   rel platform.release_ledger%ROWTYPE;
   expected_release_id text := current_setting('aqua.deploy_release_id');
   expected_git_sha text := current_setting('aqua.deploy_git_sha');
+  migration_required boolean := current_setting('aqua.deploy_migration_required')::boolean;
 BEGIN
   SELECT *
     INTO rel
@@ -1020,7 +1034,7 @@ BEGIN
     RAISE EXCEPTION 'release ledger row missing for release_id=%', expected_release_id;
   END IF;
 
-  IF :'migration_required'::boolean
+  IF migration_required
      AND (rel.expected_heads = '{}'::jsonb
        OR rel.applied_heads = '{}'::jsonb
        OR rel.expected_heads <> rel.applied_heads) THEN

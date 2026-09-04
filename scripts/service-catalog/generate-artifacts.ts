@@ -27,6 +27,7 @@ const {
   requiredRuntimeEnv,
   requiredRuntimeSecrets,
   serviceDbRolePrefixes,
+  sharedImageRestartServices,
   validateServiceCatalog,
 } = requireFromRepository(
   './platform/libs/service-catalog/src/index.ts',
@@ -39,7 +40,7 @@ const {
 const REPO_ROOT = resolve(process.cwd());
 const CATALOG_PATH = 'platform/libs/service-catalog/src/index.ts';
 const GENERATOR_PATH = 'scripts/service-catalog/generate-artifacts.ts';
-const GENERATOR_VERSION = 4;
+const GENERATOR_VERSION = 5;
 
 interface Artifact {
   path: string;
@@ -295,6 +296,9 @@ function catalogDeployEnvArtifact(): Artifact {
   const nonNxFrontend = prebuild.workspaceModules.map((entry) => entry.module);
   const readySpecs = readinessServices().map((entry) => `${entry.serviceId}:${entry.port}`);
   const gatewayRecompositionServices = gatewaySubgraphs().map((entry) => entry.nxProject);
+  const sharedImageRestarts = sharedImageRestartServices().map(
+    (entry) => `${entry.imageService}:${entry.composeService}`,
+  );
 
   return {
     path: 'infrastructure/deploy/service-catalog.deploy.vars',
@@ -305,6 +309,7 @@ ${shellAssignment('CATALOG_INFRA_IMAGE_SERVICES', [...infraImageBuildTargets()])
 ${shellAssignment('CATALOG_APPLICATION_IMAGE_SERVICES', [...imageBuildTargets()])}
 ${shellAssignment('CATALOG_SERVICE_DB_ROLE_PREFIXES', [...serviceDbRolePrefixes()])}
 ${shellAssignment('CATALOG_GATEWAY_RECOMPOSITION_SERVICES', gatewayRecompositionServices)}
+${shellAssignment('CATALOG_SHARED_IMAGE_RESTART_SERVICES', sharedImageRestarts)}
 ${shellAssignment('CATALOG_NX_FRONTEND_PROJECTS', nxFrontend)}
 ${shellAssignment('CATALOG_NON_NX_FRONTEND_PROJECTS', nonNxFrontend)}
 ${shellAssignment('CATALOG_READINESS_SERVICES', readySpecs)}
@@ -339,6 +344,7 @@ function catalogGeneratedArtifact(): Artifact {
         infraImageTargets: infraImageBuildTargets(),
         applicationImageServices: imageBuildTargets(),
         serviceDbRolePrefixes: serviceDbRolePrefixes(),
+        sharedImageRestartServices: sharedImageRestartServices(),
         nxFrontendProjects: nxFrontend,
         nonNxFrontendProjects: nonNxFrontend,
         // module → workspacePath pairs for the npm-workspace prebuild

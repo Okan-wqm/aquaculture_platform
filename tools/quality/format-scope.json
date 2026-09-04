@@ -7267,6 +7267,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/db-migrate/src/__tests__/tenant-sensor-continuous-aggregate-authority.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/db-migrate/src/cli-args.ts",
       "prettier_managed": true
     },
@@ -7310,6 +7316,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/db-migrate/src/tenant-schema-provisioner.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/db-migrate/src/tenant-sensor-continuous-aggregate-authority.ts",
       "prettier_managed": true
     },
     {
@@ -18116,7 +18128,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "ff7a18613a0208abec0e25140ab4e10ccf43467a07f872849ab6d418eeb2b9f1",
+      "content_sha256": "7481ac7ebb2260f937edef77fe4d443a5196cd9f2a6bf972767f7e7dd2bf4b9e",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "apps/gateway-api/src/config/federated-subgraphs.generated.ts",
@@ -29229,6 +29241,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/aria/plans/033-autonomous-security-engineering.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/aria/plans/2026-05-25-aria-codex-cli-xhigh-architecture-plan.md",
       "prettier_managed": true
     },
@@ -37270,7 +37288,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "2a8ae02a57adbaef4ebca0e6e4578ea27a222f2e5d55dd842e1b3262ae371993",
+      "content_sha256": "cd976bce5979195e2a07bc246b3e9893a4e6b114ddcd8da20180b2c4b928882e",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/apollo-router/codegen-schema.generated.json",
@@ -37292,8 +37310,20 @@
       "prettier_managed": true
     },
     {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "infrastructure/aria/security-lab/production-deny-inventory.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "infrastructure/aria/security-lab/zap.pin.json",
+      "prettier_managed": true
+    },
+    {
       "class": "generated",
-      "content_sha256": "ad384e6d48c64c2259c1e4ceb6aa30db54ac6a952534e02a14c3e3b4568d8128",
+      "content_sha256": "2734816847f8b4bd6b33a9c510c926aa622e2215bfb69f0e6f511fd4fc7479df",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/deploy/service-catalog.generated.json",
@@ -38809,6 +38839,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/database/schema-version-gate.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/sensor-continuous-aggregate-definition.ts",
       "prettier_managed": true
     },
     {

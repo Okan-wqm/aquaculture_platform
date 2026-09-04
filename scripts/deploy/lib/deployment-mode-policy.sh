@@ -54,12 +54,42 @@ rollout_image_services() {
 
 restartable_deploy_services() {
   local service
+  local mapping
+  local image_service
+  local compose_service
 
   while IFS= read -r service; do
     [ -n "${service}" ] || continue
-    [ "${service}" = "db-migrate" ] && continue
-    echo "${service}"
+    if [ "${service}" != "db-migrate" ]; then
+      echo "${service}"
+    fi
+
+    for mapping in ${SHARED_IMAGE_RESTART_SERVICES:-}; do
+      image_service="${mapping%%:*}"
+      compose_service="${mapping#*:}"
+      if [ "${image_service}" = "${service}" ] && [ -n "${compose_service}" ]; then
+        echo "${compose_service}"
+      fi
+    done
   done < <(rollout_image_services)
+}
+
+image_service_for_compose_service() {
+  local service="$1"
+  local mapping
+  local image_service
+  local compose_service
+
+  for mapping in ${SHARED_IMAGE_RESTART_SERVICES:-}; do
+    image_service="${mapping%%:*}"
+    compose_service="${mapping#*:}"
+    if [ "${compose_service}" = "${service}" ]; then
+      echo "${image_service}"
+      return 0
+    fi
+  done
+
+  echo "${service}"
 }
 
 deployment_policy_env_value() {

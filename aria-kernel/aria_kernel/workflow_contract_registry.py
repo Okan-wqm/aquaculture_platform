@@ -170,7 +170,11 @@ _RUNNER_TEMP = r"runner-temp"
 _RUN_ID_ATTEMPT = r"\$\{\{\s*github\.run_id\s*\}\}-\$\{\{\s*github\.run_attempt\s*\}\}"
 _REQUEST_ID = r"\$\{\{\s*steps\.pending\.outputs\.request_id\s*\}\}"
 _REPORT_DATE = r"[0-9]{4}-[0-9]{2}-[0-9]{2}"
-_REPORT_DATE_EXPR = r"\$\{\{\s*steps\.target\.outputs\.date\s*\}\}"
+# `resolved`, not `target`: the report date is now decided AFTER the aria/state
+# restore, from the newest reflection report the store actually holds. `target`
+# computed `date -u +%F` before the restore — a date whose cycle had not run
+# yet — so the anchor could only ever be the stub the lane's own guard refuses.
+_REPORT_DATE_EXPR = r"\$\{\{\s*steps\.resolved\.outputs\.date\s*\}\}"
 
 
 # Step names quoted from the live YAMLs. Named constants because each one is

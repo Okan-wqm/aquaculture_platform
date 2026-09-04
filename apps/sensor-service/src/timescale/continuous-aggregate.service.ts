@@ -1,6 +1,11 @@
 import {
   getTenantSchemaName,
   listTenantSchemas,
+  resolveDbMigrateAuthoritativeFromConfig,
+  SENSOR_CONTINUOUS_AGGREGATE_LOCK_PREFIX,
+  SENSOR_CONTINUOUS_AGGREGATE_NAMES,
+  SENSOR_CONTINUOUS_AGGREGATE_OWNER_ROLE,
+  SENSOR_CONTINUOUS_AGGREGATE_STATEMENTS,
   validateTenantSchemaName,
 } from '@aquaculture/backend-common/database';
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
@@ -11,11 +16,12 @@ import { DataSource, QueryRunner } from 'typeorm';
 /**
  * Continuous Aggregate Service
  *
- * Owns the full lifecycle of the metrics_1min/1hour/1day continuous aggregates
+ * Owns runtime access to the metrics_1min/1hour/1day continuous aggregates
  * over each tenant's `sensor_metrics` hypertable:
- *   - creation (idempotent, at application bootstrap — see `ensureAggregates`),
- *   - runtime visibility into refresh state (`getRefreshStatus`),
- *   - on-demand manual refresh of lagging aggregates (`refresh`).
+ *   - production boot verification (db-migrate owns production DDL),
+ *   - local-development creation when db-migrate is not authoritative,
+ *   - runtime visibility into ONE tenant's refresh state (`getRefreshStatus`),
+ *   - on-demand manual refresh of ONE tenant's lagging aggregate (`refresh`).
  *
  * ## Per tenant, because the data is per tenant
  *
@@ -23,38 +29,21 @@ import { DataSource, QueryRunner } from 'typeorm';
  * live there too: a continuous aggregate is defined over one hypertable, and
  * there is one hypertable per tenant. The bootstrap therefore SWEEPS the tenant
  * schemas and ensures the three views inside each, rather than creating one
- * shared set over a shared table.
+ * shared set over a shared table. Status and refresh are tenant-addressed for
+ * the same reason: the three view names repeat once per tenant schema, so an
+ * unqualified `view_name` lookup would answer for an arbitrary tenant.
  *
- * Why bootstrap-time creation rather than a migration (SENSOR-MEDIUM-066/068,
- * OPEN-ADR-030-CAGG): the shared migration runner wraps EVERY migration in an
- * explicit transaction (migration-runner.service.ts), but
- * `CREATE MATERIALIZED VIEW … WITH (timescaledb.continuous)` cannot run inside a
- * transaction block — and tenant provisioning is itself migration replay, so it
- * cannot create them either. This guarded, advisory-locked, idempotent bootstrap
- * IS that step: it runs the proven aggregate DDL outside any transaction (a
- * QueryRunner in autocommit).
- *
- * A tenant provisioned BETWEEN boots therefore has no rollups until the next
- * boot ensures them. That is not a silent failure: the aggregated read probes
- * for the tenant's rollup and falls back to the raw hypertable when it is
- * absent, so until the rollups exist that tenant still gets correct — merely
- * unoptimized — charts rather than an error or an empty series.
+ * TimescaleDB forbids continuous-aggregate creation inside the transaction used
+ * by the migration runner. The db-migrate autocommit phase and tenant schema
+ * provisioner therefore create and own the rollups in authoritative
+ * environments. Runtime boot only verifies that contract; local development
+ * retains the advisory-locked autocommit creation path.
  *
  * CRITICAL-005: refresh/status were previously a 1-line stub.
  */
 @Injectable()
 export class ContinuousAggregateService implements OnApplicationBootstrap {
   private readonly logger = new Logger(ContinuousAggregateService.name);
-
-  /** Known aggregate views, in dependency order (lowest → highest granularity) */
-  private static readonly KNOWN_AGGREGATES = [
-    'metrics_1min',
-    'metrics_1hour',
-    'metrics_1day',
-  ] as const;
-
-  /** Advisory-lock key prefix; one lock per tenant so replicas do not race. */
-  private static readonly LOCK_PREFIX = 'sensor-continuous-aggregate-bootstrap:';
 
   constructor(
     @InjectDataSource()
@@ -63,30 +52,10 @@ export class ContinuousAggregateService implements OnApplicationBootstrap {
   ) {}
 
   /**
-   * Create the continuous aggregates at boot, once TimescaleDB is present.
-   * Idempotent (every statement is IF NOT EXISTS / if_not_exists) and
-   * advisory-locked so concurrent replicas do not race on creation. Fail-fast:
-   * a genuine DDL error aborts boot rather than starting a service whose
-   * aggregate-tier reads would error — the same discipline the migration runner
-   * applies to schema delivery.
+   * Verify production aggregates, or create them in non-authoritative local
+   * development. Any ownership/missing-view drift aborts production boot.
    */
   async onApplicationBootstrap(): Promise<void> {
-    // Task 4.3 (plan Task 4): the boot SWEEP is retired as the primary
-    // provisioning path — the tenant provisioner's post-step owns cagg
-    // creation for NEW tenants, and existing tenants enter through the
-    // rate-limited RECONCILE queue. The boot pass below is a reconciler
-    // SAFETY NET only: env-gated, off by default at 100-tenant scale
-    // (a 100-schema DDL sweep on every replica restart is minutes of
-    // boot), on for small deployments that have not yet run the
-    // one-shot reconcile.
-    const mode =
-      this.configService.get('SENSOR_CAGG_BOOT_RECONCILE', 'true') === 'true';
-    if (!mode) {
-      this.logger.log(
-        'SENSOR_CAGG_BOOT_RECONCILE=false — cagg provisioning owned by the provisioner post-step',
-      );
-      return;
-    }
     await this.ensureAggregates();
   }
 
@@ -105,9 +74,10 @@ export class ContinuousAggregateService implements OnApplicationBootstrap {
    * tenant is loud rather than quietly skipped.
    */
   async ensureAggregates(): Promise<void> {
+    const authoritative = resolveDbMigrateAuthoritativeFromConfig(this.configService);
     const enabled =
       this.configService.get('SENSOR_CONTINUOUS_AGGREGATES_ENABLED', 'true') === 'true';
-    if (!enabled) {
+    if (!enabled && !authoritative) {
       this.logger.log('Continuous-aggregate bootstrap disabled by config — skipping');
       return;
     }
@@ -133,23 +103,26 @@ export class ContinuousAggregateService implements OnApplicationBootstrap {
       let ensured = 0;
       for (const schema of tenantSchemas) {
         try {
-          if (await this.ensureAggregatesForTenant(queryRunner, schema)) {
+          if (authoritative) {
+            await this.verifyAggregateAuthorityForTenant(queryRunner, schema);
+            ensured++;
+          } else if (await this.ensureAggregatesForTenant(queryRunner, schema)) {
             ensured++;
           }
         } catch (error) {
-          failures.push(
-            `${schema}: ${error instanceof Error ? error.message : String(error)}`,
-          );
+          failures.push(`${schema}: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
 
       this.logger.log(
-        `Continuous aggregates ensured for ${ensured}/${tenantSchemas.length} tenant schema(s)`,
+        `Continuous aggregates ${authoritative ? 'verified' : 'ensured'} for ` +
+          `${ensured}/${tenantSchemas.length} tenant schema(s)`,
       );
 
       if (failures.length > 0) {
         throw new Error(
-          `Continuous-aggregate bootstrap failed for ${failures.length} tenant(s): ` +
+          `Continuous-aggregate ${authoritative ? 'authority verification' : 'bootstrap'} ` +
+            `failed for ${failures.length} tenant(s): ` +
             failures.join('; '),
         );
       }
@@ -172,7 +145,7 @@ export class ContinuousAggregateService implements OnApplicationBootstrap {
     tenantSchema: string,
   ): Promise<boolean> {
     const schema = validateTenantSchemaName(tenantSchema);
-    const lockKey = `${ContinuousAggregateService.LOCK_PREFIX}${schema}`;
+    const lockKey = `${SENSOR_CONTINUOUS_AGGREGATE_LOCK_PREFIX}${schema}`;
 
     const lockRows: Array<{ locked: boolean }> = await queryRunner.query(
       `SELECT pg_try_advisory_lock(hashtext($1)) AS locked`,
@@ -185,9 +158,8 @@ export class ContinuousAggregateService implements OnApplicationBootstrap {
 
     try {
       await queryRunner.query(`SET search_path TO "${schema}", public`);
-      const schemaRows: Array<{ current_schema: string }> = await queryRunner.query(
-        `SELECT current_schema()`,
-      );
+      const schemaRows: Array<{ current_schema: string }> =
+        await queryRunner.query(`SELECT current_schema()`);
       if (schemaRows[0]?.current_schema !== schema) {
         throw new Error(
           `Failed to pin search_path to "${schema}" for continuous-aggregate creation ` +
@@ -195,7 +167,7 @@ export class ContinuousAggregateService implements OnApplicationBootstrap {
         );
       }
 
-      for (const { label, sql } of ContinuousAggregateService.aggregateStatements()) {
+      for (const { label, sql } of SENSOR_CONTINUOUS_AGGREGATE_STATEMENTS) {
         await queryRunner.query(sql);
         this.logger.debug(`Continuous-aggregate bootstrap [${schema}]: ${label}`);
       }
@@ -204,6 +176,44 @@ export class ContinuousAggregateService implements OnApplicationBootstrap {
       await queryRunner.query(`SELECT pg_advisory_unlock(hashtext($1))`, [lockKey]);
       // Leave no tenant pin on a pooled connection the next caller may reuse.
       await queryRunner.query(`SET search_path TO "$user", public`);
+    }
+  }
+
+  /**
+   * Production-side read-only gate. The db-migrate phase must have created all
+   * rollups, assigned the dedicated TimescaleDB worker owner role, and granted
+   * sensor runtime SELECT before this service is allowed to become ready.
+   */
+  private async verifyAggregateAuthorityForTenant(
+    queryRunner: QueryRunner,
+    tenantSchema: string,
+  ): Promise<void> {
+    const schema = validateTenantSchemaName(tenantSchema);
+    const rows: Array<{ view_name: string; view_owner: string }> = await queryRunner.query(
+      `SELECT view_name, view_owner
+         FROM timescaledb_information.continuous_aggregates
+        WHERE view_schema = $1
+          AND view_name = ANY($2::text[])`,
+      [schema, SENSOR_CONTINUOUS_AGGREGATE_NAMES],
+    );
+    const owners = new Map(rows.map((row) => [row.view_name, row.view_owner]));
+    const violations: string[] = [];
+
+    for (const aggregate of SENSOR_CONTINUOUS_AGGREGATE_NAMES) {
+      const owner = owners.get(aggregate);
+      if (owner === undefined) {
+        violations.push(`${aggregate} missing`);
+      } else if (owner !== SENSOR_CONTINUOUS_AGGREGATE_OWNER_ROLE) {
+        violations.push(`${aggregate} owner=${owner}`);
+      }
+    }
+
+    if (violations.length > 0) {
+      throw new Error(`db-migrate continuous-aggregate contract drift: ${violations.join(', ')}`);
+    }
+
+    for (const aggregate of SENSOR_CONTINUOUS_AGGREGATE_NAMES) {
+      await queryRunner.query(`SELECT 1 FROM "${schema}"."${aggregate}" LIMIT 0`);
     }
   }
 
@@ -216,177 +226,32 @@ export class ContinuousAggregateService implements OnApplicationBootstrap {
   }
 
   /**
-   * The ordered continuous-aggregate DDL. Adapted from the proven
-   * 1735900001000-CreateContinuousAggregates migration (which ran in production
-   * before the baseline squash dropped it): schema-qualification is provided by
-   * the pinned search_path, so the view bodies stay verbatim. Every statement is
-   * idempotent (IF NOT EXISTS / if_not_exists) so re-boots are no-ops.
-   */
-  private static aggregateStatements(): ReadonlyArray<{ label: string; sql: string }> {
-    return [
-      {
-        label: 'create metrics_1min',
-        sql: `
-          CREATE MATERIALIZED VIEW IF NOT EXISTS metrics_1min
-          WITH (timescaledb.continuous) AS
-          SELECT
-            time_bucket('1 minute', time) AS bucket,
-            tenant_id, sensor_id, channel_id, tank_id,
-            AVG(value) AS avg_value,
-            MIN(value) AS min_value,
-            MAX(value) AS max_value,
-            STDDEV(value) AS stddev_value,
-            FIRST(value, time) AS first_value,
-            LAST(value, time) AS last_value,
-            COUNT(*) AS sample_count,
-            COUNT(*) FILTER (WHERE quality_code >= 192) AS good_count,
-            COUNT(*) FILTER (WHERE quality_code < 192) AS bad_count
-          FROM sensor_metrics
-          GROUP BY bucket, tenant_id, sensor_id, channel_id, tank_id
-          WITH NO DATA`,
-      },
-      {
-        label: 'metrics_1min real-time',
-        sql: `ALTER MATERIALIZED VIEW metrics_1min SET (timescaledb.materialized_only = false)`,
-      },
-      {
-        label: 'metrics_1min refresh policy',
-        sql: `SELECT add_continuous_aggregate_policy('metrics_1min',
-          start_offset => INTERVAL '24 hours',
-          end_offset => INTERVAL '1 minute',
-          schedule_interval => INTERVAL '1 minute',
-          if_not_exists => TRUE)`,
-      },
-      {
-        label: 'metrics_1min retention',
-        sql: `SELECT add_retention_policy('metrics_1min', INTERVAL '1 year', if_not_exists => TRUE)`,
-      },
-      {
-        label: 'create metrics_1hour',
-        sql: `
-          CREATE MATERIALIZED VIEW IF NOT EXISTS metrics_1hour
-          WITH (timescaledb.continuous) AS
-          SELECT
-            time_bucket('1 hour', bucket) AS bucket,
-            tenant_id, sensor_id, channel_id, tank_id,
-            AVG(avg_value) AS avg_value,
-            MIN(min_value) AS min_value,
-            MAX(max_value) AS max_value,
-            SQRT(GREATEST(
-              SUM(sample_count * (POWER(COALESCE(stddev_value, 0), 2) + POWER(COALESCE(avg_value, 0), 2)))
-                / NULLIF(SUM(sample_count), 0)
-              - POWER(SUM(sample_count * COALESCE(avg_value, 0)) / NULLIF(SUM(sample_count), 0), 2),
-              0
-            )) AS stddev_value,
-            FIRST(first_value, bucket) AS first_value,
-            LAST(last_value, bucket) AS last_value,
-            SUM(sample_count) AS sample_count,
-            SUM(good_count) AS good_count,
-            SUM(bad_count) AS bad_count,
-            (SUM(good_count)::FLOAT / NULLIF(SUM(sample_count), 0) * 100) AS quality_pct
-          FROM metrics_1min
-          GROUP BY time_bucket('1 hour', bucket), tenant_id, sensor_id, channel_id, tank_id
-          WITH NO DATA`,
-      },
-      {
-        label: 'metrics_1hour real-time',
-        sql: `ALTER MATERIALIZED VIEW metrics_1hour SET (timescaledb.materialized_only = false)`,
-      },
-      {
-        label: 'metrics_1hour refresh policy',
-        sql: `SELECT add_continuous_aggregate_policy('metrics_1hour',
-          start_offset => INTERVAL '7 days',
-          end_offset => INTERVAL '1 hour',
-          schedule_interval => INTERVAL '1 hour',
-          if_not_exists => TRUE)`,
-      },
-      {
-        label: 'metrics_1hour retention',
-        sql: `SELECT add_retention_policy('metrics_1hour', INTERVAL '5 years', if_not_exists => TRUE)`,
-      },
-      {
-        label: 'create metrics_1day',
-        sql: `
-          CREATE MATERIALIZED VIEW IF NOT EXISTS metrics_1day
-          WITH (timescaledb.continuous) AS
-          SELECT
-            time_bucket('1 day', bucket) AS bucket,
-            tenant_id, sensor_id, channel_id, tank_id,
-            AVG(avg_value) AS avg_value,
-            MIN(min_value) AS min_value,
-            MAX(max_value) AS max_value,
-            SQRT(GREATEST(
-              SUM(sample_count * (POWER(COALESCE(stddev_value, 0), 2) + POWER(COALESCE(avg_value, 0), 2)))
-                / NULLIF(SUM(sample_count), 0)
-              - POWER(SUM(sample_count * COALESCE(avg_value, 0)) / NULLIF(SUM(sample_count), 0), 2),
-              0
-            )) AS stddev_value,
-            FIRST(first_value, bucket) AS first_value,
-            LAST(last_value, bucket) AS last_value,
-            SUM(sample_count) AS sample_count,
-            SUM(good_count) AS good_count,
-            SUM(bad_count) AS bad_count,
-            (SUM(good_count)::FLOAT / NULLIF(SUM(sample_count), 0) * 100) AS quality_pct
-          FROM metrics_1hour
-          GROUP BY time_bucket('1 day', bucket), tenant_id, sensor_id, channel_id, tank_id
-          WITH NO DATA`,
-      },
-      {
-        label: 'metrics_1day real-time',
-        sql: `ALTER MATERIALIZED VIEW metrics_1day SET (timescaledb.materialized_only = false)`,
-      },
-      {
-        label: 'metrics_1day refresh policy',
-        sql: `SELECT add_continuous_aggregate_policy('metrics_1day',
-          start_offset => INTERVAL '30 days',
-          end_offset => INTERVAL '1 day',
-          schedule_interval => INTERVAL '1 day',
-          if_not_exists => TRUE)`,
-      },
-      {
-        label: 'metrics_1min sensor index',
-        sql: `CREATE INDEX IF NOT EXISTS "IDX_metrics_1min_sensor_bucket" ON metrics_1min (sensor_id, bucket DESC)`,
-      },
-      {
-        label: 'metrics_1min channel index',
-        sql: `CREATE INDEX IF NOT EXISTS "IDX_metrics_1min_channel_bucket" ON metrics_1min (channel_id, bucket DESC)`,
-      },
-      {
-        label: 'metrics_1hour sensor index',
-        sql: `CREATE INDEX IF NOT EXISTS "IDX_metrics_1hour_sensor_bucket" ON metrics_1hour (sensor_id, bucket DESC)`,
-      },
-      {
-        label: 'metrics_1day sensor index',
-        sql: `CREATE INDEX IF NOT EXISTS "IDX_metrics_1day_sensor_bucket" ON metrics_1day (sensor_id, bucket DESC)`,
-      },
-    ];
-  }
-
-  /**
-   * Task 4.4: the last completed refresh per aggregate FOR ONE TENANT.
+   * The last completed refresh per aggregate FOR ONE TENANT.
    *
-   * The previous signature filtered `view_name = ANY(...)` UNQUALIFIED —
-   * with N tenant schemas the same three view names appear N times and the
-   * dedup Map kept an ARBITRARY tenant's row. Now requires tenantId and
-   * filters `view_schema` through the validated SSoT.
+   * Filters `view_schema` through the validated tenant-schema SSoT: the same
+   * three view names exist once per tenant schema, so an unqualified
+   * `view_name` filter would return N rows per view and a dedup map would keep
+   * an arbitrary tenant's row.
    */
-  async getRefreshStatus(tenantId: string): Promise<Array<{
-    viewName: string;
-    lastRefresh: Date | null;
-    behindBy: string | null;
-  }>> {
+  async getRefreshStatus(tenantId: string): Promise<
+    Array<{
+      viewName: string;
+      lastRefresh: Date | null;
+      behindBy: string | null;
+    }>
+  > {
     const viewSchema = validateTenantSchemaName(getTenantSchemaName(tenantId));
     const rows: Array<{ view_name: string; last_run_started_at: Date | null }> =
       await this.dataSource.query(
         `SELECT view_name, last_run_started_at
          FROM timescaledb_information.continuous_aggregate_stats
          WHERE view_schema = $1 AND view_name = ANY($2)`,
-        [viewSchema, ContinuousAggregateService.KNOWN_AGGREGATES],
+        [viewSchema, SENSOR_CONTINUOUS_AGGREGATE_NAMES],
       );
 
     const byName = new Map(rows.map((r) => [r.view_name, r]));
 
-    return ContinuousAggregateService.KNOWN_AGGREGATES.map((name) => {
+    return SENSOR_CONTINUOUS_AGGREGATE_NAMES.map((name) => {
       const row = byName.get(name);
       const lastRefresh = row?.last_run_started_at ?? null;
       let behindBy: string | null = null;
@@ -399,27 +264,22 @@ export class ContinuousAggregateService implements OnApplicationBootstrap {
   }
 
   /**
-   * Manually trigger a CALL refresh_continuous_aggregate() for the given view
-   * over the specified window.  Use sparingly — prefer the scheduled policy
+   * Manually trigger a CALL refresh_continuous_aggregate() for ONE tenant's
+   * view over the specified window. Use sparingly — prefer the scheduled policy
    * for routine refreshes.
+   *
+   * Refuses a window that starts before the lower tier's retention horizon:
+   * metrics_1min rows older than one year are gone, so refreshing metrics_1hour
+   * over such a window would recompute those buckets from an EMPTY source and
+   * wipe the long-lived materialization.
    */
-  async refresh(
-    tenantId: string,
-    viewName: string,
-    startTime: Date,
-    endTime: Date,
-  ): Promise<void> {
+  async refresh(tenantId: string, viewName: string, startTime: Date, endTime: Date): Promise<void> {
     // Validate against known views to prevent SQL injection
-    const knownViews: readonly string[] = ContinuousAggregateService.KNOWN_AGGREGATES;
+    const knownViews: readonly string[] = SENSOR_CONTINUOUS_AGGREGATE_NAMES;
     if (!knownViews.includes(viewName)) {
       throw new Error(`Unknown continuous aggregate: ${viewName}`);
     }
 
-    // Task 4.4: REFUSING a window older than the lower tier's retention
-    // horizon. metrics_1min rows older than 1 year are GONE; refreshing
-    // metrics_1hour over such a window would recompute those buckets from
-    // an EMPTY 1min view and WIPE the 5-year materialization — the exact
-    // operator "fix" footgun the plan names.
     const horizon = ContinuousAggregateService.REFRESH_HORIZONS[viewName];
     if (horizon !== undefined && startTime < new Date(Date.now() - horizon)) {
       throw new Error(
@@ -434,15 +294,16 @@ export class ContinuousAggregateService implements OnApplicationBootstrap {
       `Manual refresh of ${viewSchema}.${viewName} from ${startTime.toISOString()} to ${endTime.toISOString()}`,
     );
 
-    await this.dataSource.query(
-      `CALL refresh_continuous_aggregate($1, $2, $3)`,
-      [`${viewSchema}.${viewName}`, startTime, endTime],
-    );
+    await this.dataSource.query(`CALL refresh_continuous_aggregate($1, $2, $3)`, [
+      `"${viewSchema}"."${viewName}"`,
+      startTime,
+      endTime,
+    ]);
   }
 
-  /** Lower-tier retention horizons (ms) a refresh may NEVER cross. */
+  /** Lower-tier retention horizons (ms) a manual refresh may never cross. */
   private static readonly REFRESH_HORIZONS: Readonly<Record<string, number>> = {
-    metrics_1hour: 365 * 24 * 60 * 60 * 1000, // 1min retained 1y
-    metrics_1day: 365 * 24 * 60 * 60 * 1000, // 1hour retained 5y, but 1min lineage caps us
+    metrics_1hour: 365 * 24 * 60 * 60 * 1000, // metrics_1min is retained 1 year
+    metrics_1day: 365 * 24 * 60 * 60 * 1000, // metrics_1hour keeps 5 years, but its 1min lineage caps us
   };
 }

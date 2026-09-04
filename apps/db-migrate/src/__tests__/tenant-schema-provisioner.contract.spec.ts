@@ -13,6 +13,7 @@ describe('tenant schema provisioner contract', () => {
     'utf8',
   );
   const worker = readFileSync(resolve(ROOT, 'tenant-schema-provisioner.ts'), 'utf8');
+  const main = readFileSync(resolve(ROOT, 'main.ts'), 'utf8');
   const adminWorkflow = readFileSync(
     resolve(
       ROOT,
@@ -87,6 +88,13 @@ describe('tenant schema provisioner contract', () => {
     expect(worker).toContain('grantTenantMessagingPartitionAuthority');
   });
 
+  it('runs sensor continuous-aggregate DDL only through db-migrate autocommit paths', () => {
+    expect(main).toContain('ensureTenantSensorContinuousAggregateAuthority');
+    expect(main).toContain('Sensor continuous-aggregate authority aligned');
+    expect(worker.match(/await ensureTenantSensorContinuousAggregateAuthority\(/g)).toHaveLength(2);
+    expect(worker).toContain('Sensor continuous-aggregate authority aligned');
+  });
+
   it('prevents duplicate active schema jobs for the same tenant', () => {
     expect(sql).toContain('idx_tenant_schema_jobs_active_tenant');
     expect(sql).toContain('idx_tenant_schema_jobs_active_schema');
@@ -153,7 +161,6 @@ describe('tenant schema provisioner contract', () => {
 
   it('exposes db-migrate tenant rollback as the rollback authority', () => {
     const cli = readFileSync(resolve(ROOT, 'cli-args.ts'), 'utf8');
-    const main = readFileSync(resolve(ROOT, 'main.ts'), 'utf8');
 
     expect(cli).toContain(
       "mode?: 'migrate' | 'tenant-schema-provisioner' | 'tenant-schema-rollback'",

@@ -3356,6 +3356,61 @@ _assert_pipeline_is_well_formed()
 # ---------------------------------------------------------------------
 
 
+# Plan 024 §E is the constructor rule; this is the set it produces. A cycle
+# row is terminal when its event is one of these — used to decide whether a
+# cycle still needs sealing before an exception leaves the driver.
+_TERMINAL_CYCLE_EVENTS: tuple[str, ...] = ("completed", "failed", "aborted", "stopped")
+
+
+def _seal_cycle_on_escape(context: PhaseContext, *, phase: str, exc: BaseException) -> None:
+    """Append the terminal cycles.jsonl row for a cycle whose `propagate`
+    phase is about to leave the driver.
+
+    WHY: a `propagate` phase deliberately has no handler — a discovery or
+    tool-loop failure must never be dressed up as a completed cycle. But the
+    exception also left `run_cycle` between the `started` row and any
+    terminal row, so cycles.jsonl held an unterminated cycle. `integrity
+    verify` then failed on cycle_lifecycle, the entire store was captured as
+    quarantine evidence instead of published to `aria/state`, and the run's
+    real output — every discovery finding and minted request — was thrown
+    away. The refusal cost far more than the phase that failed.
+
+    Sealing keeps the refusal intact (the caller still re-raises) while
+    leaving the ledger verifiable, so the night's work survives.
+
+    Never raises: the exception on its way out is the one that matters, and
+    this must not replace it with a bookkeeping error.
+    """
+    from .ledger import load_declared_jsonl
+
+    try:
+        path = Path(context.base_dir) / "cycles.jsonl"
+        if not path.exists():
+            return
+        rows = [
+            row for row in load_declared_jsonl(path, expected_surface="cycles")
+            if row.get("cycle_id") == context.cycle_id
+        ]
+        # Only seal a cycle this driver actually opened, and only once: a
+        # terminal row written by run_cycle's own abort paths stands.
+        if not any(row.get("event") == "started" for row in rows):
+            return
+        if any(row.get("event") in _TERMINAL_CYCLE_EVENTS for row in rows):
+            return
+        append_declared_jsonl(
+            path,
+            _failed_event(context.cycle_id),
+            expected_surface="cycles",
+        )
+        emit_progress(
+            "cycle_sealed_on_escape",
+            cycle_id=context.cycle_id,
+            reason=f"{phase}:{type(exc).__name__}",
+        )
+    except Exception:
+        return
+
+
 def _run_phase_stage(
     stage: PhaseStage,
     context: PhaseContext,
@@ -3401,7 +3456,14 @@ def _run_phase_stage(
             # No handler by design: if discovery or the tool loop cannot
             # run there is no cycle to report on, and swallowing that
             # would produce a "completed" cycle that did nothing.
-            context.results[phase.name] = _run_phase_with_deadline(phase.runner, context)
+            # The exception still propagates — but the cycle is sealed on
+            # the way out so the store stays verifiable and publishable
+            # instead of being quarantined whole. See _seal_cycle_on_escape.
+            try:
+                context.results[phase.name] = _run_phase_with_deadline(phase.runner, context)
+            except BaseException as exc:
+                _seal_cycle_on_escape(context, phase=phase.name, exc=exc)
+                raise
             context.outcomes[phase.name] = {"outcome": "ran"}
             continue
         try:

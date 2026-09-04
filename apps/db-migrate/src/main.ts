@@ -90,6 +90,7 @@ import { runPlatformBootstrap, resolvePlatformBootstrapSqlDir } from './platform
 import { SCHEMA_REGISTRY, type SchemaPostMigrationHardening } from './schema-registry';
 import { healStrayTenantMigrationJournals } from './stray-tenant-journal-heal';
 import { runTenantSchemaProvisioner } from './tenant-schema-provisioner';
+import { ensureTenantSensorContinuousAggregateAuthority } from './tenant-sensor-continuous-aggregate-authority';
 
 /**
  * Resolve the bundle root so migration globs in schema-registry.ts
@@ -243,10 +244,7 @@ async function runSchemaPostMigrationHardening(
       // pass below. Merging the SSoT ledgers with any config excludes keeps the
       // sweep from ever touching them.
       const ledgerExcludes = getInfrastructureAuditLedgers(schema);
-      const mergedExcludes = [
-        ...(rlsOptions.excludeTables ?? []),
-        ...ledgerExcludes,
-      ];
+      const mergedExcludes = [...(rlsOptions.excludeTables ?? []), ...ledgerExcludes];
       await applyTenantRlsToSchema(queryRunner, {
         schemaOverride: schema,
         logger: helperLogger,
@@ -537,6 +535,47 @@ async function grantTenantLedgerReadAccess(
       alignedTables: privileges.alignedTables,
       absentTables: privileges.absentTables,
     };
+  } finally {
+    await queryRunner.release();
+    await dataSource.destroy();
+  }
+}
+
+/**
+ * Continuous aggregates cannot be created inside the migration runner's
+ * transaction. Run their canonical DDL after fan-out on one autocommit control
+ * connection, then align ownership to the dedicated passwordless TimescaleDB
+ * worker role before any runtime container can start.
+ */
+async function alignTenantSensorContinuousAggregateAuthority(
+  database: RunSchemaOptions['database'],
+  tenantSchemas: readonly string[],
+): Promise<void> {
+  if (tenantSchemas.length === 0) return;
+
+  const dataSource = createControlDataSource(database);
+  await dataSource.initialize();
+  const queryRunner = dataSource.createQueryRunner();
+
+  try {
+    await queryRunner.connect();
+    for (const tenantSchema of tenantSchemas) {
+      const result = await ensureTenantSensorContinuousAggregateAuthority(
+        queryRunner,
+        tenantSchema,
+      );
+      log({
+        level: result.timescalePresent ? 'info' : 'warn',
+        message: result.timescalePresent
+          ? 'Sensor continuous-aggregate authority aligned'
+          : 'TimescaleDB absent — sensor continuous-aggregate authority skipped',
+        context: 'DbMigrateSensorContinuousAggregates',
+        tenantSchema,
+        ownerRole: result.ownerRole,
+        runtimeRole: result.runtimeRole,
+        aggregates: result.aggregates,
+      });
+    }
   } finally {
     await queryRunner.release();
     await dataSource.destroy();
@@ -1411,6 +1450,24 @@ async function main(): Promise<number> {
       }
     }
 
+    // ── Phase 1.3 — Non-transactional TimescaleDB aggregate DDL ────────────
+    // The sensor migration chain creates each tenant's hypertable, but
+    // TimescaleDB continuous aggregates must be created outside its explicit
+    // transaction. db-migrate is the sole production DDL authority; a failure
+    // here blocks the deploy before sensor runtime starts.
+    try {
+      await alignTenantSensorContinuousAggregateAuthority(database, tenantSchemas);
+    } catch (err: unknown) {
+      log({
+        level: 'error',
+        message: 'Sensor continuous-aggregate authority alignment failed — aborting deploy',
+        context: 'DbMigrateSensorContinuousAggregates',
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+      return 1;
+    }
+
     // ── Phase 1.4 — Stray tenant-journal self-heal (ORPHAN-MEDIUM-386) ──────
     // Drops `migrations_<svc>` journals inside tenant schemas whose source
     // schema is NOT tenant-aware (journal bookkeeping the retired runtime
@@ -1478,7 +1535,8 @@ async function main(): Promise<number> {
     } catch (err: unknown) {
       log({
         level: 'warn',
-        message: 'Post-fan-out orphan-type reclamation failed (non-fatal) — orphan type left for a later release',
+        message:
+          'Post-fan-out orphan-type reclamation failed (non-fatal) — orphan type left for a later release',
         context: 'DbMigrateOrphanTypeReclamation',
         error: err instanceof Error ? err.message : String(err),
       });

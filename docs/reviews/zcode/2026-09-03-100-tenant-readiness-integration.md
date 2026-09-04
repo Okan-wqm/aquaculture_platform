@@ -132,6 +132,28 @@ quote; (3) the `SENSOR_READINGS` meter's committed row usage is reconciled again
 entitlement, with drift alerting as the plan's "meter/usage drift" alarm requires; (4) an invariant
 fails if a tenant-provisioning path can reach ACTIVE without a capacity reservation row.
 
+## Reconciled with main's SENSOR-HIGH-104 (db-migrate aggregate authority)
+
+Main landed `99493b58b` + `54258b094` after this branch was cut: the per-tenant continuous-aggregate
+DDL moved to `libs/backend-common/src/database/sensor-continuous-aggregate-definition.ts` (the single
+statement list), db-migrate creates and owner-aligns the rollups on an autocommit connection
+(`tenant-sensor-continuous-aggregate-authority.ts`, called from the fan-out phase and from both
+provisioner job paths), and the sensor-service boot pass is a read-only fail-closed verifier whenever
+db-migrate is authoritative. That is the same ownership move this branch's Task 4 made, done one layer
+lower, so the merge keeps main's structure and drops the branch's duplicates:
+
+- The provisioner's `ensureTenantContinuousAggregates` + `TENANT_CAGG_STATEMENTS` mirror is removed.
+  It ran the same DDL under a different advisory-lock key, with no owner alignment, one loop
+  iteration before main's authority step ran it again.
+- `SENSOR_CAGG_BOOT_RECONCILE` is removed. Main's `SENSOR_CONTINUOUS_AGGREGATES_ENABLED` already
+  gates the non-authoritative creation sweep, and the authoritative verify pass is the SENSOR-HIGH-104
+  contract, which must not be switchable off.
+
+Kept from this branch, now on the shared definition and service: the refresh `start_offset`
+widening (3m/3h/3d to 24h/7d/30d, late-replayed edge telemetry), tenant-addressed
+`getRefreshStatus(tenantId)` / `refresh(tenantId, ...)`, and the lower-tier retention-horizon refusal
+in `refresh`. `continuous-aggregate.service.spec.ts` covers the tenant-addressed paths.
+
 ## Not a debt claim, but recorded: SENSOR-HIGH-097 has no anchor and no registry row
 
 Commit `65753cb90` ("chore(sensor): close the erasure Swiss-cheese holes in the telemetry path")

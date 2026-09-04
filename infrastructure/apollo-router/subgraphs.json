@@ -2,8 +2,8 @@
   "metadata": {
     "generatedFrom": "platform/libs/service-catalog/src/index.ts",
     "generator": "scripts/service-catalog/generate-artifacts.ts",
-    "generatorVersion": 4,
-    "catalogHash": "c0a47ec1834f86eb16889d70ebd442bd71e15a971d2d0a5893f1c83761f2f046",
+    "generatorVersion": 5,
+    "catalogHash": "454985d084eafd6bdbc8a8aecf3b2bdc6de6314d97de8da0a10799141965865f",
     "note": "do not edit by hand"
   },
   "federationVersion": "=2.10.0",

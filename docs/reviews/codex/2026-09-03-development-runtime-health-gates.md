@@ -138,3 +138,18 @@ Resolution: the verifier now transfers `migration_required` into PostgreSQL sess
 `set_config`, alongside the existing release ID and Git SHA values, and reads it into a typed
 PL/pgSQL boolean before evaluating the ledger. The invariant forbids the quoted-body substitution
 form and pins the typed session boundary.
+
+## DEPLOY-HIGH-015
+
+The scheduled `Deploy Capacity Maintenance` run
+[`33836033913`](https://github.com/Okan-wqm/aquaculture_platform/actions/runs/33836033913)
+failed before its capacity gate ran. Its SSH script fetched the persistent `/var/aqua-saas` Git
+repository and then invoked `git checkout -f` in that directory. The droplet intentionally keeps
+that repository bare, so Git rejected the operation with `fatal: this operation must be run in a
+work tree`; no capacity report or safe image GC executed.
+
+Resolution: capacity maintenance now reads the canonical checkout materializer directly from the
+selected commit with `git show`, pins the deploy-owned worktree to that exact SHA, and runs the
+capacity command there. The persistent source repository remains an object/ref store only. The
+isolated-checkout invariant covers this third SSH consumer and forbids direct `git checkout` from
+returning to the maintenance workflow.

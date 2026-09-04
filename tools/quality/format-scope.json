@@ -43880,6 +43880,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/admin-panel-paginated-consumer.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/admin-route-contract-ci.spec.ts",
       "prettier_managed": true
     },

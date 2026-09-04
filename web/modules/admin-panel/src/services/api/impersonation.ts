@@ -54,8 +54,9 @@ export const impersonationApi = {
 
   // Sessions
   // Query params mirror backend QuerySessionsDto (superAdminId/targetTenantId,
-  // not adminId/tenantId); the list envelope is { items, total } — the backend
-  // does not wrap sessions in the page/limit/totalPages shape.
+  // not adminId/tenantId). The response is the canonical envelope:
+  // `ImpersonationService.querySessions` mints it through
+  // `createStandardPaginatedResult`, so the page numerics are real.
   getSessions: (
     params?: {
       superAdminId?: string;

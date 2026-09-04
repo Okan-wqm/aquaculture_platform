@@ -4,6 +4,8 @@
 
 import { apiFetch, buildQueryString } from '../http-client';
 import type {
+  PaginatedResult,
+  PaginationParams,
   PlanDefinition,
   PlanTier,
   DiscountCode,
@@ -61,8 +63,12 @@ export const billingApi = {
     apiFetch<{ users: number; farms: number; sensors: number; storage: number; apiCallsPerDay: number }>(`/billing/plans/defaults/${tier}`),
 
   // Discount Codes
-  getDiscountCodes: (options?: { isActive?: boolean; includeExpired?: boolean }) =>
-    apiFetch<DiscountCode[]>(`/billing/discounts?${buildQueryString(options || {})}`),
+  // Paginated: `DiscountCodeService.findAll` returns `createStandardPaginatedResult`,
+  // so this arrives as the envelope, not an array. Declaring it `DiscountCode[]`
+  // is what let `DiscountCodePage` "guard" the envelope with
+  // `Array.isArray(...) ? ... : []` and render an empty table forever.
+  getDiscountCodes: (options?: { isActive?: boolean; includeExpired?: boolean } & PaginationParams) =>
+    apiFetch<PaginatedResult<DiscountCode>>(`/billing/discounts?${buildQueryString(options || {})}`),
   getDiscountStats: () => apiFetch<DiscountStats>('/billing/discounts/stats'),
   getDiscountById: (id: string) => apiFetch<DiscountCode>(`/billing/discounts/${id}`),
   getDiscountByCode: (code: string) => apiFetch<{ found: boolean; discount?: DiscountCode }>(`/billing/discounts/code/${code}`),

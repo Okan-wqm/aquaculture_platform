@@ -136,15 +136,12 @@ async function fetchDataRequests(params: {
   if (params.searchQuery) apiParams.searchQuery = params.searchQuery;
 
   const result = await securityApi.getDataRequests(apiParams);
-  const data = Array.isArray(result?.data)
-    ? result.data.map(mapDataSubjectRequest)
-    : [];
-  const total = typeof result?.total === 'number' ? result.total : data.length;
+  const data = result.data.map(mapDataSubjectRequest);
   return {
     data,
-    total,
+    total: result.total,
     stats: {
-      totalRequests: total,
+      totalRequests: result.total,
       pendingRequests: 0,
       inProgressRequests: 0,
       completedRequests: 0,

@@ -788,11 +788,19 @@ export class GlobalSettingsService implements OnModuleInit {
     search?: string;
     page?: number;
     limit?: number;
-    // Return type is `never[]`: the global_configs surface is retired, so this
-    // always yields an empty page (the GlobalConfig entity no longer exists).
-  }): { items: never[]; total: number } {
-    void params;
-    return { items: [], total: 0 };
+    // The global_configs surface is retired (the GlobalConfig entity no longer
+    // exists), so this always yields an EMPTY page — but an empty page is still
+    // a page. The hand-built `{ items, total }` it used to return keyed on
+    // `items` like the canonical envelope while carrying none of the numerics,
+    // so `isStandardPaginatedResult` did not recognise it, the response
+    // interceptor did not lift it, and `GET /system/settings/configs` shipped a
+    // shape one level off from what any consumer's `PaginatedResult<T>` says.
+    // Minting through the authority costs nothing and makes the retired surface
+    // answer in the only page contract there is.
+  }): PaginationResultV1<never> {
+    const page = params.page ?? 1;
+    const limit = params.limit ?? 20;
+    return createStandardPaginatedResult<never>([], 0, page, limit);
   }
 
   bulkUpdateConfigs(updates: Array<{ key: string; value: unknown }>, updatedBy: string): never {

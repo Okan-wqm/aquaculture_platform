@@ -320,9 +320,24 @@ export class Baseline1800000000000 implements MigrationInterface {
         await queryRunner.query(`ALTER TABLE "device_group_members" ADD CONSTRAINT "FK_5339f23f8c7738cb721325e9fc6" FOREIGN KEY ("group_id") REFERENCES "device_groups"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
 
         // ── Faz 3.5 hand-author addition — RLS canonical predicate ──
+        //
+        // `sensor_metrics` is excluded HERE and armed by the schema-wide
+        // post-migration hardening pass instead (TENANT_SCHEMA_POST_MIGRATION_HARDENING,
+        // `tenantRls: true`), which runs after this chain rather than inside it.
+        //
+        // TimescaleDB refuses `cannot create continuous aggregate on hypertable
+        // with row security`, and the asymmetry is its own: arming row security on
+        // a hypertable that already carries an aggregate is allowed, creating the
+        // aggregate afterwards is not. This call armed the table from inside the
+        // very chain that creates it, so a tenant replay reached
+        // `ensureTenantSensorContinuousAggregateAuthority` with no window left and
+        // every new tenant stopped after the sensor schema. Excluding the one
+        // table restores that window; the hardening pass closes it again
+        // immediately afterwards, so the end state is unchanged and only the
+        // order moves (INFRA-HIGH-147).
         await applyTenantRlsToSchema(queryRunner, {
             tenantIdColumns: ['tenant_id', 'tenantId'],
-            excludeTables: [],
+            excludeTables: ['sensor_metrics'],
         });
 
         // ── Faz 3.5 hand-author addition — audit immutability triggers ──

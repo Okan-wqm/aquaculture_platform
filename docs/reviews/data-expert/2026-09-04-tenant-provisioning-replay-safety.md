@@ -232,17 +232,27 @@ cannot create continuous aggregate on hypertable with row security
 
 TimescaleDB's restriction is asymmetric: enabling row security on a hypertable
 that already carries a continuous aggregate is allowed, creating the aggregate
-afterwards is not. The provisioner ran the aggregate authority AFTER the
-per-service loop, and that loop's `postMigrationHardening` arms RLS on
-`sensor_metrics` — so by the time the rollups were created, the window had
-closed. The retired `CREATE TABLE LIKE` path never hit this because it cloned
-neither hypertables nor RLS.
+afterwards is not. The retired `CREATE TABLE LIKE` path never hit this because
+it cloned neither hypertables nor RLS.
 
-**Fixed for PROVISION** by creating the aggregates inside the loop, between the
-sensor migrations and the sensor hardening — the one window in which the
-hypertable exists and is not yet RLS-armed — with a fail-closed check that the
-sensor registry entry was actually seen, so losing it cannot silently produce an
-aggregate-less tenant.
+Two things had to move, and the first attempt got only one of them:
+
+1. The provisioner ran the aggregate authority AFTER the per-service loop, while
+   that loop's `postMigrationHardening` arms RLS schema-wide. Fixed by creating
+   the aggregates inside the loop, between the sensor migrations and the sensor
+   hardening, with a fail-closed check that the sensor registry entry was
+   actually seen so losing it cannot silently produce an aggregate-less tenant.
+2. That alone changed nothing, because the RLS was never coming from the
+   hardening pass at all. The sensor **Baseline** calls
+   `applyTenantRlsToSchema(queryRunner, { excludeTables: [] })` in the same
+   migration chain that creates `sensor_metrics` — so a tenant replay armed the
+   table from inside the chain and reached the authority with no window left. It
+   is invisible from the provisioner: the arming happens 15 migrations earlier,
+   in a hand-authored block, in another service's file.
+
+`sensor_metrics` is now excluded from the Baseline's RLS pass and armed by the
+schema-wide hardening instead. The end state is identical — the table carries
+RLS either way — and only the order moves, into the window step 1 opened.
 
 **NOT fixed for RECONCILE** (owner @okan-wqm, deadline 2026-10-15).
 `RECONCILE_EXISTING_SCHEMA` runs against a schema that is already hardened, so

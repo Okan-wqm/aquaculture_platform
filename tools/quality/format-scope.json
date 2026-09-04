@@ -4961,6 +4961,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/migrations/1819000000000-AddTenantAuthSecurityPolicy.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/migrations/support/concurrent-index.spec.ts",
       "prettier_managed": true
     },
@@ -5040,6 +5046,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/__tests__/jwks.controller.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/__tests__/mfa-setup-token.spec.ts",
       "prettier_managed": true
     },
     {
@@ -5579,6 +5591,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/tenant/__tests__/tenant-security-policy.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/tenant/__tests__/tenant-update-consolidation.spec.ts",
       "prettier_managed": true
     },
@@ -5622,6 +5640,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/auth-service/src/modules/tenant/dto/tenant-admin.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/tenant/dto/tenant-policy.dto.ts",
       "prettier_managed": true
     },
     {
@@ -28361,6 +28385,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/adr/046-tenant-auth-security-policy-ssot.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/adr/2026-04-30-apollo-router-self-hosted-static-supergraph.md",
       "prettier_managed": true
     },
@@ -33598,6 +33628,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/admin-expert/2026-05-21-platform-admin-shared-ui-singleton.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/admin-expert/2026-07-12-admin-panels-enterprise.md",
       "prettier_managed": true
     },
     {

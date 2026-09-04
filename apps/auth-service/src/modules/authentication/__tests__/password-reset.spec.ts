@@ -253,6 +253,13 @@ describe('AuthenticationService - Password Reset Flow', () => {
           useValue: mockUserModuleAssignmentRepository,
         },
         { provide: getRepositoryToken(Tenant), useValue: mockTenantRepository },
+        // ADR-046: the MFA-enrollment gate counts the user's registered
+        // WebAuthn credentials, so AuthenticationService injects the repo.
+        // Zero credentials keeps these suites on their existing paths.
+        {
+          provide: getRepositoryToken(WebAuthnCredential),
+          useValue: { count: jest.fn().mockResolvedValue(0) },
+        },
         { provide: DataSource, useValue: mockDataSource },
         { provide: JwtService, useValue: mockJwtService },
         { provide: ConfigService, useValue: mockConfigService },

@@ -1,0 +1,856 @@
+<!-- markdownlint-disable MD011 MD013 MD029 MD033 MD034 MD037 MD038 MD049 MD052 -->
+<!-- WHY: imported verbatim FE<->BE<->DB audit evidence. The quoted TypeScript is
+     what makes a finding checkable, and markdown's inline rules cannot tell it
+     from markup: `Record<string, T>` and `[P]['req']` read as inline HTML and a
+     reference link, `(typeof X)[number]` as a reversed link, snake_case
+     fragments as emphasis, a template literal as a code span with spaces, an
+     internal service URL as a bare URL, and an inline "1)" enumeration as an
+     ordered list that starts at 2. Long lines are identifier-dense finding
+     titles and evidence paths that cannot wrap without breaking the reference.
+     Reflowing them would corrupt the record this file exists to preserve --
+     the same rationale scripts/ci/markdownlint-changed.mjs states for its
+     changed-line filter. Structure is enforced by the parsers instead:
+     tools/gates/finding-registry.ts and tools/gates/commit-msg-validator.ts. -->
+
+# Cross-cutting: Routing & Navigation — findings
+
+> Part of [Admin Panel E2E Audit](../README.md). IDs `APA-xxx` are stable; severity shown is the
+> verified severity where status is CONFIRMED, else the auditor's grade pending verification.
+
+## Cross-cutting findings
+
+### APA-251 [CRITICAL] Feature-toggle switch (FeatureTogglesPage primary action) calls a route that does not exist on the backend
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** systemSettingsApi.toggleFeature() sends POST
+  /api/system/settings/feature-toggles/:id/toggle. After the droplet nginx rewrite this reaches
+  admin-api as /api/v1/system/settings/feature-toggles/:id/toggle, but GlobalSettingsController
+  ('system/settings') declares only feature-toggles (POST create, GET list), feature-toggles/:id
+  (GET/PUT/DELETE), feature-toggles/evaluate and feature-toggles/refresh-cache — there is no
+  ':id/toggle' route, so Nest returns 404 on every click. FeatureTogglesPage.tsx:108 wires this
+  directly to the on/off switch, i.e. the page's primary flow can never succeed against the real
+  API. Related dead route on the same controller: getFeatureToggleByKey() GETs
+  feature-toggles/key/:key which also has no backend match.
+- **Evidence:**
+  - `web/modules/admin-panel/src/services/api/settings.ts:95-96 (toggleFeature POST `/system/settings/feature-toggles/${id}/toggle`)`
+  - `web/modules/admin-panel/src/pages/system/FeatureTogglesPage.tsx:108 (await systemSettingsApi.toggleFeature(toggle.id, newEnabled))`
+  - `apps/admin-api-service/src/system-management/controllers/global-settings.controller.ts:434-491 (feature-toggle routes: no ':id/toggle', no 'key/:key')`
+  - `web/modules/admin-panel/src/services/api/settings.ts:88 (getFeatureToggleByKey `/system/settings/feature-toggles/key/${key}`)`
+- **Verification:** Confirmed end-to-end. FE toggleFeature
+  (web/modules/admin-panel/src/services/api/settings.ts:95-96) POSTs
+  /system/settings/feature-toggles/:id/toggle; via http-client base '/api' + nginx rewrite it
+  reaches admin-api as /api/v1/system/settings/feature-toggles/:id/toggle. GlobalSettingsController
+  ('system/settings', registered via SystemManagementModule at app.module.ts:231) declares POST only
+  for feature-toggles, feature-toggles/evaluate, feature-toggles/refresh-cache — no ':id/toggle'
+  anywhere in the service (grep-verified), so Nest 404s every call. The page is live: Module.tsx:162
+  routes system/features -> FeatureTogglesPage, whose per-row Enable/Disable button (line 420 ->
+  handleToggleStatus:105-120 -> toggleFeature at :108) is the page's primary action; the Edit modal
+  does NOT expose status, so there is no UI path at all to flip a flag. getFeatureToggleByKey
+  (settings.ts:88, GET feature-toggles/key/:key) also has no backend match (3 segments cannot match
+  GET feature-toggles/:id) but has zero consumers — dead code. Decisive additional evidence: both
+  phantom routes are knowingly allowlisted in the KNOWN_MISMATCHES list of
+  apps/admin-api-service/src/**tests**/contract-validation.spec.ts:627-639, whose reason string even
+  states the correct contract ('Backend uses PUT /system/settings/feature-toggles/:id with status
+  field') — the detection gate caught the drift and was neutralized instead of the contract being
+  fixed. CRITICAL stands: a SUPER_ADMIN page whose sole purpose (flipping feature flags, the
+  platform's incident-response lever) fails 100% of the time with no UI workaround.
+- **Root cause:** The FE->BE contract link broke at authoring time: the hand-written admin-panel API
+  layer (services/api/settings.ts, hand-typed, no codegen) declared an imagined REST surface (POST
+  :id/toggle, GET key/:key) that GlobalSettingsController never implemented — the backend's
+  canonical mutation is PUT /system/settings/feature-toggles/:id carrying the 4-state status enum.
+  The drift then persisted because the purpose-built detection gate (contract-validation.spec.ts,
+  which statically extracts apiFetch URLs and matches them against controller decorators) flagged
+  both routes and they were added to its KNOWN*MISMATCHES allowlist instead of reconciling the
+  contract. This is an instance of the systemic class 'FE route with no backend, masked by
+  contract-test allowlisting' — the same KNOWN_MISMATCHES list also hides the dead
+  /system/performance/*, /system/errors/\_ and /system/jobs/\* surfaces consumed by other admin
+  pages.
+- **Fix design:** Conform the FE to the backend's canonical mutation rather than adding a duplicate
+  write path: the status enum has 4 states (enabled/disabled/percentage_rollout/scheduled), so a
+  lossy binary POST :id/toggle endpoint would be a second, state-stomping mutation route — the
+  architecturally correct contract is the existing PUT :id with an explicit status transition. (1)
+  settings.ts: reimplement toggleFeature(id, enabled) as PUT
+  `/system/settings/feature-toggles/${id}` with body { status: enabled ? 'enabled' : 'disabled' }
+  typed as the FE FeatureToggleStatus union (which already exactly mirrors the backend enum); keep
+  the (id, enabled) signature so FeatureTogglesPage.tsx needs no change. Delete the dead
+  getFeatureToggleByKey export (zero consumers); any future by-key read must be added on both sides
+  in one commit, which the contract spec then enforces. (2) global-settings.controller.ts: tighten
+  UpdateFeatureToggleDto.status and CreateFeatureToggleDto.status/scope from bare @IsString() to
+  @IsEnum(FeatureToggleStatus)/@IsEnum(FeatureToggleScope) so an out-of-vocabulary status can never
+  reach the service's Object.assign — tier-1, wrong behavior impossible at the validation boundary.
+  (3) Pattern-level application: DELETE the two KNOWN_MISMATCHES entries
+  (contract-validation.spec.ts:627-639). With them gone the existing static-analysis gate
+  permanently enforces this contract — re-introducing either phantom route fails CI. Systemic note
+  for the audit roll-up: every remaining KNOWN_MISMATCHES entry is a live defect of this same class
+  (the performance/errors/jobs blocks correspond to entire dead admin pages) and each must carry a
+  tracked finding ID and burn-down owner; those are separate findings in this audit, not silently
+  absorbed here.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/api/settings.ts`
+  - `apps/admin-api-service/src/system-management/controllers/global-settings.controller.ts`
+  - `apps/admin-api-service/src/__tests__/contract-validation.spec.ts`
+  - `apps/admin-api-service/src/system-management/__tests__/global-settings-feature-toggles.spec.ts`
+- **Proof of fix:** Primary invariant:
+  apps/admin-api-service/src/**tests**/contract-validation.spec.ts with the two KNOWN_MISMATCHES
+  entries removed — it fails against the current FE (proving detection) and passes once
+  toggleFeature uses PUT :id and getFeatureToggleByKey is deleted (proving every FE feature-toggle
+  call now has a real backend route); this gate runs in CI on every PR. Add
+  apps/admin-api-service/src/system-management/**tests**/global-settings-feature-toggles.spec.ts
+  (supertest Nest testing app with the platform ValidationPipe
+  whitelist:true/forbidNonWhitelisted:true): (a) PUT /system/settings/feature-toggles/:id with
+  {status:'enabled'} returns 200 and transitions status; (b) {status:'bogus'} returns 400 via
+  @IsEnum; (c) POST /system/settings/feature-toggles/:id/toggle returns 404, pinning the phantom
+  route dead. npm run type-check confirms the FE FeatureToggleStatus union stays aligned with the
+  body type; nx affected --target=test green.
+- **Effort:** S
+
+### APA-252 [HIGH] docker-compose.prod.yml stack routes /api/ to gateway-api, which has no admin proxy — entire admin panel REST surface 404s on that stack
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** nginx.prod.conf 'location /api/' proxies to upstream 'gateway' with no path rewrite.
+  gateway-api's only REST controllers are 'api' (csp-report only), 'api/marine', 'api/v1/sensors',
+  'upload', 'health', 'metrics' — nothing handles /api/users, /api/analytics/_, /api/billing/_, etc.
+  The ServiceProxyService that contains an admin-api-service config is dead code: it is never
+  registered in any module and has zero consumers in gateway-api/src; even if wired, its config uses
+  stripPrefix '/api' with no addPrefix, so it would forward '/users' to a service whose routes live
+  under '/api/v1/users' (contrast auth-service which correctly sets addPrefix '/api/v1'). Only the
+  droplet stack works: droplet.conf's /api/ catch-all rewrites ^/api/(.\*) to /api/v1/$1 and proxies
+  directly to admin-api-service:3000, which matches admin-api's bootstrap (globalPrefix default
+  'api/v1' + URI versioning defaultVersion ['1', VERSION_NEUTRAL]). The /api/health/ carve-out
+  (rewrite to /health/, matching the prefix-excluded HealthController) and the /api/upload/,
+  /api/v2/ai/, /api/csp-report carve-outs do not collide with any admin-panel path prefix.
+- **Evidence:**
+  - `infrastructure/docker/nginx/nginx.prod.conf:213-216 (location /api/ -> proxy_pass http://gateway, no rewrite)`
+  - `docker-compose.prod.yml:751 (mounts nginx.prod.conf)`
+  - `apps/gateway-api/src/proxy/service-proxy.service.ts:942-949 (adminApiService config: stripPrefix '/api', no addPrefix)`
+  - `apps/gateway-api/src/proxy/service-proxy.service.ts:896-904 (authService has addPrefix '/api/v1' — admin config omits it)`
+  - `grep 'ServiceProxyService' across apps/gateway-api/src: zero references outside its own file (not provided in any module)`
+  - `apps/gateway-api/src/csp-report/csp-report.controller.ts:63 (@Controller('api') serves only POST csp-report)`
+  - `infrastructure/nginx/droplet.conf:377-394 (working path: rewrite ^/api/(.*) /api/v1/$1 -> admin-api-service:3000)`
+  - `infrastructure/nginx/droplet.conf:305-319 (/api/health/ carve-out -> /health/ unversioned)`
+  - `apps/admin-api-service/src/main.ts:16-19 (URI versioning, defaultVersion ['1', VERSION_NEUTRAL])`
+  - `libs/backend-common/src/bootstrap/create-service-app.ts:610,807-810 (globalPrefix default 'api/v1'), 251-255 (health/metrics excluded)`
+- **Verification:** Adversarial verification confirms every link.
+  infrastructure/docker/nginx/nginx.prod.conf:213-228 proxies 'location /api/' verbatim to upstream
+  gateway (gateway-api:3000); the file contains zero rewrite directives and zero references to
+  admin-api-service, and nginx.conf includes only conf.d/_.conf, of which
+  docker-compose.prod.yml:751 mounts nginx.prod.conf as the sole default.conf. gateway-api's only
+  controllers are api/marine, api/v1/sensors, api (csp-report POST), upload, health, metrics — and
+  since gateway-api's main.ts passes neither globalPrefix nor prefixExclusions to bootstrapService,
+  createServiceApp applies the default setGlobalPrefix('api/v1') (create-service-app.ts:610,807), so
+  its REST routes actually live under /api/v1/... (e.g. /api/v1/api/marine); nothing can match
+  /api/users, /api/analytics/_, /api/billing/_, etc. ServiceProxyService is verified dead: grep
+  across apps/gateway-api/src excluding **tests** shows it imported nowhere and provided by no
+  module, and its adminApiService config (service-proxy.service.ts:942-949) has stripPrefix '/api'
+  with no addPrefix (contrast authService:903), so it would misroute even if wired. The stack is
+  live, not stale: docker-compose.prod.yml ships the admin-panel remote (line 712, nginx
+  /mf/admin/ + /remotes/admin-panel/) and admin-api-service (line 584), is required at repo root by
+  tests/invariants/repo-hygiene-invariants.spec.ts, referenced by .github/workflows/ci-affected.yml,
+  and treated as part of the production compose contract by
+  tests/invariants/admin-billing-runtime-contract.spec.ts:154. All 19 FE API modules go through
+  apiFetch with base '/api' (web/modules/admin-panel/src/services/http-client.ts:23), so on the prod
+  stack every admin REST call 404s inside gateway-api. Only droplet.conf:377-394 (rewrite ^/api/(._)
+  /api/v1/$1 -> admin-api-service:3000) works. Severity stays HIGH not CRITICAL: total functional
+  outage of the admin surface on a maintained stack, but the documented primary production path
+  (docker-compose.droplet.yml per ADR-013) works and there is no security or data-integrity impact.
+- **Root cause:** The edge-routing link (browser -> nginx -> backend) broke. The FE->BE path
+  contract '/api/_ must be rewritten to admin-api-service /api/v1/_' exists only in
+  infrastructure/nginx/droplet.conf; it is a duplicated, hand-maintained contract with no single
+  source of truth and no parity gate. nginx.prod.conf still encodes the abandoned
+  gateway-as-REST-proxy architecture (all /api/ -> gateway-api), which was never completed:
+  ServiceProxyService was never registered in any gateway module, and its admin config was left
+  half-written (stripPrefix '/api', no addPrefix '/api/v1'). When the platform migrated to the
+  edge-rewrite design, only droplet.conf was updated; the dead ServiceProxyService code masked the
+  gap by making gateway-api look like it handles REST proxying, and no invariant compares the
+  routing contracts of the two production stacks. This is an instance of the systemic class
+  'duplicated deployment-config contract with no SSoT' (same family as config-table-nobody-reads).
+- **Fix design:** Pattern-level fix (tier 2 make-automatic + tier 3 make-detectable), grounded in
+  current code. (1) SSoT extraction: create infrastructure/nginx/includes/api-routing.conf
+  containing the complete /api edge contract currently inlined in droplet.conf:305-394 — the
+  /api/health/ carve-out (rewrite ^/api/(._) /$1 -> admin-api-service:3000, matching admin-api's
+  prefix-excluded HealthController), the /api/upload/ and /api/v2/ai/ carve-outs ->
+  gateway-api:3000, the exact-match /api/csp-report -> gateway-api:3000, and the /api/ catch-all
+  (rewrite ^/api/(._)
+  /api/v1/$1 -> admin-api-service:3000, matching admin-api's globalPrefix 'api/v1' + VERSION_NEUTRAL bootstrap). Use the variable-based proxy_pass form (set $backend ...; proxy_pass http://$backend:3000)
+  already used by droplet.conf so Docker-DNS resolution works in both stacks (add the docker
+  resolver directive where missing). (2) Both server configs consume it: droplet.conf replaces its
+  inline blocks with 'include /etc/nginx/includes/api-routing.conf'; nginx.prod.conf replaces its
+  /api/ -> gateway block with the same include. docker-compose.prod.yml and
+  docker-compose.droplet.yml mount infrastructure/nginx/includes/ read-only into the nginx
+  container. A stack can no longer drift on the /api contract without editing the shared fragment.
+  (3) Dead-code removal at the source of the confusion: delete apps/gateway-api/src/proxy/
+  (service-proxy.service.ts, circuit-breaker.service.ts, load-balancer.service.ts — grep confirms no
+  consumers outside the directory and its **tests**) so the repo stops encoding the abandoned and
+  incorrect gateway-REST-proxy contract. (4) Tier-3 gate: new invariant spec
+  tests/invariants/edge-api-routing-contract.spec.ts that (a) for every compose file shipping the
+  admin-panel service (docker-compose.prod.yml, docker-compose.droplet.yml), resolves the nginx conf
+  volume mounts and asserts the mounted server config includes the shared api-routing fragment, (b)
+  asserts the fragment itself contains 'rewrite ^/api/(.\*) /api/v1/$1' targeting
+  admin-api-service:3000 plus all four carve-outs, and (c) asserts no mounted nginx conf routes
+  'location /api/' to a gateway upstream. No allowlists, no per-stack exceptions — the contract is
+  asserted structurally from the compose mounts outward.
+- **Files to change:**
+  - `infrastructure/nginx/includes/api-routing.conf`
+  - `infrastructure/docker/nginx/nginx.prod.conf`
+  - `infrastructure/nginx/droplet.conf`
+  - `docker-compose.prod.yml`
+  - `docker-compose.droplet.yml`
+  - `apps/gateway-api/src/proxy/service-proxy.service.ts`
+  - `apps/gateway-api/src/proxy/circuit-breaker.service.ts`
+  - `apps/gateway-api/src/proxy/load-balancer.service.ts`
+  - `apps/gateway-api/src/proxy/__tests__/service-proxy.service.spec.ts`
+  - `apps/gateway-api/src/proxy/__tests__/circuit-breaker.service.spec.ts`
+  - `apps/gateway-api/src/proxy/__tests__/load-balancer.service.spec.ts`
+  - `tests/invariants/edge-api-routing-contract.spec.ts`
+- **Proof of fix:** New invariant spec tests/invariants/edge-api-routing-contract.spec.ts (CI, runs
+  every PR): parses docker-compose.prod.yml and docker-compose.droplet.yml, resolves each stack's
+  mounted nginx server config from its volumes, and asserts (1) the config includes
+  infrastructure/nginx/includes/api-routing.conf, (2) the fragment contains the 'rewrite ^/api/(.\*)
+  /api/v1/$1' -> admin-api-service:3000 catch-all plus the /api/health/, /api/upload/, /api/v2/ai/,
+  /api/csp-report carve-outs, (3) no mounted conf proxies 'location /api/' to the gateway upstream,
+  and (4) apps/gateway-api/src/proxy/ no longer exists. Runtime proof at fix time: docker compose -f
+  docker-compose.prod.yml up nginx + admin-api-service, then curl -s -o /dev/null -w '%{http_code}'
+  https://host/api/users — expect 401 (PlatformAdminGuard rejects the unauthenticated request,
+  proving the route reached admin-api-service) instead of today's 404 from gateway-api.
+- **Effort:** M
+
+### APA-253 [HIGH] No dev-mode route to admin-api: shell vite has no /api proxy and the default/dev compose stacks have no outer nginx
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** http-client.ts and blob-client.ts default ADMIN_API_URL to '/api' (VITE_ADMIN_API_URL
+  is never set anywhere in the repo — no compose env, no vite define). The shell vite dev server
+  (port 3000) declares no server.proxy at all, so /api/\* in `npm run dev:web` hits the vite server
+  and 404s. In docker-compose.yml / docker-compose.dev.yml, localhost:8080 maps straight to the
+  shell container whose nginx (shell.conf) deliberately removed all /api proxying (ARCH-NM-003
+  comment: 'must be routed through the outer nginx reverse proxy'), but neither compose file defines
+  that outer nginx — /api/users falls through to the SPA fallback and returns index.html with HTTP
+  200, which apiFetch then feeds to JSON.parse (http-client.ts:341) producing an unhandled
+  SyntaxError rather than a clean API error. The admin panel's backend surface is unreachable in
+  every non-droplet run mode.
+- **Evidence:**
+  - `web/modules/admin-panel/src/services/http-client.ts:22-23 (ADMIN_API_URL default '/api')`
+  - `web/modules/admin-panel/src/services/blob-client.ts:4`
+  - `web/shell/vite.config.ts:48-60 (server block: port/cors only, no proxy)`
+  - `infrastructure/docker/nginx/shell.conf:5-7 (ARCH-NM-003: backend API proxies removed) and full file: no /api location, 'location /' try_files fallback to /index.html`
+  - `docker-compose.yml:676 (shell 8080:80; no nginx reverse-proxy service in file)`
+  - `docker-compose.dev.yml:536 (same)`
+  - `web/modules/admin-panel/src/services/http-client.ts:336-351 (200 + HTML body -> JSON.parse throws; only fetch TypeErrors are retried/handled)`
+- **Verification:** Verified against current code. (1)
+  web/modules/admin-panel/src/services/http-client.ts:22-23 and blob-client.ts:4 default
+  ADMIN*API_URL to '/api'; grep shows VITE_ADMIN_API_URL is defined nowhere (no compose env, no vite
+  define, absent from .env.example). (2) web/shell/vite.config.ts:48-58 declares
+  port/strictPort/cors only — no server.proxy — so under `npm run dev:web` every /api/* fetch hits
+  the vite server; GETs (fetch Accept _/_) trigger Vite's HTML fallback returning 200 + index.html,
+  which http-client.ts:341 feeds to JSON.parse producing a raw SyntaxError (the catch at :352-365
+  only handles TypeError containing 'fetch'). (3) infrastructure/docker/Dockerfile.shell:14 bakes
+  shell.conf as the container's only conf; shell.conf has no /api location (ARCH-NM-003 comment
+  confirms proxies were deliberately removed) and its SPA fallback + `error_page 404 /index.html`
+  return 200 text/html for /api/users. (4) docker-compose.yml (services enumerated, shell 8080:80 at
+  :661-696) and docker-compose.dev.yml (:523-546) define no outer nginx service. (5) The only /api/
+  -> rewrite /api/v1/ -> admin-api:3000 route is infrastructure/nginx/droplet.conf:377-383. (6) No
+  override mechanism exists: 40-create-runtime-config.sh writes only window.**REMOTE_URLS** and
+  admin-panel never reads config.js; a hand-rolled local .env pointing at :3008 would additionally
+  need backend CORS*ORIGINS because dev wildcard '*' is incompatible with credentials:'include'
+  (create-service-app.ts:356-374). One overstatement corrected: docker-compose.prod.yml
+  (nginx.prod.conf:213 /api/ -> gateway) and docker-compose.staging.yml (reuses droplet.conf) DO
+  have an outer nginx, so it is not 'every non-droplet run mode' — it is every LOCAL mode: vite dev,
+  docker-compose.yml, docker-compose.dev.yml. Corroborating systemic evidence: shell.conf also
+  dropped /mf routing while vite dev remoteBase is http://localhost:8080/mf, so local composes
+  cannot serve federation remotes either. HIGH stands: the documented dev workflow and both local
+  compose stacks cannot reach the admin panel's entire backend surface, and the failure surfaces as
+  an opaque SyntaxError rather than a routable API error.
+- **Root cause:** The FE→edge link of the chain broke. The ARCH-NM-003/ARCH-NM-004 refactor
+  extracted the /api (and /mf) edge-routing contract out of the shell container's nginx into a new
+  'outer nginx' tier, but that tier was instantiated only in the droplet/staging/prod composes.
+  docker-compose.yml, docker-compose.dev.yml, and the shell vite dev server were never given the
+  contract, and no invariant asserts that every runnable stack instantiates it — so the '/api on the
+  web origin routes to admin-api /api/v1' contract silently ceased to exist in all three local run
+  modes. A second contributing defect: http-client.ts and blob-client.ts JSON.parse response bodies
+  without asserting Content-Type, so the routing misconfiguration is masked as an unhandled
+  SyntaxError instead of a detectable transport-contract violation. This is an instance of the
+  systemic class 'edge-routing contract duplicated per environment with no shared source and no test
+  gate' (the three edge confs — droplet.conf, nginx.prod.conf, and the missing local one — already
+  drift: nginx.prod.conf routes /api to gateway without the /api/v1 rewrite).
+- **Fix design:** Pattern-level fix (tier 2 make-automatic + tier 3 make-detectable), applied at the
+  routing-contract source, not per-callsite. (A) Extract the canonical admin API edge route
+  (location /api/ { rewrite ^/api/(._) /api/v1/$1 break; proxy_pass admin-api:3000; } plus the /mf
+  module routes) into a shared nginx include under
+  infrastructure/docker/nginx/snippets/edge-api-routing.conf; make droplet.conf and nginx.prod.conf
+  `include` it (eliminating the existing three-way drift — nginx.prod.conf's divergent /api->gateway
+  route is unified or, if genuinely intentional, must be expressed as an explicit parameter of the
+  snippet, not silent divergence). (B) Add an `nginx` edge service to docker-compose.yml and
+  docker-compose.dev.yml mounting a new edge.local.conf that includes the same snippet and proxies /
+  to shell:80 and /mf/_ to the module containers; the edge publishes 8080 and the shell stops
+  publishing 8080 directly — localhost:8080 then behaves identically to production and ARCH-NM-003
+  (shell serves static only) is preserved. (C) Give `npm run dev:web` the same contract: add
+  server.proxy to web/shell/vite.config.ts — '/api' -> target http://localhost:3008 (admin-api's
+  published port) with rewrite ^/api -> /api/v1 — and add admin-api-service to the dev:backend
+  project list in package.json (it is currently absent, so vite would have nothing to proxy to). No
+  VITE_ADMIN_API_URL hand-wiring; '/api' stays the single FE-side constant in every mode. (D) Make
+  transport misrouting first-class detectable in the clients: in http-client.ts (and blob-client.ts)
+  assert the response Content-Type is application/json before JSON.parse and throw a typed ApiError
+  (code NON_JSON_RESPONSE, carrying status + content-type) otherwise — this is not a defensive shim;
+  it converts a broken edge contract into a structured, actionable error instead of an opaque
+  SyntaxError, and it protects production too (edge maintenance pages, captive portals). (E) Test
+  gate for the systemic class: a new invariant spec parses every runnable compose file plus
+  web/shell/vite.config.ts and asserts each stack that exposes the web origin carries exactly one
+  instantiation of the canonical /api -> /api/v1 -> admin-api route (compose confs via the shared
+  snippet include; vite via the server.proxy entry), so any future run mode added without the edge
+  contract fails CI.
+- **Files to change:**
+  - `infrastructure/docker/nginx/snippets/edge-api-routing.conf`
+  - `infrastructure/docker/nginx/edge.local.conf`
+  - `infrastructure/nginx/droplet.conf`
+  - `infrastructure/docker/nginx/nginx.prod.conf`
+  - `docker-compose.yml`
+  - `docker-compose.dev.yml`
+  - `web/shell/vite.config.ts`
+  - `package.json`
+  - `web/modules/admin-panel/src/services/http-client.ts`
+  - `web/modules/admin-panel/src/services/blob-client.ts`
+  - `tests/invariants/edge-routing-contract.spec.ts`
+- **Proof of fix:** New invariant spec tests/invariants/edge-routing-contract.spec.ts: for each of
+  docker-compose.{yml,dev.yml,prod.yml,staging.yml,droplet.yml}, resolve the mounted edge nginx conf
+  and assert it includes snippets/edge-api-routing.conf (i.e., contains the /api/ -> rewrite
+  ^/api/(.\*) /api/v1/$1 -> admin-api route), assert docker-compose.yml and docker-compose.dev.yml
+  define the edge nginx service publishing 8080 (and shell no longer publishes it), and assert
+  web/shell/vite.config.ts declares a server.proxy '/api' entry with the /api/v1 rewrite. Extend
+  web/modules/admin-panel/src/services/**tests**/http-client.spec.ts with a case: 200 response with
+  Content-Type text/html body '<!doctype html>...' rejects with ApiError code NON_JSON_RESPONSE
+  (never a raw SyntaxError); same for blob-client. Runtime proof: `docker compose up` then
+  `curl -s http://localhost:8080/api/health` returns the admin-api JSON envelope (not index.html);
+  `npm run dev:backend && npm run dev:web` then the admin panel's network tab shows /api/users
+  returning 200 JSON through the vite proxy.
+- **Effort:** M
+
+### APA-254 [HIGH] 19 additional admin-panel API functions target routes that do not exist (or wrong method) on admin-api — phantom endpoints in the contract layer
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** Exhaustive method-by-method match of all 475 apiFetch call sites in services/api/_.ts
+  against all 603 admin-api route declarations (accounting for the nginx /api -> /api/v1 rewrite and
+  VERSION_NEUTRAL mounting) shows 455 resolve to a real controller route; the remainder can never
+  succeed. Besides the UI-wired toggleFeature (separate CRITICAL), the phantom functions are:
+  database.ts:57 resetSchema (POST /database/schemas/:t/reset), :59 optimizeSchema, :61
+  analyzeSchema — SchemaController has no reset/optimize/analyze; database.ts:108 getMigration (GET
+  /database/migrations/:id), :110 createMigration (POST root), :112 runMigration (POST :id/run),
+  :114 rollbackMigration (POST :id/rollback), :115 getPendingMigrations (GET pending) —
+  MigrationController only exposes available/summary/history/batch/_ and tenant/:tenantId/_
+  variants; database.ts:157 scheduleBackup (POST /database/backups/schedule vs GET-only route);
+  database.ts:198 getDatabaseStats, :200 getTableStats, :202 runVacuum, :204 runAnalyze —
+  MonitoringController has none of stats/tables/vacuum/analyze (only analyze-query);
+  security.ts:45-46 getUserActivities (GET /security/activities/user/:userId — controller has
+  sessions/user/:userId but not user/:userId); settings.ts:88 getFeatureToggleByKey; settings.ts:177
+  updateErrorGroupStatus (PUT /system/errors/groups/:id/status — controller has PUT groups/:id and
+  POST resolve/ignore, no /status); settings.ts:204 drainQueue (POST /system/jobs/queues/:name/drain
+  — only pause/resume exist); settings.ts:230 cleanupJobs (POST /system/jobs/cleanup — no such POST
+  route); tenant-config.ts:324-328 testWebhook (POST /settings/tenant/:t/webhooks/:id/test — FE
+  comment itself admits 'no backend endpoint yet'); reports.ts:67-68 getQuickReport (GET against
+  /reports/quick/_ which are POST-only). None of these 19 are currently referenced by any
+  page/component (grep across pages/ and components/ excluding tests found zero call sites), so they
+  are dead-but-exported contract drift; the misleading in-file comments 'Backend endpoint coverage:
+  resetSchema...' (database.ts:55) and 'Backend endpoint coverage: getDatabaseStats...'
+  (database.ts:197) falsely assert coverage and invite future wiring that will 404. All other FE
+  path prefixes map to mounted controllers: /admin/tenants + /tenants (tenant.controller.ts:77,136),
+  /analytics, /reports, /audit-logs, /billing,
+  /database/{schemas,migrations,backups,monitoring,explorer}, /debug, /health (prefix-excluded +
+  nginx carve-out), /impersonation, /messaging, /modules,
+  /security/{activities,audit,compliance,monitoring},
+  /settings{,/email-templates,/ip-access,/tenant},
+  /support/{tickets,messages,announcements,onboarding},
+  /system{,/errors,/settings,/jobs,/performance}, /users. tenants.ts:66-68
+  retryProvisioningOperation resolves correctly to POST tenants/provisioning/:operationId/retry
+  (tenant.controller.ts:117).
+- **Evidence:**
+  - `web/modules/admin-panel/src/services/api/database.ts:55-61,105-115,150-157,197-204`
+  - `apps/admin-api-service/src/database-management/controllers/schema.controller.ts:72-193 (no reset/optimize/analyze)`
+  - `apps/admin-api-service/src/database-management/controllers/migration.controller.ts:98-198 (no root POST, no :id GET/run/rollback, no bare 'pending')`
+  - `apps/admin-api-service/src/database-management/controllers/backup.controller.ts:147 (@Get('schedule') only)`
+  - `apps/admin-api-service/src/database-management/controllers/monitoring.controller.ts:49-125 (no stats/tables/vacuum/analyze)`
+  - `web/modules/admin-panel/src/services/api/security.ts:45-46 vs apps/admin-api-service/src/security/controllers/activity-log.controller.ts:224-329`
+  - `web/modules/admin-panel/src/services/api/settings.ts:88,177,204,230`
+  - `apps/admin-api-service/src/system-management/controllers/error-tracking.controller.ts:276-327 (no groups/:id/status)`
+  - `apps/admin-api-service/src/system-management/controllers/job-queue.controller.ts:301-458 (no queues/:name/drain, no POST cleanup)`
+  - `web/modules/admin-panel/src/services/api/tenant-config.ts:323-328 ('testWebhook kept for backward compat (no backend endpoint yet)') vs apps/admin-api-service/src/settings/controllers/tenant-configuration.controller.ts:214-236`
+  - `web/modules/admin-panel/src/services/api/reports.ts:64-68 vs apps/admin-api-service/src/analytics/controllers/reports.controller.ts:311-329 (quick/* are POST)`
+  - `web/modules/admin-panel/src/services/api/tenants.ts:66-68 vs apps/admin-api-service/src/tenant/tenant.controller.ts:108-117 (retry path verified working)`
+- **Verification:** Verified every cited FE function against its controller. All target routes that
+  genuinely do not exist (NestJS matches by exact segment count + literals): SchemaController has no
+  reset/optimize/analyze (schema.controller.ts:72-197); MigrationController has no root POST, no
+  bare :id GET/run/rollback, no bare 'pending' — only tenant/:tenantId/_ and batch/_
+  (migration.controller.ts:98-211); BackupController exposes only @Get('schedule'), so POST
+  scheduleBackup 404s (backup.controller.ts:147); MonitoringController has none of
+  stats/tables/vacuum/analyze — only analyze-query (monitoring.controller.ts:49-137);
+  ActivityLogController has :id and sessions/user/:userId but no user/:userId
+  (activity-log.controller.ts:259,321); ErrorTrackingController has PUT groups/:id and POST
+  resolve/acknowledge/ignore but no PUT groups/:id/status (error-tracking.controller.ts:276-317);
+  JobQueueController has queues/:name/pause|resume|stats but no /drain, and no bare POST /cleanup —
+  the real op is POST purge-completed (job-queue.controller.ts:330-462); GlobalSettingsController
+  @Controller('system/settings') has feature-toggles/:id but no feature-toggles/key/:key
+  (global-settings.controller.ts:426-489); TenantConfigurationController has webhooks/:webhookId
+  (PUT/DELETE) but no /test (tenant-configuration.controller.ts:214-243); ReportsController quick/\*
+  are all POST, not GET (reports.controller.ts:311-333). tenants.ts retryProvisioningOperation was
+  correctly excluded — the route exists. So the core factual claim holds. TWO adversarial
+  corrections that CHANGE the framing but not the verdict: (1) The auditor's 'zero call sites /
+  dead-but-exported' characterization is FALSE for updateErrorStatus (settings.ts:176-177) — it is
+  wired to handleAcknowledge in ErrorTrackingPage.tsx:158, so PUT /system/errors/groups/:id/status
+  is a LIVE 404 that silently breaks the admin 'Acknowledge error' action (caught by try/catch ->
+  console.error, no user feedback). The other 18 are confirmed dead by grep (zero references outside
+  services/api). (2) The auditor missed that the detection gate ALREADY EXISTS:
+  apps/admin-api-service/src/**tests**/contract-validation.spec.ts statically matches all FE
+  apiFetch calls to backend routes — but it is kept green by a 40+ entry KNOWN_EXCEPTIONS allowlist
+  (lines 399-811) that catalogs every one of these phantom routes with drift-excuse reasons ('not
+  yet implemented in controller', 'different path'), including the live PUT groups/:param/status at
+  line 694-698. getQuickReport (reports.ts:67) is the weakest member: a generic passthrough taking
+  endpoint as an argument, no static path (the spec's renderStaticUrl returns null for it), so it is
+  genuinely just dead code. The finding enumerates ~20 names under a '19' title (off-by-one,
+  immaterial). HIGH stands: a live admin feature is broken and the systemic drift is being actively
+  hidden by an allowlist — exactly the 'allowlisting drift in contract tests' anti-pattern the
+  discipline forbids.
+- **Root cause:** The FE hand-writes API path+method strings in
+  web/modules/admin-panel/src/services/api/_.ts, decoupled from the backend NestJS route
+  declarations (no codegen, no shared contract). Across successive backend refactors the FE strings
+  drifted: migrations moved under tenant/:tenantId/_; error-status folded into PUT groups/:id + POST
+  groups/:id/acknowledge; quick reports became POST; monitoring never grew
+  stats/tables/vacuum/analyze; schema never grew reset/optimize/analyze; webhooks never grew /test.
+  A contract-validation test (apps/admin-api-service/src/**tests**/contract-validation.spec.ts) was
+  built to catch exactly this class — but instead of being kept green by fixing/deleting drift, it
+  was kept green by appending each phantom route to a hand-maintained KNOWN_EXCEPTIONS allowlist
+  (lines 399-811) that re-labels real 404s as acceptable. That allowlist is the broken link: it
+  defeats tier-3 detection and even suppresses a LIVE 404 (PUT /system/errors/groups/:param/status,
+  wired to the Acknowledge button). The misleading 'Backend endpoint coverage:' comments in
+  database.ts:55,197 compound this by asserting coverage that does not exist and inviting future 404
+  wiring. This is a systemic class (FE-route-with-no-backend / wrong-method + defeated contract
+  gate), not 19 isolated typos.
+- **Fix design:** Fix at the pattern level plus the local instances, per the architectural
+  hierarchy. (1) SOURCE reconciliation — the backend controller is the contract SSoT, so each FE
+  function is repointed to a real route or deleted. LIVE bug first: change settings.ts
+  updateErrorStatus from PUT /system/errors/groups/:id/status to the real PUT
+  /system/errors/groups/:id (body {status,assignedTo,notes} — handler updateErrorGroup already
+  routes dto.status through updateErrorGroupStatus), keeping the (id,status) signature so
+  ErrorTrackingPage.tsx needs no change. Delete the 18 dead phantom functions that have zero callers
+  (resetSchema/optimizeSchema/analyzeSchema,
+  getMigration/createMigration/runMigration/rollbackMigration/getPendingMigrations, scheduleBackup,
+  getDatabaseStats/getTableStats/runVacuum/runAnalyze, getUserActivities, getFeatureToggleByKey,
+  drainQueue, cleanupJobs, testWebhook, getQuickReport) — a dead function that lies about backend
+  coverage is worse than an absent one; where a real capability exists under a different shape a
+  future caller may reach for it via the already-correct wrappers
+  (getDatabaseStats->getDatabaseHealth, cleanupJobs->purge-completed,
+  pending/getMigration->getPendingMigrationsForTenant/getTenantMigrationHistory). Remove the false
+  'Backend endpoint coverage:' comments in database.ts:55,197. (2) PATTERN fix / restore the gate
+  (tier 3, the highest tier reachable without a client rewrite): the gate exists; the defect is the
+  KNOWN_EXCEPTIONS escape hatch. Gut it — delete every entry whose reason is a drift excuse ('not
+  implemented', 'different path', 'wrong method'); an exception may only remain for genuinely
+  non-REST URLs (HATEOAS/dynamic/download-URL builders) and must carry a discriminated
+  kind:'dynamic' tag, with a new guard test rejecting any kind:'unimplemented'. After the source
+  fixes, the spec's existing 'should report all known exceptions for review'
+  (expect(unmatched).toEqual([])) and 'should not have method mismatches' assertions go red on ANY
+  residual phantom, making 'suppress by allowlisting' structurally impossible — fixing the route
+  becomes the only way to green. Refresh the intended-to-move snapshot counts (toBe(603), FE range).
+  (3) DURABLE follow-on to note (tier 1/2, effort L, not this session): the admin-api already
+  annotates controllers with @nestjs/swagger, so emit its OpenAPI document at build and generate
+  services/api/\* via openapi-typescript/orval — a phantom path/method then becomes unwritable
+  (tier 1) and FE types stay auto-synced (tier 2), retiring the hand-written client and the matching
+  test entirely.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/api/settings.ts`
+  - `web/modules/admin-panel/src/services/api/database.ts`
+  - `web/modules/admin-panel/src/services/api/security.ts`
+  - `web/modules/admin-panel/src/services/api/tenant-config.ts`
+  - `web/modules/admin-panel/src/services/api/reports.ts`
+  - `apps/admin-api-service/src/__tests__/contract-validation.spec.ts`
+- **Proof of fix:** Repair apps/admin-api-service/src/**tests**/contract-validation.spec.ts as the
+  proving gate: after deleting the drift-excuse KNOWN_EXCEPTIONS entries, its existing 'should
+  report all known exceptions for review' (expect(unmatched).toEqual([])) and 'should not have
+  method mismatches for matched paths' tests fail on every unresolved phantom and pass only once all
+  19 FE functions are reconciled/deleted — this is the concrete proof all 19 are gone. Add
+  it('KNOWN_EXCEPTIONS contains only dynamic/non-REST entries') asserting each remaining exception
+  carries kind:'dynamic' (or the equivalent discriminator) and none carries an
+  'unimplemented/different-path/wrong-method' reason, so the gate cannot be re-defeated by
+  re-allowlisting. Add a targeted regression assertion that updateErrorStatus's emitted endpoint
+  (PUT /system/errors/groups/:param) is NOT in the unmatched set, guarding the live
+  Acknowledge-button path. Update the snapshot expectations (backend toBe(603) if route count
+  changes; frontend count range) to the new reconciled totals.
+- **Effort:** M
+
+### APA-255 [HIGH] 10 mounted admin routes are unreachable: no sidebar entry and no in-page link (7 messaging pages, provisioning settings, billing plans, billing usage)
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** The live navigation is the shell's MainLayout.tsx hand-maintained admin nav list, and
+  it omits: the entire /admin/messaging/\* section (monitoring, tenants, audit, compliance,
+  retention, ai-dashboard, ai-personas — all routed in Module.tsx:141-147),
+  /admin/settings/provisioning (Module.tsx:181; nav shows only General/Email/Integrations at
+  MainLayout.tsx:142-144), /admin/billing/plans (PlanManagementPage, Module.tsx:131) and
+  /admin/billing/usage (UsageDashboardPage, Module.tsx:135) — ADMIN_BILLING_ROUTES in shared-ui
+  contains no 'plans' or 'usage' entry at all (its visible set is billing, module-pricing,
+  subscriptions, invoices, payments, discounts, custom-plans). Grep across admin-panel pages/ and
+  components/ finds zero <Link>/navigate references to any of these paths outside the dead
+  admin-nav-items.tsx copy, so a SUPER_ADMIN can only reach these 10 shipped pages by typing URLs.
+  (BillingReportsPage is fine — reachable via BillingDashboardPage.tsx:486.) No dead links were
+  found in the opposite direction: every path in the live MainLayout admin nav, the visible
+  ADMIN_BILLING_NAV_ITEMS, and AdminDashboard's quickLinks (AdminDashboard.tsx:51-57) resolves to a
+  Module.tsx route.
+- **Evidence:**
+  - `web/shell/src/layouts/MainLayout.tsx:38-145 (live admin nav: no messaging section, settings children = general/email/integrations only)`
+  - `web/modules/admin-panel/src/Module.tsx:131,135,141-147,181 (routes exist)`
+  - `web/shared-ui/src/authz/admin-billing-routes.ts:29-126 (no plans/usage entries; visible filter)`
+  - `grep 'billing/plans|billing/usage|settings/provisioning|/admin/messaging' over web/modules/admin-panel/src/pages+components: only hits are in dead components/admin-nav-items.tsx:180-186,224`
+  - `web/modules/admin-panel/src/pages/BillingDashboardPage.tsx:486 (billing/reports reachable)`
+- **Verification:** Confirmed against the real render tree. web/shell/src/App.tsx wraps `/admin/*`
+  (lines 275-286) inside the parent layout route `<ProtectedRoute><MainLayout/></ProtectedRoute>`
+  (lines 181-187), so a SUPER_ADMIN's live navigation is MainLayout.tsx's `superAdminNavigation`
+  Sidebar. That literal (MainLayout.tsx:40-147) has NO messaging group at all, Settings children =
+  general/email/integrations only (142-144), and Billing children = `adminBillingNavItems` =
+  `ADMIN_BILLING_NAV_ITEMS` (line 38). ADMIN_BILLING_NAV_ITEMS is derived from
+  ADMIN_BILLING_VISIBLE_ROUTES (admin-billing-routes.ts:113-126), and ADMIN_BILLING_ROUTES (27-111)
+  contains NO `plans` or `usage` entry in any form (visible set: overview, module-pricing,
+  subscriptions, invoices, payments, discounts, custom-plans; hidden: invoice-create,
+  custom-plan-create, reports). Meanwhile Module.tsx mounts all 10 routes and they render real pages
+  hitting real backends: billing/plans->PlanManagementPage (131), billing/usage->UsageDashboardPage
+  (135), messaging/{monitoring,tenants,audit,compliance,retention,ai-dashboard,ai-personas}
+  (141-147), settings/provisioning->ProvisioningSettingsPage (181); backend endpoints exist
+  (services/api/billing.ts /billing/plans + /billing/usage; messaging.ts /messaging/\*; settings.ts
+  /system/settings/provisioning-config). A precise grep for
+  `/admin/billing/plans|/admin/billing/usage|/admin/settings/provisioning|/admin/messaging/` across
+  web/modules/admin-panel/src/pages returned ZERO hits — no in-page Link/navigate. The only nav data
+  referencing these paths is components/admin-nav-items.tsx (messaging block 176-188,
+  settings-provisioning 224), which feeds components/AdminLayout.tsx; but grep for `AdminLayout`
+  across web/ finds only its definition + a components/index.ts re-export + a Module.tsx comment —
+  it is never rendered anywhere (no App.tsx exists in admin-panel), so it is dead in the live path.
+  (Note admin-nav-items.tsx also derives Billing from ADMIN_BILLING_NAV_ITEMS at 117-120, so even
+  resurrecting it would NOT expose billing/plans or billing/usage — those are orphaned at the
+  shared-ui SSoT.) BillingReportsPage is correctly excluded: BillingDashboardPage.tsx:486 links
+  `/admin/billing/reports` via a QuickStat href, matching the ADMIN_BILLING hidden+parentId pattern.
+  Failure is concretely reachable: a real SUPER_ADMIN in the shell can only open these 10 shipped
+  pages by manually typing URLs. Kept at HIGH (boundary with MEDIUM: no security/data/crash impact
+  and a URL-typing workaround exists, but the scale — an entire messaging admin section plus
+  provisioning and billing plan/usage management invisible — and the regulatory relevance of the
+  messaging compliance/retention/audit pages make it a substantial functional gap, compounded by the
+  systemic no-gate drift).
+- **Root cause:** The broken link is the FE routing<->navigation contract: there is no single source
+  of truth binding mounted admin routes to the sidebar. Admin nav truth is scattered across FOUR
+  independently hand-maintained places and nothing ties them together: (1) the route table
+  web/modules/admin-panel/src/Module.tsx (`<Route>` list, SSoT of what is mounted); (2) the LIVE nav
+  web/shell/src/layouts/MainLayout.tsx `superAdminNavigation` (SSoT of what the SUPER_ADMIN sees);
+  (3) a DEAD second nav tree web/modules/admin-panel/src/components/admin-nav-items.tsx feeding the
+  never-mounted AdminLayout.tsx; (4) the billing sub-nav SSoT
+  web/shared-ui/src/authz/admin-billing-routes.ts consumed by both nav trees. When routes were added
+  to Module.tsx (messaging/\*, settings/provisioning, billing/plans, billing/usage) the live nav (2)
+  and the billing SSoT (4) were not updated; only the dead nav (3) got the messaging/provisioning
+  entries — giving a false sense of completeness while remaining invisible to real users, and even
+  (3) never got billing/plans|usage because it re-derives billing from (4). No CI gate proves every
+  mounted `<Route>` is reachable — the existing
+  apps/admin-api-service/src/**tests**/contract-validation.spec.ts only checks
+  FE-API-call->BE-endpoint parity, not FE-route->nav reachability. This is a systemic class: "FE
+  route with no backing nav entry / route-table-vs-nav-tree drift with no test gate," of which
+  billing/plans+billing/usage (SSoT drift in ADMIN_BILLING_ROUTES itself), the 7 messaging pages,
+  and settings/provisioning are the current instances.
+- **Fix design:** Architectural fix per hierarchy tiers 1+2+3 — collapse the four drifting sources
+  into one manifest SSoT that both the router and the live sidebar DERIVE from, and add a
+  reachability invariant. Generalize the already-correct ADMIN_BILLING_ROUTES shape
+  (path/remotePath/visible/parentId/activeNavId — it even models the hidden-but-linked
+  billing-reports case) into a whole-panel manifest. Steps: (1) Create
+  web/shared-ui/src/authz/admin-routes.ts exporting ADMIN_ROUTES: every admin route with {
+  remotePath, path, label, icon, section (nav group), visible }, and for each hidden route a
+  REQUIRED `reachableVia` that is either `parentNavId` (a visible sidebar parent) or `linkedFrom`
+  (the page rendering an in-page link, e.g. billing-reports<-BillingDashboardPage). Fold/compose
+  ADMIN_BILLING_ROUTES into it and ADD the 10 missing entries: billing-plans + billing-usage
+  (visible:true), the 7 messaging-\* routes under a `messaging` section (visible:true), and
+  settings-provisioning under the settings section (visible:true). (2) Tier-2
+  make-correct-automatic: derive `superAdminNavigation` in web/shell/src/layouts/MainLayout.tsx from
+  ADMIN_ROUTES (group by section, filter visible) instead of the hand-written literal, so adding a
+  manifest entry auto-adds its nav item. (3) Tier-1 make-wrong-impossible: derive the `<Route>` list
+  in web/modules/admin-panel/src/Module.tsx from the same manifest (map remotePath->lazy component),
+  so a route cannot be mounted absent from the manifest and vice-versa. (4) Delete the dead fork
+  web/modules/admin-panel/src/components/admin-nav-items.tsx + AdminLayout.tsx and their re-exports
+  in components/index.ts (a nav source that can only drift). (5) Tier-3 make-it-detectable: add
+  invariant tests/invariants/admin-route-nav-reachability.spec.ts that statically parses every
+  `<Route path>` in Module.tsx and asserts each is reachable — present as a visible ADMIN_ROUTES
+  entry, OR hidden with a visible parentNavId, OR hidden with a linkedFrom page that actually
+  contains a matching in-page link (grep pages/ for the path). Also assert the manifest's billing
+  remotePaths are a superset of the billing routes mounted in Module.tsx (directly catches the
+  plans/usage SSoT drift). Register it in the existing admin-route-contract Nx project +
+  scripts/ci/affected-target-policy.json so it runs blocking on every PR touching admin-panel or
+  shell nav. Seed the spec red against the current 10 orphans so it proves the regression, green
+  after the manifest fix.
+- **Files to change:**
+  - `web/shared-ui/src/authz/admin-routes.ts`
+  - `web/shared-ui/src/authz/admin-billing-routes.ts`
+  - `web/shared-ui/src/index.ts`
+  - `web/shell/src/layouts/MainLayout.tsx`
+  - `web/modules/admin-panel/src/Module.tsx`
+  - `web/modules/admin-panel/src/components/admin-nav-items.tsx`
+  - `web/modules/admin-panel/src/components/AdminLayout.tsx`
+  - `web/modules/admin-panel/src/components/index.ts`
+  - `tests/invariants/admin-route-nav-reachability.spec.ts`
+- **Proof of fix:** Add tests/invariants/admin-route-nav-reachability.spec.ts: statically enumerate
+  every `<Route path=...>` in web/modules/admin-panel/src/Module.tsx (TS AST, same technique as
+  contract-validation.spec.ts) and, for each, assert reachability against the new ADMIN_ROUTES
+  manifest — visible entry, OR hidden with a visible parentNavId, OR hidden with a linkedFrom page
+  in web/modules/admin-panel/src/pages that contains a Link/href/navigate to that path. Seed it as a
+  RED baseline listing the 10 current orphans
+  (messaging/{monitoring,tenants,audit,compliance,retention,ai-dashboard,ai-personas},
+  settings/provisioning, billing/plans, billing/usage) so it fails on today's tree and passes only
+  once the manifest + MainLayout/Module derivation land. Add an assertion that the billing
+  remotePaths in ADMIN_ROUTES are a superset of Module.tsx's billing/\* routes (pins the plans/usage
+  drift). Extend tests/invariants/admin-route-contract-ci.spec.ts to register the new spec in the
+  admin-route-contract project and the affected-target policy so it is blocking (no
+  continue-on-error) on every PR touching web/shell or web/modules/admin-panel. Also add a shared-ui
+  unit assertion that MainLayout's derived superAdminNavigation contains exactly the visible
+  ADMIN_ROUTES paths (proves the sidebar is derived, not hand-listed).
+- **Effort:** L
+
+### APA-256 [MEDIUM] Duplicate, already-drifted navigation SSoT: admin-panel's AdminLayout/admin-nav-items are dead code; the shell re-implements the menu by hand
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** admin-panel exports AdminLayout + adminNavItems (components/index.ts:5-6) but nothing
+  imports them — Module.tsx:5 notes the layout lives in the shell, and the shell's MainLayout.tsx
+  duplicates the item list manually instead of consuming the exported SSoT. The two copies have
+  already diverged: the dead copy contains the messaging section (7 items), settings-provisioning,
+  and an api-docs external link hardcoded to http://localhost:3008/docs (broken outside localhost
+  and Swagger is prod-disabled per SEC-L14); the live shell copy has none of these. This duplication
+  is the root cause of the unreachable-pages finding above. Additionally routes/adminRoutes.ts — the
+  only typed route-constant module — covers just 4 of the ~50 routes (dashboard, analytics,
+  analyticsReports, audit) and is used by only two pages, so there is no compile-time guard tying
+  nav links to Module.tsx routes; every other link is a raw string.
+- **Evidence:**
+  - `web/modules/admin-panel/src/components/index.ts:5-6 (exports)`
+  - `grep 'AdminLayout' across web/shell/src: zero imports; web/shell/src/App.tsx:18,59,184,276 (MainLayout + adminPanel/Module mounted at /admin/*)`
+  - `web/modules/admin-panel/src/Module.tsx:5 ('AdminLayout Shell'de kullanılıyor' — but shell does not import it)`
+  - `web/modules/admin-panel/src/components/admin-nav-items.tsx:180-186,224,227 (drifted dead copy incl. localhost:3008 api-docs link)`
+  - `web/shell/src/layouts/MainLayout.tsx:38-145 (hand-duplicated live copy)`
+  - `web/modules/admin-panel/src/routes/adminRoutes.ts:1-6 (4 constants)`
+  - `web/modules/admin-panel/src/pages/AdminDashboard.tsx:11,56 + pages/AnalyticsDashboardPage.tsx:13,526 (only consumers)`
+- **Root cause:** The SUPER_ADMIN navigation tree exists in two hand-maintained copies with no SSoT
+  and no compile-time tie to the route table. admin-panel exports adminNavItems
+  (components/index.ts:5-6) but nothing imports it (Module.tsx:5 wrongly claims the shell uses
+  AdminLayout); the shell's MainLayout.tsx re-declares superAdminNavigation by hand (lines 40-147).
+  The two have drifted: the dead admin-panel copy carries a messaging section
+  (admin-nav-items.tsx:176-188), settings/provisioning (224), and an api-docs external link
+  hardcoded to http://localhost:3008/docs (227 — broken off-localhost, Swagger prod-disabled per
+  SEC-L14); the live shell copy has none of these and instead splits Database into children the
+  admin copy lacks. Root cause of the sibling unreachable-pages finding. Compounding it,
+  adminRoutes.ts is a 4-constant stub (dashboard/analytics/analyticsReports/audit) used by only
+  AdminDashboard + AnalyticsDashboardPage, so ~46 of ~50 nav paths and every Module.tsx <Route path>
+  are raw strings with no shared type — a nav link to a non-existent route fails silently. Systemic
+  class: duplicate FE navigation SSoT + FE nav links with no compile-time route guard.
+- **Fix design:** Collapse to one nav SSoT that both surfaces consume, and bind nav paths to routes
+  at build time. (1) Move the admin nav STRUCTURE (ids/labels/paths) into @aquaculture/shared-ui —
+  both shell and admin-panel already depend on it, and ADMIN_BILLING_NAV_ITEMS already lives there —
+  keeping admin-specific SVGs as a presentation-only icon map in admin-panel. MainLayout's
+  SUPER_ADMIN branch imports this SSoT instead of declaring superAdminNavigation; delete the local
+  array (tier-2: correct behavior automatic, drift impossible because there is one copy). (2)
+  Replace adminRoutes.ts with a complete typed route registry (all ~50 paths) that BOTH Module.tsx
+  <Route path=...> and the nav SSoT's path fields derive from, so an off-registry link is a type
+  error (tier-1). (3) Fix the api-docs entry: drop the hardcoded localhost:3008 link or gate it
+  behind an env flag (Swagger is prod-disabled). (4) Add an invariant spec asserting every
+  non-external nav path maps to a registered route (and each route is reachable), plus a guard that
+  the shell does not re-declare a private admin nav array — grep test that MainLayout imports the
+  SSoT (tier-3).
+- **Files to change:**
+  - `web/shared-ui/src/*/adminNavItems.ts (new SSoT home)`
+  - `web/shell/src/layouts/MainLayout.tsx`
+  - `web/modules/admin-panel/src/components/admin-nav-items.tsx`
+  - `web/modules/admin-panel/src/components/index.ts`
+  - `web/modules/admin-panel/src/routes/adminRoutes.ts`
+  - `web/modules/admin-panel/src/Module.tsx`
+  - `tests/invariants/admin-nav-route-parity.spec.ts (new)`
+- **Effort:** L
+
+### APA-257 [MEDIUM] CSRF double-submit is inert platform-wide: XSRF-TOKEN cookie is never issued and X-CSRF-Token is never validated
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** http-client.ts attaches X-CSRF-Token from the XSRF-TOKEN cookie on
+  POST/PUT/PATCH/DELETE and its docblock asserts 'the server set this cookie and will reject
+  mutating requests whose X-CSRF-Token header does not match'. No such server component exists: grep
+  for XSRF/csrf across apps/admin-api-service/src, apps/gateway-api/src, libs/backend-common/src,
+  and all nginx configs finds no cookie issuance and no verification middleware (the only hits are
+  unrelated threat-type strings in security-monitoring). Since the cookie is never set,
+  getCsrfTokenFromCookie() returns null and the header is silently never sent; nothing rejects on
+  mismatch. Actual mutation protection rests solely on the Bearer Authorization header (which is
+  CSRF-resistant), so this is a dead control plus a false security claim in code comments rather
+  than an exploitable hole — but any future move to cookie-based auth would ship with zero real CSRF
+  defense while appearing to have one.
+- **Evidence:**
+  - `web/modules/admin-panel/src/services/http-client.ts:63-69,96-106,256-263 (client half of double-submit)`
+  - `grep -rln 'XSRF|csrf' apps/admin-api-service/src libs/backend-common/src: only security-monitoring.controller.ts and security.entity.ts (unrelated); zero hits in apps/gateway-api/src, infrastructure/nginx, infrastructure/docker/nginx`
+- **Root cause:** The admin-panel http-client advertises double-submit CSRF (docblock at
+  http-client.ts:96-100 asserts 'the server set this cookie and will reject mutating requests whose
+  X-CSRF-Token header does not match') but no such control is on the admin-panel path. Two
+  independent breaks: (a) ROUTING — admin-panel traffic goes nginx -> /api/v1 -> admin-api-service
+  directly, and admin-api-service registers no CSRF middleware (grep confirms only unrelated
+  security-monitoring/security.entity strings); (b) NAME DRIFT — a real working CsrfMiddleware DOES
+  exist in gateway-api (apps/gateway-api/src/middleware/csrf.middleware.ts, mounted
+  app.module.ts:674) but it issues/validates cookie `csrf-token`, while the FE reads `XSRF-TOKEN`
+  (http-client.ts:104). So even a request that transited the gateway would never find the cookie the
+  FE looks for. getCsrfTokenFromCookie() always returns null, the header is silently never sent, and
+  nothing on the admin path validates it. NOTE: the finding's evidence ('zero hits in
+  apps/gateway-api/src') is factually wrong — the middleware is there — but the conclusion (inert
+  control + false security claim on the admin surface) holds. Not exploitable today because admin
+  mutations authenticate via the Bearer Authorization header, which is inherently CSRF-resistant;
+  the risk is a false control that would silently provide zero defense if auth ever moved to
+  cookies. Systemic class: false-security dead control + FE/BE cookie-name contract drift.
+- **Fix design:** Unify CSRF into one contract or remove the false claim; do not leave a half-wired
+  control. Preferred (tier-1+2): (1) Define a single CSRF contract constant (cookie name + header
+  name) in one place both sides import — hoist CsrfMiddleware into libs/backend-common so every
+  browser-facing service applies it automatically, and expose the cookie/header names as exported
+  constants; the FE http-client imports the same names (or an invariant spec asserts FE string ===
+  BE constant, since web/ and libs/ cannot share a package directly). This eliminates the
+  `csrf-token` vs `XSRF-TOKEN` drift by construction. (2) Mount the shared middleware in
+  admin-api-service so the admin path both issues and validates the token — making the docblock's
+  claim true. If instead the team accepts Bearer-only protection as sufficient, the honest
+  architectural fix is to DELETE the client-side CSRF code and the false docblock rather than ship a
+  control that appears active but is inert. Either way, add a spec proving a mutating admin request
+  without a valid token is rejected 403 (or, in the delete path, that no dead CSRF code remains).
+- **Files to change:**
+  - `libs/backend-common/src/*/csrf.middleware.ts (hoist from gateway-api) + shared cookie/header name constants`
+  - `apps/gateway-api/src/middleware/csrf.middleware.ts`
+  - `apps/gateway-api/src/app.module.ts`
+  - `apps/admin-api-service/src/app.module.ts (mount middleware)`
+  - `web/modules/admin-panel/src/services/http-client.ts`
+  - `e2e/tests/integration/csrf-invariants.spec.ts (new)`
+- **Effort:** M
+
+### APA-258 [MEDIUM] Validation-error detail is lost end-to-end: ValidationPipe's message array is dropped by the FE error parser
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** The platform ValidationPipe runs with whitelist+forbidNonWhitelisted
+  (configureValidationPipe in the shared bootstrap), so extra/invalid body fields yield
+  BadRequestException whose response body carries message: string[]. GlobalExceptionFilter passes
+  that value through as 'message' in its flat {success:false, statusCode, message, error, timestamp,
+  path, requestId} envelope. The FE parseApiErrorBody only accepts typeof message === 'string', so
+  the array is discarded and apiFetch surfaces the generic 'HTTP 400' — the user sees no field-level
+  reason for any 400 caused by DTO validation (including forbidNonWhitelisted rejections of drifted
+  FE payload fields). Also note the error envelope is flat, not nested under 'error' (ErrorEnvelope
+  interface at filter lines 22-25 is defined but unused) — the FE reads the flat shape, so that part
+  is compatible; and body.code never exists (backend emits numeric statusCode + error name), so
+  ApiError.code is always undefined — currently harmless since no admin-panel code branches on
+  error.code, but the FE type advertises a field the backend never populates.
+- **Evidence:**
+  - `apps/admin-api-service/src/filters/global-exception.filter.ts:53-58 (flat spread envelope), 77-95 (message passthrough, no 'code' field), 22-25 (unused nested ErrorEnvelope)`
+  - `web/modules/admin-panel/src/services/http-client.ts:175-185 (parseApiErrorBody: string-only message, expects 'code'), 297-305 (fallback 'HTTP ' + status)`
+  - `libs/backend-common/src/bootstrap/create-service-app.ts:787 (configureValidationPipe global)`
+  - `grep '.code ===|error.code|err.code' across admin-panel src: no consumer of ApiError.code`
+- **Root cause:** Field-level validation detail is dropped across the error boundary because of a
+  shape mismatch. The platform ValidationPipe (whitelist+forbidNonWhitelisted, configured in
+  create-service-app.ts) throws BadRequestException whose response `message` is a string[].
+  GlobalExceptionFilter reads it as `message = (responseObj['message'] as string)`
+  (global-exception.filter.ts:81 — an `as string` cast that is a lie, the value is an array) and
+  spreads it into the flat {success:false,statusCode,message,error,timestamp,path,requestId}
+  envelope, so the FE receives message: string[]. The FE parseApiErrorBody only accepts
+  `typeof value.message === 'string'` (http-client.ts:181), discards the array, and apiFetch
+  surfaces the generic 'HTTP 400' (301) — the user never sees which field was rejected, including
+  forbidNonWhitelisted rejections of drifted FE payloads. Secondary: ApiError/ApiErrorBody advertise
+  a `code` field (http-client.ts:32,37) the backend never emits (the envelope has statusCode + error
+  name, no `code`), so ApiError.code is always undefined — a phantom contract field. The filter also
+  defines a nested ErrorEnvelope interface (lines 22-25) that is dead — the real wire shape is flat.
+  Systemic class: unvalidated/mismatched error-envelope contract between FE and BE.
+- **Fix design:** Make the error envelope one explicit shared contract and stop the lossy cast.
+  Backend (tier-1): give ErrorDetail an honest `message: string` summary plus a structured
+  `errors: {field: string; message: string}[]` (or `details`) populated from a ValidationPipe
+  exceptionFactory set centrally in create-service-app.ts; remove the `as string` cast and delete
+  the dead nested ErrorEnvelope interface so the flat shape is the single documented contract. FE:
+  parseApiErrorBody handles both a string message and the structured errors array (surface the
+  first/joined field message), and ApiError/ApiErrorBody drop the phantom `code` (or the backend
+  adds a stable string error code if any consumer needs one — currently none branch on error.code).
+  Detectable (tier-3): a filter spec asserting a forbidNonWhitelisted/validation failure yields the
+  structured field errors, and a contract spec pinning the filter output shape to the FE ApiError
+  parser's expectations so future drift breaks the build.
+- **Files to change:**
+  - `apps/admin-api-service/src/filters/global-exception.filter.ts`
+  - `libs/backend-common/src/bootstrap/create-service-app.ts (ValidationPipe exceptionFactory)`
+  - `web/modules/admin-panel/src/services/http-client.ts`
+  - `apps/admin-api-service/src/filters/__tests__/global-exception.filter.spec.ts (new/extend)`
+- **Effort:** M
+
+### APA-259 [LOW] Response envelope parity verified, with two structural fragilities in the pagination heuristic
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** Verified working: ResponseInterceptor is registered as a global APP_INTERCEPTOR and
+  emits {success:true, data, meta:{timestamp}} — or {success:true, data,
+  meta:{total,page,limit,totalPages,timestamp}} when a handler returns an object with both 'data'
+  and 'total' keys — exactly the envelope parseApiEnvelope expects ('success' + 'data' present), and
+  the FE's meta.page re-spread reproduces the hand-written PaginatedResult
+  {data,total,page,limit,totalPages} (plus a harmless extra 'timestamp' key). /health\* responses
+  skip the envelope (SKIP_PREFIXES) and the FE's raw-JSON fallback (return json as T) handles them;
+  the blob download route writes via @Res() so it bypasses the interceptor correctly. Fragilities:
+  (1) pagination detection is duck-typed on the exact key pair data+total — a paginated handler
+  returning any other shape gets double-wrapped into the non-paginated branch and the FE would then
+  hand pages an envelope-shaped object, while any domain payload that coincidentally contains 'data'
+  and 'total' keys is silently rewritten into pagination meta; (2) in the pagination branch
+  meta.page is emitted even when the source object lacks 'page' (key present, value undefined),
+  which still triggers the FE's `'page' in meta` unwrap and yields page:undefined typed as number.
+  Both are latent, not currently misfiring on the routes traced in this section.
+- **Evidence:**
+  - `apps/admin-api-service/src/shared/response.interceptor.ts:23-24,44-74 (skip list, duck-typed pagination, meta shape)`
+  - `apps/admin-api-service/src/app.module.ts:291-294 (global APP_INTERCEPTOR registration)`
+  - `web/modules/admin-panel/src/services/http-client.ts:187-197,341-351 (parseApiEnvelope + meta.page unwrap + raw fallback)`
+  - `web/modules/admin-panel/src/services/types/common.ts:5-11 (PaginatedResult)`
+  - `apps/admin-api-service/src/analytics/controllers/reports.controller.ts:295-305 (@Res() download bypasses interceptor)`
+  - `apps/admin-api-service/src/health/health.controller.ts:151-167 (unwrapped health payloads consumed raw by FE system.ts:13-16)`
+- **Root cause:** Envelope parity is currently correct, but the ResponseInterceptor's pagination
+  detection is duck-typed on the exact key pair {data, total} (response.interceptor.ts:47-52), which
+  is structurally fragile in three ways: (1) false-negative — a paginated handler returning any
+  other shape (e.g. items/count, or data without total) is routed into the non-paginated branch and
+  double-wrapped, so the FE hands pages an envelope-shaped object; (2) false-positive — any domain
+  payload that coincidentally carries `data` and `total` keys is silently rewritten into pagination
+  meta; (3) in the pagination branch meta.page is emitted unconditionally even when the source
+  object lacks `page` (line 58 reads .page which may be undefined), and the FE unwrap keys on
+  `'page' in meta` (http-client.ts:344) so it always triggers, yielding page: undefined typed as
+  number. All latent on the routes traced here, not actively misfiring. Systemic class:
+  envelope-shape heuristic / structural-typing fragility.
+- **Fix design:** Replace structural duck-typing with an explicit typed pagination contract so both
+  false-positive and false-negative are impossible (tier-1). (1) Introduce a nominal PaginatedResult
+  marker the interceptor detects by instanceof or a non-forgeable discriminant (e.g. a Paginated<T>
+  class, or a symbol/`__paginated` flag domain payloads cannot accidentally carry) rather than key
+  presence; migrate the paginated handlers to return it. (2) In the pagination branch, only emit
+  meta keys that are actually present (omit page/limit/totalPages when undefined) or require them
+  via the typed contract so they are never undefined. (3) FE: the meta unwrap keys on the same
+  explicit discriminant, and PaginatedResult in services/types/common.ts is the shared shape.
+  Detectable (tier-3): a response.interceptor spec proving (a) a non-paginated payload containing
+  data+total is NOT rewritten into pagination meta, and (b) a paginated payload missing page does
+  not emit page: undefined.
+- **Files to change:**
+  - `apps/admin-api-service/src/shared/response.interceptor.ts`
+  - `apps/admin-api-service/src/shared/*/paginated-result.ts (new marker contract)`
+  - `web/modules/admin-panel/src/services/http-client.ts`
+  - `web/modules/admin-panel/src/services/types/common.ts`
+  - `apps/admin-api-service/src/shared/__tests__/response.interceptor.spec.ts (new/extend)`
+- **Effort:** M
+
+## Finding registry anchors
+
+Registry IDs (`docs/reviews/_registry/findings.jsonl`) tracking findings in this document:
+
+- **ADMIN-CRITICAL-015** — APA-251: FeatureTogglesPage's primary action called a phantom
+  `feature-toggles/:id/toggle` route (404 on every flip); FE repointed to the canonical
+  `PUT feature-toggles/:id` (status enum), DTOs tightened to `@IsEnum`, and the two phantom
+  `KNOWN_EXCEPTIONS` entries removed so the contract gate enforces the real contract.
+- **ADMIN-HIGH-018** — APA-254: 18 dead phantom FE api fns
+  (database/security/settings/tenant-config/reports) deleted after grep-confirmed zero callers; the
+  live Acknowledge-button 404 (`updateErrorStatus`) repointed to the real
+  `PUT /system/errors/groups/:id`; the 18 corresponding drift-excuse `KNOWN_EXCEPTIONS` entries
+  removed so the contract gate re-enforces those routes. Full gut of the remaining ~40 allowlist
+  entries + `kind:'dynamic'` discriminator is tracked follow-up.
+- **ADMIN-HIGH-020** — APA-252 + APA-253: the `/api` edge-routing contract had no SSoT (only
+  droplet.conf rewrote `/api → /api/v1 → admin-api`), so the prod compose stack 404'd the whole
+  admin panel and local dev had no admin-api route. Extracted one shared
+  `infrastructure/nginx/includes/api-routing.conf` consumed by droplet.conf + nginx.prod.conf + a
+  new local edge, deleted the dead gateway REST-proxy dir, added a vite `/api` proxy + Content-Type
+  transport guard, and added `edge-api-routing-contract.spec.ts`. Docker-backed runtime proof is
+  tracked.
+- **ADMIN-MEDIUM-027** — RC-6 route-declaration-order shadowing (APA-235 / APA-352 / APA-307 /
+  APA-313): three controllers declared a static GET route after a `:param` sibling, so NestJS routed
+  the static request to the param handler and the static endpoint (`data-requests/stats`,
+  `ip-access/stats`, `feature-overrides/value`) was unreachable. Each static route moved above its
+  `:param` sibling; new no-allowlist `route-declaration-order.architecture.spec.ts`
+  (comment-stripped) fails on any static-after-param shadow (fail-red found exactly the 3, green
+  after).
+- **ADMIN-HIGH-030** — RC-6 nav-SSoT (APA-255 / APA-256): 10 mounted SUPER_ADMIN pages (the 7-page
+  messaging section, settings/provisioning, billing plans/usage) were unreachable because nav truth
+  was split across four hand-maintained copies. New whole-panel `ADMIN_ROUTES` manifest SSoT
+  (`web/shared-ui/src/authz/admin-routes.ts`) that the shell's `MainLayout` sidebar now DERIVES from
+  (hand-written literal deleted); added billing plans/usage to the billing SSoT; deleted the dead
+  `admin-nav-items.tsx`/`AdminLayout.tsx` fork (incl. the hardcoded `localhost:3008` api-docs link).
+  New no-allowlist bidirectional `admin-route-nav-reachability.spec.ts` gate (fail-red flagged the 7
+  messaging orphans) + a shared-ui derivation unit test. Tier-1 `Module.tsx` route-derivation is a
+  gate-enforced follow-up; FE visual QA recommended (federated app not launchable in sandbox).

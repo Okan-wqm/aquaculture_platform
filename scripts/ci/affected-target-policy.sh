@@ -115,7 +115,13 @@ if [[ ! -s "$CHANGED_FILE_LIST" ]]; then
   exit 0
 fi
 
-node tools/toolchain/run.mjs npx nx show projects --affected "--base=$BASE_REF" "--head=$HEAD_REF" "--with-target=$TARGET" \
+# --json, then one name per line. Without --json the shape of this output is
+# environment-dependent: newline-separated names on a GitHub runner, a single
+# JSON array (`["a","b"]`) when piped elsewhere — and a JSON array read as one
+# "project name" turns the strict list into a value Nx matches to nothing
+# (`nx run-many --projects=["a","b"]` reports "No tasks were run" and exits 0).
+node tools/toolchain/run.mjs npx nx show projects --affected "--base=$BASE_REF" "--head=$HEAD_REF" "--with-target=$TARGET" --json \
+  | node -e 'const names = JSON.parse(require("fs").readFileSync(0, "utf8")); if (!Array.isArray(names)) throw new Error("nx show projects --json did not return an array"); for (const name of names) process.stdout.write(`${name}\n`);' \
   | sort > "$AFFECTED_PROJECT_LIST"
 
 node scripts/ci/write-affected-target-report.mjs \

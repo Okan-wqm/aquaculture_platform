@@ -7702,12 +7702,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/farm-service/src/__tests__/e2e/graphql-loader-tenant-source.architecture.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/farm-service/src/__tests__/e2e/helpers/tenant-schema-harness.ts",
       "prettier_managed": true
     },
@@ -7715,12 +7709,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/__tests__/e2e/mortality-cull-harvest-tenant-isolation.postgres.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/farm-service/src/__tests__/e2e/p0-fixes-verification.e2e-spec.ts",
       "prettier_managed": true
     },
     {
@@ -7756,7 +7744,7 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/farm-service/src/__tests__/e2e/tenant-schema-routing.architecture.spec.ts",
+      "path": "apps/farm-service/src/__tests__/p0-fixes-verification.spec.ts",
       "prettier_managed": true
     },
     {

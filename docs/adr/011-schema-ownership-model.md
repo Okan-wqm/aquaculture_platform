@@ -71,8 +71,8 @@ whether the service is tenant-scoped:
    `TenantSchemaSyncService` copies into each tenant clone via
    `CREATE TABLE LIKE source.X INCLUDING ALL`. Pinning `schema: 'farm'`
    on a per-tenant entity would BYPASS the routing and write data to
-   the source — the architecture spec at
-   `apps/farm-service/src/__tests__/e2e/tenant-schema-routing.architecture.spec.ts`
+   the source — the invariant at
+   `tests/invariants/entity-schema-declaration.spec.ts`
    forbids this on every PR.
 
 3. **Cross-tenant exceptions WITHIN tenant-scoped services** — outbox
@@ -185,8 +185,8 @@ invariant catches the omission immediately.
     explicit `schema:` metadata on platform-level and source-scoped
     entities. Tenant-scoped per-tenant entities stay unqualified so
     request-scoped `search_path` routing can select the tenant clone;
-    `apps/farm-service/src/__tests__/e2e/tenant-schema-routing.architecture.spec.ts`
-    guards that inverse contract for farm-service.
+    `tests/invariants/entity-schema-declaration.spec.ts`
+    guards that inverse contract for every tenant-scoped service.
   - **CI:** `e2e/tests/integration/schema-invariants.spec.ts` asserts
     the public/shared/per-service layout on every PR build.
   - **Runtime:** `createSchemaDriftValidator(serviceName)` from

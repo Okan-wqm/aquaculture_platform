@@ -26,6 +26,7 @@
     "build:web": "node tools/toolchain/run.mjs nx run-many --target=build --projects=shared-ui,shell,dashboard,farm-module,admin-panel,tenant-admin,hr-module,sensor-module,hydroponics-module",
     "test": "node tools/toolchain/run.mjs nx affected --target=test",
     "test:all": "node tools/toolchain/run.mjs nx run-many --target=test --all",
+    "test:integration:all": "node tools/toolchain/run.mjs nx run-many --target=test:integration --all --parallel=1",
     "test:e2e:water-chemistry": "npm --prefix e2e run test:water-chemistry",
     "test:e2e:mobile": "npm --prefix e2e run test:mobile",
     "lint": "node tools/toolchain/run.mjs nx affected --target=lint",

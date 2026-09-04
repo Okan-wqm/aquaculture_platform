@@ -67,23 +67,36 @@ function run(cmd: string, args: readonly string[]): string {
   return execFileSync(cmd, [...args], { encoding: 'utf8' });
 }
 
+/**
+ * Every target whose specs call `bootPostgresContainer()`. The prewarm follows
+ * the TARGET it serves, not one of them: `test:integration` (farm-service,
+ * auth-service — INFRA-MEDIUM-142) boots the same image as `test` does in
+ * db-migrate and the harness, and used to be covered only because those two
+ * projects also declare `test`.
+ */
+const TESTCONTAINER_TARGETS = ['test', 'test:integration'] as const;
+
 function affectedTestProjects(base: string, head: string): Set<string> {
-  // --json explicitly: without it nx emits newline-separated names on a
-  // TTY but a single-line JSON array when piped — sniffing the shape
-  // would be fragile across nx versions.
-  const out = run('npx', [
-    'nx',
-    'show',
-    'projects',
-    '--affected',
-    '--base',
-    base,
-    '--head',
-    head,
-    '--with-target=test',
-    '--json',
-  ]);
-  return new Set(JSON.parse(out) as string[]);
+  const affected = new Set<string>();
+  for (const target of TESTCONTAINER_TARGETS) {
+    // --json explicitly: without it nx emits newline-separated names on a
+    // TTY but a single-line JSON array when piped — sniffing the shape
+    // would be fragile across nx versions.
+    const out = run('npx', [
+      'nx',
+      'show',
+      'projects',
+      '--affected',
+      '--base',
+      base,
+      '--head',
+      head,
+      `--with-target=${target}`,
+      '--json',
+    ]);
+    for (const project of JSON.parse(out) as string[]) affected.add(project);
+  }
+  return affected;
 }
 
 /** Reverse transitive closure: every project that depends on `root`. */

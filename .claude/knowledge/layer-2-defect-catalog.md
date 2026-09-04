@@ -73,7 +73,7 @@ mismatch — fix the type or write a generic, never cast around it.
   `no-direct-event-publish` eslint rule).
 - **`@Entity()` schema discipline** — per-table rule (per-tenant tables omit `schema:`; cross-tenant
   + platform-level declare it). Enforced: `require-entity-schema` eslint rule +
-  `entity-schema-declaration.spec.ts` + `tenant-schema-routing.architecture.spec.ts`.
+  `entity-schema-declaration.spec.ts`.
 - **Nested `payload`/`metadata` event wrappers** (flat objects only, ADR-006).
 - **Root-barrel import** of `@aquaculture/backend-common` instead of a sub-path
   (`no-root-barrel-import.spec.ts`).

@@ -27,7 +27,17 @@ function parseArgs(argv) {
     else throw new Error(`Unknown argument: ${arg}`);
   }
 
-  for (const key of ['target', 'base', 'head', 'policy', 'changedFiles', 'affectedProjects', 'explicitExcludes', 'strictProjects', 'report']) {
+  for (const key of [
+    'target',
+    'base',
+    'head',
+    'policy',
+    'changedFiles',
+    'affectedProjects',
+    'explicitExcludes',
+    'strictProjects',
+    'report',
+  ]) {
     if (!args[key]) throw new Error(`${key} is required`);
   }
 
@@ -42,10 +52,24 @@ function lines(path) {
     .filter(Boolean);
 }
 
+// One Nx project name per line — nothing else may reach the strict list. A JSON
+// array that leaked through as a single "name" (`["a","b"]`) is matched by no
+// quarantine key and by no Nx project, so the lane would run nothing and pass.
+const NX_PROJECT_NAME = /^[A-Za-z0-9@/._-]+$/;
+
+function projectNames(path) {
+  const names = lines(path);
+  const malformed = names.filter((name) => !NX_PROJECT_NAME.test(name));
+  if (malformed.length > 0) {
+    throw new Error(`Affected project list carries non-project lines: ${malformed.join(' | ')}`);
+  }
+  return names;
+}
+
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const policy = JSON.parse(readFileSync(args.policy, 'utf8'));
-  const affectedProjects = lines(args.affectedProjects);
+  const affectedProjects = projectNames(args.affectedProjects);
   const explicitExcludes = new Set(lines(args.explicitExcludes));
   const knownUnstable = policy.targets?.[args.target]?.knownUnstableProjects ?? {};
   const strictProjects = [];
@@ -62,7 +86,11 @@ function main() {
     }
   }
 
-  writeFileSync(args.strictProjects, `${strictProjects.join('\n')}${strictProjects.length ? '\n' : ''}`, 'utf8');
+  writeFileSync(
+    args.strictProjects,
+    `${strictProjects.join('\n')}${strictProjects.length ? '\n' : ''}`,
+    'utf8',
+  );
 
   const report = {
     target: args.target,
@@ -89,7 +117,9 @@ function main() {
     console.log('Known-unstable project target quarantine:');
     for (const entry of quarantinedProjects) {
       console.log(`  - ${entry.project}: ${entry.reason}`);
-      console.log(`::warning title=CI affected ${args.target} baseline debt::${entry.project}: ${entry.reason}`);
+      console.log(
+        `::warning title=CI affected ${args.target} baseline debt::${entry.project}: ${entry.reason}`,
+      );
     }
   }
 

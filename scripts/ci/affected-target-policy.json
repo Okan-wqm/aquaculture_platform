@@ -50,6 +50,9 @@
     "test:contract": {
       "knownUnstableProjects": {}
     },
+    "test:integration": {
+      "knownUnstableProjects": {}
+    },
     "test": {
       "knownUnstableProjects": {
         "@aquaculture/hr-module": "CI run 26116890061: existing unit-test debt, unrelated to deploy/migration recovery.",

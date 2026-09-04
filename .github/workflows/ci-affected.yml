@@ -444,7 +444,9 @@ jobs:
             exit 0
           fi
 
-          AFFECTED_TEST_PROJECTS="$(node tools/toolchain/run.mjs npx nx show projects --affected --base="$BASE_REF" --head="$HEAD_REF" --with-target=test)"
+          # --json: the bare output is newline-separated names on a runner but a
+          # JSON array when piped elsewhere, and `grep -Fx` on an array matches nothing.
+          AFFECTED_TEST_PROJECTS="$(node tools/toolchain/run.mjs npx nx show projects --affected --base="$BASE_REF" --head="$HEAD_REF" --with-target=test --json | node -e 'for (const name of JSON.parse(require("fs").readFileSync(0, "utf8"))) process.stdout.write(`${name}\n`);')"
 
           if printf '%s\n' "$AFFECTED_TEST_PROJECTS" | grep -Fxq 'migration-harness'; then
             # Image prewarm happens in the dedicated dependency-aware step
@@ -488,6 +490,23 @@ jobs:
           HEAD_REF="${{ needs.detect-changes.outputs.head_sha }}"
           bash scripts/ci/affected-target-policy.sh --target test:contract --base "$BASE_REF" --head "$HEAD_REF" --parallel 1
         timeout-minutes: 10
+        env:
+          NX_DAEMON: 'false'
+          NX_NO_CLOUD: 'true'
+          NODE_OPTIONS: '--max-old-space-size=4096'
+
+      # INFRA-MEDIUM-142: farm-service and auth-service declare `test:integration`
+      # (Testcontainers-backed *.postgres.spec.ts, each spec boots its own
+      # PostgreSQL; the image is prewarmed by the dependency-aware step above).
+      # Until this step no workflow invoked the target. Same policy machinery as
+      # `test`, `--parallel 1` because both configs are runInBand and every spec
+      # owns a container.
+      - name: Run integration tests (affected, Testcontainers)
+        run: |
+          BASE_REF="${{ needs.detect-changes.outputs.base_sha }}"
+          HEAD_REF="${{ needs.detect-changes.outputs.head_sha }}"
+          bash scripts/ci/affected-target-policy.sh --target test:integration --base "$BASE_REF" --head "$HEAD_REF" --parallel 1
+        timeout-minutes: 20
         env:
           NX_DAEMON: 'false'
           NX_NO_CLOUD: 'true'

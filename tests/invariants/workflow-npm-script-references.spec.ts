@@ -37,7 +37,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-import { nxProjects, nxProjectsWithTarget } from './helpers/nx';
+import { nxProjectDetail, nxProjects, nxProjectsWithTarget } from './helpers/nx';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const WORKFLOW_DIR = join(REPO_ROOT, '.github', 'workflows');
@@ -188,6 +188,73 @@ describe('workflow Nx target references', () => {
     expect(
       broken.map((r) => `${r.workflow}:${r.line} -> nx run ${r.project ?? ''}:${r.target}`),
     ).toEqual([]);
+  });
+});
+
+/**
+ * Targets that the named package scripts fan out over — `test:all` names
+ * `test`, `test:integration:all` names `test:integration`. Scripts are looked
+ * up in every tracked manifest, with the same deliberate weakness as
+ * `declaredScriptNames()`: no working-directory resolution.
+ */
+function targetsNamedByScripts(scriptNames: ReadonlySet<string>): Set<string> {
+  const targets = new Set<string>();
+  for (const rel of trackedPackageManifests()) {
+    const abs = join(REPO_ROOT, rel);
+    if (!existsSync(abs)) continue;
+    let parsed: { scripts?: Record<string, string> };
+    try {
+      parsed = JSON.parse(readFileSync(abs, 'utf8')) as typeof parsed;
+    } catch {
+      continue;
+    }
+    for (const [name, command] of Object.entries(parsed.scripts ?? {})) {
+      if (!scriptNames.has(name)) continue;
+      for (const match of command.matchAll(NX_TARGET_FLAG)) {
+        if (match[1]) targets.add(match[1]);
+      }
+      for (const match of command.matchAll(NX_RUN)) {
+        if (match[2]) targets.add(match[2]);
+      }
+    }
+  }
+  return targets;
+}
+
+/**
+ * The inverse of the phantom-target check: a test lane a project DECLARES in
+ * its project.json must be INVOKED by something. `test:integration` sat on
+ * farm-service and auth-service for months with no workflow naming it
+ * (INFRA-MEDIUM-142). Scope is the `test` family whose declaration is an
+ * explicit executor; a target that exists only because a package.json script
+ * was inferred (`test:watch`, a focused `test:water-chemistry`) is a developer
+ * entry point, not a lane declaration, and stays out.
+ */
+function declaredTestLanes(): string[] {
+  const lanes = new Set<string>();
+  for (const name of nxProjects()) {
+    for (const [target, definition] of Object.entries(nxProjectDetail(name).targets)) {
+      if (!/^test(?::|$)/.test(target)) continue;
+      if (target !== 'test' && definition.executor === 'nx:run-script') continue;
+      lanes.add(target);
+    }
+  }
+  return [...lanes].sort();
+}
+
+describe('declared test lanes are invoked', () => {
+  it('finds explicit test lanes to check, so a silent scan break is visible', () => {
+    expect(declaredTestLanes()).toEqual(expect.arrayContaining(['test', 'test:integration']));
+  });
+
+  it('every explicitly declared test lane is named by a workflow or by a script a workflow runs', () => {
+    const invoked = new Set(workflowTargetReferences().map((ref) => ref.target));
+    const scripts = new Set(workflowScriptReferences().map((ref) => ref.script));
+    for (const target of targetsNamedByScripts(scripts)) invoked.add(target);
+
+    const silent = declaredTestLanes().filter((lane) => !invoked.has(lane));
+
+    expect(silent).toEqual([]);
   });
 });
 

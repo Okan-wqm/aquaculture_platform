@@ -11081,3 +11081,17 @@ The executor failure at 11:57 on 2026-09-04 is step 3 of that loop, not an indep
 **Not fixed by this, and named.** The runner's current `node_modules` is already the broken half-tree, so the first run after this change still pays one `npm ci` — and it will only survive it if the box has memory, which today it does not: production postgres is down and 15 services are in a restart storm. Ending that storm is an operator decision recorded separately.
 
 **Owner:** claude (this session). **Status:** RESOLVED (the loop); first successful reinstall gated on the production outage above.
+
+## ORPHAN-MEDIUM-803 — a supply-chain gate that could not tell code from prose about code — RESOLVED
+
+Severity: MEDIUM (no production exposure; the cost is a false red on a required gate, which is how a reader learns to skip past a true one).
+
+**Defect.** `test_every_npm_ci_has_ignore_scripts` (INFRA-CRITICAL-001) scanned every LINE of every workflow for the substring `npm ci` and demanded `--ignore-scripts` on the same line. A WHY comment added for ORPHAN-HIGH-802 explains why the lane's install is expensive and necessarily names the command it is about. The gate flagged the comment and blocked the push.
+
+**Why the fix is the detector and not the wording.** A line whose first non-space character is `#` is a comment in both layers that can carry this text: the workflow YAML, and the shell inside a `run:` block. Nothing on it executes, so nothing on it can be a supply-chain risk. Skipping those lines is not a loosening of the gate — it is the difference between reading code and reading prose about code. Rewording the comment would have moved the defect rather than removed it, and the next author documenting an install would pay for it again.
+
+This is the same class as ORPHAN-HIGH-799's invariant, which was written the same evening and hit the identical trap in its first run: a substring scan matched the explanatory comment describing the defect it was built to catch. There it was fixed by matching only inside `${{ ... }}`. Here, by skipping comment lines. Both times the rule is the same — a text scanner has to know which text is executed.
+
+**Pins.** A commented line naming the install is not a violation; an uncommented `npm ci --no-audit` still is; an uncommented `npm ci --ignore-scripts` is not.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

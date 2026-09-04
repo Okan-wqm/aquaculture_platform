@@ -53,8 +53,9 @@
     "workbox-build": "^7.0.0"
   },
   "overrides": {
+    "browserslist": "4.28.9",
     "esbuild": "^0.28.1",
-    "fast-uri": "3.1.5",
+    "fast-uri": "3.1.6",
     "nanoid": "3.3.18",
     "protobufjs": "7.6.5",
     "serialize-javascript": "7.0.5",

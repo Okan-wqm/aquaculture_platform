@@ -41538,7 +41538,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "9ef9f49d4bbb114b140b3c8b438edd9b87b1957114264c67b76e813ce5bc909d",
+      "content_sha256": "dff28110c51f48ad597204a47b292c1ee4e00366fdebcd9f172386e00cfe6625",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -46294,7 +46294,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "ee6a904ac9a7214bf1aeac525a264245b6c8d283f2275129752e153d2adeeb80",
+      "content_sha256": "6b17a4b468a273a0d6d58ef2e6ce94155ce22b3a948fd2b9af15e6d68628d4c2",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "web/apps/aquamobil/package-lock.json",

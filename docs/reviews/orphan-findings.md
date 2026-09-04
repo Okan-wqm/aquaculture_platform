@@ -11053,3 +11053,30 @@ The profile key is read from `active_profile` with the legacy names kept as fall
 **Evidence.** 12 gate tests, 9 instance-policy tests (one loads the shipped legal instance and asserts all five lawyer-owned action classes), 54 server tests and 57 console tests green.
 
 **Not fixed here.** `runtime_profile.py:36-38` names `tools/gates/banned-phrase.ts` and `tools/gates/commit-msg-validator.ts` as two of three "non-bypassable invariants"; neither file exists in this tree and `tools/aria-poc/banned_phrase_adapter.py:55` returns exit 127. The Python validator in `finding.py` is real and runs; the two TS gates the safety docstring cites are absent. Recorded in `new-aria/arias/legal/docs/YETENEK-KAYDI.md` §D as open.
+
+## ORPHAN-HIGH-802 — the case tool could read every document and still not say what they disagreed about — RESOLVED (this commit)
+
+Severity: HIGH (the product's central promise, absent).
+
+**Measured 2026-09-04.** After the text-layer work (ORPHAN-HIGH-800) the legal pack could read every document in an archive. What it did with them was still only an inventory: `statements.json` was `[]` by construction, `versions.json` said which files were versions of each other and nothing about what moved between them, every timeline event carried `learnedAt: null`, and each one was labelled `assertedBy: "ai_inference"` although no model had run. A lawyer opening the console after a full run learned which files existed, not what the case said.
+
+**Why mechanically, and not with a judge.** Every one of these questions is answerable from bytes: two documents state a value under the same label and the values differ; a document names another document and the archive does not hold it; two versions of one agreement state different prices. Comparing stated values is arithmetic. Putting a model there instead would make the product's most load-bearing output the one thing that can hallucinate, and the failure would be invisible — a fabricated contradiction reads exactly like a real one. The judge lane is still worth having, on top; it is not what should hold the floor.
+
+**Fix.**
+
+`packs/legal/adapters/records/fact-index.ts` reads labelled values (`Fakturadato: 12.03.2024`, `Kontraktssum: NOK 4 950 000`) with their locator and their document's content hash, reads references to other documents (`avtale datert 2024-01-15`, `faktura nr. 2024-001`), and emits `date_contradiction`, `amount_contradiction` and `missing_evidence` findings. Every contradiction carries BOTH sides with both locators: a disagreement reported from one side is an accusation, not evidence.
+
+`packs/legal/adapters/records/version-diff.ts` says what moved between consecutive members of a version group — changed values with both readings, values added or removed, and a line diff (a written-out LCS; a legal evidence tool should not take a dependency to compare two lists of strings).
+
+The chronology now carries `learnedAt` from the intake receipt when there is one and stays `null` when there is not, locates an event inside a PDF by page rather than by a line number in an extracted stream nobody can open, and labels mechanically extracted records `mechanical_extraction`.
+
+**The false positives are the interesting part.** The first version of the contradiction pass produced four, and all four were suppressed by a rule, not by a threshold:
+
+1. An e-mail's `Date:` header is transport metadata; comparing two messages' send times reported every pair of e-mails as a disagreement. Only the body of an `.eml` is scanned now.
+2. Two versions of one agreement stating different prices is what a revision IS. Pairs inside one version group are skipped, and the difference surfaces in the version comparison where it is framed correctly.
+3. `Dato`, `Sted`, `Vår ref` describe the document they sit in. Two documents written on different days both stating their own date is not a conflict; those labels are excluded from comparison.
+4. `FAKTURA nr. 2024-001` at the head of `faktura_2024-001.pdf` is the document naming itself. Without that rule every invoice in an archive reports its own absence.
+
+Month precision was added and a day is never inferred from it: `mars 2024` enters as `datePrecision: "month"`, and a month is not in conflict with a day inside it. Bare years are deliberately not extracted — every reference number like `faktura_2024-001` would become a date.
+
+**Evidence.** On the synthetic fixture the pass now produces exactly one contradiction (the invoice states `Fakturadato = 2024-03-12`, the complaint states `2024-03-14`) and exactly one missing reference (the invoice cites an agreement dated 2024-01-15 that no document in the archive matches), with no false positives. 15 fact-index tests, 9 version-diff tests, 21 adapter tests, 16 extractor tests, 12 gate tests, 54 server and 57 console tests green. The fixture generator was extended so the archive actually contains the disagreement the test asserts — a detector proved against a corpus with nothing to detect proves nothing.

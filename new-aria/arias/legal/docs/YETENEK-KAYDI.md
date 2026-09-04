@@ -279,3 +279,47 @@ hukuk dağıtımında çalışma alanı kökü ARIA kurulumudur ve dava arşivle
 kalıcı bir birimde durur; konsol bu iki yol hizalanmadığında envanteri **reddediyor**
 (`cases_dir_outside_workspace`), runner'ın içinde alakasız bir hatayla ölmesini
 beklemiyor.
+
+### D.2 — Kronoloji ve çelişki motoru (2026-09-04, ikinci tur)
+
+| ID | Ne kapandı | Kanıt |
+|---|---|---|
+| **L-07** | Kronoloji tüm okunabilir belgelerden; PDF olayları **sayfa** konumuyla | Fixture: 10 olayın hepsi `mechanical_extraction`, PDF'ten gelenler `page:1`/`page:2` |
+| **L-09 (yarısı)** | `learnedAt` alım tutanağından; tutanak yoksa **null kalır**, koşum saati uydurulmaz | Adapter `intake` girdisi; fixture koşumunda tutanak yok → hepsi `null` |
+| **L-11 (kas yarısı)** | `date_contradiction` / `amount_contradiction` bulguları, **iki taraf da** locator ve hash'le | Fixture: fatura `page:1` "Fakturadato = 2024-03-12" ↔ klage `line:6` "2024-03-14" |
+| **L-12** | `missing_evidence`: bir belge arşivde olmayan bir belgeye atıf yapıyor; mesaj **aranan kapsamı** söylüyor | Fixture: fatura "avtale datert 2024-01-15"e atıf yapıyor, 8 okunabilir dosyanın hiçbiri karşılamıyor |
+
+**Uydurmama disiplini, ölçülmüş.** İlk sürüm dört yanlış-pozitif üretiyordu ve
+üçü de daraltıldı, çünkü yanlış bir çelişki avukatın zamanını yakar:
+
+1. E-posta başlıkları (`Date:`) taşıma verisidir, dava içeriği değil → `.eml`'de yalnız gövde taranıyor.
+2. Aynı belgenin iki sürümü arasındaki fark çelişki değil, **revizyonun kendisidir** → aynı sürüm grubundaki çiftler atlanıyor; o fark sürüm karşılaştırmasına ait (L-14).
+3. `Dato`, `Sted`, `Vår ref` gibi etiketler belgenin **kendisini** tarif eder; iki belgenin farklı tarihte yazılmış olması anlaşmazlık değildir → bu etiketler karşılaştırmadan çıkarıldı.
+4. Belgenin kendi başlığı (`FAKTURA nr. 2024-001`) kendine atıftır, eksik belge değil → dosya adı tanımlayıcıyı içeriyorsa atıf sayılmıyor.
+
+Ay hassasiyeti eklendi ve **gün uydurulmuyor**: "mars 2024" `datePrecision: 'month'`
+ile giriyor, ve bir ay ile o ayın içindeki bir gün çelişki sayılmıyor — biri yalnızca
+daha az kesin. Çıplak yıl hiç yakalanmıyor, çünkü `faktura_2024-001` gibi her referans
+numarası tarihe dönüşürdü.
+
+`ai_inference` etiketi mekanik çıkarımdan kaldırıldı: hiçbir model koşmuyor, dolayısıyla
+o etiket yanlıştı. Yeni kaynak `mechanical_extraction` ve hâlâ `humanReviewRequired: true`.
+
+### D.3 — Sürüm karşılaştırma (2026-09-04)
+
+| ID | Ne kapandı | Kanıt |
+|---|---|---|
+| **L-14** | Sürüm grubu üyeleri arasında **ne değiştiği**: etiketli değerler (tarih/tutar) ve satır farkı | Fixture: `avtale_v1` → `avtale_v2_signert` adımında `Pris: nok 125000.00 → nok 120000.00`, +4/-4 satır, 1 satır aynı |
+
+Tasarım kararı: aynı sürüm grubundaki fark **çelişki değildir**, revizyonun kendisidir.
+Bu yüzden çelişki motoru o çiftleri atlıyor ve fark burada, doğru çerçevede görünüyor:
+"bu iki taslak arasında fiyat şu kadar değişti". Aynı olguyu iki yerde iki farklı adla
+raporlamak, okuyucuya iki sorun varmış gibi gösterirdi.
+
+Modül hiçbir sürümü **yetkili ilan etmiyor**: bir test, farkın çıktısında
+`authoritative/filed/final/current/signed` gibi bir hüküm bulunmadığını doğruluyor.
+`filedMember` avukat kapısında (`filed_version_declaration`) kalıyor.
+
+Sınır: satır farkı 4000 satırın üstündeki çiftlerde atlanıyor ve bunu `unchangedLines: -1`
+ile **söylüyor**; uydurma bir sayı üretmiyor. Değer karşılaştırması doğrusal olduğu için
+o çiftlerde de koşuyor.

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "aria://packs/legal/schemas/document-version.schema.json",
   "title": "LegalDocumentVersion",
-  "description": "A version lineage inferred from names/content. Always humanReviewRequired; filedMember is never set by the adapter.",
+  "description": "A version lineage inferred from names/content, plus what moved between consecutive members. Always humanReviewRequired; filedMember is never set by the adapter.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -10,6 +10,7 @@
     "members",
     "signedMember",
     "filedMember",
+    "steps",
     "humanReviewRequired"
   ],
   "properties": {
@@ -70,6 +71,102 @@
         "null"
       ],
       "pattern": "^doc_[0-9a-f]{16}$"
+    },
+    "steps": {
+      "type": "array",
+      "description": "One entry per consecutive member pair, in member order. Empty when a member carries no readable text.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "fromDocumentId",
+          "toDocumentId",
+          "values",
+          "addedLines",
+          "removedLines",
+          "unchangedLines",
+          "humanReviewRequired"
+        ],
+        "properties": {
+          "fromDocumentId": {
+            "type": "string",
+            "pattern": "^doc_[0-9a-f]{16}$"
+          },
+          "toDocumentId": {
+            "type": "string",
+            "pattern": "^doc_[0-9a-f]{16}$"
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "label",
+                "kind",
+                "from",
+                "to",
+                "fromLocator",
+                "toLocator"
+              ],
+              "properties": {
+                "label": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "kind": {
+                  "enum": [
+                    "date",
+                    "amount"
+                  ]
+                },
+                "from": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "null when the value only appears in the later version"
+                },
+                "to": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "null when the value only appears in the earlier version"
+                },
+                "fromLocator": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "toLocator": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "addedLines": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "removedLines": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unchangedLines": {
+            "type": "integer",
+            "minimum": -1,
+            "description": "-1 when the pair was too large to diff line by line"
+          },
+          "humanReviewRequired": {
+            "const": true
+          }
+        }
+      }
     },
     "humanReviewRequired": {
       "const": true

@@ -215,23 +215,24 @@
     "excludedReason": null
   },
   {
-    "documentId": "doc_d0109624c90e50d6",
+    "documentId": "doc_2977e926b8bc73a6",
     "caseId": "case_synthetic-001",
     "relativePath": "vedlegg/klage_utkast.docx",
     "fileName": "klage_utkast.docx",
     "extension": ".docx",
     "mediaType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "bytes": 1871,
-    "sha256": "60579c9b8689ceea14f1e2d5bdaef68135c4837695f7dc6230c3da61b68ab964",
+    "bytes": 1882,
+    "sha256": "19f2f23a713b0d61e6fcadc9edaa6a6fe3a5bc1269f8aeff1b6a0c3fbdceb016",
     "modifiedAt": null,
     "kindGuess": "PROCEDURAL_STEP",
     "kindConfidence": 0.5,
     "extraction": "text",
-    "excerpt": "KLAGE PÅ LEVERANSE – UTKAST v3 Fra: Bergen Eiendom ASA v/ advokat Kari Nordmann Til: Nordlys Entreprenør AS Dato: 6. mars 2024 Vi viser til avtale av 15.01.2024 og faktura 2024-001. Post Beløp Prisavslag milepæl 2 NOK 1 200 000 Dagmulkt 01.",
+    "excerpt": "KLAGE PÅ LEVERANSE – UTKAST v3 Fra: Bergen Eiendom ASA v/ advokat Kari Nordmann Til: Nordlys Entreprenør AS Dato: 6. mars 2024 Vi viser til avtale av 15.01.2024 og faktura 2024-001. Fakturadato: 14.03.2024 Post Beløp Prisavslag milepæl 2 NO",
     "datesMentioned": [
       "2024-01-15",
       "2024-03-01",
       "2024-03-06",
+      "2024-03-14",
       "2024-03-20",
       "2024-03-31"
     ],

@@ -5,7 +5,7 @@
   "courtReference": null,
   "archiveRoot": "packs/legal/fixtures/case-synthetic",
   "createdAt": "2024-04-01T00:00:00Z",
-  "snapshotSha256": "6e0412755385eb647aa5a8fdc9cfce7d0bcb14f4746f97d0e81ed33098a7f91e",
+  "snapshotSha256": "9793012fc46bc9dda81bacfd68787a8879eb8b063b7c0b8607fffa7427e57a52",
   "adapterId": "legal-document-inventory",
   "adapterVersion": "0.1.0",
   "runId": null,

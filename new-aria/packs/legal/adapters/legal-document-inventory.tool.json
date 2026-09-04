@@ -52,7 +52,10 @@
   ],
   "claim_types": [
     "unreadable_document",
-    "document_version_conflict"
+    "document_version_conflict",
+    "date_contradiction",
+    "amount_contradiction",
+    "missing_evidence"
   ],
   "owner": "packs/legal",
   "runner": {
@@ -70,5 +73,5 @@
   },
   "freshness_window_hours": 168,
   "schema_version": 1,
-  "parse_window_signature": "sha256:be1b03ad9666aeff5df6a090a99dc3bf0015cd5b3493b973788a80beaf1b3e8c"
+  "parse_window_signature": "sha256:c20ce6eb57a7d0cad5021bfdf92f17f99bac36022746e36677244127fccd9ba3"
 }

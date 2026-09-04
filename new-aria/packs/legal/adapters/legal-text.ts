@@ -91,6 +91,12 @@ const DOT_DATE_RE = /(?<!\d)(\d{1,2})\.(\d{1,2})\.(\d{4})(?!\d)/g;
 const SLASH_DATE_RE = /(?<!\d)(\d{1,2})\/(\d{1,2})\/(\d{4})(?!\d)/g;
 const DAY_MONTH_YEAR_RE = new RegExp(`(?<![\\d\\p{L}])(\\d{1,2})\\.?\\s+(${MONTH_ALTERNATION})\\.?,?\\s+(\\d{4})(?!\\d)`, 'giu');
 const MONTH_DAY_YEAR_RE = new RegExp(`(?<!\\p{L})(${MONTH_ALTERNATION})\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?,?\\s+(\\d{4})(?!\\d)`, 'giu');
+// A month named with its year and no day ("i mars 2024", "March 2024"). Bare
+// years are deliberately NOT matched: `faktura_2024-001` and every reference
+// number in an archive would become a date, and a chronology full of invented
+// entries is worse than one with gaps it declares.
+const MONTH_YEAR_RE = new RegExp(`(?<![\\d\\p{L}])(${MONTH_ALTERNATION})\\.?\\s+(\\d{4})(?!\\d)`, 'giu');
+const ISO_MONTH_RE = /(?<![\d-])(\d{4})-(\d{2})(?![\d-])/g;
 
 // One combined amount regex so each span is consumed once (`kr 25 000,-` is
 // one mention, not a prefix hit plus a `,-` suffix hit).
@@ -169,6 +175,45 @@ export function stripHtml(html: string): string {
     .replace(/&#39;/gi, "'");
 }
 
+/** How exactly a mention pins a point in time. A day is never inferred from a month. */
+export type DatePrecision = 'day' | 'month' | 'year' | 'unknown';
+
+export interface DatedMention {
+  /** ISO 8601 truncated to the precision actually stated: 2024-03-12, 2024-03, 2024. */
+  readonly value: string;
+  readonly precision: DatePrecision;
+}
+
+/**
+ * Every date a text states, with the precision it stated it at.
+ *
+ * Day-precision mentions win over a month mention covering the same month, so
+ * "12. mars 2024" does not also produce a bare "2024-03" row. This is the
+ * function the chronology uses; `extractDates` stays the day-only view the
+ * document record carries.
+ */
+export function extractDatedMentions(text: string): DatedMention[] {
+  const days = extractDates(text);
+  const covered = new Set(days.map((day) => day.slice(0, 7)));
+  const months: string[] = [];
+  for (const match of text.matchAll(MONTH_YEAR_RE)) {
+    const month = MONTHS[(match[1] ?? '').toLowerCase()];
+    const year = Number(match[2]);
+    if (month === undefined || !Number.isInteger(year)) continue;
+    months.push(`${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}`);
+  }
+  for (const match of text.matchAll(ISO_MONTH_RE)) {
+    const month = Number(match[2]);
+    if (month < 1 || month > 12) continue;
+    months.push(`${match[1]}-${String(month).padStart(2, '0')}`);
+  }
+  const monthMentions = uniqueSorted(months.filter((month) => !covered.has(month)));
+  return [
+    ...days.map((value): DatedMention => ({ value, precision: 'day' })),
+    ...monthMentions.map((value): DatedMention => ({ value, precision: 'month' })),
+  ].sort((a, b) => byteCompare(a.value, b.value));
+}
+
 export function extractDates(text: string): string[] {
   const found: string[] = [];
   for (const match of text.matchAll(ISO_DATE_RE)) {
@@ -192,6 +237,30 @@ export function extractDates(text: string): string[] {
     if (value) found.push(value);
   }
   return uniqueSorted(found);
+}
+
+/**
+ * Reduces a stated amount to a comparable value: currency (when written) plus
+ * the number in plain decimal form.
+ *
+ * "kr 1.250.000,50", "NOK 1 250 000,50" and "1250000,50 kr" are the same
+ * amount written three ways, and a contradiction check that compared the
+ * strings would report a disagreement between a document and itself. Grouping
+ * separators are dropped, a decimal comma becomes a point, and the currency is
+ * kept because 25 000 NOK and 25 000 EUR are NOT the same amount.
+ */
+export function normalizeAmount(raw: string): string {
+  const lower = raw.toLowerCase().replace(/\u00a0/g, ' ');
+  const currencyMatch = /(kr|nok|eur|usd|€|\$)/.exec(lower);
+  const currency = currencyMatch === null ? '' : currencyMatch[1] === 'kr' ? 'nok' : (currencyMatch[1] ?? '');
+  const digits = lower.replace(/[^\d.,]/g, '');
+  // The last separator followed by exactly one or two digits is the decimal
+  // point; every other separator groups thousands.
+  const decimal = /[.,](\d{1,2})$/.exec(digits);
+  const whole = (decimal === null ? digits : digits.slice(0, decimal.index)).replace(/[.,]/g, '');
+  const fraction = decimal === null ? '' : `.${(decimal[1] ?? '').padEnd(2, '0')}`;
+  const number = `${whole === '' ? '0' : whole}${fraction}`;
+  return currency === '' ? number : `${currency} ${number}`;
 }
 
 export function extractAmounts(text: string): string[] {

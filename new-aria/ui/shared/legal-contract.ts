@@ -202,6 +202,36 @@ export interface LegalDocument {
   readonly excludedReason: string | null;
 }
 
+/**
+ * One step between two consecutive members of a version group: what a reader
+ * would find if they opened both files side by side.
+ *
+ * `from`/`to` are null on an addition or a removal, because a value that only
+ * one version states did not change — it arrived or it left, and dressing that
+ * up as a change from nothing would misdescribe the document's history.
+ */
+export interface LegalVersionValueChange {
+  readonly label: string;
+  readonly kind: 'date' | 'amount';
+  readonly from: string | null;
+  readonly to: string | null;
+  readonly fromLocator: string | null;
+  readonly toLocator: string | null;
+}
+
+export interface LegalVersionStep {
+  readonly fromDocumentId: string;
+  readonly toDocumentId: string;
+  /** Values both versions state, differently; values one states and the other does not. */
+  readonly values: ReadonlyArray<LegalVersionValueChange>;
+  readonly addedLines: number;
+  readonly removedLines: number;
+  /** Lines carried over unchanged; -1 when the pair was too large to diff line by line. */
+  readonly unchangedLines: number;
+  /** A mechanical comparison is never a finding about which version governs. */
+  readonly humanReviewRequired: true;
+}
+
 export interface LegalDocumentVersion {
   readonly versionGroupId: string;
   readonly members: ReadonlyArray<{
@@ -212,6 +242,8 @@ export interface LegalDocumentVersion {
   }>;
   readonly signedMember: string | null;
   readonly filedMember: string | null;
+  /** What moved between each consecutive pair of members, in member order. */
+  readonly steps: ReadonlyArray<LegalVersionStep>;
   readonly humanReviewRequired: true;
 }
 

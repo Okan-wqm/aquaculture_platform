@@ -315,6 +315,11 @@ const para = (text) => `<w:p><w:r><w:t xml:space="preserve">${xmlEscape(text)}</
     para('Til: Nordlys Entreprenør AS'),
     para('Dato: 6. mars 2024'),
     `<w:p><w:r><w:t>Vi viser til avtale av 15.01.2024</w:t></w:r><w:r><w:tab/></w:r><w:r><w:t>og faktura 2024-001.</w:t></w:r></w:p>`,
+    // A REAL cross-document disagreement about a named fact: the invoice states
+    // Fakturadato 12.03.2024, this complaint states 14.03.2024. Two documents,
+    // one label, two values — exactly what the contradiction pass must catch,
+    // and the fixture has to contain it for the test to prove anything.
+    para('Fakturadato: 14.03.2024'),
     '<w:tbl><w:tr><w:tc>' + para('Post') + '</w:tc><w:tc>' + para('Beløp') + '</w:tc></w:tr>' +
       '<w:tr><w:tc>' + para('Prisavslag milepæl 2') + '</w:tc><w:tc>' + para('NOK 1 200 000') + '</w:tc></w:tr>' +
       '<w:tr><w:tc>' + para('Dagmulkt 01.03.2024–31.03.2024') + '</w:tc><w:tc>' + para('NOK 230 175') + '</w:tc></w:tr></w:tbl>',

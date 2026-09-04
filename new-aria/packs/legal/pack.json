@@ -40,9 +40,29 @@
     "PARTY_IN",
     "VERSION_OF"
   ],
-  "statement_statuses": ["asserted", "disputed", "supported", "contradicted", "unverifiable", "verified"],
-  "assertion_sources": ["party", "court", "counsel", "third_party", "mechanical_extraction", "ai_inference", "operator"],
-  "extraction_statuses": ["text", "metadata_only", "unreadable", "excluded"],
+  "statement_statuses": [
+    "asserted",
+    "disputed",
+    "supported",
+    "contradicted",
+    "unverifiable",
+    "verified"
+  ],
+  "assertion_sources": [
+    "party",
+    "court",
+    "counsel",
+    "third_party",
+    "mechanical_extraction",
+    "ai_inference",
+    "operator"
+  ],
+  "extraction_statuses": [
+    "text",
+    "metadata_only",
+    "unreadable",
+    "excluded"
+  ],
   "claim_types": [
     "document_version_conflict",
     "date_contradiction",
@@ -51,14 +71,26 @@
     "unreadable_document",
     "party_identity_ambiguity"
   ],
-  "evidence_source_types": ["document_reference", "correspondence", "court_record", "filing_receipt", "metadata"],
+  "evidence_source_types": [
+    "document_reference",
+    "correspondence",
+    "court_record",
+    "filing_receipt",
+    "metadata"
+  ],
   "adapters": [
     {
       "tool_id": "legal-document-inventory",
       "manifest": "packs/legal/adapters/legal-document-inventory.tool.json",
       "entry": "packs/legal/adapters/legal-document-inventory.ts",
       "status": "SHADOW",
-      "claim_types": ["unreadable_document", "document_version_conflict"]
+      "claim_types": [
+        "unreadable_document",
+        "document_version_conflict",
+        "date_contradiction",
+        "amount_contradiction",
+        "missing_evidence"
+      ]
     }
   ],
   "agents": [
@@ -66,29 +98,52 @@
       "name": "aria-legal-evidence-judge",
       "path": "packs/legal/agents/aria-legal-evidence-judge.md",
       "role": "legal_evidence_judgment",
-      "may_emit_claim_types": ["missing_evidence"],
-      "writes_records": ["statement"]
+      "may_emit_claim_types": [
+        "missing_evidence"
+      ],
+      "writes_records": [
+        "statement"
+      ]
     },
     {
       "name": "aria-legal-adversarial-judge",
       "path": "packs/legal/agents/aria-legal-adversarial-judge.md",
       "role": "legal_adversarial_judgment",
-      "may_emit_claim_types": ["date_contradiction", "amount_contradiction", "document_version_conflict"],
-      "writes_records": ["statement", "link"]
+      "may_emit_claim_types": [
+        "date_contradiction",
+        "amount_contradiction",
+        "document_version_conflict"
+      ],
+      "writes_records": [
+        "statement",
+        "link"
+      ]
     },
     {
       "name": "aria-legal-timeline-analyst",
       "path": "packs/legal/agents/aria-legal-timeline-analyst.md",
       "role": "legal_timeline_analysis",
-      "may_emit_claim_types": ["date_contradiction"],
-      "writes_records": ["timeline-event", "link"]
+      "may_emit_claim_types": [
+        "date_contradiction"
+      ],
+      "writes_records": [
+        "timeline-event",
+        "link"
+      ]
     },
     {
       "name": "aria-legal-claim-matrix-drafter",
       "path": "packs/legal/agents/aria-legal-claim-matrix-drafter.md",
       "role": "legal_claim_matrix_drafting",
-      "may_emit_claim_types": ["missing_evidence", "party_identity_ambiguity"],
-      "writes_records": ["statement", "party", "link"]
+      "may_emit_claim_types": [
+        "missing_evidence",
+        "party_identity_ambiguity"
+      ],
+      "writes_records": [
+        "statement",
+        "party",
+        "link"
+      ]
     }
   ],
   "artifacts": {

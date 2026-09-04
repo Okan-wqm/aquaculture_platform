@@ -131,11 +131,11 @@
       "type": "legal_document_inventoried",
       "path": "packs/legal/fixtures/case-synthetic/vedlegg/klage_utkast.docx",
       "details": {
-        "documentId": "doc_d0109624c90e50d6",
+        "documentId": "doc_2977e926b8bc73a6",
         "extraction": "text",
         "kindGuess": "PROCEDURAL_STEP",
-        "sha256": "60579c9b8689ceea14f1e2d5bdaef68135c4837695f7dc6230c3da61b68ab964",
-        "bytes": 1871,
+        "sha256": "19f2f23a713b0d61e6fcadc9edaa6a6fe3a5bc1269f8aeff1b6a0c3fbdceb016",
+        "bytes": 1882,
         "textTruncated": false,
         "versionGroupId": null
       }
@@ -156,6 +156,35 @@
     }
   ],
   "findings": [
+    {
+      "id": "legal-document-inventory:date-contradiction:fakturadato:vedlegg/faktura_2024-001.pdf:vedlegg/klage_utkast.docx",
+      "rule": "date_contradiction",
+      "severity": "medium",
+      "path": "packs/legal/fixtures/case-synthetic/vedlegg/faktura_2024-001.pdf",
+      "message": "`vedlegg/faktura_2024-001.pdf` (page:1) states Fakturadato = 2024-03-12 while `vedlegg/klage_utkast.docx` (line:6) states 2024-03-14. Both readings are mechanical; which is correct requires human review.",
+      "evidence": [
+        {
+          "path": "packs/legal/fixtures/case-synthetic/vedlegg/faktura_2024-001.pdf"
+        },
+        {
+          "path": "packs/legal/fixtures/case-synthetic/vedlegg/klage_utkast.docx"
+        }
+      ],
+      "confidence": 0.6
+    },
+    {
+      "id": "legal-document-inventory:missing-evidence:avtale:2024-01-15",
+      "rule": "missing_evidence",
+      "severity": "medium",
+      "path": "packs/legal/fixtures/case-synthetic/vedlegg/faktura_2024-001.pdf",
+      "message": "`vedlegg/faktura_2024-001.pdf` (page:1) refers to avtale 2024-01-15 (\"avtale datert 2024-01-15,\"), and no document among the 8 readable files in this archive matches it. The referenced document is either missing from the archive or filed under a name this pass could not connect.",
+      "evidence": [
+        {
+          "path": "packs/legal/fixtures/case-synthetic/vedlegg/faktura_2024-001.pdf"
+        }
+      ],
+      "confidence": 0.5
+    },
     {
       "id": "legal-document-inventory:unreadable:vedlegg/forlikstilbud_kryptert.pdf",
       "rule": "unreadable_document",
@@ -252,6 +281,10 @@
     },
     "version_groups": 1,
     "parties": 3,
-    "timeline_events": 12
+    "timeline_events": 12,
+    "labelled_facts": 10,
+    "document_references": 5,
+    "contradictions": 1,
+    "missing_references": 1
   }
 }

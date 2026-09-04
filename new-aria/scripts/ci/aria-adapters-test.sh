@@ -12,6 +12,6 @@ done
 # Pack adapters live under packs/<id>/adapters and carry the same ts-node
 # test shape; a pack whose tests no lane runs is a pack whose promises are
 # unverified (legal register L-27).
-for pack_test in packs/legal/adapters/legal-document-inventory.test.ts packs/legal/adapters/binary/extract.test.ts packs/legal/adapters/records/statement-gate.test.ts; do
+for pack_test in packs/legal/adapters/legal-document-inventory.test.ts packs/legal/adapters/binary/extract.test.ts packs/legal/adapters/records/statement-gate.test.ts packs/legal/adapters/records/fact-index.test.ts packs/legal/adapters/records/version-diff.test.ts; do
   npx ts-node --project tools/gates/tsconfig.json "${pack_test}"
 done

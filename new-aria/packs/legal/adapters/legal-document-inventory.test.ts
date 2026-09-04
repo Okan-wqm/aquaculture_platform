@@ -414,7 +414,7 @@ test('dates and amounts are extracted, normalised, deduplicated and sorted', () 
   ]);
 });
 
-test('timeline: .eml Date headers become COMMUNICATION events, dated text lines become ai_inference EVENTs, learnedAt stays null', () => {
+test('timeline: .eml Date headers become COMMUNICATION events; dated lines become mechanical_extraction EVENTs located by page or line', () => {
   const { artifacts } = runGolden(tempDir('timeline'));
   assert.equal(artifacts.timeline.length, 12);
   const communications = artifacts.timeline.filter((event) => event.kind === 'COMMUNICATION');
@@ -427,11 +427,21 @@ test('timeline: .eml Date headers become COMMUNICATION events, dated text lines 
   );
   const events = artifacts.timeline.filter((event) => event.kind === 'EVENT');
   assert.equal(events.length, 10);
+  // A parser read these bytes; no model ran. Labelling them ai_inference would
+  // blur the one distinction this product sells.
+  assert.ok(events.every((event) => event.assertedBy === 'mechanical_extraction' && event.confidence <= 0.4 && event.humanReviewRequired));
+  const invoice = artifacts.documents.find((document) => document.relativePath === 'vedlegg/faktura_2024-001.pdf');
+  const fromInvoice = events.filter((event) => event.evidence[0]?.documentId === invoice?.documentId);
+  assert.ok(fromInvoice.length > 0, 'a dated line inside the PDF text layer becomes an event');
+  // A line number in an extracted stream is a coordinate in a file nobody can
+  // open; a page is one a reader can turn to.
   assert.ok(
-    events.some((event) => event.evidence[0]?.documentId === artifacts.documents.find((document) => document.relativePath === 'vedlegg/faktura_2024-001.pdf')?.documentId),
-    'a dated line inside the PDF text layer becomes an inferred EVENT',
+    fromInvoice.every((event) => /^page:\d+$/.test(event.evidence[0]?.locator ?? '')),
+    'events read out of a PDF are located by page',
   );
-  assert.ok(events.every((event) => event.assertedBy === 'ai_inference' && event.confidence <= 0.4 && event.humanReviewRequired));
+  assert.ok(fromInvoice.some((event) => event.evidence[0]?.locator === 'page:2'), 'the second page is reachable and distinguished from the first');
+  // learnedAt stays null here because this fixture run is given no intake
+  // receipt: the adapter never guesses when a document became knowable.
   assert.ok(artifacts.timeline.every((event) => event.learnedAt === null));
   const documentsById = new Map(artifacts.documents.map((document) => [document.documentId, document]));
   for (const event of artifacts.timeline) {
@@ -444,6 +454,7 @@ test('timeline: .eml Date headers become COMMUNICATION events, dated text lines 
   assert.ok(bestrider);
   assert.equal(bestrider.occurredAt, '2024-03-12');
   assert.equal(bestrider.evidence[0]?.locator, 'line:5');
+  assert.equal(bestrider.datePrecision, 'day');
   assert.deepEqual(artifacts.statements, []);
 });
 

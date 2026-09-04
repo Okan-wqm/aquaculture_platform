@@ -89,6 +89,17 @@ const TYPE_CHECK_EXEMPT = [
   // migration validation; compiling them as live source can also resolve
   // imports against a directory layout that no longer exists.
   /(?:^|\/)migrations\/\.archive\//,
+  // new-aria/ is a SEPARATE PROJECT TREE that lives in this repository only
+  // until it moves to its own. It carries its own tsconfigs
+  // (new-aria/tools/gates/tsconfig.json for the kernel-side TypeScript,
+  // new-aria/ui/{server,web}/tsconfig.json for the console) and its own CI
+  // lane runs them, so these files ARE type-checked — just not by this
+  // repository's projects, whose module resolution and lib settings are the
+  // monorepo's, not the copy's. This is the same treatment new-aria already
+  // has in .nxignore, eslint.config.mjs and the banned-phrase/construct
+  // gates, and for the same reason: compiling a standalone tree with the
+  // host's configuration measures the host, not the tree.
+  /^new-aria\//,
 ];
 
 const changedTypeScriptFiles = changedFiles

@@ -23,6 +23,9 @@
  *       `totalPages` inline;
  *   (c) no production file may derive a page count from a `total` with
  *       `Math.ceil` — `expectedTotalPages()` owns that one line.
+ *   (d) no admin-api file may declare or return a bare `{ items, total }` —
+ *       the shape rule (a) cannot see, because it carries neither `totalPages`
+ *       nor `hasNextPage`.
  *
  * Source-only check; no DB, NATS or network dependency.
  */
@@ -199,6 +202,56 @@ describe('INVARIANT (ADMIN-HIGH-004): one pagination authority', () => {
         .filter((index) => index >= 0);
       offenders.push(...locations(file, lines, hits));
     }
+    expect(offenders).toEqual([]);
+  });
+
+  /**
+   * (d) the completeness half rule (a) structurally cannot reach.
+   *
+   * Rule (a) recognises a re-declared page by `totalPages` paired with `items`
+   * or `hasNextPage`. A bare `{ items, total }` has none of those, so it slips
+   * through — and it is the variant that actually breaks the wire. It keys on
+   * `items` exactly like the canonical envelope, so it reads as correct at
+   * every callsite, but `isStandardPaginatedResult` requires all four numerics:
+   * the interceptor does NOT recognise it, does NOT lift it, and the rows
+   * arrive one level deeper than the consumer's `PaginatedResult<T>` says.
+   *
+   * Scoped to admin-api because that is where the transport boundary lives and
+   * where the finding shipped. Deliberately NOT matched: the keyset/cursor
+   * family (`items` + `totalCount` + `hasMore` + `cursor`), which is a
+   * different pagination contract with its own authority and no `total` field.
+   */
+  it('(d) admin-api declares no bare { items, total } envelope', () => {
+    const adminFiles = files.filter((file) => file.startsWith('apps/admin-api-service/src'));
+    expect(adminFiles.length).toBeGreaterThan(100);
+
+    const AD_HOC_PATTERNS: ReadonlyArray<{ name: string; re: RegExp }> = [
+      {
+        name: 'ad-hoc envelope type (items: T[] … total: number)',
+        re: /\bitems\s*:\s*[A-Za-z_][\w.<>[\] ]*\[\]\s*;[\s\S]{0,200}?\btotal\s*:\s*number/,
+      },
+      {
+        name: 'ad-hoc envelope type (total: number … items: T[])',
+        re: /\btotal\s*:\s*number\s*;[\s\S]{0,120}?\bitems\s*:\s*[A-Za-z_][\w.<>[\] ]*\[\]/,
+      },
+      {
+        name: 'return-literal shorthand (return { items, total … })',
+        re: /return\s*\{\s*items\s*[,:][\s\S]{0,200}?\btotal\s*[,:}]/,
+      },
+    ];
+
+    const offenders: string[] = [];
+    for (const file of adminFiles) {
+      // Comments are stripped: an explanation of a removed shape necessarily
+      // spells that shape out.
+      const source = readFileSync(resolve(REPO_ROOT, file), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/^\s*\/\/.*$/gm, '');
+      for (const { name, re } of AD_HOC_PATTERNS) {
+        if (re.test(source)) offenders.push(`${file}  ->  ${name}`);
+      }
+    }
+
     expect(offenders).toEqual([]);
   });
 

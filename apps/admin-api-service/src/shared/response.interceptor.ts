@@ -4,6 +4,7 @@ import {
   ExecutionContext,
   CallHandler,
   InternalServerErrorException,
+  StreamableFile,
 } from '@nestjs/common';
 import {
   hasUnissuedPaginationShapeV1,
@@ -90,8 +91,20 @@ export class ResponseInterceptor implements NestInterceptor<unknown, unknown> {
     return next.handle().pipe(map((data: unknown) => this.envelope(data, normalizedUrl)));
   }
 
-  private envelope(data: unknown, route: string): ApiResponse<unknown> {
+  private envelope(data: unknown, route: string): ApiResponse<unknown> | StreamableFile | Buffer {
     const timestamp = new Date().toISOString();
+
+    // Bytes are not a payload to describe — they ARE the response. Nest streams
+    // a `StreamableFile` only when the handler returns it directly; nested
+    // inside `{success,data,meta}` it is serialized as an object instead, and
+    // the browser saves the envelope under the attachment filename. A `Buffer`
+    // takes the same route through `JSON.stringify`, arriving as
+    // `{"type":"Buffer","data":[…]}`. Passing both through untouched makes an
+    // uncorrupted download the structural default rather than a per-endpoint
+    // opt-out through `@Res`.
+    if (data instanceof StreamableFile || Buffer.isBuffer(data)) {
+      return data;
+    }
 
     if (isStandardPaginatedResult(data)) {
       return this.pageEnvelope(data, timestamp);

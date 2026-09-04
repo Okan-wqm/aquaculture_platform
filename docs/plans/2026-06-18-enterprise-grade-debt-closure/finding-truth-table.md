@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `fbdd144f3c6cdd7f8de093c3476db38e2edd46a92b399c07582ba382dc428450`
+Registry tip: `8af79a583b25295f8a7b7fef76019a0bede29f1a2e800cca143ac0a28891a247`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -252,6 +252,7 @@ Allowed truth buckets:
 | `FARM-CRITICAL-305`   | OPEN           | 2026-07-27   | claude                     | already-fixed-needs-close |
 | `FARM-CRITICAL-306`   | OPEN           | 2026-07-28   | claude                     | already-fixed-needs-close |
 | `PLAT-CRITICAL-905`   | OPEN           | 2026-07-29   | claude                     | already-fixed-needs-close |
+| `ADMIN-CRITICAL-087`  | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
 
 ## Mutation Rules
 
@@ -369,6 +370,10 @@ Allowed truth buckets:
 - `PLAT-CRITICAL-905` (four orphaned jest configs had no Nx project and no CI lane, so their suites
   never ran): fixed on the merged W0–W8 branch (commit f09ed1522). The registry row stays OPEN only
   until the post-merge close ceremony records a main-reachable closing commit.
+- `ADMIN-CRITICAL-087` (2026-09-04, rc1 re-slice of #1034): admin-api still owns duplicate announcement,
+  ticket and support-messaging tables beside the auth/messaging authorities; the RC chain's support-silo
+  consolidation was not re-derived. Real open work, owner admin-expert, deadline 2026-10-15
+  (`docs/reviews/admin-expert/2026-09-04-admin-panel-rc1-integration.md`).
 
 The 2026-06-20 registry close follow-up left no OTHER active CRITICAL in
 `already-fixed-needs-close`; reconciled items moved to `Resolved Evidence`.

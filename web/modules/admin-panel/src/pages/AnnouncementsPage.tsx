@@ -75,7 +75,7 @@ export const AnnouncementsPage: React.FC = () => {
       if (typeFilter !== 'all') params.type = typeFilter;
 
       const result = await supportApi.getAnnouncements(params);
-      setAnnouncements(result.data || []);
+      setAnnouncements(result.data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
       setAnnouncements([]);

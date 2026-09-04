@@ -42227,6 +42227,17 @@
     },
     {
       "class": "archive_immutable",
+      "content_sha256": "e6b673e08b4540e3b64360ac10aa8e0b0ad9937cceebafdee3cf9782555e0398",
+      "hash_policy": "sha256",
+      "owner": "aria-transport-copy",
+      "path": "new-aria/arias/legal/docs/YOL-HARITASI.md",
+      "prettier_managed": false,
+      "reason": "verbatim transport copy of the ARIA surface; formatting authority is the canonical root path",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
       "content_sha256": "6ed410de9c2f1bb69cd4e60707ed52f74f1d6e865a1b018adad0529d04a1c524",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",

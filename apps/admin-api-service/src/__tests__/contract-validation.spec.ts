@@ -990,7 +990,11 @@ describe('Frontend-Backend Contract Validation', () => {
     // Bu, beklenmedik endpoint degisikliklerini yakalar.
     const count = backendEndpoints.length;
 
-    expect(count).toBe(603);
+    // 602 since `GET /impersonation/stats` was deleted: it was the all-time twin
+    // of `GET /impersonation/audit/summary`, and two endpoints computing
+    // overlapping aggregates over different periods is what let the panel put a
+    // 30-day label on an all-time count.
+    expect(count).toBe(602);
   });
 
   it('frontend endpoint snapshot should be up to date', () => {

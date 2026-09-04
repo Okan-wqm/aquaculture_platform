@@ -1683,6 +1683,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/impersonation/services/__tests__/impersonation.audit-summary.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/impersonation/services/__tests__/impersonation.service.lifecycle.spec.ts",
       "prettier_managed": true
     },
@@ -43863,6 +43869,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/admin-billing-runtime-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/admin-impersonation-summary-contract.spec.ts",
       "prettier_managed": true
     },
     {

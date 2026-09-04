@@ -24449,7 +24449,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "3be3c1c57db22e09586321ad86336d29444f82bc1ed65eebcea83bd70afc1afd",
+      "content_sha256": "6fb29b646dd81db75c386ecc314ac4cc1a322edc4b78ad51c4a6e5b5c9ad3077",
       "hash_policy": "sha256",
       "owner": "archive-owner",
       "path": "apps/sensor-service/src/archive/parquet/__tests__/telemetry-archive-codec.spec.ts",
@@ -24460,7 +24460,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "785e45fe750022153fb8674d281d2aa3763246fd6ca6f89610976a40d2aabb6b",
+      "content_sha256": "34d1966eb02648ac34c1e7816fb86eadce7fa3736e9a725a6600bc93b911cf90",
       "hash_policy": "sha256",
       "owner": "archive-owner",
       "path": "apps/sensor-service/src/archive/parquet/telemetry-archive-codec.ts",
@@ -24471,7 +24471,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "5c69881a43e14e96a477e1a8f6bd852658ac9a1876a9a70b5140cda6b7276374",
+      "content_sha256": "387294749e211ca6877be9141f7c820d04757ec4c502da691b9baf0519a0d807",
       "hash_policy": "sha256",
       "owner": "archive-owner",
       "path": "apps/sensor-service/src/archive/parquet/telemetry-parquet-exporter.service.ts",
@@ -24482,7 +24482,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "e15748176c1e95baed750707772457df70dc598d5f9463b2e13abdb433861c8f",
+      "content_sha256": "67464f6b40e1d7d595001a1ac3ad537119904bcdbf8adf63f46000f729936203",
       "hash_policy": "sha256",
       "owner": "archive-owner",
       "path": "apps/sensor-service/src/archive/parquet/telemetry-parquet-verifier.service.ts",
@@ -35979,6 +35979,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-04-telemetry-readiness-v4-port.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/runbooks/2026-04-14-teardown-rollout.md",
       "prettier_managed": true
     },
@@ -42620,7 +42626,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "baecf169fdabe15f0433ac069c8422a748a65ba2604e7d05a08491caf72dc3f9",
+      "content_sha256": "455781464b917dcd338edfb402df210746073b2ca2dd0d66257c7268611f7c00",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -47023,6 +47029,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/gates/telemetry-readiness-gate.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/gates/tier-claim-lint.ts",
       "prettier_managed": true
     },
@@ -47276,6 +47288,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/scripts/emit-subgraph-sdl.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/scripts/evaluate-telemetry-readiness.ts",
       "prettier_managed": true
     },
     {

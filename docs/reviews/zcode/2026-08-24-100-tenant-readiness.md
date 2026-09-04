@@ -279,6 +279,7 @@ UPDATE edilmez. Current-state view en yeni transition'ı türetir.
 | MQTT durability      | apps/sensor-service/src/shared-mqtt/mqtt-client.service.ts                         | Persistent session ve delayed PUBACK              |
 | Ingest orchestration | apps/sensor-service/src/ingestion/mqtt-listener.service.ts                         | Parse, persist, publish, disposition              |
 | Metric write         | apps/sensor-service/src/ingestion/sensor-metric-writer.service.ts                  | Tenant batch result ve DB deadline                |
+| Ingest ledger        | apps/sensor-service/src/ingestion/entities/                                        | Receipt/dispatch durability ve reconciliation     |
 | Event routing        | platform/libs/event-bus/src/nats/nats-event-bus.ts                                 | Subject-root → stream registry                    |
 | NATS ACL             | infrastructure/nats/services.yaml                                                  | Cert-CN izin SSoT                                 |
 | Sidecar              | apps/sensor-ingestion/src/main.rs ve persistence.rs                                | MQTT → tenant PG → JetStream PubAck               |
@@ -522,6 +523,9 @@ PubAck, PG pool/timeouts. (capacity-reservation backlog alarmı Task 8 ile gelir
 - Modify: apps/sensor-service/src/shared-mqtt/mqtt-client.service.ts
 - Modify: apps/sensor-service/src/ingestion/mqtt-listener.service.ts
 - Modify: apps/sensor-service/src/ingestion/sensor-metric-writer.service.ts
+- Create: apps/sensor-service/src/ingestion/entities/sensor-ingest-receipt.entity.ts
+- Create: apps/sensor-service/src/ingestion/entities/sensor-event-dispatch.entity.ts
+- Create: apps/sensor-service/src/database/migrations/NNNNNNNNNNNNN-CreateSensorIngestLedger.ts
 - Create: apps/sensor-service/src/ingestion/dlq/dlq-publisher.service.ts
 - Create: apps/sensor-service/src/ingestion/dlq/dlq-envelope.ts
 - Create: tools/scripts/telemetry-dlq-replay.ts
@@ -539,6 +543,7 @@ PubAck, PG pool/timeouts. (capacity-reservation backlog alarmı Task 8 ile gelir
 - QoS1 delayed PUBACK
 - Tenant-result writer contract
 - Deterministic event identity
+- Durable per-tenant ingest receipt and dispatch ledger
 - DLQ/replay and idempotent business effects
 
 - [ ] **Step 1.1: Pin failing MQTT ACK behavior**
@@ -649,7 +654,80 @@ idempotency/outbox rows and later archive objects. Add tenant-wide MQTT auth and
 sensor metadata cache invalidation broadcast. Ingress checks an erased-tenant
 tombstone before any write and ACK-drops such messages without recreating data.
 
-- [ ] **Step 1.9: Verify failure drills and commit**
+- [ ] **Step 1.9: Make the accept→commit→publish chain durable in the tenant schema**
+
+Steps 1.2–1.4 make the ACK gate correct in memory: PUBACK is released only after
+every handler settles, and an unsettled message is left unacked so the broker's
+persistent session redelivers it. That chain has no durable record of its own
+state, and three things follow from that.
+
+First, the platform cannot say which source IDs it admitted. Task 5.1's
+reconciliation artifact and `tools/scripts/evaluate-telemetry-readiness.ts`
+both require `acceptedSourceIds`, `committedSourceIds` and a source-ID set hash;
+without a table those numbers exist only in the external generator's own logs,
+so the platform side of the reconciliation is unauditable by construction.
+
+Second, exactly-once business effect currently rests on JetStream message-ID
+dedup, whose window is minutes. The zero-loss scope explicitly covers outages up
+to 60 minutes, and a redelivery after a 30-minute outage lands far outside any
+dedup window. The only durable anchor at that timescale is a uniqueness
+constraint on the source identity inside the tenant transaction.
+
+Third, a process that commits the metric write and dies before the child
+JetStream publish has no way to learn what it still owes. It relies entirely on
+the broker still holding the unacked message; a session that is lost for any
+other reason takes the obligation with it, silently.
+
+Per-tenant tables (the entity omits `schema:` so `search_path` routes them into
+`tenant_<uuid>`, ADR-011):
+
+- `sensor_ingest_receipts` — one row per admitted source message.
+  `source_event_id` is UNIQUE and is the exactly-once anchor. Carries the
+  payload digest, the producer timestamp and sequence, and the commit state.
+- `sensor_event_dispatch` — one row per deterministic child event.
+  `(child_event_id)` is UNIQUE. Carries the target subject, the payload, the
+  PubAck stream/sequence once acknowledged, and the dispatch state.
+
+Contract:
+
+- The metric upsert, the receipt row and every dispatch row are written in the
+  SAME tenant transaction. A dispatch row exists before its event is published,
+  never after.
+- The publisher only ever reads dispatch rows that the transaction already
+  committed, publishes them, waits for PubAck, and records stream/sequence.
+  A crash resumes from PENDING dispatch rows rather than from broker state.
+- A redelivered source message finds its receipt already committed; the metric
+  upsert is a committed no-op and the dispatch rows are re-published with the
+  same deterministic child event IDs, so a duplicate transport delivery cannot
+  produce a second business effect.
+- A legacy payload with no stable producer identity has no receipt to write and
+  goes to quarantine rather than being admitted with an invented ID.
+- ACKed dispatch rows are retained at least seven days so the reconciliation
+  artifact can be rebuilt after the fact. PENDING rows are NEVER removed by age;
+  an old pending row is an unfulfilled publish obligation, not garbage.
+- Step 1.8's erasure purge covers both tables, and Task 6's archive erasure
+  covers them again for any tenant whose data has already been exported.
+
+The generic transactional outbox is not reused for this path. It is a
+cross-tenant table by design and this obligation is per-tenant, at telemetry
+rate, and has to live inside the same tenant transaction as the metric write —
+routing it through a shared table would put every tenant's ingest behind one
+row-lock hot spot and break the tenant-schema boundary the whole plan rests on.
+
+**Gate:** a kill between commit and publish leaves a PENDING dispatch row that
+the restarted publisher completes; a redelivered source message produces zero
+additional business effects; the reconciliation artifact is reproducible from
+the receipt/dispatch tables alone.
+
+**Rollback:** the tables are additive. Disabling the durable profile stops
+writes to them but never drops rows, because a dropped PENDING row is a lost
+publish obligation.
+
+**Alarms:** oldest PENDING receipt age, oldest PENDING dispatch age, dispatch
+backlog depth, `source_event_id` uniqueness conflicts and receipt/dispatch count
+divergence per tenant-minute.
+
+- [ ] **Step 1.10: Verify failure drills and commit**
 
 ```bash
 npx nx test sensor-service --runInBand

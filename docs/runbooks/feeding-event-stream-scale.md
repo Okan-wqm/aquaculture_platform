@@ -68,14 +68,14 @@ sizing pours.
 A `MealFed` event serialises to roughly 600 bytes (base event + 9 payload
 fields). At 4 meals/day across 1,000 units:
 
-```
+```text
 4,000 msgs/day × 600 B         ≈ 2.4 MB/day/tenant
 7-day retention                ≈ 17 MB/tenant
 ```
 
 Against the 1.5 GB / 1M-message budget:
 
-```
+```text
 1.5 GB  ÷ 17 MB/tenant   ≈ 88 tenants at this size (byte ceiling)
 1M msgs ÷ 28k msgs/tenant ≈ 35 tenants at this size (message ceiling)
 ```

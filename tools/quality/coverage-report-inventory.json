@@ -27,6 +27,7 @@
     "coverage/tests/invariants/lcov.info",
     "libs/aquaculture-engines/coverage/lcov.info",
     "mcp/farm-management/coverage/lcov.info",
+    "web/apps/aquamobil/coverage/lcov.info",
     "web/modules/admin-panel/coverage/lcov.info",
     "web/modules/dashboard/coverage/lcov.info",
     "web/modules/farm-module/coverage/lcov.info",

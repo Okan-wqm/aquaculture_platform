@@ -80,10 +80,11 @@ const WATCH_MODE_TARGETS: Readonly<Record<string, string>> = {
  * project that happens to reuse the script name.
  */
 const UNREACHABLE_ALLOWLIST: Readonly<Record<string, string>> = {
-  'shared-ui:test:coverage':
-    'Coverage-reporting variant of `test`, which IS gated. Same suite, extra reporter.',
-  'shell:test:coverage':
-    'Coverage-reporting variant of `test`, which IS gated. Same suite, extra reporter.',
+  // Empty on purpose. It held `shared-ui:test:coverage` and `shell:test:coverage`
+  // — coverage-reporting variants of gated `test` targets — and both projects have
+  // since stopped declaring them. The self-expiry check below is what noticed:
+  // an exemption for a target that no longer exists is a claim about a gate that
+  // is not there, which is the same defect class the invariant exists to catch.
 };
 
 /**

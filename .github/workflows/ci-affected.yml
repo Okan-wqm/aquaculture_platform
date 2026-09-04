@@ -372,11 +372,21 @@ jobs:
       (github.event_name == 'pull_request' ||
        (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
-    # Raised from 40 when the integration lane joined this job (FARM-MEDIUM-301).
-    # The ceiling exists so a runaway is caught, not to pace the steps: each step
-    # carries its own timeout, so the job ceiling should stay comfortably above
-    # their sum and let the STEP name the failure.
-    timeout-minutes: 70
+    # Raised from 40 to 45 when the integration lane joined this job
+    # (FARM-MEDIUM-301). The ceiling catches a runaway; it does not pace the
+    # steps, and it is deliberately NOT their sum — the step budgets already add
+    # to 140 minutes and always have, because target filtering means only a
+    # subset of them does real work on any one PR. Each step carries its own
+    # timeout so the STEP names the failure and the job ceiling is the backstop.
+    #
+    # 45 is not an arbitrary round number: ci-full's unfiltered `test` job
+    # carries 45 (measured — median 23m29s, max 29m03s), and
+    # tests/invariants/ci-timeout-budget-ssot.spec.ts requires the unfiltered
+    # lane's budget to be at least this filtered one's. A filtered lane that may
+    # outlast the lane that can never run fewer targets is a contradiction, so
+    # this budget is bounded ABOVE by that measured number rather than chosen
+    # here. The integration step's own 20 is what bounds a Testcontainers hang.
+    timeout-minutes: 45
     # continue-on-error removed: failing tests must block PR merge.
     # BEFORE: broken unit tests were invisible to reviewers — PRs merged with red tests.
     services:
@@ -522,17 +532,23 @@ jobs:
       # `test:integration` when deciding whether to pull the PostgreSQL image, so
       # a cold runner does not pay a multi-GB download inside a Jest beforeAll.
       #
-      # The step timeout is deliberately generous and NOT yet tuned: the honest
-      # number can only come from a measured run on a Docker-capable runner
-      # (13 suites, maxWorkers 1, one container boot per file, no reuse). Tighten
-      # it from the first green run rather than guessing it down now. It is a
-      # STEP timeout on purpose — a job-level trip would report as an opaque
-      # cancellation instead of naming the lane.
+      # The step timeout is generous and NOT yet measured: the honest number can
+      # only come from a run on a Docker-capable runner (13 suites, maxWorkers 1,
+      # one container boot per file, no reuse). Tighten it from the first green
+      # run. It is a STEP timeout on purpose — a job-level trip would report as
+      # an opaque cancellation instead of naming the lane.
+      #
+      # 20, not the 25 this lane first carried: the job ceiling is bounded above
+      # by ci-full's measured 45 (see the job's own note), and a step budget that
+      # leaves the fan-out step no room under that ceiling would make the JOB fire
+      # first — which is precisely the anonymous-cancellation failure the step
+      # budget exists to prevent.
       - name: Run integration tests (affected only)
         run: |
-          BASE_REF="origin/${{ github.base_ref || 'main' }}"
-          bash scripts/ci/affected-target-policy.sh --target test:integration --base "$BASE_REF" --parallel 1
-        timeout-minutes: 25
+          BASE_REF="${{ needs.detect-changes.outputs.base_sha }}"
+          HEAD_REF="${{ needs.detect-changes.outputs.head_sha }}"
+          bash scripts/ci/affected-target-policy.sh --target test:integration --base "$BASE_REF" --head "$HEAD_REF" --parallel 1
+        timeout-minutes: 20
         env:
           NX_DAEMON: 'false'
           NX_NO_CLOUD: 'true'

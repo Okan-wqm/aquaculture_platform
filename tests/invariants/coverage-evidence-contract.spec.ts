@@ -142,7 +142,11 @@ describe('repository-owned coverage evidence contract', () => {
     const inventory = readInventory();
 
     expect(inventory.schema_version).toBe(1);
-    expect(inventory.reports).toHaveLength(36);
+    // 36 -> 37: web/apps/aquamobil became a Vitest producer the moment it
+    // declared a plain `test` script (FARM-MEDIUM-304 — until then its 383
+    // tests were unselectable by `nx affected`). A producer that is not in the
+    // inventory is coverage nobody aggregates.
+    expect(inventory.reports).toHaveLength(37);
     expect(new Set(inventory.reports).size).toBe(inventory.reports.length);
     expect(inventory.reports).toEqual([...inventory.reports].sort());
     expect(
@@ -151,7 +155,7 @@ describe('repository-owned coverage evidence contract', () => {
           !path.isAbsolute(report) && !report.includes('..') && report.endsWith('lcov.info'),
       ),
     ).toBe(true);
-    expect(VITEST_PRODUCERS).toHaveLength(12);
+    expect(VITEST_PRODUCERS).toHaveLength(13);
     expect(inventory.reports.filter((report) => !report.startsWith('coverage/'))).toEqual(
       VITEST_PRODUCERS.map(({ report }) => report),
     );

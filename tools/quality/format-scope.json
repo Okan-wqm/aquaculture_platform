@@ -44738,6 +44738,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/platform-binary-installer-authority.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/platform-entity-registry-parity.spec.ts",
       "prettier_managed": true
     },

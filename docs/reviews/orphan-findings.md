@@ -11008,3 +11008,21 @@ object as a React child blanks the entire view (APA-232/233 from admin RC1 audit
 
 **Notes:** The service returns requirement as a ComplianceRequirement object;
 the controller now flattens the nested shape the page can render.
+
+## ORPHAN-HIGH-799 — a workflow step read a later step's output, and GitHub answered with an empty string — RESOLVED
+
+Severity: HIGH (the daily ARIA report has not been produced by any scheduled run since the defect landed, and the same shape silently discarded an operator's explicit date).
+
+**Context.** `542a06ad1` (2026-09-04 06:04 UTC) moved the daily report's date from `date -u +%F` to the newest reflection report in the RESTORED aria/state store — a real correction, because reporting on a day whose cycle had not run could only ever emit the stub its own guard refuses. The new `resolved` step necessarily sits AFTER the restore. The commit then renamed every `steps.target.outputs.date` to `steps.resolved.outputs.date`, mechanically, including two places where that reference cannot resolve.
+
+**Defect 1 — a forward reference.** The enterprise-preflight step is step 5 of `generate-report`; `resolved` is step 7. GitHub Actions does not reject a reference to a step that has not run. It substitutes an EMPTY STRING and runs the step. `REPORT_DATE` was empty, the declared write path became `aria-tools/reports/daily/.md`, and the workflow contract correctly refused it: `allowed_write_root_outside_contract:aria-tools/reports/daily/.md`. Run 33865852817 and every scheduled run after the commit died there, three steps before the report was ever generated.
+
+**Defect 2 — a self reference.** The `resolved` step carried `TARGET_DATE: ${{ steps.resolved.outputs.date }}` in its OWN env. On the explicit-dispatch path it echoes `date=${TARGET_DATE}` into `$GITHUB_OUTPUT`, so an operator who dispatched with an explicit date got an empty one back, and the step announced `explicit date requested: ` as if it had honoured them.
+
+**Why the preflight cannot simply be given the resolved date.** The contract pins `first_governed_mutation_step` to the aria/state restore: binding the store IS the decision about what the report contains, so the preflight must precede it. The date is only knowable after that restore. The two constraints are not reconcilable by moving a reference around — the declaration has to describe what the job can honestly promise at the only moment it can promise anything. That is the daily-reports DIRECTORY plus the store root. The dated filename stays pinned where it remains knowable: `upload_artifact_path_patterns`, which is checked against the workflow file itself, so what LEAVES the job is still `YYYY-MM-DD.md`.
+
+**Measured, not asserted.** Calling `verify_workflow_preflight` with the fixed declaration returns no path-contract reason; calling it with the declaration the failing run produced returns exactly the two reasons the run logged (`allowed_write_root_outside_contract` + `path_allowlist_outside_contract` on `aria-tools/reports/daily/.md`).
+
+**The class, not the instance.** Both defects are invisible in review, produce no error at the reference site, and surface far away as a malformed value. They are also mechanically decidable from the YAML alone. `tests/invariants/workflow-step-context-ordering.spec.ts` now refuses any `${{ steps.<id>.* }}` in any workflow whose producing step is later in the same job, is the step itself, or does not exist. It matches only inside `${{ ... }}`, because prose that merely names a step is not an interpolation — and it deliberately does NOT skip shell comments, because an expression inside a comment is still substituted. Verified in the falsifying direction: restoring the pre-fix workflow makes the invariant report both violations by name; job-level `outputs:` stay exempt, since they are evaluated after every step has run.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

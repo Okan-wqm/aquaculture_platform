@@ -5957,7 +5957,12 @@ def _main(argv: list[str] | None = None) -> int:
             artifact_path = Path(args.artifact)
             artifact_path.parent.mkdir(parents=True, exist_ok=True)
             artifact_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        summary = autonomy_output_summary(result, result_detail=args.output)
+        summary = autonomy_output_summary(
+            result,
+            result_detail=args.output,
+            base_dir=args.tools_dir,
+            workspace_root=args.workspace_root,
+        )
         if args.output == "full":
             summary.pop("full_result", None)
             summary["full_result_artifact"] = str(Path(args.artifact))

@@ -226,6 +226,18 @@ def write_run_artifact(
     }
 
 
+def budget_projection(run_row: dict[str, Any]) -> dict[str, Any]:
+    """duration, the budget it ran under, and how much of it was consumed."""
+    duration = run_row.get("duration_ms")
+    timeout = run_row.get("timeout_ms")
+    projection: dict[str, Any] = {"duration_ms": duration, "timeout_ms": timeout}
+    if isinstance(duration, (int, float)) and isinstance(timeout, (int, float)) and timeout > 0:
+        projection["budget_utilisation"] = round(float(duration) / float(timeout), 4)
+    else:
+        projection["budget_utilisation"] = None
+    return projection
+
+
 def append_run_by_cycle(
     *,
     base_dir: str | Path | None,
@@ -244,6 +256,13 @@ def append_run_by_cycle(
         "artifact_hash": run_row.get("artifact_hash"),
         "artifact_status": run_row.get("artifact_status", "legacy_inline_or_sample_only"),
         "runner": _runner_summary(run_row.get("runner")),
+        # ORPHAN-HIGH-801 — by-cycle is the ONLY runs ledger published to
+        # aria/state, so whatever it drops is unmeasurable after the night
+        # ends. It dropped duration, which is why a 180s budget survived
+        # unexamined until the adapter it governs could no longer finish
+        # inside it. Utilisation is derived here rather than by the reader,
+        # so every consumer sees the same number.
+        **budget_projection(run_row),
     }
     append_declared_jsonl(by_cycle_runs_path(base_dir, cycle_uid), summary, expected_surface="runs_by_cycle")
 
@@ -824,7 +843,22 @@ def _marker_total(container: dict[str, Any], keys: tuple[str, ...]) -> int:
     return total
 
 
-def autonomy_output_summary(result: dict[str, Any], *, result_detail: str = "summary") -> dict[str, Any]:
+# A tool that finishes this close to its declared timeout is reported as
+# pressure. 0.8 leaves a full night of notice at the growth rates this repo
+# has actually shown, without firing on tools that merely use their budget.
+BUDGET_PRESSURE_THRESHOLD = 0.8
+
+
+def autonomy_output_summary(
+    result: dict[str, Any],
+    *,
+    result_detail: str = "summary",
+    base_dir: str | Path | None,
+    workspace_root: str | Path | None = None,
+) -> dict[str, Any]:
+    """`base_dir` is keyword-REQUIRED (no default) on purpose: a summary that
+    cannot open the store cannot honestly claim anything about artifact
+    integrity, and a default would let a caller silently produce that claim."""
     per_cycle = result.get("per_cycle") if isinstance(result.get("per_cycle"), list) else []
     cycle_status_counts: dict[str, int] = {}
     tool_status_counts: dict[str, int] = {}
@@ -836,6 +870,7 @@ def autonomy_output_summary(result: dict[str, Any], *, result_detail: str = "sum
     suppressed_count = 0
     truncated_count = 0
     warnings: list[dict[str, Any]] = []
+    budget_pressure: list[dict[str, Any]] = []
     for item in per_cycle:
         if not isinstance(item, dict):
             continue
@@ -885,6 +920,15 @@ def autonomy_output_summary(result: dict[str, Any], *, result_detail: str = "sum
                 })
             if tool_status == "evidence_error":
                 evidence_errors += 1
+            utilisation = run.get("budget_utilisation")
+            if isinstance(utilisation, (int, float)) and utilisation >= BUDGET_PRESSURE_THRESHOLD:
+                budget_pressure.append({
+                    "cycle_id": cycle.get("cycle_id"),
+                    "tool_id": run.get("tool_id"),
+                    "budget_utilisation": round(float(utilisation), 4),
+                    "duration_ms": run.get("duration_ms"),
+                    "timeout_ms": run.get("timeout_ms"),
+                })
             if run.get("artifact_status") in {"missing", "hash_mismatch", "write_failed"}:
                 non_ok_tools.append({
                     "cycle_id": cycle.get("cycle_id"),
@@ -900,7 +944,9 @@ def autonomy_output_summary(result: dict[str, Any], *, result_detail: str = "sum
         overall = "degraded"
     else:
         overall = "ok"
-    artifact_hash_status = _artifact_hash_status(artifact_refs)
+    artifact_hash_status, artifact_hash_issues = _artifact_hash_status(
+        artifact_refs, base_dir=base_dir, workspace_root=workspace_root,
+    )
     # ORPHAN-HIGH-424 — anomalies that are real but not fatal. `overall`
     # already turns "failed" on a bad cycle status or a non-ok tool, so
     # these are precisely the signals that used to reach the operator as
@@ -911,6 +957,13 @@ def autonomy_output_summary(result: dict[str, Any], *, result_detail: str = "sum
         warnings.append({
             "code": "artifact_hash_drift",
             "artifact_hash_status": artifact_hash_status,
+            # Bounded: the summary has a 32 KB stdout ceiling, and an operator
+            # needs the first offenders by name, not all of them.
+            "issues": [
+                {"code": issue.get("code"), "path": issue.get("path") or issue.get("ref")}
+                for issue in artifact_hash_issues[:10]
+            ],
+            "issue_count": len(artifact_hash_issues),
         })
     if failed_phases and overall == "ok":
         warnings.append({
@@ -919,6 +972,18 @@ def autonomy_output_summary(result: dict[str, Any], *, result_detail: str = "sum
         })
     if evidence_errors:
         warnings.append({"code": "evidence_errors", "count": evidence_errors})
+    if budget_pressure:
+        # ORPHAN-HIGH-801 — a tool that finished at 96% of its budget is one
+        # repo-growth commit away from a dead cycle, and today that arrives
+        # with no notice at all: the run is `ok` and nothing says how close it
+        # came. This is the notice. It is a warning, never a status change —
+        # a run that finished, finished.
+        warnings.append({
+            "code": "tool_budget_pressure",
+            "threshold": BUDGET_PRESSURE_THRESHOLD,
+            "tools": budget_pressure[:10],
+            "tool_count": len(budget_pressure),
+        })
     summary = {
         "schema_version": 2,
         "result_detail": result_detail,
@@ -1459,11 +1524,46 @@ def _latest_archive_event(root: Path, artifact_id: str) -> dict[str, Any] | None
     return latest
 
 
-def _artifact_hash_status(refs: list[dict[str, Any]]) -> str:
+def _artifact_hash_status(
+    refs: list[dict[str, Any]],
+    *,
+    base_dir: str | Path | None,
+    workspace_root: str | Path | None,
+) -> tuple[str, list[dict[str, Any]]]:
+    """The artifact verdict, computed by RE-HASHING each referenced artifact.
+
+    WHY this reads the store instead of a field: the previous implementation
+    asked each ref for `verification_status`. No writer in the kernel has ever
+    set that key — `write_run_artifact` stamps artifact_id, sha256, uri,
+    source_surface, content_type, schema_version and produced_by_workflow_run_id,
+    and nothing else. So `str(None or "")` was never in {"present", "ok"} and
+    EVERY cycle that produced an artifact reported `artifact_hash_drift`. The
+    warning was unconditional, which makes it worthless: an operator who sees
+    it every night learns to scroll past the one night it means something. It
+    also contradicted the state-integrity step, which re-hashes the same
+    artifacts and passed on the same run.
+
+    `_verify_artifact_ref` is the verifier the integrity path already uses:
+    it resolves the uri inside the store, refuses escapes and aliases, and
+    compares the recorded sha256 against the file on disk. Returning the
+    issues alongside the verdict lets the warning say WHICH artifact drifted
+    and why, instead of asserting drift with no referent.
+    """
     if not refs:
-        return "none"
-    statuses = {str(ref.get("verification_status") or "") for ref in refs}
-    return "ok" if statuses <= {"present", "ok"} else "drift"
+        return "none", []
+    root = tools_dir(base_dir)
+    workspace = Path(workspace_root).resolve() if workspace_root else None
+    issues: list[dict[str, Any]] = []
+    for ref in refs:
+        issue = _verify_artifact_ref(
+            ref,
+            root=root,
+            workspace_root=workspace,
+            source={"surface": "autonomy_summary"},
+        )
+        if issue is not None:
+            issues.append(issue)
+    return ("ok" if not issues else "drift"), issues
 
 
 def _runner_summary(runner: Any) -> dict[str, Any]:
@@ -1580,6 +1680,7 @@ __all__ = [
     "RUN_LEDGER_FORMAT_ENV", "RUN_LEDGER_FORMATS", "DEFAULT_RUN_LEDGER_FORMAT",
     "SUMMARY_STDOUT_MAX_BYTES", "append_run_by_cycle", "approve_runtime_v2_promotion",
     "artifact_index_path", "artifact_inventory_path", "artifact_manifest_path",
+    "budget_projection",
     "autonomy_exit_code", "autonomy_output_summary", "by_cycle_runs_path",
     "classify_cycle_evidence", "read_runs_for_cycle", "require_runtime_v2_promotion",
     "resolve_artifact_payload", "resolve_finding_from_artifact", "restore_artifact",

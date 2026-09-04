@@ -11026,3 +11026,58 @@ Severity: HIGH (the daily ARIA report has not been produced by any scheduled run
 **The class, not the instance.** Both defects are invisible in review, produce no error at the reference site, and surface far away as a malformed value. They are also mechanically decidable from the YAML alone. `tests/invariants/workflow-step-context-ordering.spec.ts` now refuses any `${{ steps.<id>.* }}` in any workflow whose producing step is later in the same job, is the step itself, or does not exist. It matches only inside `${{ ... }}`, because prose that merely names a step is not an interpolation — and it deliberately does NOT skip shell comments, because an expression inside a comment is still substituted. Verified in the falsifying direction: restoring the pre-fix workflow makes the invariant report both violations by name; job-level `outputs:` stay exempt, since they are evaluated after every step has run.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-800 — every cycle reported artifact drift, because the verdict read a key no writer sets — RESOLVED
+
+Severity: HIGH (an unconditional warning is worse than no warning: it teaches the operator to scroll past the one night it means something, and it contradicted the integrity step on the same run).
+
+**Defect.** `_artifact_hash_status` decided drift by reading `verification_status` off each artifact ref. Nothing in the kernel writes that key onto an artifact ref. `write_run_artifact` stamps `schema_version`, `artifact_id`, `uri`, `sha256`, `content_type`, `produced_by_workflow_run_id` and `source_surface` — and stops. So `str(None or "")` was never in `{"present", "ok"}`, and every cycle that produced any artifact reported `artifact_hash_drift`. Run 33857527349 shows it: nine refs, `artifact_hash_status: "drift"`, `warning_count: 1` — while the job's own state-integrity step re-hashed the same artifacts and passed.
+
+**Proved before fixing.** `_artifact_hash_status([])` returns `none`; `_artifact_hash_status([{"artifact_id": "a", "sha256": "x"}])` — the shape production actually emits — returns `drift`. The only inputs that returned `ok` were refs carrying a field no production path produces. The unit test that covered this passed a synthetic `{"verification_status": "mismatch"}`, so it pinned the bug rather than the behaviour.
+
+**Fix.** The verdict is now computed by RE-HASHING each referenced artifact through `_verify_artifact_ref` — the same verifier the integrity path uses, which resolves the uri inside the store, refuses escapes and aliases, and compares recorded sha256 against the bytes on disk. The warning now carries the offending artifact's issue code and path instead of asserting drift with no referent. `autonomy_output_summary` takes `base_dir` as a keyword-REQUIRED argument with no default: a summary that cannot open the store cannot honestly claim anything about artifact integrity, and a default would let a caller silently produce that claim.
+
+**Pins.** A matching artifact is `ok` and warns nothing; a tampered one is `drift` and is named with `artifact_hash_mismatch`; a ref pointing at a file that was never written is `drift` with `artifact_ref_missing`; no refs stays `none` and is not an anomaly.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-801 — a tool budget nobody could measure, and the night it finally killed — RESOLVED
+
+Severity: HIGH (the nightly cycle exits non-zero on a budget that was never sized against a measurement, and the data needed to size it was discarded every night).
+
+**Defect.** `test-gap-adapter` declared `timeout_ms: 180000`. It has never finished inside it on this repository. Run 33857527349 recorded `status: budget_exceeded` with `runner.timed_out: true` — a timeout, not the 12 MB output cap — and the cycle exited 1 with `cycles_completed: 0`.
+
+**Why it was invisible.** `duration_ms` is computed by the runner and required by `validate_run_envelope`, and then dropped by BOTH projections that outlive the run: `append_run_by_cycle` builds a 13-key summary without it, and the cycle's own `run_summary` row omits it too. `runs/by-cycle/*.jsonl` is the only runs ledger published to `aria/state`, so after the night ends a 179s run and a 5s run are indistinguishable. The budget lived in the manifest, the measurement lived nowhere, and the gap between them could only ever be discovered by crossing it.
+
+**Measured.** Run directly on the production runner with the adapter's declared scan surface (`apps`, `libs`, `platform/libs`, `web`): **2575s wall, 1.07 GB peak RSS, exit 0**, 6447 files scanned, 2229 observations, 279 findings, 1.8 MB of stdout. That sample was taken while the box was in a container crash-loop storm (load average 34, production postgres down), so it is an upper bound under adverse contention rather than the design point — but it settles the question the 180s budget was never asked: this adapter's work is minutes, not seconds.
+
+**Fix, in three parts.**
+
+1. The budget travels with the measurement. The run envelope now carries `timeout_ms` beside `duration_ms`, and both projections carry `duration_ms`, `timeout_ms` and a derived `budget_utilisation` into the published ledger. Utilisation is derived once, at write time, so every consumer sees the same number.
+2. Pressure is announced before it becomes a timeout. `tool_budget_pressure` warns for any run that finished at or above 80% of its declared budget, naming the tool, the ratio and both numbers. It is a warning and never a status change — a run that finished, finished.
+3. `test-gap-adapter`'s budget is raised to 1800000 ms. That is an order of magnitude above the adapters of comparable scan width that do complete, and 12% of the derived per-cycle budget (14681s on the measured run), so it cannot starve the night.
+
+**Named, not deferred.** Whether 1800s is the RIGHT budget or merely a working one is now an empirical question with an instrument pointed at it: the next cycle on a box that is not in a crash-loop publishes the real utilisation, and the 80% warning fires if the adapter is still close to its ceiling. If it is, the adapter's own cost is the next fix, not another budget increase. **Owner:** claude. **Deadline:** the first clean nightly cycle after the production postgres outage of 2026-09-04 is resolved.
+
+**Owner:** claude (this session). **Status:** RESOLVED (measurement + budget); adapter cost tracked above.
+
+## ORPHAN-HIGH-802 — every ARIA run deleted its own dependencies, then was killed reinstalling them — RESOLVED
+
+Severity: HIGH (a self-inflicted 1.6 GB install on every nightly run, on the box that also runs production, whose failure leaves the workspace worse than it found it).
+
+**Chain, measured on run 33857527349 and the runner itself.**
+
+1. `aria-auto-cycle` sets `clean: true` on checkout and `aria-agent-executor` inherits the same default. actions/checkout implements that as `git clean -ffdx`, and `-x` deletes gitignored paths — `node_modules` among them (`.gitignore:90`).
+2. `ensure-node-deps` is guarded on `node_modules/ts-node/dist/bin.js`, so with the tree deleted the guard always misses and `npm ci` always runs. It is not the no-op its own comment describes. Step 17 of the failing cycle took **2m50s** — the install really executed.
+3. That install peaks around 1.6 GB. The runner carries `oom_score_adj=500` by deliberate design, so under memory pressure the kernel kills it FIRST rather than killing production. It did: `npm ci` was OOM-killed on 2026-09-03 17:13, 2026-09-03 19:55 and 2026-09-04 12:18.
+4. `npm ci` empties `node_modules` before it repopulates, so a kill leaves a partial tree. The runner's workspace still holds that state: **1383 packages present, `ts-node` absent**. Which means the guard misses again, and the next run reinstalls from scratch and is killed again.
+
+The executor failure at 11:57 on 2026-09-04 is step 3 of that loop, not an independent defect.
+
+**Why the cleaning was there, and why `-x` was never part of the reason.** The comment on the auto-cycle checkout is accurate about its purpose: the mid-run preflight refuses to start on a dirty worktree, and a persistent self-hosted workspace inherits whatever the previous job left. But that guard reads `git status`, which does not report ignored files. Deleting `node_modules` could never have changed its verdict. The flag that cost three minutes and three OOM kills bought nothing the guard could see.
+
+**Fix.** Both lanes reset the workspace themselves, before checkout, with `git reset --hard && git clean -ffdx -e node_modules`, and checkout runs with `clean: false`. Byte-for-byte the same reset the guard needs, with the one exclusion that ends the reinstall loop. The step is a no-op when `.git` is absent, so a fresh runner still works.
+
+**Not fixed by this, and named.** The runner's current `node_modules` is already the broken half-tree, so the first run after this change still pays one `npm ci` — and it will only survive it if the box has memory, which today it does not: production postgres is down and 15 services are in a restart storm. Ending that storm is an operator decision recorded separately.
+
+**Owner:** claude (this session). **Status:** RESOLVED (the loop); first successful reinstall gated on the production outage above.

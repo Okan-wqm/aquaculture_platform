@@ -360,7 +360,7 @@ jobs:
   # ===================================================================
   tenant-clone-parity:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     env:
       AQUA_TEST_DB_VALUE: aquaculture-test
 
@@ -422,6 +422,17 @@ jobs:
 
       - name: Run tenant-clone-parity test
         run: npm run test:tenant-clone
+        env:
+          DATABASE_URL: postgresql://aquaculture:aquaculture-test@localhost:5432/aquaculture
+
+      # SENSOR-MEDIUM-052: CLAUDE.md named this spec as the per-PR schema
+      # invariant gate, but nothing invoked it — this workflow only listed it as
+      # a path filter. It runs here because the database above has just been
+      # migrated by the real db-migrate entry point, which is exactly the live
+      # DDL the spec asserts against (public/shared layout, per-service
+      # cross-tenant `schema:` placement).
+      - name: Run schema invariants against the migrated database
+        run: npm run test:schema-invariants
         env:
           DATABASE_URL: postgresql://aquaculture:aquaculture-test@localhost:5432/aquaculture
 

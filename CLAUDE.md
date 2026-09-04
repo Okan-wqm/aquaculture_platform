@@ -115,7 +115,7 @@ Each bounded context lives in `apps/{service}/src/{domain}/` with: `commands/`, 
 ## Schema Ownership (ADR-011) & Drift (ADR-012)
 
 - Per-tenant vs cross-tenant placement: see the CRITICAL block. The cross-tenant table set per service is `MODULE_SCHEMAS[].infrastructureTables` (`schema-manager.service.ts`) — do not hardcode a copy. Platform-level services (`auth`, `billing`, `admin`, `notification`, `event_store`, `observability`, `config`, `gateway`) always declare `schema:` explicitly.
-- Each service registers `SchemaDriftModule.forRoot({ serviceName: '<svc>' })`; the runtime validator fires at cold start; CI invariant `e2e/tests/integration/schema-invariants.spec.ts` runs every PR.
+- Each service registers `SchemaDriftModule.forRoot({ serviceName: '<svc>' })`; the runtime validator fires at cold start; CI invariant `e2e/tests/integration/schema-invariants.spec.ts` runs in `db-migration-check.yml` (PRs touching entities/migrations/init-scripts, plus nightly).
 - The `shared` schema holds ONLY the canonical cross-service tables enforced by `SHARED_SCHEMA_TABLES` in `schema-invariants.spec.ts` (+ `tests/invariants/shared-schema-canonical.spec.ts`) — that spec is the SSoT for the list and count. Adding one requires an ADR + architectural-arbiter approval AND updating that SSoT (W5 `add-shared-table` gate, BLOCKER-15).
 
 ## Migration Runners (ADR-011, ADR-012)
@@ -136,7 +136,7 @@ Event interfaces live in `libs/event-contracts/src/`. New event: add the interfa
 ## Test Rules
 
 - London School TDD: mock collaborators (`@platform/testing` factories). Test files: `{domain}/__tests__/*.spec.ts`.
-- Integration: `apps/{svc}/src/__tests__/integration/` or `e2e/tests/integration/`; E2E: `e2e/tests/`, `tests/e2e/`. The schema invariant test runs every PR. New feature → test first, then implement.
+- Integration: `apps/{svc}/src/__tests__/integration/` or `e2e/tests/integration/`; E2E: `e2e/tests/`, `tests/e2e/`. The schema invariant test runs in `db-migration-check.yml`. New feature → test first, then implement.
 
 ## Security
 

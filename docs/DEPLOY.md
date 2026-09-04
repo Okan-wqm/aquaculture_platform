@@ -82,7 +82,7 @@ Production deploys are controlled by ADR-033. The supported path is the
 `Deploy to DigitalOcean` GitHub Actions workflow, which calls
 `scripts/deploy/droplet-up.sh` on the droplet.
 
-#### Host Node.js requirement
+### Host Node.js requirement
 
 The production host must provide Node.js `22.x` as the root-owned,
 single-linked regular executable `/usr/bin/node` with mode `0755` and a

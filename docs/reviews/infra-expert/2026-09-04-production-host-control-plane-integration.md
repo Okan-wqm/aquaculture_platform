@@ -151,8 +151,8 @@ with #1255's control plane, and with the recovery plan's conjunctive-verdict rul
 closure requires every required asset and authority green for the same recovery-cut ID — or an
 explicit owner decision that main's v2 chain stands and the branch's evidence work is abandoned.
 Tracked as `INFRA-HIGH-144`. Until that decision, `INFRA-CRITICAL-090`, `INFRA-HIGH-102`, `103`,
-`104`, `108`–`120` and `INFRA-MEDIUM-110`, `116`, `117`, `128`, `129`, `131` stay exactly as PR
-#1022 left them.
+`104`, `108`–`120` and `INFRA-MEDIUM-110`, `116`, `117`, `128`, `129`, `131` stay exactly as
+PR #1022 left them.
 
 ## Gaps created or left by this integration
 

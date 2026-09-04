@@ -73,6 +73,11 @@ contract — ADR-024 and the plan's retention table are amended to say `columnar
 directory plus both service filenames are renamed off `parquet` so no reader is misled. Partial
 credit is not closure: the names and the bytes must agree.
 
+**Closed by route (a)** — see `docs/reviews/zcode/2026-09-04-telemetry-readiness-v4-port.md`. The
+version-2 Parquet codec, the exporter that writes it and the verifier that decodes it row by row all
+live behind the same interface, and the version-1 columnar-JSONL reader is kept so artifacts already
+in tenant buckets still verify.
+
 ## SENSOR-HIGH-106 — Task 5 produced no load, failure-drill or restore evidence
 
 **Verified state.** None of Task 5's declared outputs exist in the merged tree:

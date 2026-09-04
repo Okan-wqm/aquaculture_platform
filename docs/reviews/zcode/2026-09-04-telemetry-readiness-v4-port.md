@@ -89,37 +89,55 @@ expressions, or an ADR records why the pager threshold is deliberately above the
 and names the compensating control that notices the gap. Leaving both numbers in the tree with no
 stated relationship is not closure.
 
-## Parquet codec — v4 is stronger, and why it is not in this pass
+## SENSOR-HIGH-105 closure — the cold archive is Parquet now, not Parquet-named JSONL
 
-The head's `SENSOR-HIGH-105` (from `2026-09-03-100-tenant-readiness-integration.md`) offers two
-closure routes; route (a) is "a Parquet codec lands behind the same interface under a NEW format
-version tag". v4's
-`apps/sensor-service/src/telemetry-archive/telemetry-parquet-codec.service.ts` is that codec: real
-`@dsnp/parquetjs` columnar output, `PAR1` magic-byte checks at both ends of the file, format and
-schema-version stamped in the Parquet key-value metadata, a typed row decoder, an `inspect()` that
-re-reads row count and min/max time from the stored object, and a 22-column RAW schema against this
-head's 10-column projection. It is materially stronger than
-`apps/sensor-service/src/archive/parquet/telemetry-archive-codec.ts` on every axis the finding
-names, and it was verified to work in this environment (`@dsnp/parquetjs@1.8.8` installs cleanly —
-62 packages, no native build, 0 advisories — and round-trips writer→reader including optional
-columns and custom metadata).
+**Verified state (before this pass).** `ARCHIVE_CODEC_ID` was `columnar-jsonl` while the directory,
+both services, the retention contract and the plan's Task 6 all said Parquet. The codec's own header
+comment gave the reason: the Parquet writer dependency could not be installed when it was written.
+The finding's route (a) is "a Parquet codec lands behind the same interface under a NEW format
+version tag, version 1 readers keep working unchanged, and the exporter/verifier round-trip spec
+runs against the Parquet path". That is what landed.
 
-It was NOT ported in this pass, and the reason is environmental, not architectural: the port
-requires `@dsnp/parquetjs` in the root `package.json`, and this worktree cannot install it. Its
-`node_modules` is a symlink to the shared checkout, and `npm install @dsnp/parquetjs --dry-run`
-reports the reconciliation it would perform against that shared tree as "added 984 packages, removed
-2 packages, and changed 2068 packages" — a rewrite of another worktree's dependency tree. Adding the
-dependency to `package.json` without installing it would leave `tsc`, `eslint` and every
-sensor-service jest suite unable to resolve the import, which is a red tree, and shipping the codec
-without running its round-trip spec would be exactly the unverified claim `SENSOR-HIGH-105` exists
-to stop.
+**Resolution.** `apps/sensor-service/src/archive/parquet/telemetry-archive-codec.ts` now carries two
+formats. `aqua-telemetry-archive/2` (codec `parquet`) is real `@dsnp/parquetjs` columnar output with
+a typed schema, `PAR1` magic at both ends, the archive header in the file's own key-value metadata,
+and a decoder that returns typed `ArchiveRow` values. `aqua-telemetry-archive/1` (codec
+`columnar-jsonl`) keeps its encoder byte-for-byte, because objects already in tenant buckets carry a
+ledger sha256 over exactly those bytes and would otherwise stop verifying.
 
-`SENSOR-HIGH-105` therefore stays OPEN at its existing deadline (2026-10-01) with its owner
-unchanged, and this section is the evidence for whoever picks it up: the codec to port is
-`git show origin/feat/100-tenant-readiness-v4:apps/sensor-service/src/telemetry-archive/telemetry-parquet-codec.service.ts`,
-the dependency line is `"@dsnp/parquetjs": "1.8.8"` with a `thrift` → `uuid` override, and the work
-must land in a checkout with a writable `node_modules` so the exporter/verifier round-trip spec
-actually runs against the Parquet path.
+The exporter streams the day's rows straight into the Parquet writer inside the same REPEATABLE READ
+snapshot, so the encode consumes the row stream rather than an in-memory copy of it, and the uploaded
+object is `raw.<day>.parquet` with `application/vnd.apache.parquet`. The verifier picks its parse
+from the BYTES — Parquet magic means version 2, anything else falls back to the version-1 JSONL
+reader — so a tenant's already-VERIFIED history survives the writer moving on.
+
+Two things got stronger than a like-for-like port would have been. Timestamps are normalized to
+canonical ISO-8601 UTC at the source projection instead of being taken as PostgreSQL's own text
+rendering, which is neither ISO-8601 nor timezone-portable; the codec asserts that canonical form on
+BOTH encode and decode, so a value the encoder would refuse cannot be read back as valid either. And
+the verifier now decodes every row rather than checking that every line parses as JSON: it re-checks
+the header identity, the per-row tenant, and the `(time, sensor_id, channel_id)` order the exporter
+promised — the order a restore depends on. The exporter also refuses a run whose encoded min/max
+range disagrees with the aggregate it recorded in the manifest.
+
+v4's codec carried a 22-column RAW schema against this head's 10-column projection. That difference
+is about WHICH columns the archive keeps, not about the format, and widening the archived column set
+changes what a restore produces; it is not part of this finding and is not in this change.
+
+**Dependency.** `@dsnp/parquetjs@1.8.8` enters the root `package.json` with a `thrift` → `uuid`
+`^11.1.1` override, matching the existing `typeorm` and `@apollo/federation-internals` overrides and
+for the same reason: thrift 0.23 depends on uuid 13, which is ESM-only, and this platform's Jest
+sandbox cannot load it. 62 packages, no native build step, no new license exception, and
+`@aws-sdk/client-s3` was already a direct dependency so it did not need one.
+
+**Verification note for the integrator.** This worktree's `node_modules` is a symlink to a shared
+checkout, so a real `npm install` here would have rewritten another worktree's dependency tree
+(`--dry-run` reported "added 984 packages, removed 2 packages, and changed 2068 packages"). The lock
+was therefore updated with `npm install --package-lock-only` — an additive +258-line diff that
+resolves thrift onto the hoisted uuid 11.1.1 — and the packages were staged into a local, gitignored
+`apps/sensor-service/node_modules/` so the specs ran against the real library. On the integration
+chain, `npm ci` reproduces exactly the tree the lock describes; the spec that must stay green is
+`apps/sensor-service/src/archive/parquet/__tests__/telemetry-archive-codec.spec.ts`.
 
 ## Receipt/dispatch ledger — design ported into the plan
 

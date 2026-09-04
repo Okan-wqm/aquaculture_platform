@@ -59,6 +59,13 @@ function createMockQueryRunner(mockManager: MockManagerType) {
     commitTransaction: jest.fn().mockResolvedValue(undefined),
     rollbackTransaction: jest.fn().mockResolvedValue(undefined),
     release: jest.fn().mockResolvedValue(undefined),
+    // `runInTenantTransaction` pins the transaction's search_path through the
+    // query runner before handing control to the handler
+    // (`libs/backend-common/src/database/tenant-transaction.ts`). A mock without
+    // `query` fails with "queryRunner.query is not a function" — which this
+    // spec never showed, because nothing ran it until `test:integration` was
+    // wired into CI (INFRA-MEDIUM-142).
+    query: jest.fn().mockResolvedValue([]),
     manager: mockManager as unknown as EntityManager,
   };
 }
@@ -111,8 +118,13 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
   let mockManager: MockManagerType;
   let mockQueryRunner: ReturnType<typeof createMockQueryRunner>;
   let mockDataSource: DataSource;
+  let handlerTankBatchService: { applyBatchDelta: jest.Mock };
 
-  const tenantId = 'tenant-race-test';
+  // Must be a real UUID: withTenantContext rejects anything else
+  // (`libs/backend-common/src/context/with-tenant-context.ts`) because the id
+  // becomes a schema name. This spec predates that guard and was never run
+  // until `test:integration` was wired into CI (INFRA-MEDIUM-142).
+  const tenantId = '11111111-1111-4111-8111-111111111111';
   const batchId = 'batch-001';
   const tankId = 'tank-001';
 
@@ -133,6 +145,11 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
         mainCause: undefined as unknown as string,
       },
       isOperational: jest.fn().mockReturnValue(true),
+      // RecordMortalityHandler gates on MortalityCullPolicyService
+      // .assertStockMutable, which calls the batch's own
+      // isStockMutable() (operational OR quarantine). A mock without it
+      // throws "batch.isStockMutable is not a function".
+      isStockMutable: jest.fn().mockReturnValue(true),
       getMortalityRate: jest.fn().mockReturnValue(0.5),
       getRetentionRate: jest.fn().mockReturnValue(99.5),
       getCurrentAvgWeight: jest.fn().mockReturnValue(200),
@@ -158,6 +175,7 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
 
     mockQueryRunner = createMockQueryRunner(mockManager);
     mockDataSource = createMockDataSource(mockQueryRunner);
+    handlerTankBatchService = { applyBatchDelta: jest.fn().mockResolvedValue({}) };
 
     // Default findOne responses
     const mockBatch = createMockBatch();
@@ -200,7 +218,7 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
       // commands below default to MODULE_MANAGER, so the hierarchy bypass keeps
       // these lock/TOCTOU race tests focused on concurrency, not site authz).
       new SiteAuthorizationService(),
-      { applyBatchDelta: jest.fn().mockResolvedValue({}) } as never,
+      handlerTankBatchService as never,
       new MortalityCullPolicyService(),
       { refreshContainers: jest.fn().mockResolvedValue(undefined) } as never,
       new MobileCommandReceiptService(),
@@ -299,7 +317,7 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
     expect(mockQueryRunner.release).toHaveBeenCalledTimes(1);
   });
 
-  it('should prevent negative tankBatch biomass with Math.max(0, ...)', async () => {
+  it('delegates the tank-batch decrement and clamps the tank biomass it writes itself', async () => {
     const mockTankBatch = {
       tenantId,
       tankId,
@@ -329,14 +347,30 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
 
     await handler.execute(command);
 
-    // Verify TankBatch save was called with non-negative values
-    const tankBatchSaveCall = mockManager.save.mock.calls.find(
-      (call: any[]) => call[0] === TankBatch
-    );
-    expect(tankBatchSaveCall).toBeDefined();
-    const savedTankBatch = tankBatchSaveCall![1];
-    expect(savedTankBatch.totalQuantity).toBeGreaterThanOrEqual(0);
-    expect(savedTankBatch.totalBiomassKg).toBeGreaterThanOrEqual(0);
+    // The TankBatch row is no longer written by this handler: the decrement
+    // goes through TankBatchService.applyBatchDelta, the SINGLE count writer
+    // that re-derives every aggregate from batchDetails[]. So what this handler
+    // owns — and what is asserted here — is that it delegates the full removal
+    // as a NEGATIVE delta for THIS batch in THIS tank. Whether the resulting
+    // row can go negative is the writer's contract and is covered by
+    // batch/__tests__/services/tank-batch.service.spec.ts, which pins the
+    // current rule: a per-tank overdraft is REJECTED, not clamped to zero.
+    const applyBatchDelta = handlerTankBatchService.applyBatchDelta as jest.Mock;
+    expect(applyBatchDelta).toHaveBeenCalledTimes(1);
+    const [, deltaTenantId, deltaTankId, delta] = applyBatchDelta.mock.calls[0];
+    expect(deltaTenantId).toBe(tenantId);
+    expect(deltaTankId).toBe(tankId);
+    expect(delta.batchId).toBe(batchId);
+    expect(delta.quantityDelta).toBe(-20);
+    expect(delta.biomassDelta).toBeLessThan(0);
+
+    // The tank's own biomass write IS still this handler's, and is clamped.
+    const builder = mockManager.createQueryBuilder.mock.results[0]?.value;
+    const biomassSet = (builder.set as jest.Mock).mock.calls
+      .map((call: unknown[]) => call[0] as Record<string, unknown>)
+      .filter((patch) => 'currentBiomass' in patch);
+    expect(biomassSet).toHaveLength(1);
+    expect(biomassSet[0]!.currentBiomass).toBeGreaterThanOrEqual(0);
   });
 });
 
@@ -345,6 +379,10 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
 // ============================================================================
 
 describe('Race Condition Protection: Cross-handler concurrent safety', () => {
+  // As above — withTenantContext turns the tenant id into a schema name and
+  // rejects anything that is not a UUID.
+  const EXACT_TENANT_ID = '22222222-2222-4222-8222-222222222222';
+
   it('should not produce negative values when mortality equals currentQuantity', async () => {
     const mockManager = createDefaultMockManager();
     const mockQueryRunner = createMockQueryRunner(mockManager);
@@ -353,7 +391,7 @@ describe('Race Condition Protection: Cross-handler concurrent safety', () => {
     // Batch with exactly the amount being removed
     const exactBatch: Partial<Batch> = {
       id: 'batch-exact',
-      tenantId: 'tenant-exact',
+      tenantId: EXACT_TENANT_ID,
       batchNumber: 'B-EXACT',
       isActive: true,
       initialQuantity: 100,
@@ -367,6 +405,11 @@ describe('Race Condition Protection: Cross-handler concurrent safety', () => {
         mainCause: undefined as unknown as string,
       },
       isOperational: jest.fn().mockReturnValue(true),
+      // RecordMortalityHandler gates on MortalityCullPolicyService
+      // .assertStockMutable, which calls the batch's own
+      // isStockMutable() (operational OR quarantine). A mock without it
+      // throws "batch.isStockMutable is not a function".
+      isStockMutable: jest.fn().mockReturnValue(true),
       getMortalityRate: jest.fn().mockReturnValue(10),
       getRetentionRate: jest.fn().mockReturnValue(90),
       getCurrentAvgWeight: jest.fn().mockReturnValue(200),
@@ -374,7 +417,7 @@ describe('Race Condition Protection: Cross-handler concurrent safety', () => {
 
     const exactEquipment: Partial<Equipment> = {
       id: 'tank-exact',
-      tenantId: 'tenant-exact',
+      tenantId: EXACT_TENANT_ID,
       isActive: true,
       isDeleted: false,
       volume: 1000,
@@ -383,7 +426,7 @@ describe('Race Condition Protection: Cross-handler concurrent safety', () => {
     };
 
     const exactTankBatch = {
-      tenantId: 'tenant-exact',
+      tenantId: EXACT_TENANT_ID,
       tankId: 'tank-exact',
       primaryBatchId: 'batch-exact',
       totalQuantity: 100,
@@ -427,7 +470,7 @@ describe('Race Condition Protection: Cross-handler concurrent safety', () => {
       new MobileCommandReceiptService(),
     );
 
-    const command = new RecordMortalityCommand('tenant-exact', 'batch-exact', {
+    const command = new RecordMortalityCommand(EXACT_TENANT_ID, 'batch-exact', {
       tankId: 'tank-exact',
       quantity: 100, // Exactly all remaining fish
       avgWeightG: 200,

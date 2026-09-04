@@ -37,8 +37,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
     'tenant_localization + feeding_job_runs are cross-tenant farm infrastructure ledgers ' +
     '(tenantId-discriminated) and must not be cloned into tenant schemas',
 })
-export class CreateFeedingClockInfrastructure1807200000000 implements MigrationInterface {
-  name = 'CreateFeedingClockInfrastructure1807200000000';
+export class CreateFeedingClockInfrastructure1809100000000 implements MigrationInterface {
+  name = 'CreateFeedingClockInfrastructure1809100000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`SET LOCAL lock_timeout = '5s'`);

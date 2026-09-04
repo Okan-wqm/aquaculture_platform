@@ -21,8 +21,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * Tenant-aware table: DDL is schema-unqualified; search_path routes each pass
  * into its own tenant schema.
  */
-export class WidenMealWindowSweepIndex1808200000000 implements MigrationInterface {
-  name = 'WidenMealWindowSweepIndex1808200000000';
+export class WidenMealWindowSweepIndex1810100000000 implements MigrationInterface {
+  name = 'WidenMealWindowSweepIndex1810100000000';
 
   private static readonly OLD_INDEX = 'IDX_fm_window_pending';
   private static readonly NEW_INDEX = 'IDX_fm_window_sweep';
@@ -32,12 +32,12 @@ export class WidenMealWindowSweepIndex1808200000000 implements MigrationInterfac
     await queryRunner.query(`SET LOCAL statement_timeout = '120s'`);
 
     await queryRunner.query(
-      `CREATE INDEX IF NOT EXISTS "${WidenMealWindowSweepIndex1808200000000.NEW_INDEX}"
+      `CREATE INDEX IF NOT EXISTS "${WidenMealWindowSweepIndex1810100000000.NEW_INDEX}"
          ON "feeding_meals" ("tenantId", "scheduledAt", "windowNotifiedAt")
          WHERE "status" = 'scheduled'`,
     );
     await queryRunner.query(
-      `DROP INDEX IF EXISTS "${WidenMealWindowSweepIndex1808200000000.OLD_INDEX}"`,
+      `DROP INDEX IF EXISTS "${WidenMealWindowSweepIndex1810100000000.OLD_INDEX}"`,
     );
   }
 
@@ -48,12 +48,12 @@ export class WidenMealWindowSweepIndex1808200000000 implements MigrationInterfac
          EXISTS (
            SELECT 1 FROM pg_indexes
             WHERE schemaname = current_schema()
-              AND indexname = '${WidenMealWindowSweepIndex1808200000000.NEW_INDEX}'
+              AND indexname = '${WidenMealWindowSweepIndex1810100000000.NEW_INDEX}'
          )
          AND NOT EXISTS (
            SELECT 1 FROM pg_indexes
             WHERE schemaname = current_schema()
-              AND indexname = '${WidenMealWindowSweepIndex1808200000000.OLD_INDEX}'
+              AND indexname = '${WidenMealWindowSweepIndex1810100000000.OLD_INDEX}'
          )
        ) AS ok`,
     );
@@ -62,12 +62,12 @@ export class WidenMealWindowSweepIndex1808200000000 implements MigrationInterfac
 
   public async down(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
-      `CREATE INDEX IF NOT EXISTS "${WidenMealWindowSweepIndex1808200000000.OLD_INDEX}"
+      `CREATE INDEX IF NOT EXISTS "${WidenMealWindowSweepIndex1810100000000.OLD_INDEX}"
          ON "feeding_meals" ("tenantId", "scheduledAt")
          WHERE "status" = 'scheduled' AND "windowNotifiedAt" IS NULL`,
     );
     await queryRunner.query(
-      `DROP INDEX IF EXISTS "${WidenMealWindowSweepIndex1808200000000.NEW_INDEX}"`,
+      `DROP INDEX IF EXISTS "${WidenMealWindowSweepIndex1810100000000.NEW_INDEX}"`,
     );
   }
 }

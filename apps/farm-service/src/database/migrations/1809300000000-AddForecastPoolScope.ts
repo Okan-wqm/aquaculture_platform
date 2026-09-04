@@ -20,8 +20,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * havuz matematiğiyle ZATEN üzerine yazar — bu migration yalnız aradaki
  * pencerede okunan satırların yanlış otorite iddia etmesini engeller.
  */
-export class AddForecastPoolScope1807400000000 implements MigrationInterface {
-  name = 'AddForecastPoolScope1807400000000';
+export class AddForecastPoolScope1809300000000 implements MigrationInterface {
+  name = 'AddForecastPoolScope1809300000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`SET LOCAL lock_timeout = '5s'`);

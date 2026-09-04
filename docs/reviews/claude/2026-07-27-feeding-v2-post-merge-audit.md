@@ -207,7 +207,7 @@ gerçek ama TABLO sahipliğiyle karşılanıyor; ŞEMA sahipliği ek olarak DROP
 ve içindekileri yeniden atama yetkisi verir ve RLS yolunun hiçbir adımı onu
 kullanmaz.
 
-Kapanış: `1805500000000-RestoreConfigSchemaOwnerBoundary` yalnız şemayı owner
+Kapanış: `1807400000000-RestoreConfigSchemaOwnerBoundary` yalnız şemayı owner
 rolüne döndürür (tablolar/tipler/diziler `config_service`'te kalır, boot yolu
 değişmez), `postCondition()` iki yarıyı birden doğrular.
 

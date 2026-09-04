@@ -15,14 +15,14 @@ files are spec files; only 2 are production.** A naive `rg "as never"` reports 4
 English phrase "w**as never**" contains the token, and one of the audit agents caught that
 independently, so the corrected figure is what the classification below counts.
 
-| category | count | what it is |
-|---|---|---|
-| `partial-double` | 299 | an object literal standing in for a real class/interface |
-| `jest-mock-return` | 66 | `mockResolvedValue(x as never)` and friends |
-| `unreachable-arg` | 44 | a constructor/method argument the exercised path never reads |
-| `comment-only` | 61 | prose, not a cast |
-| `type-hole` | 4 | hides a genuine type mismatch |
-| `other` | 16 | |
+| category           | count | what it is                                                   |
+| ------------------ | ----- | ------------------------------------------------------------ |
+| `partial-double`   | 299   | an object literal standing in for a real class/interface     |
+| `jest-mock-return` | 66    | `mockResolvedValue(x as never)` and friends                  |
+| `unreachable-arg`  | 44    | a constructor/method argument the exercised path never reads |
+| `comment-only`     | 61    | prose, not a cast                                            |
+| `type-hole`        | 4     | hides a genuine type mismatch                                |
+| `other`            | 16    |                                                              |
 
 By what would replace it: **316 typed partial double, 90 fix-the-real-type, 18 real
 collaborator, 65 keep** — and the 65 "keep" are almost entirely the prose matches. There is
@@ -74,6 +74,7 @@ introducing commit twice on lines the migration touched — both were hiding rea
 ## Confirmed drift — fixed in this change
 
 ### SENSOR-MEDIUM-058 — SCADA roundtrip fixture was a pre-refactor flat shape
+
 `scadaPackageRoundtrip.test.ts` built `automationBindings` with `variableId`, `varName` and
 `boundWidgetId` at the top level — those are `VariableBinding`'s fields, not
 `AutomationBinding`'s — and omitted BOTH required members, `programName` and
@@ -82,6 +83,7 @@ nested them, so a test named "serialize → load → serialize is a fixed point 
 fields" was round-tripping a shape the store's own type cannot hold.
 
 ### SEC-MEDIUM-060 — RBAC regression guard drove an invalid actor
+
 `tenant-suspend-revocation.spec.ts` set `actor.type: 'SUPER_ADMIN'`, which
 `AuthTenantCommandActor` does not admit (`'user' | 'service' | 'system'`). The RBAC-HIGH-007
 suspend/revocation guard was therefore driving the service with a command shape the
@@ -89,12 +91,14 @@ contract rejects. Both fixtures are now typed at `SuspendTenantLifecycleCommand`
 `AuthTenantCommandMetadata`.
 
 ### FARM-MEDIUM-307 — harvest receipt double returned a non-existent state
+
 `create-harvest-record.handler.spec.ts` had `begin()` resolve `{ mode: 'execute' }`.
 `MobileCommandReceiptState` is `{mode:'legacy'} | {mode:'started', receiptId} |
 {mode:'replay', …}` — no `'execute'`. No branch of the handler can match it, so every test
 in the file went down the unmatched path rather than the receipt path the envelope produces.
 
 ### FARM-LOW-308 — two production type holes
+
 `get-daily-feeding-plan.handler.ts` compared an enum-typed column to a bare string via
 `p.status === ('active' as never)`. It works only because `FeedingProgramStatus.ACTIVE`'s
 value happens to be `'active'`; re-case or re-value it and the filter silently matches

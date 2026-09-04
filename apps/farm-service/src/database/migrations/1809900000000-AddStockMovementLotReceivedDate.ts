@@ -40,8 +40,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * Tenant-aware table: DDL is schema-unqualified; search_path routes each pass
  * into its own tenant schema.
  */
-export class AddStockMovementLotReceivedDate1808000000000 implements MigrationInterface {
-  name = 'AddStockMovementLotReceivedDate1808000000000';
+export class AddStockMovementLotReceivedDate1809900000000 implements MigrationInterface {
+  name = 'AddStockMovementLotReceivedDate1809900000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`SET LOCAL lock_timeout = '5s'`);

@@ -3,7 +3,7 @@
  * (W0, FARM-HIGH-240).
  *
  * `1806600000000` backfill'i legacy execution'ları `feeding_records`'a
- * taşırken batch'i tankın ANLIK doluluğundan çözüyordu. `1806800000000`
+ * taşırken batch'i tankın ANLIK doluluğundan çözüyordu. `1808700000000`
  * attribution'ı `batch_locations` (occupancy geçmişi) üzerinden yeniden
  * çözer; ünitenin occupancy geçmişi VAR ama yemleme tarihini kapsayan satır
  * YOKSA kayıt gerçekten hiçbir batch'e bağlanamaz.

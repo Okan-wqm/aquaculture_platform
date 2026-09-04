@@ -72,9 +72,7 @@ export class GetDailyFeedingPlanHandler
       // The cast made the comparison unverifiable: re-case or re-value
       // FeedingProgramStatus.ACTIVE and this filter would silently match nothing,
       // which is the P-30 failure shape (a swallowed query returning an empty set).
-      const activePrograms = programs.filter(
-        (p) => p.status === FeedingProgramStatus.ACTIVE,
-      );
+      const activePrograms = programs.filter((p) => p.status === FeedingProgramStatus.ACTIVE);
 
       // Get program tank assignments
       const programIds = activePrograms.map((p) => p.id);

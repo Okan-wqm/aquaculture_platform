@@ -2,7 +2,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 import { MigrationLogger, pinSearchPath } from '@aquaculture/backend-common/database';
 
 /**
- * RestoreConfigSchemaOwnerBoundary1805500000000
+ * RestoreConfigSchemaOwnerBoundary1807400000000
  * ============================================================================
  *
  * `config` was the one schema on the platform whose RUNTIME LOGIN role owned it.
@@ -39,8 +39,8 @@ import { MigrationLogger, pinSearchPath } from '@aquaculture/backend-common/data
  * not run stage 008 has no boundary to restore, and inventing the role here
  * would put ownership somewhere no grant points at.
  */
-export class RestoreConfigSchemaOwnerBoundary1805500000000 implements MigrationInterface {
-  name = 'RestoreConfigSchemaOwnerBoundary1805500000000';
+export class RestoreConfigSchemaOwnerBoundary1807400000000 implements MigrationInterface {
+  name = 'RestoreConfigSchemaOwnerBoundary1807400000000';
 
   private readonly logger = new MigrationLogger(this.name);
 

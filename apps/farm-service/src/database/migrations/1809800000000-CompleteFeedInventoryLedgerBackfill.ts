@@ -44,8 +44,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * Tenant-aware tables: DDL and DML are schema-unqualified; search_path routes
  * each pass into its own tenant schema.
  */
-export class CompleteFeedInventoryLedgerBackfill1807900000000 implements MigrationInterface {
-  name = 'CompleteFeedInventoryLedgerBackfill1807900000000';
+export class CompleteFeedInventoryLedgerBackfill1809800000000 implements MigrationInterface {
+  name = 'CompleteFeedInventoryLedgerBackfill1809800000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`SET LOCAL lock_timeout = '5s'`);
@@ -143,7 +143,7 @@ export class CompleteFeedInventoryLedgerBackfill1807900000000 implements Migrati
                '00000000-0000-0000-0000-000000000000'
           FROM legacy l
           JOIN ins ON ins.idempotency_key = 'fi-migrate-' || l.fi_id
-        -- The canonical key restored in 1807800000000 folds a repeat arrival of
+        -- The canonical key restored in 1809700000000 folds a repeat arrival of
         -- the same (location, feed, lot) into the existing row instead of
         -- splitting the projection.
         ON CONFLICT ("tenant_id", "storage_location_id", "item_type", "item_id",

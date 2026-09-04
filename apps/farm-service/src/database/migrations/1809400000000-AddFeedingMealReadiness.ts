@@ -17,8 +17,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  *
  * Tenant-aware tablo: DDL şema-niteliksizdir, search_path yönlendirir.
  */
-export class AddFeedingMealReadiness1807500000000 implements MigrationInterface {
-  name = 'AddFeedingMealReadiness1807500000000';
+export class AddFeedingMealReadiness1809400000000 implements MigrationInterface {
+  name = 'AddFeedingMealReadiness1809400000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`SET LOCAL lock_timeout = '5s'`);
@@ -43,8 +43,6 @@ export class AddFeedingMealReadiness1807500000000 implements MigrationInterface 
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(
-      `ALTER TABLE "feeding_meals" DROP COLUMN IF EXISTS "readiness"`,
-    );
+    await queryRunner.query(`ALTER TABLE "feeding_meals" DROP COLUMN IF EXISTS "readiness"`);
   }
 }

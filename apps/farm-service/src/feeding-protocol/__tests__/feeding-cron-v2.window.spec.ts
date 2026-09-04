@@ -7,7 +7,7 @@
  * `MealWindowUpcoming`, teslim-semantiği kaydında `reproducible` olarak
  * sınıflanmış ve gerekçesi şöyle yazılmıştı: *"15 dk'lık pencere cron'u,
  * kurşun penceresi içindeki her öğün için YENİDEN yayar; kaybolan bir batch en
- * fazla bir tick'lik ön-takviye süresine mal olur."* `1807500000000`
+ * fazla bir tick'lik ön-takviye süresine mal olur."* `1809400000000`
  * migration'ının docblock'u da aynı şeyi söylüyordu.
  *
  * Sorgu ise `windowNotifiedAt IS NULL` filtreliyordu ve damga, event'le AYNI

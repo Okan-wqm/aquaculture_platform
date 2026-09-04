@@ -32,8 +32,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * `rollupAppliedAt` DÜŞÜRÜLMEZ (blue-green): okuma yolu yeni kolonlara geçer,
  * eski kolon bir sonraki temizlik dalgasında kalkar.
  */
-export class AddDayPlanGrowthReconciliation1807000000000 implements MigrationInterface {
-  name = 'AddDayPlanGrowthReconciliation1807000000000';
+export class AddDayPlanGrowthReconciliation1808900000000 implements MigrationInterface {
+  name = 'AddDayPlanGrowthReconciliation1808900000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`SET LOCAL lock_timeout = '5s'`);

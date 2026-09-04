@@ -59,10 +59,10 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * fan-out sırası manifest'te sabit olduğundan yeni tenant'larda önce eski
  * yazım, hemen ardından bu düzeltme koşar — deterministik zincir.
  */
-export class BackfillFeedingRecordBatchLocationAttribution1806800000000
+export class BackfillFeedingRecordBatchLocationAttribution1808700000000
   implements MigrationInterface
 {
-  name = 'BackfillFeedingRecordBatchLocationAttribution1806800000000';
+  name = 'BackfillFeedingRecordBatchLocationAttribution1808700000000';
 
   /** Backfill satırlarının kalıcı provenans damgası. */
   static readonly BACKFILL_SOURCE = 'execution-backfill-1806600000000';
@@ -114,7 +114,7 @@ export class BackfillFeedingRecordBatchLocationAttribution1806800000000
          RETURNING id
        )
        SELECT (SELECT COUNT(*) FROM marked)::int AS count`,
-      [BackfillFeedingRecordBatchLocationAttribution1806800000000.BACKFILL_SOURCE],
+      [BackfillFeedingRecordBatchLocationAttribution1808700000000.BACKFILL_SOURCE],
     );
 
     // (3) Attribution onarımı — YALNIZ damgalı satırlar.
@@ -203,7 +203,7 @@ export class BackfillFeedingRecordBatchLocationAttribution1806800000000
                 (SELECT COUNT(*) FROM removed)::int  AS quarantined,
                 (SELECT COUNT(*) FROM candidate WHERE new_batch IS NULL AND NOT has_history)::int
                   AS unknown_history`,
-        [BackfillFeedingRecordBatchLocationAttribution1806800000000.BACKFILL_SOURCE],
+        [BackfillFeedingRecordBatchLocationAttribution1808700000000.BACKFILL_SOURCE],
       );
 
     await queryRunner.query(
@@ -280,7 +280,7 @@ export class BackfillFeedingRecordBatchLocationAttribution1806800000000
               "totalFeedCost" = COALESCE(b."totalFeedCost", 0) + agg.cost
          FROM agg
         WHERE b.id = agg."batchId"`,
-      [BackfillFeedingRecordBatchLocationAttribution1806800000000.BACKFILL_SOURCE],
+      [BackfillFeedingRecordBatchLocationAttribution1808700000000.BACKFILL_SOURCE],
     );
 
     await queryRunner.query(`DROP TABLE IF EXISTS "feeding_record_attribution_quarantine"`);

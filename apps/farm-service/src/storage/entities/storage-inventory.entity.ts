@@ -32,7 +32,7 @@ registerEnumType(StorageItemType, {
  *
  * The canonical key is `(tenant_id, storage_location_id, item_type, item_id,
  * COALESCE(lot_number, ''))`, created by
- * `1807800000000-RestoreStorageInventoryCanonicalKey`. TypeORM's `@Index` takes
+ * `1809700000000-RestoreStorageInventoryCanonicalKey`. TypeORM's `@Index` takes
  * property names and cannot express the COALESCE, and declaring the plain column
  * tuple `{ unique: true }` here was actively misleading: Postgres never treats
  * two NULLs as equal, so that constraint permitted unlimited duplicate rows for
@@ -61,7 +61,13 @@ export class StorageInventory {
   @Column({ type: 'uuid', name: 'item_id' })
   itemId!: string;
 
-  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, transformer: new DecimalTransformer() })
+  @Column({
+    type: 'decimal',
+    precision: 15,
+    scale: 2,
+    default: 0,
+    transformer: new DecimalTransformer(),
+  })
   quantity!: number;
 
   @Column({ length: 20 })

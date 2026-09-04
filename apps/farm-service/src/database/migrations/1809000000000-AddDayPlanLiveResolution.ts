@@ -21,8 +21,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * korunur). Backfill mevcut satırların çözüm alanlarını snapshot'tan taşır —
  * hiçbir plan boş `resolution` ile kalmaz.
  */
-export class AddDayPlanLiveResolution1807100000000 implements MigrationInterface {
-  name = 'AddDayPlanLiveResolution1807100000000';
+export class AddDayPlanLiveResolution1809000000000 implements MigrationInterface {
+  name = 'AddDayPlanLiveResolution1809000000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`SET LOCAL lock_timeout = '5s'`);

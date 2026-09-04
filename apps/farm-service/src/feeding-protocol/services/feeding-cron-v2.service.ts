@@ -106,7 +106,7 @@ const MEAL_WINDOW_LEAD_MINUTES = 60;
  *
  * `windowNotifiedAt` kalıcı bir "bir daha asla" damgası DEĞİLDİR. Öğün 60 dk'lık
  * kurşun penceresinde dört tick boyunca durur ve hem teslim-semantiği kaydı
- * (`MealWindowUpcoming: 'reproducible'`) hem 1807500000000'in docblock'u pencere
+ * (`MealWindowUpcoming: 'reproducible'`) hem 1809400000000'in docblock'u pencere
  * içinde yeniden üretildiğini SÖYLÜYORDU — sorgu ise `windowNotifiedAt IS NULL`
  * filtresiyle ömür boyu tek bildirim veriyordu. Kaybolan tek bir batch,
  * aeratör ön-takviyesini o öğün için TAMAMEN düşürüyordu.

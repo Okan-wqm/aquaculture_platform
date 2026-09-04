@@ -18,8 +18,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * bilinçli seçen site kolonu açıkça `'UTC'` yazar (site formunda "tenant
  * ayarını kullan" ayrı bir seçenektir).
  */
-export class MakeSiteTimezoneInheritable1807300000000 implements MigrationInterface {
-  name = 'MakeSiteTimezoneInheritable1807300000000';
+export class MakeSiteTimezoneInheritable1809200000000 implements MigrationInterface {
+  name = 'MakeSiteTimezoneInheritable1809200000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`SET LOCAL lock_timeout = '5s'`);

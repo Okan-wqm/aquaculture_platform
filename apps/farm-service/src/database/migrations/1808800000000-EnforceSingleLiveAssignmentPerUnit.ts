@@ -29,8 +29,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * `effectiveFrom`/`createdAt`. Kaybedenler `ended` olarak tarihçeye iner
  * (silinmez — traceability bu geçmişi okur).
  */
-export class EnforceSingleLiveAssignmentPerUnit1806900000000 implements MigrationInterface {
-  name = 'EnforceSingleLiveAssignmentPerUnit1806900000000';
+export class EnforceSingleLiveAssignmentPerUnit1808800000000 implements MigrationInterface {
+  name = 'EnforceSingleLiveAssignmentPerUnit1808800000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`SET LOCAL lock_timeout = '5s'`);

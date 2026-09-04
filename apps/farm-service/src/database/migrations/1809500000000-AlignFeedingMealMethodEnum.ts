@@ -24,8 +24,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * Tenant-aware tablo: DDL şema-niteliksizdir; enum tipi `current_schema()`
  * içinde aranıp yoksa yaratılır (tanks_containerkind_enum emsali).
  */
-export class AlignFeedingMealMethodEnum1807600000000 implements MigrationInterface {
-  name = 'AlignFeedingMealMethodEnum1807600000000';
+export class AlignFeedingMealMethodEnum1809500000000 implements MigrationInterface {
+  name = 'AlignFeedingMealMethodEnum1809500000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`SET LOCAL lock_timeout = '5s'`);

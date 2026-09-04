@@ -109,7 +109,7 @@ export interface MealPour {
 // bildiriyor, yani yeniden-bildirim adayları — tam da sorgunun aradığı satırlar —
 // eski predikatın dışında kalıyordu. Kolon indekslenen alanlara taşındı ki
 // "şu kadar dakikadır bildirilmedi" karşılaştırması da indeksten karşılansın.
-// Migration: 1808200000000.
+// Migration: 1810100000000.
 @Index(['tenantId', 'scheduledAt', 'windowNotifiedAt'], {
   where: `"status" = 'scheduled'`,
 })

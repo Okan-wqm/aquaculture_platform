@@ -17,8 +17,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  *
  * Tenant-aware tablo: DDL şema-niteliksizdir, search_path yönlendirir.
  */
-export class CapDayPlanRecalcLog1807700000000 implements MigrationInterface {
-  name = 'CapDayPlanRecalcLog1807700000000';
+export class CapDayPlanRecalcLog1809600000000 implements MigrationInterface {
+  name = 'CapDayPlanRecalcLog1809600000000';
 
   /** Uygulama sabiti `RECALC_LOG_MAX_ENTRIES` ile aynı olmalı. */
   private static readonly MAX_ENTRIES = 50;
@@ -50,12 +50,12 @@ export class CapDayPlanRecalcLog1807700000000 implements MigrationInterface {
                     SELECT entry, ord
                       FROM jsonb_array_elements("recalcLog") WITH ORDINALITY AS t(entry, ord)
                      ORDER BY ord DESC
-                     LIMIT ${CapDayPlanRecalcLog1807700000000.MAX_ENTRIES}
+                     LIMIT ${CapDayPlanRecalcLog1809600000000.MAX_ENTRIES}
                   ) kept
               )
         WHERE "recalcLog" IS NOT NULL
           AND jsonb_typeof("recalcLog") = 'array'
-          AND jsonb_array_length("recalcLog") > ${CapDayPlanRecalcLog1807700000000.MAX_ENTRIES}`,
+          AND jsonb_array_length("recalcLog") > ${CapDayPlanRecalcLog1809600000000.MAX_ENTRIES}`,
     );
   }
 
@@ -65,7 +65,7 @@ export class CapDayPlanRecalcLog1807700000000 implements MigrationInterface {
       `SELECT NOT EXISTS (
          SELECT 1 FROM "feeding_day_plans"
           WHERE jsonb_typeof("recalcLog") = 'array'
-            AND jsonb_array_length("recalcLog") > ${CapDayPlanRecalcLog1807700000000.MAX_ENTRIES}
+            AND jsonb_array_length("recalcLog") > ${CapDayPlanRecalcLog1809600000000.MAX_ENTRIES}
        ) AND EXISTS (
          SELECT 1 FROM information_schema.columns
           WHERE table_name = 'feeding_day_plans' AND column_name = 'recalcCount'
@@ -77,8 +77,6 @@ export class CapDayPlanRecalcLog1807700000000 implements MigrationInterface {
   public async down(queryRunner: QueryRunner): Promise<void> {
     // Kırpılan girdiler geri gelmez (jsonb'de saklanmıyorlar) — yalnız sayaç
     // kolonu düşer; bu bilinçli ve belgeli tek yönlü kayıptır.
-    await queryRunner.query(
-      `ALTER TABLE "feeding_day_plans" DROP COLUMN IF EXISTS "recalcCount"`,
-    );
+    await queryRunner.query(`ALTER TABLE "feeding_day_plans" DROP COLUMN IF EXISTS "recalcCount"`);
   }
 }

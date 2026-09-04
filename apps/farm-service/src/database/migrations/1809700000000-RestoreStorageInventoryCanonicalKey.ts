@@ -41,8 +41,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * Tenant-aware table: DDL is schema-unqualified; search_path routes each pass
  * into its own tenant schema.
  */
-export class RestoreStorageInventoryCanonicalKey1807800000000 implements MigrationInterface {
-  name = 'RestoreStorageInventoryCanonicalKey1807800000000';
+export class RestoreStorageInventoryCanonicalKey1809700000000 implements MigrationInterface {
+  name = 'RestoreStorageInventoryCanonicalKey1809700000000';
 
   private static readonly CANONICAL_INDEX = 'IDX_storage_inventory_canonical_key';
 
@@ -117,11 +117,9 @@ export class RestoreStorageInventoryCanonicalKey1807800000000 implements Migrati
     );
 
     // 2. Replace the ineffective index with the canonical one.
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_618b9a1fc23d4c400d6c91047a"`);
     await queryRunner.query(
-      `DROP INDEX IF EXISTS "IDX_618b9a1fc23d4c400d6c91047a"`,
-    );
-    await queryRunner.query(
-      `CREATE UNIQUE INDEX IF NOT EXISTS "${RestoreStorageInventoryCanonicalKey1807800000000.CANONICAL_INDEX}"
+      `CREATE UNIQUE INDEX IF NOT EXISTS "${RestoreStorageInventoryCanonicalKey1809700000000.CANONICAL_INDEX}"
          ON "storage_inventory"
          ("tenant_id", "storage_location_id", "item_type", "item_id", COALESCE("lot_number", ''))`,
     );
@@ -143,7 +141,7 @@ export class RestoreStorageInventoryCanonicalKey1807800000000 implements Migrati
          EXISTS (
            SELECT 1 FROM pg_indexes
             WHERE schemaname = current_schema()
-              AND indexname = '${RestoreStorageInventoryCanonicalKey1807800000000.CANONICAL_INDEX}'
+              AND indexname = '${RestoreStorageInventoryCanonicalKey1809700000000.CANONICAL_INDEX}'
          )
          AND NOT EXISTS (
            SELECT 1
@@ -162,7 +160,7 @@ export class RestoreStorageInventoryCanonicalKey1807800000000 implements Migrati
     // survivor does not now hold, but their identities are gone. Only the index
     // shape is restored, which is what a rollback actually needs.
     await queryRunner.query(
-      `DROP INDEX IF EXISTS "${RestoreStorageInventoryCanonicalKey1807800000000.CANONICAL_INDEX}"`,
+      `DROP INDEX IF EXISTS "${RestoreStorageInventoryCanonicalKey1809700000000.CANONICAL_INDEX}"`,
     );
     await queryRunner.query(
       `CREATE UNIQUE INDEX IF NOT EXISTS "IDX_618b9a1fc23d4c400d6c91047a"

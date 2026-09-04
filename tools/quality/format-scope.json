@@ -22899,6 +22899,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/messaging-service/src/migrations/1802200000000-EnsureTenantMessagesEmbeddingColumn.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/messaging-service/src/nats/nats-subject.builder.ts",
       "prettier_managed": true
     },

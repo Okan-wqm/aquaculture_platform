@@ -16,7 +16,7 @@ push). No production code path changed behaviour except where noted.
 union widens `reflect-metadata`'s `design:type` to `Object`, so the NestJS
 SDL emit died with:
 
-```
+```text
 FATAL emitting subgraph SDL: Undefined type error. Make sure you are
 providing an explicit type for the "sourceEventId" of the "AlertHistory" class.
 ```

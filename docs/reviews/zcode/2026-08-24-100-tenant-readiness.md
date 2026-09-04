@@ -583,7 +583,7 @@ altında ölçülür; kazanan belgeye işlenir. Varsayılan: bağlantıyı kapat
 
 - [ ] **Step 1.3: Make writer result tenant-scoped and bounded**
 
-enqueue returns Promise<WriteOutcome>. A flush snapshots, not destructively
+enqueue returns `Promise<WriteOutcome>`. A flush snapshots, not destructively
 forgets, pending tickets. One tenant's failure rejects only that tenant's
 waiters. One bounded in-handler retry is allowed; source redelivery owns later
 attempts.
@@ -624,7 +624,7 @@ Alert handler rethrows retryable failures instead of swallowing them.
 - [ ] **Step 1.6: Implement DLQ and replay**
 
 Create AQUACULTURE_DLQ with dlq.>, max_age 72h, Discard New and measured
-max_bytes. Tenant subjects are dlq.<tenant>.<type>; unattributable poison uses
+max_bytes. Tenant subjects are `dlq.<tenant>.<type>`; unattributable poison uses
 dlq.quarantine.mqtt with 24h retention.
 
 Broker max_deliver is unlimited. Poison goes directly to DLQ; transient

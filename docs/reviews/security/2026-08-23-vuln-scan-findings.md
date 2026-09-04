@@ -1,13 +1,17 @@
 # 2026-08-23 Güvenlik Taraması — Bulgu Kaydı (№1–№75)
 
-Kaynak rapor: `docs/security/2026-08-23-security-vulnerability-scan-report.md` (3 tur, tüm bulgular dosya:satır düzeyinde doğrulanmış).
-Bu dosya finding-registry aynasıdır: ID ataması `docs/reviews/_registry/findings.jsonl` (hash-zincirli, append-only) üzerinde `finding-registry add` ile yapılmıştır; aşağıdaki tablo okunabilirlik içindir, SSoT registry dosyasıdır.
+Kaynak rapor: `docs/security/2026-08-23-security-vulnerability-scan-report.md`
+(3 tur, tüm bulgular dosya:satır düzeyinde doğrulanmış).
+Bu dosya finding-registry aynasıdır: ID ataması
+`docs/reviews/_registry/findings.jsonl` (hash-zincirli, append-only) üzerinde
+`finding-registry add` ile yapılmıştır; aşağıdaki tablo okunabilirlik içindir,
+SSoT registry dosyasıdır.
 
 | №   | Finding ID       | Şiddet   | Başlık                                                                                                                                                                                                                             | Durum |
 | --- | ---------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
 | 1   | SEC-HIGH-056     | HIGH     | admin-api sortBy interpolated into TypeORM orderBy — SQL injection on three audit/activity endpoints                                                                                                                               | OPEN  |
 | 2   | SEC-HIGH-057     | HIGH     | Rust edge SignatureMode::Enforcing still executes unsigned legacy CommandMessage payloads; malformed timestamp silently skips the replay window                                                                                    | OPEN  |
-| 3   | SEC-MEDIUM-058   | MEDIUM   | Real account credentials committed in seed scripts (okan@suderra.com / 12345678)                                                                                                                                                   | OPEN  |
+| 3   | SEC-MEDIUM-058   | MEDIUM   | Real account credentials committed in seed scripts (`okan@suderra.com` / 12345678)                                                                                                                                                 | OPEN  |
 | 4   | SEC-MEDIUM-059   | MEDIUM   | react-router-dom 6.30.2-6.30.4 open redirect to XSS (GHSA-jjmj-jmhj-qwj2)                                                                                                                                                          | OPEN  |
 | 5   | SEC-LOW-060      | LOW      | dompurify <=3.4.12 IN_PLACE hook XSS advisory (GHSA-55q2-fjhq-7xh7); current usage not IN_PLACE                                                                                                                                    | OPEN  |
 | 6   | SEC-MEDIUM-061   | MEDIUM   | SCADA WS upgrade gate trusts only the client-controlled Origin header; calibrate path has no PIN                                                                                                                                   | OPEN  |
@@ -83,6 +87,12 @@ Bu dosya finding-registry aynasıdır: ID ataması `docs/reviews/_registry/findi
 
 ## Düzeltme dalgaları (plan §C)
 
-W1 №3,№7,№37-№40 (WebAuthn + seed) · W2 №1,№11,№17,№41,№42,№22+№61,№70,№71 · W3 №53,№54,№55,№14,№15 · W4 №16,№19,№26,№18,№36 · W5 №21,№20,№28,№29,№30,№31,№34,№62,№35,№33,№58 · W6 №43,№44,№45,№46,№47,№48,№49,№51,№23 · W7 №50,№75,№2,№6,№10,№67 · W8 №4,№5,№9,№25,№57,№13,№63,№64,№68,№56 · W8b №24 · W9 №8,№12,№27,№32,№52,№59,№60,№65,№66,№69,№72,№73,№74
+W1 №3,№7,№37-№40 (WebAuthn + seed) · W2 №1,№11,№17,№41,№42,№22+№61,№70,№71 ·
+W3 №53,№54,№55,№14,№15 · W4 №16,№19,№26,№18,№36 ·
+W5 №21,№20,№28,№29,№30,№31,№34,№62,№35,№33,№58 ·
+W6 №43,№44,№45,№46,№47,№48,№49,№51,№23 · W7 №50,№75,№2,№6,№10,№67 ·
+W8 №4,№5,№9,№25,№57,№13,№63,№64,№68,№56 · W8b №24 ·
+W9 №8,№12,№27,№32,№52,№59,№60,№65,№66,№69,№72,№73,№74
 
-Operasyonel (repo dışı): №3 parola rotasyonu (gerçek hesap — secret-rotation runbook), №51 NATS 2.10 canlı test, №66 cosign keyless politikası.
+Operasyonel (repo dışı): №3 parola rotasyonu (gerçek hesap — secret-rotation
+runbook), №51 NATS 2.10 canlı test, №66 cosign keyless politikası.

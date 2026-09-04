@@ -168,8 +168,8 @@ export {
   useUpdateQueryCache,
   useInvalidateQueries,
 } from './hooks/useGraphQL';
-export { useToast, ToastContainer } from './hooks/useToast';
-export type { ToastOptions } from './hooks/useToast';
+export { useToast, ToastContainer, ToastProvider } from './hooks/useToast';
+export type { ToastOptions, ToastAction } from './hooks/useToast';
 
 // ============================================================================
 // Error-message helpers (Scope C PR-0a)

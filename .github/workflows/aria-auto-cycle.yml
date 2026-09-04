@@ -717,6 +717,21 @@ jobs:
           ANCHOR_EPOCH="${ARIA_JOB_LAUNCH_EPOCH:-$(date +%s)}"
           export ARIA_JOB_DEADLINE_EPOCH=$(( ANCHOR_EPOCH + JOB_TIMEOUT_MINUTES * 60 - 6000 ))
           echo "spawn deadline: $(date -u -d @${ARIA_JOB_DEADLINE_EPOCH} +%H:%M:%SZ) (job cap ${JOB_TIMEOUT_MINUTES}m - 100m margin, anchored $( [ -n "${ARIA_JOB_LAUNCH_EPOCH:-}" ] && echo at-job-launch || echo at-step ))"
+          # The per-cycle wall clock is DERIVED from the job budget, not
+          # hardcoded. It used to be a flat 1800s while the job cap was 360m:
+          # the SIGALRM fired ~17s after the last discovery adapter finished
+          # and killed every night before the planner phase ever ran (run
+          # 33821426201 and every run back to 2026-08-21). Splitting the
+          # remaining wall clock across the remaining cycles keeps the
+          # deadline a safety net rather than a guillotine, and still cannot
+          # outlive the job.
+          CYCLE_BUDGET_SECONDS=$(( ARIA_JOB_DEADLINE_EPOCH - $(date +%s) ))
+          if [ "$CYCLE_BUDGET_SECONDS" -lt 900 ]; then
+            echo "::error::only ${CYCLE_BUDGET_SECONDS}s left before the job deadline; refusing to start a cycle that cannot finish" >&2
+            exit 1
+          fi
+          CYCLE_DEADLINE_SECONDS=$(( CYCLE_BUDGET_SECONDS / MAX_CYCLES ))
+          echo "per-cycle deadline: ${CYCLE_DEADLINE_SECONDS}s (${CYCLE_BUDGET_SECONDS}s budget / ${MAX_CYCLES} cycles)"
           ARIA_CONSENSUS_PROMOTION_ACK="${{ vars.ARIA_CONSENSUS_PROMOTION_ACK }}" \
           PYTHONUNBUFFERED=1 \
           PYTHONPATH=aria-kernel python3 -m aria_kernel autonomy run \
@@ -725,7 +740,7 @@ jobs:
             --profile "$ARIA_CYCLE_PROFILE" \
             --operator-approval-ref "$ARIA_PROFILE_APPROVAL_REF" \
             --max-cycles "$MAX_CYCLES" \
-            --cycle-deadline-seconds 1800 | tee /tmp/cycle-summary.txt
+            --cycle-deadline-seconds "$CYCLE_DEADLINE_SECONDS" | tee /tmp/cycle-summary.txt
           {
             echo '### Nightly cycle summary'
             echo '```'

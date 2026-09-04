@@ -36003,12 +36003,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "e2e/tests/integration/entity-migration-parity.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "e2e/tests/integration/event-publishing.spec.ts",
       "prettier_managed": true
     },
@@ -43921,6 +43915,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/helpers/nx.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/helpers/spec-runners.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/helpers/workflows.ts",
       "prettier_managed": true
     },
     {

@@ -23,4 +23,4 @@ An agent "closing the GDPR gap" by adding these tables to the cascade would brea
 
 ## Enforcement
 
-Boot: `SchemaDriftValidator`. CI: `tests/invariants/tenant-erasure-ssot.spec.ts`, `pii-events-mandatory-crypto-shred.spec.ts`, `upcaster-chain.spec.ts`, `platform-entity-registry-parity.spec.ts`; `e2e/tests/integration/entity-migration-parity.spec.ts`.
+Boot: `SchemaDriftValidator`. CI: `tests/invariants/tenant-erasure-ssot.spec.ts`, `pii-events-mandatory-crypto-shred.spec.ts`, `upcaster-chain.spec.ts`, `platform-entity-registry-parity.spec.ts`; entity-surface-vs-database parity by `apps/db-migrate/src/__tests__/bootstrap-from-scratch.spec.ts` (`db-migration-check.yml`).

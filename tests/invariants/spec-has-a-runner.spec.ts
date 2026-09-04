@@ -30,103 +30,26 @@
  * rather than passing silently forever.
  */
 
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, relative, resolve, sep } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 
-import { nxProjectRoot, nxProjectsWithTarget } from './helpers/nx';
+import {
+  KNOWN_UNRUNNABLE_SPECS,
+  isKnownUnrunnable,
+  runnersOf,
+  walkSpecs,
+} from './helpers/spec-runners';
 
 const repoRoot = resolve(__dirname, '../..');
-
-/**
- * Runners that are NOT Nx projects, each with the glob it owns and the npm
- * script that CI invokes. Adding a runner here is a deliberate act; the point
- * is that no spec may exist without one.
- */
-const DECLARED_NON_NX_RUNNERS: ReadonlyArray<{
-  readonly script: string;
-  readonly owns: (relPath: string) => boolean;
-}> = [
-  {
-    // package.json `tools:test`, invoked by .github/workflows/quality-gates.yml
-    script: 'tools:test',
-    owns: (p) => /^tools\/(supervisor|watchdog)\/[^/]+\.spec\.(ts|mjs)$/.test(p),
-  },
-  {
-    // package.json `gates:test` (globs the directory), invoked by
-    // .github/workflows/closes-footer-check.yml
-    script: 'gates:test',
-    owns: (p) => /^tools\/gates\/[^/]+\.spec\.ts$/.test(p),
-  },
-  {
-    // aria-kernel runs under python unittest in the aria-kernel workflows
-    script: 'aria-kernel workflows',
-    owns: (p) => p.startsWith('aria-kernel/'),
-  },
-  {
-    // e2e specs run in their own workflows against a live environment
-    script: 'e2e workflows',
-    owns: (p) => p.startsWith('e2e/') || p.startsWith('tests/e2e/'),
-  },
-];
-
-const SKIP_DIRS = new Set(['node_modules', 'dist', 'coverage', '.git', '.nx', '.claude']);
-
-/**
- * Specs that have no runner TODAY, with the reason. This list may shrink and
- * may not grow — that is the whole contract. Each entry is a real gap, not an
- * exemption: the code is tested on someone's laptop and nowhere else.
- *
- * `tools/lint-gates` and `tools/worktree-audit` are ts-node CommonJS specs
- * like `tools/gates/**`, but without the npm scripts that make those
- * reachable; they need the same treatment as tools/gates rather than the
- * strip-types runner.
- */
-const KNOWN_UNRUNNABLE_SPECS: ReadonlySet<string> = new Set([
-  'tools/lint-gates',
-  'tools/worktree-audit',
-]);
-
-function isKnownUnrunnable(relPath: string): boolean {
-  for (const prefix of KNOWN_UNRUNNABLE_SPECS) {
-    if (relPath.startsWith(`${prefix}/`)) return true;
-  }
-  return false;
-}
-
-function walkSpecs(dir: string, acc: string[] = []): string[] {
-  for (const entry of readdirSync(dir)) {
-    if (SKIP_DIRS.has(entry)) continue;
-    const full = join(dir, entry);
-    let isDir = false;
-    try {
-      isDir = statSync(full).isDirectory();
-    } catch {
-      continue;
-    }
-    if (isDir) {
-      walkSpecs(full, acc);
-    } else if (/\.spec\.(ts|tsx|mts|mjs|cts)$/.test(entry)) {
-      acc.push(relative(repoRoot, full).split(sep).join('/'));
-    }
-  }
-  return acc;
-}
-
-function nxProjectRootsWithTestTarget(): string[] {
-  return nxProjectsWithTarget('test').map((name) => nxProjectRoot(name));
-}
 
 describe('every spec has a runner', () => {
   it('leaves no spec file unreachable by any declared runner', () => {
     const specs = walkSpecs(repoRoot);
     expect(specs.length).toBeGreaterThan(100);
 
-    const roots = nxProjectRootsWithTestTarget();
-    const orphans = specs.filter((spec) => {
-      if (DECLARED_NON_NX_RUNNERS.some((runner) => runner.owns(spec))) return false;
-      if (isKnownUnrunnable(spec)) return false;
-      return !roots.some((root) => spec === root || spec.startsWith(`${root}/`));
-    });
+    const orphans = specs.filter(
+      (spec) => !isKnownUnrunnable(spec) && runnersOf(spec).length === 0,
+    );
 
     expect(orphans).toEqual([]);
   });

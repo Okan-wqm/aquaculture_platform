@@ -46157,24 +46157,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "tools/testing/tsconfig.json",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "tools/testing/vitest-resource-policy.json",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "tools/testing/vitest-resource-policy.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "tools/toolchain/check-versions.mjs",
       "prettier_managed": true
     },

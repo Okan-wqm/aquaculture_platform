@@ -10,6 +10,7 @@
     "build:quick": "vite build",
     "preview": "vite preview",
     "lint": "eslint src",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.sw.json",
     "postinstall": "node scripts/patch-konsta.cjs"
   },

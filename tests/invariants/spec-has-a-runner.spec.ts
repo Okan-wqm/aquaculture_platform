@@ -76,18 +76,12 @@ const SKIP_DIRS = new Set(['node_modules', 'dist', 'coverage', '.git', '.nx', '.
  * may not grow — that is the whole contract. Each entry is a real gap, not an
  * exemption: the code is tested on someone's laptop and nowhere else.
  *
- * `web/apps/aquamobil` is an Nx project with lint/build/typecheck targets and
- * no `test` target at all, so its 18 specs have never run in CI. Wiring it
- * needs the mobile PWA's vitest/jest story settled, which is a bigger change
- * than this PR should carry.
- *
  * `tools/lint-gates` and `tools/worktree-audit` are ts-node CommonJS specs
  * like `tools/gates/**`, but without the npm scripts that make those
  * reachable; they need the same treatment as tools/gates rather than the
  * strip-types runner.
  */
 const KNOWN_UNRUNNABLE_SPECS: ReadonlySet<string> = new Set([
-  'web/apps/aquamobil',
   'tools/lint-gates',
   'tools/worktree-audit',
 ]);
@@ -111,7 +105,7 @@ function walkSpecs(dir: string, acc: string[] = []): string[] {
     }
     if (isDir) {
       walkSpecs(full, acc);
-    } else if (/\.spec\.(ts|mts|mjs|cts)$/.test(entry)) {
+    } else if (/\.spec\.(ts|tsx|mts|mjs|cts)$/.test(entry)) {
       acc.push(relative(repoRoot, full).split(sep).join('/'));
     }
   }

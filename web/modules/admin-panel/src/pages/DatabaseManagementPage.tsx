@@ -261,16 +261,15 @@ const EmptyState: React.FC<{ message: string }> = ({ message }) => (
 const SchemasTab: React.FC = () => {
   const [selectedSchema, setSelectedSchema] = useState<SchemaItem | null>(null);
 
-  const schemasState = useAsyncData<SchemaItem[]>(
-    useCallback(() => databaseApi.getSchemas({ page: 1, limit: 100 }).then(res => {
-      // PaginatedResult -> data array, veya dogrudan array olabilir
-      if (res && 'data' in res && Array.isArray((res as { data: unknown }).data)) {
-        return (res as { data: SchemaItem[] }).data;
-      }
-      if (Array.isArray(res)) return res as unknown as SchemaItem[];
-      return [];
-    }), []),
-    { initialData: [] }
+  // The endpoint returns the platform page contract, so there is one shape to
+  // read. The three-way sniff that used to live here existed only because the
+  // response could have been a bare array, an `items` envelope or a `data` one.
+  const schemasState = useAsyncData<readonly SchemaItem[]>(
+    useCallback(
+      () => databaseApi.getSchemas({ page: 1, limit: 100 }).then((page) => page.data),
+      [],
+    ),
+    { initialData: [] },
   );
 
   const schemas = schemasState.data || [];
@@ -499,15 +498,12 @@ const MigrationsTab: React.FC = () => {
     { initialData: [] }
   );
 
-  const historyState = useAsyncData<MigrationHistoryItem[]>(
-    useCallback(() => databaseApi.getMigrationHistory({ page: 1, limit: 50 }).then(res => {
-      if (res && 'data' in res && Array.isArray((res as { data: unknown }).data)) {
-        return (res as { data: MigrationHistoryItem[] }).data;
-      }
-      if (Array.isArray(res)) return res as unknown as MigrationHistoryItem[];
-      return [];
-    }), []),
-    { initialData: [] }
+  const historyState = useAsyncData<readonly MigrationHistoryItem[]>(
+    useCallback(
+      () => databaseApi.getMigrationHistory({ page: 1, limit: 50 }).then((page) => page.data),
+      [],
+    ),
+    { initialData: [] },
   );
 
   const plans = plansState.data || [];
@@ -753,15 +749,9 @@ const BackupsTab: React.FC = () => {
   });
   const [creating, setCreating] = useState(false);
 
-  const backupsState = useAsyncData<BackupItem[]>(
-    useCallback(() => databaseApi.getBackups({ page: 1, limit: 50 }).then(res => {
-      if (res && 'data' in res && Array.isArray((res as { data: unknown }).data)) {
-        return (res as { data: BackupItem[] }).data;
-      }
-      if (Array.isArray(res)) return res as unknown as BackupItem[];
-      return [];
-    }), []),
-    { initialData: [] }
+  const backupsState = useAsyncData<readonly BackupItem[]>(
+    useCallback(() => databaseApi.getBackups({ page: 1, limit: 50 }).then((page) => page.data), []),
+    { initialData: [] },
   );
 
   const scheduleState = useAsyncData(

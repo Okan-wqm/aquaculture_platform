@@ -42,6 +42,10 @@ import { TenantReadOnly, TenantStatus, TenantPlan } from '../entities/external/t
 import { UserReadOnly } from '../entities/external/user.entity';
 
 import { AnalyticsService } from './analytics.service';
+import {
+  createStandardPaginatedResult,
+  type PaginationResultV1,
+} from '@platform/pagination-contracts';
 
 // ============================================================================
 // Report Data Types
@@ -1104,7 +1108,7 @@ export class ReportsService {
     type?: ReportType;
     page?: number;
     limit?: number;
-  }): Promise<{ data: ReportDefinition[]; total: number; page: number; limit: number }> {
+  }): Promise<PaginationResultV1<ReportDefinition>> {
     const page = params?.page || 1;
     const limit = params?.limit || 20;
     const skip = (page - 1) * limit;
@@ -1124,7 +1128,7 @@ export class ReportsService {
 
     const [data, total] = await queryBuilder.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult<ReportDefinition>(data, total, page, limit);
   }
 
   /**
@@ -1212,7 +1216,7 @@ export class ReportsService {
     reportType?: ReportType;
     page?: number;
     limit?: number;
-  }): Promise<{ data: ReportExecution[]; total: number; page: number; limit: number }> {
+  }): Promise<PaginationResultV1<ReportExecution>> {
     const page = params?.page || 1;
     const limit = params?.limit || 20;
     const skip = (page - 1) * limit;
@@ -1236,7 +1240,7 @@ export class ReportsService {
 
     const [data, total] = await queryBuilder.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult<ReportExecution>(data, total, page, limit);
   }
 
   /**

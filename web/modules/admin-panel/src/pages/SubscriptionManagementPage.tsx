@@ -14,6 +14,7 @@ import {
   BillingCycle,
   PlanTier,
 } from '../services/adminApi';
+import { expectedTotalPages } from '@platform/pagination-contracts';
 
 // ============================================================================
 // Subscription Management Page
@@ -139,7 +140,7 @@ const SubscriptionManagementPage: React.FC = () => {
     });
   };
 
-  const totalPages = Math.ceil(total / limit);
+  const totalPages = expectedTotalPages(total, limit);
 
   if (error) {
     return (

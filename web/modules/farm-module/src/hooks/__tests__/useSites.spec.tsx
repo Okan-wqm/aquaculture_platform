@@ -1,6 +1,7 @@
 import React from 'react';
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { createStandardPaginatedResult } from '@platform/pagination-contracts';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@aquaculture/shared-ui', async () =>
@@ -34,6 +35,11 @@ function site(index: number): Record<string, unknown> {
   };
 }
 
+/** One authorized-site page, minted by the same authority the resolver uses. */
+function sitePage(items: Record<string, unknown>[], total: number, page: number) {
+  return createStandardPaginatedResult(items, total, page, 100);
+}
+
 beforeEach(() => {
   requestMock.mockReset();
 });
@@ -45,18 +51,8 @@ describe('useSiteList', () => {
       async (_query: string, variables: { pagination: { page: number; limit: number } }) => ({
         sites:
           variables.pagination.page === 1
-            ? {
-                items: firstPage,
-                total: 101,
-                page: 1,
-                limit: 100,
-              }
-            : {
-                items: [site(101)],
-                total: 101,
-                page: 2,
-                limit: 100,
-              },
+            ? sitePage(firstPage, 101, 1)
+            : sitePage([site(101)], 101, 2),
       }),
     );
 
@@ -80,12 +76,11 @@ describe('useSiteList', () => {
       ) => {
         if (variables.pagination.page === 1) {
           return {
-            sites: {
-              items: Array.from({ length: 100 }, (_unused, index) => site(index + 1)),
-              total: 101,
-              page: 1,
-              limit: 100,
-            },
+            sites: sitePage(
+              Array.from({ length: 100 }, (_unused, index) => site(index + 1)),
+              101,
+              1,
+            ),
           };
         }
         secondPageSignal = options.signal;

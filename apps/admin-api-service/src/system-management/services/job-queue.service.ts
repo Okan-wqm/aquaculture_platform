@@ -13,6 +13,10 @@ import {
   JobProgress,
   JobRetryPolicy,
 } from '../entities/job-queue.entity';
+import {
+  createStandardPaginatedResult,
+  type PaginationResultV1,
+} from '@platform/pagination-contracts';
 
 // ============================================================================
 // Interfaces
@@ -511,7 +515,7 @@ export class JobQueueService {
     search?: string;
     page?: number;
     limit?: number;
-  }): Promise<{ items: BackgroundJob[]; total: number }> {
+  }): Promise<PaginationResultV1<BackgroundJob>> {
     const query = this.jobRepo.createQueryBuilder('j');
 
     if (params.queueName) {
@@ -540,7 +544,7 @@ export class JobQueueService {
     query.skip((page - 1) * limit).take(limit);
 
     const [items, total] = await query.getManyAndCount();
-    return { items, total };
+    return createStandardPaginatedResult<BackgroundJob>(items, total, page, limit);
   }
 
   // ============================================================================
@@ -550,7 +554,7 @@ export class JobQueueService {
   async getJobLogs(
     jobId: string,
     params: { page?: number; limit?: number },
-  ): Promise<{ items: JobExecutionLog[]; total: number }> {
+  ): Promise<PaginationResultV1<JobExecutionLog>> {
     const page = params.page || 1;
     const limit = params.limit || 20;
 
@@ -561,7 +565,7 @@ export class JobQueueService {
       take: limit,
     });
 
-    return { items, total };
+    return createStandardPaginatedResult<JobExecutionLog>(items, total, page, limit);
   }
 
   // ============================================================================

@@ -24,6 +24,10 @@ import {
   ReleaseStatus,
   ChangelogEntry,
 } from '../entities/system-version.entity';
+import {
+  createStandardPaginatedResult,
+  type PaginationResultV1,
+} from '@platform/pagination-contracts';
 
 // ============================================================================
 // Interfaces
@@ -170,7 +174,7 @@ export class GlobalSettingsService implements OnModuleInit {
     search?: string;
     page?: number;
     limit?: number;
-  }): Promise<{ items: FeatureToggle[]; total: number }> {
+  }): Promise<PaginationResultV1<FeatureToggle>> {
     const query = this.featureToggleRepo.createQueryBuilder('toggle');
 
     if (params.scope) {
@@ -196,7 +200,7 @@ export class GlobalSettingsService implements OnModuleInit {
     query.skip((page - 1) * limit).take(limit);
 
     const [items, total] = await query.getManyAndCount();
-    return { items, total };
+    return createStandardPaginatedResult<FeatureToggle>(items, total, page, limit);
   }
 
   async evaluateFeatureToggle(
@@ -548,7 +552,7 @@ export class GlobalSettingsService implements OnModuleInit {
     endDate?: Date;
     page?: number;
     limit?: number;
-  }): Promise<{ items: MaintenanceMode[]; total: number }> {
+  }): Promise<PaginationResultV1<MaintenanceMode>> {
     const query = this.maintenanceModeRepo.createQueryBuilder('m');
 
     if (params.scope) {
@@ -580,7 +584,7 @@ export class GlobalSettingsService implements OnModuleInit {
     query.skip((page - 1) * limit).take(limit);
 
     const [items, total] = await query.getManyAndCount();
-    return { items, total };
+    return createStandardPaginatedResult<MaintenanceMode>(items, total, page, limit);
   }
 
   // ============================================================================
@@ -694,7 +698,7 @@ export class GlobalSettingsService implements OnModuleInit {
     status?: ReleaseStatus;
     page?: number;
     limit?: number;
-  }): Promise<{ items: SystemVersion[]; total: number }> {
+  }): Promise<PaginationResultV1<SystemVersion>> {
     const query = this.systemVersionRepo.createQueryBuilder('v');
 
     if (params.releaseType) {
@@ -713,7 +717,7 @@ export class GlobalSettingsService implements OnModuleInit {
     query.skip((page - 1) * limit).take(limit);
 
     const [items, total] = await query.getManyAndCount();
-    return { items, total };
+    return createStandardPaginatedResult<SystemVersion>(items, total, page, limit);
   }
 
   // ============================================================================

@@ -144,7 +144,7 @@ export class SupplierResolver {
   async suppliersByType(
     @Args('type', { type: () => SupplierType }) type: SupplierType,
     @CurrentTenant() tenantId: string,
-  ): Promise<SupplierResponse[]> {
+  ): Promise<readonly SupplierResponse[]> {
     const query = new ListSuppliersQuery(tenantId, { type, isActive: true }, { limit: 1000 });
     const result = await this.queryBus.execute(query) as PaginatedQueryResult<SupplierResponse>;
     return fromCqrsPaginated(result).items;
@@ -157,9 +157,13 @@ export class SupplierResolver {
   @Query(() => [SupplierResponse])
   async equipmentSuppliers(
     @CurrentTenant() tenantId: string,
-  ): Promise<SupplierResponse[]> {
-    const query = new ListSuppliersQuery(tenantId, { type: SupplierType.EQUIPMENT, isActive: true }, { limit: 1000 });
-    const result = await this.queryBus.execute(query) as PaginatedQueryResult<SupplierResponse>;
+  ): Promise<readonly SupplierResponse[]> {
+    const query = new ListSuppliersQuery(
+      tenantId,
+      { type: SupplierType.EQUIPMENT, isActive: true },
+      { limit: 1000 },
+    );
+    const result = (await this.queryBus.execute(query)) as PaginatedQueryResult<SupplierResponse>;
     return fromCqrsPaginated(result).items;
   }
 
@@ -168,11 +172,13 @@ export class SupplierResolver {
    */
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [SupplierResponse])
-  async feedSuppliers(
-    @CurrentTenant() tenantId: string,
-  ): Promise<SupplierResponse[]> {
-    const query = new ListSuppliersQuery(tenantId, { type: SupplierType.FEED, isActive: true }, { limit: 1000 });
-    const result = await this.queryBus.execute(query) as PaginatedQueryResult<SupplierResponse>;
+  async feedSuppliers(@CurrentTenant() tenantId: string): Promise<readonly SupplierResponse[]> {
+    const query = new ListSuppliersQuery(
+      tenantId,
+      { type: SupplierType.FEED, isActive: true },
+      { limit: 1000 },
+    );
+    const result = (await this.queryBus.execute(query)) as PaginatedQueryResult<SupplierResponse>;
     return fromCqrsPaginated(result).items;
   }
 
@@ -181,11 +187,13 @@ export class SupplierResolver {
    */
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [SupplierResponse])
-  async chemicalSuppliers(
-    @CurrentTenant() tenantId: string,
-  ): Promise<SupplierResponse[]> {
-    const query = new ListSuppliersQuery(tenantId, { type: SupplierType.CHEMICAL, isActive: true }, { limit: 1000 });
-    const result = await this.queryBus.execute(query) as PaginatedQueryResult<SupplierResponse>;
+  async chemicalSuppliers(@CurrentTenant() tenantId: string): Promise<readonly SupplierResponse[]> {
+    const query = new ListSuppliersQuery(
+      tenantId,
+      { type: SupplierType.CHEMICAL, isActive: true },
+      { limit: 1000 },
+    );
+    const result = (await this.queryBus.execute(query)) as PaginatedQueryResult<SupplierResponse>;
     return fromCqrsPaginated(result).items;
   }
 

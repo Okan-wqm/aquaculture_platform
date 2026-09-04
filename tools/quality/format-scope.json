@@ -2549,6 +2549,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/shared/__tests__/response.interceptor.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/shared/authenticated-request.ts",
       "prettier_managed": true
     },
@@ -43290,6 +43296,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/admin-pagination-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/admin-route-contract-ci.spec.ts",
       "prettier_managed": true
     },
@@ -57121,7 +57133,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "c35b4eb1faa9160180b2eda1fdf28ab08e6deadba399a667a4b98fce26652ed1",
+      "content_sha256": "47d96b1a945ec728f709f4e953c114bc3c665a9eb6453dae84bfc5e1cd5caed2",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",

@@ -69,7 +69,7 @@ interface Guide {
 
 export const OnboardingPage: React.FC = () => {
   // Data state
-  const [progressList, setProgressList] = useState<TenantOnboarding[]>([]);
+  const [progressList, setProgressList] = useState<readonly TenantOnboarding[]>([]);
   const [steps, setSteps] = useState<ApiOnboardingStep[]>([]);
   const [stats, setStats] = useState<OnboardingStats>({
     notStarted: 0,

@@ -13,6 +13,10 @@ import {
 } from '@aquaculture/shared-ui';
 
 import { stableStringify } from '../utils/command-envelope';
+import {
+  createStandardPaginatedResult,
+  type PaginationResultV1,
+} from '@platform/pagination-contracts';
 
 // Types - GraphQL enum KEY'leri ile uyumlu (UPPERCASE)
 export type BatchStatus =
@@ -374,15 +378,7 @@ export interface BatchListFilter {
   searchTerm?: string;
 }
 
-interface BatchListResponse {
-  items: Batch[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-  hasNextPage: boolean;
-  hasPreviousPage: boolean;
-}
+type BatchListResponse = PaginationResultV1<Batch>;
 
 // GraphQL Queries
 // FARM-LOW-143: the ~40 batch scalar fields, shared by BATCH_LIST_QUERY and
@@ -592,15 +588,21 @@ export function useBatchList(
       if (options?.fetchAll) {
         const first = await fetchPage(1, BATCH_PAGE_LIMIT);
         const items = [...first.items];
-        const totalPages = Math.min(
-          Math.ceil((first.total ?? items.length) / BATCH_PAGE_LIMIT),
-          BATCH_MAX_PAGES,
-        );
-        for (let page = 2; page <= totalPages; page += 1) {
+        const pageCount = Math.min(first.totalPages, BATCH_MAX_PAGES);
+        for (let page = 2; page <= pageCount; page += 1) {
           const next = await fetchPage(page, BATCH_PAGE_LIMIT);
           items.push(...next.items);
         }
-        return { ...first, items };
+        // Fetch-all collapses the traversal into ONE page holding everything.
+        // Spreading `first` used to keep its page-1-of-N coordinates over an
+        // items array from N pages, which is a page that describes itself
+        // wrongly; the authority rejects that and mints the honest one.
+        return createStandardPaginatedResult<Batch>(
+          items,
+          Math.max(first.total, items.length),
+          1,
+          Math.max(1, items.length),
+        );
       }
 
       return fetchPage(options?.page ?? 1, options?.limit ?? 20);

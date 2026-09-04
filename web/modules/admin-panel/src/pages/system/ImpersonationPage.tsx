@@ -69,8 +69,8 @@ export const ImpersonationPage: React.FC = () => {
   // State
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
-  const [sessions, setSessions] = useState<ImpersonationSession[]>([]);
-  const [permissions, setPermissions] = useState<ImpersonationPermission[]>([]);
+  const [sessions, setSessions] = useState<readonly ImpersonationSession[]>([]);
+  const [permissions, setPermissions] = useState<readonly ImpersonationPermission[]>([]);
   const [tenants, setTenants] = useState<SimpleTenant[]>([]);
   const [stats, setStats] = useState<ImpersonationStats>({
     activeSessions: 0,
@@ -162,9 +162,8 @@ export const ImpersonationPage: React.FC = () => {
         recentSessions: [],
       };
 
-      // Backend session-list envelope is { items, total } (not the data/page shape).
-      setSessions(sessionsRes.status === 'fulfilled' ? sessionsRes.value.items : []);
-      setPermissions(permissionsRes.status === 'fulfilled' ? (permissionsRes.value.data || []) : []);
+      setSessions(sessionsRes.status === 'fulfilled' ? sessionsRes.value.data : []);
+      setPermissions(permissionsRes.status === 'fulfilled' ? permissionsRes.value.data : []);
       setStats(statsRes.status === 'fulfilled' ? statsRes.value : defaultStats);
       setTenants(
         tenantsRes.status === 'fulfilled'

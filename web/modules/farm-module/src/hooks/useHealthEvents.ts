@@ -3,7 +3,13 @@
  * Handles CRUD operations for health events, treatment, and quarantine management via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
+import {
+  useAuth,
+  graphqlClient,
+  createTenantQueryKey,
+  createTenantInvalidationKey,
+} from '@aquaculture/shared-ui';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 
 // ============================================================================
 // TYPES - Health Events
@@ -428,15 +434,7 @@ export function useHealthEvents(filter?: HealthEventFilter) {
       `;
 
       const result = await graphqlClient.request<{
-        healthEvents: {
-          items: HealthEvent[];
-          total: number;
-          page: number;
-          limit: number;
-          totalPages: number;
-          hasNextPage: boolean;
-          hasPreviousPage: boolean;
-        };
+        healthEvents: PaginationResultV1<HealthEvent>;
       }>(query, { filter });
 
       return result.healthEvents;

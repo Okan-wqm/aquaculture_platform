@@ -497,8 +497,8 @@ export class GrowthResolver {
     @CurrentTenant() tenantId: string,
     @Args('batchId', { type: () => ID }) batchId: string,
     @Args('limit', { type: () => Int, nullable: true }) limit?: number,
-  ): Promise<GrowthMeasurement[]> {
-    const result = await this.queryBus.execute(
+  ): Promise<readonly GrowthMeasurement[]> {
+    const result = (await this.queryBus.execute(
       new GetGrowthMeasurementsQuery(
         tenantId,
         { batchId },
@@ -507,7 +507,7 @@ export class GrowthResolver {
         'measurementDate',
         'DESC',
       ),
-    ) as PaginatedQueryResult<GrowthMeasurement>;
+    )) as PaginatedQueryResult<GrowthMeasurement>;
     return fromCqrsPaginated(result).items;
   }
 

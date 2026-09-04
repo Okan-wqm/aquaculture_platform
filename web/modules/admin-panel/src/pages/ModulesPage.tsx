@@ -6,6 +6,7 @@
 import React, { useState, useCallback } from 'react';
 import { useAsyncData } from '../hooks/useAsyncData';
 import { modulesApi } from '../services/adminApi';
+import type { PaginatedResult } from '../services/types';
 
 interface Module {
   id: string;
@@ -45,13 +46,14 @@ const ModulesPage: React.FC = () => {
     refresh,
     canRetry,
     retry,
-  } = useAsyncData<{ data: Module[]; total: number; page: number; limit: number; totalPages: number }>(
-    () => modulesApi.list({
-      search: searchTerm || undefined,
-      isActive: isActiveFilter,
-      isCore: isCoreFilter,
-    }),
-    { immediate: true, cacheKey: `modules-${searchTerm}-${isActiveFilter}-${isCoreFilter}` }
+  } = useAsyncData<PaginatedResult<Module>>(
+    () =>
+      modulesApi.list({
+        search: searchTerm || undefined,
+        isActive: isActiveFilter,
+        isCore: isCoreFilter,
+      }),
+    { immediate: true, cacheKey: `modules-${searchTerm}-${isActiveFilter}-${isCoreFilter}` },
   );
 
   // Fetch module stats

@@ -1213,12 +1213,19 @@ export type BatchInputType =
   | 'SMOLT';
 
 export type BatchListResponse = {
+  /** Whether there is a next page */
   hasNextPage: Scalars['Boolean']['output'];
+  /** Whether there is a previous page */
   hasPreviousPage: Scalars['Boolean']['output'];
+  /** Array of items */
   items: Array<Batch>;
+  /** Items per page */
   limit: Scalars['Int']['output'];
+  /** Current page number */
   page: Scalars['Int']['output'];
+  /** Total count of items matching the query */
   total: Scalars['Int']['output'];
+  /** Total number of pages */
   totalPages: Scalars['Int']['output'];
 };
 

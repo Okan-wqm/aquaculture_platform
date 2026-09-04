@@ -22,6 +22,7 @@ import { IsOptional, IsNumber, IsString, IsIn, IsBoolean, Min, Max, MaxLength } 
 import { ActivityLog, ActivityCategory, ActivitySeverity } from '../entities/security.entity';
 import { ActivityLoggingService, ActivityQueryOptions, ActivityStats } from '../services/activity-logging.service';
 import { ACTIVITY_LOG_SORT_FIELDS, ActivityLogSortField } from '../sorting/activity-log-sort';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 
 // ============================================================================
 // DTOs
@@ -225,12 +226,7 @@ export class ActivityLogController {
   @Get()
   async queryActivities(
     @Query() query: QueryActivitiesDto,
-  ): Promise<{
-    data: ActivityLog[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  ): Promise<PaginationResultV1<ActivityLog>> {
     const options: ActivityQueryOptions = {
       page: query.page ? parseInt(String(query.page), 10) : 1,
       limit: query.limit ? parseInt(String(query.limit), 10) : 50,

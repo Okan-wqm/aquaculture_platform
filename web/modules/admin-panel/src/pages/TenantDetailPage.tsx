@@ -161,7 +161,7 @@ const TenantDetailPage: React.FC = () => {
 
   // State
   const [tenant, setTenant] = useState<TenantDetail | null>(null);
-  const [modules, setModules] = useState<SystemModule[]>([]);
+  const [modules, setModules] = useState<readonly SystemModule[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('overview');

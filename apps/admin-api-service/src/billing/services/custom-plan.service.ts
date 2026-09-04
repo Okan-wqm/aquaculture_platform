@@ -8,6 +8,10 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import {
+  createStandardPaginatedResult,
+  type PaginationResultV1,
+} from '@platform/pagination-contracts';
 
 import {
   CustomPlan,
@@ -85,15 +89,9 @@ export interface CustomPlanFilter {
 }
 
 /**
- * Paginated result
+ * Paginated result — the platform authority's shape, not a local copy.
  */
-export interface PaginatedResult<T> {
-  items: T[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
+export type PaginatedResult<T> = PaginationResultV1<T>;
 
 /**
  * Custom Plan Service
@@ -213,13 +211,7 @@ export class CustomPlanService {
       .take(limit)
       .getManyAndCount();
 
-    return {
-      items,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
+    return createStandardPaginatedResult<CustomPlan>(items, total, page, limit);
   }
 
   /**

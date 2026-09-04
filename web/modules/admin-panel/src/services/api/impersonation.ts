@@ -64,7 +64,9 @@ export const impersonationApi = {
       reason?: ImpersonationReasonCode;
     } & PaginationParams,
   ) =>
-    apiFetch<{ items: ImpersonationSession[]; total: number }>(`/impersonation/sessions?${buildQueryString(params || {})}`),
+    apiFetch<PaginatedResult<ImpersonationSession>>(
+      `/impersonation/sessions?${buildQueryString(params || {})}`,
+    ),
   getSession: (id: string) => apiFetch<ImpersonationSession>(`/impersonation/sessions/${id}`),
   startSession: (data: StartImpersonationRequest) =>
     apiFetch<StartImpersonationResponse>('/impersonation/sessions/start', { method: 'POST', body: JSON.stringify(data) }),

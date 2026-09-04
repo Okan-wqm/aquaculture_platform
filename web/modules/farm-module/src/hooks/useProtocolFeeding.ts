@@ -33,6 +33,7 @@ import {
   TRANSITION_UNIT_FEED_MUTATION,
 } from '../graphql/feedingProtocolV2.operations';
 import { buildCommandEnvelope } from '../utils/command-envelope';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 
 // ============================================================================
 // TYPES — backend entity jsonb aynaları
@@ -209,15 +210,7 @@ export interface UpdateProtocolAssignmentInput {
   status?: 'active' | 'paused';
 }
 
-interface PaginatedResult<T> {
-  items: T[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-  hasNextPage: boolean;
-  hasPreviousPage: boolean;
-}
+type PaginatedResult<T> = PaginationResultV1<T>;
 
 export interface FeedingProtocolsV2Filter {
   status?: FeedingProtocolV2Status;

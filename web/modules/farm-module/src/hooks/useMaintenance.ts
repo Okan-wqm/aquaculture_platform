@@ -3,7 +3,13 @@
  * Handles CRUD operations for work orders, maintenance schedules, and spare parts via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
+import {
+  useAuth,
+  graphqlClient,
+  createTenantQueryKey,
+  createTenantInvalidationKey,
+} from '@aquaculture/shared-ui';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 
 // ============================================================================
 // TYPES - Work Orders
@@ -561,15 +567,7 @@ export function useWorkOrders(filter?: WorkOrderFilter, page = 1, limit = 20) {
       `;
 
       const result = await graphqlClient.request<{
-        workOrders: {
-          items: WorkOrder[];
-          total: number;
-          page: number;
-          limit: number;
-          totalPages: number;
-          hasNextPage: boolean;
-          hasPreviousPage: boolean;
-        };
+        workOrders: PaginationResultV1<WorkOrder>;
       }>(query, { filter, page, limit });
 
       return result.workOrders;
@@ -1003,15 +1001,7 @@ export function useMaintenanceSchedules(filter?: MaintenanceScheduleFilter, page
       `;
 
       const result = await graphqlClient.request<{
-        maintenanceSchedules: {
-          items: MaintenanceSchedule[];
-          total: number;
-          page: number;
-          limit: number;
-          totalPages: number;
-          hasNextPage: boolean;
-          hasPreviousPage: boolean;
-        };
+        maintenanceSchedules: PaginationResultV1<MaintenanceSchedule>;
       }>(query, { filter, page, limit });
 
       return result.maintenanceSchedules;
@@ -1546,15 +1536,7 @@ export function useSpareParts(filter?: SparePartFilter, page = 1, limit = 20) {
       `;
 
       const result = await graphqlClient.request<{
-        spareParts: {
-          items: SparePart[];
-          total: number;
-          page: number;
-          limit: number;
-          totalPages: number;
-          hasNextPage: boolean;
-          hasPreviousPage: boolean;
-        };
+        spareParts: PaginationResultV1<SparePart>;
       }>(query, { filter, page, limit });
 
       return result.spareParts;

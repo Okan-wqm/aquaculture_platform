@@ -3,7 +3,14 @@
  * Handles CRUD operations for chemicals via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, restClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
+import {
+  useAuth,
+  graphqlClient,
+  restClient,
+  createTenantQueryKey,
+  createTenantInvalidationKey,
+} from '@aquaculture/shared-ui';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 
 // Enums - Values must be UPPERCASE to match GraphQL enum keys
 export enum ChemicalType {
@@ -175,13 +182,7 @@ export interface UpdateChemicalInput extends Partial<CreateChemicalInput> {
   isActive?: boolean;
 }
 
-interface PaginatedResponse {
-  items: Chemical[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
+type PaginatedResponse = PaginationResultV1<Chemical>;
 
 // GraphQL queries
 const CHEMICALS_LIST_QUERY = `
@@ -249,6 +250,8 @@ const CHEMICALS_LIST_QUERY = `
       page
       limit
       totalPages
+      hasNextPage
+      hasPreviousPage
     }
   }
 `;

@@ -36069,6 +36069,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "e2e/tests/integration/tenant-provisioning-replay.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "e2e/tests/integration/tenant-suspension.spec.ts",
       "prettier_managed": true
     },

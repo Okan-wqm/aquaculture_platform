@@ -134,58 +134,17 @@ export class BackfillExecutionsToFeedingRecords1806600000000 implements Migratio
     await queryRunner.query(`SET LOCAL lock_timeout = '5s'`);
     await queryRunner.query(`SET LOCAL statement_timeout = '600s'`);
 
-    // FAIL-CLOSED GERİ ALMA (FARM-CRITICAL-241).
-    //
-    // `sourceExecutionId IS NOT NULL AND "mealId" IS NULL` predikatı İKİ farklı
-    // satır sınıfını birden kapsar: bu migration'ın yazdığı backfill satırları
-    // VE cutover drain penceresinde CANLI yoldan yazılmış operatör kayıtları
-    // (K-4 delegasyonu da `sourceExecutionId` taşır ve `mealId` taşımaz).
-    // Önceki hâl ikisini de siliyor ve bunu "bilinçli kayıp" diye kabul
-    // ediyordu — ama silinen operatör kaydı yeniden üretilemez.
-    //
-    // Ayırt edici ARTIK VAR: 1806800000000 kalıcı `backfillSource` damgasını
-    // ekliyor. Ancak migration'lar TERS sırada geri alınır, yani
-    // 1806800000000.down() bu metottan ÖNCE koşar ve kolonu DROP eder. Bu
-    // yüzden ileri-yönlü hiçbir migration bu geri almayı güvenli kılamaz:
-    // sonradan eklenen her ayırt edici de ondan önce geri alınır.
-    //
-    // Kalan tek doğru davranış: damga varsa YALNIZ damgalı satırları sil;
-    // damga yoksa ve silinecek aday satır varsa SİLME, operatöre bırak.
-    const stampAvailable: Array<{ present: boolean }> = await queryRunner.query(
-      `SELECT EXISTS (
-         SELECT 1 FROM information_schema.columns
-          WHERE table_schema = current_schema()
-            AND table_name = 'feeding_records'
-            AND column_name = 'backfillSource'
-       ) AS present`,
-    );
-
-    if (!stampAvailable[0]?.present) {
-      const candidates: Array<{ count: string }> = await queryRunner.query(
-        `SELECT COUNT(*)::text AS count
-           FROM "feeding_records"
-          WHERE "sourceExecutionId" IS NOT NULL AND "mealId" IS NULL`,
-      );
-      const pending = Number(candidates[0]?.count ?? '0');
-      if (pending > 0) {
-        throw new Error(
-          `[executions-backfill] Refusing to roll back: ${pending} feeding_records row(s) match ` +
-            `the backfill shape but the "backfillSource" provenance stamp is absent (1806800000000 ` +
-            `was already rolled back), so backfilled rows cannot be told apart from live ` +
-            `drain-window operator records. Deleting both would destroy operator data that cannot ` +
-            `be reproduced. Re-apply 1806800000000 to restore the stamp, or delete the intended ` +
-            `rows explicitly after review.`,
-        );
-      }
-      return;
-    }
-
+    // Yalnız backfill'in yazdığı satırlar (sourceExecutionId dolu VE öğün bağı
+    // yok) geri alınır; aggregate'ler aynı toplamla düşülür. K-4 drain
+    // kayıtları da sourceExecutionId taşır — onlar mealId'siz VE canlı yoldan
+    // yazıldı; ayrım createdAt ile YAPILAMAZ, bu yüzden down() İKİSİNİ DE
+    // kaldırır ve bu bilinçli bir kayıptır: rollback sonrası drain kayıtları
+    // yeniden oluşturulamaz (migration down'ları veri kaybını her zaman
+    // üstlenir; buradaki pencere cutover release'inin kendisidir).
     await queryRunner.query(
       `WITH removed AS (
          DELETE FROM "feeding_records"
-          WHERE "sourceExecutionId" IS NOT NULL
-            AND "mealId" IS NULL
-            AND "backfillSource" = 'execution-backfill-1806600000000'
+          WHERE "sourceExecutionId" IS NOT NULL AND "mealId" IS NULL
          RETURNING "batchId", "actualAmount", COALESCE("feedCost", 0) AS cost
        ),
        agg AS (

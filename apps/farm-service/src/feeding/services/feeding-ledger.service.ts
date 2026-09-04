@@ -151,12 +151,13 @@ export class FeedingLedgerService {
       mealId: params.mealId,
       pourIndex: params.pourIndex,
       dayPlanId: params.dayPlanId,
-      sourceExecutionId: params.sourceExecutionId,
       // FARM-CRITICAL-241: drain penceresinde yazılan canlı satır, tarihsel
-      // backfill satırıyla AYNI şekle sahip (`sourceExecutionId` dolu,
-      // `mealId` boş). Provenans damgası olmadan ne rollback ne attribution
-      // onarımı kendi satırını tanıyabiliyordu.
-      backfillSource: params.sourceExecutionId ? 'live-drain' : undefined,
+      // backfill satırıyla AYNI şekle sahip (`sourceExecutionId` dolu, `mealId`
+      // boş). Ayrım uygulamada DEĞİL veritabanında yapılır: 1808600000000'in
+      // AFTER INSERT trigger'ı bu INSERT'i `LIVE_DRAIN` diye
+      // `feeding_record_provenance`'a yazar. Buradan damga göndermek defterle
+      // yarışan ikinci bir kaynak olurdu.
+      sourceExecutionId: params.sourceExecutionId,
     });
     record.calculateVariance();
     const saved = await manager.save(record);

@@ -19,25 +19,21 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * KPI'sına ve finans türetimlerine akar. Hiçbir NOT NULL/FK ihlali üretmez —
  * sessizdir.
  *
- * ## 2. Provenans kusuru (FARM-CRITICAL-241) — bu migration'ın ÖN KOŞULU
+ * ## 2. Provenans — `feeding_record_provenance` TEK yetkili kaynaktır
  *
- * Backfill'in yazdığı satırların migration-sahipli provenansı YOK. Ayırt edici
- * olarak kullanılan `sourceExecutionId IS NOT NULL AND mealId IS NULL` şekli
- * aynı zamanda CANLI drain yazarının şeklidir (`daily-feeding-execution
- * .service.ts` → `FeedingLedgerService`), çünkü ayırt edici olabilecek her
- * kolon (`feedingMethod`, `feedingSequence`, `totalMealsToday`) DB
- * default'una sahiptir. Sonuç: `1806600000000.down()` kendi yazmadığı canlı
- * kayıtları da siler, ve BU migration da onları yeniden attribute etmeye
- * kalkardı.
+ * Backfill satırlarını canlı drain satırlarından ayırt etmek için bu migration
+ * eskiden kendi `feeding_records."backfillSource"` kolonunu ekliyordu. O kolon
+ * KALDIRILDI: `1808600000000-ProtectFeedingRecordBackfillProvenance`
+ * (FARM-CRITICAL-241) provenansı içerikten türetmeyi bırakıp yazan
+ * transaction'ın `xmin`'i ile sınıflandıran, değiştirilemez
+ * `feeding_record_provenance` defterini kurdu — `BACKFILL_180660`,
+ * `LIVE_DRAIN`, `UNKNOWN`. İkinci bir damga ikinci bir doğruluk kaynağı olurdu
+ * ve ikisi er ya da geç ayrışırdı; provenans TEK yerde yaşar.
  *
- * Çözüm: kalıcı provenans kolonu (`backfillSource`). Bu commit'ten sonra
- * yazılan her satır kaynağını taşır (canlı yol `'live'` damgalar), böylece
- * rollback ve onarım yalnız kendi satırlarına dokunabilir.
- *
- * Damgalamanın artık penceresi (bilinçli, tier-4 — bilgi fiziksel olarak
- * YOK): bu migration'dan ÖNCE drain edilmiş satırlar backfill satırlarından
- * ayrılamaz; ayıracak veri hiçbir kolonda mevcut değil. Sayı özet satırında
- * raporlanır; ileriye dönük belirsizlik kapanır.
+ * Bu yüzden onarım adayları `origin = 'BACKFILL_180660'` kanıtı olan satırlarla
+ * SINIRLIDIR: `UNKNOWN` (kanıtlanamayan) satırlara dokunulmaz — fail-closed
+ * yön veriyi KORUYAN yöndür. Bu migration 1808600000000'den SONRA koştuğu için
+ * defter her zaman mevcuttur; sıra manifest'te sabittir.
  *
  * ## 3. Onarım politikası — üç sınıf, YIKICI OLMAYAN
  *
@@ -64,22 +60,19 @@ export class BackfillFeedingRecordBatchLocationAttribution1808700000000
 {
   name = 'BackfillFeedingRecordBatchLocationAttribution1808700000000';
 
-  /** Backfill satırlarının kalıcı provenans damgası. */
-  static readonly BACKFILL_SOURCE = 'execution-backfill-1806600000000';
+  /**
+   * `feeding_record_provenance.origin` değeri: 1806600000000 backfill'inin
+   * yazdığı, xmin ile KANITLANMIŞ satırlar. 1808600000000'in CHECK kısıtıyla
+   * aynı sözcük — defterdeki sınıflandırma bu migration'ın da tek girdisidir.
+   */
+  static readonly BACKFILL_ORIGIN = 'BACKFILL_180660';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`SET LOCAL lock_timeout = '5s'`);
     await queryRunner.query(`SET LOCAL statement_timeout = '600s'`);
 
-    // (1) Provenans kolonu + karantina tablosu (şema-nitelemesiz).
-    await queryRunner.query(
-      `ALTER TABLE "feeding_records" ADD COLUMN IF NOT EXISTS "backfillSource" varchar(48)`,
-    );
-    await queryRunner.query(
-      `CREATE INDEX IF NOT EXISTS "IDX_fr_backfill_source"
-         ON "feeding_records" ("tenantId", "backfillSource")
-       WHERE "backfillSource" IS NOT NULL`,
-    );
+    // (1) Karantina tablosu (şema-nitelemesiz). Provenans kolonu YOK: sınıf
+    // bilgisi `feeding_record_provenance` defterinde yaşar (1808600000000).
     await queryRunner.query(
       `CREATE TABLE IF NOT EXISTS "feeding_record_attribution_quarantine" (
          "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
@@ -103,21 +96,8 @@ export class BackfillFeedingRecordBatchLocationAttribution1808700000000
          ON "feeding_record_attribution_quarantine" ("tenantId", "feedingRecordId")`,
     );
 
-    // (2) Provenans damgası — backfill şeklindeki mevcut satırlar.
-    const stamped: Array<{ count: number }> = await queryRunner.query(
-      `WITH marked AS (
-         UPDATE "feeding_records"
-            SET "backfillSource" = $1
-          WHERE "sourceExecutionId" IS NOT NULL
-            AND "mealId" IS NULL
-            AND "backfillSource" IS NULL
-         RETURNING id
-       )
-       SELECT (SELECT COUNT(*) FROM marked)::int AS count`,
-      [BackfillFeedingRecordBatchLocationAttribution1808700000000.BACKFILL_SOURCE],
-    );
-
-    // (3) Attribution onarımı — YALNIZ damgalı satırlar.
+    // (2) Attribution onarımı — YALNIZ defterin `BACKFILL_180660` diye
+    // KANITLADIĞI satırlar. `UNKNOWN` satırlar tahminle onarılmaz.
     const result: Array<{ repaired: number; quarantined: number; unknown_history: number }> =
       await queryRunner.query(
         `WITH candidate AS (
@@ -138,6 +118,9 @@ export class BackfillFeedingRecordBatchLocationAttribution1808700000000
                      WHERE h."tenantId" = fr."tenantId" AND h."tankId" = fr."tankId"
                   )                          AS has_history
              FROM "feeding_records" fr
+             JOIN "feeding_record_provenance" p
+               ON p.feeding_record_id = fr.id
+              AND p.origin = $1
              LEFT JOIN LATERAL (
                SELECT bl."batchId", bl.id
                  FROM "batch_locations" bl
@@ -148,7 +131,6 @@ export class BackfillFeedingRecordBatchLocationAttribution1808700000000
                 ORDER BY bl."movedAt" DESC
                 LIMIT 1
              ) bl ON true
-            WHERE fr."backfillSource" = $1
          ),
          repaired AS (
            UPDATE "feeding_records" fr
@@ -203,16 +185,15 @@ export class BackfillFeedingRecordBatchLocationAttribution1808700000000
                 (SELECT COUNT(*) FROM removed)::int  AS quarantined,
                 (SELECT COUNT(*) FROM candidate WHERE new_batch IS NULL AND NOT has_history)::int
                   AS unknown_history`,
-        [BackfillFeedingRecordBatchLocationAttribution1808700000000.BACKFILL_SOURCE],
+        [BackfillFeedingRecordBatchLocationAttribution1808700000000.BACKFILL_ORIGIN],
       );
 
     await queryRunner.query(
-      `SELECT 'feeding-record attribution: ' || $1 || ' stamped, ' || $2 ||
-              ' re-attributed from batch_locations, ' || $3 ||
-              ' quarantined (unit occupied by nobody on that date), ' || $4 ||
+      `SELECT 'feeding-record attribution: ' || $1 ||
+              ' re-attributed from batch_locations, ' || $2 ||
+              ' quarantined (unit occupied by nobody on that date), ' || $3 ||
               ' left as-is (unit has no batch_locations history)' AS summary`,
       [
-        Number(stamped[0]?.count ?? 0),
         Number(result[0]?.repaired ?? 0),
         Number(result[0]?.quarantined ?? 0),
         Number(result[0]?.unknown_history ?? 0),
@@ -221,16 +202,19 @@ export class BackfillFeedingRecordBatchLocationAttribution1808700000000
   }
 
   /**
-   * Damgalı hiçbir satır `batch_locations` ile ÇELİŞMİYOR (çelişki = o tarihte
-   * o ünitede o batch yoktu VE ünitenin occupancy geçmişi var).
+   * Defterin `BACKFILL_180660` diye kanıtladığı hiçbir satır `batch_locations`
+   * ile ÇELİŞMİYOR (çelişki = o tarihte o ünitede o batch yoktu VE ünitenin
+   * occupancy geçmişi var).
    */
   public async postCondition(queryRunner: QueryRunner): Promise<boolean> {
     const rows: Array<{ ok: boolean }> = await queryRunner.query(
       `SELECT NOT EXISTS (
          SELECT 1
            FROM "feeding_records" fr
-          WHERE fr."backfillSource" IS NOT NULL
-            AND EXISTS (
+           JOIN "feeding_record_provenance" p
+             ON p.feeding_record_id = fr.id
+            AND p.origin = $1
+          WHERE EXISTS (
               SELECT 1 FROM "batch_locations" h
                WHERE h."tenantId" = fr."tenantId" AND h."tankId" = fr."tankId"
             )
@@ -244,47 +228,64 @@ export class BackfillFeedingRecordBatchLocationAttribution1808700000000
                  AND (bl."exitedAt" IS NULL OR bl."exitedAt"::date > fr."feedingDate"::date)
             )
        ) AS ok`,
+      [BackfillFeedingRecordBatchLocationAttribution1808700000000.BACKFILL_ORIGIN],
     );
     return rows[0]?.ok === true;
   }
 
   /**
-   * Karantinaya alınan satırlar `feeding_records`'a geri konur (provenans
-   * damgasıyla birlikte) ve aggregate deltaları geri alınır. Attribution
-   * düzeltmesinin kendisi geri alınmaz: eski (yanlış) `batchId` saklanmıyor ve
-   * onu geri yazmak bug'ı geri getirmek olurdu — `batchLocationId` kalır.
+   * Karantinaya alınan satırlar `feeding_records`'a geri konur ve aggregate
+   * deltaları geri alınır. Attribution düzeltmesinin kendisi geri alınmaz: eski
+   * (yanlış) `batchId` saklanmıyor ve onu geri yazmak bug'ı geri getirmek
+   * olurdu — `batchLocationId` kalır.
+   *
+   * Provenans yakalama trigger'ı bu tek INSERT için KAPATILIR. Sebep davranışsal
+   * değil anlamsal: geri konan satırın provenansı DEĞİŞMEDİ — defterdeki
+   * `BACKFILL_180660` satırı hâlâ duruyor ve doğru. Trigger açık kalsaydı aynı
+   * satırı `LIVE_DRAIN` diye yeniden sınıflandırmaya çalışır, defterin
+   * değişmezlik kuralına çarpar ve geri almayı `23505` ile komple durdururdu.
+   * Kapsam tek ifadedir (aynı transaction, `finally` ile hemen yeniden açılır)
+   * ve yalnız defterin zaten kanıtladığı satırlara dokunur.
    */
   public async down(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`SET LOCAL lock_timeout = '5s'`);
     await queryRunner.query(`SET LOCAL statement_timeout = '600s'`);
 
     await queryRunner.query(
-      `WITH restored AS (
-         INSERT INTO "feeding_records"
-           (id, "tenantId", "batchId", "tankId", "feedingDate", "feedingTime",
-            "feedId", "plannedAmount", "actualAmount", "feedCost", currency,
-            "sourceExecutionId", "backfillSource")
-         SELECT q."feedingRecordId", q."tenantId", q."batchId", q."tankId", q."feedingDate",
-                '00:00', q."feedId", 0, q."actualAmount", q."feedCost", q.currency,
-                q."sourceExecutionId", $1
-           FROM "feeding_record_attribution_quarantine" q
-         ON CONFLICT (id) DO NOTHING
-         RETURNING "batchId", "actualAmount", COALESCE("feedCost", 0) AS cost
-       ),
-       agg AS (
-         SELECT "batchId", SUM("actualAmount") AS total, SUM(cost) AS cost
-           FROM restored GROUP BY "batchId"
-       )
-       UPDATE "batches_v2" b
-          SET "totalFeedConsumed" = COALESCE(b."totalFeedConsumed", 0) + agg.total,
-              "totalFeedCost" = COALESCE(b."totalFeedCost", 0) + agg.cost
-         FROM agg
-        WHERE b.id = agg."batchId"`,
-      [BackfillFeedingRecordBatchLocationAttribution1808700000000.BACKFILL_SOURCE],
+      `ALTER TABLE "feeding_records"
+         DISABLE TRIGGER trg_feeding_records_capture_live_drain_provenance`,
     );
+    try {
+      await queryRunner.query(
+        `WITH restored AS (
+           INSERT INTO "feeding_records"
+             (id, "tenantId", "batchId", "tankId", "feedingDate", "feedingTime",
+              "feedId", "plannedAmount", "actualAmount", "feedCost", currency,
+              "sourceExecutionId")
+           SELECT q."feedingRecordId", q."tenantId", q."batchId", q."tankId", q."feedingDate",
+                  '00:00', q."feedId", 0, q."actualAmount", q."feedCost", q.currency,
+                  q."sourceExecutionId"
+             FROM "feeding_record_attribution_quarantine" q
+           ON CONFLICT (id) DO NOTHING
+           RETURNING "batchId", "actualAmount", COALESCE("feedCost", 0) AS cost
+         ),
+         agg AS (
+           SELECT "batchId", SUM("actualAmount") AS total, SUM(cost) AS cost
+             FROM restored GROUP BY "batchId"
+         )
+         UPDATE "batches_v2" b
+            SET "totalFeedConsumed" = COALESCE(b."totalFeedConsumed", 0) + agg.total,
+                "totalFeedCost" = COALESCE(b."totalFeedCost", 0) + agg.cost
+           FROM agg
+          WHERE b.id = agg."batchId"`,
+      );
+    } finally {
+      await queryRunner.query(
+        `ALTER TABLE "feeding_records"
+           ENABLE TRIGGER trg_feeding_records_capture_live_drain_provenance`,
+      );
+    }
 
     await queryRunner.query(`DROP TABLE IF EXISTS "feeding_record_attribution_quarantine"`);
-    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_fr_backfill_source"`);
-    await queryRunner.query(`ALTER TABLE "feeding_records" DROP COLUMN IF EXISTS "backfillSource"`);
   }
 }

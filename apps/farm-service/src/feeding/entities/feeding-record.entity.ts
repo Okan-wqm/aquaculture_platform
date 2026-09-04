@@ -257,18 +257,12 @@ export class FeedingRecord {
   @Column('uuid', { nullable: true })
   sourceExecutionId?: string;
 
-  /**
-   * Satırın KAYNAĞI (FARM-CRITICAL-241). `sourceExecutionId IS NOT NULL AND
-   * mealId IS NULL` şekli hem tarihsel backfill'in hem CANLI drain yazarının
-   * şeklidir; ayırt edici olabilecek her kolon DB default'una sahip olduğu
-   * için rollback ve onarım kendi satırlarını tanıyamıyordu. Provenans
-   * damgası bunu kalıcı olarak çözer:
-   *   - `'execution-backfill-1806600000000'` → migration'ın yazdığı satır
-   *   - `'live-drain'` → cutover drain penceresinde canlı yazılan satır
-   *   - NULL → normal (öğün veya plan-dışı) canlı yemleme kaydı
-   */
-  @Column({ type: 'varchar', length: 48, nullable: true })
-  backfillSource?: string;
+  // Satırın KAYNAĞI bu tabloda TAŞINMAZ (FARM-CRITICAL-241). Provenans
+  // `feeding_record_provenance` defterinde yaşar: 1808600000000'in AFTER INSERT
+  // trigger'ı her satırı yazan transaction'ın `xmin`'i ile sınıflandırır
+  // (`BACKFILL_180660` / `LIVE_DRAIN` / `UNKNOWN`) ve defter değiştirilemez.
+  // Uygulama tarafında ayrıca bir damga kolonu tutmak ikinci bir doğruluk
+  // kaynağı olurdu; servis o deftere yalnız SELECT hakkıyla bakar.
 
   // -------------------------------------------------------------------------
   // ÇEVRESEL KOŞULLAR

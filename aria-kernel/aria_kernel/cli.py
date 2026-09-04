@@ -3061,6 +3061,9 @@ def build_parser() -> argparse.ArgumentParser:
     add_subparser(graph_sub, "show")
     cov_p = add_subparser(security_sub, "coverage")
     cov_p.add_argument("--workspace-root", default=".")
+    assess_p = add_subparser(security_sub, "assess")
+    assess_p.add_argument("--workspace-root", default=".")
+    assess_p.add_argument("--dry-run", action="store_true", help="compute the verdicts without writing the assurance ledger")
     zap_p = add_subparser(security_sub, "zap")
     zap_sub = zap_p.add_subparsers(dest="security_zap_command", required=True)
     zap_v = add_subparser(zap_sub, "validate")
@@ -6283,6 +6286,16 @@ def _main(argv: list[str] | None = None) -> int:
             cov = compute_coverage(profile_row=prof, pack_manifests=select_packs(prof), base_dir=args.tools_dir)
             print(json.dumps(cov, indent=2, sort_keys=True))
             return 0 if cov["ready"] else 1
+        if args.security_command == "assess":
+            from .security.assess import assess
+            from .security.profile import compile_profile
+
+            prof = compile_profile(workspace_root=args.workspace_root).to_row()
+            out = assess(workspace_root=args.workspace_root, profile_row=prof,
+                         base_dir=args.tools_dir, record=not args.dry_run)
+            print(json.dumps(out, indent=2, sort_keys=True))
+            # Exit 1 on a confirmed vulnerability: this verb is usable as a gate.
+            return 1 if out["coverage"]["vulnerability_confirmed"] else 0
         if args.security_command == "zap":
             from .security.zap import ZapPolicyError, build_zap_job
 

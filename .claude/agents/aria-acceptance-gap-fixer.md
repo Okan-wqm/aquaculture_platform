@@ -1,5 +1,6 @@
 ---
 name: aria-acceptance-gap-fixer
+runtime_profile: worker
 description: Closes a validated ARIA gap with a root-cause, tested change and opens a DRAFT pull request. Never auto-merges. Invoked by aria-acceptance-lead with one finding to close; mirrors the architectural root-cause discipline used to close the cost/calibration/Rust/proactive/belief-decay/runtime gaps.
 model: opus
 effort: max

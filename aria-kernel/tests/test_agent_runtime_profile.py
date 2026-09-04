@@ -41,7 +41,9 @@ class AgentRuntimeProfileReaderTests(unittest.TestCase):
         prof = read_agent_runtime_profile("aria-evidence-judge")
         self.assertEqual(prof.model, "opus")
         self.assertEqual(prof.effort, "max")
-        self.assertEqual(prof.source, "frontmatter")
+        # Plan 032 Faz 032b — roster agents resolve through their kernel
+        # runtime profile; the frontmatter is a mirror, not the source.
+        self.assertIn(prof.source, {"frontmatter", "kernel_profile"})
 
     def test_decider_tier_agent_reads_fable_xhigh(self) -> None:
         # K5 tier flip — decision nodes moved opus -> fable.
@@ -125,9 +127,13 @@ class WhitelistOrphanResolutionTests(unittest.TestCase):
 
     def test_aria_worker_resolves_from_frontmatter(self) -> None:
         profile = read_agent_runtime_profile("aria-worker")
-        self.assertEqual(profile.source, "frontmatter")
+        # Plan 032 Faz 032b — roster agents resolve through their kernel
+        # runtime profile; the frontmatter is a mirror, not the source.
+        self.assertIn(profile.source, {"frontmatter", "kernel_profile"})
         self.assertIn("aria-worker", WRITE_TIER_AGENTS)
 
     def test_aria_autonomy_planner_resolves_from_frontmatter(self) -> None:
         profile = read_agent_runtime_profile("aria-autonomy-planner")
-        self.assertEqual(profile.source, "frontmatter")
+        # Plan 032 Faz 032b — roster agents resolve through their kernel
+        # runtime profile; the frontmatter is a mirror, not the source.
+        self.assertIn(profile.source, {"frontmatter", "kernel_profile"})

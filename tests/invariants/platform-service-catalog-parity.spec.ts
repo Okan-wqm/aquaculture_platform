@@ -16,6 +16,7 @@ import {
   gatewaySubgraphs,
   serviceDbRolePrefixes,
   serviceCatalogById,
+  sharedImageRestartServices,
   validateServiceCatalog,
 } from '../../platform/libs/service-catalog/src';
 
@@ -60,6 +61,7 @@ interface GeneratedServiceCatalog {
     infraImageMatrix: Array<{ image: string; dockerfile: string; context: string }>;
     applicationImageServices: string[];
     serviceDbRolePrefixes: string[];
+    sharedImageRestartServices: Array<{ imageService: string; composeService: string }>;
     readinessServices: Array<{ serviceId: string; port: number }>;
   };
 }
@@ -195,6 +197,7 @@ describe('platform service catalog parity', () => {
     expect(generated.deploy.serviceDbRolePrefixes.sort()).toEqual(
       [...serviceDbRolePrefixes()].sort(),
     );
+    expect(generated.deploy.sharedImageRestartServices).toEqual([...sharedImageRestartServices()]);
     expect(generated.deploy.readinessServices).toEqual([...readinessServices()]);
   });
 
@@ -222,6 +225,11 @@ describe('platform service catalog parity', () => {
     expect(readShellStringList(deployEnv, 'CATALOG_GATEWAY_RECOMPOSITION_SERVICES')).toEqual(
       gatewaySubgraphs()
         .map((entry) => entry.nxProject)
+        .sort(),
+    );
+    expect(readShellStringList(deployEnv, 'CATALOG_SHARED_IMAGE_RESTART_SERVICES')).toEqual(
+      sharedImageRestartServices()
+        .map((entry) => `${entry.imageService}:${entry.composeService}`)
         .sort(),
     );
     expect(generatedTargets).toEqual([...imageBuildTargets()].sort());

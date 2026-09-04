@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "image": "ghcr.io/zaproxy/zaproxy",
+  "digest": "",
+  "pinned_by": "",
+  "pinned_at": "",
+  "note": "Plan 033 Faz 033f. The operator pins ONE stable ZAP image by sha256 digest (docker buildx imagetools inspect ghcr.io/zaproxy/zaproxy:stable). Until digest/pinned_by/pinned_at are filled, aria_kernel.security.zap.load_zap_pin() fails closed and no ZAP job can be scheduled. ARIA never invents a digest."
+}

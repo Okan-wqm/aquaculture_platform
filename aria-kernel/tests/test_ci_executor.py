@@ -207,8 +207,11 @@ class DispatchBudgetTests(unittest.TestCase):
         ceiling exists to catch — a cycle whose runs keep dying slowly.
         """
         src = (Path(_POC_DIR) / "ci_executor.py").read_text(encoding="utf-8")
-        finally_idx = src.index("    finally:\n")
-        record_idx = src.index("        _record_run_wall_clock(\n", finally_idx)
+        # Plan 032 Faz 032d added an earlier `finally:` (credential revocation in
+        # invoke_claude_cli); the invariant is about the arm that ENCLOSES the
+        # recording, so anchor on the recording and walk back to its finally.
+        record_idx = src.index("        _record_run_wall_clock(\n")
+        finally_idx = src.rindex("    finally:\n", 0, record_idx)
         between = src[finally_idx:record_idx]
         self.assertNotIn("except", between, "recording must sit in the finally arm")
         self.assertIn("_run_started_at = time.monotonic()", src)

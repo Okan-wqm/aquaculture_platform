@@ -17,10 +17,7 @@ export {
   queryRowsWithStringColumn,
   querySingleStringColumn,
 } from './query-result-normalizer';
-export type {
-  NormalizedQueryResult,
-  StringColumnRow,
-} from './query-result-normalizer';
+export type { NormalizedQueryResult, StringColumnRow } from './query-result-normalizer';
 
 // Source Schema Bootstrap
 export * from './source-schema-bootstrap.service';
@@ -102,6 +99,11 @@ export type {
   MessagingPartitionAuthorityOptions,
   MessagingPartitionAuthorityQueryExecutor,
 } from './messaging-partition-privileges';
+
+// Per-tenant sensor TimescaleDB rollup SSoT. db-migrate owns production DDL;
+// sensor runtime consumes the same names/SQL only for verification and local
+// non-authoritative development bootstrap.
+export * from './sensor-continuous-aggregate-definition';
 
 // Migration helpers — column/table existence guards. Shared across all
 // services for migrations that reference state created by squashed

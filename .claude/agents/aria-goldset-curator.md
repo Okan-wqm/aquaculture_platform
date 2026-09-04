@@ -1,5 +1,6 @@
 ---
 name: aria-goldset-curator
+runtime_profile: judge_opus
 description: Read-only curator that drafts semantic regression fixture candidates from confirmed ARIA TP/FP examples.
 model: opus
 effort: max

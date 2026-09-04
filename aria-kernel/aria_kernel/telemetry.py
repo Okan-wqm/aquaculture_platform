@@ -90,6 +90,9 @@ def collect_metrics(paths: WorkspacePaths, *, tools_root: str | Path | None = No
     root = Path(tools_root) if tools_root is not None else paths.repo_root / "aria-tools"
     if root.exists():
         metrics.extend(_tools_metrics(root))
+        # Plan 032 Faz 032e — the store's own organs: queue, missions, breakers,
+        # control, delivery closure, notifications, cost.
+        metrics.extend(_store_metrics(root))
     return metrics
 
 
@@ -107,6 +110,110 @@ def _tools_metrics(root: Path) -> list[dict[str, Any]]:
         metrics.append(_metric("aria_verification_gate_total", 1, {"result": row.get("status", "")}))
     for row in read_jsonl(root / "fitness" / "agent-fitness.jsonl"):
         metrics.append(_metric("aria_agent_fitness_score", float(row.get("score") or 0), {"agent_name": row.get("agent_name", "")}))
+    return metrics
+
+
+def _guarded_metrics(name: str, reader: Any) -> list[dict[str, Any]]:
+    """A reader that fails becomes a metric, never a missing series."""
+    try:
+        return list(reader())
+    except Exception as exc:  # noqa: BLE001 — telemetry must always render
+        return [_metric("aria_telemetry_reader_errors_total", 1, {"reader": name, "error_class": type(exc).__name__})]
+
+
+def _store_metrics(root: Path) -> list[dict[str, Any]]:
+    """Plan 032 Faz 032e — Prometheus view of the tools store."""
+    from collections import Counter
+
+    def _requests() -> list[dict[str, Any]]:
+        from .agent_invocations import derive_request_states
+
+        counts = Counter(derive_request_states(base_dir=root).values())
+        return [_metric("aria_agent_requests", n, {"state": state}) for state, n in sorted(counts.items())]
+
+    def _human_required() -> list[dict[str, Any]]:
+        from .human_required import list_human_required
+
+        rows = list_human_required(base_dir=root)
+        by_sev = Counter(str(r.get("severity") or "") for r in rows)
+        return [_metric("aria_human_required_open", n, {"severity": sev}) for sev, n in sorted(by_sev.items())] or [
+            _metric("aria_human_required_open", 0, {"severity": "none"})]
+
+    def _missions() -> list[dict[str, Any]]:
+        from .mission import list_open_missions
+
+        counts = Counter(str(m.get("state") or "") for m in list_open_missions(base_dir=root))
+        return [_metric("aria_missions_open", n, {"state": state}) for state, n in sorted(counts.items())]
+
+    def _breakers() -> list[dict[str, Any]]:
+        from .circuit_breaker import current_state as failure_state
+        from .cost_budget import current_state as cost_state
+
+        return [
+            _metric("aria_breaker_tripped", 1 if failure_state(root) == "tripped" else 0, {"breaker": "failure"}),
+            _metric("aria_breaker_tripped", 1 if cost_state(root) == "tripped" else 0, {"breaker": "cost"}),
+        ]
+
+    def _control() -> list[dict[str, Any]]:
+        from .control import effective_control
+
+        state = effective_control(root)
+        return [
+            _metric("aria_executor_paused", 1 if state.paused_all else 0, {}),
+            _metric("aria_cancelled_requests", len(state.cancelled), {}),
+        ]
+
+    def _delivery() -> list[dict[str, Any]]:
+        from .delivery_closure import compute_delivery_closure
+
+        summary = compute_delivery_closure(base_dir=root).summary
+        out = [_metric("aria_delivery_requests", n, {"state": state}) for state, n in sorted(summary["by_state"].items())]
+        out.extend([
+            _metric("aria_delivery_verified_prs", summary["verified_prs"], {}),
+            _metric("aria_delivery_false_success", summary["false_success"], {}),
+            _metric("aria_delivery_duplicate_prs", summary["duplicate_prs"], {}),
+            _metric("aria_delivery_slo_met", 1 if summary["slo"]["met"] else 0, {}),
+        ])
+        return out
+
+    def _notifications() -> list[dict[str, Any]]:
+        from .notify import read_outbox
+
+        counts = Counter((str(r.get("channel") or ""), str(r.get("status") or "")) for r in read_outbox(root))
+        return [_metric("aria_notifications_total", n, {"channel": ch, "status": st}) for (ch, st), n in sorted(counts.items())]
+
+    def _cost() -> list[dict[str, Any]]:
+        total = 0.0
+        by_role: Counter[str] = Counter()
+        for path in sorted((root / "cost-attribution").glob("*.jsonl")):
+            for row in read_jsonl(path):
+                amount = row.get("cost_usd", row.get("usd", row.get("total_cost_usd")))
+                if isinstance(amount, (int, float)):
+                    total += float(amount)
+                    by_role[str(row.get("role") or "")] += float(amount)
+        out = [_metric("aria_cost_usd_total", total, {})]
+        out.extend(_metric("aria_cost_usd_by_role", value, {"role": role}) for role, value in sorted(by_role.items()))
+        return out
+
+    def _economy() -> list[dict[str, Any]]:
+        from .token_economy import read_recommendations, usage_per_accepted_result
+
+        out = []
+        for stat in usage_per_accepted_result(base_dir=root):
+            labels = {"target_agent": stat.target_agent, "role": stat.role}
+            out.append(_metric("aria_spawns_total", stat.spawns, labels))
+            out.append(_metric("aria_accepted_results_total", stat.accepted, labels))
+            if stat.tokens_per_accepted is not None:
+                out.append(_metric("aria_tokens_per_accepted_result", stat.tokens_per_accepted, labels))
+        active = sum(1 for r in read_recommendations(root) if r.get("kind") == "effort" and r.get("action") == "downgrade")
+        out.append(_metric("aria_effort_downgrades_recommended", active, {}))
+        return out
+
+    metrics: list[dict[str, Any]] = []
+    for name, reader in (("agent_requests", _requests), ("human_required", _human_required), ("missions", _missions),
+                         ("breakers", _breakers), ("control", _control), ("delivery", _delivery),
+                         ("notifications", _notifications), ("cost", _cost), ("economy", _economy)):
+        metrics.extend(_guarded_metrics(name, reader))
     return metrics
 
 

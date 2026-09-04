@@ -31,6 +31,7 @@ class TestV9PlanCandidateSource(unittest.TestCase):
                 "ORPHAN_FINDING",
                 "F_FINDING",
                 "GIT_DIFF",
+                "GITHUB_ISSUE",  # Plan 032 Faz 032f — one-way door 14
             },
             "PlanCandidateSource member set drifted — see "
             "docs/aria/v3-plan-module-inventory.md naming-collision "

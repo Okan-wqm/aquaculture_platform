@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "description": "Plan 032 Faz 032g — kernel-owned MCP server registry. A spawn loads ONLY the servers its runtime profile names (`mcp_servers`), always under --strict-mcp-config, so the repository's .mcp.json never reaches an autonomous agent. env_passthrough carries NAMES; secret-shaped names are refused at load time.",
+  "servers": {
+    "aria": {
+      "transport": "stdio",
+      "command": "python3",
+      "args": ["-m", "aria_kernel", "mcp", "serve"],
+      "env_passthrough": ["ARIA_TOOLS_DIR", "ARIA_WORKSPACE_ROOT", "PYTHONPATH", "ARIA_REQUEST_ID"],
+      "tools": { "include": ["*"], "exclude": ["human_required_resolve", "runtime_signal_ingest"] },
+      "timeout_seconds": 30,
+      "manifest_version": 1,
+      "description": "Read-only view of the ARIA store (status, missions, findings, pressures, governance, handoffs, daily report, search, delivery, progress). Write tools are excluded for agents; operators run the server with --allow-writes."
+    }
+  }
+}

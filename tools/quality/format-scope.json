@@ -7171,6 +7171,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/db-migrate/src/__tests__/tenant-sensor-continuous-aggregate-authority.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/db-migrate/src/cli-args.ts",
       "prettier_managed": true
     },
@@ -7214,6 +7220,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/db-migrate/src/tenant-schema-provisioner.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/db-migrate/src/tenant-sensor-continuous-aggregate-authority.ts",
       "prettier_managed": true
     },
     {
@@ -17726,7 +17738,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "643780c486a4a2e95d147b61d0e996427ef6e48d5e79c0e07c4fceaca1d9e7ae",
+      "content_sha256": "c00d0cb6c68e2d87736cc77f44cbbf45c7c006a6df2e18063bb77f866d574a3e",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "apps/gateway-api/src/config/federated-subgraphs.generated.ts",
@@ -27227,6 +27239,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "aria-kernel/aria_kernel/data/mcp_registry.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "aria-kernel/aria_kernel/data/runtime_profiles.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "aria-kernel/closure-reachability-baseline.json",
       "prettier_managed": true
     },
@@ -28388,6 +28412,17 @@
     },
     {
       "class": "generated",
+      "content_sha256": "ae0fb13c5ba591961503749fe487e233b1548368182663fde6006a8b881d4323",
+      "hash_policy": "sha256",
+      "owner": "codegen-owner",
+      "path": "docs/aria/generated/harness-parity.md",
+      "prettier_managed": false,
+      "reason": "generated artifact; source generator is canonical",
+      "review_required": true,
+      "source_of_truth": "generator"
+    },
+    {
+      "class": "generated",
       "content_sha256": "cae5da883ea37298b134f258ec5aab755770b00d32e948a2f4a82f38c08e6915",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
@@ -28587,6 +28622,18 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/aria/plans/031-autonomy-safety.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/plans/032-harness-superiority-program.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/plans/033-autonomous-security-engineering.md",
       "prettier_managed": true
     },
     {
@@ -33758,6 +33805,18 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/codex/2026-09-03-development-runtime-health-gates.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/codex/2026-09-03-new-aria-immutable-evidence-format-scope.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/compliance-expert/2026-04-28-core-platform-review.md",
       "prettier_managed": true
     },
@@ -34940,6 +34999,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/zcode/2026-08-31-aria-required-checks.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/zcode/2026-08-31-sensor-release-dockerfile.md",
       "prettier_managed": true
     },
@@ -34989,6 +35054,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/runbooks/aria-codex-runtime-observability.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/runbooks/aria-gateway.md",
       "prettier_managed": true
     },
     {
@@ -36459,7 +36530,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "d03d44c5a1b5f339e29ab6280d8166752f1e8afdf314f0d6d872573815154715",
+      "content_sha256": "80e0436f48f8e7243b65d790d05834a67b7b363d26a34be1506a7d608e75b048",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/apollo-router/codegen-schema.generated.json",
@@ -36481,8 +36552,20 @@
       "prettier_managed": true
     },
     {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "infrastructure/aria/security-lab/production-deny-inventory.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "infrastructure/aria/security-lab/zap.pin.json",
+      "prettier_managed": true
+    },
+    {
       "class": "generated",
-      "content_sha256": "7bcc709eaba218535e6afe87d3a2abb86d1ce1aec7671617f7e4e1733f25b60a",
+      "content_sha256": "72e88802ad2da288333c8a4a5599b7e86017efb3f3faa0c2feb6e2238b7319c7",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/deploy/service-catalog.generated.json",
@@ -36507,6 +36590,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "infrastructure/monitoring/grafana/dashboards/aquaculture-overview.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "infrastructure/monitoring/grafana/dashboards/aria-kernel-dashboard.json",
       "prettier_managed": true
     },
     {
@@ -37992,6 +38081,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/database/schema-version-gate.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/sensor-continuous-aggregate-definition.ts",
       "prettier_managed": true
     },
     {
@@ -44276,6 +44371,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/runtime-lifecycle-timer-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/runtime-module-wiring.spec.ts",
       "prettier_managed": true
     },
     {

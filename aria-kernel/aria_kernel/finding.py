@@ -37,7 +37,9 @@ from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_binding
 
 
-SEVERITIES = ("HIGH", "MEDIUM", "LOW", "INFORMATIONAL")
+# Plan 033 Faz 033a — CRITICAL is the top severity for security findings; added
+# at the front (rank 4) so every existing rank and every recorded row is preserved.
+SEVERITIES = ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFORMATIONAL")
 STATUSES = ("OPEN", "IN_PROGRESS", "RESOLVED", "SUPPRESSED", "WITHDRAWN")
 # E21-c (ORPHAN-693) — İ2 decision, measured 2026-08-16: SUSPECTED /
 # UNCERTAIN / UNKNOWN had ZERO producers (every emitter passes OBSERVED or
@@ -123,7 +125,7 @@ ORIGINATING_SKILL_ALLOWLIST: frozenset[str] = frozenset({
     # "aria-watchdog:phase_asymmetry",
 })
 
-SEVERITY_RANK = {"INFORMATIONAL": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3}
+SEVERITY_RANK = {"INFORMATIONAL": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
 SCHEMA_VERSION = 1
 FINDING_ID_RE = re.compile(r"^F-\d{3,}$")
 

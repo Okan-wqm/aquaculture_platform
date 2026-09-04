@@ -10,6 +10,7 @@ import {
   runPlatformBootstrap,
   resolvePlatformBootstrapSqlDir,
 } from '../platform-bootstrap.service';
+import { runTenantSchemaProvisioner } from '../tenant-schema-provisioner';
 
 /**
  * Platform Bootstrap Atom — restart-survive + idempotency integration test (ADR-031).
@@ -80,9 +81,22 @@ function withServiceRoleEnvs(): { restore: () => void } {
 }
 
 const PLATFORM_SCHEMAS = [
-  'auth', 'farm', 'sensor', 'hr', 'messaging', 'hydroponics', 'alert',
-  'billing', 'notification', 'ai', 'admin', 'observability',
-  'event_store', 'config', 'gateway', 'shared',
+  'auth',
+  'farm',
+  'sensor',
+  'hr',
+  'messaging',
+  'hydroponics',
+  'alert',
+  'billing',
+  'notification',
+  'ai',
+  'admin',
+  'observability',
+  'event_store',
+  'config',
+  'gateway',
+  'shared',
 ] as const;
 
 const PLATFORM_FUNCTIONS = [
@@ -131,10 +145,9 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
   }
 
   async function countSchemas(): Promise<number> {
-    return countRows(
-      `SELECT COUNT(*)::text AS count FROM pg_namespace WHERE nspname = ANY($1)`,
-      [PLATFORM_SCHEMAS as unknown as string[]],
-    );
+    return countRows(`SELECT COUNT(*)::text AS count FROM pg_namespace WHERE nspname = ANY($1)`, [
+      PLATFORM_SCHEMAS,
+    ]);
   }
 
   async function countFunctions(): Promise<number> {
@@ -142,7 +155,7 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
       `SELECT COUNT(*)::text AS count
          FROM pg_proc p JOIN pg_namespace n ON p.pronamespace = n.oid
         WHERE n.nspname = 'public' AND p.proname = ANY($1)`,
-      [PLATFORM_FUNCTIONS as unknown as string[]],
+      [PLATFORM_FUNCTIONS],
     );
   }
 
@@ -150,7 +163,7 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
     return countRows(
       `SELECT COUNT(*)::text AS count FROM pg_tables
         WHERE schemaname = 'shared' AND tablename = ANY($1)`,
-      [SHARED_SCHEMA_TABLES as unknown as string[]],
+      [SHARED_SCHEMA_TABLES],
     );
   }
 
@@ -254,11 +267,7 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
     }
   }
 
-  async function queryAsRole<T>(
-    role: string,
-    query: string,
-    params: unknown[] = [],
-  ): Promise<T[]> {
+  async function queryAsRole<T>(role: string, query: string, params: unknown[] = []): Promise<T[]> {
     const qr = ctx.dataSource.createQueryRunner();
     try {
       await qr.query(`SET ROLE "${role}"`);
@@ -306,6 +315,66 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
       ]),
     );
   }, 90_000);
+
+  it('durably records terminal evidence when a claimed reconciliation job fails', async () => {
+    await runPlatformBootstrap({
+      database: ctx.connectionOptions,
+      sqlDir: SQL_DIR,
+      log: silentLog,
+      lockTimeoutSeconds: 30,
+    });
+
+    const jobId = '10000000-0000-4000-8000-000000000001';
+    const operationId = '20000000-0000-4000-8000-000000000001';
+    const tenantId = '30000000-0000-4000-8000-000000000001';
+    const schemaName = 'tenant_3000000000004000';
+    const qr = ctx.dataSource.createQueryRunner();
+    try {
+      await qr.connect();
+      await qr.query(`
+        CREATE TABLE admin.tenant_schemas (
+          "tenantId" UUID NOT NULL,
+          "schemaName" VARCHAR(100) NOT NULL
+        )
+      `);
+      await qr.query(
+        `INSERT INTO platform.tenant_schema_jobs (
+           id, operation_id, tenant_id, schema_name, job_type, status
+         ) VALUES ($1, $2, $3, $4, 'RECONCILE_EXISTING_SCHEMA', 'REQUESTED')`,
+        [jobId, operationId, tenantId, schemaName],
+      );
+
+      expect(
+        await runTenantSchemaProvisioner({
+          database: ctx.connectionOptions,
+          root: REPO_ROOT,
+          once: true,
+          leaseSeconds: 30,
+          provisionerId: 'integration-test-provisioner',
+          log: silentLog,
+        }),
+      ).toBe(1);
+
+      const rows = (await qr.query(
+        `SELECT status, error_message, completed_at IS NOT NULL AS completed
+           FROM platform.tenant_schema_jobs
+          WHERE id = $1`,
+        [jobId],
+      )) as Array<{ status: string; error_message: string | null; completed: boolean }>;
+
+      expect(rows).toEqual([
+        {
+          status: 'FAILED',
+          error_message: `[tenant-schema-provisioner] Reconcile job ${jobId} requires existing schema ${schemaName}`,
+          completed: true,
+        },
+      ]);
+    } finally {
+      await qr.query(`DELETE FROM platform.tenant_schema_jobs WHERE id = $1`, [jobId]);
+      await qr.query(`DROP TABLE IF EXISTS admin.tenant_schemas`);
+      await qr.release();
+    }
+  }, 30_000);
 
   it('installs the canonical shared.audit_logs shape required by runtime schema drift gates', async () => {
     const columns = await auditLogColumns();
@@ -402,9 +471,7 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
           WHERE drill_run_id = $1`,
         [drillRunId],
       )) as Array<{ phase: string; backup_name: string }>;
-      expect(rows).toEqual([
-        { phase: 'BEFORE', backup_name: 'base_000000010000000000000001' },
-      ]);
+      expect(rows).toEqual([{ phase: 'BEFORE', backup_name: 'base_000000010000000000000001' }]);
 
       await expect(
         queryAsRole(
@@ -530,17 +597,12 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
       // so the 004 ALTER DEFAULT PRIVILEGES chain (which binds to the
       // creating role) is what grants the services DML below.
       await qr.query('DROP TABLE IF EXISTS compliance.__runtime_privilege_probe');
-      await qr.query(
-        'CREATE TABLE compliance.__runtime_privilege_probe (id integer PRIMARY KEY)',
-      );
+      await qr.query('CREATE TABLE compliance.__runtime_privilege_probe (id integer PRIMARY KEY)');
       await queryAsRole(
         'messaging_service',
         'INSERT INTO compliance.__runtime_privilege_probe (id) VALUES (1)',
       );
-      await queryAsRole(
-        'admin_service',
-        'SELECT id FROM compliance.__runtime_privilege_probe',
-      );
+      await queryAsRole('admin_service', 'SELECT id FROM compliance.__runtime_privilege_probe');
       await expect(
         queryAsRole(
           'messaging_service',
@@ -550,9 +612,15 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
 
       await qr.query('DROP TABLE IF EXISTS farm.__runtime_privilege_probe');
       await qr.query('CREATE TABLE farm.__runtime_privilege_probe (id integer PRIMARY KEY)');
-      await queryAsRole('farm_service', 'INSERT INTO farm.__runtime_privilege_probe (id) VALUES (1)');
+      await queryAsRole(
+        'farm_service',
+        'INSERT INTO farm.__runtime_privilege_probe (id) VALUES (1)',
+      );
       await expect(
-        queryAsRole('farm_service', 'ALTER TABLE farm.__runtime_privilege_probe ADD COLUMN forbidden integer'),
+        queryAsRole(
+          'farm_service',
+          'ALTER TABLE farm.__runtime_privilege_probe ADD COLUMN forbidden integer',
+        ),
       ).rejects.toThrow(/permission denied|must be owner/i);
       await expect(
         queryAsRole('farm_service', 'CREATE TABLE farm.__runtime_ddl_probe (id integer)'),

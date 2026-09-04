@@ -475,7 +475,7 @@ describe('ARIA live runtime/documentation SSoT', () => {
   it('Claude Code executor contract is mainline, version-bound, and has no pending verification placeholders', () => {
     const contract = read('tools/aria-poc/ci_executor_contract_proven.md');
     expect(contract).toContain('checkout the `main` target ref');
-    expect(contract).toContain('claude_cli_version_minimum: claude-code 2.1.197');
+    expect(contract).toContain('claude_cli_version_minimum: claude-code 2.1.221');
     expect(contract).toContain('verification_mode: runtime-preflight');
     expect(contract).toContain('managed Claude Code login');
     expect(contract).not.toMatch(
@@ -507,7 +507,7 @@ describe('ARIA live runtime/documentation SSoT', () => {
     }
     const executor = read('.github/workflows/aria-agent-executor.yml');
     expect(executor).toContain('ref: main');
-    expect(executor).toContain('REQUIRED_CLAUDE_VERSION="2.1.197"');
+    expect(executor).toContain('REQUIRED_CLAUDE_VERSION="2.1.221"');
     expect(executor).toContain('claude --version');
     // ORPHAN-MEDIUM-769 — aria-kernel-full.yml was deleted (a strict subset
     // of aria-kernel.yml, never a required context) and aria-kernel-fast.yml

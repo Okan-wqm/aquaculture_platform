@@ -2,8 +2,8 @@
   "metadata": {
     "generatedFrom": "platform/libs/service-catalog/src/index.ts",
     "generator": "scripts/service-catalog/generate-artifacts.ts",
-    "generatorVersion": 4,
-    "catalogHash": "07170535306a24842dd83234b57f98561512c609bcfe37dbae3c950101917a3e",
+    "generatorVersion": 5,
+    "catalogHash": "e02cb4cfae8bb3ec03af7c4fbb91972b2e82ec3c384e430ad53508e32fc22d82",
     "note": "do not edit by hand"
   },
   "activeDropletComposeServices": [
@@ -156,6 +156,12 @@
       "NOTIFICATION",
       "OBSERVABILITY",
       "SENSOR"
+    ],
+    "sharedImageRestartServices": [
+      {
+        "imageService": "db-migrate",
+        "composeService": "tenant-schema-provisioner"
+      }
     ],
     "nxFrontendProjects": [
       "admin-panel",

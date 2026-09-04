@@ -45,6 +45,19 @@ REQUIRED_PR_SECTIONS = (
 )
 
 
+def _effect_request_id(proposal_id: str) -> str:
+    """Plan 032 Faz 032d — the intent/receipt key for a push or PR-create.
+
+    Inside an implementer spawn the executor exports ``ARIA_REQUEST_ID``;
+    keying the effect on the agent request lets `recovery.classify_recovery`
+    and `delivery_closure` see it. Outside a spawn (operator CLI) the legacy
+    ``proposal:<id>`` key stays.
+    """
+    from .delivery_credentials import request_id_from_env
+
+    return request_id_from_env(f"proposal:{proposal_id}")
+
+
 def _diff_text_for_action(
     *,
     workspace_path: Path,
@@ -409,6 +422,16 @@ def open_pr_for_action(
     # inferred the branch from the current checkout, which could be
     # wrong (the gate may have run on a different worktree than the
     # one being PR'd). Explicit --head ties the PR to action.branch.
+    # Plan 032 Faz 032c — INTENT before the external write, RECEIPT after:
+    # a runner that dies between the two leaves an unresolved intent the
+    # recovery classifier asks GitHub about instead of opening a second PR.
+    from .recovery import record_intent, record_receipt
+
+    intent = record_intent(
+        request_id=_effect_request_id(proposal_id), effect_kind="pr_create", target=f"{ARIA_PR_BASE}<-{branch}",
+        intended_postcondition={"head_ref": branch, "base": ARIA_PR_BASE, "head_sha": payload.get("head_sha"), "proposal_id": proposal_id},
+        base_dir=base_dir,
+    )
     completed = subprocess.run(
         [
             "gh", "pr", "create",
@@ -423,6 +446,11 @@ def open_pr_for_action(
         check=False,
     )
     if completed.returncode != 0:
+        record_receipt(
+            operation_id=str(intent["operation_id"]), request_id=_effect_request_id(proposal_id),
+            observed={"returncode": completed.returncode, "stderr": (completed.stderr or "")[:400]},
+            status="failed", base_dir=base_dir,
+        )
         raise GovernanceError(completed.stderr.strip() or completed.stdout.strip() or "gh pr create failed")
     stdout = completed.stdout or ""
     payload["url"] = stdout.strip()
@@ -439,6 +467,11 @@ def open_pr_for_action(
         )
     payload["number"] = int(pr_url_match.group(1))
     payload["url"] = pr_url_match.group(0)
+    record_receipt(
+        operation_id=str(intent["operation_id"]), request_id=_effect_request_id(proposal_id),
+        observed={"pr_number": payload["number"], "url": payload["url"], "head_sha": payload.get("head_sha")},
+        status="confirmed", base_dir=base_dir,
+    )
     return record_pr_lifecycle(
         payload, event="opened", base_dir=base_dir,
         assignment_id=assignment_id,
@@ -576,7 +609,22 @@ def push_prepared_branch(
         "status": "planned" if dry_run else "pushed",
     }
     if not dry_run:
-        _git(root, ["push", "-u", remote, branch])
+        from .recovery import record_intent, record_receipt
+
+        head_sha = _git(root, ["rev-parse", branch]) if True else None
+        intent = record_intent(
+            request_id=_effect_request_id(proposal_id), effect_kind="git_push", target=f"{remote}/{branch}",
+            intended_postcondition={"branch": branch, "remote": remote, "head_sha": head_sha, "proposal_id": proposal_id},
+            base_dir=base_dir,
+        )
+        try:
+            _git(root, ["push", "-u", remote, branch])
+        except Exception as exc:
+            record_receipt(operation_id=str(intent["operation_id"]), request_id=_effect_request_id(proposal_id),
+                           observed={"error": type(exc).__name__}, status="failed", base_dir=base_dir)
+            raise
+        record_receipt(operation_id=str(intent["operation_id"]), request_id=_effect_request_id(proposal_id),
+                       observed={"branch": branch, "remote": remote, "head_sha": head_sha}, status="confirmed", base_dir=base_dir)
     return append_declared_jsonl(
         ensure_tools_dir(base_dir) / "pr-actions.jsonl",
         {**row, "action": "push"},

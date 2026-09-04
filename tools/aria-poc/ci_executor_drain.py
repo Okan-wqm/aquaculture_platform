@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+from typing import Any
 import sys
 import time
 from pathlib import Path
@@ -252,6 +253,64 @@ def _next_pending_for_role(
     return None, None
 
 
+class _FinishedChild:
+    """A completed serial child wearing the Popen `wait()` shape `_settle` expects."""
+
+    def __init__(self, completed: "subprocess.CompletedProcess[Any]") -> None:
+        self.returncode = completed.returncode
+
+    def wait(self) -> int:
+        return self.returncode
+
+
+def _executor_policy(repo_root: Path) -> dict:
+    """Plan 032 Faz 032h — the kernel's executor block (max_concurrent, worktree_per_request)."""
+    try:
+        from aria_kernel.genesis_policy import executor_policy
+
+        return executor_policy(repo_root)
+    except Exception as exc:  # noqa: BLE001 — an unreadable policy means the serial default
+        _engine._stage(f"drain_executor_policy_unreadable {type(exc).__name__}")
+        return {"max_concurrent": 1, "worktree_per_request": False}
+
+
+def _add_request_worktree(repo_root: Path, request_id: str, target_sha: object) -> Path | None:
+    """`git worktree add --detach aria-worktrees/req-<id> <target_sha|HEAD>`; None = fall back to the shared checkout."""
+    safe = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in str(request_id))[:64]
+    path = Path(repo_root) / "aria-worktrees" / f"req-{safe}"
+    ref = str(target_sha or "").strip() or "HEAD"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    done = subprocess.run(["git", "worktree", "add", "--detach", str(path), ref], cwd=str(repo_root), capture_output=True, text=True, check=False)
+    if done.returncode != 0:
+        _engine._stage(f"drain_worktree_add_failed request_id={request_id} rc={done.returncode} {(done.stderr or '').strip()[:120]}")
+        return None
+    return path
+
+
+def _remove_request_worktree(repo_root: Path, path: Path) -> None:
+    done = subprocess.run(["git", "worktree", "remove", "--force", str(path)], cwd=str(repo_root), capture_output=True, text=True, check=False)
+    if done.returncode != 0:
+        _engine._stage(f"drain_worktree_remove_failed path={path} rc={done.returncode}")
+
+
+def _operator_paused(tools_dir: Path) -> bool:
+    """Plan 032 Faz 032e — `control pause` stops the drain from claiming."""
+    try:
+        from aria_kernel.control import effective_control, record_pause_skip
+
+        state = effective_control(tools_dir)
+    except Exception as exc:  # noqa: BLE001 — an unreadable control ledger is a stop, not a crash
+        _engine._stage(f"drain_control_unreadable {type(exc).__name__}")
+        return True
+    if state.paused_all:
+        try:
+            record_pause_skip(base_dir=tools_dir, request_id=None, where="drain")
+        except Exception:  # noqa: BLE001
+            pass
+        return True
+    return False
+
+
 def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
     """Consume pending agent requests until the queue, cap, or clock runs out.
 
@@ -316,7 +375,132 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
             {"attempted": 0, "succeeded": 0, "failed": 0, "failure_classes": {}},
         )
 
+
+    executor_cfg = _executor_policy(repo_root)
+    max_concurrent = int(executor_cfg["max_concurrent"])
+    worktree_per_request = bool(executor_cfg["worktree_per_request"])
+    inflight: list[dict] = []
+
+    def _launch(request: dict, request_id: str, target_agent: str) -> None:
+        """Start one child (Plan 032 Faz 032h: optionally in its own worktree)."""
+        child_argv = ["python3", str(_POC_DIR / "ci_executor.py"), request_id]
+        if target_agent:
+            child_argv.append(target_agent)
+        child_output = (
+            Path(os.environ.get("RUNNER_TEMP", "/tmp"))
+            / f"aria-drain-output-{request_id}.txt"
+        )
+        child_env = {**os.environ, "GITHUB_OUTPUT": str(child_output)}
+        cwd = repo_root
+        worktree = None
+        if worktree_per_request:
+            worktree = _add_request_worktree(repo_root, request_id, request.get("target_sha"))
+            if worktree is not None:
+                cwd = worktree
+                child_env["ARIA_WORKSPACE_ROOT"] = str(worktree)
+        _engine._stage(
+            f"drain_dispatch request_id={request_id} target={target_agent or '-'} "
+            f"concurrency={len(inflight) + 1}/{max_concurrent} worktree={'yes' if worktree else 'no'}"
+        )
+        if max_concurrent <= 1:
+            # Serial lane (the default): the same blocking `subprocess.run` the
+            # lane always used, so its contract — and every test that fakes the
+            # child through `subprocess.run` — is byte-identical to pre-032h.
+            proc: Any = _FinishedChild(subprocess.run(child_argv, env=child_env, cwd=str(cwd)))
+        else:
+            proc = subprocess.Popen(child_argv, env=child_env, cwd=str(cwd))
+        inflight.append({"request": request, "request_id": request_id, "output": child_output, "proc": proc, "worktree": worktree})
+
+    def _settle(entry: dict) -> None:
+        """Wait for one child and account for it (the pre-032h loop body, verbatim)."""
+        nonlocal succeeded, failed
+        request = entry["request"]
+        request_id = entry["request_id"]
+        child_output = entry["output"]
+        child = entry["proc"]
+        try:
+            child.wait()
+        finally:
+            if entry["worktree"] is not None:
+                _remove_request_worktree(repo_root, entry["worktree"])
+        summary: dict | None = None
+        if child_output.exists():
+            for line in child_output.read_text(encoding="utf-8").splitlines():
+                if line.startswith("envelope_path="):
+                    envelope_paths.append(line.split("=", 1)[1])
+                elif line.startswith("transcript_path="):
+                    transcript_paths.append(line.split("=", 1)[1])
+                elif line.startswith("dispatch_summary_path="):
+                    summary_path = Path(line.split("=", 1)[1])
+                    try:
+                        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+                    except (OSError, json.JSONDecodeError) as exc:
+                        _engine._stage(
+                            f"drain_summary_unreadable request_id={request_id}: {exc}"
+                        )
+            child_output.unlink()
+
+        # ARIA-HIGH-003 — classify the terminal outcome from the child's own
+        # v1 summary (falling back to the exit code when the child died
+        # before writing one) and fold it into the circuit, the persistent
+        # breaker, and the schema-v2 aggregate.
+        outcome = (summary or {}).get("outcome")
+        failure_class = (summary or {}).get("failure_class")
+        provider = str((summary or {}).get("provider") or "unknown")
+        model = str((summary or {}).get("model") or "unknown")
+        role = str(
+            (summary or {}).get("role") or request.get("role") or "unknown",
+        )
+        route_key = f"{provider}/{model}/{role}"
+        bucket = _bucket(route_key)
+        bucket["attempted"] += 1
+        if outcome == "refused":
+            # A model refusal is not a build failure and never a breaker
+            # event: it stays visible as the attempted/succeeded/failed delta.
+            pass
+        elif outcome == "succeeded" or (outcome is None and child.returncode == 0):
+            succeeded += 1
+            bucket["succeeded"] += 1
+        else:
+            failed += 1
+            bucket["failed"] += 1
+            counted_class = str(failure_class or "unknown")
+            failure_counts[counted_class] = failure_counts.get(counted_class, 0) + 1
+            bucket["failure_classes"][counted_class] = (
+                bucket["failure_classes"].get(counted_class, 0) + 1
+            )
+            failure_details.append(
+                {
+                    "request_id": request_id,
+                    "failure_class": counted_class,
+                    "retryable": bool((summary or {}).get("retryable")),
+                    "detail_code": (summary or {}).get("failure_detail_code"),
+                    "provider": provider,
+                    "model": model,
+                }
+            )
+            persistent_kind = PERSISTENT_BREAKER_KIND_BY_CLASS.get(counted_class)
+            if persistent_kind is not None:
+                _record_breaker_failure(
+                    tools_dir,
+                    kind=persistent_kind,
+                    materialize_event_id=f"drain:{run_ref}:{request_id}",
+                    extra={
+                        "failure_class": counted_class,
+                        "provider": provider,
+                        "model": model,
+                        "request_id": request_id,
+                        "run_id": run_ref,
+                    },
+                )
+            if counted_class in ENVIRONMENT_FAILURE_CLASSES:
+                open_circuits.add((provider, model, counted_class))
+
     while True:
+        # Plan 032 Faz 032e — operator pause: nothing new is claimed.
+        if _operator_paused(tools_dir):
+            stop_reason = "operator_paused"
+            break
         if len(attempted) >= _engine._max_requests():
             stop_reason = "max_requests_reached"
             break
@@ -409,97 +593,12 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
         dispatched_target_shas.add(str(request.get("target_sha") or ""))
 
         target_agent = str(request.get("target_agent") or "").strip()
-        child_argv = ["python3", str(_POC_DIR / "ci_executor.py"), request_id]
-        if target_agent:
-            child_argv.append(target_agent)
+        _launch(request, request_id, target_agent)
+        if len(inflight) >= max_concurrent:
+            _settle(inflight.pop(0))
 
-        # The child announces its envelope/transcript paths via GITHUB_OUTPUT
-        # (_publish_artifact_paths) and, since ARIA-HIGH-002, its classified
-        # aria/dispatch-result/v1 summary path. Point each child at its own
-        # scratch file so the parent can AGGREGATE them — children appending
-        # to the real GITHUB_OUTPUT would each overwrite the step output key,
-        # and the artifact upload would only ever see the LAST request of
-        # the night.
-        child_output = (
-            Path(os.environ.get("RUNNER_TEMP", "/tmp"))
-            / f"aria-drain-output-{request_id}.txt"
-        )
-        child_env = {**os.environ, "GITHUB_OUTPUT": str(child_output)}
-        _engine._stage(f"drain_dispatch request_id={request_id} target={target_agent or '-'}")
-        child = subprocess.run(child_argv, env=child_env, cwd=str(repo_root))
-        summary: dict | None = None
-        if child_output.exists():
-            for line in child_output.read_text(encoding="utf-8").splitlines():
-                if line.startswith("envelope_path="):
-                    envelope_paths.append(line.split("=", 1)[1])
-                elif line.startswith("transcript_path="):
-                    transcript_paths.append(line.split("=", 1)[1])
-                elif line.startswith("dispatch_summary_path="):
-                    summary_path = Path(line.split("=", 1)[1])
-                    try:
-                        summary = json.loads(summary_path.read_text(encoding="utf-8"))
-                    except (OSError, json.JSONDecodeError) as exc:
-                        _engine._stage(
-                            f"drain_summary_unreadable request_id={request_id}: {exc}"
-                        )
-            child_output.unlink()
-
-        # ARIA-HIGH-003 — classify the terminal outcome from the child's own
-        # v1 summary (falling back to the exit code when the child died
-        # before writing one) and fold it into the circuit, the persistent
-        # breaker, and the schema-v2 aggregate.
-        outcome = (summary or {}).get("outcome")
-        failure_class = (summary or {}).get("failure_class")
-        provider = str((summary or {}).get("provider") or "unknown")
-        model = str((summary or {}).get("model") or "unknown")
-        role = str(
-            (summary or {}).get("role") or request.get("role") or "unknown",
-        )
-        route_key = f"{provider}/{model}/{role}"
-        bucket = _bucket(route_key)
-        bucket["attempted"] += 1
-        if outcome == "refused":
-            # A model refusal is not a build failure and never a breaker
-            # event: it stays visible as the attempted/succeeded/failed delta.
-            pass
-        elif outcome == "succeeded" or (outcome is None and child.returncode == 0):
-            succeeded += 1
-            bucket["succeeded"] += 1
-        else:
-            failed += 1
-            bucket["failed"] += 1
-            counted_class = str(failure_class or "unknown")
-            failure_counts[counted_class] = failure_counts.get(counted_class, 0) + 1
-            bucket["failure_classes"][counted_class] = (
-                bucket["failure_classes"].get(counted_class, 0) + 1
-            )
-            failure_details.append(
-                {
-                    "request_id": request_id,
-                    "failure_class": counted_class,
-                    "retryable": bool((summary or {}).get("retryable")),
-                    "detail_code": (summary or {}).get("failure_detail_code"),
-                    "provider": provider,
-                    "model": model,
-                }
-            )
-            persistent_kind = PERSISTENT_BREAKER_KIND_BY_CLASS.get(counted_class)
-            if persistent_kind is not None:
-                _record_breaker_failure(
-                    tools_dir,
-                    kind=persistent_kind,
-                    materialize_event_id=f"drain:{run_ref}:{request_id}",
-                    extra={
-                        "failure_class": counted_class,
-                        "provider": provider,
-                        "model": model,
-                        "request_id": request_id,
-                        "run_id": run_ref,
-                    },
-                )
-            if counted_class in ENVIRONMENT_FAILURE_CLASSES:
-                open_circuits.add((provider, model, counted_class))
-
+    while inflight:
+        _settle(inflight.pop(0))
     _engine._stage(
         f"drain_done attempted={len(attempted)} succeeded={succeeded} "
         f"failed={failed} stop={stop_reason} "

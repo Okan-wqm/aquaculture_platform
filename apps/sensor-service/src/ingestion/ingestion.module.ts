@@ -14,7 +14,6 @@ import { ScadaRuntimeModule } from '../scada-runtime/scada-runtime.module';
 import { VfdModule } from '../vfd/vfd.module';
 
 import { SensorMetricWriterModule } from './sensor-metric-writer.module';
-import { SensorMetricWriterService } from './sensor-metric-writer.service';
 import { DataIngestionService } from './data-ingestion.service';
 import { DataProcessorService } from './data-processor.service';
 import { MqttListenerService } from './mqtt-listener.service';
@@ -74,7 +73,6 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
     SensorLookupResponderService,
   ],
   exports: [
-    SensorMetricWriterService,
     DataIngestionService,
     MqttListenerService,
     DataProcessorService,
@@ -85,5 +83,4 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
     SensorLookupResponderService,
   ],
 })
- 
 export class IngestionModule {}

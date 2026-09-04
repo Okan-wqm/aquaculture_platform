@@ -24,11 +24,14 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
+import threading
+import time
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 
 
 CLAUDE_BINARY_ENV_VAR = "CLAUDE_CLI_BINARY"
@@ -483,6 +486,12 @@ def build_claude_exec_argv(
     effort: str | None = None,
     skip_permissions: bool = True,
     permission_mode: str | None = None,
+    disallowed_tools: Sequence[str] = (),
+    session_id: str | None = None,
+    resume: bool = False,
+    # Plan 032 Faz 032g — MCP: the kernel's config, strictly (repo .mcp.json never loads).
+    mcp_config_path: str | Path | None = None,
+    strict_mcp_config: bool = False,
 ) -> list[str]:
     """Build the live Claude Code CLI invocation argv.
 
@@ -524,6 +533,23 @@ def build_claude_exec_argv(
         argv.extend(["--permission-mode", permission_mode])
     elif skip_permissions:
         argv.append("--dangerously-skip-permissions")
+    # Plan 032 Faz 032b — the profile's tool envelope, enforced by the CLI
+    # itself. Bare names remove tools the profile does not grant; scoped
+    # `Bash(...)` rules close the external-write channels. Deny rules bind in
+    # every permission mode, bypassPermissions included, so this holds even
+    # though the spawn skips prompts.
+    if disallowed_tools:
+        argv.append("--disallowedTools")
+        argv.extend(str(rule) for rule in disallowed_tools)
+    # Plan 032 Faz 032c — a bound session: fresh (`--session-id`) or resumed
+    # (`--resume`) — the decision is the kernel's (session_continuity), the
+    # flag is the CLI's.
+    if session_id:
+        argv.extend(["--resume" if resume else "--session-id", session_id])
+    if strict_mcp_config:
+        argv.append("--strict-mcp-config")
+    if mcp_config_path is not None:
+        argv.extend(["--mcp-config", str(mcp_config_path)])
     return argv
 
 
@@ -592,6 +618,8 @@ def _apply_write_containment(
     skip_permissions: bool,
     permission_mode: str | None,
     workspace_root: str | Path | None,
+    write_scope: Sequence[str] | None = None,
+    extra_ro_binds: Sequence[str] = (),
 ) -> list[str]:
     """Wrap a write-capable spawn so READONLY_PATHS are enforced by the OS.
 
@@ -625,6 +653,7 @@ def _apply_write_containment(
     try:
         return wrap_bash_in_sandbox(
             argv, workspace_root=workspace, allow_network=True,
+            write_scope=write_scope, extra_ro_binds=extra_ro_binds,
         )
     except SandboxUnavailable as exc:
         if _parse_bool(
@@ -799,6 +828,259 @@ def _record_usage_best_effort(
         _note("record_failed", str(exc))
 
 
+
+def _envelope_from_profile(agent_profile: Any | None) -> tuple[tuple[str, ...], Sequence[str] | None, tuple[str, ...]]:
+    """(disallowed_tools, write_scope, env_passthrough) for a spawn.
+
+    A caller with no kernel profile (legacy/operator paths) gets the EMPTY
+    envelope: no tool grant to derive denies from, the legacy whole-workspace
+    scope, no passthrough. The never-granted tools are still denied.
+    """
+    from aria_kernel.runtime_profiles import ALWAYS_DENIED_TOOLS, disallowed_tools_for
+
+    profile_id = getattr(agent_profile, "profile_id", None)
+    if agent_profile is None or not profile_id:
+        return tuple(ALWAYS_DENIED_TOOLS), None, ()
+    from aria_kernel.runtime_profiles import profile_by_id
+
+    kernel = profile_by_id(str(profile_id))
+    scope: Sequence[str] | None = tuple(kernel.write_scope) if kernel.write_capable else ()
+    # Plan 032 Faz 032g — MCP servers the profile does not name are closed as
+    # tools too (`mcp__<server>`), on top of the strict config below.
+    from aria_kernel.mcp_client import mcp_tool_rules
+
+    return (*disallowed_tools_for(kernel), *mcp_tool_rules(kernel)), scope, tuple(kernel.env_passthrough)
+
+
+
+
+def spawn_settings_hash(*, agent_profile: Any | None, usage_recording: UsageRecording | None, workspace_root: str | Path | None) -> str | None:
+    """The hash of the settings document a spawn WOULD carry — the policy half
+    of the session fingerprint (Faz 032c). None for the profile-less shape."""
+    profile_id = getattr(agent_profile, "profile_id", None)
+    if not profile_id:
+        return None
+    from aria_kernel.claude_settings import build_settings, settings_hash
+    from aria_kernel.runtime_profiles import profile_by_id
+
+    hook_context = None
+    if usage_recording is not None and workspace_root is not None:
+        hook_context = {
+            "python": sys.executable or "python3",
+            "kernel_root": str(Path(workspace_root).resolve() / "aria-kernel"),
+            "tools_dir": str(Path(usage_recording.base_dir).resolve()),
+            "workspace_root": str(Path(workspace_root).resolve()),
+            "request_id": usage_recording.request_id,
+        }
+    return settings_hash(build_settings(profile_by_id(str(profile_id)), hook_context=hook_context))
+
+def _write_spawn_mcp_config(*, agent_profile: Any | None, base_dir: Any | None) -> Path:
+    """Plan 032 Faz 032g — the `--mcp-config` document for this spawn."""
+    from aria_kernel.mcp_client import mcp_config_for_profile, write_mcp_config_file
+
+    profile_id = getattr(agent_profile, "profile_id", None)
+    if not profile_id:
+        return write_mcp_config_file({"mcpServers": {}}, label="noprofile")
+    from aria_kernel.runtime_profiles import profile_by_id
+
+    kernel = profile_by_id(str(profile_id))
+    config = mcp_config_for_profile(kernel, base_dir=base_dir)
+    return write_mcp_config_file(config, label=str(profile_id))
+
+
+def _write_spawn_settings(
+    *,
+    agent_profile: Any | None,
+    usage_recording: UsageRecording | None,
+    workspace_root: str | Path | None,
+    write_capable: bool,
+) -> Path | None:
+    """The `--settings` document for this spawn, or None for the profile-less
+    legacy shape. Fail-closed: a write-capable spawn under a kernel profile
+    without a settings file is refused rather than run on prose."""
+    profile_id = getattr(agent_profile, "profile_id", None)
+    if not profile_id:
+        return None
+    try:
+        from aria_kernel.claude_settings import build_settings, write_settings_file
+        from aria_kernel.runtime_profiles import profile_by_id
+    except ImportError as exc:  # pragma: no cover
+        raise ClaudePolicyViolation(
+            f"claude_settings_builder_unavailable: {exc}; refusing a profiled spawn without its settings"
+        ) from exc
+    kernel = profile_by_id(str(profile_id))
+    hook_context = None
+    if usage_recording is not None and workspace_root is not None:
+        hook_context = {
+            "python": sys.executable or "python3",
+            "kernel_root": str(Path(workspace_root).resolve() / "aria-kernel"),
+            "tools_dir": str(Path(usage_recording.base_dir).resolve()),
+            "workspace_root": str(Path(workspace_root).resolve()),
+            "request_id": usage_recording.request_id,
+        }
+    elif write_capable:
+        raise ClaudePolicyViolation(
+            "claude_write_spawn_without_hook_context: a write-capable spawn needs a "
+            "ledger (usage_recording.base_dir) and a workspace so its hooks can decide and journal"
+        )
+    settings = build_settings(kernel, hook_context=hook_context)
+    import tempfile
+
+    directory = Path(os.environ.get("RUNNER_TEMP") or tempfile.gettempdir()) / "aria-spawn-settings"
+    return write_settings_file(
+        settings, directory=directory,
+        request_id=(usage_recording.request_id if usage_recording is not None else f"preview-{os.getpid()}"),
+    )
+
+def _build_spawn_env(*, passthrough: Sequence[str], extra: dict[str, str]) -> tuple[dict[str, str], Any | None]:
+    """Build the agent environment through the kernel; fail CLOSED if the
+    kernel is unimportable — a copied environment is the defect this closes."""
+    try:
+        from aria_kernel.agent_env import build_agent_env
+    except ImportError as exc:  # pragma: no cover - kernel always importable in lanes
+        raise ClaudePolicyViolation(
+            f"claude_spawn_env_builder_unavailable: cannot import agent_env ({exc}); "
+            "refusing to spawn with a copied environment"
+        ) from exc
+    built = build_agent_env(os.environ, profile_passthrough=passthrough, extra=extra)
+    return built.env, built.report
+
+
+def _cleanup_spawn_home(home: str) -> None:
+    try:
+        from aria_kernel.agent_env import cleanup_synthetic_home
+    except ImportError:  # pragma: no cover
+        return
+    cleanup_synthetic_home(home)
+
+
+def _record_env_report_best_effort(*, recording: UsageRecording, report: Any) -> None:
+    """`claude_subprocess_env_filtered` — names only; never a spawn failure."""
+    try:
+        from aria_kernel.tool_registry import append_tools_governance, ensure_tools_dir
+
+        append_tools_governance(
+            ensure_tools_dir(recording.base_dir),
+            "claude_subprocess_env_filtered",
+            {
+                "request_id": recording.request_id,
+                "target_agent": recording.target_agent,
+                **report.to_governance(),
+            },
+        )
+    except Exception:  # noqa: BLE001 — accounting must not fail the spawn
+        return
+
+@dataclass
+class SpawnControl:
+    """Plan 032 Faz 032e — the executor's handle on a live spawn.
+
+    `should_cancel` is polled every `poll_seconds`; when it answers True the
+    whole process group (timeout wrapper, bwrap, claude) gets SIGTERM, then
+    SIGKILL after `grace_seconds`, and `cancelled`/`cancel_signal` say what
+    happened. `on_event` receives every parsed stream-json event as it
+    lands (the sanitized progress writer); it must never raise — it is
+    guarded here anyway. With no control the spawn runs exactly as before.
+    """
+
+    should_cancel: Callable[[], bool] | None = None
+    on_event: Callable[[dict[str, Any]], Any] | None = None
+    poll_seconds: float = 2.0
+    grace_seconds: float = 15.0
+    cancelled: bool = False
+    cancel_signal: str | None = None
+    events_seen: int = 0
+
+
+def _signal_group(proc: "subprocess.Popen[str]", sig: int) -> None:
+    try:
+        os.killpg(proc.pid, sig)
+    except ProcessLookupError:
+        pass
+
+
+def _run_spawn(
+    argv: list[str],
+    *,
+    input_text: str,
+    timeout_seconds: float,
+    cwd: str | None,
+    env: dict[str, str],
+    control: SpawnControl | None,
+) -> "subprocess.CompletedProcess[str]":
+    """The one subprocess seam: buffered run without a control, streamed
+    + cancellable run with one. Both return a CompletedProcess."""
+    if control is None:
+        return subprocess.run(
+            argv, input=input_text, capture_output=True, text=True,
+            timeout=timeout_seconds, check=False, cwd=cwd, env=env,
+        )
+    proc = subprocess.Popen(
+        argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, cwd=cwd, env=env, start_new_session=True,
+    )
+    out_lines: list[str] = []
+    err_chunks: list[str] = []
+
+    def _pump_stdout() -> None:
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            out_lines.append(line)
+            if control.on_event is None:
+                continue
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(event, dict):
+                control.events_seen += 1
+                try:
+                    control.on_event(event)
+                except Exception:  # noqa: BLE001 — a progress observer never fails the spawn
+                    pass
+
+    def _pump_stderr() -> None:
+        assert proc.stderr is not None
+        err_chunks.append(proc.stderr.read())
+
+    pumps = (threading.Thread(target=_pump_stdout, daemon=True), threading.Thread(target=_pump_stderr, daemon=True))
+    for pump in pumps:
+        pump.start()
+    try:
+        assert proc.stdin is not None
+        proc.stdin.write(input_text)
+        proc.stdin.close()
+    except (BrokenPipeError, OSError):
+        pass
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        try:
+            proc.wait(timeout=control.poll_seconds)
+            break
+        except subprocess.TimeoutExpired:
+            pass
+        if control.should_cancel is not None and control.should_cancel():
+            _signal_group(proc, signal.SIGTERM)
+            control.cancel_signal = "sigterm"
+            try:
+                proc.wait(timeout=control.grace_seconds)
+            except subprocess.TimeoutExpired:
+                _signal_group(proc, signal.SIGKILL)
+                control.cancel_signal = "sigkill"
+                proc.wait()
+            control.cancelled = True
+            break
+        if time.monotonic() > deadline:
+            _signal_group(proc, signal.SIGKILL)
+            proc.wait()
+            for pump in pumps:
+                pump.join(timeout=5)
+            raise subprocess.TimeoutExpired(argv, timeout_seconds, output="".join(out_lines), stderr="".join(err_chunks))
+    for pump in pumps:
+        pump.join(timeout=5)
+    return subprocess.CompletedProcess(argv, proc.returncode, "".join(out_lines), "".join(err_chunks))
+
+
 def run_claude_exec(
     *,
     prompt_text: str,
@@ -810,28 +1092,77 @@ def run_claude_exec(
     skip_permissions: bool = True,
     permission_mode: str | None = None,
     usage_recording: UsageRecording | None = None,
+    agent_profile: Any | None = None,
+    session_id: str | None = None,
+    resume: bool = False,
+    # Plan 032 Faz 032d — per-spawn additions the executor computed (scoped
+    # delivery credential, ARIA_REQUEST_ID). Values are never logged; the env
+    # report carries names only.
+    extra_env: dict[str, str] | None = None,
+    # Plan 032 Faz 032e — cancel polling + live progress observer.
+    spawn_control: SpawnControl | None = None,
 ) -> ClaudeRunResult:
     preflight_claude_auth()
     assert_write_runner_ok(skip_permissions=skip_permissions, permission_mode=permission_mode)
     _assert_budget_before_spawn()
     timeout_seconds = _clamp_timeout_to_job_deadline(timeout_seconds)
+    # Plan 032 Faz 032b — the envelope is the agent's KERNEL profile (or the
+    # empty envelope when the caller has none): the tool deny list, the write
+    # scope and the environment passthrough all derive from it here, at the
+    # spawn, never from prose in the agent file.
+    disallowed_tools, write_scope, passthrough = _envelope_from_profile(agent_profile)
     argv = build_claude_exec_argv(
         model=model,
         effort=effort,
         skip_permissions=skip_permissions,
         permission_mode=permission_mode,
+        disallowed_tools=disallowed_tools,
+        session_id=session_id,
+        resume=resume,
     )
+    # Plan 032 Faz 032b-2 — the per-spawn settings file: permission rules
+    # compiled from the command policy + the kernel hooks. A write-capable
+    # spawn under a kernel profile MUST carry it (I-V12-HOOK-01); a spawn
+    # with no profile or no ledger context carries permission rules only.
+    settings_path = _write_spawn_settings(
+        agent_profile=agent_profile,
+        usage_recording=usage_recording,
+        workspace_root=cwd,
+        write_capable=_is_write_capable(skip_permissions=skip_permissions, permission_mode=permission_mode),
+    )
+    if settings_path is not None:
+        argv.extend(["--settings", str(settings_path)])
+    # Plan 032 Faz 032g — MCP config per spawn, ALWAYS strict: only the kernel
+    # registry servers the profile names (minus quarantined); a profile-less
+    # spawn gets an empty document, i.e. no MCP server at all.
+    mcp_config_path = _write_spawn_mcp_config(agent_profile=agent_profile, base_dir=getattr(usage_recording, "base_dir", None))
+    argv.extend(["--strict-mcp-config", "--mcp-config", str(mcp_config_path)])
     # ORPHAN-CRITICAL-427 — containment is applied HERE, by the code that
     # spawns the process, not by prose in the agent's own instruction file.
     # A write-capable shape (full permission bypass or acceptEdits) gets
     # wrapped so READONLY_PATHS are ro-bind: a write under aria-kernel/ or
     # .github/ then fails with EROFS at the syscall level instead of
     # depending on the agent choosing to obey.
+    # The spawn environment is BUILT (agent_env), never copied: baseline +
+    # CLI auth + profile passthrough, secrets dropped by name. Built before
+    # containment so the managed-login directory it derived can be ro-bound.
+    spawn_env, env_report = _build_spawn_env(
+        passthrough=passthrough,
+        extra={**({"IS_SANDBOX": "1"} if _sandbox_acknowledged() else {}),
+               **provider_redirect_env(model),
+               # The hooks run `python3 -m aria_kernel` inside the sandbox;
+               # the kernel rides PYTHONPATH there exactly as in the lanes.
+               **({"PYTHONPATH": str(Path(cwd).resolve() / "aria-kernel")} if cwd is not None else {}),
+               **(dict(extra_env) if extra_env else {})},
+    )
+    config_dir = env_report.claude_config_dir if env_report is not None else None
     argv = _apply_write_containment(
         argv,
         skip_permissions=skip_permissions,
         permission_mode=permission_mode,
         workspace_root=cwd,
+        write_scope=write_scope,
+        extra_ro_binds=(config_dir,) if config_dir else (),
     )
     # ORPHAN-MEDIUM-459 — resource limits, applied by the spawner for the same
     # reason containment is. `apply_resource_limits` shipped with the sandbox
@@ -849,25 +1180,27 @@ def run_claude_exec(
     # The subprocess timeout below stays 30s looser so the cgroup/`timeout`
     # limit fires first and its exit status is what the caller sees.
     argv = _apply_resource_limits(argv, timeout_seconds=timeout_seconds)
-    # In an acknowledged sandbox, pass IS_SANDBOX=1 so the CLI permits the full
-    # bypass even under root; the non-root runner path needs no env change.
-    run_env = os.environ.copy()
-    if _sandbox_acknowledged():
-        run_env["IS_SANDBOX"] = "1"
-    # ORPHAN-HIGH-764 — vendor redirect, scoped to THIS spawn. A model with no
-    # redirect entry changes nothing here, so the managed Claude session stays
-    # the default for every Anthropic tier.
-    run_env.update(provider_redirect_env(model))
-    proc = subprocess.run(
-        argv,
-        input=prompt_text,
-        capture_output=True,
-        text=True,
-        timeout=timeout_seconds + 30,
-        check=False,
-        cwd=str(cwd) if cwd is not None else None,
-        env=run_env,
-    )
+    # IS_SANDBOX (root bypass acknowledgement) and the vendor redirect
+    # (ORPHAN-HIGH-764, scoped to THIS spawn) were folded into the built
+    # environment above; nothing else from the runner's environment reaches
+    # the agent. Names only are recorded, best-effort, next to usage.
+    if usage_recording is not None and env_report is not None:
+        _record_env_report_best_effort(recording=usage_recording, report=env_report)
+    run_env = spawn_env
+    try:
+        # Plan 032 Faz 032e — one seam: buffered without a control, streamed
+        # and cancellable (process group) with one.
+        proc = _run_spawn(
+            argv,
+            input_text=prompt_text,
+            timeout_seconds=timeout_seconds + 30,
+            cwd=str(cwd) if cwd is not None else None,
+            env=run_env,
+            control=spawn_control,
+        )
+    finally:
+        if env_report is not None:
+            _cleanup_spawn_home(env_report.home)
     events = parse_claude_jsonl(proc.stdout)
     final_message = extract_final_message(events)
     usage = extract_usage(events)

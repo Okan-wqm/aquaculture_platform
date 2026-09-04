@@ -173,6 +173,9 @@ BINDING_KEYS: tuple[str, ...] = (
     "finding_ids",
     "queue_item_ids",
     "task_ids",
+    # Plan 033 Faz 033e — a security mission binds its campaign runs and the grants they consumed.
+    "campaign_run_ids",
+    "grant_jtis",
 )
 
 EVENT_KINDS: tuple[str, ...] = ("opened", "transition", "binding", "wake", "note")

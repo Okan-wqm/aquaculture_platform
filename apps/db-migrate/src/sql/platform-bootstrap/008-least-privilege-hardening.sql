@@ -17,6 +17,25 @@ BEGIN
     CREATE ROLE db_migrate NOLOGIN;
   END IF;
 
+  -- TimescaleDB automation workers must assume the continuous aggregate's
+  -- owner role and reject NOLOGIN owners. Keep the ordinary sensor schema
+  -- owner NOLOGIN, and give only these rollup views a dedicated LOGIN role
+  -- with no password or elevated cluster capabilities. TimescaleDB can assume
+  -- it internally for refresh and retention background jobs without giving a
+  -- runtime service ownership.
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'sensor_aggregate_owner'
+  ) THEN
+    CREATE ROLE sensor_aggregate_owner
+      LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS
+      PASSWORD NULL;
+  ELSE
+    ALTER ROLE sensor_aggregate_owner
+      LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS
+      PASSWORD NULL;
+  END IF;
+  GRANT sensor_aggregate_owner TO db_migrate;
+
   FOR spec IN
     SELECT *
     FROM jsonb_to_recordset(

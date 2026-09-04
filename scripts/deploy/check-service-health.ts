@@ -64,6 +64,13 @@ interface ContainerState {
   container: string;
   health: string; // "healthy" / "unhealthy" / "starting" / ""
   state: string; // "running" / "exited" / ...
+  hasHealthcheck: boolean;
+}
+
+interface ContainerRuntime {
+  health: string;
+  state: string;
+  hasHealthcheck: boolean;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -104,6 +111,49 @@ function composeServices(composeFile: string): string[] {
 }
 
 /**
+ * Read the authoritative healthcheck declaration and current status directly
+ * from Docker. `docker compose ps --format json` can transiently omit Health
+ * while a healthchecked container is restarting; an empty field therefore
+ * cannot prove that the image has no healthcheck.
+ */
+function inspectContainerRuntime(containers: string[]): Map<string, ContainerRuntime> {
+  const uniqueContainers = [...new Set(containers.filter(Boolean))];
+  if (uniqueContainers.length === 0) return new Map();
+
+  const format =
+    '{{.Name}}\t{{if .Config.Healthcheck}}true{{else}}false{{end}}\t' +
+    '{{if .State.Health}}{{.State.Health.Status}}{{end}}\t{{.State.Status}}';
+  const result = spawnSync('docker', ['inspect', '--format', format, ...uniqueContainers], {
+    encoding: 'utf8',
+  });
+  if (result.error) {
+    throw new Error(`[health-gate] docker inspect failed: ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    throw new Error(
+      `[health-gate] docker inspect failed for ${uniqueContainers.length} container(s) ` +
+        `(exit ${String(result.status)})`,
+    );
+  }
+
+  const runtimes = new Map<string, ContainerRuntime>();
+  for (const line of (result.stdout ?? '').split('\n')) {
+    if (!line.trim()) continue;
+    const [rawName, declared, health = '', state = ''] = line.split('\t');
+    const name = (rawName ?? '').replace(/^\//, '');
+    if (!name || (declared !== 'true' && declared !== 'false')) {
+      throw new Error(`[health-gate] malformed docker inspect output for ${name || 'container'}`);
+    }
+    runtimes.set(name, {
+      hasHealthcheck: declared === 'true',
+      health: health.toLowerCase(),
+      state: state.toLowerCase(),
+    });
+  }
+  return runtimes;
+}
+
+/**
  * Collect `{ service, container, health, state }` for every container
  * reported by `docker compose ps --format json`. Both compose v2.21+
  * (NDJSON) and v2.29+ (JSON array) shapes are handled.
@@ -127,15 +177,23 @@ function currentStates(composeFile: string): Map<string, ContainerState> {
       .map((line) => JSON.parse(line) as Record<string, unknown>);
   }
 
+  const containerNames = objects.map((obj) => String(obj['Name'] ?? '')).filter(Boolean);
+  const runtimes = inspectContainerRuntime(containerNames);
   const states = new Map<string, ContainerState>();
   for (const obj of objects) {
     const svc = obj['Service'];
     if (typeof svc !== 'string' || !svc) continue;
+    const container = String(obj['Name'] ?? '');
+    const runtime = runtimes.get(container);
+    if (!runtime) {
+      throw new Error(`[health-gate] docker inspect omitted compose container ${container}`);
+    }
     states.set(svc, {
       service: svc,
-      container: String(obj['Name'] ?? ''),
-      health: String(obj['Health'] ?? '').toLowerCase(),
-      state: String(obj['State'] ?? '').toLowerCase(),
+      container,
+      health: runtime.health,
+      state: runtime.state,
+      hasHealthcheck: runtime.hasHealthcheck,
     });
   }
   return states;
@@ -144,7 +202,7 @@ function currentStates(composeFile: string): Map<string, ContainerState> {
 /**
  * A container is "satisfied" for its criticality level when either:
  *   - its health is `healthy`, OR
- *   - it has no healthcheck declared (`health === ""`) and its docker
+ *   - Docker confirms it has no declared healthcheck and its docker
  *     state is `running` — some compose entries intentionally omit a
  *     healthcheck (nginx frontends, etc) and must still gate on simple
  *     liveness.
@@ -155,7 +213,7 @@ function isSatisfied(entry: ManifestEntry, state: ContainerState | undefined): b
   if (entry.level === 'ignored') return true;
   if (!state) return false;
   if (state.health === 'healthy') return true;
-  if (state.health === '' && state.state === 'running') return true;
+  if (!state.hasHealthcheck && state.state === 'running') return true;
   return false;
 }
 
@@ -173,7 +231,8 @@ function report(
     if (entry.level === 'ignored') continue;
     const state = states.get(entry.name);
     const detail = state
-      ? `container=${state.container} health=${state.health || 'n/a'} state=${state.state}`
+      ? `container=${state.container} health=${state.health || 'n/a'} ` +
+        `healthcheck=${state.hasHealthcheck ? 'declared' : 'none'} state=${state.state}`
       : 'container not found';
     console.log(`  [${entry.level.padEnd(8)}] ${entry.name} — ${detail}`);
 

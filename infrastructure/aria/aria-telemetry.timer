@@ -1,0 +1,12 @@
+# Plan 032 Faz 032e — export every 5 minutes; jitter avoids the hour boundary.
+[Unit]
+Description=ARIA kernel telemetry export timer
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30s
+Unit=aria-telemetry.service
+
+[Install]
+WantedBy=timers.target

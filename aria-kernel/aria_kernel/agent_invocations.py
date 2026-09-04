@@ -557,6 +557,24 @@ def _render_established_knowledge(established_knowledge: Any) -> str:
     return "\n".join(lines) + "\n\n"
 
 
+def _render_decision_memory(decision_memory: Any) -> str:
+    """Plan 032 Faz 032i — prior decisions and their reasons, as DATA."""
+    from .context_compiler import render_decision_memory
+
+    return render_decision_memory(decision_memory if isinstance(decision_memory, dict) else None)
+
+
+def _decision_memory_for_request(row: dict[str, Any], *, base_dir: Path) -> dict[str, Any] | None:
+    """Compile the pack; None when nothing applies or the ledgers are unreadable."""
+    try:
+        from .context_compiler import compile_context
+
+        pack = compile_context(request=row, base_dir=base_dir)
+    except Exception:  # noqa: BLE001 — memory is orientation; a mint never fails for it
+        return None
+    return pack.to_dict() if pack.decisions else None
+
+
 def _render_recent_intent(recent_intent: Any) -> str:
     """Why the files in scope are the way they are — recent commit intent.
 
@@ -722,6 +740,7 @@ def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | 
         request.get("established_knowledge")
     )
     recent_intent_block = _render_recent_intent(request.get("recent_intent"))
+    decision_memory_block = _render_decision_memory(request.get("decision_memory"))
 
     # Z8 — render-version dispatch. Absent field = historical row = v1,
     # because the prompt hash was sealed over the untagged text and replay
@@ -742,6 +761,9 @@ def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | 
         )
         recent_intent_block = _tagged(
             "derived_context", 'section="recent_intent"', recent_intent_block
+        )
+        decision_memory_block = _tagged(
+            "derived_context", 'section="decision_memory"', decision_memory_block
         )
         evidence_block = f"<evidence_payload>\n{evidence_block}\n</evidence_payload>"
         data_notice = (
@@ -783,6 +805,7 @@ def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | 
         f"{repository_map_block}"
         f"{established_knowledge_block}"
         f"{recent_intent_block}"
+        f"{decision_memory_block}"
         f"## Validation commands\n\n"
         f"{_bullet_list(validation_cmds, lambda c: '`' + c.get('cmd', str(c)) + '`' if isinstance(c, dict) else '`' + str(c) + '`')}\n"
         f"{must_satisfy_block}\n"
@@ -1161,6 +1184,11 @@ def create_agent_invocation_request(
     recent_intent = _recent_intent_for_refs(evidence_refs, repo_root=context_repo_root)
     if recent_intent is not None:
         row["recent_intent"] = recent_intent
+    # Plan 032 Faz 032i — decision memory: what ARIA decided before and why,
+    # compiled from the ledgers at MINT time so the prompt hash seals it.
+    decision_memory = _decision_memory_for_request(row, base_dir=root)
+    if decision_memory is not None:
+        row["decision_memory"] = decision_memory
     # E17-b — the quoted evidence lines, packed above so the budget audit
     # could see them. Attached here beside the other mint-time context
     # sections; absent when nothing was packed, so a request never carries an
@@ -2019,11 +2047,64 @@ HARNESS_FAULT_RELEASE_REASONS: frozenset[str] = frozenset({
 # fault, a rejected submission is the work's, and an expired lease means the
 # agent hung — a request that repeatedly hangs its agent must escalate.
 REQUEST_FAULT_RELEASE_REASONS: frozenset[str] = frozenset({
+    # Plan 032 Faz 032c — the recovery classifier could not resolve an
+    # external intent left by a previous attempt; a person must look.
+    "recovery_unresolved_external_effect",
     "lease_expired",
     "request_envelope_missing_expected_output_path",
     "request_envelope_missing_role",
     "submit_rejected",
 })
+
+# Plan 032 Faz 032a — the executor also releases with PARAMETERISED reasons
+# (an f-string carrying an exit code, a timeout, a validation error class).
+# Their fault ownership is by prefix, and the prefix tables live beside the
+# literal sets so the classification test can scan the executor for
+# ``reason=f"..."`` sites the way it scans ``reason="..."`` ones.
+#
+# * ``claude_cli_exit_<code>`` — see ``classify_release_reason``.
+# * ``submit_timeout_<n>s`` — the kernel submit CLI did not answer inside
+#   its wall clock; a slow submit says nothing about the request.
+HARNESS_FAULT_RELEASE_REASON_PREFIXES: tuple[str, ...] = (
+    "claude_cli_exit_",
+    "submit_timeout_",
+)
+# * ``plan_content_invalid:<errors>`` — the agent's envelope failed the
+#   role's content contract; retrying the same request usually repeats it.
+# * ``agent_refused:<class>`` — the agent declined the request on the
+#   merits (a refusal envelope), which is a statement about the request.
+REQUEST_FAULT_RELEASE_REASON_PREFIXES: tuple[str, ...] = (
+    "plan_content_invalid:",
+    "agent_refused:",
+)
+
+RELEASE_REASON_CLASSES: tuple[str, ...] = ("harness", "request", "unclassified")
+
+
+# Plan 032 Faz 032e — a person stopped the run. Neither the harness nor the
+# request is at fault; the requeue budget is untouched and the state is
+# terminal (CANCELLED_BY_OPERATOR).
+OPERATOR_RELEASE_REASONS: frozenset[str] = frozenset({"operator_cancelled"})
+
+
+def classify_release_reason(reason: str) -> str:
+    """Fault ownership of a release reason: ``harness`` | ``request`` |
+    ``unclassified``.
+
+    ``unclassified`` is the honest answer for a reason neither table names.
+    It still COUNTS as the request's fault (fail toward the human, never
+    toward silent infinite retry — the standing rule the counter test pins),
+    but it is surfaced separately so the release site can say so on the
+    governance ledger instead of burying a stale table inside an escalation.
+    """
+    text = str(reason or "")
+    if text in OPERATOR_RELEASE_REASONS:
+        return "operator"
+    if text in HARNESS_FAULT_RELEASE_REASONS or text.startswith(HARNESS_FAULT_RELEASE_REASON_PREFIXES):
+        return "harness"
+    if text in REQUEST_FAULT_RELEASE_REASONS or text.startswith(REQUEST_FAULT_RELEASE_REASON_PREFIXES):
+        return "request"
+    return "unclassified"
 
 
 def _is_harness_fault_reason(reason: str) -> bool:
@@ -2034,7 +2115,7 @@ def _is_harness_fault_reason(reason: str) -> bool:
     reasons. A residual exit-code release still says nothing about the
     request; genuinely poisonous work is caught by lease expiry and rejected
     submissions, which stay request-fault."""
-    return reason in HARNESS_FAULT_RELEASE_REASONS or reason.startswith("claude_cli_exit_")
+    return classify_release_reason(reason) == "harness"
 
 
 def _request_fault_requeue_count(rows: list[dict[str, Any]], request_id: str) -> int:
@@ -2052,6 +2133,7 @@ def _request_fault_requeue_count(rows: list[dict[str, Any]], request_id: str) ->
         if row.get("request_id") == request_id
         and row.get("event") in ("requeued", "human_required")
         and not _is_harness_fault_reason(str(row.get("reason") or ""))
+        and str(row.get("reason") or "") not in OPERATOR_RELEASE_REASONS
     )
 
 
@@ -2223,6 +2305,12 @@ def derive_request_state(
             return "SUBMITTED"
 
     # If a HUMAN_REQUIRED event was emitted, that is sticky.
+    # Plan 032 Faz 032e — an operator cancel is terminal for anything that
+    # did not already land an accepted result. Derived from the control
+    # ledger (not from a claim row) so a cancel before the first claim binds.
+    from .control import CANCELLED_BY_OPERATOR_STATE, effective_control
+    if effective_control(root).is_cancelled(request_id):
+        return CANCELLED_BY_OPERATOR_STATE
     if any(row.get("event") == "human_required" and row.get("request_id") == request_id for row in claims):
         return "HUMAN_REQUIRED"
 
@@ -2744,6 +2832,12 @@ def next_pending_request(
         root / "agent-invocations" / "requests.jsonl",
         expected_surface="agent_invocation_requests",
     )
+    # Plan 032 Faz 032a (I-V12-QUEUE-01) — ONE batch derivation for the whole
+    # queue. The per-request form reloaded all three ledgers per candidate;
+    # on the 725-row backlog of 2026-09-02 the executor's selection step took
+    # 29 minutes (12:42 → 13:11) to answer "nothing pending". The batch form
+    # is the same fold over one load (ORPHAN-HIGH-794 built it for the sweep).
+    states = derive_request_states(base_dir=root)
     for request in requests:
         if _target_is_shadow(root, str(request.get("target_agent") or "")) and not request.get("shadow_eval"):
             continue
@@ -2756,7 +2850,7 @@ def next_pending_request(
         # structurally failing request used to end the entire drain.
         if exclude_request_ids and str(request.get("request_id")) in exclude_request_ids:
             continue
-        state = derive_request_state(request_id=request["request_id"], base_dir=root)
+        state = states.get(str(request.get("request_id") or ""), "PENDING")
         if state not in {"PENDING", "REQUEUED"}:
             continue
         if repo_root is not None:
@@ -2805,6 +2899,8 @@ _FUSED_ENVELOPE_KEYS: tuple[str, ...] = (
     # projection the same object the hash was minted over.
     "established_knowledge",
     "recent_intent",
+    # Plan 032 Faz 032i — the decision-memory pack is part of the sealed prompt.
+    "decision_memory",
     # E17-b — the quoted evidence bytes the prompt hash was minted over. A
     # claim response that dropped them would re-render a prompt with no
     # excerpt section and fail the binding on every request that carried one.
@@ -3296,6 +3392,12 @@ def release_claim(
                 f"claim {claim_id} already terminal ({terminal.get('event')})"
             )
         request_id = claim_event["request_id"]
+        # Plan 032 Faz 032b-3 — the structured envelope rides NEXT TO the
+        # legacy string: readers that exist keep `reason`; new readers use
+        # `reason_code` / `reason_detail` / `fault_domain`.
+        from .release_reason import parse_release_reason
+
+        structured = parse_release_reason(reason).to_row_fields()
         row = {
             "schema_version": 1,
             "event": "released",
@@ -3303,6 +3405,7 @@ def release_claim(
             "request_id": request_id,
             "agent_id": agent_id,
             "reason": reason,
+            **structured,
             "released_at": _iso(now),
         }
         transaction.append_declared_jsonl(
@@ -3331,8 +3434,19 @@ def release_claim(
                 "at": _iso(now),
                 "requeue_count": requeue_count,
                 "reason": reason,
+                **structured,
             },
             expected_surface="agent_invocation_claims",
+        )
+    # Plan 032 Faz 032a — a reason neither fault table names is charged to
+    # the request (the standing fail-toward-the-human rule) AND said out
+    # loud, so a stale table is a governance row tonight, not a HUMAN_REQUIRED
+    # escalation someone reverse-engineers next week.
+    if classify_release_reason(reason) == "unclassified":
+        append_tools_governance(
+            root,
+            "unclassified_release_reason",
+            {"claim_id": claim_id, "request_id": request_id, "reason": reason},
         )
     append_tools_governance(
         root,

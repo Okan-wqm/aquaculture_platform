@@ -25,13 +25,16 @@ def main() -> int:
         from aria_kernel.cycle_rhythm import evaluate_cycle_chain
         from aria_kernel.genesis_policy import rhythm_policy
 
-        cap = int(rhythm_policy(_ROOT).get("backlog_cap") or 25)
+        rhythm = rhythm_policy(_ROOT)
+        cap = int(rhythm.get("backlog_cap") or 25)
         decision = evaluate_cycle_chain(
             last_cycle_started_at=os.environ.get("LAST_CYCLE_STARTED_AT") or None,
             now=datetime.now(timezone.utc),
             open_findings=_open_finding_count(_ROOT),
             backlog_cap=cap,
             drained=int(os.environ.get("DRAINED") or 0),
+            # Plan 032 Faz 032a — the spacing brake is policy, not a literal.
+            min_interval_hours=float(rhythm.get("min_interval_hours") or 6.0),
         )
         print(json.dumps(decision.as_dict()))
     except Exception as exc:  # noqa: BLE001 — a broken chain must not break the drain

@@ -131,6 +131,20 @@ _DAEMON_LOCK_TIMEOUT_SECONDS: float = 2.0
 _ORCHESTRATOR_ACTION_KIND: str = "agent_claim"
 
 
+def _notify_cycle_failed(root: Any, cycle_id: str, exc: BaseException) -> None:
+    """Plan 032 Faz 032e — best-effort notification; never masks the failure."""
+    try:
+        from .notify import notify_best_effort
+
+        notify_best_effort(
+            kind="cycle_failed", key=cycle_id, base_dir=root,
+            title=f"ARIA cycle failed: {cycle_id}",
+            body=f"{type(exc).__name__}: {str(exc)[:500]}",
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _iso_now() -> str:
     return (
         datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -1285,6 +1299,8 @@ def run_autonomy_orchestrator(
                     raw_status = str(cycle_result.get("runtime_status") or cycle_result.get("status") or "failed")
                     cycle_status = "ok" if raw_status in {"ok", "completed"} and not cycle_result.get("non_ok_tools") else "failed"
                 except Exception as exc:
+                    # Plan 032 Faz 032e — a failed cycle is an operator event.
+                    _notify_cycle_failed(root, cycle_id, exc)
                     # ORPHAN-HIGH-456 — the lifecycle counter is dropped here
                     # precisely when it matters most: a cycle that crashed is
                     # the one likely to have left a started-without-terminal

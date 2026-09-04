@@ -57,6 +57,21 @@ jobs:
 
       - uses: ./.github/actions/setup-aria-kernel
 
+      # Plan 032 Faz 032b-2 — does the execution envelope BIND on this host?
+      # One bounded live turn: a deny rule + a PreToolUse hook under
+      # --dangerously-skip-permissions. Exit 0 = both layers held; 3 = a
+      # layer did not (the plan's fallback is `--permission-mode acceptEdits`
+      # + allow rules); 2 = could not run (no CLI / no managed login) and is
+      # reported as such, never as a pass. Costs one short turn.
+      - name: Probe the execution envelope (hook + deny under bypassPermissions)
+        shell: bash
+        run: |
+          set +e
+          python3 tools/aria-poc/hook_probe.py
+          rc=$?
+          echo "hook_probe_exit=${rc}" | tee -a "$GITHUB_STEP_SUMMARY"
+          exit $rc
+
       - name: Report host capabilities
         shell: bash
         env:

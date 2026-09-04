@@ -45,6 +45,11 @@ const MANIFEST_PATH = process.env['MANIFEST'] ?? 'infrastructure/deploy/required
 const POLL_INTERVAL = Number.parseInt(process.env['POLL_INTERVAL'] ?? '10', 10);
 const BOOT_SIGNAL_SINCE = process.env['BOOT_SIGNAL_SINCE'];
 const ALLOW_LEGACY_SUBSTRING = process.env['ALLOW_LEGACY_BOOT_SIGNAL_SUBSTRING'] === 'true';
+// Node's child-process default is only 1 MiB. A legitimately verbose service
+// (or one recovering from a bounded restart loop) can exceed that inside the
+// five-minute signal window. spawnSync then returns ENOBUFS with status=null;
+// treating that as an empty log creates a false "missing signal" rollback.
+const BOOT_SIGNAL_LOG_MAX_BUFFER_BYTES = 32 * 1024 * 1024;
 
 interface SignalDef {
   pattern: string;
@@ -146,9 +151,22 @@ function fetchLogs(composeFile: string, service: string): string {
   if (since) args.push('--since', since);
   args.push(service);
 
-  const result = spawnSync('docker', args, { encoding: 'utf8' });
-  if (result.status !== 0) return '';
-  return result.stdout ?? '';
+  const result = spawnSync('docker', args, {
+    encoding: 'utf8',
+    maxBuffer: BOOT_SIGNAL_LOG_MAX_BUFFER_BYTES,
+  });
+  if (result.error) {
+    throw new Error(`[boot-signal] failed to read logs for ${service}: ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    throw new Error(
+      `[boot-signal] docker compose logs failed for ${service} (exit ${String(result.status)})`,
+    );
+  }
+
+  // Docker/Compose versions differ on which stream receives service logs.
+  // Parse both; non-JSON diagnostic lines are ignored by parseJsonRecord.
+  return `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
 }
 
 function parseDeployServices(): string[] {

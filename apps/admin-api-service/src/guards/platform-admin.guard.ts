@@ -2,7 +2,6 @@ import {
   enforceAccessTokenType,
   enforceTokenNotRevoked,
   getJwtVerifyOptions,
-  type TokenRevocationStores,
 } from '@aquaculture/backend-common/auth';
 import { requestContextStorage } from '@aquaculture/backend-common/logging';
 import {
@@ -11,6 +10,7 @@ import {
   SecurityEventService,
   TOKEN_BLACKLIST,
   USER_TOKEN_REVOCATION,
+  type ITokenBlacklist,
 } from '@aquaculture/backend-common/security';
 import {
   CanActivate,
@@ -106,12 +106,11 @@ export class PlatformAdminGuard implements CanActivate {
     // silently disabling revocation on the most privileged surface. In production
     // TokenBlacklistService itself fails fast unless Redis is configured, so the
     // check is cross-instance correct.
-    // The injected capability is narrowed to the structural read-only shape of
-    // TokenRevocationStores: app.module adapts the auth-owned TOKEN_BLACKLIST
-    // writer, so this guard can never acquire write authority (same reader/
-    // writer split the gateway enforces with its own TOKEN_BLACKLIST_STORE).
+    // TOKEN_BLACKLIST's canonical contract exposes isBlacklisted(). Adapt it to
+    // the shared verifier's read-only isValidToken() capability only at the call
+    // boundary below, so every Nest module resolves the same injection token.
     @Inject(TOKEN_BLACKLIST)
-    private readonly tokenBlacklist: TokenRevocationStores['tokenBlacklist'],
+    private readonly tokenBlacklist: ITokenBlacklist,
     @Inject(USER_TOKEN_REVOCATION)
     private readonly userTokenRevocation: IUserTokenRevocation,
     // APA-369: this guard is the FIRST APP_GUARD, so a request with a
@@ -205,7 +204,10 @@ export class PlatformAdminGuard implements CanActivate {
       await enforceTokenNotRevoked(
         payload,
         {
-          tokenBlacklist: this.tokenBlacklist,
+          tokenBlacklist: {
+            isValidToken: (jti: string): Promise<boolean> =>
+              this.tokenBlacklist.isBlacklisted(jti).then((blacklisted) => !blacklisted),
+          },
           userTokenRevocation: this.userTokenRevocation,
         },
         this.logger,

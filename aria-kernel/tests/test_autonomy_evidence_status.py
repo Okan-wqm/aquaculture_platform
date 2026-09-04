@@ -1459,6 +1459,18 @@ def alias_factory(root):
                 "artifact packaging only inventories raw findings",
             ("executor", f"{KERNEL}human_required.py", "consumer"):
                 "human escalation observes outstanding requests",
+            # Plan 032 — ops/economy readers of executor results (Faz 032d–032i):
+            # every one derives a count or a metric and none can accept a result.
+            ("executor", f"{KERNEL}doctor.py", "consumer"):
+                "doctor derives queue depth from results without authorizing executor proof",
+            ("executor", f"{KERNEL}telemetry.py", "consumer"):
+                "telemetry counts accepted results for Prometheus series only",
+            ("executor", f"{KERNEL}token_economy.py", "consumer"):
+                "token economy joins usage with acceptance for cost statistics only",
+            ("executor", f"{KERNEL}gateway/scheduler.py", "consumer"):
+                "the scheduler's economy action reads acceptance counts to record recommendations",
+            ("cycle_runtime", f"{KERNEL}mcp_server.py", "consumer"):
+                "the MCP server exposes cycle rows through a read-only status tool",
             ("executor", f"{KERNEL}judge_fanout.py", "consumer"):
                 "fanout selects work but cannot authorize executor proof",
             ("executor", f"{KERNEL}plan_016_metrics.py", "consumer"):
@@ -1588,6 +1600,15 @@ def alias_factory(root):
                     "cycle_runtime",
                     "cycles",
                     f"{KERNEL}report.py",
+                    "consumer",
+                ),
+                # Plan 032 Faz 032a — the doctor reads cycle lifecycle bytes
+                # through integrity verification to REPORT health; it decides
+                # nothing and cannot authorize a cycle.
+                (
+                    "cycle_runtime",
+                    "cycles",
+                    f"{KERNEL}doctor.py",
                     "consumer",
                 ),
                 (

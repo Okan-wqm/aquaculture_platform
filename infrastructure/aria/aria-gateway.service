@@ -1,0 +1,36 @@
+# Plan 032 Faz 032f — ARIA event gateway daemon (webhooks + scheduler).
+# Binds 127.0.0.1:8787; nginx fronts it at https://app.suderra.com/aria/webhook/.
+# Secrets come from /etc/aria/aria.env by NAME:
+#   ARIA_GITHUB_WEBHOOK_SECRET  ARIA_ALERTMANAGER_BEARER  ARIA_OPERATOR_BEARER
+#   ARIA_GATEWAY_ACTOR_ALLOWLIST (comma-separated GitHub logins)  GH_TOKEN (workflow dispatch)
+# Install:
+#   cp infrastructure/aria/aria-gateway.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now aria-gateway.service
+# Stop cleanly: touch /var/aqua-saas/aria-tools/ARIA_STOP  (or systemctl stop → SIGTERM)
+[Unit]
+Description=ARIA event gateway (webhook ingress + closed-vocabulary scheduler)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gharunner
+Group=gharunner
+WorkingDirectory=/var/aqua-saas
+EnvironmentFile=-/etc/aria/aria.env
+Environment=PYTHONPATH=/var/aqua-saas/aria-kernel
+Environment=ARIA_TOOLS_DIR=/var/aqua-saas/aria-tools
+ExecStart=/usr/bin/python3 -m aria_kernel gateway serve --workspace-root /var/aqua-saas --tools-dir /var/aqua-saas/aria-tools --host 127.0.0.1 --port 8787 --poll-interval-seconds 60
+Restart=on-failure
+RestartSec=10s
+KillSignal=SIGTERM
+TimeoutStopSec=30s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/aqua-saas/aria-tools
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

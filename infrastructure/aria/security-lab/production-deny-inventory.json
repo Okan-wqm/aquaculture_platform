@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "hostname_suffixes": ["suderra.com", "aquaculture.io", "staging.aquaculture.example"],
+  "cidrs": [],
+  "cidrs_operator_must_fill": true,
+  "labels": ["production", "staging", "shared-staging", "ot", "scada", "fieldbus"],
+  "note": "Plan 033 Faz 033d. Any host/IP matching this inventory is R4_FORBIDDEN for every ARIA security campaign. cidrs_operator_must_fill=true keeps active (R1+) campaigns fail-closed until the operator lists the production/staging networks."
+}

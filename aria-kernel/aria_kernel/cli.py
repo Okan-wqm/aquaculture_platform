@@ -425,6 +425,19 @@ def _handle_state_command(args: argparse.Namespace) -> int:
     )
     from .tool_registry import tools_dir
 
+    if args.state_command == "acknowledge-surface-reset":
+        from .memory_gap import record_surface_reset
+
+        row = record_surface_reset(
+            surface=args.surface,
+            archived_sha256=args.archived_sha256,
+            reason=args.reason,
+            operator_approval_ref=args.operator_approval_ref,
+            base_dir=args.tools_dir,
+        )
+        print(json.dumps(row, indent=2, sort_keys=True))
+        return 0
+
     if args.state_command == "snapshot":
         roots: dict[str, Path] = {"tools": tools_dir(args.tools_dir)}
         if args.workspace_base:
@@ -802,6 +815,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Operator-pinned allowlist (identity keytype blob lines). The key "
              "carried by the snapshot is a claim, not trust.",
     )
+    # Plan 032 Faz 032a — a write-driving ledger that restarts from empty
+    # (the 2026-08-31 plan-ledger loss) is a governance event with the
+    # archived surface's hash and an operator approval, never a silent gap.
+    state_reset_ack = add_subparser(
+        state_sub, "acknowledge-surface-reset",
+        help="Record that a write-driving ledger restarts from empty: archived "
+             "surface hash + operator approval, on the governance ledger.",
+    )
+    state_reset_ack.add_argument("--surface", required=True,
+                                 help="Manifest surface name (e.g. plan_convergence_events).")
+    state_reset_ack.add_argument("--archived-sha256", required=True,
+                                 help="sha256 of the surface as last published (git blob or file hash).")
+    state_reset_ack.add_argument("--reason", required=True)
+    state_reset_ack.add_argument("--operator-approval-ref", required=True,
+                                 help="gov:<event_id> | review:<path>#<id> | ack-env:<VAR>")
 
     # Wave 1 §2.3 — the aria/state store. `publish` refuses unless the
     # snapshot it builds names the published tip as its parent; there is
@@ -2804,6 +2832,252 @@ def build_parser() -> argparse.ArgumentParser:
     curate_parser.add_argument("--acknowledge", action="store_true")
     curate_parser.add_argument("--reason", default=None)
     curate_parser.add_argument("--cycle-id", default=None)
+
+    # Plan 032 Faz 032a — one readout of ARIA's own health (read-only).
+    doctor_parser = add_subparser(sub, "doctor")
+    add_workspace_args(doctor_parser)
+    doctor_parser.add_argument(
+        "--json", action="store_true",
+        help="Print the full report as JSON instead of the one-line-per-check text.",
+    )
+
+    # Plan 032 Faz 032b-2 — the Claude Code hook entry points. The CLI reads
+    # the hook payload on stdin and prints the protocol's decision JSON.
+    hook_parser = add_subparser(sub, "hook")
+    hook_sub = hook_parser.add_subparsers(dest="hook_command", required=True)
+    for verb in ("pre-tool", "post-tool", "session"):
+        hook_verb = add_subparser(hook_sub, verb)
+        hook_verb.add_argument("--workspace-root", required=True)
+        hook_verb.add_argument("--request-id", required=True)
+
+    # Plan 032 Faz 032c — checkpoints, sessions, recovery, search.
+    checkpoint_parser = add_subparser(sub, "checkpoint")
+    checkpoint_sub = checkpoint_parser.add_subparsers(dest="checkpoint_command", required=True)
+    for verb in ("list", "diff", "restore", "take", "prune"):
+        cp_verb = add_subparser(checkpoint_sub, verb)
+        cp_verb.add_argument("--workspace-root", default=".")
+        if verb != "prune":
+            cp_verb.add_argument("--request-id", required=True)
+        if verb in ("diff", "restore"):
+            cp_verb.add_argument("--seq", type=int, default=None)
+        if verb == "restore":
+            cp_verb.add_argument("--file", action="append", default=None, dest="files")
+            cp_verb.add_argument("--all-files", action="store_true", help="Restore every file the checkpoint holds (hand edits NOT preserved).")
+        if verb == "take":
+            cp_verb.add_argument("--reason", default="operator")
+    session_parser = add_subparser(sub, "session")
+    session_sub = session_parser.add_subparsers(dest="session_command", required=True)
+    session_list = add_subparser(session_sub, "list")
+    session_list.add_argument("--request-id", required=True)
+    recovery_parser = add_subparser(sub, "recovery")
+    recovery_sub = recovery_parser.add_subparsers(dest="recovery_command", required=True)
+    recovery_classify = add_subparser(recovery_sub, "classify")
+    recovery_classify.add_argument("--request-id", required=True)
+    recovery_classify.add_argument("--workspace-root", default=".")
+    recovery_classify.add_argument("--fingerprint", default=None)
+    recovery_classify.add_argument("--offline", action="store_true", help="Do not ask GitHub; unresolved intents stay unresolved.")
+    search_parser = add_subparser(sub, "search")
+    search_parser.add_argument("query")
+    search_parser.add_argument("--workspace-root", default=".")
+    search_parser.add_argument("--kind", action="append", default=None, dest="kinds")
+    search_parser.add_argument("--rebuild", action="store_true")
+    search_parser.add_argument("--limit", type=int, default=20)
+
+    # Plan 032 Faz 032d — delivery closure: what each implementation request
+    # actually delivered, derived from effect ledgers.
+    delivery_parser = add_subparser(sub, "delivery")
+    delivery_sub = delivery_parser.add_subparsers(dest="delivery_command", required=True)
+    delivery_status = add_subparser(delivery_sub, "status")
+    delivery_status.add_argument("--json", action="store_true")
+
+    # Plan 032 Faz 032e — operator control plane, notifications, live progress.
+    control_parser = add_subparser(sub, "control")
+    control_sub = control_parser.add_subparsers(dest="control_command", required=True)
+    for verb in ("pause", "resume", "cancel"):
+        verb_parser = add_subparser(control_sub, verb)
+        verb_parser.add_argument("--request-id", default=None, required=(verb == "cancel"))
+        verb_parser.add_argument("--reason", default="")
+        verb_parser.add_argument("--operator-ref", default=None)
+    add_subparser(control_sub, "status")
+    notify_parser = add_subparser(sub, "notify")
+    notify_sub = notify_parser.add_subparsers(dest="notify_command", required=True)
+    notify_send = add_subparser(notify_sub, "send")
+    notify_send.add_argument("--kind", required=True)
+    notify_send.add_argument("--title", required=True)
+    notify_send.add_argument("--body", default="")
+    notify_send.add_argument("--key", default=None)
+    notify_send.add_argument("--channel", action="append", default=None, dest="channels")
+    notify_send.add_argument("--dry-run", action="store_true")
+    add_subparser(notify_sub, "channels")
+    tail_parser = add_subparser(sub, "tail")
+    tail_parser.add_argument("request_id")
+    tail_parser.add_argument("-n", "--last", type=int, default=20)
+    tail_parser.add_argument("--follow", action="store_true")
+    tail_parser.add_argument("--json", action="store_true")
+    tail_parser.add_argument("--max-wait-seconds", type=float, default=None)
+
+    # Plan 032 Faz 032f — event gateway, schedule table, offline event ingest.
+    gateway_parser = add_subparser(sub, "gateway")
+    gateway_sub = gateway_parser.add_subparsers(dest="gateway_command", required=True)
+    gateway_serve = add_subparser(gateway_sub, "serve")
+    gateway_serve.add_argument("--workspace-root", default=".")
+    gateway_serve.add_argument("--host", default="127.0.0.1")
+    gateway_serve.add_argument("--port", type=int, default=8787)
+    gateway_serve.add_argument("--poll-interval-seconds", type=float, default=60.0)
+    gateway_serve.add_argument("--max-iterations", type=int, default=None)
+    gateway_serve.add_argument("--no-http", action="store_true", help="scheduler ticks only (no webhook listener)")
+    add_subparser(gateway_sub, "status")
+    schedule_parser = add_subparser(sub, "schedule")
+    schedule_sub = schedule_parser.add_subparsers(dest="schedule_command", required=True)
+    schedule_add = add_subparser(schedule_sub, "add")
+    schedule_add.add_argument("--name", required=True)
+    schedule_add.add_argument("--action", required=True)
+    schedule_add.add_argument("--cron", required=True)
+    schedule_add.add_argument("--operator-ref", default=None)
+    for verb in ("pause", "resume", "remove"):
+        verb_parser = add_subparser(schedule_sub, verb)
+        verb_parser.add_argument("--name", required=True)
+        verb_parser.add_argument("--operator-ref", default=None)
+    add_subparser(schedule_sub, "list")
+    schedule_run = add_subparser(schedule_sub, "run")
+    schedule_run.add_argument("--action", required=True)
+    schedule_run.add_argument("--workspace-root", default=".")
+    event_parser = add_subparser(sub, "event")
+    event_sub = event_parser.add_subparsers(dest="event_command", required=True)
+    event_ingest = add_subparser(event_sub, "ingest")
+    event_ingest.add_argument("--source", choices=["github", "alertmanager", "operator"], required=True)
+    event_ingest.add_argument("--payload-file", required=True)
+    event_ingest.add_argument("--github-event", default=None, help="X-GitHub-Event value for --source github")
+    event_ingest.add_argument("--delivery-id", default=None)
+    event_ingest.add_argument("--actor", default=None)
+    event_ingest.add_argument("--route", action="store_true", help="route immediately instead of leaving it for the daemon")
+    event_ingest.add_argument("--workspace-root", default=".")
+    event_route = add_subparser(event_sub, "route")
+    event_route.add_argument("--workspace-root", default=".")
+
+    # Plan 032 Faz 032g — MCP: the kernel's own server + registry/health/config views.
+    mcp_parser = add_subparser(sub, "mcp")
+    mcp_sub = mcp_parser.add_subparsers(dest="mcp_command", required=True)
+    mcp_serve = add_subparser(mcp_sub, "serve")
+    mcp_serve.add_argument("--workspace-root", default=".")
+    mcp_serve.add_argument("--allow-writes", action="store_true", help="operator only: expose human_required_resolve / runtime_signal_ingest")
+    add_subparser(mcp_sub, "registry")
+    mcp_health = add_subparser(mcp_sub, "health")
+    mcp_health.add_argument("--server", default=None)
+    mcp_release = add_subparser(mcp_sub, "release")
+    mcp_release.add_argument("--server", required=True)
+    mcp_release.add_argument("--operator-ref", required=True)
+    mcp_config = add_subparser(mcp_sub, "config")
+    mcp_config.add_argument("--profile", required=True)
+
+    # Plan 032 Faz 032h — skill curation (proposals only), rollback, shadow compare; parity table.
+    skill_parser = add_subparser(sub, "skill")
+    skill_sub = skill_parser.add_subparsers(dest="skill_command", required=True)
+    skill_curate = add_subparser(skill_sub, "curate")
+    skill_curate.add_argument("--workspace-root", default=".")
+    skill_curate.add_argument("--similarity", type=float, default=None)
+    skill_curate.add_argument("--unused-days", type=int, default=None)
+    skill_proposals = add_subparser(skill_sub, "proposals")
+    skill_proposals.add_argument("--open", action="store_true")
+    skill_decide = add_subparser(skill_sub, "decide")
+    skill_decide.add_argument("--proposal-id", required=True)
+    skill_decide.add_argument("--decision", choices=["accepted", "rejected"], required=True)
+    skill_decide.add_argument("--operator-approval-ref", required=True)
+    skill_decide.add_argument("--note", default="")
+    skill_rollback = add_subparser(skill_sub, "rollback")
+    skill_rollback.add_argument("--draft-id", required=True)
+    skill_rollback.add_argument("--operator-approval-ref", required=True)
+    skill_rollback.add_argument("--workspace-root", default=None)
+    skill_shadow = add_subparser(skill_sub, "shadow-compare")
+    skill_shadow.add_argument("--draft-id", required=True)
+    skill_shadow.add_argument("--workspace-root", default=".")
+    parity_parser = add_subparser(sub, "parity")
+    parity_sub = parity_parser.add_subparsers(dest="parity_command", required=True)
+    parity_generate = add_subparser(parity_sub, "generate")
+    parity_generate.add_argument("--workspace-root", default=".")
+    parity_generate.add_argument("--output", default="docs/aria/generated/harness-parity.md")
+    parity_check = add_subparser(parity_sub, "check")
+    parity_check.add_argument("--workspace-root", default=".")
+
+    # Plan 032 Faz 032i — decision memory, token economy, self-improvement lane.
+    context_compile = add_subparser(context_sub, "compile")
+    context_compile.add_argument("--request-id", default=None)
+    context_compile.add_argument("--query", default=None)
+    context_compile.add_argument("--budget-tokens", type=int, default=None)
+    economy_parser = add_subparser(sub, "economy")
+    economy_sub = economy_parser.add_subparsers(dest="economy_command", required=True)
+    economy_stats = add_subparser(economy_sub, "stats")
+    economy_stats.add_argument("--window-days", type=int, default=None)
+    economy_recommend = add_subparser(economy_sub, "recommend")
+    economy_recommend.add_argument("--window-days", type=int, default=None)
+    economy_recommend.add_argument("--threshold-tokens", type=float, default=None)
+    economy_recommend.add_argument("--dry-run", action="store_true")
+    self_parser = add_subparser(sub, "self-improve")
+    self_sub = self_parser.add_subparsers(dest="self_command", required=True)
+    self_scan = add_subparser(self_sub, "scan")
+    self_scan.add_argument("--workspace-root", default=".")
+    self_open = add_subparser(self_sub, "open")
+    self_open.add_argument("--workspace-root", default=".")
+    self_open.add_argument("--max-new", type=int, default=3)
+    self_propose = add_subparser(self_sub, "propose")
+    self_propose.add_argument("--workspace-root", default=".")
+    self_propose.add_argument("--mission-id", required=True)
+    self_propose.add_argument("--evidence", action="append", required=True, dest="evidence_paths")
+    self_propose.add_argument("--problem", required=True)
+    self_propose.add_argument("--proposed-change", required=True)
+    self_propose.add_argument("--validation-command", default=None)
+
+    # Plan 033 — Autonomous Security Engineering (kernel-internal). Grows per phase;
+    # 033a ships the fail-closed prerequisite gate.
+    security_parser = add_subparser(sub, "security")
+    security_sub = security_parser.add_subparsers(dest="security_command", required=True)
+    security_prereq = add_subparser(security_sub, "prerequisites")
+    security_prereq.add_argument("--json", action="store_true")
+    security_profile_p = add_subparser(security_sub, "profile")
+    security_profile_sub = security_profile_p.add_subparsers(dest="security_profile_command", required=True)
+    sp_compile = add_subparser(security_profile_sub, "compile")
+    sp_compile.add_argument("--workspace-root", default=".")
+    sp_compile.add_argument("--repo-sha", default=None)
+    sp_compile.add_argument("--record", action="store_true")
+    sp_compile.add_argument("--json", action="store_true")
+    add_subparser(security_profile_sub, "show")
+    security_pack_p = add_subparser(security_sub, "pack")
+    security_pack_sub = security_pack_p.add_subparsers(dest="security_pack_command", required=True)
+    add_subparser(security_pack_sub, "list").add_argument("--workspace-root", default=".")
+    pack_run = add_subparser(security_pack_sub, "run")
+    pack_run.add_argument("--pack", required=True)
+    pack_run.add_argument("--workspace-root", default=".")
+    pack_run.add_argument("--service", default="repo")
+    pack_run.add_argument("--record", action="store_true")
+    sarif_p = add_subparser(security_sub, "ingest-sarif")
+    sarif_p.add_argument("--file", required=True)
+    sarif_p.add_argument("--service", default="repo")
+    sarif_p.add_argument("--tool-hint", default=None)
+    graph_p = add_subparser(security_sub, "graph")
+    graph_sub = graph_p.add_subparsers(dest="security_graph_command", required=True)
+    gbuild = add_subparser(graph_sub, "build")
+    gbuild.add_argument("--workspace-root", default=".")
+    gbuild.add_argument("--record", action="store_true")
+    add_subparser(graph_sub, "show")
+    cov_p = add_subparser(security_sub, "coverage")
+    cov_p.add_argument("--workspace-root", default=".")
+    zap_p = add_subparser(security_sub, "zap")
+    zap_sub = zap_p.add_subparsers(dest="security_zap_command", required=True)
+    zap_v = add_subparser(zap_sub, "validate")
+    zap_v.add_argument("--plan", required=True, help="Automation Framework plan (JSON file)")
+    zap_v.add_argument("--allowed-host", action="append", default=[], help="grant-allowed lab host (repeatable)")
+    zap_v.add_argument("--workspace-root", default=".")
+    sdoc = add_subparser(security_sub, "doctor")
+    sdoc.add_argument("--workspace-root", default=".")
+    sreg = add_subparser(security_sub, "regression")
+    sreg_sub = sreg.add_subparsers(dest="security_regression_command", required=True)
+    sreg_list = add_subparser(sreg_sub, "list")
+    sreg_list.add_argument("--scope", choices=("impacted_pr", "release"), default=None)
+    spar = add_subparser(security_sub, "parity")
+    spar_sub = spar.add_subparsers(dest="security_parity_command", required=True)
+    add_subparser(spar_sub, "corpus")
+    sret = add_subparser(spar_sub, "retirement")
+    sret.add_argument("--kernel-root", default=None)
 
     return parser
 
@@ -5813,6 +6087,409 @@ def _main(argv: list[str] | None = None) -> int:
         state = AutonomyStateReducer.derive_current(args.tools_dir)
         print(json.dumps(state.to_dict(), indent=2, sort_keys=True))
         return 0
+
+    if args.command == "hook":
+        from .hooks import run_hook
+
+        try:
+            payload = json.loads(sys.stdin.read() or "{}")
+        except ValueError:
+            payload = {}
+        exit_code, stdout = run_hook(
+            args.hook_command,
+            payload if isinstance(payload, dict) else {},
+            base_dir=args.tools_dir,
+            workspace_root=args.workspace_root,
+            request_id=args.request_id,
+        )
+        if stdout:
+            print(stdout)
+        return exit_code
+
+    if args.command == "checkpoint":
+        from . import checkpoint as _cp
+
+        if args.checkpoint_command == "list":
+            rows = [c.__dict__ for c in _cp.list_checkpoints(args.request_id, base_dir=args.tools_dir)]
+            print(json.dumps(rows, indent=2, sort_keys=True))
+            return 0
+        if args.checkpoint_command == "take":
+            taken = _cp.take_checkpoint(workspace_root=args.workspace_root, request_id=args.request_id,
+                                        reason=args.reason, base_dir=args.tools_dir, min_interval_seconds=0)
+            print(json.dumps(taken.__dict__ if taken else {"folded": True}, indent=2, sort_keys=True))
+            return 0
+        if args.checkpoint_command == "diff":
+            print(_cp.diff_checkpoint(workspace_root=args.workspace_root, request_id=args.request_id, seq=args.seq, base_dir=args.tools_dir))
+            return 0
+        if args.checkpoint_command == "restore":
+            result = _cp.restore_checkpoint(
+                workspace_root=args.workspace_root, request_id=args.request_id, seq=args.seq,
+                files=args.files, preserve_hand_edits=not args.all_files, base_dir=args.tools_dir,
+            )
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0
+        if args.checkpoint_command == "prune":
+            print(json.dumps(_cp.prune_checkpoints(workspace_root=args.workspace_root, base_dir=args.tools_dir), indent=2, sort_keys=True))
+            return 0
+
+    if args.command == "context" and args.context_command == "compile":
+        from .context_compiler import compile_context
+
+        request: dict[str, Any] = {"request_id": args.request_id, "suggested_prompt": args.query or ""}
+        if args.request_id:
+            from .ledger import load_declared_jsonl
+            from .tool_registry import ensure_tools_dir
+
+            requests_path = ensure_tools_dir(args.tools_dir) / "agent-invocations" / "requests.jsonl"
+            rows = load_declared_jsonl(requests_path, expected_surface="agent_invocation_requests") if requests_path.exists() else []
+            request = next((r for r in rows if r.get("request_id") == args.request_id), request)
+        kwargs = {"budget_tokens": args.budget_tokens} if args.budget_tokens else {}
+        print(json.dumps(compile_context(request=request, base_dir=args.tools_dir, record=False, **kwargs).to_dict(), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "economy":
+        from . import token_economy as te
+
+        kwargs = {"window_days": args.window_days} if args.window_days else {}
+        stats = te.usage_per_accepted_result(base_dir=args.tools_dir, **kwargs)
+        if args.economy_command == "stats":
+            print(json.dumps([s.to_dict() for s in stats], indent=2, sort_keys=True))
+            return 0
+        rec_kwargs = {"threshold_tokens": args.threshold_tokens} if args.threshold_tokens else {}
+        rows = [*te.recommend_efforts(stats, **rec_kwargs), *te.calibrate_role_caps(stats)]
+        if not args.dry_run:
+            rows = te.record_recommendations(rows, base_dir=args.tools_dir)
+        print(json.dumps(rows, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "self-improve":
+        from . import self_improvement as si
+
+        if args.self_command == "scan":
+            print(json.dumps([s.__dict__ for s in si.scan_signals(base_dir=args.tools_dir, workspace_root=args.workspace_root)], indent=2, sort_keys=True))
+            return 0
+        if args.self_command == "open":
+            print(json.dumps(si.open_self_improvement_missions(base_dir=args.tools_dir, workspace_root=args.workspace_root, max_new=args.max_new), indent=2, sort_keys=True))
+            return 0
+        kwargs = {"validation_command": args.validation_command} if args.validation_command else {}
+        print(json.dumps(si.propose_self_change(mission_id=args.mission_id, base_dir=args.tools_dir, workspace_root=args.workspace_root,
+                                                evidence_paths=args.evidence_paths, problem=args.problem, proposed_change=args.proposed_change, **kwargs),
+                         indent=2, sort_keys=True, default=str))
+        return 0
+
+    if args.command == "skill":
+        from . import skill_curator
+
+        if args.skill_command == "curate":
+            kwargs = {}
+            if args.similarity is not None:
+                kwargs["similarity_threshold"] = args.similarity
+            if args.unused_days is not None:
+                kwargs["unused_days"] = args.unused_days
+            print(json.dumps(skill_curator.propose_curation(args.workspace_root, base_dir=args.tools_dir, **kwargs), indent=2, sort_keys=True))
+            return 0
+        if args.skill_command == "proposals":
+            print(json.dumps(skill_curator.list_curation_proposals(base_dir=args.tools_dir, open_only=args.open), indent=2, sort_keys=True))
+            return 0
+        if args.skill_command == "decide":
+            print(json.dumps(skill_curator.decide_curation(args.proposal_id, decision=args.decision, operator_approval_ref=args.operator_approval_ref,
+                                                           base_dir=args.tools_dir, note=args.note), indent=2, sort_keys=True))
+            return 0
+        if args.skill_command == "rollback":
+            print(json.dumps(skill_curator.rollback_skill_materialization(draft_id=args.draft_id, base_dir=args.tools_dir,
+                                                                          operator_approval_ref=args.operator_approval_ref,
+                                                                          workspace_root=args.workspace_root), indent=2, sort_keys=True))
+            return 0
+        print(json.dumps(skill_curator.shadow_compare(draft_id=args.draft_id, workspace_root=args.workspace_root, base_dir=args.tools_dir), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "parity":
+        from .harness_parity import check_parity, render_parity_report
+
+        if args.parity_command == "generate":
+            text = render_parity_report(repo_root=args.workspace_root)
+            out = Path(args.workspace_root) / args.output
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(text, encoding="utf-8")
+            print(str(out))
+            return 0
+        records = check_parity(repo_root=args.workspace_root)
+        problems = [r for r in records if r["problems"]]
+        print(json.dumps({"rows": len(records), "problems": problems}, indent=2, sort_keys=True))
+        return 0 if not problems else 1
+
+    if args.command == "security":
+        if args.security_command == "prerequisites":
+            from .security.prerequisites import render_prerequisites_text, run_prerequisites
+
+            report = run_prerequisites()
+            print(json.dumps(report.to_dict(), indent=2, sort_keys=True) if args.json else render_prerequisites_text(report))
+            return report.exit_code
+        if args.security_command == "profile":
+            from .security.profile import compile_profile, latest_profile, record_profile, render_profile_text
+
+            if args.security_profile_command == "show":
+                row = latest_profile(base_dir=args.tools_dir)
+                print(json.dumps(row, indent=2, sort_keys=True) if row else "no profile compiled yet")
+                return 0
+            snap = compile_profile(workspace_root=args.workspace_root, repo_sha=args.repo_sha)
+            if args.record:
+                record_profile(snap, base_dir=args.tools_dir)
+            print(json.dumps(snap.to_row(), indent=2, sort_keys=True) if args.json else render_profile_text(snap))
+            return 0
+        if args.security_command == "pack":
+            from .security.packs import record_pack_leads, run_pack, select_packs
+            from .security.profile import compile_profile
+
+            prof = compile_profile(workspace_root=args.workspace_root).to_row()
+            if args.security_pack_command == "list":
+                print(json.dumps([m.to_dict() for m in select_packs(prof)], indent=2, sort_keys=True))
+                return 0
+            leads = run_pack(args.pack, workspace_root=args.workspace_root, profile_row=prof)
+            if args.record:
+                record_pack_leads(args.pack, leads, service=args.service, base_dir=args.tools_dir)
+            print(json.dumps([{"rule_id": l.rule_id, "severity": l.severity, "summary": l.summary, "code_refs": list(l.code_refs)} for l in leads], indent=2, sort_keys=True))
+            return 0
+        if args.security_command == "ingest-sarif":
+            from .security.scanner_ingest import ingest_sarif
+
+            document = json.loads(Path(args.file).read_text(encoding="utf-8"))
+            out = ingest_sarif(document, service=args.service, base_dir=args.tools_dir, tool_hint=args.tool_hint)
+            print(json.dumps(out, indent=2, sort_keys=True))
+            return 0 if out["status"] == "ingested" else 1
+        if args.security_command == "graph":
+            from .security.attack_graph import build_graph, latest_graph_row, record_graph
+            from .security.packs import select_packs
+            from .security.profile import compile_profile
+
+            if args.security_graph_command == "show":
+                row = latest_graph_row(base_dir=args.tools_dir)
+                print(json.dumps(row, indent=2, sort_keys=True) if row else "no graph built yet")
+                return 0
+            prof = compile_profile(workspace_root=args.workspace_root).to_row()
+            digests = tuple(m.digest for m in select_packs(prof) if m.applicable)
+            snap = build_graph(workspace_root=args.workspace_root, profile_row=prof, pack_digests=digests)
+            if args.record:
+                record_graph(snap, base_dir=args.tools_dir)
+            print(json.dumps(snap.index_row(), indent=2, sort_keys=True))
+            return 0
+
+        if args.security_command == "coverage":
+            from .security.assurance import compute_coverage
+            from .security.packs import select_packs
+            from .security.profile import compile_profile
+
+            prof = compile_profile(workspace_root=args.workspace_root).to_row()
+            cov = compute_coverage(profile_row=prof, pack_manifests=select_packs(prof), base_dir=args.tools_dir)
+            print(json.dumps(cov, indent=2, sort_keys=True))
+            return 0 if cov["ready"] else 1
+        if args.security_command == "zap":
+            from .security.zap import ZapPolicyError, build_zap_job
+
+            try:
+                plan = json.loads(Path(args.plan).read_text(encoding="utf-8"))
+                job = build_zap_job(plan, workspace_root=args.workspace_root, allowed_hosts=tuple(args.allowed_host))
+            except (OSError, ValueError, ZapPolicyError) as exc:
+                print(f"zap job refused: {exc}", file=sys.stderr)
+                return 1
+            print(json.dumps(job, indent=2, sort_keys=True))
+        if args.security_command == "doctor":
+            from .doctor import DOCTOR_EXIT_HEALTHY, DOCTOR_EXIT_UNHEALTHY
+            from .security.ops import security_doctor
+            from .security.packs import select_packs
+            from .security.profile import compile_profile
+
+            prof = compile_profile(workspace_root=args.workspace_root).to_row()
+            checks = security_doctor(profile_row=prof, pack_manifests=select_packs(prof), base_dir=args.tools_dir)
+            for check in checks:
+                print(f"[{check.status}] {check.name}: {check.reason}")
+            return DOCTOR_EXIT_HEALTHY if all(c.status != "fail" for c in checks) else DOCTOR_EXIT_UNHEALTHY
+
+        if args.security_command == "regression":
+            from .security.regression import list_regressions
+
+            for rec in list_regressions(scope=args.scope, base_dir=args.tools_dir):
+                print(json.dumps(rec.__dict__, sort_keys=True))
+            return 0
+        if args.security_command == "parity":
+            from .security.parity import retirement_readiness, run_corpus
+
+            if args.security_parity_command == "corpus":
+                res = run_corpus()
+                print(json.dumps({k: v for k, v in res.items()}, indent=2, sort_keys=True))
+                return 0 if res["all_correct"] else 1
+            kernel_root = args.kernel_root or str(Path(__file__).resolve().parent)
+            report = retirement_readiness(kernel_root=kernel_root, base_dir=args.tools_dir)
+            print(json.dumps(report, indent=2, sort_keys=True))
+            return 0 if report["ready"] else 1
+
+    if args.command == "mcp":
+        from . import mcp_client
+
+        if args.mcp_command == "serve":
+            from .mcp_server import AriaMcpServer
+
+            return AriaMcpServer(base_dir=args.tools_dir, workspace_root=args.workspace_root, allow_writes=args.allow_writes).serve()
+        if args.mcp_command == "registry":
+            registry = mcp_client.load_mcp_registry()
+            print(json.dumps({name: spec.__dict__ for name, spec in registry.servers.items()}, indent=2, sort_keys=True, default=list))
+            return 0
+        if args.mcp_command == "health":
+            registry = mcp_client.load_mcp_registry()
+            names = [args.server] if args.server else sorted(registry.servers)
+            print(json.dumps([mcp_client.evaluate_mcp_health(n, base_dir=args.tools_dir) for n in names], indent=2, sort_keys=True))
+            return 0
+        if args.mcp_command == "release":
+            print(json.dumps(mcp_client.release_quarantine(args.server, base_dir=args.tools_dir, operator_ref=args.operator_ref), indent=2, sort_keys=True))
+            return 0
+        from .runtime_profiles import profile_by_id
+
+        print(json.dumps({"config": mcp_client.mcp_config_for_profile(profile_by_id(args.profile), base_dir=args.tools_dir),
+                          "disallowed_tools": list(mcp_client.mcp_tool_rules(profile_by_id(args.profile)))}, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "gateway":
+        if args.gateway_command == "status":
+            from .gateway.inbox import inbox_summary
+            from .gateway.scheduler import fold_schedules
+
+            print(json.dumps({"inbox": inbox_summary(args.tools_dir),
+                              "schedules": {n: s.__dict__ for n, s in fold_schedules(args.tools_dir).items()}}, indent=2, sort_keys=True))
+            return 0
+        from .gateway.daemon import run_gateway_daemon
+        from .gateway.server import GatewayConfig
+
+        result = run_gateway_daemon(
+            base_dir=args.tools_dir, workspace_root=args.workspace_root,
+            config=GatewayConfig(host=args.host, port=args.port), max_iterations=args.max_iterations,
+            poll_interval_seconds=args.poll_interval_seconds, serve_http=not args.no_http,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result.get("exits_clean") else 1
+
+    if args.command == "schedule":
+        from .gateway import scheduler
+
+        if args.schedule_command == "add":
+            print(json.dumps(scheduler.add_schedule(name=args.name, action=args.action, cron=args.cron, base_dir=args.tools_dir,
+                                                    operator_ref=args.operator_ref), indent=2, sort_keys=True))
+            return 0
+        if args.schedule_command in {"pause", "resume", "remove"}:
+            print(json.dumps(scheduler.change_schedule(args.schedule_command, name=args.name, base_dir=args.tools_dir,
+                                                       operator_ref=args.operator_ref), indent=2, sort_keys=True))
+            return 0
+        if args.schedule_command == "list":
+            print(json.dumps({n: s.__dict__ for n, s in scheduler.fold_schedules(args.tools_dir).items()}, indent=2, sort_keys=True))
+            return 0
+        result = scheduler.run_action(args.action, base_dir=args.tools_dir, workspace_root=args.workspace_root)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["status"] != "failed" else 1
+
+    if args.command == "event":
+        from .gateway import inbox as gateway_inbox
+        from .gateway import normalize as gateway_normalize
+        from .gateway.router import drain_inbox, route_event
+
+        if args.event_command == "route":
+            print(json.dumps(drain_inbox(base_dir=args.tools_dir, workspace_root=args.workspace_root), indent=2, sort_keys=True))
+            return 0
+        payload = json.loads(Path(args.payload_file).read_text(encoding="utf-8"))
+        delivery = args.delivery_id or f"cli:{gateway_normalize.payload_digest(payload)[7:31]}"
+        if args.source == "github":
+            if not args.github_event:
+                raise SystemExit("--github-event is required for --source github")
+            event = gateway_normalize.normalize_github(args.github_event, delivery, payload)
+            events = [event] if event is not None else []
+        elif args.source == "alertmanager":
+            events = gateway_normalize.normalize_alertmanager(delivery, payload)
+        else:
+            events = [gateway_normalize.normalize_operator(delivery, payload, actor=args.actor or "cli")]
+        out = []
+        for event in events:
+            row = gateway_inbox.record_event(event, base_dir=args.tools_dir)
+            entry: dict[str, Any] = {"delivery_id": event.delivery_id, "kind": event.kind, "accepted": row is not None}
+            if row is not None and args.route:
+                outcome = route_event(event, base_dir=args.tools_dir, workspace_root=args.workspace_root)
+                entry["action"], entry["refs"], entry["error"] = outcome.action, outcome.refs, outcome.error
+            out.append(entry)
+        print(json.dumps(out, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "control":
+        from .control import effective_control, record_control
+
+        if args.control_command == "status":
+            print(json.dumps(effective_control(args.tools_dir).to_dict(), indent=2, sort_keys=True))
+            return 0
+        row = record_control(args.control_command, base_dir=args.tools_dir, request_id=args.request_id,
+                             operator_ref=args.operator_ref, reason=args.reason)
+        print(json.dumps({"command": row, "effective": effective_control(args.tools_dir).to_dict()}, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "notify":
+        from .notify import CHANNEL_ENV_NAMES, configured_channels, notify
+
+        if args.notify_command == "channels":
+            print(json.dumps({"configured": list(configured_channels()), "env_names": CHANNEL_ENV_NAMES}, indent=2, sort_keys=True))
+            return 0
+        rows = notify(kind=args.kind, title=args.title, body=args.body, key=args.key, base_dir=args.tools_dir,
+                      channels=args.channels, dry_run=args.dry_run)
+        print(json.dumps(rows, indent=2, sort_keys=True))
+        return 0 if all(r["status"] != "failed" for r in rows) else 1
+
+    if args.command == "tail":
+        from .progress import render_progress_row, tail_progress
+
+        for row in tail_progress(args.request_id, base_dir=args.tools_dir, last=args.last, follow=args.follow,
+                                 max_wait_seconds=args.max_wait_seconds):
+            print(json.dumps(row, sort_keys=True) if args.json else render_progress_row(row), flush=True)
+        return 0
+
+    if args.command == "delivery" and args.delivery_command == "status":
+        from .delivery_closure import compute_delivery_closure, render_delivery_text
+
+        report = compute_delivery_closure(base_dir=args.tools_dir)
+        print(json.dumps(report.to_dict(), indent=2, sort_keys=True) if args.json else render_delivery_text(report))
+        return 0
+
+    if args.command == "session" and args.session_command == "list":
+        from .session_continuity import sessions_for
+
+        print(json.dumps(sessions_for(args.request_id, base_dir=args.tools_dir), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "recovery" and args.recovery_command == "classify":
+        from .recovery import classify_recovery, gh_remote_reader
+
+        decision = classify_recovery(
+            args.request_id, base_dir=args.tools_dir, fingerprint=args.fingerprint,
+            remote_reader=None if args.offline else gh_remote_reader(args.workspace_root),
+        )
+        print(json.dumps(decision.to_dict(), indent=2, sort_keys=True))
+        return 0 if decision.decision != "human_required" else 3
+
+    if args.command == "search":
+        from .search import rebuild_index, search
+
+        if args.rebuild:
+            counts = rebuild_index(workspace_root=args.workspace_root, base_dir=args.tools_dir)
+            print(json.dumps({"rebuilt": counts}, sort_keys=True), file=sys.stderr)
+        hits = search(args.query, workspace_root=args.workspace_root, kinds=args.kinds, limit=args.limit)
+        print(json.dumps([h.__dict__ for h in hits], indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "doctor":
+        from .doctor import render_doctor_text, run_doctor
+
+        report = run_doctor(
+            base_dir=args.tools_dir,
+            workspace_root=getattr(args, "workspace_root", None) or Path.cwd(),
+        )
+        if args.json:
+            print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
+        else:
+            print(render_doctor_text(report))
+        return report.exit_code
 
     if args.command == "integrity" and args.integrity_command == "rollback-tools-v2-to-v1":
         result = rollback_tools_v2_to_v1(

@@ -110,7 +110,10 @@ class ProviderRedirectTests(unittest.TestCase):
         nothing at runtime.
         """
         body = (_POC / "claude_runtime.py").read_text(encoding="utf-8")
-        self.assertIn("run_env.update(provider_redirect_env(model))", body)
+        # Plan 032 Faz 032b — the spawn env is BUILT (agent_env), not copied; the
+        # redirect rides the per-spawn `extra` of that build, still per model.
+        self.assertIn("**provider_redirect_env(model)", body)
+        self.assertLess(body.index("_build_spawn_env("), body.index("**provider_redirect_env(model)"))
         self.assertNotIn(
             'os.environ["ANTHROPIC_BASE_URL"]', body,
         )

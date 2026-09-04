@@ -469,6 +469,14 @@ def record_failure(
                 "window_hours": verdict.window_hours,
             },
         )
+        # Plan 032 Faz 032e — a tripped breaker is an operator event.
+        from .notify import notify_best_effort
+
+        notify_best_effort(
+            kind="breaker_tripped", key=f"failure:{kind}", base_dir=root,
+            title=f"ARIA circuit breaker tripped ({kind})",
+            body=f"reason: {verdict.reason}\nsliding_count: {verdict.sliding_count} threshold: {verdict.threshold} window_hours: {verdict.window_hours}",
+        )
     return row
 
 

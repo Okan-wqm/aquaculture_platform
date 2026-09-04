@@ -1,5 +1,6 @@
 ---
 name: aria-primary-planner
+runtime_profile: planner
 description: Runtime-dispatchable architecture-first planner for ARIA V8 convergent gate. Receives an aria/agent-request/v1 envelope (role=primary_plan), produces a CONVERGED-eligible plan tracing recursive impact to the most extreme affected node, AND emits canonical plan_content matching plan_convergence._validate_plan_content. Dispatched by drainer on round-2+ revisions after the cycle's primary draft has been challenged + cross-reviewed.
 model: fable
 effort: max

@@ -19,7 +19,7 @@ REPO_SLUG="${REPO_SLUG:-Okan-wqm/aquaculture_platform}"
 RUNNER_NAME="${RUNNER_NAME:-suderra-droplet-claude}"
 SERVICE_NAME="actions.runner.${REPO_SLUG//\//-}.${RUNNER_NAME}.service"
 WORKSPACE_COPY="${RUNNER_ROOT}/_work/${REPO_SLUG##*/}/${REPO_SLUG##*/}"
-CLAUDE_FLOOR="2.1.197" # both lanes' preflight reject older — keep in lockstep with the workflows
+CLAUDE_FLOOR="2.1.221" # both lanes' preflight reject older — keep in lockstep with the workflows
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 POLICY_REL="aria-config/genesis_policy.json" # genesis_policy.OVERRIDE_RELPATH — resolved per repo root, hence TWO copies
@@ -120,6 +120,27 @@ fi
 # must match byte-for-byte: a drifted copy is exactly the state in which the
 # 2026-09-01/02 producer lane died (2G cap hit 8 996 times, OOMPolicy=stop
 # cancelling the queued job on every kill).
+section "ARIA gateway + telemetry units (Plan 032 Faz 032e/032f — repo copy is the SSoT)"
+for unit in aria-gateway.service aria-telemetry.service aria-telemetry.timer; do
+  src="$REPO_ROOT/infrastructure/aria/$unit"
+  if [ ! -f "$src" ]; then bad "missing $src"; continue; fi
+  if [ "$DRY_RUN" -eq 1 ]; then
+    if cmp -s "$src" "/etc/systemd/system/$unit"; then ok "$unit installed (matches repo)"; else bad "$unit not installed or drifted from repo"; fi
+  else
+    install -m 0644 "$src" "/etc/systemd/system/$unit" && ok "$unit installed"
+  fi
+done
+if [ -f /etc/aria/aria.env ]; then
+  for name in ARIA_GITHUB_WEBHOOK_SECRET ARIA_ALERTMANAGER_BEARER ARIA_OPERATOR_BEARER ARIA_GATEWAY_ACTOR_ALLOWLIST; do
+    if grep -q "^${name}=" /etc/aria/aria.env; then ok "aria.env carries $name"; else bad "aria.env lacks $name (gateway refuses that ingress)"; fi
+  done
+else
+  bad "/etc/aria/aria.env missing (mode 0600, owner gharunner; names only are checked here)"
+fi
+if [ "$DRY_RUN" -eq 0 ]; then
+  systemctl daemon-reload && systemctl enable --now aria-telemetry.timer aria-gateway.service && ok "gateway + telemetry timer enabled"
+fi
+
 section "Memory discipline (systemd drop-ins — repo copy is the SSoT)"
 HABITAT_SYSTEMD="${REPO_ROOT}/scripts/aria/runner-habitat/systemd"
 reload_needed=0
@@ -136,6 +157,7 @@ while IFS='|' read -r src dst; do
 done <<EOF
 ${HABITAT_SYSTEMD}/actions-runner.limits.conf|/etc/systemd/system/${SERVICE_NAME}.d/limits.conf
 ${HABITAT_SYSTEMD}/user-.slice.d/50-aria-memory-discipline.conf|/etc/systemd/system/user-.slice.d/50-aria-memory-discipline.conf
+${HABITAT_SYSTEMD}/user.slice.d/50-aria-cpu-discipline.conf|/etc/systemd/system/user.slice.d/50-aria-cpu-discipline.conf
 EOF
 if [ "$reload_needed" -eq 1 ]; then
   # daemon-reload re-applies resource-control properties to RUNNING units
@@ -144,7 +166,7 @@ if [ "$reload_needed" -eq 1 ]; then
   systemctl daemon-reload && ok "systemd reloaded (limits applied to running units)"
 fi
 # Effective values, not file contents: what the kernel enforces right now.
-for probe in "${SERVICE_NAME}|OOMPolicy|continue" "${SERVICE_NAME}|MemoryMax|3221225472" "user-.slice|MemoryMax|3221225472"; do
+for probe in "${SERVICE_NAME}|OOMPolicy|continue" "${SERVICE_NAME}|MemoryMax|3221225472" "${SERVICE_NAME}|CPUWeight|400" "user-.slice|MemoryMax|3221225472" "user.slice|CPUWeight|50"; do
   unit="${probe%%|*}"; rest="${probe#*|}"; prop="${rest%%|*}"; want="${rest##*|}"
   have="$(systemctl show "$unit" -p "$prop" --value 2>/dev/null || echo unreadable)"
   if [ "$have" = "$want" ]; then ok "${unit} ${prop}=${have}"; else bad "${unit} ${prop}=${have} (want ${want})"; fi

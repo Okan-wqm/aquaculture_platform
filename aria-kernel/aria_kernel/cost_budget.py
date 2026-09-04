@@ -240,6 +240,14 @@ def _trip_breaker(
             "cap_usd": cap,
         },
     )
+    # Plan 032 Faz 032e — a tripped cost breaker is an operator event.
+    from .notify import notify_best_effort
+
+    notify_best_effort(
+        kind="breaker_tripped", key=f"cost:{cap_name}", base_dir=root,
+        title=f"ARIA cost breaker tripped ({cap_name})",
+        body=f"amount_usd: {amount} cap_usd: {cap}",
+    )
 
 
 def reset_breaker(

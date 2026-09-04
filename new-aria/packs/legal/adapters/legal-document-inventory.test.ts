@@ -346,18 +346,36 @@ test('version grouping: identical bytes group across different names; copy marke
   assert.ok(byteTwins.every((link) => link.confidence === 0.9));
 });
 
-test('parties come only from .eml headers, one party per address, never merged by display name', () => {
+test('parties come from e-mail headers AND document text, one per address or spelling, never merged', () => {
   const { artifacts } = runGolden(tempDir('parties'));
-  assert.deepEqual(
-    artifacts.parties.map((party) => [party.displayName, party.aliases, party.mentions, party.kind, party.humanReviewRequired]),
-    [
-      ['Part B', ['Part B', 'part.b@example.org'], 2, 'unknown', true],
-      ['Part A AS', ['Part A AS', 'post@part-a.example'], 2, 'unknown', true],
-      ['Advokat Eksempel', ['Advokat Eksempel', 'advokat@example.net'], 1, 'unknown', true],
-    ],
-  );
-  assert.ok(artifacts.parties.every((party) => party.identityConfidence <= 0.5));
-  assert.ok(artifacts.parties.every((party) => party.evidence.every((ref) => ref.locator?.startsWith('header:'))));
+  const byName = new Map(artifacts.parties.map((party) => [party.displayName, party]));
+
+  // Header-derived parties keep their address alias and their header locator.
+  for (const [name, alias, mentions] of [
+    ['Part B', 'part.b@example.org', 2],
+    ['Part A AS', 'post@part-a.example', 2],
+    ['Advokat Eksempel', 'advokat@example.net', 1],
+  ] as const) {
+    const party = byName.get(name);
+    assert.ok(party, `${name} must be a party`);
+    assert.deepEqual(party.aliases, [name, alias].sort());
+    assert.equal(party.mentions, mentions);
+    assert.ok(party.evidence.every((ref) => ref.locator?.startsWith('header:')));
+  }
+
+  // Text-derived parties: the contractor, the client and counsel are named in
+  // the PDF and the DOCX and would be invisible if only headers were read.
+  const contractor = byName.get('Nordlys Entreprenør AS');
+  assert.ok(contractor, 'the contractor is named in the invoice text');
+  assert.equal(contractor.kind, 'organization');
+  assert.ok(contractor.aliases.includes('987654321'), 'the organisation number travels as an alias');
+  const counsel = byName.get('Kari Nordmann');
+  assert.ok(counsel, 'counsel named with the v/ construction is a party candidate');
+  assert.equal(counsel.kind, 'person');
+  assert.ok(byName.has('Bergen Eiendom ASA'));
+
+  assert.ok(artifacts.parties.every((party) => party.identityConfidence <= 0.5), 'no reading of a name outranks a header address');
+  assert.ok(artifacts.parties.every((party) => party.humanReviewRequired));
 
   const archive = tempDir('same-name-archive');
   writeArchiveFile(archive, 'a.eml', 'From: "Ola Nordmann" <ola@example.org>\nTo: "Kari" <kari@example.org>\nDate: Mon, 1 Jan 2024 10:00:00 +0000\nSubject: A\n\nHei\n');
@@ -455,7 +473,21 @@ test('timeline: .eml Date headers become COMMUNICATION events; dated lines becom
   assert.equal(bestrider.occurredAt, '2024-03-12');
   assert.equal(bestrider.evidence[0]?.locator, 'line:5');
   assert.equal(bestrider.datePrecision, 'day');
-  assert.deepEqual(artifacts.statements, []);
+  // The matrix is no longer empty by construction: the rows the archive itself
+  // supports are written. What it must NEVER contain is a verified row.
+  assert.ok(artifacts.statements.length > 0, 'the matrix carries the rows the documents support');
+  assert.ok(
+    artifacts.statements.every((row) => row.status !== 'verified' && row.verifiedBy === null && row.verifiedAt === null && row.humanReviewRequired),
+    'no machine-written row may be verified or name a verifier',
+  );
+  assert.ok(artifacts.statements.every((row) => row.assertedBy === 'mechanical_extraction'));
+  const disputed = artifacts.statements.find((row) => row.status === 'disputed');
+  assert.ok(disputed, 'the invoice/complaint date disagreement is a disputed row');
+  assert.equal(disputed.supportingSources.length, 1);
+  assert.equal(disputed.contradictingSources.length, 1, 'both sides of a disagreement are attached');
+  const unverifiable = artifacts.statements.find((row) => row.status === 'unverifiable');
+  assert.ok(unverifiable, 'a claim resting on a document the archive lacks is unverifiable');
+  assert.equal(unverifiable.missingEvidence.length, 1, 'and it names what is missing');
 });
 
 test('no writes outside out_dir; the archive is never mutated', () => {

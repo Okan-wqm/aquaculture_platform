@@ -108,3 +108,17 @@
   color: var(--tone-danger-fg);
   font-size: var(--fs-sm);
 }
+
+/*
+ * One step of a version lineage.
+ * WHY: the change list belongs visually INSIDE its version group, indented
+ * enough that a reader sees it as detail of the pair above, not as a sibling
+ * record of its own.
+ */
+.version-step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-left: var(--space-3);
+  border-left: var(--hairline) solid var(--border);
+}

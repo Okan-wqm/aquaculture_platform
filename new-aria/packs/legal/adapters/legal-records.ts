@@ -219,7 +219,13 @@ export interface LegalCaseArtifacts {
   readonly versions: readonly LegalDocumentVersion[];
   readonly parties: readonly LegalParty[];
   readonly timeline: readonly LegalTimelineEvent[];
-  readonly statements: readonly never[];
+  /**
+   * The claim–evidence matrix. The adapter fills only the rows it can derive
+   * without judgement (a disagreement, an unsatisfied reference); it can never
+   * write a `verified` row — the statement gate refuses one at the type level
+   * and again at runtime.
+   */
+  readonly statements: readonly LegalStatement[];
   readonly links: readonly LegalLink[];
   readonly coverage: LegalCoverage;
 }

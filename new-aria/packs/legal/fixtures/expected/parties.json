@@ -1,5 +1,30 @@
 [
   {
+    "partyId": "party_232b2350ffe4",
+    "displayName": "Nordlys Entreprenør AS",
+    "kind": "organization",
+    "roles": [],
+    "aliases": [
+      "987654321",
+      "Nordlys Entreprenør AS"
+    ],
+    "mentions": 2,
+    "evidence": [
+      {
+        "documentId": "doc_f285ea9f52c64341",
+        "locator": "page:1",
+        "sha256": "1fdce4f6970c4f6d229a5b07441369501f2b3254f47037fcb293f20bf350cde7"
+      },
+      {
+        "documentId": "doc_2977e926b8bc73a6",
+        "locator": "line:3",
+        "sha256": "19f2f23a713b0d61e6fcadc9edaa6a6fe3a5bc1269f8aeff1b6a0c3fbdceb016"
+      }
+    ],
+    "identityConfidence": 0.5,
+    "humanReviewRequired": true
+  },
+  {
     "partyId": "party_5106f6341ef8",
     "displayName": "Part B",
     "kind": "unknown",
@@ -22,6 +47,30 @@
       }
     ],
     "identityConfidence": 0.5,
+    "humanReviewRequired": true
+  },
+  {
+    "partyId": "party_65149ee012c3",
+    "displayName": "Bergen Eiendom ASA",
+    "kind": "organization",
+    "roles": [],
+    "aliases": [
+      "Bergen Eiendom ASA"
+    ],
+    "mentions": 2,
+    "evidence": [
+      {
+        "documentId": "doc_f285ea9f52c64341",
+        "locator": "page:1",
+        "sha256": "1fdce4f6970c4f6d229a5b07441369501f2b3254f47037fcb293f20bf350cde7"
+      },
+      {
+        "documentId": "doc_2977e926b8bc73a6",
+        "locator": "line:2",
+        "sha256": "19f2f23a713b0d61e6fcadc9edaa6a6fe3a5bc1269f8aeff1b6a0c3fbdceb016"
+      }
+    ],
+    "identityConfidence": 0.4,
     "humanReviewRequired": true
   },
   {
@@ -67,6 +116,25 @@
       }
     ],
     "identityConfidence": 0.5,
+    "humanReviewRequired": true
+  },
+  {
+    "partyId": "party_c38d3039d359",
+    "displayName": "Kari Nordmann",
+    "kind": "person",
+    "roles": [],
+    "aliases": [
+      "Kari Nordmann"
+    ],
+    "mentions": 1,
+    "evidence": [
+      {
+        "documentId": "doc_2977e926b8bc73a6",
+        "locator": "line:2",
+        "sha256": "19f2f23a713b0d61e6fcadc9edaa6a6fe3a5bc1269f8aeff1b6a0c3fbdceb016"
+      }
+    ],
+    "identityConfidence": 0.4,
     "humanReviewRequired": true
   }
 ]

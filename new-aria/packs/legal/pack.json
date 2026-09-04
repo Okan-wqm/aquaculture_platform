@@ -89,7 +89,8 @@
         "document_version_conflict",
         "date_contradiction",
         "amount_contradiction",
-        "missing_evidence"
+        "missing_evidence",
+        "party_identity_ambiguity"
       ]
     }
   ],

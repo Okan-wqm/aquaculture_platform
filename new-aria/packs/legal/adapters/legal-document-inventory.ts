@@ -49,6 +49,8 @@ import {
   type ReferenceTarget,
 } from './records/fact-index';
 import { diffVersions } from './records/version-diff';
+import { identityAmbiguities, partyCandidatesIn, type IdentityAmbiguity, type PartyCandidate } from './records/party-candidates';
+import { matrixRows } from './records/matrix';
 import type { HashedRead, WalkedFile, WalkResult } from './legal-archive';
 import { ADAPTER_ID, ADAPTER_VERSION, ARTIFACT_ROOT, DEFAULT_MAX_BINARY_BYTES, DEFAULT_MAX_TEXT_BYTES, EXTRACTION_STATUSES } from './legal-records';
 import type {
@@ -140,7 +142,8 @@ export type LegalClaimType =
   | 'document_version_conflict'
   | 'date_contradiction'
   | 'amount_contradiction'
-  | 'missing_evidence';
+  | 'missing_evidence'
+  | 'party_identity_ambiguity';
 
 export interface AdapterFinding {
   readonly id: string;
@@ -326,10 +329,21 @@ interface VersionGrouping {
   readonly membersByGroup: ReadonlyMap<string, readonly InventoryEntry[]>;
 }
 
+/**
+ * The text of a document as the case-content passes should read it.
+ *
+ * An e-mail's headers are transport metadata; scanning them for case content
+ * turns every message's own send time and address list into case facts.
+ */
+function scannedText(entry: InventoryEntry): string {
+  if (entry.text === null) return '';
+  return entry.document.extension === '.eml' ? parseEmail(entry.text).body : entry.text;
+}
+
 /** The labelled values one document states, located the way a reader would find them. */
 function labelledFactsOf(entry: InventoryEntry): LabelledFact[] {
   if (entry.text === null) return [];
-  const scanned = entry.document.extension === '.eml' ? parseEmail(entry.text).body : entry.text;
+  const scanned = scannedText(entry);
   const facts: LabelledFact[] = [];
   for (const line of locatedLines(scanned)) {
     facts.push(
@@ -489,6 +503,13 @@ interface Derived {
   readonly parties: readonly LegalParty[];
   readonly timeline: readonly LegalTimelineEvent[];
   readonly links: readonly LegalLink[];
+  /** Names that look alike across documents. A question for a human, never a merge. */
+  readonly identityAmbiguities: readonly IdentityAmbiguity[];
+}
+
+/** Party ids are content-derived so two runs over one archive agree. */
+function partyIdForName(nameKey: string): string {
+  return `party_${sha256Hex(`name\n${nameKey}`).slice(0, 12)}`;
 }
 
 function evidenceRef(document: LegalDocument, locator: string): LegalEvidenceRef {
@@ -559,7 +580,7 @@ function buildFactIndex(entries: readonly InventoryEntry[], grouping: VersionGro
     // An e-mail's headers are transport metadata, not case content: `Date:`
     // there is when the message was sent, and comparing two messages' send
     // times would report every pair of e-mails as a disagreement.
-    const scanned = document.extension === '.eml' ? parseEmail(entry.text).body : entry.text;
+    const scanned = scannedText(entry);
     for (const line of locatedLines(scanned)) {
       const located: LocatedText = {
         documentId: document.documentId,
@@ -592,6 +613,8 @@ function buildFactIndex(entries: readonly InventoryEntry[], grouping: VersionGro
 
 function deriveRecords(entries: readonly InventoryEntry[], grouping: VersionGrouping, learnedAt: ReadonlyMap<string, string>): Derived {
   const parties = new Map<string, PartyAccumulator>();
+  const textParties = new Map<string, { candidate: PartyCandidate; mentions: number; evidence: LegalEvidenceRef[] }>();
+  const textCandidates: PartyCandidate[] = [];
   const timeline: LegalTimelineEvent[] = [];
   const links: LegalLink[] = [];
 
@@ -658,6 +681,32 @@ function deriveRecords(entries: readonly InventoryEntry[], grouping: VersionGrou
       }
       continue;
     }
+    // Parties named in the text, not only in an e-mail header. Nothing is
+    // merged: two spellings stay two candidates, and their resemblance is
+    // raised as a question the approval policy hands to a lawyer.
+    for (const line of locatedLines(scannedText(entry))) {
+      const located: LocatedText = {
+        documentId: document.documentId,
+        relativePath: document.relativePath,
+        sha256: document.sha256,
+        locator: line.locator,
+        text: line.text,
+      };
+      for (const found of partyCandidatesIn(located)) {
+        textCandidates.push(found);
+        const existing = textParties.get(found.displayName);
+        if (existing === undefined) {
+          textParties.set(found.displayName, { candidate: found, mentions: 1, evidence: [evidenceRef(document, found.locator)] });
+        } else {
+          existing.mentions += 1;
+          // One evidence ref per document: a name repeated on every page of one
+          // file is one document's word, not many sources agreeing.
+          if (!existing.evidence.some((ref) => ref.documentId === document.documentId)) {
+            existing.evidence.push(evidenceRef(document, found.locator));
+          }
+        }
+      }
+    }
     // A dated line becomes an EVENT candidate. The source is
     // `mechanical_extraction`: a parser read these bytes at this locator and
     // would read them the same way tomorrow. It is NOT `ai_inference` — no
@@ -720,9 +769,30 @@ function deriveRecords(entries: readonly InventoryEntry[], grouping: VersionGrou
     })
     .sort((a, b) => byteCompare(a.partyId, b.partyId));
 
+  // Text-derived parties join the header-derived ones, with their own ids and
+  // the basis they were read from. An address-derived party is not replaced by
+  // a name that resembles it: only a human may decide those are one identity.
+  const addressAliases = new Set(partyRecords.flatMap((party) => party.aliases.map((alias) => alias.toLowerCase())));
+  const textRecords: LegalParty[] = [...textParties.values()]
+    .filter((entry) => !addressAliases.has(entry.candidate.displayName.toLowerCase()))
+    .map((entry) => ({
+      partyId: partyIdForName(entry.candidate.nameKey),
+      displayName: entry.candidate.displayName,
+      kind: entry.candidate.kind,
+      // A role is only recorded when the document labelled it; an organisation
+      // form says what a party IS, never what it does in this case.
+      roles: entry.candidate.basis === 'party_label' ? [entry.candidate.basis] : [],
+      aliases: entry.candidate.organisationNumber === null ? [entry.candidate.displayName] : uniqueSorted([entry.candidate.displayName, entry.candidate.organisationNumber]),
+      mentions: entry.mentions,
+      evidence: entry.evidence,
+      identityConfidence: entry.candidate.confidence,
+      humanReviewRequired: true,
+    }));
+  const allParties = [...partyRecords, ...textRecords].sort((a, b) => byteCompare(a.partyId, b.partyId));
+
   timeline.sort((a, b) => byteCompare(a.occurredAt ?? '', b.occurredAt ?? '') || byteCompare(a.eventId, b.eventId));
   links.sort((a, b) => byteCompare(a.linkId, b.linkId));
-  return { parties: partyRecords, timeline, links };
+  return { parties: allParties, timeline, links, identityAmbiguities: identityAmbiguities(textCandidates) };
 }
 
 // ---------------------------------------------------------------------------
@@ -874,6 +944,7 @@ export function runLegalDocumentInventory(input: LegalInventoryInput, cwd: strin
   const learnedAt = new Map((input.intake ?? []).map((row) => [normalizeRelative(row.relativePath), row.receivedAt]));
   const derived = deriveRecords(entries, grouping, learnedAt);
   const factIndex = buildFactIndex(entries, grouping);
+  const statements = matrixRows(factIndex.contradictions, factIndex.missing);
   const presentExcludedRoots = excludeRoots.filter((root) => walk.matchedExcludeRoots.has(root) || existsSync(resolve(archiveRootAbs, root)));
   const coverage = buildCoverage(caseId, entries, walk, presentExcludedRoots);
   const newestMtime = entries.reduce<Date | null>((newest, entry) => (newest === null || entry.file.mtime > newest ? entry.file.mtime : newest), null);
@@ -896,7 +967,10 @@ export function runLegalDocumentInventory(input: LegalInventoryInput, cwd: strin
     versions: grouping.versions,
     parties: derived.parties,
     timeline: derived.timeline,
-    statements: [],
+    // The matrix rows the archive itself supports: a value two documents state
+    // differently, and a reference the archive cannot satisfy. Rows that need
+    // reading comprehension stay an agent's job, and their absence is visible.
+    statements,
     links: derived.links,
     coverage,
   };
@@ -975,6 +1049,23 @@ export function runLegalDocumentInventory(input: LegalInventoryInput, cwd: strin
       confidence: 0.6,
     });
   }
+  // Two spellings that look like one party. This is a QUESTION: the approval
+  // policy reserves party_identity_merge for a lawyer, and a tool that merged
+  // them quietly would destroy the distinction a conflict check depends on.
+  for (const row of derived.identityAmbiguities) {
+    findings.push({
+      id: `${ADAPTER_ID}:party-identity:${row.nameKey}:${row.left.displayName}:${row.right.displayName}`,
+      rule: 'party_identity_ambiguity',
+      severity: 'low',
+      path: workspacePath(row.left.relativePath),
+      message:
+        `\`${row.left.relativePath}\` (${row.left.locator}) names "${row.left.displayName}" while ` +
+        `\`${row.right.relativePath}\` (${row.right.locator}) names "${row.right.displayName}". ` +
+        'They are kept as separate parties; deciding they are one identity is a lawyer\'s call.',
+      evidence: [{ path: workspacePath(row.left.relativePath) }, { path: workspacePath(row.right.relativePath) }],
+      confidence: 0.4,
+    });
+  }
   // A document naming a document the archive does not hold. The message states
   // the scope that was searched, because "not found" is only meaningful against
   // a known set.
@@ -1023,6 +1114,8 @@ export function runLegalDocumentInventory(input: LegalInventoryInput, cwd: strin
       document_references: factIndex.references.length,
       contradictions: factIndex.contradictions.length,
       missing_references: factIndex.missing.length,
+      party_identity_ambiguities: derived.identityAmbiguities.length,
+      statements: statements.length,
     },
   };
   return { output, artifacts, artifactDir: written.dir, writtenFiles: written.files };

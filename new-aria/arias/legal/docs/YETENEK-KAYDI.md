@@ -323,3 +323,43 @@ Modül hiçbir sürümü **yetkili ilan etmiyor**: bir test, farkın çıktısı
 Sınır: satır farkı 4000 satırın üstündeki çiftlerde atlanıyor ve bunu `unchangedLines: -1`
 ile **söylüyor**; uydurma bir sayı üretmiyor. Değer karşılaştırması doğrusal olduğu için
 o çiftlerde de koşuyor.
+
+### D.4 — Taraflar ve roller (2026-09-04)
+
+| ID | Ne kapandı | Kanıt |
+|---|---|---|
+| **L-16** | Taraflar PDF/DOCX metninden de çıkıyor; **birleştirme yok** | Fixture'da 3 → 6 taraf: `Nordlys Entreprenør AS` (org.nr. alias'ıyla), `Bergen Eiendom ASA`, `Kari Nordmann` (v/ advokat kalıbı) eklendi |
+| **L-18** | `party_identity_ambiguity`: benzeyen iki yazım **ayrı taraf kalıyor**, benzerlik soru olarak kaydediliyor | 11 test; `Nordlys Entreprenør AS` ↔ `ASA` iki aday olarak duruyor, bulgu "birleştirme avukatın kararı" diyor |
+
+Kural: bir isim ancak belge onu **etiketlemişse** rol alıyor. Organizasyon eki (`AS`,
+`ASA`) bir tarafın ne **olduğunu** söyler, bu davada ne **yaptığını** değil; ikisini
+karıştırmak, kanıtı olmayan bir rol iddiası üretirdi. Metinden okunan hiçbir adayın güveni
+e-posta başlığı tabanını (0.5) geçmiyor.
+
+### D.5 — İddia matrisi mekanik olarak doluyor (2026-09-04)
+
+| ID | Ne kapandı | Kanıt |
+|---|---|---|
+| **L-10 (mekanik yarısı)** | `statements.json` artık boş değil: arşivin **kendi desteklediği** satırlar yazılıyor | Fixture'da 2 satır: bir `disputed` (fatura ↔ klage tarih farkı, iki taraf da ekli), bir `unverifiable` (atıf yapılan sözleşme arşivde yok, eksik kanıt adlandırılmış) |
+
+Yazılan satırlar **yargı gerektirmeyenler**: iki belgenin farklı söylediği bir değer
+`disputed`, arşivin karşılayamadığı bir atıf `unverifiable`. `contradicted` **kullanılmıyor**,
+çünkü o "kanıt iddiayı çürütüyor" demektir ve bu bir hükümdür; burada hüküm verilmiyor.
+Okuma-anlama gerektiren satırlar (bir tarafın ne iddia ettiği) ajanın işi olarak duruyor ve
+yokluğu görünür kalıyor.
+
+Önemli olan yol: bu satırlar **doğrulama kapısından geçerek** yazılıyor
+(`acceptMachineStatement`). Yani adapter, ajanlara kapalı olan bir kestirmeyi kendisi de
+kullanamıyor. Testi bunu doğruluyor: hiçbir makine satırı `verified` değil, `verifiedBy`
+boş, `humanReviewRequired` her satırda açık.
+
+### D.6 — Konsol yüzeyi (2026-09-04)
+
+| ID | Ne kapandı | Kanıt |
+|---|---|---|
+| **L-25 (alım + sürüm kısmı)** | Dava başına **Intake** sekmesi: custody bandı, zincir hükmü, her varış satırı hash'iyle; dava açma formu; sürüm grubunda **ne değişti** listesi | 5 alım testi + 5 sürüm paneli testi; `IntakeReceipt` ve `VersionGroupPanel` saf bileşen olarak ayrıldı ve doğrudan test ediliyor |
+
+Konsol tarafında korunan iki dürüstlük kuralı test edilerek pinlendi: sürüm paneli hiçbir
+üyeyi **yetkili ilan etmiyor** ("signed candidate" dosya adının söylediğidir, hüküm değil),
+ve yalnız bir sürümde geçen bir değer "yoktan değişti" gibi değil, `not stated` olarak
+gösteriliyor. Atlanan satır karşılaştırması da "atlandı" diyor, uydurma sayı basmıyor.

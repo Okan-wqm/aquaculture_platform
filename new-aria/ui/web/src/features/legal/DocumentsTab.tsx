@@ -106,7 +106,7 @@ const COLUMNS: ReadonlyArray<ColumnDef<LegalDocument>> = [
   },
 ];
 
-function VersionGroupPanel({ group, documents }: { readonly group: LegalDocumentVersion; readonly documents: ReadonlyArray<LegalDocument> }): ReactNode {
+export function VersionGroupPanel({ group, documents }: { readonly group: LegalDocumentVersion; readonly documents: ReadonlyArray<LegalDocument> }): ReactNode {
   // WHY: members carry document ids; a reader recognises file names. The id stays
   // in the title so the mapping back to the artifact is never lost.
   const nameOf = (documentId: string): string => documents.find((entry) => entry.documentId === documentId)?.fileName ?? documentId;
@@ -128,9 +128,35 @@ function VersionGroupPanel({ group, documents }: { readonly group: LegalDocument
             </li>
           ))}
       </ol>
+      {group.steps.length === 0 ? null : (
+        <div className="stack">
+          {group.steps.map((step) => (
+            <div key={`${step.fromDocumentId}-${step.toDocumentId}`} className="version-step">
+              <span className="version-group__note">
+                {nameOf(step.fromDocumentId)} → {nameOf(step.toDocumentId)}: {formatNumber(step.addedLines)} lines added,{' '}
+                {formatNumber(step.removedLines)} removed
+                {step.unchangedLines < 0 ? ', line comparison skipped (pair too large)' : `, ${formatNumber(step.unchangedLines)} unchanged`}
+              </span>
+              {step.values.length === 0 ? (
+                <span className="version-group__note">No labelled value changed between these two.</span>
+              ) : (
+                <ul className="legal-list">
+                  {step.values.map((change) => (
+                    <li key={`${change.label}-${change.from ?? ''}-${change.to ?? ''}`}>
+                      {change.label}: {change.from === null ? <em>not stated</em> : change.from} → {change.to === null ? <em>not stated</em> : change.to}
+                      {change.fromLocator === null ? '' : ` · ${change.fromLocator}`}
+                      {change.toLocator === null ? '' : ` → ${change.toLocator}`}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
       <span className="version-group__note">
-        signedMember: {textOrEmpty(group.signedMember)} · filedMember: {textOrEmpty(group.filedMember)} — the ordering is mechanical, and which copy was
-        actually signed or filed must be confirmed by a human reviewer.
+        signedMember: {textOrEmpty(group.signedMember)} · filedMember: {textOrEmpty(group.filedMember)} — the ordering and the comparison above are
+        mechanical; which copy was actually signed or filed must be confirmed by a human reviewer.
       </span>
     </div>
   );

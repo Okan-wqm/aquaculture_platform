@@ -55,7 +55,8 @@
     "document_version_conflict",
     "date_contradiction",
     "amount_contradiction",
-    "missing_evidence"
+    "missing_evidence",
+    "party_identity_ambiguity"
   ],
   "owner": "packs/legal",
   "runner": {
@@ -73,5 +74,5 @@
   },
   "freshness_window_hours": 168,
   "schema_version": 1,
-  "parse_window_signature": "sha256:c20ce6eb57a7d0cad5021bfdf92f17f99bac36022746e36677244127fccd9ba3"
+  "parse_window_signature": "sha256:99a5ac8ce0590e92adb393fabe723425646746682bbb9a07c71ecad97839a871"
 }

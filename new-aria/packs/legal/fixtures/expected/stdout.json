@@ -280,11 +280,13 @@
       "complete": true
     },
     "version_groups": 1,
-    "parties": 3,
+    "parties": 6,
     "timeline_events": 12,
     "labelled_facts": 10,
     "document_references": 5,
     "contradictions": 1,
-    "missing_references": 1
+    "missing_references": 1,
+    "party_identity_ambiguities": 0,
+    "statements": 2
   }
 }

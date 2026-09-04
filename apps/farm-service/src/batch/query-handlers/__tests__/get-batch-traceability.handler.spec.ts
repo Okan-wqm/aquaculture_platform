@@ -23,10 +23,7 @@ import { BatchLocation } from '../../entities/batch-location.entity';
 import { Tank } from '../../../tank/entities/tank.entity';
 import { Feed } from '../../../feed/entities/feed.entity';
 import { FeedingRecord } from '../../../feeding/entities/feeding-record.entity';
-
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
+import { stub } from '@aquaculture/testing';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const BATCH = '22222222-2222-4222-8222-222222222222';
@@ -48,7 +45,7 @@ function qbStub(rawMany: unknown[], rawOne: unknown): Record<string, jest.Mock> 
 }
 
 function makeManager(): EntityManager {
-  const batch = mock<Batch>({
+  const batch = stub<Batch>({
     id: BATCH,
     batchNumber: 'B-1',
     status: 'active' as Batch['status'],
@@ -58,16 +55,16 @@ function makeManager(): EntityManager {
     initialQuantity: 1000,
     currentQuantity: 900,
     protocolId: 'p-1',
-    weight: mock<Batch['weight']>({
+    weight: stub<Batch['weight']>({
       initial: { avgWeight: 50, totalBiomass: 50, measuredAt: D0 },
       theoretical: { avgWeight: 120, totalBiomass: 108, lastCalculatedAt: D10, basedOnFCR: 1.2 },
     }),
-    fcr: mock<Batch['fcr']>({ actual: 1.2 }),
-    species: mock<Batch['species']>({ commonName: 'Salmon' }),
+    fcr: stub<Batch['fcr']>({ actual: 1.2 }),
+    species: stub<Batch['species']>({ commonName: 'Salmon' }),
   });
   const locations = [
-    mock<BatchLocation>({ tankId: T1, quantity: 1000, avgWeight: 50, movedAt: D0, exitedAt: D10, isCurrentLocation: false }),
-    mock<BatchLocation>({ tankId: T2, quantity: 950, avgWeight: 90, movedAt: D10, exitedAt: undefined, isCurrentLocation: true }),
+    stub<BatchLocation>({ tankId: T1, quantity: 1000, avgWeight: 50, movedAt: D0, exitedAt: D10, isCurrentLocation: false }),
+    stub<BatchLocation>({ tankId: T2, quantity: 950, avgWeight: 90, movedAt: D10, exitedAt: undefined, isCurrentLocation: true }),
   ];
   const findOne = jest.fn().mockImplementation((entity: unknown) => {
     if (entity === Batch) return Promise.resolve(batch);
@@ -96,12 +93,12 @@ function makeManager(): EntityManager {
     // water aggregate
     return qbStub([], { tmin: '10', tavg: '12.34', tmax: '14', cnt: '5' });
   });
-  return mock<EntityManager>({ findOne, find, createQueryBuilder, query });
+  return stub<EntityManager>({ findOne, find, createQueryBuilder, query });
 }
 
 function makeHandler(events: unknown[]): GetBatchTraceabilityHandler {
-  const queryBus = mock<QueryBus>({ execute: jest.fn().mockResolvedValue(events) });
-  return new GetBatchTraceabilityHandler(mock<DataSource>({}), queryBus);
+  const queryBus = stub<QueryBus>({ execute: jest.fn().mockResolvedValue(events) });
+  return new GetBatchTraceabilityHandler(stub<DataSource>({}), queryBus);
 }
 
 beforeEach(() => {
@@ -174,7 +171,7 @@ describe('GetBatchTraceabilityHandler', () => {
     runInTenantRead.mockImplementation(
       async (_ds, _s, _t, cb: (qr: { manager: EntityManager }) => Promise<unknown>) =>
         cb({
-          manager: mock<EntityManager>({
+          manager: stub<EntityManager>({
             findOne: jest.fn().mockResolvedValue(null),
             find: jest.fn().mockResolvedValue([]),
           }),

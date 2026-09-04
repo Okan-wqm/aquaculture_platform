@@ -2,6 +2,8 @@ import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
 
+import createVitestTestPolicy from '@aquaculture/testing/vitest';
+
 import { loadVitestResourceProfile } from '../../../tools/testing/vitest-resource-policy';
 
 const resourceProfile = loadVitestResourceProfile('reactDom');
@@ -36,12 +38,22 @@ export default defineConfig({
     root: resolve(__dirname),
     include: ['src/**/*.{spec,test}.{ts,tsx}'],
     exclude: ['**/node_modules/**', '**/dist/**'],
-    // WHY: jsdom transform + collect is heavy (~70s collect alone) and the suite
-    // runs file-parallel. On a CPU-contended CI runner, async component specs that
-    // do real work (e.g. RecordEntityPage's queue-error confirm flow) can exceed
-    // the 5000ms default and flake RED even though they pass in isolation. Raising
-    // the per-test timeout removes the load-induced flake without masking a real
-    // failure — a genuinely hung test still trips the ceiling.
+    // The shared policy comes FIRST so the local overrides below are visible as
+    // overrides. It carries worker bounds and — the reason it is mandatory for
+    // every Vitest producer — the v8 + lcov coverage reporter that
+    // `tools/quality/coverage-report-inventory.json` expects to find a report
+    // from. Declaring a `test` script made this project a coverage producer
+    // (FARM-MEDIUM-304); a producer whose config does not spread this policy
+    // emits no lcov, and the evidence contract would be pinning a file that is
+    // never written.
+    ...createVitestTestPolicy(),
+    // WHY the timeout is overridden: jsdom transform + collect is heavy (~70s
+    // collect alone) and the suite runs file-parallel. On a CPU-contended CI
+    // runner, async component specs that do real work (e.g. RecordEntityPage's
+    // queue-error confirm flow) can exceed the 5000ms default and flake RED even
+    // though they pass in isolation. Raising the per-test timeout removes the
+    // load-induced flake without masking a real failure — a genuinely hung test
+    // still trips the ceiling.
     //
     // Sourced from tools/testing/vitest-resource-policy.json's 'reactDom' profile
     // (the SSoT for vitest worker/timeout budgets) instead of a local literal, so

@@ -404,12 +404,58 @@ export interface ScadaDeployFailedEvent extends BaseEvent {
   errorMessage?: string;
 }
 
+/**
+ * Pre-meal oxygen readiness verdict (W7 — FARM-MEDIUM-271).
+ *
+ * `MealWindowUpcoming` carries `minDissolvedOxygen` +
+ * `lowOxygenReductionPercent` per meal so the automation side can pre-boost
+ * aeration before feeding starts. Until this event existed nothing consumed
+ * those fields: the guard an operator configured in the protocol was written
+ * to the wire and dropped, and because `windowNotifiedAt` is burned in the
+ * emitting transaction the window could not even be replayed.
+ *
+ * sensor-service now answers the question the farm side asked: at meal
+ * scheduling time, is the unit's dissolved oxygen above the protocol's floor?
+ * Only NON-ready verdicts are published — a "ready" answer for every meal of
+ * every unit would be ~500 events per 15-minute tick carrying no decision.
+ *
+ * Consumed twice, deliberately: alert-engine opens a WARNING incident (the
+ * operator gets paged), and farm-service stamps the meal so the MealBoard shows
+ * the badge next to the meal it belongs to.
+ */
+export interface FeedingWindowReadinessEvent extends BaseEvent {
+  eventType: 'FeedingWindowReadiness';
+  /** Farm unit (Equipment.id) the meal is scheduled for. */
+  unitId: string;
+  unitCode: string;
+  mealId: string;
+  dayPlanId: string;
+  /** ISO timestamptz the meal is scheduled for (echoed from the window). */
+  scheduledAt: string;
+  /**
+   * `low_oxygen` — a fresh reading is below the protocol floor.
+   * `no_reading` — the unit HAS an active DO sensor but no fresh measurement,
+   *   so the guard the operator configured is not actually guarding anything.
+   *   Units with no DO sensor at all produce no event (nothing was promised).
+   */
+  status: 'low_oxygen' | 'no_reading';
+  /** Protocol floor that was evaluated (mg/L). */
+  minDissolvedOxygen: number;
+  /** Observed value when one was available (mg/L). */
+  observedDissolvedOxygen?: number;
+  /** ISO timestamptz of the observed reading. */
+  observedAt?: string;
+  /** Protocol's suggested ration reduction while oxygen is low. */
+  lowOxygenReductionPercent?: number;
+}
+
 // ==================== Type Union ====================
 
 /**
  * Union type for all sensor events
  */
 export type SensorEvent =
+  | FeedingWindowReadinessEvent
   | SensorReadingEvent
   | SensorMetricIngestedEvent
   | SensorRegisteredEvent

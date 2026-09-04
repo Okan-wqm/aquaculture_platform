@@ -9,6 +9,7 @@ services:
   - events.*.PasswordResetCompleted
   - events.*.PasswordResetRequested
   - events.*.TenantStatusChanged
+  - events.*.TenantUpdated
   - events.*.UserAccountLocked
   - events.*.UserAccessTokenInvalidationRequested
   - events.*.UserDeleted
@@ -163,6 +164,7 @@ services:
   - events.*.EdgeDeviceHeartbeat
   - events.*.EdgeDeviceIoData
   - events.*.EdgeDeviceResponse
+  - events.*.FeedingWindowReadiness
   - events.*.IoConfigPushResult
   - events.*.LoRaDeviceEvent
   - events.*.ParentReadingRouted

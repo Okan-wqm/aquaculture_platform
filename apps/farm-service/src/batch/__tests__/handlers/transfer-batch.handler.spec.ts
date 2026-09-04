@@ -14,7 +14,8 @@ import { Batch, BatchStatus } from '../../entities/batch.entity';
 import { TankBatch } from '../../entities/tank-batch.entity';
 import { Equipment, EquipmentStatus } from '../../../equipment/entities/equipment.entity';
 import { FarmStockProjectionService } from '../../../farm-stock/farm-stock-projection.service';
-import { createMockDataSource, createMockRepository } from '@aquaculture/testing';
+import { collaborator, createMockDataSource, createMockRepository } from '@aquaculture/testing';
+import { DayPlanRecalcService } from '../../../feeding-protocol/services/day-plan-recalc.service';
 
 // FARM-HIGH-052: transfer is stock-mutating, so every command must carry the
 // idempotency envelope or the handler rejects it as legacy.
@@ -63,7 +64,15 @@ describe('TransferBatchHandler', () => {
       createMockRepository() as any,
       mockOutboxPublisher as any,
       // P-31 recalc — mocked (day-plan-recalc.service.spec kapsıyor).
-      { recalcForUnit: jest.fn().mockResolvedValue(null) } as never,
+      // Çoklu ünite recalc'ı unitId-SIRALI olarak servis tarafından yürütülür
+      // (FARM-MEDIUM-275) — handler artık tek çağrı yapar.
+      collaborator<DayPlanRecalcService>(
+        {
+          recalcForUnit: jest.fn().mockResolvedValue(null),
+          recalcForUnits: jest.fn().mockResolvedValue([]),
+        },
+        'DayPlanRecalcService',
+      ),
       // D-3 miktar çözümü — GERÇEK stateless politika (üretim davranışı).
       new RemovalQuantityPolicyService(),
       mockTankCapacityService as any,

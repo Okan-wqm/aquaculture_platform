@@ -108,7 +108,7 @@ const TenantSettings: React.FC = () => {
       case 'security':
         return <SecuritySettings />;
       case 'localization':
-        return <LocalizationSettings />;
+        return <LocalizationSettings canEdit={canEditSettings} />;
       case 'appearance':
         return (
           <div className="space-y-6">

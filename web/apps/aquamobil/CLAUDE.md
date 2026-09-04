@@ -10,4 +10,4 @@ Field-worker mobile data-entry PWA. `base: '/mobile/'`, own toolchain + standalo
 - **React dedupe:** `libs/farm-shared` is aliased (not npm-installed); `vite.config.ts` sets `dedupe: ['react','react-dom']` to force a single React copy across the aliased boundary (Tier-1 "make it impossible").
 
 ## Enforcement
-The S1 codegen gate covers its GraphQL client. NOTE: the `eslint src` lint baseline is large and pre-existing (ORPHAN-MEDIUM-112) — do not treat it as a clean gate.
+The S1 codegen gate covers its GraphQL client. The vitest suite (66 files / 383 tests) runs per PR through the inferred **`test`** target — Nx infers this project's targets from `package.json` scripts, so until a plain `test` script existed the whole suite was unselectable and ran nowhere (FARM-MEDIUM-304); `test:invariant` covers the SW build artifact separately. Both are kept reachable by `tests/invariants/test-target-ci-reachability.spec.ts`. NOTE: the `eslint src` lint baseline is large and pre-existing (ORPHAN-MEDIUM-112) — do not treat it as a clean gate.

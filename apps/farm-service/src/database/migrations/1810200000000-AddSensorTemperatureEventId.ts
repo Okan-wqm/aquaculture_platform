@@ -15,8 +15,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * UNQUALIFIED table names on purpose: per-tenant tables replayed into every
  * tenant schema by the provisioner (ADR-033 discipline).
  */
-export class AddSensorTemperatureEventId1808700000000 implements MigrationInterface {
-  name = 'AddSensorTemperatureEventId1808700000000';
+export class AddSensorTemperatureEventId1810200000000 implements MigrationInterface {
+  name = 'AddSensorTemperatureEventId1810200000000';
 
   async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(

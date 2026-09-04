@@ -1195,10 +1195,23 @@ describe('three-store invariants', () => {
       expect(registryRows[0]).toMatchObject({
         id: entry.finding_id,
         severity: entry.finding_id.split('-')[1],
-        state: 'OPEN',
         owner_agent: 'platform-autonomy',
-        closing_commits: [],
       });
+      // State is derived from merged history (finding-registry-closure-drift):
+      // a scoped finding is RESOLVED exactly when a main-reachable commit
+      // carries its Closes: trailer, and then its closing_commits record that
+      // commit. Pinning OPEN here would contradict the derivation the moment
+      // main closes one of these findings.
+      const scopedRow = registryRows[0];
+      expect(scopedRow).toBeDefined();
+      if (scopedRow !== undefined) {
+        expect(['OPEN', 'IN-PROGRESS', 'RESOLVED']).toContain(scopedRow.state);
+        if (scopedRow.state === 'RESOLVED') {
+          expect(scopedRow.closing_commits.length).toBeGreaterThan(0);
+        } else {
+          expect(scopedRow.closing_commits).toEqual([]);
+        }
+      }
       if (entry.narrative_anchor) {
         expect(narrative).toContain(`## ${entry.finding_id} `);
       }

@@ -14,6 +14,8 @@
  * Banned constructs (canonical list: CLAUDE.md "Code Quality Standards"):
  *   - `as any`                      — find the correct type or write a generic
  *   - `as unknown as X`             — casting hack; fix the interface
+ *   - `as never`                    — the same hack wearing a different hat;
+ *                                     use the typed doubles in @aquaculture/testing
  *   - `@ts-ignore` / `@ts-expect-error` / `@ts-nocheck` — fix the type error
  *   - `it.skip(` / `test.skip(` / `describe.skip(` / `xit(` / `xdescribe(` /
  *     `xtest(`                      — test silencing (Susturma yasak)
@@ -37,6 +39,19 @@
  * diff-based mode enforces exactly that, no more, no less. Pre-existing
  * debt is burned down by the lint/cleanup train, not by ambushing
  * unrelated commits.
+ *
+ * WHY `as never` joined the list: it was the one cast CLAUDE.md did not name, so
+ * it absorbed the pressure from the ones it did — 403 code-level uses across 102
+ * files, 100 of them spec files, while `as any` and `as unknown as` were refused
+ * at commit time. It is strictly worse than either: `as any` at least keeps
+ * property access checkable at the use site, whereas `x as never` asserts the
+ * value is of the type with NO values, so every subsequent check is vacuous. In
+ * practice each one was a partial test double standing in for a real class, free
+ * to drift from it forever — the failure mode being `TypeError: <method> is not a
+ * function` at runtime, or worse, a suite that stays green because the assertion
+ * it makes no longer touches the code it names. The replacement is
+ * `stub<T>()` / `collaborator<T>()` in libs/testing, which type-check the shape
+ * against the real `T`.
  *
  * Manual-review items NOT automated here (AHEAD checklist item 3 keeps
  * them human-judged): optional-chaining (`?.`) growth and JSON-column
@@ -101,6 +116,31 @@ const BANNED_CONSTRUCTS: readonly BannedConstructRule[] = [
     construct: /\bas\s+unknown\s+as\b/,
     label: 'as unknown as',
     remedy: 'fix the interface or the implementation, not the cast',
+    exemptPaths: [
+      // The doubling SSOT. `stubMember` exists because TypeScript genuinely
+      // cannot check a single-signature jest mock against an overloaded or
+      // generic member (Repository.save, EntityManager.getRepository); the cast
+      // is unavoidable, so it lives in ONE tested function that forces the call
+      // site to name the member type, instead of at hundreds of call sites that
+      // name nothing. Same rationale as the getRepository exemption below.
+      /^libs\/testing\/src\/doubles\//,
+    ],
+  },
+  {
+    // `\bas` so the English "w[as never]" / "h[as never]" cannot match — the
+    // naive substring inflates the repo count by ~15% with pure prose.
+    construct: /\bas\s+never\b/,
+    label: 'as never',
+    remedy:
+      'use stub<T>() for a value or collaborator<T>() for an injected service, from ' +
+      "@aquaculture/testing — `as never` type-checks NOTHING, so the double drifts from " +
+      'the type it stands in for and the suite goes green for the wrong reason',
+    exemptPaths: [
+      // The replacement itself. Its docblock has to quote the construct it
+      // replaces to explain why, and its spec has to name it in test titles —
+      // same self-exemption rationale as banned-construct.spec.ts below.
+      /^libs\/testing\/src\/doubles\//,
+    ],
   },
   {
     construct: /@ts-ignore\b/,
@@ -142,7 +182,22 @@ const BANNED_CONSTRUCTS: readonly BannedConstructRule[] = [
       // one place the bare call legitimately lives.
       /^libs\/backend-common\//,
       // Mock factories construct repository doubles around the raw shape.
-      /^platform\/libs\/testing\//,
+      // Path corrected from `platform/libs/testing/`, which has never existed in
+      // this repository — the shared testing library is `libs/testing` (aliased
+      // @platform/testing, which is presumably where the wrong path came from).
+      // The exemption therefore matched nothing at all until now.
+      /^libs\/testing\//,
+      // Shared e2e fixture builders, same rationale as the mock factories above
+      // but for REAL repositories: a suite that drives a production service
+      // against a real database has to hand that service the `Repository<T>`
+      // instances its constructor declares, and there is no tenant-scoped
+      // equivalent of that shape. Scoped to `__tests__/e2e/helpers/` so the
+      // exemption covers shared fixture code only — the specs themselves stay
+      // subject to the rule, which is what keeps the raw call in ONE place per
+      // service instead of copied into every suite. Not a production path: the
+      // rule protects request-scoped data access from bypassing tenant
+      // isolation, and nothing here serves a request.
+      /^apps\/[^/]+\/src\/__tests__\/e2e\/helpers\//,
     ],
   },
 ];

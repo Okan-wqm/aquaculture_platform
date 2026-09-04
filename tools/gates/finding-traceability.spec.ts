@@ -5,7 +5,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 
-import { commitHasFindingCloseTrailer, commitMessageClosesFinding } from './finding-traceability';
+import {
+  commitHasFindingCloseTrailer,
+  commitMessageClosesFinding,
+  commitMessageClosesFindingExactly,
+} from './finding-traceability';
 
 const repo = mkdtempSync(join(tmpdir(), 'finding-traceability-spec-'));
 const HERMETIC_ENV: NodeJS.ProcessEnv = Object.fromEntries(
@@ -80,4 +84,38 @@ void test('commitHasFindingCloseTrailer reads git commit messages and fails clos
   const result = commitHasFindingCloseTrailer(repo, trailerlessCommit, 'INFRA-CRITICAL-009');
   assert.equal(result.ok, false);
   assert.match(result.reason ?? '', /does not contain a Closes: trailer/);
+});
+
+test('commitMessageClosesFindingExactly binds the id and the anchored review file', () => {
+  const finding = { id: 'INFRA-CRITICAL-009', review_file: 'docs/reviews/data-expert/review.md' };
+  assert.equal(
+    commitMessageClosesFindingExactly(
+      'fix: x\n\nCloses: docs/reviews/data-expert/review.md#INFRA-CRITICAL-009\n',
+      finding,
+    ),
+    true,
+  );
+  assert.equal(
+    commitMessageClosesFindingExactly('fix: x\n\nCloses: INFRA-CRITICAL-009\n', finding),
+    true,
+    'a bare id trailer still closes',
+  );
+  assert.equal(
+    commitMessageClosesFindingExactly(
+      'fix: x\n\nCloses: docs/reviews/other/older-epoch.md#INFRA-CRITICAL-009\n',
+      finding,
+    ),
+    false,
+    'an anchor naming another review file is a different finding that reused the id',
+  );
+  assert.equal(
+    commitMessageClosesFindingExactly('fix: x\n\nCloses: BACKLOG-NATS-002\n', finding),
+    false,
+    'a backlog trailer closes no registry finding',
+  );
+  assert.equal(
+    commitMessageClosesFindingExactly('fix: x\n\nCloses: docs/r.md#INFRA-CRITICAL-0090\n', finding),
+    false,
+    'ids match on word boundaries',
+  );
 });

@@ -677,9 +677,13 @@ if [ -z "$SERVICE_NAMES" ]; then
   echo "error: no service names extracted from ${SERVICES_YAML}" >&2
   exit 1
 fi
-for svc in $SERVICE_NAMES; do
+# One name per line, read without word-splitting or glob expansion: the CN list
+# is validated above, and the safe read loop is what nats-invariants pins so a
+# later edit cannot quietly reintroduce `for x in $unquoted`.
+while IFS= read -r svc; do
+  [ -n "$svc" ] || continue
   generate_per_service_client_cert "$svc"
-done
+done <<< "$SERVICE_NAMES"
 
 # PostgreSQL expects server.crt and server.key (not postgres-cert.pem)
 # Publish compatibility aliases by same-directory atomic rename. Canonical

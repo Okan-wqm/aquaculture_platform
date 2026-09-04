@@ -20,6 +20,49 @@ export function commitMessageClosesFinding(message: string, findingId: string): 
   return findingCloseTrailerRegex(findingId).test(message);
 }
 
+/** The review-file anchor and id a `Closes:` trailer names, when it names one. */
+export interface FindingTrailerTarget {
+  readonly id: string;
+  readonly review_file?: string;
+}
+
+function normalizeReviewPath(value: string): string {
+  return value.replace(/^`|`$/g, '').replace(/^\.\//, '');
+}
+
+/**
+ * Closure DERIVATION matcher — stricter than the commit-msg gate above.
+ *
+ * `commitMessageClosesFinding` answers "may this commit be recorded against
+ * this finding?" and therefore accepts a `BACKLOG-*` trailer for any id. That is
+ * the right leniency at commit time and the wrong one when merged history is
+ * read back to decide what is closed: one `Closes: BACKLOG-NATS-002` on main
+ * would mark every finding in the registry RESOLVED, and an id the registry
+ * reused across numbering epochs would be closed by a commit that cited a
+ * different review file. Here a trailer closes a finding only when it names
+ * the id itself, and — when it carries a `<review-file>#<id>` anchor — only
+ * when that file is the finding's own review_file.
+ */
+export function commitMessageClosesFindingExactly(
+  message: string,
+  finding: FindingTrailerTarget,
+): boolean {
+  const idPattern = escapeRegExp(finding.id);
+  const anchored = new RegExp(`^Closes:\\s+(\\S+?)#${idPattern}\\b`, 'gm');
+  const bare = new RegExp(
+    `^Closes:\\s+(?:[^#\\n]*\\s)?${idPattern}\\b(?![^\\n]*#${idPattern})`,
+    'm',
+  );
+  const own =
+    finding.review_file === undefined ? undefined : normalizeReviewPath(finding.review_file);
+  for (const match of message.matchAll(anchored)) {
+    const cited = match[1];
+    if (cited === undefined) continue;
+    if (own === undefined || normalizeReviewPath(cited) === own) return true;
+  }
+  return bare.test(message);
+}
+
 export function readCommitMessage(repoRoot: string, sha: string): string {
   return execFileSync('git', ['-C', repoRoot, 'show', '-s', '--format=%B', sha], {
     encoding: 'utf8',

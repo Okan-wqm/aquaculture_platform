@@ -1,5 +1,5 @@
 import { ConflictException } from '@nestjs/common';
-import { createMockDataSource, createMockRepository } from '@aquaculture/testing';
+import { createMockDataSource, createMockRepository, stub } from '@aquaculture/testing';
 import { getTenantSchemaName } from '@aquaculture/backend-common/database';
 
 import { CreateWorkerCommand } from '../commands/create-worker.command';
@@ -8,18 +8,13 @@ import { Worker, workerEmailBlindIndex } from '../entities/worker.entity';
 import type { CreateWorkerInput } from '../dto/create-worker.input';
 import type { FinanceSettingsService } from '../../finance/services/finance-settings.service';
 
-/** Typed partial-mock helper (repo pattern — keeps mocks type-safe without a blanket cast). */
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
-
 describe('CreateWorkerHandler', () => {
   const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const userId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
   // Currency SSoT resolver (FARM-HIGH-151) — the handler resolves the
   // tenant default currency through it instead of a hardcoded literal.
-  const financeSettings = mock<FinanceSettingsService>({
+  const financeSettings = stub<FinanceSettingsService>({
     getDefaultCurrency: jest.fn().mockResolvedValue('NOK'),
   });
 

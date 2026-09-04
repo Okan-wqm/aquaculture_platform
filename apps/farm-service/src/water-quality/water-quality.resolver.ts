@@ -254,18 +254,24 @@ export class WaterQualityResolver {
    * Ünitelerin etkin su sıcaklığı + kaynak provenansı (sensör ≤6s → manuel
    * ≤24s → none). AssignmentsTab sıcaklık rozetleri ve öğün motoru snapshot'ı
    * aynı SSoT zincirini okur (WaterTemperatureService, C-3).
+   *
+   * W8/FARM-MEDIUM-274: rol kapısının ALTINDA nesne düzeyi site yetkisi.
+   * Önceden MODULE_USER, atanmadığı sitenin ünite kimliklerini geçirip o
+   * ünitelerin sıcaklık + sensör kimliklerini okuyabiliyordu.
    */
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [EffectiveUnitTemperature], { name: 'effectiveUnitTemperatures' })
   async getEffectiveUnitTemperatures(
     @Args('unitIds', { type: () => [ID] }) unitIds: string[],
     @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { sub: string; roles: Role[]; assignedSiteIds?: string[] },
   ): Promise<EffectiveUnitTemperature[]> {
     if (unitIds.length > MAX_EFFECTIVE_TEMPERATURE_UNITS) {
       throw new BadRequestException(
         `En fazla ${MAX_EFFECTIVE_TEMPERATURE_UNITS} ünite sorgulanabilir (istenen: ${unitIds.length})`,
       );
     }
+    await this.waterQualityService.assertUnitsSiteAuthorized(tenantId, unitIds, user);
     const map = await this.waterTemperatureService.getEffectiveTemperaturesForUnits(
       tenantId,
       unitIds,

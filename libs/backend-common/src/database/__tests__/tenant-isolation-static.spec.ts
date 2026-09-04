@@ -62,10 +62,14 @@ describe('Tenant Isolation Static Analysis', () => {
       // 194 → 195: feeding_record_provenance — the immutable ledger that lets a
       // backfill rollback tell its own rows from live drain writes
       // (FARM-CRITICAL-241). It is per-tenant, so it must fan out.
-      // 195 → 196: sensor's telemetry_archive_events ledger moved to the
-      // per-tenant clone list (ADR-011 tenant_id rule) — erasure drops a
-      // tenant's archive history with its schema.
-      expect(tenantTotal).toBe(196);
+      // 195 → 197: two per-tenant tables joined the clone list independently —
+      // sensor's telemetry_archive_events ledger (ADR-011 tenant_id rule; erasure
+      // drops a tenant's archive history with its schema) and feeding's
+      // feeding_record_attribution_quarantine, where the W0 attribution repair
+      // parks a historical feeding record whose unit was occupied by nobody on
+      // that date (FARM-HIGH-240). tenant_localization and feeding_job_runs do
+      // NOT fan out: they are cross-tenant ledgers in farm's infrastructureTables.
+      expect(tenantTotal).toBe(197);
     });
 
     it('every module should have a sourceSchema', () => {
@@ -121,8 +125,9 @@ describe('Tenant Isolation Static Analysis', () => {
       // 85 → 91: feeding_protocols_v2, feeding_protocol_assignments,
       // feeding_day_plans, feeding_meals, feeding_forecast_snapshots and
       // farm_incident_media. 91 → 95: environmental scene, versioned coverage
-      // assessment, sync-state, and metric-outcome SSoT.
-      expect(counts['farm']).toBe(96);
+      // assessment, sync-state, and metric-outcome SSoT. 96 → 97:
+      // feeding_record_attribution_quarantine (see the tenantTotal note above).
+      expect(counts['farm']).toBe(97);
       expect(counts['hr']).toBe(29);
       expect(counts['hydroponics']).toBe(1);
       expect(counts['alert']).toBe(4);

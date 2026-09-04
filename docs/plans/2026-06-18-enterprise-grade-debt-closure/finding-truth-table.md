@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `b99b5dae2596844ec07be70dcea83df2f952f1e982e4e222d737dd79e9ea84ae`
+Registry tip: `26330c30a71aa5f01cd9a30088774a730e8c2c18d5061c4b63ce33ec3e61da20`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -167,7 +167,7 @@ rows onto main's chain added six active CRITICALs the branch itself fixes —
 shared-schema telemetry readers, stub sidecar pipeline) and `SEC-CRITICAL-092`/`093` (WebAuthn
 registration without proof-of-possession, credentials surviving password reset) — all
 `already-fixed-needs-close` until the post-merge close ceremony records their main-reachable
-commits. The integration review also raised `SENSOR-CRITICAL-104` as `real-open`: the declared
+commits. The integration review also raised `SENSOR-CRITICAL-108` as `real-open`: the declared
 JetStream stream limits (~7.75 GiB) exceed the droplet's 2 GB file store while the capacity gate
 still passes, so the 60-minute telemetry buffer cannot be created as configured.
 
@@ -180,6 +180,21 @@ security review of the deploy lanes (INFRA-CRITICAL-096 is BLOCKED and therefore
 evidence-chain decisions recorded in
 `docs/reviews/infra-expert/2026-09-04-production-host-control-plane-integration.md`.
 
+Updated 2026-09-04 (feeding W0–W8 integration, PR #1031): the branch's 77 registry rows were
+stitched onto main's chain (nine ids renumbered because main had reused them). Its six CRITICALs —
+`FARM-CRITICAL-242/244/245/305/306` and `PLAT-CRITICAL-905` — are all fixed by commits on the merged
+branch and are `already-fixed-needs-close` until the post-merge close ceremony records their
+main-reachable commits.
+
+Updated 2026-09-04 (closure derivation, PR #1031's `finding-registry reconcile`): the merged
+W0–W8 branch adds the closure-drift gate, which derives RESOLVED from merged history instead of a
+remembered ceremony. Its matcher was tightened at integration to bind the finding id and, when the
+trailer carries an anchor, the finding's own review file — the commit-msg gate's `BACKLOG-*`
+leniency would otherwise have closed every finding at once. Reconciling against `origin/main`
+resolved 467 findings that main-reachable commits had closed, 35 of them active CRITICALs whose
+rows leave this table (their evidence stays in the registry as `closing_commits`). Active
+CRITICALs: 46.
+
 Allowed truth buckets:
 
 - `real-open`
@@ -189,83 +204,54 @@ Allowed truth buckets:
 - `stale`
 - `new-finding-required`
 
-| Finding                 | Registry state | First sprint | Owner                      | Truth bucket              |
-| ----------------------- | -------------- | ------------ | -------------------------- | ------------------------- |
-| `INFRA-CRITICAL-029`    | OPEN           | 1.1          | data-expert                | real-open                 |
-| `FARM-CRITICAL-061`     | OPEN           | 1.1          | farm-expert                | real-open                 |
-| `AISAFETY-CRITICAL-003` | OPEN           | —            | ai-safety-auditor          | already-fixed-needs-close |
-| `SENSOR-CRITICAL-003`   | OPEN           | —            | sensor-expert              | already-fixed-needs-close |
-| `DATA-CRITICAL-001`     | OPEN           | —            | data-expert                | real-open                 |
-| `INFRA-CRITICAL-039`    | OPEN           | —            | infra-expert               | already-fixed-needs-close |
-| `RBAC-CRITICAL-001`     | OPEN           | 1.2          | auth-security-expert       | already-fixed-needs-close |
-| `RBAC-CRITICAL-002`     | OPEN           | 1.2          | auth-security-expert       | already-fixed-needs-close |
-| `RBAC-CRITICAL-003`     | OPEN           | 1.2          | auth-security-expert       | already-fixed-needs-close |
-| `INFRA-CRITICAL-040`    | IN-PROGRESS    | —            | infra-expert               | blocked                   |
-| `INFRA-CRITICAL-044`    | OPEN           | —            | infra-expert               | blocked                   |
-| `FARM-CRITICAL-238`     | IN-PROGRESS    | 4.1          | data-expert                | real-open                 |
-| `FARM-CRITICAL-240`     | IN-PROGRESS    | 4.1          | data-expert                | real-open                 |
-| `FARM-CRITICAL-241`     | IN-PROGRESS    | 4.1          | data-expert                | real-open                 |
-| `SENSOR-CRITICAL-007`   | OPEN           | —            | sensor-expert              | real-open                 |
-| `SENSOR-CRITICAL-008`   | OPEN           | —            | sensor-expert              | already-fixed-needs-close |
-| `SENSOR-CRITICAL-009`   | OPEN           | —            | sensor-expert              | real-open                 |
-| `INFRA-CRITICAL-077`    | IN-PROGRESS    | 1.1          | infra-expert               | real-open                 |
-| `INFRA-CRITICAL-078`    | IN-PROGRESS    | 1.1          | security-reviewer          | real-open                 |
-| `DATA-CRITICAL-010`     | OPEN           | —            | data-expert                | real-open                 |
-| `ORPHAN-CRITICAL-418`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
-| `ORPHAN-CRITICAL-419`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
-| `ORPHAN-CRITICAL-420`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
-| `ORPHAN-CRITICAL-427`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
-| `ORPHAN-CRITICAL-428`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
-| `ORPHAN-CRITICAL-439`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
-| `ORPHAN-CRITICAL-440`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
-| `ORPHAN-CRITICAL-446`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
-| `ORPHAN-CRITICAL-451`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
-| `ORPHAN-CRITICAL-460`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
-| `ORPHAN-CRITICAL-461`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
-| `ORPHAN-CRITICAL-469`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
-| `ORPHAN-CRITICAL-479`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
-| `ORPHAN-CRITICAL-484`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
-| `ORPHAN-CRITICAL-485`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
-| `ORPHAN-CRITICAL-488`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
-| `ORPHAN-CRITICAL-494`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
-| `ORPHAN-CRITICAL-495`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
-| `ORPHAN-CRITICAL-497`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
-| `ORPHAN-CRITICAL-503`   | OPEN           | 2026-08-13   | aria-acceptance-gap-fixer  | already-fixed-needs-close |
-| `ORPHAN-CRITICAL-506`   | OPEN           | 2026-08-13   | aria-acceptance-gap-fixer  | real-open                 |
-| `ORPHAN-CRITICAL-513`   | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
-| `ORPHAN-CRITICAL-516`   | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
-| `ORPHAN-CRITICAL-517`   | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
-| `ORPHAN-CRITICAL-549`   | OPEN           | 2026-08-06   | aria-acceptance-gap-fixer  | real-open                 |
-| `ORPHAN-CRITICAL-776`   | OPEN           | Task 1       | platform-autonomy          | already-fixed-needs-close |
-| `ARIA-CRITICAL-007`     | OPEN           | Task 10      | platform-autonomy          | real-open                 |
-| `ARIA-CRITICAL-009`     | OPEN           | Task 12      | platform-autonomy          | real-open                 |
-| `ARIA-CRITICAL-015`     | OPEN           | Task 19      | platform-autonomy          | real-open                 |
-| `ARIA-CRITICAL-031`     | OPEN           | 2026-09-01   | zcode                      | already-fixed-needs-close |
-| `ARIA-CRITICAL-032`     | OPEN           | 2026-09-01   | zcode                      | already-fixed-needs-close |
-| `SUPPLY-CRITICAL-002`   | IN-PROGRESS    | 2026-08-25   | security-reviewer          | already-fixed-needs-close |
-| `EDGE-CRITICAL-002`     | OPEN           | 2026-07-12   | edge-expert                | already-fixed-needs-close |
-| `EDGE-CRITICAL-003`     | OPEN           | 2026-07-12   | edge-expert                | already-fixed-needs-close |
-| `EDGE-CRITICAL-004`     | OPEN           | 2026-07-12   | edge-expert                | already-fixed-needs-close |
-| `MOB-CRITICAL-018`      | OPEN           | 2026-08-16   | mobile-app-auditor         | already-fixed-needs-close |
-| `SENSOR-CRITICAL-086`   | OPEN           | 2026-08-24   | zcode                      | already-fixed-needs-close |
-| `SENSOR-CRITICAL-087`   | OPEN           | 2026-08-24   | zcode                      | already-fixed-needs-close |
-| `SENSOR-CRITICAL-088`   | OPEN           | 2026-08-24   | zcode                      | already-fixed-needs-close |
-| `SENSOR-CRITICAL-089`   | OPEN           | 2026-08-24   | zcode                      | already-fixed-needs-close |
-| `SEC-CRITICAL-092`      | OPEN           | 2026-08-23   | security-scan              | already-fixed-needs-close |
-| `SEC-CRITICAL-093`      | OPEN           | 2026-08-23   | security-scan              | already-fixed-needs-close |
-| `SENSOR-CRITICAL-104`   | OPEN           | 2026-09-03   | zcode                      | real-open                 |
-| `INFRA-CRITICAL-080`    | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
-| `INFRA-CRITICAL-081`    | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
-| `INFRA-CRITICAL-082`    | IN-PROGRESS    | 2026-07-19   | security-reviewer          | already-fixed-needs-close |
-| `INFRA-CRITICAL-083`    | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
-| `INFRA-CRITICAL-085`    | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
-| `INFRA-CRITICAL-090`    | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
-| `INFRA-CRITICAL-093`    | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
-| `INFRA-CRITICAL-095`    | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
-| `INFRA-CRITICAL-097`    | OPEN           | 2026-07-19   | security-reviewer          | real-open                 |
-| `INFRA-CRITICAL-098`    | OPEN           | 2026-07-19   | security-reviewer          | real-open                 |
-| `INFRA-CRITICAL-100`    | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
-| `INFRA-CRITICAL-101`    | IN-PROGRESS    | 2026-07-19   | security-reviewer          | already-fixed-needs-close |
+| Finding               | Registry state | First sprint | Owner                      | Truth bucket              |
+| --------------------- | -------------- | ------------ | -------------------------- | ------------------------- |
+| `INFRA-CRITICAL-029`  | OPEN           | 1.1          | data-expert                | real-open                 |
+| `INFRA-CRITICAL-040`  | IN-PROGRESS    | —            | infra-expert               | blocked                   |
+| `INFRA-CRITICAL-044`  | OPEN           | —            | infra-expert               | blocked                   |
+| `FARM-CRITICAL-238`   | IN-PROGRESS    | 4.1          | data-expert                | real-open                 |
+| `FARM-CRITICAL-240`   | IN-PROGRESS    | 4.1          | data-expert                | real-open                 |
+| `INFRA-CRITICAL-077`  | IN-PROGRESS    | 1.1          | infra-expert               | real-open                 |
+| `INFRA-CRITICAL-078`  | IN-PROGRESS    | 1.1          | security-reviewer          | real-open                 |
+| `DATA-CRITICAL-010`   | OPEN           | —            | data-expert                | real-open                 |
+| `ORPHAN-CRITICAL-419` | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-420` | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-506` | OPEN           | 2026-08-13   | aria-acceptance-gap-fixer  | real-open                 |
+| `ORPHAN-CRITICAL-513` | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
+| `ORPHAN-CRITICAL-516` | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
+| `ORPHAN-CRITICAL-517` | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
+| `ARIA-CRITICAL-007`   | OPEN           | Task 10      | platform-autonomy          | real-open                 |
+| `ARIA-CRITICAL-009`   | OPEN           | Task 12      | platform-autonomy          | real-open                 |
+| `ARIA-CRITICAL-015`   | OPEN           | Task 19      | platform-autonomy          | real-open                 |
+| `EDGE-CRITICAL-002`   | OPEN           | 2026-07-12   | edge-expert                | already-fixed-needs-close |
+| `EDGE-CRITICAL-003`   | OPEN           | 2026-07-12   | edge-expert                | already-fixed-needs-close |
+| `EDGE-CRITICAL-004`   | OPEN           | 2026-07-12   | edge-expert                | already-fixed-needs-close |
+| `MOB-CRITICAL-018`    | OPEN           | 2026-08-16   | mobile-app-auditor         | already-fixed-needs-close |
+| `SENSOR-CRITICAL-086` | OPEN           | 2026-08-24   | zcode                      | already-fixed-needs-close |
+| `SENSOR-CRITICAL-087` | OPEN           | 2026-08-24   | zcode                      | already-fixed-needs-close |
+| `SENSOR-CRITICAL-088` | OPEN           | 2026-08-24   | zcode                      | already-fixed-needs-close |
+| `SENSOR-CRITICAL-089` | OPEN           | 2026-08-24   | zcode                      | already-fixed-needs-close |
+| `SEC-CRITICAL-092`    | OPEN           | 2026-08-23   | security-scan              | already-fixed-needs-close |
+| `SEC-CRITICAL-093`    | OPEN           | 2026-08-23   | security-scan              | already-fixed-needs-close |
+| `SENSOR-CRITICAL-108` | OPEN           | 2026-09-03   | zcode                      | real-open                 |
+| `INFRA-CRITICAL-080`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-081`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-082`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | already-fixed-needs-close |
+| `INFRA-CRITICAL-083`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-085`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-090`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-093`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-095`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-097`  | OPEN           | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-098`  | OPEN           | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-100`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-101`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | already-fixed-needs-close |
+| `FARM-CRITICAL-242`   | IN-PROGRESS    | 2026-07-27   | claude                     | already-fixed-needs-close |
+| `FARM-CRITICAL-244`   | OPEN           | 2026-07-27   | claude                     | already-fixed-needs-close |
+| `FARM-CRITICAL-245`   | OPEN           | 2026-07-27   | claude                     | already-fixed-needs-close |
+| `FARM-CRITICAL-305`   | OPEN           | 2026-07-27   | claude                     | already-fixed-needs-close |
+| `FARM-CRITICAL-306`   | OPEN           | 2026-07-28   | claude                     | already-fixed-needs-close |
+| `PLAT-CRITICAL-905`   | OPEN           | 2026-07-29   | claude                     | already-fixed-needs-close |
 
 ## Mutation Rules
 
@@ -364,6 +350,25 @@ Allowed truth buckets:
 - `INFRA-CRITICAL-101` (the production certificate store exposed every NATS service identity to the
   broker host): recovered from PR #1022 onto the integration head (commit bfc47855e). The registry
   row stays OPEN only until the post-merge close ceremony records a main-reachable closing commit.
+- `FARM-CRITICAL-242` (site-scoped FEFO deduction raised 42703 on every siteId, historical
+  attribution and single-live assignment were unrepaired): fixed on the merged W0–W8 branch (commit
+  944af3ce0). The registry row stays OPEN only until the post-merge close ceremony records a
+  main-reachable closing commit.
+- `FARM-CRITICAL-244` (the batch-share parameter was bound to two types so growth could not be
+  applied): fixed on the merged W0–W8 branch (commit fa5dbaa7e). The registry row stays OPEN only
+  until the post-merge close ceremony records a main-reachable closing commit.
+- `FARM-CRITICAL-245` (FEFO lot expiries were tied to a clock the allocator never read): fixed on
+  the merged W0–W8 branch (commit e8f9195ce). The registry row stays OPEN only until the post-merge
+  close ceremony records a main-reachable closing commit.
+- `FARM-CRITICAL-305` (Site.timezone had no declared column type so farm-service metadata could not
+  build): fixed on the merged W0–W8 branch (commit 0e47fae0a). The registry row stays OPEN only
+  until the post-merge close ceremony records a main-reachable closing commit.
+- `FARM-CRITICAL-306` (the day-plan INSERT was never executed against a real schema): fixed on the
+  merged W0–W8 branch (commit cb266014c). The registry row stays OPEN only until the post-merge
+  close ceremony records a main-reachable closing commit.
+- `PLAT-CRITICAL-905` (four orphaned jest configs had no Nx project and no CI lane, so their suites
+  never ran): fixed on the merged W0–W8 branch (commit f09ed1522). The registry row stays OPEN only
+  until the post-merge close ceremony records a main-reachable closing commit.
 
 The 2026-06-20 registry close follow-up left no OTHER active CRITICAL in
 `already-fixed-needs-close`; reconciled items moved to `Resolved Evidence`.

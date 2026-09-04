@@ -24,9 +24,9 @@
  * resurrects a dismissed draft.
  *
  * Multi-instance safe via a PostgreSQL advisory lock per job. Tenant discovery
- * mirrors FeedingCronService: schema names are truncated (tenant_<16hex>), so
- * the full tenantId is read from each schema's `sites` rows, never derived from
- * the schema name.
+ * mirrors `FeedingCronV2Service.tenantsForRetention`: schema names are truncated
+ * (tenant_<16hex>), so the full tenantId is read from each schema's `sites` rows,
+ * never derived from the schema name.
  */
 import * as crypto from 'crypto';
 

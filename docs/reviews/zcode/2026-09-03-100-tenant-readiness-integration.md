@@ -11,7 +11,7 @@ review notes describe as done-enough or as "follow-ups" without an owner, a dead
 id. Each claim below was verified against the merged tree, not against the branch's prose. All four
 are real; each gets a tracked finding here so the debt stops being invisible.
 
-## SENSOR-CRITICAL-104 — declared stream budgets exceed the droplet's JetStream store
+## SENSOR-CRITICAL-108 — declared stream budgets exceed the droplet's JetStream store
 
 **Verified state.** `platform/libs/event-bus/src/nats/nats-event-bus.ts` now declares three streams:
 `AQUACULTURE_EVENTS` (1.5 GiB), `AQUACULTURE_TELEMETRY` (`max_bytes` default

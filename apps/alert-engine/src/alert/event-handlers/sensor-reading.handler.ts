@@ -131,6 +131,15 @@ export class SensorReadingEventHandler implements IEventHandler<SensorReadingEve
         `Error processing sensor reading: ${(error as Error).message}`,
         (error as Error).stack,
       );
+      // Task 1.5 (PR #1338): a failed threshold evaluation is rethrown so the
+      // bus NAKs for redelivery. The reading that crossed a threshold may be
+      // the only one that does — the next reading seconds later can already be
+      // back under it, so "the next reading re-evaluates" is not a recovery
+      // for the alert that was missed. Redelivery is bounded, not a storm:
+      // after NATS_DLQ_AFTER_DELIVERIES the bus dead-letters the envelope to
+      // the AQUACULTURE_DLQ stream (handleMessageFailure). The W7
+      // durable/reproducible classification still governs the feeding-signal
+      // handlers, whose reproducible signals are re-emitted by the next tick.
       throw error;
     }
   }

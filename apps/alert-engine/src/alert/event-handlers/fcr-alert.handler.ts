@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { requiresDurableDelivery } from '@platform/event-contracts';
 import type { FCRAlertEvent } from '@platform/event-contracts';
 import { getTenantSchemaName, isValidUUID } from '@aquaculture/backend-common/database';
 import { requestContextStorage, RequestContext } from '@aquaculture/backend-common/logging';
@@ -68,11 +69,17 @@ export class FcrAlertEventHandler implements IEventHandler<FCRAlertEvent>, OnMod
         await this.fcrAlertService.recordFcrAlert(event);
       });
     } catch (error) {
-      // Swallow so NATS does not redeliver a poison message indefinitely.
       this.logger.error(
         `Error creating FCR incident: ${(error as Error).message}`,
         (error as Error).stack,
       );
+      // W7 / D-B5: `FCRAlert` is `reproducible` — the 18:00 sweep recomputes
+      // the trend from feeding_records every evening, so a lost delivery costs
+      // a day of latency, not the fact itself. Classification lives in the
+      // event contract, not in this comment.
+      if (requiresDurableDelivery(event.eventType)) {
+        throw error;
+      }
     }
   }
 }

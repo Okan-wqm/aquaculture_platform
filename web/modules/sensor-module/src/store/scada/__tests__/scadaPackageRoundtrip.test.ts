@@ -65,9 +65,31 @@ describe('SCADA package serialization roundtrip', () => {
         packageName: 'Roundtrip',
         processId: 'proc-9',
         edgeDeviceId: 'dev-9',
+        // The real AutomationBinding shape. This fixture was flat —
+        // `variableId` / `varName` / `boundWidgetId` at the top level, which are
+        // VariableBinding's fields, not AutomationBinding's — and omitted BOTH
+        // required members, `programName` and `variableBindings`. The blanket cast
+        // carried it unchanged through the refactor that nested them, so the
+        // fixed-point assertion below was round-tripping a shape the store's own
+        // type cannot hold: whatever it does with those keys, it was not
+        // exercising automation bindings.
         automationBindings: [
-          { programId: 'p1', programCode: 'PRG1', variableId: 'v1', varName: 'DO_SP', boundWidgetId: 'w1' },
-        ] as never,
+          {
+            programId: 'p1',
+            programName: 'DO Setpoint Control',
+            programCode: 'PRG1',
+            variableBindings: [
+              {
+                variableId: 'v1',
+                varName: 'DO_SP',
+                scope: 'OUTPUT',
+                dataType: 'REAL',
+                boundWidgetId: 'w1',
+                boundTag: 'tank1.do_sp',
+              },
+            ],
+          },
+        ],
       },
       screens: [
         {

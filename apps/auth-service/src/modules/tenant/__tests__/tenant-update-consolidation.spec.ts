@@ -6,6 +6,7 @@ import { getMetadataStorage } from 'class-validator';
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { UpdateTenantInput } from '../dto/create-tenant.dto';
 import { TenantResolver } from '../resolvers/tenant.resolver';
+import { TenantProvisioningCommandService } from '../services/tenant-provisioning-command.service';
 import { TenantService } from '../services/tenant.service';
 
 /**
@@ -16,6 +17,18 @@ import { TenantService } from '../services/tenant.service';
  * stronger than role-based field filtering, because nothing mutates tenants
  * outside the governed command path. These tests pin that refusal.
  */
+/**
+ * W5: `auth.tenants` yazımı command-receipt yolundadır; generic updateTenant
+ * yine reddeder. Bu stub yalnız lokalizasyon mutation'ının bağımlılığını
+ * karşılar — `Partial<T> → T` daraltması repo genelindeki spec kalıbıdır.
+ */
+function tenantCommandsStub(): TenantProvisioningCommandService {
+  const impl: Partial<TenantProvisioningCommandService> = {
+    updateTenantLocalization: jest.fn(),
+  };
+  return impl as TenantProvisioningCommandService;
+}
+
 describe('Tenant Update Consolidation', () => {
   describe('TenantResolver mutations', () => {
     it('should NOT have updateTenantSettings method', () => {
@@ -39,6 +52,10 @@ describe('Tenant Update Consolidation', () => {
       const resolver = new TenantResolver(
         mockTenantService as unknown as TenantService,
         mockAuditLogService as unknown as AuditLogService,
+        // W5: `auth.tenants` yazımı command-receipt yolundadır; generic
+        // updateTenant yine reddeder — bu bağımlılık lokalizasyon
+        // mutation'ı içindir.
+        tenantCommandsStub(),
       );
 
       expect(() =>
@@ -57,10 +74,19 @@ describe('Tenant Update Consolidation', () => {
       const resolver = new TenantResolver(
         mockTenantService as unknown as TenantService,
         mockAuditLogService as unknown as AuditLogService,
+        // W5: `auth.tenants` yazımı command-receipt yolundadır; generic
+        // updateTenant yine reddeder — bu bağımlılık lokalizasyon
+        // mutation'ı içindir.
+        tenantCommandsStub(),
       );
 
       expect(() =>
-        resolver.updateTenant('other-tenant-id', { name: 'Hack' }, Role.TENANT_ADMIN, 'my-tenant-id'),
+        resolver.updateTenant(
+          'other-tenant-id',
+          { name: 'Hack' },
+          Role.TENANT_ADMIN,
+          'my-tenant-id',
+        ),
       ).toThrow(ForbiddenException);
       expect(mockTenantService.update).not.toHaveBeenCalled();
     });
@@ -72,10 +98,19 @@ describe('Tenant Update Consolidation', () => {
       const resolver = new TenantResolver(
         mockTenantService as unknown as TenantService,
         mockAuditLogService as unknown as AuditLogService,
+        // W5: `auth.tenants` yazımı command-receipt yolundadır; generic
+        // updateTenant yine reddeder — bu bağımlılık lokalizasyon
+        // mutation'ı içindir.
+        tenantCommandsStub(),
       );
 
       expect(() =>
-        resolver.updateTenant('my-tenant-id', { name: 'Renamed' }, Role.TENANT_ADMIN, 'my-tenant-id'),
+        resolver.updateTenant(
+          'my-tenant-id',
+          { name: 'Renamed' },
+          Role.TENANT_ADMIN,
+          'my-tenant-id',
+        ),
       ).toThrow(BadRequestException);
       expect(mockTenantService.update).not.toHaveBeenCalled();
     });

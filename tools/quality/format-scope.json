@@ -43278,6 +43278,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/affected-target-quarantine-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/agent-doc-shape.spec.ts",
       "prettier_managed": true
     },

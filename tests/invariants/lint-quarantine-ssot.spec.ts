@@ -92,7 +92,7 @@ describe('lint quarantine has one source', () => {
     // unstable; the reverse is fine and common (that list is far broader and
     // mostly historical).
     const affected = JSON.parse(readFileSync(AFFECTED_POLICY, 'utf8')) as {
-      targets?: { lint?: { knownUnstableProjects?: Record<string, string> } };
+      targets?: { lint?: { knownUnstableProjects?: Record<string, unknown> } };
     };
     const known = new Set(Object.keys(affected.targets?.lint?.knownUnstableProjects ?? {}));
     const contradictions = Object.keys(exclusions()).filter((project) => !known.has(project));

@@ -66,9 +66,57 @@ function projectNames(path) {
   return names;
 }
 
+// A quarantine entry is tracked debt, and tracked debt has an owner, a reason,
+// an expiry and a finding — the same four fields tests/invariants/
+// invariant-reachability.dormant.json requires of a dormant invariant. A bare
+// reason string was the previous shape; 19 `test` entries carried one with no
+// owner, no clock and no finding for four months (PROC-MEDIUM-020). The policy
+// file is refused whole when any entry of any target is malformed or expired,
+// so the lane fails closed instead of warning about debt nobody owns.
+const POLICY_VERSION = 2;
+const FINDING_ID = /^[A-Z]+-(?:CRITICAL|HIGH|MEDIUM|LOW)-\d{3}$/;
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const MIN_REASON_LENGTH = 30;
+
+function validateQuarantine(policy, today) {
+  if (policy.version !== POLICY_VERSION) {
+    throw new Error(`affected-target policy version ${policy.version} is not ${POLICY_VERSION}`);
+  }
+  const problems = [];
+  for (const [target, config] of Object.entries(policy.targets ?? {})) {
+    for (const [project, entry] of Object.entries(config.knownUnstableProjects ?? {})) {
+      const where = `${target}/${project}`;
+      if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+        problems.push(`${where}: entry must be an object {owner, reason, expires_on, finding_id}`);
+        continue;
+      }
+      if (typeof entry.owner !== 'string' || entry.owner.trim().length === 0) {
+        problems.push(`${where}: owner is required`);
+      }
+      if (typeof entry.reason !== 'string' || entry.reason.trim().length < MIN_REASON_LENGTH) {
+        problems.push(`${where}: reason must be at least ${MIN_REASON_LENGTH} characters`);
+      }
+      if (typeof entry.expires_on !== 'string' || !ISO_DATE.test(entry.expires_on)) {
+        problems.push(`${where}: expires_on must be YYYY-MM-DD`);
+      } else if (entry.expires_on < today) {
+        problems.push(
+          `${where}: expired ${entry.expires_on} (${entry.finding_id ?? 'no finding'})`,
+        );
+      }
+      if (typeof entry.finding_id !== 'string' || !FINDING_ID.test(entry.finding_id)) {
+        problems.push(`${where}: finding_id must be a registry id like INFRA-HIGH-001`);
+      }
+    }
+  }
+  if (problems.length > 0) {
+    throw new Error(`affected-target policy quarantine is invalid:\n  ${problems.join('\n  ')}`);
+  }
+}
+
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const policy = JSON.parse(readFileSync(args.policy, 'utf8'));
+  validateQuarantine(policy, new Date().toISOString().slice(0, 10));
   const affectedProjects = projectNames(args.affectedProjects);
   const explicitExcludes = new Set(lines(args.explicitExcludes));
   const knownUnstable = policy.targets?.[args.target]?.knownUnstableProjects ?? {};
@@ -80,7 +128,7 @@ function main() {
     if (explicitExcludes.has(project)) {
       explicitlyExcludedProjects.push(project);
     } else if (Object.prototype.hasOwnProperty.call(knownUnstable, project)) {
-      quarantinedProjects.push({ project, reason: knownUnstable[project] });
+      quarantinedProjects.push({ project, ...knownUnstable[project] });
     } else {
       strictProjects.push(project);
     }
@@ -116,9 +164,10 @@ function main() {
   if (quarantinedProjects.length > 0) {
     console.log('Known-unstable project target quarantine:');
     for (const entry of quarantinedProjects) {
-      console.log(`  - ${entry.project}: ${entry.reason}`);
+      const tracked = `${entry.finding_id}, owner ${entry.owner}, expires ${entry.expires_on}`;
+      console.log(`  - ${entry.project}: ${entry.reason} [${tracked}]`);
       console.log(
-        `::warning title=CI affected ${args.target} baseline debt::${entry.project}: ${entry.reason}`,
+        `::warning title=CI affected ${args.target} quarantine (${tracked})::${entry.project}: ${entry.reason}`,
       );
     }
   }

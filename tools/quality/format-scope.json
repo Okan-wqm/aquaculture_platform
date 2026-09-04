@@ -43950,6 +43950,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/helpers/ts-source.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/helpers/workflows.ts",
       "prettier_managed": true
     },

@@ -39,7 +39,13 @@ describe('SiteFormModal', () => {
 
     render(<SiteFormModal isOpen onClose={vi.fn()} onSave={onSave} site={null} />);
 
-    expect(screen.getByLabelText('Timezone')).toHaveValue('Europe/Oslo');
+    // W5: a new site starts INHERITED, not on a hardcoded zone. The column is
+    // nullable precisely so "the operator chose UTC" and "the operator chose
+    // nothing" stop being the same value; defaulting the form to a concrete
+    // zone would put the ambiguity straight back. Picking a zone below is the
+    // deliberate act the payload assertion then checks.
+    expect(screen.getByLabelText('Timezone')).toHaveValue('');
+    await user.selectOptions(screen.getByLabelText('Timezone'), 'Europe/Oslo');
 
     await user.type(screen.getByLabelText(/^Site Name/), 'Bergen North');
     await user.type(screen.getByLabelText(/^Site Code/), 'bgn-01');

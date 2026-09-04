@@ -55,7 +55,7 @@
       "tools/aria-adapters/test-gap-adapter.ts"
     ],
     "cwd": ".",
-    "timeout_ms": 1800000,
+    "timeout_ms": 900000,
     "stdin_json": true,
     "node_max_old_space_mb": 3072
   },

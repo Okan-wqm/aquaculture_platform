@@ -11095,3 +11095,58 @@ This is the same class as ORPHAN-HIGH-799's invariant, which was written the sam
 **Pins.** A commented line naming the install is not a violation; an uncommented `npm ci --no-audit` still is; an uncommented `npm ci --ignore-scripts` is not.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-804 — correcting ORPHAN-HIGH-801: the adapter was never slow, the box was starved — RESOLVED
+
+Severity: HIGH (the correction matters more than the original: a budget justified by a contaminated measurement is a guess wearing a number).
+
+**What I got wrong.** ORPHAN-HIGH-801 measured `test-gap-adapter` at 2575s and concluded "this adapter's work is minutes, not seconds", raising its budget to 1800000 ms. The measurement was real but the inference was not. It was taken while the production postgres outage of 2026-09-04 had the box in a container crash-loop storm: load average 34, fifteen services restarting every twenty seconds against a database that was not there, on four cores. I named the contamination in the finding and then reasoned from the number anyway.
+
+**The clean measurement.** With production restored (load 3), the scheduled cycle `cyc-20260904T194353Z-auto` ran all NINE adapters to `ok`, `test-gap-adapter` among them, INSIDE its original 180s budget. From the run ledger, consecutive rows put it at roughly 142s (tenant-scoping 19:48:05 → test-gap 19:50:27). The last successful cycle before the outage, `cyc-20260813T015431Z-auto`, puts the same adapter at roughly 122s (01:57:33 → 01:59:35).
+
+So the adapter takes about two minutes, and the 2575s sample is an 18x starvation penalty, not a workload.
+
+**What WAS still wrong with 180s.** 142s against a 180s budget is 79% utilisation on an IDLE box. That is not headroom, it is a coin flip, and this runner shares four cores with production by design. The budget was not incorrect in magnitude; it was too tight to survive the contention that is this runner's normal condition. The outage did not create the fragility, it exposed it.
+
+**Corrected budget: 900000 ms.** Roughly 6x the measured idle run and 7x the historical one, about 6% of the derived per-cycle budget, and — the part that matters — the `tool_budget_pressure` warning introduced in ORPHAN-HIGH-801 fires at 720s, which is a night of notice before a timeout instead of a dead cycle as the first symptom. 1800000 ms was defensible but was reasoned from the wrong evidence, and a number nobody can re-derive is a number nobody can maintain.
+
+**The mechanism validated itself.** At the old budget this adapter sat at 68-79% utilisation for weeks. The 80% threshold would have been warning about it the whole time — before the night that killed it. That is the signal the ledger could not carry, which is the defect ORPHAN-HIGH-801 actually fixed.
+
+**Owner:** claude (this session). **Status:** RESOLVED. The follow-on named in ORPHAN-HIGH-801 stands and is now better posed: with `duration_ms` and `budget_utilisation` in the published ledger, a per-tool budget can be DERIVED from measured history rather than chosen, and that is the version of this fix that does not decay.
+
+## ORPHAN-CRITICAL-805 — the nightly cycle could not report success, and the reason was bookkeeping — RESOLVED
+
+Severity: CRITICAL (every scheduled cycle since 2026-08-19 reported failure; the verdict described the store's index, not the night's work, so sixteen days of real output were filed as failures).
+
+**The observation that broke it open.** Scheduled cycle `33911600195` finished at 21:16 on 2026-09-04, on a box that had just been restored to health. Its own summary: `tool_status_counts {"ok": 9}`, `non_ok_tools []`, `error_count 0`, `failed_phases []`, `incomplete_lifecycle_count 0`. Nine adapters out of nine green, nothing failed, nothing incomplete — and `cycle_status_counts {"integrity_failed": 1}`, `cycles_completed 0`, exit 1. A cycle cannot both do everything right and fail, so the verdict was being produced by something other than the work.
+
+**Where the verdict comes from.** `cycle._runtime_status` returns `integrity_failed` when `_non_ok_runs` is non-empty OR `artifact_integrity["valid"]` is false. The first was empty. So `verify_artifacts` was returning invalid.
+
+**Measured on the runner's own store.** `verify_artifacts` returned `valid: False` with **158 issues, every one of them `run_artifact_missing`**, the oldest naming cycle `cyc-20260810T063724Z-auto`. Against the published state branch the arithmetic is stark:
+
+|                                              |                       |
+| -------------------------------------------- | --------------------- |
+| rows in `run-artifacts/artifact-index.jsonl` | 176, across 21 cycles |
+| `tool_run.json` files actually present       | 18, across 2 cycles   |
+
+**Mechanism.** `state_compact._strip_hot_artifacts` deletes whole hot-artifact cycle directories older than the retention cutoff — `shutil.rmtree(item)` — and nothing updated the index. The files are windowed; the index is unbounded. `verify_artifacts` iterates the INDEX and opens each `current_uri`, so from the first sweep onward it was guaranteed to find rows it could not open, and the count could only grow. The failure was therefore deterministic and completely independent of what any night actually did — which is exactly why it survived: every night looked broken, so no night looked unusual.
+
+The module has a real retention path beside this one (`_retention_candidates`, `rollback_retention`, `_latest_archive_event`, `retention_events_path`) which records an `artifact_archived` event per artifact. Compaction bypassed it. The store carries no `retention-events.jsonl` and no cold tier at all — only `hot/` — so nothing could tell "removed by policy" from "lost", and the verifier was right to call it missing.
+
+**Fix.** Compaction now prunes the index in the same pass, keeping only rows whose file is present, and archiving the dropped rows to `archives/artifact_index-compact-<ts>.jsonl.gz` like every other surface it touches. Presence on disk is the predicate rather than the retention cutoff, for two reasons: it is the same question `verify_artifacts` asks, and it heals an index a previous sweep already stranded instead of merely preventing the next one.
+
+**Proved on the production store, without mutating it.** A copy of the runner's `run-artifacts` tree, 52 MB:
+
+|                          | before | after |
+| ------------------------ | ------ | ----- |
+| `verify_artifacts` valid | False  | True  |
+| issues                   | 158    | 0     |
+| index rows               | 176    | 18    |
+
+All 158 dropped rows landed in the archive.
+
+**Pins.** A row whose file was swept is dropped and archived; a row whose file is present is kept; a file whose BYTES do not match the recorded hash stays in the index and still fails verification, because that is a real integrity failure and must not be tidied away; dry-run reports the count and writes nothing.
+
+**What this says about the class.** ORPHAN-HIGH-800 removed a warning that was always on. This removed a FAILURE that was always on. Both had the same shape: a check comparing a record against reality where nothing kept the record true, and in both cases the noise was indistinguishable from the signal it was supposed to carry. The nightly cycle's green will now mean the night went well, which is the only condition under which a red is worth reading.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

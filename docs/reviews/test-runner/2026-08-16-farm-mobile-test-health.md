@@ -947,6 +947,26 @@ still real.
 
 BLOCK
 
+## Registry mapping (2026-09-04)
+
+The `TEST-*` ids above are rejected by the registry schema (`PROC-MEDIUM-016`),
+so Phase 1 of the pilot bug-fix programme registered the findings under the
+lane-wiring domain. Registry ids, verbatim, for cross-reference:
+
+- INFRA-HIGH-140 — TEST-HIGH-001. Closed: aquamobil `test` target, shared
+  vitest policy, coverage inventory.
+- INFRA-HIGH-141 — TEST-HIGH-002. Closed: policy script fails closed on a
+  phantom target; Nx target references resolved through the project graph.
+- INFRA-MEDIUM-142 — TEST-HIGH-003 / TEST-MEDIUM-003. Closed:
+  `test:integration` wired into ci-affected and ci-full; duplicate static
+  specs removed.
+- PROC-MEDIUM-020 — TEST-MEDIUM-008. Closed: quarantine entries carry owner,
+  expiry and finding; the `test` map emptied after measurement.
+- INFRA-MEDIUM-143 — new, found while closing 142. Open: supertest `e2e`
+  lanes without a runner need a full-stack CI environment.
+- INFRA-MEDIUM-144 — new, found while closing 020. Open: lint quarantine
+  umbrella until each project's eslint debt clears.
+
 ## References
 
 - Cycle report: `docs/reviews/orchestrator/2026-08-16-farm-mobile-audit-cycle.md`

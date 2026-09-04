@@ -1479,6 +1479,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/database-management/controllers/__tests__/explorer-export-streamable.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/database-management/controllers/__tests__/explorer-sql-security.spec.ts",
       "prettier_managed": true
     },

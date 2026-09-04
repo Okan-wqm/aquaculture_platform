@@ -1,4 +1,4 @@
-import { CallHandler, ExecutionContext } from '@nestjs/common';
+import { CallHandler, ExecutionContext, StreamableFile } from '@nestjs/common';
 import { ExecutionContextHost } from '@nestjs/core/helpers/execution-context-host';
 import {
   createCursorPaginationResultV1,
@@ -148,6 +148,33 @@ describe('ResponseInterceptor', () => {
       await expect(
         firstValueFrom(interceptor.intercept(contextFor('/v1/users'), failing)),
       ).rejects.toThrow('boom');
+    });
+  });
+
+  /**
+   * Bytes are the response, not a payload to describe.
+   *
+   * Nest streams a `StreamableFile` only when the handler returns it directly.
+   * Nested inside `{success,data,meta}` it is serialized as an ordinary object,
+   * so a download arrives as the envelope under the attachment filename — the
+   * DB-explorer CSV and JSON exports both shipped that way. A `Buffer` takes
+   * the same route through `JSON.stringify` and lands as
+   * `{"type":"Buffer","data":[…]}`.
+   */
+  describe('binary payloads', () => {
+    it('streams a StreamableFile through without an envelope', async () => {
+      const file = new StreamableFile(Buffer.from('id,name\n1,alpha', 'utf-8'), {
+        type: 'text/csv; charset=utf-8',
+        disposition: 'attachment; filename="probe_export.csv"',
+      });
+
+      await expect(run('/v1/database/explorer/export', file)).resolves.toBe(file);
+    });
+
+    it('passes a raw Buffer through without an envelope', async () => {
+      const buffer = Buffer.from('[]', 'utf-8');
+
+      await expect(run('/v1/database/explorer/export', buffer)).resolves.toBe(buffer);
     });
   });
 });

@@ -1528,6 +1528,43 @@ describe('affected development workflow contract', () => {
     expect(production).not.toContain('RUN_DB_MIGRATE:');
   });
 
+  it('keeps verbose boot-signal logs complete and fails log-reader errors closed', () => {
+    const signals = source('scripts/deploy/assert-service-signals.ts');
+
+    expect(signals).toContain('const BOOT_SIGNAL_LOG_MAX_BUFFER_BYTES = 32 * 1024 * 1024;');
+    expect(signals).toContain('maxBuffer: BOOT_SIGNAL_LOG_MAX_BUFFER_BYTES');
+    expect(signals).toContain('if (result.error)');
+    expect(signals).toContain("result.stderr ?? ''");
+    expect(signals).not.toContain("if (result.status !== 0) return '';");
+  });
+
+  it('never mistakes a transient blank health status for an absent healthcheck', () => {
+    const health = source('scripts/deploy/check-service-health.ts');
+
+    expect(health).toContain('hasHealthcheck: boolean;');
+    expect(health).toContain('inspectContainerRuntime');
+    expect(health).toContain('hasHealthcheck: runtime.hasHealthcheck');
+    expect(health).toContain(
+      "if (!state.hasHealthcheck && state.state === 'running') return true;",
+    );
+    expect(health).not.toContain(
+      "if (state.health === '' && state.state === 'running') return true;",
+    );
+  });
+
+  it('passes the migration flag into release verification through typed session state', () => {
+    const droplet = source('scripts/deploy/droplet-up.sh');
+
+    expect(droplet).toContain(
+      "SELECT set_config('aqua.deploy_migration_required', :'migration_required', false);",
+    );
+    expect(droplet).toContain(
+      "migration_required boolean := current_setting('aqua.deploy_migration_required')::boolean;",
+    );
+    expect(droplet).toContain('IF migration_required');
+    expect(droplet).not.toContain("IF :'migration_required'::boolean");
+  });
+
   it('separates a full development image rollout from persistent infrastructure mutation', () => {
     const development = source('.github/workflows/deploy-development.yml');
     const production = source('.github/workflows/deploy-digitalocean.yml');

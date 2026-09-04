@@ -344,8 +344,17 @@ describe('INVARIANT (AUDITTRAIL-CRITICAL-001 / AUDITTRAIL-HIGH-005): audit-table
     // A drop is legitimate only when it is immediately re-created — the
     // CREATE OR REPLACE / drop-and-recreate idiom a schema change uses. What
     // must not exist is a trigger dropped and left dropped.
+    //
+    // `OR REPLACE` is accepted because the comment above already names it as a
+    // legitimate idiom while the pattern used to reject it. The Baselines now
+    // use `CREATE OR REPLACE TRIGGER` for the audit guards on CROSS-TENANT
+    // tables: a tenant provision replays the whole Baseline, those statements
+    // are correctly schema-qualified and therefore hit the object the source
+    // pass already created, and a bare CREATE TRIGGER aborts the provision
+    // (DATA-CRITICAL-010). Replacing an identical trigger is a no-op; leaving
+    // one dropped is what this test forbids, and that is unchanged.
     const abandoned = droppers.filter((name) => {
-      const recreated = new RegExp(`CREATE TRIGGER\\s+${name}\\b`, 'i');
+      const recreated = new RegExp(`CREATE\\s+(?:OR\\s+REPLACE\\s+)?TRIGGER\\s+${name}\\b`, 'i');
       return !recreated.test(aggregate);
     });
 

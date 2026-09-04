@@ -135,11 +135,11 @@ export class Baseline1800000000000 implements MigrationInterface {
         await queryRunner.query(`CREATE INDEX "IDX_d3f16ed27f53da3fefa4e537e4" ON "leave_balances" ("tenantId", "employeeId", "year") `);
         await queryRunner.query(`CREATE UNIQUE INDEX "IDX_d4af2b8c2aa521d8e7790f8aed" ON "leave_balances" ("tenantId", "employeeId", "leaveTypeId", "year") `);
         await queryRunner.query(`CREATE TABLE IF NOT EXISTS "hr"."payroll_audit" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "tenantId" uuid NOT NULL, "payrollId" character varying NOT NULL, "employeeId" character varying NOT NULL, "action" character varying(30) NOT NULL, "calculationInputs" jsonb, "calculationOutputs" jsonb, "grossPay" numeric(12,2), "netPay" numeric(12,2), "currency" character varying, "performedBy" character varying NOT NULL, "notes" text, "ipAddress" character varying(45), "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "PK_e14c187d365a51a44e878da2c99" PRIMARY KEY ("id"))`);
-        await queryRunner.query(`CREATE INDEX "IDX_0c515508b5946a8763698a2239" ON "hr"."payroll_audit" ("tenantId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_337203624c27e5d60b443504a2" ON "hr"."payroll_audit" ("tenantId", "createdAt") `);
-        await queryRunner.query(`CREATE INDEX "IDX_e7a69d3162369fbb6a595185a0" ON "hr"."payroll_audit" ("tenantId", "action", "createdAt") `);
-        await queryRunner.query(`CREATE INDEX "IDX_8e4287bb68d0161280382f24e9" ON "hr"."payroll_audit" ("tenantId", "employeeId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_ecf3910335f006d19650e7138c" ON "hr"."payroll_audit" ("tenantId", "payrollId") `);
+        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_0c515508b5946a8763698a2239" ON "hr"."payroll_audit" ("tenantId") `);
+        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_337203624c27e5d60b443504a2" ON "hr"."payroll_audit" ("tenantId", "createdAt") `);
+        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_e7a69d3162369fbb6a595185a0" ON "hr"."payroll_audit" ("tenantId", "action", "createdAt") `);
+        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_8e4287bb68d0161280382f24e9" ON "hr"."payroll_audit" ("tenantId", "employeeId") `);
+        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_ecf3910335f006d19650e7138c" ON "hr"."payroll_audit" ("tenantId", "payrollId") `);
         await queryRunner.query(`CREATE TABLE IF NOT EXISTS "hr"."hr_outbox" ("id" BIGSERIAL NOT NULL, "eventType" character varying(100) NOT NULL, "tenantId" uuid, "aggregateId" uuid, "payload" jsonb NOT NULL, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "publishedAt" TIMESTAMP WITH TIME ZONE, "retryCount" integer NOT NULL DEFAULT '0', "lastError" text, "nextAttemptAt" TIMESTAMP WITH TIME ZONE, "idempotencyKey" character varying(255), "isDeadLettered" boolean NOT NULL DEFAULT false, "leasedAt" TIMESTAMP WITH TIME ZONE, "leasedBy" character varying(128), CONSTRAINT "PK_56a95fb9c3872fafc7cb499b69e" PRIMARY KEY ("id"))`);
         await queryRunner.query(`DO $$ BEGIN CREATE TYPE "hr"."schedules_scheduletype_enum" AS ENUM('fixed', 'rotating', 'flexible', 'offshore_rotation'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
         await queryRunner.query(`DO $$ BEGIN CREATE TYPE "hr"."schedules_status_enum" AS ENUM('draft', 'published', 'active', 'completed', 'cancelled'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
@@ -254,7 +254,7 @@ export class Baseline1800000000000 implements MigrationInterface {
             $auditguard$ LANGUAGE plpgsql;
         `);
         await queryRunner.query(`
-            CREATE TRIGGER trg_payroll_audit_prevent_update
+            CREATE OR REPLACE TRIGGER trg_payroll_audit_prevent_update
             BEFORE UPDATE OR DELETE ON "hr"."payroll_audit"
             FOR EACH ROW EXECUTE FUNCTION "hr".payroll_audit_prevent_update_or_delete();
         `);

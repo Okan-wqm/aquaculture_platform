@@ -10,8 +10,8 @@ export class Baseline1800000000000 implements MigrationInterface {
         await queryRunner.query(`CREATE TABLE IF NOT EXISTS "agent_conversations" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "tenantId" uuid NOT NULL, "userId" uuid NOT NULL, "persona" character varying(50) NOT NULL, "messages" jsonb NOT NULL, "title" character varying(255), "totalTokens" integer NOT NULL DEFAULT '0', "isActive" boolean NOT NULL DEFAULT true, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_2680ac7af80219a718cf98a1d21" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE INDEX "IDX_c1c19f8983b6beef7cbd2ce51e" ON "agent_conversations" ("tenantId", "userId", "createdAt") `);
         await queryRunner.query(`CREATE TABLE IF NOT EXISTS "ai"."tool_execution_audit" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "tenantId" uuid NOT NULL, "userId" uuid NOT NULL, "toolName" character varying(100) NOT NULL, "persona" character varying(50) NOT NULL, "input" jsonb NOT NULL, "success" boolean NOT NULL, "output" jsonb, "errorMessage" text, "durationMs" integer NOT NULL, "correlationId" character varying(100), "conversationId" uuid, "executed_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_9b65810edd2682db254a5db57ae" PRIMARY KEY ("id"))`);
-        await queryRunner.query(`CREATE INDEX "IDX_6562ce887dfb374699522133c9" ON "ai"."tool_execution_audit" ("toolName", "executed_at") `);
-        await queryRunner.query(`CREATE INDEX "IDX_f300876b8d51dff4aac2cc71b7" ON "ai"."tool_execution_audit" ("tenantId", "executed_at") `);
+        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_6562ce887dfb374699522133c9" ON "ai"."tool_execution_audit" ("toolName", "executed_at") `);
+        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_f300876b8d51dff4aac2cc71b7" ON "ai"."tool_execution_audit" ("tenantId", "executed_at") `);
 
         // ── Faz 3.5 hand-author addition — RLS canonical predicate ──
         await applyTenantRlsToSchema(queryRunner, {
@@ -29,7 +29,7 @@ export class Baseline1800000000000 implements MigrationInterface {
             $auditguard$ LANGUAGE plpgsql;
         `);
         await queryRunner.query(`
-            CREATE TRIGGER trg_tool_execution_audit_prevent_update
+            CREATE OR REPLACE TRIGGER trg_tool_execution_audit_prevent_update
             BEFORE UPDATE OR DELETE ON "ai"."tool_execution_audit"
             FOR EACH ROW EXECUTE FUNCTION "ai".tool_execution_audit_prevent_update_or_delete();
         `);

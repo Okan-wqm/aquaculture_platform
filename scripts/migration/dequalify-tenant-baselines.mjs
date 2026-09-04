@@ -163,8 +163,12 @@ function loadClassification() {
  */
 function indexOwners(source, schema) {
   const owners = new Map();
+  // Both spellings: the replay-safety pass below rewrites these to
+  // `CREATE INDEX IF NOT EXISTS`, and this map is rebuilt from the transformed
+  // text on every subsequent run — a map that only knew the bare form would
+  // lose every index's owner the moment the file became idempotent.
   const rx = new RegExp(
-    `CREATE\\s+(?:UNIQUE\\s+)?INDEX\\s+"([^"]+)"\\s+ON\\s+"${schema}"\\."([^"]+)"`,
+    `CREATE\\s+(?:UNIQUE\\s+)?INDEX\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?"([^"]+)"\\s+ON\\s+"${schema}"\\."([^"]+)"`,
     'g',
   );
   for (const match of source.matchAll(rx)) {
@@ -199,8 +203,11 @@ function functionOwners(source, schema) {
   // template literal holding this statement into the next one — without that
   // bound, a trigger whose EXECUTE FUNCTION this pass already de-qualified
   // would reach forward and claim the NEXT statement's function as its own.
+  // `CREATE OR REPLACE TRIGGER` for the same reason indexOwners accepts
+  // `IF NOT EXISTS`: the replay-safety pass produces it, and this map is
+  // rebuilt from the transformed text on the next run.
   const rx = new RegExp(
-    'CREATE\\s+TRIGGER\\s+[^`]*?\\sON\\s+(?:"[^"]+"\\.)?"([^"]+)"' +
+    'CREATE\\s+(?:OR\\s+REPLACE\\s+)?TRIGGER\\s+[^`]*?\\sON\\s+(?:"[^"]+"\\.)?"([^"]+)"' +
       `[^\`]*?EXECUTE\\s+FUNCTION\\s+"${schema}"\\.([A-Za-z_][A-Za-z0-9_]*)\\s*\\(`,
     'g',
   );
@@ -310,6 +317,7 @@ function rewriteFile(entry, classification) {
     keptUnregistered: new Map(),
     dequalifiedFunction: 0,
     keptCrossTenantFunction: 0,
+    replaySafe: 0,
     keptUnboundFunction: new Map(),
   };
 
@@ -353,6 +361,36 @@ function rewriteFile(entry, classification) {
     stats.keptCrossTenantFunction += 1;
     return whole;
   });
+
+  // Everything the Baseline still addresses BY SOURCE-SCHEMA NAME has to
+  // tolerate already existing. A tenant replay executes the whole up(),
+  // cross-tenant statements included — they are correctly qualified, so they
+  // hit the SAME object the source pass already created, and a bare CREATE
+  // aborts the provision. The live provisioning gate caught this as
+  // `relation "IDX_farm_audit_tenant" already exists` after the table half was
+  // already idempotent: the tables were fixed, their indexes were not.
+  //
+  // CREATE OR REPLACE TRIGGER is PG14+; the platform runs PG16.
+  let replaySafe = 0;
+  const qualifiedIndex = new RegExp(
+    `CREATE (UNIQUE )?INDEX "([^"]+)" ON "${entry.schema}"\\.`,
+    'g',
+  );
+  next = next.replace(qualifiedIndex, (_whole, unique, name) => {
+    replaySafe += 1;
+    return `CREATE ${unique ?? ''}INDEX IF NOT EXISTS "${name}" ON "${entry.schema}".`;
+  });
+  const qualifiedTrigger = new RegExp(
+    `CREATE TRIGGER ([^\\s]+)([^\`]*?ON "${entry.schema}"\\.)`,
+    'g',
+  );
+  // `CREATE OR REPLACE TRIGGER` no longer matches the pattern above, so a
+  // second run rewrites nothing — the pass is idempotent by construction.
+  next = next.replace(qualifiedTrigger, (_whole, name, rest) => {
+    replaySafe += 1;
+    return `CREATE OR REPLACE TRIGGER ${name}${rest}`;
+  });
+  stats.replaySafe = replaySafe;
 
   // A de-qualified CREATE TABLE must also become idempotent: migration-sql-lint
   // R6 stops grandfathering a migration the moment it is modified, and a replay
@@ -398,6 +436,7 @@ function main() {
       keptCrossTenantFunction,
       keptUnboundFunction,
       asserted,
+      replaySafe,
     } = result.stats;
     const verb = result.changed ? (APPLY ? '[ok]  ' : '[would]') : '[noop]';
     process.stdout.write(
@@ -406,7 +445,8 @@ function main() {
         `kept_enum=${String(keptEnum).padStart(4)} ` +
         `create_table_if_not_exists=${String(idempotent).padStart(3)} ` +
         `fn_dequalified=${dequalifiedFunction} fn_kept=${keptCrossTenantFunction} ` +
-        `post_condition_asserts=${String(asserted).padStart(3)}\n`,
+        `post_condition_asserts=${String(asserted).padStart(3)} ` +
+        `replay_safe=${String(replaySafe).padStart(2)}\n`,
     );
     // A trigger function no CREATE TRIGGER binds to a table. Nothing in the
     // corpus produces one today; if one appears, its classification is a

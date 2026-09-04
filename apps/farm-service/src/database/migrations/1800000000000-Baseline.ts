@@ -9,14 +9,14 @@ export class Baseline1800000000000 implements MigrationInterface {
         await queryRunner.query(`CREATE INDEX "IDX_e1a39f5ba4a264497b323bec1a" ON "code_sequences" ("tenantId", "entityType") `);
         await queryRunner.query(`DO $$ BEGIN CREATE TYPE "farm"."farm_audit_logs_action_enum" AS ENUM('CREATE', 'UPDATE', 'DELETE', 'SOFT_DELETE', 'RESTORE', 'CAPACITY_BLOCKED'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
         await queryRunner.query(`CREATE TABLE IF NOT EXISTS "farm"."farm_audit_logs" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "tenantId" uuid NOT NULL, "entityType" character varying(100) NOT NULL, "entityId" uuid NOT NULL, "action" "farm"."farm_audit_logs_action_enum" NOT NULL, "userId" uuid, "userName" character varying(255), "changes" jsonb, "metadata" jsonb, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "entityVersion" integer, "summary" text, "legalHold" boolean NOT NULL DEFAULT false, CONSTRAINT "PK_626f7f5a9fcd66d9bfba33d4e17" PRIMARY KEY ("id"))`);
-        await queryRunner.query(`CREATE INDEX "IDX_farm_audit_tenant" ON "farm"."farm_audit_logs" ("tenantId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_farm_audit_entity_type" ON "farm"."farm_audit_logs" ("entityType") `);
-        await queryRunner.query(`CREATE INDEX "IDX_farm_audit_created_col" ON "farm"."farm_audit_logs" ("createdAt") `);
-        await queryRunner.query(`CREATE INDEX "IDX_farm_audit_tenant_user" ON "farm"."farm_audit_logs" ("tenantId", "userId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_farm_audit_tenant_action" ON "farm"."farm_audit_logs" ("tenantId", "action") `);
-        await queryRunner.query(`CREATE INDEX "IDX_farm_audit_created" ON "farm"."farm_audit_logs" ("createdAt") `);
-        await queryRunner.query(`CREATE INDEX "IDX_farm_audit_tenant_created" ON "farm"."farm_audit_logs" ("tenantId", "createdAt") `);
-        await queryRunner.query(`CREATE INDEX "IDX_farm_audit_tenant_entity" ON "farm"."farm_audit_logs" ("tenantId", "entityType", "entityId") `);
+        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_farm_audit_tenant" ON "farm"."farm_audit_logs" ("tenantId") `);
+        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_farm_audit_entity_type" ON "farm"."farm_audit_logs" ("entityType") `);
+        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_farm_audit_created_col" ON "farm"."farm_audit_logs" ("createdAt") `);
+        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_farm_audit_tenant_user" ON "farm"."farm_audit_logs" ("tenantId", "userId") `);
+        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_farm_audit_tenant_action" ON "farm"."farm_audit_logs" ("tenantId", "action") `);
+        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_farm_audit_created" ON "farm"."farm_audit_logs" ("createdAt") `);
+        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_farm_audit_tenant_created" ON "farm"."farm_audit_logs" ("tenantId", "createdAt") `);
+        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_farm_audit_tenant_entity" ON "farm"."farm_audit_logs" ("tenantId", "entityType", "entityId") `);
         await queryRunner.query(`CREATE TABLE IF NOT EXISTS "weather_settings" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "tenant_id" uuid NOT NULL, "sync_interval_minutes" integer NOT NULL DEFAULT '60', "forecast_days" integer NOT NULL DEFAULT '7', "enabled" boolean NOT NULL DEFAULT true, "last_synced_at" TIMESTAMP WITH TIME ZONE, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "UQ_0f22be58c4890daa4093cfc7043" UNIQUE ("tenant_id"), CONSTRAINT "PK_038031d14ca42c0995b1ab60f23" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE TABLE IF NOT EXISTS "farm_workers" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "tenantId" uuid NOT NULL, "employeeNumber" character varying NOT NULL, "firstName" character varying NOT NULL, "lastName" character varying NOT NULL, "email" character varying NOT NULL, "contactInfo" jsonb NOT NULL, "address" jsonb NOT NULL, "dateOfBirth" date NOT NULL, "nationalId" text NOT NULL, "status" character varying NOT NULL DEFAULT 'active', "employmentType" character varying NOT NULL, "department" character varying NOT NULL, "position" character varying NOT NULL, "hireDate" date NOT NULL, "baseSalary" numeric(12,2) NOT NULL, "currency" character varying NOT NULL DEFAULT 'USD', "isDeleted" boolean NOT NULL DEFAULT false, "isFarmWorker" boolean NOT NULL DEFAULT false, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), "createdBy" character varying, "version" integer NOT NULL, CONSTRAINT "UQ_c1e27c8dbea59d4016c593950d9" UNIQUE ("employeeNumber"), CONSTRAINT "PK_4b189f0667cf93da7d755e2ecee" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE INDEX "IDX_ec20528ad0742309b204d41452" ON "farm_workers" ("tenantId", "department") `);
@@ -668,7 +668,7 @@ export class Baseline1800000000000 implements MigrationInterface {
             $auditguard$ LANGUAGE plpgsql;
         `);
         await queryRunner.query(`
-            CREATE TRIGGER trg_farm_audit_logs_prevent_update
+            CREATE OR REPLACE TRIGGER trg_farm_audit_logs_prevent_update
             BEFORE UPDATE OR DELETE ON "farm"."farm_audit_logs"
             FOR EACH ROW EXECUTE FUNCTION "farm".farm_audit_logs_prevent_update_or_delete();
         `);

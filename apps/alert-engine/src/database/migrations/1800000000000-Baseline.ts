@@ -27,11 +27,11 @@ export class Baseline1800000000000 implements MigrationInterface {
         await queryRunner.query(`CREATE INDEX "IDX_f8db963be83d4dfc1d554e3b99" ON "alert_incidents" ("severity") `);
         await queryRunner.query(`CREATE INDEX "IDX_9d68d4a70ea580f2637ba63492" ON "alert_incidents" ("tenant_id", "status") `);
         await queryRunner.query(`CREATE TABLE IF NOT EXISTS "alert"."alert_audit_log" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "tenant_id" uuid, "category" character varying NOT NULL, "event_type" character varying NOT NULL, "severity" character varying NOT NULL, "action" character varying NOT NULL, "description" text NOT NULL, "entity_type" character varying, "entity_id" character varying, "user_id" character varying, "user_name" character varying, "ip_address" character varying, "user_agent" character varying, "previous_state" jsonb, "new_state" jsonb, "changes" jsonb, "metadata" jsonb, "correlation_id" character varying, "parent_audit_id" character varying, "tags" jsonb, "duration" integer, "success" boolean NOT NULL, "error_message" text, "timestamp" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_b94a9deeb56ea8107855eea2506" PRIMARY KEY ("id"))`);
-        await queryRunner.query(`CREATE INDEX "IDX_b3dd833c7aad4a304fc003bb92" ON "alert"."alert_audit_log" ("correlation_id") `);
-        await queryRunner.query(`CREATE INDEX "IDX_6ec936baf2f2070b57c1a01163" ON "alert"."alert_audit_log" ("entity_type", "entity_id") `);
-        await queryRunner.query(`CREATE INDEX "IDX_12a48bc2013d674b4362827d91" ON "alert"."alert_audit_log" ("event_type", "timestamp") `);
-        await queryRunner.query(`CREATE INDEX "IDX_0935a1474b7e5fbc3ecd91e293" ON "alert"."alert_audit_log" ("category", "timestamp") `);
-        await queryRunner.query(`CREATE INDEX "IDX_b0d65d9db54d05fdc032d94ab0" ON "alert"."alert_audit_log" ("tenant_id", "timestamp") `);
+        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_b3dd833c7aad4a304fc003bb92" ON "alert"."alert_audit_log" ("correlation_id") `);
+        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_6ec936baf2f2070b57c1a01163" ON "alert"."alert_audit_log" ("entity_type", "entity_id") `);
+        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_12a48bc2013d674b4362827d91" ON "alert"."alert_audit_log" ("event_type", "timestamp") `);
+        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_0935a1474b7e5fbc3ecd91e293" ON "alert"."alert_audit_log" ("category", "timestamp") `);
+        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_b0d65d9db54d05fdc032d94ab0" ON "alert"."alert_audit_log" ("tenant_id", "timestamp") `);
         await queryRunner.query(`DO $$ BEGIN CREATE TYPE "alert"."alert_history_severity_enum" AS ENUM('info', 'low', 'warning', 'medium', 'high', 'critical'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
         await queryRunner.query(`CREATE TABLE IF NOT EXISTS "alert_history" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "rule_id" character varying NOT NULL, "rule_name" character varying NOT NULL, "tenant_id" uuid NOT NULL, "farm_id" character varying, "pond_id" character varying, "sensor_id" character varying, "severity" "alert"."alert_history_severity_enum" NOT NULL, "message" text NOT NULL, "triggering_data" jsonb NOT NULL, "triggered_at" TIMESTAMP WITH TIME ZONE NOT NULL, "acknowledged" boolean NOT NULL DEFAULT false, "acknowledged_at" TIMESTAMP WITH TIME ZONE, "acknowledged_by" character varying, "acknowledgement_note" text, "resolved" boolean NOT NULL DEFAULT false, "resolved_at" TIMESTAMP WITH TIME ZONE, "created_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_01cc54a2bdfa890a86511d26822" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE INDEX "IDX_95048d503befe40e467d550713" ON "alert_history" ("rule_id") `);
@@ -58,7 +58,7 @@ export class Baseline1800000000000 implements MigrationInterface {
             $auditguard$ LANGUAGE plpgsql;
         `);
         await queryRunner.query(`
-            CREATE TRIGGER trg_alert_audit_log_prevent_update
+            CREATE OR REPLACE TRIGGER trg_alert_audit_log_prevent_update
             BEFORE UPDATE OR DELETE ON "alert"."alert_audit_log"
             FOR EACH ROW EXECUTE FUNCTION "alert".alert_audit_log_prevent_update_or_delete();
         `);

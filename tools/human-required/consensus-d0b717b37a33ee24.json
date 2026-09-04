@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "public-write-endpoint-without-allowlist:apps/gateway-api/src/csp-report/csp-report.controller.ts:63",
+    "judgment_group_id": "judge:security-boundary-adapter:6209889b-3092-41b4-8867-a60b0a7352b1:public-write-endpoint-without-allowlist:apps/gateway-api/src/csp-report/csp-report.controller.ts:63",
+    "kind": "consensus_escalation",
+    "run_id": "6209889b-3092-41b4-8867-a60b0a7352b1",
+    "tool_id": "security-boundary-adapter",
+    "uncertainty_reason": "judge_disagreement"
+  },
+  "reason": "AI consensus could not be reached (judge_disagreement) for finding 'public-write-endpoint-without-allowlist:apps/gateway-api/src/csp-report/csp-report.controller.ts:63' (tool 'security-boundary-adapter', run '6209889b-3092-41b4-8867-a60b0a7352b1'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-09-04T10:04:15Z",
+  "request_id": "consensus-d0b717b37a33ee24",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-09-07T10:04:15Z",
+  "status": "open"
+}

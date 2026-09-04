@@ -71,8 +71,13 @@ function referencedStepIds(step: Step): string[] {
   const serialized = JSON.stringify(step);
   const ids = new Set<string>();
   for (const expression of serialized.matchAll(EXPRESSION_BLOCK)) {
-    for (const match of expression[1].matchAll(STEP_CONTEXT_REF)) {
-      ids.add(match[1]);
+    // A capture group is optional in the type even when the pattern always
+    // fills it; skipping the impossible case is cheaper than asserting it away.
+    const body = expression[1];
+    if (body === undefined) continue;
+    for (const match of body.matchAll(STEP_CONTEXT_REF)) {
+      const referenced = match[1];
+      if (referenced !== undefined) ids.add(referenced);
     }
   }
   return [...ids];

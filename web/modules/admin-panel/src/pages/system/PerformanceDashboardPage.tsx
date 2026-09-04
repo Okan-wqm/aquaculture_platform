@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Button, Badge } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, LineChart } from '@aquaculture/shared-ui';
 import { systemSettingsApi } from '../../services/adminApi';
 import type { PerformanceDashboard, PerformanceMetrics } from '../../services/adminApi';
 
@@ -76,6 +76,14 @@ const getTimeRanges = (): TimeRange[] => {
 // ============================================================================
 // Component
 // ============================================================================
+
+/** Compact HH:MM label for trend x-axes. */
+const formatTrendLabel = (timestamp: string): string => {
+  const date = new Date(timestamp);
+  return Number.isNaN(date.getTime())
+    ? timestamp
+    : date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+};
 
 export const PerformanceDashboardPage: React.FC = () => {
   // State
@@ -591,45 +599,50 @@ export const PerformanceDashboardPage: React.FC = () => {
         </div>
       </Card>
 
-      {/* Performance Trends Placeholder */}
+      {/* Performance Trends — real charts from the fetched dashboard.trends series */}
       <Card className="p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Performance Trends</h2>
-        <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg border-2 border-dashed border-blue-200 p-12 text-center">
-          <svg
-            className="w-16 h-16 mx-auto text-blue-300 mb-4"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-            />
-          </svg>
-          <h3 className="text-lg font-semibold text-gray-700 mb-2">Interactive Charts Coming Soon</h3>
-          <p className="text-sm text-gray-500 max-w-md mx-auto">
-            Response time, throughput, and error rate trends will be visualized here with interactive
-            charts. Chart library integration planned.
-          </p>
-          <div className="mt-6 grid grid-cols-3 gap-4 text-left max-w-2xl mx-auto">
-            <div className="bg-white rounded-lg p-4 shadow-sm">
-              <div className="text-xs text-gray-500 mb-1">Avg Trend</div>
-              <div className="text-sm font-mono text-gray-700">
-                {dashboard.trends.responseTime.map((_, i, arr) => (i < arr.length - 1 ? '↗' : '→'))}
-              </div>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-gray-900">Performance Trends</h2>
+          <span className="text-sm text-gray-500">{timeRange.label}</span>
+        </div>
+        {dashboard.trends.responseTime.length === 0 ? (
+          <div className="h-48 flex items-center justify-center text-sm text-gray-500">
+            No trend data for this range
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div>
+              <h3 className="text-sm font-medium text-gray-700 mb-2">Response Time (ms)</h3>
+              <LineChart
+                labels={dashboard.trends.responseTime.map((point) => formatTrendLabel(point.timestamp))}
+                datasets={[{ label: 'Response time', data: dashboard.trends.responseTime.map((point) => point.value) }]}
+                height={180}
+                className="w-full"
+                showLegend={false}
+              />
             </div>
-            <div className="bg-white rounded-lg p-4 shadow-sm">
-              <div className="text-xs text-gray-500 mb-1">Data Points</div>
-              <div className="text-lg font-bold text-gray-900">{dashboard.trends.responseTime.length}</div>
+            <div>
+              <h3 className="text-sm font-medium text-gray-700 mb-2">Throughput (req/min)</h3>
+              <LineChart
+                labels={dashboard.trends.throughput.map((point) => formatTrendLabel(point.timestamp))}
+                datasets={[{ label: 'Throughput', data: dashboard.trends.throughput.map((point) => point.value) }]}
+                height={180}
+                className="w-full"
+                showLegend={false}
+              />
             </div>
-            <div className="bg-white rounded-lg p-4 shadow-sm">
-              <div className="text-xs text-gray-500 mb-1">Time Range</div>
-              <div className="text-sm font-medium text-gray-700">{timeRange.label}</div>
+            <div>
+              <h3 className="text-sm font-medium text-gray-700 mb-2">Error Rate (%)</h3>
+              <LineChart
+                labels={dashboard.trends.errorRate.map((point) => formatTrendLabel(point.timestamp))}
+                datasets={[{ label: 'Error rate', data: dashboard.trends.errorRate.map((point) => point.value) }]}
+                height={180}
+                className="w-full"
+                showLegend={false}
+              />
             </div>
           </div>
-        </div>
+        )}
       </Card>
 
       {/* Service Health Status Table */}

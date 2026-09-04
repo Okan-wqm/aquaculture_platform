@@ -990,7 +990,10 @@ describe('Frontend-Backend Contract Validation', () => {
     // Bu, beklenmedik endpoint degisikliklerini yakalar.
     const count = backendEndpoints.length;
 
-    expect(count).toBe(603);
+    // 604: +1 for GET /billing/payments/stats (ADMIN-HIGH-008). The two
+    // messaging endpoints this cycle also touched (monitoring/stats, tenants)
+    // already existed as 501 throws, so the route count did not move for them.
+    expect(count).toBe(604);
   });
 
   it('frontend endpoint snapshot should be up to date', () => {

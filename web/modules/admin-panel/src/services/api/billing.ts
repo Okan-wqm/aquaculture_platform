@@ -36,6 +36,7 @@ import type {
   TopTenantUsage,
   AggregationPeriod,
   MeterType,
+  PaymentStats,
 } from '../types';
 
 export const billingApi = {
@@ -147,6 +148,9 @@ export const billingApi = {
   },
   getInvoiceStats: () =>
     apiFetch<InvoiceStats>('/billing/invoices/stats'),
+  /** Payment success/volume aggregate for the billing dashboard KPI row. */
+  getPaymentStats: () =>
+    apiFetch<PaymentStats>('/billing/payments/stats'),
   getInvoiceById: (invoiceId: string) =>
     apiFetch<InvoiceOverview>(`/billing/invoices/${invoiceId}`),
   markInvoicePaid: (invoiceId: string, amount: number) =>

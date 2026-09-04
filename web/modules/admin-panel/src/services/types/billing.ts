@@ -259,6 +259,27 @@ export interface InvoiceOverview {
   createdAt: string;
 }
 
+/** One payment-statistics window (all-time, or the trailing 30 days). */
+export interface PaymentStatsWindow {
+  totalPayments: number;
+  succeeded: number;
+  failed: number;
+  refunded: number;
+  pending: number;
+  /**
+   * succeeded + refund states over TERMINAL attempts (0..1; 0 when there were
+   * none). Pending/processing are in flight and cancelled never attempted
+   * capture, so neither is in the denominator.
+   */
+  successRate: number;
+  totalAmount: number;
+}
+
+/** GET /billing/payments/stats — all-time plus the trailing-30-day window. */
+export interface PaymentStats extends PaymentStatsWindow {
+  last30Days: PaymentStatsWindow;
+}
+
 export interface InvoiceStats {
   totalInvoices: number;
   totalAmount: number;

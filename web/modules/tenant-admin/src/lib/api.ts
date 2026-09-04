@@ -25,6 +25,10 @@ import {
   UPDATE_USER_MUTATION,
   DELETE_USER_MUTATION,
   DEACTIVATE_TENANT_USER_MUTATION,
+  USER_EFFECTIVE_PERMISSIONS_QUERY,
+  ACTIVATE_TENANT_USER_MUTATION,
+  UNLOCK_TENANT_USER_MUTATION,
+  BULK_ASSIGN_USER_ROLE_MUTATION,
   ACTIVE_SITE_ACCESS_CATALOG_QUERY,
   USER_ASSIGNED_SITE_IDS_QUERY,
   ASSIGN_USER_TO_SITE_MUTATION,
@@ -93,6 +97,8 @@ import type {
   GetTableDataInput,
   TableDataResult,
   TenantRole,
+  BulkAssignRoleResult,
+  UserEffectivePermissions,
   CreateTenantRoleInput,
   UpdateTenantRoleInput,
   PermissionCategory,
@@ -217,6 +223,61 @@ export async function deactivateTenantUser(
     deactivateTenantUser: { id: string; isActive: boolean };
   }>(DEACTIVATE_TENANT_USER_MUTATION, { userId });
   return data.deactivateTenantUser;
+}
+
+/**
+ * Re-enable a deactivated user (ADMIN-HIGH-012). Deactivation used to be a
+ * one-way trapdoor in this panel: the guarded, tenant-scoped resolver existed
+ * but nothing called it, so a tenant admin who disabled a user needed
+ * platform-admin intervention to restore access.
+ */
+export async function activateTenantUser(
+  userId: string,
+): Promise<{ id: string; isActive: boolean }> {
+  const data = await apiClient.graphql<{
+    activateTenantUser: { id: string; isActive: boolean };
+  }>(ACTIVATE_TENANT_USER_MUTATION, { userId });
+  return data.activateTenantUser;
+}
+
+/**
+ * Clear a user's failed-login lockout (ORPHAN-MEDIUM-320). The server resets
+ * failedLoginAttempts and nulls lockedUntil; the tenant derives from the JWT.
+ */
+export async function unlockTenantUser(
+  userId: string,
+): Promise<{ id: string; lockedUntil: string | null }> {
+  const data = await apiClient.graphql<{
+    unlockTenantUser: { id: string; lockedUntil: string | null };
+  }>(UNLOCK_TENANT_USER_MUTATION, { userId });
+  return data.unlockTenantUser;
+}
+
+/**
+ * Assign one role to many users in a single guarded call (ADMIN-MEDIUM-016).
+ * Partial success is a real outcome — the caller must read `failed`.
+ */
+export async function bulkAssignUserRole(input: {
+  userIds: string[];
+  roleId: string;
+}): Promise<BulkAssignRoleResult> {
+  const data = await apiClient.graphql<{
+    bulkAssignUserRole: BulkAssignRoleResult;
+  }>(BULK_ASSIGN_USER_ROLE_MUTATION, { input });
+  return data.bulkAssignUserRole;
+}
+
+/**
+ * A user's resolved permissions: role permissions plus the per-user
+ * grant/revoke overrides (ADMIN-MEDIUM-016).
+ */
+export async function getUserEffectivePermissions(
+  userId: string,
+): Promise<UserEffectivePermissions> {
+  const data = await apiClient.graphql<{
+    getUserEffectivePermissions: UserEffectivePermissions;
+  }>(USER_EFFECTIVE_PERMISSIONS_QUERY, { userId });
+  return data.getUserEffectivePermissions;
 }
 
 export interface TenantSiteAccessOption {

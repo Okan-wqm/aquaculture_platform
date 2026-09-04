@@ -57735,7 +57735,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "8f84256cbf29d1e386098e610557a008cd9e03b200d842ae08ea071eb0556dad",
+      "content_sha256": "48ba87245f40403bd2ea4f517c8adfa992b8099a648c7e0c9c9d0278f7c3775d",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",

@@ -834,6 +834,8 @@ export type AuthPayload = {
   accessToken: Scalars['String']['output'];
   expiresIn: Scalars['Int']['output'];
   mfaRequired?: Maybe<Scalars['Boolean']['output']>;
+  mfaSetupRequired?: Maybe<Scalars['Boolean']['output']>;
+  mfaSetupToken?: Maybe<Scalars['String']['output']>;
   mfaToken?: Maybe<Scalars['String']['output']>;
   redirectUrl: Scalars['String']['output'];
   /**
@@ -10008,6 +10010,7 @@ export type Mutation = {
   updateTask: Task;
   updateTenant: Tenant;
   updateTenantRole: TenantRole;
+  updateTenantSecurityPolicy: TenantSecurityPolicy;
   updateTenantUser: User;
   updateTicketStatus: SupportTicket;
   updateTrainingCourse: TrainingCourse;
@@ -12374,6 +12377,11 @@ export type MutationSetVfdSpeedArgs = {
 };
 
 
+export type MutationSetupMfaArgs = {
+  mfaSetupToken?: InputMaybe<Scalars['String']['input']>;
+};
+
+
 export type MutationSkipDailyFeedingArgs = {
   input: SkipDailyFeedingInput;
 };
@@ -13120,6 +13128,11 @@ export type MutationUpdateTenantArgs = {
 export type MutationUpdateTenantRoleArgs = {
   input: UpdateTenantRoleInput;
   roleId: Scalars['ID']['input'];
+};
+
+
+export type MutationUpdateTenantSecurityPolicyArgs = {
+  input: UpdateTenantSecurityPolicyInput;
 };
 
 
@@ -15752,6 +15765,7 @@ export type Query = {
   tenantProvisioningKeys: Array<TenantProvisioningKey>;
   tenantRole?: Maybe<TenantRole>;
   tenantRoles: Array<TenantRole>;
+  tenantSecurityPolicy: TenantSecurityPolicy;
   tenantStats: TenantStats;
   tenantTables: Array<TenantTableInfo>;
   tenantUsers: Array<User>;
@@ -22039,6 +22053,11 @@ export type TenantRolePermissions = {
   roleId: Scalars['ID']['output'];
 };
 
+export type TenantSecurityPolicy = {
+  enforceMfa: Scalars['Boolean']['output'];
+  sessionTimeoutMinutes?: Maybe<Scalars['Int']['output']>;
+};
+
 export type TenantStats = {
   activeModules: Scalars['Int']['output'];
   activeSessions: Scalars['Int']['output'];
@@ -24019,6 +24038,11 @@ export type UpdateTenantRoleInput = {
   panelPermissions?: InputMaybe<Scalars['JSON']['input']>;
 };
 
+export type UpdateTenantSecurityPolicyInput = {
+  enforceMfa?: InputMaybe<Scalars['Boolean']['input']>;
+  sessionTimeoutMinutes?: InputMaybe<Scalars['Int']['input']>;
+};
+
 export type UpdateTenantUserInput = {
   /** Platform access type: PANEL_ONLY, MOBILE_ONLY, or BOTH */
   accessType?: InputMaybe<AccessType>;
@@ -24397,6 +24421,8 @@ export type VerifyMfaLoginInput = {
 
 export type VerifyMfaSetupInput = {
   code: Scalars['String']['input'];
+  /** MFA setup token from login (mfaSetupRequired=true) — identifies the user when no authenticated session exists */
+  mfaSetupToken?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type VerifyMfaSetupResponse = {

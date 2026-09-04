@@ -28,9 +28,8 @@ function extractSshScriptBlock(workflow: string, stepName: string): string {
   const idx = workflow.indexOf(stepName);
   if (idx < 0) return '';
   const after = workflow.slice(idx);
-  const scriptMatch = /script: \|\n([\s\S]*?)(?=\n {6}- name:|\n {2}[a-zA-Z0-9_-]+:\n|\n {0,4}\S)/.exec(
-    after,
-  );
+  const scriptMatch =
+    /script: \|\n([\s\S]*?)(?=\n {6}- name:|\n {2}[a-zA-Z0-9_-]+:\n|\n {0,4}\S|$)/.exec(after);
   return scriptMatch?.[1] ?? '';
 }
 
@@ -54,6 +53,7 @@ describe('deploy isolated SHA-pinned checkout SSOT', () => {
   const dropletUp = read('scripts/deploy/droplet-up.sh');
   const verify = read('scripts/deploy/post-deploy-verify.sh');
   const workflow = read('.github/workflows/deploy-digitalocean.yml');
+  const capacityMaintenance = read('.github/workflows/deploy-capacity-maintenance.yml');
 
   it('defines the deploy-checkout path constant exactly once, in deploy-paths.sh', () => {
     // Single source of truth: the literal default path appears only in the SSoT
@@ -74,7 +74,9 @@ describe('deploy isolated SHA-pinned checkout SSOT', () => {
 
   it('declares the persistent secrets SSoT (env + certs) and the source repo, all in one place', () => {
     expect(paths).toContain('export DEPLOY_SOURCE_REPO="${DEPLOY_SOURCE_REPO:-/var/aqua-saas}"');
-    expect(paths).toContain('export DEPLOY_ENV_FILE="${DEPLOY_ENV_FILE:-${DEPLOY_SOURCE_REPO}/.env}"');
+    expect(paths).toContain(
+      'export DEPLOY_ENV_FILE="${DEPLOY_ENV_FILE:-${DEPLOY_SOURCE_REPO}/.env}"',
+    );
     expect(paths).toContain(
       'export DEPLOY_CERTS_DIR="${DEPLOY_CERTS_DIR:-${DEPLOY_SOURCE_REPO}/certs}"',
     );
@@ -87,9 +89,7 @@ describe('deploy isolated SHA-pinned checkout SSOT', () => {
     // the isolated checkout (basename `checkout`) WITHOUT this pin would create
     // empty `checkout_*` volumes = catastrophic data loss. Pin must live in the
     // SSoT snippet, exported, so every compose call inherits it.
-    expect(paths).toContain(
-      'export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-aqua-saas}"',
-    );
+    expect(paths).toContain('export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-aqua-saas}"');
   });
 
   it('provides an idempotent worktree materializer that pins (detached) without touching the interactive tree', () => {
@@ -185,6 +185,21 @@ describe('deploy isolated SHA-pinned checkout SSOT', () => {
     expect(workflow).toContain(
       'envs: DEPLOY_SERVICES,FULL_DEPLOY,DEPLOY_MODE,DEPLOY_SHA,IMAGE_PREFIX,DEPLOY_CHECKOUT_DIR',
     );
+  });
+
+  it('runs scheduled capacity maintenance from the same SHA-pinned checkout without mutating the source repo', () => {
+    const block = extractSshScriptBlock(
+      capacityMaintenance,
+      'Run capacity operation through production deploy control plane',
+    );
+    const exec = executableShell(block);
+
+    expect(block).not.toEqual('');
+    expect(exec).toContain('git show "${TARGET_SHA}:scripts/deploy/deploy-paths.sh"');
+    expect(exec).toContain('source /var/lib/aqua/deploy/deploy-paths.sh');
+    expect(exec).toContain('materialize_deploy_checkout "${TARGET_SHA}"');
+    expect(exec).toContain('cd "${DEPLOY_CHECKOUT_DIR}"');
+    expect(exec).not.toMatch(/git\s+checkout\b/);
   });
 
   it('preserves the rollback + health-gate + public https smoke behavior (untouched by isolation)', () => {

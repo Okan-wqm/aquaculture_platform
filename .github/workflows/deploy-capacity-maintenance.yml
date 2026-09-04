@@ -100,8 +100,19 @@ jobs:
               TARGET_SHA="$(git rev-parse origin/main)"
             fi
 
-            git checkout -f "${TARGET_SHA}"
             export DEPLOY_SHA="${TARGET_SHA}"
+
+            # /var/aqua-saas is the persistent bare object store on the droplet,
+            # not an executable working tree. Bootstrap the canonical deploy
+            # checkout helper from the exact target commit, then run maintenance
+            # from the immutable checkout used by the rest of the deploy control
+            # plane. This keeps the source repo ref-only and makes scheduled and
+            # manually requested SHAs follow the same path.
+            install -d /var/lib/aqua/deploy
+            git show "${TARGET_SHA}:scripts/deploy/deploy-paths.sh" > /var/lib/aqua/deploy/deploy-paths.sh
+            source /var/lib/aqua/deploy/deploy-paths.sh
+            materialize_deploy_checkout "${TARGET_SHA}"
+            cd "${DEPLOY_CHECKOUT_DIR}"
 
             case "${OPERATION}" in
               report)

@@ -219,6 +219,42 @@ and that entry's own comment says it is not cloned. The messaging equivalent
 carries the decorator; farm's did not. An outbox cloned per tenant silently
 swallows platform-wide events.
 
+### INFRA-HIGH-147 — the sensor rollups cannot be created after RLS is armed
+
+With the heartbeat guard fixed, the provisioner got through farm AND sensor and
+then died on
+
+```text
+cannot create continuous aggregate on hypertable with row security
+  at ensureTenantSensorContinuousAggregateAuthority
+     (apps/db-migrate/src/tenant-sensor-continuous-aggregate-authority.ts:121)
+```
+
+TimescaleDB's restriction is asymmetric: enabling row security on a hypertable
+that already carries a continuous aggregate is allowed, creating the aggregate
+afterwards is not. The provisioner ran the aggregate authority AFTER the
+per-service loop, and that loop's `postMigrationHardening` arms RLS on
+`sensor_metrics` — so by the time the rollups were created, the window had
+closed. The retired `CREATE TABLE LIKE` path never hit this because it cloned
+neither hypertables nor RLS.
+
+**Fixed for PROVISION** by creating the aggregates inside the loop, between the
+sensor migrations and the sensor hardening — the one window in which the
+hypertable exists and is not yet RLS-armed — with a fail-closed check that the
+sensor registry entry was actually seen, so losing it cannot silently produce an
+aggregate-less tenant.
+
+**NOT fixed for RECONCILE** (owner @okan-wqm, deadline 2026-10-15).
+`RECONCILE_EXISTING_SCHEMA` runs against a schema that is already hardened, so
+it has no such window. The `CREATE MATERIALIZED VIEW` statements carry
+`IF NOT EXISTS` and are expected to short-circuit before TimescaleDB's DDL hook
+for a tenant that already has them — expected, not measured, because the
+bootstrap needs `timescaledb` and `pgvector` and cannot run outside CI. The
+exposed set is tenants provisioned through the retired `LIKE` path, and what
+they actually have needs checking against a live database before choosing
+between creating the aggregates before arming RLS in reconcile too, and having
+reconcile report rather than attempt.
+
 ### INFRA-HIGH-146 — bootstrap hardening runs before the tables it hardens exist
 
 Stage 008 states the invariant that every relation in a schema is owned by

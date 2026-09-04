@@ -44618,6 +44618,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/nats-conf-generator-check.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/nats-config-ssot.spec.ts",
       "prettier_managed": true
     },

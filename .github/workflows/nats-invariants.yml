@@ -87,14 +87,12 @@ jobs:
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --ignore-scripts --no-fund
 
+      # Read-only. The generator's --check mode names the stale artifact and
+      # exits 3; it does not write, so the specs below run against the commit
+      # under test rather than a checkout this step just repaired.
       - name: Verify NATS generated artifacts match services.yaml
         run: |
-          python3 scripts/nats/generate-nats-conf.py
-          if [ -n "$(git status --porcelain -- infrastructure/docker/nats/nats.conf infrastructure/helm/aquaculture/files/nats-service-identities.yaml)" ]; then
-            git diff -- infrastructure/docker/nats/nats.conf infrastructure/helm/aquaculture/files/nats-service-identities.yaml
-            echo "::error::NATS ACL or Helm certificate roster is stale — run scripts/nats/generate-nats-conf.py and commit both artifacts."
-            exit 1
-          fi
+          python3 scripts/nats/generate-nats-conf.py --check
 
       - name: Run NATS SSoT invariant specs
         run: |

@@ -11240,3 +11240,22 @@ the controller now flattens the nested shape the page can render.
 ## INFRA-HIGH-137 — Production deploy mutates host state before proving its Node 22 runtime authority — IN-PROGRESS
 
 **Discovered and reproduced:** 2026-07-21 host-runtime authority audit following PR #1022 run `29816085763`. The exact-SHA health and signal artifacts are compiled for Node 22, but `droplet-up.sh` reaches their first bare `node` invocation only after release, Docker and potentially database work; it performs no Node preflight. A missing or older host executable can therefore break both the health gate and its rollback after mutation. Post-deploy verification checks only ambient command presence and likewise does not pin the executable or version. **Fix in progress:** resolve one canonical non-symlink host Node executable, require major version 22, export that bounded authority before deploy mutation, and invoke every bundled runtime through it. The GitHub runner's setup-node path remains a separate build-only authority and is never sent to the droplet. **Owner:** infra-expert / Okan. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-137`.
+
+## INFRA-MEDIUM-143 — the NATS drift gate repaired the checkout before it judged it — IN-PROGRESS
+
+**Discovered and reproduced:** 2026-09-04, while recovering PR #1022's
+`nats-conf --check` mode onto the integration head. Both NATS SSoT drift gates
+(`.github/workflows/ci-affected.yml` Phase A3 and
+`.github/workflows/nats-invariants.yml`) ran
+`scripts/nats/generate-nats-conf.py` and then asked git whether the tree had
+become dirty. The generator's write lands before the check, so a stale
+artifact is silently repaired in the runner's checkout and every later step in
+the same job reads the repaired file while the commit under test still carries
+the stale one. The generator also had no read-only mode and no drift-specific
+exit code, so "you edited `services.yaml` and forgot to regenerate" and "your
+`services.yaml` is malformed" were indistinguishable to the gate. **Fix:** add
+`--check` (compare only; exit 3 for drift, 64 for a usage error), move both
+gates onto it, and prove the detector detects — a `--check` that always
+returned 0 would keep both jobs green forever. **Owner:** infra-expert.
+**Deadline:** 2026-09-11. **Status:** IN-PROGRESS. **Canonical registry:**
+`INFRA-MEDIUM-143`.

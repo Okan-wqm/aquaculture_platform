@@ -4,6 +4,7 @@ import './Tabs.css';
 export interface TabItem {
   readonly id: string;
   readonly label: string;
+  /** Row count for the tab's collection; rendered as a small tabular counter. */
   readonly count?: number | undefined;
 }
 

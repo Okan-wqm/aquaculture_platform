@@ -1,13 +1,17 @@
 // Legal vocabulary badges.
 //
-// WHY: the contract's epistemic distinctions (asserted ≠ verified, party vs
-// ai_inference, text vs unreadable) must be visible on every row, with the
-// English value verbatim and the Turkish meaning on hover. A statement must never
-// look like a fact; `verified` is the only status a human earns.
+// WHY: the contract's epistemic distinctions (asserted != verified, party vs
+// ai_inference, text vs unreadable) must be visible on every row. The kernel
+// value renders VERBATIM and the English meaning sits in the title attribute, so
+// a machine-produced claim can never read as a fact; `verified` is the only
+// status a human earns.
+// WHAT: status/source/extraction badges, the human-review marker, the confidence
+// meter, evidence-reference chips and the calendar-precision date cell shared by
+// every legal tab.
 import type { ReactNode } from 'react';
 import type { AssertionSource, ExtractionStatus, LegalEvidenceRef, StatementStatus } from '../../../../shared/legal-contract.ts';
 import { Badge, type BadgeTone } from '../../design/Badge.tsx';
-import { EMPTY, formatPercent } from '../../design/format.ts';
+import { EMPTY, formatDay, formatNumber, formatPercent } from '../../design/format.ts';
 import './legal.css';
 
 const STATEMENT_TONE: Readonly<Record<StatementStatus, BadgeTone>> = {
@@ -20,12 +24,12 @@ const STATEMENT_TONE: Readonly<Record<StatementStatus, BadgeTone>> = {
 };
 
 const STATEMENT_GLOSS: Readonly<Record<StatementStatus, string>> = {
-  asserted: 'İddia edildi — bir tarafın beyanı; olgu değildir',
-  disputed: 'İhtilaflı — karşı beyan var',
-  supported: 'Destekleniyor — kanıt referansı var, insan doğrulaması yok',
-  contradicted: 'Çelişiyor — karşıt kanıt var',
-  unverifiable: 'Doğrulanamaz — mevcut arşivde kanıt yok',
-  verified: 'Doğrulandı — bir insan denetçi kayıt altına aldı',
+  asserted: "Asserted — one side's statement; not a fact",
+  disputed: 'Disputed — a counter-statement exists',
+  supported: 'Supported — evidence is referenced, no human verification',
+  contradicted: 'Contradicted — contrary evidence exists',
+  unverifiable: 'Unverifiable — no evidence in this archive',
+  verified: 'Verified — a human reviewer recorded the verification',
 };
 
 export function StatementStatusBadge({ status }: { readonly status: StatementStatus }): ReactNode {
@@ -46,12 +50,12 @@ const SOURCE_TONE: Readonly<Record<AssertionSource, BadgeTone>> = {
 };
 
 const SOURCE_GLOSS: Readonly<Record<AssertionSource, string>> = {
-  party: 'Taraf beyanı',
-  court: 'Mahkeme kaydı',
-  counsel: 'Vekil beyanı',
-  third_party: 'Üçüncü taraf',
-  ai_inference: 'Yapay zekâ çıkarımı — kanıt değil, insan doğrulaması gerekir',
-  operator: 'Operatör kaydı',
+  party: 'Party statement',
+  court: 'Court record',
+  counsel: 'Counsel statement',
+  third_party: 'Third party',
+  ai_inference: 'AI inference — not evidence; human review required',
+  operator: 'Operator record',
 };
 
 export function AssertedByBadge({ source, partyId }: { readonly source: AssertionSource; readonly partyId?: string | null | undefined }): ReactNode {
@@ -61,7 +65,7 @@ export function AssertedByBadge({ source, partyId }: { readonly source: Assertio
         {source}
       </Badge>
       {partyId !== undefined && partyId !== null ? (
-        <span className="chip" title={partyId}>
+        <span className="chip mono" title={`assertedByPartyId ${partyId}`}>
           {partyId}
         </span>
       ) : null}
@@ -73,14 +77,14 @@ export function AssertedByBadge({ source, partyId }: { readonly source: Assertio
 export function ReviewMarker({ required }: { readonly required: boolean }): ReactNode {
   if (!required) {
     return (
-      <span className="muted" title="İnsan doğrulaması işaretlenmedi">
+      <span className="muted" title="human_review_required = false">
         {EMPTY}
       </span>
     );
   }
   return (
     <Badge tone="warning" title="human_review_required = true">
-      insan doğrulaması gerekli
+      Human review required
     </Badge>
   );
 }
@@ -93,10 +97,10 @@ const EXTRACTION_TONE: Readonly<Record<ExtractionStatus, BadgeTone>> = {
 };
 
 const EXTRACTION_GLOSS: Readonly<Record<ExtractionStatus, string>> = {
-  text: 'Metin çıkarıldı',
-  metadata_only: 'Yalnızca meta veri okunabildi',
-  unreadable: 'Okunamadı — basınç kaydı oluşur',
-  excluded: 'Kapsam dışı bırakıldı (excludedReason)',
+  text: 'Text extracted',
+  metadata_only: 'Metadata only — the bytes were not readable as text',
+  unreadable: 'Unreadable — raises a pressure record instead of silence',
+  excluded: 'Excluded from the sweep (excludedReason)',
 };
 
 export function ExtractionBadge({ status }: { readonly status: ExtractionStatus }): ReactNode {
@@ -110,7 +114,7 @@ export function ExtractionBadge({ status }: { readonly status: ExtractionStatus 
 export function KindGuessBadge({ kind, confidence }: { readonly kind: string; readonly confidence: number }): ReactNode {
   return (
     <span className="row">
-      <Badge tone={kind === 'UNKNOWN' ? 'muted' : 'neutral'} mono title="kindGuess — mekanik tahmin, sınıflandırma değil">
+      <Badge tone={kind === 'UNKNOWN' ? 'muted' : 'neutral'} mono title="kindGuess — a mechanical guess, not a classification">
         {kind}
       </Badge>
       <ConfidenceMeter value={confidence} />
@@ -119,11 +123,14 @@ export function KindGuessBadge({ kind, confidence }: { readonly kind: string; re
 }
 
 export function ConfidenceMeter({ value }: { readonly value: number }): ReactNode {
+  // WHY: clamping keeps a malformed artifact from rendering a meter outside its
+  // track; the numeric percentage stays next to the bar so colour is never the
+  // only carrier of the value.
   const bounded = Math.max(0, Math.min(1, value));
   return (
-    <span className="confidence" title={`confidence ${bounded.toFixed(2)}`}>
-      <meter className="confidence__meter" min={0} max={1} low={0.4} high={0.75} optimum={1} value={bounded} aria-label="güven" />
-      <span className="confidence__text">{formatPercent(bounded)}</span>
+    <span className="confidence" title={`confidence ${formatPercent(bounded)}`}>
+      <meter className="confidence__meter" min={0} max={1} low={0.4} high={0.75} optimum={1} value={bounded} aria-label="Confidence" />
+      <span className="confidence__text tnum">{formatPercent(bounded)}</span>
     </span>
   );
 }
@@ -131,7 +138,7 @@ export function ConfidenceMeter({ value }: { readonly value: number }): ReactNod
 export function PrecisionBadge({ precision }: { readonly precision: 'day' | 'month' | 'year' | 'unknown' }): ReactNode {
   const tone: BadgeTone = precision === 'day' ? 'success' : precision === 'unknown' ? 'danger' : 'warning';
   return (
-    <Badge tone={tone} title="datePrecision — tarihin hangi kesinlikte bilindiği">
+    <Badge tone={tone} title="datePrecision — how precisely the date is known">
       {precision}
     </Badge>
   );
@@ -144,26 +151,38 @@ export function EvidenceRefList({ refs, max = 3 }: { readonly refs: ReadonlyArra
   const shown = refs.slice(0, max);
   const rest = refs.length - shown.length;
   return (
-    <ul className="chip-list" aria-label={`${refs.length} kanıt`}>
+    <ul className="chip-list" aria-label={`Evidence: ${formatNumber(refs.length)} references`}>
       {shown.map((ref, index) => (
-        <li key={`${ref.documentId}-${ref.locator ?? ''}-${index}`} className="chip" title={`sha256 ${ref.sha256}${ref.versionId !== undefined ? ` · version ${ref.versionId}` : ''}`}>
+        <li key={`${ref.documentId}-${ref.locator ?? ''}-${index}`} className="chip mono" title={`sha256 ${ref.sha256}${ref.versionId !== undefined ? ` · version ${ref.versionId}` : ''}`}>
           {ref.documentId}
           {ref.locator !== undefined ? `@${ref.locator}` : ''}
         </li>
       ))}
-      {rest > 0 ? <li className="chip">+{rest}</li> : null}
+      {rest > 0 ? (
+        <li className="chip tnum" title={`${formatNumber(rest)} more references`}>
+          +{formatNumber(rest)}
+        </li>
+      ) : null}
     </ul>
   );
 }
 
-/** Verbatim legal date (never relative — precision matters), with the raw value on hover. */
+/**
+ * Legal calendar date (Occurred / Learned).
+ *
+ * WHY: the clock is noise on these fields, but PRECISION is not — a partial
+ * value such as `2026-03` must never be widened into a day. A full instant is
+ * formatted as an en-GB day; anything shorter renders verbatim, and the raw
+ * artifact value always stays in the title.
+ */
 export function LegalDate({ value }: { readonly value: string | null }): ReactNode {
   if (value === null || value === '') {
     return <span className="muted">{EMPTY}</span>;
   }
+  const isInstant = value.includes('T');
   return (
     <time dateTime={value} title={value} className="mono nowrap">
-      {value}
+      {isInstant ? formatDay(value) : value}
     </time>
   );
 }

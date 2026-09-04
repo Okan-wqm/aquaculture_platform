@@ -1,4 +1,8 @@
-/* Global element defaults + small utilities. Component styles live next to components. */
+/* Element defaults and the small utility set the pages share.
+   WHY: component-specific rules live next to their component; this file only sets
+   the reading surface (density, hairlines, focus) and the handful of layout
+   utilities that would otherwise be re-invented on every page.
+   WHAT: reset, typography defaults, form and button styles, layout helpers. */
 *,
 *::before,
 *::after {
@@ -6,8 +10,9 @@
 }
 
 html {
+  /* The root stays at the browser default so `rem` remains a stable, predictable
+     unit; the console's 13px reading size is set on <body> and inherited. */
   font-family: var(--font-sans);
-  font-size: 16px;
   line-height: var(--lh-normal);
   background: var(--bg);
   color: var(--text);
@@ -17,6 +22,10 @@ html {
 body {
   margin: 0;
   min-height: 100vh;
+  font-size: var(--fs-md);
+  /* Numbers must line up column to column; this is a table-first product. */
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
 }
 
 h1,
@@ -26,6 +35,7 @@ h4 {
   margin: 0;
   line-height: var(--lh-tight);
   font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 h1 {
@@ -36,6 +46,9 @@ h2 {
 }
 h3 {
   font-size: var(--fs-md);
+}
+h4 {
+  font-size: var(--fs-sm);
 }
 
 p {
@@ -53,9 +66,16 @@ a:hover {
 
 code,
 pre,
-kbd {
+kbd,
+samp {
   font-family: var(--font-mono);
   font-size: 0.9em;
+}
+
+hr {
+  border: 0;
+  border-top: var(--hairline) solid var(--border);
+  margin: var(--space-4) 0;
 }
 
 button,
@@ -66,10 +86,15 @@ textarea {
   color: inherit;
 }
 
+/* One focus indicator for the whole console: a ring that survives on any surface. */
 :focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
   border-radius: var(--radius-sm);
+}
+
+::selection {
+  background: var(--accent-soft);
 }
 
 .visually-hidden {
@@ -87,10 +112,27 @@ textarea {
 .mono {
   font-family: var(--font-mono);
   font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.tnum {
+  font-variant-numeric: tabular-nums;
 }
 
 .muted {
   color: var(--text-muted);
+}
+
+.faint {
+  color: var(--text-faint);
+}
+
+.label {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--text-faint);
 }
 
 .nowrap {
@@ -112,6 +154,10 @@ textarea {
   gap: var(--space-4);
 }
 
+.stack--tight {
+  gap: var(--space-2);
+}
+
 .row {
   display: flex;
   flex-wrap: wrap;
@@ -121,22 +167,26 @@ textarea {
 
 .grid-2 {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
   gap: var(--space-4);
 }
 
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
   gap: var(--space-3);
 }
 
+/* Buttons: one flat neutral shape, one accent fill, one danger outline, one ghost.
+   Height is fixed so a toolbar of mixed controls sits on a single baseline. */
 .button {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--border-strong);
+  min-height: 28px;
+  padding: 0 var(--space-3);
+  border: var(--hairline) solid var(--border-strong);
   border-radius: var(--radius-md);
   background: var(--surface);
   color: var(--text);
@@ -144,12 +194,17 @@ textarea {
   font-size: var(--fs-sm);
   font-weight: 500;
   line-height: 1.2;
+  white-space: nowrap;
 }
 .button:hover:not(:disabled) {
   background: var(--surface-2);
+  border-color: var(--n-400);
+}
+.button:active:not(:disabled) {
+  background: var(--surface-3);
 }
 .button:disabled {
-  opacity: 0.55;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 .button--primary {
@@ -162,46 +217,95 @@ textarea {
   border-color: var(--accent-hover);
 }
 .button--danger {
+  background: transparent;
+  border-color: var(--tone-danger-line);
+  color: var(--tone-danger-fg);
+}
+.button--danger:hover:not(:disabled) {
   background: var(--tone-danger-bg);
   border-color: var(--tone-danger-fg);
-  color: var(--tone-danger-fg);
 }
 .button--ghost {
   background: transparent;
   border-color: transparent;
+  color: var(--text-muted);
+}
+.button--ghost:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: transparent;
+  color: var(--text);
+}
+.button--sm {
+  min-height: 24px;
+  padding: 0 var(--space-2);
+  font-size: var(--fs-xs);
+}
+.button--icon {
+  padding: 0;
+  width: 28px;
+}
+.button--sm.button--icon {
+  width: 24px;
 }
 
+/* Fields: label above control, 28px control height to match .button. */
 .field {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
   font-size: var(--fs-sm);
+  min-width: 0;
 }
 .field > span {
-  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--text-faint);
 }
 .field input,
 .field select,
 .field textarea {
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--border-strong);
+  min-height: 28px;
+  padding: var(--space-1) var(--space-2);
+  border: var(--hairline) solid var(--border-strong);
   border-radius: var(--radius-md);
   background: var(--surface);
-  min-width: 12rem;
+  font-size: var(--fs-sm);
+}
+.field input::placeholder,
+.field textarea::placeholder {
+  color: var(--text-faint);
+}
+.field input[type="search"],
+.field input[type="text"],
+.field select {
+  min-width: 11rem;
 }
 .field textarea {
-  min-height: 4.5rem;
+  min-height: 5rem;
   resize: vertical;
+  line-height: var(--lh-snug);
 }
 .field--inline {
   flex-direction: row;
   align-items: center;
   gap: var(--space-2);
 }
+.field--inline > span {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text-muted);
+}
 .field--inline input[type="checkbox"] {
   min-width: 0;
+  min-height: 0;
+  accent-color: var(--accent);
 }
 
+/* Chips: a compact monospace carrier for ids, paths and tags inside prose. */
 .chip-list {
   display: flex;
   flex-wrap: wrap;
@@ -212,12 +316,13 @@ textarea {
 }
 .chip {
   display: inline-block;
-  padding: 1px var(--space-2);
+  padding: 0 var(--space-1);
   border-radius: var(--radius-sm);
   background: var(--surface-2);
-  border: 1px solid var(--border);
+  border: var(--hairline) solid var(--border);
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
+  line-height: 1.7;
   max-width: 40ch;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -225,29 +330,38 @@ textarea {
   vertical-align: middle;
 }
 
+/* Toolbar: the control strip above a table or inside a card header.
+   Defined globally because pages compose it directly as well as via <Toolbar />. */
 .toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
   gap: var(--space-3);
+  min-width: 0;
+}
+.toolbar--center {
+  align-items: center;
+}
+.toolbar__spacer {
+  margin-left: auto;
 }
 
 .legend {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-3);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-xs);
   color: var(--text-muted);
 }
 
-/* Master/detail split used by ledger-style pages: table on the left, selected row on the right. */
+/* Master/detail split used by ledger-style pages: table left, selected row right. */
 .split {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(300px, 420px);
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 440px);
   gap: var(--space-4);
   align-items: start;
 }
-@media (max-width: 1100px) {
+@media (max-width: 1200px) {
   .split {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -255,4 +369,14 @@ textarea {
 .detail-panel {
   position: sticky;
   top: var(--space-4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

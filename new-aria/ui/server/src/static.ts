@@ -32,9 +32,9 @@ const CONTENT_TYPES: Readonly<Record<string, string>> = {
 };
 
 const MISSING_BUILD_HTML =
-  '<!doctype html><html lang="tr"><meta charset="utf-8"><title>new-aria konsol</title>' +
-  '<body style="font-family:system-ui;padding:2rem"><h1>Konsol derlemesi bulunamadı</h1>' +
-  '<p><code>ARIA_UI_STATIC_DIR</code> altında <code>index.html</code> yok. <code>npm run build:web</code> çalıştırın.</p></body></html>';
+  '<!doctype html><html lang="en"><meta charset="utf-8"><title>ARIA operator console</title>' +
+  '<body style="font-family:system-ui;padding:2rem"><h1>Console build not found</h1>' +
+  '<p>No <code>index.html</code> under <code>ARIA_UI_STATIC_DIR</code>. Run <code>npm run build:web</code>.</p></body></html>';
 
 export function contentTypeFor(path: string): string {
   return CONTENT_TYPES[extname(path).toLowerCase()] ?? 'application/octet-stream';

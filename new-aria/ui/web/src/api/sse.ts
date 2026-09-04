@@ -122,7 +122,7 @@ export interface GovernanceStreamOptions {
 export async function readGovernanceStream(options: GovernanceStreamOptions): Promise<void> {
   const token = getToken();
   if (token === null) {
-    throw new ApiClientError(401, { error: 'missing_token', detail: 'Operatör tokenı girilmemiş.' }, ENDPOINTS.governanceStream.path);
+    throw new ApiClientError(401, { error: 'missing_token', detail: 'Operator token is missing. Sign in to continue.' }, ENDPOINTS.governanceStream.path);
   }
   const headers = new Headers();
   headers.set('accept', 'text/event-stream');
@@ -148,7 +148,7 @@ export async function readGovernanceStream(options: GovernanceStreamOptions): Pr
     throw new ApiClientError(response.status, await parseErrorBody(response), ENDPOINTS.governanceStream.path);
   }
   if (response.body === null) {
-    throw new Error('Akış gövdesi boş: sunucu text/event-stream döndürmedi.');
+    throw new Error('Stream body is empty: the server returned no text/event-stream body.');
   }
   options.onOpen?.();
 

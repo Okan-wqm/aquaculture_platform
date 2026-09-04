@@ -1,5 +1,6 @@
-import { useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { EmptyBlock } from './AsyncState.tsx';
+import { useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
+import { EmptyState } from './EmptyState.tsx';
+import { Icon } from './Icon.tsx';
 import './DataTable.css';
 
 export type SortValue = string | number | null;
@@ -9,14 +10,24 @@ export interface ColumnDef<T> {
   readonly id: string;
   readonly header: string;
   readonly render: (row: T) => ReactNode;
-  /** Present → the header becomes a sort button. */
+  /** Present → the header becomes a sort button with visible direction state. */
   readonly sortValue?: ((row: T) => SortValue) | undefined;
+  /** `end` right-aligns the column and applies tabular numerals. */
   readonly align?: 'start' | 'end' | undefined;
   readonly nowrap?: boolean | undefined;
+  /** Monospace cell type for hashes, ids, paths and commands. */
+  readonly mono?: boolean | undefined;
+  /** Present → this column gets an input in the filter row (needs `filterRow`). */
+  readonly filterValue?: ((row: T) => string) | undefined;
+  /** Any CSS width, e.g. "12ch" or "180px". */
+  readonly width?: string | undefined;
+  /** Hover explanation for an abbreviated header. */
+  readonly headerTitle?: string | undefined;
 }
 
 export interface TableFilter<T> {
   readonly placeholder: string;
+  /** Called with the query already lower-cased; return true to keep the row. */
   readonly predicate: (row: T, normalisedQuery: string) => boolean;
 }
 
@@ -24,15 +35,30 @@ export interface DataTableProps<T> {
   readonly columns: ReadonlyArray<ColumnDef<T>>;
   readonly rows: ReadonlyArray<T>;
   readonly rowKey: (row: T) => string;
-  /** Screen-reader caption; visually hidden. */
+  /** Screen-reader caption naming the table; visually hidden. */
   readonly caption: string;
+  /** Free-text search across the whole row, shown in the table toolbar. */
   readonly filter?: TableFilter<T> | undefined;
+  /** One sentence: what would appear here, and why it is empty. */
   readonly emptyMessage: string;
+  /** Headline above `emptyMessage`, e.g. "No cycles yet". */
+  readonly emptyTitle?: string | undefined;
   readonly onRowActivate?: ((row: T) => void) | undefined;
+  /** Extra row class: `row-danger`, `row-warning`, `row-success`, `row-muted`. */
   readonly rowClassName?: ((row: T) => string | undefined) | undefined;
   readonly initialSort?: { readonly columnId: string; readonly direction: SortDirection } | undefined;
   readonly dense?: boolean | undefined;
+  /** Extra controls in the table toolbar (selects, buttons, legends). */
   readonly toolbar?: ReactNode;
+  /** Renders a per-column filter input for every column declaring `filterValue`. */
+  readonly filterRow?: boolean | undefined;
+  /** Caps the scroll area, e.g. "60vh", so the sticky header stays inside the card. */
+  readonly maxHeight?: string | undefined;
+  /** rowKey of the row shown in a detail panel; highlights it. */
+  readonly selectedKey?: string | undefined;
+  readonly footer?: ReactNode;
+  /** Noun for the toolbar counter. Default "rows". */
+  readonly countNoun?: string | undefined;
 }
 
 function compareSortValues(a: SortValue, b: SortValue): number {
@@ -48,16 +74,26 @@ function compareSortValues(a: SortValue, b: SortValue): number {
   if (typeof a === 'number' && typeof b === 'number') {
     return a - b;
   }
-  return String(a).localeCompare(String(b), 'tr');
+  return String(a).localeCompare(String(b), 'en-GB');
+}
+
+function cellClass<T>(column: ColumnDef<T>): string | undefined {
+  const classes = [column.align === 'end' ? 'is-end' : '', column.nowrap === true ? 'nowrap' : '', column.mono === true ? 'is-mono' : ''].filter(
+    (entry) => entry !== '',
+  );
+  return classes.length === 0 ? undefined : classes.join(' ');
 }
 
 /**
- * Client-side sortable/filterable table.
+ * Client-side sortable and filterable table.
  *
- * Keyboard: header sort buttons are real <button>s; body rows use a roving
- * tabindex (ArrowUp/ArrowDown/Home/End) and Enter/Space activates the focused row
- * when `onRowActivate` is given. Filtering is a substring match supplied by the
- * caller, so each page decides which fields are searchable.
+ * WHY: every ledger view in this console is a table, so sorting, filtering,
+ * empty states and keyboard traversal are solved once here rather than per page.
+ * WHAT: header sort buttons are real <button>s carrying aria-sort; body rows use
+ * a roving tabindex (ArrowUp/ArrowDown/Home/End) and Enter or Space activates the
+ * focused row when `onRowActivate` is given. Free-text filtering is a predicate
+ * supplied by the caller, so each page decides which fields are searchable;
+ * column filters are substring matches over each column's `filterValue`.
  */
 export function DataTable<T>({
   columns,
@@ -66,21 +102,36 @@ export function DataTable<T>({
   caption,
   filter,
   emptyMessage,
+  emptyTitle,
   onRowActivate,
   rowClassName,
   initialSort,
   dense = false,
   toolbar,
+  filterRow = false,
+  maxHeight,
+  selectedKey,
+  footer,
+  countNoun = 'rows',
 }: DataTableProps<T>): ReactNode {
   const [query, setQuery] = useState('');
+  const [columnQueries, setColumnQueries] = useState<Readonly<Record<string, string>>>({});
   const [sort, setSort] = useState<{ columnId: string; direction: SortDirection } | null>(initialSort ?? null);
   const [focusedIndex, setFocusedIndex] = useState(0);
   const rowRefs = useRef<Array<HTMLTableRowElement | null>>([]);
   const filterId = useId();
 
   const visibleRows = useMemo(() => {
-    const normalised = query.trim().toLocaleLowerCase('tr');
-    const filtered = filter !== undefined && normalised !== '' ? rows.filter((row) => filter.predicate(row, normalised)) : [...rows];
+    const normalised = query.trim().toLowerCase();
+    let filtered = filter !== undefined && normalised !== '' ? rows.filter((row) => filter.predicate(row, normalised)) : [...rows];
+    for (const column of columns) {
+      const columnQuery = (columnQueries[column.id] ?? '').trim().toLowerCase();
+      const accessor = column.filterValue;
+      if (columnQuery === '' || accessor === undefined) {
+        continue;
+      }
+      filtered = filtered.filter((row) => accessor(row).toLowerCase().includes(columnQuery));
+    }
     if (sort === null) {
       return filtered;
     }
@@ -91,7 +142,7 @@ export function DataTable<T>({
     const sortValue = column.sortValue;
     const factor = sort.direction === 'asc' ? 1 : -1;
     return filtered.sort((a, b) => compareSortValues(sortValue(a), sortValue(b)) * factor);
-  }, [rows, query, sort, columns, filter]);
+  }, [rows, query, columnQueries, sort, columns, filter]);
 
   const toggleSort = (columnId: string): void => {
     setSort((current) => {
@@ -145,13 +196,22 @@ export function DataTable<T>({
     return sort.direction === 'asc' ? 'ascending' : 'descending';
   };
 
+  const hasColumnFilters = filterRow && columns.some((column) => column.filterValue !== undefined);
+  const isFiltered = query.trim() !== '' || Object.values(columnQueries).some((value) => value.trim() !== '');
+  const scrollStyle: CSSProperties | undefined = maxHeight === undefined ? undefined : { maxHeight };
+
   return (
     <div className="data-table">
       {filter !== undefined || toolbar !== undefined ? (
         <div className="data-table__toolbar">
           {filter !== undefined ? (
-            <label className="field data-table__filter" htmlFor={filterId}>
-              <span className="visually-hidden">Filtre</span>
+            <span className="data-table__search">
+              <span className="data-table__search-icon">
+                <Icon name="search" size={14} />
+              </span>
+              <label className="visually-hidden" htmlFor={filterId}>
+                Search
+              </label>
               <input
                 id={filterId}
                 type="search"
@@ -160,64 +220,107 @@ export function DataTable<T>({
                 onChange={(event) => setQuery(event.target.value)}
                 autoComplete="off"
               />
-            </label>
+            </span>
           ) : null}
           {toolbar}
           <span className="data-table__count" aria-live="polite">
-            {visibleRows.length === rows.length ? `${rows.length} satır` : `${visibleRows.length} / ${rows.length} satır`}
+            {visibleRows.length === rows.length
+              ? `${rows.length} ${countNoun}`
+              : `${visibleRows.length} of ${rows.length} ${countNoun}`}
           </span>
         </div>
       ) : null}
       {visibleRows.length === 0 ? (
-        <EmptyBlock message={rows.length === 0 ? emptyMessage : 'Filtreyle eşleşen satır yok.'} />
+        <div className="data-table__empty">
+          {isFiltered ? (
+            <EmptyState
+              title="No matching rows"
+              message="No row matches the current search. Clear the filters to see the full set."
+              flush
+            />
+          ) : (
+            <EmptyState title={emptyTitle} message={emptyMessage} flush />
+          )}
+        </div>
       ) : (
-        <div className="data-table__scroll">
+        <div className="data-table__scroll" style={scrollStyle}>
           <table className={`data-table__table${dense ? ' data-table__table--dense' : ''}`}>
             <caption className="visually-hidden">{caption}</caption>
             <thead>
               <tr>
-                {columns.map((column) => (
-                  <th
-                    key={column.id}
-                    scope="col"
-                    aria-sort={column.sortValue !== undefined ? ariaSort(column.id) : undefined}
-                    className={column.align === 'end' ? 'is-end' : undefined}
-                  >
-                    {column.sortValue !== undefined ? (
-                      <button type="button" className="data-table__sort" onClick={() => toggleSort(column.id)}>
-                        {column.header}
-                        <span className="data-table__sort-icon" aria-hidden="true">
-                          {ariaSort(column.id) === 'ascending' ? '▲' : ariaSort(column.id) === 'descending' ? '▼' : '↕'}
-                        </span>
-                      </button>
-                    ) : (
-                      column.header
-                    )}
-                  </th>
-                ))}
+                {columns.map((column) => {
+                  const state = ariaSort(column.id);
+                  return (
+                    <th
+                      key={column.id}
+                      scope="col"
+                      aria-sort={column.sortValue !== undefined ? state : undefined}
+                      className={column.align === 'end' ? 'is-end' : undefined}
+                      style={column.width === undefined ? undefined : { width: column.width }}
+                      title={column.headerTitle}
+                    >
+                      {column.sortValue !== undefined ? (
+                        <button type="button" className="data-table__sort" onClick={() => toggleSort(column.id)}>
+                          {column.header}
+                          <span className={`data-table__sort-icon${state === 'none' ? '' : ' data-table__sort-icon--active'}`}>
+                            <Icon name={state === 'descending' ? 'chevron-down' : 'chevron-up'} size={12} />
+                          </span>
+                        </button>
+                      ) : (
+                        column.header
+                      )}
+                    </th>
+                  );
+                })}
               </tr>
+              {hasColumnFilters ? (
+                <tr className="data-table__filter-row">
+                  {columns.map((column) => (
+                    <th key={column.id} scope="col">
+                      {column.filterValue !== undefined ? (
+                        <input
+                          type="search"
+                          value={columnQueries[column.id] ?? ''}
+                          aria-label={`Filter ${column.header}`}
+                          placeholder="Filter"
+                          autoComplete="off"
+                          onChange={(event) => {
+                            const next = event.target.value;
+                            setColumnQueries((current) => ({ ...current, [column.id]: next }));
+                          }}
+                        />
+                      ) : null}
+                    </th>
+                  ))}
+                </tr>
+              ) : null}
             </thead>
             <tbody>
               {visibleRows.map((row, index) => {
-                const extraClass = rowClassName?.(row);
-                const classes = [onRowActivate !== undefined ? 'is-activatable' : '', extraClass ?? ''].filter((entry) => entry !== '').join(' ');
+                const key = rowKey(row);
+                const selected = selectedKey !== undefined && selectedKey === key;
+                const classes = [
+                  onRowActivate !== undefined ? 'is-activatable' : '',
+                  selected ? 'row-selected' : '',
+                  rowClassName?.(row) ?? '',
+                ]
+                  .filter((entry) => entry !== '')
+                  .join(' ');
                 return (
                   <tr
-                    key={rowKey(row)}
+                    key={key}
                     ref={(element) => {
                       rowRefs.current[index] = element;
                     }}
                     tabIndex={index === Math.min(focusedIndex, visibleRows.length - 1) ? 0 : -1}
                     className={classes === '' ? undefined : classes}
+                    aria-current={selected ? 'true' : undefined}
                     onKeyDown={(event) => handleRowKey(event, index, row)}
                     onFocus={() => setFocusedIndex(index)}
                     onClick={onRowActivate !== undefined ? () => onRowActivate(row) : undefined}
                   >
                     {columns.map((column) => (
-                      <td
-                        key={column.id}
-                        className={[column.align === 'end' ? 'is-end' : '', column.nowrap === true ? 'nowrap' : ''].filter((entry) => entry !== '').join(' ') || undefined}
-                      >
+                      <td key={column.id} className={cellClass(column)}>
                         {column.render(row)}
                       </td>
                     ))}
@@ -228,6 +331,7 @@ export function DataTable<T>({
           </table>
         </div>
       )}
+      {footer !== undefined ? <div className="data-table__footer">{footer}</div> : null}
     </div>
   );
 }

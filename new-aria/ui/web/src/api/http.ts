@@ -73,7 +73,7 @@ export async function requestJson<T>(path: string, options: RequestOptions = {},
   if (!isPublicPath(path) && token === null) {
     // Fail before the network: without a token every protected route is a 401,
     // and the guard needs the same error class to route the operator to login.
-    throw new ApiClientError(401, { error: 'missing_token', detail: 'Operatör tokenı girilmemiş.' }, path);
+    throw new ApiClientError(401, { error: 'missing_token', detail: 'Operator token is missing. Sign in to continue.' }, path);
   }
   const hasBody = options.body !== undefined;
   const init: RequestInit = {

@@ -1,4 +1,5 @@
 import { useMemo, type ReactNode } from 'react';
+import { EmptyBlock } from '../../design/AsyncState.tsx';
 import { parseMarkdownBlocks, type MarkdownBlock } from './markdown-blocks.ts';
 import './MarkdownText.css';
 
@@ -87,7 +88,13 @@ function Block({ block }: { readonly block: MarkdownBlock }): ReactNode {
 export function MarkdownText({ markdown }: { readonly markdown: string }): ReactNode {
   const blocks = useMemo(() => parseMarkdownBlocks(markdown), [markdown]);
   if (blocks.length === 0) {
-    return <p className="muted">Rapor boş.</p>;
+    return (
+      <EmptyBlock
+        title="This report is empty"
+        message="The body of the day's report would be read here; the file exists but carries no text."
+        flush
+      />
+    );
   }
   return (
     <article className="md">

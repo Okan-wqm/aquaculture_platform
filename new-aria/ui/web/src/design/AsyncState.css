@@ -1,35 +1,78 @@
-.async-block {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-6);
-  justify-content: center;
-  color: var(--text-muted);
-  font-size: var(--fs-sm);
+/* Loading is a skeleton in the shape of the answer; this console has no spinners. */
+.async-skeleton {
+  display: block;
+  min-width: 0;
 }
-.async-block--empty {
-  border: 1px dashed var(--border-strong);
+.async-skeleton__table {
+  border: var(--hairline) solid var(--border);
   border-radius: var(--radius-md);
+  overflow: hidden;
 }
+.async-skeleton__head {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-2);
+  border-bottom: var(--hairline) solid var(--border);
+}
+.async-skeleton__row {
+  display: flex;
+  gap: var(--space-4);
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--hairline) solid var(--border);
+  background: var(--surface);
+}
+.async-skeleton__row:last-child {
+  border-bottom: 0;
+}
+.async-skeleton__cell {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.async-skeleton__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: var(--space-3);
+}
+.async-skeleton__tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.async-skeleton__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: var(--space-4);
+}
+.async-skeleton__card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+.async-skeleton__detail {
+  display: grid;
+  grid-template-columns: minmax(9rem, max-content) minmax(0, 1fr);
+  gap: var(--space-3) var(--space-4);
+  align-items: center;
+}
+.async-skeleton__text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+}
+/* Stale data stays readable while a refresh is in flight — it is still the truth
+   the operator was reading a moment ago, only slightly receded. */
 .async-stale {
-  opacity: 0.7;
+  opacity: 0.72;
   transition: opacity 120ms ease;
-}
-.async-spinner {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  border: 2px solid var(--border-strong);
-  border-top-color: var(--accent);
-  animation: async-spin 0.8s linear infinite;
-}
-@keyframes async-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .async-spinner {
-    animation: none;
-  }
 }

@@ -44,7 +44,10 @@ services:
       ARIA_UI_PORT: "8480"
       ARIA_UI_ALLOW_ACTIONS: ${ARIA_UI_ALLOW_ACTIONS:-0}
       ARIA_TOOLS_DIR: /data/aria-tools
-      ARIA_WORKSPACE_ROOT: /workspace
+      # Must name the workspace the store was seeded against: the mounted repo
+      # (/workspace) or, when nothing git-rooted is mounted, the seed copy the
+      # seed profile created (/data/seed-workspace).
+      ARIA_WORKSPACE_ROOT: ${ARIA_UI_WORKSPACE_ROOT:-/workspace}
       ARIA_KERNEL_BIN: /opt/new-aria/bin/aria
       CLAUDE_CLI_MOCK: ${CLAUDE_CLI_MOCK:-1}
     ports:

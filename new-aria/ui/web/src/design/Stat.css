@@ -1,38 +1,63 @@
 .stat {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: var(--space-3) var(--space-4);
+  gap: var(--space-1);
+  padding: var(--space-3);
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: var(--hairline) solid var(--border);
   border-radius: var(--radius-md);
   min-width: 0;
 }
 .stat__label {
   font-size: var(--fs-xs);
-  color: var(--text-muted);
+  font-weight: 600;
+  color: var(--text-faint);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: var(--tracking-label);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .stat__value {
-  font-size: var(--fs-xl);
+  font-size: var(--fs-2xl);
   font-weight: 600;
-  line-height: 1.2;
+  line-height: 1.1;
   font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
   overflow-wrap: anywhere;
+}
+/* A Badge or Timestamp passed as the value must not inherit the metric size. */
+.stat__value .badge,
+.stat__value time,
+.stat__value .status-dot {
+  font-size: var(--fs-sm);
+  letter-spacing: 0;
 }
 .stat__hint {
   font-size: var(--fs-xs);
-  color: var(--text-faint);
+  color: var(--text-muted);
+  line-height: var(--lh-snug);
 }
 .stat--danger {
-  border-color: var(--tone-danger-fg);
+  border-color: var(--tone-danger-line);
   background: var(--row-danger-bg);
 }
+.stat--danger .stat__value {
+  color: var(--tone-danger-fg);
+}
 .stat--warning {
-  border-color: var(--tone-warning-fg);
+  border-color: var(--tone-warning-line);
   background: var(--row-warning-bg);
 }
+.stat--warning .stat__value {
+  color: var(--tone-warning-fg);
+}
 .stat--success {
-  border-color: var(--tone-success-fg);
+  border-color: var(--tone-success-line);
+}
+.stat--success .stat__value {
+  color: var(--tone-success-fg);
+}
+.stat--compact .stat__value {
+  font-size: var(--fs-lg);
 }

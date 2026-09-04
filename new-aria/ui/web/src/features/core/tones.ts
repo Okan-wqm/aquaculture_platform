@@ -1,5 +1,9 @@
-// Maps kernel vocabulary (shown verbatim) to badge tones. The words themselves
-// are never translated; only their colour carries the Turkish operator's gloss.
+// Maps kernel vocabulary to badge tones.
+//
+// WHY: the kernel's words are evidence — a screen that rewrites `contradicted`
+// into prose destroys the operator's ability to match what is on screen against
+// what is in the ledger. WHAT: the word itself always renders verbatim; only the
+// colour, and the hover gloss, are authored here.
 import type { RuntimeProfile } from '../../../../shared/api-contract.ts';
 import type { BadgeTone } from '../../design/Badge.tsx';
 
@@ -59,20 +63,58 @@ export function toneForProfile(profile: RuntimeProfile | null | undefined): Badg
   }
 }
 
-/** Turkish gloss shown on hover so the English kernel value stays verbatim on screen. */
+/**
+ * Hover explanation for a runtime profile.
+ *
+ * WHY: the profile decides what the kernel is allowed to do, so the operator
+ * needs the consequence — not a synonym. WHAT: the gloss goes in `title`; the
+ * profile word itself still renders verbatim inside the badge.
+ */
 export function glossForProfile(profile: RuntimeProfile | null | undefined): string {
   switch (profile) {
     case 'observe':
-      return 'Gözlem: yalnızca okur, hiçbir şey uygulamaz';
+      return 'observe: reads only, applies nothing';
     case 'standard':
-      return 'Standart: olağan döngü';
+      return 'standard: the ordinary cycle';
     case 'strict':
-      return 'Sıkı: ek kapılar etkin';
+      return 'strict: additional gates are enforced';
     case 'frozen':
-      return 'Donmuş: hiçbir değişiklik yapılmaz';
+      return 'frozen: no change is written at all';
     case 'autonomous':
-      return 'Otonom: operatör onayı olmadan ilerleyebilir';
+      return 'autonomous: may proceed without operator approval';
     default:
-      return 'Profil bilinmiyor';
+      return 'Profile unknown';
   }
+}
+
+export type StatTone = 'default' | 'danger' | 'warning' | 'success';
+
+/**
+ * Narrows a badge tone to the four tones a `Stat` tile understands.
+ *
+ * WHY: a distribution tile should be tinted by the same rule as the badge for
+ * the same kernel word, otherwise the two say different things about one state.
+ */
+export function statToneForBadgeTone(tone: BadgeTone): StatTone {
+  switch (tone) {
+    case 'danger':
+      return 'danger';
+    case 'warning':
+      return 'warning';
+    case 'success':
+      return 'success';
+    default:
+      return 'default';
+  }
+}
+
+/**
+ * Row tint for a severity, used by `rowClassName`.
+ *
+ * WHY: on a long findings table the badge alone is easy to miss when scanning;
+ * tinting the whole row for the one severity that stops the world keeps colour
+ * meaningful instead of decorative.
+ */
+export function rowClassForSeverity(severity: string | null | undefined): string | undefined {
+  return (severity ?? '').toUpperCase() === 'CRITICAL' ? 'row-danger' : undefined;
 }

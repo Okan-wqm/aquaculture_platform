@@ -1,3 +1,4 @@
+/* The primary instrument of this console: dense rows, hairline rules, sticky head. */
 .data-table {
   display: flex;
   flex-direction: column;
@@ -8,24 +9,48 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--border);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--hairline) solid var(--border);
+  background: var(--surface);
 }
-.data-table__filter input {
-  min-width: 16rem;
+.data-table__search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.data-table__search-icon {
+  position: absolute;
+  left: var(--space-2);
+  color: var(--text-faint);
+  pointer-events: none;
+  display: flex;
+}
+.data-table__search input {
+  min-height: 28px;
+  width: 18rem;
+  max-width: 100%;
+  padding: var(--space-1) var(--space-2) var(--space-1) 26px;
+  border: var(--hairline) solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  font-size: var(--fs-sm);
 }
 .data-table__count {
   margin-left: auto;
   font-size: var(--fs-xs);
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .data-table__scroll {
-  overflow-x: auto;
+  overflow: auto;
+  min-width: 0;
 }
 .data-table__table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: var(--fs-sm);
 }
 .data-table__table th,
@@ -33,28 +58,57 @@
   padding: var(--space-2) var(--space-3);
   text-align: left;
   vertical-align: top;
-  border-bottom: 1px solid var(--border);
+  border-bottom: var(--hairline) solid var(--border);
 }
 .data-table__table--dense th,
 .data-table__table--dense td {
-  padding: var(--space-1) var(--space-2);
+  padding: 3px var(--space-2);
 }
-.data-table__table th {
+.data-table__table thead th {
   position: sticky;
   top: 0;
+  z-index: 2;
   background: var(--surface-2);
-  color: var(--text-muted);
-  font-weight: 600;
+  color: var(--text-faint);
+  font-weight: 700;
   font-size: var(--fs-xs);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: var(--tracking-label);
   white-space: nowrap;
+  vertical-align: middle;
+}
+.data-table__table thead tr.data-table__filter-row th {
+  /* Sits directly under the sticky header row: 8px + 8px padding + ~16px line. */
+  top: 32px;
   z-index: 1;
+  background: var(--surface);
+  padding: var(--space-1) var(--space-2);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.data-table__table--dense thead tr.data-table__filter-row th {
+  top: 22px;
+}
+.data-table__filter-row input {
+  width: 100%;
+  min-width: 5rem;
+  min-height: 22px;
+  padding: 0 var(--space-1);
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-size: var(--fs-xs);
+  font-weight: 400;
 }
 .data-table__table th.is-end,
 .data-table__table td.is-end {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+.data-table__table td.is-mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  overflow-wrap: anywhere;
 }
 .data-table__sort {
   appearance: none;
@@ -68,11 +122,28 @@
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
 }
+.data-table__sort:hover {
+  color: var(--text);
+}
+.data-table__table th.is-end .data-table__sort {
+  flex-direction: row-reverse;
+}
+/* An unsorted column shows its affordance only on hover/focus, so the sorted
+   column's arrow is the one mark the eye finds. */
 .data-table__sort-icon {
-  opacity: 0.6;
-  font-size: 0.8em;
+  color: var(--text-faint);
+  opacity: 0;
+  display: flex;
+}
+.data-table__sort:hover .data-table__sort-icon,
+.data-table__sort:focus-visible .data-table__sort-icon,
+.data-table__sort-icon--active {
+  opacity: 1;
+}
+.data-table__sort-icon--active {
+  color: var(--accent);
 }
 .data-table__table tbody tr:hover {
   background: var(--row-hover-bg);
@@ -91,9 +162,23 @@
 .data-table__table tbody tr.row-warning {
   background: var(--row-warning-bg);
 }
+.data-table__table tbody tr.row-success {
+  background: var(--row-success-bg);
+}
 .data-table__table tbody tr.row-muted {
   color: var(--text-muted);
 }
-.data-table__table tbody tr.row-selected {
-  background: var(--accent-soft);
+.data-table__table tbody tr.row-selected,
+.data-table__table tbody tr.row-selected:hover {
+  background: var(--row-selected-bg);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.data-table__footer {
+  padding: var(--space-2) var(--space-3);
+  border-top: var(--hairline) solid var(--border);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+.data-table__empty {
+  padding: var(--space-4);
 }

@@ -1,0 +1,45 @@
+.status-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+  min-width: 0;
+}
+.status-dot__mark {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-pill);
+  flex: none;
+  /* The ring keeps the dot visible when the row itself is tinted. */
+  box-shadow: 0 0 0 1px var(--surface);
+}
+.status-dot__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.status-dot--mono .status-dot__label {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+.status-dot--neutral .status-dot__mark {
+  background: var(--tone-neutral-fg);
+}
+.status-dot--info .status-dot__mark {
+  background: var(--tone-info-fg);
+}
+.status-dot--success .status-dot__mark {
+  background: var(--tone-success-fg);
+}
+.status-dot--warning .status-dot__mark {
+  background: var(--tone-warning-fg);
+}
+.status-dot--danger .status-dot__mark {
+  background: var(--tone-danger-fg);
+}
+.status-dot--accent .status-dot__mark {
+  background: var(--tone-accent-fg);
+}
+.status-dot--muted .status-dot__mark {
+  background: var(--text-faint);
+}

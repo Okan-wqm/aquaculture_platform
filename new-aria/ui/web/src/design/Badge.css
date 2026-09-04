@@ -1,15 +1,19 @@
+/* The pill shape exists only here: a badge is a state, never a label or a tag. */
 .badge {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 1px var(--space-2);
+  padding: 0 var(--space-2);
   border-radius: var(--radius-pill);
   font-size: var(--fs-xs);
   font-weight: 600;
-  line-height: 1.6;
+  line-height: 1.7;
   white-space: nowrap;
-  border: 1px solid transparent;
-  vertical-align: middle;
+  border: var(--hairline) solid transparent;
+  vertical-align: baseline;
+  max-width: 34ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .badge--mono {
   font-family: var(--font-mono);
@@ -18,26 +22,32 @@
 .badge--neutral {
   color: var(--tone-neutral-fg);
   background: var(--tone-neutral-bg);
+  border-color: var(--tone-neutral-line);
 }
 .badge--info {
   color: var(--tone-info-fg);
   background: var(--tone-info-bg);
+  border-color: var(--tone-info-line);
 }
 .badge--success {
   color: var(--tone-success-fg);
   background: var(--tone-success-bg);
+  border-color: var(--tone-success-line);
 }
 .badge--warning {
   color: var(--tone-warning-fg);
   background: var(--tone-warning-bg);
+  border-color: var(--tone-warning-line);
 }
 .badge--danger {
   color: var(--tone-danger-fg);
   background: var(--tone-danger-bg);
+  border-color: var(--tone-danger-line);
 }
 .badge--accent {
   color: var(--tone-accent-fg);
   background: var(--tone-accent-bg);
+  border-color: var(--tone-accent-line);
 }
 .badge--muted {
   color: var(--tone-muted-fg);

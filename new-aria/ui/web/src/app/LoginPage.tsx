@@ -23,8 +23,11 @@ function readFrom(state: unknown): string {
 }
 
 /**
- * Token entry. The token is validated against a protected endpoint BEFORE it is
- * stored, so a mistyped token never lingers in sessionStorage.
+ * Token entry.
+ *
+ * WHY: the token is validated against a protected endpoint BEFORE it is stored,
+ * so a mistyped token never lingers in session storage and the operator learns
+ * immediately whether the projection server accepted it.
  */
 export function LoginPage(): ReactNode {
   const existing = useToken();
@@ -43,7 +46,7 @@ export function LoginPage(): ReactNode {
     event.preventDefault();
     const candidate = value.trim();
     if (candidate === '') {
-      setError('Token boş olamaz.');
+      setError('Enter the operator token to continue.');
       return;
     }
     setBusy(true);
@@ -55,11 +58,11 @@ export function LoginPage(): ReactNode {
     } catch (reason) {
       const failure = toError(reason);
       if (isApiClientError(failure) && failure.isUnauthorized) {
-        setError('Token reddedildi (401). ARIA_UI_TOKEN değerini kontrol edin.');
+        setError('The server rejected this token (401). Check ARIA_UI_TOKEN on the projection server.');
       } else if (isApiClientError(failure)) {
-        setError(`Sunucu hatası: ${failure.status} ${failure.payload.error}`);
+        setError(`The server answered ${failure.status} ${failure.payload.error}. The console cannot verify the token until that is resolved.`);
       } else {
-        setError(`Sunucuya ulaşılamadı: ${failure.message}`);
+        setError(`The projection server could not be reached: ${failure.message}`);
       }
     } finally {
       setBusy(false);
@@ -75,13 +78,16 @@ export function LoginPage(): ReactNode {
         }}
         aria-labelledby="login-title"
       >
-        <h1 id="login-title">ARIA Operatör Konsolu</h1>
-        <p className="muted">
-          Bu konsol ARIA çekirdeğinin ledger'larını salt-okunur yansıtır. Erişim için sunucudaki{' '}
-          <code>ARIA_UI_TOKEN</code> değerini girin. Token yalnızca bu sekmenin oturum belleğinde tutulur.
+        <div className="login__brand">
+          <span className="login__wordmark">ARIA</span>
+          <h1 id="login-title">Operator console</h1>
+        </div>
+        <p className="login__intro">
+          This console projects ARIA's ledgers read-only; sign in with the <code>ARIA_UI_TOKEN</code> configured on the
+          projection server.
         </p>
         <label className="field" htmlFor="token">
-          <span>Operatör tokenı</span>
+          <span>Operator token</span>
           <input
             id="token"
             name="token"
@@ -100,14 +106,15 @@ export function LoginPage(): ReactNode {
           </Callout>
         ) : null}
         <button type="submit" className="button button--primary" disabled={busy}>
-          {busy ? 'Doğrulanıyor…' : 'Giriş'}
+          {busy ? 'Verifying…' : 'Sign in'}
         </button>
+        <p className="login__note">The token is held in this browser tab only, and is discarded when the tab closes.</p>
         <footer className="login__health">
           {health.state.status === 'success' ? (
             <>
               <Badge tone="success">{health.state.data.status}</Badge>
               <span className="mono">
-                {health.state.data.service} v{health.state.data.version}
+                {health.state.data.service} {health.state.data.version}
               </span>
               <Badge tone={health.state.data.toolsDirPresent ? 'success' : 'danger'}>
                 tools dir: {health.state.data.toolsDirPresent ? 'present' : 'missing'}
@@ -117,9 +124,9 @@ export function LoginPage(): ReactNode {
               </Badge>
             </>
           ) : health.state.status === 'error' ? (
-            <span className="muted">Sağlık ucu yanıt vermedi: {health.state.error.message}</span>
+            <span>The health endpoint did not answer: {health.state.error.message}</span>
           ) : (
-            <span className="muted">Sağlık durumu sorgulanıyor…</span>
+            <span>Reading server health…</span>
           )}
         </footer>
       </form>

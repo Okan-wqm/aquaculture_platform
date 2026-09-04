@@ -36,15 +36,33 @@ describe('OverviewContent', () => {
         <OverviewContent data={OVERVIEW} />
       </MemoryRouter>,
     );
+    // Kernel vocabulary is never translated: the profile and the ceiling render
+    // exactly as the API returned them.
     expect(screen.getAllByText('standard').length).toBeGreaterThan(0);
     expect(screen.getAllByText('strict').length).toBeGreaterThan(0);
-    expect(screen.getAllByRole('alert').some((node) => node.textContent?.includes('Kill switch devrede') === true)).toBe(true);
+    expect(screen.getAllByRole('alert').some((node) => node.textContent?.includes('Kill switch engaged') === true)).toBe(true);
     expect(screen.getByText('llm_budget')).toBeDefined();
     expect(screen.getByText('tripped')).toBeDefined();
     expect(screen.getByRole('link', { name: 'cycle-2026-09-03-001' })).toBeDefined();
     expect(screen.getByText('completed')).toBeDefined();
-    expect(screen.getByText('1.200')).toBeDefined();
-    expect(screen.getByText('3.300')).toBeDefined();
+    // en-GB grouping: a thousands separator is a comma, never a full stop.
+    expect(screen.getByText('1,200')).toBeDefined();
+    expect(screen.getByText('3,300')).toBeDefined();
+  });
+
+  it('labels every region in English and uses the canonical glossary', () => {
+    render(
+      <MemoryRouter>
+        <OverviewContent data={OVERVIEW} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('heading', { level: 2, name: 'Runtime state' })).toBeDefined();
+    expect(screen.getByRole('heading', { level: 2, name: 'Ledger totals' })).toBeDefined();
+    expect(screen.getByRole('heading', { level: 2, name: 'Last cycle' })).toBeDefined();
+    expect(screen.getByRole('heading', { level: 2, name: 'Circuit breakers' })).toBeDefined();
+    expect(screen.getByText('Human required (open)')).toBeDefined();
+    expect(screen.getByText('Scheduler ceiling')).toBeDefined();
+    expect(screen.getByRole('link', { name: 'Human required' })).toBeDefined();
   });
 
   it('shows explicit empty states for missing gateway and last cycle', () => {
@@ -53,9 +71,10 @@ describe('OverviewContent', () => {
         <OverviewContent data={{ ...OVERVIEW, gateway: null, lastCycle: null, killSwitch: { engaged: false } }} />
       </MemoryRouter>,
     );
-    expect(screen.getByText(/Gateway verisi yok/)).toBeDefined();
-    expect(screen.getByText(/Henüz döngü kaydı yok/)).toBeDefined();
-    expect(screen.queryByText('Kill switch devrede')).toBeNull();
+    expect(screen.getByText(/The heartbeat and inbox depth appear here/)).toBeDefined();
+    expect(screen.getByText('No gateway heartbeat')).toBeDefined();
+    expect(screen.getByText('No cycles yet')).toBeDefined();
+    expect(screen.queryByText('Kill switch engaged')).toBeNull();
     expect(document.body.textContent).not.toContain('undefined');
   });
 });
@@ -82,8 +101,9 @@ describe('OverviewPage', () => {
         <OverviewPage />
       </MemoryRouter>,
     );
-    expect(screen.getByRole('heading', { level: 1, name: 'Genel Bakış' })).toBeDefined();
+    expect(screen.getByRole('heading', { level: 1, name: 'Overview' })).toBeDefined();
     await waitFor(() => expect(screen.getByRole('link', { name: 'cycle-2026-09-03-001' })).toBeDefined());
     expect(screen.getAllByText('standard').length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: 'Refresh' })).toBeDefined();
   });
 });

@@ -1,90 +1,68 @@
+/*
+ * Legal module styles.
+ *
+ * WHY: the shared design system owns every surface, border and colour; this file
+ * only holds the shapes the console has nowhere else — the inline confidence
+ * meter, the wrapped statement prose inside dense table cells, the missing-
+ * evidence list, and the version-group block. Every value is a token so light and
+ * dark stay in parity.
+ */
 .confidence {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
   white-space: nowrap;
 }
 .confidence__meter {
-  width: 56px;
-  height: 8px;
+  width: 52px;
+  height: 6px;
 }
 .confidence__text {
   font-size: var(--fs-xs);
-  font-variant-numeric: tabular-nums;
   color: var(--text-muted);
 }
-.case-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: var(--space-4);
-}
-.case-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  padding: var(--space-4);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
-  color: inherit;
-}
-.case-card:hover {
-  text-decoration: none;
-  border-color: var(--accent);
-}
-.case-card__title {
-  font-size: var(--fs-md);
-  font-weight: 600;
-}
-.case-card__id {
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-}
-.case-card__stats {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-2);
-  font-size: var(--fs-sm);
-}
-.case-card__stat {
-  display: flex;
-  flex-direction: column;
-}
-.case-card__stat strong {
-  font-size: var(--fs-lg);
-  font-variant-numeric: tabular-nums;
-}
-.case-card__stat span {
-  color: var(--text-muted);
-  font-size: var(--fs-xs);
-}
+
+/* Statement and summary prose stay readable without letting one cell set the table width. */
 .statement-text {
-  max-width: 48ch;
+  max-width: 52ch;
   overflow-wrap: anywhere;
 }
+
+/* Missing evidence is a warning-toned list: the gap itself is the state. */
 .missing-list {
   margin: 0;
-  padding-left: 1rem;
+  padding-left: var(--space-4);
   font-size: var(--fs-xs);
   color: var(--tone-warning-fg);
 }
-.version-group {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: var(--space-3);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-.version-group__members {
+
+/*
+ * Dense monospace record list — version-group members and document links.
+ * WHY: both are machine records (ids, bases, similarities) that must line up
+ * vertically to be scanned, and neither is a table of its own.
+ */
+.legal-list {
   margin: 0;
   padding: 0;
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-1);
   font-size: var(--fs-xs);
   font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.version-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+.version-group__note {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
 }

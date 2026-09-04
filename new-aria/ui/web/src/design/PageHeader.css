@@ -1,10 +1,19 @@
+/* The page header is the operator's anchor: it stays put while the body scrolls. */
 .page-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
   gap: var(--space-4);
   flex-wrap: wrap;
-  margin-bottom: var(--space-5);
+  padding: var(--space-4) 0 var(--space-3);
+  margin-bottom: var(--space-4);
+  border-bottom: var(--hairline) solid var(--border);
+}
+.page-header--sticky {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--bg);
 }
 .page-header__text {
   display: flex;
@@ -13,8 +22,18 @@
   min-width: 0;
 }
 .page-header__crumb {
-  font-size: var(--fs-sm);
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+.page-header__crumb a {
   color: var(--text-muted);
+}
+.page-header h1 {
+  font-size: var(--fs-xl);
 }
 .page-header__subtitle {
   color: var(--text-muted);
@@ -23,9 +42,11 @@
   flex-wrap: wrap;
   gap: var(--space-2);
   align-items: center;
+  line-height: var(--lh-snug);
 }
 .page-header__actions {
   display: flex;
   gap: var(--space-2);
   flex-wrap: wrap;
+  align-items: center;
 }

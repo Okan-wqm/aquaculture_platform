@@ -1,31 +1,44 @@
 .kv {
   margin: 0;
   display: grid;
-  grid-template-columns: minmax(10rem, max-content) 1fr;
-  gap: var(--space-1) var(--space-4);
+  grid-template-columns: minmax(9rem, max-content) minmax(0, 1fr);
+  gap: 0;
   font-size: var(--fs-sm);
+  min-width: 0;
 }
 .kv__row {
   display: contents;
 }
+/* Hairlines between rows keep a long record readable without zebra striping. */
+.kv__row:not(:first-child) .kv__key,
+.kv__row:not(:first-child) .kv__value {
+  border-top: var(--hairline) solid var(--border);
+}
 .kv__key {
-  color: var(--text-muted);
+  color: var(--text-faint);
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
   overflow-wrap: anywhere;
-  padding-top: 2px;
+  padding: var(--space-2) var(--space-4) var(--space-2) 0;
 }
 .kv__value {
   margin: 0;
   min-width: 0;
   overflow-wrap: anywhere;
+  padding: var(--space-2) 0;
+  font-variant-numeric: tabular-nums;
 }
 .kv__pre {
   margin: 0;
   padding: var(--space-2);
   background: var(--surface-2);
+  border: var(--hairline) solid var(--border);
   border-radius: var(--radius-sm);
   font-size: var(--fs-xs);
+  line-height: 1.5;
   overflow: auto;
   max-height: 16rem;
+}
+.kv--columns {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
 }

@@ -6,18 +6,25 @@ export interface CardProps {
   readonly subtitle?: string | undefined;
   readonly actions?: ReactNode;
   readonly children: ReactNode;
+  /** Removes body padding so a DataTable can bleed to the card edge. */
   readonly flush?: boolean | undefined;
+  /** Border accent. Reserved for state, never for emphasis. */
+  readonly tone?: 'default' | 'danger' | 'warning' | 'accent' | undefined;
+  readonly footer?: ReactNode;
   readonly className?: string | undefined;
+  readonly id?: string | undefined;
 }
 
-/** Surface container. `flush` removes body padding so tables can bleed to the edge. */
-export function Card({ title, subtitle, actions, children, flush = false, className }: CardProps): ReactNode {
-  const classes = ['card', flush ? 'card--flush' : '', className ?? ''].filter((entry) => entry !== '').join(' ');
+/** Surface container: hairline border, optional header rule, optional footer rule. */
+export function Card({ title, subtitle, actions, children, flush = false, tone = 'default', footer, className, id }: CardProps): ReactNode {
+  const classes = ['card', flush ? 'card--flush' : '', tone === 'default' ? '' : `card--${tone}`, className ?? '']
+    .filter((entry) => entry !== '')
+    .join(' ');
   return (
-    <section className={classes}>
+    <section className={classes} id={id}>
       {title !== undefined || actions !== undefined ? (
         <header className="card__header">
-          <div>
+          <div className="card__heading">
             {title !== undefined ? <h2 className="card__title">{title}</h2> : null}
             {subtitle !== undefined ? <p className="card__subtitle">{subtitle}</p> : null}
           </div>
@@ -25,6 +32,7 @@ export function Card({ title, subtitle, actions, children, flush = false, classN
         </header>
       ) : null}
       <div className="card__body">{children}</div>
+      {footer !== undefined ? <footer className="card__footer">{footer}</footer> : null}
     </section>
   );
 }

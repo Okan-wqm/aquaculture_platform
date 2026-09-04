@@ -4,13 +4,14 @@ import './KeyValueList.css';
 
 export interface KeyValueListProps {
   readonly data: Readonly<Record<string, unknown>> | null | undefined;
+  /** One sentence saying why there is nothing to show. */
   readonly emptyMessage?: string | undefined;
-  /** Render nested objects fully instead of a compacted single line. */
+  /** Render nested objects as pretty JSON instead of one compacted line. */
   readonly expandObjects?: boolean | undefined;
 }
 
-/** Definition list for free-form kernel records (proofs, metrics, contexts). */
-export function KeyValueList({ data, emptyMessage = 'Kayıt yok.', expandObjects = false }: KeyValueListProps): ReactNode {
+/** Definition list for free-form kernel records: proofs, metrics, contexts. */
+export function KeyValueList({ data, emptyMessage = 'No fields in this record.', expandObjects = false }: KeyValueListProps): ReactNode {
   if (data === null || data === undefined) {
     return <p className="muted">{emptyMessage}</p>;
   }

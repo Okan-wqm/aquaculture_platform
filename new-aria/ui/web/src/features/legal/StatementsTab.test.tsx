@@ -1,12 +1,22 @@
+// Guards the epistemic discipline of the claim-evidence matrix.
+//
+// WHY: this module exists so a machine-produced claim can never read as a fact.
+// That guarantee lives in the ROW: the kernel status word rendered verbatim, the
+// asserting source, the supporting and contradicting counts, the missing
+// evidence, the human-review marker, and the explicit "Not reviewed" where no
+// human has signed off. A regression that dropped any of those would leave a
+// table that still looks correct, so each one is asserted here per row.
 import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import type { LegalStatement, LegalStatementsResponse } from '../../../../shared/legal-contract.ts';
 import { StatementsMatrix } from './StatementsTab.tsx';
 
-function statement(overrides: Partial<LegalStatement> & Pick<LegalStatement, 'statementId' | 'status' | 'assertedBy' | 'humanReviewRequired'>): LegalStatement {
+function statement(
+  overrides: Partial<LegalStatement> & Pick<LegalStatement, 'statementId' | 'status' | 'assertedBy' | 'humanReviewRequired'>,
+): LegalStatement {
   return {
-    statement: `İfade ${overrides.statementId}`,
+    statement: `Statement ${overrides.statementId}`,
     assertedByPartyId: null,
     supportingSources: [],
     contradictingSources: [],
@@ -27,7 +37,7 @@ const RESPONSE: LegalStatementsResponse = {
       assertedBy: 'party',
       assertedByPartyId: 'p-claimant',
       humanReviewRequired: true,
-      missingEvidence: ['imzalı sözleşme'],
+      missingEvidence: ['signed contract'],
       confidence: 0.35,
     }),
     statement({
@@ -53,50 +63,69 @@ const RESPONSE: LegalStatementsResponse = {
   needingReview: 2,
 };
 
+function renderMatrix(): void {
+  render(
+    <MemoryRouter>
+      <StatementsMatrix response={RESPONSE} />
+    </MemoryRouter>,
+  );
+}
+
+function rowFor(statementId: string): HTMLElement {
+  const table = screen.getByRole('table', { name: 'Claim-evidence matrix' });
+  const row = within(table)
+    .getAllByRole('row')
+    .slice(1)
+    .find((candidate) => candidate.textContent?.includes(`Statement ${statementId}`));
+  if (row === undefined) {
+    throw new Error(`row ${statementId} not rendered`);
+  }
+  return row;
+}
+
 describe('StatementsMatrix', () => {
-  it('shows every status verbatim as a badge and the human-review marker only where required', () => {
-    render(
-      <MemoryRouter>
-        <StatementsMatrix response={RESPONSE} />
-      </MemoryRouter>,
-    );
-    const table = screen.getByRole('table', { name: 'İddia–kanıt matrisi' });
-    const rows = within(table).getAllByRole('row').slice(1);
-    expect(rows).toHaveLength(3);
+  it('renders every kernel status verbatim and marks only the rows a human still has to review', () => {
+    renderMatrix();
+    const table = screen.getByRole('table', { name: 'Claim-evidence matrix' });
+    expect(within(table).getAllByRole('row').slice(1)).toHaveLength(3);
 
-    const byId = (id: string): HTMLElement => {
-      const row = rows.find((candidate) => candidate.textContent?.includes(`İfade ${id}`));
-      if (row === undefined) {
-        throw new Error(`row ${id} not rendered`);
-      }
-      return row;
-    };
+    // An unverified party assertion: status, source, party, the named gap in the
+    // evidence, and the two markers that keep it from reading as settled.
+    const asserted = within(rowFor('s-1'));
+    expect(asserted.getByText('asserted')).toBeDefined();
+    expect(asserted.getByText('Human review required')).toBeDefined();
+    expect(asserted.getByText('party')).toBeDefined();
+    expect(asserted.getByText('p-claimant')).toBeDefined();
+    expect(asserted.getByText('signed contract')).toBeDefined();
+    expect(asserted.getByText('Not reviewed')).toBeDefined();
+    // Nothing supports it and nothing contradicts it: both counts are stated
+    // rather than left blank, so an empty cell can never pass for zero evidence.
+    expect(asserted.getAllByText('0 sources')).toHaveLength(2);
 
-    expect(within(byId('s-1')).getByText('asserted')).toBeDefined();
-    expect(within(byId('s-1')).getByText('insan doğrulaması gerekli')).toBeDefined();
-    expect(within(byId('s-1')).getByText('party')).toBeDefined();
-    expect(within(byId('s-1')).getByText('p-claimant')).toBeDefined();
-    expect(within(byId('s-1')).getByText('imzalı sözleşme')).toBeDefined();
-    expect(within(byId('s-1')).getByText('doğrulanmadı')).toBeDefined();
+    // The only status a human earns: the reviewer is named and the review marker
+    // is absent, so `verified` is never claimed by the adapter alone.
+    const verified = within(rowFor('s-2'));
+    expect(verified.getByText('verified')).toBeDefined();
+    expect(verified.queryByText('Human review required')).toBeNull();
+    expect(verified.queryByText('Not reviewed')).toBeNull();
+    expect(verified.getByText('reviewer@example')).toBeDefined();
+    expect(verified.getByText('doc-9@p.3')).toBeDefined();
+    expect(verified.getByText('1 source')).toBeDefined();
 
-    expect(within(byId('s-2')).getByText('verified')).toBeDefined();
-    expect(within(byId('s-2')).queryByText('insan doğrulaması gerekli')).toBeNull();
-    expect(within(byId('s-2')).getByText('reviewer@example')).toBeDefined();
-    expect(within(byId('s-2')).getByText('doc-9@p.3')).toBeDefined();
-
-    expect(within(byId('s-3')).getByText('contradicted')).toBeDefined();
-    expect(within(byId('s-3')).getByText('ai_inference')).toBeDefined();
-    expect(within(byId('s-3')).getByText('insan doğrulaması gerekli')).toBeDefined();
-    expect(byId('s-3').className).toContain('row-danger');
+    // A machine inference that the evidence cuts against: the source stays
+    // labelled ai_inference and the row carries the contradiction state.
+    const contradicted = within(rowFor('s-3'));
+    expect(contradicted.getByText('contradicted')).toBeDefined();
+    expect(contradicted.getByText('ai_inference')).toBeDefined();
+    expect(contradicted.getByText('Human review required')).toBeDefined();
+    expect(contradicted.getByText('1 source')).toBeDefined();
+    expect(rowFor('s-3').className).toContain('row-danger');
   });
 
-  it('surfaces the review backlog count and status totals', () => {
-    render(
-      <MemoryRouter>
-        <StatementsMatrix response={RESPONSE} />
-      </MemoryRouter>,
-    );
-    expect(screen.getByText('İnsan doğrulaması bekleyen').nextElementSibling?.textContent).toBe('2');
+  it('leads with the review backlog and the status distribution', () => {
+    renderMatrix();
+    expect(screen.getByText('Awaiting human review').nextElementSibling?.textContent).toBe('2');
+    expect(screen.getByText('Statements').nextElementSibling?.textContent).toBe('3');
     expect(document.body.textContent).not.toContain('undefined');
   });
 });

@@ -1,112 +1,198 @@
-/* Design tokens — the only place colours, spacing and type scale are defined.
-   WHY: components reference tokens, never raw values, so the light/dark switch
-   (prefers-color-scheme) and any later re-theming happen here alone. */
+/* Design tokens — the single place colour, spacing, type and elevation are defined.
+   WHY: every component references a token, never a raw value, so light and dark are
+   two deliberate designs rather than one inverted design, and a later re-theme is a
+   change in this file alone.
+   WHAT: a 13-step neutral ramp, one accent, four semantic states (info / success /
+   warning / danger) plus two carrier tones, a 4px spacing scale, a px type scale
+   anchored on a 13px body, radii, and one overlay-only shadow.
+
+   Contrast: every --text-*, --tone-*-fg and --accent value below is at or above
+   WCAG AA (4.5:1) against the surface it is designed to sit on. */
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
 
   --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
 
-  --fs-xs: 0.75rem;
-  --fs-sm: 0.8125rem;
-  --fs-md: 0.9375rem;
-  --fs-lg: 1.125rem;
-  --fs-xl: 1.5rem;
-  --fs-2xl: 2rem;
-  --lh-tight: 1.25;
+  /* Type scale. The body is 13px: this console is read as a dense instrument,
+     not as prose, so the ramp is short and the hierarchy comes from weight. */
+  --fs-micro: 0.625rem; /* 10px — column keys, dot labels */
+  --fs-xs: 0.6875rem; /* 11px — captions, table headers, badges */
+  --fs-sm: 0.75rem; /* 12px — secondary text, table body */
+  --fs-md: 0.8125rem; /* 13px — body */
+  --fs-lg: 0.9375rem; /* 15px — card and section titles */
+  --fs-xl: 1.1875rem; /* 19px — page title */
+  --fs-2xl: 1.625rem; /* 26px — metric values */
+  --lh-tight: 1.2;
+  --lh-snug: 1.35;
   --lh-normal: 1.5;
+  --tracking-label: 0.06em;
 
+  /* Spacing — 4px grid. The names are the multiplier, so --space-6 is 24px. */
+  --space-0: 0px;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
   --space-5: 20px;
   --space-6: 24px;
+  --space-7: 28px;
   --space-8: 32px;
   --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
 
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
+  /* Radii — small, because flat hairline surfaces read as instrumentation.
+     The pill radius is reserved for status badges. */
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 8px;
   --radius-pill: 999px;
 
-  --sidebar-width: 240px;
-  --content-max: 1440px;
+  --sidebar-width: 232px;
+  --content-max: 1520px;
+  --gutter: 28px;
+  --topbar-height: 48px;
+  --hairline: 1px;
 
-  --bg: #f4f6f8;
-  --surface: #ffffff;
-  --surface-2: #eef1f5;
-  --surface-3: #e3e8ee;
-  --border: #d5dbe3;
-  --border-strong: #b8c2cf;
-  --text: #17212b;
-  --text-muted: #5a6875;
-  --text-faint: #8593a1;
-  --accent: #1f5fbf;
-  --accent-hover: #174a99;
-  --accent-soft: #e2ecfb;
+  /* Neutral ramp. Roles below are aliases into this ramp so a tint change is one edit. */
+  --n-0: #ffffff;
+  --n-25: #fafbfc;
+  --n-50: #f4f6f8;
+  --n-100: #edf0f3;
+  --n-150: #e5e9ed;
+  --n-200: #dbe0e6;
+  --n-300: #c6cdd6;
+  --n-400: #a4adb9;
+  --n-500: #8b95a2;
+  --n-600: #6b7581;
+  --n-700: #565f6b;
+  --n-800: #333c46;
+  --n-900: #131a21;
+
+  --bg: var(--n-50);
+  --surface: var(--n-0);
+  --surface-2: var(--n-100);
+  --surface-3: var(--n-150);
+  --border: var(--n-200);
+  --border-strong: var(--n-300);
+  --text: var(--n-900);
+  --text-muted: var(--n-700);
+  --text-faint: var(--n-600);
+
+  --accent: #1a5fb4;
+  --accent-hover: #164e94;
+  --accent-soft: #e4ecf9;
+  --accent-line: #b9cdea;
   --accent-contrast: #ffffff;
 
-  --tone-neutral-fg: #3f4c59;
-  --tone-neutral-bg: #e8ecf1;
-  --tone-info-fg: #1b4f99;
-  --tone-info-bg: #dde9fb;
-  --tone-success-fg: #1d6b3a;
-  --tone-success-bg: #daf2e2;
-  --tone-warning-fg: #8a5a00;
-  --tone-warning-bg: #fdf0cc;
-  --tone-danger-fg: #a12525;
-  --tone-danger-bg: #fbdede;
-  --tone-accent-fg: #5b2ba6;
-  --tone-accent-bg: #ece2fb;
-  --tone-muted-fg: #6d7884;
-  --tone-muted-bg: #f1f3f6;
+  /* Semantic tones. `fg` is legible on `bg`; `line` is the 1px border for that tone. */
+  --tone-neutral-fg: #4a545f;
+  --tone-neutral-bg: #e9edf1;
+  --tone-neutral-line: #d3dae1;
+  --tone-info-fg: #1a5fb4;
+  --tone-info-bg: #e4ecf9;
+  --tone-info-line: #bed2ee;
+  --tone-success-fg: #15653a;
+  --tone-success-bg: #e0f2e7;
+  --tone-success-line: #b6ddc6;
+  --tone-warning-fg: #7a5200;
+  --tone-warning-bg: #fbeecb;
+  --tone-warning-line: #e8d19a;
+  --tone-danger-fg: #a2242b;
+  --tone-danger-bg: #fbe2e3;
+  --tone-danger-line: #eebcbe;
+  --tone-accent-fg: #5b2fa6;
+  --tone-accent-bg: #ece3fb;
+  --tone-accent-line: #d3c2f0;
+  --tone-muted-fg: #5c6672;
+  --tone-muted-bg: #f2f4f7;
+  --tone-muted-line: var(--border);
 
-  --row-danger-bg: #fff3f3;
-  --row-warning-bg: #fff9e8;
-  --row-hover-bg: #f5f8fc;
+  --row-danger-bg: #fdf1f1;
+  --row-warning-bg: #fdf7e6;
+  --row-success-bg: #eef7f1;
+  --row-hover-bg: #eef3fa;
+  --row-selected-bg: var(--accent-soft);
   --row-focus-outline: var(--accent);
 
-  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.08);
-  --focus-ring: 0 0 0 3px rgba(31, 95, 191, 0.35);
+  /* Elevation: overlays only. Cards are flat surfaces separated by hairlines. */
+  --shadow-sm: none;
+  --shadow-overlay: 0 8px 24px rgba(19, 26, 33, 0.12), 0 1px 3px rgba(19, 26, 33, 0.08);
+
+  /* Two rings so the focus indicator survives on both light and coloured surfaces. */
+  --focus-ring: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
+  --skeleton-bg: var(--n-150);
+  --skeleton-sheen: var(--n-100);
 }
 
+/* Dark is designed, not derived: the ramp is re-authored so surfaces stay slightly
+   blue-black, borders stay visible, and every tone foreground clears AA on its own
+   dark carrier rather than being a lightened copy of the light value. */
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0f1419;
-    --surface: #161c23;
-    --surface-2: #1d252e;
-    --surface-3: #242e39;
-    --border: #2b3542;
-    --border-strong: #3b4858;
-    --text: #e6ebf0;
-    --text-muted: #a0acb8;
-    --text-faint: #6f7d8b;
-    --accent: #6ea3ff;
-    --accent-hover: #8fb8ff;
-    --accent-soft: #1b2a45;
-    --accent-contrast: #0b1220;
+    color-scheme: dark;
 
-    --tone-neutral-fg: #c4ccd5;
-    --tone-neutral-bg: #262f3a;
-    --tone-info-fg: #9dc0ff;
-    --tone-info-bg: #1a2c4a;
-    --tone-success-fg: #86d9a4;
-    --tone-success-bg: #163424;
-    --tone-warning-fg: #f2c46a;
-    --tone-warning-bg: #3d2f0d;
-    --tone-danger-fg: #ff9a9a;
-    --tone-danger-bg: #45191b;
-    --tone-accent-fg: #cdb2ff;
-    --tone-accent-bg: #2e2149;
-    --tone-muted-fg: #8a97a5;
-    --tone-muted-bg: #1c232c;
+    --n-0: #0d1116;
+    --n-25: #10151b;
+    --n-50: #141a21;
+    --n-100: #1b222a;
+    --n-150: #212934;
+    --n-200: #29323d;
+    --n-300: #3a4552;
+    --n-400: #4f5b69;
+    --n-500: #6d7986;
+    --n-600: #7f8b98;
+    --n-700: #a5b0bc;
+    --n-800: #c8d1da;
+    --n-900: #e4e9ee;
 
-    --row-danger-bg: #2a1618;
-    --row-warning-bg: #2c2410;
-    --row-hover-bg: #1b232d;
+    --bg: var(--n-0);
+    --surface: var(--n-50);
+    --surface-2: var(--n-100);
+    --surface-3: var(--n-150);
+    --border: var(--n-200);
+    --border-strong: var(--n-300);
+    --text: var(--n-900);
+    --text-muted: var(--n-700);
+    --text-faint: var(--n-600);
 
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
-    --focus-ring: 0 0 0 3px rgba(110, 163, 255, 0.45);
+    --accent: #7fabff;
+    --accent-hover: #a0c1ff;
+    --accent-soft: #17263f;
+    --accent-line: #2c4368;
+    --accent-contrast: #08121f;
+
+    --tone-neutral-fg: #c3ccd6;
+    --tone-neutral-bg: #232b35;
+    --tone-neutral-line: #333d49;
+    --tone-info-fg: #97bcff;
+    --tone-info-bg: #14243d;
+    --tone-info-line: #26385a;
+    --tone-success-fg: #74d39c;
+    --tone-success-bg: #102c1d;
+    --tone-success-line: #1f4633;
+    --tone-warning-fg: #edc264;
+    --tone-warning-bg: #33280b;
+    --tone-warning-line: #4d3d14;
+    --tone-danger-fg: #ff9b9b;
+    --tone-danger-bg: #3d1719;
+    --tone-danger-line: #5c2427;
+    --tone-accent-fg: #c6adff;
+    --tone-accent-bg: #2a1f45;
+    --tone-accent-line: #3d2f63;
+    --tone-muted-fg: #8c98a5;
+    --tone-muted-bg: #1a212a;
+    --tone-muted-line: var(--border);
+
+    --row-danger-bg: #2a1517;
+    --row-warning-bg: #2b2410;
+    --row-success-bg: #10241a;
+    --row-hover-bg: #1a2330;
+    --row-selected-bg: var(--accent-soft);
+
+    --shadow-overlay: 0 10px 28px rgba(0, 0, 0, 0.55), 0 1px 2px rgba(0, 0, 0, 0.6);
+    --skeleton-bg: var(--n-150);
+    --skeleton-sheen: var(--n-200);
   }
 }

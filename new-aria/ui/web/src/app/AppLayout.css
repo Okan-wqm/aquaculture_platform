@@ -1,60 +1,85 @@
+/* Shell: fixed sidebar + one content column.
+   The sidebar owns navigation and the three shell-wide facts (profile, actions,
+   version); the content column owns everything a page renders. */
 .layout {
   display: grid;
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   min-height: 100vh;
 }
+
 .skip-link {
   position: absolute;
   left: var(--space-2);
   top: -100px;
+  z-index: 40;
   padding: var(--space-2) var(--space-3);
   background: var(--accent);
   color: var(--accent-contrast);
   border-radius: var(--radius-md);
-  z-index: 10;
+  font-size: var(--fs-sm);
+  font-weight: 600;
 }
 .skip-link:focus {
   top: var(--space-2);
+  color: var(--accent-contrast);
+  text-decoration: none;
 }
+
+/* The top bar exists only in the collapsed layout; the sidebar carries the
+   wordmark on wide screens. */
+.topbar {
+  display: none;
+}
+
 .sidebar {
   background: var(--surface);
-  border-right: 1px solid var(--border);
+  border-right: var(--hairline) solid var(--border);
   display: flex;
   flex-direction: column;
   position: sticky;
   top: 0;
   height: 100vh;
   overflow-y: auto;
+  z-index: 20;
 }
 .sidebar__brand {
-  padding: var(--space-5) var(--space-4) var(--space-3);
+  padding: var(--space-4) var(--space-4) var(--space-3);
   display: flex;
   flex-direction: column;
-  border-bottom: 1px solid var(--border);
+  gap: 1px;
+  border-bottom: var(--hairline) solid var(--border);
 }
-.sidebar__brand-name {
+.sidebar__wordmark,
+.topbar__wordmark {
   font-weight: 700;
   font-size: var(--fs-lg);
-  letter-spacing: 0.08em;
+  letter-spacing: 0.14em;
+  color: var(--text);
 }
-.sidebar__brand-sub {
+.sidebar__brand-sub,
+.topbar__sub {
   font-size: var(--fs-xs);
-  color: var(--text-muted);
+  color: var(--text-faint);
+  letter-spacing: 0.02em;
 }
 .sidebar__nav {
   flex: 1;
   padding: var(--space-3) var(--space-2);
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: var(--space-5);
 }
 .sidebar__group-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
   font-size: var(--fs-xs);
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--tracking-label);
   color: var(--text-faint);
   padding: 0 var(--space-2);
-  margin-bottom: var(--space-1);
+  margin-bottom: var(--space-2);
 }
 .sidebar__list {
   list-style: none;
@@ -66,54 +91,136 @@
 }
 .sidebar__link {
   display: block;
-  padding: 6px var(--space-2);
+  padding: 5px var(--space-2);
   border-radius: var(--radius-md);
-  color: var(--text);
-  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  font-size: var(--fs-md);
+  /* The 2px inset marks the active route without moving the label. */
+  box-shadow: inset 2px 0 0 transparent;
 }
 .sidebar__link:hover {
   background: var(--surface-2);
+  color: var(--text);
   text-decoration: none;
 }
 .sidebar__link--active {
   background: var(--accent-soft);
   color: var(--accent);
   font-weight: 600;
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 .sidebar__footer {
-  padding: var(--space-3) var(--space-4);
-  border-top: 1px solid var(--border);
+  padding: var(--space-3);
+  border-top: var(--hairline) solid var(--border);
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-3);
   font-size: var(--fs-xs);
 }
 .sidebar__health {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: var(--space-1);
-  align-items: center;
 }
+.sidebar__health-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 20px;
+}
+.sidebar__health-key {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--text-faint);
+}
+
+.layout__scrim {
+  display: none;
+}
+
 .content {
-  padding: var(--space-6) var(--space-8);
-  max-width: var(--content-max);
+  padding: 0 var(--gutter) var(--space-12);
   min-width: 0;
   width: 100%;
 }
 .content:focus {
   box-shadow: none;
 }
-@media (max-width: 900px) {
+.content__column {
+  max-width: var(--content-max);
+  margin: 0 auto;
+  min-width: 0;
+}
+
+/* Collapsed layout: the sidebar becomes an overlay drawer over a single column. */
+@media (max-width: 999px) {
   .layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    height: var(--topbar-height);
+    padding: 0 var(--space-3);
+    background: var(--surface);
+    border-bottom: var(--hairline) solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 25;
+  }
+  .topbar__brand {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+  .topbar__wordmark {
+    font-size: var(--fs-md);
   }
   .sidebar {
-    position: static;
-    height: auto;
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 264px;
+    max-width: 84vw;
+    transform: translateX(-100%);
+    transition: transform 160ms ease;
+    z-index: 35;
+    box-shadow: var(--shadow-overlay);
+  }
+  .layout--nav-open .sidebar {
+    transform: translateX(0);
+  }
+  .layout__scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    border: 0;
+    padding: 0;
+    background: rgba(9, 12, 16, 0.5);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 160ms ease;
+    cursor: default;
+  }
+  .layout--nav-open .layout__scrim {
+    opacity: 1;
+    pointer-events: auto;
   }
   .content {
-    padding: var(--space-4);
+    padding: 0 var(--space-4) var(--space-10);
+  }
+}
+
+/* The sticky page header must clear the shell's own sticky top bar; the shell
+   owns this offset because only the shell knows the top bar exists. */
+@media (max-width: 999px) {
+  .page-header--sticky {
+    top: var(--topbar-height);
   }
 }

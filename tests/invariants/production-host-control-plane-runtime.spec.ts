@@ -631,11 +631,31 @@ describe('production host publisher and common lock runtime', () => {
     }
   });
 
+  /**
+   * The lock holder is released by the test, not by a clock.
+   *
+   * This test used to hold the lock with `sleep 3` and wait up to 10 seconds
+   * for the holder to signal. Both numbers are assumptions about machine
+   * speed, not about the lock: the holder publishes an exact-SHA source before
+   * it ever reaches the marker, so on a loaded runner it can miss a 10-second
+   * window, and if it does not, `sleep 3` can still elapse before the second
+   * attempt starts — the contended attempt then SUCCEEDS and the assertion
+   * that it was refused fails, reporting a lock defect that is not there. A
+   * flaky invariant is worse than no invariant, because the next red is read
+   * as noise.
+   *
+   * The handshake removes both races. The holder waits for a release file the
+   * test creates, so the lock is provably still held when the second attempt
+   * runs, and the wait for the marker is bounded by the test timeout rather
+   * than by a guess about how long publication takes.
+   */
   it('serializes competing mutations through the fixed inode lock', async () => {
     const fixture = createRuntimeFixture();
     const marker = join(fixture.root, 'lock-held');
+    const release = join(fixture.root, 'lock-release');
+    let first: ReturnType<typeof spawn> | null = null;
     try {
-      const first = spawn(
+      first = spawn(
         '/bin/bash',
         [
           CONTROL_PLANE,
@@ -643,30 +663,52 @@ describe('production host publisher and common lock runtime', () => {
           '--',
           '/bin/bash',
           '-c',
-          `printf held > ${JSON.stringify(marker)}; sleep 3`,
+          `printf held > ${JSON.stringify(marker)}; ` +
+            `while [ ! -e ${JSON.stringify(release)} ]; do /bin/sleep 0.05; done`,
         ],
         { env: runtimeEnv(fixture), stdio: 'pipe' },
       );
-      const deadline = Date.now() + 10_000;
-      while (!existsSync(marker) && Date.now() < deadline) {
+      const holder = first;
+      let holderExit: number | null = null;
+      let holderClosed = false;
+      holder.once('close', (code) => {
+        holderExit = code;
+        holderClosed = true;
+      });
+
+      const deadline = Date.now() + 150_000;
+      while (!existsSync(marker) && !holderClosed && Date.now() < deadline) {
         await new Promise<void>((resolvePromise) => setTimeout(resolvePromise, 25));
       }
-      expect(existsSync(marker)).toBe(true);
+      expect({ marker: existsSync(marker), holderExit }).toEqual({
+        marker: true,
+        holderExit: null,
+      });
 
       const second = runControl(fixture, ['lock-exec', '--', '/bin/true'], {
         AQUA_CONTROL_PLANE_LOCK_TIMEOUT_SECONDS: '1',
       });
       expect(second.status).not.toBe(0);
       expect(second.stderr).toContain('Timed out acquiring the production control-plane lock');
+      // The holder is still holding: nothing but this test can end its wait.
+      expect(holderClosed).toBe(false);
 
+      writeFileSync(release, '');
       const firstStatus = await new Promise<number | null>((resolvePromise) => {
-        first.once('close', resolvePromise);
+        if (holderClosed) {
+          resolvePromise(holderExit);
+          return;
+        }
+        holder.once('close', resolvePromise);
       });
       expect(firstStatus).toBe(0);
     } finally {
+      if (first !== null && first.exitCode === null && first.signalCode === null) {
+        first.kill('SIGKILL');
+      }
       removeFixtureRoot(fixture.root);
     }
-  }, 20_000);
+  }, 300_000);
 
   it('retains every live bind generation while publishing newer maintenance sources', () => {
     const first = createRuntimeFixture('retention-first');

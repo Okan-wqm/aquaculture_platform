@@ -9,6 +9,9 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import type { InstancePolicy } from './instance-policy.ts';
+import { effectiveAllowActions, loadInstancePolicy } from './instance-policy.ts';
+
 export class ConfigError extends Error {
   readonly variable: string;
 
@@ -28,9 +31,19 @@ export interface ServerConfig {
   readonly workspaceBase: string;
   readonly kernelBin: string;
   readonly staticDir: string;
+  /**
+   * Whether mutating endpoints are served. The environment grants it and the
+   * instance manifest may take it away; neither alone can turn it on.
+   */
   readonly allowActions: boolean;
   readonly actionTimeoutMs: number;
   readonly version: string;
+  /** Root of the per-case intake directories the console writes. */
+  readonly legalCasesDir: string;
+  /** Largest single document accepted at intake. */
+  readonly maxUploadBytes: number;
+  /** The instance manifest, when one is configured; null means none. */
+  readonly instancePolicy: InstancePolicy | null;
 }
 
 // The module runs from `server/src` (tests, dev) or from `server/dist/server/src`
@@ -99,6 +112,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   const workspaceRootRaw = env['ARIA_WORKSPACE_ROOT'];
   const workspaceRoot =
     workspaceRootRaw !== undefined && workspaceRootRaw.trim() !== '' ? resolve(workspaceRootRaw.trim()) : null;
+  // Loaded before anything else that depends on it: a configured-but-broken
+  // instance manifest must stop the server here, not be discovered later by a
+  // request that quietly ran without the policy it advertises.
+  const instancePolicy = loadInstancePolicy(env);
   return Object.freeze({
     host: env['ARIA_UI_HOST']?.trim() || '0.0.0.0',
     port: integer(env, 'ARIA_UI_PORT', 8480, 1, 65535),
@@ -108,8 +125,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     workspaceBase: env['ARIA_WORKSPACE_BASE']?.trim() || resolve(toolsDir, '..', 'workspaces'),
     kernelBin: env['ARIA_KERNEL_BIN']?.trim() || '/opt/new-aria/bin/aria',
     staticDir: resolve(env['ARIA_UI_STATIC_DIR']?.trim() || resolve(UI_ROOT, 'web', 'dist')),
-    allowActions: flag(env, 'ARIA_UI_ALLOW_ACTIONS'),
+    allowActions: effectiveAllowActions(flag(env, 'ARIA_UI_ALLOW_ACTIONS'), instancePolicy),
     actionTimeoutMs: integer(env, 'ARIA_UI_ACTION_TIMEOUT_MS', 600_000, 1_000, 86_400_000),
     version: readVersion(),
+    // The corpus mount is read-only in a legal deployment, so intake writes to
+    // its own root; it defaults beside the workspaces rather than inside them.
+    legalCasesDir: resolve(env['ARIA_LEGAL_CASES_DIR']?.trim() || resolve(toolsDir, '..', 'legal-cases')),
+    maxUploadBytes: integer(env, 'ARIA_UI_MAX_UPLOAD_BYTES', 512 * 1024 * 1024, 1024, 8 * 1024 * 1024 * 1024),
+    instancePolicy,
   });
 }

@@ -5,12 +5,25 @@
 // path typo here is a type error, not a 404 discovered in the browser.
 // WHAT: builds the compiled route list the server dispatches on.
 
+import type { IncomingMessage } from 'node:http';
+
 import type { HealthResponse } from '../../shared/api-contract.ts';
 import { DEFAULT_LIMIT, ENDPOINTS, LEDGER_SOURCES, MAX_LIMIT } from '../../shared/api-contract.ts';
-import { LEGAL_ENDPOINTS } from '../../shared/legal-contract.ts';
+import type { LegalCaseCreatedResponse, LegalIntakeResponse, LegalUploadResponse } from '../../shared/legal-contract.ts';
+import { LEGAL_ENDPOINTS, LEGAL_UPLOAD_FILE_NAME_HEADER, LEGAL_UPLOAD_SOURCE_HEADER } from '../../shared/legal-contract.ts';
 import { control, doctor, integrityVerify, JobTable } from './actions.ts';
 import type { ServerConfig } from './config.ts';
+import { HttpError } from './errors.ts';
 import { existsInside, resolveInside } from './fsafe.ts';
+import {
+  archiveRunRoot,
+  createCase,
+  decodeFileNameHeader,
+  readCaseMeta,
+  readIntakeLedger,
+  uploadDocument,
+  verifyIntakeChain,
+} from './legal-intake.ts';
 import { readAgentRequests } from './readers/agents.ts';
 import { readCycleDetail, readCycles } from './readers/cycles.ts';
 import { readFindings } from './readers/findings.ts';
@@ -35,6 +48,49 @@ function param(query: URLSearchParams, name: string): string | null {
 
 function requireParam(params: Readonly<Record<string, string>>, name: string): string {
   return params[name] ?? '';
+}
+
+/** A single header value; a repeated header is ambiguous and refused. */
+function singleHeader(req: IncomingMessage, name: string): string | undefined {
+  const value = req.headers[name];
+  if (value === undefined) return undefined;
+  if (Array.isArray(value)) throw new HttpError(400, 'header_repeated', name);
+  return value;
+}
+
+function requireString(body: Record<string, unknown>, field: string): string {
+  const value = body[field];
+  if (typeof value !== 'string' || value.trim() === '') throw new HttpError(400, `${field}_required`);
+  return value.trim();
+}
+
+function optionalString(body: Record<string, unknown>, field: string): string | null {
+  const value = body[field];
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string') throw new HttpError(400, `${field}_invalid`);
+  return value.trim() === '' ? null : value.trim();
+}
+
+/**
+ * The console never claims to know who a request came from beyond the token it
+ * carries. Recording that plainly is more honest than inventing an identity, and
+ * an operator can supply their own name for the receipt.
+ */
+function actorFrom(req: IncomingMessage): string {
+  const declared = singleHeader(req, 'x-aria-actor');
+  return declared !== undefined && declared.trim() !== '' ? declared.trim().slice(0, 120) : 'console-token-holder';
+}
+
+function requireActions(config: ServerConfig): void {
+  if (!config.allowActions) {
+    throw new HttpError(
+      403,
+      'actions_disabled',
+      config.instancePolicy !== null && !config.instancePolicy.allowActions
+        ? `the instance manifest ${config.instancePolicy.instanceId} sets runtime.allow_actions false`
+        : 'set ARIA_UI_ALLOW_ACTIONS=1 to enable mutating actions',
+    );
+  }
 }
 
 export function buildRoutes(config: ServerConfig, jobs: JobTable): ReadonlyArray<ReturnType<typeof compileRoute>> {
@@ -119,6 +175,82 @@ export function buildRoutes(config: ServerConfig, jobs: JobTable): ReadonlyArray
       },
     },
     { method: 'GET', pattern: LEGAL_ENDPOINTS.coverage.path, handler: async ({ res, params }) => sendJson(res, 200, await readCoverage(config.toolsDir, requireParam(params, 'caseId'))) },
+    {
+      method: 'GET',
+      pattern: LEGAL_ENDPOINTS.intake.path,
+      handler: async ({ res, params }) => {
+        const caseId = requireParam(params, 'caseId');
+        const intake = await readIntakeLedger(config.legalCasesDir, caseId);
+        const body: LegalIntakeResponse = {
+          caseMeta: await readCaseMeta(config.legalCasesDir, caseId),
+          intake,
+          // Verified on every read, not on a schedule: the answer to "was this
+          // receipt edited?" must be current at the moment it is asked.
+          chain: verifyIntakeChain(intake),
+        };
+        sendJson(res, 200, body);
+      },
+    },
+    {
+      method: 'POST',
+      pattern: LEGAL_ENDPOINTS.createCase.path,
+      handler: async ({ req, res }) => {
+        requireActions(config);
+        const body = await readJsonBody(req);
+        const created = await createCase(
+          config.legalCasesDir,
+          {
+            caseId: requireString(body, 'caseId'),
+            title: requireString(body, 'title'),
+            jurisdiction: optionalString(body, 'jurisdiction'),
+            courtReference: optionalString(body, 'courtReference'),
+            custodian: requireString(body, 'custodian'),
+            createdBy: actorFrom(req),
+          },
+          new Date().toISOString(),
+        );
+        const response: LegalCaseCreatedResponse = { caseMeta: created };
+        sendJson(res, 201, response);
+      },
+    },
+    {
+      method: 'POST',
+      pattern: LEGAL_ENDPOINTS.uploadDocument.path,
+      handler: async ({ req, res, params }) => {
+        requireActions(config);
+        const sourceNote = singleHeader(req, LEGAL_UPLOAD_SOURCE_HEADER);
+        const outcome = await uploadDocument(req, {
+          casesDir: config.legalCasesDir,
+          caseId: requireParam(params, 'caseId'),
+          fileName: decodeFileNameHeader(singleHeader(req, LEGAL_UPLOAD_FILE_NAME_HEADER)),
+          receivedBy: actorFrom(req),
+          sourceNote: sourceNote === undefined || sourceNote.trim() === '' ? null : sourceNote.trim().slice(0, 500),
+          maxBytes: config.maxUploadBytes,
+          now: new Date().toISOString(),
+        });
+        const response: LegalUploadResponse = outcome;
+        sendJson(res, outcome.duplicate ? 200 : 201, response);
+      },
+    },
+    {
+      method: 'POST',
+      pattern: LEGAL_ENDPOINTS.runInventory.path,
+      handler: async ({ req, res, params }) => {
+        requireActions(config);
+        const caseId = requireParam(params, 'caseId');
+        if ((await readCaseMeta(config.legalCasesDir, caseId)) === null) throw new HttpError(404, 'case_not_found', caseId);
+        const body = await readJsonBody(req);
+        sendJson(
+          res,
+          202,
+          jobs.startLegalInventory(config, {
+            caseId,
+            archiveRoot: archiveRunRoot(config.workspaceRoot, config.legalCasesDir, caseId),
+            title: optionalString(body, 'title'),
+          }),
+        );
+      },
+    },
   ];
   return routes.map(compileRoute);
 }

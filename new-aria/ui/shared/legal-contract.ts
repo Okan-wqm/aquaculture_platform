@@ -58,8 +58,25 @@ export type LegalLinkKind = (typeof LEGAL_LINK_KINDS)[number];
 export const STATEMENT_STATUSES = ['asserted', 'disputed', 'supported', 'contradicted', 'unverifiable', 'verified'] as const;
 export type StatementStatus = (typeof STATEMENT_STATUSES)[number];
 
-/** Who put a statement into the world. AI inference is always labelled as such. */
-export const ASSERTION_SOURCES = ['party', 'court', 'counsel', 'third_party', 'ai_inference', 'operator'] as const;
+/**
+ * Who put a record into the world.
+ *
+ * The distinction between `mechanical_extraction` and `ai_inference` is the one
+ * this product is built on: the first means a parser read these exact bytes at a
+ * stated locator and would read them the same way tomorrow; the second means a
+ * model proposed something. Labelling a regex match as AI inference (as this
+ * vocabulary forced until 2026-09-04) blurs exactly the line a lawyer needs.
+ * Neither of them ever earns `verified` — a human does that.
+ */
+export const ASSERTION_SOURCES = [
+  'party',
+  'court',
+  'counsel',
+  'third_party',
+  'mechanical_extraction',
+  'ai_inference',
+  'operator',
+] as const;
 export type AssertionSource = (typeof ASSERTION_SOURCES)[number];
 
 /** How a document's bytes were made readable. `unreadable` files become pressure, not silence. */
@@ -71,6 +88,22 @@ export type ExtractionStatus = (typeof EXTRACTION_STATUSES)[number];
 // ARIA_TOOLS_DIR. The console reads it read-only. One directory per case.
 // ---------------------------------------------------------------------------
 export const LEGAL_ARTIFACT_ROOT = 'packs/legal/cases' as const;
+
+/**
+ * Layout of a case's own working directory under the cases root, written by the
+ * console at intake and read by the adapter. It is deliberately separate from
+ * the artifact root above: the adapter READS `archive/` and never writes there
+ * (pack law L2), while `intake.jsonl` is written only by the console and never
+ * read by the adapter, so neither can quietly become the other's input.
+ */
+export const LEGAL_CASE_LAYOUT = {
+  /** The documents themselves. The adapter's archive_root points here. */
+  archive: 'archive',
+  /** Append-only, hash-chained arrival receipt. */
+  intake: 'intake.jsonl',
+  /** The case's identity and custodian. */
+  meta: 'case.meta.json',
+} as const;
 export const LEGAL_ARTIFACT_FILES = {
   case: 'case.json',
   documents: 'documents.json',
@@ -108,7 +141,20 @@ export const LEGAL_ENDPOINTS = {
     query: ['status', 'humanReview'],
   },
   coverage: { method: 'GET', path: `${LEGAL_API_PREFIX}/cases/:caseId/coverage`, response: 'LegalCoverageResponse' },
+  intake: { method: 'GET', path: `${LEGAL_API_PREFIX}/cases/:caseId/intake`, response: 'LegalIntakeResponse' },
+  createCase: { method: 'POST', path: `${LEGAL_API_PREFIX}/cases`, response: 'LegalCaseCreatedResponse' },
+  uploadDocument: { method: 'POST', path: `${LEGAL_API_PREFIX}/cases/:caseId/documents`, response: 'LegalUploadResponse' },
+  runInventory: { method: 'POST', path: `${LEGAL_API_PREFIX}/cases/:caseId/inventory`, response: 'JobResponse' },
 } as const;
+
+/**
+ * Header carrying the uploaded document's name and folder path, percent-encoded
+ * UTF-8. The body is the raw bytes: the console takes no multipart parser and no
+ * dependency, and the bytes it stores are the bytes it hashed.
+ */
+export const LEGAL_UPLOAD_FILE_NAME_HEADER = 'x-aria-file-name' as const;
+/** Optional header noting where a document came from (a party, a bundle, a disc). */
+export const LEGAL_UPLOAD_SOURCE_HEADER = 'x-aria-source-note' as const;
 
 // ---------------------------------------------------------------------------
 // Records
@@ -284,4 +330,64 @@ export interface LegalStatementsResponse {
 
 export interface LegalCoverageResponse {
   readonly coverage: LegalCoverage;
+}
+
+// ---------------------------------------------------------------------------
+// Intake — the case's chain of custody, written at upload time
+// ---------------------------------------------------------------------------
+
+/** The case's identity, recorded when an operator opens it. */
+export interface LegalCaseMeta {
+  readonly caseId: string;
+  readonly title: string;
+  readonly jurisdiction: string | null;
+  readonly courtReference: string | null;
+  /** Who is answerable for this archive's chain of custody. */
+  readonly custodian: string;
+  readonly createdAt: string;
+  readonly createdBy: string;
+}
+
+/**
+ * One arrival. `sha256` is measured while the bytes stream in; the inventory
+ * adapter later hashes the same file independently, and the two must agree.
+ * `rowHash`/`previousRowHash` chain the receipts, so a removed or edited arrival
+ * is detectable rather than invisible.
+ */
+export interface LegalIntakeRecord {
+  readonly schemaVersion: 1;
+  readonly caseId: string;
+  readonly relativePath: string;
+  readonly fileName: string;
+  readonly bytes: number;
+  readonly sha256: string;
+  readonly receivedAt: string;
+  readonly receivedBy: string;
+  readonly sourceNote: string | null;
+  readonly previousRowHash: string | null;
+  readonly rowHash: string;
+}
+
+/** The verdict of re-walking the receipt chain. */
+export interface LegalIntakeChainVerdict {
+  readonly valid: boolean;
+  readonly rows: number;
+  readonly brokenAt: number | null;
+  readonly reason: string | null;
+}
+
+export interface LegalIntakeResponse {
+  readonly caseMeta: LegalCaseMeta | null;
+  readonly intake: ReadonlyArray<LegalIntakeRecord>;
+  readonly chain: LegalIntakeChainVerdict;
+}
+
+export interface LegalCaseCreatedResponse {
+  readonly caseMeta: LegalCaseMeta;
+}
+
+export interface LegalUploadResponse {
+  readonly record: LegalIntakeRecord;
+  /** True when these exact bytes were already stored at this path; nothing was written. */
+  readonly duplicate: boolean;
 }

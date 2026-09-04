@@ -68,6 +68,7 @@
         "court",
         "counsel",
         "third_party",
+        "mechanical_extraction",
         "ai_inference",
         "operator"
       ]
@@ -86,7 +87,7 @@
       "if": {
         "properties": {
           "assertedBy": {
-            "const": "ai_inference"
+            "enum": ["mechanical_extraction", "ai_inference"]
           }
         },
         "required": [

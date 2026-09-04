@@ -36,6 +36,7 @@ export function useCaseContext(): CaseOutletContext {
 
 /** Section names. These are console labels, not kernel values, so they are English. */
 const TAB_LABELS: Readonly<Record<LegalCaseTab, string>> = {
+  intake: 'Intake',
   documents: 'Documents',
   timeline: 'Timeline',
   parties: 'Parties',

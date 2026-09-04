@@ -22,7 +22,7 @@ export const ROUTES = {
     `/legal/cases/${encodeURIComponent(caseId)}/${tab}`,
 } as const;
 
-export const LEGAL_CASE_TABS = ['documents', 'timeline', 'parties', 'statements', 'coverage'] as const;
+export const LEGAL_CASE_TABS = ['intake', 'documents', 'timeline', 'parties', 'statements', 'coverage'] as const;
 export type LegalCaseTab = (typeof LEGAL_CASE_TABS)[number];
 
 export function isLegalCaseTab(value: string | undefined): value is LegalCaseTab {

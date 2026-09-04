@@ -380,9 +380,16 @@ export interface ActionResponse {
 
 export type JobState = 'queued' | 'running' | 'succeeded' | 'failed';
 
+/**
+ * What a tracked job was started to do. Every kind is a kernel CLI call the
+ * console spawned; the console runs nothing of its own.
+ */
+export const JOB_KINDS = ['cycle', 'legal-inventory'] as const;
+export type JobKind = (typeof JOB_KINDS)[number];
+
 export interface JobResponse {
   readonly jobId: string;
-  readonly kind: 'cycle';
+  readonly kind: JobKind;
   readonly state: JobState;
   readonly command: ReadonlyArray<string>;
   readonly startedAt: string | null;

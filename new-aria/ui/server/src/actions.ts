@@ -11,9 +11,12 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 
-import type { ActionResponse, JobResponse, JobState } from '../../shared/api-contract.ts';
+import type { ActionResponse, JobKind, JobResponse, JobState } from '../../shared/api-contract.ts';
 import type { ServerConfig } from './config.ts';
 import { HttpError } from './errors.ts';
+
+/** The pack adapter the console can run over a case archive. */
+const LEGAL_INVENTORY_TOOL_ID = 'legal-document-inventory';
 
 const OUTPUT_CAP_BYTES = 1024 * 1024;
 const TAIL_CAP_BYTES = 16 * 1024;
@@ -111,8 +114,16 @@ export function control(config: ServerConfig, verb: string, reason: string): Pro
   return runAction(config, ['control', verb, '--tools-dir', config.toolsDir, '--reason', reason.trim()]);
 }
 
+export interface LegalInventoryRequest {
+  readonly caseId: string;
+  /** Archive path relative to the cases directory, which is the run's workspace root. */
+  readonly archiveRoot: string;
+  readonly title: string | null;
+}
+
 interface JobRecord {
   readonly jobId: string;
+  readonly kind: JobKind;
   readonly command: ReadonlyArray<string>;
   state: JobState;
   startedAt: string | null;
@@ -133,6 +144,75 @@ export class JobTable {
     if (discoveryOnly) argv.push('--discovery-only');
     const record: JobRecord = {
       jobId: randomUUID(),
+      kind: 'cycle',
+      command: [config.kernelBin, ...argv],
+      state: 'running',
+      startedAt: new Date().toISOString(),
+      finishedAt: null,
+      exitCode: null,
+      stdoutTail: '',
+      stderrTail: '',
+    };
+    this.jobs.set(record.jobId, record);
+    runKernel(config, argv, config.actionTimeoutMs)
+      .then((outcome) => {
+        record.state = outcome.exitCode === 0 && !outcome.timedOut ? 'succeeded' : 'failed';
+        record.exitCode = outcome.exitCode;
+        record.stdoutTail = outcome.stdout.slice(-TAIL_CAP_BYTES);
+        record.stderrTail = outcome.stderr.slice(-TAIL_CAP_BYTES);
+        record.finishedAt = new Date().toISOString();
+      })
+      .catch((error: unknown) => {
+        record.state = 'failed';
+        record.stderrTail = error instanceof Error ? error.message : String(error);
+        record.finishedAt = new Date().toISOString();
+      });
+    return this.view(record);
+  }
+
+  /**
+   * Runs the legal document-inventory adapter over one case archive.
+   *
+   * It goes through `aria tool run` rather than a direct process spawn for the
+   * same reason every other mutation does: the kernel owns tool execution, its
+   * scope validation and its run ledger, so a console-triggered inventory is
+   * recorded exactly like any other adapter run and is subject to the same
+   * declared-scope enforcement. The adapter is registered once with
+   * `aria tool register`; the registry is additive, so registering a pack
+   * adapter does not disturb the core set.
+   */
+  startLegalInventory(config: ServerConfig, request: LegalInventoryRequest): JobResponse {
+    requireActions(config);
+    const cycleId = `legal-inventory-${request.caseId}-${new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z')}`;
+    const input = JSON.stringify({
+      archive_root: request.archiveRoot,
+      case_id: request.caseId,
+      ...(request.title === null ? {} : { title: request.title }),
+    });
+    const argv = [
+      'tool',
+      'run',
+      '--tool-id',
+      LEGAL_INVENTORY_TOOL_ID,
+      '--input',
+      input,
+      '--cycle-id',
+      cycleId,
+      // The ARIA install is the workspace root: the runner resolves the
+      // adapter's own code and its node runtime relative to it. Case archives
+      // live inside it, and archiveRunRoot has already proved they do.
+      '--workspace-root',
+      requireWorkspace(config),
+      '--tools-dir',
+      config.toolsDir,
+    ];
+    return this.spawnTracked(config, 'legal-inventory', argv);
+  }
+
+  private spawnTracked(config: ServerConfig, kind: JobKind, argv: ReadonlyArray<string>): JobResponse {
+    const record: JobRecord = {
+      jobId: randomUUID(),
+      kind,
       command: [config.kernelBin, ...argv],
       state: 'running',
       startedAt: new Date().toISOString(),
@@ -167,7 +247,7 @@ export class JobTable {
   private view(record: JobRecord): JobResponse {
     return {
       jobId: record.jobId,
-      kind: 'cycle',
+      kind: record.kind,
       state: record.state,
       command: record.command,
       startedAt: record.startedAt,

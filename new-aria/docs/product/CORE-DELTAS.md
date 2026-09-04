@@ -76,3 +76,13 @@ Kalan 26 kırmızının sınıflandırması:
 
 Pytest-yerli bölüm (`-p aria_kernel.pytest_native_only`) unittest kırmızısı yüzünden ilk
 koşumda çalışmadı; hedef repoda `npm run aria:test:unit` her iki bölümü de koşturur.
+
+## Ölçülen çekirdek sınırları (2026-09-04, hukuk kası inşası)
+
+| G-ID | Gözlem | Kanıt |
+|---|---|---|
+| G-14 | Kas adapter manifesti keşfedilmiyor: `_phase_tool_manifest_sync` yalnız `<workspace_root>/tools/aria-adapters/*.tool.json` gloluyor (`cycle.py:2578`, `:2596`); `packs/*/pack.json` ve `arias/*/aria.manifest.json`'ı çekirdekte hiçbir Python dosyası okumuyor. **Engel değil:** `aria tool register --file <manifest>` (`cli.py:976`) eklemeli çalışır ve hukuk adapter'ı bu yolla kayıt olup koştu. **Tuzak:** `registry compile --adapters-dir X` tüm listeyi tek dizinden yeniden yazar (`registry_compiler.py:52`), yani kas dizini için koşturmak çekirdek adapter'larını siler | 2026-09-04 ölçümü: `tool register` → `tool list` SHADOW; `tool run` → `status: ok` |
+| G-15 | Yargı zarfını tüketen tek yol `tools/aria-poc/ci_executor.py --drain` (GitHub Actions) ve `planner-dispatch` daemon'ı (`planner_dispatch_hook.py:295`, yalnız planner rolleri). `CYCLE_PHASES`'te drain fazı yok, konsol drain eylemi açmıyor | `dispatcher_factory.py:12-30`; grep: `next-pending` çağıranları `ci_executor_drain.py:229` ve `aria-agent-executor.yml:402` |
+| G-17 | `finding.emit_finding` her kanıt için tam `repo_verified` ister (`finding.py:285-290`) ve `_target_sha` git HEAD çözülemezse `finding_evidence_target_sha_unavailable` ile **patlar** (`finding.py:260`). Belge arşivinde git yoktur → hukuk bulgusu kernel defterine hiç giremez | Ölçülen koşumda dava dosyalarının kanıt derecesi `worktree_candidate` |
+| G-18 | **Tool runner, adapter'ın kodunun gözlenen külliyatın içinde olduğunu varsayıyor:** `cwd` çalışma alanı kökünün altında olmalı (`tool_runner.py:78-84`) ve ts-node adapter'ı için `<cwd>/node_modules/ts-node/dist/bin.js` şart (`tool_runner.py:694`). Dış bir külliyatı gözleyen bir kas için bu yanlış; hukuk dağıtımı bu yüzden çalışma alanı kökünü ARIA kurulumu yapar ve dava arşivlerini onun altına koyar | 2026-09-04: cases dizini çalışma alanı kökü olduğunda `environment_unavailable`; ARIA kurulumu kök olduğunda `ok` |
+| G-19 | `PLAN_020_WRITE_SURFACES` sayısı `test_frozen_profile_global_no_write.py:222` içinde **42 olarak sabit**; yeni bir `state_manifest` yüzeyi bu sayıyı kasıtlı olarak kırar (tasarlanmış kapı). Hukuk yüzeylerinin deklarasyonu (G-5) bu yüzden bilinçli bir çekirdek kararıdır | `state_manifest.STATE_SURFACES` Python literal'i; `validate_state_surface_patterns()` import anında koşuyor |

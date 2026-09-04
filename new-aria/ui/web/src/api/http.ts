@@ -95,3 +95,36 @@ export async function requestJson<T>(path: string, options: RequestOptions = {},
   const data: unknown = await response.json();
   return data as T;
 }
+
+/**
+ * POSTs raw bytes (a document upload) and parses the JSON answer.
+ *
+ * Separate from requestJson because the body is not JSON: the browser streams
+ * the File itself, so the bytes the server hashes are the bytes the operator
+ * chose, with no encoding step in between that could alter them.
+ */
+export async function requestBytes<T>(
+  path: string,
+  body: Blob,
+  options: { readonly headers?: Headers | undefined; readonly signal?: AbortSignal | undefined } = {},
+  transport: Transport = defaultTransport,
+): Promise<T> {
+  const token = transport.tokenProvider();
+  if (token === null) {
+    throw new ApiClientError(401, { error: 'missing_token', detail: 'Operator token is missing. Sign in to continue.' }, path);
+  }
+  const headers = new Headers(options.headers);
+  headers.set('accept', 'application/json');
+  headers.set('content-type', 'application/octet-stream');
+  headers.set(AUTH_HEADER, `${AUTH_SCHEME} ${token}`);
+  const init: RequestInit = { method: 'POST', headers, body, credentials: 'omit', cache: 'no-store' };
+  if (options.signal !== undefined) {
+    init.signal = options.signal;
+  }
+  const response = await transport.fetchImpl(path, init);
+  if (!response.ok) {
+    throw new ApiClientError(response.status, await parseErrorBody(response), path);
+  }
+  const data: unknown = await response.json();
+  return data as T;
+}

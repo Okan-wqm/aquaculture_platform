@@ -41,7 +41,7 @@
     "VERSION_OF"
   ],
   "statement_statuses": ["asserted", "disputed", "supported", "contradicted", "unverifiable", "verified"],
-  "assertion_sources": ["party", "court", "counsel", "third_party", "ai_inference", "operator"],
+  "assertion_sources": ["party", "court", "counsel", "third_party", "mechanical_extraction", "ai_inference", "operator"],
   "extraction_statuses": ["text", "metadata_only", "unreadable", "excluded"],
   "claim_types": [
     "document_version_conflict",

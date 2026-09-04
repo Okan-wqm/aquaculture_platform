@@ -5,7 +5,8 @@
   "status": "SHADOW",
   "pack": "legal",
   "declared_scope": [
-    "packs/legal/fixtures/case-synthetic/**"
+    "packs/legal/fixtures/case-synthetic/**",
+    "data/legal-cases/*/archive/**"
   ],
   "output_schema": {
     "type": "object",
@@ -34,7 +35,8 @@
     "created_at": "2024-04-01T00:00:00Z"
   },
   "allowed_read_globs": [
-    "packs/legal/fixtures/case-synthetic/**"
+    "packs/legal/fixtures/case-synthetic/**",
+    "data/legal-cases/*/archive/**"
   ],
   "forbidden_read_globs": [
     ".git/**",
@@ -68,5 +70,5 @@
   },
   "freshness_window_hours": 168,
   "schema_version": 1,
-  "parse_window_signature": "sha256:f6f5c637dff3e7e783dc576aadd1457a757e29adba67bbb4f2f94e0f1e470919"
+  "parse_window_signature": "sha256:be1b03ad9666aeff5df6a090a99dc3bf0015cd5b3493b973788a80beaf1b3e8c"
 }

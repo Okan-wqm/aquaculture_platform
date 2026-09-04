@@ -298,3 +298,9 @@ aria-debts/keys/
 aria-tools/agent-questions.jsonl
 aria-tools/agent-questions.jsonl.lock
 .aria-acceptance-poc-tmp/
+
+# new-aria: the legal instance's case archives are operator data, never source.
+# The console writes uploaded documents and their intake receipts here, inside
+# the workspace root because the kernel's tool runner requires the adapter's
+# code and node runtime to sit under it.
+new-aria/data/

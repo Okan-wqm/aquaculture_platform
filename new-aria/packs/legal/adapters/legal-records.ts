@@ -42,7 +42,25 @@ export type LegalLinkKind =
   | 'REQUIRES'
   | 'PARTY_IN'
   | 'VERSION_OF';
-export type AssertionSource = 'party' | 'court' | 'counsel' | 'third_party' | 'ai_inference' | 'operator';
+/**
+ * Who put a record into the world. Mirrors ASSERTION_SOURCES in
+ * ui/shared/legal-contract.ts byte-for-byte.
+ *
+ * `mechanical_extraction` means a parser read these exact bytes at a stated
+ * locator and would read them the same way tomorrow. `ai_inference` means a
+ * model proposed something. The adapter emits only the former; it runs no model.
+ */
+export type AssertionSource =
+  | 'party'
+  | 'court'
+  | 'counsel'
+  | 'third_party'
+  | 'mechanical_extraction'
+  | 'ai_inference'
+  | 'operator';
+
+/** Status of a claim–evidence matrix row. `verified` is earned only by a human. */
+export type StatementStatus = 'asserted' | 'disputed' | 'supported' | 'contradicted' | 'unverifiable' | 'verified';
 export type ExtractionStatus = 'text' | 'metadata_only' | 'unreadable' | 'excluded';
 export const EXTRACTION_STATUSES: readonly ExtractionStatus[] = ['text', 'metadata_only', 'unreadable', 'excluded'];
 
@@ -134,6 +152,23 @@ export interface LegalLink {
   readonly to: { readonly kind: LegalRecordKind; readonly id: string };
   readonly evidence: readonly LegalEvidenceRef[];
   readonly confidence: number;
+}
+
+/** A claim–evidence matrix row. Mirrors LegalStatement in the console contract. */
+export interface LegalStatement {
+  readonly statementId: string;
+  readonly statement: string;
+  readonly status: StatementStatus;
+  readonly assertedBy: AssertionSource;
+  readonly assertedByPartyId: string | null;
+  readonly supportingSources: ReadonlyArray<LegalEvidenceRef>;
+  readonly contradictingSources: ReadonlyArray<LegalEvidenceRef>;
+  readonly missingEvidence: ReadonlyArray<string>;
+  readonly confidence: number;
+  readonly humanReviewRequired: boolean;
+  readonly verifiedBy: string | null;
+  readonly verifiedAt: string | null;
+  readonly relatedClaimIds: ReadonlyArray<string>;
 }
 
 export interface LegalCoverage {

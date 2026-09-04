@@ -13,8 +13,21 @@ services:
       ARIA_UI_PORT: "8480"
       ARIA_UI_ALLOW_ACTIONS: ${LEGAL_ALLOW_ACTIONS:-0}
       ARIA_TOOLS_DIR: /data/legal/aria-tools
-      ARIA_WORKSPACE_ROOT: /workspace
+      # MEASURED (2026-09-04): the kernel's tool runner resolves an adapter's
+      # runner.cwd under the workspace root and refuses a ts-node adapter unless
+      # <cwd>/node_modules/ts-node/dist/bin.js exists (tool_runner.py:78, :694).
+      # Both hold only when the workspace root is the ARIA install, because that
+      # is where the adapter's own code and its node runtime live. The case
+      # archives therefore sit on a durable volume INSIDE that root, and the
+      # console refuses to start an inventory if they do not.
+      ARIA_WORKSPACE_ROOT: /opt/new-aria
       ARIA_WORKSPACE_BASE: /data/legal/workspaces
+      ARIA_LEGAL_CASES_DIR: /opt/new-aria/data/legal-cases
+      ARIA_UI_MAX_UPLOAD_BYTES: ${LEGAL_MAX_UPLOAD_BYTES:-536870912}
+      # The instance manifest is loaded and ENFORCED: runtime.allow_actions can
+      # only narrow the environment's grant, and a malformed manifest or approval
+      # policy stops the console rather than serving without the gates it names.
+      ARIA_INSTANCE_MANIFEST: /opt/new-aria/arias/legal/aria.manifest.json
       ARIA_KERNEL_BIN: /opt/new-aria/bin/aria
       # The legal instance never reaches a model provider until an operator turns it on.
       CLAUDE_CLI_MOCK: ${LEGAL_CLAUDE_CLI_MOCK:-1}
@@ -22,9 +35,12 @@ services:
       - "${LEGAL_UI_BIND:-127.0.0.1}:${LEGAL_UI_PORT:-8481}:8480"
     volumes:
       - legal-data:/data
-      # The case archive is mounted READ-ONLY: law L2, the corpus is never mutated.
-      - ${LEGAL_CORPUS:-./arias/legal/corpus}:/workspace:ro
+      # Case archives: written by the console at intake, read by the adapter.
+      # This is the ONLY writable path the legal instance owns under its
+      # workspace root; everything else in /opt/new-aria is image content.
+      - legal-cases:/opt/new-aria/data
     restart: unless-stopped
 
 volumes:
   legal-data: {}
+  legal-cases: {}

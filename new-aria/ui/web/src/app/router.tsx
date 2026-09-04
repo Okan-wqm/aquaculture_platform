@@ -21,6 +21,7 @@ import { CaseDetailPage } from '../features/legal/CaseDetailPage.tsx';
 import { CasesPage } from '../features/legal/CasesPage.tsx';
 import { CoverageTab } from '../features/legal/CoverageTab.tsx';
 import { DocumentsTab } from '../features/legal/DocumentsTab.tsx';
+import { IntakeTab } from '../features/legal/IntakeTab.tsx';
 import { PartiesTab } from '../features/legal/PartiesTab.tsx';
 import { StatementsTab } from '../features/legal/StatementsTab.tsx';
 import { TimelineTab } from '../features/legal/TimelineTab.tsx';
@@ -75,6 +76,7 @@ export const appRoutes: RouteObject[] = [
                 element: <CaseDetailPage />,
                 children: [
                   { index: true, element: <Navigate to="documents" replace /> },
+                  { path: 'intake', element: <IntakeTab /> },
                   { path: 'documents', element: <DocumentsTab /> },
                   { path: 'timeline', element: <TimelineTab /> },
                   { path: 'parties', element: <PartiesTab /> },

@@ -55,7 +55,11 @@ export async function readOverview(config: ServerConfig): Promise<OverviewRespon
     profile: {
       // The kernel documents `standard` as the profile of a store nobody has set;
       // a missing state file therefore means standard, never "unknown".
-      current: profileState === null ? 'standard' : asProfile(profileState['profile']) ?? asProfile(profileState['current']),
+      // The kernel writes `active_profile` (runtime_profile.py set_profile); the
+      // console read `profile`/`current`, which no version of the kernel has
+      // ever written, so this field was null on every real store. The legacy
+      // names stay as fallbacks because a hand-made scratch store may use them.
+      current: profileState === null ? 'standard' : asProfile(profileState['active_profile']) ?? asProfile(profileState['profile']) ?? asProfile(profileState['current']),
       schedulerCeiling: profileState === null ? 'standard' : asProfile(profileState['scheduler_profile_ceiling']),
       setBy: profileState === null ? null : asString(profileState['set_by']),
       setAt: profileState === null ? null : asString(profileState['set_at']) ?? asString(profileState['at']),

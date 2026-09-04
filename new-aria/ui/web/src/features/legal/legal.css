@@ -66,3 +66,45 @@
   font-size: var(--fs-xs);
   color: var(--text-muted);
 }
+
+/*
+ * Intake drop zone.
+ * WHY: taking documents in is the one place this console writes, so the target
+ * has to be unmistakable and it has to work without a pointer — the visible
+ * button is the keyboard path and the drop area is the shortcut, never the only
+ * way in. The active state uses the accent line rather than a state colour:
+ * dragging is not a state of the case, only of the pointer.
+ */
+.intake-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+.intake-drop--active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.intake-drop p {
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+
+/*
+ * New-case form: a short column of labelled fields, not a grid, because the
+ * fields are read in order and the custodian is the one a reader must not skip.
+ */
+.case-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: 52ch;
+}
+.case-form__error {
+  color: var(--tone-danger-fg);
+  font-size: var(--fs-sm);
+}

@@ -247,3 +247,35 @@ değişikliği, çekirdek değişmez.
 
 Bu belge, A3 ve A4 ölçümleri ve çürütme sonuçları geldiğinde güncellenir; o güncelleme
 `wired` sayısını yalnız **düşürebilir**.
+
+---
+
+## D. Bu oturumda kapananlar (2026-09-04, kanıtlı)
+
+Ölçüm yapıldıktan sonra bu oturumda kapatılan satırlar. Her biri koşturulmuş testle
+bağlıdır; hiçbiri "yapıldı" diye işaretlenmemiştir.
+
+| ID | Ne kapandı | Kanıt |
+|---|---|---|
+| **L-02** | PDF / DOCX / XLSX / PPTX metin katmanı okunuyor; şifreli ve taranmış PDF sebebiyle reddediliyor | `packs/legal/adapters/binary/` — 16 çıkarıcı + 21 adapter testi yeşil, iki koşum bayt-eş; gerçek 15 sayfalık pdfTeX belgesinde 15/15 sayfa |
+| **L-01** | Dava dava dosya yükleme: dava açma, belge yükleme, alım tutanağı, envanter tetikleme | `ui/server/src/legal-intake.ts` + `ui/web/src/features/legal/IntakeTab.tsx`; 13 sunucu + 5 arayüz testi yeşil |
+| **L-05 (yarısı)** | Alım tutanağı: custodian, alım zamanı, sha256, yükleyen; satırlar **hash-zincirli** ve düzenleme tespit ediliyor | `verifyIntakeChain`; testte düzenlenen satır `row_hash_mismatch`, silinen satır `previous_row_hash_mismatch` veriyor |
+| **L-03 (yarısı)** | Hukuk adapter'ı kernel registry'sine giriyor ve gerçek bir dava arşivi üzerinde koşuyor | Ölçüldü: `aria tool register` → `aria tool list` SHADOW; `aria tool run` → `status: ok`, 10 dosya okundu, sekiz artifact yazıldı, koşum `runs.jsonl`'a hash-zincirli düştü |
+| **L-27 (yarısı)** | `packs/legal` testleri CI hattında | `scripts/ci/aria-adapters-test.sh` |
+
+Faz 0 (uydurmayı imkânsız kılan kapılar):
+
+| Kapı | Durum | Kanıt |
+|---|---|---|
+| `verified` yalnız insanla | **kapandı** | `packs/legal/adapters/records/statement-gate.ts`: tip düzeyinde `MachineStatementStatus` `verified`'ı içermiyor; çalışma zamanında `acceptMachineStatement` `status: 'verified'`, dolu `verifiedBy` veya `verifiedAt` taşıyan her gönderimi reddediyor. 12 test |
+| Örnek manifesti uygulanıyor | **kapandı** | `ui/server/src/instance-policy.ts`: `runtime.allow_actions` yalnız **daraltabiliyor**; bozuk manifest/politika sunucuyu durduruyor. 9 test, biri gönderilen hukuk örneğinin beş avukat kapısını yüklüyor |
+| Konsol profil anahtarı | **kapandı** | `readers/overview.ts` artık `active_profile` okuyor (kernel `runtime_profile.py:610` onu yazıyor); eski adlar geriye dönük yedek |
+| Eksik banned-phrase CLI | **açık** | `runtime_profile.py:36-38` iki TS gate'i "non-bypassable" sayıyor, ikisi de bu ağaçta yok; `banned_phrase_adapter.py` exit 127. Python doğrulayıcı gerçek ve koşuyor |
+
+Ölçülen ve kayda geçen yeni sınır: **kernel'in tool runner'ı, adapter'ın kodunun
+gözlenen külliyatın içinde olduğunu varsayıyor** (`tool_runner.py:78` cwd çalışma alanı
+kökünün altında olmalı; `:694` `<cwd>/node_modules/ts-node/dist/bin.js` şart). Bu yüzden
+hukuk dağıtımında çalışma alanı kökü ARIA kurulumudur ve dava arşivleri onun altındaki
+kalıcı bir birimde durur; konsol bu iki yol hizalanmadığında envanteri **reddediyor**
+(`cases_dir_outside_workspace`), runner'ın içinde alakasız bir hatayla ölmesini
+beklemiyor.

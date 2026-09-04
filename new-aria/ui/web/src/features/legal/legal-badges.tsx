@@ -45,6 +45,9 @@ const SOURCE_TONE: Readonly<Record<AssertionSource, BadgeTone>> = {
   court: 'info',
   counsel: 'neutral',
   third_party: 'neutral',
+  // Two machine sources, two tones on purpose: a parser reading bytes is a
+  // neutral observation, a model's proposal is a state a reader must weigh.
+  mechanical_extraction: 'neutral',
   ai_inference: 'accent',
   operator: 'success',
 };
@@ -54,6 +57,7 @@ const SOURCE_GLOSS: Readonly<Record<AssertionSource, string>> = {
   court: 'Court record',
   counsel: 'Counsel statement',
   third_party: 'Third party',
+  mechanical_extraction: 'Mechanical extraction — a parser read these bytes at the stated locator; human review required',
   ai_inference: 'AI inference — not evidence; human review required',
   operator: 'Operator record',
 };

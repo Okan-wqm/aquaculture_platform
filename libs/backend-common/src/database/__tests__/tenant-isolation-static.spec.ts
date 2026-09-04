@@ -62,7 +62,13 @@ describe('Tenant Isolation Static Analysis', () => {
       // 194 → 195: feeding_record_provenance — the immutable ledger that lets a
       // backfill rollback tell its own rows from live drain writes
       // (FARM-CRITICAL-241). It is per-tenant, so it must fan out.
-      expect(tenantTotal).toBe(195);
+      // 195 → 196: feeding_record_attribution_quarantine — where the W0
+      // attribution repair parks a historical feeding record whose unit was
+      // occupied by nobody on that date (FARM-HIGH-240). It holds tenant data
+      // and is read per tenant, so it fans out; the two other tables that wave
+      // added (tenant_localization, feeding_job_runs) do NOT, because they are
+      // cross-tenant ledgers and live in farm's infrastructureTables instead.
+      expect(tenantTotal).toBe(196);
     });
 
     it('every module should have a sourceSchema', () => {
@@ -115,8 +121,9 @@ describe('Tenant Isolation Static Analysis', () => {
       // 85 → 91: feeding_protocols_v2, feeding_protocol_assignments,
       // feeding_day_plans, feeding_meals, feeding_forecast_snapshots and
       // farm_incident_media. 91 → 95: environmental scene, versioned coverage
-      // assessment, sync-state, and metric-outcome SSoT.
-      expect(counts['farm']).toBe(96);
+      // assessment, sync-state, and metric-outcome SSoT. 96 → 97:
+      // feeding_record_attribution_quarantine (see the tenantTotal note above).
+      expect(counts['farm']).toBe(97);
       expect(counts['hr']).toBe(29);
       expect(counts['hydroponics']).toBe(1);
       expect(counts['alert']).toBe(4);

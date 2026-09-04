@@ -34,7 +34,7 @@ interface ErrorStats {
 
 export const ErrorTrackingPage: React.FC = () => {
   // State
-  const [errorGroups, setErrorGroups] = useState<ErrorGroup[]>([]);
+  const [errorGroups, setErrorGroups] = useState<readonly ErrorGroup[]>([]);
   const [stats, setStats] = useState<ErrorStats>({
     totalErrors: 0,
     unresolvedErrors: 0,
@@ -56,7 +56,7 @@ export const ErrorTrackingPage: React.FC = () => {
 
   // Detail Modal
   const [selectedError, setSelectedError] = useState<ErrorGroup | null>(null);
-  const [errorOccurrences, setErrorOccurrences] = useState<ErrorOccurrence[]>([]);
+  const [errorOccurrences, setErrorOccurrences] = useState<readonly ErrorOccurrence[]>([]);
   const [loadingOccurrences, setLoadingOccurrences] = useState(false);
 
   // ============================================================================

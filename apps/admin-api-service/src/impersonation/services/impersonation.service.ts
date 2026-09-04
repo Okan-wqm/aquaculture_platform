@@ -27,6 +27,10 @@ import {
   toSafeImpersonationSession,
   IMPERSONATION_MAX_SESSION_MINUTES,
 } from '../entities/impersonation-session.entity';
+import {
+  createStandardPaginatedResult,
+  type PaginationResultV1,
+} from '@platform/pagination-contracts';
 
 /**
  * Start-impersonation response: the safe session view PLUS the raw
@@ -316,7 +320,7 @@ export class ImpersonationService implements OnModuleInit {
     isActive?: boolean;
     page?: number;
     limit?: number;
-  }): Promise<{ data: ImpersonationPermission[]; total: number; page: number; limit: number }> {
+  }): Promise<PaginationResultV1<ImpersonationPermission>> {
     const query = this.permissionRepo.createQueryBuilder('p');
 
     if (params.tenantId) {
@@ -333,7 +337,7 @@ export class ImpersonationService implements OnModuleInit {
     query.skip((page - 1) * limit).take(limit);
 
     const [data, total] = await query.getManyAndCount();
-    return { data, total, page, limit };
+    return createStandardPaginatedResult<ImpersonationPermission>(data, total, page, limit);
   }
 
   async getImpersonationStats(): Promise<{
@@ -940,7 +944,7 @@ export class ImpersonationService implements OnModuleInit {
     endDate?: Date;
     page?: number;
     limit?: number;
-  }): Promise<{ items: SafeImpersonationSession[]; total: number }> {
+  }): Promise<PaginationResultV1<SafeImpersonationSession>> {
     const query = this.sessionRepo.createQueryBuilder('s');
 
     if (params.superAdminId) {
@@ -970,7 +974,12 @@ export class ImpersonationService implements OnModuleInit {
 
     const [items, total] = await query.getManyAndCount();
     // DB-ADMIN-HIGH-002: never serialize the token columns onto a list response.
-    return { items: items.map(toSafeImpersonationSession), total };
+    return createStandardPaginatedResult<SafeImpersonationSession>(
+      items.map(toSafeImpersonationSession),
+      total,
+      page,
+      limit,
+    );
   }
 
   async getSession(id: string): Promise<SafeImpersonationSession> {

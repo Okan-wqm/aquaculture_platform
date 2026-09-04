@@ -34,6 +34,7 @@ import { getAuthUser } from '../../shared/authenticated-request';
 
 import { ThrottleSensitive, ThrottleExport } from '@aquaculture/backend-common/security';
 import { MODULE_SCHEMAS, DEFAULT_TENANT_MODULES } from '@aquaculture/backend-common/database';
+import { expectedTotalPages } from '@platform/pagination-contracts';
 // ============================================================================
 // Module Table Access Control
 // ============================================================================
@@ -481,7 +482,10 @@ export class DatabaseExplorerController {
         `SELECT COUNT(*) as count FROM "${schema}"."${table}"`,
       );
       const totalRows = parseInt(countResult[0]?.count || '0', 10);
-      const totalPages = Math.ceil(totalRows / limit);
+      // The row browser carries column metadata alongside its page, so it
+      // cannot BE a `PaginationResultV1`; it takes its page arithmetic from
+      // the same authority instead of deriving a second answer.
+      const totalPages = expectedTotalPages(totalRows, limit);
 
       // Verileri al - SECURITY: Use parameterized queries for LIMIT and OFFSET
       let dataQuery = `SELECT * FROM "${schema}"."${table}"`;

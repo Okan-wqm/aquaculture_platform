@@ -3346,12 +3346,25 @@ enum FCRStatusType {
 }
 
 type BatchListResponse {
+  """Array of items"""
   items: [Batch!]!
+
+  """Total count of items matching the query"""
   total: Int!
+
+  """Current page number"""
   page: Int!
+
+  """Items per page"""
   limit: Int!
+
+  """Total number of pages"""
   totalPages: Int!
+
+  """Whether there is a next page"""
   hasNextPage: Boolean!
+
+  """Whether there is a previous page"""
   hasPreviousPage: Boolean!
 }
 

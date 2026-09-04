@@ -70,7 +70,7 @@ export const DebugToolsPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   // Cache state
-  const [cacheEntries, setCacheEntries] = useState<CacheEntry[]>([]);
+  const [cacheEntries, setCacheEntries] = useState<readonly CacheEntry[]>([]);
   const [cacheStats, setCacheStats] = useState<CacheStats | null>(null);
   const [cacheFilter, setCacheFilter] = useState('');
   const [showClearConfirm, setShowClearConfirm] = useState(false);

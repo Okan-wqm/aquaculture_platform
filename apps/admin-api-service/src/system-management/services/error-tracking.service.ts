@@ -22,6 +22,10 @@ import {
   ErrorGroupSortField,
 } from '../sorting/error-group-sort';
 import { clampLimit } from '../../shared/sort-field.util';
+import {
+  createStandardPaginatedResult,
+  type PaginationResultV1,
+} from '@platform/pagination-contracts';
 
 // ============================================================================
 // Interfaces
@@ -355,7 +359,7 @@ export class ErrorTrackingService {
     limit?: number;
     sortBy?: 'occurrenceCount' | 'lastSeenAt' | 'firstSeenAt' | 'userCount';
     sortOrder?: 'ASC' | 'DESC';
-  }): Promise<{ items: ErrorGroup[]; total: number }> {
+  }): Promise<PaginationResultV1<ErrorGroup>> {
     const query = this.groupRepo.createQueryBuilder('g');
 
     if (params.status) {
@@ -396,7 +400,7 @@ export class ErrorTrackingService {
     query.skip((page - 1) * limit).take(limit);
 
     const [items, total] = await query.getManyAndCount();
-    return { items, total };
+    return createStandardPaginatedResult<ErrorGroup>(items, total, page, limit);
   }
 
   // ============================================================================
@@ -414,7 +418,7 @@ export class ErrorTrackingService {
   async getOccurrencesForGroup(
     groupId: string,
     params: { page?: number; limit?: number },
-  ): Promise<{ items: ErrorOccurrence[]; total: number }> {
+  ): Promise<PaginationResultV1<ErrorOccurrence>> {
     const page = params.page || 1;
     const limit = params.limit || 20;
 
@@ -425,7 +429,7 @@ export class ErrorTrackingService {
       take: limit,
     });
 
-    return { items, total };
+    return createStandardPaginatedResult<ErrorOccurrence>(items, total, page, limit);
   }
 
   async queryOccurrences(params: {
@@ -438,7 +442,7 @@ export class ErrorTrackingService {
     end?: Date;
     page?: number;
     limit?: number;
-  }): Promise<{ items: ErrorOccurrence[]; total: number }> {
+  }): Promise<PaginationResultV1<ErrorOccurrence>> {
     const query = this.occurrenceRepo.createQueryBuilder('o');
 
     if (params.service) {
@@ -470,7 +474,7 @@ export class ErrorTrackingService {
     query.skip((page - 1) * limit).take(limit);
 
     const [items, total] = await query.getManyAndCount();
-    return { items, total };
+    return createStandardPaginatedResult<ErrorOccurrence>(items, total, page, limit);
   }
 
   // ============================================================================

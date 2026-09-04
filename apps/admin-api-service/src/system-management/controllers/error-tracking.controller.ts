@@ -32,6 +32,7 @@ import {
 import { ErrorGroup, ErrorSeverity, ErrorStatus, ErrorContext } from '../entities/error-tracking.entity';
 import { ErrorTrackingService, ErrorReport } from '../services/error-tracking.service';
 import { ERROR_GROUP_SORT_FIELDS, ErrorGroupSortField } from '../sorting/error-group-sort';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 
 // ============================================================================
 // DTOs
@@ -315,7 +316,7 @@ export class ErrorTrackingController {
   @Get('groups')
   async queryErrorGroups(
     @Query() query: QueryErrorGroupsDto,
-  ): Promise<{ items: ErrorGroup[]; total: number }> {
+  ): Promise<PaginationResultV1<ErrorGroup>> {
     return this.errorTrackingService.queryErrorGroups({
       status: query.status,
       severity: query.severity,

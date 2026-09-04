@@ -6,6 +6,7 @@
  * file size below the 500-line limit.
  */
 import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common/mobile-command';
+import { StandardPaginatedResponse } from '@aquaculture/backend-common/pagination';
 import { ID, Float, Field, InputType, Int, ObjectType, registerEnumType } from '@nestjs/graphql';
 import { Type } from 'class-transformer';
 import { IsEnum, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min, ValidateNested } from 'class-validator';
@@ -201,16 +202,13 @@ export class FCRInfo {
   @Field(() => FCRStatusType) status!: 'excellent' | 'good' | 'average' | 'poor';
 }
 
+/**
+ * The page shape is inherited from the platform pagination authority rather
+ * than re-declared here; a locally-declared copy is how `totalPages` came to
+ * mean two different things across the platform.
+ */
 @ObjectType()
-export class BatchListResponse {
-  @Field(() => [Batch]) items!: Batch[];
-  @Field(() => Int) total!: number;
-  @Field(() => Int) page!: number;
-  @Field(() => Int) limit!: number;
-  @Field(() => Int) totalPages!: number;
-  @Field() hasNextPage!: boolean;
-  @Field() hasPreviousPage!: boolean;
-}
+export class BatchListResponse extends StandardPaginatedResponse(Batch) {}
 
 @ObjectType()
 export class BatchPerformanceResponse {

@@ -20,6 +20,10 @@ import {
   ActivityLog,
   SecurityIncident,
 } from '../entities/security.entity';
+import {
+  createStandardPaginatedResult,
+  type PaginationResultV1,
+} from '@platform/pagination-contracts';
 
 // ============================================================================
 // Interfaces
@@ -250,12 +254,7 @@ export class ComplianceService {
     startDate?: Date;
     endDate?: Date;
     overdue?: boolean;
-  }): Promise<{
-    data: DataRequest[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  }): Promise<PaginationResultV1<DataRequest>> {
     const {
       page = 1,
       limit = 20,
@@ -289,7 +288,7 @@ export class ComplianceService {
 
     const [data, total] = await qb.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult<DataRequest>(data, total, page, limit);
   }
 
   /**
@@ -604,12 +603,7 @@ export class ComplianceService {
     complianceType?: ComplianceType;
     startDate?: Date;
     endDate?: Date;
-  }): Promise<{
-    data: ComplianceReport[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  }): Promise<PaginationResultV1<ComplianceReport>> {
     const { page = 1, limit = 20, complianceType, startDate, endDate } = options;
 
     const qb = this.reportRepository.createQueryBuilder('report');
@@ -624,7 +618,7 @@ export class ComplianceService {
 
     const [data, total] = await qb.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult<ComplianceReport>(data, total, page, limit);
   }
 
   /**

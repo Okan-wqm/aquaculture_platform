@@ -27,6 +27,10 @@ import {
   ACTIVITY_LOG_SORT_FIELDS,
   ActivityLogSortField,
 } from '../sorting/activity-log-sort';
+import {
+  createStandardPaginatedResult,
+  type PaginationResultV1,
+} from '@platform/pagination-contracts';
 
 // ============================================================================
 // Interfaces
@@ -608,12 +612,7 @@ export class ActivityLoggingService implements OnModuleInit {
   /**
    * Query activities with filters
    */
-  async queryActivities(options: ActivityQueryOptions): Promise<{
-    data: ActivityLog[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  async queryActivities(options: ActivityQueryOptions): Promise<PaginationResultV1<ActivityLog>> {
     const {
       page = 1,
       limit = 50,
@@ -672,7 +671,7 @@ export class ActivityLoggingService implements OnModuleInit {
 
     const [data, total] = await qb.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult<ActivityLog>(data, total, page, limit);
   }
 
   /**

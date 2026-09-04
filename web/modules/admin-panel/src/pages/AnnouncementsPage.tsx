@@ -54,7 +54,7 @@ interface AnnouncementStats {
 // ============================================================================
 
 export const AnnouncementsPage: React.FC = () => {
-  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [announcements, setAnnouncements] = useState<readonly Announcement[]>([]);
   const [stats, setStats] = useState<AnnouncementStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

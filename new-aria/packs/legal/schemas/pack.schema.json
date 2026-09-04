@@ -1,0 +1,474 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aria://packs/legal/schemas/pack.schema.json",
+  "title": "AriaPackManifest",
+  "description": "Pack manifest (aria/pack/v1). Data the kernel reads; pack code is never imported into the kernel.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "id",
+    "name",
+    "version",
+    "description",
+    "corpus_source",
+    "contract",
+    "schemas_dir",
+    "record_kinds",
+    "link_kinds",
+    "statement_statuses",
+    "assertion_sources",
+    "extraction_statuses",
+    "claim_types",
+    "evidence_source_types",
+    "adapters",
+    "agents",
+    "artifacts",
+    "fixtures",
+    "human_review",
+    "non_goals",
+    "invariants"
+  ],
+  "properties": {
+    "$schema": {
+      "const": "aria/pack/v1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "corpus_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "root_input_field",
+        "exclude_roots_input_field"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "document_archive",
+            "git_repository"
+          ]
+        },
+        "root_input_field": {
+          "type": "string",
+          "minLength": 1
+        },
+        "exclude_roots_input_field": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "contract": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[^\\\\]+$"
+    },
+    "schemas_dir": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[^\\\\]+$"
+    },
+    "record_kinds": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "CASE",
+          "PARTY",
+          "ROLE",
+          "DOCUMENT",
+          "DOCUMENT_VERSION",
+          "COMMUNICATION",
+          "EVENT",
+          "CLAIM",
+          "COUNTERCLAIM",
+          "EVIDENCE",
+          "PROCEDURAL_STEP",
+          "DEADLINE",
+          "DECISION",
+          "FINANCIAL_LOSS",
+          "ACCESS_PERMISSION"
+        ]
+      }
+    },
+    "link_kinds": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "SUPPORTS",
+          "CONTRADICTS",
+          "SUPERSEDES",
+          "WAS_RECEIVED_BY",
+          "WAS_SENT_BY",
+          "CAUSED",
+          "REFERS_TO",
+          "REQUIRES",
+          "PARTY_IN",
+          "VERSION_OF"
+        ]
+      }
+    },
+    "statement_statuses": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "asserted",
+          "disputed",
+          "supported",
+          "contradicted",
+          "unverifiable",
+          "verified"
+        ]
+      }
+    },
+    "assertion_sources": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "party",
+          "court",
+          "counsel",
+          "third_party",
+          "ai_inference",
+          "operator"
+        ]
+      }
+    },
+    "extraction_statuses": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "text",
+          "metadata_only",
+          "unreadable",
+          "excluded"
+        ]
+      }
+    },
+    "claim_types": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "document_version_conflict",
+          "date_contradiction",
+          "amount_contradiction",
+          "missing_evidence",
+          "unreadable_document",
+          "party_identity_ambiguity"
+        ]
+      }
+    },
+    "evidence_source_types": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "document_reference",
+          "correspondence",
+          "court_record",
+          "filing_receipt",
+          "metadata"
+        ]
+      }
+    },
+    "adapters": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tool_id",
+          "manifest",
+          "entry",
+          "status",
+          "claim_types"
+        ],
+        "properties": {
+          "tool_id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "manifest": {
+            "type": "string",
+            "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[^\\\\]+$"
+          },
+          "entry": {
+            "type": "string",
+            "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[^\\\\]+$"
+          },
+          "status": {
+            "enum": [
+              "SANDBOX",
+              "SHADOW",
+              "ACTIVE",
+              "CALIBRATE"
+            ]
+          },
+          "claim_types": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "document_version_conflict",
+                "date_contradiction",
+                "amount_contradiction",
+                "missing_evidence",
+                "unreadable_document",
+                "party_identity_ambiguity"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "agents": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "path",
+          "role",
+          "may_emit_claim_types",
+          "writes_records"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^aria-legal-[a-z-]+$"
+          },
+          "path": {
+            "type": "string",
+            "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[^\\\\]+$"
+          },
+          "role": {
+            "type": "string",
+            "pattern": "^legal_[a-z_]+$"
+          },
+          "may_emit_claim_types": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "document_version_conflict",
+                "date_contradiction",
+                "amount_contradiction",
+                "missing_evidence",
+                "unreadable_document",
+                "party_identity_ambiguity"
+              ]
+            }
+          },
+          "writes_records": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "statement",
+                "timeline-event",
+                "link",
+                "party"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "root",
+        "per_case_directory",
+        "files",
+        "schemas"
+      ],
+      "properties": {
+        "root": {
+          "const": "packs/legal/cases"
+        },
+        "per_case_directory": {
+          "const": "<caseId>"
+        },
+        "files": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "case",
+            "documents",
+            "versions",
+            "parties",
+            "timeline",
+            "statements",
+            "links",
+            "coverage"
+          ],
+          "properties": {
+            "case": {
+              "const": "case.json"
+            },
+            "documents": {
+              "const": "documents.json"
+            },
+            "versions": {
+              "const": "versions.json"
+            },
+            "parties": {
+              "const": "parties.json"
+            },
+            "timeline": {
+              "const": "timeline.json"
+            },
+            "statements": {
+              "const": "statements.json"
+            },
+            "links": {
+              "const": "links.json"
+            },
+            "coverage": {
+              "const": "coverage.json"
+            }
+          }
+        },
+        "schemas": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "case",
+            "documents",
+            "versions",
+            "parties",
+            "timeline",
+            "statements",
+            "links",
+            "coverage"
+          ],
+          "properties": {
+            "case": {
+              "type": "string",
+              "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[^\\\\]+$"
+            },
+            "documents": {
+              "type": "string",
+              "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[^\\\\]+$"
+            },
+            "versions": {
+              "type": "string",
+              "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[^\\\\]+$"
+            },
+            "parties": {
+              "type": "string",
+              "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[^\\\\]+$"
+            },
+            "timeline": {
+              "type": "string",
+              "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[^\\\\]+$"
+            },
+            "statements": {
+              "type": "string",
+              "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[^\\\\]+$"
+            },
+            "links": {
+              "type": "string",
+              "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[^\\\\]+$"
+            },
+            "coverage": {
+              "type": "string",
+              "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[^\\\\]+$"
+            }
+          }
+        }
+      }
+    },
+    "fixtures": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "archive",
+        "expected",
+        "cases"
+      ],
+      "properties": {
+        "archive": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[^\\\\]+$"
+        },
+        "expected": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[^\\\\]+$"
+        },
+        "cases": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[^\\\\]+$"
+        }
+      }
+    },
+    "human_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ai_records_flagged",
+        "verified_earned_by",
+        "same_name_merge"
+      ],
+      "properties": {
+        "ai_records_flagged": {
+          "const": true
+        },
+        "verified_earned_by": {
+          "const": "human"
+        },
+        "same_name_merge": {
+          "const": "never_automatic"
+        }
+      }
+    },
+    "non_goals": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "invariants": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}

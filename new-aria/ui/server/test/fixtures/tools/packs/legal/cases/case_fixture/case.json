@@ -1,0 +1,13 @@
+{
+  "caseId": "case_fixture",
+  "title": "Fikstür davası",
+  "jurisdiction": null,
+  "courtReference": null,
+  "archiveRoot": "packs/legal/fixtures/case-synthetic",
+  "createdAt": "2026-09-03T20:53:46.227Z",
+  "snapshotSha256": "a3d8ab0c42670a5809d97410a39a591477dffdd52ba5156019ae853f72e36dc5",
+  "adapterId": "legal-document-inventory",
+  "adapterVersion": "0.1.0",
+  "runId": null,
+  "cycleId": null
+}

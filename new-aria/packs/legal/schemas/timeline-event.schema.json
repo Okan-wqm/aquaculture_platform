@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aria://packs/legal/schemas/timeline-event.schema.json",
+  "title": "LegalTimelineEvent",
+  "description": "A dated event. occurredAt (when it happened) and learnedAt (when a party learned of it) are separate and never conflated. Every event carries evidence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "eventId",
+    "kind",
+    "occurredAt",
+    "learnedAt",
+    "datePrecision",
+    "summary",
+    "evidence",
+    "assertedBy",
+    "confidence",
+    "humanReviewRequired"
+  ],
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "pattern": "^evt_[0-9a-f]{12}$"
+    },
+    "kind": {
+      "enum": [
+        "EVENT",
+        "COMMUNICATION",
+        "PROCEDURAL_STEP",
+        "DEADLINE",
+        "DECISION"
+      ]
+    },
+    "occurredAt": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "learnedAt": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "datePrecision": {
+      "enum": [
+        "day",
+        "month",
+        "year",
+        "unknown"
+      ]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "aria://packs/legal/schemas/evidence-ref.schema.json"
+      }
+    },
+    "assertedBy": {
+      "enum": [
+        "party",
+        "court",
+        "counsel",
+        "third_party",
+        "ai_inference",
+        "operator"
+      ]
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "humanReviewRequired": {
+      "type": "boolean"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "assertedBy": {
+            "const": "ai_inference"
+          }
+        },
+        "required": [
+          "assertedBy"
+        ]
+      },
+      "then": {
+        "properties": {
+          "humanReviewRequired": {
+            "const": true
+          },
+          "confidence": {
+            "maximum": 0.4
+          }
+        }
+      }
+    }
+  ]
+}

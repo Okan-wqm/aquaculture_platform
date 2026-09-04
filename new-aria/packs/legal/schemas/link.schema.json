@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aria://packs/legal/schemas/link.schema.json",
+  "title": "LegalLink",
+  "description": "A typed edge between two records. Every link carries evidence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "linkId",
+    "kind",
+    "from",
+    "to",
+    "evidence",
+    "confidence"
+  ],
+  "properties": {
+    "linkId": {
+      "type": "string",
+      "pattern": "^lnk_[0-9a-f]{12}$"
+    },
+    "kind": {
+      "enum": [
+        "SUPPORTS",
+        "CONTRADICTS",
+        "SUPERSEDES",
+        "WAS_RECEIVED_BY",
+        "WAS_SENT_BY",
+        "CAUSED",
+        "REFERS_TO",
+        "REQUIRES",
+        "PARTY_IN",
+        "VERSION_OF"
+      ]
+    },
+    "from": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "CASE",
+            "PARTY",
+            "ROLE",
+            "DOCUMENT",
+            "DOCUMENT_VERSION",
+            "COMMUNICATION",
+            "EVENT",
+            "CLAIM",
+            "COUNTERCLAIM",
+            "EVIDENCE",
+            "PROCEDURAL_STEP",
+            "DEADLINE",
+            "DECISION",
+            "FINANCIAL_LOSS",
+            "ACCESS_PERMISSION"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "to": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "CASE",
+            "PARTY",
+            "ROLE",
+            "DOCUMENT",
+            "DOCUMENT_VERSION",
+            "COMMUNICATION",
+            "EVENT",
+            "CLAIM",
+            "COUNTERCLAIM",
+            "EVIDENCE",
+            "PROCEDURAL_STEP",
+            "DEADLINE",
+            "DECISION",
+            "FINANCIAL_LOSS",
+            "ACCESS_PERMISSION"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "aria://packs/legal/schemas/evidence-ref.schema.json"
+      }
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    }
+  }
+}

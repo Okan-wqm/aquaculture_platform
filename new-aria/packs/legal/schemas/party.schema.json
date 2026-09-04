@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aria://packs/legal/schemas/party.schema.json",
+  "title": "LegalParty",
+  "description": "A party seen in the archive. One party per distinct address/identity; same-named parties are never merged automatically.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "partyId",
+    "displayName",
+    "kind",
+    "roles",
+    "aliases",
+    "mentions",
+    "evidence",
+    "identityConfidence",
+    "humanReviewRequired"
+  ],
+  "properties": {
+    "partyId": {
+      "type": "string",
+      "pattern": "^party_[0-9a-f]{12}$"
+    },
+    "displayName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "kind": {
+      "enum": [
+        "person",
+        "organization",
+        "court",
+        "authority",
+        "unknown"
+      ]
+    },
+    "roles": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "aliases": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "mentions": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "aria://packs/legal/schemas/evidence-ref.schema.json"
+      }
+    },
+    "identityConfidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "humanReviewRequired": {
+      "type": "boolean"
+    }
+  }
+}

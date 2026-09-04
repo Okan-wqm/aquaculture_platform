@@ -1,0 +1,31 @@
+.kv {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(10rem, max-content) 1fr;
+  gap: var(--space-1) var(--space-4);
+  font-size: var(--fs-sm);
+}
+.kv__row {
+  display: contents;
+}
+.kv__key {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  overflow-wrap: anywhere;
+  padding-top: 2px;
+}
+.kv__value {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.kv__pre {
+  margin: 0;
+  padding: var(--space-2);
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-xs);
+  overflow: auto;
+  max-height: 16rem;
+}

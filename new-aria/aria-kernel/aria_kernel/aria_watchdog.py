@@ -758,7 +758,15 @@ def run_watchdog_sweep(
         "candidates": len(candidates),
         "emitted": emitted,
         "suppressed": suppressed,
-        "latest_governance_ts": latest_governance_ts,
+        # G-7 (new-aria CORE-DELTAS) — this dict is a JSON payload: the cycle
+        # phase stores it in the cycle result that `cli.py` prints with
+        # json.dumps, and a raw datetime here made every full `cycle run`
+        # exit non-zero AFTER the ledgers were written. Every other ledger
+        # timestamp is an ISO-8601 string; this one is too. The daemon loop
+        # below parses it back with _parse_iso where it needs a datetime.
+        "latest_governance_ts": (
+            latest_governance_ts.isoformat() if latest_governance_ts is not None else None
+        ),
         # E24-a — the runtime pull's honest account (additive; the X3
         # digest keys above are unchanged).
         "runtime": runtime,
@@ -823,7 +831,7 @@ def _run_daemon_loop(
                 suppress_emission=aria_stop_path.exists() or interrupt_event.is_set(),
             )
             if sweep["latest_governance_ts"] is not None:
-                last_governance_ts = sweep["latest_governance_ts"]
+                last_governance_ts = _parse_iso(sweep["latest_governance_ts"])
             findings_emitted += sweep["emitted"]
             findings_suppressed += sweep["suppressed"]
 

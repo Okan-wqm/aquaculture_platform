@@ -1,0 +1,13 @@
+{
+  "caseId": "case_synthetic-001",
+  "title": "Synthetic case (fixture)",
+  "jurisdiction": null,
+  "courtReference": null,
+  "archiveRoot": "packs/legal/fixtures/case-synthetic",
+  "createdAt": "2024-04-01T00:00:00Z",
+  "snapshotSha256": "a3d8ab0c42670a5809d97410a39a591477dffdd52ba5156019ae853f72e36dc5",
+  "adapterId": "legal-document-inventory",
+  "adapterVersion": "0.1.0",
+  "runId": null,
+  "cycleId": null
+}

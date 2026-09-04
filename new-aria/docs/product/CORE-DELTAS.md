@@ -1,0 +1,78 @@
+# Çekirdek deltaları (B-2)
+
+`new-aria/aria-kernel/**`, `tools/aria-poc/**`, `tools/aria-adapters/**`,
+`tools/aria-acceptance/**`, `.claude/agents/aria-*`, `docs/aria/**` ve `aria-*`
+iş akışları, monorepo `origin/main` üzerindeki ARIA'nın bayt-eş kopyasıdır.
+Bu dosya, kopya ile kaynak arasındaki **her** farkı satır satır listeler; boşsa
+kopya bayt-eştir. Yeni bir delta eklemek, `NEW-ARIA-URUN-TANIMI.md` §3.1'de bir
+`G-*` satırına bağlanmayı gerektirir.
+
+Kaynak commit: `6810d2d79` (aquaculture `origin/main`, 2026-09-03,
+"chore(aria): Plan 032 Faz 032b–032i").
+
+## Kopyaya girmeyen kaynak dosyaları (bilerek)
+
+| Yol | Neden |
+|---|---|
+| `aria-tools/reports/daily/*.md` | aquaculture ARIA durumunun zincir-ucu çapaları; kopyada kalsalar `state_continuity` yeni store'u "zincir kırık" sayıp cycle'ı iptal ediyor (konteyner sondasında ölçüldü). Referans çapa yokken çekirdek `GAP_GENESIS` ile başlar; kopyanın ilk çapası hedef repoda kendi ilk günlük raporuyla oluşur. Bilinen sonuç: `test_aria_tools_tracked_allowlist` içindeki "kullanılmayan desen" kontrolü ilk çapa yazılana kadar kırmızıdır. |
+| `aria-debts/*.json` | aquaculture'a ait borç kayıtları. |
+| `.github/workflows/{finding-state-sweep,rule-health-report,dataflow-integrity-watchdog}.yml`, `.github/manifests/main-required-status-checks.json`, `docs/runbooks/secret-rotation.md`, `.github/workflows/secret-rotation-reminder.yml`, `.mcp.json` | **kopyaya SONRADAN eklendi** (2. commit): `workflow_contract_registry` bu iki iş akışını ARIA-yönetimli sayar; z1 store-isolation, required-checks parity, v3 preflight ve v12 MCP invariant'ları bunları okur. |
+| `tests/invariants/aria-*.spec.ts` | monorepo Jest kurulumuna bağlı ev-sahibi kontratları; kopyada koşturulamaz. `tests/invariants/agent-pedagogy.allowlist.json` alındı (kernel `pedagogy_lint` okur). |
+| `CLAUDE.md`, `.gitignore` (kök), `tools/quality/format-scope.json`, `docs/reviews/_registry/**`, husky kancaları | monorepo yönetişimi; new-aria kendi `.gitignore`'unu taşır. |
+| `.claude/settings.json`, `.claude/settings.local.json`, `.claude/shared/**`, `infrastructure/nginx/droplet.conf`, `nx.json`, aquaculture `apps/**`/`libs/**` | monorepo'nun Claude Code ayarları, Lane-A inceleme sözleşmesi, nginx ve nx çalışma alanı; kernel testlerinden bunları bekleyenler (v12 DLP/gateway, v4 shared-fragments, `test_project_discovery`, `test_enterprise_cycle` nx-belief'leri, `test_product_fitness_charter` `CI - Affected`) kopyada bilinen kırmızıdır — bkz. "Kernel suite sonucu". |
+
+## Kod deltaları
+
+| Dosya | Delta | G-ID | Monorepo'ya taşındı mı |
+|---|---|---|---|
+| `aria-kernel/aria_kernel/aria_watchdog.py` | `run_watchdog_sweep` sonucundaki `latest_governance_ts` artık ISO-8601 string (diğer defter zaman damgalarıyla aynı); daemon döngüsü `_parse_iso` ile geri çevirir | G-7 | hayır — önerilecek |
+| `aria-kernel/tests/test_watchdog_sweep_json_serializable.py` | yeni regresyon testi: sweep sonucu `json.dumps` ile serileştirilir, string `_parse_iso` ile geri döner | G-7 | hayır — önerilecek |
+
+## Bilinen çekirdek kusurları ve alan sızıntıları
+
+| G-ID | Gözlem | Kanıt |
+|---|---|---|
+| G-8 | `aria-config/product_fitness_charter.json` aquaculture operatör beyanı; misyon tohumu aquaculture servis adlarını arıyor (`service_mission_refused` ×4) | konteyner sondası governance.jsonl |
+| G-9 | çalışma alanında repo-yerel `node_modules/ts-node` yokken 9/9 TS adapter `environment_unavailable` | konteyner sondası runs.jsonl; `scripts/docker/{seed,smoke}.sh` çalışma alanına imajın `node_modules`'ünü bağlar → 8/10 adapter `ok` |
+| G-10 | `event-contracts-adapter` alan kökü yokken crash (`scan root does not exist: libs/event-contracts/src`) | konteyner sondası run-artifacts |
+| G-11 | `agent-harness-security-adapter` bulguları `evidence` dizisi taşımıyor (`ref` var), 25 validator hatası → `evidence_error` | konteyner sondası run-artifacts; monorepo'da da geçerli olması muhtemel |
+| G-12 | `tools/gates/narrative-prompt-lint.ts` düz 2000-token bütçesi kullanırken SSoT olan `aria_kernel/narrative_prompt_validator.py` tier-3 için 3500 kullanıyor; legal ajan prompt'ları (2796–3170 token) kernel validator'ından geçip TS lint'inden düşüyor | legal kası inşası, 2026-09-03; iki uygulama "mantıksal olarak eşdeğer" kalmalıydı |
+| G-13 | `tests/invariants/v12/test_phase_v12_e_ops.py::NotificationsAreAudited` (`'deduped' != 'sent'`) monorepo çalışma ağacında da kırmızı — kopyadan bağımsız, Plan 032 ile gelen mevcut kusur | 2026-09-03 aynı test monorepo worktree'de koşturuldu |
+| G-7 (düzeltildi, yukarıda) | `cycle run` sonucu `datetime` içerdiğinde `cli.py` `_main` içindeki `json.dumps` `TypeError: Object of type datetime is not JSON serializable` ile çöker; defterler yazılmış olsa da CLI çıkışı boş kalır ve süreç sıfır-dışı çıkar | 2026-09-03 konteyner sondası (`scripts/docker/smoke.sh` ile aynı imaj), `cycle-run.stderr.log` |
+
+## Kopyalanan iş akışlarının hedef repoda beklediği ev-sahibi parçaları
+
+`.github/workflows/aria-*.yml` bayt-eş kopyalandı; şu referanslar kopyada yok ve hedef
+repo etkinleştirmeden önce sağlamalıdır (statik tarama, 2026-09-03):
+
+| İş akışı | Referans | Not |
+|---|---|---|
+| `aria-kernel.yml`, `aria-merge-authority.yml`, `aria-operational-proof.yml` | `npm run aria:docs:ssot` | monorepo Jest invariant'ı (`tests/invariants/aria-doc-runtime-ssot.spec.ts`); new-aria `package.json` bu script'i taşımaz |
+| `aria-merge-authority.yml` | `npm run gates:required-status-checks` | monorepo dal koruması kapısı |
+| `aria-daily-report.yml` | `tools/scripts/automation/open-report-pr.sh` | monorepo PR açma yardımcı betiği |
+| `aria-auto-cycle.yml` | `tools/gates/sens-enterprise-validation.ts` | aquaculture edge (sens) kurumsal doğrulaması — ARIA gece hattına sızmış alan bağı (G-8 sınıfı) |
+
+Ayrıca runner etiketi `[self-hosted, linux, claude]`, repository variables
+(`ARIA_STATE_BOOTSTRAP_ACK`, `ARIA_MOCK_KILL_SWITCH`, `ARIA_CONSENSUS_PROMOTION_ACK`) ve
+`aria/state` dalı hedef repoda kurulmalıdır (`docs/runbooks/aria-state-branch-bootstrap.md`).
+
+## Kernel suite sonucu (bağımsız `git init` simülasyonu, 2026-09-03)
+
+Tam koşum (`scripts/ci/aria-suite-run.sh`, unittest bölümü; kutu yükü 11–32 / 4 CPU,
+8 s): **5260 test, 62 fail + 25 error, 17 skip**. Kırmızı 29 modül güncel kopyada (çapasız,
+G-7 düzeltmeli, sonradan eklenen dosyalarla) yeniden koşuldu: **279 test, 24 fail + 2 error**.
+Aradaki 61 kırmızı yük/`job_deadline_reached`/eksik dosya kaynaklıydı ve kapandı.
+
+Kalan 26 kırmızının sınıflandırması:
+
+| Sınıf | Modül / test | Sebep |
+|---|---|---|
+| aquaculture nx çalışma alanı | `test_project_discovery` (13) | `apps/farm-service`, `libs/backend-common`, `sens-api-gateway`… bekler (G-8 sınıfı) |
+| aquaculture adapter kökleri | `test_007c_adapters_integration` (3), `test_event_contracts_adapter_integration`, `test_typeorm_adapter_integration` | alan kökü yok → crash / 0 bulgu (G-10) |
+| monorepo dosyaları | `test_enterprise_cycle::test_output_contract_compat_finding_is_registered` (`docs/reviews/_registry/findings.jsonl`), v12 DLP (`.claude/settings*.json`), v12 gateway (`infrastructure/nginx/droplet.conf`), v4 shared-fragments (`.claude/shared/`), v5 pedagogy (≥80 ajan korpusu) | bilerek kopyalanmadı (yukarıdaki tablo) |
+| aquaculture tüzüğü | `test_product_fitness_charter` (`CI - Affected` iş akışı adı) | G-8 |
+| ana daldaki mevcut kusur | v12 ops `NotificationsAreAudited` | G-13 — monorepo'da da kırmızı |
+| kapandı (2. commit) | v3 preflight `secret_rotation_workflow…` | `secret-rotation-reminder.yml` kopyaya eklendi |
+
+Pytest-yerli bölüm (`-p aria_kernel.pytest_native_only`) unittest kırmızısı yüzünden ilk
+koşumda çalışmadı; hedef repoda `npm run aria:test:unit` her iki bölümü de koşturur.

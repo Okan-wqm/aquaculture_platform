@@ -1,0 +1,72 @@
+{
+  "tool_id": "legal-document-inventory",
+  "kind": "adapter",
+  "version": "0.1.0",
+  "status": "SHADOW",
+  "pack": "legal",
+  "declared_scope": [
+    "packs/legal/fixtures/case-synthetic/**"
+  ],
+  "output_schema": {
+    "type": "object",
+    "required": [
+      "observations",
+      "findings",
+      "read_paths",
+      "evidence_sources",
+      "belief_candidates",
+      "cost_units",
+      "metadata"
+    ]
+  },
+  "fixture_set": "packs/legal/fixtures",
+  "health_thresholds": {
+    "max_cost_units": 20000
+  },
+  "default_input": {
+    "archive_root": "packs/legal/fixtures/case-synthetic",
+    "case_id": "synthetic-001",
+    "title": "Synthetic case (fixture)",
+    "exclude_roots": [
+      "Ikke laste opp"
+    ],
+    "max_text_bytes": 262144,
+    "created_at": "2024-04-01T00:00:00Z"
+  },
+  "allowed_read_globs": [
+    "packs/legal/fixtures/case-synthetic/**"
+  ],
+  "forbidden_read_globs": [
+    ".git/**",
+    "node_modules/**",
+    "aria-tools/**",
+    ".claude/**",
+    "agent-workspace/**",
+    ".aria-poc/**",
+    "dist/**",
+    "coverage/**",
+    "build/**",
+    "tmp/**"
+  ],
+  "claim_types": [
+    "unreadable_document",
+    "document_version_conflict"
+  ],
+  "owner": "packs/legal",
+  "runner": {
+    "type": "subprocess",
+    "argv": [
+      "npx",
+      "ts-node",
+      "--project",
+      "tools/gates/tsconfig.json",
+      "packs/legal/adapters/legal-document-inventory.ts"
+    ],
+    "cwd": ".",
+    "timeout_ms": 300000,
+    "stdin_json": true
+  },
+  "freshness_window_hours": 168,
+  "schema_version": 1,
+  "parse_window_signature": "sha256:f6f5c637dff3e7e783dc576aadd1457a757e29adba67bbb4f2f94e0f1e470919"
+}

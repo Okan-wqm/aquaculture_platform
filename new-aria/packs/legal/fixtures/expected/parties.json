@@ -1,0 +1,72 @@
+[
+  {
+    "partyId": "party_5106f6341ef8",
+    "displayName": "Part B",
+    "kind": "unknown",
+    "roles": [],
+    "aliases": [
+      "Part B",
+      "part.b@example.org"
+    ],
+    "mentions": 2,
+    "evidence": [
+      {
+        "documentId": "doc_3ed75d995ca0922e",
+        "locator": "header:To",
+        "sha256": "ef3e11258cb99536ac741758ad70a78fbfde591c44c917502730ae98cb9f1061"
+      },
+      {
+        "documentId": "doc_608f1333d74135c8",
+        "locator": "header:From",
+        "sha256": "c87f37dde687d070e24d8d41c0a30568ffbafe2ddcf1d5e95316e4d9133fac55"
+      }
+    ],
+    "identityConfidence": 0.5,
+    "humanReviewRequired": true
+  },
+  {
+    "partyId": "party_6afd206c2bd6",
+    "displayName": "Part A AS",
+    "kind": "unknown",
+    "roles": [],
+    "aliases": [
+      "Part A AS",
+      "post@part-a.example"
+    ],
+    "mentions": 2,
+    "evidence": [
+      {
+        "documentId": "doc_3ed75d995ca0922e",
+        "locator": "header:From",
+        "sha256": "ef3e11258cb99536ac741758ad70a78fbfde591c44c917502730ae98cb9f1061"
+      },
+      {
+        "documentId": "doc_608f1333d74135c8",
+        "locator": "header:To",
+        "sha256": "c87f37dde687d070e24d8d41c0a30568ffbafe2ddcf1d5e95316e4d9133fac55"
+      }
+    ],
+    "identityConfidence": 0.5,
+    "humanReviewRequired": true
+  },
+  {
+    "partyId": "party_73582a574c9e",
+    "displayName": "Advokat Eksempel",
+    "kind": "unknown",
+    "roles": [],
+    "aliases": [
+      "Advokat Eksempel",
+      "advokat@example.net"
+    ],
+    "mentions": 1,
+    "evidence": [
+      {
+        "documentId": "doc_3ed75d995ca0922e",
+        "locator": "header:Cc",
+        "sha256": "ef3e11258cb99536ac741758ad70a78fbfde591c44c917502730ae98cb9f1061"
+      }
+    ],
+    "identityConfidence": 0.5,
+    "humanReviewRequired": true
+  }
+]

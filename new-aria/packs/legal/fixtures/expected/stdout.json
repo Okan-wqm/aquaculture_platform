@@ -1,0 +1,225 @@
+{
+  "observations": [
+    {
+      "id": "legal-document-inventory:doc:Ikke laste opp/privat_notat.txt",
+      "type": "legal_document_inventoried",
+      "path": "packs/legal/fixtures/case-synthetic/Ikke laste opp/privat_notat.txt",
+      "details": {
+        "documentId": "doc_e69ec22880787b97",
+        "extraction": "excluded",
+        "kindGuess": "DOCUMENT",
+        "sha256": "",
+        "bytes": 36,
+        "textTruncated": false,
+        "versionGroupId": null
+      }
+    },
+    {
+      "id": "legal-document-inventory:doc:avtale_v1.txt",
+      "type": "legal_document_inventoried",
+      "path": "packs/legal/fixtures/case-synthetic/avtale_v1.txt",
+      "details": {
+        "documentId": "doc_85f73fc2c720f363",
+        "extraction": "text",
+        "kindGuess": "DOCUMENT",
+        "sha256": "42c528a616cd7c9219a12b310ff7e53d183b1b3bad8700945414effbe9f9b618",
+        "bytes": 130,
+        "textTruncated": false,
+        "versionGroupId": "vg_d517012e6195"
+      }
+    },
+    {
+      "id": "legal-document-inventory:doc:avtale_v2_signert.txt",
+      "type": "legal_document_inventoried",
+      "path": "packs/legal/fixtures/case-synthetic/avtale_v2_signert.txt",
+      "details": {
+        "documentId": "doc_f4ee47acddf5586e",
+        "extraction": "text",
+        "kindGuess": "DOCUMENT",
+        "sha256": "faf98c49abfe41439e67deb06a8bc80a4f783af462e5902a10f72e5984eaf4db",
+        "bytes": 159,
+        "textTruncated": false,
+        "versionGroupId": "vg_d517012e6195"
+      }
+    },
+    {
+      "id": "legal-document-inventory:doc:korrespondanse/2024-03-04_part-a_til_part-b.eml",
+      "type": "legal_document_inventoried",
+      "path": "packs/legal/fixtures/case-synthetic/korrespondanse/2024-03-04_part-a_til_part-b.eml",
+      "details": {
+        "documentId": "doc_3ed75d995ca0922e",
+        "extraction": "text",
+        "kindGuess": "COMMUNICATION",
+        "sha256": "ef3e11258cb99536ac741758ad70a78fbfde591c44c917502730ae98cb9f1061",
+        "bytes": 450,
+        "textTruncated": false,
+        "versionGroupId": null
+      }
+    },
+    {
+      "id": "legal-document-inventory:doc:korrespondanse/2024-03-12_part-b_til_part-a.eml",
+      "type": "legal_document_inventoried",
+      "path": "packs/legal/fixtures/case-synthetic/korrespondanse/2024-03-12_part-b_til_part-a.eml",
+      "details": {
+        "documentId": "doc_608f1333d74135c8",
+        "extraction": "text",
+        "kindGuess": "COMMUNICATION",
+        "sha256": "c87f37dde687d070e24d8d41c0a30568ffbafe2ddcf1d5e95316e4d9133fac55",
+        "bytes": 438,
+        "textTruncated": false,
+        "versionGroupId": null
+      }
+    },
+    {
+      "id": "legal-document-inventory:doc:kronologi.txt",
+      "type": "legal_document_inventoried",
+      "path": "packs/legal/fixtures/case-synthetic/kronologi.txt",
+      "details": {
+        "documentId": "doc_c9eebbb50c992990",
+        "extraction": "text",
+        "kindGuess": "DOCUMENT",
+        "sha256": "6e5ef00a1637223634103f8a6d15f8938f42fef3312e308b45429817e369c1ad",
+        "bytes": 282,
+        "textTruncated": false,
+        "versionGroupId": null
+      }
+    },
+    {
+      "id": "legal-document-inventory:doc:notat.md",
+      "type": "legal_document_inventoried",
+      "path": "packs/legal/fixtures/case-synthetic/notat.md",
+      "details": {
+        "documentId": "doc_02f9abbb83c5f543",
+        "extraction": "text",
+        "kindGuess": "DOCUMENT",
+        "sha256": "b2c55428ad23c2b7ae9dd9cf5525d0728f7a90180ef91a2a6d587de7c9ad3caa",
+        "bytes": 161,
+        "textTruncated": false,
+        "versionGroupId": null
+      }
+    },
+    {
+      "id": "legal-document-inventory:doc:vedlegg/faktura_2024-001.pdf",
+      "type": "legal_document_inventoried",
+      "path": "packs/legal/fixtures/case-synthetic/vedlegg/faktura_2024-001.pdf",
+      "details": {
+        "documentId": "doc_8c2b8465e178dcca",
+        "extraction": "metadata_only",
+        "kindGuess": "FINANCIAL_LOSS",
+        "sha256": "f7361fa45a83fad02bd6ede58a6563152b85ca9e0412bbef91973059f46e3634",
+        "bytes": 528,
+        "textTruncated": false,
+        "versionGroupId": null
+      }
+    },
+    {
+      "id": "legal-document-inventory:doc:vedlegg/klage_utkast.docx",
+      "type": "legal_document_inventoried",
+      "path": "packs/legal/fixtures/case-synthetic/vedlegg/klage_utkast.docx",
+      "details": {
+        "documentId": "doc_120386fefe10fbb2",
+        "extraction": "metadata_only",
+        "kindGuess": "PROCEDURAL_STEP",
+        "sha256": "4a96acc30188aa3178f8c1a64e4309be8851521b6a663bb3dcf088a38c5435e0",
+        "bytes": 260,
+        "textTruncated": false,
+        "versionGroupId": null
+      }
+    }
+  ],
+  "findings": [
+    {
+      "id": "legal-document-inventory:unreadable:vedlegg/faktura_2024-001.pdf",
+      "rule": "unreadable_document",
+      "severity": "medium",
+      "path": "packs/legal/fixtures/case-synthetic/vedlegg/faktura_2024-001.pdf",
+      "message": "`vedlegg/faktura_2024-001.pdf` has no extracted text (no_text_extraction_for_extension:.pdf); it is inventoried as metadata_only and is a coverage gap until a human supplies its content.",
+      "evidence": [
+        {
+          "path": "packs/legal/fixtures/case-synthetic/vedlegg/faktura_2024-001.pdf"
+        }
+      ],
+      "confidence": 0.95
+    },
+    {
+      "id": "legal-document-inventory:unreadable:vedlegg/klage_utkast.docx",
+      "rule": "unreadable_document",
+      "severity": "medium",
+      "path": "packs/legal/fixtures/case-synthetic/vedlegg/klage_utkast.docx",
+      "message": "`vedlegg/klage_utkast.docx` has no extracted text (no_text_extraction_for_extension:.docx); it is inventoried as metadata_only and is a coverage gap until a human supplies its content.",
+      "evidence": [
+        {
+          "path": "packs/legal/fixtures/case-synthetic/vedlegg/klage_utkast.docx"
+        }
+      ],
+      "confidence": 0.95
+    },
+    {
+      "id": "legal-document-inventory:version-group:vg_d517012e6195",
+      "rule": "document_version_conflict",
+      "severity": "low",
+      "path": "packs/legal/fixtures/case-synthetic/avtale_v1.txt",
+      "message": "2 files share a version lineage (`avtale_v1.txt`, `avtale_v2_signert.txt`); which one is authoritative requires human review.",
+      "evidence": [
+        {
+          "path": "packs/legal/fixtures/case-synthetic/avtale_v1.txt"
+        },
+        {
+          "path": "packs/legal/fixtures/case-synthetic/avtale_v2_signert.txt"
+        }
+      ],
+      "confidence": 0.5
+    }
+  ],
+  "read_paths": [
+    "packs/legal/fixtures/case-synthetic/avtale_v1.txt",
+    "packs/legal/fixtures/case-synthetic/avtale_v2_signert.txt",
+    "packs/legal/fixtures/case-synthetic/korrespondanse/2024-03-04_part-a_til_part-b.eml",
+    "packs/legal/fixtures/case-synthetic/korrespondanse/2024-03-12_part-b_til_part-a.eml",
+    "packs/legal/fixtures/case-synthetic/kronologi.txt",
+    "packs/legal/fixtures/case-synthetic/notat.md",
+    "packs/legal/fixtures/case-synthetic/vedlegg/faktura_2024-001.pdf",
+    "packs/legal/fixtures/case-synthetic/vedlegg/klage_utkast.docx"
+  ],
+  "evidence_sources": [
+    "packs/legal/fixtures/case-synthetic/avtale_v1.txt",
+    "packs/legal/fixtures/case-synthetic/avtale_v2_signert.txt",
+    "packs/legal/fixtures/case-synthetic/korrespondanse/2024-03-04_part-a_til_part-b.eml",
+    "packs/legal/fixtures/case-synthetic/korrespondanse/2024-03-12_part-b_til_part-a.eml",
+    "packs/legal/fixtures/case-synthetic/kronologi.txt",
+    "packs/legal/fixtures/case-synthetic/notat.md",
+    "packs/legal/fixtures/case-synthetic/vedlegg/faktura_2024-001.pdf",
+    "packs/legal/fixtures/case-synthetic/vedlegg/klage_utkast.docx"
+  ],
+  "belief_candidates": [],
+  "cost_units": 9,
+  "metadata": {
+    "case_id": "case_synthetic-001",
+    "out_dir": "<out_dir>",
+    "archive_root": "packs/legal/fixtures/case-synthetic",
+    "adapter_version": "0.1.0",
+    "status": "ok",
+    "artifact_dir": "<artifact_dir>",
+    "exclude_roots_declared": [
+      "Ikke laste opp"
+    ],
+    "exclude_roots_not_found": [],
+    "coverage": {
+      "totalFiles": 9,
+      "byExtraction": {
+        "text": 6,
+        "metadata_only": 2,
+        "unreadable": 0,
+        "excluded": 1
+      },
+      "excludedRoots": [
+        "Ikke laste opp"
+      ],
+      "unreadable": 2,
+      "complete": true
+    },
+    "version_groups": 1,
+    "parties": 3,
+    "timeline_events": 8
+  }
+}

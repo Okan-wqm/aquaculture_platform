@@ -1,0 +1,225 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aria://packs/legal/schemas/document.schema.json",
+  "title": "LegalDocument",
+  "description": "One file in the archive with its fate. sha256 is the content hash for text/metadata_only fates and the empty string when the bytes were never read (unreadable/excluded).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "documentId",
+    "caseId",
+    "relativePath",
+    "fileName",
+    "extension",
+    "mediaType",
+    "bytes",
+    "sha256",
+    "modifiedAt",
+    "kindGuess",
+    "kindConfidence",
+    "extraction",
+    "excerpt",
+    "datesMentioned",
+    "amountsMentioned",
+    "versionGroupId",
+    "excludedReason"
+  ],
+  "properties": {
+    "documentId": {
+      "type": "string",
+      "pattern": "^doc_[0-9a-f]{16}$"
+    },
+    "caseId": {
+      "type": "string",
+      "pattern": "^case_[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$)).*$"
+    },
+    "fileName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "extension": {
+      "type": "string",
+      "pattern": "^(\\.[a-z0-9]+)?$"
+    },
+    "mediaType": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "bytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^([0-9a-f]{64})?$"
+    },
+    "modifiedAt": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "kindGuess": {
+      "enum": [
+        "CASE",
+        "PARTY",
+        "ROLE",
+        "DOCUMENT",
+        "DOCUMENT_VERSION",
+        "COMMUNICATION",
+        "EVENT",
+        "CLAIM",
+        "COUNTERCLAIM",
+        "EVIDENCE",
+        "PROCEDURAL_STEP",
+        "DEADLINE",
+        "DECISION",
+        "FINANCIAL_LOSS",
+        "ACCESS_PERMISSION",
+        "UNKNOWN"
+      ]
+    },
+    "kindConfidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "extraction": {
+      "enum": [
+        "text",
+        "metadata_only",
+        "unreadable",
+        "excluded"
+      ]
+    },
+    "excerpt": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "datesMentioned": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+      }
+    },
+    "amountsMentioned": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "versionGroupId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^vg_[0-9a-f]{12}$"
+    },
+    "excludedReason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "extraction": {
+            "enum": [
+              "text",
+              "metadata_only"
+            ]
+          }
+        },
+        "required": [
+          "extraction"
+        ]
+      },
+      "then": {
+        "properties": {
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "excludedReason": {
+            "const": null
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "sha256": {
+            "const": ""
+          },
+          "excerpt": {
+            "const": null
+          },
+          "datesMentioned": {
+            "maxItems": 0
+          },
+          "amountsMentioned": {
+            "maxItems": 0
+          },
+          "versionGroupId": {
+            "const": null
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "extraction": {
+            "const": "excluded"
+          }
+        },
+        "required": [
+          "extraction"
+        ]
+      },
+      "then": {
+        "properties": {
+          "excludedReason": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "extraction": {
+            "const": "unreadable"
+          }
+        },
+        "required": [
+          "extraction"
+        ]
+      },
+      "then": {
+        "properties": {
+          "excludedReason": {
+            "const": null
+          }
+        }
+      }
+    }
+  ]
+}

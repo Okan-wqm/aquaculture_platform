@@ -1,0 +1,268 @@
+name: Rule Health Report
+
+# =============================================================================
+# Phase 7 of docs/plans/2026-04-17-agentic-post-audit-consolidation-plan.md.
+#
+# Monthly cron that aggregates control-plane health metrics into a
+# structured report, opened as a PR for CODEOWNERS review:
+#
+#   1. Finding registry state — OPEN / IN-PROGRESS / RESOLVED / STALE /
+#      BLOCKED counts by severity + by owner_agent + age buckets.
+#   2. Override count — allowlist entries by boundary-file + tier-4
+#      override inline-comment count per _shared/tier-claim-syntax.md.
+#   3. Agent dispatch frequency — top-N most-dispatched + least-
+#      dispatched agents across the review cycles of the month (reads
+#      docs/reviews/orchestrator/*.md headers). [Phase 12 deepens this
+#      with Prometheus `agent_dispatch_total` metric once the registry
+#      moves to PG + leader election runs on K8s.]
+#   4. Rule firing rate — gate failure frequency over the month
+#      (counted from closes-footer-check + quality-gates workflow runs
+#      that were failed-and-retried). [Phase 12 deepens via
+#      `agent_finding_issued_total` + per-gate Prometheus counters.]
+#
+# This workflow is SKELETON-STATE as of 2026-04-17: items (3) and (4)
+# compute what's readable from repo state alone (PR history + orchestrator
+# review-file headers). Full Prometheus-backed numbers arrive when
+# Phase 12 K8s readiness lands.
+# =============================================================================
+
+on:
+  schedule:
+    - cron: '0 6 1 * *'   # 06:00 UTC on the 1st of every month
+  workflow_dispatch:
+    inputs:
+      month_offset:
+        description: 'Months to look back (default 1 = previous calendar month)'
+        default: '1'
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # SEC-CI-002: pinned SHAs per infra-expert rule.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-aria-kernel
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit
+
+      - name: Compute report window
+        id: window
+        env:
+          MONTH_OFFSET: ${{ github.event.inputs.month_offset || '1' }}
+        run: |
+          set -euo pipefail
+          OFFSET="${MONTH_OFFSET}"
+          if ! [[ "$OFFSET" =~ ^[0-9]{1,2}$ ]]; then
+            echo "::error::month_offset must be a one- or two-digit positive integer: $OFFSET" >&2
+            exit 1
+          fi
+          if [ "$OFFSET" -lt 1 ] || [ "$OFFSET" -gt 24 ]; then
+            echo "::error::month_offset must be between 1 and 24: $OFFSET" >&2
+            exit 1
+          fi
+          START=$(date -u -d "$OFFSET months ago" +%Y-%m-01)
+          # End = start-of-this-month (exclusive upper bound).
+          END=$(date -u -d "$OFFSET months ago + 1 month" +%Y-%m-01)
+          STAMP=$(date -u +%Y-%m-%d)
+          echo "start=$START" >> "$GITHUB_OUTPUT"
+          echo "end=$END" >> "$GITHUB_OUTPUT"
+          echo "stamp=$STAMP" >> "$GITHUB_OUTPUT"
+          echo "month_label=$(date -u -d "$OFFSET months ago" +%Y-%m)" >> "$GITHUB_OUTPUT"
+          echo "Reporting window: $START (inclusive) to $END (exclusive)"
+
+      - name: Persist enterprise workflow preflight
+        env:
+          REPORT_STAMP: ${{ steps.window.outputs.stamp }}
+          MONTH_LABEL: ${{ steps.window.outputs.month_label }}
+          PYTHONPATH: aria-kernel
+        run: |
+          set -euo pipefail
+          REPORT="docs/reviews/rule-health/${REPORT_STAMP}-rule-health-${MONTH_LABEL}.md"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          from aria_kernel.preflight import verify_workflow_preflight
+
+          report = f"docs/reviews/rule-health/{os.environ['REPORT_STAMP']}-rule-health-{os.environ['MONTH_LABEL']}.md"
+          verdict = verify_workflow_preflight(
+              workflow_id="rule-health-report",
+              job_id="generate",
+              profile="standard",
+              workspace_root=os.environ["GITHUB_WORKSPACE"],
+              allowed_write_roots=[report],
+              path_allowlist=[report],
+              network_policy=["github_api"],
+              network_enforcement_evidence="GitHub App PR API via automation/open-report-pr.sh",
+              token_provenance="github_app:installation",
+              dlp_mode="fail_closed",
+              dlp_scan_clean=True,
+              audit_reason="publish monthly rule-health report through automation PR",
+              audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "rule-health-report-preflight.json",
+              external_root_allowlist=[str(Path(os.environ["RUNNER_TEMP"]).resolve())],
+          )
+          if not verdict.valid:
+              raise SystemExit(";".join(verdict.reasons))
+          PY
+
+      - name: Generate report
+        id: generate
+        run: |
+          set -euo pipefail
+          REPORT_DIR="docs/reviews/rule-health"
+          mkdir -p "$REPORT_DIR"
+          REPORT="$REPORT_DIR/${{ steps.window.outputs.stamp }}-rule-health-${{ steps.window.outputs.month_label }}.md"
+          echo "path=$REPORT" >> "$GITHUB_OUTPUT"
+
+          {
+            # The docs gate lints whole changed files; this report embeds raw
+            # registry titles and CLI output whose line lengths the generator
+            # does not control. Same decision, same rationale as
+            # docs/reviews/orphan-findings.md: a machine-written evidence
+            # artifact carries a targeted disable instead of mangling its
+            # payload to fit a prose rule. (August 2026: the first generated
+            # report failed docs-check on MD013/MD040 and blocked its own PR.)
+            echo "<!-- markdownlint-disable MD013 MD040 -->"
+            echo "# Rule Health Report — ${{ steps.window.outputs.month_label }}"
+            echo ""
+            echo "**Generated**: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "**Window**: ${{ steps.window.outputs.start }} (inclusive) to ${{ steps.window.outputs.end }} (exclusive)"
+            echo "**Status**: skeleton (Phase 7 deliverable; Phase 12 deepens Prometheus-backed sections)"
+            echo ""
+            echo "## 1. Finding registry state"
+            echo ""
+            # Run finding-registry export to CSV, then aggregate.
+            npx ts-node --project tools/gates/tsconfig.json \
+              tools/gates/finding-registry.ts export csv > /tmp/registry.csv
+            echo "| Severity | OPEN | IN-PROGRESS | RESOLVED | STALE | BLOCKED | Total |"
+            echo "|---|---|---|---|---|---|---|"
+            for sev in CRITICAL HIGH MEDIUM LOW; do
+              total=$(awk -F',' -v s="$sev" 'NR>1 && $2==s {c++} END {print c+0}' /tmp/registry.csv)
+              open=$(awk -F',' -v s="$sev" 'NR>1 && $2==s && $3=="OPEN" {c++} END {print c+0}' /tmp/registry.csv)
+              inp=$(awk -F',' -v s="$sev" 'NR>1 && $2==s && $3=="IN-PROGRESS" {c++} END {print c+0}' /tmp/registry.csv)
+              res=$(awk -F',' -v s="$sev" 'NR>1 && $2==s && $3=="RESOLVED" {c++} END {print c+0}' /tmp/registry.csv)
+              stale=$(awk -F',' -v s="$sev" 'NR>1 && $2==s && $3=="STALE" {c++} END {print c+0}' /tmp/registry.csv)
+              blk=$(awk -F',' -v s="$sev" 'NR>1 && $2==s && $3=="BLOCKED" {c++} END {print c+0}' /tmp/registry.csv)
+              echo "| $sev | $open | $inp | $res | $stale | $blk | $total |"
+            done
+            echo ""
+
+            echo "### By owner_agent (top 10 by open + in-progress + stale count)"
+            echo ""
+            echo '```'
+            # Aggregate by owner agent from full jsonl (more fields than csv export).
+            REGISTRY=docs/reviews/_registry/findings.jsonl
+            node -e "
+              const fs = require('fs');
+              const lines = fs.readFileSync('$REGISTRY', 'utf8').trim().split('\n');
+              const byOwner = {};
+              for (const l of lines) {
+                const e = JSON.parse(l);
+                if (e.state === 'RESOLVED') continue;
+                byOwner[e.owner_agent] = (byOwner[e.owner_agent] ?? 0) + 1;
+              }
+              const rows = Object.entries(byOwner).sort((a,b) => b[1]-a[1]).slice(0,10);
+              for (const [n,c] of rows) console.log(n.padEnd(40), c);
+            "
+            echo '```'
+            echo ""
+
+            echo "## 2. Override count"
+            echo ""
+            BOUNDARY=.claude/allowlists/boundary-files.yaml
+            if [ -f "$BOUNDARY" ]; then
+              ENTRIES=$(grep -c '^\s*-\s*path:' "$BOUNDARY" || echo 0)
+              echo "- Boundary file allowlist entries (\`.claude/allowlists/boundary-files.yaml\`): **$ENTRIES**"
+            else
+              echo "- Boundary file allowlist: not found."
+            fi
+
+            # Inline tier-4 overrides (// auditor-override: ... pattern)
+            OVERRIDE_COUNT=$(grep -rE "// auditor-override:" \
+              --include="*.ts" --include="*.tsx" \
+              apps/ libs/ web/ platform/ 2>/dev/null | wc -l || echo 0)
+            echo "- Inline \`// auditor-override:\` comments in source: **$OVERRIDE_COUNT**"
+            echo ""
+
+            echo "## 3. Agent dispatch frequency (this month)"
+            echo ""
+            ORCHESTRATOR_DIR=docs/reviews/orchestrator
+            if [ -d "$ORCHESTRATOR_DIR" ]; then
+              COUNT=$(find "$ORCHESTRATOR_DIR" -name "${{ steps.window.outputs.month_label }}-*.md" | wc -l)
+              echo "- Orchestrator unified reports in window: **$COUNT**"
+              echo ""
+              echo '_Deep agent-dispatch metrics (agent_dispatch_total Prometheus counter) deferred to Phase 12; this skeleton reports the review-file count as a proxy._'
+            else
+              echo "- No orchestrator reports directory found."
+            fi
+            echo ""
+
+            echo "## 4. Rule firing rate (this month)"
+            echo ""
+            echo '_Rule-firing rate requires the Phase-12 Prometheus metric_ `agent_finding_issued_total` _by rule-ID label, with at least a month of live production traffic. This skeleton is in place; metric aggregation lands when Phase 12 ships._'
+            echo ""
+
+            echo "## Signals"
+            echo ""
+            echo "- Any row in §1 with STALE > 0 requires orchestrator re-dispatch in the next cycle (see context-manager Finding State Tracking rules)."
+            echo "- Override count growth month-over-month > 20% is a MEDIUM rule-health finding — too much override surface typically means an agent invariant needs refinement, not more exceptions."
+            echo "- Registry total growth + closure rate ratio < 1 (findings raised faster than closed) is a CAPACITY signal for next month's planning."
+            echo ""
+
+            echo "---"
+            echo "_Generated by_ \`.github/workflows/rule-health-report.yml\` _— Phase 7 skeleton_"
+          } > "$REPORT"
+
+          echo "Report generated at $REPORT"
+          head -50 "$REPORT"
+
+      - name: Open or update report PR
+        env:
+          GH_TOKEN: ${{ secrets.ARIA_GITHUB_APP_TOKEN || github.token }}
+          PR_TOKEN_SOURCE: ${{ secrets.ARIA_GITHUB_APP_TOKEN && 'aria-github-app' || 'actions-default' }}
+          REPORT_PATH: ${{ steps.generate.outputs.path }}
+        run: |
+          set -euo pipefail
+          BODY_FILE="$RUNNER_TEMP/rule-health-pr-body.md"
+          cat > "$BODY_FILE" <<EOF
+          Monthly rule-health aggregate for **${{ steps.window.outputs.month_label }}**.
+
+          Covers: finding-registry state by severity + owner, override count,
+          agent dispatch frequency, and rule-firing rate skeleton data.
+
+          Generated report: `${REPORT_PATH}`.
+
+          CODEOWNERS review is required before merge.
+          EOF
+
+          export PR_BRANCH="automation/rule-health-${{ steps.window.outputs.month_label }}"
+          export PR_TITLE="chore(report): monthly rule-health report - ${{ steps.window.outputs.month_label }}"
+          export PR_BODY_FILE="$BODY_FILE"
+          export COMMIT_MESSAGE="chore(report): rule-health ${{ steps.window.outputs.month_label }}"
+          export CHANGED_PATHS="$REPORT_PATH"
+          bash tools/scripts/automation/open-report-pr.sh
+
+      # ADR-036 — upload the enterprise-preflight audit proof so the generate
+      # job's governed-write decision is retained as CI evidence.
+      - name: Upload rule-health preflight proof
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rule-health-report-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rule-health-report-preflight.json
+          if-no-files-found: error
+          retention-days: 365

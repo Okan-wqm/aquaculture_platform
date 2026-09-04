@@ -1,0 +1,214 @@
+name: Finding State Sweep
+
+# =============================================================================
+# Phase 6 deliverable per
+# docs/plans/2026-04-17-agentic-post-audit-consolidation-plan.md#Phase-6.
+#
+# Daily cron that runs tools/gates/finding-registry.ts sweep:
+#   - OPEN / IN-PROGRESS finding older than 30 days → STALE.
+#   - Any non-RESOLVED finding with `deadline` < today → BLOCKED (stronger
+#     signal, applied before the staleness check).
+#
+# Why a PR, not a direct push:
+#   Auto-commits to main are a tampering surface. The sweep opens a PR that
+#   CODEOWNERS review before merge — the state transitions are visible and
+#   the hash-chain recomputation is deterministic, so the review is fast.
+#
+# Why daily (not hourly / weekly):
+#   30-day staleness drifts slowly; daily granularity catches it within
+#   1 day of the threshold without spamming the registry with identical
+#   no-op runs.
+# =============================================================================
+
+on:
+  schedule:
+    - cron: '0 7 * * *'   # 07:00 UTC daily (08:00 / 09:00 Oslo depending on DST)
+  workflow_dispatch:
+    inputs:
+      stale_after:
+        description: 'Days before OPEN → STALE (default 30)'
+        default: '30'
+        required: false
+      dry_run:
+        description: 'If true, print the sweep plan without mutating'
+        default: 'false'
+        required: false
+
+permissions:
+  contents: write        # open a PR with registry mutations
+  pull-requests: write
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # SEC-CI-002: pinned SHA per infra-expert rule.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-aria-kernel
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '22'
+
+      - name: Install dependencies (ts-node only)
+        # Dependency resolution must be peer-clean; do not hide package graph
+        # conflicts in reporting jobs.
+        run: npm ci --ignore-scripts --no-audit --prefer-offline
+
+      - name: Compute sweep plan (dry run)
+        id: plan
+        env:
+          STALE_AFTER_INPUT: ${{ github.event.inputs.stale_after || '30' }}
+          DRY_RUN_INPUT: ${{ github.event.inputs.dry_run || 'false' }}
+        run: |
+          set -euo pipefail
+          STALE_AFTER="${STALE_AFTER_INPUT}"
+          DRY_RUN="${DRY_RUN_INPUT}"
+          if ! [[ "$STALE_AFTER" =~ ^[0-9]{1,3}$ ]]; then
+            echo "::error::stale_after must be a positive integer day count: $STALE_AFTER" >&2
+            exit 1
+          fi
+          if [ "$STALE_AFTER" -lt 1 ] || [ "$STALE_AFTER" -gt 365 ]; then
+            echo "::error::stale_after must be between 1 and 365: $STALE_AFTER" >&2
+            exit 1
+          fi
+          case "$DRY_RUN" in
+            true|false) ;;
+            *)
+              echo "::error::dry_run must be true or false: $DRY_RUN" >&2
+              exit 1
+              ;;
+          esac
+          echo "stale_after=${STALE_AFTER}" >> "$GITHUB_OUTPUT"
+          echo "dry_run=${DRY_RUN}" >> "$GITHUB_OUTPUT"
+          npx ts-node --project tools/gates/tsconfig.json \
+            tools/gates/finding-registry.ts sweep \
+            --dry-run --stale-after=${STALE_AFTER} | tee /tmp/sweep-plan.txt
+          # Exit early if nothing to do.
+          if grep -q "^Sweep clean:" /tmp/sweep-plan.txt; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Persist enterprise workflow preflight
+        if: steps.plan.outputs.has_changes == 'true' && steps.plan.outputs.dry_run != 'true'
+        env:
+          PYTHONPATH: aria-kernel
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          from aria_kernel.preflight import verify_workflow_preflight
+
+          registry = "docs/reviews/_registry/findings.jsonl"
+          verdict = verify_workflow_preflight(
+              workflow_id="finding-state-sweep",
+              job_id="sweep",
+              profile="standard",
+              workspace_root=os.environ["GITHUB_WORKSPACE"],
+              allowed_write_roots=[registry],
+              path_allowlist=[registry],
+              network_policy=["github_api"],
+              network_enforcement_evidence="GitHub App PR API via automation/open-report-pr.sh",
+              token_provenance="github_app:installation",
+              dlp_mode="fail_closed",
+              dlp_scan_clean=True,
+              audit_reason="publish deterministic finding state sweep through automation PR",
+              audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "finding-state-sweep-preflight.json",
+              external_root_allowlist=[str(Path(os.environ["RUNNER_TEMP"]).resolve())],
+          )
+          if not verdict.valid:
+              raise SystemExit(";".join(verdict.reasons))
+          PY
+
+      - name: Apply sweep
+        if: steps.plan.outputs.has_changes == 'true' && steps.plan.outputs.dry_run != 'true'
+        env:
+          STALE_AFTER: ${{ steps.plan.outputs.stale_after }}
+        run: |
+          set -euo pipefail
+          npx ts-node --project tools/gates/tsconfig.json \
+            tools/gates/finding-registry.ts sweep \
+            --stale-after=${STALE_AFTER}
+
+      - name: Verify post-sweep chain integrity
+        if: steps.plan.outputs.has_changes == 'true' && steps.plan.outputs.dry_run != 'true'
+        run: |
+          npx ts-node --project tools/gates/tsconfig.json \
+            tools/gates/finding-registry.ts verify
+
+      - name: Mint GitHub App installation token
+        id: app_token
+        env:
+          ARIA_GH_APP_ID: ${{ secrets.ARIA_GH_APP_ID }}
+          ARIA_GH_APP_INSTALLATION_ID: ${{ secrets.ARIA_GH_APP_INSTALLATION_ID }}
+          ARIA_GH_APP_PRIVATE_KEY: ${{ secrets.ARIA_GH_APP_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$ARIA_GH_APP_ID" ] || [ -z "$ARIA_GH_APP_INSTALLATION_ID" ] || [ -z "$ARIA_GH_APP_PRIVATE_KEY" ]; then
+            echo "::notice::GitHub App not configured; PR will use GITHUB_TOKEN (may trigger action_required on CI)"
+            echo "token=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # This lane runs on ubuntu-latest: the operator runbook's key path
+          # (~/.config/aria/gh-app-private-key.pem) only exists on the
+          # self-hosted box. Materialize the PEM content from the secret
+          # into an ephemeral 0600 file and point the kernel at it.
+          KEY_FILE="$RUNNER_TEMP/gh-app-private-key.pem"
+          umask 077
+          printf '%s\n' "$ARIA_GH_APP_PRIVATE_KEY" > "$KEY_FILE"
+          export ARIA_GH_APP_PRIVATE_KEY_PATH="$KEY_FILE"
+          PYTHONPATH=aria-kernel python3 -c "
+          from pathlib import Path
+          from aria_kernel.gh_token_factory import mint_installation_token
+          lease = mint_installation_token(
+              cycle_id='finding-state-sweep-r${{ github.run_id }}',
+              workspace_root='.',
+          )
+          print('token=' + Path(lease.token_file).read_text(encoding='utf-8').strip())
+          " >> "$GITHUB_OUTPUT"
+          rm -f "$KEY_FILE"
+
+      - name: Open or update sweep PR
+        if: steps.plan.outputs.has_changes == 'true' && steps.plan.outputs.dry_run != 'true'
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token || github.token }}
+          PR_TOKEN_SOURCE: ${{ steps.app_token.outputs.token && 'aria-github-app' || 'actions-default' }}
+        run: |
+          set -euo pipefail
+          BODY_FILE="$RUNNER_TEMP/finding-state-sweep-pr-body.md"
+          {
+            echo "Daily sweep output (30-day staleness + deadline-past escalation)."
+            echo ""
+            echo '```'
+            cat /tmp/sweep-plan.txt
+            echo '```'
+            echo ""
+            echo "CODEOWNERS review is required before merge. Reject this PR if a listed transition should not apply."
+          } > "$BODY_FILE"
+
+          export PR_BRANCH="automation/finding-state-sweep"
+          export PR_TITLE="chore(findings): daily state sweep - OPEN to STALE, past-deadline to BLOCKED"
+          export PR_BODY_FILE="$BODY_FILE"
+          export COMMIT_MESSAGE="chore(findings): automated state sweep"
+          export CHANGED_PATHS="docs/reviews/_registry/findings.jsonl"
+          bash tools/scripts/automation/open-report-pr.sh
+
+      # ADR-036 — upload the enterprise-preflight audit proof so the sweep
+      # job's governed-write decision is retained as CI evidence.
+      - name: Upload sweep preflight proof
+        if: steps.plan.outputs.has_changes == 'true' && steps.plan.outputs.dry_run != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: finding-state-sweep-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/finding-state-sweep-preflight.json
+          if-no-files-found: error
+          retention-days: 365

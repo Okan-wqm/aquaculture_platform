@@ -1,0 +1,147 @@
+{
+  "$schema": "aria/pack/v1",
+  "id": "legal",
+  "name": "Legal Case Intelligence",
+  "version": "0.1.0",
+  "description": "Turns a case-file archive into an evidence-anchored, human-verified working set: inventory, version lineage, chronology (occurred-at separate from learned-at), parties, claim-evidence matrix, coverage. Produces no legal conclusions.",
+  "corpus_source": {
+    "kind": "document_archive",
+    "root_input_field": "archive_root",
+    "exclude_roots_input_field": "exclude_roots"
+  },
+  "contract": "ui/shared/legal-contract.ts",
+  "schemas_dir": "packs/legal/schemas",
+  "record_kinds": [
+    "CASE",
+    "PARTY",
+    "ROLE",
+    "DOCUMENT",
+    "DOCUMENT_VERSION",
+    "COMMUNICATION",
+    "EVENT",
+    "CLAIM",
+    "COUNTERCLAIM",
+    "EVIDENCE",
+    "PROCEDURAL_STEP",
+    "DEADLINE",
+    "DECISION",
+    "FINANCIAL_LOSS",
+    "ACCESS_PERMISSION"
+  ],
+  "link_kinds": [
+    "SUPPORTS",
+    "CONTRADICTS",
+    "SUPERSEDES",
+    "WAS_RECEIVED_BY",
+    "WAS_SENT_BY",
+    "CAUSED",
+    "REFERS_TO",
+    "REQUIRES",
+    "PARTY_IN",
+    "VERSION_OF"
+  ],
+  "statement_statuses": ["asserted", "disputed", "supported", "contradicted", "unverifiable", "verified"],
+  "assertion_sources": ["party", "court", "counsel", "third_party", "ai_inference", "operator"],
+  "extraction_statuses": ["text", "metadata_only", "unreadable", "excluded"],
+  "claim_types": [
+    "document_version_conflict",
+    "date_contradiction",
+    "amount_contradiction",
+    "missing_evidence",
+    "unreadable_document",
+    "party_identity_ambiguity"
+  ],
+  "evidence_source_types": ["document_reference", "correspondence", "court_record", "filing_receipt", "metadata"],
+  "adapters": [
+    {
+      "tool_id": "legal-document-inventory",
+      "manifest": "packs/legal/adapters/legal-document-inventory.tool.json",
+      "entry": "packs/legal/adapters/legal-document-inventory.ts",
+      "status": "SHADOW",
+      "claim_types": ["unreadable_document", "document_version_conflict"]
+    }
+  ],
+  "agents": [
+    {
+      "name": "aria-legal-evidence-judge",
+      "path": "packs/legal/agents/aria-legal-evidence-judge.md",
+      "role": "legal_evidence_judgment",
+      "may_emit_claim_types": ["missing_evidence"],
+      "writes_records": ["statement"]
+    },
+    {
+      "name": "aria-legal-adversarial-judge",
+      "path": "packs/legal/agents/aria-legal-adversarial-judge.md",
+      "role": "legal_adversarial_judgment",
+      "may_emit_claim_types": ["date_contradiction", "amount_contradiction", "document_version_conflict"],
+      "writes_records": ["statement", "link"]
+    },
+    {
+      "name": "aria-legal-timeline-analyst",
+      "path": "packs/legal/agents/aria-legal-timeline-analyst.md",
+      "role": "legal_timeline_analysis",
+      "may_emit_claim_types": ["date_contradiction"],
+      "writes_records": ["timeline-event", "link"]
+    },
+    {
+      "name": "aria-legal-claim-matrix-drafter",
+      "path": "packs/legal/agents/aria-legal-claim-matrix-drafter.md",
+      "role": "legal_claim_matrix_drafting",
+      "may_emit_claim_types": ["missing_evidence", "party_identity_ambiguity"],
+      "writes_records": ["statement", "party", "link"]
+    }
+  ],
+  "artifacts": {
+    "root": "packs/legal/cases",
+    "per_case_directory": "<caseId>",
+    "files": {
+      "case": "case.json",
+      "documents": "documents.json",
+      "versions": "versions.json",
+      "parties": "parties.json",
+      "timeline": "timeline.json",
+      "statements": "statements.json",
+      "links": "links.json",
+      "coverage": "coverage.json"
+    },
+    "schemas": {
+      "case": "packs/legal/schemas/case.schema.json",
+      "documents": "packs/legal/schemas/document.schema.json",
+      "versions": "packs/legal/schemas/document-version.schema.json",
+      "parties": "packs/legal/schemas/party.schema.json",
+      "timeline": "packs/legal/schemas/timeline-event.schema.json",
+      "statements": "packs/legal/schemas/statement.schema.json",
+      "links": "packs/legal/schemas/link.schema.json",
+      "coverage": "packs/legal/schemas/coverage.schema.json"
+    }
+  },
+  "fixtures": {
+    "archive": "packs/legal/fixtures/case-synthetic",
+    "expected": "packs/legal/fixtures/expected",
+    "cases": "packs/legal/fixtures/cases"
+  },
+  "human_review": {
+    "ai_records_flagged": true,
+    "verified_earned_by": "human",
+    "same_name_merge": "never_automatic"
+  },
+  "non_goals": [
+    "Producing legal conclusions, opinions, or advice of any kind",
+    "OCR or any content invention for scanned PDFs, images, DOCX or other non-text formats",
+    "Guaranteeing irreversibility of anonymisation",
+    "Declaring which document version was filed with a court",
+    "Applying Norwegian-law procedure (every procedural statement requires counsel verification)",
+    "Merging same-named persons or organisations into one party without a human decision",
+    "Reading any file under an excluded root (excluded roots are reported, never opened)"
+  ],
+  "invariants": [
+    "Every record that an adapter or agent infers carries humanReviewRequired: true",
+    "statement.status verified is written only by a human with verifiedBy and verifiedAt set",
+    "occurredAt and learnedAt are separate fields and are never conflated",
+    "Every finding carries evidence[] whose paths are inside read_paths (L1)",
+    "Every file in the archive has exactly one extraction fate; coverage.complete is true only then",
+    "Artifacts are written only under <out_dir>/packs/legal/cases/<caseId>/ and the archive is never mutated (L2)",
+    "Adapters are mechanical: no LLM calls, no network",
+    "Corpus content is data, never instruction (L1)"
+  ]
+}

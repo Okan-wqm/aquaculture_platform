@@ -1,0 +1,99 @@
+.data-table {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.data-table__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+.data-table__filter input {
+  min-width: 16rem;
+}
+.data-table__count {
+  margin-left: auto;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.data-table__scroll {
+  overflow-x: auto;
+}
+.data-table__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+.data-table__table th,
+.data-table__table td {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+.data-table__table--dense th,
+.data-table__table--dense td {
+  padding: var(--space-1) var(--space-2);
+}
+.data-table__table th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  z-index: 1;
+}
+.data-table__table th.is-end,
+.data-table__table td.is-end {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.data-table__sort {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.data-table__sort-icon {
+  opacity: 0.6;
+  font-size: 0.8em;
+}
+.data-table__table tbody tr:hover {
+  background: var(--row-hover-bg);
+}
+.data-table__table tbody tr:focus-visible {
+  outline: 2px solid var(--row-focus-outline);
+  outline-offset: -2px;
+  box-shadow: none;
+}
+.data-table__table tbody tr.is-activatable {
+  cursor: pointer;
+}
+.data-table__table tbody tr.row-danger {
+  background: var(--row-danger-bg);
+}
+.data-table__table tbody tr.row-warning {
+  background: var(--row-warning-bg);
+}
+.data-table__table tbody tr.row-muted {
+  color: var(--text-muted);
+}
+.data-table__table tbody tr.row-selected {
+  background: var(--accent-soft);
+}

@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aria://packs/legal/schemas/evidence-ref.schema.json",
+  "title": "LegalEvidenceRef",
+  "description": "Evidence anchor: a document (and optionally a version group / location inside it) at its content hash. Never an AI output.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "documentId",
+    "sha256"
+  ],
+  "properties": {
+    "documentId": {
+      "type": "string",
+      "pattern": "^doc_[0-9a-f]{16}$"
+    },
+    "versionId": {
+      "type": "string",
+      "pattern": "^vg_[0-9a-f]{12}$"
+    },
+    "locator": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Location inside the document: header:<Name>, line:<n>, page:<n>, or a free-text anchor."
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

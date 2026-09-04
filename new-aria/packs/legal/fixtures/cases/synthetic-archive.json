@@ -1,0 +1,25 @@
+{
+  "name": "synthetic-archive",
+  "lane": "real_repo_baseline",
+  "input": {
+    "archive_root": "packs/legal/fixtures/case-synthetic",
+    "case_id": "synthetic-001",
+    "title": "Synthetic case (fixture)",
+    "exclude_roots": [
+      "Ikke laste opp"
+    ],
+    "max_text_bytes": 262144,
+    "created_at": "2024-04-01T00:00:00Z"
+  },
+  "expected": {
+    "status": "ok",
+    "required_observations": [
+      "legal_document_inventoried"
+    ],
+    "required_findings": [
+      "unreadable_document",
+      "document_version_conflict"
+    ],
+    "max_findings": 50
+  }
+}

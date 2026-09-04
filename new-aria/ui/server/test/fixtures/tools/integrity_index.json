@@ -1,0 +1,12 @@
+{
+  "ledger_hashes": {
+    "cycles": "16fa1fc4c88c5772b617457c0ff084fefae22d1b65bf6ccf601be7fe39b0ca7e",
+    "governance": "c211b2a3789deaebffe907cde76b7856d1a6962f1ae3f70b8d4df94d4a29253f",
+    "health": "bd057ab6aa133e22002b61d5741ae70b017905b771b75fa60ff80ae852a586b6",
+    "runs": "ee2e53ea344cce3db06cba6a07c4e7a42bb201688e3d62c20d08a1d8aeca82f9",
+    "runtime_artifact_index": "a43d1f75ac38cb4ba5d5c2fcd221a7a01e37f738602ec481393e3741404bcedb",
+    "runtime_artifact_inventory": "15a4c66458758a15940e8715fe5e5e2c59ee87d033b39a4fd12dc9f597d27c4c",
+    "runtime_artifact_manifest": "dc93f948e29fd1343832f8093201cc2f70bb2969bd47d81a66c38a525597f7c1"
+  },
+  "schema_version": 2
+}

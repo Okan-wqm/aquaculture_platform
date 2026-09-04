@@ -1,0 +1,22 @@
+[
+  {
+    "versionGroupId": "vg_d517012e6195",
+    "members": [
+      {
+        "documentId": "doc_85f73fc2c720f363",
+        "ordinal": 1,
+        "basis": "name_suffix",
+        "similarityToPrevious": null
+      },
+      {
+        "documentId": "doc_f4ee47acddf5586e",
+        "ordinal": 2,
+        "basis": "name_suffix",
+        "similarityToPrevious": 0.25
+      }
+    ],
+    "signedMember": "doc_f4ee47acddf5586e",
+    "filedMember": null,
+    "humanReviewRequired": true
+  }
+]

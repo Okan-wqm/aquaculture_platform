@@ -20,8 +20,18 @@ if ! git -C "$WORKSPACE" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   git -C "$WORKSPACE" init -q
   git -C "$WORKSPACE" -c user.name=aria-smoke -c user.email=aria-smoke@localhost add -A
   git -C "$WORKSPACE" -c user.name=aria-smoke -c user.email=aria-smoke@localhost commit -q -m "aria smoke workspace ${STAMP}"
+  # The kernel runs TypeScript adapters with cwd = the workspace and, by design,
+  # only accepts a REPO-LOCAL node_modules/ts-node (tool_runner
+  # _runner_missing_node_deps); a global install does not count. The image
+  # already carries the exact pinned toolchain, so the throwaway workspace
+  # borrows it. Untracked + gitignored, so the snapshot never sees it.
+  [ -e "$WORKSPACE/node_modules" ] || ln -s "$ARIA_HOME/node_modules" "$WORKSPACE/node_modules"
 fi
 HEAD_SHA="$(git -C "$WORKSPACE" rev-parse HEAD)"
+
+if [ ! -e "$WORKSPACE/node_modules/ts-node/dist/bin.js" ]; then
+  echo "WARN: $WORKSPACE has no node_modules/ts-node — every TypeScript adapter will report environment_unavailable until 'npm install' runs in that workspace" >&2
+fi
 
 echo "smoke: workspace=${WORKSPACE} head=${HEAD_SHA} tools=${TOOLS_DIR}"
 

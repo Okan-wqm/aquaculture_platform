@@ -1,0 +1,146 @@
+[
+  {
+    "eventId": "evt_0b7ee503b2f8",
+    "kind": "EVENT",
+    "occurredAt": "2024-02-20",
+    "learnedAt": null,
+    "datePrecision": "day",
+    "summary": "2024-02-20 Første møte mellom Part A AS og Part B om leveransen.",
+    "evidence": [
+      {
+        "documentId": "doc_c9eebbb50c992990",
+        "locator": "line:3",
+        "sha256": "6e5ef00a1637223634103f8a6d15f8938f42fef3312e308b45429817e369c1ad"
+      }
+    ],
+    "assertedBy": "ai_inference",
+    "confidence": 0.35,
+    "humanReviewRequired": true
+  },
+  {
+    "eventId": "evt_356cefd31540",
+    "kind": "EVENT",
+    "occurredAt": "2024-03-01",
+    "learnedAt": null,
+    "datePrecision": "day",
+    "summary": "01.03.2024 Utkast til avtale sendt fra Part A AS til Part B.",
+    "evidence": [
+      {
+        "documentId": "doc_c9eebbb50c992990",
+        "locator": "line:4",
+        "sha256": "6e5ef00a1637223634103f8a6d15f8938f42fef3312e308b45429817e369c1ad"
+      }
+    ],
+    "assertedBy": "ai_inference",
+    "confidence": 0.35,
+    "humanReviewRequired": true
+  },
+  {
+    "eventId": "evt_d76feb31ffcc",
+    "kind": "COMMUNICATION",
+    "occurredAt": "2024-03-04T08:15:00Z",
+    "learnedAt": null,
+    "datePrecision": "day",
+    "summary": "Email \"Avtale om levering - utkast v1\" from Part A AS to Part B, Advokat Eksempel",
+    "evidence": [
+      {
+        "documentId": "doc_3ed75d995ca0922e",
+        "locator": "header:Date",
+        "sha256": "ef3e11258cb99536ac741758ad70a78fbfde591c44c917502730ae98cb9f1061"
+      }
+    ],
+    "assertedBy": "party",
+    "confidence": 0.6,
+    "humanReviewRequired": true
+  },
+  {
+    "eventId": "evt_4955b71c6fca",
+    "kind": "EVENT",
+    "occurredAt": "2024-03-05",
+    "learnedAt": null,
+    "datePrecision": "day",
+    "summary": "Møte 5. mars 2024 med Part B om leveringsplan.",
+    "evidence": [
+      {
+        "documentId": "doc_02f9abbb83c5f543",
+        "locator": "line:3",
+        "sha256": "b2c55428ad23c2b7ae9dd9cf5525d0728f7a90180ef91a2a6d587de7c9ad3caa"
+      }
+    ],
+    "assertedBy": "ai_inference",
+    "confidence": 0.35,
+    "humanReviewRequired": true
+  },
+  {
+    "eventId": "evt_488edcf7080e",
+    "kind": "EVENT",
+    "occurredAt": "2024-03-12",
+    "learnedAt": null,
+    "datePrecision": "day",
+    "summary": "12.03.2024 Part B bestrider faktura på kr 25 000,- og ber om ny leveringsplan.",
+    "evidence": [
+      {
+        "documentId": "doc_c9eebbb50c992990",
+        "locator": "line:5",
+        "sha256": "6e5ef00a1637223634103f8a6d15f8938f42fef3312e308b45429817e369c1ad"
+      }
+    ],
+    "assertedBy": "ai_inference",
+    "confidence": 0.35,
+    "humanReviewRequired": true
+  },
+  {
+    "eventId": "evt_b7d98a3a1da5",
+    "kind": "COMMUNICATION",
+    "occurredAt": "2024-03-12T13:02:00Z",
+    "learnedAt": null,
+    "datePrecision": "day",
+    "summary": "Email \"Re: Avtale om levering - utkast v1\" from Part B to Part A AS",
+    "evidence": [
+      {
+        "documentId": "doc_608f1333d74135c8",
+        "locator": "header:Date",
+        "sha256": "c87f37dde687d070e24d8d41c0a30568ffbafe2ddcf1d5e95316e4d9133fac55"
+      }
+    ],
+    "assertedBy": "party",
+    "confidence": 0.6,
+    "humanReviewRequired": true
+  },
+  {
+    "eventId": "evt_454fbe32745f",
+    "kind": "EVENT",
+    "occurredAt": "2024-03-18",
+    "learnedAt": null,
+    "datePrecision": "day",
+    "summary": "Signert av Part A AS og Part B 18.03.2024",
+    "evidence": [
+      {
+        "documentId": "doc_f4ee47acddf5586e",
+        "locator": "line:7",
+        "sha256": "faf98c49abfe41439e67deb06a8bc80a4f783af462e5902a10f72e5984eaf4db"
+      }
+    ],
+    "assertedBy": "ai_inference",
+    "confidence": 0.35,
+    "humanReviewRequired": true
+  },
+  {
+    "eventId": "evt_d0836dd1b59b",
+    "kind": "EVENT",
+    "occurredAt": "2024-03-20",
+    "learnedAt": null,
+    "datePrecision": "day",
+    "summary": "Meeting minutes were circulated on March 20, 2024 to both parties.",
+    "evidence": [
+      {
+        "documentId": "doc_02f9abbb83c5f543",
+        "locator": "line:4",
+        "sha256": "b2c55428ad23c2b7ae9dd9cf5525d0728f7a90180ef91a2a6d587de7c9ad3caa"
+      }
+    ],
+    "assertedBy": "ai_inference",
+    "confidence": 0.35,
+    "humanReviewRequired": true
+  }
+]

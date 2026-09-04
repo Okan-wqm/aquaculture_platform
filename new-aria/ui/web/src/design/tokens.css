@@ -1,0 +1,112 @@
+/* Design tokens — the only place colours, spacing and type scale are defined.
+   WHY: components reference tokens, never raw values, so the light/dark switch
+   (prefers-color-scheme) and any later re-theming happen here alone. */
+:root {
+  color-scheme: light dark;
+
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --fs-xs: 0.75rem;
+  --fs-sm: 0.8125rem;
+  --fs-md: 0.9375rem;
+  --fs-lg: 1.125rem;
+  --fs-xl: 1.5rem;
+  --fs-2xl: 2rem;
+  --lh-tight: 1.25;
+  --lh-normal: 1.5;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+
+  --sidebar-width: 240px;
+  --content-max: 1440px;
+
+  --bg: #f4f6f8;
+  --surface: #ffffff;
+  --surface-2: #eef1f5;
+  --surface-3: #e3e8ee;
+  --border: #d5dbe3;
+  --border-strong: #b8c2cf;
+  --text: #17212b;
+  --text-muted: #5a6875;
+  --text-faint: #8593a1;
+  --accent: #1f5fbf;
+  --accent-hover: #174a99;
+  --accent-soft: #e2ecfb;
+  --accent-contrast: #ffffff;
+
+  --tone-neutral-fg: #3f4c59;
+  --tone-neutral-bg: #e8ecf1;
+  --tone-info-fg: #1b4f99;
+  --tone-info-bg: #dde9fb;
+  --tone-success-fg: #1d6b3a;
+  --tone-success-bg: #daf2e2;
+  --tone-warning-fg: #8a5a00;
+  --tone-warning-bg: #fdf0cc;
+  --tone-danger-fg: #a12525;
+  --tone-danger-bg: #fbdede;
+  --tone-accent-fg: #5b2ba6;
+  --tone-accent-bg: #ece2fb;
+  --tone-muted-fg: #6d7884;
+  --tone-muted-bg: #f1f3f6;
+
+  --row-danger-bg: #fff3f3;
+  --row-warning-bg: #fff9e8;
+  --row-hover-bg: #f5f8fc;
+  --row-focus-outline: var(--accent);
+
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.08);
+  --focus-ring: 0 0 0 3px rgba(31, 95, 191, 0.35);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1419;
+    --surface: #161c23;
+    --surface-2: #1d252e;
+    --surface-3: #242e39;
+    --border: #2b3542;
+    --border-strong: #3b4858;
+    --text: #e6ebf0;
+    --text-muted: #a0acb8;
+    --text-faint: #6f7d8b;
+    --accent: #6ea3ff;
+    --accent-hover: #8fb8ff;
+    --accent-soft: #1b2a45;
+    --accent-contrast: #0b1220;
+
+    --tone-neutral-fg: #c4ccd5;
+    --tone-neutral-bg: #262f3a;
+    --tone-info-fg: #9dc0ff;
+    --tone-info-bg: #1a2c4a;
+    --tone-success-fg: #86d9a4;
+    --tone-success-bg: #163424;
+    --tone-warning-fg: #f2c46a;
+    --tone-warning-bg: #3d2f0d;
+    --tone-danger-fg: #ff9a9a;
+    --tone-danger-bg: #45191b;
+    --tone-accent-fg: #cdb2ff;
+    --tone-accent-bg: #2e2149;
+    --tone-muted-fg: #8a97a5;
+    --tone-muted-bg: #1c232c;
+
+    --row-danger-bg: #2a1618;
+    --row-warning-bg: #2c2410;
+    --row-hover-bg: #1b232d;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+    --focus-ring: 0 0 0 3px rgba(110, 163, 255, 0.45);
+  }
+}

@@ -102,6 +102,9 @@ updates:
     directories:
       - /
       - /web/apps/aquamobil
+      # new-aria/ui is the operator console of the standalone ARIA transport copy;
+      # it owns an independent package-lock.json outside the root npm workspace.
+      - /new-aria/ui
     schedule:
       interval: weekly
       day: monday

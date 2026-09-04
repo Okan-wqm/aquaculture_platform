@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aria://packs/legal/schemas/coverage.schema.json",
+  "title": "LegalCoverage",
+  "description": "Coverage invariant, legal edition: every file in the archive has a fate; unreadable and metadata_only files are explicit gaps; excluded roots are reported, not omitted.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "caseId",
+    "totalFiles",
+    "byExtraction",
+    "byKind",
+    "excludedRoots",
+    "unreadable",
+    "complete"
+  ],
+  "properties": {
+    "caseId": {
+      "type": "string",
+      "pattern": "^case_[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+    },
+    "totalFiles": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "byExtraction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "text",
+        "metadata_only",
+        "unreadable",
+        "excluded"
+      ],
+      "properties": {
+        "text": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "metadata_only": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unreadable": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "excluded": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "byKind": {
+      "type": "object",
+      "propertyNames": {
+        "enum": [
+          "CASE",
+          "PARTY",
+          "ROLE",
+          "DOCUMENT",
+          "DOCUMENT_VERSION",
+          "COMMUNICATION",
+          "EVENT",
+          "CLAIM",
+          "COUNTERCLAIM",
+          "EVIDENCE",
+          "PROCEDURAL_STEP",
+          "DEADLINE",
+          "DECISION",
+          "FINANCIAL_LOSS",
+          "ACCESS_PERMISSION",
+          "UNKNOWN"
+        ]
+      },
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "excludedRoots": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "unreadable": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "relativePath",
+          "reason"
+        ],
+        "properties": {
+          "relativePath": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "complete": {
+      "type": "boolean"
+    }
+  }
+}

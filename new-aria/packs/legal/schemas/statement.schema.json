@@ -1,0 +1,207 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aria://packs/legal/schemas/statement.schema.json",
+  "title": "LegalStatement",
+  "description": "A claim–evidence matrix row. `verified` is earned only by a human (verifiedBy/verifiedAt set); the adapter never writes statements.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "statementId",
+    "statement",
+    "status",
+    "assertedBy",
+    "assertedByPartyId",
+    "supportingSources",
+    "contradictingSources",
+    "missingEvidence",
+    "confidence",
+    "humanReviewRequired",
+    "verifiedBy",
+    "verifiedAt",
+    "relatedClaimIds"
+  ],
+  "properties": {
+    "statementId": {
+      "type": "string",
+      "pattern": "^stmt_[A-Za-z0-9._-]{4,64}$"
+    },
+    "statement": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": [
+        "asserted",
+        "disputed",
+        "supported",
+        "contradicted",
+        "unverifiable",
+        "verified"
+      ]
+    },
+    "assertedBy": {
+      "enum": [
+        "party",
+        "court",
+        "counsel",
+        "third_party",
+        "ai_inference",
+        "operator"
+      ]
+    },
+    "assertedByPartyId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^party_[0-9a-f]{12}$"
+    },
+    "supportingSources": {
+      "type": "array",
+      "items": {
+        "$ref": "aria://packs/legal/schemas/evidence-ref.schema.json"
+      }
+    },
+    "contradictingSources": {
+      "type": "array",
+      "items": {
+        "$ref": "aria://packs/legal/schemas/evidence-ref.schema.json"
+      }
+    },
+    "missingEvidence": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "humanReviewRequired": {
+      "type": "boolean"
+    },
+    "verifiedBy": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "verifiedAt": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "relatedClaimIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "verified"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "verifiedBy": {
+            "type": "string",
+            "minLength": 1
+          },
+          "verifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "verifiedBy": {
+            "const": null
+          },
+          "verifiedAt": {
+            "const": null
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "assertedBy": {
+            "const": "ai_inference"
+          },
+          "status": {
+            "not": {
+              "const": "verified"
+            }
+          }
+        },
+        "required": [
+          "assertedBy",
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "humanReviewRequired": {
+            "const": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "supported"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "supportingSources": {
+            "minItems": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "contradicted"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "contradictingSources": {
+            "minItems": 1
+          }
+        }
+      }
+    }
+  ]
+}

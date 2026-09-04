@@ -1,0 +1,44 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "capability_gap_key": "shadow_run:kernel-dead-wire-adapter",
+    "capability_resolution": {
+      "decision": "request",
+      "row_id": "capability-resolution:53e74393ecf9b57417380e46"
+    },
+    "capability_resolution_ref": "capability-resolution:53e74393ecf9b57417380e46",
+    "cycle_id": "probe-20260903T161540Z",
+    "evidence_refs": [
+      "aria-kernel/aria_kernel/__init__.py",
+      "aria-kernel/aria_kernel/__main__.py",
+      "aria-kernel/aria_kernel/_backfill.py",
+      "aria-kernel/aria_kernel/ack_ledger.py",
+      "aria-kernel/aria_kernel/ack_row.py",
+      "aria-kernel/aria_kernel/adapter_calibration.py",
+      "aria-kernel/aria_kernel/adapter_portfolio.py",
+      "aria-kernel/aria_kernel/agent_compliance.py",
+      "aria-kernel/aria_kernel/agent_contract.py",
+      "aria-kernel/aria_kernel/agent_env.py",
+      "aria-kernel/aria_kernel/agent_eval.py",
+      "aria-kernel/aria_kernel/agent_genesis.py",
+      "aria-kernel/aria_kernel/agent_invocations.py",
+      "aria-kernel/aria_kernel/agent_network.py",
+      "aria-kernel/aria_kernel/agent_priors.py",
+      "aria-kernel/aria_kernel/agent_question.py",
+      "aria-kernel/aria_kernel/agent_resolver.py",
+      "aria-kernel/aria_kernel/agent_routing.py",
+      "aria-kernel/aria_kernel/agent_runtime_profile.py",
+      "aria-kernel/aria_kernel/agent_satisfaction.py"
+    ],
+    "gap_id": "gap-4034b5567fa0",
+    "kind": "genesis_candidate",
+    "valid_cycles": 1
+  },
+  "reason": "capability gap 'shadow_run:kernel-dead-wire-adapter' proposes agent genesis; panel adjudication required (resolver decision: request).",
+  "recorded_at": "2026-09-03T16:21:17Z",
+  "request_id": "genesis-0275a4f29a5da0d4",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "sla_deadline": "2026-09-10T16:21:17Z",
+  "status": "open"
+}

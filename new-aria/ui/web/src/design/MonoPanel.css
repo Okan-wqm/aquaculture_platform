@@ -1,0 +1,41 @@
+.mono-panel {
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  overflow: hidden;
+  min-width: 0;
+}
+.mono-panel__label {
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.mono-panel__pre {
+  margin: 0;
+  padding: var(--space-3);
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.mono-panel--sm .mono-panel__pre {
+  max-height: 10rem;
+}
+.mono-panel--md .mono-panel__pre {
+  max-height: 22rem;
+}
+.mono-panel--lg .mono-panel__pre {
+  max-height: 40rem;
+}
+.mono-panel--error {
+  border-color: var(--tone-danger-fg);
+}
+.mono-panel--error .mono-panel__label {
+  color: var(--tone-danger-fg);
+}

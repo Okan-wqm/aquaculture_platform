@@ -1,11 +1,14 @@
-# new-aria — run the ARIA kernel on its own, outside the monorepo.
+# new-aria — run the ARIA kernel and its operator console on their own, outside
+# the monorepo.
 #
-#   docker compose build
-#   docker compose run --rm aria --help
-#   docker compose --profile smoke run --rm smoke      # bootstrap -> discovery -> integrity verify
+#   cp .env.example .env            # set ARIA_UI_TOKEN (required by the console)
+#   docker compose build            # kernel image, then the console on top of it
+#   docker compose --profile seed run --rm seed     # bootstrap /data + first cycle
+#   docker compose up -d ui         # console on http://<host>:${ARIA_UI_PORT:-8480}
+#   docker compose --profile smoke run --rm smoke   # bootstrap -> discovery -> verify
 #
-# /workspace is the repository ARIA observes (mount your target repo there);
-# /data holds ARIA's own tools root + workspaces (durable volume).
+# /workspace is the repository ARIA observes (mount the target repo there);
+# /data holds ARIA's tools root, workspaces and pack artifacts (durable volume).
 services:
   aria:
     build:
@@ -22,6 +25,48 @@ services:
       - aria-data:/data
       - ${ARIA_WORKSPACE:-.}:/workspace
     command: ["--help"]
+
+  # Operator console: reads /data/aria-tools, delegates actions to the kernel
+  # baked into the same image lineage (ui/Dockerfile builds FROM new-aria:local).
+  ui:
+    build:
+      context: .
+      dockerfile: ui/Dockerfile
+      args:
+        BASE_IMAGE: new-aria:local
+    image: new-aria-ui:local
+    depends_on:
+      aria:
+        condition: service_completed_successfully
+        required: false
+    environment:
+      ARIA_UI_TOKEN: ${ARIA_UI_TOKEN:?set ARIA_UI_TOKEN in .env}
+      ARIA_UI_PORT: "8480"
+      ARIA_UI_ALLOW_ACTIONS: ${ARIA_UI_ALLOW_ACTIONS:-0}
+      ARIA_TOOLS_DIR: /data/aria-tools
+      ARIA_WORKSPACE_ROOT: /workspace
+      ARIA_KERNEL_BIN: /opt/new-aria/bin/aria
+      CLAUDE_CLI_MOCK: ${CLAUDE_CLI_MOCK:-1}
+    ports:
+      - "${ARIA_UI_BIND:-0.0.0.0}:${ARIA_UI_PORT:-8480}:8480"
+    volumes:
+      - aria-data:/data
+      - ${ARIA_WORKSPACE:-.}:/workspace:ro
+    restart: unless-stopped
+
+  # One-shot: bootstrap the durable tools root and run the first real cycle so
+  # the console has ledgers to show. Idempotent — a bootstrapped root is kept.
+  seed:
+    profiles: ["seed"]
+    image: new-aria:local
+    environment:
+      CLAUDE_CLI_MOCK: "1"
+      ARIA_TOOLS_DIR: /data/aria-tools
+      ARIA_WORKSPACE_ROOT: /workspace
+    volumes:
+      - aria-data:/data
+      - ${ARIA_WORKSPACE:-.}:/workspace:ro
+    entrypoint: ["bash", "/opt/new-aria/scripts/docker/seed.sh"]
 
   smoke:
     profiles: ["smoke"]

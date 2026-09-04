@@ -67,13 +67,19 @@ deps = tomllib.loads(Path("aria-kernel/pyproject.toml").read_text())["project"][
 subprocess.check_call([sys.executable, "-m", "pip", "install", "--no-cache-dir", *deps])
 PY
 
-# Node dependency layer — ts-node + typescript for adapters and gates, plus the
+# Node dependency layer — ts-node + typescript for adapters and gates. They are
+# ALSO installed globally: the kernel runs adapters with cwd = the observed
+# workspace (`npx ts-node --project tools/gates/tsconfig.json ...`), and a mounted
+# workspace carries no node_modules, so npx must find the binaries on PATH or it
+# reports every adapter as environment_unavailable (measured in the container
+# probe). Plus the
 # Claude Code CLI the executor drives. --ignore-scripts skips its postinstall, so the
 # native binary is fetched explicitly by install.cjs (real mode needs a mounted login session;
 # CLAUDE_CLI_MOCK=1 runs the fixture path without it).
 COPY package.json ./
 RUN set -eux; \
     npm install --no-audit --no-fund --ignore-scripts; \
+    npm install -g --no-audit --no-fund --ignore-scripts typescript@5.9.3 ts-node@10.9.2 @types/node@20.19.9; \
     npm install -g --no-audit --no-fund --ignore-scripts "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"; \
     node "$(npm root -g)/@anthropic-ai/claude-code/install.cjs"; \
     claude --version; \

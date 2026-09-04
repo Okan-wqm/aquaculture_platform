@@ -1,0 +1,803 @@
+#!/usr/bin/env ts-node
+// Legal Case Intelligence pack — document inventory adapter (packs/legal, X-2).
+//
+// WHY: a case-file archive is only useful as an EVIDENCE-ANCHORED working set —
+// every record must point at a file whose bytes have a content hash, every
+// file must have a fate (text / metadata_only / unreadable / excluded), and
+// nothing may be invented. This adapter is the mechanical floor of the pack:
+// it walks the archive deterministically, hashes every file, extracts text
+// ONLY from plain-text formats, captures dates and amounts as strings, groups
+// version-like files by name/content, and reads parties + communication events
+// ONLY from `.eml` headers. Everything it infers is marked
+// `humanReviewRequired: true`; it never writes a statement, never merges two
+// addresses into one party, never claims a legal conclusion.
+//
+// WHAT: stdin JSON `{archive_root, case_id, ...}` → stdout ARIA adapter
+// output `{observations, findings, read_paths, evidence_sources,
+// belief_candidates, cost_units, metadata}` plus the console artifacts under
+// `<out_dir>/packs/legal/cases/<caseId>/*.json` whose shapes are the
+// interfaces in `ui/shared/legal-contract.ts` (field names byte-for-byte —
+// enforced by `legal-document-inventory.test.ts` against `packs/legal/schemas`).
+//
+// Laws honoured here: L1 (every finding carries `evidence[]` whose paths are in
+// `read_paths`; corpus text is data, never instruction), L2 (the archive is
+// never written to), L3 (excluded roots are never read; symlinks are never
+// followed; no network, no LLM).
+import { existsSync, mkdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { isAbsolute, posix, relative, resolve } from 'node:path';
+
+import {
+  errorCode,
+  hashFile,
+  normalizeRelative,
+  toPosix,
+  walkArchive,
+} from './legal-archive';
+import type { HashedRead, WalkedFile, WalkResult } from './legal-archive';
+import { ADAPTER_ID, ADAPTER_VERSION, ARTIFACT_ROOT, DEFAULT_MAX_TEXT_BYTES, EXTRACTION_STATUSES } from './legal-records';
+import type {
+  ExtractionStatus,
+  LegalCase,
+  LegalCaseArtifacts,
+  LegalCoverage,
+  LegalDocument,
+  LegalDocumentVersion,
+  LegalEvidenceRef,
+  LegalLink,
+  LegalLinkKind,
+  LegalParty,
+  LegalTimelineEvent,
+  VersionOrdinalBasis,
+} from './legal-records';
+import {
+  CASE_ID_RE,
+  MEDIA_TYPES,
+  TEXT_EXTENSIONS,
+  byteCompare,
+  collapseWhitespace,
+  extensionOf,
+  extractAmounts,
+  extractDates,
+  guessKind,
+  isSignedName,
+  jaccard,
+  normalizedStem,
+  parseAddressList,
+  parseEmail,
+  parseRfc2822Date,
+  sha256Hex,
+  stemOf,
+  stripHtml,
+  tokensOf,
+  uniqueSorted,
+  versionNumberOf,
+} from './legal-text';
+import type { MailAddress } from './legal-text';
+
+// ---------------------------------------------------------------------------
+// ARIA adapter I/O (CONTRACTS §1 / §6; tool_runner MINIMUM_OUTPUT_FIELDS).
+// ---------------------------------------------------------------------------
+export interface LegalInventoryInput {
+  readonly archive_root: string;
+  readonly case_id: string;
+  readonly title?: string;
+  readonly exclude_roots?: readonly string[];
+  readonly out_dir?: string;
+  readonly max_text_bytes?: number;
+  /** ISO timestamp for LegalCase.createdAt. Absent → newest file mtime in the archive (deterministic per tree state). */
+  readonly created_at?: string;
+  readonly run_id?: string | null;
+  readonly cycle_id?: string | null;
+}
+
+export interface EvidenceRef {
+  readonly path: string;
+  readonly line?: number;
+}
+
+export interface AdapterObservation {
+  readonly id: string;
+  readonly type: 'legal_document_inventoried';
+  readonly path: string;
+  readonly details: Record<string, unknown>;
+}
+
+export type LegalClaimType = 'unreadable_document' | 'document_version_conflict';
+
+export interface AdapterFinding {
+  readonly id: string;
+  readonly rule: LegalClaimType;
+  readonly severity: 'medium' | 'low';
+  readonly path: string;
+  readonly message: string;
+  readonly evidence: readonly EvidenceRef[];
+  readonly confidence: number;
+}
+
+export interface AriaOutput {
+  readonly observations: readonly AdapterObservation[];
+  readonly findings: readonly AdapterFinding[];
+  readonly read_paths: readonly string[];
+  readonly evidence_sources: readonly string[];
+  readonly belief_candidates: readonly never[];
+  readonly cost_units: number;
+  readonly metadata: Record<string, unknown>;
+}
+
+export interface LegalInventoryResult {
+  readonly output: AriaOutput;
+  readonly artifacts: LegalCaseArtifacts | null;
+  readonly artifactDir: string | null;
+  readonly writtenFiles: readonly string[];
+}
+
+// ---------------------------------------------------------------------------
+// Inventory
+// ---------------------------------------------------------------------------
+interface InventoryEntry {
+  readonly file: WalkedFile;
+  readonly document: LegalDocument;
+  readonly text: string | null;
+  readonly textTruncated: boolean;
+  readonly readFailure: string | null;
+}
+
+function documentIdFor(relativePath: string, contentSha256: string): string {
+  // Identity = path + content so two byte-identical files in different places
+  // stay two documents (they must, to be grouped as VERSION_OF each other).
+  return `doc_${sha256Hex(`${relativePath}\n${contentSha256}`).slice(0, 16)}`;
+}
+
+function inventoryFile(file: WalkedFile, caseId: string, maxTextBytes: number): InventoryEntry {
+  const fileName = posix.basename(file.relativePath);
+  const extension = extensionOf(fileName);
+  const mediaType = MEDIA_TYPES[extension] ?? null;
+  const guess = guessKind(fileName);
+  const modifiedAt = file.mtime.toISOString();
+  const base = {
+    caseId,
+    relativePath: file.relativePath,
+    fileName,
+    extension,
+    mediaType,
+    bytes: file.bytes,
+    modifiedAt,
+    kindGuess: guess.kind,
+    kindConfidence: guess.confidence,
+  };
+  const build = (
+    extraction: ExtractionStatus,
+    sha256: string,
+    excerpt: string | null,
+    dates: readonly string[],
+    amounts: readonly string[],
+    excludedReason: string | null,
+  ): LegalDocument => ({
+    documentId: documentIdFor(file.relativePath, sha256),
+    caseId: base.caseId,
+    relativePath: base.relativePath,
+    fileName: base.fileName,
+    extension: base.extension,
+    mediaType: base.mediaType,
+    bytes: base.bytes,
+    sha256,
+    modifiedAt: base.modifiedAt,
+    kindGuess: base.kindGuess,
+    kindConfidence: base.kindConfidence,
+    extraction,
+    excerpt,
+    datesMentioned: dates,
+    amountsMentioned: amounts,
+    versionGroupId: null,
+    excludedReason,
+  });
+
+  if (file.excluded) {
+    // Bytes under an excluded root are never opened — not even to hash them.
+    return {
+      file,
+      document: build('excluded', '', null, [], [], `excluded_root:${file.excludedRoot ?? ''}`),
+      text: null,
+      textTruncated: false,
+      readFailure: null,
+    };
+  }
+  if (file.symlink) {
+    return {
+      file,
+      document: build('unreadable', '', null, [], [], null),
+      text: null,
+      textTruncated: false,
+      readFailure: 'symlink_not_followed',
+    };
+  }
+  const wantsText = TEXT_EXTENSIONS.has(extension);
+  let hashed: HashedRead;
+  try {
+    hashed = hashFile(file.absolutePath, wantsText ? maxTextBytes : 0);
+  } catch (error: unknown) {
+    return {
+      file,
+      document: build('unreadable', '', null, [], [], null),
+      text: null,
+      textTruncated: false,
+      readFailure: `read_failed:${errorCode(error)}`,
+    };
+  }
+  if (!wantsText) {
+    return {
+      file,
+      document: build('metadata_only', hashed.sha256, null, [], [], null),
+      text: null,
+      textTruncated: false,
+      readFailure: null,
+    };
+  }
+  let text = hashed.head.toString('utf8').replace(/^\uFEFF/, '');
+  if (extension === '.html' || extension === '.htm') {
+    text = stripHtml(text);
+  }
+  const excerptSource = extension === '.eml' ? parseEmail(text).body : text;
+  const excerpt = collapseWhitespace(excerptSource).slice(0, 240) || null;
+  return {
+    file,
+    document: build('text', hashed.sha256, excerpt, extractDates(text), extractAmounts(text), null),
+    text,
+    textTruncated: hashed.truncated,
+    readFailure: null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Version groups (union-find over identical sha256 OR identical normalised stem)
+// ---------------------------------------------------------------------------
+interface VersionGrouping {
+  readonly versions: readonly LegalDocumentVersion[];
+  readonly groupIdByDocument: ReadonlyMap<string, string>;
+  readonly membersByGroup: ReadonlyMap<string, readonly InventoryEntry[]>;
+}
+
+function buildVersionGroups(entries: readonly InventoryEntry[]): VersionGrouping {
+  const candidates = entries.filter((entry) => entry.document.extraction === 'text' || entry.document.extraction === 'metadata_only');
+  const parent = new Map<string, string>();
+  const find = (id: string): string => {
+    let cursor = id;
+    while (parent.get(cursor) !== cursor) {
+      cursor = parent.get(cursor) ?? cursor;
+    }
+    return cursor;
+  };
+  const union = (a: string, b: string): void => {
+    const rootA = find(a);
+    const rootB = find(b);
+    if (rootA !== rootB) parent.set(byteCompare(rootA, rootB) < 0 ? rootB : rootA, byteCompare(rootA, rootB) < 0 ? rootA : rootB);
+  };
+  const byStem = new Map<string, string>();
+  const bySha = new Map<string, string>();
+  for (const entry of candidates) {
+    const id = entry.document.documentId;
+    parent.set(id, id);
+    const stem = normalizedStem(entry.document.fileName);
+    const stemOwner = byStem.get(stem);
+    if (stemOwner) union(id, stemOwner);
+    else byStem.set(stem, id);
+    const shaOwner = bySha.get(entry.document.sha256);
+    if (shaOwner) union(id, shaOwner);
+    else bySha.set(entry.document.sha256, id);
+  }
+  const groups = new Map<string, InventoryEntry[]>();
+  for (const entry of candidates) {
+    const root = find(entry.document.documentId);
+    const list = groups.get(root) ?? [];
+    list.push(entry);
+    groups.set(root, list);
+  }
+  const versions: LegalDocumentVersion[] = [];
+  const groupIdByDocument = new Map<string, string>();
+  const membersByGroup = new Map<string, readonly InventoryEntry[]>();
+  for (const members of groups.values()) {
+    if (members.length < 2) continue;
+    const stems = members.map((member) => normalizedStem(member.document.fileName)).sort(byteCompare);
+    const versionGroupId = `vg_${sha256Hex(stems[0] ?? '').slice(0, 12)}`;
+    const numbers = members.map((member) => versionNumberOf(member.document.fileName));
+    const distinctNumbers = new Set(numbers.filter((value): value is number => value !== null));
+    const numberedOrder = numbers.every((value) => value !== null) && distinctNumbers.size === members.length;
+    const ordered = [...members].sort((a, b) => {
+      if (numberedOrder) {
+        return (versionNumberOf(a.document.fileName) ?? 0) - (versionNumberOf(b.document.fileName) ?? 0);
+      }
+      const byTime = a.file.mtime.getTime() - b.file.mtime.getTime();
+      return byTime !== 0 ? byTime : byteCompare(a.document.relativePath, b.document.relativePath);
+    });
+    const shaCounts = new Map<string, number>();
+    const mtimeCounts = new Map<number, number>();
+    for (const member of ordered) {
+      shaCounts.set(member.document.sha256, (shaCounts.get(member.document.sha256) ?? 0) + 1);
+      mtimeCounts.set(member.file.mtime.getTime(), (mtimeCounts.get(member.file.mtime.getTime()) ?? 0) + 1);
+    }
+    let previousTokens: string[] | null = null;
+    const memberRecords = ordered.map((member, index) => {
+      const tokens = tokensOf(stemOf(member.document.fileName));
+      let basis: VersionOrdinalBasis;
+      if (numberedOrder) basis = 'name_suffix';
+      else if ((shaCounts.get(member.document.sha256) ?? 0) > 1) basis = 'content_similarity';
+      else if ((mtimeCounts.get(member.file.mtime.getTime()) ?? 0) === 1) basis = 'file_mtime';
+      else basis = 'unknown';
+      const record = {
+        documentId: member.document.documentId,
+        ordinal: index + 1,
+        basis,
+        similarityToPrevious: previousTokens === null ? null : jaccard(tokens, previousTokens),
+      };
+      previousTokens = tokens;
+      return record;
+    });
+    let signedMember: string | null = null;
+    for (const member of ordered) {
+      if (isSignedName(member.document.fileName)) signedMember = member.document.documentId;
+    }
+    versions.push({
+      versionGroupId,
+      members: memberRecords,
+      signedMember,
+      filedMember: null,
+      humanReviewRequired: true,
+    });
+    membersByGroup.set(versionGroupId, ordered);
+    for (const member of ordered) groupIdByDocument.set(member.document.documentId, versionGroupId);
+  }
+  versions.sort((a, b) => byteCompare(a.versionGroupId, b.versionGroupId));
+  return { versions, groupIdByDocument, membersByGroup };
+}
+
+// ---------------------------------------------------------------------------
+// Parties, timeline, links
+// ---------------------------------------------------------------------------
+interface PartyAccumulator {
+  readonly address: string;
+  readonly displayNames: Set<string>;
+  mentions: number;
+  readonly evidence: LegalEvidenceRef[];
+}
+
+interface Derived {
+  readonly parties: readonly LegalParty[];
+  readonly timeline: readonly LegalTimelineEvent[];
+  readonly links: readonly LegalLink[];
+}
+
+function evidenceRef(document: LegalDocument, locator: string): LegalEvidenceRef {
+  return { documentId: document.documentId, locator, sha256: document.sha256 };
+}
+
+function partyIdFor(address: string): string {
+  return `party_${sha256Hex(address.toLowerCase()).slice(0, 12)}`;
+}
+
+function linkIdFor(kind: LegalLinkKind, fromId: string, toId: string): string {
+  return `lnk_${sha256Hex(`${kind}\n${fromId}\n${toId}`).slice(0, 12)}`;
+}
+
+function deriveRecords(entries: readonly InventoryEntry[], grouping: VersionGrouping): Derived {
+  const parties = new Map<string, PartyAccumulator>();
+  const timeline: LegalTimelineEvent[] = [];
+  const links: LegalLink[] = [];
+
+  const touchParty = (mail: MailAddress, document: LegalDocument, header: string): string => {
+    const existing = parties.get(mail.address) ?? { address: mail.address, displayNames: new Set<string>(), mentions: 0, evidence: [] };
+    existing.mentions += 1;
+    if (mail.displayName) existing.displayNames.add(mail.displayName);
+    existing.evidence.push(evidenceRef(document, `header:${header}`));
+    parties.set(mail.address, existing);
+    return partyIdFor(mail.address);
+  };
+
+  for (const entry of entries) {
+    if (entry.text === null) continue;
+    const document = entry.document;
+    if (document.extension === '.eml') {
+      const mail = parseEmail(entry.text);
+      const header = (name: string): string | undefined => mail.headers.get(name)?.[0];
+      const senders = parseAddressList(header('from') ?? '');
+      const recipients = [
+        ...parseAddressList(header('to') ?? '').map((address) => ({ address, header: 'To' })),
+        ...parseAddressList(header('cc') ?? '').map((address) => ({ address, header: 'Cc' })),
+      ];
+      for (const sender of senders) {
+        const partyId = touchParty(sender, document, 'From');
+        links.push({
+          linkId: linkIdFor('WAS_SENT_BY', document.documentId, partyId),
+          kind: 'WAS_SENT_BY',
+          from: { kind: 'DOCUMENT', id: document.documentId },
+          to: { kind: 'PARTY', id: partyId },
+          evidence: [evidenceRef(document, 'header:From')],
+          confidence: 0.6,
+        });
+      }
+      for (const recipient of recipients) {
+        const partyId = touchParty(recipient.address, document, recipient.header);
+        links.push({
+          linkId: linkIdFor('WAS_RECEIVED_BY', document.documentId, partyId),
+          kind: 'WAS_RECEIVED_BY',
+          from: { kind: 'DOCUMENT', id: document.documentId },
+          to: { kind: 'PARTY', id: partyId },
+          evidence: [evidenceRef(document, `header:${recipient.header}`)],
+          confidence: 0.6,
+        });
+      }
+      const dateHeader = header('date');
+      const parsedDate = dateHeader === undefined ? null : parseRfc2822Date(dateHeader);
+      if (parsedDate) {
+        const subject = collapseWhitespace(header('subject') ?? '');
+        const fromNames = senders.map((sender) => sender.displayName ?? sender.address).join(', ');
+        const toNames = recipients.map((recipient) => recipient.address.displayName ?? recipient.address.address).join(', ');
+        timeline.push({
+          eventId: `evt_${sha256Hex(`${document.relativePath}:header:Date\n${parsedDate.iso}`).slice(0, 12)}`,
+          kind: 'COMMUNICATION',
+          occurredAt: parsedDate.iso,
+          learnedAt: null,
+          datePrecision: parsedDate.precision,
+          summary: `Email "${subject}" from ${fromNames} to ${toNames}`.slice(0, 200),
+          evidence: [evidenceRef(document, 'header:Date')],
+          assertedBy: 'party',
+          confidence: 0.6,
+          humanReviewRequired: true,
+        });
+      }
+      continue;
+    }
+    // Dated lines in plain-text documents → EVENT candidates. The adapter is
+    // mechanical, but the record is labelled ai_inference so it can never be
+    // mistaken for a party's own assertion; confidence stays ≤ 0.4.
+    const lines = entry.text.split(/\r?\n/);
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index] ?? '';
+      const dates = extractDates(line);
+      const firstDate = dates[0];
+      if (firstDate === undefined) continue;
+      const words = line.match(/\p{L}{2,}/gu) ?? [];
+      if (words.length < 3) continue;
+      const lineNumber = index + 1;
+      timeline.push({
+        eventId: `evt_${sha256Hex(`${document.relativePath}:line:${lineNumber}\n${firstDate}`).slice(0, 12)}`,
+        kind: 'EVENT',
+        occurredAt: firstDate,
+        learnedAt: null,
+        datePrecision: 'day',
+        summary: collapseWhitespace(line).slice(0, 200),
+        evidence: [evidenceRef(document, `line:${lineNumber}`)],
+        assertedBy: 'ai_inference',
+        confidence: 0.35,
+        humanReviewRequired: true,
+      });
+    }
+  }
+
+  for (const [versionGroupId, members] of grouping.membersByGroup) {
+    for (let index = 1; index < members.length; index += 1) {
+      const current = members[index]?.document;
+      const previous = members[index - 1]?.document;
+      if (!current || !previous) continue;
+      links.push({
+        linkId: linkIdFor('VERSION_OF', current.documentId, previous.documentId),
+        kind: 'VERSION_OF',
+        from: { kind: 'DOCUMENT', id: current.documentId },
+        to: { kind: 'DOCUMENT', id: previous.documentId },
+        evidence: [
+          { documentId: current.documentId, versionId: versionGroupId, sha256: current.sha256 },
+          { documentId: previous.documentId, versionId: versionGroupId, sha256: previous.sha256 },
+        ],
+        confidence: current.sha256 === previous.sha256 ? 0.9 : 0.5,
+      });
+    }
+  }
+
+  const partyRecords: LegalParty[] = [...parties.values()]
+    .map((party) => {
+      const names = [...party.displayNames].sort(byteCompare);
+      return {
+        partyId: partyIdFor(party.address),
+        displayName: names[0] ?? party.address,
+        kind: 'unknown' as const,
+        roles: [],
+        aliases: uniqueSorted([...names, party.address]),
+        mentions: party.mentions,
+        evidence: party.evidence,
+        identityConfidence: names.length > 0 ? 0.5 : 0.4,
+        humanReviewRequired: true,
+      };
+    })
+    .sort((a, b) => byteCompare(a.partyId, b.partyId));
+
+  timeline.sort((a, b) => byteCompare(a.occurredAt ?? '', b.occurredAt ?? '') || byteCompare(a.eventId, b.eventId));
+  links.sort((a, b) => byteCompare(a.linkId, b.linkId));
+  return { parties: partyRecords, timeline, links };
+}
+
+// ---------------------------------------------------------------------------
+// Coverage + case
+// ---------------------------------------------------------------------------
+function buildCoverage(
+  caseId: string,
+  entries: readonly InventoryEntry[],
+  walk: WalkResult,
+  excludedRoots: readonly string[],
+): LegalCoverage {
+  const byExtraction: Record<ExtractionStatus, number> = { text: 0, metadata_only: 0, unreadable: 0, excluded: 0 };
+  const kindCounts = new Map<string, number>();
+  const unreadable: { relativePath: string; reason: string }[] = [];
+  for (const entry of entries) {
+    byExtraction[entry.document.extraction] += 1;
+    kindCounts.set(entry.document.kindGuess, (kindCounts.get(entry.document.kindGuess) ?? 0) + 1);
+    if (entry.document.extraction === 'unreadable') {
+      unreadable.push({ relativePath: entry.document.relativePath, reason: entry.readFailure ?? 'read_failed:UNKNOWN' });
+    } else if (entry.document.extraction === 'metadata_only') {
+      unreadable.push({ relativePath: entry.document.relativePath, reason: `no_text_extraction_for_extension:${entry.document.extension || '(none)'}` });
+    }
+  }
+  for (const failure of walk.directoryErrors) {
+    unreadable.push({ relativePath: failure.relativePath, reason: failure.reason });
+  }
+  unreadable.sort((a, b) => byteCompare(a.relativePath, b.relativePath));
+  const byKind: Record<string, number> = {};
+  for (const kind of [...kindCounts.keys()].sort(byteCompare)) {
+    byKind[kind] = kindCounts.get(kind) ?? 0;
+  }
+  return {
+    caseId,
+    totalFiles: entries.length,
+    byExtraction,
+    byKind,
+    excludedRoots: [...excludedRoots].sort(byteCompare),
+    unreadable,
+    // Complete = every file has a fate AND no directory was left unwalked.
+    complete: walk.directoryErrors.length === 0 && entries.every((entry) => EXTRACTION_STATUSES.includes(entry.document.extraction)),
+  };
+}
+
+function snapshotSha256(entries: readonly InventoryEntry[]): string {
+  const lines = entries.map((entry) => `${entry.document.relativePath}\t${entry.document.sha256 || entry.document.extraction}\n`);
+  return sha256Hex(lines.join(''));
+}
+
+// ---------------------------------------------------------------------------
+// Artifact writing (never outside out_dir; atomic per file)
+// ---------------------------------------------------------------------------
+function writeJsonAtomic(path: string, value: unknown): void {
+  const tmp = `${path}.tmp-${process.pid}`;
+  writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+  renameSync(tmp, path);
+}
+
+export function writeArtifacts(outDir: string, artifacts: LegalCaseArtifacts): { readonly dir: string; readonly files: readonly string[] } {
+  const root = resolve(outDir);
+  const dir = resolve(root, ARTIFACT_ROOT, artifacts.case.caseId);
+  const escape = relative(root, dir);
+  if (escape.startsWith('..') || isAbsolute(escape)) {
+    throw new Error(`artifact directory escapes out_dir: ${dir}`);
+  }
+  mkdirSync(dir, { recursive: true });
+  const files: string[] = [];
+  const table: ReadonlyArray<readonly [string, unknown]> = [
+    ['case.json', artifacts.case],
+    ['documents.json', artifacts.documents],
+    ['versions.json', artifacts.versions],
+    ['parties.json', artifacts.parties],
+    ['timeline.json', artifacts.timeline],
+    ['statements.json', artifacts.statements],
+    ['links.json', artifacts.links],
+    ['coverage.json', artifacts.coverage],
+  ];
+  for (const [name, value] of table) {
+    const path = resolve(dir, name);
+    writeJsonAtomic(path, value);
+    files.push(path);
+  }
+  return { dir, files };
+}
+
+// ---------------------------------------------------------------------------
+// Entry point
+// ---------------------------------------------------------------------------
+function requireString(value: unknown, field: string): string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error(`${ADAPTER_ID}: input.${field} is required and must be a non-empty string`);
+  }
+  return value;
+}
+
+export function runLegalDocumentInventory(input: LegalInventoryInput, cwd: string = process.cwd()): LegalInventoryResult {
+  const archiveRootInput = requireString(input.archive_root, 'archive_root');
+  const caseSlug = requireString(input.case_id, 'case_id');
+  if (!CASE_ID_RE.test(caseSlug)) {
+    throw new Error(`${ADAPTER_ID}: input.case_id must match ${CASE_ID_RE.source} (it names an artifact directory)`);
+  }
+  const maxTextBytes = input.max_text_bytes ?? DEFAULT_MAX_TEXT_BYTES;
+  if (!Number.isInteger(maxTextBytes) || maxTextBytes < 0) {
+    throw new Error(`${ADAPTER_ID}: input.max_text_bytes must be a non-negative integer`);
+  }
+  const excludeRoots = uniqueSorted(
+    (input.exclude_roots ?? []).map((root) => {
+      const normalized = normalizeRelative(String(root));
+      if (normalized === '' || isAbsolute(normalized) || normalized.split('/').includes('..')) {
+        throw new Error(`${ADAPTER_ID}: exclude_roots entries must be relative paths inside the archive: ${root}`);
+      }
+      return normalized;
+    }),
+  );
+  const caseId = `case_${caseSlug}`;
+  const archiveRootPosix = normalizeRelative(archiveRootInput) || '.';
+  const archiveRootAbs = resolve(cwd, archiveRootInput);
+  const outDir = resolve(cwd, input.out_dir ?? process.env['ARIA_TOOLS_DIR'] ?? 'aria-tools');
+
+  if (!existsSync(archiveRootAbs) || !statSync(archiveRootAbs).isDirectory()) {
+    // G-10 convention: an absent scope exits clean with a status, never a crash.
+    return {
+      output: {
+        observations: [],
+        findings: [],
+        read_paths: [],
+        evidence_sources: [],
+        belief_candidates: [],
+        cost_units: 0,
+        metadata: { case_id: caseId, out_dir: toPosix(outDir), archive_root: archiveRootPosix, status: 'scope_absent', adapter_version: ADAPTER_VERSION },
+      },
+      artifacts: null,
+      artifactDir: null,
+      writtenFiles: [],
+    };
+  }
+
+  const walk = walkArchive(archiveRootAbs, excludeRoots);
+  const entries = walk.files.map((file) => inventoryFile(file, caseId, maxTextBytes));
+  const grouping = buildVersionGroups(entries);
+  const documents: LegalDocument[] = entries
+    .map((entry) => ({ ...entry.document, versionGroupId: grouping.groupIdByDocument.get(entry.document.documentId) ?? null }))
+    .sort((a, b) => byteCompare(a.relativePath, b.relativePath));
+  const derived = deriveRecords(entries, grouping);
+  const presentExcludedRoots = excludeRoots.filter((root) => walk.matchedExcludeRoots.has(root) || existsSync(resolve(archiveRootAbs, root)));
+  const coverage = buildCoverage(caseId, entries, walk, presentExcludedRoots);
+  const newestMtime = entries.reduce<Date | null>((newest, entry) => (newest === null || entry.file.mtime > newest ? entry.file.mtime : newest), null);
+  const legalCase: LegalCase = {
+    caseId,
+    title: input.title ?? caseSlug,
+    jurisdiction: null,
+    courtReference: null,
+    archiveRoot: archiveRootPosix,
+    createdAt: input.created_at ?? (newestMtime ?? new Date(0)).toISOString(),
+    snapshotSha256: snapshotSha256(entries),
+    adapterId: ADAPTER_ID,
+    adapterVersion: ADAPTER_VERSION,
+    runId: input.run_id ?? null,
+    cycleId: input.cycle_id ?? null,
+  };
+  const artifacts: LegalCaseArtifacts = {
+    case: legalCase,
+    documents,
+    versions: grouping.versions,
+    parties: derived.parties,
+    timeline: derived.timeline,
+    statements: [],
+    links: derived.links,
+    coverage,
+  };
+  const written = writeArtifacts(outDir, artifacts);
+
+  // stdout paths are addressed the way the caller addressed the archive
+  // (archive_root as given + relative path) so a workspace-relative archive
+  // yields workspace-resolvable evidence for the kernel validator.
+  const workspacePath = (relativePath: string): string => (archiveRootPosix === '.' ? relativePath : `${archiveRootPosix}/${relativePath}`);
+  const readPaths: string[] = [];
+  const observations: AdapterObservation[] = [];
+  const findings: AdapterFinding[] = [];
+  for (const entry of entries) {
+    const document = entry.document;
+    const path = workspacePath(document.relativePath);
+    if (!entry.file.excluded) readPaths.push(path);
+    observations.push({
+      id: `${ADAPTER_ID}:doc:${document.relativePath}`,
+      type: 'legal_document_inventoried',
+      path,
+      details: {
+        documentId: document.documentId,
+        extraction: document.extraction,
+        kindGuess: document.kindGuess,
+        sha256: document.sha256,
+        bytes: document.bytes,
+        textTruncated: entry.textTruncated,
+        versionGroupId: grouping.groupIdByDocument.get(document.documentId) ?? null,
+      },
+    });
+    if (document.extraction === 'unreadable' || document.extraction === 'metadata_only') {
+      const reason = coverage.unreadable.find((gap) => gap.relativePath === document.relativePath)?.reason ?? 'unknown';
+      findings.push({
+        id: `${ADAPTER_ID}:unreadable:${document.relativePath}`,
+        rule: 'unreadable_document',
+        severity: 'medium',
+        path,
+        message:
+          `\`${document.relativePath}\` has no extracted text (${reason}); it is inventoried as ${document.extraction} ` +
+          'and is a coverage gap until a human supplies its content.',
+        evidence: [{ path }],
+        confidence: 0.95,
+      });
+    }
+  }
+  for (const version of grouping.versions) {
+    const members = grouping.membersByGroup.get(version.versionGroupId) ?? [];
+    const first = members[0];
+    if (!first) continue;
+    findings.push({
+      id: `${ADAPTER_ID}:version-group:${version.versionGroupId}`,
+      rule: 'document_version_conflict',
+      severity: 'low',
+      path: workspacePath(first.document.relativePath),
+      message:
+        `${members.length} files share a version lineage (${members.map((member) => `\`${member.document.relativePath}\``).join(', ')}); ` +
+        'which one is authoritative requires human review.',
+      evidence: members.map((member) => ({ path: workspacePath(member.document.relativePath) })),
+      confidence: 0.5,
+    });
+  }
+  const sortedReadPaths = uniqueSorted(readPaths);
+  const output: AriaOutput = {
+    observations: observations.sort((a, b) => byteCompare(a.id, b.id)),
+    findings: findings.sort((a, b) => byteCompare(a.id, b.id)),
+    read_paths: sortedReadPaths,
+    evidence_sources: sortedReadPaths,
+    belief_candidates: [],
+    cost_units: entries.length,
+    metadata: {
+      case_id: caseId,
+      out_dir: toPosix(outDir),
+      archive_root: archiveRootPosix,
+      adapter_version: ADAPTER_VERSION,
+      status: 'ok',
+      artifact_dir: toPosix(written.dir),
+      exclude_roots_declared: excludeRoots,
+      exclude_roots_not_found: excludeRoots.filter((root) => !presentExcludedRoots.includes(root)),
+      coverage: {
+        totalFiles: coverage.totalFiles,
+        byExtraction: coverage.byExtraction,
+        excludedRoots: coverage.excludedRoots,
+        unreadable: coverage.unreadable.length,
+        complete: coverage.complete,
+      },
+      version_groups: grouping.versions.length,
+      parties: derived.parties.length,
+      timeline_events: derived.timeline.length,
+    },
+  };
+  return { output, artifacts, artifactDir: written.dir, writtenFiles: written.files };
+}
+
+function readStdin(): Promise<string> {
+  return new Promise((resolvePromise, reject) => {
+    let input = '';
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', (chunk: string | Buffer) => {
+      input += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+    });
+    process.stdin.on('end', () => resolvePromise(input));
+    process.stdin.on('error', reject);
+  });
+}
+
+async function main(): Promise<void> {
+  const raw = await readStdin();
+  if (raw.trim().length === 0) {
+    throw new Error(`${ADAPTER_ID}: stdin JSON is required ({archive_root, case_id, ...})`);
+  }
+  const input = JSON.parse(raw) as LegalInventoryInput;
+  const result = runLegalDocumentInventory(input);
+  process.stdout.write(`${JSON.stringify(result.output)}\n`);
+}
+
+if (require.main === module) {
+  main().catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`${message}\n`);
+    process.exit(1);
+  });
+}
+

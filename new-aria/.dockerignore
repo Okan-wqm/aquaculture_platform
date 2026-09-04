@@ -1,7 +1,10 @@
 # Build context = the tracked tree only; runtime state and toolchains are
 # recreated inside the image or mounted as volumes.
 .git
-node_modules
+**/node_modules
+# console build outputs are produced inside ui/Dockerfile, never shipped as context
+ui/server/dist
+ui/web/dist
 **/__pycache__
 **/*.pyc
 **/.pytest_cache

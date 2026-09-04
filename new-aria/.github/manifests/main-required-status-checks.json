@@ -1,0 +1,146 @@
+{
+  "$schema": "aqua/github-required-status-checks/v1",
+  "schema_version": 1,
+  "repository": "Okan-wqm/aquaculture_platform",
+  "branch": "main",
+  "finding_ids": ["EDGE-CRITICAL-001", "INFRA-CRITICAL-044", "INFRA-HIGH-084"],
+  "branch_protection": {
+    "enforce_admins": true
+  },
+  "required_status_checks": {
+    "strict": true,
+    "contexts": ["sens-enterprise-summary", "merge-gate", "aria-merge-authority", "build-status"],
+    "checks": [
+      {
+        "context": "aria-merge-authority",
+        "app_id": 15368
+      },
+      {
+        "context": "build-status",
+        "app_id": 15368
+      },
+      {
+        "context": "merge-gate",
+        "app_id": 15368
+      },
+      {
+        "context": "sens-enterprise-summary",
+        "app_id": 15368
+      }
+    ]
+  },
+  "ci_affected_required_path_filters": [
+    "sens-api-gateway/**",
+    "Cargo.toml",
+    "Cargo.lock",
+    "crates/**",
+    "tools/executors/cargo/**",
+    "tools/backup-ssh-broker/**",
+    "tools/gates/**",
+    "infrastructure/scripts/**",
+    ".github/workflows/**",
+    ".github/manifests/**",
+    "tests/**",
+    "package.json",
+    "package-lock.json"
+  ],
+  "sens_specialist_required_path_filters": [
+    "sens-api-gateway/**",
+    "Cargo.toml",
+    "Cargo.lock",
+    "crates/**",
+    "tools/executors/cargo/**",
+    "tools/gates/**",
+    ".github/manifests/**",
+    "package.json",
+    "package-lock.json"
+  ],
+  "workflow_contracts": [
+    {
+      "workflow": ".github/workflows/ci-affected.yml",
+      "contexts": [
+        {
+          "context": "sens-enterprise-summary",
+          "job_id": "sens-enterprise-summary",
+          "requires_jobs": [
+            "detect-changes",
+            "install",
+            "lint",
+            "type-check",
+            "test",
+            "sensor-service-gates",
+            "sens-api-gateway-rust",
+            "sens-enterprise-validation",
+            "build"
+          ],
+          "required_markers": [
+            "if: always()",
+            "Fail on skipped, cancelled or failed Sens dependencies",
+            "needs.sens-api-gateway-rust.result",
+            "needs.sens-enterprise-validation.result"
+          ]
+        },
+        {
+          "context": "merge-gate",
+          "job_id": "merge-gate",
+          "requires_jobs": [
+            "detect-changes",
+            "install",
+            "lint",
+            "type-check",
+            "test",
+            "build",
+            "sensor-service-gates",
+            "sens-api-gateway-rust",
+            "sens-enterprise-validation"
+          ],
+          "required_markers": ["Assert required PR checks"]
+        },
+        {
+          "context": "build-status",
+          "job_id": "build-status",
+          "requires_jobs": [
+            "detect-changes",
+            "install",
+            "lint",
+            "type-check",
+            "test",
+            "build",
+            "schema-validation",
+            "pre-flight",
+            "infra-image-build-check",
+            "security-audit",
+            "docs-check",
+            "farm-water-chemistry-e2e",
+            "sensor-service-gates",
+            "sens-api-gateway-rust",
+            "sens-enterprise-validation",
+            "sens-enterprise-summary",
+            "merge-gate"
+          ],
+          "required_markers": ["name: build-status", "if: always()", "Affected validation passed"]
+        }
+      ]
+    },
+    {
+      "workflow": ".github/workflows/aria-merge-authority.yml",
+      "contexts": [
+        {
+          "context": "aria-merge-authority",
+          "job_id": "aria-merge-authority",
+          "requires_jobs": [],
+          "required_markers": [
+            "npm run aria:compile",
+            "test_merge_authority_invariants.py",
+            "npm run gates:required-status-checks",
+            "npm run aria:docs:ssot"
+          ]
+        }
+      ]
+    }
+  ],
+  "live_verification": {
+    "command": "npm run gates:required-status-checks:live",
+    "expected": "GitHub main branch protection exists, admin enforcement is enabled, strict mode is true, required status check contexts match, and every context is bound to the exact required_status_checks.checks app_id."
+  }
+}

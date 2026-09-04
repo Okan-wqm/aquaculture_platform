@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aria://packs/legal/schemas/document-version.schema.json",
+  "title": "LegalDocumentVersion",
+  "description": "A version lineage inferred from names/content. Always humanReviewRequired; filedMember is never set by the adapter.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "versionGroupId",
+    "members",
+    "signedMember",
+    "filedMember",
+    "humanReviewRequired"
+  ],
+  "properties": {
+    "versionGroupId": {
+      "type": "string",
+      "pattern": "^vg_[0-9a-f]{12}$"
+    },
+    "members": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "documentId",
+          "ordinal",
+          "basis",
+          "similarityToPrevious"
+        ],
+        "properties": {
+          "documentId": {
+            "type": "string",
+            "pattern": "^doc_[0-9a-f]{16}$"
+          },
+          "ordinal": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "basis": {
+            "enum": [
+              "file_mtime",
+              "name_suffix",
+              "content_similarity",
+              "unknown"
+            ]
+          },
+          "similarityToPrevious": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      }
+    },
+    "signedMember": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^doc_[0-9a-f]{16}$"
+    },
+    "filedMember": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^doc_[0-9a-f]{16}$"
+    },
+    "humanReviewRequired": {
+      "const": true
+    }
+  }
+}

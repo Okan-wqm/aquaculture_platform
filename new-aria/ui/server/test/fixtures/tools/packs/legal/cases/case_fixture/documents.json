@@ -1,0 +1,204 @@
+[
+  {
+    "documentId": "doc_e69ec22880787b97",
+    "caseId": "case_fixture",
+    "relativePath": "Ikke laste opp/privat_notat.txt",
+    "fileName": "privat_notat.txt",
+    "extension": ".txt",
+    "mediaType": "text/plain",
+    "bytes": 36,
+    "sha256": "",
+    "modifiedAt": "2026-09-03T20:53:45.978Z",
+    "kindGuess": "DOCUMENT",
+    "kindConfidence": 0.3,
+    "extraction": "excluded",
+    "excerpt": null,
+    "datesMentioned": [],
+    "amountsMentioned": [],
+    "versionGroupId": null,
+    "excludedReason": "excluded_root:Ikke laste opp"
+  },
+  {
+    "documentId": "doc_85f73fc2c720f363",
+    "caseId": "case_fixture",
+    "relativePath": "avtale_v1.txt",
+    "fileName": "avtale_v1.txt",
+    "extension": ".txt",
+    "mediaType": "text/plain",
+    "bytes": 130,
+    "sha256": "42c528a616cd7c9219a12b310ff7e53d183b1b3bad8700945414effbe9f9b618",
+    "modifiedAt": "2026-09-03T20:53:45.978Z",
+    "kindGuess": "DOCUMENT",
+    "kindConfidence": 0.3,
+    "extraction": "text",
+    "excerpt": "AVTALE OM LEVERING (utkast v1) Dato: 01.03.2024 Parter: Part A AS og Part B Pris: kr 125 000,00 eks. mva. Signert: ____________",
+    "datesMentioned": [
+      "2024-03-01"
+    ],
+    "amountsMentioned": [
+      "kr 125 000,00"
+    ],
+    "versionGroupId": "vg_d517012e6195",
+    "excludedReason": null
+  },
+  {
+    "documentId": "doc_f4ee47acddf5586e",
+    "caseId": "case_fixture",
+    "relativePath": "avtale_v2_signert.txt",
+    "fileName": "avtale_v2_signert.txt",
+    "extension": ".txt",
+    "mediaType": "text/plain",
+    "bytes": 159,
+    "sha256": "faf98c49abfe41439e67deb06a8bc80a4f783af462e5902a10f72e5984eaf4db",
+    "modifiedAt": "2026-09-03T20:53:45.978Z",
+    "kindGuess": "DOCUMENT",
+    "kindConfidence": 0.3,
+    "extraction": "text",
+    "excerpt": "AVTALE OM LEVERING (versjon 2, signert) Dato: 15.03.2024 Parter: Part A AS og Part B Pris: kr 120 000,00 eks. mva. Signert av Part A AS og Part B 18.03.2024",
+    "datesMentioned": [
+      "2024-03-15",
+      "2024-03-18"
+    ],
+    "amountsMentioned": [
+      "kr 120 000,00"
+    ],
+    "versionGroupId": "vg_d517012e6195",
+    "excludedReason": null
+  },
+  {
+    "documentId": "doc_3ed75d995ca0922e",
+    "caseId": "case_fixture",
+    "relativePath": "korrespondanse/2024-03-04_part-a_til_part-b.eml",
+    "fileName": "2024-03-04_part-a_til_part-b.eml",
+    "extension": ".eml",
+    "mediaType": "message/rfc822",
+    "bytes": 450,
+    "sha256": "ef3e11258cb99536ac741758ad70a78fbfde591c44c917502730ae98cb9f1061",
+    "modifiedAt": "2026-09-03T20:53:45.969Z",
+    "kindGuess": "COMMUNICATION",
+    "kindConfidence": 0.6,
+    "extraction": "text",
+    "excerpt": "Hei, Vedlagt utkast til avtale datert 01.03.2024. Vi ber om tilbakemelding innen 15.03.2024. Totalbeløp er kr 125 000,00 eks. mva. Med vennlig hilsen Part A AS",
+    "datesMentioned": [
+      "2024-03-01",
+      "2024-03-04",
+      "2024-03-15"
+    ],
+    "amountsMentioned": [
+      "kr 125 000,00"
+    ],
+    "versionGroupId": null,
+    "excludedReason": null
+  },
+  {
+    "documentId": "doc_608f1333d74135c8",
+    "caseId": "case_fixture",
+    "relativePath": "korrespondanse/2024-03-12_part-b_til_part-a.eml",
+    "fileName": "2024-03-12_part-b_til_part-a.eml",
+    "extension": ".eml",
+    "mediaType": "message/rfc822",
+    "bytes": 438,
+    "sha256": "c87f37dde687d070e24d8d41c0a30568ffbafe2ddcf1d5e95316e4d9133fac55",
+    "modifiedAt": "2026-09-03T20:53:45.971Z",
+    "kindGuess": "COMMUNICATION",
+    "kindConfidence": 0.6,
+    "extraction": "text",
+    "excerpt": "Hei, Vi aksepterer ikke punkt 4 i utkastet. Fakturaen på NOK 25 000 datert 2024-03-10 bestrides. Vi foreslår nytt møte 20. mars 2024. Vennlig hilsen Part B",
+    "datesMentioned": [
+      "2024-03-10",
+      "2024-03-12",
+      "2024-03-20"
+    ],
+    "amountsMentioned": [
+      "NOK 25 000"
+    ],
+    "versionGroupId": null,
+    "excludedReason": null
+  },
+  {
+    "documentId": "doc_c9eebbb50c992990",
+    "caseId": "case_fixture",
+    "relativePath": "kronologi.txt",
+    "fileName": "kronologi.txt",
+    "extension": ".txt",
+    "mediaType": "text/plain",
+    "bytes": 282,
+    "sha256": "6e5ef00a1637223634103f8a6d15f8938f42fef3312e308b45429817e369c1ad",
+    "modifiedAt": "2026-09-03T20:53:45.974Z",
+    "kindGuess": "DOCUMENT",
+    "kindConfidence": 0.3,
+    "extraction": "text",
+    "excerpt": "Kronologi (utkast, ikke verifisert av advokat) 2024-02-20 Første møte mellom Part A AS og Part B om leveransen. 01.03.2024 Utkast til avtale sendt fra Part A AS til Part B. 12.03.2024 Part B bestrider faktura på kr 25 000,- og ber om ny lev",
+    "datesMentioned": [
+      "2024-02-20",
+      "2024-03-01",
+      "2024-03-12"
+    ],
+    "amountsMentioned": [
+      "25 000 kr",
+      "kr 25 000,-"
+    ],
+    "versionGroupId": null,
+    "excludedReason": null
+  },
+  {
+    "documentId": "doc_02f9abbb83c5f543",
+    "caseId": "case_fixture",
+    "relativePath": "notat.md",
+    "fileName": "notat.md",
+    "extension": ".md",
+    "mediaType": "text/markdown",
+    "bytes": 161,
+    "sha256": "b2c55428ad23c2b7ae9dd9cf5525d0728f7a90180ef91a2a6d587de7c9ad3caa",
+    "modifiedAt": "2026-09-03T20:53:45.978Z",
+    "kindGuess": "DOCUMENT",
+    "kindConfidence": 0.3,
+    "extraction": "text",
+    "excerpt": "# Notat Møte 5. mars 2024 med Part B om leveringsplan. Meeting minutes were circulated on March 20, 2024 to both parties. Ingen beløp avtalt i dette møtet.",
+    "datesMentioned": [
+      "2024-03-05",
+      "2024-03-20"
+    ],
+    "amountsMentioned": [],
+    "versionGroupId": null,
+    "excludedReason": null
+  },
+  {
+    "documentId": "doc_8c2b8465e178dcca",
+    "caseId": "case_fixture",
+    "relativePath": "vedlegg/faktura_2024-001.pdf",
+    "fileName": "faktura_2024-001.pdf",
+    "extension": ".pdf",
+    "mediaType": "application/pdf",
+    "bytes": 528,
+    "sha256": "f7361fa45a83fad02bd6ede58a6563152b85ca9e0412bbef91973059f46e3634",
+    "modifiedAt": "2026-09-03T20:53:46.227Z",
+    "kindGuess": "FINANCIAL_LOSS",
+    "kindConfidence": 0.5,
+    "extraction": "metadata_only",
+    "excerpt": null,
+    "datesMentioned": [],
+    "amountsMentioned": [],
+    "versionGroupId": null,
+    "excludedReason": null
+  },
+  {
+    "documentId": "doc_120386fefe10fbb2",
+    "caseId": "case_fixture",
+    "relativePath": "vedlegg/klage_utkast.docx",
+    "fileName": "klage_utkast.docx",
+    "extension": ".docx",
+    "mediaType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "bytes": 260,
+    "sha256": "4a96acc30188aa3178f8c1a64e4309be8851521b6a663bb3dcf088a38c5435e0",
+    "modifiedAt": "2026-09-03T20:53:46.227Z",
+    "kindGuess": "PROCEDURAL_STEP",
+    "kindConfidence": 0.5,
+    "extraction": "metadata_only",
+    "excerpt": null,
+    "datesMentioned": [],
+    "amountsMentioned": [],
+    "versionGroupId": null,
+    "excludedReason": null
+  }
+]

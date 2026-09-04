@@ -873,6 +873,11 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
         authorizing_consumer_paths=(
             f"{_KERNEL}autonomy_state.py",
             f"{_KERNEL}burn_in.py",
+            # cycle.py is a producer of this surface AND, since the deadline
+            # seal, a reader of it: _seal_cycle_on_escape reads its own
+            # lifecycle rows to decide whether a terminal row is still owed,
+            # so it can never write a second one over an abort path's.
+            f"{_KERNEL}cycle.py",
             f"{_KERNEL}runtime_artifacts.py",
             f"{_KERNEL}trailer_scan.py",
         ),

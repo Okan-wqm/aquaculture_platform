@@ -34821,6 +34821,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/infra-expert/2026-09-04-production-host-control-plane-integration.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/infra/2026-06-30-farm-canary-masked-rejection.md",
       "prettier_managed": true
     },

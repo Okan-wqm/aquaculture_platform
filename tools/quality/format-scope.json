@@ -44780,6 +44780,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/production-host-control-plane-runtime.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/production-host-runtime-bundle.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/production-host-ssh-payload.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/production-ops-proof-contract.spec.ts",
       "prettier_managed": true
     },

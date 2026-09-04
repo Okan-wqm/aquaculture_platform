@@ -121,6 +121,46 @@ which the waiver's breadth then makes harder to scope.
 **Fix direction:** match the repo-relative path, falling back to the basename
 only when it is unambiguous across the repository.
 
+### INFRA-HIGH-145 — a required check that cannot be honoured
+
+Fixing the above meant editing `web/apps/aquamobil/package.json`, which is the
+first change in a while to set `dependency_audit_required` and therefore run
+`security-audit`. That job gated on `npm audit`'s own exit code, which is
+all-or-nothing.
+
+`GHSA-528h-pc64-c93x` (`minio@8.0.7` → `stream-json@1.9.1`) has no remediation
+that keeps minio working. No patched stream-json 1.x or 2.x exists — the
+advisory covers `<=3.4.0` — and 3.5+ is ESM-only and restructured under `src/`,
+so an override breaks minio's CommonJS
+`require("stream-json/jsonl/Parser.js")`. Verified by unpacking 3.6.0 rather
+than inferred. npm's own remediation is a major downgrade to `minio@7.1.3`, and
+8.0.7 is the latest published release.
+
+`security-audit` is required for `merge-gate`, so it stays red for a reason
+nobody can act on — and a permanently red required check stops being read, at
+which point it protects nothing. The gate had no way to record a reviewed,
+dated exception, unlike the affected-target quarantine and the
+dormant-invariant registry, which both carry `{owner, reason, expires_on,
+finding_id}`.
+
+**Bounded:** every advisory with a real fix was fixed first — `fast-uri` (whose
+existing override had itself become the vulnerable version), `browserslist`,
+`qs`, and `sanitize-html`, the last by root-causing the Jest ESM failure to
+`jest.preset.js`'s own `transformIgnorePatterns` allowlist rather than
+excepting it. The minio chain is the only one left.
+
+**Reachability, for whoever prices the risk:** minio touches stream-json only
+in `notification.js`. `libs/storage/src/minio-client.service.ts` is the single
+importer of minio in the repository and uses `bucketExists`, `getObject`,
+`listObjects`, `makeBucket`, `presignedGetObject`, `presignedPutObject`,
+`putObject`, `removeObject` and `statObject` — none of which reach it.
+
+**Fix direction:** `scripts/ci/npm-audit-gate.mjs` renders the verdict instead
+of npm, applying `scripts/ci/npm-audit-exceptions.json`. An exception is one
+advisory, in one named audit leg, bound to the packages it was reviewed
+against, with an owner, an argument, a registry finding and an expiry after
+which the gate fails closed again.
+
 ## Context for DATA-CRITICAL-010
 
 The three findings above were surfaced while planning the fix for

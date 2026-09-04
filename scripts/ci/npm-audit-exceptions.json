@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "advisories": {
+    "GHSA-528h-pc64-c93x": {
+      "owner": "supply-chain-auditor",
+      "reason": "stream-json reaches the graph only through minio@8.0.7, which declares stream-json@^1.8.0. The advisory covers every release <=3.4.0, so no patched 1.x or 2.x exists, and 3.5+ is ESM-only and restructured under src/ \u2014 an override breaks minio's CommonJS require(\"stream-json/jsonl/Parser.js\") outright. npm's own remediation is a major DOWNGRADE to minio@7.1.3, and 8.0.7 is the latest published release, so upstream has not fixed it. The vulnerable code is the pick/ignore/filter/replace filters, which minio touches only in notification.js; libs/storage/src/minio-client.service.ts is the single importer of minio in this repository and uses bucketExists, getObject, listObjects, makeBucket, presignedGetObject, presignedPutObject, putObject, removeObject and statObject \u2014 none of which reach it. Re-review when minio ships a release off stream-json 1.x, or when libs/storage moves to @aws-sdk/client-s3.",
+      "expires_on": "2026-12-15",
+      "finding_id": "SUPPLY-CRITICAL-002",
+      "packages": ["minio", "stream-json"],
+      "scopes": ["root-production"]
+    }
+  }
+}

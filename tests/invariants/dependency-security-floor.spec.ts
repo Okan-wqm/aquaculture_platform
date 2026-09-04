@@ -86,6 +86,9 @@ interface AuditGraph {
   json: string;
   markdown: string;
   status: string;
+  /** `--level` and `--scope` the gate step must pass for this graph. */
+  level: string;
+  scope: string;
 }
 
 interface Lockfile {
@@ -141,6 +144,18 @@ function declaration(manifestPath: string, dependency: string): string | undefin
   return declarationFromManifest(readJson<PackageManifest>(manifestPath), dependency);
 }
 
+/**
+ * The audit step's job is to PRODUCE every graph — the JSON report and its
+ * source map — without letting a failure in one silence the next. It no longer
+ * renders the verdict: npm's exit code is all-or-nothing, so one advisory with
+ * no safe remediation turned this REQUIRED check permanently red, and a
+ * permanently red required check stops being read. The verdict moved to
+ * `scripts/ci/npm-audit-gate.mjs`, which applies dated, reviewed exceptions
+ * (`scripts/ci/npm-audit-exceptions.json`, guarded by
+ * npm-audit-exception-ssot.spec.ts) and fails on everything else. What still
+ * MUST hold here is that the source map runs for every graph and that its own
+ * failure is not swallowed — a missing report is a graph nobody can review.
+ */
 function auditScriptSatisfiesContract(script: string, graphs: readonly AuditGraph[]): boolean {
   const lines = script.split(/\r?\n/).map((line) => line.trim());
   if (lines.at(-1) === '') lines.pop();
@@ -151,7 +166,6 @@ function auditScriptSatisfiesContract(script: string, graphs: readonly AuditGrap
   for (const graph of graphs) {
     const expectedCapture = [
       graph.command,
-      `${graph.status}_AUDIT_STATUS=$?`,
       `node scripts/ci/audit-source-map.mjs ${graph.json} ${graph.markdown}`,
       `${graph.status}_MAP_STATUS=$?`,
     ];
@@ -165,21 +179,38 @@ function auditScriptSatisfiesContract(script: string, graphs: readonly AuditGrap
   if (lines[cursor] !== 'set -e') return false;
 
   for (const graph of graphs) {
-    for (const suffix of ['AUDIT', 'MAP'] as const) {
-      const variable = `${graph.status}_${suffix}_STATUS`;
-      const expectedFailureBranch = [
-        `if [ "$${variable}" -ne 0 ]; then`,
-        `exit "$${variable}"`,
-        'fi',
-      ];
-      for (const expectedLine of expectedFailureBranch) {
-        cursor += 1;
-        if (lines[cursor] !== expectedLine) return false;
-      }
+    const variable = `${graph.status}_MAP_STATUS`;
+    const expectedFailureBranch = [
+      `if [ "$${variable}" -ne 0 ]; then`,
+      `exit "$${variable}"`,
+      'fi',
+    ];
+    for (const expectedLine of expectedFailureBranch) {
+      cursor += 1;
+      if (lines[cursor] !== expectedLine) return false;
     }
   }
 
   return cursor === lines.length - 1;
+}
+
+/**
+ * Every graph the step produces must also be JUDGED. A report that is written,
+ * uploaded and never gated is the shape of gate this programme keeps finding
+ * inert, so the gate invocation is matched per graph rather than by presence.
+ */
+function gateStepCovers(script: string, graphs: readonly AuditGraph[]): string[] {
+  const normalised = script.replace(/\\\n\s+/g, ' ').replace(/\s+/g, ' ');
+  return graphs
+    .filter(
+      (graph) =>
+        !normalised.includes(
+          `node scripts/ci/npm-audit-gate.mjs --audit ${graph.json} ` +
+            `--level ${graph.level} --scope ${graph.scope} ` +
+            `--exceptions scripts/ci/npm-audit-exceptions.json`,
+        ),
+    )
+    .map((graph) => graph.json);
 }
 
 function trackedManifestsDeclaring(dependency: string): readonly string[] {
@@ -230,38 +261,37 @@ describe('JavaScript dependency security floor', () => {
     expect(declarationFromManifest(manifest, 'vitest')).toBe('^3.2.7');
   });
 
-  test('audit graph contract rejects status-capture and exit-body mutants', () => {
+  test('audit graph contract rejects report-capture and exit-body mutants', () => {
     const graph: AuditGraph = {
       command: 'npm audit --audit-level=high --json > npm-audit-root-full.json',
       json: 'npm-audit-root-full.json',
       markdown: 'npm-audit-root-full.md',
       status: 'ROOT_FULL',
+      level: 'high',
+      scope: 'root-full',
     };
     const valid = [
       'set +e',
       graph.command,
-      `${graph.status}_AUDIT_STATUS=$?`,
       `node scripts/ci/audit-source-map.mjs ${graph.json} ${graph.markdown}`,
       `${graph.status}_MAP_STATUS=$?`,
       'set -e',
-      `if [ "$${graph.status}_AUDIT_STATUS" -ne 0 ]; then`,
-      `  exit "$${graph.status}_AUDIT_STATUS"`,
-      'fi',
       `if [ "$${graph.status}_MAP_STATUS" -ne 0 ]; then`,
       `  exit "$${graph.status}_MAP_STATUS"`,
       'fi',
     ].join('\n');
     const mutants = [
-      valid.replace(graph.command, `${graph.command} || true`),
-      valid.replace(
-        `${graph.command}\n${graph.status}_AUDIT_STATUS=$?`,
-        `${graph.command}\ntrue\n${graph.status}_AUDIT_STATUS=$?`,
-      ),
+      // The source map stops running for this graph.
+      valid.replace(`node scripts/ci/audit-source-map.mjs ${graph.json} ${graph.markdown}\n`, ''),
+      // Its failure is swallowed before the status is captured.
       valid.replace(
         `node scripts/ci/audit-source-map.mjs ${graph.json} ${graph.markdown}`,
         `node scripts/ci/audit-source-map.mjs ${graph.json} ${graph.markdown} || true`,
       ),
-      valid.replace(`exit "$${graph.status}_AUDIT_STATUS"`, `exit "$${graph.status}_MAP_STATUS"`),
+      // The captured status is never acted on.
+      valid.replace(`  exit "$${graph.status}_MAP_STATUS"`, '  true'),
+      // A stray command displaces the capture from the command it belongs to.
+      valid.replace(`${graph.status}_MAP_STATUS=$?`, `true\n${graph.status}_MAP_STATUS=$?`),
     ];
 
     expect(auditScriptSatisfiesContract(valid, [graph])).toBe(true);
@@ -270,6 +300,26 @@ describe('JavaScript dependency security floor', () => {
       false,
       false,
       false,
+    ]);
+  });
+
+  test('gate coverage check names the graph whose verdict step is missing', () => {
+    const graph: AuditGraph = {
+      command: 'npm audit --audit-level=high --json > npm-audit-root-full.json',
+      json: 'npm-audit-root-full.json',
+      markdown: 'npm-audit-root-full.md',
+      status: 'ROOT_FULL',
+      level: 'high',
+      scope: 'root-full',
+    };
+    const covering =
+      'node scripts/ci/npm-audit-gate.mjs --audit npm-audit-root-full.json \\\n' +
+      '  --level high --scope root-full --exceptions scripts/ci/npm-audit-exceptions.json';
+    expect(gateStepCovers(covering, [graph])).toEqual([]);
+    // A graph produced but never judged, and a graph judged at the wrong level.
+    expect(gateStepCovers('', [graph])).toEqual([graph.json]);
+    expect(gateStepCovers(covering.replace('--level high', '--level critical'), [graph])).toEqual([
+      graph.json,
     ]);
   });
 
@@ -455,14 +505,19 @@ describe('JavaScript dependency security floor', () => {
     expect(manifest.overrides).toEqual({
       ...(manifest.overrides ?? {}),
       'socket.io-parser': '4.2.7',
-      'fast-uri': '3.1.5',
+      // 3.1.6 clears GHSA-5jgf-p345-68v8, GHSA-f65p-4m7j-42xc, GHSA-fph4-wmhf-6fwf
+      // and GHSA-jqff-g426-hqxp; the previous floor had itself become vulnerable.
+      'fast-uri': '3.1.6',
+      // 4.28.9 clears the unbounded cache growth and the prototype write.
+      browserslist: '4.28.9',
       nanoid: '3.3.18',
       protobufjs: '7.6.5',
       esbuild: '^0.28.1',
     });
     expect(resolvedVersions(lock, 'socket.io-parser')).toEqual(['4.2.7']);
     expect(resolvedVersions(lock, 'protobufjs')).toEqual(['7.6.5']);
-    expect(resolvedVersions(lock, 'fast-uri')).toEqual(['3.1.5']);
+    expect(resolvedVersions(lock, 'fast-uri')).toEqual(['3.1.6']);
+    expect(resolvedVersions(lock, 'browserslist')).toEqual(['4.28.9']);
     expect(resolvedVersions(lock, 'nanoid')).toEqual(['3.3.18']);
     const esbuildVersions = resolvedVersions(lock, 'esbuild');
     expect(esbuildVersions.length).toBeGreaterThan(0);
@@ -610,12 +665,16 @@ describe('JavaScript dependency security floor', () => {
           json: 'npm-audit-root-production.json',
           markdown: 'npm-audit-root-production.md',
           status: 'ROOT_PRODUCTION',
+          level: 'moderate',
+          scope: 'root-production',
         },
         {
           command: 'npm audit --audit-level=high --json > npm-audit-root-full.json',
           json: 'npm-audit-root-full.json',
           markdown: 'npm-audit-root-full.md',
           status: 'ROOT_FULL',
+          level: 'high',
+          scope: 'root-full',
         },
         {
           command:
@@ -623,6 +682,8 @@ describe('JavaScript dependency security floor', () => {
           json: 'npm-audit-aquamobil-production.json',
           markdown: 'npm-audit-aquamobil-production.md',
           status: 'AQUAMOBIL_PRODUCTION',
+          level: 'moderate',
+          scope: 'aquamobil-production',
         },
         {
           command:
@@ -630,6 +691,8 @@ describe('JavaScript dependency security floor', () => {
           json: 'npm-audit-aquamobil-full.json',
           markdown: 'npm-audit-aquamobil-full.md',
           status: 'AQUAMOBIL_FULL',
+          level: 'high',
+          scope: 'aquamobil-full',
         },
         {
           command:
@@ -637,17 +700,25 @@ describe('JavaScript dependency security floor', () => {
           json: 'npm-audit-e2e-production.json',
           markdown: 'npm-audit-e2e-production.md',
           status: 'E2E_PRODUCTION',
+          level: 'moderate',
+          scope: 'e2e-production',
         },
         {
           command: 'npm --prefix e2e audit --audit-level=high --json > npm-audit-e2e-full.json',
           json: 'npm-audit-e2e-full.json',
           markdown: 'npm-audit-e2e-full.md',
           status: 'E2E_FULL',
+          level: 'high',
+          scope: 'e2e-full',
         },
       ] as const;
 
+      const gate =
+        steps.find((step) => step.run?.includes('scripts/ci/npm-audit-gate.mjs'))?.run ?? '';
       const artifactPaths = upload?.with?.path?.toString() ?? '';
       expect(auditScriptSatisfiesContract(audit, auditGraphs)).toBe(true);
+      // Every graph the step produces is also judged, at its own level and scope.
+      expect(gateStepCovers(gate, auditGraphs)).toEqual([]);
       for (const graph of auditGraphs) {
         expect(artifactPaths).toContain(graph.json);
         expect(artifactPaths).toContain(graph.markdown);

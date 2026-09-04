@@ -1370,66 +1370,65 @@ jobs:
         run: |
           set +e
           npm audit --audit-level=moderate --omit=dev --json > npm-audit-root-production.json
-          ROOT_PRODUCTION_AUDIT_STATUS=$?
           node scripts/ci/audit-source-map.mjs npm-audit-root-production.json npm-audit-root-production.md
           ROOT_PRODUCTION_MAP_STATUS=$?
           npm audit --audit-level=high --json > npm-audit-root-full.json
-          ROOT_FULL_AUDIT_STATUS=$?
           node scripts/ci/audit-source-map.mjs npm-audit-root-full.json npm-audit-root-full.md
           ROOT_FULL_MAP_STATUS=$?
           npm --prefix web/apps/aquamobil audit --audit-level=moderate --omit=dev --json > npm-audit-aquamobil-production.json
-          AQUAMOBIL_PRODUCTION_AUDIT_STATUS=$?
           node scripts/ci/audit-source-map.mjs npm-audit-aquamobil-production.json npm-audit-aquamobil-production.md
           AQUAMOBIL_PRODUCTION_MAP_STATUS=$?
           npm --prefix web/apps/aquamobil audit --audit-level=high --json > npm-audit-aquamobil-full.json
-          AQUAMOBIL_FULL_AUDIT_STATUS=$?
           node scripts/ci/audit-source-map.mjs npm-audit-aquamobil-full.json npm-audit-aquamobil-full.md
           AQUAMOBIL_FULL_MAP_STATUS=$?
           npm --prefix e2e audit --audit-level=moderate --omit=dev --json > npm-audit-e2e-production.json
-          E2E_PRODUCTION_AUDIT_STATUS=$?
           node scripts/ci/audit-source-map.mjs npm-audit-e2e-production.json npm-audit-e2e-production.md
           E2E_PRODUCTION_MAP_STATUS=$?
           npm --prefix e2e audit --audit-level=high --json > npm-audit-e2e-full.json
-          E2E_FULL_AUDIT_STATUS=$?
           node scripts/ci/audit-source-map.mjs npm-audit-e2e-full.json npm-audit-e2e-full.md
           E2E_FULL_MAP_STATUS=$?
           set -e
-          if [ "$ROOT_PRODUCTION_AUDIT_STATUS" -ne 0 ]; then
-            exit "$ROOT_PRODUCTION_AUDIT_STATUS"
-          fi
           if [ "$ROOT_PRODUCTION_MAP_STATUS" -ne 0 ]; then
             exit "$ROOT_PRODUCTION_MAP_STATUS"
-          fi
-          if [ "$ROOT_FULL_AUDIT_STATUS" -ne 0 ]; then
-            exit "$ROOT_FULL_AUDIT_STATUS"
           fi
           if [ "$ROOT_FULL_MAP_STATUS" -ne 0 ]; then
             exit "$ROOT_FULL_MAP_STATUS"
           fi
-          if [ "$AQUAMOBIL_PRODUCTION_AUDIT_STATUS" -ne 0 ]; then
-            exit "$AQUAMOBIL_PRODUCTION_AUDIT_STATUS"
-          fi
           if [ "$AQUAMOBIL_PRODUCTION_MAP_STATUS" -ne 0 ]; then
             exit "$AQUAMOBIL_PRODUCTION_MAP_STATUS"
-          fi
-          if [ "$AQUAMOBIL_FULL_AUDIT_STATUS" -ne 0 ]; then
-            exit "$AQUAMOBIL_FULL_AUDIT_STATUS"
           fi
           if [ "$AQUAMOBIL_FULL_MAP_STATUS" -ne 0 ]; then
             exit "$AQUAMOBIL_FULL_MAP_STATUS"
           fi
-          if [ "$E2E_PRODUCTION_AUDIT_STATUS" -ne 0 ]; then
-            exit "$E2E_PRODUCTION_AUDIT_STATUS"
-          fi
           if [ "$E2E_PRODUCTION_MAP_STATUS" -ne 0 ]; then
             exit "$E2E_PRODUCTION_MAP_STATUS"
-          fi
-          if [ "$E2E_FULL_AUDIT_STATUS" -ne 0 ]; then
-            exit "$E2E_FULL_AUDIT_STATUS"
           fi
           if [ "$E2E_FULL_MAP_STATUS" -ne 0 ]; then
             exit "$E2E_FULL_MAP_STATUS"
           fi
+      # The verdict is npm-audit-gate's, not npm's own exit code. npm audit is
+      # all-or-nothing, so one advisory with no safe remediation turns this
+      # REQUIRED check red forever — and a permanently red required check stops
+      # being read, which protects nothing. The gate applies the reviewed,
+      # DATED exceptions in scripts/ci/npm-audit-exceptions.json and fails on
+      # everything else, including an expired exception and an advisory that
+      # has reached a package its exception was not reviewed against. The JSON
+      # reports above are still produced and uploaded either way, so the raw
+      # npm output stays available to a reviewer.
+      - name: Gate npm audit on reviewed exceptions
+        run: |
+          node scripts/ci/npm-audit-gate.mjs --audit npm-audit-root-production.json \
+            --level moderate --scope root-production --exceptions scripts/ci/npm-audit-exceptions.json
+          node scripts/ci/npm-audit-gate.mjs --audit npm-audit-root-full.json \
+            --level high --scope root-full --exceptions scripts/ci/npm-audit-exceptions.json
+          node scripts/ci/npm-audit-gate.mjs --audit npm-audit-aquamobil-production.json \
+            --level moderate --scope aquamobil-production --exceptions scripts/ci/npm-audit-exceptions.json
+          node scripts/ci/npm-audit-gate.mjs --audit npm-audit-aquamobil-full.json \
+            --level high --scope aquamobil-full --exceptions scripts/ci/npm-audit-exceptions.json
+          node scripts/ci/npm-audit-gate.mjs --audit npm-audit-e2e-production.json \
+            --level moderate --scope e2e-production --exceptions scripts/ci/npm-audit-exceptions.json
+          node scripts/ci/npm-audit-gate.mjs --audit npm-audit-e2e-full.json \
+            --level high --scope e2e-full --exceptions scripts/ci/npm-audit-exceptions.json
       - name: Upload npm audit source map
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

@@ -41538,7 +41538,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "dff28110c51f48ad597204a47b292c1ee4e00366fdebcd9f172386e00cfe6625",
+      "content_sha256": "e361c930815aedaee20872609f30e85f3a35918a92add39b127eff232a47b41a",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -42036,6 +42036,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "scripts/ci/lib/reviewed-exception.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "scripts/ci/lint-all-exclusions.json",
       "prettier_managed": true
     },
@@ -42055,6 +42061,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "scripts/ci/markdownlint-changed.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "scripts/ci/npm-audit-exceptions.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "scripts/ci/npm-audit-gate.mjs",
       "prettier_managed": true
     },
     {
@@ -44251,6 +44269,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/non-http-entrypoint-tenant-context.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/npm-audit-exception-ssot.spec.ts",
       "prettier_managed": true
     },
     {

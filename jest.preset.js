@@ -21,7 +21,15 @@ module.exports = {
   // minio -> query-string; transforming that one tiny package is the
   // single-point fix. If another node_modules package ever needs ESM
   // parsing in tests, append it here — never widen the ignore pattern.
-  transformIgnorePatterns: ['/node_modules/(?!(decode-uri-component)/)'],
+  // sanitize-html@2.17.7 — the only release that fixes the stored-XSS and
+  // mutation-XSS advisories — depends on htmlparser2@^12, which is ESM-only,
+  // as are its own dependencies. The nested copy lives at
+  // sanitize-html/node_modules/htmlparser2, and this pattern is unanchored,
+  // so the OUTER segment has to be allowed too or the inner one is never
+  // reached.
+  transformIgnorePatterns: [
+    '/node_modules/(?!(decode-uri-component|sanitize-html|htmlparser2|domhandler|domutils|dom-serializer|domelementtype|entities)/)',
+  ],
   coverageReporters: ['html', 'text', 'lcov'],
   collectCoverageFrom: [
     '**/*.{ts,tsx}',

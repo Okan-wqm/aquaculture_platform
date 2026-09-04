@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
+import { validateReviewedException } from './lib/reviewed-exception.mjs';
+
 function parseArgs(argv) {
   const args = {
     dryRun: false,
@@ -67,16 +69,14 @@ function projectNames(path) {
 }
 
 // A quarantine entry is tracked debt, and tracked debt has an owner, a reason,
-// an expiry and a finding — the same four fields tests/invariants/
-// invariant-reachability.dormant.json requires of a dormant invariant. A bare
-// reason string was the previous shape; 19 `test` entries carried one with no
-// owner, no clock and no finding for four months (PROC-MEDIUM-020). The policy
-// file is refused whole when any entry of any target is malformed or expired,
-// so the lane fails closed instead of warning about debt nobody owns.
+// an expiry and a finding. That shape is shared with every other reviewed
+// exception in the repository (dormant invariants, npm advisories) and lives in
+// scripts/ci/lib/reviewed-exception.mjs — a bare reason string was the previous
+// shape here, and 19 `test` entries carried one with no owner, no clock and no
+// finding for four months (PROC-MEDIUM-020). The policy file is refused whole
+// when any entry of any target is malformed or expired, so the lane fails
+// closed instead of warning about debt nobody owns.
 const POLICY_VERSION = 2;
-const FINDING_ID = /^[A-Z]+-(?:CRITICAL|HIGH|MEDIUM|LOW)-\d{3}$/;
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-const MIN_REASON_LENGTH = 30;
 
 function validateQuarantine(policy, today) {
   if (policy.version !== POLICY_VERSION) {
@@ -85,27 +85,7 @@ function validateQuarantine(policy, today) {
   const problems = [];
   for (const [target, config] of Object.entries(policy.targets ?? {})) {
     for (const [project, entry] of Object.entries(config.knownUnstableProjects ?? {})) {
-      const where = `${target}/${project}`;
-      if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
-        problems.push(`${where}: entry must be an object {owner, reason, expires_on, finding_id}`);
-        continue;
-      }
-      if (typeof entry.owner !== 'string' || entry.owner.trim().length === 0) {
-        problems.push(`${where}: owner is required`);
-      }
-      if (typeof entry.reason !== 'string' || entry.reason.trim().length < MIN_REASON_LENGTH) {
-        problems.push(`${where}: reason must be at least ${MIN_REASON_LENGTH} characters`);
-      }
-      if (typeof entry.expires_on !== 'string' || !ISO_DATE.test(entry.expires_on)) {
-        problems.push(`${where}: expires_on must be YYYY-MM-DD`);
-      } else if (entry.expires_on < today) {
-        problems.push(
-          `${where}: expired ${entry.expires_on} (${entry.finding_id ?? 'no finding'})`,
-        );
-      }
-      if (typeof entry.finding_id !== 'string' || !FINDING_ID.test(entry.finding_id)) {
-        problems.push(`${where}: finding_id must be a registry id like INFRA-HIGH-001`);
-      }
+      problems.push(...validateReviewedException(entry, `${target}/${project}`, today));
     }
   }
   if (problems.length > 0) {

@@ -30,9 +30,10 @@
  * rather than passing silently forever.
  */
 
-import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
+
+import { nxProjectRoot, nxProjectsWithTarget } from './helpers/nx';
 
 const repoRoot = resolve(__dirname, '../..');
 
@@ -117,29 +118,8 @@ function walkSpecs(dir: string, acc: string[] = []): string[] {
   return acc;
 }
 
-interface NxProject {
-  readonly root: string;
-  readonly targets?: Record<string, unknown>;
-}
-
 function nxProjectRootsWithTestTarget(): string[] {
-  const raw = execFileSync('npx', ['nx', 'show', 'projects', '--with-target=test', '--json'], {
-    cwd: repoRoot,
-    encoding: 'utf8',
-    env: { ...process.env, NX_DAEMON: 'false' },
-  });
-  const names = JSON.parse(raw) as string[];
-  const roots: string[] = [];
-  for (const name of names) {
-    const detail = execFileSync('npx', ['nx', 'show', 'project', name, '--json'], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-      env: { ...process.env, NX_DAEMON: 'false' },
-    });
-    const parsed = JSON.parse(detail) as NxProject;
-    if (parsed.root) roots.push(parsed.root.replace(/\/$/, ''));
-  }
-  return roots;
+  return nxProjectsWithTarget('test').map((name) => nxProjectRoot(name));
 }
 
 describe('every spec has a runner', () => {

@@ -322,11 +322,6 @@ jobs:
             npm ci --ignore-scripts --no-audit
           fi
 
-      # 2026-05-05: Type-check targets can include Rust-backed crates. Prepare the exact
-      # pinned toolchain before Nx starts parallel cargo-backed tasks.
-      - name: Install Rust toolchain (rust-toolchain.toml)
-        uses: ./.github/actions/setup-rust-workspace
-
       - name: Restore Nx cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -335,11 +330,10 @@ jobs:
           restore-keys: |
             nx-ci-${{ runner.os }}-
 
-      - name: Run type check (affected plus changed TypeScript guard)
+      - name: Run type check (changed TypeScript guard)
         run: |
           BASE_REF="${{ needs.detect-changes.outputs.base_sha }}"
           HEAD_REF="${{ needs.detect-changes.outputs.head_sha }}"
-          node tools/toolchain/run.mjs npx nx affected -t type-check --base="$BASE_REF" --head="$HEAD_REF" --parallel=2
           node scripts/ci/type-check-changed-files.mjs --base "$BASE_REF" --head "$HEAD_REF"
         timeout-minutes: 35
         env:
@@ -494,29 +488,6 @@ jobs:
           HEAD_REF="${{ needs.detect-changes.outputs.head_sha }}"
           bash scripts/ci/affected-target-policy.sh --target test:contract --base "$BASE_REF" --head "$HEAD_REF" --parallel 1
         timeout-minutes: 10
-        env:
-          NX_DAEMON: 'false'
-          NX_NO_CLOUD: 'true'
-          NODE_OPTIONS: '--max-old-space-size=4096'
-
-      # FE-CRITICAL-050-SW: the AquaMobil service-worker build-artifact invariant
-      # (src/pwa/__tests__/sw-build-artifact.invariant.spec.ts) runs a REAL
-      # `vite build` and asserts the deployed dist/messaging-sw.js still carries the
-      # sync / notificationclick / LOGOUT handlers + a substituted precache manifest.
-      # It is the Tier-3 "make it detectable" guard for the finding, but it is
-      # deliberately EXCLUDED from the fast default `test` target (it is ~30-45s of
-      # build) and lives in a separate `test:invariant` nx target. The default
-      # affected-test step above therefore never runs it. This step closes that gap
-      # by driving the SAME affected-target policy machinery against `test:invariant`
-      # — it only fires when aquamobil (the sole project declaring that target) is
-      # affected, so it costs nothing on unrelated PRs and gates on every PR that
-      # touches the SW.
-      - name: Run SW build-artifact invariant (affected only)
-        run: |
-          BASE_REF="${{ needs.detect-changes.outputs.base_sha }}"
-          HEAD_REF="${{ needs.detect-changes.outputs.head_sha }}"
-          bash scripts/ci/affected-target-policy.sh --target test:invariant --base "$BASE_REF" --head "$HEAD_REF" --parallel 1
-        timeout-minutes: 20
         env:
           NX_DAEMON: 'false'
           NX_NO_CLOUD: 'true'

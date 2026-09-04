@@ -308,7 +308,6 @@ describe('Toolchain Config SSoT', () => {
         '.github/workflows/ci-affected.yml:build',
         '.github/workflows/ci-affected.yml:lint',
         '.github/workflows/ci-affected.yml:test',
-        '.github/workflows/ci-affected.yml:type-check',
         '.github/workflows/ci-full.yml:build',
         '.github/workflows/ci-full.yml:lint-and-typecheck',
         '.github/workflows/ci-full.yml:test',

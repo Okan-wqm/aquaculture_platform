@@ -69,6 +69,20 @@ if [[ ! "$PARALLEL" =~ ^[0-9]+$ ]]; then
   exit 2
 fi
 
+# A target that NO project declares must fail the lane, never pass it.
+# `nx show projects --with-target=<phantom>` resolves to an empty set, and an
+# empty set used to fall through to "no strict projects remain … exit 0": the
+# lane over `test:invariant` was green for months without running a single
+# spec (INFRA-HIGH-141). Resolved before the diff so it fires on every
+# invocation — no-change PRs and --dry-run included.
+DECLARING_PROJECTS_JSON="$(NX_DAEMON="${NX_DAEMON:-false}" NX_NO_CLOUD="${NX_NO_CLOUD:-true}" \
+  node tools/toolchain/run.mjs npx nx show projects "--with-target=$TARGET" --json)"
+DECLARING_COUNT="$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).length))' "$DECLARING_PROJECTS_JSON")"
+if [[ "$DECLARING_COUNT" == "0" ]]; then
+  echo "No project in the workspace declares target '$TARGET'; refusing to run a lane that can only be green." >&2
+  exit 2
+fi
+
 mkdir -p "$ARTIFACT_DIR"
 CHANGED_FILE_LIST="$ARTIFACT_DIR/$TARGET.changed-files.txt"
 AFFECTED_PROJECT_LIST="$ARTIFACT_DIR/$TARGET.affected-projects.txt"

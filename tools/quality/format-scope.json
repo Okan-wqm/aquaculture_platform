@@ -43932,6 +43932,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/helpers/nx.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/hr-graphql-fe-be-parity.spec.ts",
       "prettier_managed": true
     },

@@ -56728,6 +56728,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/tenant-admin/src/components/settings/__tests__/SecuritySettings.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/tenant-admin/src/components/settings/AiAssistantSettings.tsx",
       "prettier_managed": true
     },
@@ -56975,6 +56981,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/tenant-admin/src/hooks/useTenantRoles.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/tenant-admin/src/hooks/useTenantSecuritySettings.ts",
       "prettier_managed": true
     },
     {
@@ -58240,6 +58252,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shell/src/pages/auth/LoginForm.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shell/src/pages/auth/MfaSetupScreen.tsx",
       "prettier_managed": true
     },
     {

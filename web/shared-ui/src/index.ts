@@ -124,6 +124,7 @@ export { AuthProvider, useAuthContext } from './contexts/AuthContext';
 export type {
   AuthProviderProps,
   MfaChallengeResult,
+  MfaSetupRequiredResult,
   LoginResult,
   AccessType,
   AuthUser,

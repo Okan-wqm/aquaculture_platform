@@ -76,6 +76,8 @@ import {
   MY_ANNOUNCEMENTS_QUERY,
   VIEW_ANNOUNCEMENT_MUTATION,
   ACKNOWLEDGE_ANNOUNCEMENT_MUTATION,
+  TENANT_SECURITY_POLICY_QUERY,
+  UPDATE_TENANT_SECURITY_POLICY_MUTATION,
 } from '../graphql';
 
 // Types
@@ -975,4 +977,45 @@ export async function acknowledgeAnnouncement(
     };
   }>(ACKNOWLEDGE_ANNOUNCEMENT_MUTATION, { id });
   return data.acknowledgeAnnouncement;
+}
+
+// ============================================================================
+// Tenant auth-security policy (ADR-046 — auth-service subgraph)
+// ============================================================================
+
+/**
+ * Tenant auth-security policy (ENFORCED). `enforceMfa` is the EFFECTIVE flag —
+ * the server collapses a NULL column to false so no client re-implements the
+ * default. `sessionTimeoutMinutes` is null when the tenant sets no override and
+ * the configured platform TTL applies.
+ */
+export interface TenantSecurityPolicy {
+  enforceMfa: boolean;
+  sessionTimeoutMinutes: number | null;
+}
+
+/**
+ * Update payload. Both fields are optional and an omitted field leaves the
+ * stored value untouched (server semantics). `sessionTimeoutMinutes` must be
+ * 5..1440 when present — the same bound the DTO and the table CHECK enforce.
+ */
+export interface UpdateTenantSecurityPolicyInput {
+  enforceMfa?: boolean;
+  sessionTimeoutMinutes?: number;
+}
+
+export async function getTenantSecurityPolicy(): Promise<TenantSecurityPolicy> {
+  const data = await apiClient.graphql<{
+    tenantSecurityPolicy: TenantSecurityPolicy;
+  }>(TENANT_SECURITY_POLICY_QUERY);
+  return data.tenantSecurityPolicy;
+}
+
+export async function updateTenantSecurityPolicy(
+  input: UpdateTenantSecurityPolicyInput,
+): Promise<TenantSecurityPolicy> {
+  const data = await apiClient.graphql<{
+    updateTenantSecurityPolicy: TenantSecurityPolicy;
+  }>(UPDATE_TENANT_SECURITY_POLICY_MUTATION, { input });
+  return data.updateTenantSecurityPolicy;
 }

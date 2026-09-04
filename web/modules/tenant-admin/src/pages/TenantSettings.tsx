@@ -4,7 +4,6 @@ import {
   Bell,
   Shield,
   Globe,
-  Palette,
   Smartphone,
   Sparkles,
   ChevronRight,
@@ -58,12 +57,6 @@ const settingsSections: SettingsSection[] = [
     icon: <Globe className="w-5 h-5" />,
   },
   {
-    id: 'appearance',
-    title: 'Appearance',
-    description: 'Customize look and feel',
-    icon: <Palette className="w-5 h-5" />,
-  },
-  {
     id: 'mobileUsers',
     title: 'Mobile Users',
     description: 'AquaMobil access and feature permissions',
@@ -106,23 +99,9 @@ const TenantSettings: React.FC = () => {
       case 'notifications':
         return <NotificationSettings />;
       case 'security':
-        return <SecuritySettings />;
+        return <SecuritySettings canEdit={canEditSettings} />;
       case 'localization':
         return <LocalizationSettings />;
-      case 'appearance':
-        return (
-          <div className="space-y-6">
-            <div className="p-6 bg-gray-50 rounded-lg text-center">
-              <Palette className="w-12 h-12 text-gray-500 mx-auto" />
-              <h3 className="mt-4 text-sm font-medium text-gray-900">
-                Appearance Settings
-              </h3>
-              <p className="mt-2 text-sm text-gray-500">
-                Custom theming and branding options coming soon.
-              </p>
-            </div>
-          </div>
-        );
       case 'mobileUsers':
         return <MobileSettings />;
       case 'ai':

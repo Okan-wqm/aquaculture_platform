@@ -47,12 +47,15 @@ describe('DecimalValueTransformer — lossless precision', () => {
       expect(transformer.to(huge)).toBe('9007199254740993');
     });
 
-    it('returns null for null input', () => {
+    it('returns null for null input, because clearing a column is deliberate', () => {
       expect(transformer.to(null)).toBeNull();
     });
 
-    it('returns null for undefined input', () => {
-      expect(transformer.to(undefined)).toBeNull();
+    it('returns undefined for undefined input, so the column DEFAULT applies', () => {
+      // Collapsing undefined into null makes TypeORM write an explicit NULL
+      // instead of omitting the column, and every `NOT NULL DEFAULT '0'` money
+      // column then rejects the insert. See the transformer's own docblock.
+      expect(transformer.to(undefined)).toBeUndefined();
     });
 
     it('preserves negative values', () => {

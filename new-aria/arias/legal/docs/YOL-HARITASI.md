@@ -52,10 +52,17 @@ Katalog, ön koşulu Plan 032'ye bağlıyor. Ölçtüğümüz engeller başka:
 
 | Engel | Neden hukuk için bağlayıcı | Kimlik |
 |---|---|---|
-| Kanıt derecelendirmesi git blob'una bağlı | Dava arşivinde git yok; kanıt hiçbir zaman `repo_verified` olamaz | **G-1** |
-| Bellek isim-alanı yok | İkinci bir dava geldiğinde duvar yok; ayrıca çekirdek müvekkil-gizli malzeme taşırsa lisanslanamaz | **G-2** |
+| Kanıt derecelendirmesi git blob'una bağlı | Dava arşivinde git yok; kanıt hiçbir zaman `repo_verified` olamaz | **G-17** |
+| Bellek isim-alanı yok | İkinci bir dava geldiğinde duvar yok; ayrıca çekirdek müvekkil-gizli malzeme taşırsa lisanslanamaz | **G-16** |
 | Ajan hedef listesi kapalı | Hukuk ajanları kernel kuyruğundan dispatch edilemez | **G-3** |
 | İddia türleri kod-alanına sabit | Hukuk bulguları çekirdek bulgu defterine giremez | **G-4** |
+| Kas adapter manifesti keşfedilmiyor | Registry yalnız `tools/aria-adapters/` okur; hukuk adapter'ı hiçbir döngüde koşmaz | **G-14** |
+| Yargı zarfını tüketen yalnız CI executor | Hukuk konteynerinde yargıç zarfı basılır, tüketilmez | **G-15** |
+
+Kimlikler `docs/product/NEW-ARIA-URUN-TANIMI.md` §3.1 ile aynı numaralandırmadır
+(G-1 orada belge-arşivi kaderlerinin FATES eşlemesi, G-2 adapter runner tsconfig yolu;
+bu tablonun ilk sürümü aynı harfleri başka anlamla kullanıyordu, `docs/YETENEK-KAYDI.md`
+§0.1 ile düzeltildi).
 
 Plan 032'nin kasları (hook, checkpoint, session continuity, event gateway) faydalı ama
 hukuk ürününün önündeki dört engelden hiçbiri değil. Bu düzeltme, katalogun 5. bölümünün
@@ -74,7 +81,8 @@ Teslim: salt-okunur alım, her dosyaya bir kader, sha256, custodian ve toplama k
 kapsama raporu, imzalı **evidence receipt**.
 Kanıt: orijinal bayt değişimi sıfır; kapsama `complete: true`; aynı arşiv iki kez
 alındığında bayt-eş manifest; dışlanan kök raporlu; okunamayan dosya bulgu.
-Gerektirdiği: **G-1**.
+Gerektirdiği: **G-1**, **G-14**, **G-5** (adapter döngüde koşar, kaderler eşlenir, dava
+artifact'ları bütünlük zincirine girer).
 Karşılığı: LAW-03 ve LAW-04'ün bir kısmı.
 Neden tek başına değerli: elinde üç bin dosya olan avukat, karşı tarafa ve mahkemeye
 gösterebileceği bir teslim tutanağı alır. Bugünkü adapter bunun yarısını zaten yapıyor.
@@ -96,10 +104,14 @@ Teslim: iddia-unsur-olgu-kanıt matrisi, çelişki ve eksik-bilgi motoru, karş�
 geçişi, avukat doğrulama akışı.
 Kanıt: kontrollü çelişki/boşluk korpusunda ölçülen recall; avukat onayı olmadan hiçbir
 kayıt `verified` olmaz; her uyarı iki taraflı kaynak bağı taşır.
-Gerektirdiği: **G-3**, **G-4**.
+Gerektirdiği: **G-3**, **G-4**, **G-15**, **G-17**.
 Karşılığı: LAW-08, LAW-09 ve LAW-23'ün uygulanmış hâli.
-Neden ucuz: `judge_fanout`, `independence_check`, konsensüs arbiter ve kalibrasyon zaten
-var. Yapılacak iş, hukuk kayıtlarını bu hatta bağlamak.
+Neden ucuz: `judge_fanout`, konsensüs arbiter, HUMAN_REQUIRED yükseltmesi ve kalibrasyon
+normal döngüde koşuyor (`docs/YETENEK-KAYDI.md` A2). Neden ucuz **değil**: zarfı tüketen
+yol yalnız CI executor'dır (G-15), `plan_convergence` ve üç katmanlı bağımsızlık kontrolü
+yalnız `aria autonomy run` altında (kod var, yol yok), ve belge arşivinde her yargıç atfı
+`baseline_unavailable` derecesinde kalır (G-17). Yapılacak iş, hukuk kayıtlarını bu hatta
+bağlamak **ve** hattın hukuk konteynerinde gerçekten dönmesini sağlamak.
 
 ### S3 — "Her cümlenin kaynağı var"
 
@@ -117,7 +129,7 @@ Teslim: matter ve taraf modeli, etik duvar, çıkar çatışması adayları, sak
 hold.
 Kanıt: iki karşıt matter'la kurulan testte arama, indeks, cache, özet, log ve export
 katmanlarının hiçbirinde sızıntı yok.
-Gerektirdiği: **G-2** (isim-alanı, reddeden kapı olarak).
+Gerektirdiği: **G-16** (isim-alanı, reddeden kapı olarak).
 Karşılığı: LAW-01, LAW-18, LAW-20 ve LAW-02'nin conflict kısmı.
 O güne kadar duvar nedir: **dava kümesi başına ayrı örnek**. Bu bir eksiklik değil,
 bilinçli bir sınır ve `aria.manifest.json` içinde `enforced_by: instance_isolation`
@@ -171,6 +183,10 @@ piyasada var; birleşimi ARIA'nın çekirdeğinden geliyor ve o çekirdek bizde 
 
 ## 7. Sıradaki tek adım
 
-**G-1'i kapat.** Kanıt derecelendirmesini git blob'undan içerik-adreslemeye taşı. S0'ın ve
-dolayısıyla bütün hukuk hattının ön koşulu budur; kapanana kadar hukuk kası kendi hash
-zincirini taşımak zorunda ve bu, çekirdeğin kanıt yasasının dışında bir yol demektir.
+**Önce kasın kendi işi, sonra çekirdek:** `docs/YETENEK-KAYDI.md` §C sırası. Kas tarafında
+PDF/DOCX metni adapter'a bağlandı (L-02, 2026-09-04); sırada dava dava yükleme (L-01) ve
+sürüm içerik farkı (L-14). Çekirdek tarafında ilk kapanacak boşluk **G-14** (adapter
+döngüde koşsun), sonra **G-1** ve **G-5**; **G-17** (kanıt derecelendirmesini git
+blob'undan içerik-adreslemeye taşımak) S2'nin ön koşuludur ve kapanana kadar hukuk kası
+kendi hash zincirini taşır — bu, çekirdeğin kanıt yasasının dışında bir yol demektir ve
+burada yazılıdır.

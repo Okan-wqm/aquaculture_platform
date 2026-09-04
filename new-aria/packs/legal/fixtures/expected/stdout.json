@@ -103,11 +103,25 @@
       "type": "legal_document_inventoried",
       "path": "packs/legal/fixtures/case-synthetic/vedlegg/faktura_2024-001.pdf",
       "details": {
-        "documentId": "doc_8c2b8465e178dcca",
-        "extraction": "metadata_only",
+        "documentId": "doc_f285ea9f52c64341",
+        "extraction": "text",
         "kindGuess": "FINANCIAL_LOSS",
-        "sha256": "f7361fa45a83fad02bd6ede58a6563152b85ca9e0412bbef91973059f46e3634",
-        "bytes": 528,
+        "sha256": "1fdce4f6970c4f6d229a5b07441369501f2b3254f47037fcb293f20bf350cde7",
+        "bytes": 1328,
+        "textTruncated": false,
+        "versionGroupId": null
+      }
+    },
+    {
+      "id": "legal-document-inventory:doc:vedlegg/forlikstilbud_kryptert.pdf",
+      "type": "legal_document_inventoried",
+      "path": "packs/legal/fixtures/case-synthetic/vedlegg/forlikstilbud_kryptert.pdf",
+      "details": {
+        "documentId": "doc_8b0ed5c138af6958",
+        "extraction": "metadata_only",
+        "kindGuess": "DOCUMENT",
+        "sha256": "8af90b134cb069db5b2c7dad6ed59e45e9b975703ebced7766fc61ec37dcadcd",
+        "bytes": 751,
         "textTruncated": false,
         "versionGroupId": null
       }
@@ -117,11 +131,25 @@
       "type": "legal_document_inventoried",
       "path": "packs/legal/fixtures/case-synthetic/vedlegg/klage_utkast.docx",
       "details": {
-        "documentId": "doc_120386fefe10fbb2",
-        "extraction": "metadata_only",
+        "documentId": "doc_d0109624c90e50d6",
+        "extraction": "text",
         "kindGuess": "PROCEDURAL_STEP",
-        "sha256": "4a96acc30188aa3178f8c1a64e4309be8851521b6a663bb3dcf088a38c5435e0",
-        "bytes": 260,
+        "sha256": "60579c9b8689ceea14f1e2d5bdaef68135c4837695f7dc6230c3da61b68ab964",
+        "bytes": 1871,
+        "textTruncated": false,
+        "versionGroupId": null
+      }
+    },
+    {
+      "id": "legal-document-inventory:doc:vedlegg/skannet_kvittering.pdf",
+      "type": "legal_document_inventoried",
+      "path": "packs/legal/fixtures/case-synthetic/vedlegg/skannet_kvittering.pdf",
+      "details": {
+        "documentId": "doc_095b7b0b7d534286",
+        "extraction": "metadata_only",
+        "kindGuess": "DOCUMENT",
+        "sha256": "f7beb20d003c0b753a9b889b9ed11366eb1e4f94293ee96d4e4c51b93a8b48fd",
+        "bytes": 675,
         "textTruncated": false,
         "versionGroupId": null
       }
@@ -129,27 +157,27 @@
   ],
   "findings": [
     {
-      "id": "legal-document-inventory:unreadable:vedlegg/faktura_2024-001.pdf",
+      "id": "legal-document-inventory:unreadable:vedlegg/forlikstilbud_kryptert.pdf",
       "rule": "unreadable_document",
       "severity": "medium",
-      "path": "packs/legal/fixtures/case-synthetic/vedlegg/faktura_2024-001.pdf",
-      "message": "`vedlegg/faktura_2024-001.pdf` has no extracted text (no_text_extraction_for_extension:.pdf); it is inventoried as metadata_only and is a coverage gap until a human supplies its content.",
+      "path": "packs/legal/fixtures/case-synthetic/vedlegg/forlikstilbud_kryptert.pdf",
+      "message": "`vedlegg/forlikstilbud_kryptert.pdf` has no extracted text (pdf_encrypted); it is inventoried as metadata_only and is a coverage gap until a human supplies its content.",
       "evidence": [
         {
-          "path": "packs/legal/fixtures/case-synthetic/vedlegg/faktura_2024-001.pdf"
+          "path": "packs/legal/fixtures/case-synthetic/vedlegg/forlikstilbud_kryptert.pdf"
         }
       ],
       "confidence": 0.95
     },
     {
-      "id": "legal-document-inventory:unreadable:vedlegg/klage_utkast.docx",
+      "id": "legal-document-inventory:unreadable:vedlegg/skannet_kvittering.pdf",
       "rule": "unreadable_document",
       "severity": "medium",
-      "path": "packs/legal/fixtures/case-synthetic/vedlegg/klage_utkast.docx",
-      "message": "`vedlegg/klage_utkast.docx` has no extracted text (no_text_extraction_for_extension:.docx); it is inventoried as metadata_only and is a coverage gap until a human supplies its content.",
+      "path": "packs/legal/fixtures/case-synthetic/vedlegg/skannet_kvittering.pdf",
+      "message": "`vedlegg/skannet_kvittering.pdf` has no extracted text (pdf_no_text_layer:1_pages); it is inventoried as metadata_only and is a coverage gap until a human supplies its content.",
       "evidence": [
         {
-          "path": "packs/legal/fixtures/case-synthetic/vedlegg/klage_utkast.docx"
+          "path": "packs/legal/fixtures/case-synthetic/vedlegg/skannet_kvittering.pdf"
         }
       ],
       "confidence": 0.95
@@ -179,7 +207,9 @@
     "packs/legal/fixtures/case-synthetic/kronologi.txt",
     "packs/legal/fixtures/case-synthetic/notat.md",
     "packs/legal/fixtures/case-synthetic/vedlegg/faktura_2024-001.pdf",
-    "packs/legal/fixtures/case-synthetic/vedlegg/klage_utkast.docx"
+    "packs/legal/fixtures/case-synthetic/vedlegg/forlikstilbud_kryptert.pdf",
+    "packs/legal/fixtures/case-synthetic/vedlegg/klage_utkast.docx",
+    "packs/legal/fixtures/case-synthetic/vedlegg/skannet_kvittering.pdf"
   ],
   "evidence_sources": [
     "packs/legal/fixtures/case-synthetic/avtale_v1.txt",
@@ -189,10 +219,12 @@
     "packs/legal/fixtures/case-synthetic/kronologi.txt",
     "packs/legal/fixtures/case-synthetic/notat.md",
     "packs/legal/fixtures/case-synthetic/vedlegg/faktura_2024-001.pdf",
-    "packs/legal/fixtures/case-synthetic/vedlegg/klage_utkast.docx"
+    "packs/legal/fixtures/case-synthetic/vedlegg/forlikstilbud_kryptert.pdf",
+    "packs/legal/fixtures/case-synthetic/vedlegg/klage_utkast.docx",
+    "packs/legal/fixtures/case-synthetic/vedlegg/skannet_kvittering.pdf"
   ],
   "belief_candidates": [],
-  "cost_units": 9,
+  "cost_units": 11,
   "metadata": {
     "case_id": "case_synthetic-001",
     "out_dir": "<out_dir>",
@@ -205,9 +237,9 @@
     ],
     "exclude_roots_not_found": [],
     "coverage": {
-      "totalFiles": 9,
+      "totalFiles": 11,
       "byExtraction": {
-        "text": 6,
+        "text": 8,
         "metadata_only": 2,
         "unreadable": 0,
         "excluded": 1
@@ -220,6 +252,6 @@
     },
     "version_groups": 1,
     "parties": 3,
-    "timeline_events": 8
+    "timeline_events": 12
   }
 }

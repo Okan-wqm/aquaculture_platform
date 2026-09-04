@@ -6,7 +6,9 @@
 // file must have a fate (text / metadata_only / unreadable / excluded), and
 // nothing may be invented. This adapter is the mechanical floor of the pack:
 // it walks the archive deterministically, hashes every file, extracts text
-// ONLY from plain-text formats, captures dates and amounts as strings, groups
+// from plain-text formats and from the text layer of PDF / DOCX / XLSX / PPTX
+// (never OCR: a scanned page stays metadata_only WITH its reason), captures
+// dates and amounts as strings, groups
 // version-like files by name/content, and reads parties + communication events
 // ONLY from `.eml` headers. Everything it infers is marked
 // `humanReviewRequired: true`; it never writes a statement, never merges two
@@ -33,8 +35,9 @@ import {
   toPosix,
   walkArchive,
 } from './legal-archive';
+import { BINARY_TEXT_EXTENSIONS, extractBinaryText } from './binary/extract';
 import type { HashedRead, WalkedFile, WalkResult } from './legal-archive';
-import { ADAPTER_ID, ADAPTER_VERSION, ARTIFACT_ROOT, DEFAULT_MAX_TEXT_BYTES, EXTRACTION_STATUSES } from './legal-records';
+import { ADAPTER_ID, ADAPTER_VERSION, ARTIFACT_ROOT, DEFAULT_MAX_BINARY_BYTES, DEFAULT_MAX_TEXT_BYTES, EXTRACTION_STATUSES } from './legal-records';
 import type {
   ExtractionStatus,
   LegalCase,
@@ -84,6 +87,12 @@ export interface LegalInventoryInput {
   readonly exclude_roots?: readonly string[];
   readonly out_dir?: string;
   readonly max_text_bytes?: number;
+  /**
+   * Largest PDF/Office file whose bytes are loaded for text extraction. A
+   * larger file is still hashed and inventoried, but fated metadata_only with
+   * reason binary_too_large so the coverage record says why it was not read.
+   */
+  readonly max_binary_bytes?: number;
   /** ISO timestamp for LegalCase.createdAt. Absent → newest file mtime in the archive (deterministic per tree state). */
   readonly created_at?: string;
   readonly run_id?: string | null;
@@ -140,6 +149,8 @@ interface InventoryEntry {
   readonly text: string | null;
   readonly textTruncated: boolean;
   readonly readFailure: string | null;
+  /** Why a metadata_only file yielded no text (extractor's stated reason), or null. */
+  readonly noTextReason: string | null;
 }
 
 function documentIdFor(relativePath: string, contentSha256: string): string {
@@ -148,7 +159,7 @@ function documentIdFor(relativePath: string, contentSha256: string): string {
   return `doc_${sha256Hex(`${relativePath}\n${contentSha256}`).slice(0, 16)}`;
 }
 
-function inventoryFile(file: WalkedFile, caseId: string, maxTextBytes: number): InventoryEntry {
+function inventoryFile(file: WalkedFile, caseId: string, maxTextBytes: number, maxBinaryBytes: number): InventoryEntry {
   const fileName = posix.basename(file.relativePath);
   const extension = extensionOf(fileName);
   const mediaType = MEDIA_TYPES[extension] ?? null;
@@ -200,6 +211,7 @@ function inventoryFile(file: WalkedFile, caseId: string, maxTextBytes: number): 
       text: null,
       textTruncated: false,
       readFailure: null,
+      noTextReason: null,
     };
   }
   if (file.symlink) {
@@ -209,12 +221,19 @@ function inventoryFile(file: WalkedFile, caseId: string, maxTextBytes: number): 
       text: null,
       textTruncated: false,
       readFailure: 'symlink_not_followed',
+      noTextReason: null,
     };
   }
   const wantsText = TEXT_EXTENSIONS.has(extension);
+  const wantsBinaryText = BINARY_TEXT_EXTENSIONS.has(extension);
+  // A PDF or Office container must be read whole: its text layer is not a
+  // prefix of the file. A plain-text file only needs its head. Everything else
+  // is hashed without keeping any bytes.
+  const binaryTooLarge = wantsBinaryText && file.bytes > maxBinaryBytes;
+  const headBytes = wantsText ? maxTextBytes : wantsBinaryText && !binaryTooLarge ? file.bytes : 0;
   let hashed: HashedRead;
   try {
-    hashed = hashFile(file.absolutePath, wantsText ? maxTextBytes : 0);
+    hashed = hashFile(file.absolutePath, headBytes);
   } catch (error: unknown) {
     return {
       file,
@@ -222,29 +241,50 @@ function inventoryFile(file: WalkedFile, caseId: string, maxTextBytes: number): 
       text: null,
       textTruncated: false,
       readFailure: `read_failed:${errorCode(error)}`,
+      noTextReason: null,
     };
   }
-  if (!wantsText) {
-    return {
-      file,
-      document: build('metadata_only', hashed.sha256, null, [], [], null),
-      text: null,
-      textTruncated: false,
-      readFailure: null,
-    };
+  const metadataOnly = (reason: string): InventoryEntry => ({
+    file,
+    document: build('metadata_only', hashed.sha256, null, [], [], null),
+    text: null,
+    textTruncated: false,
+    readFailure: null,
+    noTextReason: reason,
+  });
+  if (!wantsText && !wantsBinaryText) {
+    return metadataOnly(`no_text_extraction_for_extension:${extension || '(none)'}`);
   }
-  let text = hashed.head.toString('utf8').replace(/^\uFEFF/, '');
-  if (extension === '.html' || extension === '.htm') {
-    text = stripHtml(text);
+  if (binaryTooLarge) {
+    return metadataOnly(`binary_too_large:${file.bytes}>${maxBinaryBytes}`);
   }
-  const excerptSource = extension === '.eml' ? parseEmail(text).body : text;
+  let text: string;
+  let textTruncated = hashed.truncated;
+  if (wantsBinaryText) {
+    const outcome = extractBinaryText(extension, hashed.head);
+    if (outcome.status === 'no_text') return metadataOnly(outcome.reason);
+    // Downstream regex passes are bounded by max_text_bytes exactly as for
+    // plain-text files, so a 900-page PDF cannot dominate the run.
+    textTruncated = outcome.text.length > maxTextBytes;
+    text = textTruncated ? outcome.text.slice(0, maxTextBytes) : outcome.text;
+  } else {
+    text = hashed.head.toString('utf8').replace(/^\uFEFF/, '');
+    if (extension === '.html' || extension === '.htm') {
+      text = stripHtml(text);
+    }
+  }
+  // Page markers (\f[page N]) are locators for readers of `text`; they are not
+  // prose and must not lead the excerpt.
+  const withoutPageMarkers = text.replace(/(?:^|\f)\[page \d+\]\n?/gm, '');
+  const excerptSource = extension === '.eml' ? parseEmail(text).body : withoutPageMarkers;
   const excerpt = collapseWhitespace(excerptSource).slice(0, 240) || null;
   return {
     file,
     document: build('text', hashed.sha256, excerpt, extractDates(text), extractAmounts(text), null),
     text,
-    textTruncated: hashed.truncated,
+    textTruncated,
     readFailure: null,
+    noTextReason: null,
   };
 }
 
@@ -532,7 +572,7 @@ function buildCoverage(
     if (entry.document.extraction === 'unreadable') {
       unreadable.push({ relativePath: entry.document.relativePath, reason: entry.readFailure ?? 'read_failed:UNKNOWN' });
     } else if (entry.document.extraction === 'metadata_only') {
-      unreadable.push({ relativePath: entry.document.relativePath, reason: `no_text_extraction_for_extension:${entry.document.extension || '(none)'}` });
+      unreadable.push({ relativePath: entry.document.relativePath, reason: entry.noTextReason ?? `no_text_extraction_for_extension:${entry.document.extension || '(none)'}` });
     }
   }
   for (const failure of walk.directoryErrors) {
@@ -616,6 +656,10 @@ export function runLegalDocumentInventory(input: LegalInventoryInput, cwd: strin
   if (!Number.isInteger(maxTextBytes) || maxTextBytes < 0) {
     throw new Error(`${ADAPTER_ID}: input.max_text_bytes must be a non-negative integer`);
   }
+  const maxBinaryBytes = input.max_binary_bytes ?? DEFAULT_MAX_BINARY_BYTES;
+  if (!Number.isInteger(maxBinaryBytes) || maxBinaryBytes < 0) {
+    throw new Error(`${ADAPTER_ID}: input.max_binary_bytes must be a non-negative integer`);
+  }
   const excludeRoots = uniqueSorted(
     (input.exclude_roots ?? []).map((root) => {
       const normalized = normalizeRelative(String(root));
@@ -649,7 +693,7 @@ export function runLegalDocumentInventory(input: LegalInventoryInput, cwd: strin
   }
 
   const walk = walkArchive(archiveRootAbs, excludeRoots);
-  const entries = walk.files.map((file) => inventoryFile(file, caseId, maxTextBytes));
+  const entries = walk.files.map((file) => inventoryFile(file, caseId, maxTextBytes, maxBinaryBytes));
   const grouping = buildVersionGroups(entries);
   const documents: LegalDocument[] = entries
     .map((entry) => ({ ...entry.document, versionGroupId: grouping.groupIdByDocument.get(entry.document.documentId) ?? null }))

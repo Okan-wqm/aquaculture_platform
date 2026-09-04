@@ -1,5 +1,59 @@
 [
   {
+    "eventId": "evt_a858b2ad8d3d",
+    "kind": "EVENT",
+    "occurredAt": "2024-01-15",
+    "learnedAt": null,
+    "datePrecision": "day",
+    "summary": "Leveranse iht. avtale datert 2024-01-15, versjon 2 (signert).",
+    "evidence": [
+      {
+        "documentId": "doc_f285ea9f52c64341",
+        "locator": "line:7",
+        "sha256": "1fdce4f6970c4f6d229a5b07441369501f2b3254f47037fcb293f20bf350cde7"
+      }
+    ],
+    "assertedBy": "ai_inference",
+    "confidence": 0.35,
+    "humanReviewRequired": true
+  },
+  {
+    "eventId": "evt_b94e349b522a",
+    "kind": "EVENT",
+    "occurredAt": "2024-01-15",
+    "learnedAt": null,
+    "datePrecision": "day",
+    "summary": "Vi viser til avtale av 15.01.2024 og faktura 2024-001.",
+    "evidence": [
+      {
+        "documentId": "doc_d0109624c90e50d6",
+        "locator": "line:5",
+        "sha256": "60579c9b8689ceea14f1e2d5bdaef68135c4837695f7dc6230c3da61b68ab964"
+      }
+    ],
+    "assertedBy": "ai_inference",
+    "confidence": 0.35,
+    "humanReviewRequired": true
+  },
+  {
+    "eventId": "evt_d951a15cdbb7",
+    "kind": "EVENT",
+    "occurredAt": "2024-02-05",
+    "learnedAt": null,
+    "datePrecision": "day",
+    "summary": "Milepæl 1 levert 05.02.2024, godkjent av byggeleder 08.02.2024.",
+    "evidence": [
+      {
+        "documentId": "doc_f285ea9f52c64341",
+        "locator": "line:14",
+        "sha256": "1fdce4f6970c4f6d229a5b07441369501f2b3254f47037fcb293f20bf350cde7"
+      }
+    ],
+    "assertedBy": "ai_inference",
+    "confidence": 0.35,
+    "humanReviewRequired": true
+  },
+  {
     "eventId": "evt_0b7ee503b2f8",
     "kind": "EVENT",
     "occurredAt": "2024-02-20",
@@ -29,6 +83,24 @@
         "documentId": "doc_c9eebbb50c992990",
         "locator": "line:4",
         "sha256": "6e5ef00a1637223634103f8a6d15f8938f42fef3312e308b45429817e369c1ad"
+      }
+    ],
+    "assertedBy": "ai_inference",
+    "confidence": 0.35,
+    "humanReviewRequired": true
+  },
+  {
+    "eventId": "evt_52275762ad54",
+    "kind": "EVENT",
+    "occurredAt": "2024-03-01",
+    "learnedAt": null,
+    "datePrecision": "day",
+    "summary": "Milepæl 2 levert 01.03.2024, IKKE godkjent - avvik meldt 04.03.2024.",
+    "evidence": [
+      {
+        "documentId": "doc_f285ea9f52c64341",
+        "locator": "line:15",
+        "sha256": "1fdce4f6970c4f6d229a5b07441369501f2b3254f47037fcb293f20bf350cde7"
       }
     ],
     "assertedBy": "ai_inference",

@@ -11008,3 +11008,24 @@ object as a React child blanks the entire view (APA-232/233 from admin RC1 audit
 
 **Notes:** The service returns requirement as a ComplianceRequirement object;
 the controller now flattens the nested shape the page can render.
+
+## ORPHAN-HIGH-800 — the legal pack reported a case archive as fully covered while its most common format contributed nothing — RESOLVED (this commit)
+
+Severity: HIGH (a legal working set built on a corpus the tool could not read, with `coverage.complete: true` saying otherwise).
+
+**Measured 2026-09-04** on `new-aria/packs/legal`. The document-inventory adapter fated `.pdf`, `.docx`, `.xlsx` and `.pptx` as `metadata_only` unconditionally (`legal-document-inventory.ts`, `METADATA_ONLY_EXTENSIONS` in `legal-text.ts:22-34`): hashed, counted, and never opened. On the synthetic fixture that was 2 of 9 files; in a real Norwegian construction-dispute archive it is the majority. Consequences, each measured on the fixture:
+
+- `documents[].datesMentioned` and `amountsMentioned` were `[]` for every PDF and Word file, so **no date inside them ever reached `timeline.json`** — the chronology the product sells was built from `.txt`, `.md` and `.eml` only.
+- `parties.json` came exclusively from `.eml` headers, so a party named only in a contract or an invoice did not exist.
+- `versions.json` grouped PDF/Word files by filename alone; with no text there was nothing to compare.
+- And `coverage.complete` was still `true`, because completeness was defined as "every file has a fate", not "every readable file was read". A reader was told the archive was fully accounted for.
+
+**Root cause.** Not a bug in a line — an absent capability that the coverage vocabulary then papered over. `metadata_only` carried one generic reason string (`no_text_extraction_for_extension:.pdf`) which read like a property of the format rather than a limit of the tool.
+
+**Fix.** `packs/legal/adapters/binary/` reads the text layer of PDF, DOCX, XLSX and PPTX with no third-party dependency (`node:zlib` only — a legal evidence tool must be deterministic, offline and free of a supply-chain surface that could alter what a court-facing archive says). PDF support covers the object grammar, FlateDecode with PNG/TIFF predictors, object streams, damaged cross-reference tables (objects are recovered by scanning `N G obj`, later definitions winning as an incremental update means), WinAnsi/MacRoman/Standard encodings with `/Differences`, and ToUnicode CMaps for subset fonts. OOXML support reads the ZIP central directory and inflates the document parts.
+
+**The refusals are the point.** An encrypted PDF is refused on its `/Encrypt` declaration (`pdf_encrypted`) — guessing a password is a legal risk, not a feature. A scanned page reports `pdf_no_text_layer:<n>_pages`. A Type0 font with no ToUnicode yields nothing rather than glyph ids dressed as text. Every reason now travels into `coverage.unreadable[].reason`, so the record states what could not be read and why, instead of implying the format is inherently opaque.
+
+**Evidence.** 16 extractor tests and 21 adapter tests green, two runs byte-identical. Fixtures are generated from source text by `packs/legal/fixtures/tools/make-binary-fixtures.mjs` (reproducible bytes, not opaque blobs) and exercise simple fonts, Flate streams, a Type0 font with a ToUnicode CMap and TJ kerning, object streams with a cross-reference stream, an encrypted marker and an image-only page. Against a real 15-page pdfTeX paper the extractor was not written for, text comes out on 15/15 pages.
+
+**Not fixed here, with its reason.** These findings stay in the pack's own artifacts and cannot enter the kernel finding ledger: `finding.emit_finding` requires every evidence ref to grade `repo_verified` and raises `finding_evidence_target_sha_unavailable` when git HEAD does not resolve (`finding.py:260`), and a document archive has no git. Tracked as gap G-17 with its acceptance test in `new-aria/arias/legal/docs/YETENEK-KAYDI.md`.

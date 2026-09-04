@@ -11,6 +11,8 @@
 export const ADAPTER_ID = 'legal-document-inventory' as const;
 export const ADAPTER_VERSION = '0.1.0' as const;
 export const DEFAULT_MAX_TEXT_BYTES = 262144;
+/** Largest PDF/Office file loaded whole for text extraction; larger files are inventoried metadata_only with reason binary_too_large. */
+export const DEFAULT_MAX_BINARY_BYTES = 64 * 1024 * 1024;
 export const ARTIFACT_ROOT = 'packs/legal/cases' as const;
 
 export type LegalRecordKind =

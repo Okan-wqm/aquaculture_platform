@@ -178,13 +178,16 @@ test('coverage: every file has a fate, counts add up, complete is true', () => {
   const { artifacts } = runGolden(tempDir('cov'));
   const { coverage } = artifacts;
   assert.equal(coverage.caseId, 'case_synthetic-001');
-  assert.equal(coverage.totalFiles, 9);
-  assert.deepEqual(coverage.byExtraction, { text: 6, metadata_only: 2, unreadable: 0, excluded: 1 });
+  assert.equal(coverage.totalFiles, 11);
+  // 8 text = 6 plain-text files + the invoice PDF + the complaint DOCX, whose
+  // text layers are read; 2 metadata_only = the scanned PDF (no text layer) and
+  // the encrypted PDF (declared /Encrypt), each with its reason in `unreadable`.
+  assert.deepEqual(coverage.byExtraction, { text: 8, metadata_only: 2, unreadable: 0, excluded: 1 });
   const summed = Object.values(coverage.byExtraction).reduce((total, count) => total + count, 0);
   assert.equal(summed, coverage.totalFiles);
   assert.equal(artifacts.documents.length, coverage.totalFiles);
   assert.equal(coverage.complete, true);
-  assert.deepEqual(coverage.byKind, { COMMUNICATION: 2, DOCUMENT: 5, FINANCIAL_LOSS: 1, PROCEDURAL_STEP: 1 });
+  assert.deepEqual(coverage.byKind, {COMMUNICATION: 2, DOCUMENT: 7, FINANCIAL_LOSS: 1, PROCEDURAL_STEP: 1});
 });
 
 test('excluded root is recorded, listed as excluded, and never read', () => {
@@ -204,24 +207,41 @@ test('excluded root is recorded, listed as excluded, and never read', () => {
   assert.deepEqual(output.metadata['exclude_roots_not_found'], []);
 });
 
-test('unreadable/metadata_only: binary formats become metadata_only with a hash, a coverage gap and a medium finding', () => {
-  const { artifacts, output } = runGolden(tempDir('unread'));
-  const pdf = artifacts.documents.find((document) => document.relativePath === 'vedlegg/faktura_2024-001.pdf');
-  const docx = artifacts.documents.find((document) => document.relativePath === 'vedlegg/klage_utkast.docx');
-  assert.ok(pdf && docx);
+test('binary formats: PDF/DOCX text layers are read; scanned and encrypted PDFs stay metadata_only with a stated reason, a coverage gap and a medium finding', () => {
+  const { artifacts, output } = runGolden(tempDir('binary'));
+  const byPath = new Map(artifacts.documents.map((document) => [document.relativePath, document]));
+  const pdf = byPath.get('vedlegg/faktura_2024-001.pdf');
+  const docx = byPath.get('vedlegg/klage_utkast.docx');
+  const scanned = byPath.get('vedlegg/skannet_kvittering.pdf');
+  const encrypted = byPath.get('vedlegg/forlikstilbud_kryptert.pdf');
+  assert.ok(pdf && docx && scanned && encrypted);
+
+  // Readable binaries behave exactly like text files: hash, excerpt, dates, amounts.
   for (const document of [pdf, docx]) {
+    assert.equal(document.extraction, 'text');
+    assert.match(document.sha256, /^[0-9a-f]{64}$/);
+    assert.ok(document.excerpt !== null && document.excerpt.length > 0);
+    assert.doesNotMatch(document.excerpt ?? '', /\[page \d+\]/, 'page markers are locators, not prose');
+  }
+  assert.equal(pdf.mediaType, 'application/pdf');
+  assert.equal(pdf.kindGuess, 'FINANCIAL_LOSS');
+  assert.ok(pdf.datesMentioned.includes('2024-03-12') && pdf.datesMentioned.includes('2024-03-26'), 'invoice date and due date come from the PDF text layer');
+  assert.ok(pdf.amountsMentioned.includes('NOK 6 187 500,00'));
+  assert.equal(docx.kindGuess, 'PROCEDURAL_STEP');
+  assert.ok(docx.datesMentioned.includes('2024-03-06'), 'the complaint date comes from word/document.xml');
+  assert.ok(docx.amountsMentioned.includes('NOK 230 175'), 'a table cell amount is read');
+
+  // Honest refusals: hashed and inventoried, no text, and the reason travels.
+  for (const document of [scanned, encrypted]) {
     assert.equal(document.extraction, 'metadata_only');
     assert.match(document.sha256, /^[0-9a-f]{64}$/);
     assert.equal(document.excerpt, null);
     assert.deepEqual(document.datesMentioned, []);
   }
-  assert.equal(pdf.mediaType, 'application/pdf');
-  assert.equal(pdf.kindGuess, 'FINANCIAL_LOSS');
-  assert.equal(docx.kindGuess, 'PROCEDURAL_STEP');
-  assert.deepEqual(
-    artifacts.coverage.unreadable.map((gap) => gap.relativePath),
-    ['vedlegg/faktura_2024-001.pdf', 'vedlegg/klage_utkast.docx'],
-  );
+  assert.deepEqual(artifacts.coverage.unreadable, [
+    { relativePath: 'vedlegg/forlikstilbud_kryptert.pdf', reason: 'pdf_encrypted' },
+    { relativePath: 'vedlegg/skannet_kvittering.pdf', reason: 'pdf_no_text_layer:1_pages' },
+  ]);
   const unreadableFindings = output.findings.filter((finding) => finding.rule === 'unreadable_document');
   assert.equal(unreadableFindings.length, 2);
   for (const finding of unreadableFindings) {
@@ -229,6 +249,19 @@ test('unreadable/metadata_only: binary formats become metadata_only with a hash,
     assert.equal(finding.evidence.length, 1);
     assert.ok(output.read_paths.includes(finding.evidence[0]?.path ?? ''), 'evidence path must be in read_paths');
   }
+  assert.ok(unreadableFindings.some((finding) => finding.message.includes('pdf_encrypted')));
+  assert.ok(unreadableFindings.some((finding) => finding.message.includes('pdf_no_text_layer')));
+
+  // A binary above max_binary_bytes is hashed but not loaded, with the bound in the reason.
+  const archive = tempDir('too-large-archive');
+  writeArchiveFile(archive, 'stor.pdf', readFileSync(resolve(WORKSPACE_ROOT, GOLDEN_INPUT.archive_root, 'vedlegg', 'faktura_2024-001.pdf')));
+  const result = runLegalDocumentInventory({ archive_root: archive, case_id: 'too-large', out_dir: tempDir('too-large-out'), max_binary_bytes: 100 });
+  assert.ok(result.artifacts);
+  const stor = result.artifacts.documents.find((document) => document.relativePath === 'stor.pdf');
+  assert.ok(stor);
+  assert.equal(stor.extraction, 'metadata_only');
+  assert.match(stor.sha256, /^[0-9a-f]{64}$/);
+  assert.match(result.artifacts.coverage.unreadable[0]?.reason ?? '', /^binary_too_large:\d+>100$/);
 });
 
 test('symlinks are never followed: they are inventoried as unreadable with an explicit reason', () => {
@@ -383,7 +416,7 @@ test('dates and amounts are extracted, normalised, deduplicated and sorted', () 
 
 test('timeline: .eml Date headers become COMMUNICATION events, dated text lines become ai_inference EVENTs, learnedAt stays null', () => {
   const { artifacts } = runGolden(tempDir('timeline'));
-  assert.equal(artifacts.timeline.length, 8);
+  assert.equal(artifacts.timeline.length, 12);
   const communications = artifacts.timeline.filter((event) => event.kind === 'COMMUNICATION');
   assert.deepEqual(
     communications.map((event) => [event.occurredAt, event.assertedBy, event.datePrecision, event.evidence[0]?.locator]),
@@ -393,7 +426,11 @@ test('timeline: .eml Date headers become COMMUNICATION events, dated text lines 
     ],
   );
   const events = artifacts.timeline.filter((event) => event.kind === 'EVENT');
-  assert.equal(events.length, 6);
+  assert.equal(events.length, 10);
+  assert.ok(
+    events.some((event) => event.evidence[0]?.documentId === artifacts.documents.find((document) => document.relativePath === 'vedlegg/faktura_2024-001.pdf')?.documentId),
+    'a dated line inside the PDF text layer becomes an inferred EVENT',
+  );
   assert.ok(events.every((event) => event.assertedBy === 'ai_inference' && event.confidence <= 0.4 && event.humanReviewRequired));
   assert.ok(artifacts.timeline.every((event) => event.learnedAt === null));
   const documentsById = new Map(artifacts.documents.map((document) => [document.documentId, document]));
@@ -426,16 +463,16 @@ test('no writes outside out_dir; the archive is never mutated', () => {
 test('L1: every evidence path is inside read_paths; evidence_sources equals read_paths; excluded files are outside both', () => {
   const { output } = runGolden(tempDir('l1'));
   const readPaths = new Set(output.read_paths);
-  assert.equal(output.read_paths.length, 8);
+  assert.equal(output.read_paths.length, 10);
   assert.deepEqual(output.evidence_sources, output.read_paths);
   for (const finding of output.findings) {
     assert.ok(finding.evidence.length >= 1, `${finding.id} has no evidence`);
     for (const ref of finding.evidence) assert.ok(readPaths.has(ref.path), `${finding.id} cites ${ref.path} outside read_paths`);
   }
-  assert.equal(output.observations.length, 9);
+  assert.equal(output.observations.length, 11);
   assert.ok(output.observations.every((observation) => observation.type === 'legal_document_inventoried'));
   assert.deepEqual(output.belief_candidates, []);
-  assert.equal(output.cost_units, 9);
+  assert.equal(output.cost_units, 11);
 });
 
 test('input guards: absent archive root exits clean as scope_absent; unsafe case_id and exclude_roots are rejected', () => {

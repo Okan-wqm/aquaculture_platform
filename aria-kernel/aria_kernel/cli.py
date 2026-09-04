@@ -5886,16 +5886,10 @@ def _main(argv: list[str] | None = None) -> int:
         # arasındaki minimuma çekilir. Faz içinde kesilme =
         # PhaseDeadlineExceeded = temiz mühürleme; between-iteration kontrolü
         # (cycle_deadline_exceeded) yerinde kalır, bu onun kesen eşi.
-        if getattr(args, "cycle_deadline_seconds", 0):
-            _cap = time.time() + args.cycle_deadline_seconds
-            _existing = os.environ.get("ARIA_JOB_DEADLINE_EPOCH")
-            if _existing:
-                try:
-                    _cap = min(_cap, float(_existing))
-                except ValueError:
-                    pass
-            os.environ["ARIA_JOB_DEADLINE_EPOCH"] = str(_cap)
-        
+        # ARIA-HIGH-038 — the binding moved INTO run_autonomy_orchestrator,
+        # which already receives cycle_deadline_seconds and now owns the
+        # scope. Assigning the env var here left it set for the rest of the
+        # process; the orchestrator's decorator restores it.
         result = run_autonomy_orchestrator(
             base_dir=args.tools_dir,
             auto_merge_runner=auto_merge_runner,

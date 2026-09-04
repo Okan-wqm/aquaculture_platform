@@ -65,6 +65,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, NamedTuple
 
 from .autonomy_state import AutonomyStateReducer
+from .cycle import job_deadline_epoch
 from .file_lock import with_exclusive_lock
 from .next_cycle_queue import mark_consumed, read_pending
 from .reflection import run_reflection
@@ -737,6 +738,27 @@ def _calibration_reporter_and_auto_promotion(
         }
 
 
+def _bound_job_deadline(fn: Callable[..., dict[str, Any]]) -> Callable[..., dict[str, Any]]:
+    """Scope ARIA_JOB_DEADLINE_EPOCH to one orchestrator run.
+
+    ARIA-HIGH-038. The deadline is a cross-process contract (children read the
+    env var), so it has to be exported — but it belongs to the run that set it.
+    Binding it here rather than at the CLI callsite means every caller gets the
+    scoping for free, including tests and any future in-process driver, which
+    is what the CLI-side assignment could not give: it leaked the deadline into
+    the rest of the interpreter. See cycle.job_deadline_epoch for the incident.
+    """
+    import functools
+
+    @functools.wraps(fn)
+    def wrapper(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        with job_deadline_epoch(kwargs.get("cycle_deadline_seconds")):
+            return fn(*args, **kwargs)
+
+    return wrapper
+
+
+@_bound_job_deadline
 def run_autonomy_orchestrator(
     *,
     base_dir: str | Path,

@@ -1,8 +1,8 @@
 # ARIA Current State
 
-Date: 2026-09-03
+Date: 2026-09-04
 Target ref: `origin/main`
-Last verified ARIA authority hash: `aa22eca4d6c21838a974aa1c89357e3d4e6c86e5107a9bfc629dfc3df86f3977`
+Last verified ARIA authority hash: `739acfb9ecdda823f1fb7eb79d4e1f236e55a6770a77ff1bd33f61fdaea7de4b`
 Status: post-snowball mainline hardening in progress
 
 ## Authority Chain

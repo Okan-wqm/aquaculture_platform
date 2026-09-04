@@ -52,6 +52,8 @@ import { Chemical } from '../../chemical/entities/chemical.entity';
 import { Consumable } from '../../consumable/entities/consumable.entity';
 import { ConditionWarning } from '../dto/stock-movement.response';
 import { LotMixService } from './lot-mix.service';
+import { StockMutationLockAuthority } from './stock-mutation-lock.authority';
+import { stockQuantityUnits } from './stock-quantity';
 import {
   SiteAuthorizationService,
   type SiteScopeCaller,
@@ -165,6 +167,10 @@ export class StockMovementService {
     // manual movement, feeding deduction, PO receipt, adjustment — emits it
     // on the same transactional manager; no caller can forget it.
     private readonly outboxPublisher: OutboxPublisher,
+    // FARM-CRITICAL-240'ın yazma tarafı: fiziksel anahtar üzerinde advisory
+    // kilit. Satır kilidi HENÜZ VAR OLMAYAN satırı koruyamaz; iki eşzamanlı
+    // giriş aynı (tenant, lokasyon, tip, item, lot) için iki satır yaratabilirdi.
+    private readonly mutationLocks: StockMutationLockAuthority,
   ) {}
 
   /**
@@ -190,8 +196,17 @@ export class StockMovementService {
     const { tenantId, userId, userName } = ctx;
     const { movementType, itemType, itemId, quantity } = input;
 
-    if (quantity <= 0) {
-      throw new BadRequestException('Quantity must be positive');
+    // Miktar tam sayı hundredths'e derlenir: `numeric(15,2)` kolonun tutamayacağı
+    // bir değer sessizce yuvarlanmak yerine reddedilir.
+    stockQuantityUnits(quantity, 'Stock quantity');
+
+    // KİLİT ÖNCE. Bu çağrının dokunacağı fiziksel kova ve — verilmişse —
+    // idempotency ad alanı, HERHANGİ bir okumadan önce serileştirilir; aksi
+    // hâlde idempotency kaydı okunup yazılana kadar geçen pencerede ikinci bir
+    // yazar aynı anahtarı yaratabilir ve kaybeden ham 23505 alırdı.
+    await this.mutationLocks.acquire(manager, tenantId, [{ itemType, itemId }]);
+    if (input.idempotencyKey) {
+      await this.mutationLocks.acquireIdempotency(manager, tenantId, input.idempotencyKey);
     }
 
     const movementRepo = tenantManagerRepo(manager, StockMovement, tenantId);
@@ -825,7 +840,7 @@ export class StockMovementService {
     // an unlocked check-then-insert: two concurrent receipts for the same
     // un-lotted feed both read "absent" and both inserted, splitting the
     // physical-stock projection in two. The canonical unique index restored in
-    // 1807800000000 is the structural backstop — a genuine race now raises
+    // 1809700000000 is the structural backstop — a genuine race now raises
     // 23505 and rolls the transaction back rather than silently duplicating.
     let inventory = await repo.findOne({
       where: {

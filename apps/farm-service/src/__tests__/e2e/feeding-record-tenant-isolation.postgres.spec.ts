@@ -51,6 +51,7 @@ import { CreateFeedingRecordHandler } from '../../feeding/handlers/create-feedin
 import { FeedingLedgerService } from '../../feeding/services/feeding-ledger.service';
 import { FinanceSettingsService } from '../../finance/services/finance-settings.service';
 import { FeedAllocationService } from '../../storage/services/feed-allocation.service';
+import { StockMutationLockAuthority } from '../../storage/services/stock-mutation-lock.authority';
 import { BiomassGrowthApplierService } from '../../feeding-protocol/services/biomass-growth-applier.service';
 import { DayPlanRecalcService } from '../../feeding-protocol/services/day-plan-recalc.service';
 import { ProtocolResolutionService } from '../../feeding-protocol/services/protocol-resolution.service';
@@ -197,10 +198,12 @@ describe('Feeding record tenant isolation on real Postgres', () => {
     const batchDomainService = new BatchDomainService(new BatchLifecyclePolicyService());
     // REAL sink: storage-tracked feed → FEFO lot decrement + roll-up +
     // LowStockDetected all inside the feeding transaction.
+    const mutationLocks = new StockMutationLockAuthority();
     const stockMovementService = new StockMovementService(
       new LotMixService(),
       new SiteAuthorizationService(),
       outboxPublisher,
+      mutationLocks,
     );
     // P-05 tek yem yazma yolu: handler artık GERÇEK FeedingLedgerService'e
     // delege eder (kayıt + batch aggregate + FEFO düşüm + outbox tek noktada).
@@ -214,7 +217,7 @@ describe('Feeding record tenant isolation on real Postgres', () => {
       // W2 / FARM-CRITICAL-245: çok-lotlu FEFO tahsis motoru. GERÇEK örnek —
       // bu spec'in amacı yazımların doğru tenant şemasına düştüğünü kanıtlamak,
       // ve tahsis motoru artık o yazım yolunun parçası.
-      new FeedAllocationService(),
+      new FeedAllocationService(mutationLocks),
     );
     createFeedingRecord = new CreateFeedingRecordHandler(
       feedingRecordRepository,

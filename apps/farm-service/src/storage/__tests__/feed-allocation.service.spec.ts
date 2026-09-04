@@ -12,6 +12,7 @@
  */
 import { EntityManager } from 'typeorm';
 
+import { StockMutationLockAuthority } from '../services/stock-mutation-lock.authority';
 import {
   FeedAllocationService,
   InsufficientFeedStockError,
@@ -82,7 +83,18 @@ function makeHarness(rows: Row[], locations: Record<string, string>) {
   });
 
   // `builders` çağrı SONRASI okunur (destructuring anında henüz boştur).
-  return { service: new FeedAllocationService(), manager, builders };
+  // Advisory kilit gerçek bir transaction ister; bu birim harness'ı sahte
+  // manager kullandığı için otorite double'lanır (kilidin kendi sözleşmesi
+  // `stock-mutation-lock.authority.spec.ts`'te pinli).
+  const acquireItemLock = jest.fn();
+  acquireItemLock.mockResolvedValue(undefined);
+  const mutationLocks = stub<StockMutationLockAuthority>({ acquire: acquireItemLock });
+  return {
+    service: new FeedAllocationService(mutationLocks),
+    acquireItemLock,
+    manager,
+    builders,
+  };
 }
 
 describe('FeedAllocationService.allocateForDeduction', () => {

@@ -17,6 +17,7 @@ import { StorageLotMix } from './entities/storage-lot-mix.entity';
 import { LotMixService } from './services/lot-mix.service';
 import { StockMovementService } from './services/stock-movement.service';
 import { FeedAllocationService } from './services/feed-allocation.service';
+import { StockMutationLockAuthority } from './services/stock-mutation-lock.authority';
 import { Site } from '../site/entities/site.entity';
 import { Feed } from '../feed/entities/feed.entity';
 import { Chemical } from '../chemical/entities/chemical.entity';
@@ -119,12 +120,15 @@ const QueryHandlers = [
     // transaction (fail-closed, atomic) — see StockMovementService header.
     StockMovementService,
     FeedAllocationService,
+    // Fiziksel stok mutasyonlarının TEK kilit protokolü — satır kilidi olmayan
+    // (henüz var olmayan) fiziksel anahtarı da kapsar.
+    StockMutationLockAuthority,
     // SEC-HIGH-051 / SEC-HIGH-052: site authz SSoT + mobile-feature guard.
     SiteAuthorizationService,
     MobileFeatureGuard,
     ...CommandHandlers,
     ...QueryHandlers,
   ],
-  exports: [TypeOrmModule, StockMovementService, FeedAllocationService],
+  exports: [TypeOrmModule, StockMovementService, FeedAllocationService, StockMutationLockAuthority],
 })
 export class InventoryModule {}

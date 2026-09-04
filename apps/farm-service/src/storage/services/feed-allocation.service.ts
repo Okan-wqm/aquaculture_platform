@@ -39,8 +39,10 @@ import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 import { StorageInventory, StorageItemType } from '../entities/storage-inventory.entity';
 import { StorageLocation } from '../entities/storage-location.entity';
-// Stok kolonları numeric(15,2) — tahsis aritmetiği aynı hassasiyette.
-import { round2 } from '../../common/utils/rounding.util';
+import { StockMutationLockAuthority } from './stock-mutation-lock.authority';
+// Stok kolonları numeric(15,2) — tahsis aritmetiği TAM SAYI hundredths üzerinde
+// yapılır, float toleransı ile değil.
+import { stockQuantityFromUnits, stockQuantityUnits } from './stock-quantity';
 
 /** Tek lot/lokasyondan düşülecek pay. */
 export interface FeedAllocationSlice {
@@ -72,27 +74,97 @@ export class InsufficientFeedStockError extends BadRequestException {
   }
 }
 
-interface CandidateRow {
-  id: string;
+/** Tahsis derleyicisinin girdisi — I/O'dan arındırılmış aday satır. */
+export interface FeedAllocationCandidate {
   storageLocationId: string;
   lotNumber?: string;
-  quantity: number;
+  quantityKg: number;
   expiryDate: Date | null;
   siteId: string;
 }
 
-/** kg toleransı — numeric(15,2) kolon hassasiyetinin altında kalan artıklar. */
-const KG_EPSILON = 0.001;
+/**
+ * SAF FEFO derleyicisi — veritabanına dokunmaz.
+ *
+ * Ayrı bir fonksiyon olmasının sebebi test kolaylığı değil, ARİTMETİK: dağıtım
+ * tam sayı hundredths üzerinde yapılır, dolayısıyla "kalan sıfır mı" sorusu
+ * `=== 0` ile yanıtlanır. Eski hâl float `round2` ile toplayıp `KG_EPSILON`
+ * toleransıyla karşılaştırıyordu; tolerans, "neredeyse tahsis edildi"nin
+ * "tahsis edildi" diye geçebildiği yerdir ve gizlediği artık, FARM-CRITICAL-245'in
+ * konusu olan 0.2–2 kg sınıfının ta kendisidir.
+ *
+ * Havuz sırası: önce ünitenin sitesi (D-9), sonra tenant-geneli — ikisi de
+ * çağıranın verdiği FEFO sırasında.
+ */
+export function compileFeedAllocation(
+  candidates: readonly FeedAllocationCandidate[],
+  requestedKg: number,
+  params: { feedId: string; lotNumber?: string; siteId?: string },
+): FeedAllocationResult {
+  const requestedUnits = stockQuantityUnits(requestedKg, 'Feed allocation quantity');
+  const withUnits = candidates.map((candidate) => ({
+    candidate,
+    units: stockQuantityUnits(candidate.quantityKg, 'Inventory quantity', { allowZero: true }),
+  }));
+  const poolUnits = withUnits.reduce((total, entry) => total + entry.units, 0);
+  const poolTotalKg = stockQuantityFromUnits(poolUnits);
+
+  if (poolUnits < requestedUnits) {
+    throw new InsufficientFeedStockError(params.feedId, requestedKg, poolTotalKg, params.lotNumber);
+  }
+
+  const ordered = params.siteId
+    ? [
+        ...withUnits.filter((entry) => entry.candidate.siteId === params.siteId),
+        ...withUnits.filter((entry) => entry.candidate.siteId !== params.siteId),
+      ]
+    : withUnits;
+
+  const slices: FeedAllocationSlice[] = [];
+  let remainingUnits = requestedUnits;
+  let usedSiteFallback = false;
+
+  for (const { candidate, units } of ordered) {
+    if (remainingUnits === 0) break;
+    const takeUnits = Math.min(units, remainingUnits);
+    if (takeUnits === 0) continue;
+    slices.push({
+      storageLocationId: candidate.storageLocationId,
+      lotNumber: candidate.lotNumber,
+      quantityKg: stockQuantityFromUnits(takeUnits),
+      expiryDate: candidate.expiryDate,
+    });
+    if (params.siteId && candidate.siteId !== params.siteId) usedSiteFallback = true;
+    remainingUnits -= takeUnits;
+  }
+
+  if (remainingUnits !== 0) {
+    // Havuz toplamı yeterliydi ama dağıtım tamamlanamadı — sessiz kısmi düşüm
+    // YERİNE fail-closed. Tam sayı aritmetiğinde bu yol yalnız aday listesi ile
+    // toplamı üreten liste ayrışırsa görülebilir, yani gerçek bir kusurdur.
+    throw new InsufficientFeedStockError(params.feedId, requestedKg, poolTotalKg, params.lotNumber);
+  }
+
+  return { slices, usedSiteFallback, poolTotalKg };
+}
 
 @Injectable()
 export class FeedAllocationService {
   private readonly logger = new Logger(FeedAllocationService.name);
 
+  constructor(private readonly mutationLocks: StockMutationLockAuthority) {}
+
   /**
    * FEFO sırayla `quantityKg`'yi kilitlenmiş satırlara dağıtır. Havuz toplamı
    * yetmezse HİÇBİR yazım yapılmadan fail-closed atar (çağıran transaction'ı
-   * geri alır). Kilitler `FOR UPDATE` ile alınır: eşzamanlı iki düşüm aynı
-   * lotu iki kez taahhüt edemez.
+   * geri alır).
+   *
+   * Kilit protokolü İKİ katmanlıdır ve sırası önemlidir:
+   *  1. `StockMutationLockAuthority` ile `(tenant, FEED, feedId)` advisory
+   *     kilidi — satır YOKKEN de var olan tek fence budur; aksi hâlde iki
+   *     eşzamanlı yazar aynı fiziksel anahtar için ayrı satır yaratabilir;
+   *  2. aday satırlar üzerinde `FOR UPDATE` — aynı lotu iki kez taahhüt etmeyi
+   *     engeller.
    */
   async allocateForDeduction(
     manager: EntityManager,
@@ -109,63 +181,25 @@ export class FeedAllocationService {
       throw new BadRequestException('Tahsis miktarı pozitif olmalıdır');
     }
 
+    await this.mutationLocks.acquire(manager, tenantId, [
+      { itemType: StorageItemType.FEED, itemId: params.feedId },
+    ]);
+
     const candidates = await this.loadCandidates(manager, tenantId, params);
-    const poolTotalKg = round2(candidates.reduce((sum, row) => sum + row.quantity, 0));
+    const result = compileFeedAllocation(candidates, params.quantityKg, {
+      feedId: params.feedId,
+      lotNumber: params.lotNumber,
+      siteId: params.siteId,
+    });
 
-    if (poolTotalKg + KG_EPSILON < params.quantityKg) {
-      throw new InsufficientFeedStockError(
-        params.feedId,
-        params.quantityKg,
-        poolTotalKg,
-        params.lotNumber,
-      );
-    }
-
-    // Site havuzu ÖNCE (D-9), sonra tenant-geneli — ikisi de FEFO sırada.
-    const ordered = params.siteId
-      ? [
-          ...candidates.filter((row) => row.siteId === params.siteId),
-          ...candidates.filter((row) => row.siteId !== params.siteId),
-        ]
-      : candidates;
-
-    const slices: FeedAllocationSlice[] = [];
-    let remaining = params.quantityKg;
-    let usedSiteFallback = false;
-
-    for (const row of ordered) {
-      if (remaining <= KG_EPSILON) break;
-      const take = round2(Math.min(remaining, row.quantity));
-      if (take <= 0) continue;
-      slices.push({
-        storageLocationId: row.storageLocationId,
-        lotNumber: row.lotNumber,
-        quantityKg: take,
-        expiryDate: row.expiryDate,
-      });
-      if (params.siteId && row.siteId !== params.siteId) usedSiteFallback = true;
-      remaining = round2(remaining - take);
-    }
-
-    if (remaining > KG_EPSILON) {
-      // Havuz toplamı yeterliydi ama dağıtım tamamlanamadı — yuvarlama ya da
-      // eşzamanlılık; sessiz kısmi düşüm YERİNE fail-closed.
-      throw new InsufficientFeedStockError(
-        params.feedId,
-        params.quantityKg,
-        poolTotalKg,
-        params.lotNumber,
-      );
-    }
-
-    if (usedSiteFallback) {
+    if (result.usedSiteFallback) {
       this.logger.warn(
         `Feed allocation crossed the site boundary: site ${params.siteId} pool was short for ` +
           `feed ${params.feedId} (${params.quantityKg}kg); tenant-wide lots covered the remainder.`,
       );
     }
 
-    return { slices, usedSiteFallback, poolTotalKg };
+    return result;
   }
 
   /**
@@ -177,7 +211,7 @@ export class FeedAllocationService {
     manager: EntityManager,
     tenantId: string,
     params: { feedId: string; asOf: Date; lotNumber?: string },
-  ): Promise<CandidateRow[]> {
+  ): Promise<FeedAllocationCandidate[]> {
     // Envanter satırları JOIN'siz okunur ve KİLİTLENİR. JOIN + FOR UPDATE,
     // lokasyon satırlarını da kilitleyip ilgisiz yazarları bloke ederdi;
     // ayrıca ham join şartları FARM-CRITICAL-242'nin bug sınıfını doğuran
@@ -215,14 +249,23 @@ export class FeedAllocationService {
           const location = siteByLocation.get(row.storageLocationId);
           return location !== undefined && !location.isDeleted;
         })
-        .map((row) => ({
-          id: row.id,
-          storageLocationId: row.storageLocationId,
-          lotNumber: row.lotNumber ?? undefined,
-          quantity: Number(row.quantity),
-          expiryDate: row.expiryDate ?? null,
-          siteId: siteByLocation.get(row.storageLocationId)!.siteId,
-        }))
+        .map((row): FeedAllocationCandidate => {
+          const location = siteByLocation.get(row.storageLocationId);
+          if (!location) {
+            // Filtrelenmiş listede olamaz; olursa sessizce atlamak yerine
+            // patlar — havuz toplamı ile dilimler ayrışamaz.
+            throw new BadRequestException(
+              `Inventory ${row.id} references an unavailable storage location`,
+            );
+          }
+          return {
+            storageLocationId: row.storageLocationId,
+            lotNumber: row.lotNumber ?? undefined,
+            quantityKg: Number(row.quantity),
+            expiryDate: row.expiryDate ?? null,
+            siteId: location.siteId,
+          };
+        })
     );
   }
 }

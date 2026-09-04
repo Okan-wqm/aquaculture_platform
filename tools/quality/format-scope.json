@@ -15453,6 +15453,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/storage/__tests__/stock-mutation-lock.authority.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/storage/__tests__/trace-lot.handler.spec.ts",
       "prettier_managed": true
     },
@@ -15988,6 +15994,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/storage/services/stock-movement.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/storage/services/stock-mutation-lock.authority.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/storage/services/stock-quantity.ts",
       "prettier_managed": true
     },
     {

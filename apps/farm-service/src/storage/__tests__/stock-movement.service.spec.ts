@@ -31,6 +31,7 @@ import { Role } from '@aquaculture/backend-common/decorators';
 import { OutboxPublisher } from '@platform/outbox';
 
 import { StockMovementService } from '../services/stock-movement.service';
+import { StockMutationLockAuthority } from '../services/stock-mutation-lock.authority';
 import { LotMixService } from '../services/lot-mix.service';
 import { StorageInventory, StorageItemType } from '../entities/storage-inventory.entity';
 import { StorageLocation } from '../entities/storage-location.entity';
@@ -50,9 +51,7 @@ const USER = '44444444-4444-4444-8444-444444444444';
  */
 function tenantRepositoryMetadata<T extends ObjectLiteral>(): Repository<T>['metadata'] {
   const tenantColumn = stub<
-    NonNullable<
-      ReturnType<Repository<T>['metadata']['findColumnWithPropertyName']>
-    >
+    NonNullable<ReturnType<Repository<T>['metadata']['findColumnWithPropertyName']>>
   >({
     databaseName: 'tenantId',
   });
@@ -120,6 +119,8 @@ function inv(over: Partial<StorageInventory>): StorageInventory {
 
 function makeHarness(opts: HarnessOpts = {}): {
   service: StockMovementService;
+  acquireItemLock: jest.Mock;
+  acquireIdempotencyLock: jest.Mock;
   manager: EntityManager;
   repos: RepoDoubles;
   outboxEnqueue: jest.Mock;
@@ -170,9 +171,13 @@ function makeHarness(opts: HarnessOpts = {}): {
   });
 
   const movementCreate = jest.fn();
-  movementCreate.mockImplementation((dto: Partial<StockMovement>) => stub<StockMovement>({ ...dto }));
+  movementCreate.mockImplementation((dto: Partial<StockMovement>) =>
+    stub<StockMovement>({ ...dto }),
+  );
   const movementSave = jest.fn();
-  movementSave.mockImplementation(async (row: StockMovement) => stub<StockMovement>({ ...row, id: 'mv-1' }));
+  movementSave.mockImplementation(async (row: StockMovement) =>
+    stub<StockMovement>({ ...row, id: 'mv-1' }),
+  );
   const movementRepo = stub<Repository<StockMovement>>({
     metadata: tenantRepositoryMetadata<StockMovement>(),
     findOne: jest.fn().mockResolvedValue(opts.existingMovement ?? null),
@@ -209,10 +214,28 @@ function makeHarness(opts: HarnessOpts = {}): {
   const outboxEnqueue = jest.fn();
   outboxEnqueue.mockResolvedValue(undefined);
   const outboxPublisher = stub<OutboxPublisher>({ enqueue: outboxEnqueue });
-  const service = new StockMovementService(lotMix, new SiteAuthorizationService(), outboxPublisher);
+  // Advisory kilit gerçek bir transaction ister; bu harness sahte bir manager
+  // kullandığı için kilit otoritesi double'lanır. Kilidin GERÇEK davranışı
+  // `stock-mutation-lock.authority.spec.ts` ve PG lane'inde pinlenir.
+  const acquireItemLock = jest.fn();
+  acquireItemLock.mockResolvedValue(undefined);
+  const acquireIdempotencyLock = jest.fn();
+  acquireIdempotencyLock.mockResolvedValue(undefined);
+  const mutationLocks = stub<StockMutationLockAuthority>({
+    acquire: acquireItemLock,
+    acquireIdempotency: acquireIdempotencyLock,
+  });
+  const service = new StockMovementService(
+    lotMix,
+    new SiteAuthorizationService(),
+    outboxPublisher,
+    mutationLocks,
+  );
 
   return {
     service,
+    acquireItemLock,
+    acquireIdempotencyLock,
     manager,
     repos: { inventory: inventoryRepo, inventorySave, movementCreate, movementSave },
     outboxEnqueue,
@@ -241,7 +264,11 @@ describe('StockMovementService.recordMovement — SEC-HIGH-051 sink site-authz',
       service.recordMovement(manager, outInput(50), {
         tenantId: TENANT,
         userId: USER,
-        siteAuthorization: { sub: USER, roles: [Role.MODULE_USER], assignedSiteIds: ['site-OTHER'] },
+        siteAuthorization: {
+          sub: USER,
+          roles: [Role.MODULE_USER],
+          assignedSiteIds: ['site-OTHER'],
+        },
       }),
     ).rejects.toBeInstanceOf(ForbiddenException);
 
@@ -265,7 +292,10 @@ describe('StockMovementService.recordMovement — SEC-HIGH-051 sink site-authz',
 
     // Feeding authorizes on the FEEDING site at its own sink, so the internal
     // feed-deduction movement passes no siteAuthorization and is not re-gated.
-    const result = await service.recordMovement(manager, outInput(50), { tenantId: TENANT, userId: USER });
+    const result = await service.recordMovement(manager, outInput(50), {
+      tenantId: TENANT,
+      userId: USER,
+    });
     expect(result.idempotentHit).toBe(false);
   });
 });
@@ -298,7 +328,10 @@ describe('StockMovementService.recordMovement (OUT, fail-closed)', () => {
   it('decrements the lot and writes the audit row on the happy path', async () => {
     const { service, manager, repos } = makeHarness({ fromLot: inv({ quantity: 500 }) });
 
-    const result = await service.recordMovement(manager, outInput(50), { tenantId: TENANT, userId: USER });
+    const result = await service.recordMovement(manager, outInput(50), {
+      tenantId: TENANT,
+      userId: USER,
+    });
 
     // Lot decremented 500 -> 450 and saved (not removed).
     expect(repos.inventorySave).toHaveBeenCalled();

@@ -32,17 +32,19 @@
 import 'reflect-metadata';
 import { randomBytes } from 'crypto';
 
-import { bootPostgresContainer, HarnessContext, shutdownHarness } from '@platform/migration-harness';
+import {
+  bootPostgresContainer,
+  HarnessContext,
+  shutdownHarness,
+} from '@platform/migration-harness';
 import { DataSource } from 'typeorm';
 
 import {
   FeedAllocationService,
   InsufficientFeedStockError,
 } from '../../storage/services/feed-allocation.service';
-import {
-  StorageInventory,
-  StorageItemType,
-} from '../../storage/entities/storage-inventory.entity';
+import { StockMutationLockAuthority } from '../../storage/services/stock-mutation-lock.authority';
+import { StorageInventory, StorageItemType } from '../../storage/entities/storage-inventory.entity';
 import { StorageLocation } from '../../storage/entities/storage-location.entity';
 
 jest.setTimeout(120_000);
@@ -105,7 +107,7 @@ interface LotSeed {
 describe('FeedAllocationService.allocateForDeduction — real Postgres', () => {
   let pg: HarnessContext;
   let dataSource: DataSource;
-  const service = new FeedAllocationService();
+  const service = new FeedAllocationService(new StockMutationLockAuthority());
 
   beforeAll(async () => {
     pg = await bootPostgresContainer({ startTimeoutMs: 90_000 });
@@ -133,9 +135,30 @@ describe('FeedAllocationService.allocateForDeduction — real Postgres', () => {
     // (create-storage-location.handler.ts:54), yani burada onu atlamak
     // fixture'ı üretimden farklı kılardı.
     await dataSource.manager.save(StorageLocation, [
-      { id: LOC_A1, tenantId: TENANT, siteId: SITE_A, code: 'A1', name: 'Site A depo 1', usedCapacity: 0 },
-      { id: LOC_A2, tenantId: TENANT, siteId: SITE_A, code: 'A2', name: 'Site A depo 2', usedCapacity: 0 },
-      { id: LOC_B1, tenantId: TENANT, siteId: SITE_B, code: 'B1', name: 'Site B depo', usedCapacity: 0 },
+      {
+        id: LOC_A1,
+        tenantId: TENANT,
+        siteId: SITE_A,
+        code: 'A1',
+        name: 'Site A depo 1',
+        usedCapacity: 0,
+      },
+      {
+        id: LOC_A2,
+        tenantId: TENANT,
+        siteId: SITE_A,
+        code: 'A2',
+        name: 'Site A depo 2',
+        usedCapacity: 0,
+      },
+      {
+        id: LOC_B1,
+        tenantId: TENANT,
+        siteId: SITE_B,
+        code: 'B1',
+        name: 'Site B depo',
+        usedCapacity: 0,
+      },
       {
         id: LOC_DELETED,
         tenantId: TENANT,

@@ -33639,6 +33639,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/admin-expert/2026-09-04-admin-panel-rc1-integration.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/aquamobil-e2e-audit/2026-06-13-findings.md",
       "prettier_managed": true
     },

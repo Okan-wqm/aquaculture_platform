@@ -33681,6 +33681,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/admin-expert/2026-09-04-admin-panels-enterprise-integration.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/aquamobil-e2e-audit/2026-06-13-findings.md",
       "prettier_managed": true
     },
@@ -56957,6 +56963,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/tenant-admin/src/graphql/user-queries.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/tenant-admin/src/hooks/__tests__/tenant-scoped-cache-keys.spec.ts",
       "prettier_managed": true
     },
     {

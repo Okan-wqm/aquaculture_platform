@@ -37,6 +37,8 @@ import { execSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
+import { resolveWaiver } from '../../tools/gates/migration-immutability-witness';
+
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
 describe('INVARIANT — migration-immutability (shipped migrations are append-only)', () => {
@@ -91,5 +93,86 @@ describe('INVARIANT — migration-immutability (shipped migrations are append-on
         /BASE_SHA:\s*\$\{\{\s*github\.event\.pull_request\.base\.sha\s*\}\}/,
       );
     }
+  });
+
+  /**
+   * The structural assertions above say the gate is WIRED. They said nothing
+   * about what it decides, and what it decided was wider than any reviewer would
+   * grant: the waiver matched the BASENAME, and fourteen services name their
+   * first migration `1800000000000-Baseline.ts`, so one line waived all fourteen
+   * — including services the PR never touched (PROC-MEDIUM-021). These exercise
+   * the decision itself.
+   */
+  describe('waiver scope (PROC-MEDIUM-021)', () => {
+    const AMBIGUOUS = new Map<string, readonly string[]>([
+      [
+        '1800000000000-Baseline.ts',
+        [
+          'apps/farm-service/src/database/migrations/1800000000000-Baseline.ts',
+          'apps/sensor-service/src/database/migrations/1800000000000-Baseline.ts',
+        ],
+      ],
+      [
+        '1800700000000-AddMessagesEmbeddingColumn.ts',
+        ['apps/messaging-service/src/migrations/1800700000000-AddMessagesEmbeddingColumn.ts'],
+      ],
+    ]);
+
+    const FARM = 'apps/farm-service/src/database/migrations/1800000000000-Baseline.ts';
+    const SENSOR = 'apps/sensor-service/src/database/migrations/1800000000000-Baseline.ts';
+    const UNIQUE =
+      'apps/messaging-service/src/migrations/1800700000000-AddMessagesEmbeddingColumn.ts';
+
+    it('accepts a waiver that names the repo-relative path', () => {
+      const body = `MIGRATION-IMMUTABLE-OK: ${FARM} — de-qualify per-tenant DDL`;
+      expect(resolveWaiver(FARM, body, AMBIGUOUS)).not.toBeNull();
+    });
+
+    it('does not let one Baseline waiver cover a sibling service', () => {
+      // The whole finding: this used to pass, and with it went every Baseline
+      // in the repository.
+      const body = `MIGRATION-IMMUTABLE-OK: ${FARM} — de-qualify per-tenant DDL`;
+      expect(resolveWaiver(SENSOR, body, AMBIGUOUS)).toBeNull();
+    });
+
+    it('refuses a bare basename that names more than one shipped migration', () => {
+      const body = 'MIGRATION-IMMUTABLE-OK: 1800000000000-Baseline.ts — comment only';
+      expect(resolveWaiver(FARM, body, AMBIGUOUS)).toBeNull();
+      expect(resolveWaiver(SENSOR, body, AMBIGUOUS)).toBeNull();
+    });
+
+    it('still accepts a bare basename that is unique repo-wide', () => {
+      // Shorthand is only ceremony when the two spellings name the same file.
+      const body =
+        'MIGRATION-IMMUTABLE-OK: 1800700000000-AddMessagesEmbeddingColumn.ts — remove the pin';
+      expect(resolveWaiver(UNIQUE, body, AMBIGUOUS)).not.toBeNull();
+    });
+
+    it('refuses a waiver for a different file whose path merely shares a prefix', () => {
+      const body = `MIGRATION-IMMUTABLE-OK: ${FARM}.bak — not this file`;
+      expect(resolveWaiver(FARM, body, AMBIGUOUS)).toBeNull();
+    });
+
+    it('refuses everything when the PR body is empty', () => {
+      expect(resolveWaiver(FARM, '', AMBIGUOUS)).toBeNull();
+    });
+
+    it('matches the repo-relative path spelling this repository actually uses', () => {
+      // Guards the two apart: farm-service keeps migrations under
+      // src/database/migrations, messaging-service under src/migrations.
+      const shipped = execSync('git ls-files -- "*/migrations/*"', {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+      })
+        .split('\n')
+        .filter((p) => /\/migrations\/\d{10,}-[^/]+\.(ts|sql)$/.test(p))
+        .filter((p) => !p.includes('/.archive/'));
+
+      expect(shipped).toContain(FARM);
+      expect(shipped).toContain(SENSOR);
+      expect(shipped.filter((p) => p.endsWith('/1800000000000-Baseline.ts')).length).toBeGreaterThan(
+        1,
+      );
+    });
   });
 });

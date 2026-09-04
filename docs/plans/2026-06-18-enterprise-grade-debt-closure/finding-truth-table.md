@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `9ac8de4b8b149f14fe6b9d0981039c9859342f78f88b9052850b195e2d0f30ae`
+Registry tip: `fdbd099b68da0eb95db66af1715f8365455ef105be32bdeeef681aced331cad9`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -161,6 +161,16 @@ invariant with `tests/invariants/aquamobil-input-mirror-parity.spec.ts`, so it i
 `already-fixed-needs-close` until the post-merge close ceremony records a
 main-reachable closing commit.
 
+Updated 2026-09-04 (100-tenant readiness merge, PR #1338): reconciling the branch's 89 registry
+rows onto main's chain added six active CRITICALs the branch itself fixes —
+`SENSOR-CRITICAL-086`–`089` (MQTT PUBACK before durable commit, writer-buffer loss window,
+shared-schema telemetry readers, stub sidecar pipeline) and `SEC-CRITICAL-092`/`093` (WebAuthn
+registration without proof-of-possession, credentials surviving password reset) — all
+`already-fixed-needs-close` until the post-merge close ceremony records their main-reachable
+commits. The integration review also raised `SENSOR-CRITICAL-104` as `real-open`: the declared
+JetStream stream limits (~7.75 GiB) exceed the droplet's 2 GB file store while the capacity gate
+still passes, so the 60-minute telemetry buffer cannot be created as configured.
+
 Allowed truth buckets:
 
 - `real-open`
@@ -228,6 +238,13 @@ Allowed truth buckets:
 | `EDGE-CRITICAL-003`     | OPEN           | 2026-07-12   | edge-expert                | already-fixed-needs-close |
 | `EDGE-CRITICAL-004`     | OPEN           | 2026-07-12   | edge-expert                | already-fixed-needs-close |
 | `MOB-CRITICAL-018`      | OPEN           | 2026-08-16   | mobile-app-auditor         | already-fixed-needs-close |
+| `SENSOR-CRITICAL-086`   | OPEN           | 2026-08-24   | zcode                      | already-fixed-needs-close |
+| `SENSOR-CRITICAL-087`   | OPEN           | 2026-08-24   | zcode                      | already-fixed-needs-close |
+| `SENSOR-CRITICAL-088`   | OPEN           | 2026-08-24   | zcode                      | already-fixed-needs-close |
+| `SENSOR-CRITICAL-089`   | OPEN           | 2026-08-24   | zcode                      | already-fixed-needs-close |
+| `SEC-CRITICAL-092`      | OPEN           | 2026-08-23   | security-scan              | already-fixed-needs-close |
+| `SEC-CRITICAL-093`      | OPEN           | 2026-08-23   | security-scan              | already-fixed-needs-close |
+| `SENSOR-CRITICAL-104`   | OPEN           | 2026-09-03   | zcode                      | real-open                 |
 
 ## Mutation Rules
 
@@ -296,6 +313,29 @@ Allowed truth buckets:
   `tests/invariants/aquamobil-input-mirror-parity.spec.ts` (commit 2f5ef21eb).
   The registry row stays OPEN only until the post-merge close ceremony records a
   main-reachable closing commit.
+- `SENSOR-CRITICAL-086` (MQTT path could PUBACK before the source commit): PR #1338 holds the PUBACK
+  until the reading is durably persisted (commit 4e6f129d6). The registry row stays OPEN only until
+  the post-merge close ceremony records a main-reachable closing commit.
+- `SENSOR-CRITICAL-087` (writer-buffer loss window — enqueue returned void and flush spliced before
+  writing): PR #1338 settles metric writes per tenant before any source ack (commit 3d784be31). The
+  registry row stays OPEN only until the post-merge close ceremony records a main-reachable closing
+  commit.
+- `SENSOR-CRITICAL-088` (per-tenant storage contract broken in the active readers by a hard-coded
+  shared schema): PR #1338 resolves the tenant schema in every telemetry reader (commit 0aa754516).
+  The registry row stays OPEN only until the post-merge close ceremony records a main-reachable
+  closing commit.
+- `SENSOR-CRITICAL-089` (sidecar readiness claim did not match the live binary — stub drain, shared
+  sink): PR #1338 restores the real sensor-ingestion pipeline on the platform SSoTs (commit
+  720531480). The registry row stays OPEN only until the post-merge close ceremony records a
+  main-reachable closing commit.
+- `SEC-CRITICAL-092` (WebAuthn registration stored the client-supplied public key with no
+  attestation or proof-of-possession): PR #1338 verifies proof-of-possession and requires step-up
+  for registration (commit 55a8471d4). The registry row stays OPEN only until the post-merge close
+  ceremony records a main-reachable closing commit.
+- `SEC-CRITICAL-093` (WebAuthn backdoor chain — token-only registration, credentials surviving
+  password reset, MFA/tenant gates skipped): PR #1338 invalidates credentials on reset and closes
+  the gate bypass (commit 55a8471d4). The registry row stays OPEN only until the post-merge close
+  ceremony records a main-reachable closing commit.
 
 The 2026-06-20 registry close follow-up left no OTHER active CRITICAL in
 `already-fixed-needs-close`; reconciled items moved to `Resolved Evidence`.

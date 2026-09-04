@@ -41,7 +41,7 @@
  *     revert the migration.
  */
 
-import { readdirSync, statSync, existsSync } from 'fs';
+import { readdirSync, readFileSync, statSync, existsSync } from 'fs';
 import { createRequire } from 'module';
 import { join, resolve } from 'path';
 
@@ -52,6 +52,43 @@ import { getMetadataArgsStorage } from 'typeorm';
 import { TestDatabase } from '../../helpers/db.helper';
 
 const REPO_ROOT = resolve(__dirname, '..', '..', '..');
+
+/**
+ * The schema owner/runtime split, read out of the bootstrap stage that applies
+ * it: `apps/db-migrate/src/sql/platform-bootstrap/008-least-privilege-hardening.sql`.
+ *
+ * That file drives its own DO block from a `jsonb_to_recordset` array of
+ * `{schema_name, owner_role, runtime_role, provisioner_role}`. Parsing the same
+ * array is what keeps this assertion from becoming a second, drifting copy —
+ * which is exactly what it had become.
+ */
+function schemaOwnershipSpecs(): Array<[string, string]> {
+  const path = join(
+    REPO_ROOT,
+    'apps',
+    'db-migrate',
+    'src',
+    'sql',
+    'platform-bootstrap',
+    '008-least-privilege-hardening.sql',
+  );
+  if (!existsSync(path)) {
+    throw new Error(`B.4 SSoT missing: ${path}`);
+  }
+  const sql = readFileSync(path, 'utf8');
+  const match = /jsonb_to_recordset\(\s*'(\[[\s\S]*?\])'::jsonb/.exec(sql);
+  if (match?.[1] === undefined) {
+    throw new Error(
+      `B.4 could not find the jsonb_to_recordset schema-privilege array in ${path}. ` +
+        `If the bootstrap changed shape, update this reader — do not restate the list here.`,
+    );
+  }
+  const specs = JSON.parse(match[1]) as Array<{ schema_name: string; owner_role: string }>;
+  if (specs.length === 0) {
+    throw new Error(`B.4 schema-privilege array in ${path} is empty`);
+  }
+  return specs.map((spec) => [spec.schema_name, spec.owner_role]);
+}
 const requireEntity = createRequire(__filename);
 
 /**
@@ -512,51 +549,50 @@ describe('Schema Invariants (2026-04-14 public-schema teardown)', () => {
   // superuser (which sticks ownership on `postgres`, breaking the
   // privilege boundary that schema-per-service security relies on).
   //
-  // The owner naming convention is `<svc>_service` — see
-  // infrastructure/docker/init-scripts/00-init-schemas.sh lines
-  // 89-128. There is no `_role` suffix; the mission spec's nominal
-  // pattern `<svc>_service_role` was a phrasing rather than the
-  // on-disk convention.
-  it.each([
-    ['auth', 'auth_service'],
-    ['farm', 'farm_service'],
-    ['sensor', 'sensor_service'],
-    ['hr', 'hr_service'],
-    ['messaging', 'messaging_service'],
-    ['hydroponics', 'hydroponics_service'],
-    ['alert', 'alert_service'],
-    ['billing', 'billing_service'],
-    ['notification', 'notification_service'],
-    ['ai', 'ai_service'],
-    ['admin', 'admin_service'],
-    ['observability', 'observability_service'],
-    ['event_store', 'event_store_service'],
-    ['gateway', 'gateway_service'],
-  ])('B.4 — schema "%s" is owned by role "%s"', async (schemaName, expectedRole) => {
-    const result = await db.query<{ owner: string | null }>(
-      `SELECT pg_get_userbyid(nspowner) AS owner
-       FROM pg_namespace
-       WHERE nspname = $1`,
-      [schemaName],
-    );
-    if (result.rows.length === 0) {
-      throw new Error(
-        `B.4 schema "${schemaName}" does not exist in pg_namespace. ` +
-          `Verify infrastructure/docker/init-scripts/00-init-schemas.sh ` +
-          `creates this schema.`,
+  // Derived from the SQL that APPLIES the rule, not restated beside it.
+  //
+  // This list used to be hardcoded as `<svc>_service` per schema, citing
+  // `00-init-schemas.sh`. That was the model the platform had BEFORE
+  // 008-least-privilege-hardening.sql split ownership from the runtime role:
+  // ownership carries DROP and ALTER over every object in the schema, so the
+  // role the service logs in as must NOT hold it. The stale copy did not
+  // merely fail — its own remedy text told the reader to
+  // `ALTER SCHEMA … OWNER TO <svc>_service`, which would have handed that
+  // power back. It stayed invisible because nothing ran this spec
+  // (SENSOR-MEDIUM-052); wiring it into db-migration-check is what surfaced it.
+  //
+  // Reading the bootstrap's own `jsonb_to_recordset` array means the
+  // expectation cannot drift from what the database is actually given, and a
+  // schema added there is asserted here without anyone remembering to.
+  it.each(schemaOwnershipSpecs())(
+    'B.4 — schema "%s" is owned by role "%s"',
+    async (schemaName, expectedRole) => {
+      const result = await db.query<{ owner: string | null }>(
+        `SELECT pg_get_userbyid(nspowner) AS owner
+         FROM pg_namespace
+         WHERE nspname = $1`,
+        [schemaName],
       );
-    }
-    const owner = result.rows[0]?.owner;
-    if (owner !== expectedRole) {
-      throw new Error(
-        `B.4 schema "${schemaName}" is owned by "${owner}", expected "${expectedRole}". ` +
-          `The init script's CREATE SCHEMA <schema> AUTHORIZATION ${expectedRole} clause ` +
-          `did not run, or a manual ALTER SCHEMA OWNER TO <other> reset ownership. ` +
-          `Privilege-boundary security depends on this — fix via ` +
-          `\`ALTER SCHEMA "${schemaName}" OWNER TO ${expectedRole}\`.`,
-      );
-    }
-  });
+      if (result.rows.length === 0) {
+        throw new Error(
+          `B.4 schema "${schemaName}" does not exist in pg_namespace. ` +
+            `008-least-privilege-hardening.sql declares it, so either the bootstrap ` +
+            `did not run or the schema was dropped.`,
+        );
+      }
+      const owner = result.rows[0]?.owner;
+      if (owner !== expectedRole) {
+        throw new Error(
+          `B.4 schema "${schemaName}" is owned by "${owner}", expected "${expectedRole}". ` +
+            `Ownership carries DROP and ALTER over every object in the schema, which is ` +
+            `why 008-least-privilege-hardening.sql gives it to the NOLOGIN ` +
+            `"${expectedRole}" and leaves the service login with DML only. Either that ` +
+            `bootstrap stage did not run, or an ALTER SCHEMA OWNER TO <other> reset it. ` +
+            `Fix by re-running the bootstrap — never by handing ownership to a login role.`,
+        );
+      }
+    },
+  );
 
   // B.5a — TENANT_SCOPED schemas: each MUST have at least one
   // tenant_<uuid> clone of its source tables in the test DB.

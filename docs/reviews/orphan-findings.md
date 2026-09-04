@@ -11092,3 +11092,26 @@ Severity: MEDIUM (the case's own participants absent from the case record).
 **What it deliberately does NOT do.** It never merges. Two spellings stay two candidates and their resemblance is emitted as `party_identity_ambiguity` — a question, not a conclusion — because `party_identity_merge` is reserved for a lawyer by `arias/legal/config/approval-policy.json`, and a tool that quietly merged two names would destroy the exact distinction a conflict-of-interest check depends on. A role is recorded only when the document labelled one: an organisation form says what a party IS, not what it does in this case, and inferring the second from the first would be a claim with no evidence behind it. No text-derived candidate's confidence exceeds the 0.5 floor a header-derived party carries, because a name in running text is a weaker reading than an address in a header.
 
 **Evidence.** 11 party-candidate tests, including one asserting that two spellings produce two parties and one ambiguity, one asserting genuinely different names are never paired, and one asserting prose with no party shape yields nothing rather than a guess. 21 adapter tests green with the golden regenerated.
+
+## ORPHAN-HIGH-804 — a corpus that must not be committed cannot be read by an adapter inside a git worktree — OPEN
+
+Severity: HIGH (silent in the shipped deployment, fatal in any git-rooted workspace, and it quarantines the adapter after two runs).
+
+**Measured 2026-09-04** while verifying the legal pack end to end against the real kernel.
+
+The same inventory run over the same case archive behaves in two different ways depending only on whether the workspace root is a git repository:
+
+- **Git worktree** (`data/legal-cases/**` gitignored, as client documents must be): every read path comes back `read_path_outside_snapshot`, the run is recorded `evidence_error`, and after the second such run `tool_health` quarantines the adapter with `self-output evidence or invalid evidence chain`. Verified on `health.jsonl` and `runs.jsonl`.
+- **Non-git workspace** (the shape `/opt/new-aria` has inside the image): `run status: ok`, evidence validation not applied, and the full record set is produced — 2 statements, 6 parties, 12 timeline events, 1 version step, coverage complete.
+
+**Root cause.** `evidence_validator` requires every `read_path` to sit inside the snapshot's allowed paths. `snapshot.build_repo_snapshot` enumerates with `git ls-files` plus `git ls-files --others --exclude-standard` when git is available, so an ignored directory is not in the snapshot at all. A legal case archive must NOT be committed — it is client material — so the two requirements are in direct conflict under git. Without git, `_filesystem_paths` walks the tree and the archive is present.
+
+**Why it is not fixed here.** Every available fix is a kernel change, and this session's scope deliberately keeps the transport copy's core byte-equal (`docs/product/NEW-ARIA-URUN-TANIMI.md` B-1/B-2). The shapes considered:
+
+- Let a snapshot include ignored paths when a tool's declared scope covers them. Correct place, but it widens the snapshot contract and touches the evidence law.
+- Give `run_tool` a corpus root distinct from the workspace root, so the adapter's code and the material it reads are addressed separately. This is the same underlying assumption as G-18 (the runner presumes an adapter's code lives inside the corpus it observes) and would close both.
+- Keep the archive tracked. Rejected: committing client documents into the product repository is exactly what a legal instance must never do.
+
+**Consequence today, stated plainly.** The shipped Docker deployment is unaffected, because its workspace root carries no `.git`. Anyone probing the adapter from a developer worktree must point `--workspace-root` at a non-git copy, or they will conclude the adapter is broken and, after two runs, find it quarantined. Recorded as G-20 in `new-aria/docs/product/CORE-DELTAS.md` with the same evidence.
+
+Owner: operator (kernel change, requires the ARIA core delta decision). Deadline: before the legal instance is run on a git-rooted workspace, or before G-18 is closed, whichever comes first.

@@ -363,3 +363,28 @@ Konsol tarafında korunan iki dürüstlük kuralı test edilerek pinlendi: sür�
 üyeyi **yetkili ilan etmiyor** ("signed candidate" dosya adının söylediğidir, hüküm değil),
 ve yalnız bir sürümde geçen bir değer "yoktan değişti" gibi değil, `not stated` olarak
 gösteriliyor. Atlanan satır karşılaştırması da "atlandı" diyor, uydurma sayı basmıyor.
+
+### D.7 — Uçtan uca doğrulama ve ölçülen dağıtım sınırı
+
+Gerçek kernel üzerinde, konteynerdekiyle **aynı şekilde** (git olmayan çalışma alanı kökü,
+dava arşivi onun altında) koşuldu:
+
+```
+aria tool register --file packs/legal/adapters/legal-document-inventory.tool.json
+aria tool run --tool-id legal-document-inventory --workspace-root <ARIA kurulumu> \
+  --input '{"archive_root":"data/legal-cases/<case>/archive", ..., "intake":[...]}'
+→ run status: ok
+```
+
+Üretilen artifact'lar: kapsama tam (8 metin, 2 `metadata_only` — `pdf_encrypted` ve
+`pdf_no_text_layer:1_pages` —, 1 dışlanmış), **2 iddia satırı** (bir `disputed` tarih
+uyuşmazlığı, bir `unverifiable` eksik belge), **6 taraf**, **12 kronoloji olayı** (4'ünde
+`learnedAt` alım tutanağından), **1 sürüm adımı** (`Pris` 125 000 → 120 000).
+
+**Ölçülen sınır (G-20).** Aynı koşum bir **git çalışma ağacında** `evidence_error` veriyor
+ve iki koşumdan sonra adapter karantinaya giriyor. Sebep: `evidence_validator` her okunan
+yolun anlık görüntüde olmasını ister, `snapshot.py` git varken `--exclude-standard`
+kullanır, dava arşivi ise `.gitignore`'lıdır — müvekkil belgesi commit edilmemelidir. İki
+gereklilik git altında çelişiyor. Konteynerde çalışma alanı kökü git deposu **değildir**
+(`_filesystem_paths` yolu), orada çelişki yok. Sonuç: dağıtım geçerli, geliştirici
+worktree'sinde sonda alırken çalışma alanı kökü git olmayan bir kopya olmalı.

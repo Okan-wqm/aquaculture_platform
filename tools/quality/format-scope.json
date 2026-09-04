@@ -42198,6 +42198,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "scripts/migration/dequalify-tenant-baselines.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "scripts/migration/faz-6-preflight.ts",
       "prettier_managed": true
     },

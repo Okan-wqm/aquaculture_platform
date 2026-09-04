@@ -119,6 +119,12 @@ const QueryHandlers = [
     // Exported so FeedingModule can deduct feed stock INSIDE the feeding
     // transaction (fail-closed, atomic) — see StockMovementService header.
     StockMovementService,
+    // Çok-lotlu FEFO tahsis motoru. SAĞLANIR ama DIŞA AKTARILMAZ: yemlemenin
+    // depoya tek girişi `StockMovementService.resolveFeedDeductionLocation`
+    // sözleşmesidir (FARM-CRITICAL-237) ve motor onun ARKASINDA durur. Export
+    // edilseydi başka bir modül motoru doğrudan enjekte edip fail-closed
+    // sözleşmenin ETRAFINDAN dolaşabilirdi — W2'de tam olarak bu oldu. Nest
+    // provider görünürlüğü bunu artık yapısal olarak imkânsız kılar.
     FeedAllocationService,
     // Fiziksel stok mutasyonlarının TEK kilit protokolü — satır kilidi olmayan
     // (henüz var olmayan) fiziksel anahtarı da kapsar.
@@ -129,6 +135,6 @@ const QueryHandlers = [
     ...CommandHandlers,
     ...QueryHandlers,
   ],
-  exports: [TypeOrmModule, StockMovementService, FeedAllocationService, StockMutationLockAuthority],
+  exports: [TypeOrmModule, StockMovementService, StockMutationLockAuthority],
 })
 export class InventoryModule {}

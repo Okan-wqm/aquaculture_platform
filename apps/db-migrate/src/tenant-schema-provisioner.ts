@@ -480,7 +480,7 @@ async function writeJobEvidence(
               WHEN $9::boolean THEN lease_expires_at
               ELSE NOW() + ($10 || ' seconds')::interval
             END,
-            completed_at = CASE WHEN $2 IN ('COMMITTED', 'FAILED', 'ABORTED', 'DELETED') THEN NOW() ELSE completed_at END,
+            completed_at = CASE WHEN $9::boolean THEN NOW() ELSE completed_at END,
             updated_at = NOW()
       WHERE id = $1
         AND lease_token = $8`,

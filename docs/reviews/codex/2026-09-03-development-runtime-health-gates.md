@@ -77,3 +77,18 @@ Production sensor bootstrap is now a read-only, fail-closed check for all expect
 owner, and actual query access; only non-authoritative local development retains runtime creation.
 Unit and wiring contract tests cover DDL failure cleanup, unsafe schemas, ownership drift, missing
 views, both provisioner paths, and the release migration sweep.
+
+## DEPLOY-HIGH-011
+
+The next full development deployment in run
+[`33816640913`](https://github.com/Okan-wqm/aquaculture_platform/actions/runs/33816640913)
+verified all 28 immutable image digests and started the updated tenant schema provisioner. The
+provisioner reached the queued legacy-tenant reconciliation, but its lease-fenced evidence update
+used the same untyped parameter as both a `VARCHAR` assignment and a text comparison. PostgreSQL
+rejected the statement with `inconsistent types deduced for parameter $2`, so the job remained
+non-terminal and the farm runtime continued to reject the unverified tenant ledger.
+
+Resolution: terminality is computed once by the worker and passed as the existing typed boolean
+parameter that both lease and completion fields consume. A real PostgreSQL integration test
+claims a failing reconciliation job and verifies that the production worker persists `FAILED`,
+the error message, and `completed_at` through the same query path.

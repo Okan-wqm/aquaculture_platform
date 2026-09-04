@@ -1,0 +1,30 @@
+{
+  "$schema": "aria/instance-approval/v1",
+  "comment": "Which action classes this instance may take alone, and which need a named human role first. The kernel already owns the profile ladder and the HUMAN_REQUIRED surface; this file is the instance's declaration of who that human is and for what. Copy and fill.",
+  "roles": [
+    {
+      "id": "operator",
+      "description": "Runs the instance. May pause, resume and read everything."
+    }
+  ],
+  "gates": [
+    {
+      "action_class": "external_effect",
+      "description": "Anything that leaves the instance: a pull request, an email, a filing, a device command.",
+      "requires_role": "operator",
+      "auto": false
+    },
+    {
+      "action_class": "ground_truth_labelling",
+      "description": "Declaring a finding true or false. Never automatic; the kernel refuses a non-operator verdict.",
+      "requires_role": "operator",
+      "auto": false
+    },
+    {
+      "action_class": "read_only_analysis",
+      "description": "Observing the corpus and writing observation-class ledgers.",
+      "requires_role": null,
+      "auto": true
+    }
+  ]
+}

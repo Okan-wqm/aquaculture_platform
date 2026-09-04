@@ -1,0 +1,15 @@
+{
+  "$schema": "aria/instance-budget/v1",
+  "comment": "Per-instance cost ceiling. Mirrors the kernel's cost breaker shape (genesis_policy_default.json cost_caps_usd) so the instance value can be handed to the kernel without translation. Exhaustion is a clean stop with a reason code, never a degraded run.",
+  "cost_caps_usd": {
+    "per_run": 0.5,
+    "daily": 5.0,
+    "monthly": 100.0
+  },
+  "concurrency": {
+    "max_parallel_agents": 4
+  },
+  "wall_clock": {
+    "cycle_deadline_seconds": 1800
+  }
+}

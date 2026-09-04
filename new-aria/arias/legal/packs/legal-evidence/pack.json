@@ -1,0 +1,21 @@
+{
+  "$schema": "aria/pack/v1",
+  "id": "legal-evidence",
+  "version": "0.1.0",
+  "status": "active",
+  "instance": "legal",
+  "summary": "Delil alımı: envanter, içerik hash'i, sürüm soy ağacı, taraf ve iletişim çıkarımı, kapsama raporu.",
+  "implementation": {
+    "adapters": ["legal-document-inventory"],
+    "source": "packs/legal",
+    "note": "The working implementation (adapter, schemas, agents, fixtures, 21 tests) lives at new-aria/packs/legal today. It moves under this directory in step 2 of the derivation plan (owner: operator, target 2026-09-05) so the whole legal product sits in one sellable directory; the move is held until the running closure audit finishes reading the current tree."
+  },
+  "record_kinds": ["CASE", "DOCUMENT", "DOCUMENT_VERSION", "PARTY", "COMMUNICATION", "EVENT", "EVIDENCE"],
+  "claim_types": ["unreadable_document", "document_version_conflict", "party_identity_ambiguity"],
+  "evidence_source_types": ["document_reference", "correspondence", "metadata"],
+  "non_goals": [
+    "OCR üretmez; okunamayan dosya kapsama boşluğu olarak raporlanır.",
+    "Kimlik birleştirmez; aynı isimli taraflar ayrı kalır.",
+    "Hiçbir kaydı verified yapmaz."
+  ]
+}

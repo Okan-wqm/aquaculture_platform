@@ -1,0 +1,30 @@
+# Hukuk ARIA'sı — çalışma profili.
+#
+# WHY: legal case data must never share a store, a process or a credential with any other
+# instance. Same image, separate body: own ledger volume, own workspace mount, own token,
+# own port. This is also what makes the instance sellable as a unit.
+# WHAT:
+#   docker compose -f docker-compose.yml -f arias/legal/docker/compose.profile.yml up -d legal-ui
+services:
+  legal-ui:
+    image: new-aria-ui:local
+    environment:
+      ARIA_UI_TOKEN: ${LEGAL_UI_TOKEN:?set a token for the legal instance only}
+      ARIA_UI_PORT: "8480"
+      ARIA_UI_ALLOW_ACTIONS: ${LEGAL_ALLOW_ACTIONS:-0}
+      ARIA_TOOLS_DIR: /data/legal/aria-tools
+      ARIA_WORKSPACE_ROOT: /workspace
+      ARIA_WORKSPACE_BASE: /data/legal/workspaces
+      ARIA_KERNEL_BIN: /opt/new-aria/bin/aria
+      # The legal instance never reaches a model provider until an operator turns it on.
+      CLAUDE_CLI_MOCK: ${LEGAL_CLAUDE_CLI_MOCK:-1}
+    ports:
+      - "${LEGAL_UI_BIND:-127.0.0.1}:${LEGAL_UI_PORT:-8481}:8480"
+    volumes:
+      - legal-data:/data
+      # The case archive is mounted READ-ONLY: law L2, the corpus is never mutated.
+      - ${LEGAL_CORPUS:-./arias/legal/corpus}:/workspace:ro
+    restart: unless-stopped
+
+volumes:
+  legal-data: {}

@@ -1,0 +1,10 @@
+{
+  "$schema": "aria/instance-branding/v1",
+  "comment": "Ürün adı ticari bir karardır ve çekirdeğin adı değildir (law S-7). Boş bırakıldı; operatör doldurur.",
+  "product_name": "",
+  "short_name": "",
+  "tagline": "Dava dosyasını kanıta bağlı, insan-doğrulamalı bir çalışma setine çevirir.",
+  "locale": "tr-TR",
+  "accent": "#3b4a6b",
+  "console_modules": ["core", "legal"]
+}

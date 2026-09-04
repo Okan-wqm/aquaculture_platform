@@ -1,0 +1,20 @@
+{
+  "$schema": "aria/pack/v1",
+  "id": "legal-foundation",
+  "version": "0.0.1",
+  "status": "draft",
+  "instance": "legal",
+  "summary": "Matter ve müvekkil modeli, taraf rolleri, gizlilik duvarı, çıkar çatışması kontrolü, saklama ve silme süreleri.",
+  "implementation": {
+    "adapters": [],
+    "agents": [],
+    "note": "Starts when a second matter enters the instance: a wall between two matters is what this pack exists for, and one matter cannot demonstrate it. Its prerequisite is kernel gap G-2 (memory namespaces as a fail-closed gate) — until that lands, matter separation rests on running one instance per matter set."
+  },
+  "record_kinds": ["CASE", "PARTY", "ROLE", "ACCESS_PERMISSION"],
+  "claim_types": ["conflict_of_interest_candidate", "retention_window_expired"],
+  "evidence_source_types": ["document_reference", "metadata"],
+  "non_goals": [
+    "Çıkar çatışmasına karar vermez; aday çıkarır, kararı avukat verir.",
+    "Silme işlemini kendiliğinden yürütmez."
+  ]
+}

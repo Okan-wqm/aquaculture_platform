@@ -1,0 +1,22 @@
+{
+  "$schema": "aria/pack/v1",
+  "id": "legal-case-analysis",
+  "version": "0.0.1",
+  "status": "draft",
+  "instance": "legal",
+  "summary": "Olay ve öğrenilme tarihini ayıran kronoloji, iddia-olgu-kanıt matrisi, çelişki ve eksik kanıt tespiti.",
+  "implementation": {
+    "adapters": [],
+    "agents": ["aria-legal-timeline-analyst", "aria-legal-claim-matrix-drafter", "aria-legal-evidence-judge", "aria-legal-adversarial-judge"],
+    "note": "Agent prompts exist under new-aria/packs/legal/agents and move here with legal-evidence. No adapter yet: the matrix is authored by agents and settled by a lawyer, never emitted mechanically."
+  },
+  "record_kinds": ["CLAIM", "COUNTERCLAIM", "EVENT", "PROCEDURAL_STEP", "DEADLINE", "DECISION", "FINANCIAL_LOSS"],
+  "claim_types": ["date_contradiction", "amount_contradiction", "missing_evidence"],
+  "evidence_source_types": ["document_reference", "correspondence", "court_record", "filing_receipt"],
+  "depends_on": ["legal-evidence"],
+  "non_goals": [
+    "Hukukî sonuç üretmez.",
+    "verified durumunu üretemez; o yalnız avukatın kaydettiği doğrulamayla oluşur.",
+    "Usul süresi hesabını bağlayıcı sunmaz; avukat doğrulaması ister."
+  ]
+}

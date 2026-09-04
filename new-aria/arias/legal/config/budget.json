@@ -1,0 +1,15 @@
+{
+  "$schema": "aria/instance-budget/v1",
+  "comment": "Hukuk örneğinin maliyet tavanı. Tükenme temiz duruştur: sebep koduyla durur, azaltılmış kalitede devam etmez.",
+  "cost_caps_usd": {
+    "per_run": 0.5,
+    "daily": 10.0,
+    "monthly": 200.0
+  },
+  "concurrency": {
+    "max_parallel_agents": 4
+  },
+  "wall_clock": {
+    "cycle_deadline_seconds": 3600
+  }
+}

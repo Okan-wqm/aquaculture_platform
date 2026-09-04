@@ -1,0 +1,52 @@
+{
+  "$schema": "aria/instance-approval/v1",
+  "comment": "Hukuk örneğinin insan sınırı. The kernel owns the profile ladder and the HUMAN_REQUIRED queue; this file names WHO the human is per action class. A claim never becomes verified without a lawyer.",
+  "roles": [
+    {
+      "id": "lawyer",
+      "description": "Sorumlu avukat. Hukukî değerlendirmenin ve dışarı çıkan her etkinin tek yetkilisi."
+    },
+    {
+      "id": "operator",
+      "description": "Sistemi çalıştıran kişi. Duraklatır, sürdürür, okur; hukukî doğrulama yapamaz."
+    }
+  ],
+  "gates": [
+    {
+      "action_class": "statement_verification",
+      "description": "Bir iddianın durumunu verified yapmak.",
+      "requires_role": "lawyer",
+      "auto": false
+    },
+    {
+      "action_class": "party_identity_merge",
+      "description": "Aynı isimli iki kişiyi tek kişi saymak.",
+      "requires_role": "lawyer",
+      "auto": false
+    },
+    {
+      "action_class": "filed_version_declaration",
+      "description": "Bir belge sürümünü mahkemeye sunulan sürüm ilan etmek.",
+      "requires_role": "lawyer",
+      "auto": false
+    },
+    {
+      "action_class": "redaction_and_production",
+      "description": "Karartma ve karşı tarafa üretim. Geri alınamaz dış etki.",
+      "requires_role": "lawyer",
+      "auto": false
+    },
+    {
+      "action_class": "external_effect",
+      "description": "Dosya gönderme, e-posta, dış sisteme yazma.",
+      "requires_role": "lawyer",
+      "auto": false
+    },
+    {
+      "action_class": "corpus_inventory",
+      "description": "Arşivi okuma, hash, envanter, kapsama raporu. Külliyata yazmaz.",
+      "requires_role": null,
+      "auto": true
+    }
+  ]
+}

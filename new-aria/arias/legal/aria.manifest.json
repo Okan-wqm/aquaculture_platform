@@ -1,0 +1,84 @@
+{
+  "$schema": "aria/instance/v1",
+  "id": "legal",
+  "display_name": "Hukuk ARIA'sı",
+  "status": "draft",
+  "core": {
+    "version": "0.2.0",
+    "api_version": 1,
+    "path": "../../aria-kernel"
+  },
+  "corpus": {
+    "kind": "document_archive",
+    "root": "${ARIA_WORKSPACE}",
+    "exclude_roots": ["Ikke laste opp"]
+  },
+  "packs": [
+    {
+      "id": "legal-foundation",
+      "path": "packs/legal-foundation",
+      "version": "0.0.1",
+      "enabled": false,
+      "role": "Matter, taraf, rol, gizlilik duvarı, çıkar çatışması, saklama süresi. Diğer iki kasın üstüne oturduğu kimlik katmanı."
+    },
+    {
+      "id": "legal-evidence",
+      "path": "packs/legal-evidence",
+      "version": "0.1.0",
+      "enabled": true,
+      "role": "Delil alımı: envanter, içerik hash'i, sürüm soy ağacı, okunamayan dosyanın kapsama boşluğu olarak raporlanması.",
+      "depends_on": []
+    },
+    {
+      "id": "legal-case-analysis",
+      "path": "packs/legal-case-analysis",
+      "version": "0.0.1",
+      "enabled": false,
+      "role": "Olay tarihi ile öğrenilme tarihini ayıran kronoloji, iddia-olgu-kanıt matrisi, çelişki ve bilgi boşluğu.",
+      "depends_on": ["legal-evidence"]
+    }
+  ],
+  "memory": {
+    "namespace": "legal",
+    "cross_namespace_access": false,
+    "enforced_by": "instance_isolation"
+  },
+  "runtime": {
+    "profile_ceiling": "standard",
+    "allow_actions": false,
+    "tools_dir": "/data/legal/aria-tools",
+    "workspace_base": "/data/legal/workspaces"
+  },
+  "policies": {
+    "approval": "config/approval-policy.json",
+    "budget": "config/budget.json"
+  },
+  "surface": {
+    "console": {
+      "branding": "ui/branding.json",
+      "modules": ["core", "legal"],
+      "port": 8481
+    }
+  },
+  "evaluations": {
+    "corpus": "corpus/",
+    "release_thresholds": {
+      "precision_min": 1.0,
+      "critical_false_positives_max": 0,
+      "human_review_required_for": [
+        "statement_status_verified",
+        "party_identity_merge",
+        "filed_version_declaration",
+        "redaction_and_production"
+      ]
+    }
+  },
+  "non_goals": [
+    "Hukukî sonuç üretmez; hiçbir çıktı hukukî görüş değildir.",
+    "Taranmış belgeye OCR uydurmaz; okunamayan dosya kapsama boşluğudur.",
+    "Aynı isimli kişileri otomatik birleştirmez.",
+    "Mahkemeye sunulan sürümü kendiliğinden ilan etmez.",
+    "Anonimleştirmenin geri döndürülemezliğini garanti etmez.",
+    "Norveç usul hukukunu uygulamaz; süreye ilişkin her sonuç avukat doğrulaması ister."
+  ]
+}

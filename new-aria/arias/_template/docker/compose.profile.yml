@@ -1,0 +1,29 @@
+# ARIA örnek profili — şablon.
+#
+# WHY: one core, many bodies. Every instance runs the SAME image with its own ledger
+# volume, its own workspace, its own token and its own port. Nothing is shared, so a
+# legal instance and an aquaculture instance cannot see each other's data even by
+# accident, and either one can be handed to a buyer whole.
+# WHAT: copy this file into the new instance, replace <id> everywhere, then run
+#   docker compose -f docker-compose.yml -f arias/<id>/docker/compose.profile.yml up -d <id>-ui
+services:
+  template-ui:
+    image: new-aria-ui:local
+    environment:
+      ARIA_UI_TOKEN: ${TEMPLATE_UI_TOKEN:?set a per-instance token}
+      ARIA_UI_PORT: "8480"
+      ARIA_UI_ALLOW_ACTIONS: ${TEMPLATE_ALLOW_ACTIONS:-0}
+      ARIA_TOOLS_DIR: /data/template/aria-tools
+      ARIA_WORKSPACE_ROOT: /workspace
+      ARIA_WORKSPACE_BASE: /data/template/workspaces
+      ARIA_KERNEL_BIN: /opt/new-aria/bin/aria
+      CLAUDE_CLI_MOCK: ${CLAUDE_CLI_MOCK:-1}
+    ports:
+      - "${TEMPLATE_UI_BIND:-127.0.0.1}:${TEMPLATE_UI_PORT:-8490}:8480"
+    volumes:
+      - template-data:/data
+      - ${TEMPLATE_CORPUS:-./}:/workspace:ro
+    restart: unless-stopped
+
+volumes:
+  template-data: {}

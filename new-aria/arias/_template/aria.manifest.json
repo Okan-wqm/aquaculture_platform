@@ -1,0 +1,58 @@
+{
+  "$schema": "aria/instance/v1",
+  "id": "template",
+  "display_name": "ARIA örnek şablonu",
+  "status": "template",
+  "core": {
+    "version": "0.2.0",
+    "api_version": 1,
+    "path": "../../aria-kernel"
+  },
+  "corpus": {
+    "kind": "git_repository",
+    "root": "${ARIA_WORKSPACE}",
+    "exclude_roots": []
+  },
+  "packs": [
+    {
+      "id": "template-foundation",
+      "path": "packs/template-foundation",
+      "version": "0.0.0",
+      "enabled": false,
+      "role": "Bu alanın varlıkları, ilişkileri ve durumları. Kopyalayınca ilk doldurulacak kas."
+    }
+  ],
+  "memory": {
+    "namespace": "template",
+    "cross_namespace_access": false,
+    "enforced_by": "instance_isolation"
+  },
+  "runtime": {
+    "profile_ceiling": "observe",
+    "allow_actions": false,
+    "tools_dir": "/data/template/aria-tools",
+    "workspace_base": "/data/template/workspaces"
+  },
+  "policies": {
+    "approval": "config/approval-policy.json",
+    "budget": "config/budget.json"
+  },
+  "surface": {
+    "console": {
+      "branding": "ui/branding.json",
+      "modules": ["core"],
+      "port": 8490
+    }
+  },
+  "evaluations": {
+    "corpus": "corpus/",
+    "release_thresholds": {
+      "precision_min": 0.85,
+      "critical_false_positives_max": 0,
+      "human_review_required_for": []
+    }
+  },
+  "non_goals": [
+    "Bu şablon hiçbir alanı temsil etmez; kopyalanmadan çalıştırılmaz."
+  ]
+}

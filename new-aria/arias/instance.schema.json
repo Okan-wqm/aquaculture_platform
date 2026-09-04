@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aria/instance/v1",
+  "title": "ARIA instance manifest",
+  "description": "One deployed ARIA: which core it binds, which corpus it observes, which domain muscles it enables, which memory namespace it owns, which policies gate it, and which product surface it presents. The directory holding this manifest is the sellable unit (AYRILABILIRLIK-VE-PAKETLEME.md T-C/T-D).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "id",
+    "display_name",
+    "status",
+    "core",
+    "corpus",
+    "packs",
+    "memory",
+    "runtime",
+    "policies",
+    "surface",
+    "evaluations",
+    "non_goals"
+  ],
+  "properties": {
+    "$schema": { "const": "aria/instance/v1" },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,31}$",
+      "description": "Directory name under arias/ and the memory namespace."
+    },
+    "display_name": { "type": "string", "minLength": 3 },
+    "status": { "enum": ["template", "draft", "pilot", "production"] },
+    "core": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "api_version", "path"],
+      "properties": {
+        "version": { "type": "string", "description": "aria_kernel.__version__ this instance is built against." },
+        "api_version": { "type": "integer", "minimum": 1, "description": "Published Core API version (S-5). Until the surface is published this stays 1 and the instance pins the core by path." },
+        "path": { "type": "string", "description": "Relative path to the core this instance binds. One core, never a fork." }
+      }
+    },
+    "corpus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "root", "exclude_roots"],
+      "properties": {
+        "kind": {
+          "enum": ["git_repository", "document_archive", "database", "message_store"],
+          "description": "Corpus primitive the core observes. Anything other than git_repository needs kernel gap G-1 closed before evidence can reach repo_verified."
+        },
+        "root": { "type": "string", "description": "Path or environment reference the instance observes. Never written to (law L2)." },
+        "exclude_roots": { "type": "array", "items": { "type": "string" }, "description": "Reported as excluded, never silently skipped (law P-3)." }
+      }
+    },
+    "packs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "path", "version", "enabled", "role"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,47}$" },
+          "path": { "type": "string" },
+          "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+          "enabled": { "type": "boolean" },
+          "role": { "type": "string", "description": "What this muscle contributes to the instance." },
+          "depends_on": { "type": "array", "items": { "type": "string" }, "description": "Sibling pack ids inside this instance only. A cross-instance dependency is forbidden (law S-2)." }
+        }
+      }
+    },
+    "memory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["namespace", "cross_namespace_access", "enforced_by"],
+      "properties": {
+        "namespace": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,31}$" },
+        "cross_namespace_access": { "const": false, "description": "Always false. A domain instance never reads another namespace, and never writes into the core learning ledger (law S-4, gate GS-7)." },
+        "enforced_by": {
+          "enum": ["kernel_gate", "instance_isolation"],
+          "description": "kernel_gate once G-2 lands; until then instance_isolation means the guarantee comes from a separate tools root and a separate process, and that limitation is stated here rather than assumed away."
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile_ceiling", "allow_actions", "tools_dir", "workspace_base"],
+      "properties": {
+        "profile_ceiling": { "enum": ["observe", "standard", "strict", "frozen", "autonomous"] },
+        "allow_actions": { "type": "boolean", "description": "Whether the console may run mutating kernel actions." },
+        "tools_dir": { "type": "string", "description": "This instance's own ledger root. Never shared." },
+        "workspace_base": { "type": "string" }
+      }
+    },
+    "policies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["approval", "budget"],
+      "properties": {
+        "approval": { "type": "string" },
+        "budget": { "type": "string" }
+      }
+    },
+    "surface": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["console"],
+      "properties": {
+        "console": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["branding", "modules", "port"],
+          "properties": {
+            "branding": { "type": "string" },
+            "modules": { "type": "array", "items": { "type": "string" }, "description": "Console feature modules this instance presents." },
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+          }
+        }
+      }
+    },
+    "evaluations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["corpus", "release_thresholds"],
+      "properties": {
+        "corpus": { "type": "string", "description": "Fixture corpus inside this instance (law S-6): the buyer proves it works without us." },
+        "release_thresholds": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["precision_min", "critical_false_positives_max", "human_review_required_for"],
+          "properties": {
+            "precision_min": { "type": "number", "minimum": 0, "maximum": 1 },
+            "critical_false_positives_max": { "type": "integer", "minimum": 0 },
+            "human_review_required_for": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "non_goals": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+  }
+}

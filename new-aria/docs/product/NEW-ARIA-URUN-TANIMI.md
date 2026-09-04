@@ -185,7 +185,45 @@ CAUSED, REFERS_TO, REQUIRES, PARTY_IN, VERSION_OF), `STATEMENT_STATUSES`
 
 ---
 
-## 6. Sonraki kaslar için şablon
+## 6. Örnek katmanı (`arias/`) — türetilebilir taslak
+
+Kas kod düzeyinde paylaşılır; **beden** çalışma zamanında ayrılır. `arias/` bu ayrımın
+somut hâlidir: her ARIA kendi klasöründe durur, kendi defter kökünü, kendi belleğini,
+kendi portunu ve kendi onay politikasını taşır.
+
+```text
+arias/
+  instance.schema.json     örnek manifestinin sözleşmesi (aria/instance/v1)
+  derive.mjs               tek komutla türetme
+  instances.test.mjs       her manifesti ve türetmeyi doğrulayan kapı
+  _template/               sade taslak; yeni ARIA buradan çıkar
+  legal/                   ilk türetilmiş ürün: Hukuk ARIA'sı
+```
+
+Şablon altı dosyadan oluşur: `aria.manifest.json`, `docs/TANIM.md`, `config/approval-policy.json`,
+`config/budget.json`, `ui/branding.json`, `docker/compose.profile.yml`. Fazlası yok; alan
+bilgisi türetildikten sonra insan tarafından doldurulur.
+
+Türetme:
+
+```bash
+node arias/derive.mjs finance "Finans ARIA" --port 8482
+```
+
+Betik yalnız iki ARIA'nın **asla aynı olamayacağı** alanları yeniden yazar: kimlik, bellek
+isim-alanı, defter kökü, port, compose servis ve volume adları. Var olan bir örneğin üstüne
+yazmayı reddeder. Geri kalan her karar (kaslar, külliyat, amaç-dışı) insana bırakılır.
+
+**Örnek klasörü aynı zamanda satılabilir birimdir.** `AYRILABILIRLIK-VE-PAKETLEME.md`
+`T-C`/`T-D` senaryolarında `arias/<id>` alt ağacı, ürünün tamamını temiz geçmişle dışarı
+çıkarır; çekirdek bizde kalır ve alıcıya lisanslanır.
+
+Kapılar `instances.test.mjs` içinde: manifest şemaya uyar, isim-alanı kimlikle aynıdır,
+çapraz isim-alanı erişimi kapalıdır, port ve defter kökü benzersizdir, etkin kasın
+`pack.json`'ı vardır, hiçbir kas kendi örneğinin dışına çıkmaz, ve şablon geçerli bir
+örneğe türer.
+
+## 7. Sonraki kaslar için şablon
 
 Yeni kas eklemek = `packs/<id>/pack.json` + şemalar + adapter'lar + ajanlar +
 `ui/shared/<id>-contract.ts` + `ui/web/src/features/<id>/`. Çekirdeğe dokunuş

@@ -1,0 +1,10 @@
+{
+  "$schema": "aria/instance-branding/v1",
+  "comment": "The product surface is a separate asset from the core (AYRILABILIRLIK-VE-PAKETLEME.md law S-7): the product carries its own name, the core keeps ARIA. Fill on copy.",
+  "product_name": "",
+  "short_name": "",
+  "tagline": "",
+  "locale": "tr-TR",
+  "accent": "#2f6f4f",
+  "console_modules": ["core"]
+}

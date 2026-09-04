@@ -18,6 +18,11 @@ import { RetentionPolicyService } from '../compliance/services/retention-policy.
 import { ComplianceAuditService } from '../compliance/services/compliance-audit.service';
 import { DataExportService, ExportFormat } from '../compliance/services/data-export.service';
 import { AiPersonasRegistryService } from '../ai/services/ai-personas-registry.service';
+import {
+  MessagingMonitoringStats,
+  MessagingTenantsOverview,
+  MonitoringStatsService,
+} from '../monitoring/services/monitoring-stats.service';
 
 import { SetRetentionPolicyCommand } from '../compliance/commands/set-retention-policy.command';
 import { ToggleLegalHoldCommand } from '../compliance/commands/toggle-legal-hold.command';
@@ -101,7 +106,31 @@ export class MessagingAdminNatsHandler {
     private readonly auditService: ComplianceAuditService,
     private readonly exportService: DataExportService,
     private readonly personasService: AiPersonasRegistryService,
+    private readonly monitoringStatsService: MonitoringStatsService,
   ) {}
+
+  // ── Monitoring ──────────────────────────────────────────────────────
+
+  /**
+   * Platform-wide messaging monitoring statistics (message volume, active
+   * channels, per-tenant breakdown, outbox health). Cross-tenant by design —
+   * the admin-api caller is platform-admin-guarded (ADMIN-HIGH-009).
+   */
+  @MessagePattern('request.messaging.admin.getMonitoringStats')
+  async getMonitoringStats(): Promise<MessagingMonitoringStats> {
+    this.logger.debug('Admin request: getMonitoringStats');
+    return this.monitoringStatsService.getMonitoringStats();
+  }
+
+  /**
+   * Per-tenant messaging overview (message counts 24h/7d/total + active
+   * channel counts), sorted by 24h volume (ADMIN-HIGH-009).
+   */
+  @MessagePattern('request.messaging.admin.getTenantsOverview')
+  async getTenantsOverview(): Promise<MessagingTenantsOverview> {
+    this.logger.debug('Admin request: getTenantsOverview');
+    return this.monitoringStatsService.getTenantsOverview();
+  }
 
   // ── Compliance Stats ────────────────────────────────────────────────
 

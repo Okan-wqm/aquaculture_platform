@@ -1281,6 +1281,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/billing/__tests__/payment-stats.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/billing/__tests__/pricing-calculator-free-tier.spec.ts",
       "prettier_managed": true
     },
@@ -1768,6 +1774,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/main.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/messaging/__tests__/messaging-admin.controller.monitoring.spec.ts",
       "prettier_managed": true
     },
     {
@@ -4967,6 +4979,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/migrations/1819000000000-AddTenantAuthSecurityPolicy.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/migrations/support/concurrent-index.spec.ts",
       "prettier_managed": true
     },
@@ -5046,6 +5064,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/__tests__/jwks.controller.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/__tests__/mfa-setup-token.spec.ts",
       "prettier_managed": true
     },
     {
@@ -5585,6 +5609,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/tenant/__tests__/tenant-security-policy.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/tenant/__tests__/tenant-update-consolidation.spec.ts",
       "prettier_managed": true
     },
@@ -5634,6 +5664,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/auth-service/src/modules/tenant/dto/tenant-localization.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/tenant/dto/tenant-policy.dto.ts",
       "prettier_managed": true
     },
     {
@@ -22622,6 +22658,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.monitoring.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts",
       "prettier_managed": true
     },
@@ -23302,6 +23344,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/messaging-service/src/migrations/1802100000000-DropTenantAiSettings.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/messaging-service/src/monitoring/monitoring.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/messaging-service/src/monitoring/services/__tests__/monitoring-stats.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/messaging-service/src/monitoring/services/monitoring-stats.service.ts",
       "prettier_managed": true
     },
     {
@@ -28709,6 +28769,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/adr/046-tenant-auth-security-policy-ssot.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/adr/2026-04-30-apollo-router-self-hosted-static-supergraph.md",
       "prettier_managed": true
     },
@@ -33957,7 +34023,19 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/admin-expert/2026-07-12-admin-panels-enterprise.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/admin-expert/2026-08-16-pagination-result-authority.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/admin-expert/2026-09-04-admin-panels-enterprise-integration.md",
       "prettier_managed": true
     },
     {
@@ -49583,6 +49661,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/services/types/messaging.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/services/types/modules.ts",
       "prettier_managed": true
     },
@@ -57238,6 +57322,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/tenant-admin/src/components/settings/__tests__/SecuritySettings.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/tenant-admin/src/components/settings/AiAssistantSettings.tsx",
       "prettier_managed": true
     },
@@ -57340,6 +57430,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/tenant-admin/src/components/users/EffectivePermissionsModal.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/tenant-admin/src/components/users/index.ts",
       "prettier_managed": true
     },
@@ -57418,6 +57514,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/tenant-admin/src/hooks/__tests__/tenant-scoped-cache-keys.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/tenant-admin/src/hooks/__tests__/useTenantAuditLog.spec.tsx",
       "prettier_managed": true
     },
@@ -57491,6 +57593,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/tenant-admin/src/hooks/useTenantRoles.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/tenant-admin/src/hooks/useTenantSecuritySettings.ts",
       "prettier_managed": true
     },
     {
@@ -57827,6 +57935,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/components/ApiError/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Avatar/__tests__/Avatar.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Avatar/Avatar.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Avatar/index.ts",
       "prettier_managed": true
     },
     {
@@ -58174,6 +58300,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/hooks/__tests__/useErrorMessage.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/hooks/__tests__/useToast.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -58756,6 +58888,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shell/src/pages/auth/LoginForm.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shell/src/pages/auth/MfaSetupScreen.tsx",
       "prettier_managed": true
     },
     {

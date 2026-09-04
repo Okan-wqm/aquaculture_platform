@@ -5,10 +5,12 @@
  * Uses real API with mock fallback for development.
  */
 
-import React, { useCallback, useMemo } from 'react';
+import { AreaChart, MetricCard } from '@aquaculture/shared-ui';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAsyncData } from '../hooks';
-import { analyticsApi, billingApi, RevenueAnalytics } from '../services/adminApi';
+import { analyticsApi, billingApi } from '../services/adminApi';
+import type { AnalyticsRange, TimeSeriesResponse } from '../services/types/analytics';
 
 // ============================================================================
 // Types
@@ -17,12 +19,17 @@ import { analyticsApi, billingApi, RevenueAnalytics } from '../services/adminApi
 interface BillingMetrics {
   mrr: number;
   arr: number;
-  activeSubscriptions: number | null;
-  churnRate: number | null;
+  activeSubscriptions: number;
+  churnRate: number;
   avgRevenuePerUser: number;
-  outstandingInvoices: number | null;
+  /** Open invoice count (pending + sent + overdue). */
+  outstandingInvoices: number;
+  /** Open invoice amount (pending + overdue sums). */
+  outstandingAmount: number;
   totalRevenue: number;
+  /** Month-over-month revenue growth (%) from the trend series; null with <2 points. */
   growth: number | null;
+  /** 0..1 terminal success rate over the last 30 days; null with no attempts. */
   paymentSuccessRate: number | null;
 }
 
@@ -60,76 +67,24 @@ const formatPercentage = (value: number): string => {
   return `${value.toFixed(1)}%`;
 };
 
-// Transform API response to BillingMetrics
-const transformRevenueData = (data: RevenueAnalytics): BillingMetrics => ({
-  mrr: data.mrr,
-  arr: data.arr,
-  activeSubscriptions: null, // TODO: Wire to subscriptions API (was fabricated from totalRevenue / avgRevenue)
-  churnRate: null, // TODO: Wire to churn analytics API
-  avgRevenuePerUser: data.averageRevenuePerTenant,
-  outstandingInvoices: null, // TODO: Wire to invoices API
-  totalRevenue: data.totalRevenue,
-  growth: null, // TODO: Wire to revenue trend API
-  paymentSuccessRate: null, // TODO: Wire to payments API
-});
+/** Month-over-month growth from the last two points of the revenue trend. */
+const growthFromTrend = (trend: TimeSeriesResponse): number | null => {
+  const points = trend.data;
+  if (points.length < 2) return null;
+  const prev = points[points.length - 2]!.value;
+  const last = points[points.length - 1]!.value;
+  if (prev === 0) return null;
+  return ((last - prev) / prev) * 100;
+};
+
+const invoiceCount = (
+  byStatus: Record<string, { count: number; amount: number }>,
+  statuses: string[],
+): number => statuses.reduce((sum, status) => sum + (byStatus[status]?.count ?? 0), 0);
 
 // ============================================================================
 // Sub-components
 // ============================================================================
-
-interface MetricCardProps {
-  title: string;
-  value: string | number;
-  icon: React.ReactNode;
-  iconBg: string;
-  subtitle?: React.ReactNode;
-  trend?: { value: number; label: string };
-}
-
-const MetricCard: React.FC<MetricCardProps> = ({
-  title,
-  value,
-  icon,
-  iconBg,
-  subtitle,
-  trend,
-}) => (
-  <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-    <div className="flex items-center justify-between">
-      <div className="min-w-0 flex-1">
-        <p className="text-sm text-gray-500 truncate">{title}</p>
-        <p className="text-2xl font-bold text-gray-900 mt-1">{value}</p>
-      </div>
-      <div className={`w-12 h-12 ${iconBg} rounded-lg flex items-center justify-center flex-shrink-0 ml-4`}>
-        {icon}
-      </div>
-    </div>
-    {(trend || subtitle) && (
-      <div className="flex items-center mt-3 text-sm">
-        {trend && (
-          <>
-            <span className={`flex items-center ${trend.value >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-              {trend.value >= 0 ? (
-                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
-                </svg>
-              ) : (
-                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-                </svg>
-              )}
-              <span className={trend.value >= 0 ? 'text-green-600' : 'text-red-600'}>
-                {formatPercentage(Math.abs(trend.value))}
-              </span>
-            </span>
-            <span className="text-gray-500 ml-2">{trend.label}</span>
-          </>
-        )}
-        {subtitle && !trend && <span className="text-gray-500">{subtitle}</span>}
-      </div>
-    )}
-  </div>
-);
 
 interface TransactionItemProps {
   transaction: RecentTransaction;
@@ -302,10 +257,34 @@ const Icons = {
 // ============================================================================
 
 const BillingDashboardPage: React.FC = () => {
-  // Fetch billing metrics from API
+  const [trendRange, setTrendRange] = useState<AnalyticsRange>('1y');
+
+  // Compose the dashboard from the live stats endpoints (ADMIN-HIGH-008):
+  // subscriptions/stats, invoices/stats, payments/stats, revenue + trend.
   const fetchMetrics = useCallback(async () => {
-    const data = await analyticsApi.getRevenueAnalytics();
-    return transformRevenueData(data);
+    const [revenue, subs, invoices, payments, trend] = await Promise.all([
+      analyticsApi.getRevenueAnalytics(),
+      billingApi.getSubscriptionStats(),
+      billingApi.getInvoiceStats(),
+      billingApi.getPaymentStats(),
+      analyticsApi.getRevenueTrend('1y', 'month'),
+    ]);
+    const metricsResult: BillingMetrics = {
+      mrr: subs.mrr || revenue.mrr,
+      arr: subs.arr || revenue.arr,
+      activeSubscriptions: (subs.byStatus['active'] ?? 0) + (subs.byStatus['trialing'] ?? 0),
+      churnRate: subs.churnRate,
+      avgRevenuePerUser: subs.averageRevenuePerUser || revenue.averageRevenuePerTenant,
+      outstandingInvoices: invoiceCount(invoices.byStatus, ['pending', 'sent', 'overdue']),
+      outstandingAmount: invoices.totalPending + invoices.totalOverdue,
+      totalRevenue: revenue.totalRevenue,
+      growth: growthFromTrend(trend),
+      paymentSuccessRate:
+        payments.last30Days.succeeded + payments.last30Days.refunded + payments.last30Days.failed > 0
+          ? payments.last30Days.successRate
+          : null,
+    };
+    return metricsResult;
   }, []);
 
   const {
@@ -316,6 +295,16 @@ const BillingDashboardPage: React.FC = () => {
   } = useAsyncData<BillingMetrics>(fetchMetrics, {
     cacheKey: 'billing-metrics',
     cacheTTL: 60000, // 1 minute cache
+  });
+
+  // Revenue trend for the chart — refetches when the range select changes.
+  const fetchTrend = useCallback(
+    () => analyticsApi.getRevenueTrend(trendRange, trendRange === '90d' ? 'week' : 'month'),
+    [trendRange],
+  );
+  const { data: trendSeries, loading: trendLoading } = useAsyncData<TimeSeriesResponse>(fetchTrend, {
+    cacheKey: `billing-revenue-trend-${trendRange}`,
+    cacheTTL: 60000,
   });
 
   // Fetch recent transactions from API
@@ -394,60 +383,69 @@ const BillingDashboardPage: React.FC = () => {
           title="Monthly Recurring Revenue"
           value={formatCurrency(metrics.mrr)}
           icon={Icons.Dollar}
-          iconBg="bg-green-100"
-          trend={metrics.growth != null ? { value: metrics.growth, label: 'vs last month' } : undefined}
+          iconClassName="bg-green-100"
+          change={metrics.growth ?? undefined}
+          trend={metrics.growth ?? 'neutral'}
+          trendLabel="vs last month"
         />
         <MetricCard
           title="Annual Recurring Revenue"
           value={formatCurrency(metrics.arr, true)}
           icon={Icons.Chart}
-          iconBg="bg-blue-100"
+          iconClassName="bg-blue-100"
           subtitle="Based on current MRR"
         />
         <MetricCard
           title="Active Subscriptions"
-          value={metrics.activeSubscriptions != null ? metrics.activeSubscriptions.toLocaleString() : 'N/A'}
+          value={metrics.activeSubscriptions.toLocaleString()}
           icon={Icons.Users}
-          iconBg="bg-purple-100"
+          iconClassName="bg-purple-100"
           subtitle={`ARPU: ${formatCurrency(metrics.avgRevenuePerUser ?? 0)}`}
         />
         <MetricCard
           title="Churn Rate"
-          value={metrics.churnRate != null ? formatPercentage(metrics.churnRate) : 'N/A'}
+          value={formatPercentage(metrics.churnRate)}
           icon={Icons.TrendDown}
-          iconBg="bg-yellow-100"
+          iconClassName="bg-yellow-100"
           subtitle={
-            metrics.churnRate != null ? (
-              <span className={metrics.churnRate < 3 ? 'text-green-600' : 'text-red-600'}>
-                {metrics.churnRate < 3 ? 'Healthy' : 'Needs attention'}
-              </span>
-            ) : (
-              <span className="text-gray-400">Not yet connected</span>
-            )
+            <span className={metrics.churnRate < 3 ? 'text-green-600' : 'text-red-600'}>
+              {metrics.churnRate < 3 ? 'Healthy' : 'Needs attention'}
+            </span>
           }
         />
       </div>
 
       {/* Charts and Transactions */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Revenue Chart Placeholder */}
+        {/* Revenue Trend */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-gray-900">Revenue Trend</h3>
-            <select className="text-sm border border-gray-300 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-              <option value="12m">Last 12 months</option>
-              <option value="6m">Last 6 months</option>
-              <option value="3m">Last 3 months</option>
+            <select
+              aria-label="Revenue trend range"
+              value={trendRange}
+              onChange={(e) => setTrendRange(e.target.value as AnalyticsRange)}
+              className="text-sm border border-gray-300 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="1y">Last 12 months</option>
+              <option value="90d">Last 3 months</option>
+              <option value="30d">Last 30 days</option>
             </select>
           </div>
-          <div className="h-64 flex items-center justify-center bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
-            <div className="text-center">
-              <svg className="w-12 h-12 text-gray-500 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-              </svg>
-              <span className="text-gray-500 text-sm">Revenue Chart</span>
+          {trendLoading || !trendSeries ? (
+            <div className="h-64 bg-gray-50 rounded-lg animate-pulse" />
+          ) : trendSeries.data.length === 0 ? (
+            <div className="h-64 flex items-center justify-center text-sm text-gray-500">
+              No revenue data for this range
             </div>
-          </div>
+          ) : (
+            <AreaChart
+              data={trendSeries.data.map((point) => ({ label: point.date, value: point.value }))}
+              height={256}
+              className="w-full"
+              formatValue={(v) => formatCurrency(v, true)}
+            />
+          )}
         </div>
 
         {/* Recent Transactions */}
@@ -476,8 +474,8 @@ const BillingDashboardPage: React.FC = () => {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <QuickStat
           title="Outstanding Invoices"
-          value={metrics.outstandingInvoices != null ? metrics.outstandingInvoices : '—'}
-          valueColor={metrics.outstandingInvoices != null ? 'text-orange-600' : 'text-gray-400'}
+          value={`${metrics.outstandingInvoices} (${formatCurrency(metrics.outstandingAmount, true)})`}
+          valueColor="text-orange-600"
           action={{ label: 'View all', href: '/admin/billing/invoices?status=pending' }}
         />
         <QuickStat
@@ -487,9 +485,9 @@ const BillingDashboardPage: React.FC = () => {
         />
         <QuickStat
           title="Payment Success Rate"
-          value={metrics.paymentSuccessRate != null ? formatPercentage(metrics.paymentSuccessRate) : '—'}
+          value={metrics.paymentSuccessRate != null ? formatPercentage(metrics.paymentSuccessRate * 100) : '—'}
           valueColor={metrics.paymentSuccessRate != null ? 'text-green-600' : 'text-gray-400'}
-          subtitle={metrics.paymentSuccessRate != null ? 'Last 30 days' : 'Not yet connected'}
+          subtitle={metrics.paymentSuccessRate != null ? 'Last 30 days' : 'No payment attempts yet'}
         />
       </div>
     </div>

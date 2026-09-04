@@ -21,6 +21,7 @@ import { Invitation } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { User } from '../entities/user.entity';
+import { WebAuthnCredential } from '../entities/webauthn-credential.entity';
 import { AuthenticationService } from '../services/authentication.service';
 import { DurableAccessTokenInvalidationService } from '../services/durable-access-token-invalidation.service';
 import { DurableUserTokenInvalidationService } from '../services/durable-user-token-invalidation.service';
@@ -206,6 +207,13 @@ describe('AuthenticationService refresh-token reuse containment', () => {
         { provide: getRepositoryToken(ActionToken), useValue: {} },
         { provide: getRepositoryToken(UserModuleAssignment), useValue: {} },
         { provide: getRepositoryToken(Tenant), useValue: {} },
+        // ADR-046: the MFA-enrollment gate counts the user's registered
+        // WebAuthn credentials, so AuthenticationService injects the repo.
+        // Zero credentials keeps these suites on their existing paths.
+        {
+          provide: getRepositoryToken(WebAuthnCredential),
+          useValue: { count: jest.fn().mockResolvedValue(0) },
+        },
         { provide: DataSource, useValue: dataSource },
         { provide: JwtService, useValue: {} },
         { provide: ConfigService, useValue: config },

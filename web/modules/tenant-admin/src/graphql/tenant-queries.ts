@@ -166,3 +166,34 @@ export const UPDATE_TENANT_LOCALIZATION_MUTATION = `
     }
   }
 `;
+
+// ============================================================================
+// Tenant auth-security policy (ADR-046)
+//
+// TENANT_ADMIN-guarded auth-service subgraph. The policy is ENFORCED — the
+// login MFA gate reads enforceMfa, and the refresh-TTL clamp inside
+// TokenService.generateTokens reads sessionTimeoutMinutes. tenantId is never
+// an input: the server derives it from the caller's JWT.
+//
+// Localization (timezone/locale) is a DIFFERENT authority with its own
+// surface (updateTenantLocalization, written through the tenant
+// command-receipt path) and is deliberately not folded in here.
+// ============================================================================
+
+export const TENANT_SECURITY_POLICY_QUERY = `
+  query TenantSecurityPolicy {
+    tenantSecurityPolicy {
+      enforceMfa
+      sessionTimeoutMinutes
+    }
+  }
+`;
+
+export const UPDATE_TENANT_SECURITY_POLICY_MUTATION = `
+  mutation UpdateTenantSecurityPolicy($input: UpdateTenantSecurityPolicyInput!) {
+    updateTenantSecurityPolicy(input: $input) {
+      enforceMfa
+      sessionTimeoutMinutes
+    }
+  }
+`;

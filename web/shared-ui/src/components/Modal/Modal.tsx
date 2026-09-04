@@ -302,6 +302,16 @@ export interface ConfirmModalProps {
    * Undefined bırakırsan eski davranış korunur — tek-tık onay.
    */
   requireTypedConfirmation?: string;
+  /**
+   * isLoading sırasında onay butonunda gösterilen etiket. Türkçe varsayılan
+   * korunur; İngilizce yüzeyler açık değer geçer (ADMIN-MEDIUM-018).
+   */
+  loadingText?: string;
+  /**
+   * Yazı-ile-onay alanının etiketi. `{text}` yer tutucusu istenen onay
+   * metniyle değiştirilir. Türkçe varsayılan korunur.
+   */
+  typedConfirmationLabel?: string;
 }
 
 /**
@@ -331,6 +341,8 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   confirmVariant,
   isLoading = false,
   requireTypedConfirmation,
+  loadingText = 'İşleniyor...',
+  typedConfirmationLabel,
 }) => {
   // isOpen ve open birleştir
   const isOpen = isOpenProp ?? open ?? false;
@@ -409,11 +421,21 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
         {requireTypedConfirmation && (
           <div className="mt-4 text-left">
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Devam etmek için aşağıya{' '}
-              <code className="font-mono font-semibold">
-                {requireTypedConfirmation}
-              </code>{' '}
-              yazın
+              {typedConfirmationLabel ? (
+                typedConfirmationLabel.split('{text}').map((part, idx, arr) => (
+                  <React.Fragment key={idx}>
+                    {part}
+                    {idx < arr.length - 1 && (
+                      <code className="font-mono font-semibold">{requireTypedConfirmation}</code>
+                    )}
+                  </React.Fragment>
+                ))
+              ) : (
+                <>
+                  Devam etmek için aşağıya{' '}
+                  <code className="font-mono font-semibold">{requireTypedConfirmation}</code> yazın
+                </>
+              )}
             </label>
             <input
               type="text"
@@ -443,7 +465,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
             disabled={isLoading || !typedGatePassed}
             className={`px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors focus:outline-hidden focus:ring-2 focus:ring-offset-2 disabled:opacity-50 ${buttonColors[variant]}`}
           >
-            {isLoading ? 'İşleniyor...' : confirmText}
+            {isLoading ? loadingText : confirmText}
           </button>
         </div>
       </div>

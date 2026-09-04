@@ -1040,6 +1040,114 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       expect(result.rememberMe).toBe(false);
     });
   });
+
+  // ADR-046 / ADMIN-HIGH-015 — the tenant idle-session policy clamps the
+  // refresh-token TTL, and it does so INSIDE this chokepoint. These specs pin
+  // both halves: the arithmetic, and the fact that no caller threads it.
+  describe('tenant session-timeout clamp (ADR-046)', () => {
+    const minutesFromNow = (d: Date): number => (d.getTime() - Date.now()) / 60_000;
+
+    const routerWithPolicy = (sessionTimeoutMinutes: number | null): jest.Mock =>
+      jest.fn((sql: string) => {
+        if (typeof sql !== 'string') {
+          return Promise.resolve([]);
+        }
+        if (sql.includes('tenant_modules') && sql.includes('"auth"."modules"')) {
+          return Promise.resolve([{ code: 'farm' }]);
+        }
+        if (sql.includes('user_role_assignments') && sql.includes('tenant_role_permissions')) {
+          return Promise.resolve([]);
+        }
+        if (sql.includes('FROM auth.tenants')) {
+          return Promise.resolve([
+            { plan: 'professional', session_timeout_minutes: sessionTimeoutMinutes },
+          ]);
+        }
+        return Promise.resolve([]);
+      });
+
+    it('reads the policy in the SAME auth.tenants statement as the plan claim', async () => {
+      service = await createService({ query: routerWithPolicy(60) });
+
+      await service.generateTokens(buildUser({}));
+
+      const tenantReads = query.mock.calls
+        .map((call) => call[0] as unknown)
+        .filter(
+          (sql): sql is string => typeof sql === 'string' && sql.includes('FROM auth.tenants'),
+        );
+      expect(tenantReads).toHaveLength(1);
+      expect(tenantReads[0]).toContain('session_timeout_minutes');
+      // The plan claim still resolves off the same row — no second read.
+      expect(capturedPayload().planLevel).toBeDefined();
+    });
+
+    it('clamps the refresh TTL to the tenant policy when it is shorter', async () => {
+      service = await createService({
+        query: routerWithPolicy(30),
+        config: { REFRESH_TOKEN_EXPIRY_DAYS: 7, REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS: 30 },
+      });
+
+      await service.generateTokens(buildUser({}));
+
+      const savedRow = refreshSave.mock.calls[0]?.[0] as { expiresAt: Date };
+      expect(minutesFromNow(savedRow.expiresAt)).toBeGreaterThan(29);
+      expect(minutesFromNow(savedRow.expiresAt)).toBeLessThanOrEqual(30);
+    });
+
+    it('lets the tenant policy win over a rememberMe extension', async () => {
+      service = await createService({
+        query: routerWithPolicy(45),
+        config: { REFRESH_TOKEN_EXPIRY_DAYS: 7, REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS: 30 },
+      });
+
+      const result = await service.generateTokens(buildUser({}), undefined, undefined, {
+        rememberMe: true,
+      });
+
+      const savedRow = refreshSave.mock.calls[0]?.[0] as { rememberMe: boolean; expiresAt: Date };
+      // The remembered flag is preserved (the cookie stays persistent) but the
+      // ROW cannot outlive the tenant's idle window.
+      expect(savedRow.rememberMe).toBe(true);
+      expect(result.rememberMe).toBe(true);
+      expect(minutesFromNow(savedRow.expiresAt)).toBeLessThanOrEqual(45);
+    });
+
+    it('keeps the configured TTL when the tenant sets no policy (NULL)', async () => {
+      service = await createService({
+        query: routerWithPolicy(null),
+        config: { REFRESH_TOKEN_EXPIRY_DAYS: 7, REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS: 30 },
+      });
+
+      await service.generateTokens(buildUser({}));
+
+      const savedRow = refreshSave.mock.calls[0]?.[0] as { expiresAt: Date };
+      expect(minutesFromNow(savedRow.expiresAt)).toBeGreaterThan(7 * 24 * 60 - 1);
+    });
+
+    it('never lets a longer tenant policy EXTEND the configured TTL', async () => {
+      service = await createService({
+        query: routerWithPolicy(1440),
+        config: { REFRESH_TOKEN_EXPIRY_DAYS: 0.5, REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS: 30 },
+      });
+
+      await service.generateTokens(buildUser({}));
+
+      const savedRow = refreshSave.mock.calls[0]?.[0] as { expiresAt: Date };
+      // MIN wins: 0.5 day (720 min) is shorter than the 1440-minute policy.
+      expect(minutesFromNow(savedRow.expiresAt)).toBeLessThanOrEqual(720);
+    });
+
+    it('exposes NO caller-supplied session-timeout parameter (the clamp cannot be forgotten)', () => {
+      // ADMIN-HIGH-015 root cause: the clamp used to be an optional argument
+      // five of seven mint paths omitted. Pin that generateTokens takes exactly
+      // (user, ipAddress, userAgent, options) and that the options bag carries
+      // no timeout knob — a caller has nothing to pass and nothing to forget.
+      expect(TokenService.prototype.generateTokens).toHaveLength(4);
+      const source = TokenService.prototype.generateTokens.toString();
+      expect(source).not.toMatch(/sessionTimeout/i);
+    });
+  });
 });
 
 describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051/052)', () => {

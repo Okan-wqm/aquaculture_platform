@@ -1,3 +1,4 @@
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
   Get,
@@ -52,6 +53,7 @@ export class TenantConfigurationController {
   /**
    * Create configuration for a new tenant
    */
+  @AuditedOperation({ resource: 'Configuration', action: 'CREATE' })
   @Post()
   async createConfiguration(@Body() dto: CreateTenantConfigurationDto) {
     return this.configService.createConfiguration(dto);
@@ -76,6 +78,7 @@ export class TenantConfigurationController {
   /**
    * Update configuration
    */
+  @AuditedOperation({ resource: 'Configuration', action: 'UPDATE' })
   @Put(':tenantId')
   async updateConfiguration(
     @Param('tenantId') tenantId: string,
@@ -87,6 +90,7 @@ export class TenantConfigurationController {
   /**
    * Delete configuration
    */
+  @AuditedOperation({ resource: 'Configuration', action: 'DELETE' })
   @Delete(':tenantId')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteConfiguration(@Param('tenantId') tenantId: string) {
@@ -115,6 +119,7 @@ export class TenantConfigurationController {
   }
 
   // Fix: C6 -- JWT-based identity
+  @AuditedOperation({ resource: 'UserLimits', action: 'UPDATE' })
   @Put(':tenantId/user-limits')
   async updateUserLimits(
     @Param('tenantId') tenantId: string,
@@ -136,6 +141,7 @@ export class TenantConfigurationController {
   }
 
   // Fix: C6 -- JWT-based identity
+  @AuditedOperation({ resource: 'StorageConfig', action: 'UPDATE' })
   @Put(':tenantId/storage')
   async updateStorageConfig(
     @Param('tenantId') tenantId: string,
@@ -147,6 +153,7 @@ export class TenantConfigurationController {
     return this.configService.updateStorageConfig(tenantId, dto, userId);
   }
 
+  @AuditedOperation({ resource: 'TenantConfiguration', action: 'CHECK_STORAGE_LIMIT' })
   @Post(':tenantId/storage/check-limit')
   async checkStorageLimit(
     @Param('tenantId') tenantId: string,
@@ -166,6 +173,7 @@ export class TenantConfigurationController {
   }
 
   // Fix: C6 -- JWT-based identity
+  @AuditedOperation({ resource: 'ApiConfig', action: 'UPDATE' })
   @Put(':tenantId/api')
   async updateApiConfig(
     @Param('tenantId') tenantId: string,
@@ -181,6 +189,7 @@ export class TenantConfigurationController {
   // API Keys
   // ============================================================================
 
+  @AuditedOperation({ resource: 'ApiKey', action: 'CREATE' })
   @Post(':tenantId/api-keys')
   async createApiKey(
     @Param('tenantId') tenantId: string,
@@ -189,6 +198,7 @@ export class TenantConfigurationController {
     return this.configService.createApiKey(tenantId, dto);
   }
 
+  @AuditedOperation({ resource: 'ApiKey', action: 'REVOKE' })
   @Delete(':tenantId/api-keys/:keyId')
   @HttpCode(HttpStatus.NO_CONTENT)
   async revokeApiKey(
@@ -198,6 +208,7 @@ export class TenantConfigurationController {
     this.configService.revokeApiKey(tenantId, keyId);
   }
 
+  @AuditedOperation({ resource: 'ApiKey', action: 'VALIDATE' })
   @Post(':tenantId/api-keys/validate')
   async validateApiKey(
     @Param('tenantId') tenantId: string,
@@ -216,6 +227,7 @@ export class TenantConfigurationController {
     return this.configService.getWebhooks(tenantId);
   }
 
+  @AuditedOperation({ resource: 'Webhook', action: 'CREATE' })
   @Post(':tenantId/webhooks')
   async createWebhook(
     @Param('tenantId') tenantId: string,
@@ -224,6 +236,7 @@ export class TenantConfigurationController {
     return this.configService.createWebhook(tenantId, dto);
   }
 
+  @AuditedOperation({ resource: 'Webhook', action: 'UPDATE' })
   @Put(':tenantId/webhooks/:webhookId')
   async updateWebhook(
     @Param('tenantId') tenantId: string,
@@ -233,6 +246,7 @@ export class TenantConfigurationController {
     return this.configService.updateWebhook(tenantId, webhookId, dto);
   }
 
+  @AuditedOperation({ resource: 'Webhook', action: 'DELETE' })
   @Delete(':tenantId/webhooks/:webhookId')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteWebhook(
@@ -251,6 +265,7 @@ export class TenantConfigurationController {
     return this.configService.getDomainConfig(tenantId);
   }
 
+  @AuditedOperation({ resource: 'CustomDomainVerification', action: 'INITIATE' })
   @Post(':tenantId/domain/verify')
   async initiateCustomDomainVerification(
     @Param('tenantId') tenantId: string,
@@ -259,6 +274,7 @@ export class TenantConfigurationController {
     return this.configService.initiateCustomDomainVerification(tenantId, dto);
   }
 
+  @AuditedOperation({ resource: 'CustomDomain', action: 'VERIFY' })
   @Post(':tenantId/domain/confirm')
   async verifyCustomDomain(@Param('tenantId') tenantId: string) {
     const verified = this.configService.verifyCustomDomain(tenantId);
@@ -271,6 +287,7 @@ export class TenantConfigurationController {
   }
 
   // Fix: C6 -- JWT-based identity
+  @AuditedOperation({ resource: 'Branding', action: 'UPDATE' })
   @Put(':tenantId/branding')
   async updateBranding(
     @Param('tenantId') tenantId: string,
@@ -292,6 +309,7 @@ export class TenantConfigurationController {
   }
 
   // Fix: C6 -- JWT-based identity
+  @AuditedOperation({ resource: 'SecurityConfig', action: 'UPDATE' })
   @Put(':tenantId/security')
   async updateSecurityConfig(
     @Param('tenantId') tenantId: string,
@@ -303,6 +321,7 @@ export class TenantConfigurationController {
     return this.configService.updateSecurityConfig(tenantId, dto, userId);
   }
 
+  @AuditedOperation({ resource: 'ToIpWhitelist', action: 'ADD' })
   @Post(':tenantId/security/ip-whitelist')
   async addToIpWhitelist(
     @Param('tenantId') tenantId: string,
@@ -311,6 +330,7 @@ export class TenantConfigurationController {
     return this.configService.addToIpWhitelist(tenantId, dto.ip);
   }
 
+  @AuditedOperation({ resource: 'FromIpWhitelist', action: 'DELETE' })
   @Delete(':tenantId/security/ip-whitelist/:ip')
   async removeFromIpWhitelist(
     @Param('tenantId') tenantId: string,
@@ -319,6 +339,7 @@ export class TenantConfigurationController {
     return this.configService.removeFromIpWhitelist(tenantId, ip);
   }
 
+  @AuditedOperation({ resource: 'ToIpBlacklist', action: 'ADD' })
   @Post(':tenantId/security/ip-blacklist')
   async addToIpBlacklist(
     @Param('tenantId') tenantId: string,
@@ -327,6 +348,7 @@ export class TenantConfigurationController {
     return this.configService.addToIpBlacklist(tenantId, dto.ip);
   }
 
+  @AuditedOperation({ resource: 'FromIpBlacklist', action: 'DELETE' })
   @Delete(':tenantId/security/ip-blacklist/:ip')
   async removeFromIpBlacklist(
     @Param('tenantId') tenantId: string,
@@ -345,6 +367,7 @@ export class TenantConfigurationController {
   }
 
   // Fix: C6 -- JWT-based identity
+  @AuditedOperation({ resource: 'NotificationConfig', action: 'UPDATE' })
   @Put(':tenantId/notifications')
   async updateNotificationConfig(
     @Param('tenantId') tenantId: string,
@@ -366,6 +389,7 @@ export class TenantConfigurationController {
   }
 
   // Fix: C6 -- JWT-based identity
+  @AuditedOperation({ resource: 'FeatureFlags', action: 'UPDATE' })
   @Put(':tenantId/features')
   async updateFeatureFlags(
     @Param('tenantId') tenantId: string,
@@ -377,6 +401,7 @@ export class TenantConfigurationController {
     return this.configService.updateFeatureFlags(tenantId, dto, userId);
   }
 
+  @AuditedOperation({ resource: 'Module', action: 'ENABLE' })
   @Post(':tenantId/features/modules/:moduleCode/enable')
   async enableModule(
     @Param('tenantId') tenantId: string,
@@ -385,6 +410,7 @@ export class TenantConfigurationController {
     return this.configService.enableModule(tenantId, moduleCode);
   }
 
+  @AuditedOperation({ resource: 'Module', action: 'DISABLE' })
   @Post(':tenantId/features/modules/:moduleCode/disable')
   async disableModule(
     @Param('tenantId') tenantId: string,
@@ -403,6 +429,7 @@ export class TenantConfigurationController {
   }
 
   // Fix: C6 -- JWT-based identity
+  @AuditedOperation({ resource: 'DataRetentionConfig', action: 'UPDATE' })
   @Put(':tenantId/data-retention')
   async updateDataRetentionConfig(
     @Param('tenantId') tenantId: string,

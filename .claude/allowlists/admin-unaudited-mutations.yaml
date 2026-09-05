@@ -1,0 +1,14 @@
+# Admin mutation handlers that carry NO @AuditedOperation decorator
+# (ADMIN-CRITICAL-008). Governed ratchet, read by
+# tests/invariants/admin-mutation-audit-coverage.spec.ts:
+#
+#   - every entry must name a handler that is genuinely unaudited today
+#     (`<controller path>#<method>`); an entry for an audited handler fails
+#     the build, so the list can only shrink;
+#   - every entry carries owner, expiry (ISO date, must be in the future),
+#     findingId and a reason;
+#   - an unaudited handler that is NOT listed here fails the build.
+#
+# Empty on 2026-09-05: every mutation handler in admin-api-service was
+# decorated in the same change that introduced the gate.
+entries: []

@@ -1,3 +1,4 @@
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import { ThrottlePasswordReset } from '@aquaculture/backend-common/security';
 import {
   BadGatewayException,
@@ -71,6 +72,7 @@ export class PasswordResetController {
    * Request password reset - sends email with reset link
    * Always returns success to prevent email enumeration
    */
+  @AuditedOperation({ resource: 'PasswordReset', action: 'FORGOT_PASSWORD' })
   @Post('forgot-password')
   @Public()
   @ThrottlePasswordReset()
@@ -106,6 +108,7 @@ export class PasswordResetController {
   /**
    * Reset password using token from email
    */
+  @AuditedOperation({ resource: 'Password', action: 'RESET' })
   @Post('reset-password')
   @Public()
   @ThrottlePasswordReset()

@@ -1,4 +1,4 @@
-import { AccessLogModule } from '@aquaculture/backend-common/audit';
+import { AccessLogModule, AuditedOperationModule } from '@aquaculture/backend-common/audit';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import {
   AdminBypassRlsInterceptor,
@@ -102,6 +102,12 @@ const getAdminStoragePort = (configService: ConfigService): number => {
     // edge terminates writes one shared.access_logs row. Enforced by
     // tests/invariants/public-service-edge-hardening.spec.ts.
     AccessLogModule.forRoot(),
+    // ADMIN-CRITICAL-008: every admin mutation handler carries
+    // @AuditedOperation; this registers the awaited, transaction-aware
+    // interceptor that turns the decorator into a shared.audit_logs row and
+    // aborts the operation when the row cannot be written. Enforced by
+    // tests/invariants/admin-mutation-audit-coverage.spec.ts.
+    AuditedOperationModule.forRoot(),
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: ['.env.local', '.env'],

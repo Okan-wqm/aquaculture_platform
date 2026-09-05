@@ -43260,6 +43260,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/admin-mutation-audit-coverage.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/admin-no-auth-tenants-writes.spec.ts",
       "prettier_managed": true
     },

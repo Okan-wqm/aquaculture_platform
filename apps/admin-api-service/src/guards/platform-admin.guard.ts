@@ -232,6 +232,8 @@ export class PlatformAdminGuard implements CanActivate {
         roles: userRoles,
         role: payload.role || userRoles[0],
         tenantId: payload.tenantId,
+        // Read by AuditedOperationInterceptor for the mandatory mfaVerified column.
+        mfaVerified: payload.mfaVerified === true,
       };
 
       const requestContext = requestContextStorage.getStore();

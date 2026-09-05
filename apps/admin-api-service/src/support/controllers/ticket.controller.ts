@@ -4,6 +4,7 @@
  * Destek ticket yönetimi endpoint'leri.
  */
 
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
   Get,
@@ -240,6 +241,7 @@ export class TicketController {
     });
   }
 
+  @AuditedOperation({ resource: 'Ticket', action: 'CREATE' })
   @Post()
   @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
@@ -264,6 +266,7 @@ export class TicketController {
     });
   }
 
+  @AuditedOperation({ resource: 'Ticket', action: 'UPDATE' })
   @Put(':id')
   async updateTicket(
     @Param('id') id: string,
@@ -284,6 +287,7 @@ export class TicketController {
   // Actions
   // ============================================================================
 
+  @AuditedOperation({ resource: 'Ticket', action: 'ASSIGN' })
   @Post(':id/assign')
   async assignTicket(
     @Param('id') id: string,
@@ -296,6 +300,7 @@ export class TicketController {
     return this.ticketService.assignTicket(id, dto.assignedTo, dto.assignedToName);
   }
 
+  @AuditedOperation({ resource: 'Status', action: 'CHANGE' })
   @Post(':id/status')
   async changeStatus(
     @Param('id') id: string,
@@ -309,6 +314,7 @@ export class TicketController {
     return this.ticketService.changeStatus(id, dto.status, user.id, user.email);
   }
 
+  @AuditedOperation({ resource: 'Priority', action: 'CHANGE' })
   @Post(':id/priority')
   async changePriority(
     @Param('id') id: string,
@@ -340,6 +346,7 @@ export class TicketController {
     });
   }
 
+  @AuditedOperation({ resource: 'Comment', action: 'ADD' })
   @Post(':id/comments')
   @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
@@ -381,6 +388,7 @@ export class TicketController {
     });
   }
 
+  @AuditedOperation({ resource: 'Reply', action: 'ADD' })
   @Post(':id/replies')
   @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
@@ -407,6 +415,7 @@ export class TicketController {
   // Satisfaction
   // ============================================================================
 
+  @AuditedOperation({ resource: 'SatisfactionRating', action: 'SUBMIT' })
   @Post(':id/satisfaction')
   @PlatformAdminOnly()
   async submitSatisfactionRating(

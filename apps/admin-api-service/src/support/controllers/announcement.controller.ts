@@ -4,6 +4,7 @@
  * Platform duyuru yönetimi endpoint'leri.
  */
 
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
   Get,
@@ -145,6 +146,7 @@ export class AnnouncementController {
     return this.announcementService.getAnnouncement(id);
   }
 
+  @AuditedOperation({ resource: 'Announcement', action: 'CREATE' })
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async createAnnouncement(
@@ -169,6 +171,7 @@ export class AnnouncementController {
     });
   }
 
+  @AuditedOperation({ resource: 'Announcement', action: 'UPDATE' })
   @Put(':id')
   async updateAnnouncement(
     @Param('id') id: string,
@@ -186,6 +189,7 @@ export class AnnouncementController {
     });
   }
 
+  @AuditedOperation({ resource: 'Announcement', action: 'DELETE' })
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteAnnouncement(@Param('id') id: string) {
@@ -196,11 +200,13 @@ export class AnnouncementController {
   // Actions
   // ============================================================================
 
+  @AuditedOperation({ resource: 'Announcement', action: 'PUBLISH' })
   @Post(':id/publish')
   async publishAnnouncement(@Param('id') id: string) {
     return this.announcementService.publishAnnouncement(id);
   }
 
+  @AuditedOperation({ resource: 'Announcement', action: 'CANCEL' })
   @Post(':id/cancel')
   async cancelAnnouncement(@Param('id') id: string) {
     return this.announcementService.cancelAnnouncement(id);
@@ -237,6 +243,7 @@ export class AnnouncementController {
     return this.announcementService.getAcknowledgmentStatus(id);
   }
 
+  @AuditedOperation({ resource: 'View', action: 'RECORD' })
   @Post(':id/view')
   @PlatformAdminOnly()
   async recordView(
@@ -255,6 +262,7 @@ export class AnnouncementController {
     );
   }
 
+  @AuditedOperation({ resource: 'Acknowledgment', action: 'RECORD' })
   @Post(':id/acknowledge')
   @PlatformAdminOnly()
   async recordAcknowledgment(

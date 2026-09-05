@@ -52,9 +52,10 @@ const SERVICES_REQUIRED: ReadonlyArray<string> = [
   'messaging-service',
   'notification-service',
   'ai-service',
-  // Future: admin-api-service, config-service, event-store-service,
-  // observability-service — internal services with limited surface; their
-  // wiring lands in W0.J-followup commits on the same PR.
+  // ADMIN-CRITICAL-008: every admin mutation handler is decorated.
+  'admin-api-service',
+  // config-service, event-store-service, observability-service carry no
+  // @AuditedOperation handler; the scan below fails the build the day one does.
 ];
 
 interface ModuleAnalysis {

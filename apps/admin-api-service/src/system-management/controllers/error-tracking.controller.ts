@@ -1,3 +1,4 @@
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
   Get,
@@ -279,6 +280,7 @@ export class ErrorTrackingController {
   // Error Reporting
   // ============================================================================
 
+  @AuditedOperation({ resource: 'ErrorTracking', action: 'REPORT_ERROR' })
   @Post('report')
   async reportError(@Body() dto: ReportErrorDto) {
     return this.errorTrackingService.reportError(dto);
@@ -311,6 +313,7 @@ export class ErrorTrackingController {
     return this.errorTrackingService.getErrorGroup(id);
   }
 
+  @AuditedOperation({ resource: 'ErrorGroup', action: 'UPDATE' })
   @Put('groups/:id')
   async updateErrorGroup(@Param('id') id: string, @Body() dto: UpdateErrorGroupDto) {
     let result = await this.errorTrackingService.getErrorGroup(id);
@@ -331,6 +334,7 @@ export class ErrorTrackingController {
     return result;
   }
 
+  @AuditedOperation({ resource: 'ErrorGroup', action: 'RESOLVE' })
   @Post('groups/:id/resolve')
   async resolveErrorGroup(
     @Param('id') id: string,
@@ -344,16 +348,19 @@ export class ErrorTrackingController {
     );
   }
 
+  @AuditedOperation({ resource: 'ErrorGroup', action: 'ACKNOWLEDGE' })
   @Post('groups/:id/acknowledge')
   async acknowledgeErrorGroup(@Param('id') id: string) {
     return this.errorTrackingService.updateErrorGroupStatus(id, ErrorStatus.ACKNOWLEDGED);
   }
 
+  @AuditedOperation({ resource: 'ErrorTracking', action: 'IGNORE_ERROR_GROUP' })
   @Post('groups/:id/ignore')
   async ignoreErrorGroup(@Param('id') id: string) {
     return this.errorTrackingService.updateErrorGroupStatus(id, ErrorStatus.IGNORED);
   }
 
+  @AuditedOperation({ resource: 'ErrorGroup', action: 'ASSIGN' })
   @Post('groups/:id/assign')
   async assignErrorGroup(
     @Param('id') id: string,
@@ -362,6 +369,7 @@ export class ErrorTrackingController {
     return this.errorTrackingService.assignErrorGroup(id, dto.assigneeId);
   }
 
+  @AuditedOperation({ resource: 'ErrorGroups', action: 'MERGE' })
   @Post('groups/merge')
   async mergeErrorGroups(
     @Body() dto: MergeErrorGroupsDto,
@@ -419,6 +427,7 @@ export class ErrorTrackingController {
   // Alert Rules
   // ============================================================================
 
+  @AuditedOperation({ resource: 'AlertRule', action: 'CREATE' })
   @Post('alert-rules')
   async createAlertRule(@Body() dto: CreateAlertRuleDto) {
     return this.errorTrackingService.createAlertRule(dto);
@@ -429,6 +438,7 @@ export class ErrorTrackingController {
     return this.errorTrackingService.getAlertRules();
   }
 
+  @AuditedOperation({ resource: 'AlertRule', action: 'UPDATE' })
   @Put('alert-rules/:id')
   async updateAlertRule(
     @Param('id') id: string,
@@ -437,6 +447,7 @@ export class ErrorTrackingController {
     return this.errorTrackingService.updateAlertRule(id, dto);
   }
 
+  @AuditedOperation({ resource: 'AlertRule', action: 'DELETE' })
   @Delete('alert-rules/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteAlertRule(@Param('id') id: string) {

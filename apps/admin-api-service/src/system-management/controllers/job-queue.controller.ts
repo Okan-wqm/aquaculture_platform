@@ -1,3 +1,4 @@
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
   Get,
@@ -307,6 +308,7 @@ export class JobQueueController {
   // Queue Management
   // ============================================================================
 
+  @AuditedOperation({ resource: 'Queue', action: 'CREATE' })
   @Post('queues')
   async createQueue(@Body() dto: CreateQueueDto) {
     return this.jobQueueService.createQueue(dto);
@@ -322,16 +324,19 @@ export class JobQueueController {
     return this.jobQueueService.getQueue(name);
   }
 
+  @AuditedOperation({ resource: 'Queue', action: 'UPDATE' })
   @Put('queues/:name')
   async updateQueue(@Param('name') name: string, @Body() dto: UpdateQueueDto) {
     return this.jobQueueService.updateQueue(name, dto);
   }
 
+  @AuditedOperation({ resource: 'Queue', action: 'PAUSE' })
   @Post('queues/:name/pause')
   async pauseQueue(@Param('name') name: string) {
     return this.jobQueueService.pauseQueue(name);
   }
 
+  @AuditedOperation({ resource: 'Queue', action: 'RESUME' })
   @Post('queues/:name/resume')
   async resumeQueue(@Param('name') name: string) {
     return this.jobQueueService.resumeQueue(name);
@@ -346,6 +351,7 @@ export class JobQueueController {
   // Job Management
   // ============================================================================
 
+  @AuditedOperation({ resource: 'Job', action: 'CREATE' })
   @Post()
   async createJob(@Body() dto: CreateJobDto) {
     const definition: JobDefinition = {
@@ -355,6 +361,7 @@ export class JobQueueController {
     return this.jobQueueService.createJob(definition);
   }
 
+  @AuditedOperation({ resource: 'JobQueue', action: 'SCHEDULE_JOB' })
   @Post('schedule')
   async scheduleJob(
     @Body() dto: ScheduleJobDto,
@@ -364,6 +371,7 @@ export class JobQueueController {
     return this.jobQueueService.scheduleJob(definition, new Date(scheduledAtStr));
   }
 
+  @AuditedOperation({ resource: 'JobQueue', action: 'SCHEDULE_RECURRING_JOB' })
   @Post('recurring')
   async scheduleRecurringJob(
     @Body() dto: RecurringJobDto,
@@ -401,26 +409,31 @@ export class JobQueueController {
     return this.jobQueueService.getJob(id);
   }
 
+  @AuditedOperation({ resource: 'Job', action: 'CANCEL' })
   @Post(':id/cancel')
   async cancelJob(@Param('id') id: string) {
     return this.jobQueueService.cancelJob(id);
   }
 
+  @AuditedOperation({ resource: 'Job', action: 'RETRY' })
   @Post(':id/retry')
   async retryJob(@Param('id') id: string) {
     return this.jobQueueService.retryJob(id);
   }
 
+  @AuditedOperation({ resource: 'Job', action: 'PAUSE' })
   @Post(':id/pause')
   async pauseJob(@Param('id') id: string) {
     return this.jobQueueService.pauseJob(id);
   }
 
+  @AuditedOperation({ resource: 'Job', action: 'RESUME' })
   @Post(':id/resume')
   async resumeJob(@Param('id') id: string) {
     return this.jobQueueService.resumeJob(id);
   }
 
+  @AuditedOperation({ resource: 'JobProgress', action: 'UPDATE' })
   @Put(':id/progress')
   async updateJobProgress(
     @Param('id') id: string,
@@ -449,12 +462,14 @@ export class JobQueueController {
   // Bulk Operations
   // ============================================================================
 
+  @AuditedOperation({ resource: 'FailedJobs', action: 'RETRY' })
   @Post('retry-failed')
   async retryFailedJobs(@Body() dto: RetryFailedJobsDto) {
     const count = await this.jobQueueService.retryFailedJobs(dto.queueName);
     return { retriedCount: count };
   }
 
+  @AuditedOperation({ resource: 'CompletedJobs', action: 'PURGE' })
   @Post('purge-completed')
   async purgeCompletedJobs(@Body() dto: PurgeCompletedJobsDto) {
     const count = await this.jobQueueService.purgeCompletedJobs(dto.olderThanDays);

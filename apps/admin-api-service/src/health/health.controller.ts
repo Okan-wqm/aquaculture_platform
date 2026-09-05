@@ -1,3 +1,4 @@
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
   Get,
@@ -156,6 +157,7 @@ export class HealthController {
   /**
    * Reset a circuit breaker (auth required).
    */
+  @AuditedOperation({ resource: 'CircuitBreaker', action: 'RESET' })
   @Post('circuit-breakers/:name/reset')
   @HttpCode(HttpStatus.OK)
   resetCircuitBreaker(@Param('name') name: string) {

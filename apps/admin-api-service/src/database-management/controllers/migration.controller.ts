@@ -4,6 +4,7 @@
  * Schema migration yönetimi endpoint'leri.
  */
 
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   BadRequestException,
   Body,
@@ -119,6 +120,7 @@ export class MigrationController {
     return this.migrationService.getMigrationHistory(tenantId);
   }
 
+  @AuditedOperation({ resource: 'Migration', action: 'RUN' })
   @Post('tenant/:tenantId/run')
   @HttpCode(HttpStatus.OK)
   runMigration(
@@ -141,6 +143,7 @@ export class MigrationController {
     );
   }
 
+  @AuditedOperation({ resource: 'Migration', action: 'ROLLBACK' })
   @Post('tenant/:tenantId/rollback')
   @HttpCode(HttpStatus.OK)
   rollbackMigration(
@@ -166,6 +169,7 @@ export class MigrationController {
   // Batch Migration
   // ============================================================================
 
+  @AuditedOperation({ resource: 'BatchMigration', action: 'RUN' })
   @Post('batch/run')
   @HttpCode(HttpStatus.OK)
   runBatchMigration(

@@ -1,3 +1,4 @@
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
   Get,
@@ -84,6 +85,7 @@ export class EmailTemplateController {
   /**
    * Create a new template
    */
+  @AuditedOperation({ resource: 'Template', action: 'CREATE' })
   @Post()
   async createTemplate(@Body() dto: CreateEmailTemplateDto) {
     return this.templateService.createTemplate(dto);
@@ -92,6 +94,7 @@ export class EmailTemplateController {
   /**
    * Update a template
    */
+  @AuditedOperation({ resource: 'Template', action: 'UPDATE' })
   @Put(':id')
   async updateTemplate(
     @Param('id') id: string,
@@ -103,6 +106,7 @@ export class EmailTemplateController {
   /**
    * Create tenant-specific override
    */
+  @AuditedOperation({ resource: 'TenantOverride', action: 'CREATE' })
   @Post('code/:code/override')
   async createTenantOverride(
     @Param('code') code: string,
@@ -115,6 +119,7 @@ export class EmailTemplateController {
   /**
    * Delete a template
    */
+  @AuditedOperation({ resource: 'Template', action: 'DELETE' })
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteTemplate(@Param('id') id: string) {
@@ -128,6 +133,7 @@ export class EmailTemplateController {
   /**
    * Render a template with variables
    */
+  @AuditedOperation({ resource: 'EmailTemplate', action: 'RENDER_TEMPLATE' })
   @Post('render')
   async renderTemplate(@Body() dto: RenderTemplateDto) {
     return this.templateService.renderTemplate(dto);
@@ -144,6 +150,7 @@ export class EmailTemplateController {
   /**
    * Validate template syntax
    */
+  @AuditedOperation({ resource: 'Template', action: 'VALIDATE' })
   @Post('validate')
   async validateTemplate(
     @Body() dto: ValidateTemplateDto,
@@ -156,16 +163,19 @@ export class EmailTemplateController {
   // ============================================================================
 
   /**
-   * Send a test email using a template
-   * Note: Actual email sending would be handled by a notification service
+   * Render a template with test variables for the given recipient.
+   *
+   * No email leaves the platform from here: admin-api has no dispatch path to
+   * notification-service for operator test sends, and the response says so
+   * (`sent: false`) instead of claiming a delivery that never happened.
+   * Wiring a real dispatch is ADMIN-HIGH-011 (retired / stub surfaces).
    */
+  @AuditedOperation({ resource: 'EmailTemplate', action: 'RENDER_TEST' })
   @Post(':id/test')
   async sendTestEmail(
     @Param('id') id: string,
     @Body() dto: SendTestEmailDto,
   ) {
-    // This would integrate with a notification/email service
-    // For now, just return the rendered template
     const template = await this.templateService.getTemplateById(id);
 
     const rendered = await this.templateService.renderTemplate({
@@ -174,7 +184,8 @@ export class EmailTemplateController {
     });
 
     return {
-      message: 'Test email would be sent (email service integration required)',
+      sent: false,
+      reason: 'admin-api has no email dispatch path; the template was rendered, not delivered',
       recipientEmail: dto.recipientEmail,
       rendered,
     };

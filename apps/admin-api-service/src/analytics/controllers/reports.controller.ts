@@ -4,6 +4,7 @@
  * Rapor oluşturma ve indirme endpoint'leri.
  */
 
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
   Get,
@@ -212,12 +213,14 @@ export class ReportsController {
     return this.reportsService.getDefinition(id);
   }
 
+  @AuditedOperation({ resource: 'Definition', action: 'CREATE' })
   @Post('definitions')
   @HttpCode(HttpStatus.CREATED)
   async createDefinition(@Body() dto: CreateDefinitionDto): Promise<ReportDefinition> {
     return this.reportsService.createDefinition(dto);
   }
 
+  @AuditedOperation({ resource: 'Definition', action: 'UPDATE' })
   @Put('definitions/:id')
   async updateDefinition(
     @Param('id') id: string,
@@ -226,6 +229,7 @@ export class ReportsController {
     return this.reportsService.updateDefinition(id, dto);
   }
 
+  @AuditedOperation({ resource: 'Definition', action: 'DELETE' })
   @Delete('definitions/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteDefinition(@Param('id') id: string): Promise<void> {
@@ -253,6 +257,7 @@ export class ReportsController {
     });
   }
 
+  @AuditedOperation({ resource: 'Execution', action: 'CREATE' })
   @Post('executions')
   @HttpCode(HttpStatus.CREATED)
   async createExecution(
@@ -308,24 +313,28 @@ export class ReportsController {
   // Quick Reports (Frontend Compatible)
   // ============================================================================
 
+  @AuditedOperation({ resource: 'Reports', action: 'QUICK_TENANTS_REPORT' })
   @Post('quick/tenants')
   @HttpCode(HttpStatus.OK)
   async quickTenantsReport(@Body() dto: QuickReportDto): Promise<ReportExecution> {
     return this.reportsService.generateQuickTenantsReport(dto.format, dto.filters);
   }
 
+  @AuditedOperation({ resource: 'Reports', action: 'QUICK_USERS_REPORT' })
   @Post('quick/users')
   @HttpCode(HttpStatus.OK)
   async quickUsersReport(@Body() dto: QuickReportDto): Promise<ReportExecution> {
     return this.reportsService.generateQuickUsersReport(dto.format, dto.filters);
   }
 
+  @AuditedOperation({ resource: 'Reports', action: 'QUICK_REVENUE_REPORT' })
   @Post('quick/revenue')
   @HttpCode(HttpStatus.OK)
   async quickRevenueReport(@Body() dto: QuickReportDto): Promise<ReportExecution> {
     return this.reportsService.generateQuickRevenueReport(dto.format, dto.filters);
   }
 
+  @AuditedOperation({ resource: 'Reports', action: 'QUICK_AUDIT_REPORT' })
   @Post('quick/audit')
   @HttpCode(HttpStatus.OK)
   async quickAuditReport(@Body() dto: QuickReportDto): Promise<ReportExecution> {
@@ -345,6 +354,7 @@ export class ReportsController {
   // Report Generation
   // ============================================================================
 
+  @AuditedOperation({ resource: 'Report', action: 'GENERATE' })
   @Post('generate')
   async generateReport(@Body() dto: GenerateReportDto): Promise<ReportResult> {
     // Validate dates

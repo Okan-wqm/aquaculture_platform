@@ -185,6 +185,34 @@ WAL-G epoch; strike `database-restore-drill.md:548`.
 backup cron.
 **Sequencing:** gates every destructive migration in this plan.
 
+## INFRA-CRITICAL-169 — nginx and service route tables disagree on five production paths
+
+**State:** OPEN · **Wave:** W3 · **ADR:** 0006 (edge topology derived from nginx)
+
+**Evidence:** `infrastructure/nginx/droplet.conf` forwarded `/api/upload/*` verbatim to a gateway
+serving `/api/v1/upload/*`; `/api/csp-report` to a controller mounted at `/api/v1/api/csp-report`;
+`/install/*` and `/api/devices/*` — the surface the installer script and the Rust edge agent call —
+to a sensor service serving them under `/api/v1`; `/api/v2/ai/*` to a gateway proxy that never
+existed (`routes/v2` is an empty module and the AI chat REST path became NATS long ago); and the
+SCADA websocket, for which the client and sensor-service had agreed on a dedicated `/scada-ws/`
+engine.io path precisely so nginx could route it, had no nginx location at all. Each 404s in
+production while every unit test stays green, because nothing compared the two tables. Surfaced
+while closing the W0 open item on the upload path.
+
+**Fix (Tier-2):** nginx rewrites `/api/upload/` to `/api/v1/upload/` (the rewrite the admin
+catch-all already uses); gateway-api excludes `api/csp-report` from its global prefix as marine
+does; sensor-service excludes `install/*` and `api/devices/*` as it does `mqtt/*`; the dead
+`/api/v2/ai/` location, the gateway's `api/v2/{*path}` validator route, the empty `routes/v2`
+module, the unregistered `api/v1/sensors` proxy controller and ai-service's exclusions for the
+retired path are deleted; nginx gains a `/scada-ws/` websocket location to sensor-service.
+
+**Gate:** `tests/invariants/nginx-route-resolution.spec.ts` derives the nginx location table (path,
+modifier, rewrite, upstream) and every public service's served route table from source, and asserts
+both directions — every proxied location resolves after its rewrite to a route the upstream serves,
+and every route a public service serves outside its prefix is covered by an nginx location unless
+the kernel marks it Docker-internal, the service catalog marks its `/graphql` a federated subgraph,
+or `.claude/allowlists/internal-only-http-routes.yaml` declares it with a reason.
+
 ## INFRA-HIGH-165 — CI quarantine policy is ungoverned prose (R12)
 
 **State:** OPEN · **Wave:** W0 · **ADR:** 0017

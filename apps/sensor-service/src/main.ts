@@ -51,7 +51,21 @@ bootstrapService(AppModule, {
   // actual route was `/api/v1/mqtt/auth` — every MQTT auth attempt 404ed,
   // and the sensor-service reconnect loop climbed toward the 20-attempt
   // limit after every device reconnection (see 2026-04-14 log audit G9).
-  prefixExclusions: ['health', 'health/(.*)', 'metrics', 'mqtt/(.*)'],
+  // install/* and api/devices/* are the public device-provisioning surface:
+  // the installer is fetched as https://<host>/install/<code> and the Rust edge
+  // agent posts to /api/devices/activate (nginx forwards both verbatim). They
+  // sit outside the /api/v1 prefix like mqtt/*; enforced by
+  // tests/invariants/nginx-route-resolution.spec.ts.
+  prefixExclusions: [
+    'health',
+    'health/(.*)',
+    'metrics',
+    'mqtt/(.*)',
+    'install',
+    'install/(.*)',
+    'api/devices',
+    'api/devices/(.*)',
+  ],
   customValidationPipe: new ValidationPipe({
     whitelist: true,
     forbidNonWhitelisted: true,

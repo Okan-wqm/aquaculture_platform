@@ -8,13 +8,33 @@
  * Architectural rationale:
  * - The web panel uses `storageOverview` which returns detailed category
  *   totals, location fill rates, etc. Mobile needs a slimmer payload.
- * - This DTO maps directly to the `WarehouseSummary` TypeScript interface
- *   in `web/apps/aquamobil/src/types/index.ts` to avoid schema mismatch.
+ * - The AquaMobil client types are GENERATED from this schema (graphql-codegen,
+ *   S1 gate); every closed vocabulary here is a GraphQL enum so the client
+ *   cannot hand-write a union that drifts from the wire (FARM-HIGH-300).
  * - Tenant isolation is enforced at the resolver level via @CurrentTenant().
  *
  * @see GET_WAREHOUSE_SUMMARY in web/apps/aquamobil/src/graphql/operations.ts
  */
-import { ObjectType, Field, Int, Float, ID } from '@nestjs/graphql';
+import { ObjectType, Field, Int, Float, ID, registerEnumType } from '@nestjs/graphql';
+
+import { MovementType } from '../entities/stock-movement.entity';
+import { StorageItemType } from '../entities/storage-inventory.entity';
+
+/**
+ * Feed stock-coverage severity. Thresholds live in the handler next to the
+ * alert-engine constant (FEED_STOCKOUT_CRITICAL_DAYS); this enum is the wire
+ * vocabulary the mobile hub filters and colours by.
+ */
+export enum WarehouseFeedCoverageStatus {
+  OK = 'OK',
+  WARNING = 'WARNING',
+  CRITICAL = 'CRITICAL',
+}
+
+registerEnumType(WarehouseFeedCoverageStatus, {
+  name: 'WarehouseFeedCoverageStatus',
+  description: 'Feed stock-coverage severity on the AquaMobil warehouse hub',
+});
 
 /**
  * An inventory item that has fallen below its minimum stock threshold.
@@ -28,8 +48,8 @@ export class WarehouseLowStockItem {
   @Field()
   name!: string;
 
-  @Field()
-  itemType!: string;
+  @Field(() => StorageItemType)
+  itemType!: StorageItemType;
 
   @Field(() => Float)
   currentQty!: number;
@@ -50,8 +70,8 @@ export class WarehouseRecentMovement {
   @Field(() => ID)
   id!: string;
 
-  @Field()
-  movementType!: string;
+  @Field(() => MovementType)
+  movementType!: MovementType;
 
   @Field()
   itemName!: string;
@@ -83,16 +103,15 @@ export class WarehouseFeedCoverage {
   @Field()
   feedName!: string;
 
-  /** Ufuk içinde tükeniş yoksa null ('ok'). */
+  /** Ufuk içinde tükeniş yoksa null (OK). */
   @Field(() => Int, { nullable: true })
   daysOfCover!: number | null;
 
   @Field(() => String, { nullable: true })
   stockoutDate!: string | null;
 
-  /** 'critical' | 'warning' | 'ok' */
-  @Field()
-  coverageStatus!: string;
+  @Field(() => WarehouseFeedCoverageStatus)
+  coverageStatus!: WarehouseFeedCoverageStatus;
 }
 
 /**

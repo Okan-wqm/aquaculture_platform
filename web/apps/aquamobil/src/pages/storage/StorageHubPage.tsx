@@ -13,6 +13,8 @@ import {
   Warehouse,
   AlertTriangle,
   Inbox,
+  SlidersHorizontal,
+  Undo2,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { JSX } from 'react';
@@ -21,10 +23,11 @@ import { useNavigate } from 'react-router-dom';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { KpiStrip } from '@/components/hub';
 import type { KpiItem } from '@/components/hub';
+import type { MovementType } from '@/generated/graphql';
 import { useMobilePermissions } from '@/hooks/useMobilePermissions';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useWarehouseSummary } from '@/hooks/useWarehouseSummary';
-import type { LowStockItem, RecentStockMovement, StockMovementType, WarehouseFeedCoverage } from '@/types';
+import type { LowStockItem, RecentStockMovement, WarehouseFeedCoverage } from '@/types';
 
 // WHY: Five core warehouse operations cover 95%+ of daily warehouse floor activity.
 const storageActions = [
@@ -70,8 +73,15 @@ const storageActions = [
   },
 ];
 
-/** WHY static config: ensures PurgeCSS sees all Tailwind class literals. */
-const MOVEMENT_TYPE_CONFIG: Record<StockMovementType, {
+/**
+ * WHY static config: ensures PurgeCSS sees all Tailwind class literals.
+ * WHY total over MovementType (FARM-HIGH-300): the feed shows every movement
+ * the warehouse recorded, including the kinds the mobile wizard cannot create
+ * (transfer/adjustment/return). The record is keyed by the generated enum, so
+ * a movement kind without a row is a compile error — not `config.icon` of
+ * undefined at render time, which is how this page used to crash.
+ */
+const MOVEMENT_TYPE_CONFIG: Record<MovementType, {
   icon: LucideIcon;
   iconColor: string;
   iconBg: string;
@@ -89,11 +99,29 @@ const MOVEMENT_TYPE_CONFIG: Record<StockMovementType, {
     iconBg: 'bg-red-50 dark:bg-red-900/20',
     label: 'OUT',
   },
+  TRANSFER: {
+    icon: ArrowLeftRight,
+    iconColor: 'text-blue-500',
+    iconBg: 'bg-blue-50 dark:bg-blue-900/20',
+    label: 'TRANSFER',
+  },
   WASTE: {
     icon: Trash2,
     iconColor: 'text-gray-500',
     iconBg: 'bg-gray-100 dark:bg-gray-800',
     label: 'WASTE',
+  },
+  ADJUSTMENT: {
+    icon: SlidersHorizontal,
+    iconColor: 'text-amber-500',
+    iconBg: 'bg-amber-50 dark:bg-amber-900/20',
+    label: 'ADJUSTMENT',
+  },
+  RETURN: {
+    icon: Undo2,
+    iconColor: 'text-purple-500',
+    iconBg: 'bg-purple-50 dark:bg-purple-900/20',
+    label: 'RETURN',
   },
 };
 
@@ -210,10 +238,10 @@ export function StorageHubPage(): JSX.Element {
   const lowStockAlertCount = summary?.lowStockAlertCount ?? 0;
   const todaysMovementCount = summary?.todaysMovementCount ?? 0;
   const lowStockItems = summary?.lowStockItems ?? [];
-  // P-27: yalnız aksiyon gerektiren kapsam satırları (critical|warning) —
-  // 'ok' satırları hub'da gürültü olur, detay web forecast grafiğinde.
+  // P-27: yalnız aksiyon gerektiren kapsam satırları (CRITICAL|WARNING) —
+  // OK satırları hub'da gürültü olur, detay web forecast grafiğinde.
   const feedCoverage = (summary?.feedCoverage ?? []).filter(
-    (c: WarehouseFeedCoverage) => c.coverageStatus !== 'ok',
+    (c: WarehouseFeedCoverage) => c.coverageStatus !== 'OK',
   );
   const recentMovements = (summary?.recentMovements ?? []).slice(0, MAX_MOVEMENTS);
 
@@ -324,7 +352,7 @@ export function StorageHubPage(): JSX.Element {
                     <div className="text-right">
                       <p
                         className={
-                          coverage.coverageStatus === 'critical'
+                          coverage.coverageStatus === 'CRITICAL'
                             ? 'text-sm font-bold text-red-600'
                             : 'text-sm font-bold text-amber-600'
                         }

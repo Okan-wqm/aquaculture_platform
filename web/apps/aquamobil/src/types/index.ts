@@ -19,7 +19,13 @@ export type {
   MortalityReason,
   QualityClass,
 } from '../generated/graphql';
-import type { Role } from '../generated/graphql';
+import type {
+  MobileStockEventType,
+  MovementType,
+  Role,
+  StorageItemType,
+  WarehouseFeedCoverageStatus,
+} from '../generated/graphql';
 import type {
   AcknowledgeAlertInput,
   ClockInInput,
@@ -411,9 +417,18 @@ export interface InAppNotification {
   createdAt: string;
 }
 
-// Storage types
-export type StockMovementType = 'IN' | 'OUT' | 'WASTE';
-export type StorageItemType = 'FEED' | 'CHEMICAL' | 'CONSUMABLE' | 'HEALTHCARE';
+// Storage types — FARM-HIGH-300: the storage vocabularies are GraphQL enums
+// on the wire, so the client reads them from the generated schema types
+// instead of re-typing them. A server-side rename now fails `tsc`, not the
+// field worker's screen.
+export type { StorageItemType } from '../generated/graphql';
+/**
+ * The movement kinds the mobile wizard RECORDS (Stock In / Out / Waste) — a
+ * compile-checked subset of the server's MovementType. Reading surfaces
+ * (RecentStockMovement) carry the full enum because the warehouse feed shows
+ * transfers, adjustments and returns recorded elsewhere.
+ */
+export type StockMovementType = Extract<MovementType, 'IN' | 'OUT' | 'WASTE'>;
 
 // GraphQL response types
 export interface GraphQLResponse<T> {
@@ -456,7 +471,7 @@ export interface StockEventsSummary {
 /** A single stock event (cull, harvest, transfer, mortality). */
 export interface StockEvent {
   id: string;
-  type: 'CULL' | 'HARVEST' | 'TRANSFER' | 'MORTALITY';
+  type: MobileStockEventType;
   tankName: string;
   quantity: number;
   createdAt: string;
@@ -483,7 +498,7 @@ export interface WarehouseFeedCoverage {
   feedName: string;
   daysOfCover: number | null;
   stockoutDate: string | null;
-  coverageStatus: 'critical' | 'warning' | 'ok';
+  coverageStatus: WarehouseFeedCoverageStatus;
 }
 
 /** An item below its minimum stock threshold. */
@@ -499,7 +514,7 @@ export interface LowStockItem {
 /** A recent stock movement for display in the warehouse hub. */
 export interface RecentStockMovement {
   id: string;
-  movementType: StockMovementType;
+  movementType: MovementType;
   itemName: string;
   quantity: number;
   unit: string;

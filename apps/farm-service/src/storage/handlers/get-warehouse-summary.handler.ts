@@ -27,6 +27,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, MoreThanOrEqual } from 'typeorm';
 import { GetWarehouseSummaryQuery } from '../queries/get-warehouse-summary.query';
 import { StockMovement } from '../entities/stock-movement.entity';
+import { StorageItemType } from '../entities/storage-inventory.entity';
 import { Feed } from '../../feed/entities/feed.entity';
 import { Chemical } from '../../chemical/entities/chemical.entity';
 import { Consumable } from '../../consumable/entities/consumable.entity';
@@ -36,6 +37,7 @@ import {
   WarehouseLowStockItem,
   WarehouseRecentMovement,
   WarehouseFeedCoverage,
+  WarehouseFeedCoverageStatus,
 } from '../dto/warehouse-summary.response';
 
 /** Maximum number of low-stock items and recent movements to return. */
@@ -120,14 +122,14 @@ export class GetWarehouseSummaryHandler
     const worstByFeed = new Map<string, WarehouseFeedCoverage>();
     for (const snapshot of snapshots) {
       for (const feed of snapshot.perFeed) {
-        const status =
+        const status: WarehouseFeedCoverageStatus =
           feed.daysOfCover === null
-            ? 'ok'
+            ? WarehouseFeedCoverageStatus.OK
             : feed.daysOfCover <= FEED_STOCKOUT_CRITICAL_DAYS
-              ? 'critical'
+              ? WarehouseFeedCoverageStatus.CRITICAL
               : feed.daysOfCover <= feed.procurementLeadTimeDays
-                ? 'warning'
-                : 'ok';
+                ? WarehouseFeedCoverageStatus.WARNING
+                : WarehouseFeedCoverageStatus.OK;
         const candidate: WarehouseFeedCoverage = {
           feedId: feed.feedId,
           feedCode: feed.feedCode,
@@ -209,7 +211,7 @@ export class GetWarehouseSummaryHandler
     return feeds.map((f) => ({
       id: f.id,
       name: f.name,
-      itemType: 'feed',
+      itemType: StorageItemType.FEED,
       currentQty: Number(f.quantity),
       minQty: Number(f.minStock),
       unit: f.unit,
@@ -238,7 +240,7 @@ export class GetWarehouseSummaryHandler
     return chemicals.map((c) => ({
       id: c.id,
       name: c.name,
-      itemType: 'chemical',
+      itemType: StorageItemType.CHEMICAL,
       currentQty: Number(c.quantity),
       minQty: Number(c.minStock),
       unit: c.unit,
@@ -267,7 +269,7 @@ export class GetWarehouseSummaryHandler
     return consumables.map((c) => ({
       id: c.id,
       name: c.name,
-      itemType: 'consumable',
+      itemType: StorageItemType.CONSUMABLE,
       currentQty: Number(c.quantity),
       minQty: Number(c.minStock),
       unit: c.unit,

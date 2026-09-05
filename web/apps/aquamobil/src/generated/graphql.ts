@@ -482,6 +482,13 @@ export type MessageFilterInput = {
   limit?: number;
 };
 
+/** Stock event kind shown on the AquaMobil Stock Events hub */
+export type MobileStockEventType =
+  | 'CULL'
+  | 'HARVEST'
+  | 'MORTALITY'
+  | 'TRANSFER';
+
 export type MortalityReason =
   | 'CANNIBALISM'
   | 'DISEASE'
@@ -991,6 +998,12 @@ export type UpdateChannelInput = {
   name?: string | null | undefined;
 };
 
+/** Feed stock-coverage severity on the AquaMobil warehouse hub */
+export type WarehouseFeedCoverageStatus =
+  | 'CRITICAL'
+  | 'OK'
+  | 'WARNING';
+
 /** Ölçüm kaynağı */
 export type WaterQualityMeasurementSource =
   | 'CALIBRATION'
@@ -1467,7 +1480,7 @@ export type GetStockEventsSummaryQueryVariables = Exact<{
 }>;
 
 
-export type GetStockEventsSummaryQuery = { stockEventsSummary: { thisWeekEventsCount: number, recentEvents: Array<{ id: string, type: string, tankName: string, quantity: number, createdAt: string, note: string | null }> } };
+export type GetStockEventsSummaryQuery = { stockEventsSummary: { thisWeekEventsCount: number, recentEvents: Array<{ id: string, type: MobileStockEventType, tankName: string, quantity: number, createdAt: string, note: string | null }> } };
 
 export type MobileReportDeadlinesQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -1491,7 +1504,7 @@ export type MobileApproveAndSubmitReportDraftMutation = { approveAndSubmitReport
 export type GetWarehouseSummaryQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type GetWarehouseSummaryQuery = { warehouseSummary: { totalItems: number, lowStockAlertCount: number, todaysMovementCount: number, lowStockItems: Array<{ id: string, name: string, itemType: string, currentQty: number, minQty: number, unit: string }>, recentMovements: Array<{ id: string, movementType: string, itemName: string, quantity: number, unit: string, createdAt: string }>, feedCoverage: Array<{ feedId: string, feedCode: string, feedName: string, daysOfCover: number | null, stockoutDate: string | null, coverageStatus: string }> } };
+export type GetWarehouseSummaryQuery = { warehouseSummary: { totalItems: number, lowStockAlertCount: number, todaysMovementCount: number, lowStockItems: Array<{ id: string, name: string, itemType: StorageItemType, currentQty: number, minQty: number, unit: string }>, recentMovements: Array<{ id: string, movementType: MovementType, itemName: string, quantity: number, unit: string, createdAt: string }>, feedCoverage: Array<{ feedId: string, feedCode: string, feedName: string, daysOfCover: number | null, stockoutDate: string | null, coverageStatus: WarehouseFeedCoverageStatus }> } };
 
 export type MobileTankSensorsQueryVariables = Exact<{
   tankId: string;

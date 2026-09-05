@@ -1,4 +1,4 @@
-import { Field, ID, Int, ObjectType } from '@nestjs/graphql';
+import { Field, ID, Int, ObjectType, registerEnumType } from '@nestjs/graphql';
 
 @ObjectType()
 export class TodaysDailyOpsCounts {
@@ -21,13 +21,32 @@ export class TodaysDailyOpsCounts {
   feedingTotalCount!: number;
 }
 
+/**
+ * The stock-event vocabulary the mobile Stock Events hub renders. Declared as
+ * a GraphQL enum (FARM-HIGH-300) so the wire value set is part of the schema
+ * the AquaMobil codegen consumes — a hand-written client union can no longer
+ * drift from what the handler emits. TRANSFER_OUT is the only transfer half a
+ * tank ever "loses" fish through, so it is the sole source of TRANSFER.
+ */
+export enum MobileStockEventType {
+  MORTALITY = 'MORTALITY',
+  CULL = 'CULL',
+  TRANSFER = 'TRANSFER',
+  HARVEST = 'HARVEST',
+}
+
+registerEnumType(MobileStockEventType, {
+  name: 'MobileStockEventType',
+  description: 'Stock event kind shown on the AquaMobil Stock Events hub',
+});
+
 @ObjectType()
 export class MobileStockEvent {
   @Field(() => ID)
   id!: string;
 
-  @Field()
-  type!: string;
+  @Field(() => MobileStockEventType)
+  type!: MobileStockEventType;
 
   @Field()
   tankName!: string;

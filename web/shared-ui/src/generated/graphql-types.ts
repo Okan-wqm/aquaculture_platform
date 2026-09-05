@@ -9251,8 +9251,15 @@ export type MobileStockEvent = {
   note?: Maybe<Scalars['String']['output']>;
   quantity: Scalars['Int']['output'];
   tankName: Scalars['String']['output'];
-  type: Scalars['String']['output'];
+  type: MobileStockEventType;
 };
+
+/** Stock event kind shown on the AquaMobil Stock Events hub */
+export type MobileStockEventType =
+  | 'CULL'
+  | 'HARVEST'
+  | 'MORTALITY'
+  | 'TRANSFER';
 
 export type MobileUserSettings = {
   allowedFeatures: Scalars['JSON']['output'];
@@ -25006,7 +25013,7 @@ export type VirkestoffType =
   | 'TEFLUBENZURON';
 
 export type WarehouseFeedCoverage = {
-  coverageStatus: Scalars['String']['output'];
+  coverageStatus: WarehouseFeedCoverageStatus;
   daysOfCover?: Maybe<Scalars['Int']['output']>;
   feedCode: Scalars['String']['output'];
   feedId: Scalars['ID']['output'];
@@ -25014,10 +25021,16 @@ export type WarehouseFeedCoverage = {
   stockoutDate?: Maybe<Scalars['String']['output']>;
 };
 
+/** Feed stock-coverage severity on the AquaMobil warehouse hub */
+export type WarehouseFeedCoverageStatus =
+  | 'CRITICAL'
+  | 'OK'
+  | 'WARNING';
+
 export type WarehouseLowStockItem = {
   currentQty: Scalars['Float']['output'];
   id: Scalars['ID']['output'];
-  itemType: Scalars['String']['output'];
+  itemType: StorageItemType;
   minQty: Scalars['Float']['output'];
   name: Scalars['String']['output'];
   unit: Scalars['String']['output'];
@@ -25027,7 +25040,7 @@ export type WarehouseRecentMovement = {
   createdAt: Scalars['DateTime']['output'];
   id: Scalars['ID']['output'];
   itemName: Scalars['String']['output'];
-  movementType: Scalars['String']['output'];
+  movementType: MovementType;
   quantity: Scalars['Float']['output'];
   unit: Scalars['String']['output'];
 };

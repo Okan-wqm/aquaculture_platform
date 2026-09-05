@@ -10,6 +10,7 @@ import { createMockDataSource } from '@aquaculture/testing';
 import { OperationType } from '../../batch/entities/tank-operation.entity';
 import { FeedingDayPlan } from '../../feeding-protocol/entities/feeding-day-plan.entity';
 import { FeedingMealStatus } from '../../feeding-protocol/entities/feeding-meal.entity';
+import { MobileStockEventType } from '../dto/mobile-dashboard.dto';
 import { GetTodaysDailyOpsCountsHandler } from '../handlers/get-todays-daily-ops-counts.handler';
 import { GetTodaysDailyOpsCountsQuery } from '../queries/get-todays-daily-ops-counts.query';
 import { GetStockEventsSummaryHandler } from '../handlers/get-stock-events-summary.handler';
@@ -158,5 +159,38 @@ describe('GetStockEventsSummaryHandler (fail-closed tenant boundary)', () => {
     expect(summary.thisWeekEventsCount).toBe(4);
     expect(summary.recentEvents).toEqual([]);
     expect(summary).not.toHaveProperty('pendingTransferCount');
+  });
+
+  it('maps each stock-event operation to its MobileStockEventType member and drops the rest (FARM-HIGH-300)', async () => {
+    const { mockDataSource, mockManager } = createMockDataSource();
+    mockManager.count = jest.fn().mockResolvedValue(5);
+    const base = { tankName: 'T1', quantity: 3, createdAt: new Date('2026-09-01T00:00:00Z') };
+    (mockManager.find as jest.Mock).mockResolvedValueOnce([
+      { ...base, id: 'op-1', operationType: OperationType.MORTALITY },
+      { ...base, id: 'op-2', operationType: OperationType.CULL },
+      { ...base, id: 'op-3', operationType: OperationType.TRANSFER_OUT, destinationTankName: 'T2' },
+      { ...base, id: 'op-4', operationType: OperationType.HARVEST },
+      // Not a stock event: the `In` filter never returns it, and if a filter
+      // edit ever lets one through it must not be serialised as an invented
+      // enum value (the old `toUpperCase()` fallback did exactly that).
+      { ...base, id: 'op-5', operationType: OperationType.SAMPLING },
+    ]);
+
+    const summary = await new GetStockEventsSummaryHandler(mockDataSource).execute(
+      new GetStockEventsSummaryQuery(TENANT, 7),
+    );
+
+    expect(summary.recentEvents.map((event) => [event.id, event.type])).toEqual([
+      ['op-1', MobileStockEventType.MORTALITY],
+      ['op-2', MobileStockEventType.CULL],
+      ['op-3', MobileStockEventType.TRANSFER],
+      ['op-4', MobileStockEventType.HARVEST],
+    ]);
+    expect(summary.recentEvents.map((event) => event.note)).toEqual([
+      undefined,
+      undefined,
+      'To T2',
+      undefined,
+    ]);
   });
 });

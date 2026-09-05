@@ -1441,11 +1441,19 @@ type TodaysDailyOpsCounts {
 
 type MobileStockEvent {
   id: ID!
-  type: String!
+  type: MobileStockEventType!
   tankName: String!
   quantity: Int!
   createdAt: DateTime!
   note: String
+}
+
+"""Stock event kind shown on the AquaMobil Stock Events hub"""
+enum MobileStockEventType {
+  MORTALITY
+  CULL
+  TRANSFER
+  HARVEST
 }
 
 type StockEventsSummary {
@@ -2268,7 +2276,7 @@ type StorageOverviewResponse {
 type WarehouseLowStockItem {
   id: ID!
   name: String!
-  itemType: String!
+  itemType: StorageItemType!
   currentQty: Float!
   minQty: Float!
   unit: String!
@@ -2276,7 +2284,7 @@ type WarehouseLowStockItem {
 
 type WarehouseRecentMovement {
   id: ID!
-  movementType: String!
+  movementType: MovementType!
   itemName: String!
   quantity: Float!
   unit: String!
@@ -2289,7 +2297,14 @@ type WarehouseFeedCoverage {
   feedName: String!
   daysOfCover: Int
   stockoutDate: String
-  coverageStatus: String!
+  coverageStatus: WarehouseFeedCoverageStatus!
+}
+
+"""Feed stock-coverage severity on the AquaMobil warehouse hub"""
+enum WarehouseFeedCoverageStatus {
+  OK
+  WARNING
+  CRITICAL
 }
 
 type WarehouseSummaryResponse {

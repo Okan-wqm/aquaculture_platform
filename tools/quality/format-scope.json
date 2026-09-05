@@ -44004,6 +44004,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/gateway-rate-limit-buckets-resolve.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/git-hook-binding.spec.ts",
       "prettier_managed": true
     },

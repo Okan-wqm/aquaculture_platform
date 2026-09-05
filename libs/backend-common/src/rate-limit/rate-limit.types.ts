@@ -114,6 +114,15 @@ export interface RateLimitEndpointBucket {
   paths: readonly string[];
   /** Segment-exact templates, e.g. `/api/marine/sites/:siteId/render`. */
   pathTemplates?: readonly string[];
+  /**
+   * GraphQL Mutation field names owned by this tier (e.g. `login`,
+   * `verifyMfaLogin`). Authentication on this platform is a GraphQL
+   * mutation, not a REST path: a login tier keyed only on `/auth/login`
+   * never fires (SEC-HIGH-061). Matched exactly against the resolver field
+   * the guard reads from GraphQLResolveInfo, so a query or another mutation
+   * with a similar name does not share the bucket.
+   */
+  graphqlMutations?: readonly string[];
 }
 
 /**
@@ -161,6 +170,8 @@ export interface EdgeRequestFacts {
   tenantId?: string;
   /** GraphQL operation parent type name ('Mutation' | 'Query' | …) when GraphQL. */
   graphqlParentType?: string;
+  /** GraphQL resolver field name (`login`, `createBatch`, …) when GraphQL. */
+  graphqlFieldName?: string;
 }
 
 /** Injection token for the optional edge policy (gateway-only). */

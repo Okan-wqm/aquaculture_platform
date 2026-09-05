@@ -63,8 +63,23 @@ export function buildGatewayEdgeConfig(config: ConfigService): RateLimitEdgeConf
     },
     endpointBuckets: [
       // Exact-match (SECREV-LOW-001): substring/suffix paths do NOT share these.
-      { tier: 'login', paths: ['/api/auth/login', '/auth/login'] },
-      { tier: 'upload', paths: ['/api/files/upload', '/api/v1/files/upload'] },
+      // Every entry must name something the gateway actually serves —
+      // tests/invariants/gateway-rate-limit-buckets-resolve.spec.ts derives the
+      // registered routes from the controllers and the mutation fields from the
+      // auth-service resolvers. Until 2026-09-05 the login tier was keyed on
+      // `/api/auth/login`, a REST path no service registers, while login is the
+      // GraphQL `login` mutation: brute-force protection never engaged
+      // (SEC-HIGH-061). The upload paths named `/api/files/upload`, which the
+      // gateway does not serve either.
+      {
+        tier: 'login',
+        paths: [],
+        graphqlMutations: ['login', 'verifyMfaLogin', 'verifyWebAuthnLogin'],
+      },
+      {
+        tier: 'upload',
+        paths: ['/api/v1/upload/chemical-document', '/api/v1/upload/batch-document'],
+      },
       {
         tier: 'marineRender',
         paths: [],

@@ -5,7 +5,7 @@ import {
   RateLimitTier,
 } from '../rate-limit.types';
 
-import { classifyEndpoint, DEFAULT_TIER } from './endpoint-classifier';
+import { classifyEndpoint, classifyGraphqlOperation, DEFAULT_TIER } from './endpoint-classifier';
 
 /*
  * Edge tier resolution — turns one request's facts into the rate-limit rules
@@ -52,8 +52,19 @@ export function resolveEdgeRules(
 
 function resolvePrimaryTier(facts: EdgeRequestFacts, config: RateLimitEdgeConfig): RateLimitTier {
   // Endpoint classification wins (a login request is the login tier even for an
-  // authenticated user — matching the gateway's getRateLimitConfig order).
-  const endpointTier = classifyEndpoint(facts.url, config.endpointBuckets);
+  // authenticated user — matching the gateway's getRateLimitConfig order). A
+  // GraphQL operation is classified by its resolver field first: every
+  // GraphQL request shares the one `/graphql` URL, so the path alone can
+  // never single out `login` (SEC-HIGH-061).
+  const operationTier = classifyGraphqlOperation(
+    facts.graphqlParentType,
+    facts.graphqlFieldName,
+    config.endpointBuckets,
+  );
+  const endpointTier =
+    operationTier !== DEFAULT_TIER
+      ? operationTier
+      : classifyEndpoint(facts.url, config.endpointBuckets);
   if (endpointTier !== DEFAULT_TIER) {
     const tier = config.tiers[endpointTier];
     if (tier) {

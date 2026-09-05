@@ -1,4 +1,9 @@
-import { ExecutionContext, HttpException, Logger, ServiceUnavailableException } from '@nestjs/common';
+import {
+  ExecutionContext,
+  HttpException,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ExecutionContextHost } from '@nestjs/core/helpers/execution-context-host';
 import { GraphQLError } from 'graphql';
@@ -18,7 +23,7 @@ const EDGE: RateLimitEdgeConfig = {
     mutations: { name: 'mutations', limit: 2, windowMs: 60_000 },
   },
   endpointBuckets: [
-    { tier: 'login', paths: ['/auth/login'] },
+    { tier: 'login', paths: ['/auth/login'], graphqlMutations: ['login'] },
     {
       tier: 'marineRender',
       paths: [],
@@ -57,6 +62,7 @@ function gqlContext(opts: {
   ip?: string;
   user?: EdgeRequest['user'];
   parentType?: string;
+  fieldName?: string;
 }): ExecutionContext {
   const request: EdgeRequest = {
     ip: opts.ip ?? '203.0.113.51',
@@ -64,13 +70,17 @@ function gqlContext(opts: {
     user: opts.user,
     res: { setHeader: jest.fn() },
   };
-  const info = opts.parentType ? { parentType: { name: opts.parentType } } : undefined;
+  const info = opts.parentType
+    ? { parentType: { name: opts.parentType }, fieldName: opts.fieldName }
+    : undefined;
   const host = new ExecutionContextHost([undefined, {}, { req: request }, info], null, noopHandler);
   host.setType('graphql');
   return host;
 }
 
-function edgeGuard(opts: { decorator?: RateLimitRouteConfig; store?: RateLimitStore } = {}): RateLimitGuard {
+function edgeGuard(
+  opts: { decorator?: RateLimitRouteConfig; store?: RateLimitStore } = {},
+): RateLimitGuard {
   const reflector = new Reflector();
   jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(opts.decorator);
   return new RateLimitGuard(reflector, opts.store, EDGE);
@@ -78,6 +88,25 @@ function edgeGuard(opts: { decorator?: RateLimitRouteConfig; store?: RateLimitSt
 
 describe('RateLimitGuard — edge mode', () => {
   afterEach(() => jest.restoreAllMocks());
+
+  it('reads the GraphQL field name so the `login` mutation is bounded by the login tier (SEC-HIGH-061)', async () => {
+    const guard = edgeGuard();
+    // login tier = 1 (stricter than anonymous = 2 and mutations = 2): the second
+    // login attempt from one IP is refused by the login rule, not the identity one.
+    const ctx = (): ExecutionContext =>
+      gqlContext({ ip: '198.51.100.70', parentType: 'Mutation', fieldName: 'login' });
+    await expect(guard.canActivate(ctx())).resolves.toBe(true);
+    await expect(guard.canActivate(ctx())).rejects.toThrow(HttpException);
+  });
+
+  it('a mutation the login bucket does not list keeps the identity tier (anonymous = 2)', async () => {
+    const guard = edgeGuard();
+    const ctx = (): ExecutionContext =>
+      gqlContext({ ip: '198.51.100.71', parentType: 'Mutation', fieldName: 'createBatch' });
+    await expect(guard.canActivate(ctx())).resolves.toBe(true);
+    await expect(guard.canActivate(ctx())).resolves.toBe(true);
+    await expect(guard.canActivate(ctx())).rejects.toThrow(HttpException);
+  });
 
   it('limits a non-decorated anonymous request by the anonymous tier (2/window)', async () => {
     const guard = edgeGuard();
@@ -93,7 +122,8 @@ describe('RateLimitGuard — edge mode', () => {
 
   it('applies the login tier to the exact /auth/login path (1/window)', async () => {
     const guard = edgeGuard();
-    const ctx = (): ExecutionContext => httpContext({ ip: '198.51.100.41', url: '/auth/login' }).context;
+    const ctx = (): ExecutionContext =>
+      httpContext({ ip: '198.51.100.41', url: '/auth/login' }).context;
 
     await expect(guard.canActivate(ctx())).resolves.toBe(true);
     await expect(guard.canActivate(ctx())).rejects.toThrow(HttpException);
@@ -136,8 +166,7 @@ describe('RateLimitGuard — edge mode', () => {
 
   it('bounds a GraphQL mutation ADDITIVELY — anonymous tier (stricter) bites first as HttpException', async () => {
     const guard = edgeGuard();
-    const ctx = (): ExecutionContext =>
-      gqlContext({ ip: '198.51.100.44', parentType: 'Mutation' });
+    const ctx = (): ExecutionContext => gqlContext({ ip: '198.51.100.44', parentType: 'Mutation' });
 
     // anonymous tier = 2; the primary tier (HttpException) bounds before the
     // mutation cap would, proving the identity tier is NOT bypassed for mutations.
@@ -150,7 +179,11 @@ describe('RateLimitGuard — edge mode', () => {
     const guard = edgeGuard();
     // Authenticated tenant → tenant tier (5, loose); mutations cap = 2 bites first.
     const ctx = (): ExecutionContext =>
-      gqlContext({ ip: '198.51.100.45', user: { sub: 'u9', tenantId: 't9' }, parentType: 'Mutation' });
+      gqlContext({
+        ip: '198.51.100.45',
+        user: { sub: 'u9', tenantId: 't9' },
+        parentType: 'Mutation',
+      });
 
     await expect(guard.canActivate(ctx())).resolves.toBe(true);
     await expect(guard.canActivate(ctx())).resolves.toBe(true);
@@ -183,7 +216,10 @@ describe('RateLimitGuard — edge mode', () => {
         keys.push(key);
         const c = (counts.get(key) ?? 0) + 1;
         counts.set(key, c);
-        return Promise.resolve({ entry: { count: c, resetTime: 4_102_444_800_000 + windowMs }, isNew: c === 1 });
+        return Promise.resolve({
+          entry: { count: c, resetTime: 4_102_444_800_000 + windowMs },
+          isNew: c === 1,
+        });
       },
       isHealthy: () => true,
       clear: () => Promise.resolve(),
@@ -263,9 +299,9 @@ describe('RateLimitGuard — edge mode', () => {
     process.env['NODE_ENV'] = 'production';
     try {
       const guard = edgeGuard({ store: failingStore });
-      await expect(
-        guard.canActivate(httpContext({ url: '/graphql' }).context),
-      ).rejects.toThrow(ServiceUnavailableException);
+      await expect(guard.canActivate(httpContext({ url: '/graphql' }).context)).rejects.toThrow(
+        ServiceUnavailableException,
+      );
     } finally {
       process.env['NODE_ENV'] = previousEnv;
     }

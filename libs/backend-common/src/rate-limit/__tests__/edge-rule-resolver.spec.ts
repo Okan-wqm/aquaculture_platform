@@ -11,7 +11,7 @@ const CONFIG: RateLimitEdgeConfig = {
     mutations: { name: 'mutations', limit: 30, windowMs: 60_000 },
   },
   endpointBuckets: [
-    { tier: 'login', paths: ['/auth/login'] },
+    { tier: 'login', paths: ['/auth/login'], graphqlMutations: ['login', 'verifyMfaLogin'] },
     { tier: 'upload', paths: ['/api/files/upload'] },
   ],
   mutationTier: 'mutations',
@@ -64,7 +64,9 @@ describe('resolveEdgeRules — additive mutation tier (gateway MutationGuard par
 
   it('authenticated tenant mutation → [tenant, mutations]', () => {
     expect(
-      names(facts({ url: '/graphql', graphqlParentType: 'Mutation', userId: 'u1', tenantId: 't1' })),
+      names(
+        facts({ url: '/graphql', graphqlParentType: 'Mutation', userId: 'u1', tenantId: 't1' }),
+      ),
     ).toEqual(['tenant', 'mutations']);
   });
 
@@ -76,17 +78,17 @@ describe('resolveEdgeRules — additive mutation tier (gateway MutationGuard par
 
   it('no mutation rule when mutationTier is unconfigured', () => {
     const noMutation: RateLimitEdgeConfig = { ...CONFIG, mutationTier: undefined };
-    expect(resolveEdgeRules(facts({ graphqlParentType: 'Mutation' }), noMutation).map((r) => r.name)).toEqual(
-      ['anonymous'],
-    );
+    expect(
+      resolveEdgeRules(facts({ graphqlParentType: 'Mutation' }), noMutation).map((r) => r.name),
+    ).toEqual(['anonymous']);
   });
 
   it('does NOT add the mutation tier for a Subscription (exact "Mutation" match only)', () => {
     // Defensive: a refactor to a loose "contains Mutation" check would wrongly
     // rate-limit subscriptions as mutations. Only the exact parent type counts.
-    expect(names(facts({ url: '/graphql', graphqlParentType: 'Subscription', userId: 'u1' }))).toEqual([
-      'default',
-    ]);
+    expect(
+      names(facts({ url: '/graphql', graphqlParentType: 'Subscription', userId: 'u1' })),
+    ).toEqual(['default']);
   });
 
   it('an endpoint-tier request that is ALSO a GraphQL mutation stays additive [endpoint, mutations]', () => {
@@ -96,5 +98,56 @@ describe('resolveEdgeRules — additive mutation tier (gateway MutationGuard par
     expect(
       names(facts({ url: '/auth/login', graphqlParentType: 'Mutation', userId: 'u1' })),
     ).toEqual(['login', 'mutations']);
+  });
+});
+
+describe('resolveEdgeRules — GraphQL login mutation is the login tier (SEC-HIGH-061)', () => {
+  it('anonymous `login` mutation → [login, mutations], not [anonymous, mutations]', () => {
+    expect(
+      names(facts({ url: '/graphql', graphqlParentType: 'Mutation', graphqlFieldName: 'login' })),
+    ).toEqual(['login', 'mutations']);
+  });
+
+  it('an authenticated tenant user re-authenticating is still the login tier', () => {
+    expect(
+      names(
+        facts({
+          url: '/graphql',
+          graphqlParentType: 'Mutation',
+          graphqlFieldName: 'verifyMfaLogin',
+          userId: 'u1',
+          tenantId: 't1',
+        }),
+      ),
+    ).toEqual(['login', 'mutations']);
+  });
+
+  it('an unlisted mutation keeps the identity tier', () => {
+    expect(
+      names(
+        facts({ url: '/graphql', graphqlParentType: 'Mutation', graphqlFieldName: 'createBatch' }),
+      ),
+    ).toEqual(['anonymous', 'mutations']);
+  });
+
+  it('a Query field named login is not the login tier', () => {
+    expect(
+      names(
+        facts({
+          url: '/graphql',
+          graphqlParentType: 'Query',
+          graphqlFieldName: 'login',
+          userId: 'u1',
+        }),
+      ),
+    ).toEqual(['default']);
+  });
+
+  it('the login rule carries the login limit and window', () => {
+    const [rule] = resolveEdgeRules(
+      facts({ url: '/graphql', graphqlParentType: 'Mutation', graphqlFieldName: 'login' }),
+      CONFIG,
+    );
+    expect(rule).toMatchObject({ name: 'login', limit: 5, windowMs: 900_000 });
   });
 });

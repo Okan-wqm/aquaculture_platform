@@ -53,3 +53,24 @@ function matchesPathTemplate(pathname: string, rawTemplate: string): boolean {
       : templateSegment.toLowerCase() === pathSegment.toLowerCase();
   });
 }
+
+/**
+ * Classify a GraphQL operation into a tier name by exact resolver field
+ * match. Only Mutation fields are bucketed: the login-class operations are
+ * mutations, and a Query named like one must not inherit its cap. Unmatched
+ * (or not a mutation) → DEFAULT_TIER, so the caller falls through to the
+ * identity tiers exactly as for an unlisted path.
+ */
+export function classifyGraphqlOperation(
+  parentType: string | undefined,
+  fieldName: string | undefined,
+  endpointBuckets: readonly RateLimitEndpointBucket[],
+): string {
+  if (parentType !== 'Mutation' || !fieldName) return DEFAULT_TIER;
+  for (const bucket of endpointBuckets) {
+    if (bucket.graphqlMutations?.includes(fieldName)) {
+      return bucket.tier;
+    }
+  }
+  return DEFAULT_TIER;
+}

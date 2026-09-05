@@ -1,4 +1,8 @@
-import { classifyEndpoint, DEFAULT_TIER } from '../edge/endpoint-classifier';
+import {
+  classifyEndpoint,
+  classifyGraphqlOperation,
+  DEFAULT_TIER,
+} from '../edge/endpoint-classifier';
 import { RateLimitEndpointBucket } from '../rate-limit.types';
 
 const BUCKETS: readonly RateLimitEndpointBucket[] = [
@@ -65,5 +69,39 @@ describe('classifyEndpoint — exact match (SECREV-LOW-001 cure)', () => {
     expect(classifyEndpoint('/graphql', BUCKETS)).toBe(DEFAULT_TIER);
     expect(classifyEndpoint('', BUCKETS)).toBe(DEFAULT_TIER);
     expect(classifyEndpoint(undefined, BUCKETS)).toBe(DEFAULT_TIER);
+  });
+});
+
+describe('classifyGraphqlOperation — login is a GraphQL mutation, not a path (SEC-HIGH-061)', () => {
+  const BUCKETS_WITH_MUTATIONS: readonly RateLimitEndpointBucket[] = [
+    { tier: 'login', paths: [], graphqlMutations: ['login', 'verifyMfaLogin'] },
+    { tier: 'upload', paths: ['/api/v1/upload/chemical-document'] },
+  ];
+
+  it('maps a listed Mutation field to its tier', () => {
+    expect(classifyGraphqlOperation('Mutation', 'login', BUCKETS_WITH_MUTATIONS)).toBe('login');
+    expect(classifyGraphqlOperation('Mutation', 'verifyMfaLogin', BUCKETS_WITH_MUTATIONS)).toBe(
+      'login',
+    );
+  });
+
+  it('is exact on the field name — no prefix, suffix or case looseness', () => {
+    expect(classifyGraphqlOperation('Mutation', 'loginWithToken', BUCKETS_WITH_MUTATIONS)).toBe(
+      DEFAULT_TIER,
+    );
+    expect(classifyGraphqlOperation('Mutation', 'Login', BUCKETS_WITH_MUTATIONS)).toBe(
+      DEFAULT_TIER,
+    );
+  });
+
+  it('never buckets a Query, even one named like a listed mutation', () => {
+    expect(classifyGraphqlOperation('Query', 'login', BUCKETS_WITH_MUTATIONS)).toBe(DEFAULT_TIER);
+  });
+
+  it('falls through when the request is not GraphQL or the bucket lists no mutations', () => {
+    expect(classifyGraphqlOperation(undefined, undefined, BUCKETS_WITH_MUTATIONS)).toBe(
+      DEFAULT_TIER,
+    );
+    expect(classifyGraphqlOperation('Mutation', 'login', BUCKETS)).toBe(DEFAULT_TIER);
   });
 });

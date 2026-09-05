@@ -50,6 +50,7 @@ interface RequestContext {
   args?: Record<string, unknown>;
   isGraphql: boolean;
   graphqlParentType?: string;
+  graphqlFieldName?: string;
 }
 
 /**
@@ -125,7 +126,10 @@ export class RateLimitGuard implements CanActivate {
    * informational headers and throws an HTTP 429; an additive GraphQL mutation
    * tier throws a GraphQLError so GraphQL clients keep their error shape.
    */
-  private async enforceEdge(ctx: RequestContext, edgeConfig: RateLimitEdgeConfig): Promise<boolean> {
+  private async enforceEdge(
+    ctx: RequestContext,
+    edgeConfig: RateLimitEdgeConfig,
+  ): Promise<boolean> {
     const facts = this.buildEdgeFacts(ctx);
     const extracted = extractClientIp(facts);
     if (extracted.unverifiedForwardedFor && this.isProduction) {
@@ -257,12 +261,15 @@ export class RateLimitGuard implements CanActivate {
     if (context.getType<string>() === 'graphql') {
       const gqlContext = GqlExecutionContext.create(context);
       const request = gqlContext.getContext<{ req?: RateLimitedRequest }>().req ?? {};
-      const info = gqlContext.getInfo<{ parentType?: { name?: string } } | undefined>();
+      const info = gqlContext.getInfo<
+        { parentType?: { name?: string }; fieldName?: string } | undefined
+      >();
       return {
         request,
         args: gqlContext.getArgs<Record<string, unknown>>(),
         isGraphql: true,
         graphqlParentType: info?.parentType?.name,
+        graphqlFieldName: info?.fieldName,
       };
     }
     const request = context.switchToHttp().getRequest<RateLimitedRequest>();
@@ -279,6 +286,7 @@ export class RateLimitGuard implements CanActivate {
       userId: req.user?.sub,
       tenantId: req.user?.tenantId,
       graphqlParentType: ctx.graphqlParentType,
+      graphqlFieldName: ctx.graphqlFieldName,
     };
   }
 
@@ -326,10 +334,6 @@ export class RateLimitGuard implements CanActivate {
       'X-RateLimit-Remaining',
       Math.max(0, config.limit - entry.count).toString(),
     );
-    setHeader.call(
-      request.res,
-      'X-RateLimit-Reset',
-      Math.ceil(entry.resetTime / 1000).toString(),
-    );
+    setHeader.call(request.res, 'X-RateLimit-Reset', Math.ceil(entry.resetTime / 1000).toString());
   }
 }

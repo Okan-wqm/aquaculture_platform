@@ -11008,3 +11008,177 @@ object as a React child blanks the entire view (APA-232/233 from admin RC1 audit
 
 **Notes:** The service returns requirement as a ComplianceRequirement object;
 the controller now flattens the nested shape the page can render.
+
+## ORPHAN-HIGH-799 — a workflow step read a later step's output, and GitHub answered with an empty string — RESOLVED
+
+Severity: HIGH (the daily ARIA report has not been produced by any scheduled run since the defect landed, and the same shape silently discarded an operator's explicit date).
+
+**Context.** `542a06ad1` (2026-09-04 06:04 UTC) moved the daily report's date from `date -u +%F` to the newest reflection report in the RESTORED aria/state store — a real correction, because reporting on a day whose cycle had not run could only ever emit the stub its own guard refuses. The new `resolved` step necessarily sits AFTER the restore. The commit then renamed every `steps.target.outputs.date` to `steps.resolved.outputs.date`, mechanically, including two places where that reference cannot resolve.
+
+**Defect 1 — a forward reference.** The enterprise-preflight step is step 5 of `generate-report`; `resolved` is step 7. GitHub Actions does not reject a reference to a step that has not run. It substitutes an EMPTY STRING and runs the step. `REPORT_DATE` was empty, the declared write path became `aria-tools/reports/daily/.md`, and the workflow contract correctly refused it: `allowed_write_root_outside_contract:aria-tools/reports/daily/.md`. Run 33865852817 and every scheduled run after the commit died there, three steps before the report was ever generated.
+
+**Defect 2 — a self reference.** The `resolved` step carried `TARGET_DATE: ${{ steps.resolved.outputs.date }}` in its OWN env. On the explicit-dispatch path it echoes `date=${TARGET_DATE}` into `$GITHUB_OUTPUT`, so an operator who dispatched with an explicit date got an empty one back, and the step announced `explicit date requested: ` as if it had honoured them.
+
+**Why the preflight cannot simply be given the resolved date.** The contract pins `first_governed_mutation_step` to the aria/state restore: binding the store IS the decision about what the report contains, so the preflight must precede it. The date is only knowable after that restore. The two constraints are not reconcilable by moving a reference around — the declaration has to describe what the job can honestly promise at the only moment it can promise anything. That is the daily-reports DIRECTORY plus the store root. The dated filename stays pinned where it remains knowable: `upload_artifact_path_patterns`, which is checked against the workflow file itself, so what LEAVES the job is still `YYYY-MM-DD.md`.
+
+**Measured, not asserted.** Calling `verify_workflow_preflight` with the fixed declaration returns no path-contract reason; calling it with the declaration the failing run produced returns exactly the two reasons the run logged (`allowed_write_root_outside_contract` + `path_allowlist_outside_contract` on `aria-tools/reports/daily/.md`).
+
+**The class, not the instance.** Both defects are invisible in review, produce no error at the reference site, and surface far away as a malformed value. They are also mechanically decidable from the YAML alone. `tests/invariants/workflow-step-context-ordering.spec.ts` now refuses any `${{ steps.<id>.* }}` in any workflow whose producing step is later in the same job, is the step itself, or does not exist. It matches only inside `${{ ... }}`, because prose that merely names a step is not an interpolation — and it deliberately does NOT skip shell comments, because an expression inside a comment is still substituted. Verified in the falsifying direction: restoring the pre-fix workflow makes the invariant report both violations by name; job-level `outputs:` stay exempt, since they are evaluated after every step has run.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-800 — every cycle reported artifact drift, because the verdict read a key no writer sets — RESOLVED
+
+Severity: HIGH (an unconditional warning is worse than no warning: it teaches the operator to scroll past the one night it means something, and it contradicted the integrity step on the same run).
+
+**Defect.** `_artifact_hash_status` decided drift by reading `verification_status` off each artifact ref. Nothing in the kernel writes that key onto an artifact ref. `write_run_artifact` stamps `schema_version`, `artifact_id`, `uri`, `sha256`, `content_type`, `produced_by_workflow_run_id` and `source_surface` — and stops. So `str(None or "")` was never in `{"present", "ok"}`, and every cycle that produced any artifact reported `artifact_hash_drift`. Run 33857527349 shows it: nine refs, `artifact_hash_status: "drift"`, `warning_count: 1` — while the job's own state-integrity step re-hashed the same artifacts and passed.
+
+**Proved before fixing.** `_artifact_hash_status([])` returns `none`; `_artifact_hash_status([{"artifact_id": "a", "sha256": "x"}])` — the shape production actually emits — returns `drift`. The only inputs that returned `ok` were refs carrying a field no production path produces. The unit test that covered this passed a synthetic `{"verification_status": "mismatch"}`, so it pinned the bug rather than the behaviour.
+
+**Fix.** The verdict is now computed by RE-HASHING each referenced artifact through `_verify_artifact_ref` — the same verifier the integrity path uses, which resolves the uri inside the store, refuses escapes and aliases, and compares recorded sha256 against the bytes on disk. The warning now carries the offending artifact's issue code and path instead of asserting drift with no referent. `autonomy_output_summary` takes `base_dir` as a keyword-REQUIRED argument with no default: a summary that cannot open the store cannot honestly claim anything about artifact integrity, and a default would let a caller silently produce that claim.
+
+**Pins.** A matching artifact is `ok` and warns nothing; a tampered one is `drift` and is named with `artifact_hash_mismatch`; a ref pointing at a file that was never written is `drift` with `artifact_ref_missing`; no refs stays `none` and is not an anomaly.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-801 — a tool budget nobody could measure, and the night it finally killed — RESOLVED
+
+Severity: HIGH (the nightly cycle exits non-zero on a budget that was never sized against a measurement, and the data needed to size it was discarded every night).
+
+**Defect.** `test-gap-adapter` declared `timeout_ms: 180000`. It has never finished inside it on this repository. Run 33857527349 recorded `status: budget_exceeded` with `runner.timed_out: true` — a timeout, not the 12 MB output cap — and the cycle exited 1 with `cycles_completed: 0`.
+
+**Why it was invisible.** `duration_ms` is computed by the runner and required by `validate_run_envelope`, and then dropped by BOTH projections that outlive the run: `append_run_by_cycle` builds a 13-key summary without it, and the cycle's own `run_summary` row omits it too. `runs/by-cycle/*.jsonl` is the only runs ledger published to `aria/state`, so after the night ends a 179s run and a 5s run are indistinguishable. The budget lived in the manifest, the measurement lived nowhere, and the gap between them could only ever be discovered by crossing it.
+
+**Measured.** Run directly on the production runner with the adapter's declared scan surface (`apps`, `libs`, `platform/libs`, `web`): **2575s wall, 1.07 GB peak RSS, exit 0**, 6447 files scanned, 2229 observations, 279 findings, 1.8 MB of stdout. That sample was taken while the box was in a container crash-loop storm (load average 34, production postgres down), so it is an upper bound under adverse contention rather than the design point — but it settles the question the 180s budget was never asked: this adapter's work is minutes, not seconds.
+
+**Fix, in three parts.**
+
+1. The budget travels with the measurement. The run envelope now carries `timeout_ms` beside `duration_ms`, and both projections carry `duration_ms`, `timeout_ms` and a derived `budget_utilisation` into the published ledger. Utilisation is derived once, at write time, so every consumer sees the same number.
+2. Pressure is announced before it becomes a timeout. `tool_budget_pressure` warns for any run that finished at or above 80% of its declared budget, naming the tool, the ratio and both numbers. It is a warning and never a status change — a run that finished, finished.
+3. `test-gap-adapter`'s budget is raised to 1800000 ms. That is an order of magnitude above the adapters of comparable scan width that do complete, and 12% of the derived per-cycle budget (14681s on the measured run), so it cannot starve the night.
+
+**Named, not deferred.** Whether 1800s is the RIGHT budget or merely a working one is now an empirical question with an instrument pointed at it: the next cycle on a box that is not in a crash-loop publishes the real utilisation, and the 80% warning fires if the adapter is still close to its ceiling. If it is, the adapter's own cost is the next fix, not another budget increase. **Owner:** claude. **Deadline:** the first clean nightly cycle after the production postgres outage of 2026-09-04 is resolved.
+
+**Owner:** claude (this session). **Status:** RESOLVED (measurement + budget); adapter cost tracked above.
+
+## ORPHAN-HIGH-802 — every ARIA run deleted its own dependencies, then was killed reinstalling them — RESOLVED
+
+Severity: HIGH (a self-inflicted 1.6 GB install on every nightly run, on the box that also runs production, whose failure leaves the workspace worse than it found it).
+
+**Chain, measured on run 33857527349 and the runner itself.**
+
+1. `aria-auto-cycle` sets `clean: true` on checkout and `aria-agent-executor` inherits the same default. actions/checkout implements that as `git clean -ffdx`, and `-x` deletes gitignored paths — `node_modules` among them (`.gitignore:90`).
+2. `ensure-node-deps` is guarded on `node_modules/ts-node/dist/bin.js`, so with the tree deleted the guard always misses and `npm ci` always runs. It is not the no-op its own comment describes. Step 17 of the failing cycle took **2m50s** — the install really executed.
+3. That install peaks around 1.6 GB. The runner carries `oom_score_adj=500` by deliberate design, so under memory pressure the kernel kills it FIRST rather than killing production. It did: `npm ci` was OOM-killed on 2026-09-03 17:13, 2026-09-03 19:55 and 2026-09-04 12:18.
+4. `npm ci` empties `node_modules` before it repopulates, so a kill leaves a partial tree. The runner's workspace still holds that state: **1383 packages present, `ts-node` absent**. Which means the guard misses again, and the next run reinstalls from scratch and is killed again.
+
+The executor failure at 11:57 on 2026-09-04 is step 3 of that loop, not an independent defect.
+
+**Why the cleaning was there, and why `-x` was never part of the reason.** The comment on the auto-cycle checkout is accurate about its purpose: the mid-run preflight refuses to start on a dirty worktree, and a persistent self-hosted workspace inherits whatever the previous job left. But that guard reads `git status`, which does not report ignored files. Deleting `node_modules` could never have changed its verdict. The flag that cost three minutes and three OOM kills bought nothing the guard could see.
+
+**Fix.** Both lanes reset the workspace themselves, before checkout, with `git reset --hard && git clean -ffdx -e node_modules`, and checkout runs with `clean: false`. Byte-for-byte the same reset the guard needs, with the one exclusion that ends the reinstall loop. The step is a no-op when `.git` is absent, so a fresh runner still works.
+
+**Not fixed by this, and named.** The runner's current `node_modules` is already the broken half-tree, so the first run after this change still pays one `npm ci` — and it will only survive it if the box has memory, which today it does not: production postgres is down and 15 services are in a restart storm. Ending that storm is an operator decision recorded separately.
+
+**Owner:** claude (this session). **Status:** RESOLVED (the loop); first successful reinstall gated on the production outage above.
+
+## ORPHAN-MEDIUM-803 — a supply-chain gate that could not tell code from prose about code — RESOLVED
+
+Severity: MEDIUM (no production exposure; the cost is a false red on a required gate, which is how a reader learns to skip past a true one).
+
+**Defect.** `test_every_npm_ci_has_ignore_scripts` (INFRA-CRITICAL-001) scanned every LINE of every workflow for the substring `npm ci` and demanded `--ignore-scripts` on the same line. A WHY comment added for ORPHAN-HIGH-802 explains why the lane's install is expensive and necessarily names the command it is about. The gate flagged the comment and blocked the push.
+
+**Why the fix is the detector and not the wording.** A line whose first non-space character is `#` is a comment in both layers that can carry this text: the workflow YAML, and the shell inside a `run:` block. Nothing on it executes, so nothing on it can be a supply-chain risk. Skipping those lines is not a loosening of the gate — it is the difference between reading code and reading prose about code. Rewording the comment would have moved the defect rather than removed it, and the next author documenting an install would pay for it again.
+
+This is the same class as ORPHAN-HIGH-799's invariant, which was written the same evening and hit the identical trap in its first run: a substring scan matched the explanatory comment describing the defect it was built to catch. There it was fixed by matching only inside `${{ ... }}`. Here, by skipping comment lines. Both times the rule is the same — a text scanner has to know which text is executed.
+
+**Pins.** A commented line naming the install is not a violation; an uncommented `npm ci --no-audit` still is; an uncommented `npm ci --ignore-scripts` is not.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-804 — correcting ORPHAN-HIGH-801: the adapter was never slow, the box was starved — RESOLVED
+
+Severity: HIGH (the correction matters more than the original: a budget justified by a contaminated measurement is a guess wearing a number).
+
+**What I got wrong.** ORPHAN-HIGH-801 measured `test-gap-adapter` at 2575s and concluded "this adapter's work is minutes, not seconds", raising its budget to 1800000 ms. The measurement was real but the inference was not. It was taken while the production postgres outage of 2026-09-04 had the box in a container crash-loop storm: load average 34, fifteen services restarting every twenty seconds against a database that was not there, on four cores. I named the contamination in the finding and then reasoned from the number anyway.
+
+**The clean measurement.** With production restored (load 3), the scheduled cycle `cyc-20260904T194353Z-auto` ran all NINE adapters to `ok`, `test-gap-adapter` among them, INSIDE its original 180s budget. From the run ledger, consecutive rows put it at roughly 142s (tenant-scoping 19:48:05 → test-gap 19:50:27). The last successful cycle before the outage, `cyc-20260813T015431Z-auto`, puts the same adapter at roughly 122s (01:57:33 → 01:59:35).
+
+So the adapter takes about two minutes, and the 2575s sample is an 18x starvation penalty, not a workload.
+
+**What WAS still wrong with 180s.** 142s against a 180s budget is 79% utilisation on an IDLE box. That is not headroom, it is a coin flip, and this runner shares four cores with production by design. The budget was not incorrect in magnitude; it was too tight to survive the contention that is this runner's normal condition. The outage did not create the fragility, it exposed it.
+
+**Corrected budget: 900000 ms.** Roughly 6x the measured idle run and 7x the historical one, about 6% of the derived per-cycle budget, and — the part that matters — the `tool_budget_pressure` warning introduced in ORPHAN-HIGH-801 fires at 720s, which is a night of notice before a timeout instead of a dead cycle as the first symptom. 1800000 ms was defensible but was reasoned from the wrong evidence, and a number nobody can re-derive is a number nobody can maintain.
+
+**The mechanism validated itself.** At the old budget this adapter sat at 68-79% utilisation for weeks. The 80% threshold would have been warning about it the whole time — before the night that killed it. That is the signal the ledger could not carry, which is the defect ORPHAN-HIGH-801 actually fixed.
+
+**Owner:** claude (this session). **Status:** RESOLVED. The follow-on named in ORPHAN-HIGH-801 stands and is now better posed: with `duration_ms` and `budget_utilisation` in the published ledger, a per-tool budget can be DERIVED from measured history rather than chosen, and that is the version of this fix that does not decay.
+
+## ORPHAN-CRITICAL-805 — the nightly cycle could not report success, and the reason was bookkeeping — RESOLVED
+
+Severity: CRITICAL (every scheduled cycle since 2026-08-19 reported failure; the verdict described the store's index, not the night's work, so sixteen days of real output were filed as failures).
+
+**The observation that broke it open.** Scheduled cycle `33911600195` finished at 21:16 on 2026-09-04, on a box that had just been restored to health. Its own summary: `tool_status_counts {"ok": 9}`, `non_ok_tools []`, `error_count 0`, `failed_phases []`, `incomplete_lifecycle_count 0`. Nine adapters out of nine green, nothing failed, nothing incomplete — and `cycle_status_counts {"integrity_failed": 1}`, `cycles_completed 0`, exit 1. A cycle cannot both do everything right and fail, so the verdict was being produced by something other than the work.
+
+**Where the verdict comes from.** `cycle._runtime_status` returns `integrity_failed` when `_non_ok_runs` is non-empty OR `artifact_integrity["valid"]` is false. The first was empty. So `verify_artifacts` was returning invalid.
+
+**Measured on the runner's own store.** `verify_artifacts` returned `valid: False` with **158 issues, every one of them `run_artifact_missing`**, the oldest naming cycle `cyc-20260810T063724Z-auto`. Against the published state branch the arithmetic is stark:
+
+|                                              |                       |
+| -------------------------------------------- | --------------------- |
+| rows in `run-artifacts/artifact-index.jsonl` | 176, across 21 cycles |
+| `tool_run.json` files actually present       | 18, across 2 cycles   |
+
+**Mechanism.** `state_compact._strip_hot_artifacts` deletes whole hot-artifact cycle directories older than the retention cutoff — `shutil.rmtree(item)` — and nothing updated the index. The files are windowed; the index is unbounded. `verify_artifacts` iterates the INDEX and opens each `current_uri`, so from the first sweep onward it was guaranteed to find rows it could not open, and the count could only grow. The failure was therefore deterministic and completely independent of what any night actually did — which is exactly why it survived: every night looked broken, so no night looked unusual.
+
+The module has a real retention path beside this one (`_retention_candidates`, `rollback_retention`, `_latest_archive_event`, `retention_events_path`) which records an `artifact_archived` event per artifact. Compaction bypassed it. The store carries no `retention-events.jsonl` and no cold tier at all — only `hot/` — so nothing could tell "removed by policy" from "lost", and the verifier was right to call it missing.
+
+**Fix.** Compaction now prunes the index in the same pass, keeping only rows whose file is present, and archiving the dropped rows to `archives/artifact_index-compact-<ts>.jsonl.gz` like every other surface it touches. Presence on disk is the predicate rather than the retention cutoff, for two reasons: it is the same question `verify_artifacts` asks, and it heals an index a previous sweep already stranded instead of merely preventing the next one.
+
+**Proved on the production store, without mutating it.** A copy of the runner's `run-artifacts` tree, 52 MB:
+
+|                          | before | after |
+| ------------------------ | ------ | ----- |
+| `verify_artifacts` valid | False  | True  |
+| issues                   | 158    | 0     |
+| index rows               | 176    | 18    |
+
+All 158 dropped rows landed in the archive.
+
+**Pins.** A row whose file was swept is dropped and archived; a row whose file is present is kept; a file whose BYTES do not match the recorded hash stays in the index and still fails verification, because that is a real integrity failure and must not be tidied away; dry-run reports the count and writes nothing.
+
+**What this says about the class.** ORPHAN-HIGH-800 removed a warning that was always on. This removed a FAILURE that was always on. Both had the same shape: a check comparing a record against reality where nothing kept the record true, and in both cases the noise was indistinguishable from the signal it was supposed to carry. The nightly cycle's green will now mean the night went well, which is the only condition under which a red is worth reading.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-CRITICAL-806 — the compaction command was never routed, so the thing that keeps the store honest stopped running — RESOLVED
+
+Severity: CRITICAL (the upstream half of ORPHAN-CRITICAL-805: the repair that would have kept the artifact index truthful could not execute at all).
+
+**Defect.** `_handle_state_command` routes `{"checkout", "publish", "verify-store"}` to `_handle_state_store_command` and lets everything else fall through to the verify-snapshot tail, which reads `args.snapshot`. `compact` is declared in the parser and implemented as the FIRST branch of `_handle_state_store_command` — and was absent from the routing set. So `aria-kernel state compact` fell past its own handler into another command's tail and died with `AttributeError: 'Namespace' object has no attribute 'snapshot'`, naming an option it does not declare.
+
+**Why it went unnoticed for three days.** Commit `5cd847add` (2026-09-02 09:38) retired the maintenance lane's inline compactor in favour of this command — correctly, since the inline copy had diverged. The lane is compact's only caller. Its run history is exactly the switch: success 2026-08-31, success 2026-09-01, then failure on 09-02, 09-03 and 09-04. The lane went red the day it started using the command, and the error message pointed at an argument belonging to a different subcommand, so it read as a CLI-contract problem rather than a missing route.
+
+**What it cost.** Compaction is what removes swept artifacts' rows from `run-artifacts/artifact-index.jsonl`. With it dead, the index kept rows for files that earlier sweeps had already deleted, `verify_artifacts` reported them as `run_artifact_missing`, and `cycle._runtime_status` turned that into `integrity_failed` on every nightly cycle (ORPHAN-CRITICAL-805). Two defects, one visible symptom: the night reporting failure while doing everything right.
+
+**Fix, in two parts.** `compact` joins the routing set. And the tail stops being a catch-all: it now belongs to `verify-snapshot` explicitly, and any subcommand that reaches the dispatcher without a route raises `state_subcommand_not_routed:<name>`. A missing route was survivable as a crash in an unrelated command precisely because nothing said "this is not routed"; now it says so.
+
+**Verified end to end.** With the route restored, `state compact --dry-run` against the production runner's store returns a real result: `artifact_index_rows_dropped: 158`, the same 158 rows `verify_artifacts` reports as missing. Before the fix the identical command produced only the AttributeError.
+
+**Pins.** `compact` is declared; `compact` reaches its handler and returns 0 (the exact call that used to raise); an unrouted name raises the named refusal and does NOT complain about `snapshot`. Falsified in the reverting direction: restoring the old routing set makes the second pin fail with the original AttributeError.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-CRITICAL-807 — the maintenance lane cloned a store its own tools could not recognise — RESOLVED
+
+Severity: CRITICAL (the third and last link in the chain behind ORPHAN-CRITICAL-805/806: with the routing fixed, compaction reached its handler and still could not run, so the 158 stale index rows stayed on the branch and the nightly cycle stayed red).
+
+**Defect.** `aria-state-maintenance` obtained the store with a raw `git clone --depth 1 --branch aria/state … /tmp/state-store` and pointed `state compact` at `/tmp/state-store/tools`. The first declared-ledger read inside it failed: `LedgerIntegrityError: declared_jsonl_unknown_surface: /tmp/state-store/tools/runs.jsonl` (run 33946356386, the run right after ORPHAN-CRITICAL-806 landed). `surface_for_path` accepts a tools root only when `_has_valid_tools_identity` finds `repo_identity.json` there, and the aria/state branch does not carry that file. A clone is therefore a directory full of covered state with no identity — exactly the shape `ensure_tools_dir` rejects as `ambiguous_tools_root`, by design, so that `/tmp/rogue/aria-tools` cannot resolve as canonical.
+
+**Why "publish the identity" was the wrong fix, and the codebase already said so.** The restore action's own comment on its bind step describes this precise situation and names the tempting wrong fix — declaring the identity in the state manifest so it travels with the branch. The identity is host-local by construction (`bound_repo_root`, `bound_canonical_identity`), and the canonical materialisation is two steps: `state checkout` binds the branch as a worktree beside the repo, then `integrity bind-tools-root` mints THIS host's identity into it (ORPHAN-HIGH-556). The nightly and executor lanes both go through `./.github/actions/restore-aria-state`, which does exactly that, and `tests/invariants/aria-single-restore-path.spec.ts` pins that there is one such path. The maintenance lane never used it — the RC-6 drift shape the action was extracted to end, one lane carrying a step another needed just as much.
+
+**Measured, step by step, on this host.** `state checkout --repo-root .` alone: `.aria-state-store/.git` present, `bootstrapped: false`, branch `aria/state`, and NO `repo_identity.json` — `state compact` against it fails with the same `declared_jsonl_unknown_surface`. Then `integrity bind-tools-root --tools-dir .aria-state-store/tools --workspace-root . --reason …`: `status: bound`, identity written. Then `state compact --dry-run` against the same directory: `artifact_index_rows_dropped: 158`, the exact rows `verify_artifacts` reports missing. The whole chain, ORPHAN-CRITICAL-805 → 806 → 807, closes on that number.
+
+**Fix.** The lane `uses: ./.github/actions/restore-aria-state` — no bootstrap-ack on purpose, so a missing branch is refused rather than created — compacts `$ARIA_TOOLS_DIR` (the root the action exports, asserted to carry an identity before compaction starts), and pushes from the store worktree with a push credential minted in its own step's environment, the way the restore mints its read credential. The emptiness check moved from `git diff --quiet` to `git status --porcelain`, because compaction's archives are NEW files and the old check could report "already compact" with a fresh archive sitting unstaged beside it.
+
+**Owner:** claude (this session). **Status:** RESOLVED; verified by the first green maintenance run after merge and by the nightly cycle that follows it.

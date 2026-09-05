@@ -90,5 +90,13 @@ export declare const rules: {
   > & {
     name: string;
   };
+  'no-unverified-tenant-param': import('@typescript-eslint/utils/ts-eslint').RuleModule<
+    'rawTenantParam' | 'tenantInInputDto',
+    [],
+    unknown,
+    import('@typescript-eslint/utils/ts-eslint').RuleListener
+  > & {
+    name: string;
+  };
 };
 //# sourceMappingURL=index.d.ts.map

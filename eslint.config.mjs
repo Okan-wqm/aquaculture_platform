@@ -489,6 +489,19 @@ export default [
     rules: { 'aquaculture/no-actor-in-input-dto': 'error' },
   },
 
+  // ── override 8c: no-unverified-tenant-param (admin-api, NON-project only) ──
+  // 'error' from the first commit: every raw @Param('tenantId') /
+  // @Query('tenantId') and every validated body `tenantId` on the admin
+  // surface was converted to @TenantParam() in the same change. A tenant id
+  // reaches a handler only after VerifiedTenantPipe resolved it against
+  // auth.tenants and applied the route's lifecycle tolerance. ADMIN-CRITICAL-009.
+  {
+    files: ['apps/admin-api-service/src/**/*.ts'],
+    ignores: [...PROJECT_GLOBS, 'apps/**/*.spec.ts', 'apps/**/*.test.ts', 'apps/**/__tests__/**'],
+    plugins: { aquaculture },
+    rules: { 'aquaculture/no-unverified-tenant-param': 'error' },
+  },
+
   // ── override 9: no-direct-event-publish (NON-project only) ──
   {
     files: ['apps/**/src/**/*.ts', 'libs/**/src/**/*.ts', 'platform/libs/**/src/**/*.ts'],

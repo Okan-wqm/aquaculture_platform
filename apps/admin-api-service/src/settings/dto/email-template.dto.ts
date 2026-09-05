@@ -1,3 +1,4 @@
+import { TenantIdCarrier } from '@aquaculture/backend-common/decorators';
 import {
   IsString,
   IsOptional,
@@ -12,8 +13,9 @@ import {
 import { EmailTemplateVariable } from '../entities/system-setting.entity';
 
 export class CreateTenantOverrideDto {
-  @IsUUID('4')
-  tenantId!: string;
+  /** ADMIN-CRITICAL-009: whitelisted carrier key; the verified id arrives through @TenantParam('body'). */
+  @TenantIdCarrier()
+  readonly tenantId?: undefined;
 
   @IsOptional()
   @IsString()

@@ -1,4 +1,4 @@
-import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
+import { Destructive, RequiresCapability, TenantParam } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import { ThrottleSensitive } from '@aquaculture/backend-common/security';
 import {
@@ -86,10 +86,6 @@ import {
   SubscriptionStatus,
 } from './services/subscription-management.service';
 import { UsageMeteringManagementService } from './services/usage-metering-management.service';
-
-interface CreateInvoiceRequest extends BillingAdminCreateInvoiceInput {
-  tenantId: string;
-}
 
 /**
  * Billing Controller
@@ -273,21 +269,23 @@ export class BillingController {
   @RequiresCapability('billing-ops')
   @Post('discounts/validate')
   async validateDiscountCode(
+    @TenantParam('body', { allow: 'any' }) tenantId: string,
     @Body() dto: ValidateDiscountCodeDto,
   ): Promise<unknown> {
-    return this.discountService.validateCode(dto.code, dto.tenantId, dto.planId, dto.orderAmount);
+    return this.discountService.validateCode(dto.code, tenantId, dto.planId, dto.orderAmount);
   }
 
   @AuditedOperation({ resource: 'DiscountCode', action: 'APPLY' })
   @RequiresCapability('billing-ops')
   @Post('discounts/apply')
   async applyDiscountCode(
+    @TenantParam('body', { allow: 'any' }) tenantId: string,
     @Body() dto: ApplyDiscountCodeDto,
     @Req() req: Request,
   ): Promise<unknown> {
     const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('Authentication required to apply a discount code');
-    return this.discountService.applyDiscount(dto.code, dto.tenantId, dto.originalAmount, {
+    return this.discountService.applyDiscount(dto.code, tenantId, dto.originalAmount, {
       subscriptionId: dto.subscriptionId,
       invoiceId: dto.invoiceId,
       planId: dto.planId,
@@ -396,7 +394,7 @@ export class BillingController {
   }
 
   @Get('subscriptions/tenant/:tenantId')
-  async getSubscriptionByTenant(@Param('tenantId') tenantId: string): Promise<unknown> {
+  async getSubscriptionByTenant(@TenantParam('param', { allow: 'any' }) tenantId: string): Promise<unknown> {
     return this.subscriptionService.getSubscriptionByTenant(tenantId);
   }
 
@@ -416,7 +414,7 @@ export class BillingController {
   @RequiresCapability('billing-ops')
   @Post('subscriptions/tenant/:tenantId/cancel')
   async cancelSubscription(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param', { allow: 'any' }) tenantId: string,
     @Body() dto: CancelSubscriptionDto,
     @Req() req: Request,
   ): Promise<unknown> {
@@ -429,7 +427,7 @@ export class BillingController {
   @RequiresCapability('billing-ops')
   @Post('subscriptions/tenant/:tenantId/reactivate')
   async reactivateSubscription(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param', { allow: 'any' }) tenantId: string,
     @Req() req: Request,
   ): Promise<unknown> {
     const userId = getAuthUserId(req);
@@ -441,7 +439,7 @@ export class BillingController {
   @RequiresCapability('billing-ops')
   @Post('subscriptions/tenant/:tenantId/extend-trial')
   async extendTrial(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param', { allow: 'any' }) tenantId: string,
     @Body() dto: ExtendTrialDto,
     @Req() req: Request,
   ): Promise<unknown> {
@@ -467,7 +465,7 @@ export class BillingController {
 
   @Get('tenant/:tenantId/redemptions')
   async getTenantRedemptions(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param', { allow: 'any' }) tenantId: string,
     @Query() pagination?: PaginationQueryDto,
   ): Promise<unknown> {
     return this.discountService.getTenantRedemptions(tenantId, {
@@ -583,7 +581,7 @@ export class BillingController {
 
   @Get('custom-plans')
   async listCustomPlans(
-    @Query('tenantId') tenantId?: string,
+    @TenantParam('query', { optional: true, allow: 'any' }) tenantId?: string,
     @Query('status') status?: CustomPlanStatus,
     @Query('tier') tier?: PlanTier,
     @Query('search') search?: string,
@@ -606,7 +604,7 @@ export class BillingController {
   }
 
   @Get('custom-plans/tenant/:tenantId')
-  async getCustomPlanByTenant(@Param('tenantId') tenantId: string): Promise<unknown> {
+  async getCustomPlanByTenant(@TenantParam('param', { allow: 'any' }) tenantId: string): Promise<unknown> {
     return this.customPlanService.getCustomPlanByTenant(tenantId);
   }
 
@@ -697,7 +695,7 @@ export class BillingController {
   @Get('invoices')
   async getInvoices(
     @Query('status') status?: string,
-    @Query('tenantId') tenantId?: string,
+    @TenantParam('query', { optional: true, allow: 'any' }) tenantId?: string,
     @Query('search') search?: string,
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
@@ -742,7 +740,7 @@ export class BillingController {
   }
 
   @Get('invoices/tenant/:tenantId')
-  async getTenantInvoices(@Param('tenantId') tenantId: string): Promise<unknown> {
+  async getTenantInvoices(@TenantParam('param', { allow: 'any' }) tenantId: string): Promise<unknown> {
     return this.invoiceService.getTenantInvoices(tenantId);
   }
 
@@ -750,7 +748,11 @@ export class BillingController {
   @AuditedOperation({ resource: 'Invoice', action: 'CREATE' })
   @RequiresCapability('billing-ops')
   @Post('invoices')
-  async createInvoice(@Body() dto: CreateInvoiceRequest, @Req() req: Request): Promise<unknown> {
+  async createInvoice(
+    @TenantParam('body', { allow: 'any' }) tenantId: string,
+    @Body() dto: BillingAdminCreateInvoiceInput,
+    @Req() req: Request,
+  ): Promise<unknown> {
     const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('Authentication required to create an invoice');
 
@@ -768,7 +770,7 @@ export class BillingController {
       notes: dto.notes,
     };
 
-    return this.billingAdminCommands.createInvoice(dto.tenantId, input, userId);
+    return this.billingAdminCommands.createInvoice(tenantId, input, userId);
   }
 
   // Fix: H8 -- per-route throttle: mark invoice paid is sensitive (3 req / 5 min)
@@ -822,7 +824,7 @@ export class BillingController {
   async getPayments(
     @Query('status') status?: string,
     @Query('invoiceId') invoiceId?: string,
-    @Query('tenantId') tenantId?: string,
+    @TenantParam('query', { optional: true, allow: 'any' }) tenantId?: string,
     @Query('search') search?: string,
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
@@ -902,7 +904,7 @@ export class BillingController {
 
   @Get('usage/tenant/:tenantId')
   async getTenantUsageOverview(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param', { allow: 'any' }) tenantId: string,
     @Query('period') period?: AggregationPeriod,
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
@@ -919,7 +921,7 @@ export class BillingController {
   async getUsageTrends(
     @Query('period') period?: AggregationPeriod,
     @Query('meterType') meterType?: MeterType,
-    @Query('tenantId') tenantId?: string,
+    @TenantParam('query', { optional: true, allow: 'any' }) tenantId?: string,
     @Query('numPeriods') numPeriods?: string,
   ): Promise<unknown> {
     return this.usageMeteringService.getUsageTrends(

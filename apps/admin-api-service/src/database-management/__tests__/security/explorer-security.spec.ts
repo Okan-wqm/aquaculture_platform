@@ -55,6 +55,13 @@ describe('DatabaseExplorerController Security', () => {
       .compile();
 
     app = module.createNestApplication();
+    // ADR-0011: DELETE routes carry @Destructive(), whose guard refuses an
+    // anonymous request before any validation runs; these suites assert the
+    // validation, so they run as an authenticated (detective-mode) operator.
+    app.use((req: { user?: { sub: string; id: string; roles: string[] } }, _res: unknown, next: () => void) => {
+      req.user = { sub: 'admin-user-id', id: 'admin-user-id', roles: ['SUPER_ADMIN'] };
+      next();
+    });
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,

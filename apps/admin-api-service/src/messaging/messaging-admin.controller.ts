@@ -11,7 +11,7 @@
  *
  * @see ADR-012 Phase 3 (Compliance)
  */
-import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
+import { Destructive, RequiresCapability, TenantParam } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -42,7 +42,6 @@ const DEFAULT_NATS_TIMEOUT_MS = 15_000;
 // ── DTO Interfaces ──────────────────────────────────────────────────────
 
 interface CreateLegalHoldDto {
-  tenantId: string;
   channelId?: string | null;
   reason: string;
   legalMatterId: string;
@@ -131,7 +130,7 @@ export class MessagingAdminController {
   @Get('compliance/stats')
   @ApiOperation({ summary: 'Get messaging compliance statistics' })
   async getComplianceStats(
-    @Query('tenantId') tenantId: string,
+    @TenantParam('query') tenantId: string,
   ): Promise<ComplianceStatsResponse> {
     return this.sendNatsRequest<ComplianceStatsResponse>(
       'request.messaging.admin.complianceStats',
@@ -148,7 +147,7 @@ export class MessagingAdminController {
   @Get('compliance/legal-holds')
   @ApiOperation({ summary: 'List legal holds for a tenant' })
   async getLegalHolds(
-    @Query('tenantId') tenantId: string,
+    @TenantParam('query') tenantId: string,
   ): Promise<LegalHoldResponse[]> {
     return this.sendNatsRequest<LegalHoldResponse[]>(
       'request.messaging.admin.getLegalHolds',
@@ -165,13 +164,14 @@ export class MessagingAdminController {
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a legal hold' })
   async createLegalHold(
+    @TenantParam('body', { allow: 'any' }) tenantId: string,
     @Body() dto: CreateLegalHoldDto,
     @CurrentUser() user: CurrentUserData,
   ): Promise<LegalHoldResponse> {
     return this.sendNatsRequest<LegalHoldResponse>(
       'request.messaging.admin.createLegalHold',
       {
-        tenantId: dto.tenantId,
+        tenantId,
         userId: user.id,
         channelId: dto.channelId ?? null,
         reason: dto.reason,
@@ -195,7 +195,7 @@ export class MessagingAdminController {
   @ApiOperation({ summary: 'Release a legal hold' })
   async releaseLegalHold(
     @Param('id', ParseUUIDPipe) id: string,
-    @Query('tenantId') tenantId: string,
+    @TenantParam('query') tenantId: string,
     @CurrentUser() user: CurrentUserData,
   ): Promise<LegalHoldResponse> {
     return this.sendNatsRequest<LegalHoldResponse>(
@@ -217,7 +217,7 @@ export class MessagingAdminController {
   @Get('retention/policies')
   @ApiOperation({ summary: 'List retention policies for a tenant' })
   async getRetentionPolicies(
-    @Query('tenantId') tenantId: string,
+    @TenantParam('query') tenantId: string,
   ): Promise<RetentionPolicyResponse[]> {
     return this.sendNatsRequest<RetentionPolicyResponse[]>(
       'request.messaging.admin.getRetentionPolicies',
@@ -276,7 +276,7 @@ export class MessagingAdminController {
   @Get('audit')
   @ApiOperation({ summary: 'Get compliance audit log entries' })
   async getAuditLog(
-    @Query('tenantId') tenantId: string,
+    @TenantParam('query') tenantId: string,
     @Query('limit') limit?: string,
     @Query('cursor') cursor?: string,
     @Query('userId') userId?: string,
@@ -352,7 +352,7 @@ export class MessagingAdminController {
   @Get('personas')
   @ApiOperation({ summary: 'Get AI personas configuration' })
   async getPersonas(
-    @Query('tenantId') tenantId: string,
+    @TenantParam('query') tenantId: string,
   ): Promise<PersonaResponse[]> {
     return this.sendNatsRequest<PersonaResponse[]>(
       'request.messaging.admin.getPersonas',

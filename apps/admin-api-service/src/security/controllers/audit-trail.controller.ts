@@ -4,7 +4,12 @@
  * Endpoints for audit trail queries, export, retention policies, and alerts.
  */
 
-import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
+import {
+  Destructive,
+  RequiresCapability,
+  TenantParam,
+  TenantIdCarrier,
+} from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -152,12 +157,12 @@ export class QueryAuditTrailDto {
 }
 
 class ExportAuditTrailDto {
+  /** ADMIN-CRITICAL-009: whitelisted carrier key; the verified id arrives through @TenantParam('body'). */
+  @TenantIdCarrier()
+  readonly tenantId?: undefined;
+
   @IsIn(['csv', 'json', 'pdf'])
   format!: 'csv' | 'json' | 'pdf';
-
-  @IsOptional()
-  @IsString()
-  tenantId?: string;
 
   @IsOptional()
   @IsString()
@@ -342,7 +347,7 @@ export class AuditTrailController {
    */
   @Get('summary')
   async getAuditSummary(
-    @Query('tenantId') tenantId?: string,
+    @TenantParam('query', { optional: true }) tenantId?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
   ): Promise<{
@@ -370,10 +375,14 @@ export class AuditTrailController {
   @Destructive()
   @RequiresCapability('security-ops')
   @Post('export')
-  async exportAuditTrail(@Body() dto: ExportAuditTrailDto, @Res() res: Response): Promise<void> {
+  async exportAuditTrail(
+    @TenantParam('body', { optional: true, allow: 'any' }) tenantId: string | undefined,
+    @Body() dto: ExportAuditTrailDto,
+    @Res() res: Response,
+  ): Promise<void> {
     const options: AuditExportOptions = {
       format: dto.format,
-      tenantId: dto.tenantId,
+      tenantId: tenantId,
       userId: dto.userId,
       category: dto.category,
       startDate: new Date(dto.startDate),

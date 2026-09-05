@@ -26,6 +26,7 @@ import { describe, it } from 'node:test';
 import { RuleTester } from 'eslint';
 
 import { rules } from '../eslint-rules';
+import noActorInInputDto from '../eslint-rules/rules/no-actor-in-input-dto';
 import noBareGraphqlQueryString from '../eslint-rules/rules/no-bare-graphql-query-string';
 import noBareTenantQueryKey from '../eslint-rules/rules/no-bare-tenant-query-key';
 import noClaudeSdkRawCall from '../eslint-rules/rules/no-claude-sdk-raw-call';
@@ -33,7 +34,7 @@ import noDirectEventPublish from '../eslint-rules/rules/no-direct-event-publish'
 import noHighCardinalityMetricLabel from '../eslint-rules/rules/no-high-cardinality-metric-label';
 import noUnpinnedSsrfFetch from '../eslint-rules/rules/no-unpinned-ssrf-fetch';
 import noUnsandboxedHtmlFrame from '../eslint-rules/rules/no-unsandboxed-html-frame';
-import noActorInInputDto from '../eslint-rules/rules/no-actor-in-input-dto';
+import noUnverifiedTenantParam from '../eslint-rules/rules/no-unverified-tenant-param';
 import requireEntitySchema from '../eslint-rules/rules/require-entity-schema';
 
 // Bind RuleTester's static hooks to node:test so the cases run under the
@@ -92,6 +93,7 @@ const testedRuleNames = [
   'no-unpinned-ssrf-fetch',
   'no-unsandboxed-html-frame',
   'no-actor-in-input-dto',
+  'no-unverified-tenant-param',
 ] as const;
 
 void it('has a RuleTester suite for every exported rule', () => {
@@ -269,6 +271,76 @@ ruleTester.run('no-actor-in-input-dto', asRule(noActorInInputDto), {
       code: 'class CreateTicketDto { @IsString() title!: string; @IsString() createdByName!: string; }',
       filename: 'apps/admin-api-service/src/support/controllers/ticket.controller.ts',
       errors: [{ messageId: 'actorFromClient', data: { name: 'createdByName' } }],
+    },
+  ],
+});
+
+ruleTester.run('no-unverified-tenant-param', asRule(noUnverifiedTenantParam), {
+  valid: [
+    {
+      code: "class C { list(@TenantParam('param') tenantId: string) {} }",
+      filename: 'apps/admin-api-service/src/billing/billing.controller.ts',
+    },
+    {
+      code: "class C { search(@TenantParam('query', { optional: true }) tenantId?: string) {} }",
+      filename: 'apps/admin-api-service/src/audit/audit.controller.ts',
+    },
+    {
+      // Other route params are not tenant identities.
+      code: "class C { get(@Param('id', ParseUUIDPipe) id: string, @Query('page') page?: string) {} }",
+      filename: 'apps/admin-api-service/src/users/users.controller.ts',
+    },
+    {
+      // Filtering BY tenant on a read is allowed.
+      code: 'class AuditQueryDto { @IsOptional() @IsUUID() tenantId?: string; }',
+      filename: 'apps/admin-api-service/src/security/controllers/audit-trail.controller.ts',
+    },
+    {
+      code: 'class QueryActivitiesDto { @IsOptional() @IsString() tenantId?: string; }',
+      filename: 'apps/admin-api-service/src/security/controllers/activity-log.controller.ts',
+    },
+    {
+      // The whitelisted carrier key: typed undefined, unreadable as a tenant id.
+      code: 'class CreateTicketDto { @TenantIdCarrier() readonly tenantId?: undefined; @IsString() subject!: string; }',
+      filename: 'apps/admin-api-service/src/support/controllers/ticket.controller.ts',
+    },
+    {
+      // An entity column is not a request body.
+      code: "class SupportTicket { @Column({ type: 'uuid' }) tenantId!: string; }",
+      filename: 'apps/admin-api-service/src/support/entities/support.entity.ts',
+    },
+  ],
+  invalid: [
+    {
+      code: "class C { get(@Param('tenantId', ParseUUIDPipe) tenantId: string) {} }",
+      filename: 'apps/admin-api-service/src/billing/billing.controller.ts',
+      errors: [
+        {
+          messageId: 'rawTenantParam',
+          data: { decorator: 'Param', key: 'tenantId', source: 'param' },
+        },
+      ],
+    },
+    {
+      code: "class C { list(@Query('tenantId') tenantId?: string) {} }",
+      filename: 'apps/admin-api-service/src/audit/audit.controller.ts',
+      errors: [
+        {
+          messageId: 'rawTenantParam',
+          data: { decorator: 'Query', key: 'tenantId', source: 'query' },
+        },
+      ],
+    },
+    {
+      code: 'class CreateSchemaDto { @IsNotEmpty() @IsUUID() tenantId!: string; }',
+      filename: 'apps/admin-api-service/src/database-management/controllers/schema.controller.ts',
+      errors: [{ messageId: 'tenantInInputDto', data: { name: 'tenantId' } }],
+    },
+    {
+      // A carrier that is readable (typed string) is still an unverified identity.
+      code: 'class CreateTicketDto { @TenantIdCarrier() tenantId?: string; @IsString() subject!: string; }',
+      filename: 'apps/admin-api-service/src/support/controllers/ticket.controller.ts',
+      errors: [{ messageId: 'tenantInInputDto', data: { name: 'tenantId' } }],
     },
   ],
 });

@@ -6,3 +6,5 @@
  */
 
 export * from './constants';
+// ADMIN-CRITICAL-009: the one resolution point from a client-supplied tenant id to a verified tenant.
+export * from './verified-tenant.pipe';

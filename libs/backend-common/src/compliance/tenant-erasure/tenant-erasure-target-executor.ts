@@ -27,6 +27,14 @@ import {
   tenantErasureCompletionState,
   type TenantErasureExecutionState,
 } from './tenant-erasure-result';
+import {
+  erasedTables,
+  requiredColumns,
+  tenantErasurePolicyProblems,
+  tenantRowPredicate,
+  type CascadeViaPolicy,
+  type TenantErasureTablePolicies,
+} from './tenant-erasure-table-policy';
 
 export type TenantErasureTargetMode = 'tenant-schema-module' | 'source-schema-tenant-column';
 
@@ -55,12 +63,10 @@ export interface TenantErasurePostErasureHook {
   onTenantErased(event: TenantErasureRequestedEvent, manager: EntityManager): Promise<void>;
 }
 
-export interface TenantErasureTargetExecutorOptions {
+interface TenantErasureTargetExecutorBaseOptions {
   readonly targetService: TenantErasureTargetService;
   readonly moduleName: string;
   readonly sourceSchema: string;
-  readonly mode: TenantErasureTargetMode;
-  readonly excludedTables?: readonly string[];
   readonly outbox: {
     readonly schema: string;
     readonly table: string;
@@ -70,6 +76,26 @@ export interface TenantErasureTargetExecutorOptions {
     readonly table: string;
   };
 }
+
+/** A tenant-schema target empties the tenant's own schema; no per-table policy exists or is needed. */
+export interface TenantSchemaModuleTargetOptions extends TenantErasureTargetExecutorBaseOptions {
+  readonly mode: 'tenant-schema-module';
+}
+
+/**
+ * A source-schema target deletes by the per-table policy (ADMIN-CRITICAL-009).
+ * `tables` must name every table MODULE_SCHEMAS registers for the module;
+ * the executor refuses to construct otherwise.
+ */
+export interface SourceSchemaTenantColumnTargetOptions
+  extends TenantErasureTargetExecutorBaseOptions {
+  readonly mode: 'source-schema-tenant-column';
+  readonly tables: TenantErasureTablePolicies;
+}
+
+export type TenantErasureTargetExecutorOptions =
+  | TenantSchemaModuleTargetOptions
+  | SourceSchemaTenantColumnTargetOptions;
 
 export interface TenantErasureTargetExecutorDependencies {
   readonly dataSource: TenantErasureTargetDataSource;
@@ -153,6 +179,20 @@ export class TenantErasureTargetExecutor {
     private readonly options: TenantErasureTargetExecutorOptions,
   ) {
     this.logger = deps.logger ?? new Logger(`TenantErasureTargetExecutor:${options.targetService}`);
+    if (options.mode === 'source-schema-tenant-column') {
+      // A policy set that misses a registered table, cascades into nothing, or
+      // cycles is refused before the service can subscribe: an incomplete
+      // erasure must be impossible to boot, not discovered at the first request.
+      const problems = tenantErasurePolicyProblems(options.moduleName, options.tables, [
+        options.outbox.table,
+        options.proofLedger.table,
+      ]);
+      if (problems.length > 0) {
+        throw new Error(
+          `Tenant erasure target ${options.targetService} has an incomplete table policy:\n  - ${problems.join('\n  - ')}`,
+        );
+      }
+    }
   }
 
   async eraseFromRequest(event: TenantErasureRequestedEvent): Promise<TenantErasureTargetResult> {
@@ -331,55 +371,80 @@ export class TenantErasureTargetExecutor {
     event: TenantErasureRequestedEvent,
     manager: EntityManager,
   ): Promise<readonly TableDeleteResult[]> {
-    const moduleSchema = MODULE_SCHEMAS.find(
-      (entry) => entry.moduleName === this.options.moduleName,
-    );
-    if (!moduleSchema) {
+    if (this.options.mode !== 'source-schema-tenant-column') {
       throw new Error(
-        `Tenant erasure target ${this.options.targetService} has no MODULE_SCHEMAS entry for ${this.options.moduleName}`,
+        `Tenant erasure target ${this.options.targetService} is not a source-schema target`,
       );
     }
-
     const sourceSchema = validateSqlIdentifier(this.options.sourceSchema, 'schema');
-    // Structural exclusions — enforced by the executor, never left to
-    // per-registry excludedTables convention. Both tables carry a tenant
-    // column, so the candidate filter would otherwise row-delete them:
-    //  - proof ledger: a NEW erasure operation must never erase the proofs of
-    //    PRIOR operations — those rows are the durable audit/GDPR evidence
-    //    that earlier erasures completed (and this operation's own proof is
-    //    inserted into the same table later in this transaction).
-    //  - outbox: tenant rows pending publish — including the erasure events
-    //    this very flow enqueues — must survive to publication.
-    const excludedTables = new Set([
-      ...(this.options.excludedTables ?? []),
-      this.options.proofLedger.table,
-      this.options.outbox.table,
-    ]);
-    const candidateTables = [...moduleSchema.tables, ...(moduleSchema.infrastructureTables ?? [])]
-      .filter((table) => !excludedTables.has(table))
-      .map((table) => validateSqlIdentifier(table, 'table'));
-    const tenantColumns = await this.tenantColumns(manager, sourceSchema, candidateTables);
-    const targetTables = Array.from(tenantColumns.keys()).sort();
-    const sortedTables = await this.sortedTablesForDelete(manager, sourceSchema, targetTables);
+    const policies = this.options.tables;
+    // The policy is the plan; the database is only asked to CONFIRM that every
+    // column the plan names exists. A registry that lies about a column fails
+    // the erasure loud rather than deleting the wrong rows or none.
+    await this.assertPolicyColumnsExist(manager, sourceSchema, policies);
+    const targetTables = erasedTables(policies)
+      .map((table) => validateSqlIdentifier(table, 'table'))
+      .sort();
+    // A cascade child must go before its parent whether or not the database
+    // declares the foreign key: once the parent's tenant rows are gone the
+    // child's sub-select matches nothing and its rows would survive silently.
+    const cascadeEdges: Array<readonly [string, string]> = Object.entries(policies)
+      .filter((entry): entry is [string, CascadeViaPolicy] => entry[1].kind === 'cascade-via')
+      .map(([child, policy]) => [child, policy.parent] as const);
+    const sortedTables = await this.sortedTablesForDelete(
+      manager,
+      sourceSchema,
+      targetTables,
+      cascadeEdges,
+    );
 
     const results: TableDeleteResult[] = [];
     for (const tableName of sortedTables) {
-      const tenantColumn = tenantColumns.get(tableName);
-      if (!tenantColumn) {
-        continue;
-      }
       results.push(
-        await this.deleteTenantColumnRows(
+        await this.deleteByPredicate(
           manager,
           sourceSchema,
           tableName,
-          tenantColumn,
+          tenantRowPredicate(sourceSchema, tableName, policies),
           event.tenantId,
           event.dryRun,
         ),
       );
     }
     return results;
+  }
+
+  private async assertPolicyColumnsExist(
+    manager: EntityManager,
+    schemaName: string,
+    policies: TenantErasureTablePolicies,
+  ): Promise<void> {
+    const required = requiredColumns(policies);
+    if (required.length === 0) {
+      return;
+    }
+    const tableNames = [...new Set(required.map((entry) => entry.table))].sort();
+    const rows = queryRowsNormalized<TenantColumnRow>(
+      await manager.query(
+        `
+          SELECT table_name, column_name
+          FROM information_schema.columns
+          WHERE table_schema = $1
+            AND table_name = ANY($2::text[])
+          ORDER BY table_name, column_name
+        `,
+        [schemaName, tableNames],
+      ),
+    );
+    const present = new Set(rows.map((row) => `${row.table_name}.${row.column_name}`));
+    const missing = required
+      .filter((entry) => !present.has(`${entry.table}.${entry.column}`))
+      .map((entry) => `${schemaName}.${entry.table}.${entry.column}`);
+    if (missing.length > 0) {
+      throw new Error(
+        `Tenant erasure policy for ${this.options.targetService} names columns the database does not have: ${[...new Set(missing)].join(', ')}`,
+      );
+    }
   }
 
   private async existingTables(
@@ -406,41 +471,11 @@ export class TenantErasureTargetExecutor {
     return rows.map((row) => row.table_name);
   }
 
-  private async tenantColumns(
-    manager: EntityManager,
-    schemaName: string,
-    tableNames: readonly string[],
-  ): Promise<ReadonlyMap<string, string>> {
-    if (tableNames.length === 0) {
-      return new Map();
-    }
-    const rows = queryRowsNormalized<TenantColumnRow>(
-      await manager.query(
-        `
-          SELECT table_name, column_name
-          FROM information_schema.columns
-          WHERE table_schema = $1
-            AND table_name = ANY($2::text[])
-            AND column_name IN ('tenantId', 'tenant_id')
-          ORDER BY table_name, column_name
-        `,
-        [schemaName, tableNames],
-      ),
-    );
-    const byTable = new Map<string, string>();
-    for (const row of rows) {
-      const prior = byTable.get(row.table_name);
-      if (!prior || row.column_name === 'tenantId') {
-        byTable.set(row.table_name, row.column_name);
-      }
-    }
-    return byTable;
-  }
-
   private async sortedTablesForDelete(
     manager: EntityManager,
     schemaName: string,
     tableNames: readonly string[],
+    policyEdges: ReadonlyArray<readonly [child: string, parent: string]> = [],
   ): Promise<readonly string[]> {
     if (tableNames.length <= 1) {
       return tableNames;
@@ -476,9 +511,11 @@ export class TenantErasureTargetExecutor {
       outgoing.set(node, new Set());
       indegree.set(node, 0);
     }
-    for (const row of fkRows) {
-      const child = row.table_name;
-      const parent = row.referenced_table_name;
+    const edgeList: Array<readonly [string, string]> = [
+      ...fkRows.map((row) => [row.table_name, row.referenced_table_name] as const),
+      ...policyEdges,
+    ];
+    for (const [child, parent] of edgeList) {
       const edges = outgoing.get(child);
       if (!edges || !indegree.has(parent) || edges.has(parent)) {
         continue;
@@ -522,31 +559,27 @@ export class TenantErasureTargetExecutor {
     tableName: string,
     dryRun: boolean,
   ): Promise<TableDeleteResult> {
-    const matchedCount = await this.countRows(manager, schemaName, tableName, undefined, undefined);
+    const matchedCount = await this.countRows(manager, schemaName, tableName, undefined, []);
     const erasedCount = dryRun
       ? 0
-      : await this.deleteRows(manager, schemaName, tableName, undefined, undefined);
+      : await this.deleteRows(manager, schemaName, tableName, undefined, []);
     return { tableName, matchedCount, erasedCount };
   }
 
-  private async deleteTenantColumnRows(
+  private async deleteByPredicate(
     manager: EntityManager,
     schemaName: string,
     tableName: string,
-    tenantColumn: string,
+    predicateSql: string,
     tenantId: string,
     dryRun: boolean,
   ): Promise<TableDeleteResult> {
-    const matchedCount = await this.countRows(
-      manager,
-      schemaName,
-      tableName,
-      tenantColumn,
+    const matchedCount = await this.countRows(manager, schemaName, tableName, predicateSql, [
       tenantId,
-    );
+    ]);
     const erasedCount = dryRun
       ? 0
-      : await this.deleteRows(manager, schemaName, tableName, tenantColumn, tenantId);
+      : await this.deleteRows(manager, schemaName, tableName, predicateSql, [tenantId]);
     return { tableName, matchedCount, erasedCount };
   }
 
@@ -554,15 +587,14 @@ export class TenantErasureTargetExecutor {
     manager: EntityManager,
     schemaName: string,
     tableName: string,
-    tenantColumn: string | undefined,
-    tenantId: string | undefined,
+    predicateSql: string | undefined,
+    params: readonly string[],
   ): Promise<number> {
-    const where = tenantColumn ? ` WHERE "${tenantColumn}" = $1` : '';
-    const params = tenantColumn ? [tenantId] : [];
+    const where = predicateSql ? ` WHERE ${predicateSql}` : '';
     const rows = queryRowsNormalized<CountRow>(
       await manager.query(
         `SELECT COUNT(*)::text AS count FROM "${schemaName}"."${tableName}"${where}`,
-        params,
+        [...params],
       ),
     );
     return Number.parseInt(rows[0]?.count ?? '0', 10);
@@ -572,13 +604,12 @@ export class TenantErasureTargetExecutor {
     manager: EntityManager,
     schemaName: string,
     tableName: string,
-    tenantColumn: string | undefined,
-    tenantId: string | undefined,
+    predicateSql: string | undefined,
+    params: readonly string[],
   ): Promise<number> {
-    const where = tenantColumn ? ` WHERE "${tenantColumn}" = $1` : '';
-    const params = tenantColumn ? [tenantId] : [];
+    const where = predicateSql ? ` WHERE ${predicateSql}` : '';
     return queryRowCountNormalized(
-      await manager.query(`DELETE FROM "${schemaName}"."${tableName}"${where}`, params),
+      await manager.query(`DELETE FROM "${schemaName}"."${tableName}"${where}`, [...params]),
     );
   }
 

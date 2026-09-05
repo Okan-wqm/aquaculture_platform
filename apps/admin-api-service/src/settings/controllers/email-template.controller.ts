@@ -1,4 +1,4 @@
-import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
+import { Destructive, RequiresCapability, TenantParam } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -41,7 +41,7 @@ export class EmailTemplateController {
    * Get all templates
    */
   @Get()
-  async getAllTemplates(@Query('tenantId') tenantId?: string) {
+  async getAllTemplates(@TenantParam('query', { optional: true }) tenantId?: string) {
     return this.templateService.getAllTemplates(tenantId);
   }
 
@@ -51,7 +51,7 @@ export class EmailTemplateController {
   @Get('category/:category')
   async getTemplatesByCategory(
     @Param('category') category: string,
-    @Query('tenantId') tenantId?: string,
+    @TenantParam('query', { optional: true }) tenantId?: string,
   ) {
     return this.templateService.getTemplatesByCategory(category, tenantId);
   }
@@ -70,7 +70,7 @@ export class EmailTemplateController {
   @Get('code/:code')
   async getTemplateByCode(
     @Param('code') code: string,
-    @Query('tenantId') tenantId?: string,
+    @TenantParam('query', { optional: true }) tenantId?: string,
   ) {
     return this.templateService.getTemplateByCode(code, tenantId);
   }
@@ -114,9 +114,10 @@ export class EmailTemplateController {
   @Post('code/:code/override')
   async createTenantOverride(
     @Param('code') code: string,
+    @TenantParam('body') tenantId: string,
     @Body() dto: CreateTenantOverrideDto,
   ) {
-    const { tenantId, ...overrides } = dto;
+    const overrides = dto;
     return this.templateService.createTenantOverride(code, tenantId, overrides);
   }
 

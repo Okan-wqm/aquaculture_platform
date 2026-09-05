@@ -1,4 +1,4 @@
-import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
+import { Destructive, RequiresCapability, TenantParam, TenantIdCarrier } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -71,6 +71,10 @@ export class QueryErrorGroupsDto {
 }
 
 class ReportErrorDto {
+  /** ADMIN-CRITICAL-009: whitelisted carrier key; the verified id arrives through @TenantParam('body'). */
+  @TenantIdCarrier()
+  readonly tenantId?: undefined;
+
   @IsString()
   message!: string;
 
@@ -101,10 +105,6 @@ class ReportErrorDto {
   @IsOptional()
   @IsString()
   release?: string;
-
-  @IsOptional()
-  @IsString()
-  tenantId?: string;
 
   @IsOptional()
   @IsString()
@@ -393,7 +393,7 @@ export class ErrorTrackingController {
   async queryOccurrences(
     @Query('service') service?: string,
     @Query('severity') severity?: ErrorSeverity,
-    @Query('tenantId') tenantId?: string,
+    @TenantParam('query', { optional: true }) tenantId?: string,
     @Query('userId') userId?: string,
     @Query('environment') environment?: string,
     @Query('startDate') startDate?: string,

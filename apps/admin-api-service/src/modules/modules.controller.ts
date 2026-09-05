@@ -1,4 +1,4 @@
-import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
+import { Destructive, RequiresCapability, TenantParam } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -56,7 +56,6 @@ export interface ModuleQuantitiesDto {
 }
 
 export interface AssignModuleDto {
-  tenantId: string;
   moduleId: string;
   quantities?: ModuleQuantitiesDto;
   configuration?: Record<string, unknown>;
@@ -103,7 +102,7 @@ export class ModulesController {
    */
   @Get('assignments')
   async getAllAssignments(
-    @Query('tenantId') tenantId?: string,
+    @TenantParam('query', { optional: true, allow: 'any' }) tenantId?: string,
     @Query('moduleId') moduleId?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
@@ -210,8 +209,11 @@ export class ModulesController {
   @RequiresCapability('security-ops')
   @Post('assignments')
   @HttpCode(HttpStatus.CREATED)
-  async assignModuleToTenant(@Body() dto: AssignModuleDto) {
-    return this.modulesService.assignModuleToTenant(dto);
+  async assignModuleToTenant(
+    @TenantParam('body', { allow: 'any' }) tenantId: string,
+    @Body() dto: AssignModuleDto,
+  ) {
+    return this.modulesService.assignModuleToTenant({ ...dto, tenantId });
   }
 
   /**
@@ -223,7 +225,7 @@ export class ModulesController {
   @Delete('assignments/:tenantId/:moduleId')
   @HttpCode(HttpStatus.NO_CONTENT)
   async removeModuleFromTenant(
-    @Param('tenantId', ParseUUIDPipe) tenantId: string,
+    @TenantParam('param', { allow: 'any' }) tenantId: string,
     @Param('moduleId', ParseUUIDPipe) moduleId: string,
   ) {
     await this.modulesService.removeModuleFromTenant(tenantId, moduleId);

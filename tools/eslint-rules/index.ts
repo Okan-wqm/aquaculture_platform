@@ -22,6 +22,7 @@ import noDirectEventPublish from './rules/no-direct-event-publish';
 import noHighCardinalityMetricLabel from './rules/no-high-cardinality-metric-label';
 import noUnpinnedSsrfFetch from './rules/no-unpinned-ssrf-fetch';
 import noUnsandboxedHtmlFrame from './rules/no-unsandboxed-html-frame';
+import noUnverifiedTenantParam from './rules/no-unverified-tenant-param';
 import requireEntitySchema from './rules/require-entity-schema';
 
 export const rules = {
@@ -34,4 +35,5 @@ export const rules = {
   'no-unpinned-ssrf-fetch': noUnpinnedSsrfFetch,
   'no-unsandboxed-html-frame': noUnsandboxedHtmlFrame,
   'no-actor-in-input-dto': noActorInInputDto,
+  'no-unverified-tenant-param': noUnverifiedTenantParam,
 };

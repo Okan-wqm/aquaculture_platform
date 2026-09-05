@@ -33,6 +33,7 @@ const no_high_cardinality_metric_label_1 = __importDefault(
 );
 const no_unpinned_ssrf_fetch_1 = __importDefault(require('./rules/no-unpinned-ssrf-fetch'));
 const no_unsandboxed_html_frame_1 = __importDefault(require('./rules/no-unsandboxed-html-frame'));
+const no_unverified_tenant_param_1 = __importDefault(require('./rules/no-unverified-tenant-param'));
 const require_entity_schema_1 = __importDefault(require('./rules/require-entity-schema'));
 exports.rules = {
   'require-entity-schema': require_entity_schema_1.default,
@@ -44,5 +45,6 @@ exports.rules = {
   'no-unpinned-ssrf-fetch': no_unpinned_ssrf_fetch_1.default,
   'no-unsandboxed-html-frame': no_unsandboxed_html_frame_1.default,
   'no-actor-in-input-dto': no_actor_in_input_dto_1.default,
+  'no-unverified-tenant-param': no_unverified_tenant_param_1.default,
 };
 //# sourceMappingURL=index.js.map

@@ -4,7 +4,7 @@
  * Destek ticket yönetimi endpoint'leri.
  */
 
-import { RequiresCapability } from '@aquaculture/backend-common/decorators';
+import { RequiresCapability, TenantParam, TenantIdCarrier } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -33,8 +33,10 @@ import { TicketService } from '../services/ticket.service';
 // ============================================================================
 
 class CreateTicketDto {
-  @IsString()
-  tenantId!: string;
+  /** ADMIN-CRITICAL-009: whitelisted carrier key; the verified id arrives through @TenantParam('body'). */
+  @TenantIdCarrier()
+  readonly tenantId?: undefined;
+
 
   @IsOptional()
   @IsString()
@@ -152,7 +154,7 @@ export class TicketController {
     @Query('priority') priority?: TicketPriority,
     @Query('category') category?: TicketCategory,
     @Query('assignedTo') assignedTo?: string,
-    @Query('tenantId') tenantId?: string,
+    @TenantParam('query', { optional: true }) tenantId?: string,
     @Query('search') search?: string,
     @Query() pagination?: PaginationQueryDto,
   ) {
@@ -218,7 +220,7 @@ export class TicketController {
   @Get('tenant/:tenantId')
   @PlatformAdminOnly()
   async getTicketsForTenant(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param') tenantId: string,
     @Query('status') status?: TicketStatus,
     @Query() pagination?: PaginationQueryDto,
   ) {
@@ -247,15 +249,15 @@ export class TicketController {
   @Post()
   @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
-  async createTicket(@Body() dto: CreateTicketDto, @CurrentUser() user: CurrentUserData) {
-    if (!dto.tenantId || !dto.subject || !dto.description) {
+  async createTicket(@TenantParam('body') tenantId: string, @Body() dto: CreateTicketDto, @CurrentUser() user: CurrentUserData) {
+    if (!tenantId || !dto.subject || !dto.description) {
       throw new BadRequestException('tenantId, subject, and description are required');
     }
 
     // ADMIN-CRITICAL-008: the creator is the verified platform admin, not a
     // name the request body offers.
     return this.ticketService.createTicket({
-      tenantId: dto.tenantId,
+      tenantId: tenantId,
       tenantName: dto.tenantName,
       createdBy: user.id,
       createdByName: user.email,

@@ -1,3 +1,4 @@
+import { TENANT_ACTIVE_CHECK } from '@aquaculture/backend-common/middleware';
 import { INestApplication, HttpStatus, ValidationPipe } from '@nestjs/common';
 import { CommandBus, QueryBus, CqrsModule } from '@nestjs/cqrs';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -89,6 +90,12 @@ describe('Tenant API Integration Tests', () => {
       imports: [CqrsModule],
       controllers: [TenantPublicController, TenantAdminController],
       providers: [
+        // ADMIN-CRITICAL-009: @TenantParam resolves ids through the kernel
+        // port; these suites exercise the controllers, not the lookup.
+        {
+          provide: TENANT_ACTIVE_CHECK,
+          useValue: { lookupTenant: () => Promise.resolve({ status: TenantStatus.ACTIVE }) },
+        },
         {
           provide: CommandBus,
           useValue: mockCommandBus,
@@ -575,7 +582,8 @@ describe('Tenant API Integration Tests', () => {
         mockActivityService.deleteNote.mockResolvedValueOnce(undefined);
 
         const response = await request(app.getHttpServer())
-          .delete(`/admin/tenants/${TENANT_UUID}/notes/${NOTE_UUID}`);
+          .delete(`/admin/tenants/${TENANT_UUID}/notes/${NOTE_UUID}`)
+          .set('x-user-id', 'admin-123');
 
         expect(response.status).toBe(HttpStatus.NO_CONTENT);
       });

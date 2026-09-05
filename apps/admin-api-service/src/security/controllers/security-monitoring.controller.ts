@@ -4,7 +4,7 @@
  * Endpoints for security events, incidents, threat intelligence, and dashboard.
  */
 
-import { RequiresCapability } from '@aquaculture/backend-common/decorators';
+import { RequiresCapability, TenantParam, TenantIdCarrier } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -94,6 +94,10 @@ const THREAT_INDICATOR_TYPES: ReadonlyArray<ThreatIntelligence['indicatorType']>
 ];
 
 class CreateSecurityEventDto {
+  /** ADMIN-CRITICAL-009: whitelisted carrier key; the verified id arrives through @TenantParam('body'). */
+  @TenantIdCarrier()
+  readonly tenantId?: undefined;
+
   @IsIn(SECURITY_EVENT_TYPES)
   eventType!: SecurityEventType;
 
@@ -111,10 +115,6 @@ class CreateSecurityEventDto {
 
   @IsOptional()
   geoLocation?: GeoLocation;
-
-  @IsOptional()
-  @IsString()
-  tenantId?: string;
 
   @IsOptional()
   @IsString()
@@ -352,6 +352,10 @@ class QueryThreatIntelligenceDto {
 }
 
 class AnalyzeLoginDto {
+  /** ADMIN-CRITICAL-009: whitelisted carrier key; the verified id arrives through @TenantParam('body'). */
+  @TenantIdCarrier()
+  readonly tenantId?: undefined;
+
   @IsString()
   email!: string;
 
@@ -367,10 +371,6 @@ class AnalyzeLoginDto {
   @IsOptional()
   @IsString()
   userId?: string;
-
-  @IsOptional()
-  @IsString()
-  tenantId?: string;
 }
 
 // ============================================================================
@@ -396,6 +396,7 @@ export class SecurityMonitoringController {
   @Post('events')
   @HttpCode(HttpStatus.CREATED)
   async createSecurityEvent(
+    @TenantParam('body', { optional: true, allow: 'any' }) tenantId: string | undefined,
     @Body() dto: CreateSecurityEventDto,
   ): Promise<SecurityEvent> {
     return this.securityMonitoringService.createSecurityEvent({
@@ -405,7 +406,7 @@ export class SecurityMonitoringController {
       description: dto.description,
       ipAddress: dto.ipAddress,
       geoLocation: dto.geoLocation,
-      tenantId: dto.tenantId,
+      tenantId: tenantId,
       userId: dto.userId,
       userName: dto.userName,
       targetResource: dto.targetResource,
@@ -702,6 +703,7 @@ export class SecurityMonitoringController {
   @Post('analyze/login')
   @HttpCode(HttpStatus.OK)
   async analyzeLogin(
+    @TenantParam('body', { optional: true, allow: 'any' }) tenantId: string | undefined,
     @Body() dto: AnalyzeLoginDto,
   ): Promise<{ analyzed: boolean; message: string }> {
     await this.securityMonitoringService.analyzeLoginAttempt({
@@ -710,7 +712,7 @@ export class SecurityMonitoringController {
       success: dto.success,
       geoLocation: dto.geoLocation,
       userId: dto.userId,
-      tenantId: dto.tenantId,
+      tenantId,
     });
 
     return {

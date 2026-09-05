@@ -13,6 +13,8 @@
  * Uses NestJS TestingModule with mocked services.
  */
 
+import { TENANT_ACTIVE_CHECK } from '@aquaculture/backend-common/middleware';
+import { TenantStatus } from '@platform/event-contracts';
 import {
   ConflictException,
   ExecutionContext,
@@ -206,6 +208,12 @@ describe('BillingController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [BillingController],
       providers: [
+        // ADMIN-CRITICAL-009: @TenantParam resolves ids through the kernel
+        // port; these suites exercise the controllers, not the lookup.
+        {
+          provide: TENANT_ACTIVE_CHECK,
+          useValue: { lookupTenant: () => Promise.resolve({ status: TenantStatus.ACTIVE }) },
+        },
         { provide: PlanDefinitionService, useValue: mockPlanService },
         { provide: DiscountCodeService, useValue: mockDiscountService },
         { provide: SubscriptionManagementService, useValue: mockSubscriptionService },
@@ -359,11 +367,11 @@ describe('BillingController', () => {
   describe('POST /billing/subscriptions/tenant/:tenantId/cancel', () => {
     it('should use JWT user.id as cancelledBy', async () => {
       await request(httpServer())
-        .post('/billing/subscriptions/tenant/tenant-1/cancel')
+        .post('/billing/subscriptions/tenant/11111111-1111-4111-8111-111111111111/cancel')
         .send({ reason: 'No longer needed' });
 
       expect(mockBillingAdminCommands.cancelSubscription).toHaveBeenCalledWith(
-        'tenant-1',
+        '11111111-1111-4111-8111-111111111111',
         'No longer needed',
         undefined,
         authenticatedUser.id,
@@ -372,7 +380,7 @@ describe('BillingController', () => {
 
     it('should reject client-supplied cancelledBy in body', async () => {
       const res = await request(httpServer())
-        .post('/billing/subscriptions/tenant/tenant-1/cancel')
+        .post('/billing/subscriptions/tenant/11111111-1111-4111-8111-111111111111/cancel')
         .send({
           reason: 'Closing account',
           cancelledBy: 'attacker-injected',
@@ -384,11 +392,11 @@ describe('BillingController', () => {
 
     it('should pass cancelImmediately flag to service', async () => {
       await request(httpServer())
-        .post('/billing/subscriptions/tenant/tenant-1/cancel')
+        .post('/billing/subscriptions/tenant/11111111-1111-4111-8111-111111111111/cancel')
         .send({ reason: 'Test', cancelImmediately: true });
 
       expect(mockBillingAdminCommands.cancelSubscription).toHaveBeenCalledWith(
-        'tenant-1',
+        '11111111-1111-4111-8111-111111111111',
         'Test',
         true,
         authenticatedUser.id,
@@ -557,14 +565,14 @@ describe('BillingController', () => {
       await request(httpServer())
         .post('/billing/subscriptions/change-plan')
         .send({
-          tenantId: 'tenant-1',
+          tenantId: '11111111-1111-4111-8111-111111111111',
           newPlanId: 'plan-pro',
           changedBy: 'attacker-id',
         });
 
       expect(mockBillingAdminCommands.changeSubscriptionPlan).toHaveBeenCalledWith(
         expect.objectContaining({
-          tenantId: 'tenant-1',
+          tenantId: '11111111-1111-4111-8111-111111111111',
           newPlanId: 'plan-pro',
         }),
         authenticatedUser.id,
@@ -614,7 +622,7 @@ describe('BillingController', () => {
       await request(httpServer())
         .post('/billing/custom-plans')
         .send({
-          tenantId: 'tenant-1',
+          tenantId: '11111111-1111-4111-8111-111111111111',
           name: 'Enterprise Custom',
           createdBy: 'attacker-id',
         });
@@ -735,21 +743,21 @@ describe('BillingController', () => {
   describe('Subscription auxiliary JWT identity', () => {
     it('POST reactivateSubscription should use JWT user.id', async () => {
       await request(httpServer())
-        .post('/billing/subscriptions/tenant/tenant-1/reactivate');
+        .post('/billing/subscriptions/tenant/11111111-1111-4111-8111-111111111111/reactivate');
 
       expect(mockBillingAdminCommands.reactivateSubscription).toHaveBeenCalledWith(
-        'tenant-1',
+        '11111111-1111-4111-8111-111111111111',
         authenticatedUser.id,
       );
     });
 
     it('POST extendTrial should use JWT user.id', async () => {
       await request(httpServer())
-        .post('/billing/subscriptions/tenant/tenant-1/extend-trial')
+        .post('/billing/subscriptions/tenant/11111111-1111-4111-8111-111111111111/extend-trial')
         .send({ additionalDays: 14 });
 
       expect(mockBillingAdminCommands.extendSubscriptionTrial).toHaveBeenCalledWith(
-        'tenant-1',
+        '11111111-1111-4111-8111-111111111111',
         14,
         authenticatedUser.id,
       );

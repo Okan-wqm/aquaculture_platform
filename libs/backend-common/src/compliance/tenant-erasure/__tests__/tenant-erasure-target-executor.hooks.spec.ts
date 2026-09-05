@@ -30,19 +30,14 @@ import {
   type TenantErasureTargetExecutorOptions,
   type TenantErasureTargetOutbox,
 } from '../tenant-erasure-target-executor';
+import { getTenantErasureTargetOptions } from '../tenant-erasure-target-registry';
 
 const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const OPERATION = '11111111-2222-4333-8444-555555555555';
 
-const OPTIONS: TenantErasureTargetExecutorOptions = {
-  targetService: 'event-store-service',
-  moduleName: 'event_store',
-  sourceSchema: 'event_store',
-  mode: 'source-schema-tenant-column',
-  excludedTables: ['event_store_outbox', 'stored_events', 'tenant_payload_keys'],
-  outbox: { schema: 'event_store', table: 'event_store_outbox' },
-  proofLedger: { schema: 'event_store', table: 'tenant_erasure_target_proofs' },
-};
+// The registry entry IS the fixture: the spec exercises the real event-store policy.
+const OPTIONS: TenantErasureTargetExecutorOptions =
+  getTenantErasureTargetOptions('event-store-service');
 
 /**
  * Tables the fake information_schema reports a tenant column for. The proof
@@ -50,10 +45,12 @@ const OPTIONS: TenantErasureTargetExecutorOptions = {
  * is what makes the structural-exclusion test meaningful: if the executor ever
  * lets them into the candidate set, they surface as delete targets.
  */
+/** The columns the fake database reports; every column the policy names must be here. */
 const TENANT_COLUMN_TABLES = new Set([
   'event_streams',
-  'tenant_erasure_target_proofs',
-  'event_store_outbox',
+  'snapshots',
+  'projection_checkpoints',
+  'projection_rebuilds',
 ]);
 
 type EnqueueMock = jest.Mock<
@@ -311,28 +308,49 @@ describe('TenantErasureTargetExecutor post-erasure hooks', () => {
     const result = await executor.eraseFromRequest(makeRequest());
 
     expect(result.state).toBe('PURGED');
-    expect(result.erasedRecordCount).toBe(2);
+    // The fixture reports 2 rows per table; the event-store policy erases four tables.
+    expect(result.erasedRecordCount).toBe(8);
     expect(calls).toContain('proof-ledger-insert');
     expect(calls).toContain('enqueue:EventStoreServiceTenantDataErased');
   });
 });
 
 describe('TenantErasureTargetExecutor structural table exclusions', () => {
-  it('never deletes proof-ledger or outbox rows even when the registry does not exclude them', async () => {
-    const calls: string[] = [];
-    // Deliberately empty registry exclusions: the protection under test must
-    // come from the executor itself (Tier-1 structural), not configuration.
-    const { executor } = makeHarness(calls, undefined, {
+  it('refuses to construct a target whose policy would erase its outbox or proof ledger', () => {
+    if (OPTIONS.mode !== 'source-schema-tenant-column')
+      throw new Error('fixture is a source-schema target');
+    const policyErasingOutbox: TenantErasureTargetExecutorOptions = {
       ...OPTIONS,
-      excludedTables: [],
-    });
+      tables: {
+        ...OPTIONS.tables,
+        event_store_outbox: { kind: 'tenant-column', column: 'tenantId' },
+      },
+    };
+    expect(() => makeHarness([], undefined, policyErasingOutbox)).toThrow(/outbox or proof ledger/);
+  });
+
+  it('refuses to construct a target whose policy misses a registered table', () => {
+    if (OPTIONS.mode !== 'source-schema-tenant-column')
+      throw new Error('fixture is a source-schema target');
+    const { snapshots: _dropped, ...withoutSnapshots } = OPTIONS.tables;
+    expect(() => makeHarness([], undefined, { ...OPTIONS, tables: withoutSnapshots })).toThrow(
+      /'snapshots' has no erasure policy/,
+    );
+  });
+
+  it("never row-deletes an excluded table: only the policy's erasing tables are touched", async () => {
+    const calls: string[] = [];
+    const { executor } = makeHarness(calls, undefined, OPTIONS);
 
     const result = await executor.eraseFromRequest(makeRequest());
 
     expect(result.state).toBe('PURGED');
-    const deletes = calls.filter((entry) => entry.startsWith('table-delete:'));
-    // The proof ledger and outbox both report a tenant column in this fixture;
-    // only event_streams may be row-deleted.
-    expect(deletes).toEqual(['table-delete:event_streams']);
+    const deletes = calls.filter((entry) => entry.startsWith('table-delete:')).sort();
+    expect(deletes).toEqual([
+      'table-delete:event_streams',
+      'table-delete:projection_checkpoints',
+      'table-delete:projection_rebuilds',
+      'table-delete:snapshots',
+    ]);
   });
 });

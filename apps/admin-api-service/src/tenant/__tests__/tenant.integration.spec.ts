@@ -1,3 +1,4 @@
+import { TENANT_ACTIVE_CHECK } from '@aquaculture/backend-common/middleware';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { CqrsModule, CommandBus, QueryBus } from '@nestjs/cqrs';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -259,6 +260,12 @@ describe('Tenant Integration Tests', () => {
       imports: [CqrsModule],
       controllers: [TenantAdminController],
       providers: [
+        // ADMIN-CRITICAL-009: @TenantParam resolves ids through the kernel
+        // port; these suites exercise the controllers, not the lookup.
+        {
+          provide: TENANT_ACTIVE_CHECK,
+          useValue: { lookupTenant: () => Promise.resolve({ status: TenantStatus.ACTIVE }) },
+        },
         {
           provide: getRepositoryToken(Tenant),
           useValue: mockTenantRepository,

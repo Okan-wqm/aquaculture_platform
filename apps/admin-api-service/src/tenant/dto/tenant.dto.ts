@@ -532,19 +532,6 @@ export class ListTenantsQueryDto {
   sortOrder?: 'ASC' | 'DESC' = 'DESC';
 }
 
-export class TenantInviteDto {
-  @IsUUID()
-  tenantId!: string;
-
-  @IsEmail()
-  @MaxLength(255)
-  email!: string;
-
-  @IsString()
-  @MaxLength(50)
-  role!: string;
-}
-
 export class TenantStatsDto {
   totalTenants!: number;
   activeTenants!: number;

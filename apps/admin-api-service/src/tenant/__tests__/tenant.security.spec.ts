@@ -11,6 +11,8 @@
  * - CSRF protection
  */
 
+import { TENANT_ACTIVE_CHECK } from '@aquaculture/backend-common/middleware';
+import { TenantStatus } from '@platform/event-contracts';
 import { INestApplication, HttpStatus, NotFoundException, ValidationPipe } from '@nestjs/common';
 import { CqrsModule, CommandBus, QueryBus } from '@nestjs/cqrs';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -86,6 +88,12 @@ describe('Tenant Security Tests', () => {
       imports: [CqrsModule],
       controllers: [TenantPublicController, TenantAdminController],
       providers: [
+        // ADMIN-CRITICAL-009: @TenantParam resolves ids through the kernel
+        // port; these suites exercise the controllers, not the lookup.
+        {
+          provide: TENANT_ACTIVE_CHECK,
+          useValue: { lookupTenant: () => Promise.resolve({ status: TenantStatus.ACTIVE }) },
+        },
         { provide: CommandBus, useValue: mockCommandBus },
         { provide: QueryBus, useValue: mockQueryBus },
         { provide: TenantDetailService, useValue: mockDetailService },

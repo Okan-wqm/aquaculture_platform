@@ -2891,6 +2891,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/tenant/tenant-lookup.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/tenant/tenant.controller.ts",
       "prettier_managed": true
     },
@@ -37156,6 +37162,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/compliance/tenant-erasure/__tests__/tenant-erasure-table-policy.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/compliance/tenant-erasure/__tests__/tenant-erasure-target-executor.cascade.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/compliance/tenant-erasure/__tests__/tenant-erasure-target-executor.hooks.spec.ts",
       "prettier_managed": true
     },
@@ -37181,6 +37199,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/compliance/tenant-erasure/tenant-erasure-subscription.options.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/compliance/tenant-erasure/tenant-erasure-table-policy.ts",
       "prettier_managed": true
     },
     {
@@ -38279,6 +38303,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/decorators/roles.decorator.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/decorators/tenant-param.decorator.ts",
       "prettier_managed": true
     },
     {
@@ -39394,6 +39424,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/tenant/__tests__/verified-tenant.pipe.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/tenant/constants.ts",
       "prettier_managed": true
     },
@@ -39401,6 +39437,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/tenant/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/tenant/verified-tenant.pipe.ts",
       "prettier_managed": true
     },
     {
@@ -43278,6 +43320,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/admin-tenant-param-verified.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/adoption-invariants.spec.ts",
       "prettier_managed": true
     },
@@ -44604,6 +44652,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/tenant-erasure-table-policy.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/tenant-execution-context-registered.spec.ts",
       "prettier_managed": true
     },
@@ -45293,6 +45347,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/eslint-rules/dist/rules/no-unverified-tenant-param.d.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/eslint-rules/dist/rules/no-unverified-tenant-param.js",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/eslint-rules/dist/rules/require-entity-schema.d.ts",
       "prettier_managed": true
     },
@@ -45366,6 +45432,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/eslint-rules/rules/no-unsandboxed-html-frame.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/eslint-rules/rules/no-unverified-tenant-param.ts",
       "prettier_managed": true
     },
     {

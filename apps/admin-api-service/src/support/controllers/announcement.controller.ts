@@ -4,7 +4,7 @@
  * Platform duyuru yönetimi endpoint'leri.
  */
 
-import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
+import { Destructive, RequiresCapability, TenantParam, TenantIdCarrier } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -97,8 +97,10 @@ class UpdateAnnouncementDto {
 }
 
 class AcknowledgeDto {
-  @IsString()
-  tenantId!: string;
+  /** ADMIN-CRITICAL-009: whitelisted carrier key; the verified id arrives through @TenantParam('body'). */
+  @TenantIdCarrier()
+  readonly tenantId?: undefined;
+
 
   @IsString()
   userId!: string;
@@ -225,14 +227,14 @@ export class AnnouncementController {
 
   @Get('tenant/:tenantId/active')
   @PlatformAdminOnly()
-  async getActiveForTenant(@Param('tenantId') tenantId: string) {
+  async getActiveForTenant(@TenantParam('param') tenantId: string) {
     return this.announcementService.getActiveAnnouncementsForTenant(tenantId);
   }
 
   @Get('tenant/:tenantId/pending')
   @PlatformAdminOnly()
   async getPendingAcknowledgments(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param') tenantId: string,
     @Query('userId') userId: string,
   ) {
     if (!userId) {
@@ -256,15 +258,16 @@ export class AnnouncementController {
   @PlatformAdminOnly()
   async recordView(
     @Param('id') id: string,
+    @TenantParam('body') tenantId: string,
     @Body() dto: AcknowledgeDto,
   ) {
-    if (!dto.tenantId || !dto.userId) {
+    if (!tenantId || !dto.userId) {
       throw new BadRequestException('tenantId and userId are required');
     }
 
     return this.announcementService.recordView(
       id,
-      dto.tenantId,
+      tenantId,
       dto.userId,
       dto.userName || 'Unknown User',
     );
@@ -276,15 +279,16 @@ export class AnnouncementController {
   @PlatformAdminOnly()
   async recordAcknowledgment(
     @Param('id') id: string,
+    @TenantParam('body') tenantId: string,
     @Body() dto: AcknowledgeDto,
   ) {
-    if (!dto.tenantId || !dto.userId) {
+    if (!tenantId || !dto.userId) {
       throw new BadRequestException('tenantId and userId are required');
     }
 
     return this.announcementService.recordAcknowledgment(
       id,
-      dto.tenantId,
+      tenantId,
       dto.userId,
       dto.userName || 'Unknown User',
     );

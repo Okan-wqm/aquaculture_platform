@@ -1,4 +1,4 @@
-import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
+import { Destructive, RequiresCapability, TenantParam, TenantIdCarrier } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   BadRequestException,
@@ -134,9 +134,10 @@ class UpdateFeatureToggleDto {
 }
 
 class EvaluateFeatureToggleDto {
-  @IsOptional()
-  @IsString()
-  tenantId?: string;
+  /** ADMIN-CRITICAL-009: whitelisted carrier key; the verified id arrives through @TenantParam('body'). */
+  @TenantIdCarrier()
+  readonly tenantId?: undefined;
+
 
   @IsOptional()
   @IsString()
@@ -160,6 +161,10 @@ class EvaluateFeatureToggleDto {
 }
 
 class CreateMaintenanceDto {
+  /** ADMIN-CRITICAL-009: whitelisted carrier key; the verified id arrives through @TenantParam('body'). */
+  @TenantIdCarrier()
+  readonly tenantId?: undefined;
+
   @IsString()
   title!: string;
 
@@ -173,10 +178,6 @@ class CreateMaintenanceDto {
   @IsOptional()
   @IsString()
   type?: MaintenanceType;
-
-  @IsOptional()
-  @IsString()
-  tenantId?: string;
 
   @IsOptional()
   @IsArray()
@@ -317,6 +318,10 @@ class UpdateConfigDto {
 }
 
 class UpdateMaintenanceDto {
+  /** ADMIN-CRITICAL-009: whitelisted carrier key; the verified id arrives through @TenantParam('body'). */
+  @TenantIdCarrier()
+  readonly tenantId?: undefined;
+
   @IsOptional()
   @IsString()
   @MaxLength(255)
@@ -334,10 +339,6 @@ class UpdateMaintenanceDto {
   @IsOptional()
   @IsString()
   type?: MaintenanceType;
-
-  @IsOptional()
-  @IsString()
-  tenantId?: string;
 
   @IsOptional()
   @IsArray()
@@ -488,9 +489,10 @@ export class GlobalSettingsController {
   @Post('feature-toggles/evaluate')
   async evaluateFeatureToggle(
     @Query('key') key: string,
+    @TenantParam('body', { optional: true, allow: 'any' }) tenantId: string | undefined,
     @Body() context: EvaluateFeatureToggleDto,
   ) {
-    return this.globalSettingsService.evaluateFeatureToggle(key, context);
+    return this.globalSettingsService.evaluateFeatureToggle(key, { ...context, tenantId });
   }
 
   @AuditedOperation({ resource: 'FeatureToggleCache', action: 'REFRESH' })
@@ -521,7 +523,7 @@ export class GlobalSettingsController {
     @Query('scope') scope?: MaintenanceScope,
     @Query('status') status?: MaintenanceStatus,
     @Query('type') type?: MaintenanceType,
-    @Query('tenantId') tenantId?: string,
+    @TenantParam('query', { optional: true }) tenantId?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('page') page?: number,
@@ -541,7 +543,7 @@ export class GlobalSettingsController {
 
   @Get('maintenance/check')
   async checkMaintenanceMode(
-    @Query('tenantId') tenantId?: string,
+    @TenantParam('query', { optional: true }) tenantId?: string,
     @Query('ipAddress') ipAddress?: string,
     @Query('userId') userId?: string,
     @Query('isSuperAdmin') isSuperAdmin?: string,
@@ -564,10 +566,12 @@ export class GlobalSettingsController {
   @Put('maintenance/:id')
   async updateMaintenanceMode(
     @Param('id') id: string,
+    @TenantParam('body', { optional: true, allow: 'any' }) tenantId: string | undefined,
     @Body() dto: UpdateMaintenanceDto,
   ) {
     return this.globalSettingsService.updateMaintenanceMode(id, {
       ...dto,
+      tenantId,
       scheduledStart: dto.scheduledStart ? new Date(dto.scheduledStart) : undefined,
       scheduledEnd: dto.scheduledEnd ? new Date(dto.scheduledEnd) : undefined,
     });

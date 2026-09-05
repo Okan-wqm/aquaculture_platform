@@ -14,7 +14,23 @@ export {
   getTenantErasureTargetOptions,
   TENANT_ERASURE_TARGET_OPTIONS_BY_SERVICE,
 } from './tenant-erasure-target-registry';
+export {
+  erasedTables,
+  registeredTables,
+  requiredColumns,
+  tenantErasurePolicyProblems,
+  tenantRowPredicate,
+} from './tenant-erasure-table-policy';
 export type {
+  CascadeViaPolicy,
+  ExcludedPolicy,
+  TenantColumnPolicy,
+  TenantErasureTablePolicies,
+  TenantErasureTablePolicy,
+} from './tenant-erasure-table-policy';
+export type {
+  SourceSchemaTenantColumnTargetOptions,
+  TenantSchemaModuleTargetOptions,
   TenantErasurePostErasureHook,
   TenantErasureTargetExecutorDependencies,
   TenantErasureTargetExecutorOptions,

@@ -57,7 +57,7 @@ function handler(outcome: () => Promise<HandlerOutcome>): IEventHandler<IEvent> 
 function handlerResolving(value: unknown): IEventHandler<IEvent> {
   return {
     getEventType: () => 'PasswordResetRequested',
-    handle: jest.fn().mockResolvedValue(value),
+    handle: () => Promise.resolve(value as HandlerOutcome),
   };
 }
 
@@ -65,11 +65,17 @@ function harness(
   handlers: IEventHandler<IEvent>[],
   options: { maxRetries?: number } = {},
   sink?: IDeadLetterSink,
-): { bus: NatsEventBus; process: (msg: FakeJsMsg) => Promise<void>; sink: IDeadLetterSink } {
+): {
+  bus: NatsEventBus;
+  process: (msg: FakeJsMsg) => Promise<void>;
+  sink: IDeadLetterSink;
+  recorded: DeadLetterRecord[];
+} {
   const recorded: DeadLetterRecord[] = [];
   const deadLetterSink: IDeadLetterSink = sink ?? {
-    record: jest.fn(async (record: DeadLetterRecord) => {
+    record: jest.fn((record: DeadLetterRecord) => {
       recorded.push(record);
+      return Promise.resolve();
     }),
   };
   const bus = new NatsEventBus(config(), undefined, undefined, deadLetterSink);
@@ -83,12 +89,12 @@ function harness(
         msg: FakeJsMsg,
       ) => Promise<void>
     ).call(bus, SUBJECT, msg);
-  return { bus, process, sink: deadLetterSink };
+  return { bus, process, sink: deadLetterSink, recorded };
 }
 
 describe('NatsEventBus handler outcome fold (PLAT-HIGH-902)', () => {
   it('acks when every handler acks', async () => {
-    const { process } = harness([handler(async () => HandlerOutcome.ack())]);
+    const { process } = harness([handler(() => Promise.resolve(HandlerOutcome.ack()))]);
     const msg = jsMsg();
     await process(msg);
     expect(msg.ack).toHaveBeenCalledTimes(1);
@@ -98,8 +104,8 @@ describe('NatsEventBus handler outcome fold (PLAT-HIGH-902)', () => {
 
   it('naks with backoff when a handler asks for a retry', async () => {
     const { process, sink } = harness([
-      handler(async () => HandlerOutcome.ack()),
-      handler(async () => HandlerOutcome.retry('smtp 503')),
+      handler(() => Promise.resolve(HandlerOutcome.ack())),
+      handler(() => Promise.resolve(HandlerOutcome.retry('smtp 503'))),
     ]);
     const msg = jsMsg(2);
     await process(msg);
@@ -109,11 +115,7 @@ describe('NatsEventBus handler outcome fold (PLAT-HIGH-902)', () => {
   });
 
   it('folds a thrown error as a retry (the previous behaviour, made explicit)', async () => {
-    const { process } = harness([
-      handler(async () => {
-        throw new Error('db down');
-      }),
-    ]);
+    const { process } = harness([handler(() => Promise.reject(new Error('db down')))]);
     const msg = jsMsg(1);
     await process(msg);
     expect(msg.nak).toHaveBeenCalledWith(2000);
@@ -121,30 +123,29 @@ describe('NatsEventBus handler outcome fold (PLAT-HIGH-902)', () => {
 
   it('terminates and dead-letters when a handler terminates', async () => {
     const cause = new Error('bad scope');
-    const { process, sink } = harness([
-      handler(async () => HandlerOutcome.terminate('invalid tenancy scope', cause)),
+    const { process, recorded } = harness([
+      handler(() => Promise.resolve(HandlerOutcome.terminate('invalid tenancy scope', cause))),
     ]);
     const msg = jsMsg(1);
     await process(msg);
     expect(msg.term).toHaveBeenCalledWith('invalid tenancy scope');
     expect(msg.ack).not.toHaveBeenCalled();
-    expect(sink.record).toHaveBeenCalledWith(
-      expect.objectContaining({
-        subject: SUBJECT,
-        event: expect.objectContaining({ eventType: 'PasswordResetRequested', tenantId: TENANT }),
-        disposition: 'terminated',
-        reason: 'invalid tenancy scope',
-        deliveryCount: 1,
-        maxDeliver: 3,
-        cause,
-      }),
-    );
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]).toMatchObject({
+      subject: SUBJECT,
+      event: { eventType: 'PasswordResetRequested', tenantId: TENANT },
+      disposition: 'terminated',
+      reason: 'invalid tenancy scope',
+      deliveryCount: 1,
+      maxDeliver: 3,
+      cause,
+    });
   });
 
   it('retry outranks terminate across handlers of one message', async () => {
     const { process, sink } = harness([
-      handler(async () => HandlerOutcome.terminate('legacy')),
-      handler(async () => HandlerOutcome.retry('transient')),
+      handler(() => Promise.resolve(HandlerOutcome.terminate('legacy'))),
+      handler(() => Promise.resolve(HandlerOutcome.retry('transient'))),
     ]);
     const msg = jsMsg(1);
     await process(msg);
@@ -154,9 +155,12 @@ describe('NatsEventBus handler outcome fold (PLAT-HIGH-902)', () => {
   });
 
   it('dead-letters a retry once the delivery budget is spent (retry-exhausted)', async () => {
-    const { process, sink } = harness([handler(async () => HandlerOutcome.retry('still down'))], {
-      maxRetries: 3,
-    });
+    const { process, sink } = harness(
+      [handler(() => Promise.resolve(HandlerOutcome.retry('still down')))],
+      {
+        maxRetries: 3,
+      },
+    );
     const msg = jsMsg(3);
     await process(msg);
     expect(msg.term).toHaveBeenCalledTimes(1);
@@ -167,7 +171,7 @@ describe('NatsEventBus handler outcome fold (PLAT-HIGH-902)', () => {
   });
 
   it('never exhausts an unlimited consumer (maxRetries -1)', async () => {
-    const { process, sink } = harness([handler(async () => HandlerOutcome.retry('x'))], {
+    const { process, sink } = harness([handler(() => Promise.resolve(HandlerOutcome.retry('x')))], {
       maxRetries: -1,
     });
     const msg = jsMsg(40);
@@ -191,7 +195,7 @@ describe('NatsEventBus handler outcome fold (PLAT-HIGH-902)', () => {
       record: jest.fn().mockRejectedValue(new Error('db unavailable')),
     };
     const { process } = harness(
-      [handler(async () => HandlerOutcome.terminate('poison'))],
+      [handler(() => Promise.resolve(HandlerOutcome.terminate('poison')))],
       {},
       failingSink,
     );
@@ -201,7 +205,7 @@ describe('NatsEventBus handler outcome fold (PLAT-HIGH-902)', () => {
   });
 
   it('naks an undeserializable message (a malformed frame is not a handler outcome)', async () => {
-    const { process, sink } = harness([handler(async () => HandlerOutcome.ack())]);
+    const { process, sink } = harness([handler(() => Promise.resolve(HandlerOutcome.ack()))]);
     const msg = { ...jsMsg(1), string: () => '{not json' };
     await process(msg);
     expect(msg.nak).toHaveBeenCalledTimes(1);

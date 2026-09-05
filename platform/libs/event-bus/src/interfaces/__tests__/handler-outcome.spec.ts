@@ -55,13 +55,11 @@ describe('foldHandlerOutcomes (PLAT-HIGH-902)', () => {
   it('turns a retry into a retry-exhausted terminate at the delivery budget boundary', () => {
     const atBudget = { deliveryCount: 3, maxDeliver: 3 };
     const disposition = foldHandlerOutcomes([HandlerOutcome.retry('still down')], atBudget);
-    expect(disposition.kind).toBe('term');
-    expect(disposition).toEqual(
-      expect.objectContaining({
-        retryExhausted: true,
-        reason: expect.stringContaining('exhausted after 3 deliveries: still down'),
-      }),
-    );
+    if (disposition.kind !== 'term') {
+      throw new Error(`expected term, got ${disposition.kind}`);
+    }
+    expect(disposition.retryExhausted).toBe(true);
+    expect(disposition.reason).toContain('exhausted after 3 deliveries: still down');
     expect(isRetryExhausted({ deliveryCount: 2, maxDeliver: 3 })).toBe(false);
     expect(isRetryExhausted({ deliveryCount: 3, maxDeliver: 3 })).toBe(true);
   });

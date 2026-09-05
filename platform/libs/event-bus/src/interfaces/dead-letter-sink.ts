@@ -37,10 +37,13 @@ export const EVENT_DEAD_LETTER_SINK = 'EVENT_DEAD_LETTER_SINK';
 function describeCause(cause: unknown): string | undefined {
   if (cause === undefined) return undefined;
   if (cause instanceof Error) return `${cause.name}: ${cause.message}`;
+  if (typeof cause === 'string') {
+    return cause;
+  }
   try {
     return JSON.stringify(cause);
   } catch {
-    return String(cause);
+    return '[unserializable cause]';
   }
 }
 

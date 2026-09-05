@@ -721,9 +721,11 @@ AUDITED_WORKFLOW_EXCLUSIONS: dict[str, AuditedWorkflowExclusion] = {
     ),
     "aria-state-maintenance": AuditedWorkflowExclusion(
         workflow_id="aria-state-maintenance",
-        reason="utility maintenance lane; clones aria/state to /tmp, compacts JSONL surfaces "
-        "and strips old hot artifacts, pushes the slim branch; performs no governed ARIA "
-        "mutation and uploads no ARIA artifact — the output IS the aria/state branch itself",
+        reason="utility maintenance lane; materialises aria/state through the single "
+        "restore path (state checkout + bind-tools-root), compacts JSONL surfaces, prunes "
+        "the artifact index alongside the hot artifacts it strips, pushes the slim branch; "
+        "performs no governed ARIA mutation and uploads no ARIA artifact — the output IS "
+        "the aria/state branch itself (ORPHAN-CRITICAL-807)",
         owner="aria-kernel",
         expires_at=_NEVER_EXPIRES,
     ),

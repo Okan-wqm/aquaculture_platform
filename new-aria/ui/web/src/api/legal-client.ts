@@ -7,7 +7,7 @@ import {
   LEGAL_UPLOAD_FILE_NAME_HEADER,
   LEGAL_UPLOAD_SOURCE_HEADER,
   type LegalCaseCreatedResponse,
-  type LegalCaseResponse,
+  type LegalCaseDetailResponse,
   type LegalCasesResponse,
   type LegalCoverageResponse,
   type LegalDocumentResponse,
@@ -37,8 +37,13 @@ export function getLegalCases(signal?: AbortSignal): Promise<LegalCasesResponse>
   return requestJson<LegalCasesResponse>(LEGAL_ENDPOINTS.cases.path, { signal });
 }
 
-export function getLegalCase(caseId: string, signal?: AbortSignal): Promise<LegalCaseResponse> {
-  return requestJson<LegalCaseResponse>(fillPath(LEGAL_ENDPOINTS.case.path, { caseId }), { signal });
+export function getLegalCase(
+  caseId: string,
+  signal?: AbortSignal,
+): Promise<LegalCaseDetailResponse> {
+  return requestJson<LegalCaseDetailResponse>(fillPath(LEGAL_ENDPOINTS.case.path, { caseId }), {
+    signal,
+  });
 }
 
 export function getLegalDocuments(
@@ -56,16 +61,33 @@ export function getLegalDocuments(
   );
 }
 
-export function getLegalDocument(caseId: string, documentId: string, signal?: AbortSignal): Promise<LegalDocumentResponse> {
-  return requestJson<LegalDocumentResponse>(fillPath(LEGAL_ENDPOINTS.document.path, { caseId, documentId }), { signal });
+export function getLegalDocument(
+  caseId: string,
+  documentId: string,
+  signal?: AbortSignal,
+): Promise<LegalDocumentResponse> {
+  return requestJson<LegalDocumentResponse>(
+    fillPath(LEGAL_ENDPOINTS.document.path, { caseId, documentId }),
+    { signal },
+  );
 }
 
-export function getLegalTimeline(caseId: string, signal?: AbortSignal): Promise<LegalTimelineResponse> {
-  return requestJson<LegalTimelineResponse>(fillPath(LEGAL_ENDPOINTS.timeline.path, { caseId }), { signal });
+export function getLegalTimeline(
+  caseId: string,
+  signal?: AbortSignal,
+): Promise<LegalTimelineResponse> {
+  return requestJson<LegalTimelineResponse>(fillPath(LEGAL_ENDPOINTS.timeline.path, { caseId }), {
+    signal,
+  });
 }
 
-export function getLegalParties(caseId: string, signal?: AbortSignal): Promise<LegalPartiesResponse> {
-  return requestJson<LegalPartiesResponse>(fillPath(LEGAL_ENDPOINTS.parties.path, { caseId }), { signal });
+export function getLegalParties(
+  caseId: string,
+  signal?: AbortSignal,
+): Promise<LegalPartiesResponse> {
+  return requestJson<LegalPartiesResponse>(fillPath(LEGAL_ENDPOINTS.parties.path, { caseId }), {
+    signal,
+  });
 }
 
 export function getLegalStatements(
@@ -82,8 +104,13 @@ export function getLegalStatements(
   );
 }
 
-export function getLegalCoverage(caseId: string, signal?: AbortSignal): Promise<LegalCoverageResponse> {
-  return requestJson<LegalCoverageResponse>(fillPath(LEGAL_ENDPOINTS.coverage.path, { caseId }), { signal });
+export function getLegalCoverage(
+  caseId: string,
+  signal?: AbortSignal,
+): Promise<LegalCoverageResponse> {
+  return requestJson<LegalCoverageResponse>(fillPath(LEGAL_ENDPOINTS.coverage.path, { caseId }), {
+    signal,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -92,7 +119,9 @@ export function getLegalCoverage(caseId: string, signal?: AbortSignal): Promise<
 // ---------------------------------------------------------------------------
 
 export function getLegalIntake(caseId: string, signal?: AbortSignal): Promise<LegalIntakeResponse> {
-  return requestJson<LegalIntakeResponse>(fillPath(LEGAL_ENDPOINTS.intake.path, { caseId }), { signal });
+  return requestJson<LegalIntakeResponse>(fillPath(LEGAL_ENDPOINTS.intake.path, { caseId }), {
+    signal,
+  });
 }
 
 export interface CreateLegalCaseInput {
@@ -103,8 +132,15 @@ export interface CreateLegalCaseInput {
   readonly custodian: string;
 }
 
-export function createLegalCase(input: CreateLegalCaseInput, signal?: AbortSignal): Promise<LegalCaseCreatedResponse> {
-  return requestJson<LegalCaseCreatedResponse>(LEGAL_ENDPOINTS.createCase.path, { method: 'POST', body: input, signal });
+export function createLegalCase(
+  input: CreateLegalCaseInput,
+  signal?: AbortSignal,
+): Promise<LegalCaseCreatedResponse> {
+  return requestJson<LegalCaseCreatedResponse>(LEGAL_ENDPOINTS.createCase.path, {
+    method: 'POST',
+    body: input,
+    signal,
+  });
 }
 
 /**
@@ -117,20 +153,32 @@ export function createLegalCase(input: CreateLegalCaseInput, signal?: AbortSigna
 export function uploadLegalDocument(
   caseId: string,
   file: File,
-  options: { readonly relativePath?: string | undefined; readonly sourceNote?: string | undefined; readonly signal?: AbortSignal | undefined } = {},
+  options: {
+    readonly relativePath?: string | undefined;
+    readonly sourceNote?: string | undefined;
+    readonly signal?: AbortSignal | undefined;
+  } = {},
 ): Promise<LegalUploadResponse> {
   const headers = new Headers();
   headers.set(LEGAL_UPLOAD_FILE_NAME_HEADER, encodeURIComponent(options.relativePath ?? file.name));
   if (options.sourceNote !== undefined && options.sourceNote.trim() !== '') {
     headers.set(LEGAL_UPLOAD_SOURCE_HEADER, options.sourceNote.trim());
   }
-  return requestBytes<LegalUploadResponse>(fillPath(LEGAL_ENDPOINTS.uploadDocument.path, { caseId }), file, {
-    headers,
-    signal: options.signal,
-  });
+  return requestBytes<LegalUploadResponse>(
+    fillPath(LEGAL_ENDPOINTS.uploadDocument.path, { caseId }),
+    file,
+    {
+      headers,
+      signal: options.signal,
+    },
+  );
 }
 
-export function runLegalInventory(caseId: string, title: string | null, signal?: AbortSignal): Promise<JobResponse> {
+export function runLegalInventory(
+  caseId: string,
+  title: string | null,
+  signal?: AbortSignal,
+): Promise<JobResponse> {
   return requestJson<JobResponse>(fillPath(LEGAL_ENDPOINTS.runInventory.path, { caseId }), {
     method: 'POST',
     body: { title },

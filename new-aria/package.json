@@ -22,6 +22,7 @@
     "aria:burnin:observe": "PYTHONPATH=aria-kernel python3 -m aria_kernel autonomy burn-in observe",
     "aria:authority-hash": "npx ts-node --project tools/gates/tsconfig.json tools/gates/aria-authority-hash.ts",
     "aria:authority-hash:write": "npx ts-node --project tools/gates/tsconfig.json tools/gates/aria-authority-hash.ts --write",
+    "legal:check": "npm --prefix ui run typecheck:server && npm --prefix ui run typecheck:web && npm --prefix ui run test:server && npm --prefix ui run test:web && npm --prefix ui run build:server && npm --prefix ui run build:web && npm run aria:adapters:test",
     "aria:ci:all": "npm run aria:compile && npm run aria:instances:test && npm run aria:test:unit && npm run aria:test:poc && npm run aria:test:shared && npm run aria:adapters:test && npm run aria:gates:test && npm run aria:pedagogy:lint && npm run aria:specialist-review:dry-run",
     "docker:build": "docker build -t new-aria:local .",
     "docker:smoke": "docker compose --profile smoke run --rm smoke",

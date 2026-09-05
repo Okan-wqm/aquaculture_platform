@@ -10,8 +10,16 @@
 // section tabs, and hands the fetched detail down through the router outlet so
 // each tab loads only its own endpoint.
 import type { ReactNode } from 'react';
-import { Link, Outlet, useLocation, useNavigate, useOutletContext, useParams } from 'react-router-dom';
-import type { LegalCaseResponse } from '../../../../shared/legal-contract.ts';
+import {
+  Link,
+  Navigate,
+  Outlet,
+  useLocation,
+  useNavigate,
+  useOutletContext,
+  useParams,
+} from 'react-router-dom';
+import type { LegalCaseDetailResponse } from '../../../../shared/legal-contract.ts';
 import { getLegalCase } from '../../api/legal-client.ts';
 import { useRequest } from '../../api/use-request.ts';
 import { isLegalCaseTab, ROUTES, type LegalCaseTab } from '../../app/routes.ts';
@@ -26,7 +34,8 @@ import { formatNumber, shortHash } from '../../design/format.ts';
 
 export interface CaseOutletContext {
   readonly caseId: string;
-  readonly detail: LegalCaseResponse;
+  readonly detail: LegalCaseDetailResponse;
+  readonly reloadCase: () => void;
 }
 
 /** Tabs read the case through the router outlet so each tab fetches only its own endpoint. */
@@ -54,13 +63,17 @@ export function CaseDetailPage(): ReactNode {
   if (id === '') {
     return (
       <Callout tone="danger" title="No case id in this address" role="alert">
-        This address carries no case id, so there is no archive to read. Open a case from the <Link to={ROUTES.legalCases}>Cases</Link> index.
+        This address carries no case id, so there is no archive to read. Open a case from the{' '}
+        <Link to={ROUTES.legalCases}>Cases</Link> index.
       </Callout>
     );
   }
 
-  const lastSegment = location.pathname.split('/').filter((segment) => segment !== '').at(-1);
-  const activeTab: LegalCaseTab = isLegalCaseTab(lastSegment) ? lastSegment : 'documents';
+  const lastSegment = location.pathname
+    .split('/')
+    .filter((segment) => segment !== '')
+    .at(-1);
+  const requestedTab: LegalCaseTab = isLegalCaseTab(lastSegment) ? lastSegment : 'documents';
 
   return (
     <>
@@ -68,18 +81,27 @@ export function CaseDetailPage(): ReactNode {
         title={state.status === 'success' ? state.data.case.title : id}
         breadcrumb={<Link to={ROUTES.legalCases}>Cases</Link>}
         subtitle={
-          state.status === 'success' ? (
+          state.status === 'success' &&
+          state.data.summary !== null &&
+          state.data.coverage !== null ? (
             <>
               <span className="mono">{state.data.case.caseId}</span>
-              {state.data.case.jurisdiction !== null ? <Badge tone="neutral">{state.data.case.jurisdiction}</Badge> : null}
-              {state.data.case.courtReference !== null ? <span className="mono">{state.data.case.courtReference}</span> : null}
+              {state.data.case.jurisdiction !== null ? (
+                <Badge tone="neutral">{state.data.case.jurisdiction}</Badge>
+              ) : null}
+              {state.data.case.courtReference !== null ? (
+                <span className="mono">{state.data.case.courtReference}</span>
+              ) : null}
               <span>
                 Snapshot{' '}
                 <span className="mono" title={state.data.case.snapshotSha256}>
                   {shortHash(state.data.case.snapshotSha256, 12)}
                 </span>
               </span>
-              <span className="mono" title="adapterId@adapterVersion — the build that produced these records">
+              <span
+                className="mono"
+                title="adapterId@adapterVersion — the build that produced these records"
+              >
                 {state.data.case.adapterId}@{state.data.case.adapterVersion}
               </span>
               <span>
@@ -92,6 +114,20 @@ export function CaseDetailPage(): ReactNode {
                 coverage {state.data.coverage.complete ? 'complete' : 'incomplete'}
               </Badge>
             </>
+          ) : state.status === 'success' ? (
+            <>
+              <span className="mono">{state.data.case.caseId}</span>
+              {state.data.case.jurisdiction !== null ? (
+                <Badge tone="neutral">{state.data.case.jurisdiction}</Badge>
+              ) : null}
+              {state.data.case.courtReference !== null ? (
+                <span className="mono">{state.data.case.courtReference}</span>
+              ) : null}
+              <span>
+                Created <Timestamp value={state.data.case.createdAt} />
+              </span>
+              <Badge tone="warning">Not inventoried yet</Badge>
+            </>
           ) : (
             'Case detail'
           )
@@ -103,37 +139,81 @@ export function CaseDetailPage(): ReactNode {
           </button>
         }
       />
-      <AsyncState state={state} onRetry={reload} skeleton="detail" errorTitle="Could not load this case">
-        {(detail) => (
-          <>
-            <Tabs
-              label="Case sections"
-              active={activeTab}
-              onChange={(tab) => {
-                if (isLegalCaseTab(tab)) {
-                  navigate(ROUTES.legalCase(id, tab));
+      <AsyncState
+        state={state}
+        onRetry={reload}
+        skeleton="detail"
+        errorTitle="Could not load this case"
+      >
+        {(detail) => {
+          const ready = detail.summary !== null && detail.coverage !== null;
+          const activeTab: LegalCaseTab = ready ? requestedTab : 'intake';
+          return (
+            <>
+              <Tabs
+                label="Case sections"
+                active={activeTab}
+                onChange={(tab) => {
+                  if (isLegalCaseTab(tab)) {
+                    navigate(ROUTES.legalCase(id, tab));
+                  }
+                }}
+                items={
+                  ready
+                    ? [
+                        { id: 'intake', label: TAB_LABELS.intake },
+                        {
+                          id: 'documents',
+                          label: TAB_LABELS.documents,
+                          count: detail.summary.documents,
+                        },
+                        {
+                          id: 'timeline',
+                          label: TAB_LABELS.timeline,
+                          count: detail.summary.timelineEvents,
+                        },
+                        { id: 'parties', label: TAB_LABELS.parties, count: detail.summary.parties },
+                        {
+                          id: 'statements',
+                          label: TAB_LABELS.statements,
+                          count: detail.summary.statements,
+                        },
+                        {
+                          id: 'coverage',
+                          label: TAB_LABELS.coverage,
+                          count: detail.coverage.totalFiles,
+                        },
+                      ]
+                    : [{ id: 'intake', label: TAB_LABELS.intake }]
                 }
-              }}
-              items={[
-                { id: 'documents', label: TAB_LABELS.documents, count: detail.summary.documents },
-                { id: 'timeline', label: TAB_LABELS.timeline, count: detail.summary.timelineEvents },
-                { id: 'parties', label: TAB_LABELS.parties, count: detail.summary.parties },
-                { id: 'statements', label: TAB_LABELS.statements, count: detail.summary.statements },
-                { id: 'coverage', label: TAB_LABELS.coverage, count: detail.coverage.totalFiles },
-              ]}
-            />
-            {detail.summary.statementsNeedingReview > 0 && activeTab !== 'statements' ? (
-              <Callout tone="warning" title="This case has a human-review backlog">
-                {formatNumber(detail.summary.statementsNeedingReview)}{' '}
-                {detail.summary.statementsNeedingReview === 1 ? 'statement is waiting' : 'statements are waiting'} for a human reviewer. Read them on the{' '}
-                <Link to={ROUTES.legalCase(id, 'statements')}>{TAB_LABELS.statements}</Link> tab.
-              </Callout>
-            ) : null}
-            <TabPanel id={activeTab}>
-              <Outlet context={{ caseId: id, detail } satisfies CaseOutletContext} />
-            </TabPanel>
-          </>
-        )}
+              />
+              {!ready ? (
+                <Callout tone="neutral" title="Not inventoried yet">
+                  This case has been created and can receive documents. Run the inventory from
+                  Intake before reading documents, coverage, parties, dates or statements.
+                </Callout>
+              ) : detail.summary.statementsNeedingReview > 0 && activeTab !== 'statements' ? (
+                <Callout tone="warning" title="This case has a human-review backlog">
+                  {formatNumber(detail.summary.statementsNeedingReview)}{' '}
+                  {detail.summary.statementsNeedingReview === 1
+                    ? 'statement is waiting'
+                    : 'statements are waiting'}{' '}
+                  for a human reviewer. Read them on the{' '}
+                  <Link to={ROUTES.legalCase(id, 'statements')}>{TAB_LABELS.statements}</Link> tab.
+                </Callout>
+              ) : null}
+              <TabPanel id={activeTab}>
+                {!ready && requestedTab !== 'intake' ? (
+                  <Navigate to={ROUTES.legalCase(id, 'intake')} replace />
+                ) : (
+                  <Outlet
+                    context={{ caseId: id, detail, reloadCase: reload } satisfies CaseOutletContext}
+                  />
+                )}
+              </TabPanel>
+            </>
+          );
+        }}
       </AsyncState>
     </>
   );

@@ -1,0 +1,57 @@
+name: new-aria-legal
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'new-aria/arias/legal/**'
+      - 'new-aria/packs/legal/**'
+      - 'new-aria/scripts/ci/aria-adapters-test.sh'
+      - 'new-aria/tools/aria-adapters/**'
+      - 'new-aria/ui/**'
+      - 'new-aria/package.json'
+      - 'new-aria/ui/package-lock.json'
+      - '.github/workflows/new-aria-legal.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'new-aria/arias/legal/**'
+      - 'new-aria/packs/legal/**'
+      - 'new-aria/scripts/ci/aria-adapters-test.sh'
+      - 'new-aria/tools/aria-adapters/**'
+      - 'new-aria/ui/**'
+      - 'new-aria/package.json'
+      - 'new-aria/ui/package-lock.json'
+      - '.github/workflows/new-aria-legal.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: new-aria-legal-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  legal-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            new-aria/ui/package-lock.json
+      - name: Install monorepo dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund --prefer-offline
+      - name: Install legal console dependencies
+        working-directory: new-aria/ui
+        run: npm ci --ignore-scripts --no-audit --no-fund --prefer-offline
+      - name: Check the complete legal surface
+        working-directory: new-aria
+        run: npm run legal:check

@@ -62,7 +62,7 @@ test('the shipped legal instance opens a case for the token holder, and keeps ke
 
 test('every lawyer-owned class is refused to the operator by name, and open to a lawyer', () => {
   const config = configWith(false, LEGAL_MANIFEST);
-  for (const actionClass of ['statement_verification', 'party_identity_merge', 'filed_version_declaration', 'redaction_and_production', 'external_effect'] as const) {
+  for (const actionClass of ['statement_verification', 'party_identity_merge', 'filed_version_declaration', 'document_removal', 'case_lifecycle', 'redaction_and_production', 'external_effect'] as const) {
     const error = refusal(() => requireGate(config, TOKEN_HOLDER_PRINCIPAL, actionClass));
     assert.equal(error.status, 403);
     assert.equal(error.code, 'action_class_refused');
@@ -99,6 +99,8 @@ test('the permission map answers every class the console knows, for the principa
     statement_verification: false,
     party_identity_merge: false,
     filed_version_declaration: false,
+    document_removal: false,
+    case_lifecycle: false,
     redaction_and_production: false,
     external_effect: false,
   });
@@ -106,4 +108,13 @@ test('the permission map answers every class the console knows, for the principa
   assert.equal(lawyer['statement_verification'], true);
   assert.equal(lawyer['kernel_control'], false, 'a lawyer does not steer the kernel');
   assert.equal(decideAction(config, LAWYER, 'redaction_and_production').allowed, true);
+});
+
+test('enabled kernel control still requires an operator with unrestricted case scope', () => {
+  const config = configWith(true, null);
+  for (const principal of [LAWYER, { ...TOKEN_HOLDER_PRINCIPAL, cases: ['sak-24-001'] }]) {
+    assert.equal(permissionsFor(config, principal)['kernel_control'], false);
+    assert.throws(() => requireGate(config, principal, 'kernel_control'), { code: 'action_class_refused' });
+  }
+  assert.equal(permissionsFor(config, TOKEN_HOLDER_PRINCIPAL)['kernel_control'], true);
 });

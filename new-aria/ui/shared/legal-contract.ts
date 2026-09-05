@@ -52,6 +52,10 @@ export const LEGAL_ACTION_CLASSES = [
   'statement_verification',
   'party_identity_merge',
   'filed_version_declaration',
+  /** Taking a document out of the archive: its bytes go, its receipt and the decision stay. */
+  'document_removal',
+  /** Closing a case, or scheduling its destruction with a retention date. */
+  'case_lifecycle',
   'redaction_and_production',
   'external_effect',
 ] as const;
@@ -146,7 +150,39 @@ export const LEGAL_CASE_LAYOUT = {
   intakeHead: 'intake.head.json',
   /** The case's identity and custodian. */
   meta: 'case.meta.json',
+  /**
+   * The human decisions on this case — verifications, filed-version
+   * declarations, identity merges, removals, lifecycle — as a signed, chained
+   * ledger of their own. The adapter never reads it; the console overlays it
+   * on the artifacts at read time, so an inventory re-run cannot erase a
+   * decision and a decision cannot rewrite an artifact.
+   */
+  decisions: 'decisions.jsonl',
+  decisionsHead: 'decisions.head.json',
+  /** Every case-scoped request, signed and chained. */
+  access: 'access.jsonl',
 } as const;
+
+/** Planned immutable-run layout. The current flat adapter has no run key;
+ * readers report null until the Phase 2 publisher writes validated runs. */
+export const LEGAL_ARTIFACT_LAYOUT = {
+  runs: 'runs',
+  current: 'current.json',
+} as const;
+/** A run key is a directory name: the kernel cycle id when there was one, else a content hash of what the run wrote. */
+export const LEGAL_RUN_KEY_PATTERN = '^[A-Za-z0-9][A-Za-z0-9._-]{3,95}$' as const;
+export const LEGAL_RUN_KEY_RE = new RegExp(LEGAL_RUN_KEY_PATTERN);
+
+/** Phase 2 publisher contract: publish this pointer only after validating every run file. */
+export interface LegalCurrentRun {
+  readonly schemaVersion: 1;
+  readonly caseId: string;
+  readonly runKey: string;
+  readonly adapterVersion: string;
+  readonly snapshotSha256: string;
+  readonly cycleId: string | null;
+  readonly files: ReadonlyArray<string>;
+}
 export const LEGAL_ARTIFACT_FILES = {
   case: 'case.json',
   documents: 'documents.json',
@@ -163,7 +199,7 @@ export const LEGAL_ARTIFACT_FILES = {
 // ---------------------------------------------------------------------------
 export const LEGAL_ENDPOINTS = {
   cases: { method: 'GET', path: `${LEGAL_API_PREFIX}/cases`, response: 'LegalCasesResponse' },
-  case: { method: 'GET', path: `${LEGAL_API_PREFIX}/cases/:caseId`, response: 'LegalCaseResponse' },
+  case: { method: 'GET', path: `${LEGAL_API_PREFIX}/cases/:caseId`, response: 'LegalCaseDetailResponse' },
   documents: {
     method: 'GET',
     path: `${LEGAL_API_PREFIX}/cases/:caseId/documents`,
@@ -188,6 +224,16 @@ export const LEGAL_ENDPOINTS = {
   createCase: { method: 'POST', path: `${LEGAL_API_PREFIX}/cases`, response: 'LegalCaseCreatedResponse' },
   uploadDocument: { method: 'POST', path: `${LEGAL_API_PREFIX}/cases/:caseId/documents`, response: 'LegalUploadResponse' },
   runInventory: { method: 'POST', path: `${LEGAL_API_PREFIX}/cases/:caseId/inventory`, response: 'JobResponse' },
+  // --- decisions: the human half of the matrix. Every one is gated by its action class.
+  decisions: { method: 'GET', path: `${LEGAL_API_PREFIX}/cases/:caseId/decisions`, response: 'LegalDecisionsResponse' },
+  verifyStatement: { method: 'POST', path: `${LEGAL_API_PREFIX}/cases/:caseId/statements/:statementId/verify`, response: 'LegalDecisionResponse' },
+  declareFiledVersion: { method: 'POST', path: `${LEGAL_API_PREFIX}/cases/:caseId/versions/:versionGroupId/filed`, response: 'LegalDecisionResponse' },
+  mergeParties: { method: 'POST', path: `${LEGAL_API_PREFIX}/cases/:caseId/parties/merge`, response: 'LegalDecisionResponse' },
+  removeDocument: { method: 'DELETE', path: `${LEGAL_API_PREFIX}/cases/:caseId/documents/:documentId`, response: 'LegalDecisionResponse' },
+  lifecycle: { method: 'POST', path: `${LEGAL_API_PREFIX}/cases/:caseId/lifecycle`, response: 'LegalDecisionResponse' },
+  // --- runs: every inventory the adapter wrote for the case, the current one named.
+  runs: { method: 'GET', path: `${LEGAL_API_PREFIX}/cases/:caseId/runs`, response: 'LegalRunsResponse' },
+  run: { method: 'GET', path: `${LEGAL_API_PREFIX}/cases/:caseId/runs/:runKey`, response: 'LegalRunResponse' },
 } as const;
 
 /**
@@ -425,12 +471,29 @@ export interface LegalCaseResponse {
   readonly case: LegalCase;
   readonly summary: LegalCaseSummary;
   readonly coverage: LegalCoverage;
+  /** The run these artifacts come from; other runs are listed by the runs endpoint. */
+  readonly runKey: string | null;
+  readonly lifecycle: LegalLifecycle;
 }
+
+/** A created case can be opened before any inventory exists. No synthetic evidence is produced. */
+export interface LegalPendingCaseResponse {
+  readonly case: LegalCaseMeta;
+  readonly summary: null;
+  readonly coverage: null;
+  readonly runKey: null;
+  readonly lifecycle: LegalLifecycle;
+}
+export type LegalCaseDetailResponse = LegalCaseResponse | LegalPendingCaseResponse;
 
 export interface LegalDocumentsResponse {
   readonly documents: ReadonlyArray<LegalDocument>;
   readonly total: number;
+  /** `filedMember` here is the overlay of a lawyer's declaration; the artifact on disk never carries one. */
   readonly versionGroups: ReadonlyArray<LegalDocumentVersion>;
+  readonly filedDeclarations: ReadonlyArray<LegalFiledDeclaration>;
+  /** Documents a lawyer removed from the archive since the current run; their receipts and decisions remain. */
+  readonly removed: ReadonlyArray<LegalRemovedDocument>;
 }
 
 export interface LegalDocumentResponse {
@@ -445,12 +508,17 @@ export interface LegalTimelineResponse {
 
 export interface LegalPartiesResponse {
   readonly parties: ReadonlyArray<LegalParty>;
+  /** Identity merges a lawyer decided. The adapter still lists the parties apart; the decision is shown beside them. */
+  readonly identityDecisions: ReadonlyArray<LegalIdentityDecision>;
 }
 
 export interface LegalStatementsResponse {
+  /** `verified` rows here are the overlay of a lawyer's decision on a statement whose wording has not changed since. */
   readonly statements: ReadonlyArray<LegalStatement>;
   readonly byStatus: Record<string, number>;
   readonly needingReview: number;
+  /** Verifications whose statement is gone, or reads differently, in the current run. Shown, never dropped. */
+  readonly orphanedVerifications: ReadonlyArray<LegalOrphanedDecision>;
 }
 
 export interface LegalCoverageResponse {
@@ -519,6 +587,9 @@ export interface LegalIntakeResponse {
   readonly caseMeta: LegalCaseMeta | null;
   readonly intake: ReadonlyArray<LegalIntakeRecord>;
   readonly chain: LegalIntakeChainVerdict;
+  readonly lifecycle: LegalLifecycle;
+  /** Receipts whose document a lawyer has since removed, by row hash. */
+  readonly removedRowHashes: ReadonlyArray<string>;
 }
 
 export interface LegalCaseCreatedResponse {
@@ -529,4 +600,148 @@ export interface LegalUploadResponse {
   readonly record: LegalIntakeRecord;
   /** True when these exact bytes were already stored at this path; nothing was written. */
   readonly duplicate: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Decisions — the human half. A machine never writes one of these.
+// ---------------------------------------------------------------------------
+
+/**
+ * What a person may decide about a case. Each kind is owned by one action
+ * class of the approval policy, and each is recorded as a signed row in the
+ * case's decision ledger, never inside an artifact.
+ */
+export const LEGAL_DECISION_KINDS = ['statement_verification', 'filed_version_declaration', 'party_identity_merge', 'document_removal', 'case_lifecycle'] as const;
+export type LegalDecisionKind = (typeof LEGAL_DECISION_KINDS)[number];
+
+export const LEGAL_LIFECYCLE_STATES = ['open', 'closed', 'destruction_scheduled'] as const;
+export type LegalLifecycleState = (typeof LEGAL_LIFECYCLE_STATES)[number];
+
+/**
+ * The kind-specific body of a decision. Every body pins what the decision was
+ * about by content, not only by id: a verification names the fingerprint of
+ * the statement's wording and evidence, a filed declaration the document's
+ * sha256, a removal the bytes it removed. When the current run no longer holds
+ * that content the decision is shown as orphaned rather than applied to
+ * something the person never looked at.
+ */
+export type LegalDecisionBody =
+  | { readonly kind: 'statement_verification'; readonly action: 'verify' | 'withdraw'; readonly statementFingerprint: string }
+  | { readonly kind: 'filed_version_declaration'; readonly action: 'declare' | 'withdraw'; readonly documentId: string; readonly sha256: string }
+  | { readonly kind: 'party_identity_merge'; readonly partyIds: ReadonlyArray<string>; readonly displayName: string }
+  | { readonly kind: 'document_removal'; readonly relativePath: string; readonly sha256: string }
+  | { readonly kind: 'case_lifecycle'; readonly state: LegalLifecycleState; readonly retainUntil: string | null };
+
+export interface LegalDecisionRecord {
+  readonly schemaVersion: 2;
+  readonly caseId: string;
+  readonly decisionId: string;
+  readonly kind: LegalDecisionKind;
+  /** The statement, version group, party set, document or case the decision is about. */
+  readonly targetId: string;
+  readonly body: LegalDecisionBody;
+  /** The authenticated principal; never a name typed into a request. */
+  readonly decidedBy: string;
+  readonly role: string;
+  readonly decidedAt: string;
+  readonly reason: string;
+  readonly previousRowHash: string | null;
+  readonly rowHash: string;
+  readonly keyId: string;
+  readonly signature: string;
+}
+
+export interface LegalDecisionsResponse {
+  readonly decisions: ReadonlyArray<LegalDecisionRecord>;
+  readonly chain: LegalIntakeChainVerdict;
+}
+
+export interface LegalDecisionResponse {
+  readonly decision: LegalDecisionRecord;
+}
+
+/** A decision whose target the current run no longer holds as it was decided. */
+export interface LegalOrphanedDecision {
+  readonly decision: LegalDecisionRecord;
+  readonly reason: 'target_missing' | 'target_changed';
+}
+
+export interface LegalFiledDeclaration {
+  readonly decision: LegalDecisionRecord;
+  readonly versionGroupId: string;
+  readonly documentId: string;
+  readonly orphaned: LegalOrphanedDecision['reason'] | null;
+}
+
+export interface LegalIdentityDecision {
+  readonly decision: LegalDecisionRecord;
+  readonly partyIds: ReadonlyArray<string>;
+  readonly displayName: string;
+  /** Party ids the current run does not list any more. */
+  readonly missingPartyIds: ReadonlyArray<string>;
+}
+
+export interface LegalRemovedDocument {
+  readonly decision: LegalDecisionRecord;
+  readonly relativePath: string;
+  readonly sha256: string;
+}
+
+/** Derived at read time from the latest lifecycle decision; `open` with nulls when none was made. */
+export interface LegalLifecycle {
+  readonly state: LegalLifecycleState;
+  readonly retainUntil: string | null;
+  readonly decision: LegalDecisionRecord | null;
+}
+
+// --- request bodies
+export interface LegalVerifyStatementRequest {
+  readonly action: 'verify' | 'withdraw';
+  readonly reason: string;
+}
+export interface LegalDeclareFiledRequest {
+  readonly action: 'declare' | 'withdraw';
+  readonly documentId: string;
+  readonly reason: string;
+}
+export interface LegalMergePartiesRequest {
+  readonly partyIds: ReadonlyArray<string>;
+  readonly displayName: string;
+  readonly reason: string;
+}
+export interface LegalRemoveDocumentRequest {
+  readonly reason: string;
+}
+export interface LegalLifecycleRequest {
+  readonly state: LegalLifecycleState;
+  readonly retainUntil: string | null;
+  readonly reason: string;
+}
+
+// ---------------------------------------------------------------------------
+// Planned run-history contracts — publication is tracked in Phase 2
+// ---------------------------------------------------------------------------
+export interface LegalRunSummary {
+  readonly runKey: string;
+  readonly current: boolean;
+  readonly createdAt: string;
+  readonly snapshotSha256: string;
+  readonly adapterVersion: string;
+  readonly cycleId: string | null;
+  readonly documents: number;
+  readonly statements: number;
+  readonly timelineEvents: number;
+  readonly parties: number;
+  readonly complete: boolean;
+}
+
+export interface LegalRunsResponse {
+  readonly runs: ReadonlyArray<LegalRunSummary>;
+}
+
+/** One run's own record and coverage, read as written — no decision overlay, no current pointer. */
+export interface LegalRunResponse {
+  readonly run: LegalRunSummary;
+  readonly case: LegalCase;
+  readonly coverage: LegalCoverage;
 }

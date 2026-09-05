@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
+import { ENDPOINTS } from '../../shared/api-contract.ts';
 import type { HealthResponse, JobResponse, WhoAmIResponse } from '../../shared/api-contract.ts';
 import type { LegalCaseCreatedResponse, LegalCasesResponse, LegalIntakeResponse, LegalUploadResponse } from '../../shared/legal-contract.ts';
 import { accessCanonical, ACCESS_LEDGER } from '../src/access-log.ts';
@@ -24,7 +25,7 @@ import { createConsoleServer, prepareLegalReadiness } from '../src/index.ts';
 import { readHead, verifyLedger } from '../src/ledger.ts';
 import { LEGAL_ADAPTER_MANIFEST } from '../src/legal-readiness.ts';
 import { setLogWriter } from '../src/log.ts';
-import { addPrincipal } from '../src/principals.ts';
+import { addPrincipal, revokePrincipal } from '../src/principals.ts';
 
 const OPERATOR_TOKEN = 'route-test-token-0123456789abcdef';
 const LEGAL_MANIFEST = new URL('../../../arias/legal/aria.manifest.json', import.meta.url).pathname;
@@ -150,6 +151,16 @@ test('the shipped legal profile takes a case in, end to end, with kernel control
     const created = await call(h.base, OPERATOR_TOKEN, 'POST', '/api/v1/legal/cases', { caseId: 'sak-24-001', title: 'Bergen Eiendom mot Nordlys', custodian: 'Advokat Kari Nordmann' }, { 'x-aria-actor': 'Someone Else' });
     assert.equal(created.status, 201);
     assert.equal((created.body as unknown as LegalCaseCreatedResponse).caseMeta.createdBy, 'console-token-holder', 'the receipt names the authenticated principal, never a header');
+
+    const pending = await call(h.base, h.lawyerToken, 'GET', '/api/v1/legal/cases/sak-24-001');
+    assert.equal(pending.status, 200);
+    assert.equal(pending.body['coverage'], null);
+    assert.equal(pending.body['summary'], null);
+    assert.equal(pending.body['runKey'], null);
+    const initialList = await call(h.base, h.lawyerToken, 'GET', '/api/v1/legal/cases');
+    assert.equal(initialList.status, 200);
+    assert.ok(Array.isArray(initialList.body['cases']));
+    assert.equal(initialList.body['cases'].length, 1);
 
     const uploaded = await call(h.base, OPERATOR_TOKEN, 'POST', '/api/v1/legal/cases/sak-24-001/documents', new TextEncoder().encode('Fakturadato: 12.03.2024\n'), { 'x-aria-file-name': encodeURIComponent('vedlegg/faktura.txt'), 'x-aria-actor': 'Someone Else' });
     assert.equal(uploaded.status, 201);
@@ -306,4 +317,33 @@ test('an inventory is refused before the kernel is spawned while the adapter is 
   } finally {
     await h.close();
   }
+});
+
+
+test('revocation is effective on the next request and the bootstrap token cannot restore a revoked principal', async () => {
+  const h = await harness('ACTIVE');
+  try {
+    const principalsFile = join(h.workspace, 'data/legal/principals.json');
+    const get = (token: string): Promise<Response> => fetch(`${h.base}${ENDPOINTS.me.path}`, { headers: { authorization: `Bearer ${token}` } });
+    assert.equal((await get(h.lawyerToken)).status, 200);
+    revokePrincipal(principalsFile, 'kari', '2026-09-05T11:00:00.000Z');
+    assert.equal((await get(h.lawyerToken)).status, 401);
+    revokePrincipal(principalsFile, 'console-token-holder', '2026-09-05T11:00:00.000Z');
+    assert.equal((await get(OPERATOR_TOKEN)).status, 401);
+  } finally { await h.close(); }
+});
+
+test('inventory jobs are readable only by principals assigned to the job case', async () => {
+  const h = await harness('ACTIVE');
+  try {
+    for (const caseId of ['sak-24-001', 'sak-24-002']) {
+      assert.equal((await call(h.base, OPERATOR_TOKEN, 'POST', '/api/v1/legal/cases', { caseId, title: caseId, custodian: 'Counsel' })).status, 201);
+      const started = await call(h.base, OPERATOR_TOKEN, 'POST', `/api/v1/legal/cases/${caseId}/inventory`, {});
+      assert.equal(started.status, 202);
+      assert.equal(typeof started.body['jobId'], 'string');
+      const path = ENDPOINTS.job.path.replace(':jobId', String(started.body['jobId']));
+      const visible = await call(h.base, h.lawyerToken, 'GET', path);
+      assert.equal(visible.status, caseId === 'sak-24-001' ? 200 : 404);
+    }
+  } finally { await h.close(); }
 });

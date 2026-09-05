@@ -14,7 +14,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { API_PREFIX } from '../../shared/api-contract.ts';
 import { JobTable } from './actions.ts';
-import { Authorizer, combineResolvers, sharedTokenResolver } from './auth.ts';
+import { Authorizer, sharedTokenResolver } from './auth.ts';
 import type { PrincipalResolver } from './auth.ts';
 import { ConfigError, loadConfig } from './config.ts';
 import type { ServerConfig } from './config.ts';
@@ -26,17 +26,19 @@ import { registerLegalAdapter } from './legal-readiness.ts';
 import { log, maskLegalPath, redactHeaders } from './log.ts';
 import { ANONYMOUS_PRINCIPAL, TOKEN_HOLDER_PRINCIPAL } from './principal.ts';
 import type { PrincipalDirectory } from './principals.ts';
-import { loadOrCreatePrincipals, tokenDigest } from './principals.ts';
+import { loadOrCreatePrincipals, loadPrincipals, tokenDigest } from './principals.ts';
 import { dispatch, sendJson } from './router.ts';
 import { buildRoutes } from './routes.ts';
 import { serveStatic } from './static.ts';
 
 /** Every credential this console accepts, each resolving to one principal. */
 function resolverFor(config: ServerConfig, principals: PrincipalDirectory | null): PrincipalResolver {
-  const resolvers: PrincipalResolver[] = [];
-  if (principals !== null) resolvers.push((token) => principals.resolve(token));
-  if (config.token !== null) resolvers.push(sharedTokenResolver(config.token));
-  return combineResolvers(resolvers);
+  if (config.principalsFile !== null) {
+    const path = config.principalsFile;
+    return (token) => loadPrincipals(path).resolve(token);
+  }
+  if (principals !== null) return (token) => loadPrincipals(principals.path).resolve(token);
+  return config.token === null ? () => null : sharedTokenResolver(config.token);
 }
 
 export function createConsoleServer(config: ServerConfig, readiness: LegalReadinessHolder): ReturnType<typeof createServer> {

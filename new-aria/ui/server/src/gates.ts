@@ -17,6 +17,7 @@ import { LEGAL_ACTION_CLASSES } from '../../shared/legal-contract.ts';
 import type { ServerConfig } from './config.ts';
 import { HttpError } from './errors.ts';
 import { decideGate } from './instance-policy.ts';
+import { isInstanceOperator } from './principal.ts';
 import type { Principal } from './principal.ts';
 
 export type ConsoleActionClass = typeof KERNEL_CONTROL_ACTION_CLASS | (typeof LEGAL_ACTION_CLASSES)[number];
@@ -31,7 +32,7 @@ export type ConsoleActionClass = typeof KERNEL_CONTROL_ACTION_CLASS | (typeof LE
  */
 export function decideAction(config: ServerConfig, principal: Principal, actionClass: ConsoleActionClass): { readonly allowed: true } | { readonly allowed: false; readonly code: string; readonly detail: string } {
   if (actionClass === KERNEL_CONTROL_ACTION_CLASS) {
-    if (config.allowActions) return { allowed: true };
+    if (config.allowActions) return isInstanceOperator(principal) ? { allowed: true } : { allowed: false, code: 'action_class_refused', detail: 'kernel control requires an operator with unrestricted case scope' };
     return {
       allowed: false,
       code: 'actions_disabled',

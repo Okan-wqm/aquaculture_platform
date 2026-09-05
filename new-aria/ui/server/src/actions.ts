@@ -13,6 +13,9 @@ import { randomUUID } from 'node:crypto';
 
 import type { ActionResponse, JobKind, JobResponse, JobState } from '../../shared/api-contract.ts';
 import type { ServerConfig } from './config.ts';
+import { isInstanceOperator } from './principal.ts';
+import type { Principal } from './principal.ts';
+import { canSeeCase } from './principals.ts';
 import { HttpError } from './errors.ts';
 
 /** The pack adapter the console can run over a case archive. */
@@ -131,6 +134,7 @@ export interface LegalInventoryRequest {
 }
 
 interface JobRecord {
+  readonly caseId: string | null;
   readonly jobId: string;
   readonly kind: JobKind;
   readonly command: ReadonlyArray<string>;
@@ -154,6 +158,7 @@ export class JobTable {
     const record: JobRecord = {
       jobId: randomUUID(),
       kind: 'cycle',
+      caseId: null,
       command: [config.kernelBin, ...argv],
       state: 'running',
       startedAt: new Date().toISOString(),
@@ -228,13 +233,14 @@ export class JobTable {
       '--tools-dir',
       config.toolsDir,
     ];
-    return this.spawnTracked(config, 'legal-inventory', argv);
+    return this.spawnTracked(config, 'legal-inventory', argv, request.caseId);
   }
 
-  private spawnTracked(config: ServerConfig, kind: JobKind, argv: ReadonlyArray<string>): JobResponse {
+  private spawnTracked(config: ServerConfig, kind: JobKind, argv: ReadonlyArray<string>, caseId: string): JobResponse {
     const record: JobRecord = {
       jobId: randomUUID(),
       kind,
+      caseId,
       command: [config.kernelBin, ...argv],
       state: 'running',
       startedAt: new Date().toISOString(),
@@ -260,9 +266,9 @@ export class JobTable {
     return this.view(record);
   }
 
-  get(jobId: string): JobResponse {
+  get(jobId: string, principal: Principal): JobResponse {
     const record = this.jobs.get(jobId);
-    if (record === undefined) throw new HttpError(404, 'job_not_found');
+    if (record === undefined || (record.caseId === null ? !isInstanceOperator(principal) : !canSeeCase(principal, record.caseId))) throw new HttpError(404, 'job_not_found');
     return this.view(record);
   }
 

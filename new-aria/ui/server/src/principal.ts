@@ -52,3 +52,9 @@ export const ANONYMOUS_PRINCIPAL: Principal = Object.freeze({
 export function isPrincipalRole(value: string): value is PrincipalRole {
   return (PRINCIPAL_ROLES as ReadonlyArray<string>).includes(value);
 }
+
+
+/** Global kernel operations have no case boundary and require an instance operator. */
+export function isInstanceOperator(principal: Principal): boolean {
+  return principal.role === 'operator' && principal.cases === '*';
+}

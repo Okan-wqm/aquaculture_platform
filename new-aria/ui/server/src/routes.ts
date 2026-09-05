@@ -27,16 +27,20 @@ import { LEGAL_ENDPOINTS, LEGAL_UPLOAD_FILE_NAME_HEADER, LEGAL_UPLOAD_SOURCE_HEA
 import { recordAccess } from './access-log.ts';
 import { control, doctor, integrityVerify, JobTable } from './actions.ts';
 import type { ServerConfig } from './config.ts';
+import { lifecycleFrom, readDecisionState, verifiedDecisions } from './decisions-overlay.ts';
+import { readLedgerSnapshot } from './ledger.ts';
 import { HttpError } from './errors.ts';
 import { existsInside, resolveInside } from './fsafe.ts';
 import { permissionsFor, requireGate } from './gates.ts';
 import type { ConsoleActionClass } from './gates.ts';
 import {
   archiveRunRoot,
+  caseRoot,
+  INTAKE_LEDGER,
+  parseIntakeRecord,
   createCase,
   decodeFileNameHeader,
   readCaseMeta,
-  readIntakeHead,
   readIntakeLedger,
   uploadDocument,
   verifyIntakeChain,
@@ -134,6 +138,8 @@ export function buildRoutes(config: ServerConfig, jobs: JobTable, readiness: Leg
       try {
         requireCaseAccess(ctx.principal, caseId);
         if (actionClass !== null) requireGate(config, ctx.principal, actionClass);
+        const decisions = await verifiedDecisions({ casesDir: config.legalCasesDir, verifier: signer }, caseId);
+        if (decisions.some((row) => row.kind === 'document_removal')) throw new HttpError(409, 'case_content_removal_pending');
         answer = await handler({ ...ctx, caseId });
         status = answer.status;
       } catch (error) {
@@ -158,6 +164,7 @@ export function buildRoutes(config: ServerConfig, jobs: JobTable, readiness: Leg
     },
   });
 
+  const decisionContext = { casesDir: config.legalCasesDir, verifier: readiness.signer };
   const routes: Route[] = [
     {
       method: 'GET',
@@ -234,39 +241,45 @@ export function buildRoutes(config: ServerConfig, jobs: JobTable, readiness: Leg
         sendJson(res, 202, jobs.startCycle(config, cycleId, body['discoveryOnly'] === true));
       },
     },
-    { method: 'GET', pattern: ENDPOINTS.job.path, handler: async ({ res, params }) => sendJson(res, 200, jobs.get(requireParam(params, 'jobId'))) },
+    { method: 'GET', pattern: ENDPOINTS.job.path, handler: async ({ res, params, principal }) => sendJson(res, 200, jobs.get(requireParam(params, 'jobId'), principal)) },
     {
       method: 'GET',
       pattern: LEGAL_ENDPOINTS.cases.path,
       handler: async ({ res, principal }) => {
         // The list is the matter wall's first surface: a case the principal is
         // not assigned to is not listed.
-        const all = await listCases(config.toolsDir);
-        sendJson(res, 200, { cases: all.cases.filter((row) => canSeeCase(principal, row.caseId)) });
+        const all = await listCases(config.toolsDir, (caseId) => canSeeCase(principal, caseId), decisionContext);
+        sendJson(res, 200, all);
       },
     },
-    caseRoute('GET', LEGAL_ENDPOINTS.case.path, null, async ({ caseId }) => ({ status: 200, body: await readCase(config.toolsDir, caseId) })),
+    caseRoute('GET', LEGAL_ENDPOINTS.case.path, null, async ({ caseId }) => ({ status: 200, body: await readCase(config.toolsDir, caseId, decisionContext) })),
     caseRoute('GET', LEGAL_ENDPOINTS.documents.path, null, async ({ caseId, query }) => ({
       status: 200,
-      body: await readDocuments(config.toolsDir, caseId, { kind: param(query, 'kind'), extraction: param(query, 'extraction'), limit: clampLimit(query, MAX_LIMIT, MAX_LIMIT) }),
+      body: await readDocuments(config.toolsDir, caseId, { kind: param(query, 'kind'), extraction: param(query, 'extraction'), limit: clampLimit(query, MAX_LIMIT, MAX_LIMIT) }, decisionContext),
     })),
-    caseRoute('GET', LEGAL_ENDPOINTS.document.path, null, async ({ caseId, params }) => ({ status: 200, body: await readDocument(config.toolsDir, caseId, requireParam(params, 'documentId')) })),
+    caseRoute('GET', LEGAL_ENDPOINTS.document.path, null, async ({ caseId, params }) => ({ status: 200, body: await readDocument(config.toolsDir, caseId, requireParam(params, 'documentId'), decisionContext) })),
     caseRoute('GET', LEGAL_ENDPOINTS.timeline.path, null, async ({ caseId }) => ({ status: 200, body: await readTimeline(config.toolsDir, caseId) })),
-    caseRoute('GET', LEGAL_ENDPOINTS.parties.path, null, async ({ caseId }) => ({ status: 200, body: await readParties(config.toolsDir, caseId) })),
+    caseRoute('GET', LEGAL_ENDPOINTS.parties.path, null, async ({ caseId }) => ({ status: 200, body: await readParties(config.toolsDir, caseId, decisionContext) })),
     caseRoute('GET', LEGAL_ENDPOINTS.statements.path, null, async ({ caseId, query }) => {
       const review = param(query, 'humanReview');
-      return { status: 200, body: await readStatements(config.toolsDir, caseId, { status: param(query, 'status'), humanReview: review === null ? null : review === 'true' }) };
+      return { status: 200, body: await readStatements(config.toolsDir, caseId, { status: param(query, 'status'), humanReview: review === null ? null : review === 'true' }, decisionContext) };
     }),
     caseRoute('GET', LEGAL_ENDPOINTS.coverage.path, null, async ({ caseId }) => ({ status: 200, body: await readCoverage(config.toolsDir, caseId) })),
+    caseRoute('GET', LEGAL_ENDPOINTS.decisions.path, null, async ({ caseId }) => {
+      return { status: 200, body: await readDecisionState(decisionContext, caseId) };
+    }),
     caseRoute('GET', LEGAL_ENDPOINTS.intake.path, null, async ({ caseId }) => {
-      const intake = await readIntakeLedger(config.legalCasesDir, caseId);
+      const { rows: intake, head } = await readLedgerSnapshot(caseRoot(config.legalCasesDir, caseId), INTAKE_LEDGER, parseIntakeRecord);
+      const decisions = await verifiedDecisions(decisionContext, caseId);
       const body: LegalIntakeResponse = {
+        lifecycle: lifecycleFrom(decisions),
+        removedRowHashes: [],
         caseMeta: await readCaseMeta(config.legalCasesDir, caseId),
         intake,
         // Verified on every read, not on a schedule: the answer to "was this
         // receipt edited?" must be current at the moment it is asked. Chain,
         // every row's signature, then the signed head commitment.
-        chain: verifyIntakeChain(intake, await readIntakeHead(config.legalCasesDir, caseId), readiness.signer),
+        chain: verifyIntakeChain(intake, head, readiness.signer),
       };
       return { status: 200, body };
     }),

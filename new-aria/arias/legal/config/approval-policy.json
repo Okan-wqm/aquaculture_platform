@@ -31,6 +31,18 @@
       "auto": false
     },
     {
+      "action_class": "document_removal",
+      "description": "Bir belgeyi dava arşivinden kaldırmak. Saklama ve delil bütünlüğü hakkında insan kararıdır.",
+      "requires_role": "lawyer",
+      "auto": false
+    },
+    {
+      "action_class": "case_lifecycle",
+      "description": "Davayı kapatmak, yeniden açmak veya imha tarihi belirlemek.",
+      "requires_role": "lawyer",
+      "auto": false
+    },
+    {
       "action_class": "redaction_and_production",
       "description": "Karartma ve karşı tarafa üretim. Geri alınamaz dış etki.",
       "requires_role": "lawyer",

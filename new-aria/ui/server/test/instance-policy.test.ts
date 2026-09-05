@@ -156,7 +156,7 @@ test("the legal instance shipped in this repo loads and keeps the lawyer's gates
   assert.equal(policy.instanceId, 'legal');
   assert.equal(policy.allowActions, false);
   assert.equal(policy.profileCeiling, 'standard');
-  for (const actionClass of ['statement_verification', 'party_identity_merge', 'filed_version_declaration', 'redaction_and_production', 'external_effect']) {
+  for (const actionClass of ['statement_verification', 'party_identity_merge', 'filed_version_declaration', 'document_removal', 'case_lifecycle', 'redaction_and_production', 'external_effect']) {
     assert.equal(requiredRoleFor(policy, actionClass), 'lawyer', `${actionClass} must be lawyer-owned`);
   }
   assert.equal(requiredRoleFor(policy, 'corpus_inventory'), null, 'reading the archive is automatic');
@@ -201,7 +201,7 @@ test('a legal console whose policy leaves a legal action class ungoverned fails 
           LEGAL_GATES,
         ),
       }),
-    /leaves case_intake, party_identity_merge, filed_version_declaration, redaction_and_production, external_effect unnamed/,
+    /leaves case_intake, party_identity_merge, filed_version_declaration, document_removal, case_lifecycle, redaction_and_production, external_effect unnamed/,
   );
   // The same policy is fine for a console that does not present the legal module.
   const core = loadInstancePolicy({

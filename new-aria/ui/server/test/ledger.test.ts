@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 
 import type { LedgerHead, SignedRowFields } from '../src/ledger.ts';
-import { appendSigned, hashCanonical, headFileName, LEDGER_SCHEMA_VERSION, loadOrCreateSigner, readHead, signerFromPrivatePem, verifierFromPublicPem, verifyLedger } from '../src/ledger.ts';
+import { appendSigned, hashCanonical, headFileName, LEDGER_SCHEMA_VERSION, loadOrCreateSigner, readHead, readLedgerSnapshot, signerFromPrivatePem, verifierFromPublicPem, verifyLedger } from '../src/ledger.ts';
 
 interface Note {
   readonly text: string;
@@ -149,4 +149,32 @@ test('the head file is written beside the ledger, atomically, and a corrupt head
   assert.ok(statSync(path).isFile());
   writeFileSync(path, '{ not json');
   await assert.rejects(readHead(where, 'notes.jsonl'), (error: unknown) => (error as { code?: string }).code === 'ledger_head_corrupt');
+});
+
+test('a crash-truncated ledger refuses new writes and preserves its last committed head', async () => {
+  const where = dir('truncated-write');
+  const signer = loadOrCreateSigner(join(where, 'key.pem'));
+  await append(where, signer, 'one', '2026-09-05T00:00:00.000Z');
+  const ledger = join(where, 'notes.jsonl');
+  const headPath = join(where, 'notes.head.json');
+  const committed = readFileSync(headPath, 'utf8');
+  writeFileSync(ledger, '');
+  await assert.rejects(append(where, signer, 'two', '2026-09-05T00:00:01.000Z'), { code: 'ledger_chain_invalid' });
+  assert.equal(readFileSync(headPath, 'utf8'), committed);
+  assert.equal(readFileSync(ledger, 'utf8'), '');
+});
+
+
+test('snapshot reads queued between appends always pair rows with the matching head', async () => {
+  const where = dir('snapshots');
+  const signer = loadOrCreateSigner(join(where, 'key.pem'));
+  const operations: Array<Promise<unknown>> = [];
+  for (let index = 0; index < 12; index += 1) {
+    operations.push(append(where, signer, String(index), '2026-09-05T00:00:00.000Z'));
+    operations.push(readLedgerSnapshot(where, 'notes.jsonl', (value) => value as NoteRow).then(({ rows, head }) => {
+      assert.equal(verifyLedger({ rows, head, canonical, verifier: signer }).status, 'intact');
+      assert.equal(rows.length, index + 1);
+    }));
+  }
+  await Promise.all(operations);
 });

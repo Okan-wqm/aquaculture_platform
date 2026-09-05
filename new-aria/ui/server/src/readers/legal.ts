@@ -13,8 +13,9 @@
 // WHAT: list case directories, validate each artifact file, project summaries.
 
 import type {
+  LegalDecisionRecord,
   LegalCase,
-  LegalCaseResponse,
+  LegalCaseDetailResponse,
   LegalCaseSummary,
   LegalCasesResponse,
   LegalCoverage,
@@ -43,8 +44,18 @@ import {
   validateTimeline,
   validateVersions,
 } from '../../../shared/legal-artifact-validate.ts';
+import { readCaseMeta } from '../legal-intake.ts';
 import { HttpError } from '../errors.ts';
 import { existsInside, listDirectory, readJsonFile, resolveInside } from '../fsafe.ts';
+
+import type { DecisionContext } from '../decisions-overlay.ts';
+import { lifecycleFrom, overlayStatements, verifiedDecisions } from '../decisions-overlay.ts';
+
+async function decisionsFor(context: DecisionContext | undefined, caseId: string): Promise<ReadonlyArray<LegalDecisionRecord>> {
+  const rows = context === undefined ? [] : await verifiedDecisions(context, caseId);
+  if (rows.some((row) => row.kind === 'document_removal')) throw new HttpError(409, 'case_content_removal_pending');
+  return rows;
+}
 
 const INVALID = 'legal_artifact_invalid';
 
@@ -104,11 +115,11 @@ const readTimelineFile = (dir: string): Promise<ReadonlyArray<LegalTimelineEvent
 const readStatementsFile = (dir: string): Promise<ReadonlyArray<LegalStatement>> => readArray<LegalStatement>(dir, LEGAL_ARTIFACT_FILES.statements, validateStatements);
 const readLinksFile = (dir: string): Promise<ReadonlyArray<LegalLink>> => readArray<LegalLink>(dir, LEGAL_ARTIFACT_FILES.links, validateLinks);
 
-async function summarise(toolsDir: string, caseId: string): Promise<LegalCaseSummary> {
+async function summarise(toolsDir: string, caseId: string, context?: DecisionContext): Promise<LegalCaseSummary> {
   const dir = caseDir(toolsDir, caseId);
   const record = await readCaseRecord(dir);
   const documents = await readDocumentsFile(dir);
-  const statements = await readStatementsFile(dir);
+  const statements = overlayStatements(await readStatementsFile(dir), await decisionsFor(context, caseId)).statements;
   const timeline = await readTimelineFile(dir);
   const parties = await readPartiesFile(dir);
   const coverage = (await existsInside(resolveInside(dir, LEGAL_ARTIFACT_FILES.coverage)))
@@ -127,43 +138,76 @@ async function summarise(toolsDir: string, caseId: string): Promise<LegalCaseSum
   };
 }
 
-export async function listCases(toolsDir: string): Promise<LegalCasesResponse> {
+export async function listCases(toolsDir: string, canRead: (caseId: string) => boolean = () => true, context?: DecisionContext): Promise<LegalCasesResponse> {
   const root = resolveInside(toolsDir, LEGAL_ARTIFACT_ROOT);
   const cases: LegalCaseSummary[] = [];
-  for (const name of await listDirectory(root)) {
-    if (!LEGAL_CASE_ID_RE.test(name)) continue;
-    if (!(await existsInside(resolveInside(root, name, LEGAL_ARTIFACT_FILES.case)))) continue;
-    cases.push(await summarise(toolsDir, name));
+  const names = new Set([...await listDirectory(root), ...context === undefined ? [] : await listDirectory(context.casesDir)]);
+  for (const name of names) {
+    if (!LEGAL_CASE_ID_RE.test(name) || !canRead(name)) continue;
+    if (!(await existsInside(resolveInside(root, name, LEGAL_ARTIFACT_FILES.case)))) {
+      if (context === undefined) continue;
+      const meta = await readCaseMeta(context.casesDir, name);
+      if (meta === null) continue;
+      await decisionsFor(context, name);
+      cases.push({ caseId: name, title: meta.title, documents: 0, unreadable: 0, statements: 0,
+        statementsNeedingReview: 0, timelineEvents: 0, parties: 0, createdAt: meta.createdAt });
+      continue;
+    }
+    cases.push(await summarise(toolsDir, name, context));
   }
   cases.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   return { cases };
 }
 
-export async function readCase(toolsDir: string, caseId: string): Promise<LegalCaseResponse> {
+export async function readCase(toolsDir: string, caseId: string, context?: DecisionContext): Promise<LegalCaseDetailResponse> {
   const dir = caseDir(toolsDir, caseId);
+  if (context !== undefined && !(await existsInside(resolveInside(dir, LEGAL_ARTIFACT_FILES.case)))) {
+    const meta = await readCaseMeta(context.casesDir, caseId);
+    if (meta === null) throw new HttpError(404, 'case_not_found');
+    return { case: meta, summary: null, coverage: null, runKey: null, lifecycle: lifecycleFrom(await decisionsFor(context, caseId)) };
+  }
   return {
+    runKey: null,
+    lifecycle: lifecycleFrom(await decisionsFor(context, caseId)),
     case: await readCaseRecord(dir),
-    summary: await summarise(toolsDir, caseId),
+    summary: await summarise(toolsDir, caseId, context),
     coverage: await readObject<LegalCoverage>(dir, LEGAL_ARTIFACT_FILES.coverage, validateCoverage),
   };
 }
 
-export async function readDocuments(toolsDir: string, caseId: string, filter: DocumentsFilter): Promise<LegalDocumentsResponse> {
+export async function readDocuments(toolsDir: string, caseId: string, filter: DocumentsFilter, context?: DecisionContext): Promise<LegalDocumentsResponse> {
   const dir = caseDir(toolsDir, caseId);
   await readCaseRecord(dir);
-  let documents = await readDocumentsFile(dir);
+  const allDocuments = await readDocumentsFile(dir);
+  let documents = allDocuments;
   const total = documents.length;
   if (filter.kind !== null) documents = documents.filter((doc) => doc.kindGuess === filter.kind);
   if (filter.extraction !== null) documents = documents.filter((doc) => doc.extraction === filter.extraction);
-  return { documents: documents.slice(0, filter.limit), total, versionGroups: await readVersionsFile(dir) };
+  const decisions = await decisionsFor(context, caseId);
+  const groups = await readVersionsFile(dir);
+  const latest = new Map<string, LegalDecisionRecord>();
+  for (const decision of decisions) if (decision.body.kind === 'filed_version_declaration') latest.set(decision.targetId, decision);
+  const filedDeclarations = [...latest.values()].flatMap((decision) => {
+    if (decision.body.kind !== 'filed_version_declaration' || decision.body.action === 'withdraw') return [];
+    const body = decision.body;
+    const document = allDocuments.find((doc) => doc.documentId === body.documentId);
+    const group = groups.find((group) => group.versionGroupId === decision.targetId);
+    const orphaned = document === undefined || group === undefined ? 'target_missing' as const
+      : document.sha256 !== body.sha256 || !group.members.some((member) => member.documentId === body.documentId) ? 'target_changed' as const : null;
+    return [{ decision, versionGroupId: decision.targetId, documentId: body.documentId, orphaned }];
+  });
+  return { documents: documents.slice(0, filter.limit), total, filedDeclarations, removed: [],
+    versionGroups: groups.map((group) => ({ ...group, filedMember: filedDeclarations.find((declaration) => declaration.versionGroupId === group.versionGroupId && declaration.orphaned === null)?.documentId ?? null })) };
+
 }
 
-export async function readDocument(toolsDir: string, caseId: string, documentId: string): Promise<LegalDocumentResponse> {
+export async function readDocument(toolsDir: string, caseId: string, documentId: string, context?: DecisionContext): Promise<LegalDocumentResponse> {
   const dir = caseDir(toolsDir, caseId);
   await readCaseRecord(dir);
-  const document = (await readDocumentsFile(dir)).find((doc) => doc.documentId === documentId);
+  const projection = await readDocuments(toolsDir, caseId, { kind: null, extraction: null, limit: Number.MAX_SAFE_INTEGER }, context);
+  const document = projection.documents.find((doc) => doc.documentId === documentId);
   if (document === undefined) throw new HttpError(404, 'legal_document_not_found');
-  const versionGroup = (await readVersionsFile(dir)).find((group) => group.versionGroupId === document.versionGroupId) ?? null;
+  const versionGroup = projection.versionGroups.find((group) => group.versionGroupId === document.versionGroupId) ?? null;
   const links = (await readLinksFile(dir)).filter(
     (link) => (link.from.kind === 'DOCUMENT' && link.from.id === documentId) || (link.to.kind === 'DOCUMENT' && link.to.id === documentId),
   );
@@ -176,22 +220,29 @@ export async function readTimeline(toolsDir: string, caseId: string): Promise<Le
   return { events: await readTimelineFile(dir) };
 }
 
-export async function readParties(toolsDir: string, caseId: string): Promise<LegalPartiesResponse> {
+export async function readParties(toolsDir: string, caseId: string, context?: DecisionContext): Promise<LegalPartiesResponse> {
   const dir = caseDir(toolsDir, caseId);
   await readCaseRecord(dir);
-  return { parties: await readPartiesFile(dir) };
+  const parties = await readPartiesFile(dir);
+  const decisions = await decisionsFor(context, caseId);
+  const identityDecisions = decisions.flatMap((decision) => decision.body.kind === 'party_identity_merge' ? [{
+    decision, partyIds: decision.body.partyIds, displayName: decision.body.displayName,
+    missingPartyIds: decision.body.partyIds.filter((id) => !parties.some((party) => party.partyId === id)),
+  }] : []);
+  return { parties, identityDecisions };
 }
 
-export async function readStatements(toolsDir: string, caseId: string, filter: StatementsFilter): Promise<LegalStatementsResponse> {
+export async function readStatements(toolsDir: string, caseId: string, filter: StatementsFilter, context?: DecisionContext): Promise<LegalStatementsResponse> {
   const dir = caseDir(toolsDir, caseId);
   await readCaseRecord(dir);
-  const all = await readStatementsFile(dir);
+  const overlay = overlayStatements(await readStatementsFile(dir), await decisionsFor(context, caseId));
+  const all = overlay.statements;
   const byStatus: Record<string, number> = {};
   for (const statement of all) byStatus[statement.status] = (byStatus[statement.status] ?? 0) + 1;
   let statements = all;
   if (filter.status !== null) statements = statements.filter((statement) => statement.status === filter.status);
   if (filter.humanReview !== null) statements = statements.filter((statement) => statement.humanReviewRequired === filter.humanReview);
-  return { statements, byStatus, needingReview: all.filter((statement) => statement.humanReviewRequired).length };
+  return { statements, byStatus, orphanedVerifications: overlay.orphanedVerifications, needingReview: all.filter((statement) => statement.humanReviewRequired).length };
 }
 
 export async function readCoverage(toolsDir: string, caseId: string): Promise<LegalCoverageResponse> {

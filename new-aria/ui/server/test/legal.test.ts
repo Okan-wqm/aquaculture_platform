@@ -9,6 +9,8 @@ import { dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { createCase } from '../src/legal-intake.ts';
+import { loadOrCreateSigner } from '../src/ledger.ts';
 import { HttpError } from '../src/errors.ts';
 import { listCases, readCase, readCoverage, readDocument, readDocuments, readParties, readStatements, readTimeline } from '../src/readers/legal.ts';
 
@@ -101,4 +103,43 @@ test('an artifact from an adapter build the console does not know is refused by 
   await assert.rejects(readTimeline(tools, 'case_fixture'), unknownBuild);
   await assert.rejects(readStatements(tools, 'case_fixture', { status: null, humanReview: null }), unknownBuild);
   await assert.rejects(readDocuments(tools, 'case_fixture', { kind: null, extraction: null, limit: 10 }), unknownBuild);
+});
+
+test('every projection exposes explicit empty human decisions and no invented run identity', async () => {
+  const detail = await readCase(FIXTURE_TOOLS, 'case_fixture');
+  assert.equal(detail.runKey, null);
+  assert.deepEqual(detail.lifecycle, { state: 'open', retainUntil: null, decision: null });
+  const docs = await readDocuments(FIXTURE_TOOLS, 'case_fixture', { kind: null, extraction: null, limit: 1000 });
+  assert.deepEqual(docs.filedDeclarations, []);
+  assert.deepEqual(docs.removed, []);
+  assert.deepEqual((await readParties(FIXTURE_TOOLS, 'case_fixture')).identityDecisions, []);
+  assert.deepEqual((await readStatements(FIXTURE_TOOLS, 'case_fixture', { status: null, humanReview: null })).orphanedVerifications, []);
+});
+
+test('case authorization filters directory names before any artifact is read', async () => {
+  const { tools } = await copiedCase('authorized-list');
+  const denied = join(tools, 'packs/legal/cases/case_denied');
+  await mkdir(denied);
+  await writeFile(join(denied, 'case.json'), 'not readable artifact JSON');
+  const visible = await listCases(tools, (caseId) => caseId === 'case_fixture');
+  assert.deepEqual(visible.cases.map((row) => row.caseId), ['case_fixture']);
+});
+
+
+test('a newly created case is listed and opens from custody metadata before the first inventory', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'legal-empty-case-'));
+  const tools = join(root, 'tools');
+  const casesDir = join(root, 'cases');
+  const verifier = loadOrCreateSigner(join(root, 'key.pem'));
+  const context = { casesDir, verifier };
+  const meta = await createCase(casesDir, { caseId: 'new-case', title: 'New case', custodian: 'Counsel', jurisdiction: 'NO', courtReference: null, createdBy: 'operator' }, '2026-09-05T00:00:00.000Z');
+  const listed = await listCases(tools, (id) => id === meta.caseId, context);
+  assert.equal(listed.cases.length, 1);
+  assert.equal(listed.cases[0]?.title, meta.title);
+  const detail = await readCase(tools, meta.caseId, context);
+  assert.deepEqual(detail.case, meta);
+  assert.equal(detail.summary, null);
+  assert.equal(detail.coverage, null, 'no inventory means no claim about extraction coverage');
+  assert.equal(detail.runKey, null);
+  await assert.rejects(readCase(tools, 'nonexistent', context), { code: 'case_not_found' });
 });

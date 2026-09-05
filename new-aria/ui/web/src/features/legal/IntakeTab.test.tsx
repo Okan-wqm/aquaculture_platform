@@ -53,6 +53,8 @@ function response(overrides: Partial<LegalIntakeResponse> = {}): LegalIntakeResp
     },
     intake: [FIRST, SECOND],
     chain: INTACT,
+    lifecycle: { state: 'open', retainUntil: null, decision: null },
+    removedRowHashes: [],
     ...overrides,
   };
 }

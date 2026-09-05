@@ -231,26 +231,35 @@ değişikliği, çekirdek değişmez.
 
 ---
 
-## C. Sıradaki adımların sırası (2026-09-04 denetimi sonrası, onaylı plan)
+## C. Güncel uygulama sırası (2026-09-05)
 
-Sıra denetimin düzelttiği boşluklardan türetildi. Faz 0–7 yalnız kas ve konsol
-(`packs/legal`, `ui`, `arias`); çekirdek dosyasına yazmaz. Faz 8 çekirdek deltasıdır ve
-ayrı bir onay kapısındadır.
+Kullanıcının kod denetimi sonrası güncel planı önceki Faz 0–8 numaralarını
+**değiştirmiştir**. D–F bölümleri tarihsel kanıttır; bugünkü üretim kapanışı değildir.
+Özellikle otomatik tetikleme ve gerçek AI/hafıza R1'in zorunlu parçalarıdır.
 
-| Faz | Kapsam | Kapattığı satırlar |
+| Faz | Güncel kapsam | Takip |
 |---|---|---|
-| 0 | Dürüst kayıt: D durumları indirildi, E eklendi, bulgu kimlikleri açıldı | — |
-| 1 | Dağıtılan profil çalışsın: eylem sınıfı yetkisi, tek dava kimliği, tam adapter girdisi, otomatik kayıt, okuma sınırında doğrulama | L-01, L-03 (kayıt), L-04 (konsol), L-06 (okuma), L-07 (`learnedAt`) |
-| 2 | Alım tutanağı kanıt olsun: imza + baş taahhüdü + sıralı ekleme; alım↔envanter mutabakatı; kopya kimliği | L-05, L-31, L-32, L-34 |
-| 3 | Mekanik MVP: kronoloji, DEADLINE/PROCEDURAL_STEP, roller, olgu kapsamı, konu çapası + kesinlik + ölçek | L-07, L-20, L-17, L-16, L-10 (kapsam), L-12, L-26 (korpus), L-33, L-35 |
-| 4 | Kimlik ve avukat kapısı: principals, kapılar, matter duvarı, erişim defteri, PII maskesi | L-22, L-28, L-24 (PII) |
-| 5 | Karar katmanı: karar defteri, doğrulama, sunulan sürüm, birleştirme kararı, kaldırma/saklama, artifact geçmişi | L-21, L-15, L-29, L-36, L-37 |
-| 6 | Yüzey: dava bulguları, kaynak belge, taraf alanları, zincir hükmü, kalibrasyon/korpus durumu | L-14, L-18, L-25, L-26, L-30 |
-| 7 | İşletim: CI hattı, yedek/geri yükleme, türetme reçetesi, fixture PII testi | L-27, L-24, L-38 |
-| 8 | Model hattı (karar kapısı): G-21/G-22/G-23 → L-08, L-10 (ajan), L-11, L-13, L-19 | çekirdek |
+| 0 | Yarım karar sözleşmesi/politika/okuyucu uyumu, tek CI kapısı | LEGAL-HIGH-002 |
+| 1 | Kimlik, tüm dava yüzeyleri, tek yazıcı, snapshot, boş dava | LEGAL-CRITICAL-003/002, LEGAL-HIGH-005 |
+| 2 | Dayanıklı alım, defter, kalıcı işler, değişmez koşum, tam sayfalama | LEGAL-HIGH-004, LEGAL-CRITICAL-006 |
+| 3 | Kaynak anlamı, biçimler, alıntı/konum, zaman ayrımı | LEGAL-CRITICAL-007 |
+| 4 | Avukat kararları, günlük arayüz, kaynak ve türev silme | LEGAL-CRITICAL-008 |
+| 5 | Yüklenen mevzuat, SQLite arama, onaylı ortak yöntem | LEGAL-HIGH-009 |
+| 6 | Gerçek ARIA, kalıcı dava hafızası, geri bildirim, dar model geçidi | LEGAL-CRITICAL-010; ayrı çekirdek onayı |
+| 7 | Kurulum, izolasyon, silme, şifreli yedek ve geri dönüş tatbikatı | LEGAL-CRITICAL-011 |
+| 8 | R1 sonrası emsal ve strateji | LEGAL-HIGH-012 |
 
-Kapsam dışı ve kimlikli: OCR, şifreli PDF, hukukî görüş, otomatik envanter tetikleyici,
-G-1/G-5/G-14/G-16.
+Kimliklerin durumu, sahipleri, hedef tarihleri ve kabul ölçütleri monorepo
+`docs/reviews/codex/2026-09-05-legal-production.md` dosyasındadır.
+
+Güncel başlangıç ölçümü: yarım değişikliklerle sunucu 87/97; beş sunucu tip
+hatası. Karar projeksiyonu henüz karar yazma arayüzü değildir. `runKey=null`
+düz artifact'ların geçmiş koşum üretmediğini açıkça belirtir. Kaldırma kararı
+kaydı içerik erişimini kapatır; kaynak/türev/yedek imhasını tamamlanmış göstermez.
+
+Tek yerel kapı: `new-aria/` içinde `npm run legal:check`; gerçek workflow:
+`.github/workflows/new-aria-legal.yml`. Küçük korpustaki precision=1.0 şartı
+korunur; bu korpus üretim kalitesi için istenen avukat etiketli korpusun yerine geçmez.
 
 ---
 

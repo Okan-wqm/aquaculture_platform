@@ -168,27 +168,30 @@ export interface AppendInput<Payload extends object> {
   readonly now: string;
 }
 
-/** Reads the ledger tail: row count and the last row's hash. */
-async function tailOf(path: string): Promise<{ rows: number; headRowHash: string | null }> {
+/** Read rows inside the same critical section as the head and append. */
+async function readRows<Payload extends object>(path: string): Promise<Array<Payload & SignedRowFields>> {
   let text: string;
-  try {
-    text = await readFile(path, 'utf8');
-  } catch (error) {
-    if (typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'ENOENT') return { rows: 0, headRowHash: null };
+  try { text = await readFile(path, 'utf8'); }
+  catch (error) {
+    if (typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'ENOENT') return [];
     throw error;
   }
-  const lines = text.split('\n').filter((line) => line.trim() !== '');
-  const last = lines[lines.length - 1];
-  if (last === undefined) return { rows: 0, headRowHash: null };
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(last);
-  } catch {
-    throw new HttpError(502, 'ledger_corrupt', path);
-  }
-  const rowHash = typeof parsed === 'object' && parsed !== null ? (parsed as { rowHash?: unknown }).rowHash : undefined;
-  if (typeof rowHash !== 'string' || !SHA256.test(rowHash)) throw new HttpError(502, 'ledger_corrupt', `${path}: last row carries no rowHash`);
-  return { rows: lines.length, headRowHash: rowHash };
+  return text.split('\n').filter((line) => line.trim() !== '').map((line) => {
+    let parsed: unknown;
+    try { parsed = JSON.parse(line); }
+    catch { throw new HttpError(502, 'ledger_corrupt'); }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw new HttpError(502, 'ledger_corrupt');
+    return parsed as Payload & SignedRowFields;
+  });
+}
+
+/** Consistent in-process read; callers still validate domain fields and signatures. */
+export function readLedgerSnapshot<Row extends object>(dir: string, ledger: string, parse: (value: unknown, where: string) => Row): Promise<{ rows: Row[]; head: LedgerHead | null }> {
+  const path = join(dir, ledger);
+  return serialised(path, async () => ({
+    rows: (await readRows(path)).map((row, index) => parse(row, `${ledger}:${index + 1}`)),
+    head: await readHead(dir, ledger),
+  }));
 }
 
 async function writeHead(dir: string, ledger: string, rows: number, headRowHash: string | null, signer: LedgerSigner, now: string): Promise<LedgerHead> {
@@ -209,8 +212,13 @@ async function writeHead(dir: string, ledger: string, rows: number, headRowHash:
 export function appendSigned<Payload extends object>(input: AppendInput<Payload>): Promise<Payload & SignedRowFields> {
   const path = join(input.dir, input.ledger);
   return serialised(path, async () => {
-    const tail = await tailOf(path);
-    const previousRowHash = tail.headRowHash;
+    const rows = await readRows<Payload>(path);
+    const head = await readHead(input.dir, input.ledger);
+    let verdict: LedgerVerdict;
+    try { verdict = verifyLedger({ rows, head, canonical: input.canonical, verifier: input.signer }); }
+    catch { throw new HttpError(502, 'ledger_chain_invalid'); }
+    if (!verdict.valid || (head !== null && head.ledger !== input.ledger)) throw new HttpError(502, 'ledger_chain_invalid', verdict.reason ?? 'ledger_name_mismatch');
+    const previousRowHash = head === null ? null : head.headRowHash;
     const rowHash = hashCanonical(input.canonical(input.payload, previousRowHash));
     const row: Payload & SignedRowFields = {
       ...input.payload,
@@ -229,7 +237,7 @@ export function appendSigned<Payload extends object>(input: AppendInput<Payload>
     } finally {
       await handle.close();
     }
-    await writeHead(input.dir, input.ledger, tail.rows + 1, rowHash, input.signer, input.now);
+    await writeHead(input.dir, input.ledger, rows.length + 1, rowHash, input.signer, input.now);
     return row;
   });
 }

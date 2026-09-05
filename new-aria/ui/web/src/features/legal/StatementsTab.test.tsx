@@ -61,6 +61,7 @@ const RESPONSE: LegalStatementsResponse = {
   ],
   byStatus: { asserted: 1, verified: 1, contradicted: 1 },
   needingReview: 2,
+  orphanedVerifications: [],
 };
 
 function renderMatrix(): void {

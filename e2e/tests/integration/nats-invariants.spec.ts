@@ -63,6 +63,9 @@ import {
   MARINE_PROVIDER_CREDENTIAL_SUBJECTS,
   TENANT_ERASURE_OUTCOME_EVENT_TYPES_BY_TARGET,
   TENANT_ERASURE_OUTCOME_KINDS,
+  AUTH_ADMIN_COMMAND_SUBJECTS,
+  AUTH_PUBLIC_COMMAND_SUBJECTS,
+  TENANT_COMMAND_SUBJECTS,
   TENANT_ERASURE_TARGET_SERVICES,
   tenantErasureOutcomeSubject,
 } from '@platform/event-contracts';
@@ -357,6 +360,25 @@ function extractRpcUsage(appDir: string, constants: Map<string, string>): RpcUsa
     // ClientProxy `.send(subject, ...)` / `.emit(subject, ...)` — generic
     // param optional. Prefix filter drops non-NATS senders (mailers etc.).
     for (const m of text.matchAll(/\.(?:send|emit)(?:<[^>]*>)?\(\s*([^),]+)/g)) {
+      const subject = resolveRef(m[1].trim());
+      if (subject && NATS_SUBJECT_PREFIXES.test(subject)) sent.add(subject);
+    }
+    // A subject constant handed to ANY call — `this.sendAuthCommand(
+    // TENANT_COMMAND_SUBJECTS.BEGIN_PROVISIONING, …)` — is a send. The
+    // `.send(` rule above only saw the ClientProxy method by name, so a
+    // typed wrapper around it hid the subject and admin-api shipped without
+    // the BeginProvisioning publish grant: every tenant creation timed out
+    // at the request deadline (PLAT-CRITICAL-902). Decorators are excluded
+    // (`@MessagePattern(` is the handled side, captured above).
+    for (const m of text.matchAll(
+      /(?<![@.\w$])[A-Za-z_$][\w$]*(?:<[^>]*>)?\(\s*([A-Z][A-Z0-9_]*_SUBJECTS\.[A-Z][A-Z0-9_]+)/g,
+    )) {
+      const subject = resolveRef(m[1].trim());
+      if (subject && NATS_SUBJECT_PREFIXES.test(subject)) sent.add(subject);
+    }
+    for (const m of text.matchAll(
+      /\.[A-Za-z_$][\w$]*(?:<[^>]*>)?\(\s*([A-Z][A-Z0-9_]*_SUBJECTS\.[A-Z][A-Z0-9_]+)/g,
+    )) {
       const subject = resolveRef(m[1].trim());
       if (subject && NATS_SUBJECT_PREFIXES.test(subject)) sent.add(subject);
     }
@@ -811,6 +833,45 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
               'events.{tenantId|system}.{EventType}; a different segment count ' +
               'never matches (NATS matching is segment-exact).',
           );
+        }
+      },
+    );
+  });
+
+  describe('admin-api → auth-service commands — every contract subject is granted end to end (PLAT-CRITICAL-902)', () => {
+    // The contract is the SSoT for the subject set. Deriving the grant check
+    // from it (rather than from a scan of call sites) means a subject that
+    // exists in the contract but is never granted fails here on the day it is
+    // added — which is the day BeginProvisioning should have failed instead of
+    // 502-ing every tenant creation in production after the 15 s deadline.
+    const requireService = (name: string): Service => {
+      const svc = serviceByName.get(name);
+      if (!svc) throw new Error(`services.yaml is missing the "${name}" service`);
+      return svc;
+    };
+
+    // Three maps, one producer, one consumer: admin-api sends every one of
+    // these through its typed clients; auth-service handles every one with a
+    // @MessagePattern. Five of them (module create/update/delete, public
+    // password reset request/confirm) had NO publish grant anywhere in the
+    // fleet when this clause was written — the same class as BeginProvisioning.
+    it.each([
+      ...Object.entries(TENANT_COMMAND_SUBJECTS),
+      ...Object.entries(AUTH_ADMIN_COMMAND_SUBJECTS),
+      ...Object.entries(AUTH_PUBLIC_COMMAND_SUBJECTS),
+    ])(
+      '%s (%s): admin_api_service PUBLISHES it and auth_service SUBSCRIBES it',
+      (_key, subject) => {
+        const admin = requireService('admin_api_service');
+        const auth = requireService('auth_service');
+        if (!isCovered(subject, admin.publish)) {
+          throw new Error(
+            `admin_api_service is missing the PUBLISH grant for "${subject}" — the orchestrator ` +
+              'sends it and would time out at the request deadline',
+          );
+        }
+        if (!isCovered(subject, auth.subscribe)) {
+          throw new Error(`auth_service is missing the SUBSCRIBE grant for "${subject}"`);
         }
       },
     );

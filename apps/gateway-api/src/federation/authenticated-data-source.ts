@@ -8,6 +8,7 @@ import {
   GatewayGraphQLResponse,
 } from '@apollo/server-gateway-interface';
 import { buildGatewayVerifiedUserAssertion, buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
+import type { ActAsAssertionClaims } from '@aquaculture/backend-common/types';
 
 import { JwtPayload } from '../guards/auth.guard';
 
@@ -46,6 +47,8 @@ export interface RequestWithUser {
    * verified user-assertion below.
    */
   effectiveTenantId?: string;
+  /** ADR-0007: validated cross-tenant act-as claims, folded into the assertion. */
+  actAs?: ActAsAssertionClaims;
 }
 
 export interface GatewayContext {
@@ -294,6 +297,9 @@ export class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayCont
           // authenticated path carries it tamper-proof end to end.
           clientIp,
           clientUserAgent,
+          // ADR-0007: the act-as justification rides in the signed assertion so
+          // subgraph audit rows record actorHomeTenantId, reason and ticket.
+          actAs: req.actAs,
         }),
       );
     }

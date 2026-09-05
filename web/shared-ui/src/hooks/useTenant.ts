@@ -5,7 +5,7 @@
  */
 
 import { useCallback } from 'react';
-import { useTenantContext } from '../contexts/TenantContext';
+import { useTenantContext, type ActAsJustification } from '../contexts/TenantContext';
 import type { Tenant, TenantSettings, TenantLimits, TenantTier } from '../types';
 
 // ============================================================================
@@ -25,8 +25,8 @@ export interface UseTenantReturn {
   limits: TenantLimits | null;
   /** Tenant tier'ı */
   tier: TenantTier | null;
-  /** Tenant değiştir (platform admin için) */
-  switchTenant: (tenantId: string) => Promise<void>;
+  /** SUPER_ADMIN act-as on a tenant the caller already holds; the justification is mandatory (ADR-0007). */
+  switchTenant: (tenant: Tenant, justification: ActAsJustification) => Promise<void>;
   /** Limit kontrolü */
   checkLimit: (resource: keyof TenantLimits, currentUsage: number) => LimitCheckResult;
   /** Özellik erişimi kontrolü */

@@ -44,6 +44,14 @@ function readStripped(relPath: string): string {
 describe('INVARIANT (tenant-context SSoT): gateway resolves + signs ONE effectiveTenantId', () => {
   const gateway = () => readStripped('apps/gateway-api/src/app.module.ts');
 
+  it('the gateway mounts the KERNEL act-as authority, not a local copy (ADR-0007)', () => {
+    const src = gateway();
+    expect(src).toMatch(
+      /import\s+\{[^}]*\bEffectiveTenantMiddleware\b[^}]*\}\s+from\s+'@aquaculture\/backend-common\/middleware'/,
+    );
+    expect(src).not.toMatch(/from\s+'\.\/middleware\/effective-tenant\.middleware'/);
+  });
+
   it('CaptureRequestedTenantMiddleware is mounted BEFORE StripInternalHeadersMiddleware', () => {
     const src = gateway();
     const cfg = src.indexOf('configure(consumer');

@@ -263,6 +263,7 @@ export function clearTokens(): void {
 export function clearSession(): void {
   accessToken = null;
   tenantId = null;
+  clearActAsContext();
   const sharedState = getSharedAuthState();
   if (sharedState) {
     sharedState.accessToken = null;
@@ -451,6 +452,117 @@ export function onTenantChange(fn: (oldTenantId: string) => void): () => void {
   };
 }
 
+// ── SUPER_ADMIN act-as context (ADR-0007) ──
+
+/**
+ * The justification a SUPER_ADMIN gave for acting on a tenant that is not
+ * their own. The kernel `EffectiveTenantMiddleware` REFUSES a cross-tenant
+ * act-as without a reason, so this context is the only way a platform account
+ * reads tenant data; it travels as `X-Act-As-Tenant` / `X-Act-As-Reason` /
+ * `X-Act-As-Ticket` on every request and lands on the audit rows the request
+ * produces.
+ */
+export interface ActAsContext {
+  /** The tenant acted on — must equal the active tenant id. */
+  tenantId: string;
+  /** Operator-supplied justification, 1–512 characters. */
+  reason: string;
+  /** Ticket reference when the access is tracked elsewhere. */
+  ticket?: string;
+}
+
+const ACT_AS_STORAGE_KEY = 'act_as_context';
+const ACT_AS_REASON_MAX_LENGTH = 512;
+const ACT_AS_TICKET_MAX_LENGTH = 128;
+const ACT_AS_TICKET_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._\-/#]*$/;
+
+let actAsContext: ActAsContext | null = null;
+
+function readStoredActAsContext(): ActAsContext | null {
+  try {
+    const raw = sessionStorage.getItem(ACT_AS_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      typeof (parsed as ActAsContext).tenantId === 'string' &&
+      typeof (parsed as ActAsContext).reason === 'string'
+    ) {
+      return parsed as ActAsContext;
+    }
+  } catch {
+    // Storage unavailable or corrupt — no act-as context.
+  }
+  return null;
+}
+
+/**
+ * Declare why the current SUPER_ADMIN is about to act on `tenantId`. Validated
+ * with the same bounds the kernel enforces so a bad value fails here, in the
+ * UI, rather than as a 403 on the first request.
+ */
+export function setActAsContext(context: ActAsContext): void {
+  const reason = context.reason.trim();
+  const ticket = context.ticket?.trim();
+  if (reason.length === 0 || reason.length > ACT_AS_REASON_MAX_LENGTH) {
+    throw new Error(`Act-as reason must be 1–${ACT_AS_REASON_MAX_LENGTH} characters`);
+  }
+  if (ticket !== undefined && ticket.length > 0) {
+    if (ticket.length > ACT_AS_TICKET_MAX_LENGTH || !ACT_AS_TICKET_PATTERN.test(ticket)) {
+      throw new Error(`Act-as ticket must be a ticket reference of at most ${ACT_AS_TICKET_MAX_LENGTH} characters`);
+    }
+  }
+  actAsContext = {
+    tenantId: context.tenantId,
+    reason,
+    ...(ticket ? { ticket } : {}),
+  };
+  try {
+    sessionStorage.setItem(ACT_AS_STORAGE_KEY, JSON.stringify(actAsContext));
+  } catch {
+    // Session storage unavailable — the in-memory context still applies.
+  }
+}
+
+export function clearActAsContext(): void {
+  actAsContext = null;
+  try {
+    sessionStorage.removeItem(ACT_AS_STORAGE_KEY);
+  } catch {
+    // Ignore
+  }
+}
+
+/** The act-as context bound to the ACTIVE tenant, or null when none applies. */
+export function getActAsContext(): ActAsContext | null {
+  if (!actAsContext) {
+    actAsContext = readStoredActAsContext();
+  }
+  if (!actAsContext) return null;
+  if (actAsContext.tenantId !== getTenantId()) {
+    // An act-as justification is bound to one tenant; a different active
+    // tenant means the operator never justified this one.
+    clearActAsContext();
+    return null;
+  }
+  return actAsContext;
+}
+
+/**
+ * Attach the act-as headers the kernel validates (ADR-0007). A regular user
+ * never has an act-as context, so this is a no-op for them.
+ */
+function attachActAsHeaders(headers: Record<string, string>): void {
+  const context = getActAsContext();
+  if (!context) return;
+  headers['X-Act-As-Tenant'] = context.tenantId;
+  headers['X-Act-As-Reason'] = context.reason;
+  if (context.ticket) {
+    headers['X-Act-As-Ticket'] = context.ticket;
+  }
+}
+
 /**
  * Tenant ID'yi ayarla.
  *
@@ -460,6 +572,10 @@ export function onTenantChange(fn: (oldTenantId: string) => void): () => void {
 export function setTenantId(id: string | null): void {
   const previousTenantId = tenantId;
   tenantId = id;
+  if (actAsContext && actAsContext.tenantId !== id) {
+    // The justification was for the previous tenant; it does not carry over.
+    clearActAsContext();
+  }
   const sharedState = getSharedAuthState();
   if (sharedState) {
     sharedState.tenantId = id;
@@ -585,6 +701,7 @@ class GraphQLClient {
     if (currentTenantId) {
       headers['X-Tenant-Id'] = currentTenantId;
     }
+    attachActAsHeaders(headers);
 
     // Add request ID for distributed tracing
     headers['X-Request-Id'] = this.generateRequestId();
@@ -840,6 +957,7 @@ class RestClient {
     if (currentTenantId) {
       headers['X-Tenant-Id'] = currentTenantId;
     }
+    attachActAsHeaders(headers);
 
     let requestBody: BodyInit | undefined;
     if (typeof FormData !== 'undefined' && body instanceof FormData) {

@@ -9,6 +9,7 @@
 import { createHash } from 'crypto';
 
 import { buildGatewayVerifiedUserAssertion, buildSignedInternalHeaders, resolveTenantIdFromRequest } from '@aquaculture/backend-common/http';
+import type { ActAsAssertionClaims } from '@aquaculture/backend-common/types';
 import { Injectable, Logger, BadGatewayException, GatewayTimeoutException, BadRequestException, NotImplementedException, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
@@ -779,7 +780,10 @@ export class ServiceProxyService {
     }).user;
     // SSoT: the gateway-resolved effective tenant (validated act-as for
     // SUPER_ADMIN; JWT tenantId for regular users), set by EffectiveTenantMiddleware.
-    const effectiveTenantId = (req as Request & { effectiveTenantId?: string }).effectiveTenantId;
+    const { effectiveTenantId, actAs } = req as Request & {
+      effectiveTenantId?: string;
+      actAs?: ActAsAssertionClaims;
+    };
 
     if (!user?.sub) {
       return headers;
@@ -802,6 +806,8 @@ export class ServiceProxyService {
         assignedSiteIds: user.assignedSiteIds,
         mobileFeatures: user.mobileFeatures,
         resourcePermissions: user.resourcePermissions,
+        // ADR-0007: act-as justification travels with the REST-proxy assertion too.
+        actAs,
         // ORPHAN-MEDIUM-319: bind the client network identity into the
         // HMAC-protected assertion on the REST-proxy path, identical to the
         // federation/authenticated-data-source build site.

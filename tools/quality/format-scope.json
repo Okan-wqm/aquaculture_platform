@@ -17972,18 +17972,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/gateway-api/src/middleware/effective-tenant.middleware.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/gateway-api/src/middleware/effective-tenant.middleware.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/gateway-api/src/middleware/jwt.middleware.ts",
       "prettier_managed": true
     },
@@ -38656,6 +38644,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/middleware/__tests__/effective-tenant.middleware.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/middleware/__tests__/tenant-context-subdomain.spec.ts",
       "prettier_managed": true
     },
@@ -38669,6 +38663,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/middleware/access-log.middleware.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/middleware/effective-tenant.middleware.ts",
       "prettier_managed": true
     },
     {

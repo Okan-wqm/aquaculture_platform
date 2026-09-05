@@ -8,28 +8,29 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
-import { DataSource, QueryRunner } from 'typeorm';
 import { Observable, from, throwError } from 'rxjs';
 import { switchMap, catchError } from 'rxjs/operators';
+import { DataSource, QueryRunner } from 'typeorm';
 
-import {
-  AUDITED_OPERATION_KEY,
-  AuditedOperationOptions,
-  AuditedOperationStatus,
-} from './audited-operation.decorator';
+import { getRequestContext } from '../logging/request-context';
+import { SENSITIVE_FIELDS_SET } from '../security/security-constants';
+
 import {
   AuditLogEntity,
   AuditMethod,
   AuditResult,
   AuditSeverity,
 } from './audit-log.entity';
-import { getRequestContext } from '../logging/request-context';
+import {
+  AUDITED_OPERATION_KEY,
+  AuditedOperationOptions,
+  AuditedOperationStatus,
+} from './audited-operation.decorator';
 import {
   hashIpForGdpr,
   readIpHashingPolicyFromEnv,
   shouldHashIp,
 } from './ip-hash.util';
-import { SENSITIVE_FIELDS_SET } from '../security/security-constants';
 
 /**
  * AUDITTRAIL-LOW-001 cure: re-export the canonical SENSITIVE_FIELDS_SET
@@ -235,6 +236,11 @@ export class AuditedOperationInterceptor implements NestInterceptor {
       metadata['error'] = errorMessage;
     }
     metadata['status'] = status;
+    if (ctx.actAs) {
+      // ADR-0007: the reason and ticket a SUPER_ADMIN gave for acting on this
+      // tenant — the record the deleted impersonation sessions claimed to keep.
+      metadata['actAs'] = { reason: ctx.actAs.reason, ticket: ctx.actAs.ticket };
+    }
 
     const auditEntry: Partial<AuditLogEntity> = {
       action: `${options.action}_${options.resource}`.toUpperCase(),
@@ -273,7 +279,7 @@ export class AuditedOperationInterceptor implements NestInterceptor {
       // auditLogService.recordAwait. Leaving them undefined here is the
       // architecturally correct default — the interceptor neither has nor
       // should fabricate the entity-state hashes or override-justification.
-      actorHomeTenantId: ctx.tenantId,
+      actorHomeTenantId: ctx.actorHomeTenantId,
       actedOnTenantId: ctx.tenantId,
       method: ctx.method,
       mfaVerified: ctx.mfaVerified,
@@ -410,6 +416,12 @@ export class AuditedOperationInterceptor implements NestInterceptor {
       // a non-null override at this layer would be ignored by the spread.
       method: null,
       mfaVerified: command?.['mfaVerified'] === true,
+      // Bus-driven writes carry no act-as: the actor's home is the row's tenant.
+      actorHomeTenantId:
+        ctx.tenantId ??
+        (command?.['tenantId'] as string | undefined) ??
+        null,
+      actAs: null,
       // AUDITTRAIL-LOW-002: residency claim on the command DTO
       // (when present) drives the IP-hashing decision. CQRS
       // command authors include `region` for compliance-sensitive
@@ -434,6 +446,8 @@ export class AuditedOperationInterceptor implements NestInterceptor {
         queryRunner: null,
         method: null,
         mfaVerified: false,
+        actorHomeTenantId: null,
+        actAs: null,
         region: null,
       };
     }
@@ -461,6 +475,10 @@ export class AuditedOperationInterceptor implements NestInterceptor {
       // method is overwritten by extractRequestContext after this returns.
       method: null,
       mfaVerified: user?.['mfaVerified'] === true,
+      // ADR-0007: a cross-tenant act-as attributes the row to the actor's home
+      // tenant and carries the justification; otherwise home == acted-on.
+      actorHomeTenantId: request.actAs ? request.actAs.homeTenantId : (user?.tenantId ?? null),
+      actAs: request.actAs ? { reason: request.actAs.reason, ticket: request.actAs.ticket } : null,
       // AUDITTRAIL-LOW-002: residency from JWT claim. Null when
       // the deployment doesn't propagate region on the token,
       // letting the policy fallback decide hashing.
@@ -594,6 +612,12 @@ interface RequestLike {
     tenantId?: string | null;
     [key: string]: unknown;
   };
+  /** ADR-0007: validated cross-tenant act-as context (see ActAsContext). */
+  actAs?: {
+    homeTenantId: string | null;
+    reason: string;
+    ticket: string | null;
+  };
   headers?: Record<string, string | string[] | undefined>;
   body?: unknown;
   ip?: string;
@@ -630,6 +654,14 @@ interface RequestContext {
   queryRunner: QueryRunner | null;
   method: AuditMethod | null;
   mfaVerified: boolean;
+  /**
+   * ADR-0007: the actor's HOME tenant. Equals `tenantId` unless the request is
+   * a SUPER_ADMIN cross-tenant act-as, in which case it is the actor's own
+   * (platform → null) tenant while `tenantId` is the tenant acted on.
+   */
+  actorHomeTenantId: string | null;
+  /** ADR-0007: justification of a cross-tenant act-as, persisted to metadata. */
+  actAs: { reason: string; ticket: string | null } | null;
   /**
    * Tenant residency region marker (AUDITTRAIL-LOW-002).
    *

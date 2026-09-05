@@ -21,6 +21,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
@@ -111,6 +112,8 @@ function invitationQueryBuilder(row: Invitation | null): {
   return qb;
 }
 
+const mockOutboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
+
 describe('invitation links resolve through ActionTokenResolver (SEC-HIGH-056)', () => {
   const actionTokenRepository = { findOne: jest.fn(), save: jest.fn() };
   const invitationRepository = { createQueryBuilder: jest.fn(), findOne: jest.fn() };
@@ -165,6 +168,7 @@ describe('invitation links resolve through ActionTokenResolver (SEC-HIGH-056)', 
         },
         { provide: 'EVENT_BUS', useValue: eventBus },
         { provide: BestEffortEventPublisher, useValue: new BestEffortEventPublisher(eventBus) },
+        { provide: OutboxPublisher, useValue: mockOutboxPublisher },
         { provide: AuditLogService, useValue: { log: jest.fn().mockResolvedValue(undefined) } },
         { provide: TokenService, useValue: tokenService },
         {

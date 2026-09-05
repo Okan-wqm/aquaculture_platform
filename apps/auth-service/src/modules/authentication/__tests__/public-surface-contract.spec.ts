@@ -16,19 +16,13 @@ import { AuthResolver } from '../resolvers/auth.resolver';
  */
 describe('Public surface contract (SEC-CRITICAL-001 / MT-LOW-001)', () => {
   it('AuthResolver does NOT expose a register mutation', () => {
-    const descriptor = Object.getOwnPropertyDescriptor(
-      AuthResolver.prototype,
-      'register',
-    );
+    const descriptor = Object.getOwnPropertyDescriptor(AuthResolver.prototype, 'register');
     expect(descriptor).toBeUndefined();
   });
 
   it('AuthenticationService does NOT expose a register method', async () => {
     const { AuthenticationService } = await import('../services/authentication.service');
-    const descriptor = Object.getOwnPropertyDescriptor(
-      AuthenticationService.prototype,
-      'register',
-    );
+    const descriptor = Object.getOwnPropertyDescriptor(AuthenticationService.prototype, 'register');
     expect(descriptor).toBeUndefined();
   });
 
@@ -44,10 +38,7 @@ describe('Public surface contract (SEC-CRITICAL-001 / MT-LOW-001)', () => {
       }),
     };
     const auditStub = { findByTenant: jest.fn() };
-    const resolver = new TenantResolver(
-      tenantServiceStub as never,
-      auditStub as never,
-    );
+    const resolver = new TenantResolver(tenantServiceStub as never, auditStub as never);
 
     const result = await resolver.tenantBySlug('acme');
 

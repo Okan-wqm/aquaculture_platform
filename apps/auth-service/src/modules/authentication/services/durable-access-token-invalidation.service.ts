@@ -2,10 +2,11 @@ import { ITokenBlacklist, TOKEN_BLACKLIST } from '@aquaculture/backend-common/se
 import { Inject, Injectable } from '@nestjs/common';
 import {
   createBaseEvent,
+  tenantScopeOf,
   type AccessTokenInvalidationReason,
   type AccessTokenInvalidationRequestedEvent,
 } from '@platform/event-contracts';
-import { OUTBOX_SYSTEM_TENANT_ID, OutboxPublisher } from '@platform/outbox';
+import { OutboxPublisher } from '@platform/outbox';
 import { EntityManager } from 'typeorm';
 
 export interface AccessTokenInvalidationIntent {
@@ -25,7 +26,9 @@ export class DurableAccessTokenInvalidationService {
   ) {}
 
   async enqueue(manager: EntityManager, intent: AccessTokenInvalidationIntent): Promise<void> {
-    const systemRouted = intent.tenantId === null;
+    // SEC-HIGH-057: scope derived from the principal, routed by kind.
+    const scope = tenantScopeOf(intent.tenantId);
+    const systemRouted = scope.kind === 'platform';
     const expiresAtEpochSeconds = Math.floor(intent.expiresAt.getTime() / 1000);
     if (!Number.isSafeInteger(expiresAtEpochSeconds) || expiresAtEpochSeconds <= 0) {
       throw new RangeError('Invalid access-token expiry date');
@@ -33,7 +36,7 @@ export class DurableAccessTokenInvalidationService {
     const event: AccessTokenInvalidationRequestedEvent = {
       ...createBaseEvent<AccessTokenInvalidationRequestedEvent>(
         'AccessTokenInvalidationRequested',
-        intent.tenantId ?? OUTBOX_SYSTEM_TENANT_ID,
+        scope,
         { aggregateId: intent.targetJti, aggregateType: 'AccessToken' },
       ),
       targetJti: intent.targetJti,

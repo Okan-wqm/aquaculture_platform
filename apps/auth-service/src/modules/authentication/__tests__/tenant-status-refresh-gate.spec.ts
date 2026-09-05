@@ -23,6 +23,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { OutboxPublisher } from '@platform/outbox';
 import { TenantStatus } from '@platform/event-contracts';
 import * as bcrypt from 'bcryptjs';
 import { DataSource } from 'typeorm';
@@ -53,6 +54,8 @@ const mockCompare = jest.mocked<(d: string, e: string) => Promise<boolean>>(bcry
 
 const USER_ID = '11111111-1111-4111-8111-111111111111';
 const TENANT_ID = '33333333-3333-4333-8333-333333333333';
+
+const mockOutboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
 
 describe('AuthenticationService — tenant-status refresh gate (RBAC-HIGH-007)', () => {
   let service: AuthenticationService;
@@ -147,6 +150,7 @@ describe('AuthenticationService — tenant-status refresh gate (RBAC-HIGH-007)',
           provide: BestEffortEventPublisher,
           useValue: new BestEffortEventPublisher({ publish: jest.fn() }),
         },
+        { provide: OutboxPublisher, useValue: mockOutboxPublisher },
         { provide: AuditLogService, useValue: { log: jest.fn() } },
         { provide: TokenService, useValue: mockTokenService },
         {

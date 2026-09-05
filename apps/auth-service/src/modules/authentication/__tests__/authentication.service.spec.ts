@@ -33,6 +33,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { OutboxPublisher } from '@platform/outbox';
 import * as bcrypt from 'bcryptjs';
 import { DataSource } from 'typeorm';
 
@@ -106,7 +107,7 @@ const createMockUser = (overrides: Partial<User> = {}): User => {
     firstName: 'Test',
     lastName: 'User',
     role: Role.MODULE_USER,
-    tenantId: 'tenant-uuid-123',
+    tenantId: '11111111-1111-4111-8111-111111111111',
     isActive: true,
     isEmailVerified: true,
     failedLoginAttempts: 0,
@@ -121,7 +122,7 @@ const createMockUser = (overrides: Partial<User> = {}): User => {
 const createMockTenant = (overrides: Partial<Tenant> = {}): Tenant => {
   const tenant = new Tenant();
   Object.assign(tenant, {
-    id: 'tenant-uuid-123',
+    id: '11111111-1111-4111-8111-111111111111',
     name: 'Test Tenant',
     // Canonical UPPERCASE — the lowercase 'active' the mock used before never
     // matched the persisted 'ACTIVE', so the old block-list passed login for
@@ -337,6 +338,8 @@ const mockDurableUserTokenInvalidation = {
 // Test Suite
 // ============================================================================
 
+const mockOutboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
+
 describe('AuthenticationService', () => {
   let service: AuthenticationService;
   let bypassRlsMock: BypassRlsService;
@@ -412,6 +415,7 @@ describe('AuthenticationService', () => {
           provide: BestEffortEventPublisher,
           useValue: new BestEffortEventPublisher(mockEventBus),
         },
+        { provide: OutboxPublisher, useValue: mockOutboxPublisher },
         { provide: AuditLogService, useValue: mockAuditLogService },
         { provide: TokenService, useValue: mockTokenService },
         {
@@ -851,7 +855,7 @@ describe('AuthenticationService', () => {
         mockTransactionManager,
         expect.objectContaining({
           targetJti: 'jti-123',
-          tenantId: 'tenant-uuid-123',
+          tenantId: '11111111-1111-4111-8111-111111111111',
           expiresAt: accessExpiry,
           reason: 'user_logout',
         }),
@@ -983,7 +987,7 @@ describe('AuthenticationService', () => {
         type: 'access',
         role: Role.MODULE_USER,
         roles: [Role.MODULE_USER],
-        tenantId: 'tenant-uuid-123',
+        tenantId: '11111111-1111-4111-8111-111111111111',
         jti: 'mock-jti',
         iat: Math.floor(Date.now() / 1000),
       });
@@ -1000,8 +1004,8 @@ describe('AuthenticationService', () => {
       mockUserRepository.findOne.mockResolvedValue(
         createMockUser({ id: 'admin', role: Role.SUPER_ADMIN, tenantId: null }),
       );
-      const result = await service.me('admin', 'tenant-uuid-123');
-      expect(result.user.tenantId).toBe('tenant-uuid-123');
+      const result = await service.me('admin', '11111111-1111-4111-8111-111111111111');
+      expect(result.user.tenantId).toBe('11111111-1111-4111-8111-111111111111');
     });
 
     it('leaves the tenant null for a platform SUPER_ADMIN (null token tenant)', async () => {

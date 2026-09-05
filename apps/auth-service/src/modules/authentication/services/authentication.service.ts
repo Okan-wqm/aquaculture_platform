@@ -31,8 +31,12 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
-import { createBaseEvent, isLoginAllowed } from '@platform/event-contracts';
-import type { UserAccountLockedEvent } from '@platform/event-contracts';
+import { createBaseEvent, isLoginAllowed, tenantScopeOf } from '@platform/event-contracts';
+import type {
+  PasswordResetRequestedEvent,
+  UserAccountLockedEvent,
+} from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
 import * as bcrypt from 'bcryptjs';
 import {
   DataSource,
@@ -159,6 +163,9 @@ export class AuthenticationService {
     // platform-level SUPER_ADMIN (tenantId NULL), so they route through the
     // allowlisted best-effort path rather than the raw event bus.
     private readonly bestEffort: BestEffortEventPublisher,
+    // SEC-HIGH-057: PasswordResetRequested is the only signal that delivers a
+    // recovery e-mail; it commits with the token row through the outbox.
+    private readonly outboxPublisher: OutboxPublisher,
     private readonly actionTokenResolver: ActionTokenResolver,
     private readonly auditLogService: AuditLogService,
     private readonly tokenService: TokenService,
@@ -607,7 +614,7 @@ export class AuthenticationService {
           success: true,
         }),
         this.bestEffort.publish(
-          createBaseEvent('UserLoggedIn', user.tenantId ?? 'system', {
+          createBaseEvent('UserLoggedIn', tenantScopeOf(user.tenantId), {
             aggregateId: user.id,
             aggregateType: 'User',
             userId: user.id,
@@ -806,7 +813,7 @@ export class AuthenticationService {
       }),
       // Publish event (outside transaction - events can be retried)
       this.bestEffort.publish(
-        createBaseEvent('InvitationAccepted', result.tenantId ?? 'system', {
+        createBaseEvent('InvitationAccepted', tenantScopeOf(result.tenantId), {
           aggregateId: result.id,
           aggregateType: 'User',
           userId: result.id,
@@ -1530,11 +1537,15 @@ export class AuthenticationService {
       // only mails tenant-scoped users — operator visibility for platform
       // accounts comes from the CRITICAL audit event.
       const lockEvent: UserAccountLockedEvent = {
-        ...createBaseEvent<UserAccountLockedEvent>('UserAccountLocked', user.tenantId ?? 'system', {
-          aggregateId: user.id,
-          aggregateType: 'User',
-          userId: user.id,
-        }),
+        ...createBaseEvent<UserAccountLockedEvent>(
+          'UserAccountLocked',
+          tenantScopeOf(user.tenantId),
+          {
+            aggregateId: user.id,
+            aggregateType: 'User',
+            userId: user.id,
+          },
+        ),
         userId: user.id,
         failedAttempts: updatedAttempts,
         lockedUntil: lockoutUntil.toISOString(),
@@ -1553,7 +1564,9 @@ export class AuthenticationService {
    * - Stores SHA-256 hash of token (not plaintext) in the database
    * - Token expires after 1 hour
    * - If user not found, performs dummy hash to match timing and returns silently
-   * - Publishes PasswordResetRequestedEvent for notification service to send email
+   * - Enqueues PasswordResetRequestedEvent through the durable outbox, in the
+   *   same transaction as the token row, for the notification service to send
+   *   the e-mail (platform-scoped for a super admin — SEC-HIGH-057)
    */
   async initiatePasswordReset(email: string, ipAddress?: string): Promise<void> {
     const startTime = Date.now();
@@ -1584,43 +1597,61 @@ export class AuthenticationService {
       const resetTokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
       const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
 
-      // Set token and expiry (1 hour)
-      user.passwordResetToken = resetTokenHash;
-      user.passwordResetExpires = expiresAt;
-      await this.userRepository.save(user);
+      // SEC-HIGH-057: the scope is derived from the principal, never spelled
+      // here. A super admin (tenantId NULL) is a platform-scoped event that
+      // routes on the reserved segment; the notification consumer branches on
+      // that scope instead of dropping it.
+      const scope = tenantScopeOf(user.tenantId);
 
-      const actionToken = await this.actionTokenRepository.save(
-        this.actionTokenRepository.create({
-          purpose: ActionTokenPurpose.PASSWORD_RESET,
-          tenantId: user.tenantId ?? null,
+      // The user row, the ActionToken row and the delivery trigger commit
+      // together. PasswordResetRequested is the ONLY signal that produces the
+      // recovery e-mail, so it rides the durable outbox (system-routed for a
+      // platform principal) rather than the lossy best-effort path — a lost
+      // event here is a user locked out of their own account, not telemetry.
+      await this.dataSource.transaction(async (manager) => {
+        // Set token and expiry (1 hour)
+        user.passwordResetToken = resetTokenHash;
+        user.passwordResetExpires = expiresAt;
+        await this.preTenantAuthRepository(manager, User).save(user);
+
+        const actionTokens = this.preTenantAuthRepository(manager, ActionToken);
+        const actionToken = await actionTokens.save(
+          actionTokens.create({
+            purpose: ActionTokenPurpose.PASSWORD_RESET,
+            tenantId: user.tenantId ?? null,
+            userId: user.id,
+            tokenHash: resetTokenHash,
+            status: ActionTokenStatus.ACTIVE,
+            expiresAt,
+            auditMetadata: {
+              source: 'password-reset-request',
+              ipAddress,
+            },
+          }),
+        );
+
+        // SECURITY (CRITICAL-001/002): opaque references ONLY. PII (email,
+        // firstName) and secret URLs are NEVER placed on the immutable event
+        // bus. actionTokenId is the auth.action_tokens ROW ID; the notification
+        // service resolves the user and builds the reset URL at delivery time
+        // through the authenticated internal API, so the raw token never
+        // touches the bus.
+        const event: PasswordResetRequestedEvent = {
+          ...createBaseEvent<PasswordResetRequestedEvent>('PasswordResetRequested', scope, {
+            aggregateId: user.id,
+            aggregateType: 'User',
+            userId: user.id,
+            version: 2,
+          }),
           userId: user.id,
-          tokenHash: resetTokenHash,
-          status: ActionTokenStatus.ACTIVE,
-          expiresAt,
-          auditMetadata: {
-            source: 'password-reset-request',
-            ipAddress,
-          },
-        }),
-      );
-
-      // SECURITY (CRITICAL-001/002): Publish event with opaque references ONLY.
-      // PII (email, firstName) and secret URLs are NEVER placed on the immutable event bus.
-      // The notification service resolves user details and builds the reset URL at delivery
-      // time via authenticated internal API calls using userId and actionTokenId.
-      //
-      // actionTokenId is the opaque auth.action_tokens row id. The notification
-      // service calls auth-service's internal API with this ID to get the action URL
-      // without the raw token ever touching the event bus.
-      await this.bestEffort.publish({
-        ...createBaseEvent('PasswordResetRequested', user.tenantId ?? 'system', {
+          actionTokenId: actionToken.id,
+          cryptoShredKeyId: user.id,
+        };
+        await this.outboxPublisher.enqueue(event, manager, {
           aggregateId: user.id,
-          aggregateType: 'User',
-          userId: user.id,
-          version: 2,
-        }),
-        actionTokenId: actionToken.id,
-        cryptoShredKeyId: user.id,
+          idempotencyKey: `password-reset-requested:${actionToken.id}`,
+          ...(scope.kind === 'platform' ? { routingScope: 'system' as const } : {}),
+        });
       });
 
       // Audit log
@@ -1756,7 +1787,7 @@ export class AuthenticationService {
         success: true,
       }),
       this.bestEffort.publish(
-        createBaseEvent('PasswordResetCompleted', user.tenantId ?? 'system', {
+        createBaseEvent('PasswordResetCompleted', tenantScopeOf(user.tenantId), {
           aggregateId: user.id,
           aggregateType: 'User',
           userId: user.id,

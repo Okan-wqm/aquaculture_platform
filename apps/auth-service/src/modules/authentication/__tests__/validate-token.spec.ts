@@ -11,6 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
@@ -37,6 +38,8 @@ import { TokenService } from '../services/token.service';
  * pin that only type='access' tokens validate, and that verification uses the
  * RS256 + issuer + audience options (not a bare verifyAsync).
  */
+const mockOutboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
+
 describe('AuthenticationService.validateToken (SEC-MEDIUM-004)', () => {
   let service: AuthenticationService;
 
@@ -117,6 +120,7 @@ describe('AuthenticationService.validateToken (SEC-MEDIUM-004)', () => {
           provide: BestEffortEventPublisher,
           useValue: new BestEffortEventPublisher({ publish: jest.fn() }),
         },
+        { provide: OutboxPublisher, useValue: mockOutboxPublisher },
         { provide: AuditLogService, useValue: { log: jest.fn() } },
         { provide: TokenService, useValue: { generateTokens: jest.fn() } },
         {

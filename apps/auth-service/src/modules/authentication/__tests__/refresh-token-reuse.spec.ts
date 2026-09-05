@@ -10,6 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { OutboxPublisher } from '@platform/outbox';
 import * as bcrypt from 'bcryptjs';
 import { DataSource } from 'typeorm';
 
@@ -65,6 +66,8 @@ function deferredVoid(): { promise: Promise<void>; resolve: () => void } {
   });
   return { promise, resolve: resolvePromise };
 }
+
+const mockOutboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
 
 describe('AuthenticationService refresh-token reuse containment', () => {
   let service: AuthenticationService;
@@ -212,6 +215,7 @@ describe('AuthenticationService refresh-token reuse containment', () => {
         { provide: JwtService, useValue: {} },
         { provide: ConfigService, useValue: config },
         { provide: BestEffortEventPublisher, useValue: { publish: jest.fn() } },
+        { provide: OutboxPublisher, useValue: mockOutboxPublisher },
         { provide: AuditLogService, useValue: { log: jest.fn() } },
         { provide: TokenService, useValue: tokenService },
         { provide: MfaService, useValue: {} },

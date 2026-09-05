@@ -143,6 +143,26 @@ jobs:
       # burn-in pre-clean guard treats any untracked path as dirty.
       PYTHONDONTWRITEBYTECODE: '1'
     steps:
+      # ORPHAN-HIGH-802 — reset the persistent workspace HERE, so checkout
+      # does not have to. actions/checkout's `clean` runs `git clean -ffdx`,
+      # and `-x` deletes gitignored paths — including node_modules, which the
+      # worktree-clean guard this cleaning exists to satisfy never inspects,
+      # because `git status` does not report ignored files. The cost was paid
+      # every run: a full `npm ci` (measured 2m50s, ~1.6 GB peak RSS) on a
+      # self-hosted runner that shares its box with production and is
+      # deliberately the first OOM victim (oom_score_adj=500). The kernel
+      # killed that install on 2026-09-03 and twice more, and each kill left
+      # node_modules half-populated, so the NEXT run reinstalled from scratch
+      # and was killed again. Same reset, one exclusion, loop gone.
+      - name: Reset the persistent workspace, keeping installed dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -d .git ]; then
+            git reset --hard
+            git clean -ffdx -e node_modules
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
@@ -151,11 +171,10 @@ jobs:
           # this lane). A dispatch-triggered run inherits whatever the
           # previous job left behind; the mid-run preflight's
           # workspace_worktree_not_clean guard then rejects the run for
-          # files this lane never created. clean: true runs
-          # git clean -ffdx + git reset --hard before checkout, so every
-          # cycle starts from the committed tree regardless of what ran
-          # before it.
-          clean: true
+          # files this lane never created. The reset step above already put
+          # the tree back to the committed state, so checkout does not repeat
+          # it with the one flag that also throws the dependencies away.
+          clean: false
 
       # ARIA-HIGH-019 — anchor the job's wall-clock at the earliest possible
       # step, BEFORE checkout and provisioning: every setup minute spent

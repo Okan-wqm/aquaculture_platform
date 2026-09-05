@@ -88,23 +88,26 @@ jobs:
 
       - name: Persist enterprise workflow preflight
         env:
-          REPORT_DATE: ${{ steps.resolved.outputs.date }}
           PYTHONPATH: aria-kernel
         run: |
           set -euo pipefail
-          REPORT="aria-tools/reports/daily/${REPORT_DATE}.md"
           python3 - <<'PY'
           import os
           from pathlib import Path
 
           from aria_kernel.preflight import verify_workflow_preflight
 
-          report = f"aria-tools/reports/daily/{os.environ['REPORT_DATE']}.md"
-          # FAZ 6a — the durable store joins the write roots: the anchor now
-          # reads the reflection report out of the restored aria/state store
-          # (and the restore materialises it), so declaring only the repo-
-          # local report path would describe the pre-FAZ-6 lane.
-          allowed = [report, ".aria-state-store"]
+          # WHY the DIRECTORY and not a dated file: the preflight must precede
+          # the first governed mutation (the aria/state restore), and the report
+          # date is only knowable AFTER that restore — the `resolved` step asks
+          # the restored store which cycle date it actually has. Declaring
+          # `steps.resolved.outputs.date` here read a later step's output, so
+          # REPORT_DATE was empty on every scheduled run and the declaration
+          # collapsed to "aria-tools/reports/daily/.md", which the contract
+          # correctly refused. Declaring the directory states the true blast
+          # radius at the only moment the job can state it; the dated filename
+          # stays pinned where it is knowable, on the artifact upload contract.
+          allowed = ["aria-tools/reports/daily", ".aria-state-store"]
           verdict = verify_workflow_preflight(
               workflow_id="aria-daily-report",
               job_id="generate-report",
@@ -151,7 +154,7 @@ jobs:
         id: resolved
         env:
           DATE_INPUT: ${{ github.event.inputs.date }}
-          TARGET_DATE: ${{ steps.resolved.outputs.date }}
+          TARGET_DATE: ${{ steps.target.outputs.date }}
         run: |
           set -euo pipefail
           if [ -n "${DATE_INPUT:-}" ]; then

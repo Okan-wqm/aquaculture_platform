@@ -104,6 +104,27 @@ def _walk_steps(workflow: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     return out
 
 
+def _npm_ci_violations(name: str, text: str) -> list[str]:
+    """Lines that run `npm ci` without --ignore-scripts (INFRA-CRITICAL-001).
+
+    A line whose first non-space character is `#` is a comment in BOTH layers
+    that can hold this text — the workflow YAML and the shell inside a `run:`
+    block — so nothing on it executes and nothing on it can be a supply-chain
+    risk. Skipping those is not a loosening of the gate; it is the difference
+    between reading code and reading prose about code.
+    """
+    violations: list[str] = []
+    for line_no, line in enumerate(text.splitlines(), start=1):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        if "npm ci" not in stripped:
+            continue
+        if "--ignore-scripts" not in stripped:
+            violations.append(f"{name}:{line_no}: npm ci without --ignore-scripts → {stripped}")
+    return violations
+
+
 class CIWorkflowInvariants(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -183,12 +204,20 @@ class CIWorkflowInvariants(unittest.TestCase):
         violations: list[str] = []
         for name in self.workflows:
             text = (_WORKFLOWS / name).read_text(encoding="utf-8")
-            for line_no, line in enumerate(text.splitlines(), start=1):
-                if "npm ci" not in line:
-                    continue
-                if "--ignore-scripts" not in line:
-                    violations.append(f"{name}:{line_no}: npm ci without --ignore-scripts → {line.strip()}")
+            violations.extend(_npm_ci_violations(name, text))
         self.assertEqual(violations, [], msg="\n".join(violations))
+
+    def test_a_comment_naming_the_install_is_not_a_violation(self) -> None:
+        """ORPHAN-MEDIUM-803 — the scan reads lines, so it used to fire on
+        prose. A comment explaining WHY an install is expensive names the
+        command without running it, and a gate that cannot tell those apart
+        teaches its reader to skip past the real violation."""
+        commented = "        # every run: a full `npm ci` (measured 2m50s, ~1.6 GB peak RSS)\n"
+        self.assertEqual(_npm_ci_violations("x.yml", commented), [])
+
+    def test_a_real_install_without_the_flag_is_still_a_violation(self) -> None:
+        self.assertEqual(len(_npm_ci_violations("x.yml", "          npm ci --no-audit\n")), 1)
+        self.assertEqual(_npm_ci_violations("x.yml", "          npm ci --ignore-scripts\n"), [])
 
     def test_every_checkout_has_persist_credentials_false(self) -> None:
         # Clause 5 — INFRA-HIGH-004 (with allowlist).

@@ -148,6 +148,10 @@ export type { ConfiguredBrowserRouterProps } from './ConfiguredBrowserRouter';
 export { ApiError } from './ApiError';
 export type { ApiErrorProps } from './ApiError';
 
+// SandboxedHtmlPreview - the only permitted renderer for untrusted HTML (ADMIN-CRITICAL-015)
+export { SandboxedHtmlPreview } from './SandboxedHtmlPreview';
+export type { SandboxedHtmlPreviewProps } from './SandboxedHtmlPreview';
+
 // Accessibility (a11y) Primitives — FE-HIGH-017, FE-HIGH-018, FE-HIGH-019
 export { VisuallyHidden, FocusTrap, RouteAnnouncer } from './a11y';
 export type { VisuallyHiddenProps, FocusTrapProps, RouteAnnouncerProps } from './a11y';

@@ -32,6 +32,7 @@ import noClaudeSdkRawCall from '../eslint-rules/rules/no-claude-sdk-raw-call';
 import noDirectEventPublish from '../eslint-rules/rules/no-direct-event-publish';
 import noHighCardinalityMetricLabel from '../eslint-rules/rules/no-high-cardinality-metric-label';
 import noUnpinnedSsrfFetch from '../eslint-rules/rules/no-unpinned-ssrf-fetch';
+import noUnsandboxedHtmlFrame from '../eslint-rules/rules/no-unsandboxed-html-frame';
 import requireEntitySchema from '../eslint-rules/rules/require-entity-schema';
 
 // Bind RuleTester's static hooks to node:test so the cases run under the
@@ -66,11 +67,12 @@ const ruleTesterConfig: TesterConfig =
           parser: require_('@typescript-eslint/parser') as object,
           ecmaVersion: 2022,
           sourceType: 'module',
+          parserOptions: { ecmaFeatures: { jsx: true } },
         },
       }
     : ({
         parser: require_.resolve('@typescript-eslint/parser'),
-        parserOptions: { ecmaVersion: 2022, sourceType: 'module' },
+        parserOptions: { ecmaVersion: 2022, sourceType: 'module', ecmaFeatures: { jsx: true } },
       } as TesterConfig);
 const ruleTester = new RuleTester(ruleTesterConfig);
 
@@ -87,6 +89,7 @@ const testedRuleNames = [
   'no-claude-sdk-raw-call',
   'no-bare-graphql-query-string',
   'no-unpinned-ssrf-fetch',
+  'no-unsandboxed-html-frame',
 ] as const;
 
 void it('has a RuleTester suite for every exported rule', () => {
@@ -151,9 +154,7 @@ ruleTester.run('no-claude-sdk-raw-call', asRule(noClaudeSdkRawCall), {
 
 ruleTester.run('no-bare-graphql-query-string', asRule(noBareGraphqlQueryString), {
   valid: [{ code: 'const q = useGqlOperation();' }],
-  invalid: [
-    { code: 'const q = gql`query { me { id } }`;', errors: [{ messageId: 'bareGqlTag' }] },
-  ],
+  invalid: [{ code: 'const q = gql`query { me { id } }`;', errors: [{ messageId: 'bareGqlTag' }] }],
 });
 
 ruleTester.run('no-unpinned-ssrf-fetch', asRule(noUnpinnedSsrfFetch), {
@@ -180,6 +181,48 @@ ruleTester.run('no-unpinned-ssrf-fetch', asRule(noUnpinnedSsrfFetch), {
     {
       code: 'const options = ssrfValidator.getSafeFetchOptions();',
       errors: [{ messageId: 'removedGetSafeFetchOptions' }],
+    },
+  ],
+});
+
+ruleTester.run('no-unsandboxed-html-frame', asRule(noUnsandboxedHtmlFrame), {
+  valid: [
+    {
+      code: 'const a = <iframe src="https://example.test" sandbox="" title="t" />;',
+      filename: 'web/modules/sensor-module/src/components/Viewer.tsx',
+    },
+    {
+      code: 'const a = <iframe src={url} sandbox={sandboxValue} title="t" />;',
+      filename: 'web/modules/sensor-module/src/components/Renderer.tsx',
+    },
+    {
+      // The shared component is the ONE place inline HTML may be framed.
+      code: 'const a = <iframe srcDoc={html} sandbox="" title={title} />;',
+      filename: 'web/shared-ui/src/components/SandboxedHtmlPreview/SandboxedHtmlPreview.tsx',
+    },
+    {
+      code: 'const a = <SandboxedHtmlPreview html={html} title="Email Preview" />;',
+      filename: 'web/modules/admin-panel/src/pages/EmailTemplatesPage.tsx',
+    },
+  ],
+  invalid: [
+    {
+      code: 'const a = <iframe srcDoc={previewHtml} className="w-full" title="Email Preview" />;',
+      filename: 'web/modules/admin-panel/src/pages/EmailTemplatesPage.tsx',
+      errors: [
+        { messageId: 'frameWithoutSandbox' },
+        { messageId: 'srcDocOutsideSandboxedPreview' },
+      ],
+    },
+    {
+      code: 'const a = <iframe src="https://example.test" title="t" />;',
+      filename: 'web/modules/dashboard/src/pages/Embed.tsx',
+      errors: [{ messageId: 'frameWithoutSandbox' }],
+    },
+    {
+      code: 'const a = <iframe srcDoc={html} sandbox="" title="t" />;',
+      filename: 'web/modules/tenant-admin/src/pages/Announcements.tsx',
+      errors: [{ messageId: 'srcDocOutsideSandboxedPreview' }],
     },
   ],
 });

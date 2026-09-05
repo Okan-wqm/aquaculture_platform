@@ -45335,6 +45335,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/eslint-rules/dist/rules/no-unsandboxed-html-frame.d.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/eslint-rules/dist/rules/no-unsandboxed-html-frame.js",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/eslint-rules/dist/rules/require-entity-schema.d.ts",
       "prettier_managed": true
     },
@@ -45396,6 +45408,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/eslint-rules/rules/no-unpinned-ssrf-fetch.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/eslint-rules/rules/no-unsandboxed-html-frame.ts",
       "prettier_managed": true
     },
     {
@@ -57171,6 +57189,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/components/Modal/Modal.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/SandboxedHtmlPreview/__tests__/SandboxedHtmlPreview.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/SandboxedHtmlPreview/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/SandboxedHtmlPreview/SandboxedHtmlPreview.tsx",
       "prettier_managed": true
     },
     {

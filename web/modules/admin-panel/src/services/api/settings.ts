@@ -2,7 +2,6 @@
  * Settings API (System Settings)
  * and System Settings API (Feature Toggles, Maintenance, Performance, Errors, Jobs)
  *
- * Tenant Config  -> api/tenant-config.ts  (tenantConfigApi)
  * Email Templates -> api/email-templates.ts (emailTemplatesApi)
  *
  * settingsApi still re-exports their methods for backward compatibility.
@@ -25,11 +24,9 @@ import type {
 } from '../types';
 
 // Re-export extracted APIs for barrel convenience
-export { tenantConfigApi } from './tenant-config';
 export { emailTemplatesApi } from './email-templates';
 
 // Import extracted APIs for backward-compatible delegation
-import { tenantConfigApi } from './tenant-config';
 import { emailTemplatesApi } from './email-templates';
 
 export const settingsApi = {
@@ -45,15 +42,6 @@ export const settingsApi = {
       body: JSON.stringify({ to }),
     }),
   getSystemInfo: () => apiFetch<Record<string, unknown>>('/settings/system/info'),
-
-  // Tenant Configuration (delegated to tenant-config.ts, kept here for backward compat)
-  getTenantConfig: tenantConfigApi.getTenantConfig,
-  updateTenantConfig: tenantConfigApi.updateTenantConfig,
-  createTenantApiKey: tenantConfigApi.createTenantApiKey,
-  revokeTenantApiKey: tenantConfigApi.revokeTenantApiKey,
-  createWebhook: tenantConfigApi.createWebhook,
-  deleteWebhook: tenantConfigApi.deleteWebhook,
-  testWebhook: tenantConfigApi.testWebhook,
 
   // Email Templates (delegated to email-templates.ts, kept here for backward compat)
   getEmailTemplates: emailTemplatesApi.getEmailTemplates,
@@ -104,12 +92,6 @@ export const systemSettingsApi = {
     apiFetch<MaintenanceWindow>(`/system/settings/maintenance/${id}/extend`, { method: 'POST', body: JSON.stringify({ additionalMinutes }) }),
   checkMaintenanceStatus: (tenantId?: string) =>
     apiFetch<{ isInMaintenance: boolean; maintenanceInfo?: { title: string; message: string; estimatedEnd?: string } }>(`/system/settings/maintenance/check${tenantId ? `?tenantId=${tenantId}` : ''}`),
-
-  // Provisioning Settings
-  getProvisioningConfig: () =>
-    apiFetch<Record<string, string>>('/system/settings/provisioning-config'),
-  updateProvisioningConfig: (config: Record<string, string>) =>
-    apiFetch<Record<string, string>>('/system/settings/provisioning-config', { method: 'PUT', body: JSON.stringify(config) }),
 
   // Performance Monitoring
   getPerformanceDashboard: (service?: string, timeRange?: { start: string; end: string }) =>
@@ -209,9 +191,6 @@ export const systemSettingsApi = {
     apiFetch<BackgroundJob>(`/system/jobs/${id}/cancel`, { method: 'POST' }),
   retryJob: (id: string) =>
     apiFetch<BackgroundJob>(`/system/jobs/${id}/retry`, { method: 'POST' }),
-  getScheduledJobs: () => apiFetch<BackgroundJob[]>('/system/jobs/scheduled'),
-  getFailedJobs: (limit?: number) =>
-    apiFetch<BackgroundJob[]>(`/system/jobs/failed${limit ? `?limit=${limit}` : ''}`),
   cleanupJobs: (olderThanDays: number, status?: JobStatus[]) =>
     apiFetch<{ deleted: number }>('/system/jobs/cleanup', { method: 'POST', body: JSON.stringify({ olderThanDays, status }) }),
 };

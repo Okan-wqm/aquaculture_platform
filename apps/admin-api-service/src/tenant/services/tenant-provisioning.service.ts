@@ -17,7 +17,6 @@ import { DataSource, Repository } from 'typeorm';
 
 import { TenantSchema } from '../../database-management/entities/database-management.entity';
 import { WalgRecoveryPointService } from '../../database-management/services/recovery-point.service';
-import { TenantConfigurationService } from '../../settings/services/tenant-configuration.service';
 import { Tenant, TenantStatus } from '../entities/tenant.entity';
 
 import { AuthTenantProvisioningClientService } from './auth-tenant-provisioning-client.service';
@@ -138,7 +137,6 @@ export class TenantProvisioningService {
     private readonly tenantSchemaRepository: Repository<TenantSchema>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    private readonly tenantConfigurationService: TenantConfigurationService,
     private readonly recoveryPointService: WalgRecoveryPointService,
     private readonly authProvisioningClient: AuthTenantProvisioningClientService,
     @Optional()
@@ -299,52 +297,6 @@ export class TenantProvisioningService {
       );
     }
 
-    // Step: Verify tenant schema ownership boundary.
-    if (!skipSchemaCreation) {
-      saga.addStep(
-        'create_schema',
-        () => {
-          return this.createTenantSchema(tenant);
-        },
-        async () => {
-          // A rollback of a schema that never held tenant data carries no
-          // recovery point: there is nothing to restore, and the previous
-          // synthetic "encrypted backup" here was evidence of nothing.
-          const proof = createCleanupDropProof({
-            operationId: authCommandContext.operationId,
-            tenantId: tenant.id,
-            purpose: 'provisioning_rollback',
-            actorId: authCommandContext.actorId,
-            reason: 'tenant provisioning create_schema compensation',
-            legalHoldCheckedAt: new Date(),
-          });
-          const schemaRecord = await this.tenantSchemaRepository.findOne({
-            where: { tenantId: tenant.id },
-          });
-          if (schemaRecord) {
-            schemaRecord.status = 'pending_deletion';
-            schemaRecord.metadata = {
-              ...(schemaRecord.metadata ?? {}),
-              cleanupOperationId: proof.operationId,
-              cleanupRequestedAt: new Date().toISOString(),
-              cleanupProofPurpose: proof.purpose,
-              cleanupProofCreatedAt: proof.createdAt,
-            };
-            await this.tenantSchemaRepository.save(schemaRecord);
-          }
-          this.logger.warn(
-            `Schema compensation for tenant ${tenant.id} is db-migrate owned; admin-api did not issue DDL`,
-          );
-        },
-      );
-    } else {
-      saga.addStep('create_schema', () => {
-        this.logger.log(
-          `Skipping schema creation for tenant ${tenantId} (skipSchemaCreation=true)`,
-        );
-      });
-    }
-
     saga.addStep(
       'setup_default_roles',
       async () => {
@@ -360,19 +312,6 @@ export class TenantProvisioningService {
             actorId: actorId ?? tenant.createdBy ?? authCommandContext.actorId,
           },
         );
-      },
-    );
-
-    // Step: Create default configuration
-    saga.addStep(
-      'create_default_config',
-      () => {
-        return this.createDefaultConfiguration(tenant);
-      },
-      () => {
-        // Compensate: configuration cleanup is handled by TenantConfigurationService
-        this.logger.warn(`Compensating: removing configuration for tenant ${tenant.id}`);
-        // Best effort — config may not have been created
       },
     );
 
@@ -674,16 +613,6 @@ export class TenantProvisioningService {
     }
   }
 
-  private createTenantSchema(tenant: Tenant): never {
-    this.logger.warn(
-      `Rejecting runtime schema creation for tenant ${tenant.id}; tenant schema provisioning is db-migrate owned`,
-    );
-    throw new Error(
-      `Tenant schema creation for ${tenant.id} is owned by aqua-db-migrate; ` +
-        `admin-api must create a provisioning ledger request and wait for admin.tenant_schemas.`,
-    );
-  }
-
   /**
    * Setup default roles for a newly provisioned tenant.
    * Creates only the TENANT_ADMIN role - actual permissions are managed by the
@@ -779,44 +708,6 @@ export class TenantProvisioningService {
       isEditable: this.readBoolean(row.is_editable),
       displayOrder: this.readNumber(row.display_order),
     };
-  }
-
-  /**
-   * Create default configuration for a newly provisioned tenant
-   * Uses the TenantConfigurationService to create the configuration record
-   */
-  private createDefaultConfiguration(tenant: Tenant): void {
-    this.logger.log(`Creating default configuration for tenant ${tenant.id}`);
-
-    try {
-      const request = this.tenantConfigurationService.requestDefaultConfigurationProvisioning({
-        tenantId: tenant.id,
-        brandingConfig: {
-          companyName: tenant.name,
-        },
-        featureFlags: {
-          dataExport: true,
-          auditLog: true,
-          mobileAccess: true,
-          iotDeviceSupport: true,
-        },
-      });
-
-      this.logger.log(
-        `Config-service default configuration requested for tenant ${tenant.id}: ${request.requestId}`,
-      );
-    } catch (error) {
-      // If configuration already exists, log and continue
-      if ((error as Error).message?.includes('already exists')) {
-        this.logger.warn(`Configuration already exists for tenant ${tenant.id}, skipping creation`);
-        return;
-      }
-
-      this.logger.error(
-        `Failed to create configuration for tenant ${tenant.id}: ${(error as Error).message}`,
-      );
-      throw error;
-    }
   }
 
   private async collectTenantCleanupCounts(tenantId: string): Promise<Record<string, unknown>> {

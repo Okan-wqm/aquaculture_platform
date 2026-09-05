@@ -8,7 +8,6 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
@@ -85,13 +84,6 @@ export class MigrationManagementService {
     return baseDuration;
   }
 
-  private rejectRuntimeMigration(message: string): never {
-    this.logger.warn(message);
-    throw new ForbiddenException(
-      'Runtime migration execution is disabled; submit a db-migrate provisioner or migration job',
-    );
-  }
-
   // ============================================================================
   // Single Tenant Migration
   // ============================================================================
@@ -123,38 +115,9 @@ export class MigrationManagementService {
     return this.getAvailableMigrations().filter(m => !appliedVersions.has(m.version));
   }
 
-  /**
-   * Run migration for single tenant
-   */
-  runMigration(
-    tenantId: string,
-    version: string,
-    isDryRun = false,
-    executedBy?: string,
-  ): never {
-    this.rejectRuntimeMigration(
-      `Rejected runtime migration request tenant=${tenantId} version=${version} ` +
-        `dryRun=${isDryRun} executedBy=${executedBy ?? 'unknown'}`,
-    );
-  }
-
   // ============================================================================
   // Batch Migration
   // ============================================================================
-
-  /**
-   * Run migration for all active tenants
-   */
-  runBatchMigration(
-    version: string,
-    isDryRun = false,
-    executedBy?: string,
-  ): never {
-    this.rejectRuntimeMigration(
-      `Rejected runtime batch migration request version=${version} ` +
-        `dryRun=${isDryRun} executedBy=${executedBy ?? 'unknown'}`,
-    );
-  }
 
   /**
    * Get batch migration status
@@ -208,20 +171,6 @@ export class MigrationManagementService {
   // ============================================================================
   // Rollback
   // ============================================================================
-
-  /**
-   * Rollback migration for tenant
-   */
-  rollbackMigration(
-    tenantId: string,
-    version: string,
-    executedBy?: string,
-  ): never {
-    this.rejectRuntimeMigration(
-      `Rejected runtime rollback request tenant=${tenantId} version=${version} ` +
-        `executedBy=${executedBy ?? 'unknown'}`,
-    );
-  }
 
   // ============================================================================
   // Migration History

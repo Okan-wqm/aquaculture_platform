@@ -10,12 +10,8 @@ import { SubscriptionRenewalService } from './subscription-renewal.service';
 import {
   SubscriptionStatus,
   SubscriptionOverview,
-  PlanChangeRequest,
-  PlanChangeResult,
   SubscriptionFilters,
   SubscriptionStats,
-  CreateSubscriptionDto,
-  CreateSubscriptionResult,
 } from './subscription-types';
 
 // Re-export types for backward compatibility. SubscriptionStatus is an
@@ -28,8 +24,6 @@ export type {
   PlanChangeResult,
   SubscriptionFilters,
   SubscriptionStats,
-  CreateSubscriptionDto,
-  CreateSubscriptionResult,
   ReminderConfig,
   ModuleQuantities,
   ModuleLineItem,
@@ -76,54 +70,7 @@ export class SubscriptionManagementService {
     return this.coreService.getSubscriptionByTenant(tenantId);
   }
 
-  /**
-   * Create a new subscription for a tenant
-   */
-  async createSubscription(dto: CreateSubscriptionDto): Promise<CreateSubscriptionResult> {
-    return this.coreService.createSubscription(dto);
-  }
-
-  /**
-   * Cancel subscription
-   */
-  async cancelSubscription(
-    tenantId: string,
-    reason: string,
-    cancelledBy: string,
-    cancelImmediately = false,
-  ): Promise<{ success: boolean; effectiveDate: Date; message: string }> {
-    return this.coreService.cancelSubscription(tenantId, reason, cancelledBy, cancelImmediately);
-  }
-
-  /**
-   * Reactivate a cancelled subscription
-   */
-  async reactivateSubscription(
-    tenantId: string,
-    reactivatedBy: string,
-  ): Promise<{ success: boolean; message: string }> {
-    return this.coreService.reactivateSubscription(tenantId, reactivatedBy);
-  }
-
-  /**
-   * Extend trial period
-   */
-  async extendTrial(
-    tenantId: string,
-    additionalDays: number,
-    extendedBy: string,
-  ): Promise<{ success: boolean; newTrialEnd: Date }> {
-    return this.coreService.extendTrial(tenantId, additionalDays, extendedBy);
-  }
-
   // ==================== Plan Change Operations ====================
-
-  /**
-   * Change subscription plan (upgrade/downgrade)
-   */
-  async changePlan(request: PlanChangeRequest): Promise<PlanChangeResult> {
-    return this.planChangeService.changePlan(request);
-  }
 
   /**
    * Preview plan change without executing
@@ -153,17 +100,6 @@ export class SubscriptionManagementService {
     gracePeriodEnding: SubscriptionOverview[];
   }> {
     return this.renewalService.getSubscriptionsForReminders();
-  }
-
-  /**
-   * Process subscription renewals
-   */
-  async processRenewals(): Promise<{
-    processed: number;
-    failed: number;
-    errors: string[];
-  }> {
-    return this.renewalService.processRenewals();
   }
 
   /**

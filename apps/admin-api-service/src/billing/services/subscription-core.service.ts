@@ -1,5 +1,4 @@
 import {
-  ConflictException,
   Injectable,
   Logger,
 } from '@nestjs/common';
@@ -12,7 +11,6 @@ import { DiscountCodeService } from './discount-code.service';
 import {
   SubscriptionOverview,
   SubscriptionFilters,
-  CreateSubscriptionDto,
 } from './subscription-types';
 
 type DbNumeric = number | string | null | undefined;
@@ -194,54 +192,6 @@ export class SubscriptionCoreService {
   }
 
   /**
-   * Cancel subscription
-   */
-  cancelSubscription(
-    tenantId: string,
-    reason: string,
-    cancelledBy: string,
-    cancelImmediately = false,
-  ): never {
-    void tenantId;
-    void reason;
-    void cancelledBy;
-    void cancelImmediately;
-    throw new ConflictException(
-      'Subscription cancellation is billing-service-owned. Use BillingAdminCommandClientService.cancelSubscription.',
-    );
-  }
-
-  /**
-   * Reactivate a cancelled subscription
-   */
-  reactivateSubscription(
-    tenantId: string,
-    reactivatedBy: string,
-  ): never {
-    void tenantId;
-    void reactivatedBy;
-    throw new ConflictException(
-      'Subscription reactivation is billing-service-owned. Use BillingAdminCommandClientService.reactivateSubscription.',
-    );
-  }
-
-  /**
-   * Extend trial period
-   */
-  extendTrial(
-    tenantId: string,
-    additionalDays: number,
-    extendedBy: string,
-  ): never {
-    void tenantId;
-    void additionalDays;
-    void extendedBy;
-    throw new ConflictException(
-      'Trial extension is billing-service-owned. Use BillingAdminCommandClientService.extendSubscriptionTrial.',
-    );
-  }
-
-  /**
    * Calculate next period end date based on billing cycle
    */
   calculateNextPeriodEnd(start: Date, cycle: BillingCycle): Date {
@@ -261,17 +211,6 @@ export class SubscriptionCoreService {
         break;
     }
     return end;
-  }
-
-  /**
-   * Create a new subscription for a tenant
-   * This is called during tenant creation to set up billing
-   */
-  createSubscription(dto: CreateSubscriptionDto): never {
-    void dto;
-    throw new ConflictException(
-      'Subscription creation is billing-service-owned. Use the tenant provisioning billing command workflow.',
-    );
   }
 
   /**

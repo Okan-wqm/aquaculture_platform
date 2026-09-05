@@ -1,17 +1,14 @@
 /**
  * Messaging Tenants Page
  *
- * Per-tenant messaging management for SUPER_ADMIN.
- *
- * The tenant listing endpoint (GET /messaging/tenants) returns 501 because
- * cross-tenant messaging aggregation is not yet implemented. This page
- * shows an honest "not yet available" state for the overview table, but
- * provides a working data-export trigger for individual tenants via
- * POST /messaging/tenants/:id/export.
+ * Per-tenant messaging data export for SUPER_ADMIN, backed by
+ * POST /messaging/tenants/:id/export (messaging-service triggerExport).
+ * The page shows only what the backend can do (ADMIN-HIGH-011): there is no
+ * cross-tenant messaging overview endpoint, so there is no overview table.
  */
 
 import React, { useState, useCallback } from 'react';
-import { Card, Button, Badge } from '@aquaculture/shared-ui';
+import { Card, Button } from '@aquaculture/shared-ui';
 import { messagingApi } from '../../services/adminApi';
 import type { ApiError } from '../../services/http-client';
 
@@ -85,36 +82,9 @@ const MessagingTenantsPage: React.FC = () => {
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Messaging Tenants</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Per-tenant messaging management and controls
+          Trigger a messaging data export for a single tenant
         </p>
       </div>
-
-      {/* Tenant Overview -- Not Yet Available */}
-      <Card>
-        <div className="p-6">
-          <div className="flex items-start gap-4">
-            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center">
-              <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-gray-900">
-                Tenant Messaging Overview Not Yet Available
-              </h3>
-              <p className="text-sm text-gray-600 mt-1 leading-relaxed">
-                The tenant messaging overview table requires cross-service aggregation
-                that is not yet implemented in the messaging service. This involves
-                collecting per-tenant channel counts, message volumes, active users,
-                and storage usage across tenant boundaries.
-              </p>
-              <div className="mt-3">
-                <Badge variant="warning">Backend: 501 Not Implemented</Badge>
-              </div>
-            </div>
-          </div>
-        </div>
-      </Card>
 
       {/* Data Export -- Working */}
       <Card>

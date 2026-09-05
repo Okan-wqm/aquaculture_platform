@@ -37,7 +37,6 @@ export { databaseApi } from './api/database';
 export { supportApi } from './api/support';
 export { securityApi } from './api/security';
 export { settingsApi, systemSettingsApi } from './api/settings';
-export { tenantConfigApi } from './api/tenant-config';
 export { emailTemplatesApi } from './api/email-templates';
 export { tenantsApi } from './api/tenants';
 export { usersApi } from './api/users';

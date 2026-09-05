@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 
@@ -414,51 +414,10 @@ export class InvoiceManagementService {
   }
 
   /**
-   * Mark invoice as paid (admin action)
-   */
-  markAsPaid(
-    invoiceId: string,
-    paidAmount: number,
-    markedBy: string,
-  ): never {
-    void invoiceId;
-    void paidAmount;
-    void markedBy;
-    throw new ConflictException(
-      'Invoice payment status mutation is billing-service-owned. Use BillingAdminCommandClientService.markInvoicePaid.',
-    );
-  }
-
-  /**
-   * Void invoice (admin action)
-   */
-  voidInvoice(
-    invoiceId: string,
-    reason: string,
-    voidedBy: string,
-  ): never {
-    void invoiceId;
-    void reason;
-    void voidedBy;
-    throw new ConflictException(
-      'Invoice voiding is billing-service-owned. Use BillingAdminCommandClientService.voidInvoice.',
-    );
-  }
-
-  /**
    * Get overdue invoices
    */
   async getOverdueInvoices(): Promise<InvoiceOverview[]> {
     const result = await this.getInvoices({ status: [InvoiceStatus.OVERDUE], limit: 100 });
     return result.invoices;
-  }
-
-  /**
-   * Update overdue status for invoices past due date
-   */
-  updateOverdueStatus(): never {
-    throw new ConflictException(
-      'Invoice overdue reconciliation is billing-service-owned and cannot run through admin-api direct writers.',
-    );
   }
 }

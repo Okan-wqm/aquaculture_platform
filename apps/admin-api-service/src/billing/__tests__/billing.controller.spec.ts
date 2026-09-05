@@ -74,16 +74,10 @@ const mockDiscountService = {
 };
 
 const mockSubscriptionService = {
-  createSubscription: jest.fn().mockResolvedValue({ id: 'sub-new' }),
   getSubscriptions: jest.fn().mockResolvedValue({ subscriptions: [], total: 0 }),
   getStats: jest.fn().mockResolvedValue({}),
   getSubscriptionsForReminders: jest.fn().mockResolvedValue([]),
   getSubscriptionByTenant: jest.fn().mockResolvedValue(null),
-  changePlan: jest.fn().mockResolvedValue({ success: true }),
-  cancelSubscription: jest.fn().mockResolvedValue({ cancelled: true }),
-  reactivateSubscription: jest.fn().mockResolvedValue({ reactivated: true }),
-  extendTrial: jest.fn().mockResolvedValue({ extended: true }),
-  processRenewals: jest.fn().mockResolvedValue({ processed: 0 }),
 };
 
 const mockModulePricingService = {
@@ -124,9 +118,6 @@ const mockInvoiceService = {
   getOverdueInvoices: jest.fn().mockResolvedValue([]),
   getInvoiceById: jest.fn().mockResolvedValue({}),
   getTenantInvoices: jest.fn().mockResolvedValue([]),
-  markAsPaid: jest.fn().mockResolvedValue({ paid: true }),
-  voidInvoice: jest.fn().mockResolvedValue({ voided: true }),
-  updateOverdueStatus: jest.fn().mockResolvedValue({ updated: 0 }),
 };
 
 const mockPaymentService = {
@@ -451,35 +442,6 @@ describe('BillingController', () => {
         }),
         undefined,
       );
-    });
-  });
-
-  // ==========================================================================
-  // 6. createSubscription -- billing-service SSOT boundary
-  // ==========================================================================
-
-  describe('POST /billing/subscriptions (createSubscription)', () => {
-    const validSubDto = {
-      tenantId: 'd4e5f6a7-b8c9-4d0e-af1a-2b3c4d5e6f7a',
-      planId: 'plan-starter',
-    };
-
-    it('should reject admin-api direct subscription creation', async () => {
-      const res = await request(httpServer())
-        .post('/billing/subscriptions')
-        .send({ ...validSubDto, createdBy: 'attacker-id' });
-
-      expect(res.status).toBe(HttpStatus.CONFLICT);
-      expect(mockSubscriptionService.createSubscription).not.toHaveBeenCalled();
-    });
-
-    it('should not fall back to body-driven direct writers', async () => {
-      const res = await request(httpServer())
-        .post('/billing/subscriptions')
-        .send(validSubDto);
-
-      expect(res.status).toBe(HttpStatus.CONFLICT);
-      expect(mockSubscriptionService.createSubscription).not.toHaveBeenCalled();
     });
   });
 

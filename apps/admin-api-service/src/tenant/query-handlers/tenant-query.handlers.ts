@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, NotImplementedException, Optional } from '@nestjs/common';
+import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import {
@@ -18,7 +18,6 @@ import {
   ListTenantsQuery,
   GetTenantStatsQuery,
   GetTenantUsageQuery,
-  GetTenantsApproachingLimitsQuery,
   GetExpiringTrialsQuery,
   SearchTenantsQuery,
 } from '../queries/tenant.queries';
@@ -399,25 +398,6 @@ export class GetTenantUsageHandler
       currentUserCount,
       usagePercentage: calculatePercentage(currentUserCount, tenant.maxUsers),
     };
-  }
-}
-
-@Injectable()
-@QueryHandler(GetTenantsApproachingLimitsQuery)
-export class GetTenantsApproachingLimitsHandler
-  implements IQueryHandler<GetTenantsApproachingLimitsQuery, Tenant[]>
-{
-  constructor(
-    @InjectRepository(Tenant)
-    private readonly tenantRepository: Repository<Tenant>,
-  ) {}
-
-  async execute(_query: GetTenantsApproachingLimitsQuery): Promise<Tenant[]> {
-    // C-9 fix: Block endpoint with 501 until actual limit checking is implemented.
-    // Previous implementation returned ALL active tenants unconditionally.
-    throw new NotImplementedException(
-      'Tenants approaching limits endpoint is not yet implemented. Requires JOIN against users table for actual limit checking.',
-    );
   }
 }
 

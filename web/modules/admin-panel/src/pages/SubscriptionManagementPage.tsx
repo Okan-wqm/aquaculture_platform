@@ -162,11 +162,6 @@ const SubscriptionManagementPage: React.FC = () => {
             Manage tenant subscriptions, billing cycles, and plan changes
           </p>
         </div>
-        <div className="mt-4 sm:mt-0">
-          <Button onClick={() => billingApi.processRenewals()}>
-            Process Renewals
-          </Button>
-        </div>
       </div>
 
       {/* Stats Cards */}

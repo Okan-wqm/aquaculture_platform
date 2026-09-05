@@ -8,7 +8,6 @@
  *   - DELETE /messaging/compliance/legal-holds/:id
  *   - GET  /messaging/retention/policies
  *   - PUT  /messaging/retention/policies/:id
- *   - GET  /messaging/monitoring/stats  (returns 501 until real-time metrics infra)
  *   - GET  /messaging/audit
  *
  * @see ADR-012 Phase 3
@@ -226,16 +225,6 @@ export const messagingApi = {
       body: JSON.stringify(update),
     }),
 
-  // ── Monitoring ──
-
-  /**
-   * Fetch monitoring stats.
-   * IMPORTANT: This endpoint currently returns 501 (Not Implemented)
-   * because real-time metrics infrastructure is not yet available.
-   */
-  getMonitoringStats: (): Promise<unknown> =>
-    apiFetch<unknown>('/messaging/monitoring/stats'),
-
   // ── Audit ──
 
   /** Query messaging audit log with pagination and filters */
@@ -273,19 +262,4 @@ export const messagingApi = {
     apiFetch<AiPersonaDefinition[]>(
       `/messaging/personas?${buildQueryString({ tenantId })}`,
     ),
-
-  /**
-   * Update an AI persona configuration.
-   * IMPORTANT: Currently returns 501 (Not Implemented) because personas are static.
-   * @param personaId - Persona identifier
-   * @param updates - Fields to update
-   */
-  updatePersona: (
-    personaId: string,
-    updates: Record<string, unknown>,
-  ): Promise<unknown> =>
-    apiFetch<unknown>(`/messaging/personas/${personaId}`, {
-      method: 'PUT',
-      body: JSON.stringify(updates),
-    }),
 };

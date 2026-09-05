@@ -1,6 +1,6 @@
 import * as crypto from 'crypto';
 
-import { GoneException, Injectable, Logger, NotFoundException, BadRequestException, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { LessThanOrEqual, Repository } from 'typeorm';
@@ -11,7 +11,6 @@ import {
   FeatureToggleStatus,
   FeatureCondition,
 } from '../entities/feature-toggle.entity';
-import { ConfigCategory, ConfigValueType } from '../entities/global-config.entity';
 import {
   MaintenanceMode,
   MaintenanceScope,
@@ -54,7 +53,6 @@ export interface SystemHealthStatus {
   environment: string;
   maintenanceMode: boolean;
   featureToggles: number;
-  activeConfigs: number;
 }
 
 // ============================================================================
@@ -717,81 +715,6 @@ export class GlobalSettingsService implements OnModuleInit {
   }
 
   // ============================================================================
-  // Global Configuration Management
-  // ============================================================================
-
-  createConfig(data: {
-    key: string;
-    name: string;
-    description?: string;
-    category?: ConfigCategory;
-    valueType?: ConfigValueType;
-    value: unknown;
-    defaultValue?: unknown;
-    validation?: {
-      required?: boolean;
-      min?: number;
-      max?: number;
-      minLength?: number;
-      maxLength?: number;
-      pattern?: string;
-      allowedValues?: unknown[];
-    };
-    isSecret?: boolean;
-    isReadOnly?: boolean;
-    requiresRestart?: boolean;
-    helpText?: string;
-    createdBy?: string;
-  }): never {
-    void data;
-    this.throwGlobalConfigGone();
-  }
-
-  updateConfig(
-    id: string,
-    value: unknown,
-    updatedBy: string,
-    reason?: string,
-  ): never {
-    void id;
-    void value;
-    void updatedBy;
-    void reason;
-    this.throwGlobalConfigGone();
-  }
-
-  getConfig(key: string): unknown {
-    return this.provisioningDefault(key);
-  }
-
-  getConfigEntity(id: string): never {
-    void id;
-    this.throwGlobalConfigGone();
-  }
-
-  queryConfigs(params: {
-    category?: ConfigCategory;
-    isSecret?: boolean;
-    search?: string;
-    page?: number;
-    limit?: number;
-    // Return type is `never[]`: the global_configs surface is retired, so this
-    // always yields an empty page (the GlobalConfig entity no longer exists).
-  }): { items: never[]; total: number } {
-    void params;
-    return { items: [], total: 0 };
-  }
-
-  bulkUpdateConfigs(
-    updates: Array<{ key: string; value: unknown }>,
-    updatedBy: string,
-  ): never {
-    void updates;
-    void updatedBy;
-    this.throwGlobalConfigGone();
-  }
-
-  // ============================================================================
   // Cache Management
   // ============================================================================
 
@@ -869,7 +792,7 @@ export class GlobalSettingsService implements OnModuleInit {
   }
 
   // ============================================================================
-  // System Status
+  // Provisioning Configuration (env-backed read; sensor-service installer scripts)
   // ============================================================================
 
   /**
@@ -894,18 +817,6 @@ export class GlobalSettingsService implements OnModuleInit {
     };
   }
 
-  /**
-   * Update provisioning configuration
-   */
-  updateProvisioningConfig(
-    updates: Record<string, string>,
-    updatedBy: string,
-  ): never {
-    void updates;
-    void updatedBy;
-    this.throwGlobalConfigGone();
-  }
-
   // ============================================================================
   // System Status
   // ============================================================================
@@ -923,7 +834,6 @@ export class GlobalSettingsService implements OnModuleInit {
       environment: process.env['NODE_ENV'] || 'development',
       maintenanceMode: maintenanceCheck.isInMaintenance,
       featureToggles: toggleCount,
-      activeConfigs: 0,
     };
   }
 
@@ -941,11 +851,5 @@ export class GlobalSettingsService implements OnModuleInit {
         process.env['PROVISIONING_GITHUB_REPO'] ?? 'Okan-wqm/aquaculture_platform',
     };
     return defaults[key] ?? '';
-  }
-
-  private throwGlobalConfigGone(): never {
-    throw new GoneException(
-      'admin-api direct global_configs writes are retired; use config-service effective configuration APIs',
-    );
   }
 }

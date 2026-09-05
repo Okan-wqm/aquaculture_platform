@@ -1,5 +1,4 @@
 import {
-  ConflictException,
   Injectable,
   Logger,
 } from '@nestjs/common';
@@ -188,33 +187,5 @@ export class PaymentManagementService {
       payments: payments.map(mapPaymentOverview),
       total,
     };
-  }
-
-  /**
-   * Record a payment for an invoice
-   */
-  recordPayment(
-    dto: RecordPaymentDto,
-    recordedBy: string,
-  ): never {
-    void dto;
-    void recordedBy;
-    throw new ConflictException(
-      'Payment recording is billing-service-owned. Use BillingAdminCommandClientService.recordPayment.',
-    );
-  }
-
-  /**
-   * Refund a payment (full or partial)
-   */
-  refundPayment(
-    dto: RefundPaymentDto,
-    refundedBy: string,
-  ): never {
-    void dto;
-    void refundedBy;
-    throw new ConflictException(
-      'Payment refund is billing-service-owned. Use BillingAdminCommandClientService.refundPayment.',
-    );
   }
 }

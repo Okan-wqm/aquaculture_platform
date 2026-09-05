@@ -498,41 +498,6 @@ export interface SubscriptionModuleConfig {
   subtotal: number;
 }
 
-export interface CreateSubscriptionDto {
-  tenantId: string;
-  planTier?: PlanTier;
-  billingCycle?: BillingCycle;
-  modules: SubscriptionModuleConfig[];
-  monthlyTotal: number;
-  currency?: string;
-  trialDays?: number;
-  discountCode?: string;
-  createdBy?: string;
-}
-
-export interface CreateSubscriptionResult {
-  success: boolean;
-  subscription: {
-    id: string;
-    tenantId: string;
-    status: SubscriptionStatus;
-    planTier: PlanTier;
-    billingCycle: BillingCycle;
-    monthlyPrice: number;
-    trialEndDate?: string;
-    currentPeriodStart: string;
-    currentPeriodEnd: string;
-  };
-  moduleItems: Array<{
-    id: string;
-    moduleId: string;
-    moduleCode: string;
-    quantities: ModuleQuantities;
-    monthlyPrice: number;
-  }>;
-  message: string;
-}
-
 // ============================================================================
 // Custom Plan Types
 // ============================================================================

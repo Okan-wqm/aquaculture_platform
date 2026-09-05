@@ -35,19 +35,10 @@ export const databaseApi = {
     apiFetch<{ schemaName: string; tableCount: number; sizeBytes: number; rowCount: number }>(
       `/database/schemas/${tenantId}/info`,
     ),
-  createSchema: (tenantId: string) =>
-    apiFetch<TenantSchema>('/database/schemas', {
-      method: 'POST',
-      body: JSON.stringify({ tenantId }),
-    }),
   deleteSchema: (tenantId: string, options?: { hardDelete?: boolean }) =>
     apiFetch<void>(`/database/schemas/${tenantId}?${buildQueryString(options || {})}`, {
       method: 'DELETE',
     }),
-  suspendSchema: (tenantId: string) =>
-    apiFetch<TenantSchema>(`/database/schemas/${tenantId}/suspend`, { method: 'POST' }),
-  activateSchema: (tenantId: string) =>
-    apiFetch<TenantSchema>(`/database/schemas/${tenantId}/activate`, { method: 'POST' }),
   syncSchemas: (data?: { tenantId?: string; modules?: string[] }) =>
     apiFetch<{ synced: number; errors: string[] }>('/database/schemas/sync', {
       method: 'POST',
@@ -55,8 +46,6 @@ export const databaseApi = {
     }),
   validateSchemaIsolation: (tenantId: string) =>
     apiFetch<{ valid: boolean; issues: string[] }>(`/database/schemas/${tenantId}/validate`),
-  refreshSchemaStats: (tenantId: string) =>
-    apiFetch<TenantSchema>(`/database/schemas/${tenantId}/refresh-stats`, { method: 'POST' }),
   getConnectionPoolStatus: () =>
     apiFetch<{
       total: number;
@@ -112,32 +101,6 @@ export const databaseApi = {
   /** Backend: GET /database/migrations/tenant/:tenantId/history */
   getTenantMigrationHistory: (tenantId: string) =>
     apiFetch<SchemaMigration[]>(`/database/migrations/tenant/${tenantId}/history`),
-  /** Backend: POST /database/migrations/tenant/:tenantId/run */
-  runTenantMigration: (
-    tenantId: string,
-    data: { version: string; isDryRun?: boolean; executedBy?: string },
-  ) =>
-    apiFetch<SchemaMigration>(`/database/migrations/tenant/${tenantId}/run`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-  /** Backend: POST /database/migrations/tenant/:tenantId/rollback */
-  rollbackTenantMigration: (tenantId: string, data: { version: string; executedBy?: string }) =>
-    apiFetch<SchemaMigration>(`/database/migrations/tenant/${tenantId}/rollback`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-  /** Backend: POST /database/migrations/batch/run */
-  runBatchMigration: (data: { version: string; isDryRun?: boolean; executedBy?: string }) =>
-    apiFetch<{
-      totalSchemas: number;
-      completed: number;
-      failed: number;
-      results: Array<{ tenantId: string; status: string }>;
-    }>('/database/migrations/batch/run', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
   /** Backend: GET /database/migrations/batch/:version/status */
   getBatchMigrationStatus: (version: string) =>
     apiFetch<{

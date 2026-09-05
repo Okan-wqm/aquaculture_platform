@@ -23,8 +23,6 @@ import type {
   QuoteRequest,
   PricingCalculation,
   PricingComparisonResult,
-  CreateSubscriptionDto,
-  CreateSubscriptionResult,
   CustomPlan,
   CustomPlanFilter,
   PaginatedCustomPlans,
@@ -97,8 +95,6 @@ export const billingApi = {
     apiFetch<Array<{ id: string; discountCode: string; redeemedAt: string; amount: number }>>(`/billing/tenant/${tenantId}/redemptions`),
 
   // Subscriptions
-  createSubscription: (data: CreateSubscriptionDto) =>
-    apiFetch<CreateSubscriptionResult>('/billing/subscriptions', { method: 'POST', body: JSON.stringify(data) }),
   getSubscriptions: (filters?: {
     status?: SubscriptionStatus[];
     planTier?: PlanTier[];
@@ -128,10 +124,6 @@ export const billingApi = {
     apiFetch<{ success: boolean; newTrialEnd: string }>(`/billing/subscriptions/tenant/${tenantId}/extend-trial`, {
       method: 'POST',
       body: JSON.stringify({ additionalDays }),
-    }),
-  processRenewals: () =>
-    apiFetch<{ processed: number; failed: number; renewals: Array<{ tenantId: string; success: boolean; message?: string }> }>('/billing/subscriptions/process-renewals', {
-      method: 'POST',
     }),
 
   // Invoices

@@ -58,7 +58,7 @@ describe('INVARIANT (ADMIN-CRITICAL-008): every admin mutation handler is audite
 
   it('reflects on the fleet of admin controllers (sanity)', () => {
     expect(files.length).toBeGreaterThanOrEqual(20);
-    expect(handlers.length).toBeGreaterThanOrEqual(200);
+    expect(handlers.length).toBeGreaterThanOrEqual(150);
   });
 
   it('every unaudited mutation handler is governed by the ratchet', () => {

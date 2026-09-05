@@ -64,7 +64,6 @@ import {
   ListTenantsQuery,
   GetTenantStatsQuery,
   GetTenantUsageQuery,
-  GetTenantsApproachingLimitsQuery,
   GetExpiringTrialsQuery,
   SearchTenantsQuery,
 } from './queries/tenant.queries';
@@ -190,12 +189,6 @@ export class TenantAdminController {
     @Query('limit') limit?: number,
   ): Promise<Tenant[]> {
     return this.queryBus.execute(new SearchTenantsQuery(searchTerm, limit || 20));
-  }
-
-  @Get('approaching-limits')
-  @ApiOperation({ summary: 'Get tenants approaching usage limits' })
-  async getTenantsApproachingLimits(@Query('threshold') threshold?: number): Promise<Tenant[]> {
-    return this.queryBus.execute(new GetTenantsApproachingLimitsQuery(threshold || 80));
   }
 
   @Get('expiring-trials')

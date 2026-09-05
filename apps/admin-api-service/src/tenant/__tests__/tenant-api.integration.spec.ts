@@ -364,28 +364,6 @@ describe('Tenant API Integration Tests', () => {
     });
   });
 
-  describe('GET /admin/tenants/approaching-limits', () => {
-    it('should return tenants near usage limits', async () => {
-      const nearLimitTenants = [createMockTenant()];
-      mockQueryBus.execute.mockResolvedValueOnce(nearLimitTenants);
-
-      const response = await request(app.getHttpServer())
-        .get('/admin/tenants/approaching-limits')
-        .query({ threshold: 80 });
-
-      expect(response.status).toBe(HttpStatus.OK);
-    });
-
-    it('should use default threshold if not provided', async () => {
-      mockQueryBus.execute.mockResolvedValueOnce([]);
-
-      const response = await request(app.getHttpServer())
-        .get('/admin/tenants/approaching-limits');
-
-      expect(response.status).toBe(HttpStatus.OK);
-    });
-  });
-
   describe('GET /admin/tenants/expiring-trials', () => {
     it('should return tenants with expiring trials', async () => {
       const expiringTenants = [createMockTenant({ isTrialActive: true })];

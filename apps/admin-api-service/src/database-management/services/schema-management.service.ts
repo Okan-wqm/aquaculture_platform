@@ -60,19 +60,6 @@ export class SchemaManagementService {
     return getTenantSchemaName(tenantId);
   }
 
-  /**
-   * Create schema for new tenant with all module tables.
-   * Delegates to backend-common SchemaManagerService for full module table creation
-   * (sensor, farm, hr, hydroponics) so tenant schemas are production-ready.
-   */
-  createTenantSchema(tenantId: string): never {
-    void tenantId;
-    throw new ConflictException(
-      'Runtime tenant schema creation is disabled. Tenant schema creation must be requested ' +
-        'through the tenant provisioning workflow and completed by aqua-db-migrate.',
-    );
-  }
-
   // ============================================================================
   // Schema Operations
   // ============================================================================
@@ -129,33 +116,6 @@ export class SchemaManagementService {
       lastMigrationAt: schema.lastMigrationAt,
       lastBackupAt: schema.lastBackupAt,
     };
-  }
-
-  /**
-   * Update schema status
-   */
-  updateSchemaStatus(tenantId: string, status: SchemaStatus): never {
-    void tenantId;
-    void status;
-    throw new ConflictException(
-      'Runtime admin.tenant_schemas status writes are disabled. Status evidence is owned by aqua-db-migrate.',
-    );
-  }
-
-  /**
-   * Suspend tenant schema
-   */
-  suspendSchema(tenantId: string): never {
-    this.logger.log(`Suspending schema for tenant: ${tenantId}`);
-    return this.updateSchemaStatus(tenantId, 'suspended');
-  }
-
-  /**
-   * Activate tenant schema
-   */
-  activateSchema(tenantId: string): never {
-    this.logger.log(`Activating schema for tenant: ${tenantId}`);
-    return this.updateSchemaStatus(tenantId, 'active');
   }
 
   /**
@@ -433,17 +393,6 @@ export class SchemaManagementService {
     } finally {
       await queryRunner.release();
     }
-  }
-
-  /**
-   * Update schema statistics
-   */
-  updateSchemaStats(tenantId: string): never {
-    void tenantId;
-    throw new ConflictException(
-      'Runtime admin.tenant_schemas statistics writes are disabled. ' +
-        'Read live schema details through getSchemaInfo; durable evidence is owned by aqua-db-migrate.',
-    );
   }
 
   /**

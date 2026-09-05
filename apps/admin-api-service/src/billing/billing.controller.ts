@@ -4,7 +4,6 @@ import { ThrottleSensitive } from '@aquaculture/backend-common/security';
 import {
   Body,
   Controller,
-  ConflictException,
   Delete,
   Get,
   HttpCode,
@@ -333,18 +332,6 @@ export class BillingController {
   // Subscriptions
   // ============================================================================
 
-  @ThrottleSensitive()
-  @AuditedOperation({ resource: 'Subscription', action: 'CREATE' })
-  @RequiresCapability('billing-ops')
-  @Post('subscriptions')
-  createSubscription(@Req() req: Request): never {
-    const userId = getAuthUserId(req);
-    if (!userId) throw new UnauthorizedException('Authentication required to create a subscription');
-    throw new ConflictException(
-      'Subscription creation is billing-service-owned. Use tenant provisioning or a billing-service command workflow.',
-    );
-  }
-
   @Get('subscriptions')
   async getSubscriptions(
     @Query('status') status?: string,
@@ -446,17 +433,6 @@ export class BillingController {
     const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('Authentication required to extend a trial');
     return this.billingAdminCommands.extendSubscriptionTrial(tenantId, dto.additionalDays, userId);
-  }
-
-  @ThrottleSensitive()
-  @AuditedOperation({ resource: 'Billing', action: 'PROCESS_RENEWALS' })
-  @RequiresCapability('billing-ops')
-  @Post('subscriptions/process-renewals')
-  @HttpCode(HttpStatus.OK)
-  processRenewals(): never {
-    throw new ConflictException(
-      'Subscription renewal processing is billing-service-owned and cannot be run through admin-api direct writers.',
-    );
   }
 
   // ============================================================================
@@ -665,8 +641,13 @@ export class BillingController {
   @AuditedOperation({ resource: 'CustomPlan', action: 'ACTIVATE' })
   @RequiresCapability('billing-ops')
   @Post('custom-plans/:planId/activate')
-  async activateCustomPlan(@Param('planId') planId: string): Promise<unknown> {
-    return this.customPlanService.activatePlan(planId);
+  async activateCustomPlan(
+    @Param('planId') planId: string,
+    @Req() req: Request,
+  ): Promise<unknown> {
+    const userId = getAuthUserId(req);
+    if (!userId) throw new UnauthorizedException('Authentication required to activate a custom plan');
+    return this.customPlanService.activatePlan(planId, userId);
   }
 
   @AuditedOperation({ resource: 'CustomPlan', action: 'DELETE' })
@@ -803,17 +784,6 @@ export class BillingController {
     if (!userId) throw new UnauthorizedException('Authentication required to void an invoice');
     const invoice = await this.billingAdminCommands.voidInvoice(invoiceId, dto.reason, userId);
     return { success: true, invoice };
-  }
-
-  @ThrottleSensitive()
-  @AuditedOperation({ resource: 'OverdueStatus', action: 'UPDATE' })
-  @RequiresCapability('billing-ops')
-  @Post('invoices/update-overdue')
-  @HttpCode(HttpStatus.OK)
-  updateOverdueStatus(): never {
-    throw new ConflictException(
-      'Invoice overdue reconciliation is billing-service-owned and cannot be run through admin-api direct writers.',
-    );
   }
 
   // ============================================================================

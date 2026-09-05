@@ -239,6 +239,25 @@ export class ComplianceController {
     return this.complianceService.createDataRequest({ ...dto, tenantId, requesterId: userId });
   }
 
+  // Literal routes are declared before `data-requests/:id`: the router matches
+  // in declaration order, and `:id` would otherwise swallow `stats`
+  // (ADMIN-HIGH-011; tests/invariants/admin-route-registration-order.spec.ts).
+  /**
+   * Get data request statistics
+   */
+  @Get('data-requests/stats')
+  async getDataRequestStats(
+    @TenantParam('query', { optional: true }) tenantId?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    return this.complianceService.getDataRequestStats({
+      tenantId,
+      startDate: startDate ? new Date(startDate) : undefined,
+      endDate: endDate ? new Date(endDate) : undefined,
+    });
+  }
+
   /**
    * Get data request by ID
    */
@@ -360,22 +379,6 @@ export class ComplianceController {
   @Get('data-requests/status/overdue')
   async getOverdueRequests(): Promise<DataRequest[]> {
     return this.complianceService.getOverdueRequests();
-  }
-
-  /**
-   * Get data request statistics
-   */
-  @Get('data-requests/stats')
-  async getDataRequestStats(
-    @TenantParam('query', { optional: true }) tenantId?: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-  ) {
-    return this.complianceService.getDataRequestStats({
-      tenantId,
-      startDate: startDate ? new Date(startDate) : undefined,
-      endDate: endDate ? new Date(endDate) : undefined,
-    });
   }
 
   // ============================================================================

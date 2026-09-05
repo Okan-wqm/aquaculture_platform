@@ -1,14 +1,14 @@
-import {
-  Injectable,
-  Logger,
-  NotFoundException,
-  BadRequestException,
-  Inject,
-  forwardRef,
-} from '@nestjs/common';
+import * as crypto from 'crypto';
+
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import type {
+  BillingProvisioningModuleItem,
+  BillingTenantProvisioningCommand,
+} from '@platform/event-contracts';
 import { Repository } from 'typeorm';
 
+import { Tenant } from '../../tenant/entities/tenant.entity';
 import {
   CustomPlan,
   CustomPlanStatus,
@@ -18,13 +18,10 @@ import {
 import { PlanTier, BillingCycle } from '../entities/plan-definition.entity';
 import { PricingMetricType, PricingMetricLabels } from '../entities/pricing-metric.enum';
 
+import { BillingAdminCommandClientService } from './billing-admin-command-client.service';
 import { ModulePricingService } from './module-pricing.service';
 import { PricingCalculatorService } from './pricing-calculator.service';
-import {
-  SubscriptionManagementService,
-  ModuleQuantities,
-  SubscriptionModuleConfig,
-} from './subscription-management.service';
+import type { ModuleQuantities } from './subscription-management.service';
 
 /**
  * DTO for creating a custom plan
@@ -110,10 +107,11 @@ export class CustomPlanService {
   constructor(
     @InjectRepository(CustomPlan)
     private readonly planRepo: Repository<CustomPlan>,
+    @InjectRepository(Tenant)
+    private readonly tenantRepo: Repository<Tenant>,
     private readonly pricingCalculator: PricingCalculatorService,
     private readonly modulePricingService: ModulePricingService,
-    @Inject(forwardRef(() => SubscriptionManagementService))
-    private readonly subscriptionService: SubscriptionManagementService,
+    private readonly billingCommands: BillingAdminCommandClientService,
   ) {}
 
   /**
@@ -345,9 +343,18 @@ export class CustomPlanService {
   }
 
   /**
-   * Activate custom plan (creates subscription)
+   * Activate an approved custom plan: billing-service creates the subscription.
+   *
+   * billing-service is the single writer of `billing.subscriptions` (D14).
+   * admin-api sends the same `ProvisionTenantSubscription` command tenant
+   * provisioning sends, with the plan's priced modules as `moduleItems` and
+   * the plan-level discount allocated across them, and records the returned
+   * subscription id on the plan. Both command identifiers derive from the
+   * plan id, so a retry after a timeout replays billing's receipt instead of
+   * provisioning a second subscription (ADMIN-HIGH-011: the previous
+   * implementation called a retired admin-api writer that always answered 409).
    */
-  async activatePlan(planId: string, activatedBy?: string): Promise<CustomPlan> {
+  async activatePlan(planId: string, activatedBy: string): Promise<CustomPlan> {
     const plan = await this.getCustomPlan(planId);
 
     if (!plan.canActivate()) {
@@ -356,47 +363,104 @@ export class CustomPlanService {
       );
     }
 
-    // Convert CustomPlanModules to SubscriptionModuleConfigs
-    const moduleConfigs: SubscriptionModuleConfig[] = plan.modules.map((m) => ({
-      moduleId: m.moduleId,
-      moduleCode: m.moduleCode,
-      moduleName: m.moduleName,
-      quantities: m.quantities,
-      lineItems: m.lineItems?.map((li) => ({
-        metric: li.metric,
-        quantity: li.quantity,
-        unitPrice: li.unitPrice,
-        total: li.total,
-        description: li.description,
-      })),
-      subtotal: m.subtotal,
-    }));
-
-    // Create subscription using the SubscriptionManagementService
-    const subscriptionResult = await this.subscriptionService.createSubscription({
-      tenantId: plan.tenantId,
-      planTier: plan.tier,
-      billingCycle: plan.billingCycle,
-      modules: moduleConfigs,
-      monthlyTotal: plan.monthlyTotal,
-      currency: plan.currency,
-      createdBy: activatedBy,
+    const tenant = await this.tenantRepo.findOne({
+      where: { id: plan.tenantId },
+      select: { id: true, name: true },
     });
+    if (!tenant) {
+      throw new NotFoundException(`Tenant ${plan.tenantId} for custom plan ${planId} not found`);
+    }
 
-    if (!subscriptionResult.success) {
-      throw new BadRequestException(
-        `Failed to create subscription: ${subscriptionResult.message}`,
+    const command = this.buildProvisioningCommand(plan, tenant.name, activatedBy);
+    const result = await this.billingCommands.provisionTenantSubscription(command);
+    if (!result.subscriptionId) {
+      throw new Error(
+        `Billing provisioning for custom plan ${planId} completed without a subscription id`,
       );
     }
 
-    plan.subscriptionId = subscriptionResult.subscription.id;
+    plan.subscriptionId = result.subscriptionId;
     plan.status = CustomPlanStatus.ACTIVE;
     const saved = await this.planRepo.save(plan);
 
     this.logger.log(
-      `Plan ${planId} activated with subscription ${subscriptionResult.subscription.id}`,
+      `Plan ${planId} activated with subscription ${result.subscriptionId}` +
+        (result.replayed ? ' (billing receipt replayed)' : ''),
     );
     return saved;
+  }
+
+  /** The billing command for one plan — pure, so a retry sends byte-identical identifiers. */
+  buildProvisioningCommand(
+    plan: CustomPlan,
+    tenantName: string,
+    actorId: string,
+  ): BillingTenantProvisioningCommand {
+    const moduleItems = this.toProvisioningModuleItems(plan);
+    const semantic = {
+      tenantId: plan.tenantId,
+      tenantName,
+      tier: this.toCommandTier(plan.tier),
+      billingCycle: plan.billingCycle,
+      moduleIds: plan.modules.map((module) => module.moduleId),
+      moduleItems,
+      customPlanId: plan.id,
+    };
+    return {
+      operationId: this.deterministicUuid(`custom-plan-activation:${plan.id}`),
+      idempotencyKey: `custom-plan:${plan.id}:activate`,
+      requestPayloadHash: crypto
+        .createHash('sha256')
+        .update(JSON.stringify(semantic))
+        .digest('hex'),
+      actorId,
+      ...semantic,
+    };
+  }
+
+  /**
+   * The plan's modules as billing module rows. The plan-level discount is
+   * allocated across modules in proportion to each module's subtotal (largest
+   * remainder on the last row so the parts sum exactly to the plan discount).
+   */
+  private toProvisioningModuleItems(plan: CustomPlan): BillingProvisioningModuleItem[] {
+    const subtotal = plan.modules.reduce((sum, module) => sum + module.subtotal, 0);
+    const discount = Math.max(0, Number(plan.discountAmount) || 0);
+    let allocated = 0;
+    return plan.modules.map((module, index) => {
+      const isLast = index === plan.modules.length - 1;
+      const share =
+        subtotal > 0
+          ? isLast
+            ? this.round(discount - allocated)
+            : this.round((discount * module.subtotal) / subtotal)
+          : 0;
+      allocated = this.round(allocated + share);
+      return {
+        moduleId: module.moduleId,
+        code: module.moduleCode,
+        name: module.moduleName,
+        quantities: { moduleId: module.moduleId, ...module.quantities },
+        lineItems: module.lineItems,
+        subtotal: module.subtotal,
+        discountAmount: share,
+        total: this.round(module.subtotal - share),
+      };
+    });
+  }
+
+  /** CUSTOM is not a billing-command tier: a custom plan travels as enterprise + customPlanId. */
+  private toCommandTier(tier: PlanTier): BillingTenantProvisioningCommand['tier'] {
+    return tier === PlanTier.CUSTOM ? PlanTier.ENTERPRISE : tier;
+  }
+
+  private deterministicUuid(seed: string): string {
+    const hex = crypto.createHash('sha256').update(seed).digest('hex');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+  }
+
+  private round(value: number): number {
+    return Math.round(value * 100) / 100;
   }
 
   /**

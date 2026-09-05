@@ -1281,6 +1281,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/billing/__tests__/custom-plan.activation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/billing/__tests__/pricing-calculator-free-tier.spec.ts",
       "prettier_managed": true
     },
@@ -2153,12 +2159,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/modules/tenant-management/services/schema-migration.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/modules/tenant-management/services/tenant-provisioning.service.ts",
       "prettier_managed": true
     },
@@ -2351,25 +2351,7 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/settings/controllers/tenant-configuration.controller.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/settings/dto/email-template.dto.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/settings/dto/settings.dto.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/settings/dto/tenant-configuration.dto.ts",
       "prettier_managed": true
     },
     {
@@ -2382,12 +2364,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/settings/entities/system-setting.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/settings/entities/tenant-configuration.entity.ts",
       "prettier_managed": true
     },
     {
@@ -2412,12 +2388,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/settings/services/system-setting.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/settings/services/tenant-configuration.service.ts",
       "prettier_managed": true
     },
     {
@@ -2537,12 +2507,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/system-management/__tests__/provisioning-config.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/system-management/controllers/error-tracking.controller.ts",
       "prettier_managed": true
     },
@@ -2580,12 +2544,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/system-management/entities/feature-toggle.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/system-management/entities/global-config.entity.ts",
       "prettier_managed": true
     },
     {
@@ -43308,7 +43266,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/admin-no-stub-routes.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/admin-route-contract-ci.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/admin-route-registration-order.spec.ts",
       "prettier_managed": true
     },
     {
@@ -44065,6 +44035,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/lib/admin-mutation-handlers.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/lib/admin-route-table.ts",
       "prettier_managed": true
     },
     {
@@ -48279,12 +48255,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/modules/admin-panel/src/pages/messaging/MessagingAiDashboardPage.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "web/modules/admin-panel/src/pages/messaging/MessagingAiPersonasPage.tsx",
       "prettier_managed": true
     },
@@ -48298,12 +48268,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/pages/messaging/MessagingCompliancePage.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "web/modules/admin-panel/src/pages/messaging/MessagingMonitoringPage.tsx",
       "prettier_managed": true
     },
     {
@@ -48352,12 +48316,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/pages/PlanManagementPage.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "web/modules/admin-panel/src/pages/ProvisioningSettingsPage.tsx",
       "prettier_managed": true
     },
     {
@@ -48448,12 +48406,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/pages/SystemSettingsPage.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "web/modules/admin-panel/src/pages/TenantConfigurationPage.tsx",
       "prettier_managed": true
     },
     {
@@ -48586,12 +48538,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/services/api/system.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "web/modules/admin-panel/src/services/api/tenant-config.ts",
       "prettier_managed": true
     },
     {

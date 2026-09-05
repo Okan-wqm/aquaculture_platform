@@ -32,7 +32,6 @@ import {
   ListTenantsHandler,
   GetTenantStatsHandler,
   GetTenantUsageHandler,
-  GetTenantsApproachingLimitsHandler,
   GetExpiringTrialsHandler,
   SearchTenantsHandler,
 } from '../query-handlers/tenant-query.handlers';
@@ -342,7 +341,6 @@ describe('Tenant Integration Tests', () => {
         ListTenantsHandler,
         GetTenantStatsHandler,
         GetTenantUsageHandler,
-        GetTenantsApproachingLimitsHandler,
         GetExpiringTrialsHandler,
         SearchTenantsHandler,
       ],
@@ -565,18 +563,6 @@ describe('Tenant Integration Tests', () => {
         ]);
 
         // Execute stats query
-      });
-    });
-
-    describe('GetTenantsApproachingLimitsQuery', () => {
-      it('should return tenants above usage threshold', async () => {
-        const nearLimitTenant = createMockTenant({
-          maxUsers: 50,
-          // Assume current users is 45 (90%)
-        });
-        mockTenantRepository.createQueryBuilder().getMany.mockResolvedValueOnce([nearLimitTenant]);
-
-        // Query should find tenants at 80% or more of their limits
       });
     });
   });

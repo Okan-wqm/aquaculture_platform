@@ -6,8 +6,9 @@
  * Every endpoint is guarded by PlatformAdminGuard (APP_GUARD in app.module.ts)
  * which restricts access to SUPER_ADMIN / PLATFORM_ADMIN roles.
  *
- * Endpoints that messaging-service does not yet expose return 501 Not Implemented
- * with a clear message -- no mock data is ever returned.
+ * Every route here is backed by a messaging-service NATS handler. A route
+ * whose only behaviour would be to refuse (501 / 410) is not declared:
+ * `tests/invariants/admin-no-stub-routes.spec.ts` (ADMIN-HIGH-011).
  *
  * @see ADR-012 Phase 3 (Compliance)
  */
@@ -234,34 +235,18 @@ export class MessagingAdminController {
   @Put('retention/policies/:id')
   @ApiOperation({ summary: 'Update a retention policy' })
   async updateRetentionPolicy(
-    @Param('id', ParseUUIDPipe) id: string,
+    @TenantParam('param', { key: 'id' }) tenantId: string,
     @Body() dto: UpdateRetentionPolicyDto,
     @CurrentUser() user: CurrentUserData,
   ): Promise<RetentionPolicyResponse> {
     return this.sendNatsRequest<RetentionPolicyResponse>(
       'request.messaging.admin.updateRetentionPolicy',
       {
-        tenantId: id,
+        tenantId,
         userId: user.id,
         channelId: dto.channelId ?? null,
         retentionDays: dto.retentionDays,
       },
-    );
-  }
-
-  // ── Monitoring ──────────────────────────────────────────────────────
-
-  /**
-   * Get messaging monitoring statistics.
-   * Not yet implemented in messaging-service.
-   */
-  @Get('monitoring/stats')
-  @ApiOperation({ summary: 'Get messaging monitoring statistics' })
-  async getMonitoringStats(): Promise<never> {
-    throw new HttpException(
-      'Messaging monitoring stats not yet implemented in messaging-service. ' +
-      'Requires real-time metrics aggregation endpoint.',
-      HttpStatus.NOT_IMPLEMENTED,
     );
   }
 
@@ -300,22 +285,6 @@ export class MessagingAdminController {
     );
   }
 
-  // ── Tenant Messaging Overview ───────────────────────────────────────
-
-  /**
-   * Get tenant list with messaging statistics.
-   * Not yet implemented in messaging-service.
-   */
-  @Get('tenants')
-  @ApiOperation({ summary: 'List tenants with messaging stats' })
-  async getTenants(): Promise<never> {
-    throw new HttpException(
-      'Tenant messaging overview not yet implemented in messaging-service. ' +
-      'Requires cross-tenant aggregation endpoint.',
-      HttpStatus.NOT_IMPLEMENTED,
-    );
-  }
-
   // ── Data Export ─────────────────────────────────────────────────────
 
   /**
@@ -329,14 +298,14 @@ export class MessagingAdminController {
   @HttpCode(HttpStatus.ACCEPTED)
   @ApiOperation({ summary: 'Trigger tenant data export' })
   async triggerExport(
-    @Param('id', ParseUUIDPipe) id: string,
+    @TenantParam('param', { key: 'id', allow: 'any' }) tenantId: string,
     @Body() dto: TriggerExportDto,
     @CurrentUser() user: CurrentUserData,
   ): Promise<ExportResponse> {
     return this.sendNatsRequest<ExportResponse>(
       'request.messaging.admin.triggerExport',
       {
-        tenantId: id,
+        tenantId,
         userId: user.id,
         format: dto.format ?? 'json',
       },
@@ -357,25 +326,6 @@ export class MessagingAdminController {
     return this.sendNatsRequest<PersonaResponse[]>(
       'request.messaging.admin.getPersonas',
       { tenantId },
-    );
-  }
-
-  /**
-   * Update an AI persona configuration.
-   * Not yet implemented in messaging-service (personas are currently static).
-   * @param id - Persona ID
-   */
-  @AuditedOperation({ resource: 'Persona', action: 'UPDATE' })
-  @RequiresCapability('support-ops')
-  @Put('personas/:id')
-  @ApiOperation({ summary: 'Update AI persona configuration' })
-  async updatePersona(
-    @Param('id') _id: string,
-  ): Promise<never> {
-    throw new HttpException(
-      'AI persona configuration update not yet implemented in messaging-service. ' +
-      'Personas are currently static; per-tenant configuration is planned.',
-      HttpStatus.NOT_IMPLEMENTED,
     );
   }
 

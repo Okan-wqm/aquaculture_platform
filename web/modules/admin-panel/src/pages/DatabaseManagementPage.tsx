@@ -363,31 +363,6 @@ const SchemasTab: React.FC = () => {
                       >
                         View
                       </button>
-                      {schema.status === 'active' ? (
-                        <button
-                          onClick={() => {
-                            if (confirm('Are you sure you want to suspend this schema?')) {
-                              databaseApi
-                                .suspendSchema(schema.tenantId)
-                                .then(() => schemasState.refresh());
-                            }
-                          }}
-                          className="text-yellow-600 hover:text-yellow-800 text-sm"
-                        >
-                          Suspend
-                        </button>
-                      ) : schema.status === 'suspended' ? (
-                        <button
-                          onClick={() => {
-                            databaseApi
-                              .activateSchema(schema.tenantId)
-                              .then(() => schemasState.refresh());
-                          }}
-                          className="text-green-600 hover:text-green-800 text-sm"
-                        >
-                          Activate
-                        </button>
-                      ) : null}
                     </div>
                   </td>
                 </tr>
@@ -474,20 +449,6 @@ const SchemasTab: React.FC = () => {
                 >
                   Validate Isolation
                 </button>
-                <button
-                  onClick={() => {
-                    databaseApi
-                      .refreshSchemaStats(selectedSchema.tenantId)
-                      .then(() => {
-                        schemasState.refresh();
-                        setSelectedSchema(null);
-                      })
-                      .catch((err) => alert(`Refresh failed: ${err.message}`));
-                  }}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
-                >
-                  Refresh Stats
-                </button>
               </div>
             </div>
           </div>
@@ -502,11 +463,6 @@ const SchemasTab: React.FC = () => {
 // ============================================================================
 
 const MigrationsTab: React.FC = () => {
-  const [showBatchModal, setShowBatchModal] = useState(false);
-  const [batchVersion, setBatchVersion] = useState('');
-  const [batchDryRun, setBatchDryRun] = useState(false);
-  const [batchRunning, setBatchRunning] = useState(false);
-
   const plansState = useAsyncData<MigrationPlan[]>(
     useCallback(() => databaseApi.getAvailableMigrations(), []),
     { initialData: [] },
@@ -547,25 +503,6 @@ const MigrationsTab: React.FC = () => {
     );
   }
 
-  const handleBatchMigration = async () => {
-    if (!batchVersion) return;
-    setBatchRunning(true);
-    try {
-      await databaseApi.runBatchMigration({
-        version: batchVersion,
-        isDryRun: batchDryRun,
-      });
-      setShowBatchModal(false);
-      setBatchVersion('');
-      setBatchDryRun(false);
-      historyState.refresh();
-    } catch (err) {
-      alert(`Batch migration failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
-    } finally {
-      setBatchRunning(false);
-    }
-  };
-
   return (
     <div className="space-y-6">
       {/* Available Migrations */}
@@ -578,17 +515,6 @@ const MigrationsTab: React.FC = () => {
               className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm"
             >
               Refresh
-            </button>
-            <button
-              onClick={() => {
-                if (plans.length > 0) {
-                  setBatchVersion(plans[plans.length - 1].version);
-                }
-                setShowBatchModal(true);
-              }}
-              className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm"
-            >
-              Batch Migration
             </button>
           </div>
         </div>
@@ -700,83 +626,6 @@ const MigrationsTab: React.FC = () => {
           </div>
         )}
       </div>
-
-      {/* Batch Migration Modal */}
-      {showBatchModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg">
-            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-              <h3 className="text-lg font-medium text-gray-900">Batch Migration</h3>
-              <button
-                onClick={() => setShowBatchModal(false)}
-                className="text-gray-500 hover:text-gray-600"
-              >
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M6 18L18 6M6 6l12 12"
-                  />
-                </svg>
-              </button>
-            </div>
-            <div className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Select Migration Version
-                </label>
-                <select
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                  value={batchVersion}
-                  onChange={(e) => setBatchVersion(e.target.value)}
-                >
-                  <option value="">Select version...</option>
-                  {plans.map((plan) => (
-                    <option key={plan.version} value={plan.version}>
-                      {plan.version} - {plan.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  id="dryRun"
-                  className="rounded border-gray-300"
-                  checked={batchDryRun}
-                  onChange={(e) => setBatchDryRun(e.target.checked)}
-                />
-                <label htmlFor="dryRun" className="text-sm text-gray-700">
-                  Dry Run (test without applying changes)
-                </label>
-              </div>
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                <p className="text-sm text-yellow-800">
-                  This will apply the migration to all active tenant schemas. Make sure to have
-                  recent backups before proceeding.
-                </p>
-              </div>
-              <div className="flex justify-end space-x-3 pt-4">
-                <button
-                  onClick={() => setShowBatchModal(false)}
-                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
-                  disabled={batchRunning}
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleBatchMigration}
-                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50"
-                  disabled={!batchVersion || batchRunning}
-                >
-                  {batchRunning ? 'Running...' : 'Start Batch Migration'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

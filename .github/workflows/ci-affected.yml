@@ -450,7 +450,9 @@ jobs:
             exit 0
           fi
 
-          AFFECTED_TEST_PROJECTS="$(node tools/toolchain/run.mjs npx nx show projects --affected --base="$BASE_REF" --head="$HEAD_REF" --with-target=test)"
+          # --json declared and decoded here: Nx otherwise picks the output shape
+          # from the environment, and `grep -Fxq` on a JSON array never matches.
+          AFFECTED_TEST_PROJECTS="$(node tools/toolchain/run.mjs npx nx show projects --affected --base="$BASE_REF" --head="$HEAD_REF" --with-target=test --json | node -e "for (const p of JSON.parse(require('fs').readFileSync(0, 'utf8'))) console.log(p);")"
 
           if printf '%s\n' "$AFFECTED_TEST_PROJECTS" | grep -Fxq 'migration-harness'; then
             # Image prewarm happens in the dedicated dependency-aware step

@@ -1,5 +1,15 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import {
+  isoDate,
+  loadFindingStates,
+  validateAffectedTargetPolicy,
+} from './affected-target-policy-lib.mjs';
+
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 function parseArgs(argv) {
   const args = {
@@ -24,10 +34,21 @@ function parseArgs(argv) {
     else if (arg === '--strict-projects') args.strictProjects = next();
     else if (arg === '--report') args.report = next();
     else if (arg === '--dry-run') args.dryRun = next() === 'true';
+    else if (arg === '--today') args.today = next();
     else throw new Error(`Unknown argument: ${arg}`);
   }
 
-  for (const key of ['target', 'base', 'head', 'policy', 'changedFiles', 'affectedProjects', 'explicitExcludes', 'strictProjects', 'report']) {
+  for (const key of [
+    'target',
+    'base',
+    'head',
+    'policy',
+    'changedFiles',
+    'affectedProjects',
+    'explicitExcludes',
+    'strictProjects',
+    'report',
+  ]) {
     if (!args[key]) throw new Error(`${key} is required`);
   }
 
@@ -45,6 +66,22 @@ function lines(path) {
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const policy = JSON.parse(readFileSync(args.policy, 'utf8'));
+
+  // ADR-0017: the consumer is the gate. The WHOLE policy is validated on
+  // every run, not only the affected slice, so a malformed, expired or
+  // paid-off quarantine anywhere in the file fails the run before an Nx
+  // target is chosen. Editing prose can no longer extend a quarantine.
+  const violations = validateAffectedTargetPolicy(policy, {
+    today: args.today ?? isoDate(new Date()),
+    findingStates: loadFindingStates(REPO_ROOT),
+  });
+  if (violations.length > 0) {
+    throw new Error(
+      `affected-target-policy ${args.policy} violates the quarantine contract (ADR-0017):\n` +
+        violations.map((violation) => `  - ${violation}`).join('\n'),
+    );
+  }
+
   const affectedProjects = lines(args.affectedProjects);
   const explicitExcludes = new Set(lines(args.explicitExcludes));
   const knownUnstable = policy.targets?.[args.target]?.knownUnstableProjects ?? {};
@@ -56,13 +93,18 @@ function main() {
     if (explicitExcludes.has(project)) {
       explicitlyExcludedProjects.push(project);
     } else if (Object.prototype.hasOwnProperty.call(knownUnstable, project)) {
-      quarantinedProjects.push({ project, reason: knownUnstable[project] });
+      const { owner, expiry, findingId, reason } = knownUnstable[project];
+      quarantinedProjects.push({ project, owner, expiry, findingId, reason });
     } else {
       strictProjects.push(project);
     }
   }
 
-  writeFileSync(args.strictProjects, `${strictProjects.join('\n')}${strictProjects.length ? '\n' : ''}`, 'utf8');
+  writeFileSync(
+    args.strictProjects,
+    `${strictProjects.join('\n')}${strictProjects.length ? '\n' : ''}`,
+    'utf8',
+  );
 
   const report = {
     target: args.target,
@@ -86,10 +128,11 @@ function main() {
   }
 
   if (quarantinedProjects.length > 0) {
-    console.log('Known-unstable project target quarantine:');
+    console.log('Known-unstable project target quarantine (governed debt, ADR-0017):');
     for (const entry of quarantinedProjects) {
-      console.log(`  - ${entry.project}: ${entry.reason}`);
-      console.log(`::warning title=CI affected ${args.target} baseline debt::${entry.project}: ${entry.reason}`);
+      const label = `${entry.project}: ${entry.reason} [owner=${entry.owner} expiry=${entry.expiry} finding=${entry.findingId}]`;
+      console.log(`  - ${label}`);
+      console.log(`::warning title=CI affected ${args.target} baseline debt::${label}`);
     }
   }
 

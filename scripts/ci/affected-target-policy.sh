@@ -101,7 +101,13 @@ if [[ ! -s "$CHANGED_FILE_LIST" ]]; then
   exit 0
 fi
 
-node tools/toolchain/run.mjs npx nx show projects --affected "--base=$BASE_REF" "--head=$HEAD_REF" "--with-target=$TARGET" \
+# `--json` is explicit on purpose: without it Nx picks the output shape from the
+# environment (one name per line for a human, a JSON array when it detects an
+# AI-agent session), and a JSON array read as "one project per line" matches
+# no quarantine entry and no Nx project. The shape is declared here and
+# decoded here, so the list is the same list on every machine (ADR-0017).
+node tools/toolchain/run.mjs npx nx show projects --affected "--base=$BASE_REF" "--head=$HEAD_REF" "--with-target=$TARGET" --json \
+  | node -e "const projects = JSON.parse(require('fs').readFileSync(0, 'utf8')); if (!Array.isArray(projects)) throw new Error('nx show projects --json did not return an array'); for (const p of projects) console.log(p);" \
   | sort > "$AFFECTED_PROJECT_LIST"
 
 node scripts/ci/write-affected-target-report.mjs \

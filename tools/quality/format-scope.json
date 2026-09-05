@@ -42024,6 +42024,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "scripts/ci/affected-target-policy-lib.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "scripts/ci/affected-target-policy-lint.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "scripts/ci/affected-target-policy.json",
       "prettier_managed": true
     },
@@ -43579,6 +43591,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/ci-full-trigger-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/ci-quarantine-schema.spec.ts",
       "prettier_managed": true
     },
     {
@@ -57171,6 +57189,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/federation/federationSharedConfig.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/federation/sharedUiAlias.ts",
       "prettier_managed": true
     },
     {

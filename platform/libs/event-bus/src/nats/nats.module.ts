@@ -9,7 +9,12 @@ import {
 } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { DiscoveryModule, DiscoveryService, MetadataScanner } from '@nestjs/core';
+import { createDefaultRegistry } from '@platform/event-contracts';
 
+import {
+  EVENT_HANDLER_METADATA,
+  EVENT_SUBSCRIPTION_METADATA,
+} from '../decorators/event-handler.decorator';
 import {
   EVENT_DEAD_LETTER_SINK,
   LoggingDeadLetterSink,
@@ -18,11 +23,6 @@ import {
 
 import { NatsEventBus } from './nats-event-bus';
 import { NatsRequestReply } from './nats-request-reply';
-import {
-  EVENT_HANDLER_METADATA,
-  EVENT_SUBSCRIPTION_METADATA,
-} from '../decorators/event-handler.decorator';
-import { createDefaultRegistry } from '@platform/event-contracts';
 
 /**
  * Event Bus Module configuration options

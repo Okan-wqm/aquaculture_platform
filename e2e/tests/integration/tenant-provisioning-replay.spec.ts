@@ -52,16 +52,22 @@
  *     schema during a tenant pass — qualified DDL, or a `pinSearchPath` to the
  *     source. `tenant-aware-migration-ddl-guard.spec.ts` catches both spellings
  *     statically; this catches whatever it misses.
- *   - A missing per-tenant table with a SUCCEEDED job: a migration recorded
+ *   - A missing per-tenant table with a COMMITTED job: a migration recorded
  *     "applied" without its DDL landing. Give it a `postCondition()`.
  *   - An infrastructure table present in the tenant: it lost its `schema:`
  *     qualifier, or `MODULE_SCHEMAS` moved it out of `infrastructureTables`.
  *   - A ledger head behind the source: the replay stopped early and the job
  *     still reported success.
+ *   - A terminal status that is not the committed one: the provisioner did the
+ *     work and then failed to finalise, which is the shape a saga waiting on
+ *     the job row hangs on. The expected status is derived from the bootstrap
+ *     (`committedJobStatus()`), so a genuine rename shows up as a parse failure
+ *     naming the file, never as a silently wrong expectation.
  */
 
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { MODULE_SCHEMAS } from '@aquaculture/backend-common/database';
@@ -69,6 +75,43 @@ import { MODULE_SCHEMAS } from '@aquaculture/backend-common/database';
 import { TestDatabase } from '../../helpers/db.helper';
 
 const REPO_ROOT = resolve(__dirname, '..', '..', '..');
+
+/**
+ * The status `platform.tenant_schema_jobs` carries when a tenant is actually
+ * provisioned — read from the platform bootstrap rather than restated here.
+ *
+ * This assertion was first written as `SUCCEEDED`, which is a real status in
+ * this system and the wrong one: it belongs to `admin.tenant_provisioning_runs`,
+ * the saga's run/step ledger. The job ledger's terminal success is `COMMITTED`.
+ * The spec therefore went red against a tenant that had provisioned correctly,
+ * which is the failure mode a gate can least afford.
+ *
+ * `list_tenant_schema_mappings` is the function the platform itself uses to
+ * decide a tenant schema is committed, so its predicate is the exact anchor —
+ * not merely "a status the CHECK constraint allows", but "the status the
+ * platform treats as proof". Rename it and this parse fails loudly instead of
+ * the spec quietly asserting a status nothing writes.
+ */
+function committedJobStatus(): string {
+  const sql = readFileSync(
+    resolve(
+      REPO_ROOT,
+      'apps/db-migrate/src/sql/platform-bootstrap/009-tenant-schema-provisioner.sql',
+    ),
+    'utf8',
+  );
+  const matches = [...sql.matchAll(/committed_job\.status\s*=\s*'([A-Z_]+)'/g)];
+  const status = matches.length === 1 ? matches[0]?.[1] : undefined;
+  if (status === undefined) {
+    throw new Error(
+      `Expected exactly one committed_job.status predicate in ` +
+        `009-tenant-schema-provisioner.sql, found ${matches.length}. This spec derives the ` +
+        `terminal success status from that predicate; if the bootstrap changed shape, update ` +
+        `the parse rather than hardcoding a status here.`,
+    );
+  }
+  return status;
+}
 
 /** The services whose migrations are replayed into every tenant schema. */
 const TENANT_AWARE_SCHEMAS: ReadonlyArray<string> = [
@@ -182,7 +225,7 @@ describe('INVARIANT (DATA-CRITICAL-010): a new tenant can actually be provisione
     expect(provisioner.status).toBe(0);
   });
 
-  it('records the job as SUCCEEDED rather than merely finishing', async () => {
+  it('records the job as committed rather than merely finishing', async () => {
     const { rows } = await db.query<{ status: string; error_message: string | null }>(
       `SELECT status, error_message FROM platform.tenant_schema_jobs
         WHERE tenant_id = $1::uuid AND job_type = 'PROVISION'
@@ -191,7 +234,7 @@ describe('INVARIANT (DATA-CRITICAL-010): a new tenant can actually be provisione
     );
     expect(rows).toHaveLength(1);
     expect({ status: rows[0]?.status, error: rows[0]?.error_message }).toEqual({
-      status: 'SUCCEEDED',
+      status: committedJobStatus(),
       error: null,
     });
   });

@@ -219,7 +219,7 @@ and that entry's own comment says it is not cloned. The messaging equivalent
 carries the decorator; farm's did not. An outbox cloned per tenant silently
 swallows platform-wide events.
 
-### INFRA-HIGH-147 — the sensor rollups cannot be created after RLS is armed
+### SENSOR-CRITICAL-105 — the sensor rollups cannot be created after RLS is armed
 
 With the heartbeat guard fixed, the provisioner got through farm AND sensor and
 then died on
@@ -254,16 +254,28 @@ Two things had to move, and the first attempt got only one of them:
 schema-wide hardening instead. The end state is identical — the table carries
 RLS either way — and only the order moves, into the window step 1 opened.
 
-**NOT fixed for RECONCILE** (owner @okan-wqm, deadline 2026-10-15).
-`RECONCILE_EXISTING_SCHEMA` runs against a schema that is already hardened, so
-it has no such window. The `CREATE MATERIALIZED VIEW` statements carry
-`IF NOT EXISTS` and are expected to short-circuit before TimescaleDB's DDL hook
-for a tenant that already has them — expected, not measured, because the
-bootstrap needs `timescaledb` and `pgvector` and cannot run outside CI. The
-exposed set is tenants provisioned through the retired `LIKE` path, and what
-they actually have needs checking against a live database before choosing
-between creating the aggregates before arming RLS in reconcile too, and having
-reconcile report rather than attempt.
+### INFRA-HIGH-147 — the same wall on the RECONCILE path, and a mis-attributed trailer
+
+`RECONCILE_EXISTING_SCHEMA` calls the same authority against a schema that is
+already hardened, so it has no such window. The `CREATE MATERIALIZED VIEW`
+statements carry `IF NOT EXISTS` and are expected to short-circuit before
+TimescaleDB's DDL hook for a tenant that already has them — expected, not
+measured, because the bootstrap needs `timescaledb` and `pgvector` and cannot
+run outside CI. The exposed set is tenants provisioned through the retired
+`LIKE` path, and what they actually have needs checking against a live database
+before choosing between creating the aggregates before arming RLS in reconcile
+too, and having reconcile report rather than attempt.
+
+**Still open** — owner @okan-wqm, deadline 2026-10-15.
+
+**Correction to the record.** Commit `82043ef` carries
+`Closes: …#INFRA-HIGH-147`, and that trailer is wrong: 147's subject is the
+RECONCILE path, which that commit did not touch. The PROVISION half it did fix
+had no finding of its own, so it now has one — `SENSOR-CRITICAL-105` above —
+and 147 stays OPEN. The trailer cannot be rewritten (history is not rewritten on
+this branch), so it is corrected here and in the commit that follows rather than
+left to close a finding nobody fixed. Traceability that closes the wrong finding
+is worse than none: it retires an open defect by accident.
 
 ### INFRA-HIGH-146 — bootstrap hardening runs before the tables it hardens exist
 

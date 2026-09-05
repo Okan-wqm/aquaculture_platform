@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `96823793919970f52730f5ab8283a0f05e3b3dd92c0b4bdbfb4e7ac51f12d2e0`
+Registry tip: `6657881f756901f8eaf7e2bb2d6e9aecc2991f535637e09a0e3b7e641e438da6`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -212,7 +212,6 @@ Allowed truth buckets:
 | `FARM-CRITICAL-238`   | IN-PROGRESS    | 4.1          | data-expert                | real-open                 |
 | `INFRA-CRITICAL-077`  | IN-PROGRESS    | 1.1          | infra-expert               | real-open                 |
 | `INFRA-CRITICAL-078`  | IN-PROGRESS    | 1.1          | security-reviewer          | real-open                 |
-| `DATA-CRITICAL-010`   | OPEN           | —            | data-expert                | real-open                 |
 | `ORPHAN-CRITICAL-419` | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
 | `ORPHAN-CRITICAL-420` | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
 | `ORPHAN-CRITICAL-506` | OPEN           | 2026-08-13   | aria-acceptance-gap-fixer  | real-open                 |
@@ -234,8 +233,6 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-098`  | OPEN           | 2026-07-19   | security-reviewer          | real-open                 |
 | `INFRA-CRITICAL-100`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
 | `ADMIN-CRITICAL-087`  | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
-| `ADMIN-CRITICAL-093`  | OPEN           | 2026-09-15   | data-expert                | already-fixed-needs-close |
-| `SENSOR-CRITICAL-110` | OPEN           | 2026-09-15   | data-expert                | already-fixed-needs-close |
 | `INFRA-CRITICAL-149`  | OPEN           | 2026-09-15   | data-expert                | already-fixed-needs-close |
 
 ## Mutation Rules

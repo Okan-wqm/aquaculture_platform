@@ -15,7 +15,7 @@ skipped or deleted.
 **Verified state (before this pass).** `ErasedTenantTombstoneService.attachEventBus`
 subscribed with an object literal carrying a single member:
 
-```
+```ts
 eventBus.subscribeTo('events.*.TenantErased', { handle: (event) => { … } } as never)
 ```
 

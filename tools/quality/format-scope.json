@@ -42099,6 +42099,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/storage/src/__tests__/minio-client.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/storage/src/__tests__/orphan-cleanup.service.spec.ts",
       "prettier_managed": true
     },

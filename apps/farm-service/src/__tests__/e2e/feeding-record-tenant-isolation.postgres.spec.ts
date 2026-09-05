@@ -390,6 +390,12 @@ describe('Feeding record tenant isolation on real Postgres', () => {
         feedName: 'Shared Salmon Feed',
         totalKg: 10,
         percentage: 100,
+        // Per-feed cost is part of the summary contract
+        // (feeding-summary-response-contract.spec.ts pins it), and with one
+        // feed type at 100% it must equal the totalFeedCost asserted above.
+        // The omission stood because this line was unreachable: the test died
+        // earlier, at the day-plan bind, before this assertion ever ran.
+        cost: 25,
       },
     ]);
 

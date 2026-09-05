@@ -53,6 +53,19 @@ export class DebugToolsModule {
   static forRoot(): DynamicModule {
     const isEnabled = process.env['ENABLE_DEBUG_TOOLS'] === 'true';
 
+    // INFRA-HIGH-142: production never honours the flag. Registering the
+    // debug surface (raw tenant SQL, request/response bodies, Set-Cookie
+    // headers at rest) on the production edge is a misconfiguration, and a
+    // misconfiguration must fail the boot, not be silently obeyed or
+    // silently ignored. The posture assertion in main.ts stops the process
+    // first; this is the module's own line of defence when forRoot() is
+    // composed elsewhere.
+    if (isEnabled && process.env['NODE_ENV'] === 'production') {
+      throw new Error(
+        'ENABLE_DEBUG_TOOLS=true is not permitted when NODE_ENV=production (INFRA-HIGH-142)',
+      );
+    }
+
     if (!isEnabled) {
       this.logger.log(
         'Debug tools DISABLED (ENABLE_DEBUG_TOOLS != "true"). No /debug endpoints registered.',
@@ -62,7 +75,7 @@ export class DebugToolsModule {
 
     this.logger.warn(
       'Debug tools ENABLED (ENABLE_DEBUG_TOOLS=true). /debug endpoints are active — ' +
-      'ensure this is intentional and access is audited.',
+        'ensure this is intentional and access is audited.',
     );
 
     return {

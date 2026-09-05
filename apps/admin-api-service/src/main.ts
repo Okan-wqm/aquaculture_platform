@@ -6,6 +6,13 @@ import 'reflect-metadata';
 import { VersioningType, VERSION_NEUTRAL } from '@nestjs/common';
 import { bootstrapService } from '@aquaculture/backend-common/bootstrap';
 import { AppModule } from './app.module';
+import { assertProductionPosture } from './config/production-posture';
+
+// INFRA-HIGH-142: a production process whose environment does not state the
+// debug / explorer flags as 'false' and TRUST_PROXY as set does not start.
+// Before the app exists, so a misconfigured deploy fails at the first log
+// line instead of serving requests with an accidental posture.
+assertProductionPosture();
 
 bootstrapService(AppModule, {
   serviceName: 'admin-api-service',
@@ -28,9 +35,5 @@ bootstrapService(AppModule, {
 
   helmetOptions: { crossOriginEmbedderPolicy: false },
 
-  additionalCorsHeaders: [
-    'X-Tenant-ID',
-    'X-Request-ID',
-    'X-Impersonate-User',
-  ],
+  additionalCorsHeaders: ['X-Tenant-ID', 'X-Request-ID', 'X-Impersonate-User'],
 });

@@ -1069,6 +1069,17 @@ services:
       SMTP_FROM: ${SMTP_FROM:-noreply@suderra.com}
       THROTTLE_DEFAULT_LIMIT: 500
       THROTTLE_DEFAULT_TTL: 60
+      # INFRA-HIGH-142: production posture, stated as decisions rather than
+      # omissions. admin-api refuses to boot in production unless every one of
+      # these is present with exactly this value (src/config/production-posture.ts);
+      # tests/invariants/admin-api-production-posture.spec.ts pins the literals here.
+      # nginx terminates TLS and proxies /api/ straight to this service, so the
+      # client address is the X-Forwarded-For hop — without TRUST_PROXY every
+      # per-IP throttle bucket is the bridge address (AUTH-010).
+      TRUST_PROXY: 'true'
+      ENABLE_DEBUG_TOOLS: 'false'
+      ENABLE_DB_EXPLORER_WRITES: 'false'
+      ENABLE_RAW_SQL_EXPLORER: 'false'
     depends_on:
       postgres:
         condition: service_healthy

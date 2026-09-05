@@ -10,12 +10,11 @@
  * accidental no-op transfers that would create confusing audit trails.
  */
 
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import {
   ArrowLeft,
   ArrowLeftRight,
-  CheckCircle,
   AlertCircle,
   Loader2,
   ChevronRight,
@@ -27,16 +26,15 @@ import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import type { JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { AlreadyRecordedNotice } from '@/components/AlreadyRecordedNotice';
 import { BarcodeScanButton } from '@/components/BarcodeScanButton';
+import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
 import { VirtualList } from '@/components/VirtualList';
-import { TransferStockDocument } from '@/generated/graphql';
 import { STORAGE_INVENTORY_ITEMS, STORAGE_LOCATIONS } from '@/graphql/storage-operations';
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { StorageItemType, QueuedPayload } from '@/types';
-import { isRecoverableNetworkError } from '@/utils/network-error';
-import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 // ============================================================================
@@ -105,7 +103,6 @@ export function StockTransferPage(): JSX.Element {
   const navigate = useNavigate();
   const { accessToken, tenantId, isAuthenticated } = useAuth();
   const { isOnline, addToQueue } = useOfflineQueue();
-  const queryClient = useQueryClient();
 
   // Wizard state
   const [step, setStep] = useState(1);
@@ -117,7 +114,10 @@ export function StockTransferPage(): JSX.Element {
   const [itemSearch, setItemSearch] = useState('');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showSuccess, setShowSuccess] = useState(false);
+  // Two-phase success UX (C7): the badge tracks the queued op's real sync
+  // status; a deduped double-tap renders "Already recorded" (FE-HIGH-050).
+  const [queuedOperationId, setQueuedOperationId] = useState('');
+  const [wasDuplicate, setWasDuplicate] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   // WHY ref + focus effect (not autoFocus): the quantity step renders a single
@@ -242,57 +242,33 @@ export function StockTransferPage(): JSX.Element {
     };
 
     try {
-      if (isOnline) {
-        await graphqlRequest<{ transferStock: { id: string } }>(
-          TransferStockDocument,
-          { input },
-        );
-        if (tenantId) {
-          await invalidateSyncedOperationQueries(queryClient, tenantId, ['transferStock']);
-        }
-      } else {
-        await addToQueue('transferStock', input);
-      }
-
-      setShowSuccess(true);
-      setTimeout(() => navigate('/storage'), 1500);
+      // Queue-first (MOB-CRITICAL-018): online, addToQueue drains immediately;
+      // offline, the transfer waits for reconnect. The success screen shows the
+      // op's real sync status either way.
+      const result = await addToQueue('transferStock', input);
+      setQueuedOperationId(result.id);
+      setWasDuplicate(result.status === 'duplicate');
+      setTimeout(() => navigate('/storage'), 2000);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to transfer stock';
-      // Fallback only when an online transport failure occurred. Offline queue
-      // write failures should surface instead of being retried recursively.
-      if (isOnline && isRecoverableNetworkError(error)) {
-        try {
-          await addToQueue('transferStock', input);
-          setShowSuccess(true);
-          setTimeout(() => navigate('/storage'), 1500);
-          return;
-        } catch (queueError) {
-          setSubmitError(queueError instanceof Error ? queueError.message : 'Failed to queue operation');
-          return;
-        }
-      }
-      setSubmitError(message);
+      setSubmitError(error instanceof Error ? error.message : 'Failed to transfer stock');
     } finally {
       setIsSubmitting(false);
     }
   }, [
     selectedItem, fromLocation, toLocation, selectedItemType, selectedItemId,
-    fromLocationId, toLocationId, quantity, isOnline, addToQueue, navigate,
-    queryClient, tenantId,
+    fromLocationId, toLocationId, quantity, addToQueue, navigate,
   ]);
 
   // ---- Success screen ------------------------------------------------------
 
-  if (showSuccess) {
+  if (queuedOperationId !== '') {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-green-50 dark:bg-green-900/10">
-        <div className="w-20 h-20 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mb-4">
-          <CheckCircle size={48} className="text-green-600" />
-        </div>
-        <h2 className="text-xl font-bold text-green-700 dark:text-green-300">
-          {isOnline ? 'Transfer Recorded!' : 'Queued for Sync'}
-        </h2>
-        <p className="text-green-600 dark:text-green-400 text-sm mt-1">Returning to storage hub...</p>
+      <div className="flex flex-col items-center justify-center min-h-screen bg-amber-50 dark:bg-amber-900/10">
+        {wasDuplicate ? (
+          <AlreadyRecordedNotice />
+        ) : (
+          <QueuedStatusBadge operationId={queuedOperationId} />
+        )}
       </div>
     );
   }

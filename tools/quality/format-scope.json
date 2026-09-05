@@ -46510,6 +46510,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/components/AlreadyRecordedNotice.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/components/BarcodeScanButton.tsx",
       "prettier_managed": true
     },
@@ -46954,6 +46960,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/hooks/__tests__/useNotifications-cadence.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/__tests__/useOfflineQueue-immediate-drain.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -47535,6 +47547,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/storage/__tests__/StockMovementPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/storage/__tests__/StockTransferPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/pages/storage/StockMovementPage.tsx",
       "prettier_managed": true
     },
@@ -47590,6 +47614,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/pages/transfer/RecordTransferPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/water-quality/__tests__/WaterQualityRecordPage.spec.tsx",
       "prettier_managed": true
     },
     {

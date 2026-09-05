@@ -254,9 +254,18 @@ export function OfflineProvider({ children }: { children: ReactNode }): ReactEle
         applyOptimisticKpiBump(queryClient, tenantId, type, payload);
       }
       await refreshQueue();
+      // MOB-CRITICAL-018: an online enqueue drains NOW. The queue-version effect
+      // below still arms its 1 s safety-net timer, but a worker who taps
+      // "Record" on a live connection must see the badge turn "Confirmed" —
+      // not sit on "Queued" until the success screen navigates away. syncNow
+      // is serialised by isSyncingRef, so the timer's later call is a no-op
+      // when this drain is still running or already finished.
+      if (isOnline && result.status === 'queued') {
+        void syncNowRef.current();
+      }
       return result;
     },
-    [refreshQueue, accessToken, tenantId, user, queryClient]
+    [refreshQueue, accessToken, tenantId, user, queryClient, isOnline]
   );
 
   const executeGraphQL = useCallback(

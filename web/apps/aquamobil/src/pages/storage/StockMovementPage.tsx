@@ -12,14 +12,13 @@
  * adapts the form labels, required fields, and submit action accordingly.
  */
 
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import {
   ArrowLeft,
   ArrowDownToLine,
   ArrowUpFromLine,
   Trash2,
-  CheckCircle,
   AlertCircle,
   Loader2,
   ChevronRight,
@@ -31,16 +30,15 @@ import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import type { JSX } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
+import { AlreadyRecordedNotice } from '@/components/AlreadyRecordedNotice';
 import { BarcodeScanButton } from '@/components/BarcodeScanButton';
+import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
 import { VirtualList } from '@/components/VirtualList';
-import { RecordStockMovementDocument } from '@/generated/graphql';
 import { STORAGE_INVENTORY_ITEMS, STORAGE_LOCATIONS } from '@/graphql/storage-operations';
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { StockMovementType, StorageItemType, QueuedPayload } from '@/types';
-import { isRecoverableNetworkError } from '@/utils/network-error';
-import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 // ============================================================================
@@ -126,7 +124,6 @@ export function StockMovementPage(): JSX.Element {
   const [searchParams] = useSearchParams();
   const { accessToken, tenantId, isAuthenticated } = useAuth();
   const { isOnline, addToQueue } = useOfflineQueue();
-  const queryClient = useQueryClient();
 
   // Parse movement type from URL, default to IN for safety
   const rawType = searchParams.get('type') ?? 'IN';
@@ -146,7 +143,10 @@ export function StockMovementPage(): JSX.Element {
   const [itemSearch, setItemSearch] = useState('');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showSuccess, setShowSuccess] = useState(false);
+  // Two-phase success UX (C7): the badge tracks the queued op's real sync
+  // status; a deduped double-tap renders "Already recorded" (FE-HIGH-050).
+  const [queuedOperationId, setQueuedOperationId] = useState('');
+  const [wasDuplicate, setWasDuplicate] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   // WHY refs + focus effect (not autoFocus): each wizard step renders a single
@@ -330,58 +330,33 @@ export function StockMovementPage(): JSX.Element {
     };
 
     try {
-      if (isOnline) {
-        await graphqlRequest<{ recordStockMovement: { id: string } }>(
-          RecordStockMovementDocument,
-          { input },
-        );
-        if (tenantId) {
-          await invalidateSyncedOperationQueries(queryClient, tenantId, ['recordStockMovement']);
-        }
-      } else {
-        // Queue for later sync when offline
-        await addToQueue('recordStockMovement', input);
-      }
-
-      setShowSuccess(true);
-      setTimeout(() => navigate('/storage'), 1500);
+      // Queue-first (MOB-CRITICAL-018): online, addToQueue drains immediately;
+      // offline, the movement waits for reconnect. The success screen shows the
+      // op's real sync status either way.
+      const result = await addToQueue('recordStockMovement', input);
+      setQueuedOperationId(result.id);
+      setWasDuplicate(result.status === 'duplicate');
+      setTimeout(() => navigate('/storage'), 2000);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to record stock movement';
-      // Fallback only when an online transport failure occurred. If the offline
-      // queue itself failed, retrying the same queue write would hide the cause.
-      if (isOnline && isRecoverableNetworkError(error)) {
-        try {
-          await addToQueue('recordStockMovement', input);
-          setShowSuccess(true);
-          setTimeout(() => navigate('/storage'), 1500);
-          return;
-        } catch (queueError) {
-          setSubmitError(queueError instanceof Error ? queueError.message : 'Failed to queue operation');
-          return;
-        }
-      }
-      setSubmitError(message);
+      setSubmitError(error instanceof Error ? error.message : 'Failed to record stock movement');
     } finally {
       setIsSubmitting(false);
     }
   }, [
     selectedItem, selectedLocation, movementType, selectedItemType, selectedItemId,
-    quantity, selectedLocationId, lotNumber, expiryDate, notes, isOnline,
-    addToQueue, navigate, queryClient, tenantId,
+    quantity, selectedLocationId, lotNumber, expiryDate, notes, addToQueue, navigate,
   ]);
 
   // ---- Success screen ------------------------------------------------------
 
-  if (showSuccess) {
+  if (queuedOperationId !== '') {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-green-50 dark:bg-green-900/10">
-        <div className="w-20 h-20 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mb-4">
-          <CheckCircle size={48} className="text-green-600" />
-        </div>
-        <h2 className="text-xl font-bold text-green-700 dark:text-green-300">
-          {isOnline ? 'Movement Recorded!' : 'Queued for Sync'}
-        </h2>
-        <p className="text-green-600 dark:text-green-400 text-sm mt-1">Returning to storage hub...</p>
+      <div className="flex flex-col items-center justify-center min-h-screen bg-amber-50 dark:bg-amber-900/10">
+        {wasDuplicate ? (
+          <AlreadyRecordedNotice />
+        ) : (
+          <QueuedStatusBadge operationId={queuedOperationId} />
+        )}
       </div>
     );
   }

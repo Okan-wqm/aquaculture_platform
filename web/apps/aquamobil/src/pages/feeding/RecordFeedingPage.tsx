@@ -13,19 +13,12 @@
 import { useQuery } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import { List, ListInput, BlockTitle } from 'konsta/react';
-import {
-  ArrowLeft,
-  Package,
-  CheckCircle,
-  AlertCircle,
-  Hand,
-  Settings,
-  Radio,
-  Thermometer,
-} from 'lucide-react';
+import { ArrowLeft, Package, AlertCircle, Hand, Settings, Radio, Thermometer } from 'lucide-react';
 import { useState, useEffect, ChangeEvent, type JSX } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
+import { AlreadyRecordedNotice } from '@/components/AlreadyRecordedNotice';
+import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
 import { GET_FEEDING_DAY_PLANS } from '@/graphql/operations';
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
@@ -199,7 +192,10 @@ export function RecordFeedingPage(): JSX.Element {
   const [feedingMethod, setFeedingMethod] = useState<FeedingMethodOption>('manual');
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showSuccess, setShowSuccess] = useState(false);
+  // Two-phase success UX (C7): the badge tracks the queued op's real sync
+  // status; a deduped double-tap renders "Already recorded" (FE-HIGH-050).
+  const [queuedOperationId, setQueuedOperationId] = useState('');
+  const [wasDuplicate, setWasDuplicate] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
 
   useEffect(() => {
@@ -243,14 +239,15 @@ export function RecordFeedingPage(): JSX.Element {
     setIsSubmitting(true);
     setErrors({});
     try {
-      await addToQueue('recordMealFeeding', {
+      const result = await addToQueue('recordMealFeeding', {
         mealId: selectedMeal.id,
         pourKg: parsedPour,
         finalize,
         feedingMethod,
         notes: notes.trim() || undefined,
       });
-      setShowSuccess(true);
+      setQueuedOperationId(result.id);
+      setWasDuplicate(result.status === 'duplicate');
       setTimeout(() => navigate('/'), 1500);
     } catch (error) {
       const message = error instanceof Error ? error.message : t('feeding.errors.generic');
@@ -267,19 +264,16 @@ export function RecordFeedingPage(): JSX.Element {
     setErrors({});
   };
 
-  if (showSuccess) {
+  // Kayıt her zaman önce kuyruğa gider; ekran gerçek eşitleme durumunu gösterir
+  // (Queued → Syncing → Confirmed / Sync Failed), yeşil "kaydedildi" değil.
+  if (queuedOperationId !== '') {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-green-50 dark:bg-green-900/10">
-        <div className="w-20 h-20 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mb-4">
-          <CheckCircle size={48} className="text-green-600" />
-        </div>
-        <h2 className="text-xl font-bold text-green-700 dark:text-green-300">
-          {t('feeding.recorded')}
-        </h2>
-        {/* Kayıt her zaman önce kuyruğa gider ve arka planda eşitlenir. */}
-        <p className="text-green-600 dark:text-green-400 text-sm mt-1">
-          {t('feeding.queuedForSync')}
-        </p>
+      <div className="flex flex-col items-center justify-center min-h-screen bg-amber-50 dark:bg-amber-900/10">
+        {wasDuplicate ? (
+          <AlreadyRecordedNotice />
+        ) : (
+          <QueuedStatusBadge operationId={queuedOperationId} />
+        )}
       </div>
     );
   }

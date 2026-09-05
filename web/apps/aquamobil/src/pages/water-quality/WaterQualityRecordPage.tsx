@@ -1,20 +1,19 @@
 import { DynamicMeasurementForm } from '@aquaculture/farm-shared';
 import type { ParameterFieldConfig } from '@aquaculture/farm-shared';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { gql } from 'graphql-tag';
 import { BlockTitle, List, ListInput } from 'konsta/react';
-import { ArrowLeft, Droplets, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { ArrowLeft, Droplets, AlertCircle, Loader2 } from 'lucide-react';
 import type { JSX } from 'react';
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
-import { CreateWaterQualityMeasurementDocument } from '@/generated/graphql';
+import { AlreadyRecordedNotice } from '@/components/AlreadyRecordedNotice';
+import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { QueuedPayload } from '@/types';
-import { isRecoverableNetworkError } from '@/utils/network-error';
-import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 // ============================================================================
@@ -95,12 +94,14 @@ export function WaterQualityRecordPage(): JSX.Element {
   const { equipmentId: routeEquipmentId } = useParams<{ equipmentId?: string }>();
   const { accessToken, tenantId, isAuthenticated } = useAuth();
   const { isOnline, addToQueue } = useOfflineQueue();
-  const queryClient = useQueryClient();
 
   const [selectedEquipmentId, setSelectedEquipmentId] = useState(routeEquipmentId || '');
-  const [showSuccess, setShowSuccess] = useState(false);
+  // Two-phase success UX (C7): the badge tracks the queued op's real sync
+  // status; a deduped double-tap renders "Already recorded" (FE-HIGH-050).
+  const [queuedOperationId, setQueuedOperationId] = useState('');
+  const [wasDuplicate, setWasDuplicate] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [isQueueSubmitting, setIsQueueSubmitting] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (routeEquipmentId) setSelectedEquipmentId(routeEquipmentId);
@@ -176,19 +177,6 @@ export function WaterQualityRecordPage(): JSX.Element {
     gcTime: 1000 * 60 * 30,
   });
 
-  // -- Create mutation -------------------------------------------------------
-  const { mutateAsync: createMeasurement, isPending: isSubmitting } = useMutation({
-    mutationFn: async (input: QueuedPayload<'createWaterQuality'>) =>
-      graphqlRequest<{ createWaterQualityMeasurement: { id: string; overallStatus: string; hasAlarm: boolean } }>(
-        CreateWaterQualityMeasurementDocument, { input },
-      ),
-    onSuccess: async () => {
-      if (tenantId) {
-        await invalidateSyncedOperationQueries(queryClient, tenantId, ['createWaterQuality']);
-      }
-    },
-  });
-
   // -- Submit handler --------------------------------------------------------
   const handleSubmit = useCallback(
     async (values: Record<string, FieldValue>, notes: string, weatherConditions?: string) => {
@@ -208,36 +196,25 @@ export function WaterQualityRecordPage(): JSX.Element {
         ...(notes.trim() ? { notes: notes.trim() } : {}),
         ...(weatherConditions?.trim() ? { weatherConditions: weatherConditions.trim() } : {}),
       };
-      setIsQueueSubmitting(true);
+      setIsSubmitting(true);
       try {
-        if (isOnline) {
-          await createMeasurement(input);
-        } else {
-          await addToQueue('createWaterQuality', input);
-        }
+        // Queue-first (MOB-CRITICAL-018): the queue is the platform's single
+        // write path. Online, addToQueue drains immediately; offline, the
+        // record waits for reconnect. Either way the success screen shows the
+        // op's REAL sync status instead of a green "recorded" for a payload
+        // that may never have reached the server.
+        const result = await addToQueue('createWaterQuality', input);
         addMRU(selectedEquipmentId);
-        setShowSuccess(true);
-        setTimeout(() => navigate('/'), 1500);
+        setQueuedOperationId(result.id);
+        setWasDuplicate(result.status === 'duplicate');
+        setTimeout(() => navigate('/'), 2000);
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to record measurement';
-        if (isRecoverableNetworkError(error)) {
-          try {
-            await addToQueue('createWaterQuality', input);
-            addMRU(selectedEquipmentId);
-            setShowSuccess(true);
-            setTimeout(() => navigate('/'), 1500);
-            return;
-          } catch (queueError) {
-            setSubmitError(queueError instanceof Error ? queueError.message : 'Failed to queue measurement');
-            return;
-          }
-        }
-        setSubmitError(message);
+        setSubmitError(error instanceof Error ? error.message : 'Failed to record measurement');
       } finally {
-        setIsQueueSubmitting(false);
+        setIsSubmitting(false);
       }
     },
-    [selectedEquipmentId, isOnline, createMeasurement, addToQueue, navigate],
+    [selectedEquipmentId, addToQueue, navigate],
   );
 
   const handleEquipmentChange = useCallback(
@@ -248,15 +225,15 @@ export function WaterQualityRecordPage(): JSX.Element {
     [],
   );
 
-  // -- Success screen --------------------------------------------------------
-  if (showSuccess) {
+  // -- Success screen: honest sync status, never an unconditional green ------
+  if (queuedOperationId !== '') {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-green-50 dark:bg-green-900/10">
-        <div className="w-20 h-20 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mb-4">
-          <CheckCircle size={48} className="text-green-600" />
-        </div>
-        <h2 className="text-xl font-bold text-green-700 dark:text-green-300">Measurement Recorded!</h2>
-        <p className="text-green-600 dark:text-green-400 text-sm mt-1">Returning to home...</p>
+      <div className="flex flex-col items-center justify-center min-h-screen bg-amber-50 dark:bg-amber-900/10">
+        {wasDuplicate ? (
+          <AlreadyRecordedNotice />
+        ) : (
+          <QueuedStatusBadge operationId={queuedOperationId} />
+        )}
       </div>
     );
   }
@@ -340,7 +317,7 @@ export function WaterQualityRecordPage(): JSX.Element {
             onSubmit={(values, notes, weatherConditions) => {
               void handleSubmit(values, notes, weatherConditions);
             }}
-            isSubmitting={isSubmitting || isQueueSubmitting}
+            isSubmitting={isSubmitting}
             error={submitError}
             showWeather
           />

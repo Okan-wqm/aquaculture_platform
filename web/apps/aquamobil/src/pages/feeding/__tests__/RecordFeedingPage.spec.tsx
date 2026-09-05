@@ -43,6 +43,11 @@ vi.mock('@/services/authenticated-fetch', () => ({
   graphqlRequest: (...args: unknown[]) => h.graphqlRequest(...args),
 }));
 
+vi.mock('@/components/QueuedStatusBadge', () => ({
+  QueuedStatusBadge: ({ operationId }: { operationId: string }) =>
+    createElement('div', { 'data-testid': 'queued-status-badge' }, operationId),
+}));
+
 vi.mock('@/pwa/offline-queue', () => ({
   cacheData: (...args: unknown[]) => h.cacheData(...args),
   getCachedData: (...args: unknown[]) => h.getCachedData(...args),
@@ -121,7 +126,7 @@ describe('RecordFeedingPage — öğün cutover (Faz 6)', () => {
     vi.clearAllMocks();
     h.isOnline = true;
     h.getCachedData.mockResolvedValue(null);
-    h.addToQueue.mockResolvedValue({ status: 'queued' });
+    h.addToQueue.mockResolvedValue({ status: 'queued', id: 'op-1' });
     client = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
@@ -187,6 +192,8 @@ describe('RecordFeedingPage — öğün cutover (Faz 6)', () => {
       finalize: true,
       feedingMethod: 'manual',
     });
+    // Two-phase success: the badge tracks the queued op, no unconditional green.
+    expect((await screen.findByTestId('queued-status-badge')).textContent).toBe('op-1');
   });
 
   it('shows the no-plans hint when the day has no generated plans', async () => {

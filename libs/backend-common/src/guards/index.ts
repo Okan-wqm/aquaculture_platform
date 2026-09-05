@@ -18,3 +18,5 @@ export * from './token-revocation.service';
 // SEC-HIGH-052: mobile feature-entitlement guard (paired with @RequiresMobileFeature)
 export * from './mobile-feature.guard';
 export * from './destructive-action.guard';
+// ADR-0016: capability gate (paired with @RequiresCapability), ANDed after the authentication guard
+export * from './platform-capability.guard';

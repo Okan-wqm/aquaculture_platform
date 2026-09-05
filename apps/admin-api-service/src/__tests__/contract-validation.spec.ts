@@ -969,7 +969,9 @@ describe('Frontend-Backend Contract Validation', () => {
     // 526: -12 for the /settings/ip-access surface, deleted with both IP
     // access-rule stacks — the admin-api CRUD wrote a table no guard read, and
     // the gateway's IpWhitelistGuard was registered nowhere (SEC-HIGH-165).
-    expect(count).toBe(526);
+    // 529: +3 for the platform-capability grant surface, which narrows the
+    // SUPER_ADMIN bit to named capabilities (SEC-HIGH-164).
+    expect(count).toBe(529);
   });
 
   it('frontend endpoint snapshot should be up to date', () => {

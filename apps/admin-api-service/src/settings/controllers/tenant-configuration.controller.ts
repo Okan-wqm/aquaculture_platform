@@ -1,4 +1,4 @@
-import { Destructive } from '@aquaculture/backend-common/decorators';
+import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -55,6 +55,7 @@ export class TenantConfigurationController {
    * Create configuration for a new tenant
    */
   @AuditedOperation({ resource: 'Configuration', action: 'CREATE' })
+  @RequiresCapability('security-ops')
   @Post()
   async createConfiguration(@Body() dto: CreateTenantConfigurationDto) {
     return this.configService.createConfiguration(dto);
@@ -80,6 +81,7 @@ export class TenantConfigurationController {
    * Update configuration
    */
   @AuditedOperation({ resource: 'Configuration', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put(':tenantId')
   async updateConfiguration(
     @Param('tenantId') tenantId: string,
@@ -93,6 +95,7 @@ export class TenantConfigurationController {
    */
   @AuditedOperation({ resource: 'Configuration', action: 'DELETE' })
   @Destructive()
+  @RequiresCapability('security-ops')
   @Delete(':tenantId')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteConfiguration(@Param('tenantId') tenantId: string) {
@@ -122,6 +125,7 @@ export class TenantConfigurationController {
 
   // Fix: C6 -- JWT-based identity
   @AuditedOperation({ resource: 'UserLimits', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put(':tenantId/user-limits')
   async updateUserLimits(
     @Param('tenantId') tenantId: string,
@@ -144,6 +148,7 @@ export class TenantConfigurationController {
 
   // Fix: C6 -- JWT-based identity
   @AuditedOperation({ resource: 'StorageConfig', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put(':tenantId/storage')
   async updateStorageConfig(
     @Param('tenantId') tenantId: string,
@@ -156,6 +161,7 @@ export class TenantConfigurationController {
   }
 
   @AuditedOperation({ resource: 'TenantConfiguration', action: 'CHECK_STORAGE_LIMIT' })
+  @RequiresCapability('security-ops')
   @Post(':tenantId/storage/check-limit')
   async checkStorageLimit(
     @Param('tenantId') tenantId: string,
@@ -176,6 +182,7 @@ export class TenantConfigurationController {
 
   // Fix: C6 -- JWT-based identity
   @AuditedOperation({ resource: 'ApiConfig', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put(':tenantId/api')
   async updateApiConfig(
     @Param('tenantId') tenantId: string,
@@ -192,6 +199,7 @@ export class TenantConfigurationController {
   // ============================================================================
 
   @AuditedOperation({ resource: 'ApiKey', action: 'CREATE' })
+  @RequiresCapability('security-ops')
   @Post(':tenantId/api-keys')
   async createApiKey(
     @Param('tenantId') tenantId: string,
@@ -202,6 +210,7 @@ export class TenantConfigurationController {
 
   @AuditedOperation({ resource: 'ApiKey', action: 'REVOKE' })
   @Destructive()
+  @RequiresCapability('security-ops')
   @Delete(':tenantId/api-keys/:keyId')
   @HttpCode(HttpStatus.NO_CONTENT)
   async revokeApiKey(
@@ -212,6 +221,7 @@ export class TenantConfigurationController {
   }
 
   @AuditedOperation({ resource: 'ApiKey', action: 'VALIDATE' })
+  @RequiresCapability('security-ops')
   @Post(':tenantId/api-keys/validate')
   async validateApiKey(
     @Param('tenantId') tenantId: string,
@@ -231,6 +241,7 @@ export class TenantConfigurationController {
   }
 
   @AuditedOperation({ resource: 'Webhook', action: 'CREATE' })
+  @RequiresCapability('security-ops')
   @Post(':tenantId/webhooks')
   async createWebhook(
     @Param('tenantId') tenantId: string,
@@ -240,6 +251,7 @@ export class TenantConfigurationController {
   }
 
   @AuditedOperation({ resource: 'Webhook', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put(':tenantId/webhooks/:webhookId')
   async updateWebhook(
     @Param('tenantId') tenantId: string,
@@ -251,6 +263,7 @@ export class TenantConfigurationController {
 
   @AuditedOperation({ resource: 'Webhook', action: 'DELETE' })
   @Destructive()
+  @RequiresCapability('security-ops')
   @Delete(':tenantId/webhooks/:webhookId')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteWebhook(
@@ -270,6 +283,7 @@ export class TenantConfigurationController {
   }
 
   @AuditedOperation({ resource: 'CustomDomainVerification', action: 'INITIATE' })
+  @RequiresCapability('security-ops')
   @Post(':tenantId/domain/verify')
   async initiateCustomDomainVerification(
     @Param('tenantId') tenantId: string,
@@ -279,6 +293,7 @@ export class TenantConfigurationController {
   }
 
   @AuditedOperation({ resource: 'CustomDomain', action: 'VERIFY' })
+  @RequiresCapability('security-ops')
   @Post(':tenantId/domain/confirm')
   async verifyCustomDomain(@Param('tenantId') tenantId: string) {
     const verified = this.configService.verifyCustomDomain(tenantId);
@@ -292,6 +307,7 @@ export class TenantConfigurationController {
 
   // Fix: C6 -- JWT-based identity
   @AuditedOperation({ resource: 'Branding', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put(':tenantId/branding')
   async updateBranding(
     @Param('tenantId') tenantId: string,
@@ -314,6 +330,7 @@ export class TenantConfigurationController {
 
   // Fix: C6 -- JWT-based identity
   @AuditedOperation({ resource: 'SecurityConfig', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put(':tenantId/security')
   async updateSecurityConfig(
     @Param('tenantId') tenantId: string,
@@ -326,6 +343,7 @@ export class TenantConfigurationController {
   }
 
   @AuditedOperation({ resource: 'ToIpWhitelist', action: 'ADD' })
+  @RequiresCapability('security-ops')
   @Post(':tenantId/security/ip-whitelist')
   async addToIpWhitelist(
     @Param('tenantId') tenantId: string,
@@ -336,6 +354,7 @@ export class TenantConfigurationController {
 
   @AuditedOperation({ resource: 'FromIpWhitelist', action: 'DELETE' })
   @Destructive()
+  @RequiresCapability('security-ops')
   @Delete(':tenantId/security/ip-whitelist/:ip')
   async removeFromIpWhitelist(
     @Param('tenantId') tenantId: string,
@@ -345,6 +364,7 @@ export class TenantConfigurationController {
   }
 
   @AuditedOperation({ resource: 'ToIpBlacklist', action: 'ADD' })
+  @RequiresCapability('security-ops')
   @Post(':tenantId/security/ip-blacklist')
   async addToIpBlacklist(
     @Param('tenantId') tenantId: string,
@@ -355,6 +375,7 @@ export class TenantConfigurationController {
 
   @AuditedOperation({ resource: 'FromIpBlacklist', action: 'DELETE' })
   @Destructive()
+  @RequiresCapability('security-ops')
   @Delete(':tenantId/security/ip-blacklist/:ip')
   async removeFromIpBlacklist(
     @Param('tenantId') tenantId: string,
@@ -374,6 +395,7 @@ export class TenantConfigurationController {
 
   // Fix: C6 -- JWT-based identity
   @AuditedOperation({ resource: 'NotificationConfig', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put(':tenantId/notifications')
   async updateNotificationConfig(
     @Param('tenantId') tenantId: string,
@@ -396,6 +418,7 @@ export class TenantConfigurationController {
 
   // Fix: C6 -- JWT-based identity
   @AuditedOperation({ resource: 'FeatureFlags', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put(':tenantId/features')
   async updateFeatureFlags(
     @Param('tenantId') tenantId: string,
@@ -408,6 +431,7 @@ export class TenantConfigurationController {
   }
 
   @AuditedOperation({ resource: 'Module', action: 'ENABLE' })
+  @RequiresCapability('security-ops')
   @Post(':tenantId/features/modules/:moduleCode/enable')
   async enableModule(
     @Param('tenantId') tenantId: string,
@@ -417,6 +441,7 @@ export class TenantConfigurationController {
   }
 
   @AuditedOperation({ resource: 'Module', action: 'DISABLE' })
+  @RequiresCapability('security-ops')
   @Post(':tenantId/features/modules/:moduleCode/disable')
   async disableModule(
     @Param('tenantId') tenantId: string,
@@ -436,6 +461,7 @@ export class TenantConfigurationController {
 
   // Fix: C6 -- JWT-based identity
   @AuditedOperation({ resource: 'DataRetentionConfig', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put(':tenantId/data-retention')
   async updateDataRetentionConfig(
     @Param('tenantId') tenantId: string,

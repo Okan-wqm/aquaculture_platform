@@ -1,4 +1,4 @@
-import { Destructive } from '@aquaculture/backend-common/decorators';
+import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   BadRequestException,
@@ -455,6 +455,7 @@ export class GlobalSettingsController {
   // ============================================================================
 
   @AuditedOperation({ resource: 'FeatureToggle', action: 'CREATE' })
+  @RequiresCapability('security-ops')
   @Post('feature-toggles')
   async createFeatureToggle(@Body() dto: CreateFeatureToggleDto) {
     return this.globalSettingsService.createFeatureToggle(dto);
@@ -485,6 +486,7 @@ export class GlobalSettingsController {
   }
 
   @AuditedOperation({ resource: 'FeatureToggle', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put('feature-toggles/:id')
   async updateFeatureToggle(@Param('id') id: string, @Body() dto: UpdateFeatureToggleDto) {
     return this.globalSettingsService.updateFeatureToggle(id, dto);
@@ -492,6 +494,7 @@ export class GlobalSettingsController {
 
   @AuditedOperation({ resource: 'FeatureToggle', action: 'DELETE' })
   @Destructive()
+  @RequiresCapability('security-ops')
   @Delete('feature-toggles/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteFeatureToggle(@Param('id') id: string) {
@@ -499,6 +502,7 @@ export class GlobalSettingsController {
   }
 
   @AuditedOperation({ resource: 'GlobalSettings', action: 'EVALUATE_FEATURE_TOGGLE' })
+  @RequiresCapability('security-ops')
   @Post('feature-toggles/evaluate')
   async evaluateFeatureToggle(
     @Query('key') key: string,
@@ -508,6 +512,7 @@ export class GlobalSettingsController {
   }
 
   @AuditedOperation({ resource: 'FeatureToggleCache', action: 'REFRESH' })
+  @RequiresCapability('security-ops')
   @Post('feature-toggles/refresh-cache')
   @HttpCode(HttpStatus.NO_CONTENT)
   async refreshFeatureToggleCache() {
@@ -519,6 +524,7 @@ export class GlobalSettingsController {
   // ============================================================================
 
   @AuditedOperation({ resource: 'MaintenanceMode', action: 'CREATE' })
+  @RequiresCapability('security-ops')
   @Post('maintenance')
   async createMaintenanceMode(@Body() dto: CreateMaintenanceDto) {
     return this.globalSettingsService.createMaintenanceMode({
@@ -572,6 +578,7 @@ export class GlobalSettingsController {
   }
 
   @AuditedOperation({ resource: 'MaintenanceMode', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put('maintenance/:id')
   async updateMaintenanceMode(@Param('id') id: string, @Body() dto: UpdateMaintenanceDto) {
     return this.globalSettingsService.updateMaintenanceMode(id, {
@@ -582,24 +589,28 @@ export class GlobalSettingsController {
   }
 
   @AuditedOperation({ resource: 'Maintenance', action: 'START' })
+  @RequiresCapability('security-ops')
   @Post('maintenance/:id/start')
   async startMaintenance(@Param('id') id: string) {
     return this.globalSettingsService.startMaintenance(id);
   }
 
   @AuditedOperation({ resource: 'GlobalSettings', action: 'END_MAINTENANCE' })
+  @RequiresCapability('security-ops')
   @Post('maintenance/:id/end')
   async endMaintenance(@Param('id') id: string) {
     return this.globalSettingsService.endMaintenance(id);
   }
 
   @AuditedOperation({ resource: 'Maintenance', action: 'CANCEL' })
+  @RequiresCapability('security-ops')
   @Post('maintenance/:id/cancel')
   async cancelMaintenance(@Param('id') id: string) {
     return this.globalSettingsService.cancelMaintenance(id);
   }
 
   @AuditedOperation({ resource: 'Maintenance', action: 'EXTEND' })
+  @RequiresCapability('security-ops')
   @Post('maintenance/:id/extend')
   async extendMaintenance(@Param('id') id: string, @Body() dto: ExtendMaintenanceDto) {
     return this.globalSettingsService.extendMaintenance(id, dto.additionalMinutes);
@@ -610,6 +621,7 @@ export class GlobalSettingsController {
   // ============================================================================
 
   @AuditedOperation({ resource: 'Version', action: 'CREATE' })
+  @RequiresCapability('security-ops')
   @Post('versions')
   async createVersion(@Body() dto: CreateVersionDto) {
     return this.globalSettingsService.createSystemVersion(dto);
@@ -636,6 +648,7 @@ export class GlobalSettingsController {
   }
 
   @AuditedOperation({ resource: 'GlobalSettings', action: 'DEPLOY_VERSION' })
+  @RequiresCapability('security-ops')
   @Post('versions/:id/deploy')
   async deployVersion(@Param('id') id: string, @Body() dto: DeployVersionDto) {
     return this.globalSettingsService.deployVersion(id, dto.deployedBy);
@@ -643,6 +656,7 @@ export class GlobalSettingsController {
 
   @AuditedOperation({ resource: 'Version', action: 'ROLLBACK' })
   @Destructive()
+  @RequiresCapability('security-ops')
   @Post('versions/:id/rollback')
   async rollbackVersion(@Param('id') id: string, @Body() dto: RollbackVersionDto) {
     return this.globalSettingsService.rollbackVersion(id, dto.reason, dto.rolledBackBy);
@@ -653,6 +667,7 @@ export class GlobalSettingsController {
   // ============================================================================
 
   @AuditedOperation({ resource: 'Config', action: 'CREATE' })
+  @RequiresCapability('security-ops')
   @Post('configs')
   createConfig(@Body() dto: CreateConfigDto): never {
     return this.globalSettingsService.createConfig(dto);
@@ -681,12 +696,14 @@ export class GlobalSettingsController {
   }
 
   @AuditedOperation({ resource: 'Config', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put('configs/:id')
   updateConfig(@Param('id') id: string, @Body() dto: UpdateConfigDto): never {
     return this.globalSettingsService.updateConfig(id, dto.value, 'admin', dto.reason);
   }
 
   @AuditedOperation({ resource: 'UpdateConfigs', action: 'BULK' })
+  @RequiresCapability('security-ops')
   @Post('configs/bulk-update')
   bulkUpdateConfigs(@Body() dto: BulkUpdateConfigsDto): never {
     return this.globalSettingsService.bulkUpdateConfigs(dto.updates, 'admin');
@@ -704,6 +721,7 @@ export class GlobalSettingsController {
   }
 
   @AuditedOperation({ resource: 'ProvisioningConfig', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put('provisioning-config')
   updateProvisioningConfig(@Body() body: Record<string, string>, @Req() req: Request): never {
     if (!body || typeof body !== 'object' || Array.isArray(body)) {

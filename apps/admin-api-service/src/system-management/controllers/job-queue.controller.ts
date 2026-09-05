@@ -1,4 +1,4 @@
-import { Destructive } from '@aquaculture/backend-common/decorators';
+import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -310,6 +310,7 @@ export class JobQueueController {
   // ============================================================================
 
   @AuditedOperation({ resource: 'Queue', action: 'CREATE' })
+  @RequiresCapability('security-ops')
   @Post('queues')
   async createQueue(@Body() dto: CreateQueueDto) {
     return this.jobQueueService.createQueue(dto);
@@ -326,18 +327,21 @@ export class JobQueueController {
   }
 
   @AuditedOperation({ resource: 'Queue', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put('queues/:name')
   async updateQueue(@Param('name') name: string, @Body() dto: UpdateQueueDto) {
     return this.jobQueueService.updateQueue(name, dto);
   }
 
   @AuditedOperation({ resource: 'Queue', action: 'PAUSE' })
+  @RequiresCapability('security-ops')
   @Post('queues/:name/pause')
   async pauseQueue(@Param('name') name: string) {
     return this.jobQueueService.pauseQueue(name);
   }
 
   @AuditedOperation({ resource: 'Queue', action: 'RESUME' })
+  @RequiresCapability('security-ops')
   @Post('queues/:name/resume')
   async resumeQueue(@Param('name') name: string) {
     return this.jobQueueService.resumeQueue(name);
@@ -353,6 +357,7 @@ export class JobQueueController {
   // ============================================================================
 
   @AuditedOperation({ resource: 'Job', action: 'CREATE' })
+  @RequiresCapability('security-ops')
   @Post()
   async createJob(@Body() dto: CreateJobDto) {
     const definition: JobDefinition = {
@@ -363,6 +368,7 @@ export class JobQueueController {
   }
 
   @AuditedOperation({ resource: 'JobQueue', action: 'SCHEDULE_JOB' })
+  @RequiresCapability('security-ops')
   @Post('schedule')
   async scheduleJob(
     @Body() dto: ScheduleJobDto,
@@ -373,6 +379,7 @@ export class JobQueueController {
   }
 
   @AuditedOperation({ resource: 'JobQueue', action: 'SCHEDULE_RECURRING_JOB' })
+  @RequiresCapability('security-ops')
   @Post('recurring')
   async scheduleRecurringJob(
     @Body() dto: RecurringJobDto,
@@ -411,30 +418,35 @@ export class JobQueueController {
   }
 
   @AuditedOperation({ resource: 'Job', action: 'CANCEL' })
+  @RequiresCapability('security-ops')
   @Post(':id/cancel')
   async cancelJob(@Param('id') id: string) {
     return this.jobQueueService.cancelJob(id);
   }
 
   @AuditedOperation({ resource: 'Job', action: 'RETRY' })
+  @RequiresCapability('security-ops')
   @Post(':id/retry')
   async retryJob(@Param('id') id: string) {
     return this.jobQueueService.retryJob(id);
   }
 
   @AuditedOperation({ resource: 'Job', action: 'PAUSE' })
+  @RequiresCapability('security-ops')
   @Post(':id/pause')
   async pauseJob(@Param('id') id: string) {
     return this.jobQueueService.pauseJob(id);
   }
 
   @AuditedOperation({ resource: 'Job', action: 'RESUME' })
+  @RequiresCapability('security-ops')
   @Post(':id/resume')
   async resumeJob(@Param('id') id: string) {
     return this.jobQueueService.resumeJob(id);
   }
 
   @AuditedOperation({ resource: 'JobProgress', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put(':id/progress')
   async updateJobProgress(
     @Param('id') id: string,
@@ -464,6 +476,7 @@ export class JobQueueController {
   // ============================================================================
 
   @AuditedOperation({ resource: 'FailedJobs', action: 'RETRY' })
+  @RequiresCapability('security-ops')
   @Post('retry-failed')
   async retryFailedJobs(@Body() dto: RetryFailedJobsDto) {
     const count = await this.jobQueueService.retryFailedJobs(dto.queueName);
@@ -472,6 +485,7 @@ export class JobQueueController {
 
   @AuditedOperation({ resource: 'CompletedJobs', action: 'PURGE' })
   @Destructive()
+  @RequiresCapability('security-ops')
   @Post('purge-completed')
   async purgeCompletedJobs(@Body() dto: PurgeCompletedJobsDto) {
     const count = await this.jobQueueService.purgeCompletedJobs(dto.olderThanDays);

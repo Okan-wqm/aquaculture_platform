@@ -4,7 +4,7 @@
  * Rapor oluşturma ve indirme endpoint'leri.
  */
 
-import { Destructive } from '@aquaculture/backend-common/decorators';
+import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -216,6 +216,7 @@ export class ReportsController {
   }
 
   @AuditedOperation({ resource: 'Definition', action: 'CREATE' })
+  @RequiresCapability('security-ops')
   @Post('definitions')
   @HttpCode(HttpStatus.CREATED)
   async createDefinition(@Body() dto: CreateDefinitionDto): Promise<ReportDefinition> {
@@ -223,6 +224,7 @@ export class ReportsController {
   }
 
   @AuditedOperation({ resource: 'Definition', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put('definitions/:id')
   async updateDefinition(
     @Param('id') id: string,
@@ -233,6 +235,7 @@ export class ReportsController {
 
   @AuditedOperation({ resource: 'Definition', action: 'DELETE' })
   @Destructive()
+  @RequiresCapability('security-ops')
   @Delete('definitions/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteDefinition(@Param('id') id: string): Promise<void> {
@@ -261,6 +264,7 @@ export class ReportsController {
   }
 
   @AuditedOperation({ resource: 'Execution', action: 'CREATE' })
+  @RequiresCapability('security-ops')
   @Post('executions')
   @HttpCode(HttpStatus.CREATED)
   async createExecution(
@@ -317,6 +321,7 @@ export class ReportsController {
   // ============================================================================
 
   @AuditedOperation({ resource: 'Reports', action: 'QUICK_TENANTS_REPORT' })
+  @RequiresCapability('security-ops')
   @Post('quick/tenants')
   @HttpCode(HttpStatus.OK)
   async quickTenantsReport(@Body() dto: QuickReportDto): Promise<ReportExecution> {
@@ -324,6 +329,7 @@ export class ReportsController {
   }
 
   @AuditedOperation({ resource: 'Reports', action: 'QUICK_USERS_REPORT' })
+  @RequiresCapability('security-ops')
   @Post('quick/users')
   @HttpCode(HttpStatus.OK)
   async quickUsersReport(@Body() dto: QuickReportDto): Promise<ReportExecution> {
@@ -331,6 +337,7 @@ export class ReportsController {
   }
 
   @AuditedOperation({ resource: 'Reports', action: 'QUICK_REVENUE_REPORT' })
+  @RequiresCapability('security-ops')
   @Post('quick/revenue')
   @HttpCode(HttpStatus.OK)
   async quickRevenueReport(@Body() dto: QuickReportDto): Promise<ReportExecution> {
@@ -338,6 +345,7 @@ export class ReportsController {
   }
 
   @AuditedOperation({ resource: 'Reports', action: 'QUICK_AUDIT_REPORT' })
+  @RequiresCapability('security-ops')
   @Post('quick/audit')
   @HttpCode(HttpStatus.OK)
   async quickAuditReport(@Body() dto: QuickReportDto): Promise<ReportExecution> {
@@ -358,6 +366,7 @@ export class ReportsController {
   // ============================================================================
 
   @AuditedOperation({ resource: 'Report', action: 'GENERATE' })
+  @RequiresCapability('security-ops')
   @Post('generate')
   async generateReport(@Body() dto: GenerateReportDto): Promise<ReportResult> {
     // Validate dates

@@ -1,12 +1,14 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Role } from '@aquaculture/backend-common/decorators';
+import { STANDING_PLATFORM_CAPABILITIES } from '@platform/event-contracts';
 import * as bcrypt from 'bcryptjs';
 import { Repository } from 'typeorm';
 
 import { SECURITY_CONSTANTS } from '../constants/auth.constants';
 import { User } from '../modules/authentication/entities/user.entity';
 import { Module } from '../modules/system-module/entities/module.entity';
+import { PlatformCapabilityGrant } from '../modules/tenant/entities/platform-capability-grant.entity';
 
 
 /**
@@ -98,6 +100,8 @@ export class SeedService implements OnModuleInit {
     private readonly userRepository: Repository<User>,
     @InjectRepository(Module)
     private readonly moduleRepository: Repository<Module>,
+    @InjectRepository(PlatformCapabilityGrant)
+    private readonly capabilityGrantRepository: Repository<PlatformCapabilityGrant>,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -242,7 +246,32 @@ export class SeedService implements OnModuleInit {
       invitationToken: null, // No invitation needed
     });
 
-    await this.userRepository.save(superAdmin);
+    const saved = await this.userRepository.save(superAdmin);
+    await this.seedStandingCapabilities(saved);
     this.logger.log(`SUPER_ADMIN created successfully: ${superAdminEmail}`);
+  }
+
+  /**
+   * ADR-0016: a SUPER_ADMIN with no capability grant is read-only on the
+   * platform-admin surface, and the capability that grants capabilities
+   * (`security-ops`) can only come from a holder. The first account therefore
+   * receives the three standing capabilities here, granted by itself with a
+   * reason naming this seed — exactly what the bootstrap migration does for
+   * accounts that pre-date the grant table. `break-glass` is never seeded.
+   */
+  private async seedStandingCapabilities(superAdmin: User): Promise<void> {
+    for (const capability of STANDING_PLATFORM_CAPABILITIES) {
+      await this.capabilityGrantRepository.save(
+        this.capabilityGrantRepository.create({
+          userId: superAdmin.id,
+          capability,
+          grantedBy: superAdmin.id,
+          expiresAt: null,
+          revokedBy: null,
+          revokedAt: null,
+          reason: 'ADR-0016 bootstrap (SeedService): first SUPER_ADMIN receives the standing capabilities',
+        }),
+      );
+    }
   }
 }

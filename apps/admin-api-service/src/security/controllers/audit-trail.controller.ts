@@ -4,7 +4,7 @@
  * Endpoints for audit trail queries, export, retention policies, and alerts.
  */
 
-import { Destructive } from '@aquaculture/backend-common/decorators';
+import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -368,6 +368,7 @@ export class AuditTrailController {
    */
   @AuditedOperation({ resource: 'AuditTrail', action: 'EXPORT' })
   @Destructive()
+  @RequiresCapability('security-ops')
   @Post('export')
   async exportAuditTrail(@Body() dto: ExportAuditTrailDto, @Res() res: Response): Promise<void> {
     const options: AuditExportOptions = {
@@ -435,6 +436,7 @@ export class AuditTrailController {
    * Create alert rule
    */
   @AuditedOperation({ resource: 'AlertRule', action: 'CREATE' })
+  @RequiresCapability('security-ops')
   @Post('alert-rules')
   @HttpCode(HttpStatus.CREATED)
   createAlertRule(@Body() dto: CreateAlertRuleDto): AuditAlertRule {
@@ -445,6 +447,7 @@ export class AuditTrailController {
    * Update alert rule
    */
   @AuditedOperation({ resource: 'AlertRule', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put('alert-rules/:id')
   updateAlertRule(
     @Param('id') id: string,
@@ -458,6 +461,7 @@ export class AuditTrailController {
    */
   @AuditedOperation({ resource: 'AlertRule', action: 'DELETE' })
   @Destructive()
+  @RequiresCapability('security-ops')
   @Delete('alert-rules/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
   deleteAlertRule(@Param('id') id: string): void {

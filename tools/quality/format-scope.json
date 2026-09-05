@@ -4901,6 +4901,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/migrations/1808500000000-PlatformCapabilityGrants.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/migrations/1808500000000-ResetWebAuthnCredentialsForAttestationVerification.ts",
       "prettier_managed": true
     },
@@ -5657,6 +5663,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/tenant/entities/platform-capability-grant.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/tenant/entities/tenant-module.entity.ts",
       "prettier_managed": true
     },
@@ -5771,6 +5783,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/tenant/services/__tests__/platform-capability.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/tenant/services/__tests__/tenant-admin-deactivation.spec.ts",
       "prettier_managed": true
     },
@@ -5832,6 +5850,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/auth-service/src/modules/tenant/services/permission-overrides.util.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/tenant/services/platform-capability.service.ts",
       "prettier_managed": true
     },
     {
@@ -39540,6 +39564,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/decorators/requires-capability.decorator.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/decorators/requires-mobile-feature.decorator.ts",
       "prettier_managed": true
     },
@@ -39642,6 +39672,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/guards/__tests__/platform-capability.guard.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/guards/__tests__/service-identity.guard.spec.ts",
       "prettier_managed": true
     },
@@ -39679,6 +39715,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/guards/mobile-feature.guard.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/guards/platform-capability.guard.ts",
       "prettier_managed": true
     },
     {
@@ -40993,6 +41035,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/event-contracts/src/enums/__tests__/tenant-status.machine.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/enums/platform-capability.enum.ts",
       "prettier_managed": true
     },
     {
@@ -45614,6 +45662,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/lib/admin-mutation-handlers.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/lib/agent-files.ts",
       "prettier_managed": true
     },
@@ -45927,6 +45981,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/platform-binary-installer-authority.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/platform-capability-coverage.spec.ts",
       "prettier_managed": true
     },
     {

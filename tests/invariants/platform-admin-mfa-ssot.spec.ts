@@ -29,6 +29,8 @@ import * as yaml from 'js-yaml';
 
 import { parsePlatformAdminMfaPolicy } from '../../libs/backend-common/src/security/platform-admin-mfa-policy';
 
+import { allAdminMutationHandlers } from './lib/admin-mutation-handlers';
+
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
 function read(rel: string): string {
@@ -68,43 +70,8 @@ function gitGrepFiles(args: string[]): string[] {
   }
 }
 
-const HTTP_MUTATION = /^\s*@(Post|Put|Patch|Delete)\(/;
-const SIGNATURE = /^\s*(?:async\s+)?([A-Za-z_]\w*)\s*\(/;
 const IRREVERSIBLE_NAME =
   /(erase|archive|purge|drop|release|export|terminate|revoke|rollback|deprovision)/i;
-
-interface Handler {
-  readonly id: string;
-  readonly verb: string;
-  readonly name: string;
-  readonly block: string;
-  readonly classDecorators: string;
-}
-
-function mutationHandlers(rel: string): Handler[] {
-  const src = stripComments(read(rel));
-  const lines = src.split('\n');
-  const classDecorators = src.slice(0, src.indexOf('export class'));
-  const handlers: Handler[] = [];
-  for (let i = 0; i < lines.length; i += 1) {
-    const verb = HTTP_MUTATION.exec(lines[i] ?? '')?.[1];
-    if (!verb) continue;
-    let start = i;
-    while (start > 0 && /^\s*@/.test(lines[start - 1] ?? '')) start -= 1;
-    let sigIndex = i + 1;
-    while (sigIndex < lines.length && !SIGNATURE.test(lines[sigIndex] ?? '')) sigIndex += 1;
-    const name = SIGNATURE.exec(lines[sigIndex] ?? '')?.[1] ?? '';
-    handlers.push({
-      id: `${rel}#${name}`,
-      verb,
-      name,
-      block: lines.slice(start, sigIndex).join('\n'),
-      classDecorators,
-    });
-    i = sigIndex;
-  }
-  return handlers;
-}
 
 describe('INVARIANT (ADR-0011): platform-admin MFA — one switch, one mechanism', () => {
   it('auth-service refuses or records an un-enrolled SUPER_ADMIN at token issue, and its spec proves both', () => {
@@ -131,14 +98,10 @@ describe('INVARIANT (ADR-0011): platform-admin MFA — one switch, one mechanism
     );
     expect(decorator).toMatch(/UseGuards\(DestructiveActionGuard\)/);
     const unguarded: string[] = [];
-    for (const file of gitFiles(['apps/admin-api-service/src/**/*.controller.ts'])) {
-      for (const handler of mutationHandlers(file)) {
-        const isPublic =
-          /@Public\(\)/.test(handler.block) || /@Public\(\)/.test(handler.classDecorators);
-        const irreversible = handler.verb === 'Delete' || IRREVERSIBLE_NAME.test(handler.name);
-        if (!irreversible || isPublic) continue;
-        if (!/@Destructive\(/.test(handler.block)) unguarded.push(handler.id);
-      }
+    for (const handler of allAdminMutationHandlers()) {
+      const irreversible = handler.verb === 'Delete' || IRREVERSIBLE_NAME.test(handler.name);
+      if (!irreversible || handler.isPublic) continue;
+      if (!/@Destructive\(/.test(handler.block)) unguarded.push(handler.id);
     }
     expect(unguarded).toEqual([]);
   });

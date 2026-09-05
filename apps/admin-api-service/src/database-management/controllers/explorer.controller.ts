@@ -5,7 +5,7 @@
  * SUPER_ADMIN için geliştirme ve debug amaçlı.
  */
 
-import { Destructive } from '@aquaculture/backend-common/decorators';
+import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -678,6 +678,7 @@ export class DatabaseExplorerController {
   // Fix: H8 -- per-route throttle: DB write is sensitive (3 req / 5 min)
   @ThrottleSensitive()
   @AuditedOperation({ resource: 'DatabaseExplorer', action: 'INSERT_ROW' })
+  @RequiresCapability('security-ops')
   @Post('schemas/:schema/tables/:table/rows')
   async insertRow(
     @Param('schema') schema: string,
@@ -735,6 +736,7 @@ export class DatabaseExplorerController {
   // Fix: H8 -- per-route throttle: DB write is sensitive (3 req / 5 min)
   @ThrottleSensitive()
   @AuditedOperation({ resource: 'Row', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put('schemas/:schema/tables/:table/rows/:id')
   async updateRow(
     @Param('schema') schema: string,
@@ -806,6 +808,7 @@ export class DatabaseExplorerController {
   @ThrottleSensitive()
   @AuditedOperation({ resource: 'Row', action: 'DELETE' })
   @Destructive()
+  @RequiresCapability('security-ops')
   @Delete('schemas/:schema/tables/:table/rows/:id')
   async deleteRow(
     @Param('schema') schema: string,
@@ -934,6 +937,7 @@ export class DatabaseExplorerController {
   // Fix: H8 -- per-route throttle: raw SQL execution is sensitive (3 req / 5 min)
   @ThrottleSensitive()
   @AuditedOperation({ resource: 'Query', action: 'EXECUTE' })
+  @RequiresCapability('security-ops')
   @Post('query')
   async executeQuery(@Body() dto: ExecuteQueryDto, @Req() req: Request) {
     const { sql, params = [] } = dto;

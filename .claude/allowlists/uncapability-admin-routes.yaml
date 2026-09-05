@@ -1,0 +1,9 @@
+# Admin mutation handlers that do not yet name a platform capability
+# (ADR-0016, SEC-HIGH-059). tests/invariants/platform-capability-coverage.spec.ts
+# requires every non-public @Post/@Put/@Patch/@Delete handler in admin-api to
+# carry @RequiresCapability(...), or to appear here with an owner, a future
+# expiry, the finding that owns the decision and a reason. `ceiling` is the
+# maximum number of entries and only decreases.
+version: 1
+ceiling: 0
+entries: []

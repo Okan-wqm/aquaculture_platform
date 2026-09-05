@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0.0",
+  "policy_id": "new-aria-public-api-v1",
+  "terminal_closure": {
+    "algorithm": "graphql-public-closure-v1",
+    "sha256": "ba7376ce5a8b3faf2995fcadcfa8735de3359f27d083da08ded5418c0bcd1130"
+  },
+  "query_activation_sprint": "S06",
+  "phase_checkpoints": ["S06", "S07", "S08", "S15", "S17", "S30", "S39", "S46"],
+  "mutation_activations": [
+    { "name": "createAriaMissionDraft", "sprint": "S15" },
+    { "name": "postAriaConversationMessage", "sprint": "S15" },
+    { "name": "submitAriaMission", "sprint": "S15" },
+    { "name": "cancelAriaMission", "sprint": "S17" },
+    { "name": "retryAriaMission", "sprint": "S17" },
+    { "name": "freezeAriaAutonomy", "sprint": "S39" },
+    { "name": "resumeAriaAutonomy", "sprint": "S39" },
+    { "name": "requestAriaMergeEvaluation", "sprint": "S30" },
+    { "name": "acknowledgeAriaDecision", "sprint": "S15" }
+  ],
+  "lifecycle_mapping": {
+    "DRAFT": "DRAFT",
+    "SUBMITTED": "SUBMITTED",
+    "PLANNED": "PLANNED",
+    "EXECUTING": "EXECUTING",
+    "VERIFYING": "VERIFYING",
+    "SUCCEEDED": "COMPLETED",
+    "FAILED": "FAILED",
+    "CANCELLED": "CANCELLED"
+  }
+}

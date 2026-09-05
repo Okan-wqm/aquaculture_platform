@@ -1,0 +1,2 @@
+# Controller review bytes are immutable evidence, not formatter-owned text.
+*.md.raw -text -whitespace

@@ -1,0 +1,55 @@
+export const targetKeys = [
+  'base_sha',
+  'base_tree',
+  'head_sha',
+  'head_tree',
+  'reviewed_ref',
+  'committed_diff_sha256',
+  'design_sha256',
+  'format_scope_sha256',
+  'authority_bundle_sha256',
+  'verifier_inputs_sha256',
+  'input_bundle_sha256',
+  'target_operator_principal_id',
+];
+
+export const reviewKeys = [
+  'role',
+  'principal_id',
+  'session_id',
+  'agent_execution_id',
+  'report_uri',
+  'report_sha256',
+  'capabilities',
+  'reviewed_head_sha',
+  'authority_bundle_sha256',
+  'reviewed_target_sha256',
+  'reviewer_authority_bundle_sha256',
+  'verdict',
+];
+
+export const nestedKeys = {
+  reviewed_target: targetKeys,
+  producer: ['principal_id', 'session_id', 'artifact_uri'],
+  conflict_graph: [
+    'result',
+    'evaluated_pairs',
+    'principal_id',
+    'session_id',
+    'envelope_uri',
+    'envelope_sha256',
+  ],
+  oracle: [
+    'id',
+    'principal_id',
+    'session_id',
+    'envelope_uri',
+    'envelope_sha256',
+    'result',
+    'input_digest',
+  ],
+  dissent: ['disposition', 'unresolved'],
+  appellate: ['role', 'principal_id', 'report_uri', 'verdict'],
+  freshness: ['current', 'observed_at', 'valid_until', 'invalidation_keys'],
+  admission: ['accepted', 'operator_principal_id', 'reason'],
+};

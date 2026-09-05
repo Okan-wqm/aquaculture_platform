@@ -1,0 +1,108 @@
+{
+  "schema_version": "1.0.0",
+  "program_id": "new-aria-autonomous-engineering",
+  "evidence_id": "D0-review-c139f40f-changes-required",
+  "sprint_id": "D0",
+  "state": "VERIFYING",
+  "claim": "The fresh foundations, platform, delivery, root and binding appellate review of c139f40f returned CHANGES_REQUIRED; this record is non-admission evidence.",
+  "proof_class": "independent_review",
+  "reviewed_target": {
+    "base_sha": "eeb401131260fe45f3f60be55fa25d023a082d18",
+    "head_sha": "c139f40f69f77c628f0794146a20cb51818bb03d",
+    "verdict": "CHANGES_REQUIRED"
+  },
+  "predecessor": {
+    "evidence_uri": "progress/evidence/D0-review-c6065d6d-changes-required.json",
+    "sha256": "1b31ac1b4cee221394957eb0cb23d2d043da08d747f0b3cad9f5bc253af8dda1",
+    "event_id": "d0-0005",
+    "event_hash": "65103c8d2ac0265832a97d92fcc1720d89717b6619939f570b28e6285d0a31f0"
+  },
+  "reports": [
+    {
+      "role": "foundations",
+      "path": "reviews/c139f40f/A-foundations.md",
+      "sha256": "a19ea4de12feb46f76f62730b7aa126c953c73806a89be48d40af6b04e0e6ec9",
+      "source_path": "reviews/c139f40f/source/A-foundations.md.raw",
+      "source_sha256": "eeb5f19602ec90f54606daeb603c990daf3b3abbedd765cb22e989df807ff42d"
+    },
+    {
+      "role": "platform",
+      "path": "reviews/c139f40f/B-platform.md",
+      "sha256": "c2f5dc9d9da75d5bba937f695acc733fcbca73a77ea996cf8bc50531849199b3",
+      "source_path": "reviews/c139f40f/source/B-platform.md.raw",
+      "source_sha256": "ce16dd24537d8947b4e5168d12316ebdb192db28165800e35235f835b470f0a8"
+    },
+    {
+      "role": "delivery",
+      "path": "reviews/c139f40f/C-delivery.md",
+      "sha256": "71cb679b665d04eb27d6b866ad5091b6da574d35b93828350bcdb1eef7b7728f",
+      "source_path": "reviews/c139f40f/source/C-delivery.md.raw",
+      "source_sha256": "42e6561cb1a16bc288b4639abd0d067de4241d7bd3352749d2dc47e01808ff63"
+    },
+    {
+      "role": "root-notes",
+      "path": "reviews/c139f40f/ROOT-notes.md",
+      "sha256": "fbef1cc82e5b3730763c79fe3df376722844ed3feca413b9a89f37738217ef06",
+      "source_path": "reviews/c139f40f/source/ROOT-notes.md.raw",
+      "source_sha256": "c497765ab84571257d4591e48f75baeb06a0504ec613c4011bfbf8bd38ad18cc"
+    },
+    {
+      "role": "appellate",
+      "path": "reviews/c139f40f/D-appellate.md",
+      "sha256": "bc350a5d9a75c035162c6ac878a549670e53fcafb8c0001db66451dbb16367bf",
+      "source_path": "reviews/c139f40f/source/D-appellate.md.raw",
+      "source_sha256": "dd6540b39725301a4987fa9111f8eaa7bb4a262504f4d41552ec83d0327b9ebc"
+    }
+  ],
+  "accepted_findings": [
+    "D-P1-001",
+    "D-P1-002",
+    "D-P1-003",
+    "D-P1-004",
+    "D-P1-005",
+    "D-P1-006",
+    "D-P1-007",
+    "D-P1-008",
+    "D-P1-009",
+    "D-P1-010",
+    "D-P1-011",
+    "D-P1-012",
+    "D-P2-013",
+    "D-P2-014"
+  ],
+  "review_provenance": {
+    "source": "controller fresh-review reports A, B, C, ROOT and binding D appellate",
+    "principal_credential_claimed": false,
+    "view_transform": {
+      "id": "prettier-markdown-v2",
+      "tool": "prettier",
+      "tool_version": "3.6.2",
+      "argv_template": [
+        "prettier",
+        "--config",
+        ".prettierrc",
+        "--print-width",
+        "110",
+        "--prose-wrap",
+        "always",
+        "--stdin-filepath",
+        "<reader-view.md>"
+      ],
+      "preamble": "<!-- markdownlint-disable MD013 MD033 -->\n<!-- Historical review text preserves long evidence tokens and placeholders. -->\n\n",
+      "preamble_sha256": "c69a8d9ade05e1f592e28ee430515baef4a14497a693e910e5afd302fc47e2af",
+      "config_path": ".prettierrc",
+      "config_sha256": "43451b0c73dee100561467f79431e2e0b20d3a4f8e72e3c7b19fc94c28227deb",
+      "lockfile_path": "package-lock.json",
+      "lockfile_sha256": "9ef9f49d4bbb114b140b3c8b438edd9b87b1957114264c67b76e813ce5bc909d"
+    },
+    "note": "Raw reports and verdict are preserved exactly. Missing reviewer credential proof is recorded honestly, so this package can never admit D0."
+  },
+  "admission": {
+    "accepted": false,
+    "reason": "Binding D appellate verdict is CHANGES_REQUIRED.",
+    "state_transition": "VERIFYING -> VERIFYING",
+    "fresh_corrective_review_required": true
+  },
+  "observed_at_utc": "2026-09-01T21:05:00Z",
+  "immutable": true
+}

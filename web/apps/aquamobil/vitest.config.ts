@@ -34,7 +34,7 @@ export default defineConfig({
     include: ['src/**/*.{spec,test}.{ts,tsx}'],
     exclude: ['**/node_modules/**', '**/dist/**'],
     // Worker pool, per-test timeout and LCOV coverage come from the one policy
-    // every Vitest producer in the workspace spreads (INFRA-HIGH-140). The
+    // every Vitest producer in the workspace spreads (INFRA-HIGH-157). The
     // former tools/testing resource profile was a second copy of the same
     // knobs with a single consumer — this file — and no CI runner ever read
     // it, because this project declared no `test` target.

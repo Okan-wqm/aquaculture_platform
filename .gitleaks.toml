@@ -26,6 +26,17 @@ description = "High-entropy LITERAL assignment to a suspicious env var"
 # secrets. Compose/Helm values and `.env.example` files use env references,
 # not literals, so they are path-allowlisted below.
 regex = '''(?i)(JWT_SECRET|INTERNAL_SERVICE_SECRET|ENCRYPTION_KEY|MFA_ENCRYPTION_KEY|STRIPE_SECRET_KEY|STRIPE_WEBHOOK_SECRET|SMTP_PASS|NATS_.*_PASS|SUPER_ADMIN_PASSWORD|REDIS_PASSWORD|POSTGRES_PASSWORD|ADMIN_SERVICE_DB_PASS|AUTH_SERVICE_DB_PASS|PASSWORD_PEPPER)\s*[=:]\s*['\"]?([A-Za-z0-9+\/=_\-]{12,})['\"]?'''
+# The secret is the VALUE (group 2), not the variable name. Without this,
+# gitleaks reports group 1 as the secret — so every allowlist regex below, all
+# of which describe VALUES (`change-me`, `${…}`, `aquaculture-test`), was being
+# matched against `POSTGRES_PASSWORD` and could never suppress anything. The
+# rule's entire placeholder allowlist was dead from the day it was written; it
+# looked healthy only because the diff-scoped scan had not yet seen a newly
+# ADDED line matching the pattern. The first one that came along
+# (`POSTGRES_PASSWORD: aquaculture-test` in a new CI job) failed the gate with
+# no way to allowlist it by value, and the reported "secret" was the variable
+# name — an unactionable report.
+secretGroup = 2
 tags = ["secret", "env"]
 [rules.allowlist]
 # Files where matches are false-positives by definition — compose/Helm/env

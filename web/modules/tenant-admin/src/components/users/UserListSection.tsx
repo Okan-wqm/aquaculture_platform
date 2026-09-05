@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, Edit, Trash2, MapPin } from 'lucide-react';
+import { Users, Edit, Trash2, MapPin, UserCheck, LockOpen, ShieldCheck } from 'lucide-react';
 import { UserAvatar } from '../ui/UserAvatar';
 import { RoleBadge } from '../ui/RoleBadge';
 import { StatusBadge } from '../ui/StatusBadge';
@@ -10,6 +10,8 @@ export interface DisplayUser {
   email: string;
   role: string;
   status: string;
+  /** True while the user's failed-login lockout (lockedUntil) is in the future. */
+  isLocked: boolean;
   lastLogin: string;
 }
 
@@ -31,6 +33,12 @@ export interface UserListSectionProps {
   onEditUser: (user: DisplayUser) => void;
   onDeleteUser: (user: DisplayUser) => void;
   onManageSiteAccess: (user: DisplayUser) => void;
+  /** ADMIN-HIGH-012: the return leg of deactivation. */
+  onActivateUser: (user: DisplayUser) => void;
+  /** ADMIN-HIGH-012: clear a failed-login lockout. */
+  onUnlockUser: (user: DisplayUser) => void;
+  /** ADMIN-MEDIUM-016: show the user's resolved permissions. */
+  onViewPermissions: (user: DisplayUser) => void;
   // RBAC-HIGH-004: per-action capability gating matching the backend
   // (users:edit_permissions for edit, users:deactivate for delete).
   canEditUsers: boolean;
@@ -54,6 +62,9 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
   onEditUser,
   onDeleteUser,
   onManageSiteAccess,
+  onActivateUser,
+  onUnlockUser,
+  onViewPermissions,
   canEditUsers,
   canDeactivateUsers,
   canManageSiteAccess,
@@ -143,7 +154,7 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
                         <MapPin className="w-4 h-4" aria-hidden="true" />
                       </button>
                     )}
-                    {canDeactivateUsers && (
+                    {canDeactivateUsers && user.status !== 'inactive' && (
                       <button
                         type="button"
                         onClick={() => onDeleteUser(user)}
@@ -152,6 +163,44 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
                         title="Delete user"
                       >
                         <Trash2 className="w-4 h-4" aria-hidden="true" />
+                      </button>
+                    )}
+                    {/* ADMIN-HIGH-012: deactivation used to be a one-way
+                        trapdoor here — the guarded resolvers existed but no UI
+                        called them, so restoring access needed a platform
+                        admin. The reactivate and unlock actions are gated by
+                        the SAME capability that allowed the deactivation. */}
+                    {canDeactivateUsers && user.status === 'inactive' && (
+                      <button
+                        type="button"
+                        onClick={() => onActivateUser(user)}
+                        aria-label={`Activate ${user.name}`}
+                        className="p-1.5 rounded-lg text-gray-500 hover:text-green-600 hover:bg-green-50 transition-colors"
+                        title="Activate user"
+                      >
+                        <UserCheck className="w-4 h-4" aria-hidden="true" />
+                      </button>
+                    )}
+                    {canDeactivateUsers && user.isLocked && (
+                      <button
+                        type="button"
+                        onClick={() => onUnlockUser(user)}
+                        aria-label={`Unlock ${user.name}`}
+                        className="p-1.5 rounded-lg text-gray-500 hover:text-amber-600 hover:bg-amber-50 transition-colors"
+                        title="Unlock user"
+                      >
+                        <LockOpen className="w-4 h-4" aria-hidden="true" />
+                      </button>
+                    )}
+                    {canEditUsers && (
+                      <button
+                        type="button"
+                        onClick={() => onViewPermissions(user)}
+                        aria-label={`Effective permissions for ${user.name}`}
+                        className="p-1.5 rounded-lg text-gray-500 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
+                        title="Effective permissions"
+                      >
+                        <ShieldCheck className="w-4 h-4" aria-hidden="true" />
                       </button>
                     )}
                     {!canEditUsers &&

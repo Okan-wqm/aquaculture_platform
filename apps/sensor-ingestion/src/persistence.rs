@@ -217,6 +217,10 @@ pub struct PostgresConfig {
 #[derive(Debug, Clone)]
 pub struct PostgresSink {
     pool: Pool,
+    /// ADR-029 transactional outbox repository. Shares the SAME pool as
+    /// the COPY path so the enqueue lands in the identical transaction
+    /// (Task 3 restoration of the stripped wiring).
+    outbox: Arc<outbox_rs::PgOutboxRepository>,
 }
 
 impl PostgresSink {
@@ -285,7 +289,17 @@ impl PostgresSink {
             .await
             .map_err(SinkError::Postgres)?;
 
-        Ok(Self { pool })
+        // ADR-029: the outbox repository shares this pool — write path
+        // and dispatcher see a consistent view of sensor.event_outbox.
+        let outbox = Arc::new(outbox_rs::PgOutboxRepository::new(pool.clone()));
+        Ok(Self { pool, outbox })
+    }
+
+    /// Expose the outbox repository so `main.rs` can hand the same
+    /// instance to the [`outbox_rs::OutboxDispatcher`].
+    #[must_use]
+    pub fn outbox_repository(&self) -> Arc<outbox_rs::PgOutboxRepository> {
+        Arc::clone(&self.outbox)
     }
 }
 
@@ -379,10 +393,48 @@ impl PostgresSink {
 
         // Upsert from the temp stage into the shared hypertable, then commit
         // (the ON COMMIT DROP stage is discarded automatically — no clear DML).
-        let upsert_sql = build_upsert_sql();
+        // Task 3: the upsert targets the reading's OWN tenant schema via
+        // the validated SchemaName newtype (16-hex platform SSoT,
+        // golden-vector parity with the TS side).
+        let Some(first) = readings.first() else {
+            return Ok(());
+        };
+        let schema = tenant_context::SchemaName::from_tenant_id(first.tenant_id);
+        let upsert_sql = build_upsert_sql(schema.as_str());
         tx.batch_execute(&upsert_sql)
             .await
             .map_err(SinkError::Postgres)?;
+
+        // ADR-029 transactional outbox (Task 3 restoration): enqueue one
+        // SensorMetricIngested event per persisted reading INSIDE the same
+        // transaction — either the full batch (COPY + upsert + every outbox
+        // row) commits, or nothing does. The dispatcher later drains the
+        // outbox to the telemetry root with an awaited PubAck.
+        for r in &readings {
+            let ev = event_contracts_rs::SensorMetricIngestedEvent::new(
+                *r.tenant_id.as_uuid(),
+                r.sensor_id,
+                r.channel_id,
+                r.value,
+                r.quality.get(),
+                r.producer_ts,
+            );
+            let payload = outbox_rs::encode_payload(&ev).map_err(|e| SinkError::InvalidRow {
+                reason: format!("outbox payload encode failed: {e}"),
+            })?;
+            self.outbox
+                .enqueue_in_tx(
+                    &tx,
+                    r.tenant_id,
+                    event_contracts_rs::SENSOR_METRIC_INGESTED_EVENT_TYPE,
+                    payload,
+                )
+                .await
+                .map_err(|e| SinkError::InvalidRow {
+                    reason: format!("outbox enqueue failed: {e}"),
+                })?;
+        }
+
         tx.commit().await.map_err(SinkError::Postgres)?;
         Ok(())
     }
@@ -433,20 +485,28 @@ pub fn build_copy_in_sql() -> String {
         .to_owned()
 }
 
-/// Upsert from the temp stage into the single cross-tenant
-/// `sensor.sensor_metrics` hypertable. Preserves the NestJS contract:
-/// re-publish updates value/raw_value/quality_code on conflict.
+/// Upsert from the temp stage into the reading's OWN tenant schema
+/// (`tenant_<16hex>.sensor_metrics` — Task 3, SENSOR-CRITICAL-089: the
+/// platform SSoT; the shared `sensor.sensor_metrics` target produced rows
+/// no platform reader or scanner could see). The schema identifier is
+/// passed as a bind PARAMETER and `format!`-safe because it comes from the
+/// validated `SchemaName` newtype, never from the wire. Re-publish keeps
+/// the NestJS conflict contract plus the Task 1.5 source-timestamp guard
+/// (a stale redelivery cannot overwrite a newer corrected value).
 #[must_use]
-pub fn build_upsert_sql() -> String {
-    "INSERT INTO sensor.sensor_metrics \
-     (time, sensor_id, channel_id, tenant_id, value, raw_value, quality_code) \
-     SELECT time, sensor_id, channel_id, tenant_id, value, raw_value, quality_code \
-       FROM _sensor_metrics_stage \
-     ON CONFLICT (time, sensor_id, channel_id) DO UPDATE \
-       SET value = EXCLUDED.value, \
-           raw_value = EXCLUDED.raw_value, \
-           quality_code = EXCLUDED.quality_code"
-        .to_owned()
+pub fn build_upsert_sql(schema: &str) -> String {
+    format!(
+        "INSERT INTO {schema}.sensor_metrics \
+         (time, sensor_id, channel_id, tenant_id, value, raw_value, quality_code, source_timestamp) \
+         SELECT time, sensor_id, channel_id, tenant_id, value, raw_value, quality_code, time \
+           FROM _sensor_metrics_stage \
+         ON CONFLICT (time, sensor_id, channel_id) DO UPDATE \
+           SET value = EXCLUDED.value, \
+               raw_value = EXCLUDED.raw_value, \
+               quality_code = EXCLUDED.quality_code \
+         WHERE COALESCE(EXCLUDED.source_timestamp, EXCLUDED.time) \
+             >= COALESCE({schema}.sensor_metrics.source_timestamp, {schema}.sensor_metrics.time)"
+    )
 }
 
 #[cfg(test)]
@@ -509,17 +569,21 @@ mod tests {
     }
 
     #[test]
-    fn upsert_sql_targets_cross_tenant_hypertable_and_preserves_on_conflict() {
-        let sql = super::build_upsert_sql();
-        // Single cross-tenant hypertable; tenant_id is carried per row.
-        assert!(sql.contains("INSERT INTO sensor.sensor_metrics"));
+    fn upsert_sql_targets_the_tenant_schema_and_carries_the_task15_guard() {
+        let sql = super::build_upsert_sql("tenant_550e8400e29b41d4");
+        // Task 3 (SENSOR-CRITICAL-089): per-tenant target, never the
+        // shared sensor.sensor_metrics the platform cannot govern.
+        assert!(sql.contains("INSERT INTO tenant_550e8400e29b41d4.sensor_metrics"));
+        assert!(!sql.contains("INSERT INTO sensor.sensor_metrics"));
         assert!(sql.contains("tenant_id"));
         // Mirrors the NestJS path's INSERT ... ON CONFLICT DO UPDATE
-        // SET value/raw_value/quality_code = EXCLUDED.* contract.
+        // SET value/raw_value/quality_code = EXCLUDED.* contract...
         assert!(sql.contains("ON CONFLICT (time, sensor_id, channel_id) DO UPDATE"));
         assert!(sql.contains("SET value = EXCLUDED.value"));
         assert!(sql.contains("raw_value = EXCLUDED.raw_value"));
         assert!(sql.contains("quality_code = EXCLUDED.quality_code"));
+        // ...plus the Task 1.5 stale-redelivery guard.
+        assert!(sql.contains("WHERE COALESCE(EXCLUDED.source_timestamp, EXCLUDED.time)"));
     }
 
     #[test]

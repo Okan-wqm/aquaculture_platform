@@ -94,7 +94,7 @@ describe('INVARIANT (tenant-context SSoT): gateway resolves + signs ONE effectiv
     // loaders chose their schema from a raw `x-tenant-id` header, a spoofed
     // header would create tenant-B loaders inside a tenant-A request. Lived in
     // apps/farm-service/src/__tests__/e2e/*.architecture.spec.ts until
-    // 2026-09-04 — a lane no workflow ran (INFRA-MEDIUM-142).
+    // 2026-09-04 — a lane no workflow ran (INFRA-MEDIUM-158).
     const src = readStripped('apps/farm-service/src/app.module.ts');
     const start = src.indexOf('context: ({ req }');
     expect(start).toBeGreaterThan(-1);

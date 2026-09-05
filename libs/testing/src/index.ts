@@ -7,4 +7,5 @@
 export * from './factories/mock-datasource.factory';
 export * from './factories/mock-repository.factory';
 export * from './factories/mock-event-bus.factory';
+export * from './doubles/typed-double';
 export * from './constants';

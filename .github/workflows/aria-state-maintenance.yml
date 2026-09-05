@@ -48,13 +48,27 @@ jobs:
 
       - uses: ./.github/actions/setup-aria-kernel
 
-      - name: Clone aria/state branch
-        run: |
-          set -euo pipefail
-          git clone --depth 1 --branch aria/state \
-            "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" \
-            /tmp/state-store
-          du -sh /tmp/state-store/tools/ || echo "empty state"
+      # ORPHAN-CRITICAL-807 — the store is materialised by the ONE restore
+      # path every lane uses, not by a raw clone. A raw `git clone` of
+      # aria/state yields a tools root full of covered state with no
+      # identity: the branch does not carry repo_identity.json (declaring it
+      # there is the tempting wrong fix, see state_manifest.py), and
+      # ensure_tools_dir deliberately refuses to stamp one onto a directory
+      # that already holds state — that guard is what stops /tmp/rogue from
+      # resolving as canonical. Every declared-ledger read inside the clone
+      # then failed with declared_jsonl_unknown_surface, which is exactly
+      # what killed run 33946356386 one step after the routing fix.
+      #
+      # The restore action does the two things a clone cannot: `state
+      # checkout` binds the branch as a worktree beside the repo, and
+      # `integrity bind-tools-root` mints this host's identity. It reads the
+      # credential from its own step environment, never .git/config, and
+      # exports the tools root as ARIA_TOOLS_DIR. No bootstrap-ack is passed
+      # on purpose: a missing branch must be REFUSED here, not created.
+      # tests/invariants/aria-single-restore-path.spec.ts pins that there is
+      # exactly one materialiser — a hand-copied checkout in this lane would
+      # be the RC-6 drift shape the restore action was extracted to end.
+      - uses: ./.github/actions/restore-aria-state
 
       - name: Compact surfaces and strip old artifacts (canonical CLI)
         # ARIA-AUDIT-001: this step used to carry an INLINE copy of the
@@ -69,30 +83,52 @@ jobs:
           RETAIN_DAYS: ${{ github.event.inputs.retain_days || '7' }}
         run: |
           set -euo pipefail
-          BEFORE=$(du -sb /tmp/state-store/tools/ | cut -f1)
+          test -n "${ARIA_TOOLS_DIR:-}"
+          test -f "${ARIA_TOOLS_DIR}/repo_identity.json"
+          BEFORE=$(du -sb "${ARIA_TOOLS_DIR}/" | cut -f1)
           PYTHONPATH=aria-kernel python3 -m aria_kernel state compact \
-            --tools-dir /tmp/state-store/tools \
+            --tools-dir "${ARIA_TOOLS_DIR}" \
             --retain-days "$RETAIN_DAYS"
-          AFTER=$(du -sb /tmp/state-store/tools/ | cut -f1)
+          AFTER=$(du -sb "${ARIA_TOOLS_DIR}/" | cut -f1)
           echo "compact_result: before=${BEFORE} after=${AFTER} saved=$((BEFORE - AFTER))"
 
-      - name: Commit and push compacted state
+      # The restore's credential lived only in its own step; the push mints
+      # its own the same way (extraheader in this step's environment).
+      - name: Mint the aria/state push credential
+        id: push_credential
+        env:
+          STATE_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          cd /tmp/state-store
+          HEADER="$(printf 'x-access-token:%s' "$STATE_TOKEN" | base64 -w0)"
+          echo "::add-mask::${HEADER}"
+          echo "header=${HEADER}" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and push compacted state
+        env:
+          GIT_CONFIG_COUNT: 1
+          GIT_CONFIG_KEY_0: http.https://github.com/.extraheader
+          GIT_CONFIG_VALUE_0: 'AUTHORIZATION: basic ${{ steps.push_credential.outputs.header }}'
+        run: |
+          set -euo pipefail
+          # The store worktree is the parent of the exported tools root.
+          cd "$(dirname "${ARIA_TOOLS_DIR}")"
           git config user.name "aria-state-maintenance"
           git config user.email "aria-state-maintenance@users.noreply.github.com"
-          if git diff --quiet; then
+          # `git diff --quiet` ignores untracked files, and compaction's
+          # archives are new files — the old check could report "already
+          # compact" with a fresh archive sitting unstaged beside it.
+          if [ -z "$(git status --porcelain)" ]; then
             echo "No changes — state already compact"
             exit 0
           fi
           git add -A
           git commit -m "chore(state): automated compaction — stripped old runs/findings/artifacts"
-          git push origin aria/state
+          git push origin HEAD:aria/state
           echo "PUSHED compacted state"
 
       - name: Report size
         if: always()
         run: |
-          du -sh /tmp/state-store/tools/ 2>/dev/null || echo "N/A"
-          echo "Branch size after compaction: $(du -sh /tmp/state-store/tools/ 2>/dev/null | cut -f1)"
+          du -sh "${ARIA_TOOLS_DIR:-.aria-state-store/tools}/" 2>/dev/null || echo "N/A"
+          echo "Branch size after compaction: $(du -sh "${ARIA_TOOLS_DIR:-.aria-state-store/tools}/" 2>/dev/null | cut -f1)"

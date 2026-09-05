@@ -106,6 +106,7 @@ export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
   private setupLegacyReads!: client.Counter;
   private waterTemperatureReadFailures!: client.Counter;
   private tankProjectionMisses!: client.Counter;
+  private mealGrowthUnattributed!: client.Counter;
   private regulatorySubmissions!: client.Counter;
   private regulatoryCronRuns!: client.Counter;
   private regulatoryCronLastRun!: client.Gauge;
@@ -318,6 +319,16 @@ export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
       registers: [this.registry],
     });
 
+    // FARM-MEDIUM-276: an öğün finalized with real kg but no TankBatch to
+    // attribute the growth to. Skipping silently biases FCR upward forever —
+    // feed counted, growth not. Low-cardinality reason label, no tenant.
+    this.mealGrowthUnattributed = new client.Counter({
+      name: 'farm_meal_growth_unattributed_total',
+      help: 'Meal finalized without applying per-meal biomass growth, by reason',
+      labelNames: ['reason'],
+      registers: [this.registry],
+    });
+
     // OBS-HIGH-001: RED rate+errors for the government-submission pipeline.
     // Before this a Mattilsynet rejection returned GraphQL-200 and was
     // invisible; the failed-vs-total ratio is what the operator alert watches.
@@ -502,6 +513,11 @@ export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
     this.tankProjectionMisses.inc({ operation: params.operation });
   }
 
+  /** FARM-MEDIUM-276: per-meal growth could not be attributed to a unit. */
+  recordMealGrowthUnattributed(params: { reason: 'no_tank_batch' }): void {
+    this.mealGrowthUnattributed.inc({ reason: params.reason });
+  }
+
   /**
    * OBS-HIGH-001 — record the terminal outcome of a regulatory submission at
    * the persistence choke point (markSubmitted / applyFailure / recordQueued).
@@ -654,5 +670,4 @@ export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
     this.environmentDueBacklog.set(params.dueCount);
     this.environmentOldestDueAge.set(params.oldestDueAgeSeconds);
   }
-
 }

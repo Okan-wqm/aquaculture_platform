@@ -35,6 +35,7 @@ export type {
   CacheInspectorResult,
   DebugDashboard,
 } from './debug-tools-types';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 
 /**
  * Debug Tools Service - Facade
@@ -106,7 +107,7 @@ export class DebugToolsService {
     isActive?: boolean;
     page?: number;
     limit?: number;
-  }): Promise<{ data: DebugSession[]; total: number; page: number; limit: number }> {
+  }): Promise<PaginationResultV1<DebugSession>> {
     return this.sessionService.querySessions(params);
   }
 
@@ -285,7 +286,7 @@ export class DebugToolsService {
     isActive?: boolean;
     page?: number;
     limit?: number;
-  }): Promise<{ items: FeatureFlagOverride[]; total: number }> {
+  }): Promise<PaginationResultV1<FeatureFlagOverride>> {
     return this.featureFlagDebug.queryOverrides(params);
   }
 

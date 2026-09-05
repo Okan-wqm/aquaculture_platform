@@ -161,10 +161,14 @@ impl std::fmt::Display for SessionQuotaError {
 impl std::error::Error for SessionQuotaError {}
 
 /// Active lease tracked in the quota map. Records the timestamp so the
-/// TTL sweep can evict stale entries.
+/// TTL sweep can evict stale entries, and a process-unique `lease_id` so
+/// release matches the EXACT entry (EDGE-HIGH-018) rather than the first
+/// entry with an equal `Instant` — two acquires on the same coarse-clock
+/// tick would otherwise be indistinguishable.
 #[derive(Debug, Clone)]
 struct LeaseEntry {
     acquired_at: Instant,
+    lease_id: u64,
 }
 
 /// `SessionQuota` — owns per-(tenant, user) count map.
@@ -192,6 +196,10 @@ struct SessionQuotaInner {
     /// Maintained as a denormalized counter for O(1) per-tenant cap
     /// check; the QuotaKey list is the SSoT.
     tenant_total: u32,
+    /// Monotonic source of process-unique lease ids. Mutated only under
+    /// this `Mutex`, so no extra synchronization is needed. Starts at 1
+    /// so 0 can never be a live lease id.
+    next_lease_id: u64,
 }
 
 impl std::fmt::Debug for SessionQuota {
@@ -225,6 +233,7 @@ impl SessionQuota {
             inner: Mutex::new(SessionQuotaInner {
                 counts: HashMap::new(),
                 tenant_total: 0,
+                next_lease_id: 1,
             }),
         })
     }
@@ -267,7 +276,17 @@ impl SessionQuota {
             });
         }
 
-        let entry = LeaseEntry { acquired_at: now };
+        // Mint a process-unique lease id under the lock. This is what the
+        // active-leases index (opc_ua_sens_auth_manager) keys on, so two
+        // concurrent sessions for the SAME operator no longer collide on a
+        // per-operator-constant token key (EDGE-HIGH-018).
+        guard.next_lease_id = guard.next_lease_id.wrapping_add(1);
+        let lease_id = guard.next_lease_id;
+
+        let entry = LeaseEntry {
+            acquired_at: now,
+            lease_id,
+        };
         guard.counts.entry(key.clone()).or_default().push(entry);
         guard.tenant_total += 1;
 
@@ -275,7 +294,7 @@ impl SessionQuota {
             quota: Arc::clone(self),
             tenant: self.tenant.clone(),
             user: user.to_string(),
-            acquired_at: now,
+            lease_id,
             released: false,
         })
     }
@@ -300,14 +319,16 @@ impl SessionQuota {
     }
 
     /// Internal — release a lease. Called by `SessionLease::drop`.
-    fn release(&self, user: &str, acquired_at: Instant) {
+    /// Matches on the unique `lease_id` (EDGE-HIGH-018) so the exact entry
+    /// is removed even when two leases share an `Instant`.
+    fn release(&self, user: &str, lease_id: u64) {
         let key = QuotaKey {
             tenant: self.tenant.clone(),
             user: user.to_string(),
         };
         if let Ok(mut guard) = self.inner.lock() {
             let should_decrement = if let Some(entries) = guard.counts.get_mut(&key) {
-                if let Some(pos) = entries.iter().position(|e| e.acquired_at == acquired_at) {
+                if let Some(pos) = entries.iter().position(|e| e.lease_id == lease_id) {
                     entries.remove(pos);
                     true
                 } else {
@@ -323,6 +344,23 @@ impl SessionQuota {
                 }
             }
         }
+    }
+
+    /// EDGE-HIGH-018 — is the given `lease_id` still an active lease?
+    ///
+    /// The active-leases index in `opc_ua_sens_auth_manager` uses this to
+    /// prune entries whose lease was released or TTL-swept, keeping that
+    /// index a subordinate view of this authoritative count (which is the
+    /// SSoT). Bounded scan: at most `per_tenant_cap` entries total.
+    pub fn is_lease_live(&self, lease_id: u64) -> bool {
+        self.inner
+            .lock()
+            .map(|g| {
+                g.counts
+                    .values()
+                    .any(|entries| entries.iter().any(|e| e.lease_id == lease_id))
+            })
+            .unwrap_or(false)
     }
 
     fn sweep_expired_locked(inner: &mut SessionQuotaInner, now: Instant) {
@@ -354,7 +392,11 @@ pub struct SessionLease {
     quota: Arc<SessionQuota>,
     tenant: String,
     user: String,
-    acquired_at: Instant,
+    /// Process-unique id of this lease's quota entry (EDGE-HIGH-018).
+    /// Used as the active-leases index key and for exact release. This
+    /// replaces the former `acquired_at`-based release match, which could
+    /// remove the wrong entry when two leases shared an `Instant`.
+    lease_id: u64,
     released: bool,
 }
 
@@ -380,12 +422,19 @@ impl SessionLease {
         &self.tenant
     }
 
+    /// Process-unique id of this lease (EDGE-HIGH-018). The active-leases
+    /// index keys on this so concurrent sessions for the same operator do
+    /// not collide.
+    pub fn lease_id(&self) -> u64 {
+        self.lease_id
+    }
+
     /// Explicit release — equivalent to dropping the lease but lets
     /// the caller name the lifecycle event in operator-readable
     /// log/audit context. Idempotent: a second release is a no-op.
     pub fn release_now(mut self) {
         if !self.released {
-            self.quota.release(&self.user, self.acquired_at);
+            self.quota.release(&self.user, self.lease_id);
             self.released = true;
         }
     }
@@ -394,7 +443,7 @@ impl SessionLease {
 impl Drop for SessionLease {
     fn drop(&mut self) {
         if !self.released {
-            self.quota.release(&self.user, self.acquired_at);
+            self.quota.release(&self.user, self.lease_id);
             self.released = true;
         }
     }
@@ -604,5 +653,70 @@ mod tests {
             total_successes > 0,
             "no acquires succeeded under contention"
         );
+    }
+
+    // EDGE-HIGH-018 regression: concurrent sessions for the SAME user must
+    // coexist in a lease_id-keyed index without one dropping the other.
+
+    #[test]
+    fn lease_ids_are_unique_per_acquire() {
+        let q = fresh_quota(5, 2);
+        let l1 = q.try_acquire("alice").expect("1st");
+        let l2 = q.try_acquire("alice").expect("2nd");
+        assert_ne!(
+            l1.lease_id(),
+            l2.lease_id(),
+            "two acquires for the same user must mint distinct lease ids"
+        );
+    }
+
+    #[test]
+    fn lease_id_keyed_index_keeps_concurrent_same_user_sessions() {
+        // The active-leases index in the auth manager keys on lease_id.
+        // Reproduce it here: keying on a per-operator-constant value would
+        // have made the 2nd insert overwrite (drop) the 1st lease and
+        // collapse the count to 1, defeating the per-user cap.
+        let q = fresh_quota(5, 2);
+        let l1 = q.try_acquire("alice").expect("1st");
+        let l2 = q.try_acquire("alice").expect("2nd");
+        let mut index: HashMap<u64, SessionLease> = HashMap::new();
+        index.insert(l1.lease_id(), l1);
+        index.insert(l2.lease_id(), l2);
+        assert_eq!(index.len(), 2, "both leases coexist in the index");
+        assert_eq!(
+            q.current_user_count("alice"),
+            2,
+            "quota reflects two concurrent sessions"
+        );
+        // With the cap honoured, a 3rd acquire is now correctly rejected.
+        assert!(
+            q.try_acquire("alice").is_err(),
+            "per-user cap must reject the 3rd concurrent session"
+        );
+    }
+
+    #[test]
+    fn is_lease_live_tracks_release() {
+        let q = fresh_quota(5, 2);
+        let lease = q.try_acquire("alice").expect("acquire");
+        let id = lease.lease_id();
+        assert!(q.is_lease_live(id), "held lease is live");
+        lease.release_now();
+        assert!(!q.is_lease_live(id), "released lease is not live");
+    }
+
+    #[test]
+    fn same_user_leases_release_the_exact_entry() {
+        // Guards the latent Instant-collision defect: release matches on
+        // the unique lease_id, so each release removes exactly its own
+        // entry even if two leases shared an acquired_at Instant.
+        let q = fresh_quota(5, 2);
+        let l1 = q.try_acquire("bob").expect("1st");
+        let l2 = q.try_acquire("bob").expect("2nd");
+        assert_eq!(q.current_user_count("bob"), 2);
+        l1.release_now();
+        assert_eq!(q.current_user_count("bob"), 1, "exactly one released");
+        l2.release_now();
+        assert_eq!(q.current_user_count("bob"), 0);
     }
 }

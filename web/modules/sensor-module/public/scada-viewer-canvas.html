@@ -469,6 +469,11 @@
       // Listen for messages from parent
       useEffect(() => {
         const handleMessage = (event) => {
+          // SEC-LOW-064 (2026-08-23 scan №9): inbound messages must come from
+          // THIS origin — the spoofable `source` string alone let any window
+          // holding a WindowProxy (e.g. window.open from a hostile page)
+          // inject process/node data into the canvas view.
+          if (event.origin !== window.location.origin) return;
           const { type, data, source } = event.data || {};
           if (source !== 'scada-viewer-host') return;
 

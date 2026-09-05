@@ -25,7 +25,7 @@ import {
 import { ObjectType, Field, ID, Int, Float, registerEnumType } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 
-import { FcrResolvedSource } from './feeding-protocol-v2.entity';
+import { FcrResolvedSource, GrowthApplicationMode } from './feeding-protocol-v2.entity';
 import { FeedingUnitType } from './protocol-assignment.entity';
 import { FeedingMeal } from './feeding-meal.entity';
 
@@ -52,7 +52,22 @@ registerEnumType(FeedingDayPlanStatus, {
 // JSONB VALUE OBJECTS
 // ============================================================================
 
-/** Üretim anındaki hesap girdilerinin tamamı — plan nasıl hesaplandı sorusunun cevabı. */
+/**
+ * ÜRETİM ANI PROVENANSI — DONUK (FARM-HIGH-247/FARM-MEDIUM-252).
+ *
+ * Snapshot "plan nasıl hesaplandı" sorusunun ÜRETİM ANINDAKİ cevabıdır ve
+ * asla güncellenmez. Band/yem/oran/FCR alanları burada TARİHSEL kayıttır;
+ * gün içi geçerli değerler `FeedingDayPlan.resolution`'dadır.
+ *
+ * Ayrımın nedeni: gün içi band geçişi `assignment.currentFeedId`'yi ve
+ * öğünlerin `feedId`'sini güncelliyor ama snapshot'a dokunmuyordu
+ * (`grep '\.snapshot\s*='` → sıfır). Sonuç: operatör ESKİ yemi görürken
+ * ledger YENİ yemi düşüyor (yanlış pellet + iki yönlü stok bozulması), ve
+ * büyüme ESKİ `expectedFcr` ile hesaplanıyordu (band0 0.9 → band1 1.4
+ * geçişinde ~%55 sapma).
+ *
+ * @deprecated band/feed/rate/FCR alanları — canlı değer için `resolution`.
+ */
 export interface DayPlanSnapshot {
   avgWeightG: number;
   fishCount: number;
@@ -70,12 +85,44 @@ export interface DayPlanSnapshot {
   expectedFcr: number;
   fcrResolvedSource: FcrResolvedSource;
   /**
-   * D-2 karışık-tank görünürlüğü (FARM-MEDIUM-231): band dominant-biomass
-   * batch'ten seçilir; tank karışıksa rozet + yüksek ağırlık-CV'sinde uyarı.
+   * D-2 karışık-tank görünürlüğü (FARM-MEDIUM-231): band TANK
+   * ORTALAMASINDAN seçilir; tank karışıksa rozet + yüksek ağırlık-CV'sinde
+   * uyarı (yüksek CV = tek ortalama iki popülasyonu temsil etmiyor).
    * B3 öncesi üretilen snapshot'larda alanlar yoktur (opsiyonel bundan).
    */
   mixedBatch?: boolean;
   weightCvPercent?: number | null;
+}
+
+/**
+ * CANLI PROTOKOL ÇÖZÜMÜ — her yeniden hesapta atomik yazılır.
+ *
+ * Band, yem, oran ve beklenen FCR'ın GÜN İÇİNDE geçerli değerleri. Tek
+ * çözücüden (`ProtocolResolutionService`) gelir; 06:00 üretimi, gün-içi
+ * recalc ve manuel geçiş aynı fonksiyonu paylaşır — "üretim başka, recalc
+ * başka hesaplıyor" sapması yapısal olarak imkânsızdır.
+ */
+export interface DayPlanResolution {
+  /** Bu çözümün yazıldığı an (ISO) — UI tazelik göstergesi. */
+  resolvedAt: string;
+  bandIndex: number;
+  feed: { id: string; code: string; name: string };
+  baseRatePercent: number;
+  tempMultiplier: number;
+  effectiveRatePercent: number;
+  expectedFcr: number;
+  fcrResolvedSource: FcrResolvedSource;
+  /**
+   * Band seçiminin tabanı — TANK ORTALAMASI (`tankBatch.avgWeightG`).
+   * Karar (kullanıcı onaylı): rasyon zaten tüm tank biyokütlesine
+   * uygulandığı için band da tank ortalamasından seçilir. Eskiden üç yerde
+   * "dominant-biomass batch" yazıyordu ve o kuralı uygulayan hiçbir kod
+   * yoktu — operatöre yanlış provenans beyan ediliyordu (FARM-LOW-263).
+   */
+  bandBasisWeightG: number;
+  /** Çözümde kullanılan su sıcaklığı (gün içi güncellenir). */
+  waterTempC: number | null;
+  temperatureSource: 'sensor' | 'manual' | 'none';
 }
 
 /** Gün içi yeniden hesap gerekçe kaydı — sessiz recalc yok. */
@@ -95,7 +142,16 @@ export interface RecalcLogEntry {
     /** Öğün finalize'ındaki per_meal büyümesi sonrası kalan öğün recalc'ı. */
     | 'meal_growth'
     /** correctMealPour düzeltmesi sonrası growth-delta recalc'ı (C-11). */
-    | 'pour_correction';
+    | 'pour_correction'
+    /** Operatörün `transitionUnitFeed` ile yaptığı manuel yem geçişi. */
+    | 'manual_transition'
+    /**
+     * Kaçırılan/atlanan öğünün kg'ının bir KISMININ kalan öğünlere
+     * dağıtılması (W5, kullanıcı kararı 3). Varsayılan yüzde 0'dır: kaçan
+     * öğün kg'ı OTOMATİK dağıtılmaz — bu gerekçe yalnız tenant açıkça telafi
+     * yüzdesi tanımladığında görülür.
+     */
+    | 'missed_catchup';
   /** Yeniden hesap sonrası kalan öğünlerin toplam planlanan kg'ı. */
   remainingPlannedKg: number;
   biomassKg?: number;
@@ -110,8 +166,11 @@ export interface RecalcLogEntry {
 @Entity('feeding_day_plans')
 @Index(['tenantId', 'unitId', 'planDate'], { unique: true })
 @Index(['tenantId', 'planDate'])
+// Rollup aday kümesi (FARM-MEDIUM-289): eski indeks `rollupAppliedAt IS NULL`
+// üzerineydi ve hiç damgalanmayan planned/skipped/cancelled planlar orada
+// sonsuza dek birikiyordu.
 @Index(['tenantId', 'planDate'], {
-  where: '"rollupAppliedAt" IS NULL',
+  where: `"growthApplicationMode" = 'daily' AND status IN ('in_progress', 'completed')`,
 })
 @Index(['assignmentId', 'planDate'])
 @Index(['tenantId', 'siteId', 'planDate'])
@@ -144,7 +203,20 @@ export class FeedingDayPlan {
   siteId!: string;
 
   @Field(() => FeedingUnitType)
-  @Column({ type: 'enum', enum: FeedingUnitType })
+  // `enumName` AÇIK: kolon, assignments tablosunun PG enum TİPİNİ paylaşır
+  // (1806400000000 → `"unitType" feeding_protocol_assignments_unittype_enum`),
+  // çünkü FeedingUnitType tek bir domain enum'u ve her tablo için ayrı bir tip
+  // üretmenin kazancı yok. Adı yazmazsak TypeORM tablo+kolondan
+  // `feeding_day_plans_unittype_enum` TÜRETİR ve entity metadata'sı DB ile
+  // ayrışır: `synchronize` ile kurulan herhangi bir şema (test fixture'ları
+  // dahil) üretimde olmayan bir tip yaratır, üstelik generator'ın ham INSERT'ü
+  // `$6::feeding_protocol_assignments_unittype_enum` diye cast ettiği için
+  // orada 42804 ile patlar.
+  @Column({
+    type: 'enum',
+    enum: FeedingUnitType,
+    enumName: 'feeding_protocol_assignments_unittype_enum',
+  })
   unitType!: FeedingUnitType;
 
   @Field()
@@ -163,6 +235,16 @@ export class FeedingDayPlan {
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb' })
   snapshot!: DayPlanSnapshot;
+
+  /**
+   * Canlı protokol çözümü (FARM-HIGH-247/251/252, FARM-LOW-262).
+   * Band/yem/oran/FCR'ın GÜN İÇİNDE geçerli değerleri; her recalc ve manuel
+   * geçiş bunu atomik günceller. Okuyucular (GraphQL alanları, büyüme
+   * hesabı, rollup) BURAYI okur — snapshot yalnız üretim anı provenansıdır.
+   */
+  @Field(() => GraphQLJSON)
+  @Column({ type: 'jsonb', default: () => "'{}'" })
+  resolution!: DayPlanResolution;
 
   @Field(() => Float)
   @Column({ type: 'numeric', precision: 12, scale: 3 })
@@ -185,7 +267,46 @@ export class FeedingDayPlan {
   })
   status!: FeedingDayPlanStatus;
 
-  /** DAILY growth modunda rollup idempotency damgası. */
+  /**
+   * Büyüme uygulama modu — PLANIN kendi semantiği (FARM-CRITICAL-244).
+   * Protokolün o anki ayarından okumak, ayar değiştiğinde geçmiş planların
+   * büyümesini çift saydırıyor veya kalıcı kaybettiriyordu; plan üretildiği
+   * semantikle işlenir.
+   */
+  // `GrowthApplicationMode` bir TS BİRLEŞİMİ (`'per_meal' | 'daily'`), kayıtlı
+  // bir GraphQL enum'ı değil. Birleşimler için `design:type` `Object`'tir, yani
+  // `@Field()` tipi çıkaramaz ve SDL üretimi
+  //   Undefined type error ... explicit type for the "growthApplicationMode"
+  // ile durur — farm subgraph'ı HİÇ yayılamaz, dolayısıyla supergraph compose
+  // ve codegen de çöker. Tel tipi kolonun kendisiyle (varchar) aynı hizada
+  // açıkça bildirilir. `Site.timezone`'daki `@Column` vakasıyla aynı kök sınıf.
+  @Field(() => String)
+  @Column({ type: 'varchar', length: 16, default: 'per_meal' })
+  growthApplicationMode!: GrowthApplicationMode;
+
+  /**
+   * Bu plan için büyümeye ÇEVRİLMİŞ toplam yem (kg) — kümülatif mutabakat
+   * damgası. Rollup her koşuda yalnız `Σ actualKg − rollupAppliedKg` farkını
+   * uygular; "tek atımlık" damga geç finalize ve `correctMealPour`
+   * deltalarını sessizce kaybediyordu (FARM-CRITICAL-244).
+   */
+  @Field(() => Float)
+  @Column({ type: 'numeric', precision: 12, scale: 3, default: 0 })
+  rollupAppliedKg!: number;
+
+  /** Uygulanan kümülatif büyüme (kg) — mutabakat sorgusu için denetlenebilirlik. */
+  @Field(() => Float)
+  @Column({ type: 'numeric', precision: 12, scale: 3, default: 0 })
+  rollupGrowthKg!: number;
+
+  @Field({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
+  rollupLastRunAt?: Date;
+
+  /**
+   * @deprecated Kümülatif `rollupAppliedKg` ile değiştirildi (FARM-CRITICAL-244).
+   * Blue-green için kolon duruyor; okuma yolu artık kullanmıyor.
+   */
   @Field({ nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
   rollupAppliedAt?: Date;
@@ -194,9 +315,29 @@ export class FeedingDayPlan {
   @Column({ type: 'text', nullable: true })
   skipReason?: string;
 
+  /**
+   * Son {@link RECALC_LOG_MAX_ENTRIES} yeniden hesap girdisi (W8 —
+   * FARM-MEDIUM-286).
+   *
+   * Dizi ÜST SINIRSIZ büyüyordu ve tamamı GraphQL'de açıktı: sıcaklık sapması,
+   * ölüm, hasat, transfer, protokol/atama değişimi ve manuel geçiş hepsi aynı
+   * gün aynı plana yazıyor. Yoğun bir ünitede satır her gün onlarca girdi
+   * biriktirip hem jsonb'yi hem tel yükünü şişiriyordu — ve sınırsız bir
+   * geçmiş operatöre de bir şey anlatmıyor.
+   *
+   * Kırpma budama DEĞİL bilgi kaybıdır, bu yüzden `recalcCount` sayacı TOPLAM
+   * yeniden hesap sayısını korur: UI "son 50'yi gösteriyorsun ama toplam 137
+   * kez hesaplandı" diyebilir. Denetim izinin tamamı zaten outbox/audit
+   * tarafında yaşar.
+   */
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb', default: () => "'[]'" })
   recalcLog!: RecalcLogEntry[];
+
+  /** Planın ömrü boyunca yapılan TOPLAM yeniden hesap (kırpmadan bağımsız). */
+  @Field(() => Int)
+  @Column({ type: 'int', default: 0 })
+  recalcCount!: number;
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })

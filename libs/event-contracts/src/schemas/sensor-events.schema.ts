@@ -135,8 +135,84 @@ const SENSOR_METRIC_INGESTED_SCHEMA: JSONSchemaType<WireSensorMetricIngested> = 
  * it into runtime validation; the validator dispatcher (`validator.ts`)
  * iterates over the map at module load to compile every entry.
  */
+// ============================================================================
+// FeedingWindowReadiness (W7 — FARM-MEDIUM-271)
+// ============================================================================
+//
+// Crosses sensor → alert-engine AND sensor → farm-service. Both consumers act
+// on it: one pages an operator, the other stamps an operator-visible badge on
+// the meal. Same posture as the farm schemas — `additionalProperties: false`,
+// every optional field `nullable: true`, UUID pattern on identifiers.
+
+interface WireFeedingWindowReadiness {
+  eventId: string;
+  eventType: 'FeedingWindowReadiness';
+  timestamp: string;
+  tenantId: string;
+  version: number;
+  aggregateId?: string;
+  aggregateType?: string;
+  correlationId?: string;
+  causationId?: string;
+  userId?: string;
+  retryCount?: number;
+  unitId: string;
+  unitCode: string;
+  mealId: string;
+  dayPlanId: string;
+  scheduledAt: string;
+  status: 'low_oxygen' | 'no_reading';
+  minDissolvedOxygen: number;
+  observedDissolvedOxygen?: number;
+  observedAt?: string;
+  lowOxygenReductionPercent?: number;
+}
+
+const FEEDING_WINDOW_READINESS_SCHEMA: JSONSchemaType<WireFeedingWindowReadiness> = {
+  type: 'object',
+  properties: {
+    ...BASE_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'FeedingWindowReadiness' } as const,
+    unitId: { type: 'string', pattern: UUID_PATTERN } as const,
+    unitCode: { type: 'string', minLength: 1, maxLength: 64 } as const,
+    mealId: { type: 'string', pattern: UUID_PATTERN } as const,
+    dayPlanId: { type: 'string', pattern: UUID_PATTERN } as const,
+    scheduledAt: { type: 'string', format: 'date-time' } as const,
+    status: { type: 'string', enum: ['low_oxygen', 'no_reading'] } as const,
+    // Dissolved oxygen bounds match the ingestion data-quality range
+    // (`data-quality.service.ts`: 0–20 mg/L) so a nonsense floor cannot be
+    // smuggled in through a protocol edit.
+    minDissolvedOxygen: { type: 'number', minimum: 0, maximum: 20 } as const,
+    observedDissolvedOxygen: {
+      type: 'number',
+      minimum: 0,
+      maximum: 20,
+      nullable: true,
+    } as const,
+    observedAt: { type: 'string', format: 'date-time', nullable: true } as const,
+    lowOxygenReductionPercent: {
+      type: 'number',
+      minimum: 0,
+      maximum: 100,
+      nullable: true,
+    } as const,
+  },
+  required: [
+    ...BASE_EVENT_REQUIRED,
+    'unitId',
+    'unitCode',
+    'mealId',
+    'dayPlanId',
+    'scheduledAt',
+    'status',
+    'minDissolvedOxygen',
+  ],
+  additionalProperties: false,
+} as JSONSchemaType<WireFeedingWindowReadiness>;
+
 export const SENSOR_EVENT_SCHEMAS = {
   SensorMetricIngested: SENSOR_METRIC_INGESTED_SCHEMA,
+  FeedingWindowReadiness: FEEDING_WINDOW_READINESS_SCHEMA,
 } as const;
 
 export type SensorEventType = keyof typeof SENSOR_EVENT_SCHEMAS;

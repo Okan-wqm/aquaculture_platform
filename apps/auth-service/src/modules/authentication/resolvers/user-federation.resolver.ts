@@ -1,6 +1,7 @@
 import { Args, ID, Query, Resolver, ResolveReference } from '@nestjs/graphql';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { Tenant, CurrentUser, Role } from '@aquaculture/backend-common/decorators';
 
 import { PublicUserProfile } from '../entities/public-user-profile.type';
 import { User } from '../entities/user.entity';
@@ -17,9 +18,13 @@ import { User } from '../entities/user.entity';
  * schema error, not a runtime null. auth's own admin-gated queries still resolve
  * the full `User` (with email) directly, never through this reference resolver.
  *
- * The projection loads ONLY the PublicUserProfile fields. The userId in the
- * reference is already authorized upstream (the caller is a member of the channel
- * whose sender/member this is), so a bare id lookup is the correct scope.
+ * SEC-MEDIUM-097 (2026-08-23 scan №42): the projection loads ONLY
+ * PublicUserProfile fields, but the lookup itself was tenant-UNSCOPED — a bare
+ * id resolved ANY platform user's name/avatar (cross-tenant read + a
+ * null-vs-data enumeration oracle). Display references only ever point
+ * in-tenant (channels, messages and presence are tenant-scoped), so lookups
+ * are scoped by the CALLING user's tenant. SUPER_ADMIN keeps the cross-tenant
+ * platform view; a tenantless non-admin fails closed (null).
  */
 @Resolver(() => PublicUserProfile)
 export class PublicUserProfileFederationResolver {
@@ -29,40 +34,70 @@ export class PublicUserProfileFederationResolver {
   ) {}
 
   /**
-   * Public (display-only, no-PII) profile of any user by id. Two jobs: (1) it is a
-   * genuine lookup the client uses for @mentions / member displays, and (2) it
-   * makes PublicUserProfile a REACHABLE root type so it emits into the subgraph
-   * SDL — the code-first SDL emitter (tools/scripts/emit-subgraph-sdl.ts) builds
-   * with orphanedTypes:[] and would otherwise drop a reference-only entity, so the
-   * composed supergraph would carry PublicUserProfile without its display fields.
-   * Authenticated by auth's global JwtAuthGuard; returns ONLY display fields —
-   * never email/role/tenantId.
+   * Public (display-only, no-PII) profile by id, scoped to the caller's
+   * tenant. Two jobs: (1) a genuine lookup the client uses for @mentions /
+   * member displays, and (2) it makes PublicUserProfile a REACHABLE root type
+   * so it emits into the subgraph SDL — the code-first SDL emitter
+   * (tools/scripts/emit-subgraph-sdl.ts) builds with orphanedTypes:[] and
+   * would otherwise drop a reference-only entity, so the composed supergraph
+   * would carry PublicUserProfile without its display fields.
    */
   @Query(() => PublicUserProfile, { nullable: true, name: 'publicUserProfile' })
   async publicUserProfile(
     @Args('id', { type: () => ID }) id: string,
+    @Tenant() tenantId: string | null,
+    @CurrentUser('roles') roles: string[] | undefined,
   ): Promise<PublicUserProfile | null> {
-    return this.resolveReference({ __typename: 'PublicUserProfile', id });
+    return this.lookupScoped(id, tenantId, roles);
   }
 
   @ResolveReference()
-  async resolveReference(reference: {
-    __typename: string;
-    id: string;
-  }): Promise<PublicUserProfile | null> {
-    const user = await this.userRepo.findOne({
-      where: { id: reference.id },
-      // Display-only projection — email/role/tenantId are never loaded here.
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        profileImageUrl: true,
-      },
-    });
-    if (!user) {
+  async resolveReference(
+    reference: {
+      __typename: string;
+      id: string;
+    },
+    context?: { req?: { user?: { tenantId?: string | null; roles?: string[] } } },
+  ): Promise<PublicUserProfile | null> {
+    const caller = context?.req?.user;
+    return this.lookupScoped(reference.id, caller?.tenantId ?? null, caller?.roles);
+  }
+
+  /**
+   * Tenant-scoped display lookup shared by the root query and the federation
+   * reference path. SUPER_ADMIN resolves platform-wide; everyone else is
+   * confined to their own tenant; tenantless non-admins get null.
+   */
+  private async lookupScoped(
+    id: string,
+    tenantId: string | null,
+    roles: string[] | undefined,
+  ): Promise<PublicUserProfile | null> {
+    // Display-only projection — email/role/tenantId are never loaded.
+    const select = {
+      id: true,
+      firstName: true,
+      lastName: true,
+      profileImageUrl: true,
+    } as const;
+
+    if (roles?.includes(Role.SUPER_ADMIN) === true) {
+      const user = await this.userRepo.findOne({ where: { id }, select });
+      return user ? this.toProfile(user) : null;
+    }
+
+    if (!tenantId) {
+      // Tenantless non-admin callers get no cross-tenant display data.
       return null;
     }
+
+    const user = await this.userRepo.findOne({ where: { id, tenantId }, select });
+    return user ? this.toProfile(user) : null;
+  }
+
+  private toProfile(
+    user: Pick<User, 'id' | 'firstName' | 'lastName' | 'profileImageUrl'>,
+  ): PublicUserProfile {
     return {
       id: user.id,
       firstName: user.firstName,

@@ -3,7 +3,7 @@
  * `.github/workflows/*.yml` and ask what a step invokes: an `npm run` script,
  * an Nx target fan-out, a spec path.
  *
- * One home (2026-09-04, INFRA-HIGH-141 / INFRA-MEDIUM-142): the npm-script and
+ * One home (2026-09-04, INFRA-HIGH-152 / INFRA-MEDIUM-158): the npm-script and
  * Nx-target resolvers grew up inside workflow-npm-script-references.spec.ts;
  * claude-md-accuracy.spec.ts now needs the same "which scripts does CI run"
  * answer to decide whether a steering file's cited spec is executed anywhere.

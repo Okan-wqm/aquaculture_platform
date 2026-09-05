@@ -93,6 +93,15 @@ export class WarehouseFeedCoverage {
   /** 'critical' | 'warning' | 'ok' */
   @Field()
   coverageStatus!: string;
+
+  /**
+   * Snapshot bayat mı (W6, FARM-LOW-266). Forecast günde bir hesaplanır;
+   * 26 saatten eski bir satır en az bir koşuyu kaçırmış demektir ve
+   * "kritik" olarak sunulmamalıdır — operatör kararını verinin YAŞINI
+   * bilerek verir.
+   */
+  @Field()
+  stale!: boolean;
 }
 
 /**

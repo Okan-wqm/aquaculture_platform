@@ -70,6 +70,10 @@ import { SupportModule } from './modules/support/support.module';
 import { SystemModule } from './modules/system-module/system-module.module';
 import { TenantModule } from './modules/tenant/tenant.module';
 import { AuthOutboxModule } from './outbox/auth-outbox.module';
+import { subgraphComplexityPlugin, subgraphFormatError } from '@aquaculture/backend-common/graphql';
+
+/** Shared subgraph complexity ceiling (SEC-LOW-116). */
+const GRAPHQL_MAX_COMPLEXITY = 1000;
 
 const AuthMigrationRunnerService = createSchemaVersionGate('auth');
 
@@ -159,6 +163,14 @@ const authSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
            * that causes exponential resource consumption on the server.
            */
           validationRules: [depthLimit(10)],
+          /**
+           * SEC-MEDIUM-077 / SEC-LOW-116 (2026-08-23 scan №22/№61): shared subgraph
+           * hardening preset — production error masking (raw TypeORM/driver text must
+           * never reach clients through the gateway's message passthrough) and the
+           * complexity cap for direct-access defense-in-depth.
+           */
+          formatError: subgraphFormatError(process.env['NODE_ENV'] === 'production'),
+          plugins: [subgraphComplexityPlugin(GRAPHQL_MAX_COMPLEXITY)],
           // 2026-04-30: Deprecated GraphQL Playground is not enabled at runtime.
           // WHY: auth developer UI must not rely on deprecated Apollo Playground behavior.
           // SECURITY: Disable introspection in production to prevent schema discovery

@@ -4,6 +4,10 @@
  */
 import { useQuery } from '@tanstack/react-query';
 import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
+import {
+  createStandardPaginatedResult,
+  type PaginationResultV1,
+} from '@platform/pagination-contracts';
 
 // Types
 /**
@@ -133,13 +137,7 @@ export interface TankFilterInput {
   search?: string;
 }
 
-interface TanksResponse {
-  items: Tank[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
+type TanksResponse = PaginationResultV1<Tank>;
 
 // GraphQL query for equipment (tanks, ponds, cages) with batch metrics
 const EQUIPMENT_WITH_BATCHES_QUERY = `
@@ -221,6 +219,8 @@ const EQUIPMENT_WITH_BATCHES_QUERY = `
       page
       limit
       totalPages
+      hasNextPage
+      hasPreviousPage
     }
   }
 `;
@@ -272,12 +272,19 @@ export function useTanksList(filter?: TankFilterInput, pagination?: { page?: num
       // Fetch-all: page through so every tank/pond/cage is visible on web.
       const first = await fetchPage(1, EQUIPMENT_PAGE_LIMIT);
       const items = [...first.items];
-      const totalPages = Math.min(first.totalPages ?? 1, EQUIPMENT_MAX_PAGES);
-      for (let page = 2; page <= totalPages; page += 1) {
+      const pageCount = Math.min(first.totalPages, EQUIPMENT_MAX_PAGES);
+      for (let page = 2; page <= pageCount; page += 1) {
         const next = await fetchPage(page, EQUIPMENT_PAGE_LIMIT);
         items.push(...next.items);
       }
-      return { ...first, items, limit: items.length };
+      // See useBatches: a fetch-all result is one page of everything, minted
+      // rather than assembled from another page's coordinates.
+      return createStandardPaginatedResult<Tank>(
+        items,
+        Math.max(first.total, items.length),
+        1,
+        Math.max(1, items.length),
+      );
     },
     staleTime: 30000,
     enabled: !!token && !!tenantId,

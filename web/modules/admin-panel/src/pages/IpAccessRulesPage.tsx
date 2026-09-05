@@ -32,7 +32,7 @@ interface IpAccessStats {
 // ============================================================================
 
 const IpAccessRulesPage: React.FC = () => {
-  const [rules, setRules] = useState<IpAccessRule[]>([]);
+  const [rules, setRules] = useState<readonly IpAccessRule[]>([]);
   const [stats, setStats] = useState<IpAccessStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);

@@ -3,7 +3,7 @@
  * "which projects declare target X?", "does project P exist?" or "what does P
  * declare?".
  *
- * Why one module (2026-09-04, INFRA-HIGH-141): three specs each shelled out to
+ * Why one module (2026-09-04, INFRA-HIGH-152): three specs each shelled out to
  * `nx show projects` with their own env, their own JSON parsing and no cache.
  * The phantom-target defect (`ci-affected.yml` fanning out to `test:invariant`
  * and `type-check`, which no project declares) lived in the seam between

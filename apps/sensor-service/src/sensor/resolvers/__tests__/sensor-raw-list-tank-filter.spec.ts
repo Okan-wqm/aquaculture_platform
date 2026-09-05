@@ -31,7 +31,10 @@ describe('SensorResolver.listSensors tankId filter (MOB-MEDIUM-008)', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SensorResolver,
-        { provide: getRepositoryToken(Sensor), useValue: { find: jest.fn().mockResolvedValue([]) } },
+        {
+          provide: getRepositoryToken(Sensor),
+          useValue: { find: jest.fn().mockResolvedValue([]), findOne: jest.fn().mockResolvedValue(null) },
+        },
         { provide: getRepositoryToken(SensorReading), useValue: {} },
         { provide: SensorIngestionService, useValue: {} },
         { provide: SensorQueryService, useValue: {} },
@@ -57,5 +60,63 @@ describe('SensorResolver.listSensors tankId filter (MOB-MEDIUM-008)', () => {
 
     const call = sensorRepository.find.mock.calls[0]?.[0];
     expect(call?.where).toEqual({ tenantId });
+  });
+
+  // ==========================================================================
+  // SEC-HIGH-096 (2026-08-23 scan №41): decrypted protocol credentials must
+  // never leave the raw-entity read paths unmasked.
+  // ==========================================================================
+
+  const sensorWithCreds = (): Sensor => {
+    const sensor = new Sensor();
+    sensor.id = 's1';
+    sensor.tenantId = tenantId;
+    sensor.protocolConfiguration = {
+      host: 'mqtt.internal',
+      topic: 'tenants/1/telemetry',
+      password: 'hunter2',
+      apiKey: 'sk-live-123',
+      auth: { clientId: 'a', clientSecret: 'topsecret' },
+    };
+    return sensor;
+  };
+
+  it('sensorRawList masks secret-named protocol fields, keeps non-secrets', async () => {
+    sensorRepository.find.mockResolvedValue([sensorWithCreds()]);
+
+    const results = await resolver.listSensors(tenantId, 1, 20);
+    const result = results[0];
+    if (!result) throw new Error('expected one sensor row');
+
+    expect(result.protocolConfiguration).toMatchObject({
+      host: 'mqtt.internal',
+      topic: 'tenants/1/telemetry',
+      password: '***',
+      apiKey: '***',
+      auth: { clientId: 'a', clientSecret: '***' },
+    });
+  });
+
+  it('getSensor masks secret-named protocol fields', async () => {
+    sensorRepository.findOne.mockResolvedValue(sensorWithCreds());
+
+    const result = await resolver.getSensor('s1', tenantId);
+
+    expect(result.protocolConfiguration?.['password']).toBe('***');
+    expect(result.protocolConfiguration?.['host']).toBe('mqtt.internal');
+  });
+
+  it('resolveReference NEVER takes tenantId from the representation (context only)', async () => {
+    sensorRepository.findOne.mockResolvedValue(sensorWithCreds());
+
+    // No user context: must fail closed to null even though the
+    // representation offers a tenantId.
+    const result = await resolver.resolveReference(
+      { __typename: 'Sensor', id: 's1', tenantId },
+      {},
+    );
+
+    expect(result).toBeNull();
+    expect(sensorRepository.findOne).not.toHaveBeenCalled();
   });
 });

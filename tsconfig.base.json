@@ -67,6 +67,9 @@
       "@aquaculture/backend-common/database": [
         "libs/backend-common/src/database/index.ts"
       ],
+      "@aquaculture/backend-common/event-dedup": [
+        "libs/backend-common/src/event-dedup/index.ts"
+      ],
       "@aquaculture/backend-common/dataloader": [
         "libs/backend-common/src/dataloader/index.ts"
       ],
@@ -116,6 +119,7 @@
       "@aquaculture/backend-common/pagination": [
         "libs/backend-common/src/pagination/index.ts"
       ],
+      "@platform/pagination-contracts": ["platform/libs/pagination-contracts/src/index.ts"],
       "@aquaculture/backend-common/quota": ["libs/backend-common/src/quota/index.ts"],
       "@aquaculture/backend-common/redis": ["libs/backend-common/src/redis/index.ts"],
       "@aquaculture/backend-common/resilience": [

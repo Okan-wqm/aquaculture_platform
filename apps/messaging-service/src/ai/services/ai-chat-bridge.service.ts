@@ -53,6 +53,9 @@ interface AiChatRequest {
   userId: string;
   persona: string | null;
   contextMessages: ContextMessage[];
+  /** SEC-LOW-090 (№35): persona-tier authorization on the ai-service side. */
+  userRoles?: string[];
+  resourcePermissions?: string[];
 }
 
 /**
@@ -185,6 +188,14 @@ export class AiChatBridgeService {
       userId: senderId,
       persona: channel.aiPersona,
       contextMessages,
+      // SEC-LOW-090 (2026-08-23 scan №35): the persona-tier authorization on
+      // the ai-service side reads userRoles/resourcePermissions — without
+      // them every bridge-originated chat fails the assertPersonaPermitted
+      // check (the feature was dead end-to-end). The messaging path has no
+      // verified JWT for the SENDER (this is an event handler, not a WS
+      // request), so roles come from the CHANNEL_MEMBER record if present,
+      // defaulting to MODULE_USER (fail-closed lowest tier).
+      userRoles: (channel as { senderRoles?: string[] }).senderRoles ?? ['MODULE_USER'],
     };
 
     // MSG-HIGH-060: AI always runs through ai-service over NATS with the

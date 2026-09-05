@@ -89,6 +89,12 @@ own "Clear Queue" action demands consent for the same wipe; and a critical alarm
 **Title:** Mobile water-quality recording is rejected by the server on every submission; offline it
 renders a green false success
 
+**Registry id:** `MOB-CRITICAL-018` — allocated by `npm run findings:add` when this defect was fixed.
+The cycle-local `PRODUCT-MOBILE-*` prefix cannot be registered at all (`PROC-MEDIUM-016`), so the
+ledger entry carries a registry-legal id and this line is the link between the two. Note that the
+cycle report's synthesis block uses the same string `MOB-CRITICAL-018` for the MinIO presign
+finding; the ledger is authoritative and means this one.
+
 **Severity:** CRITICAL
 **Layer:** 1
 **State:** OPEN

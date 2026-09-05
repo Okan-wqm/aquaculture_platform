@@ -396,7 +396,7 @@ type SiteResponse {
   address: SiteAddressResponse
   country: String
   region: String
-  timezone: String!
+  timezone: String
   status: SiteStatus!
   settings: JSON
   totalArea: Float
@@ -2290,6 +2290,7 @@ type WarehouseFeedCoverage {
   daysOfCover: Int
   stockoutDate: String
   coverageStatus: String!
+  stale: Boolean!
 }
 
 type WarehouseSummaryResponse {
@@ -2935,6 +2936,7 @@ type ProtocolAssignment {
   suspensions: JSON!
   currentFeedId: ID
   currentBandIndex: Int
+  manualBandIndex: Int
   lastTransitionAt: DateTime
   totalTransitions: Int!
   createdAt: DateTime!
@@ -2957,6 +2959,59 @@ enum ProtocolAssignmentStatus {
   ENDED
 }
 
+type FeedingRecord {
+  id: ID!
+  tenantId: String!
+  batchId: String!
+  tankId: String
+  pondId: String
+  batchLocationId: String
+  feedingDate: DateTime!
+  feedingTime: String!
+  feedingSequence: Int!
+  totalMealsToday: Int!
+  feedId: String!
+  feedBatchNumber: String
+  plannedAmount: Float!
+  actualAmount: Float!
+  variance: Float!
+  variancePercent: Float!
+  wasteAmount: Float
+  mealId: ID
+  pourIndex: Int
+  dayPlanId: ID
+  environment: JSON
+  fishBehavior: JSON
+  feedingMethod: FeedingMethod!
+  equipmentId: String
+  feedingDurationMinutes: Int
+  feedCost: Float @deprecated(reason: "Use feedCostDecimal (exact decimal string, ADR-0004).")
+  feedCostDecimal: Decimal
+  currency: String
+  fedBy: String!
+  verifiedBy: String
+  verifiedAt: DateTime
+  notes: String
+  skipReason: String
+  createdAt: DateTime!
+  updatedAt: DateTime!
+
+  """Whether actual amount is below planned"""
+  isBelowPlan: Boolean!
+
+  """Whether variance is within acceptable threshold (±10%)"""
+  isVarianceAcceptable: Boolean!
+}
+
+"""Yemleme metodu"""
+enum FeedingMethod {
+  MANUAL
+  AUTOMATIC
+  DEMAND
+  BROADCAST
+  SPOT
+}
+
 type FeedingMeal {
   id: ID!
   tenantId: ID!
@@ -2975,8 +3030,9 @@ type FeedingMeal {
   feedId: ID!
   fedAt: DateTime
   fedBy: ID
-  feedingMethod: String
+  feedingMethod: FeedingMethod
   recalculatedAt: DateTime
+  readiness: JSON
   notes: String
   createdAt: DateTime!
   updatedAt: DateTime!
@@ -3004,13 +3060,19 @@ type FeedingDayPlan {
   unitCode: String!
   planDate: String!
   snapshot: JSON!
+  resolution: JSON!
   plannedTotalKg: Float!
   unplannedActualKg: Float!
   mealsPlanned: Int!
   status: FeedingDayPlanStatus!
+  growthApplicationMode: String!
+  rollupAppliedKg: Float!
+  rollupGrowthKg: Float!
+  rollupLastRunAt: DateTime
   rollupAppliedAt: DateTime
   skipReason: String
   recalcLog: JSON!
+  recalcCount: Int!
   createdAt: DateTime!
   updatedAt: DateTime!
   meals: [FeedingMeal!]
@@ -3346,12 +3408,25 @@ enum FCRStatusType {
 }
 
 type BatchListResponse {
+  """Array of items"""
   items: [Batch!]!
+
+  """Total count of items matching the query"""
   total: Int!
+
+  """Current page number"""
   page: Int!
+
+  """Items per page"""
   limit: Int!
+
+  """Total number of pages"""
   totalPages: Int!
+
+  """Whether there is a next page"""
   hasNextPage: Boolean!
+
+  """Whether there is a previous page"""
   hasPreviousPage: Boolean!
 }
 
@@ -3807,59 +3882,6 @@ enum ProgramEquipmentType {
   CAGE
 }
 
-type FeedingRecord {
-  id: ID!
-  tenantId: String!
-  batchId: String!
-  tankId: String
-  pondId: String
-  batchLocationId: String
-  feedingDate: DateTime!
-  feedingTime: String!
-  feedingSequence: Int!
-  totalMealsToday: Int!
-  feedId: String!
-  feedBatchNumber: String
-  plannedAmount: Float!
-  actualAmount: Float!
-  variance: Float!
-  variancePercent: Float!
-  wasteAmount: Float
-  mealId: ID
-  pourIndex: Int
-  dayPlanId: ID
-  environment: JSON
-  fishBehavior: JSON
-  feedingMethod: FeedingMethod!
-  equipmentId: String
-  feedingDurationMinutes: Int
-  feedCost: Float @deprecated(reason: "Use feedCostDecimal (exact decimal string, ADR-0004).")
-  feedCostDecimal: Decimal
-  currency: String
-  fedBy: String!
-  verifiedBy: String
-  verifiedAt: DateTime
-  notes: String
-  skipReason: String
-  createdAt: DateTime!
-  updatedAt: DateTime!
-
-  """Whether actual amount is below planned"""
-  isBelowPlan: Boolean!
-
-  """Whether variance is within acceptable threshold (±10%)"""
-  isVarianceAcceptable: Boolean!
-}
-
-"""Yemleme metodu"""
-enum FeedingMethod {
-  MANUAL
-  AUTOMATIC
-  DEMAND
-  BROADCAST
-  SPOT
-}
-
 """Daily feeding execution record for a tank"""
 type DailyFeedingExecution {
   id: ID!
@@ -4085,44 +4107,6 @@ type GrowthSimulationResponse {
   feedRequirements: [FeedRequirementResponse!]!
 }
 
-type FeedConsumptionBatchInfo {
-  batchId: ID!
-  batchCode: String!
-  consumption: Float!
-}
-
-type FeedConsumptionByTypeResponse {
-  feedId: ID!
-  feedCode: String!
-  feedName: String!
-  dailyConsumption: [Float!]!
-  totalConsumption: Float!
-  currentStock: Float!
-  daysUntilStockout: Int!
-  stockoutDate: DateTime
-  reorderDate: DateTime
-  reorderQuantity: Float!
-  batches: [FeedConsumptionBatchInfo!]!
-}
-
-type FeedForecastAlert {
-  feedId: ID!
-  feedCode: String!
-  type: String!
-  message: String!
-  daysUntilStockout: Int!
-}
-
-type FeedForecastResponse {
-  forecastDays: Int!
-  startDate: DateTime!
-  endDate: DateTime!
-  byFeedType: [FeedConsumptionByTypeResponse!]!
-  alerts: [FeedForecastAlert!]!
-  totalConsumption: Float!
-  totalCurrentStock: Float!
-}
-
 type ActiveTankResponse {
   tankId: ID!
   tankName: String
@@ -4163,6 +4147,7 @@ type ProtocolFeedForecastPerUnit {
   unitName: String!
   unitCode: String!
   currentFeedId: ID
+  terminalFeedId: ID
   transitions: [ProtocolFeedForecastTransition!]!
 }
 
@@ -4171,6 +4156,7 @@ type ProtocolFeedForecastAlert {
   feedId: ID!
   unitId: ID
   days: Int!
+  atDay: Int!
 }
 
 type ProtocolFeedForecastMortalityAssumption {
@@ -4180,6 +4166,8 @@ type ProtocolFeedForecastMortalityAssumption {
 
 type ProtocolFeedForecast {
   siteScopeKey: String!
+  poolScope: String!
+  stale: Boolean!
   horizonDays: Int!
   computedAt: DateTime!
   perFeed: [ProtocolFeedForecastPerFeed!]!
@@ -5827,9 +5815,6 @@ type Query {
   """Simulate fish growth and feed requirements"""
   growthSimulation(input: GrowthSimulationInput!): GrowthSimulationResponse!
 
-  """Forecast feed consumption and stockout dates"""
-  feedConsumptionForecast(input: FeedForecastInput): FeedForecastResponse!
-
   """Project harvest date for target weight"""
   projectHarvestDate(currentWeightG: Float!, targetWeightG: Float!, sgr: Float!, startDate: DateTime): DateTime!
 
@@ -6376,20 +6361,6 @@ input GrowthSimulationInput {
 
   """Projection start date"""
   startDate: DateTime
-}
-
-input FeedForecastInput {
-  """Filter by site"""
-  siteId: ID
-
-  """Number of days to forecast"""
-  forecastDays: Int! = 30
-
-  """Lead time before stockout to recommend reorder"""
-  leadTimeDays: Int
-
-  """Safety stock days to maintain"""
-  safetyStockDays: Int
 }
 
 input StandardPaginationInput {
@@ -7132,6 +7103,7 @@ type Mutation {
   updateProtocolAssignment(input: UpdateProtocolAssignmentInput!): ProtocolAssignment!
   unassignProtocolFromUnit(assignmentId: ID!): ProtocolAssignment!
   recordMealFeeding(input: RecordMealFeedingInput!): MealFeedingResult!
+  finalizeMeal(input: FinalizeMealInput!): MealFeedingResult!
   correctMealPour(input: CorrectMealPourInput!): MealFeedingResult!
   skipMeal(input: SkipMealInput!): MealFeedingResult!
   regenerateDayPlan(unitId: ID!): DayPlanAdminResult!
@@ -9893,9 +9865,6 @@ input TransferBatchInput {
   transferredAt: DateTime
   transferReason: String
   notes: String
-
-  """Kapasite kontrolünü atla"""
-  skipCapacityCheck: Boolean = false
 }
 
 input RecordGradingInput {
@@ -10352,8 +10321,29 @@ input RecordMealFeedingInput {
   mealId: ID!
   pourKg: Float!
   finalize: Boolean! = false
-  feedingMethod: String
+  feedingMethod: FeedingMethod
   notes: String
+}
+
+input FinalizeMealInput {
+  """Stable client command UUID generated before first submission"""
+  clientCommandId: String
+
+  """ISO timestamp when the mobile client created the command"""
+  clientCreatedAt: String
+
+  """Stable per-installation device identifier"""
+  deviceId: String
+
+  """Mobile operation type, e.g. recordMortality or transferStock"""
+  operationType: String
+
+  """SHA-256 hash of the command payload before envelope fields are added"""
+  payloadHash: String
+
+  """Optional mobile command payload schema version"""
+  schemaVersion: String
+  mealId: ID!
 }
 
 input CorrectMealPourInput {

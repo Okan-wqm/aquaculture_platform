@@ -58,6 +58,11 @@ function dailyOpsCounterFor(
       ? 'feedingCompletedCount'
       : undefined;
   }
+  // W8/FARM-MEDIUM-269: finalizeMeal'in TEK işi öğünü kapatmaktır — bayrak
+  // sorgulanmaz, sayaç her zaman artar.
+  if (type === 'finalizeMeal') {
+    return 'feedingCompletedCount';
+  }
   return DAILY_OPS_BUMPS[type];
 }
 

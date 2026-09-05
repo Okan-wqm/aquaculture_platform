@@ -112,7 +112,7 @@ export const TicketsPage: React.FC = () => {
 
       const result = await supportApi.getTickets(params);
       // Map API response to UI type
-      const mappedTickets: SupportTicket[] = (result.data || []).map((ticket: ApiSupportTicket) => {
+      const mappedTickets: SupportTicket[] = result.data.map((ticket: ApiSupportTicket) => {
         // Compute SLA deadlines from createdAt + slaMinutes if available
         const createdDate = new Date(ticket.createdAt);
         const slaResponseDeadline = ticket.slaResponseMinutes

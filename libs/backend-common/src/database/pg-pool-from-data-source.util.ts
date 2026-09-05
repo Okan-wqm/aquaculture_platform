@@ -112,22 +112,41 @@ interface DriverWithPool {
 /**
  * Extract the underlying pg.Pool from a TypeORM DataSource.
  *
- * Returns null if the driver doesn't expose a `master` property
- * (e.g. non-pg drivers, in-memory test doubles). Callers MUST
- * handle the null case — the bootstrap services emit a
- * boot-blocking error log when null is returned because the
- * connection-pool patch is load-bearing for tenant isolation.
+ * THROWS when the driver exposes no usable `master` pool.
  *
- * # Why returns null instead of throwing
+ * # Why it throws rather than returning null
  *
- * The bootstraps catch the missing-pool case at boot and refuse
- * to start the service rather than crashing during the first
- * request. Returning null lets each caller log its own service-
- * specific error message and degrade in its own way.
+ * It used to return null, on the stated reasoning that "the bootstraps catch
+ * the missing-pool case at boot and refuse to start the service". Neither
+ * bootstrap did. Both wrote `logger.error(...)` and `return`, so the pool patch
+ * silently became a no-op and the service booted anyway:
+ *
+ *   - `RlsConnectionBootstrap` — `app.current_tenant` is then never set on a
+ *     checked-out connection, so `tenant_isolation_policy` sees an unset GUC.
+ *   - `TenantConnectionBootstrap` — `search_path` is then never set per
+ *     checkout, so a schema-per-tenant service stops routing to
+ *     `tenant_<uuid>` and runs against whatever the connection default is.
+ *
+ * Both are load-bearing for tenant isolation, both are invisible at boot (one
+ * ERROR line among hundreds), and both were contradicted by every docblock
+ * describing them: this file said "refuse to start the service",
+ * `rls.module.ts` said "throws an actionable error at boot", and
+ * `rls.module.spec.ts` asserted `rejects.toThrow(/REMEDIATION/)`. That spec
+ * lives in `libs/backend-common`, which had no Nx project and therefore no CI
+ * lane — nothing ran it, so the divergence stood.
+ *
+ * Returning null was the mechanism that made "degrade quietly" expressible at
+ * all. Removing the null makes booting with an unpatched pool structurally
+ * impossible instead of merely discouraged, and the two callers can no longer
+ * drift apart on how they handle it, because there is nothing left to handle.
+ *
+ * @param context - caller tag for the failure message (e.g. `'RlsConnectionBootstrap[billing]'`)
+ * @throws Error naming the context, with a REMEDIATION: clause
  */
 export function getPgPoolFromDataSource(
   dataSource: DataSource,
-): PgPoolLike | null {
+  context: string,
+): PgPoolLike {
   // The cast is the SINGLE place in the codebase where TypeORM's
   // private driver shape is bridged to the typed surface. Every
   // other callsite in the codebase imports getPgPoolFromDataSource
@@ -136,7 +155,15 @@ export function getPgPoolFromDataSource(
   const driver = dataSource.driver as unknown as DriverWithPool;
   const pool = driver.master;
   if (!pool || typeof pool.connect !== 'function') {
-    return null;
+    throw new Error(
+      `[${context}] pg Pool not found on the TypeORM DataSource driver, so the ` +
+        `connection-pool patch that carries tenant isolation (search_path and/or ` +
+        `the app.current_tenant GUC) cannot be installed. Booting without it ` +
+        `would leave tenant routing inactive for every query this service makes. ` +
+        `REMEDIATION: register this module only in a service whose imports graph ` +
+        `provides a PostgreSQL DataSource via TypeOrmModule.forRoot/forRootAsync — ` +
+        `a non-pg driver or a stub DataSource cannot carry tenant isolation.`,
+    );
   }
   return pool;
 }

@@ -101,7 +101,10 @@ export interface BrandingConfig {
 }
 
 export interface TenantSecurityConfig {
-  mfaRequired: boolean;
+  // ADR-046: `mfaRequired` and `sessionTimeoutMinutes` are deliberately
+  // absent — tenant MFA-enforcement and session-timeout policy are owned and
+  // enforced by auth-service and managed by the tenant's own admin
+  // (tenant-admin module), not by SUPER_ADMIN here.
   mfaRequiredForAdmins: boolean;
   allowedMfaMethods: string[];
   ssoEnabled: boolean;
@@ -123,7 +126,6 @@ export interface TenantSecurityConfig {
   blockedCountries: string[];
   maxLoginAttempts: number;
   lockoutDurationMinutes: number;
-  sessionTimeoutMinutes: number;
   rememberMeDays: number;
   singleSessionPerUser: boolean;
   terminateSessionsOnPasswordChange: boolean;
@@ -211,7 +213,6 @@ export const tenantConfigApi = {
       apiKeyCount: number;
       webhookCount: number;
       customDomain: string | null;
-      mfaRequired: boolean;
       enabledModules: string[];
     }>(`/settings/tenant/${tenantId}/summary`),
 

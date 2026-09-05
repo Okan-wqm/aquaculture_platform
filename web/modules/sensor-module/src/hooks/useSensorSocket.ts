@@ -8,6 +8,7 @@
  * prevent cross-tenant SCADA data leaks during impersonation or tenant switch.
  */
 
+import { isDuplicateReading } from './reading-dedup';
 import { useEffect, useRef, useCallback, useState } from 'react';
 import type { Socket } from 'socket.io-client';
 import { create } from 'zustand';
@@ -21,6 +22,8 @@ const WS_URL =
   '/sensors';
 
 export interface SensorReading {
+  /** Deterministic source identity (Task 1.4); older payloads omit it. */
+  eventId?: string;
   sensorId: string;
   sensorName: string;
   tenantId: string;
@@ -174,6 +177,11 @@ function getSensorSocket(): Socket | null {
     });
 
     socket.on('sensorReading', (reading: SensorReading) => {
+      // Task 1.5: the reconnect window re-broadcasts the backlog — collapse
+      // re-deliveries of the same logical reading by its deterministic id.
+      if (isDuplicateReading(reading)) {
+        return;
+      }
       useSensorStore.getState().updateReading(reading);
     });
 
@@ -257,7 +265,7 @@ export function useSensorSocket(sensorIds: string[] = []) {
           next.set(sensorId, reading);
           return next;
         });
-      })
+      }),
     );
 
     return () => {
@@ -272,7 +280,7 @@ export function useSensorSocket(sensorIds: string[] = []) {
       const key = tenantScopedKey(currentTenantId, sensorId);
       return readings.get(sensorId) || lastReading.get(key);
     },
-    [readings, lastReading, currentTenantId]
+    [readings, lastReading, currentTenantId],
   );
 
   return {
@@ -286,9 +294,7 @@ export function useSensorSocket(sensorIds: string[] = []) {
  * Hook for a single sensor's real-time data
  */
 export function useSingleSensorSocket(sensorId: string) {
-  const { isConnected, readings, getLatestReading } = useSensorSocket(
-    sensorId ? [sensorId] : []
-  );
+  const { isConnected, readings, getLatestReading } = useSensorSocket(sensorId ? [sensorId] : []);
 
   return {
     isConnected,

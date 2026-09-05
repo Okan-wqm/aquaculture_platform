@@ -6,18 +6,9 @@
  * + NFR 4. toplu okuma yardımcıları (fcrSource=feed yem matrisleri):
  *   collectFeedSourceFeedIds / buildFeedFcrMatrixMap — saf, spec pinli.
  */
-import {
-  chunkWindowEntries,
-  MEAL_WINDOW_MAX_ENTRIES,
-} from '../services/feeding-cron-v2.service';
-import {
-  buildFeedFcrMatrixMap,
-  collectFeedSourceFeedIds,
-} from '../services/feed-fcr-source.util';
-import {
-  FeedingProtocolV2,
-  ProtocolFcrSource,
-} from '../entities/feeding-protocol-v2.entity';
+import { chunkWindowEntries, MEAL_WINDOW_MAX_ENTRIES } from '../services/feeding-cron-v2.service';
+import { buildFeedFcrMatrixMap, collectFeedSourceFeedIds } from '../services/feed-fcr-source.util';
+import { FeedingProtocolV2, ProtocolFcrSource } from '../entities/feeding-protocol-v2.entity';
 import { Feed } from '../../feed/entities/feed.entity';
 
 describe('chunkWindowEntries (K-2 batched window shape)', () => {
@@ -37,7 +28,10 @@ describe('chunkWindowEntries (K-2 batched window shape)', () => {
   });
 
   it('keeps the 1000-unit common-first-meal case within a small batch count', () => {
-    const chunks = chunkWindowEntries(Array.from({ length: 1000 }, (_, i) => i), MEAL_WINDOW_MAX_ENTRIES);
+    const chunks = chunkWindowEntries(
+      Array.from({ length: 1000 }, (_, i) => i),
+      MEAL_WINDOW_MAX_ENTRIES,
+    );
     expect(chunks).toHaveLength(2);
   });
 });

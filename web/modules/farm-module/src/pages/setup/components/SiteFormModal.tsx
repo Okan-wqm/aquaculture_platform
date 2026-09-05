@@ -65,7 +65,15 @@ const statusOptions = [
   { value: 'CLOSED', label: 'Closed' },
 ];
 
+/**
+ * Boş değer = "tenant ayarını devral" (W5). `sites.timezone` artık nullable:
+ * NULL, tenant lokalizasyonundan (tenant/settings → Localization) devralmak
+ * demektir. Eskiden kolon `NOT NULL DEFAULT 'UTC'` olduğu için "UTC seçildi"
+ * ile "hiç seçilmedi" ayırt edilemiyor, tenant zonunu ayarladığında siteler
+ * UTC'de kalıyordu.
+ */
 const timezoneOptions = [
+  { value: '', label: 'Inherit from tenant' },
   { value: 'UTC', label: 'UTC' },
   { value: 'Europe/Oslo', label: 'Europe/Oslo (CET)' },
   { value: 'Europe/Istanbul', label: 'Europe/Istanbul (TRT)' },
@@ -86,7 +94,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
     status: 'ACTIVE',
     country: '',
     region: '',
-    timezone: 'Europe/Oslo',
+    timezone: '',
     totalArea: '',
     siteManager: '',
     contactEmail: '',
@@ -122,7 +130,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
         status: site.status || 'ACTIVE',
         country: site.country ?? site.address?.country ?? '',
         region: site.region || '',
-        timezone: site.timezone || 'Europe/Oslo',
+        timezone: site.timezone ?? '',
         totalArea: site.totalArea ?? '',
         siteManager: site.siteManager || '',
         contactEmail: site.contactEmail || '',
@@ -153,7 +161,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
         status: 'ACTIVE',
         country: '',
         region: '',
-        timezone: 'Europe/Oslo',
+        timezone: '',
         totalArea: '',
         siteManager: '',
         contactEmail: '',
@@ -507,6 +515,11 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                     </option>
                   ))}
                 </select>
+                <p className="mt-1 text-xs text-gray-500">
+                  Feeding jobs (day-plan generation, morning sweep, daily summary) run on this
+                  site&apos;s local day. Leave it inherited unless the site is in a different
+                  timezone than the tenant.
+                </p>
               </div>
             </div>
           )}

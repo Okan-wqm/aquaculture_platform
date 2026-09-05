@@ -220,7 +220,12 @@ describe('INVARIANT (COMPLIANCE-CRITICAL-001): final TenantErased is orchestrato
     for (const [service, modulePath] of Object.entries(serviceModules)) {
       const src = repoFile(modulePath);
       expect(src).toContain("from '@aquaculture/backend-common/compliance'");
-      expect(src).toContain(`TenantErasureTargetModule.forService('${service}')`);
+      // A trailing `)` (no options) or `,` (options — e.g. sensor-service's
+      // postErasureHooks) both mean the call goes through the SHARED module;
+      // only a locally-rolled subscriber would fail this.
+      expect(src).toMatch(
+        new RegExp(`TenantErasureTargetModule\\.forService\\('${service}'[),]`),
+      );
     }
   });
 

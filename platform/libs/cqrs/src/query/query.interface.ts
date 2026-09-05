@@ -1,3 +1,8 @@
+import {
+  derivePaginationMetadataV1,
+  type PaginationMetadataV1,
+} from '@platform/pagination-contracts';
+
 /**
  * Import Type from command interface to avoid duplicate exports
  */
@@ -79,22 +84,23 @@ export interface IQueryBus {
 }
 
 /**
- * Query result with pagination metadata
+ * Query result with pagination metadata.
+ *
+ * The coordinates come from `@platform/pagination-contracts` rather than being
+ * re-declared here: a query handler's page and the page that reaches the wire
+ * must be the same contract, or `totalPages` means one thing inside the service
+ * and another outside it.
  */
 export interface PaginatedQueryResult<T> {
   data: T[];
-  pagination: {
-    page: number;
-    limit: number;
-    total: number;
-    totalPages: number;
-    hasNextPage: boolean;
-    hasPreviousPage: boolean;
-  };
+  pagination: PaginationMetadataV1;
 }
 
 /**
- * Create a paginated query result
+ * Create a paginated query result.
+ *
+ * Page arithmetic is delegated to the authority, so an empty result is page 1
+ * of 1 here exactly as it is at the transport boundary.
  */
 export function createPaginatedQueryResult<T>(
   data: T[],
@@ -102,16 +108,8 @@ export function createPaginatedQueryResult<T>(
   limit: number,
   total: number,
 ): PaginatedQueryResult<T> {
-  const totalPages = Math.max(1, Math.ceil(total / limit));
   return {
     data,
-    pagination: {
-      page,
-      limit,
-      total,
-      totalPages,
-      hasNextPage: page < totalPages,
-      hasPreviousPage: page > 1,
-    },
+    pagination: derivePaginationMetadataV1(total, page, limit),
   };
 }

@@ -50,7 +50,7 @@ export class SensorTemperatureProjectionListener implements IEventHandler<BaseEv
       );
       return;
     }
-    // subscribeWildcard builds `events.*.SensorReading`, matching the sensor
+    // subscribeWildcard builds `telemetry.*.SensorReading` (Task 2 route registry), matching the sensor
     // subgraph's per-tenant `events.{tenantId}.SensorReading` for every tenant.
     await this.eventBus.subscribeWildcard('SensorReading', this);
     this.logger.log('Subscribed to SensorReading for sensor-temperature projection (cross-tenant)');
@@ -110,36 +110,48 @@ export class SensorTemperatureProjectionListener implements IEventHandler<BaseEv
 
     try {
       await runInTenantTransaction(this.dataSource, 'farm', event.tenantId, async (queryRunner) => {
-        // Newest-wins: only advance the row when this reading is strictly newer,
-        // so redelivery / out-of-order events cannot regress the latest value.
+        // Newest-wins BY EVENT IDENTITY (Task 1.5): the eventId (deterministic
+        // since Task 1.4) is the watermark. A redelivered event is a no-op,
+        // while a DIFFERENT reading at the same millisecond still advances
+        // the row — the time-only comparison silently dropped those.
         await queryRunner.manager.query(
           `INSERT INTO "sensor_temperature_latest"
-             ("tenantId", "sensorId", "temperatureC", "measuredAt")
-           VALUES ($1, $2, $3, $4)
+             ("tenantId", "sensorId", "temperatureC", "measuredAt", "lastEventId")
+           VALUES ($1, $2, $3, $4, $5::uuid)
            ON CONFLICT ("tenantId", "sensorId") DO UPDATE
              SET "temperatureC" = EXCLUDED."temperatureC",
-                 "measuredAt" = EXCLUDED."measuredAt"
-           WHERE "sensor_temperature_latest"."measuredAt" < EXCLUDED."measuredAt"`,
-          [event.tenantId, reading.sensorId, reading.readingTemperature, measuredAt],
+                 "measuredAt" = EXCLUDED."measuredAt",
+                 "lastEventId" = EXCLUDED."lastEventId"
+           WHERE "sensor_temperature_latest"."measuredAt" < EXCLUDED."measuredAt"
+              OR ("sensor_temperature_latest"."measuredAt" = EXCLUDED."measuredAt"
+                  AND "sensor_temperature_latest"."lastEventId" IS DISTINCT FROM EXCLUDED."lastEventId")`,
+          [event.tenantId, reading.sensorId, reading.readingTemperature, measuredAt, event.eventId],
         );
 
-        // Daily rollup accumulation (RPT-005). The `lastMeasuredAt` watermark
-        // makes accumulation idempotent under at-least-once redelivery /
-        // out-of-order events: the row only advances on a strictly newer
-        // reading, so the same reading can never be counted twice.
+        // Daily rollup accumulation (RPT-005). Idempotent by EVENT IDENTITY:
+        // the same eventId never counts twice, and a distinct reading at the
+        // same millisecond is no longer lost to a strict time comparison.
         await queryRunner.manager.query(
           `INSERT INTO "sensor_temperature_daily"
-             ("tenantId", "sensorId", "day", "sumC", "minC", "maxC", "sampleCount", "lastMeasuredAt")
-           VALUES ($1, $2, $3, $4, $4, $4, 1, $5)
+             ("tenantId", "sensorId", "day", "sumC", "minC", "maxC", "sampleCount", "lastMeasuredAt", "lastEventId")
+           VALUES ($1, $2, $3, $4, $4, $4, 1, $5, $6::uuid)
            ON CONFLICT ("tenantId", "sensorId", "day") DO UPDATE
              SET "sumC" = "sensor_temperature_daily"."sumC" + EXCLUDED."sumC",
                  "minC" = LEAST("sensor_temperature_daily"."minC", EXCLUDED."minC"),
                  "maxC" = GREATEST("sensor_temperature_daily"."maxC", EXCLUDED."maxC"),
                  "sampleCount" = "sensor_temperature_daily"."sampleCount" + 1,
                  "lastMeasuredAt" = EXCLUDED."lastMeasuredAt",
+                 "lastEventId" = EXCLUDED."lastEventId",
                  "updatedAt" = now()
-           WHERE "sensor_temperature_daily"."lastMeasuredAt" < EXCLUDED."lastMeasuredAt"`,
-          [event.tenantId, reading.sensorId, day, reading.readingTemperature, measuredAt],
+           WHERE "sensor_temperature_daily"."lastEventId" IS DISTINCT FROM EXCLUDED."lastEventId"`,
+          [
+            event.tenantId,
+            reading.sensorId,
+            day,
+            reading.readingTemperature,
+            measuredAt,
+            event.eventId,
+          ],
         );
       });
     } catch (error) {

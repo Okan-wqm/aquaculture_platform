@@ -1859,11 +1859,22 @@ edilemez; kural bu lane'ler için yapısal olarak uygulanamaz durumda.
 
 ## Kayıt defteri durumu
 
-Bu döngünün bulguları `docs/reviews/_registry/findings.jsonl`'e **yazılmadı**. Defter append-only ve
-hash-chained; 131 girdilik bir append geri alınamaz bir işlem ve insan onayı gerektirir. Registry'ye
-uygun prefix'li bulgular (`FARM`, `DATA`, `FE`, `MOB`, `CTX`, `PROC`) çakışma olmasın diye mevcut
+Bu döngünün bulguları toplu olarak `docs/reviews/_registry/findings.jsonl`'e **yazılmadı**. Defter
+append-only ve hash-chained; 149 girdilik bir append geri alınamaz bir işlem ve insan onayı
+gerektirir. Registry'ye uygun prefix'li bulgular (`FARM`, `DATA`, `FE`, `MOB`, `CTX`, `PROC`) mevcut
 high-water işaretlerinin üstünden numaralandı: FARM ≥ 300, DATA ≥ 011, FE ≥ 064, MOB ≥ 018, CTX ≥
 001, PROC ≥ 016. Kalanlar `PROC-MEDIUM-016` yüzünden zaten kaydedilemez.
+
+**Düzeltme (remediation turu).** Yukarıdaki "çakışma olmaz" iddiası yanlıştı ve pratikte çakıştı.
+Numaralandırma yalnızca uzman bulguları için high-water üstünden yapıldı; sentez bulguları rapor
+üretimi sırasında ayrıca anahtarlandı ve `MOB` dizisi 018'den başladı — yani defterdeki ilk boş MOB
+numarasıyla aynı yerden. Su-kalitesi kontrat defekti remediation sırasında `npm run findings:add`
+ile kaydedilince CLI ona `MOB-CRITICAL-018` verdi. Bu rapordaki `MOB-CRITICAL-018` ise MinIO presign
+bulgusudur.
+
+Otorite defterdir: `MOB-CRITICAL-018` = su kalitesi kontrat defekti. Bu raporun sentez bloğundaki
+`MOB-*` numaraları döngü-yereldir ve registry kimliği değildir; sentez bulguları kaydedildiğinde
+CLI'nin o an tahsis ettiği taze numarayı alırlar.
 
 ## Verdict
 

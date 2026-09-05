@@ -14,6 +14,7 @@ import { ChannelMember } from '../channel/entities/channel-member.entity';
 import { ComplianceModule } from '../compliance/compliance.module';
 import { Message } from '../message/entities/message.entity';
 import { MessageModule } from '../message/message.module';
+import { MonitoringModule } from '../monitoring/monitoring.module';
 import { PartitionModule } from '../partition/partition.module';
 import { PresenceModule } from '../presence/presence.module';
 // ComplianceModule imported: MessagingNatsHandler.handleUserDeleted now calls
@@ -35,6 +36,9 @@ import { MessagingNatsHandler } from './messaging-nats.handler';
     PresenceModule,
     ComplianceModule,
     AiModule,
+    // MonitoringModule exports MonitoringStatsService — MessagingAdminNatsHandler
+    // serves the admin-panel monitoring + tenants-overview patterns (ADMIN-HIGH-009).
+    MonitoringModule,
     // MessageModule exports MediaService — MessagingNatsHandler.getMessageForBroadcast
     // signs attachment download URLs when hydrating a message for the WS bridge.
     MessageModule,

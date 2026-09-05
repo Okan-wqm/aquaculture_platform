@@ -6,7 +6,7 @@
  * main.tsx does only `import('./bootstrap')` to trigger this asynchronously.
  */
 
-import { AuthProvider, TenantProvider, ConfiguredBrowserRouter, I18nProvider, registerLogoutCleanup, refetchWhenBackendHealthy } from '@aquaculture/shared-ui';
+import { AuthProvider, TenantProvider, ConfiguredBrowserRouter, I18nProvider, ToastProvider, registerLogoutCleanup, refetchWhenBackendHealthy } from '@aquaculture/shared-ui';
 import { installVisibilityTokenRefresh } from '@aquaculture/shared-ui';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
@@ -153,7 +153,16 @@ ReactDOM.createRoot(root).render(
         <ConfiguredBrowserRouter>
           <AuthProvider>
             <TenantProvider>
-              <App />
+              {/* The single app-wide toast surface. Through the federation
+                  singleton React this context reaches every remote (admin,
+                  tenant, farm), so a useToast() call anywhere renders HERE —
+                  no per-remote providers and no duplicate aria-live regions.
+                  Before this, useToast held per-component state with a
+                  manually-mounted container, so farm-module's 30+ toast()
+                  calls rendered nowhere at all. */}
+              <ToastProvider>
+                <App />
+              </ToastProvider>
             </TenantProvider>
           </AuthProvider>
         </ConfiguredBrowserRouter>

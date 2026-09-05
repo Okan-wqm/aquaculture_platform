@@ -179,6 +179,33 @@ describe('deploy SSOT contract', () => {
     expect(dispatchInputs).not.toContain('PRODUCTION_DEPLOY_ENABLED');
   });
 
+  it('composes the production supergraph at RUNTIME, so new subgraph fields need no build artifact (FARM-LOW-278)', () => {
+    // Denetimde açık kalan soru: PR #1002'nin yeni feeding v2 yüzeyi
+    // (protocolFeedForecast / feedingDayPlans / FeedingProtocolV2)
+    // `infrastructure/apollo-router/codegen-schema.generated.json` içinde hiç
+    // geçmiyordu. Eğer o dosya router'ın GERÇEK supergraph SDL'i olsaydı tüm
+    // yeni yüzey canlıda 400 alırdı. Gerçek: prod'da apollo-router YOK;
+    // gateway-api subgraph'ları çalışma zamanında introspect edip besteliyor,
+    // ve o JSON bir SDL değil, subgraphs.json hash'ine bağlı bir MANİFEST.
+    // Bu gerçek burada pinlenir ki "açık soru" bir daha deploy'u bekletmesin.
+    const compose = read('docker-compose.droplet.yml');
+    expect(extractComposeServiceBlock(compose, 'apollo-router')).toBe('');
+
+    const gatewayModule = read('apps/gateway-api/src/app.module.ts');
+    expect(gatewayModule).toContain('RetryableIntrospectAndCompose');
+    expect(gatewayModule).toContain('supergraphSdl:');
+
+    const codegenManifest = JSON.parse(
+      read('infrastructure/apollo-router/codegen-schema.generated.json'),
+    ) as { source?: string; registryHash?: string };
+    expect(codegenManifest.source).toBe('infrastructure/apollo-router/subgraphs.json');
+    expect(typeof codegenManifest.registryHash).toBe('string');
+    // SDL olsaydı kök tipleri taşırdı — taşımadığını yapısal olarak doğrula.
+    expect(read('infrastructure/apollo-router/codegen-schema.generated.json')).not.toContain(
+      'type Query',
+    );
+  });
+
   it('keeps production/staging compose on registry images only', () => {
     for (const path of ['docker-compose.droplet.yml', 'docker-compose.staging.yml']) {
       const lines = uncommentedLines(read(path));
@@ -346,9 +373,21 @@ describe('deploy SSOT contract', () => {
     expect(helpers).toContain('aquaculture.natsClientSecretName');
     expect(helpers).toContain('secretName: {{ include "aquaculture.natsClientSecretName"');
 
-    expect(certGenerator).toContain('validate_per_service_client_cert');
-    expect(certGenerator).toContain('subject=CN=${svc_user}');
-    expect(certGenerator).toContain('openssl verify -CAfile');
+    // The generator's per-service skip path must still prove the identity it is
+    // about to reuse: the certificate's subject IS the NATS identity (ADR-015),
+    // so skipping on mere file presence would let a relabelled or mismatched
+    // pair keep a service's authorization. These pin the PROPERTIES — subject
+    // equality, CA verification, key/certificate binding — rather than the
+    // helper's spelling, which moved when the generator gained staged atomic
+    // publication (`validate_per_service_client_cert` became
+    // `validate_existing_client_set` over a shared `validate_certificate_key_pair`).
+    expect(certGenerator).toContain('validate_existing_client_set');
+    expect(certGenerator).toContain('"CN=${svc_user}" "${svc_user} client"');
+    expect(certGenerator).toContain('validate_certificate_key_pair');
+    expect(certGenerator).toContain('certificate subject');
+    expect(certGenerator).toContain('does not match');
+    expect(certGenerator).toContain('openssl verify \\');
+    expect(certGenerator).toContain('-CAfile "${ca_path}"');
     expect(certGenerator).toContain('certificate and private key do not match');
   });
 

@@ -41,7 +41,7 @@ entity column and `metadata` in the AquaMobil `MessageFields` fragment; the
 generated `MessageFieldsFragment` now carries it and the client `Message` view
 type is derived from that fragment.
 
-## FARM-HIGH-301 — Task.checklistItems / Task.notes / RecurringTemplate.checklistItems are `JSON` scalars over a typed JSONB shape
+## FARM-HIGH-301 — Task / RecurringTemplate checklist and notes are `JSON` scalars over a typed shape
 
 **Severity:** HIGH
 **Layer:** 2

@@ -29,7 +29,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useTanks } from '@/hooks/useTanks';
-import type { OperationPayload, OperationType } from '@/types';
+import type { OperationType, QueuedPayload } from '@/types';
 
 /* ---------------------------------------------------------------- */
 /*  Theme                                                            */
@@ -88,7 +88,7 @@ export interface BaseFormErrors {
  * `quantity`, and `general` on it.
  */
 export interface RecordEntityPageProps<
-  TPayload extends OperationPayload,
+  K extends OperationType,
   TErrors extends BaseFormErrors = BaseFormErrors,
 > {
   /** Theme tokens (see {@link RecordEntityTheme}). */
@@ -105,7 +105,7 @@ export interface RecordEntityPageProps<
   summaryHeading: string;
 
   /** Offline-queue operation type the submit will enqueue. */
-  operationName: OperationType;
+  operationName: K;
 
   /** Word used in the "Stock fish into a tank before recording X" prompt. */
   tankEmptyActionWord: string;
@@ -128,8 +128,8 @@ export interface RecordEntityPageProps<
    */
   validate: () => boolean;
 
-  /** Builds the typed payload dispatched to the offline queue. */
-  buildPayload: () => TPayload;
+  /** Builds the payload dispatched to the offline queue — the generated input for `operationName`, envelope stripped. */
+  buildPayload: () => QueuedPayload<K>;
 
   /** Disables the Review CTA (cheap prereq check before full validate). */
   canReview: boolean;
@@ -163,9 +163,9 @@ export interface RecordEntityPageProps<
 type FormStep = 'entry' | 'confirm';
 
 export function RecordEntityPage<
-  TPayload extends OperationPayload,
+  K extends OperationType,
   TErrors extends BaseFormErrors = BaseFormErrors,
->(props: RecordEntityPageProps<TPayload, TErrors>): JSX.Element {
+>(props: RecordEntityPageProps<K, TErrors>): JSX.Element {
   const {
     theme,
     entryTitle,

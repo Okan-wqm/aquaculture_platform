@@ -7,7 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
 import { useLeaveTypes, useMyLeaveBalances } from '@/hooks/useLeave';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
-import type { LeaveType, CreateLeaveRequestInput } from '@/types';
+import type { LeaveType, QueuedPayload } from '@/types';
 
 
 interface FormErrors {
@@ -81,7 +81,7 @@ export function LeaveRequestPage(): JSX.Element {
       // WHY: Build a payload that matches the backend CreateLeaveRequestInput
       // DTO exactly. The old code sent { isHalfDay } which the backend does not
       // recognize — the backend uses isHalfDayStart/isHalfDayEnd/halfDayPeriod.
-      const payload: CreateLeaveRequestInput = {
+      const payload: QueuedPayload<'createLeaveRequest'> = {
         leaveTypeId: selectedTypeId,
         startDate,
         endDate,

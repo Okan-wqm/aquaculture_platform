@@ -28,6 +28,7 @@ import type {
   OperationType,
   OperationPayload,
   AddToQueueResult,
+  QueuedPayload,
   UploadAndSendMessageOfflinePayload,
 } from '@/types';
 import type { MediaUploadResponse } from '@/types/messaging';
@@ -58,7 +59,11 @@ interface OfflineContextValue {
   isOnline: boolean;
   isSyncing: boolean;
   syncError: string | null;
-  addToQueue: (type: OperationType, payload: OperationPayload, clientCommandId?: string) => Promise<AddToQueueResult>;
+  addToQueue: <K extends OperationType>(
+    type: K,
+    payload: QueuedPayload<K>,
+    clientCommandId?: string,
+  ) => Promise<AddToQueueResult>;
   syncNow: () => Promise<SyncResult>;
   removeFromQueue: (id: string) => Promise<void>;
   getSyncStatus: (id: string) => SyncStatus;
@@ -228,7 +233,11 @@ export function OfflineProvider({ children }: { children: ReactNode }): ReactEle
     // this offline fallback, so the server dedups an online-fail-then-queue
     // retry. Omitted by pure-offline-first callers, which mint a fresh id inside
     // queueOperation as before.
-    async (type: OperationType, payload: OperationPayload, clientCommandId?: string): Promise<AddToQueueResult> => {
+    async <K extends OperationType>(
+      type: K,
+      payload: QueuedPayload<K>,
+      clientCommandId?: string,
+    ): Promise<AddToQueueResult> => {
       // SECURITY (C11): tenantId is required -- reject if not authenticated
       if (!tenantId) {
         throw new Error('Cannot queue operations without an active tenant');

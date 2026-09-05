@@ -12,7 +12,7 @@ import {
 } from '@/graphql/operations';
 import { computePayloadHash } from '@/pwa/offline-queue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
-import type { ChecklistItemSetInput } from '@/types';
+import type { QueuedPayload } from '@/types';
 import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
 
 // WHY: TaskActionResult distinguishes queued-offline actions from confirmed-online
@@ -38,7 +38,8 @@ interface CommandIdentity {
 }
 
 // Lifecycle payload (completeTask/startTask) before the envelope is added.
-type TaskLifecyclePayload = { id: string };
+type TaskLifecyclePayload = QueuedPayload<'completeTask'>;
+type ChecklistItemSetInput = QueuedPayload<'setChecklistItem'>;
 
 export function useTaskActions(): {
   completeTask: (taskId: string) => Promise<TaskActionResult>;

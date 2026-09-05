@@ -1,6 +1,12 @@
 import { get, set, del, keys, entries, createStore } from 'idb-keyval';
 
-import type { QueuedOperation, OperationType, OperationPayload, AddToQueueResult } from '@/types';
+import type {
+  QueuedOperation,
+  OperationType,
+  OperationPayload,
+  AddToQueueResult,
+  QueuedPayload,
+} from '@/types';
 import { logger } from '@/utils/logger';
 import type { UserScopedCacheKey } from '@/utils/user-scoped-cache-key';
 
@@ -117,21 +123,21 @@ export async function computePayloadHash(payload: OperationPayload): Promise<str
   return sha256Hex(stableStringify(payload));
 }
 
-async function attachCommandEnvelope(
-  type: OperationType,
-  payload: OperationPayload,
+async function attachCommandEnvelope<K extends OperationType>(
+  type: K,
+  payload: QueuedPayload<K>,
   clientCommandId: string,
   payloadHash: string,
-): Promise<OperationPayload> {
+): Promise<OperationPayload<K>> {
   return {
-    ...(payload as unknown as Record<string, unknown>),
+    ...payload,
     clientCommandId,
     clientCreatedAt: new Date().toISOString(),
     deviceId: await getDeviceId(),
     operationType: type,
     payloadHash,
     schemaVersion: 'mobile-command-v1',
-  } as OperationPayload;
+  };
 }
 
 async function encryptPayload(payload: OperationPayload): Promise<{ iv: string; ciphertext: string }> {
@@ -265,10 +271,13 @@ async function bumpQueueVersion(tenantId: string): Promise<void> {
  *   When omitted (pure-offline first submit), a fresh id is minted here, which
  *   is the established behaviour for every other queued operation.
  */
-export async function queueOperation(
+export async function queueOperation<K extends OperationType>(
   tenantId: string,
-  type: OperationType,
-  payload: OperationPayload,
+  type: K,
+  // MOB-HIGH-019: the payload is typed BY the operation — the generated input
+  // for that mutation, envelope stripped — so `type` and `payload` can no
+  // longer disagree at the call site.
+  payload: QueuedPayload<K>,
   // SEC-09: Caller supplies hasValidAuth so background sync is only registered
   // when there are valid credentials. If the token expires before the sync fires
   // the in-app sync path (executeGraphQL) will catch the 401 and surface an error

@@ -34,7 +34,7 @@ import { STORAGE_INVENTORY_ITEMS, STORAGE_LOCATIONS } from '@/graphql/storage-op
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
-import type { StorageItemType, StockTransferInput } from '@/types';
+import type { StorageItemType, QueuedPayload } from '@/types';
 import { isRecoverableNetworkError } from '@/utils/network-error';
 import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
@@ -232,7 +232,7 @@ export function StockTransferPage(): JSX.Element {
     // Generate once for this submit attempt. The offline queue adds a command
     // envelope when queued; online direct submissions still need server-side
     // idempotency for timeout/retry safety.
-    const input: StockTransferInput = {
+    const input: QueuedPayload<'transferStock'> = {
       itemType,
       itemId: selectedItemId,
       fromLocationId,

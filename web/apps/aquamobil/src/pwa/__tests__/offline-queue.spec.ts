@@ -200,6 +200,11 @@ import {
   MAX_PENDING_BLOB_BYTES,
 } from '../offline-queue';
 
+// MOB-HIGH-019: the queued payload is the generated RecordMortalityInput minus the
+// envelope, and the server requires `observedAt` — a fixture without it no longer
+// type-checks, which is the point.
+const OBSERVED_AT = '2026-01-01T00:00:00.000Z';
+
 /** SECURITY (C11): All queue operations are tenant-scoped. Tests use a fixed tenant UUID. */
 const TEST_QUEUE_TENANT = 'tenant-queue-001';
 
@@ -263,7 +268,7 @@ describe('Offline Queue', () => {
 
   describe('queueOperation (enqueue)', () => {
     it('should enqueue an operation and return an ID', async () => {
-      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
       const id = await enqueueId(TEST_QUEUE_TENANT, 'recordMortality', payload);
 
       expect(id).toBeTruthy();
@@ -271,7 +276,7 @@ describe('Offline Queue', () => {
     });
 
     it('should encrypt payload before storing (SEC-03)', async () => {
-      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
       await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload);
 
       expect(mockEncrypt).toHaveBeenCalled();
@@ -284,7 +289,7 @@ describe('Offline Queue', () => {
     });
 
     it('should set status to pending', async () => {
-      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
       await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload);
 
       const storedEntries = Array.from(idbStore.values());
@@ -294,7 +299,7 @@ describe('Offline Queue', () => {
     });
 
     it('should include tenantId in stored operation (C11)', async () => {
-      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
       await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload);
 
       const storedEntries = Array.from(idbStore.values());
@@ -303,7 +308,7 @@ describe('Offline Queue', () => {
     });
 
     it('should use tenant-scoped key format (C11)', async () => {
-      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
       const id = await enqueueId(TEST_QUEUE_TENANT, 'recordMortality', payload);
 
       const storedKeys = Array.from(idbStore.keys());
@@ -311,14 +316,14 @@ describe('Offline Queue', () => {
     });
 
     it('should reject when tenantId is empty (C11)', async () => {
-      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
       await expect(queueOperation('', 'recordMortality', payload)).rejects.toThrow(
         'tenantId is required',
       );
     });
 
     it('should set createdAt timestamp', async () => {
-      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
       await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload);
 
       const storedEntries = Array.from(idbStore.values());
@@ -332,7 +337,7 @@ describe('Offline Queue', () => {
     // verified by the "should encrypt payload" test above.
 
     it('should store operation type', async () => {
-      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
       await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload);
 
       const storedEntries = Array.from(idbStore.values());
@@ -347,7 +352,7 @@ describe('Offline Queue', () => {
 
   describe('queueOperation dedup (FE-HIGH-050 payloadHash)', () => {
     it('returns { status: "queued" } for a fresh op and writes exactly one entry', async () => {
-      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
       const result = await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload);
 
       expect(result.status).toBe('queued');
@@ -356,7 +361,7 @@ describe('Offline Queue', () => {
     });
 
     it('collapses a byte-identical re-submit onto the existing op (status duplicate, same id)', async () => {
-      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
       const first = await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload);
       const second = await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload);
 
@@ -369,8 +374,8 @@ describe('Offline Queue', () => {
     });
 
     it('does NOT dedup when a single payload field differs', async () => {
-      const a = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
-      const b = { batchId: 'b1', tankId: 't1', quantity: 6, reason: 'DISEASE' as const };
+      const a = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
+      const b = { batchId: 'b1', tankId: 't1', quantity: 6, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
       const r1 = await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', a);
       const r2 = await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', b);
 
@@ -417,7 +422,7 @@ describe('Offline Queue', () => {
     });
 
     it('dedups within tenant only — an identical payload under another tenant still queues', async () => {
-      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
       const r1 = await queueOperation('tenant-A', 'recordMortality', payload);
       const r2 = await queueOperation('tenant-B', 'recordMortality', payload);
 
@@ -438,18 +443,18 @@ describe('Offline Queue', () => {
 
     it('increments on every fresh enqueue', async () => {
       await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', {
-        batchId: 'b1', tankId: 't1', quantity: 1, reason: 'DISEASE' as const,
+        batchId: 'b1', tankId: 't1', quantity: 1, reason: 'DISEASE' as const, observedAt: OBSERVED_AT,
       });
       expect(await getQueueVersion(TEST_QUEUE_TENANT)).toBe(1);
 
       await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', {
-        batchId: 'b2', tankId: 't2', quantity: 2, reason: 'STRESS' as const,
+        batchId: 'b2', tankId: 't2', quantity: 2, reason: 'STRESS' as const, observedAt: OBSERVED_AT,
       });
       expect(await getQueueVersion(TEST_QUEUE_TENANT)).toBe(2);
     });
 
     it('does NOT increment when a submit is deduped (no new content)', async () => {
-      const payload = { batchId: 'b1', tankId: 't1', quantity: 1, reason: 'DISEASE' as const };
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 1, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
       await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload);
       const afterFirst = await getQueueVersion(TEST_QUEUE_TENANT);
 
@@ -463,7 +468,7 @@ describe('Offline Queue', () => {
       // count goes 1 -> 0 -> 1, an unchanged observation, yet a genuinely new op
       // must sync. The version strictly increases, giving the re-arm signal.
       const first = await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', {
-        batchId: 'b1', tankId: 't1', quantity: 1, reason: 'DISEASE' as const,
+        batchId: 'b1', tankId: 't1', quantity: 1, reason: 'DISEASE' as const, observedAt: OBSERVED_AT,
       });
       const v1 = await getQueueVersion(TEST_QUEUE_TENANT);
       expect(await getPendingCount(TEST_QUEUE_TENANT)).toBe(1);
@@ -478,7 +483,7 @@ describe('Offline Queue', () => {
 
       // Enqueue a different op — count is back to 1 (same as before), but version moved.
       await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', {
-        batchId: 'b9', tankId: 't9', quantity: 9, reason: 'OXYGEN' as const,
+        batchId: 'b9', tankId: 't9', quantity: 9, reason: 'OXYGEN' as const, observedAt: OBSERVED_AT,
       });
       const v2 = await getQueueVersion(TEST_QUEUE_TENANT);
       expect(await getPendingCount(TEST_QUEUE_TENANT)).toBe(1);
@@ -487,10 +492,10 @@ describe('Offline Queue', () => {
 
     it('resets the version token to 0 on a tenant-scoped clear', async () => {
       await queueOperation('tenant-A', 'recordMortality', {
-        batchId: 'b1', tankId: 't1', quantity: 1, reason: 'DISEASE' as const,
+        batchId: 'b1', tankId: 't1', quantity: 1, reason: 'DISEASE' as const, observedAt: OBSERVED_AT,
       });
       await queueOperation('tenant-B', 'recordMortality', {
-        batchId: 'b2', tankId: 't2', quantity: 2, reason: 'STRESS' as const,
+        batchId: 'b2', tankId: 't2', quantity: 2, reason: 'STRESS' as const, observedAt: OBSERVED_AT,
       });
       expect(await getQueueVersion('tenant-A')).toBe(1);
       expect(await getQueueVersion('tenant-B')).toBe(1);
@@ -504,10 +509,10 @@ describe('Offline Queue', () => {
 
     it('wipes all version tokens on a full (logout) clear', async () => {
       await queueOperation('tenant-A', 'recordMortality', {
-        batchId: 'b1', tankId: 't1', quantity: 1, reason: 'DISEASE' as const,
+        batchId: 'b1', tankId: 't1', quantity: 1, reason: 'DISEASE' as const, observedAt: OBSERVED_AT,
       });
       await queueOperation('tenant-B', 'recordMortality', {
-        batchId: 'b2', tankId: 't2', quantity: 2, reason: 'STRESS' as const,
+        batchId: 'b2', tankId: 't2', quantity: 2, reason: 'STRESS' as const, observedAt: OBSERVED_AT,
       });
 
       await clearAllOperations();
@@ -523,7 +528,7 @@ describe('Offline Queue', () => {
 
   describe('getPendingOperations (dequeue)', () => {
     it('should decrypt and return queued operations', async () => {
-      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
       await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload);
 
       const pending = await getPendingOperations(TEST_QUEUE_TENANT);
@@ -533,8 +538,8 @@ describe('Offline Queue', () => {
     });
 
     it('should return operations sorted by createdAt', async () => {
-      const payload1 = { batchId: 'b1', tankId: 't1', quantity: 1, reason: 'DISEASE' as const };
-      const payload2 = { batchId: 'b2', tankId: 't2', quantity: 2, reason: 'STRESS' as const };
+      const payload1 = { batchId: 'b1', tankId: 't1', quantity: 1, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
+      const payload2 = { batchId: 'b2', tankId: 't2', quantity: 2, reason: 'STRESS' as const, observedAt: OBSERVED_AT };
 
       await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload1);
       await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload2);
@@ -553,7 +558,7 @@ describe('Offline Queue', () => {
     });
 
     it('should only return operations for the requested tenant (C11)', async () => {
-      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
       await queueOperation('tenant-A', 'recordMortality', payload);
       await queueOperation('tenant-B', 'recordMortality', payload);
 
@@ -590,7 +595,7 @@ describe('Offline Queue', () => {
 
   describe('getOperation (single)', () => {
     it('should store operation with correct tenant-scoped key', async () => {
-      const payload = { batchId: 'getop-b1', tankId: 'getop-t1', quantity: 5, reason: 'DISEASE' as const };
+      const payload = { batchId: 'getop-b1', tankId: 'getop-t1', quantity: 5, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
       const id = await enqueueId(TEST_QUEUE_TENANT, 'recordMortality', payload);
 
       // Verify via direct idbStore access (bypasses mock get/entries)
@@ -608,7 +613,7 @@ describe('Offline Queue', () => {
     });
 
     it('should return undefined when querying wrong tenant (C11)', async () => {
-      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
       const id = await enqueueId('tenant-A', 'recordMortality', payload);
 
       const op = await getOperation('tenant-B', id);
@@ -619,8 +624,8 @@ describe('Offline Queue', () => {
   describe('getPendingCount', () => {
     it('should return correct count', async () => {
       // Use unique resourceIds to avoid dedup within the 5s window
-      const payload1 = { batchId: 'b1', tankId: 't1', quantity: 1, reason: 'DISEASE' as const };
-      const payload2 = { batchId: 'b2', tankId: 't2', quantity: 1, reason: 'STRESS' as const };
+      const payload1 = { batchId: 'b1', tankId: 't1', quantity: 1, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
+      const payload2 = { batchId: 'b2', tankId: 't2', quantity: 1, reason: 'STRESS' as const, observedAt: OBSERVED_AT };
       await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload1);
       await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload2);
 
@@ -629,9 +634,9 @@ describe('Offline Queue', () => {
     });
 
     it('should only count operations for the requested tenant (C11)', async () => {
-      const payloadA = { batchId: 'b1', tankId: 't1', quantity: 1, reason: 'DISEASE' as const };
-      const payloadB1 = { batchId: 'b2', tankId: 't2', quantity: 1, reason: 'STRESS' as const };
-      const payloadB2 = { batchId: 'b3', tankId: 't3', quantity: 1, reason: 'OXYGEN' as const };
+      const payloadA = { batchId: 'b1', tankId: 't1', quantity: 1, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
+      const payloadB1 = { batchId: 'b2', tankId: 't2', quantity: 1, reason: 'STRESS' as const, observedAt: OBSERVED_AT };
+      const payloadB2 = { batchId: 'b3', tankId: 't3', quantity: 1, reason: 'OXYGEN' as const, observedAt: OBSERVED_AT };
       await queueOperation('tenant-A', 'recordMortality', payloadA);
       await queueOperation('tenant-B', 'recordMortality', payloadB1);
       await queueOperation('tenant-B', 'recordMortality', payloadB2);
@@ -803,8 +808,8 @@ describe('Offline Queue', () => {
   describe('syncAllOperations', () => {
     it('should sync all pending operations for the given tenant', async () => {
       // Use unique resourceIds to avoid dedup within the 5s window
-      const payload1 = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
-      const payload2 = { batchId: 'b2', tankId: 't2', quantity: 3, reason: 'STRESS' as const };
+      const payload1 = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
+      const payload2 = { batchId: 'b2', tankId: 't2', quantity: 3, reason: 'STRESS' as const, observedAt: OBSERVED_AT };
       await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload1);
       await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload2);
 
@@ -818,7 +823,7 @@ describe('Offline Queue', () => {
     });
 
     it('should NOT sync operations from a different tenant (C11)', async () => {
-      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
       await queueOperation('tenant-A', 'recordMortality', payload);
       await queueOperation('tenant-B', 'recordMortality', payload);
 
@@ -840,7 +845,7 @@ describe('Offline Queue', () => {
       // Enqueue mortality → escape → feeding. The rømming varsling is legally
       // immediate, so on reconnect the escape record must reach the server
       // before the rest of the backlog — while everything else keeps FIFO.
-      const mortality = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
+      const mortality = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
       const escape = {
         siteId: 's1',
         tankId: 't1',
@@ -867,7 +872,7 @@ describe('Offline Queue', () => {
     });
 
     it('should count failed operations', async () => {
-      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
       await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload);
 
       const mockExecutor = vi.fn().mockRejectedValue(new Error('Server error'));
@@ -880,7 +885,7 @@ describe('Offline Queue', () => {
 
     it('should reset stale syncing entries before processing (BUG-02)', async () => {
       // Manually insert a stale 'syncing' entry
-      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
       const id = await enqueueId(TEST_QUEUE_TENANT, 'recordMortality', payload);
       await updateOperation(TEST_QUEUE_TENANT, id, { status: 'syncing' });
 
@@ -899,7 +904,7 @@ describe('Offline Queue', () => {
 
   describe('Retry Policy', () => {
     it('should increment retryCount on failure', async () => {
-      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
       const id = await enqueueId(TEST_QUEUE_TENANT, 'recordMortality', payload);
 
       const mockExecutor = vi.fn().mockRejectedValue(new Error('Fail'));
@@ -915,7 +920,7 @@ describe('Offline Queue', () => {
     });
 
     it('should skip operations with retryCount >= MAX_RETRY_COUNT (permanent fail)', async () => {
-      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
       const id = await enqueueId(TEST_QUEUE_TENANT, 'recordMortality', payload);
 
       // Manually set retryCount to MAX_RETRY_COUNT
@@ -932,7 +937,7 @@ describe('Offline Queue', () => {
     });
 
     it('should promote retryable failed operations back to pending (BUG-17)', async () => {
-      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
       const id = await enqueueId(TEST_QUEUE_TENANT, 'recordMortality', payload);
 
       // Simulate a failed operation with retryCount < MAX_RETRY_COUNT
@@ -949,7 +954,7 @@ describe('Offline Queue', () => {
     });
 
     it('should NOT retry operations with permanent error messages', async () => {
-      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
       const id = await enqueueId(TEST_QUEUE_TENANT, 'recordMortality', payload);
 
       // Simulate a permanent failure (validation error)
@@ -966,7 +971,7 @@ describe('Offline Queue', () => {
     });
 
     it('should truncate error messages to 200 chars (SEC-07)', async () => {
-      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
       const id = await enqueueId(TEST_QUEUE_TENANT, 'recordMortality', payload);
 
       const longError = 'A'.repeat(500);
@@ -983,7 +988,7 @@ describe('Offline Queue', () => {
     });
 
     it('should remove operation on successful sync', async () => {
-      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
       const id = await enqueueId(TEST_QUEUE_TENANT, 'recordMortality', payload);
 
       const mockExecutor = vi.fn().mockResolvedValue({ success: true });
@@ -1003,7 +1008,7 @@ describe('Offline Queue', () => {
 
   describe('clearAllOperations', () => {
     it('should remove all queued operations when no tenantId given', async () => {
-      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
       await queueOperation('tenant-A', 'recordMortality', payload);
       await queueOperation('tenant-B', 'recordMortality', payload);
 
@@ -1013,7 +1018,7 @@ describe('Offline Queue', () => {
     });
 
     it('should only remove the specified tenant operations (C11)', async () => {
-      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
       await queueOperation('tenant-A', 'recordMortality', payload);
       await queueOperation('tenant-B', 'recordMortality', payload);
 

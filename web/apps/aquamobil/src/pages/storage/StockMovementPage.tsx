@@ -38,7 +38,7 @@ import { STORAGE_INVENTORY_ITEMS, STORAGE_LOCATIONS } from '@/graphql/storage-op
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
-import type { StockMovementType, StorageItemType, StockMovementInput } from '@/types';
+import type { StockMovementType, StorageItemType, QueuedPayload } from '@/types';
 import { isRecoverableNetworkError } from '@/utils/network-error';
 import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
@@ -315,7 +315,7 @@ export function StockMovementPage(): JSX.Element {
     // Backend uses separate fromLocationId / toLocationId:
     // - IN: stock arrives at toLocationId (destination warehouse)
     // - OUT / WASTE: stock leaves fromLocationId (source warehouse)
-    const input: StockMovementInput = {
+    const input: QueuedPayload<'recordStockMovement'> = {
       movementType,
       itemType,
       itemId: selectedItemId,

@@ -12,7 +12,7 @@ import { CreateWaterQualityMeasurementDocument } from '@/generated/graphql';
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
-import type { CreateWaterQualityInput } from '@/types';
+import type { QueuedPayload } from '@/types';
 import { isRecoverableNetworkError } from '@/utils/network-error';
 import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
@@ -178,7 +178,7 @@ export function WaterQualityRecordPage(): JSX.Element {
 
   // -- Create mutation -------------------------------------------------------
   const { mutateAsync: createMeasurement, isPending: isSubmitting } = useMutation({
-    mutationFn: async (input: CreateWaterQualityInput) =>
+    mutationFn: async (input: QueuedPayload<'createWaterQuality'>) =>
       graphqlRequest<{ createWaterQualityMeasurement: { id: string; overallStatus: string; hasAlarm: boolean } }>(
         CreateWaterQualityMeasurementDocument, { input },
       ),
@@ -199,12 +199,11 @@ export function WaterQualityRecordPage(): JSX.Element {
           value,
         ]),
       ) as Record<string, number | string | boolean>;
-      const input: CreateWaterQualityInput = {
+      const input: QueuedPayload<'createWaterQuality'> = {
         equipmentId: selectedEquipmentId,
         measuredAt: new Date().toISOString(),
         source: 'MANUAL',
         idempotencyKey: crypto.randomUUID(),
-        parameters: {},
         dynamicParameters,
         ...(notes.trim() ? { notes: notes.trim() } : {}),
         ...(weatherConditions?.trim() ? { weatherConditions: weatherConditions.trim() } : {}),

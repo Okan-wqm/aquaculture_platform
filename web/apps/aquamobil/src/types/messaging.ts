@@ -285,40 +285,16 @@ export interface ReadReceiptEvent {
 // INPUT TYPES — match ADR-012 section 6.2 GraphQL Input types
 // ============================================================================
 
-/** Input for sending a new message. */
-export interface SendMessageInput {
-  channelId: string;
-  content: string | null;
-  contentType: MessageContentType;
-  parentId?: string;
-  attachmentKeys?: string[];
-  idempotencyKey: string;
-  metadata?: Record<string, unknown>;
-}
-
-/**
- * Input for creating a new channel — the GraphQL *write* payload.
- *
- * WHY `type` is `ChannelTypeWire` (the SDL KEY `'DIRECT' | 'GROUP' | 'AI'`)
- * and NOT the internal lowercase `ChannelType`: the messaging subgraph
- * registers its enum WITHOUT a valuesMap, so graphql-js accepts only the enum
- * KEYS on the wire. Posting the lowercase value (`'group'`) is rejected with a
- * 400 before the resolver runs (MSG-HIGH-054). Typing the field as the wire
- * union forces every caller through {@link toWireChannelType}, making the
- * lowercase 400 a compile-time error instead of a runtime failure.
- *
- * @see web/apps/aquamobil/src/utils/channel-type-wire.ts
- */
-export interface CreateChannelInput {
-  type: ChannelTypeWire;
-  name?: string;
-  description?: string;
-  memberIds: string[];
-  /** AI persona ID for AI channels (e.g. 'expert-v1'). */
-  aiPersona?: string;
-  /** Custom MCP server URL override for AI channels. */
-  aiServiceUrl?: string;
-}
+// MOB-HIGH-019: the write payloads are the GENERATED input types — the schema
+// is the SSoT, not a hand-maintained mirror. `CreateChannelInput.type` is the
+// generated `ChannelType` enum union (the SDL KEYS 'DIRECT' | 'GROUP' | 'AI'),
+// which is what makes posting the lowercase internal value a compile error
+// (MSG-HIGH-054) — callers go through `toWireChannelType`.
+export type {
+  CreateChannelInput,
+  RequestMediaUploadInput,
+  SendMessageInput,
+} from '../generated/graphql';
 
 /**
  * AI persona definition returned by the availableAiPersonas query.
@@ -337,14 +313,6 @@ export interface AiPersona {
   color: string;
   /** List of capability labels. */
   capabilities?: string[];
-}
-
-/** Input for requesting a presigned media upload URL. */
-export interface RequestMediaUploadInput {
-  channelId: string;
-  filename: string;
-  mimeType: string;
-  fileSize: number;
 }
 
 // ============================================================================

@@ -121,15 +121,15 @@
     "duplicateOf": null
   },
   {
-    "documentId": "doc_c9eebbb50c992990",
+    "documentId": "doc_64d00522cbc08e4d",
     "caseId": "case_fixture",
     "relativePath": "kronologi.txt",
     "fileName": "kronologi.txt",
     "extension": ".txt",
     "mediaType": "text/plain",
-    "bytes": 282,
-    "sha256": "6e5ef00a1637223634103f8a6d15f8938f42fef3312e308b45429817e369c1ad",
-    "modifiedAt": "2026-09-03T20:53:45.974Z",
+    "bytes": 399,
+    "sha256": "fc11bbe02f5640ce69b6196d0f7c2c29d5b5ca7cb49258e802f4547ccddc0db2",
+    "modifiedAt": "2026-09-05T06:21:05.626Z",
     "kindGuess": "DOCUMENT",
     "kindConfidence": 0.3,
     "extraction": "text",
@@ -137,7 +137,8 @@
     "datesMentioned": [
       "2024-02-20",
       "2024-03-01",
-      "2024-03-12"
+      "2024-03-12",
+      "2024-03-18"
     ],
     "amountsMentioned": [
       "25 000 kr",

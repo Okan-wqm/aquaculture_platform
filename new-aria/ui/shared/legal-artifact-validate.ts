@@ -302,11 +302,23 @@ export function validateVersions(value: unknown): LegalDocumentVersion[] {
 
 function validateParty(value: unknown, path: string, fail: Fail): LegalParty {
   const source = record(value, path, fail);
+  const roleEvidence = array(source['roleEvidence'], `${path}.roleEvidence`, fail).map((item, index) => {
+    const row = record(item, `${path}.roleEvidence[${index}]`, fail);
+    return { role: str(row['role'], `${path}.roleEvidence[${index}].role`, fail, { minLength: 1 }), evidence: evidenceRef(row['evidence'], `${path}.roleEvidence[${index}].evidence`, fail) };
+  });
+  const roles = stringList(source['roles'], `${path}.roles`, fail);
+  // A role without a line it was read on is a claim, not a reading.
+  for (const role of roles) {
+    if (!roleEvidence.some((row) => row.role === role)) fail(`${path}.roles`, `role ${role} has no roleEvidence row behind it`);
+  }
   return {
     partyId: str(source['partyId'], `${path}.partyId`, fail, { pattern: PARTY_ID }),
     displayName: str(source['displayName'], `${path}.displayName`, fail, { minLength: 1 }),
     kind: oneOf(source['kind'], `${path}.kind`, fail, ['person', 'organization', 'court', 'authority', 'unknown'] as const),
-    roles: stringList(source['roles'], `${path}.roles`, fail),
+    basis: oneOf(source['basis'], `${path}.basis`, fail, ['header_address', 'organisation_form', 'organisation_number', 'counsel_construction', 'party_label', 'court_name'] as const),
+    organisationNumber: strOrNull(source['organisationNumber'], `${path}.organisationNumber`, fail, { pattern: /^[0-9]{9}$/ }),
+    roles,
+    roleEvidence,
     aliases: stringList(source['aliases'], `${path}.aliases`, fail, { unique: true }),
     mentions: int(source['mentions'], `${path}.mentions`, fail, 0),
     evidence: evidenceRefs(source['evidence'], `${path}.evidence`, fail, 1),
@@ -455,6 +467,14 @@ export function validateCoverage(value: unknown): LegalCoverage {
       };
     }),
     reconciliation,
+    truncated: (() => {
+      const row = record(source['truncated'], '$.truncated', fail);
+      return {
+        findings: int(row['findings'], '$.truncated.findings', fail, 0),
+        statements: int(row['statements'], '$.truncated.statements', fail, 0),
+        timeline: int(row['timeline'], '$.truncated.timeline', fail, 0),
+      };
+    })(),
     complete: bool(source['complete'], '$.complete', fail),
   };
 }

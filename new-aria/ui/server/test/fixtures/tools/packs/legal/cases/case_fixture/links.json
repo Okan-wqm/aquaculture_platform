@@ -1,5 +1,85 @@
 [
   {
+    "linkId": "lnk_0192e6768a73",
+    "kind": "WAS_SENT_BY",
+    "from": {
+      "kind": "DOCUMENT",
+      "id": "doc_2977e926b8bc73a6"
+    },
+    "to": {
+      "kind": "PARTY",
+      "id": "party_65149ee012c3"
+    },
+    "evidence": [
+      {
+        "documentId": "doc_2977e926b8bc73a6",
+        "locator": "line:2",
+        "sha256": "19f2f23a713b0d61e6fcadc9edaa6a6fe3a5bc1269f8aeff1b6a0c3fbdceb016"
+      }
+    ],
+    "confidence": 0.5
+  },
+  {
+    "linkId": "lnk_0d0c93e25046",
+    "kind": "PARTY_IN",
+    "from": {
+      "kind": "PARTY",
+      "id": "party_73582a574c9e"
+    },
+    "to": {
+      "kind": "CASE",
+      "id": "case_fixture"
+    },
+    "evidence": [
+      {
+        "documentId": "doc_3ed75d995ca0922e",
+        "locator": "header:Cc",
+        "sha256": "ef3e11258cb99536ac741758ad70a78fbfde591c44c917502730ae98cb9f1061"
+      }
+    ],
+    "confidence": 0.5
+  },
+  {
+    "linkId": "lnk_0e9db5d45e66",
+    "kind": "PARTY_IN",
+    "from": {
+      "kind": "PARTY",
+      "id": "party_6afd206c2bd6"
+    },
+    "to": {
+      "kind": "CASE",
+      "id": "case_fixture"
+    },
+    "evidence": [
+      {
+        "documentId": "doc_3ed75d995ca0922e",
+        "locator": "header:From",
+        "sha256": "ef3e11258cb99536ac741758ad70a78fbfde591c44c917502730ae98cb9f1061"
+      }
+    ],
+    "confidence": 0.5
+  },
+  {
+    "linkId": "lnk_2c500c29a4e0",
+    "kind": "WAS_RECEIVED_BY",
+    "from": {
+      "kind": "DOCUMENT",
+      "id": "doc_2977e926b8bc73a6"
+    },
+    "to": {
+      "kind": "PARTY",
+      "id": "party_232b2350ffe4"
+    },
+    "evidence": [
+      {
+        "documentId": "doc_2977e926b8bc73a6",
+        "locator": "line:3",
+        "sha256": "19f2f23a713b0d61e6fcadc9edaa6a6fe3a5bc1269f8aeff1b6a0c3fbdceb016"
+      }
+    ],
+    "confidence": 0.5
+  },
+  {
     "linkId": "lnk_3a190f1598e0",
     "kind": "WAS_RECEIVED_BY",
     "from": {
@@ -38,6 +118,26 @@
       }
     ],
     "confidence": 0.6
+  },
+  {
+    "linkId": "lnk_5b164f99e06c",
+    "kind": "WAS_RECEIVED_BY",
+    "from": {
+      "kind": "DOCUMENT",
+      "id": "doc_f285ea9f52c64341"
+    },
+    "to": {
+      "kind": "PARTY",
+      "id": "party_65149ee012c3"
+    },
+    "evidence": [
+      {
+        "documentId": "doc_f285ea9f52c64341",
+        "locator": "page:1",
+        "sha256": "1fdce4f6970c4f6d229a5b07441369501f2b3254f47037fcb293f20bf350cde7"
+      }
+    ],
+    "confidence": 0.5
   },
   {
     "linkId": "lnk_5fd5550fb43b",
@@ -123,5 +223,105 @@
       }
     ],
     "confidence": 0.6
+  },
+  {
+    "linkId": "lnk_cfc9c98e75d9",
+    "kind": "PARTY_IN",
+    "from": {
+      "kind": "PARTY",
+      "id": "party_5106f6341ef8"
+    },
+    "to": {
+      "kind": "CASE",
+      "id": "case_fixture"
+    },
+    "evidence": [
+      {
+        "documentId": "doc_3ed75d995ca0922e",
+        "locator": "header:To",
+        "sha256": "ef3e11258cb99536ac741758ad70a78fbfde591c44c917502730ae98cb9f1061"
+      }
+    ],
+    "confidence": 0.5
+  },
+  {
+    "linkId": "lnk_d8ef930bf925",
+    "kind": "PARTY_IN",
+    "from": {
+      "kind": "PARTY",
+      "id": "party_25478c84235e"
+    },
+    "to": {
+      "kind": "CASE",
+      "id": "case_fixture"
+    },
+    "evidence": [
+      {
+        "documentId": "doc_64d00522cbc08e4d",
+        "locator": "line:6",
+        "sha256": "fc11bbe02f5640ce69b6196d0f7c2c29d5b5ca7cb49258e802f4547ccddc0db2"
+      }
+    ],
+    "confidence": 0.4
+  },
+  {
+    "linkId": "lnk_dd8f1f0b475d",
+    "kind": "PARTY_IN",
+    "from": {
+      "kind": "PARTY",
+      "id": "party_232b2350ffe4"
+    },
+    "to": {
+      "kind": "CASE",
+      "id": "case_fixture"
+    },
+    "evidence": [
+      {
+        "documentId": "doc_f285ea9f52c64341",
+        "locator": "page:1",
+        "sha256": "1fdce4f6970c4f6d229a5b07441369501f2b3254f47037fcb293f20bf350cde7"
+      }
+    ],
+    "confidence": 0.5
+  },
+  {
+    "linkId": "lnk_ebf8c9dc5cad",
+    "kind": "PARTY_IN",
+    "from": {
+      "kind": "PARTY",
+      "id": "party_65149ee012c3"
+    },
+    "to": {
+      "kind": "CASE",
+      "id": "case_fixture"
+    },
+    "evidence": [
+      {
+        "documentId": "doc_f285ea9f52c64341",
+        "locator": "page:1",
+        "sha256": "1fdce4f6970c4f6d229a5b07441369501f2b3254f47037fcb293f20bf350cde7"
+      }
+    ],
+    "confidence": 0.4
+  },
+  {
+    "linkId": "lnk_fcb103a3c04e",
+    "kind": "PARTY_IN",
+    "from": {
+      "kind": "PARTY",
+      "id": "party_c38d3039d359"
+    },
+    "to": {
+      "kind": "CASE",
+      "id": "case_fixture"
+    },
+    "evidence": [
+      {
+        "documentId": "doc_2977e926b8bc73a6",
+        "locator": "line:2",
+        "sha256": "19f2f23a713b0d61e6fcadc9edaa6a6fe3a5bc1269f8aeff1b6a0c3fbdceb016"
+      }
+    ],
+    "confidence": 0.4
   }
 ]

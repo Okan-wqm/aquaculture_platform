@@ -451,11 +451,40 @@ test('parties come from e-mail headers AND document text, one per address or spe
   const contractor = byName.get('Nordlys Entreprenør AS');
   assert.ok(contractor, 'the contractor is named in the invoice text');
   assert.equal(contractor.kind, 'organization');
-  assert.ok(contractor.aliases.includes('987654321'), 'the organisation number travels as an alias');
+  // The organisation number is its own field. MEASURED 2026-09-04: it used to
+  // travel as an alias, and the console showed it as a merged spelling.
+  assert.equal(contractor.organisationNumber, '987654321');
+  assert.equal(contractor.basis, 'organisation_number');
+  assert.ok(!contractor.aliases.includes('987654321'), 'an organisation number is never a spelling');
   const counsel = byName.get('Kari Nordmann');
   assert.ok(counsel, 'counsel named with the v/ construction is a party candidate');
   assert.equal(counsel.kind, 'person');
-  assert.ok(byName.has('Bergen Eiendom ASA'));
+  assert.equal(counsel.basis, 'counsel_construction');
+  // A role is recorded only where a document labelled it, with the line it did
+  // so on; an organisation form is not a role.
+  assert.deepEqual(counsel.roles, ['advokat']);
+  assert.equal(counsel.roleEvidence[0]?.role, 'advokat');
+  assert.equal(counsel.roleEvidence[0]?.evidence.sha256.length, 64);
+  assert.deepEqual(contractor.roles, [], 'AS says what the party is, not what it does in this case');
+  const client = byName.get('Bergen Eiendom ASA');
+  assert.ok(client);
+  assert.equal(client.basis, 'organisation_form');
+  for (const [name, basis] of [
+    ['Part B', 'header_address'],
+    ['Part A AS', 'header_address'],
+  ] as const) {
+    assert.equal(byName.get(name)?.basis, basis);
+    assert.equal(byName.get(name)?.organisationNumber, null);
+  }
+  // Every party is in the case, and a body "Fra:"/"Til:" line anchors the
+  // document to the party it names the way an e-mail header does.
+  assert.equal(artifacts.links.filter((link) => link.kind === 'PARTY_IN').length, artifacts.parties.length);
+  const complaint = artifacts.documents.find((document) => document.relativePath === 'vedlegg/klage_utkast.docx');
+  assert.ok(complaint);
+  const bodySent = artifacts.links.find((link) => link.kind === 'WAS_SENT_BY' && link.from.id === complaint.documentId);
+  assert.ok(bodySent, 'the complaint says "Fra: Bergen Eiendom ASA" in its body');
+  assert.equal(bodySent.to.id, client.partyId);
+  assert.ok(artifacts.links.some((link) => link.kind === 'WAS_RECEIVED_BY' && link.from.id === complaint.documentId && link.to.id === contractor.partyId), 'and "Til: Nordlys Entreprenør AS"');
 
   assert.ok(artifacts.parties.every((party) => party.identityConfidence <= 0.5), 'no reading of a name outranks a header address');
   assert.ok(artifacts.parties.every((party) => party.humanReviewRequired));
@@ -493,7 +522,7 @@ test('WAS_SENT_BY / WAS_RECEIVED_BY links anchor each .eml document to its parti
 test('dates and amounts are extracted, normalised, deduplicated and sorted', () => {
   const { artifacts } = runGolden(tempDir('dates'));
   const byPath = new Map(artifacts.documents.map((document) => [document.relativePath, document]));
-  assert.deepEqual(byPath.get('kronologi.txt')?.datesMentioned, ['2024-02-20', '2024-03-01', '2024-03-12']);
+  assert.deepEqual(byPath.get('kronologi.txt')?.datesMentioned, ['2024-02-20', '2024-03-01', '2024-03-12', '2024-03-18']);
   assert.deepEqual(byPath.get('kronologi.txt')?.amountsMentioned, ['25 000 kr', 'kr 25 000,-']);
   assert.deepEqual(byPath.get('notat.md')?.datesMentioned, ['2024-03-05', '2024-03-20']);
   assert.deepEqual(byPath.get('avtale_v1.txt')?.amountsMentioned, ['kr 125 000,00']);
@@ -515,9 +544,8 @@ test('dates and amounts are extracted, normalised, deduplicated and sorted', () 
   ]);
 });
 
-test('timeline: .eml Date headers become COMMUNICATION events; dated lines become mechanical_extraction EVENTs located by page or line', () => {
+test('timeline: .eml Date headers become COMMUNICATION events; every date a line states becomes a mechanical_extraction record in text order; deadlines and procedural steps carry their kind', () => {
   const { artifacts } = runGolden(tempDir('timeline'));
-  assert.equal(artifacts.timeline.length, 12);
   const communications = artifacts.timeline.filter((event) => event.kind === 'COMMUNICATION');
   assert.deepEqual(
     communications.map((event) => [event.occurredAt, event.assertedBy, event.datePrecision, event.evidence[0]?.locator]),
@@ -526,11 +554,44 @@ test('timeline: .eml Date headers become COMMUNICATION events; dated lines becom
       ['2024-03-12T13:02:00Z', 'party', 'day', 'header:Date'],
     ],
   );
-  const events = artifacts.timeline.filter((event) => event.kind === 'EVENT');
-  assert.equal(events.length, 10);
+  const mechanical = artifacts.timeline.filter((event) => event.kind !== 'COMMUNICATION');
   // A parser read these bytes; no model ran. Labelling them ai_inference would
   // blur the one distinction this product sells.
-  assert.ok(events.every((event) => event.assertedBy === 'mechanical_extraction' && event.confidence <= 0.4 && event.humanReviewRequired));
+  assert.ok(mechanical.every((event) => event.assertedBy === 'mechanical_extraction' && event.confidence <= 0.4 && event.humanReviewRequired));
+  // An e-mail's header lines are transport data; the COMMUNICATION event already
+  // carries the message date, so no EVENT is read out of "Date: …".
+  assert.ok(mechanical.every((event) => !/^Date:/i.test(event.summary)));
+
+  // MEASURED 2026-09-04: a line with two dates produced ONE event dated the
+  // earliest. Both dates on the milestone line are records now.
+  const milestone = mechanical.filter((event) => event.summary.startsWith('Milepæl 1 levert 05.02.2024'));
+  assert.deepEqual(
+    milestone.map((event) => event.occurredAt),
+    ['2024-02-05', '2024-02-08'],
+  );
+  // A label row ("Fakturadato: 12.03.2024") used to be dropped as too short.
+  assert.ok(mechanical.some((event) => event.summary === 'Fakturadato: 12.03.2024' && event.occurredAt === '2024-03-12' && event.evidence[0]?.locator === 'page:1'));
+
+  // Deadlines carry their kind and cue; a relative period is a DEADLINE with
+  // no date — the pack never computes one.
+  const deadlines = artifacts.timeline.filter((event) => event.kind === 'DEADLINE');
+  assert.deepEqual(
+    deadlines.map((event) => [event.occurredAt, event.datePrecision, event.summary.slice(0, 40)]),
+    [
+      [null, 'unknown', 'innen 14 dager: Tilsvar må inngis innen '],
+      ['2024-03-20', 'day', 'Svarfrist: 20.03.2024.'],
+      ['2024-03-26', 'day', 'Forfallsdato: 26. mars 2024'],
+    ],
+  );
+  const steps = artifacts.timeline.filter((event) => event.kind === 'PROCEDURAL_STEP');
+  assert.equal(steps.length, 1);
+  assert.equal(steps[0]?.occurredAt, '2024-03-18');
+  assert.ok(steps[0]?.summary.startsWith('klage inngitt: 18.03.2024 Klage inngitt av Part B'));
+  // A date claimed by a deadline or a step is not also a plain EVENT.
+  assert.ok(!artifacts.timeline.some((event) => event.kind === 'EVENT' && event.summary.startsWith('Svarfrist:')));
+  const events = artifacts.timeline.filter((event) => event.kind === 'EVENT');
+  assert.equal(artifacts.timeline.length, communications.length + deadlines.length + steps.length + events.length);
+  assert.equal(artifacts.coverage.truncated.timeline, 0);
   const invoice = artifacts.documents.find((document) => document.relativePath === 'vedlegg/faktura_2024-001.pdf');
   const fromInvoice = events.filter((event) => event.evidence[0]?.documentId === invoice?.documentId);
   assert.ok(fromInvoice.length > 0, 'a dated line inside the PDF text layer becomes an event');

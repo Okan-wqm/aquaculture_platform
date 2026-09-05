@@ -1,0 +1,57 @@
+{
+  "$schema": "aria/legal-corpus/v1",
+  "generatedBy": "arias/legal/corpus/tools/make-corpus.mjs",
+  "cases": [
+    {
+      "id": "unrelated-invoices",
+      "archive": "cases/unrelated-invoices",
+      "expected": {
+        "contradictions": [],
+        "missing": [],
+        "notes": "Same labels, thirty subjects: nothing may be reported as a dispute."
+      }
+    },
+    {
+      "id": "anchored-dispute",
+      "archive": "cases/anchored-dispute",
+      "expected": {
+        "contradictions": [
+          {
+            "labelKey": "fakturadato",
+            "kind": "date",
+            "left": "faktura_2024-001.txt",
+            "right": "klage.txt",
+            "anchor": "faktura:2024-001"
+          },
+          {
+            "labelKey": "beløp",
+            "kind": "amount",
+            "left": "faktura_2024-001.txt",
+            "right": "klage.txt",
+            "anchor": "faktura:2024-001"
+          }
+        ],
+        "missing": [],
+        "notes": "notat.txt shares the labels but cites nothing: it must not appear in any contradiction."
+      }
+    },
+    {
+      "id": "missing-docs",
+      "archive": "cases/missing-docs",
+      "expected": {
+        "contradictions": [],
+        "missing": [
+          {
+            "kind": "faktura",
+            "identifier": "2024-007"
+          },
+          {
+            "kind": "rapport",
+            "identifier": "2024-02-02"
+          }
+        ],
+        "notes": "avtale is present by content; kontrakt 88-2023 is present by NAME only (unreadable) and must not be reported missing."
+      }
+    }
+  ]
+}

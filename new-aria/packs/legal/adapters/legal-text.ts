@@ -183,34 +183,89 @@ export interface DatedMention {
   readonly precision: DatePrecision;
 }
 
+/** A dated mention with the position it was read at, so a line's dates keep their order. */
+export interface PositionedDatedMention extends DatedMention {
+  /** Character offset of the mention in the text it was read from. */
+  readonly index: number;
+  /** The mention as written. */
+  readonly raw: string;
+}
+
 /**
- * Every date a text states, with the precision it stated it at.
+ * Every date a text states, in the ORDER it states them, each with the position
+ * it was read at and the precision it was stated at.
  *
- * Day-precision mentions win over a month mention covering the same month, so
- * "12. mars 2024" does not also produce a bare "2024-03" row. This is the
- * function the chronology uses; `extractDates` stays the day-only view the
- * document record carries.
+ * MEASURED 2026-09-04: the chronology took `extractDatedMentions(line)[0]`, and
+ * that function sorted by value — so on a line stating two dates the earliest
+ * won regardless of meaning ("Milepæl 1 levert 05.02.2024, godkjent 08.02.2024"
+ * became one event dated the 5th). Reading in text order and returning every
+ * mention lets the caller record each date the line states.
+ *
+ * A day mention wins over a month mention that lies inside its span, so
+ * "12. mars 2024" does not also yield a bare "2024-03".
  */
-export function extractDatedMentions(text: string): DatedMention[] {
-  const days = extractDates(text);
-  const covered = new Set(days.map((day) => day.slice(0, 7)));
-  const months: string[] = [];
+export function datedMentionsInOrder(text: string): PositionedDatedMention[] {
+  const spans: { index: number; end: number; value: string; precision: DatePrecision; raw: string }[] = [];
+  const push = (match: RegExpMatchArray, value: string | null, precision: DatePrecision): void => {
+    if (value === null || match.index === undefined) return;
+    spans.push({ index: match.index, end: match.index + match[0].length, value, precision, raw: match[0] });
+  };
+  for (const match of text.matchAll(ISO_DATE_RE)) push(match, isoDate(Number(match[1]), Number(match[2]), Number(match[3])), 'day');
+  for (const re of [DOT_DATE_RE, SLASH_DATE_RE]) {
+    for (const match of text.matchAll(re)) push(match, isoDate(Number(match[3]), Number(match[2]), Number(match[1])), 'day');
+  }
+  for (const match of text.matchAll(DAY_MONTH_YEAR_RE)) {
+    const month = MONTHS[(match[2] ?? '').toLowerCase()];
+    push(match, month === undefined ? null : isoDate(Number(match[3]), month, Number(match[1])), 'day');
+  }
+  for (const match of text.matchAll(MONTH_DAY_YEAR_RE)) {
+    const month = MONTHS[(match[1] ?? '').toLowerCase()];
+    push(match, month === undefined ? null : isoDate(Number(match[3]), month, Number(match[2])), 'day');
+  }
+  const dayspans = [...spans];
   for (const match of text.matchAll(MONTH_YEAR_RE)) {
     const month = MONTHS[(match[1] ?? '').toLowerCase()];
     const year = Number(match[2]);
-    if (month === undefined || !Number.isInteger(year)) continue;
-    months.push(`${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}`);
+    if (month === undefined || !Number.isInteger(year) || match.index === undefined) continue;
+    const start = match.index;
+    const end = start + match[0].length;
+    if (dayspans.some((span) => span.index <= start && end <= span.end)) continue;
+    push(match, `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}`, 'month');
   }
   for (const match of text.matchAll(ISO_MONTH_RE)) {
     const month = Number(match[2]);
-    if (month < 1 || month > 12) continue;
-    months.push(`${match[1]}-${String(month).padStart(2, '0')}`);
+    if (month < 1 || month > 12 || match.index === undefined) continue;
+    const start = match.index;
+    const end = start + match[0].length;
+    if (dayspans.some((span) => span.index <= start && end <= span.end)) continue;
+    push(match, `${match[1]}-${String(month).padStart(2, '0')}`, 'month');
   }
-  const monthMentions = uniqueSorted(months.filter((month) => !covered.has(month)));
-  return [
-    ...days.map((value): DatedMention => ({ value, precision: 'day' })),
-    ...monthMentions.map((value): DatedMention => ({ value, precision: 'month' })),
-  ].sort((a, b) => byteCompare(a.value, b.value));
+  // Two regexes may read the same characters (an ISO date is also a valid
+  // ISO month prefix); keep the first reading of any overlapping span.
+  spans.sort((a, b) => a.index - b.index || b.end - a.end);
+  const out: PositionedDatedMention[] = [];
+  let lastEnd = -1;
+  for (const span of spans) {
+    if (span.index < lastEnd) continue;
+    out.push({ value: span.value, precision: span.precision, index: span.index, raw: span.raw });
+    lastEnd = span.end;
+  }
+  return out;
+}
+
+/**
+ * Every date a text states, with the precision it stated it at, deduplicated
+ * and sorted by value — the document-level view (`datesMentioned`). Callers
+ * that need the order the text states them in use `datedMentionsInOrder`.
+ */
+export function extractDatedMentions(text: string): DatedMention[] {
+  const seen = new Map<string, DatedMention>();
+  for (const mention of datedMentionsInOrder(text)) {
+    if (!seen.has(mention.value)) seen.set(mention.value, { value: mention.value, precision: mention.precision });
+  }
+  const days = [...seen.values()].filter((mention) => mention.precision === 'day');
+  const covered = new Set(days.map((day) => day.value.slice(0, 7)));
+  return [...seen.values()].filter((mention) => mention.precision === 'day' || !covered.has(mention.value)).sort((a, b) => byteCompare(a.value, b.value));
 }
 
 export function extractDates(text: string): string[] {

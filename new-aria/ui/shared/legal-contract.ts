@@ -296,11 +296,28 @@ export interface LegalDocumentVersion {
   readonly humanReviewRequired: true;
 }
 
+/** The shape a party was read from — so a reader can judge the reading, not only see the name. */
+export type LegalPartyBasis = 'header_address' | 'organisation_form' | 'organisation_number' | 'counsel_construction' | 'party_label' | 'court_name';
+
+/** A role a document assigned to a party, with the line it did so on. */
+export interface LegalRoleEvidence {
+  /** The role in the document's own word, lower-cased: byggherre, entreprenør, advokat… */
+  readonly role: string;
+  readonly evidence: LegalEvidenceRef;
+}
+
 export interface LegalParty {
   readonly partyId: string;
   readonly displayName: string;
   readonly kind: 'person' | 'organization' | 'court' | 'authority' | 'unknown';
+  readonly basis: LegalPartyBasis;
+  /** The organisation number a document stated beside the name, or null. Never an alias. */
+  readonly organisationNumber: string | null;
+  /** Distinct roles documents assigned to this party; each one is backed by a row in roleEvidence. */
   readonly roles: ReadonlyArray<string>;
+  /** Every role reading with the line it was read on. Empty when no document labelled a role. */
+  readonly roleEvidence: ReadonlyArray<LegalRoleEvidence>;
+  /** Other spellings and addresses read for this identity. Nothing is merged: two spellings stay two parties. */
   readonly aliases: ReadonlyArray<string>;
   readonly mentions: number;
   readonly evidence: ReadonlyArray<LegalEvidenceRef>;
@@ -375,6 +392,13 @@ export interface LegalCoverage {
   readonly unreadable: ReadonlyArray<{ readonly relativePath: string; readonly reason: string }>;
   /** null when the run was given no receipt to reconcile against — stated, not assumed clean. */
   readonly reconciliation: LegalReconciliation | null;
+  /**
+   * What the run left out because a per-run cap was reached. The kernel
+   * discards a run whose output exceeds its budget, so the pack bounds its own
+   * output and says so here rather than losing the whole inventory. All zero
+   * means nothing was dropped.
+   */
+  readonly truncated: { readonly findings: number; readonly statements: number; readonly timeline: number };
   readonly complete: boolean;
 }
 

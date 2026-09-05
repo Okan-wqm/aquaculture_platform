@@ -489,3 +489,19 @@ Faz 1'in **yapmadığı**: kimlik hâlâ tek token (operator rolü; Faz 4), kara
 Yapılmayan: anahtar rotasyonu (tek anahtar; farklı `keyId` taşıyan satır `key_unknown` ile reddedilir),
 tutanağın çekirdek bütünlük indeksine girmesi (G-5, çekirdek), yedek/geri yükleme tatbikatı (Faz 7).
 
+### F.3 — Faz 3: mekanik katman gerçek arşivi okuyor
+
+| Kapanan | Nasıl | Kanıt |
+|---|---|---|
+| L-07 (E.1 kronoloji → **wired**) | Satırdaki **her** tarih metin sırasında kayıt (`datedMentionsInOrder`); etiket satırları giriyor; e-posta başlık satırları girmiyor | Golden: "Milepæl 1 levert 05.02.2024, godkjent 08.02.2024" → iki olay; "Fakturadato: 12.03.2024" `page:1` olay |
+| L-20 | `records/deadlines.ts`: `DEADLINE` (etiket/ifade + ipucu), `PROCEDURAL_STEP` (belge + fiil + tarih); göreli süre **tarihsiz** DEADLINE, asla hesaplanmaz | 7 test; golden: 3 DEADLINE (biri "innen 14 dager" tarihsiz), 1 PROCEDURAL_STEP ("klage inngitt") |
+| L-17 | `records/roles.ts`: rol yalnız belge etiketlediğinde (parantez, etiketli satır, "v/ advokat") satır kanıtıyla; gövde "Fra:/Til:" → `WAS_SENT_BY/RECEIVED_BY`; her taraf `PARTY_IN` | 6 test; golden: Kari Nordmann `advokat` rolü, klage DOCX gövdesinden 1 sent + 1 received bağı, 7 PARTY_IN |
+| L-16 (E.1 taraflar) | `LegalParty.basis`, `organisationNumber`, `roleEvidence`; org.nr artık alias değil; Parties sekmesi basis/org.nr/rol sütunları ve doğru başlıklarla | Adapter testi; şema + doğrulayıcı (`roles[]` her satırı `roleEvidence` ile desteklenmeli) |
+| L-10 (kapsam), E.1 "çelişki yalnız Label: value" | `fact-index.ts`: tab satırları (XLSX/DOCX tablo, para sütunu başlıktan), bölünmüş etiket/değer, rakamlı etiket, düz metin tutar (önündeki ad); okunamayan belge **adıyla** hedef | 26 test |
+| L-35 konu çapası (E.1 "etiket çakışması") | Çelişki için paylaşılan referans anahtarı şart (atıf + dosya adından öz-anahtar); **konu arşivdeyse** yalnız konunun kendi beyanı ile ona atıf yapanlar arasında, konunun söylemediği etiket çelişki değil; konu yoksa atıf yapanlar arasında **değer başına bir satır** | Korpus: 30 alakasız fatura → 0; 300 mektup + sözleşme → 4 satır (eskiden 44.850 çift) |
+| L-33 çıktı hacmi | Koşum başına tavanlar (`MAX_*_PER_RUN`) + `coverage.truncated` | Ölçek testi: 3.001 belge, 2,0 s, 1,5 MB stdout (tavan 12 MiB) |
+| L-12, L-26 (korpus) | `arias/legal/corpus/` etiketli, üreteçten (`tools/make-corpus.mjs`), gerçek isim yok; `records/precision.test.ts` manifestin `precision_min`/`critical_false_positives_max` eşiğine karşı **ölçüyor**; `instances.test.mjs` korpusu arıyor | precision 1.000, recall 1.000 (4/4 planted); CI listesinde |
+
+Yapılmayan: OCR (kapsam dışı), cümle düzeyi sürüm farkı (kayıtlı sınır), tarih için düz metin
+etiketi (yalnız tutar), anahtar rotasyonu.
+

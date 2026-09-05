@@ -130,6 +130,12 @@ test('declared policy files and enabled packs exist inside the instance', async 
       assert.ok(await exists(path), `${dir}: policies.${key} points at a missing file (${manifest.policies[key]})`);
     }
     assert.ok(await exists(join(root, manifest.surface.console.branding)), `${dir}: branding file missing`);
+    // The evaluation corpus the manifest's release thresholds are measured
+    // against must exist and be labelled; a threshold nobody can measure is a
+    // sentence in a file. The template carries no corpus by design.
+    if (dir !== '_template') {
+      assert.ok(await exists(join(root, manifest.evaluations.corpus, 'corpus.json')), `${dir}: evaluations.corpus (${manifest.evaluations.corpus}) has no labelled corpus.json`);
+    }
     for (const pack of manifest.packs) {
       assert.ok(!pack.path.includes('..'), `${dir}/${pack.id}: a pack never reaches outside its instance (law S-2)`);
       if (!pack.enabled) continue;

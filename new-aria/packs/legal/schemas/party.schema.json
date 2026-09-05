@@ -2,14 +2,17 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "aria://packs/legal/schemas/party.schema.json",
   "title": "LegalParty",
-  "description": "A party seen in the archive. One party per distinct address/identity; same-named parties are never merged automatically.",
+  "description": "A party seen in the archive. One party per distinct address/identity; same-named parties are never merged automatically. A role is recorded only when a document labelled it, with the line it did so on.",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "partyId",
     "displayName",
     "kind",
+    "basis",
+    "organisationNumber",
     "roles",
+    "roleEvidence",
     "aliases",
     "mentions",
     "evidence",
@@ -34,11 +37,51 @@
         "unknown"
       ]
     },
+    "basis": {
+      "enum": [
+        "header_address",
+        "organisation_form",
+        "organisation_number",
+        "counsel_construction",
+        "party_label",
+        "court_name"
+      ],
+      "description": "The shape the party was read from, so a reader can judge the reading."
+    },
+    "organisationNumber": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9]{9}$",
+      "description": "The organisation number a document stated beside the name, or null. Never an alias."
+    },
     "roles": {
       "type": "array",
       "items": {
         "type": "string",
         "minLength": 1
+      }
+    },
+    "roleEvidence": {
+      "type": "array",
+      "description": "Every role reading with the line it was read on; roles[] lists the distinct role words.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "role",
+          "evidence"
+        ],
+        "properties": {
+          "role": {
+            "type": "string",
+            "minLength": 1
+          },
+          "evidence": {
+            "$ref": "aria://packs/legal/schemas/evidence-ref.schema.json"
+          }
+        }
       }
     },
     "aliases": {

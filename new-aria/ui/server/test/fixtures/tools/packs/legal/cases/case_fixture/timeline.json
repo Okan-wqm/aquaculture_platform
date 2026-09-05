@@ -1,6 +1,24 @@
 [
   {
-    "eventId": "evt_5bb137bc7b88",
+    "eventId": "evt_af845c2c5006",
+    "kind": "DEADLINE",
+    "occurredAt": null,
+    "learnedAt": null,
+    "datePrecision": "unknown",
+    "summary": "innen 14 dager: Tilsvar må inngis innen 14 dager etter forkynnelse.",
+    "evidence": [
+      {
+        "documentId": "doc_64d00522cbc08e4d",
+        "locator": "line:7",
+        "sha256": "fc11bbe02f5640ce69b6196d0f7c2c29d5b5ca7cb49258e802f4547ccddc0db2"
+      }
+    ],
+    "assertedBy": "mechanical_extraction",
+    "confidence": 0.35,
+    "humanReviewRequired": true
+  },
+  {
+    "eventId": "evt_4241d2d0b74f",
     "kind": "EVENT",
     "occurredAt": "2024-01-15",
     "learnedAt": null,
@@ -18,7 +36,7 @@
     "humanReviewRequired": true
   },
   {
-    "eventId": "evt_b94e349b522a",
+    "eventId": "evt_ffa4d8379c86",
     "kind": "EVENT",
     "occurredAt": "2024-01-15",
     "learnedAt": null,
@@ -36,7 +54,7 @@
     "humanReviewRequired": true
   },
   {
-    "eventId": "evt_c404a6e5c03f",
+    "eventId": "evt_6613817139fd",
     "kind": "EVENT",
     "occurredAt": "2024-02-05",
     "learnedAt": null,
@@ -54,7 +72,25 @@
     "humanReviewRequired": true
   },
   {
-    "eventId": "evt_0b7ee503b2f8",
+    "eventId": "evt_794c15036ddb",
+    "kind": "EVENT",
+    "occurredAt": "2024-02-08",
+    "learnedAt": null,
+    "datePrecision": "day",
+    "summary": "Milepæl 1 levert 05.02.2024, godkjent av byggeleder 08.02.2024.",
+    "evidence": [
+      {
+        "documentId": "doc_f285ea9f52c64341",
+        "locator": "page:2",
+        "sha256": "1fdce4f6970c4f6d229a5b07441369501f2b3254f47037fcb293f20bf350cde7"
+      }
+    ],
+    "assertedBy": "mechanical_extraction",
+    "confidence": 0.35,
+    "humanReviewRequired": true
+  },
+  {
+    "eventId": "evt_a66d12b789b1",
     "kind": "EVENT",
     "occurredAt": "2024-02-20",
     "learnedAt": null,
@@ -62,9 +98,9 @@
     "summary": "2024-02-20 Første møte mellom Part A AS og Part B om leveransen.",
     "evidence": [
       {
-        "documentId": "doc_c9eebbb50c992990",
+        "documentId": "doc_64d00522cbc08e4d",
         "locator": "line:3",
-        "sha256": "6e5ef00a1637223634103f8a6d15f8938f42fef3312e308b45429817e369c1ad"
+        "sha256": "fc11bbe02f5640ce69b6196d0f7c2c29d5b5ca7cb49258e802f4547ccddc0db2"
       }
     ],
     "assertedBy": "mechanical_extraction",
@@ -72,7 +108,43 @@
     "humanReviewRequired": true
   },
   {
-    "eventId": "evt_356cefd31540",
+    "eventId": "evt_740b371df1eb",
+    "kind": "EVENT",
+    "occurredAt": "2024-03-01",
+    "learnedAt": null,
+    "datePrecision": "day",
+    "summary": "Dato: 01.03.2024",
+    "evidence": [
+      {
+        "documentId": "doc_85f73fc2c720f363",
+        "locator": "line:3",
+        "sha256": "42c528a616cd7c9219a12b310ff7e53d183b1b3bad8700945414effbe9f9b618"
+      }
+    ],
+    "assertedBy": "mechanical_extraction",
+    "confidence": 0.35,
+    "humanReviewRequired": true
+  },
+  {
+    "eventId": "evt_9338c854d56c",
+    "kind": "EVENT",
+    "occurredAt": "2024-03-01",
+    "learnedAt": null,
+    "datePrecision": "day",
+    "summary": "Milepæl 2 levert 01.03.2024, IKKE godkjent - avvik meldt 04.03.2024.",
+    "evidence": [
+      {
+        "documentId": "doc_f285ea9f52c64341",
+        "locator": "page:2",
+        "sha256": "1fdce4f6970c4f6d229a5b07441369501f2b3254f47037fcb293f20bf350cde7"
+      }
+    ],
+    "assertedBy": "mechanical_extraction",
+    "confidence": 0.35,
+    "humanReviewRequired": true
+  },
+  {
+    "eventId": "evt_a3edfe92325d",
     "kind": "EVENT",
     "occurredAt": "2024-03-01",
     "learnedAt": null,
@@ -80,9 +152,9 @@
     "summary": "01.03.2024 Utkast til avtale sendt fra Part A AS til Part B.",
     "evidence": [
       {
-        "documentId": "doc_c9eebbb50c992990",
+        "documentId": "doc_64d00522cbc08e4d",
         "locator": "line:4",
-        "sha256": "6e5ef00a1637223634103f8a6d15f8938f42fef3312e308b45429817e369c1ad"
+        "sha256": "fc11bbe02f5640ce69b6196d0f7c2c29d5b5ca7cb49258e802f4547ccddc0db2"
       }
     ],
     "assertedBy": "mechanical_extraction",
@@ -90,9 +162,27 @@
     "humanReviewRequired": true
   },
   {
-    "eventId": "evt_38018dec5d4a",
+    "eventId": "evt_c4eb759e39ce",
     "kind": "EVENT",
     "occurredAt": "2024-03-01",
+    "learnedAt": null,
+    "datePrecision": "day",
+    "summary": "Dagmulkt 01.03.2024–31.03.2024",
+    "evidence": [
+      {
+        "documentId": "doc_2977e926b8bc73a6",
+        "locator": "line:13",
+        "sha256": "19f2f23a713b0d61e6fcadc9edaa6a6fe3a5bc1269f8aeff1b6a0c3fbdceb016"
+      }
+    ],
+    "assertedBy": "mechanical_extraction",
+    "confidence": 0.35,
+    "humanReviewRequired": true
+  },
+  {
+    "eventId": "evt_b17aa17070a2",
+    "kind": "EVENT",
+    "occurredAt": "2024-03-04",
     "learnedAt": null,
     "datePrecision": "day",
     "summary": "Milepæl 2 levert 01.03.2024, IKKE godkjent - avvik meldt 04.03.2024.",
@@ -126,7 +216,7 @@
     "humanReviewRequired": true
   },
   {
-    "eventId": "evt_4955b71c6fca",
+    "eventId": "evt_4049bb9eb14c",
     "kind": "EVENT",
     "occurredAt": "2024-03-05",
     "learnedAt": null,
@@ -144,7 +234,25 @@
     "humanReviewRequired": true
   },
   {
-    "eventId": "evt_488edcf7080e",
+    "eventId": "evt_53018c79cb86",
+    "kind": "EVENT",
+    "occurredAt": "2024-03-06",
+    "learnedAt": null,
+    "datePrecision": "day",
+    "summary": "Dato: 6. mars 2024",
+    "evidence": [
+      {
+        "documentId": "doc_2977e926b8bc73a6",
+        "locator": "line:4",
+        "sha256": "19f2f23a713b0d61e6fcadc9edaa6a6fe3a5bc1269f8aeff1b6a0c3fbdceb016"
+      }
+    ],
+    "assertedBy": "mechanical_extraction",
+    "confidence": 0.35,
+    "humanReviewRequired": true
+  },
+  {
+    "eventId": "evt_5d0f28071a82",
     "kind": "EVENT",
     "occurredAt": "2024-03-12",
     "learnedAt": null,
@@ -152,9 +260,27 @@
     "summary": "12.03.2024 Part B bestrider faktura på kr 25 000,- og ber om ny leveringsplan.",
     "evidence": [
       {
-        "documentId": "doc_c9eebbb50c992990",
+        "documentId": "doc_64d00522cbc08e4d",
         "locator": "line:5",
-        "sha256": "6e5ef00a1637223634103f8a6d15f8938f42fef3312e308b45429817e369c1ad"
+        "sha256": "fc11bbe02f5640ce69b6196d0f7c2c29d5b5ca7cb49258e802f4547ccddc0db2"
+      }
+    ],
+    "assertedBy": "mechanical_extraction",
+    "confidence": 0.35,
+    "humanReviewRequired": true
+  },
+  {
+    "eventId": "evt_f4a2b6b51cd4",
+    "kind": "EVENT",
+    "occurredAt": "2024-03-12",
+    "learnedAt": null,
+    "datePrecision": "day",
+    "summary": "Fakturadato: 12.03.2024",
+    "evidence": [
+      {
+        "documentId": "doc_f285ea9f52c64341",
+        "locator": "page:1",
+        "sha256": "1fdce4f6970c4f6d229a5b07441369501f2b3254f47037fcb293f20bf350cde7"
       }
     ],
     "assertedBy": "mechanical_extraction",
@@ -180,7 +306,61 @@
     "humanReviewRequired": true
   },
   {
-    "eventId": "evt_454fbe32745f",
+    "eventId": "evt_368774f79e14",
+    "kind": "EVENT",
+    "occurredAt": "2024-03-14",
+    "learnedAt": null,
+    "datePrecision": "day",
+    "summary": "Fakturadato: 14.03.2024",
+    "evidence": [
+      {
+        "documentId": "doc_2977e926b8bc73a6",
+        "locator": "line:6",
+        "sha256": "19f2f23a713b0d61e6fcadc9edaa6a6fe3a5bc1269f8aeff1b6a0c3fbdceb016"
+      }
+    ],
+    "assertedBy": "mechanical_extraction",
+    "confidence": 0.35,
+    "humanReviewRequired": true
+  },
+  {
+    "eventId": "evt_ec10644020a4",
+    "kind": "EVENT",
+    "occurredAt": "2024-03-15",
+    "learnedAt": null,
+    "datePrecision": "day",
+    "summary": "Dato: 15.03.2024",
+    "evidence": [
+      {
+        "documentId": "doc_f4ee47acddf5586e",
+        "locator": "line:3",
+        "sha256": "faf98c49abfe41439e67deb06a8bc80a4f783af462e5902a10f72e5984eaf4db"
+      }
+    ],
+    "assertedBy": "mechanical_extraction",
+    "confidence": 0.35,
+    "humanReviewRequired": true
+  },
+  {
+    "eventId": "evt_4cf9cdc298ac",
+    "kind": "PROCEDURAL_STEP",
+    "occurredAt": "2024-03-18",
+    "learnedAt": null,
+    "datePrecision": "day",
+    "summary": "klage inngitt: 18.03.2024 Klage inngitt av Part B v/ advokat Eksempel Advokat.",
+    "evidence": [
+      {
+        "documentId": "doc_64d00522cbc08e4d",
+        "locator": "line:6",
+        "sha256": "fc11bbe02f5640ce69b6196d0f7c2c29d5b5ca7cb49258e802f4547ccddc0db2"
+      }
+    ],
+    "assertedBy": "mechanical_extraction",
+    "confidence": 0.35,
+    "humanReviewRequired": true
+  },
+  {
+    "eventId": "evt_5ffca60dcc90",
     "kind": "EVENT",
     "occurredAt": "2024-03-18",
     "learnedAt": null,
@@ -198,7 +378,7 @@
     "humanReviewRequired": true
   },
   {
-    "eventId": "evt_d0836dd1b59b",
+    "eventId": "evt_29e272b8b3ba",
     "kind": "EVENT",
     "occurredAt": "2024-03-20",
     "learnedAt": null,
@@ -209,6 +389,60 @@
         "documentId": "doc_02f9abbb83c5f543",
         "locator": "line:4",
         "sha256": "b2c55428ad23c2b7ae9dd9cf5525d0728f7a90180ef91a2a6d587de7c9ad3caa"
+      }
+    ],
+    "assertedBy": "mechanical_extraction",
+    "confidence": 0.35,
+    "humanReviewRequired": true
+  },
+  {
+    "eventId": "evt_d47265214561",
+    "kind": "DEADLINE",
+    "occurredAt": "2024-03-20",
+    "learnedAt": null,
+    "datePrecision": "day",
+    "summary": "Svarfrist: 20.03.2024.",
+    "evidence": [
+      {
+        "documentId": "doc_2977e926b8bc73a6",
+        "locator": "line:16",
+        "sha256": "19f2f23a713b0d61e6fcadc9edaa6a6fe3a5bc1269f8aeff1b6a0c3fbdceb016"
+      }
+    ],
+    "assertedBy": "mechanical_extraction",
+    "confidence": 0.35,
+    "humanReviewRequired": true
+  },
+  {
+    "eventId": "evt_a4bd949d8fde",
+    "kind": "DEADLINE",
+    "occurredAt": "2024-03-26",
+    "learnedAt": null,
+    "datePrecision": "day",
+    "summary": "Forfallsdato: 26. mars 2024",
+    "evidence": [
+      {
+        "documentId": "doc_f285ea9f52c64341",
+        "locator": "page:1",
+        "sha256": "1fdce4f6970c4f6d229a5b07441369501f2b3254f47037fcb293f20bf350cde7"
+      }
+    ],
+    "assertedBy": "mechanical_extraction",
+    "confidence": 0.35,
+    "humanReviewRequired": true
+  },
+  {
+    "eventId": "evt_8090388ee00d",
+    "kind": "EVENT",
+    "occurredAt": "2024-03-31",
+    "learnedAt": null,
+    "datePrecision": "day",
+    "summary": "Dagmulkt 01.03.2024–31.03.2024",
+    "evidence": [
+      {
+        "documentId": "doc_2977e926b8bc73a6",
+        "locator": "line:13",
+        "sha256": "19f2f23a713b0d61e6fcadc9edaa6a6fe3a5bc1269f8aeff1b6a0c3fbdceb016"
       }
     ],
     "assertedBy": "mechanical_extraction",

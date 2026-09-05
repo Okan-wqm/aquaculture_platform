@@ -39,8 +39,10 @@ import { BINARY_TEXT_EXTENSIONS, extractBinaryText } from './binary/extract';
 import {
   contradictions,
   documentReferencesIn,
-  labelledFactsIn,
+  labelledFactsInLines,
   missingReferences,
+  selfSubjectKeysOf,
+  subjectAnchorsOf,
   type ContradictionRow,
   type DocumentReference,
   type LabelledFact,
@@ -48,11 +50,24 @@ import {
   type MissingReferenceRow,
   type ReferenceTarget,
 } from './records/fact-index';
+import { deadlineMentionsIn, proceduralStepsIn } from './records/deadlines';
 import { diffVersions } from './records/version-diff';
-import { identityAmbiguities, partyCandidatesIn, type IdentityAmbiguity, type PartyCandidate } from './records/party-candidates';
+import { identityAmbiguities, partyCandidatesIn, partyNameKey, type IdentityAmbiguity, type PartyCandidate } from './records/party-candidates';
+import { correspondenceLineIn, roleMentionsIn } from './records/roles';
 import { matrixRows } from './records/matrix';
 import type { HashedRead, WalkedFile, WalkResult } from './legal-archive';
-import { ADAPTER_ID, ADAPTER_VERSION, ARTIFACT_ROOT, CASE_ID_RE, DEFAULT_MAX_BINARY_BYTES, DEFAULT_MAX_TEXT_BYTES, EXTRACTION_STATUSES } from './legal-records';
+import {
+  ADAPTER_ID,
+  ADAPTER_VERSION,
+  ARTIFACT_ROOT,
+  CASE_ID_RE,
+  DEFAULT_MAX_BINARY_BYTES,
+  DEFAULT_MAX_TEXT_BYTES,
+  EXTRACTION_STATUSES,
+  MAX_FINDINGS_PER_RUN,
+  MAX_STATEMENTS_PER_RUN,
+  MAX_TIMELINE_EVENTS_PER_RUN,
+} from './legal-records';
 import type {
   ExtractionStatus,
   LegalCase,
@@ -64,7 +79,9 @@ import type {
   LegalLink,
   LegalLinkKind,
   LegalParty,
+  LegalPartyBasis,
   LegalReconciliation,
+  LegalRoleEvidence,
   LegalTimelineEvent,
   LegalVersionStep,
   VersionOrdinalBasis,
@@ -74,9 +91,9 @@ import {
   TEXT_EXTENSIONS,
   byteCompare,
   collapseWhitespace,
+  datedMentionsInOrder,
   extensionOf,
   extractAmounts,
-  extractDatedMentions,
   extractDates,
   guessKind,
   isSignedName,
@@ -356,23 +373,19 @@ function scannedText(entry: InventoryEntry): string {
   return entry.document.extension === '.eml' ? parseEmail(entry.text).body : entry.text;
 }
 
-/** The labelled values one document states, located the way a reader would find them. */
+/** The labelled values one document states, in every shape this layer reads, located the way a reader would find them. */
 function labelledFactsOf(entry: InventoryEntry): LabelledFact[] {
   if (entry.text === null) return [];
-  const scanned = scannedText(entry);
-  const facts: LabelledFact[] = [];
-  for (const line of locatedLines(scanned)) {
-    facts.push(
-      ...labelledFactsIn({
-        documentId: entry.document.documentId,
-        relativePath: entry.document.relativePath,
-        sha256: entry.document.sha256,
-        locator: line.locator,
-        text: line.text,
-      }),
-    );
-  }
-  return facts;
+  const document = entry.document;
+  return labelledFactsInLines(
+    locatedLines(scannedText(entry)).map((line) => ({
+      documentId: document.documentId,
+      relativePath: document.relativePath,
+      sha256: document.sha256,
+      locator: line.locator,
+      text: line.text,
+    })),
+  );
 }
 
 function buildVersionGroups(entries: readonly InventoryEntry[]): VersionGrouping {
@@ -589,26 +602,41 @@ function buildFactIndex(entries: readonly InventoryEntry[], grouping: VersionGro
   const facts: LabelledFact[] = [];
   const references: DocumentReference[] = [];
   const targets: ReferenceTarget[] = [];
+  // What each document IS, by its own name: the subject a citing document may
+  // disagree with. Read for every file in the archive, readable or not.
+  const selfKeys = new Map<string, ReadonlySet<string>>();
   for (const entry of entries) {
-    if (entry.text === null) continue;
     const document = entry.document;
+    if (entry.file.excluded) continue;
+    const own = selfSubjectKeysOf(document.fileName);
+    if (own.length > 0) selfKeys.set(document.documentId, new Set(own));
+    if (entry.text === null) {
+      // A scanned or encrypted document is in the archive: it answers a
+      // reference by its NAME, so a citation to it is not reported missing.
+      targets.push({
+        documentId: document.documentId,
+        relativePath: document.relativePath,
+        fileName: document.fileName,
+        haystack: '',
+        dates: new Set(extractDates(document.fileName)),
+      });
+      continue;
+    }
     const identifiers: string[] = [document.fileName.toLowerCase()];
     const dates = new Set<string>(document.datesMentioned);
     // An e-mail's headers are transport metadata, not case content: `Date:`
     // there is when the message was sent, and comparing two messages' send
     // times would report every pair of e-mails as a disagreement.
-    const scanned = scannedText(entry);
-    for (const line of locatedLines(scanned)) {
-      const located: LocatedText = {
-        documentId: document.documentId,
-        relativePath: document.relativePath,
-        sha256: document.sha256,
-        locator: line.locator,
-        text: line.text,
-      };
-      const lineFacts = labelledFactsIn(located);
-      facts.push(...lineFacts);
-      references.push(...documentReferencesIn(located));
+    const located: LocatedText[] = locatedLines(scannedText(entry)).map((line) => ({
+      documentId: document.documentId,
+      relativePath: document.relativePath,
+      sha256: document.sha256,
+      locator: line.locator,
+      text: line.text,
+    }));
+    facts.push(...labelledFactsInLines(located));
+    for (const line of located) {
+      references.push(...documentReferencesIn(line));
       // A document's own header lines are what a reference to it would name.
       identifiers.push(line.text.toLowerCase());
     }
@@ -623,17 +651,24 @@ function buildFactIndex(entries: readonly InventoryEntry[], grouping: VersionGro
   return {
     facts,
     references,
-    contradictions: contradictions(facts, grouping.groupIdByDocument),
+    // A shared label is not a shared subject: two documents may disagree only
+    // when a reference key says they are about the same thing, and when the
+    // subject itself is in the archive, only about what it states of itself.
+    contradictions: contradictions(facts, grouping.groupIdByDocument, subjectAnchorsOf(references, selfKeys), selfKeys),
     missing: missingReferences(references, targets),
   };
 }
 
-function deriveRecords(entries: readonly InventoryEntry[], grouping: VersionGrouping, learnedAt: ReadonlyMap<string, string>): Derived {
+function deriveRecords(entries: readonly InventoryEntry[], grouping: VersionGrouping, learnedAt: ReadonlyMap<string, string>, caseId: string): Derived {
   const parties = new Map<string, PartyAccumulator>();
-  const textParties = new Map<string, { candidate: PartyCandidate; mentions: number; evidence: LegalEvidenceRef[] }>();
+  const textParties = new Map<string, { candidate: PartyCandidate; mentions: number; evidence: LegalEvidenceRef[]; roleEvidence: LegalRoleEvidence[] }>();
   const textCandidates: PartyCandidate[] = [];
   const timeline: LegalTimelineEvent[] = [];
   const links: LegalLink[] = [];
+  // Roles read before their party was seen on another line are held here and
+  // attached once every candidate is known; a role never creates a party.
+  const pendingRoles = new Map<string, LegalRoleEvidence[]>();
+  const correspondence: { readonly document: LegalDocument; readonly direction: 'from' | 'to'; readonly nameKey: string; readonly locator: string }[] = [];
 
   const touchParty = (mail: MailAddress, document: LegalDocument, header: string): string => {
     const existing = parties.get(mail.address) ?? { address: mail.address, displayNames: new Set<string>(), mentions: 0, evidence: [] };
@@ -700,20 +735,24 @@ function deriveRecords(entries: readonly InventoryEntry[], grouping: VersionGrou
     }
     // Parties named in the text, not only in an e-mail header. Nothing is
     // merged: two spellings stay two candidates, and their resemblance is
-    // raised as a question the approval policy hands to a lawyer.
-    for (const line of locatedLines(scannedText(entry))) {
-      const located: LocatedText = {
+    // raised as a question the approval policy hands to a lawyer. A role is
+    // read only where the document labelled it, and a body "Fra:"/"Til:" line
+    // anchors the document to its correspondents the way a header does.
+    const bodyLines = locatedLines(scannedText(entry)).map(
+      (line): LocatedText => ({
         documentId: document.documentId,
         relativePath: document.relativePath,
         sha256: document.sha256,
         locator: line.locator,
         text: line.text,
-      };
+      }),
+    );
+    for (const located of bodyLines) {
       for (const found of partyCandidatesIn(located)) {
         textCandidates.push(found);
         const existing = textParties.get(found.displayName);
         if (existing === undefined) {
-          textParties.set(found.displayName, { candidate: found, mentions: 1, evidence: [evidenceRef(document, found.locator)] });
+          textParties.set(found.displayName, { candidate: found, mentions: 1, evidence: [evidenceRef(document, found.locator)], roleEvidence: [] });
         } else {
           existing.mentions += 1;
           // One evidence ref per document: a name repeated on every page of one
@@ -723,30 +762,58 @@ function deriveRecords(entries: readonly InventoryEntry[], grouping: VersionGrou
           }
         }
       }
+      for (const role of roleMentionsIn(located)) {
+        const list = pendingRoles.get(role.nameKey) ?? [];
+        list.push({ role: role.role, evidence: evidenceRef(document, role.locator) });
+        pendingRoles.set(role.nameKey, list);
+      }
+      const line = correspondenceLineIn(located);
+      if (line !== null) {
+        for (const party of line.parties) correspondence.push({ document, direction: line.direction, nameKey: party.nameKey, locator: line.locator });
+      }
     }
-    // A dated line becomes an EVENT candidate. The source is
-    // `mechanical_extraction`: a parser read these bytes at this locator and
-    // would read them the same way tomorrow. It is NOT `ai_inference` — no
-    // model ran — and it is not the party's own assertion either, so confidence
-    // stays low and human review is always required. The date's precision
-    // travels with it; a month mention never becomes a day.
-    for (const line of locatedLines(entry.text)) {
-      const mention = extractDatedMentions(line.text)[0];
-      if (mention === undefined) continue;
-      const words = line.text.match(/\p{L}{2,}/gu) ?? [];
-      if (words.length < 3) continue;
-      timeline.push({
-        eventId: `evt_${sha256Hex(`${document.relativePath}:${line.locator}\n${mention.value}`).slice(0, 12)}`,
-        kind: 'EVENT',
-        occurredAt: mention.value,
-        learnedAt: learnedAt.get(document.relativePath) ?? null,
-        datePrecision: mention.precision,
-        summary: collapseWhitespace(line.text).slice(0, 200),
-        evidence: [evidenceRef(document, line.locator)],
-        assertedBy: 'mechanical_extraction',
-        confidence: 0.35,
-        humanReviewRequired: true,
-      });
+    // Every date a line states becomes a record, in the order the line states
+    // them. MEASURED 2026-09-04: only the earliest date on a line was kept, and
+    // label rows ("Fakturadato 12.03.2024") were dropped as too short. The
+    // source is `mechanical_extraction`: a parser read these bytes at this
+    // locator and would read them the same way tomorrow. It is NOT
+    // `ai_inference` — no model ran — and it is not the party's own assertion
+    // either, so confidence stays low and human review is always required. A
+    // deadline cue makes the date a DEADLINE, a procedural verb makes it a
+    // PROCEDURAL_STEP; a relative period is a DEADLINE with no date, never one
+    // the pack computed. An e-mail's header lines are not read here: the
+    // COMMUNICATION event already carries the message's own date.
+    for (const located of bodyLines) {
+      const deadlines = deadlineMentionsIn(located);
+      const steps = proceduralStepsIn(located);
+      const claimed = new Set<string>([...deadlines.map((row) => row.value ?? ''), ...steps.map((row) => row.value)]);
+      const push = (kind: LegalTimelineEvent['kind'], value: string | null, precision: LegalTimelineEvent['datePrecision'], summary: string, seed: string): void => {
+        timeline.push({
+          eventId: `evt_${sha256Hex(`${document.relativePath}:${located.locator}\n${kind}\n${seed}`).slice(0, 12)}`,
+          kind,
+          occurredAt: value,
+          learnedAt: learnedAt.get(document.relativePath) ?? null,
+          datePrecision: precision,
+          summary: collapseWhitespace(summary).slice(0, 200),
+          evidence: [evidenceRef(document, located.locator)],
+          assertedBy: 'mechanical_extraction',
+          confidence: 0.35,
+          humanReviewRequired: true,
+        });
+      };
+      // The cue leads the summary unless the line already opens with it.
+      const lead = (cue: string, summary: string): string => (summary.toLowerCase().startsWith(cue.toLowerCase()) ? summary : `${cue}: ${summary}`);
+      for (const deadline of deadlines) {
+        push('DEADLINE', deadline.value, deadline.precision, lead(deadline.basis, deadline.summary), deadline.value ?? `relative:${deadline.basis}`);
+      }
+      for (const step of steps) push('PROCEDURAL_STEP', step.value, step.precision, lead(step.step, step.summary), step.value);
+      const words = located.text.match(/\p{L}{2,}/gu) ?? [];
+      if (words.length < 1) continue;
+      for (const mention of datedMentionsInOrder(located.text)) {
+        if (claimed.has(mention.value)) continue;
+        claimed.add(mention.value);
+        push('EVENT', mention.value, mention.precision, located.text, mention.value);
+      }
     }
   }
 
@@ -776,7 +843,10 @@ function deriveRecords(entries: readonly InventoryEntry[], grouping: VersionGrou
         partyId: partyIdFor(party.address),
         displayName: names[0] ?? party.address,
         kind: 'unknown' as const,
+        basis: 'header_address' as const,
+        organisationNumber: null,
         roles: [],
+        roleEvidence: [],
         aliases: uniqueSorted([...names, party.address]),
         mentions: party.mentions,
         evidence: party.evidence,
@@ -789,27 +859,71 @@ function deriveRecords(entries: readonly InventoryEntry[], grouping: VersionGrou
   // Text-derived parties join the header-derived ones, with their own ids and
   // the basis they were read from. An address-derived party is not replaced by
   // a name that resembles it: only a human may decide those are one identity.
+  // The organisation number is its own field, never an alias; a role is only
+  // recorded where a document labelled it, with the line it did so on.
   const addressAliases = new Set(partyRecords.flatMap((party) => party.aliases.map((alias) => alias.toLowerCase())));
+  const basisOf = (candidate: PartyCandidate): LegalPartyBasis => (candidate.kind === 'court' ? 'court_name' : candidate.basis);
   const textRecords: LegalParty[] = [...textParties.values()]
     .filter((entry) => !addressAliases.has(entry.candidate.displayName.toLowerCase()))
-    .map((entry) => ({
-      partyId: partyIdForName(entry.candidate.nameKey),
-      displayName: entry.candidate.displayName,
-      kind: entry.candidate.kind,
-      // A role is only recorded when the document labelled it; an organisation
-      // form says what a party IS, never what it does in this case.
-      roles: entry.candidate.basis === 'party_label' ? [entry.candidate.basis] : [],
-      aliases: entry.candidate.organisationNumber === null ? [entry.candidate.displayName] : uniqueSorted([entry.candidate.displayName, entry.candidate.organisationNumber]),
-      mentions: entry.mentions,
-      evidence: entry.evidence,
-      identityConfidence: entry.candidate.confidence,
-      humanReviewRequired: true,
-    }));
+    .map((entry) => {
+      const roleEvidence = [...(pendingRoles.get(entry.candidate.nameKey) ?? [])].sort((a, b) => byteCompare(a.role, b.role) || byteCompare(a.evidence.documentId, b.evidence.documentId) || byteCompare(a.evidence.locator ?? '', b.evidence.locator ?? ''));
+      return {
+        partyId: partyIdForName(entry.candidate.nameKey),
+        displayName: entry.candidate.displayName,
+        kind: entry.candidate.kind,
+        basis: basisOf(entry.candidate),
+        organisationNumber: entry.candidate.organisationNumber,
+        roles: uniqueSorted(roleEvidence.map((row) => row.role)),
+        roleEvidence,
+        aliases: [entry.candidate.displayName],
+        mentions: entry.mentions,
+        evidence: entry.evidence,
+        identityConfidence: entry.candidate.confidence,
+        humanReviewRequired: true,
+      };
+    });
   const allParties = [...partyRecords, ...textRecords].sort((a, b) => byteCompare(a.partyId, b.partyId));
 
+  // A body "Fra:"/"Til:" line anchors the document to a text-derived party the
+  // way an e-mail header anchors it to an address.
+  const textPartyIds = new Map(textRecords.map((party) => [partyIdForName(partyNameKeyOf(party)), party.partyId]));
+  for (const row of correspondence) {
+    const partyId = textPartyIds.get(partyIdForName(row.nameKey));
+    if (partyId === undefined) continue;
+    const kind: LegalLinkKind = row.direction === 'from' ? 'WAS_SENT_BY' : 'WAS_RECEIVED_BY';
+    links.push({
+      linkId: linkIdFor(kind, row.document.documentId, partyId),
+      kind,
+      from: { kind: 'DOCUMENT', id: row.document.documentId },
+      to: { kind: 'PARTY', id: partyId },
+      evidence: [evidenceRef(row.document, row.locator)],
+      confidence: 0.5,
+    });
+  }
+  // Every party is in the case, on the evidence it was read from.
+  for (const party of allParties) {
+    const first = party.evidence[0];
+    if (first === undefined) continue;
+    links.push({
+      linkId: linkIdFor('PARTY_IN', party.partyId, caseId),
+      kind: 'PARTY_IN',
+      from: { kind: 'PARTY', id: party.partyId },
+      to: { kind: 'CASE', id: caseId },
+      evidence: [first],
+      confidence: party.identityConfidence,
+    });
+  }
+
   timeline.sort((a, b) => byteCompare(a.occurredAt ?? '', b.occurredAt ?? '') || byteCompare(a.eventId, b.eventId));
-  links.sort((a, b) => byteCompare(a.linkId, b.linkId));
-  return { parties: allParties, timeline, links, identityAmbiguities: identityAmbiguities(textCandidates) };
+  const seenLinks = new Set<string>();
+  const distinctLinks = links.filter((link) => (seenLinks.has(link.linkId) ? false : (seenLinks.add(link.linkId), true)));
+  distinctLinks.sort((a, b) => byteCompare(a.linkId, b.linkId));
+  return { parties: allParties, timeline, links: distinctLinks, identityAmbiguities: identityAmbiguities(textCandidates) };
+}
+
+/** The comparison key a text-derived party record was built from (its display name, normalised). */
+function partyNameKeyOf(party: LegalParty): string {
+  return partyNameKey(party.displayName);
 }
 
 // ---------------------------------------------------------------------------
@@ -903,6 +1017,7 @@ function buildCoverage(
   walk: WalkResult,
   excludedRoots: readonly string[],
   reconciliation: LegalReconciliation | null,
+  truncated: LegalCoverage['truncated'],
 ): LegalCoverage {
   const byExtraction: Record<ExtractionStatus, number> = { text: 0, metadata_only: 0, unreadable: 0, excluded: 0 };
   const kindCounts = new Map<string, number>();
@@ -936,6 +1051,7 @@ function buildCoverage(
     excludedRoots: [...excludedRoots].sort(byteCompare),
     unreadable,
     reconciliation,
+    truncated,
     // Complete = every file has a fate AND no directory was left unwalked AND,
     // when a receipt was supplied, the archive and the receipt agree.
     complete: walk.directoryErrors.length === 0 && entries.every((entry) => EXTRACTION_STATUSES.includes(entry.document.extraction)) && reconciled,
@@ -1054,14 +1170,34 @@ export function runLegalDocumentInventory(input: LegalInventoryInput, cwd: strin
   // The receipt is keyed by the path inside archive/, which is exactly the
   // relative path the walk produces, so the two line up without translation.
   const learnedAt = new Map((input.intake ?? []).map((row) => [normalizeRelative(row.relativePath), row.receivedAt]));
-  const derived = deriveRecords(primaries, grouping, learnedAt);
+  const derivedAll = deriveRecords(primaries, grouping, learnedAt, caseId);
   const factIndex = buildFactIndex(primaries, grouping);
-  const statements = matrixRows(factIndex.contradictions, factIndex.missing);
+  const statementsAll = matrixRows(factIndex.contradictions, factIndex.missing);
   const presentExcludedRoots = excludeRoots.filter((root) => walk.matchedExcludeRoots.has(root) || existsSync(resolve(archiveRootAbs, root)));
   // Reconciled only when a receipt was supplied: an absent receipt is stated
   // as null, never treated as "everything matched".
   const reconciliation = input.intake === undefined ? null : reconcileIntake(entries, input.intake);
-  const coverage = buildCoverage(caseId, entries, walk, presentExcludedRoots, reconciliation);
+  // Per-run caps. The kernel discards a run whose stdout exceeds its budget,
+  // so a bounded, declared truncation beats losing the whole inventory. What
+  // was dropped is counted in coverage.truncated; nothing is dropped silently.
+  // The finding count is known before any finding is assembled: one per
+  // unreadable document, version group, contradiction, identity ambiguity,
+  // missing reference, unreceipted document and hash mismatch.
+  const findingsExpected =
+    entries.filter((entry) => entry.document.extraction === 'unreadable' || entry.document.extraction === 'metadata_only').length +
+    grouping.versions.length +
+    factIndex.contradictions.length +
+    derivedAll.identityAmbiguities.length +
+    factIndex.missing.length +
+    (reconciliation === null ? 0 : reconciliation.documentsWithoutReceipt.length + reconciliation.hashMismatches.length);
+  const truncated = {
+    findings: Math.max(0, findingsExpected - MAX_FINDINGS_PER_RUN),
+    statements: Math.max(0, statementsAll.length - MAX_STATEMENTS_PER_RUN),
+    timeline: Math.max(0, derivedAll.timeline.length - MAX_TIMELINE_EVENTS_PER_RUN),
+  };
+  const statements = statementsAll.slice(0, MAX_STATEMENTS_PER_RUN);
+  const derived: Derived = { ...derivedAll, timeline: derivedAll.timeline.slice(0, MAX_TIMELINE_EVENTS_PER_RUN) };
+  const coverage = buildCoverage(caseId, entries, walk, presentExcludedRoots, reconciliation, truncated);
   const newestMtime = entries.reduce<Date | null>((newest, entry) => (newest === null || entry.file.mtime > newest ? entry.file.mtime : newest), null);
   const legalCase: LegalCase = {
     caseId,
@@ -1234,7 +1370,9 @@ export function runLegalDocumentInventory(input: LegalInventoryInput, cwd: strin
   const sortedReadPaths = uniqueSorted(readPaths);
   const output: AriaOutput = {
     observations: observations.sort((a, b) => byteCompare(a.id, b.id)),
-    findings: findings.sort((a, b) => byteCompare(a.id, b.id)),
+    // Capped in the same order every run, and the drop is declared in
+    // coverage.truncated.findings (computed from the same counts).
+    findings: findings.sort((a, b) => byteCompare(a.id, b.id)).slice(0, MAX_FINDINGS_PER_RUN),
     read_paths: sortedReadPaths,
     evidence_sources: sortedReadPaths,
     belief_candidates: [],

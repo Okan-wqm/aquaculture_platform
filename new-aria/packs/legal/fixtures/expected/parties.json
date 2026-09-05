@@ -3,9 +3,11 @@
     "partyId": "party_232b2350ffe4",
     "displayName": "Nordlys Entreprenør AS",
     "kind": "organization",
+    "basis": "organisation_number",
+    "organisationNumber": "987654321",
     "roles": [],
+    "roleEvidence": [],
     "aliases": [
-      "987654321",
       "Nordlys Entreprenør AS"
     ],
     "mentions": 2,
@@ -25,10 +27,46 @@
     "humanReviewRequired": true
   },
   {
+    "partyId": "party_25478c84235e",
+    "displayName": "Eksempel Advokat",
+    "kind": "person",
+    "basis": "counsel_construction",
+    "organisationNumber": null,
+    "roles": [
+      "advokat"
+    ],
+    "roleEvidence": [
+      {
+        "role": "advokat",
+        "evidence": {
+          "documentId": "doc_64d00522cbc08e4d",
+          "locator": "line:6",
+          "sha256": "fc11bbe02f5640ce69b6196d0f7c2c29d5b5ca7cb49258e802f4547ccddc0db2"
+        }
+      }
+    ],
+    "aliases": [
+      "Eksempel Advokat"
+    ],
+    "mentions": 1,
+    "evidence": [
+      {
+        "documentId": "doc_64d00522cbc08e4d",
+        "locator": "line:6",
+        "sha256": "fc11bbe02f5640ce69b6196d0f7c2c29d5b5ca7cb49258e802f4547ccddc0db2"
+      }
+    ],
+    "identityConfidence": 0.4,
+    "humanReviewRequired": true
+  },
+  {
     "partyId": "party_5106f6341ef8",
     "displayName": "Part B",
     "kind": "unknown",
+    "basis": "header_address",
+    "organisationNumber": null,
     "roles": [],
+    "roleEvidence": [],
     "aliases": [
       "Part B",
       "part.b@example.org"
@@ -53,7 +91,10 @@
     "partyId": "party_65149ee012c3",
     "displayName": "Bergen Eiendom ASA",
     "kind": "organization",
+    "basis": "organisation_form",
+    "organisationNumber": null,
     "roles": [],
+    "roleEvidence": [],
     "aliases": [
       "Bergen Eiendom ASA"
     ],
@@ -77,7 +118,10 @@
     "partyId": "party_6afd206c2bd6",
     "displayName": "Part A AS",
     "kind": "unknown",
+    "basis": "header_address",
+    "organisationNumber": null,
     "roles": [],
+    "roleEvidence": [],
     "aliases": [
       "Part A AS",
       "post@part-a.example"
@@ -102,7 +146,10 @@
     "partyId": "party_73582a574c9e",
     "displayName": "Advokat Eksempel",
     "kind": "unknown",
+    "basis": "header_address",
+    "organisationNumber": null,
     "roles": [],
+    "roleEvidence": [],
     "aliases": [
       "Advokat Eksempel",
       "advokat@example.net"
@@ -122,7 +169,21 @@
     "partyId": "party_c38d3039d359",
     "displayName": "Kari Nordmann",
     "kind": "person",
-    "roles": [],
+    "basis": "counsel_construction",
+    "organisationNumber": null,
+    "roles": [
+      "advokat"
+    ],
+    "roleEvidence": [
+      {
+        "role": "advokat",
+        "evidence": {
+          "documentId": "doc_2977e926b8bc73a6",
+          "locator": "line:2",
+          "sha256": "19f2f23a713b0d61e6fcadc9edaa6a6fe3a5bc1269f8aeff1b6a0c3fbdceb016"
+        }
+      }
+    ],
     "aliases": [
       "Kari Nordmann"
     ],

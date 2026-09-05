@@ -11,6 +11,16 @@
 export const ADAPTER_ID = 'legal-document-inventory' as const;
 export const ADAPTER_VERSION = '0.1.0' as const;
 export const DEFAULT_MAX_TEXT_BYTES = 262144;
+/**
+ * Per-run caps on what a single inventory may emit. MEASURED 2026-09-04: with
+ * no bound, 400 documents produced 237,880 statement rows and 171 MB of
+ * stdout, and the kernel discards any run whose stdout exceeds 12 MiB — so an
+ * unbounded run lost the whole inventory. The caps are declared in
+ * coverage.truncated; nothing is dropped silently.
+ */
+export const MAX_FINDINGS_PER_RUN = 5000;
+export const MAX_STATEMENTS_PER_RUN = 5000;
+export const MAX_TIMELINE_EVENTS_PER_RUN = 20000;
 /** Largest PDF/Office file loaded whole for text extraction; larger files are inventoried metadata_only with reason binary_too_large. */
 export const DEFAULT_MAX_BINARY_BYTES = 64 * 1024 * 1024;
 export const ARTIFACT_ROOT = 'packs/legal/cases' as const;
@@ -168,11 +178,26 @@ export interface LegalDocumentVersion {
   readonly humanReviewRequired: true;
 }
 
+/** The shape a party was read from. Mirrors LegalPartyBasis in the console contract. */
+export type LegalPartyBasis = 'header_address' | 'organisation_form' | 'organisation_number' | 'counsel_construction' | 'party_label' | 'court_name';
+
+/** A role a document assigned to a party, with the line it did so on. */
+export interface LegalRoleEvidence {
+  readonly role: string;
+  readonly evidence: LegalEvidenceRef;
+}
+
 export interface LegalParty {
   readonly partyId: string;
   readonly displayName: string;
   readonly kind: 'person' | 'organization' | 'court' | 'authority' | 'unknown';
+  readonly basis: LegalPartyBasis;
+  /** The organisation number a document stated beside the name, or null. Never an alias. */
+  readonly organisationNumber: string | null;
+  /** Distinct roles documents assigned to this party; each backed by a roleEvidence row. */
   readonly roles: readonly string[];
+  readonly roleEvidence: readonly LegalRoleEvidence[];
+  /** Other spellings and addresses read for this identity. Nothing is merged. */
   readonly aliases: readonly string[];
   readonly mentions: number;
   readonly evidence: readonly LegalEvidenceRef[];
@@ -242,6 +267,8 @@ export interface LegalCoverage {
   readonly unreadable: ReadonlyArray<{ readonly relativePath: string; readonly reason: string }>;
   /** null when the run was given no receipt to reconcile against — stated, not assumed clean. */
   readonly reconciliation: LegalReconciliation | null;
+  /** What the run left out because a per-run cap was reached; all zero means nothing was dropped. */
+  readonly truncated: { readonly findings: number; readonly statements: number; readonly timeline: number };
   readonly complete: boolean;
 }
 

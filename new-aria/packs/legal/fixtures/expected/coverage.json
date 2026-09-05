@@ -28,5 +28,10 @@
     }
   ],
   "reconciliation": null,
+  "truncated": {
+    "findings": 0,
+    "statements": 0,
+    "timeline": 0
+  },
   "complete": true
 }

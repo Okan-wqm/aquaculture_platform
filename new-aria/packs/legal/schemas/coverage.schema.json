@@ -14,6 +14,7 @@
     "excludedRoots",
     "unreadable",
     "reconciliation",
+    "truncated",
     "complete"
   ],
   "properties": {
@@ -178,6 +179,30 @@
               }
             }
           }
+        }
+      }
+    },
+    "truncated": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "findings",
+        "statements",
+        "timeline"
+      ],
+      "description": "What the run left out because a per-run cap was reached; all zero means nothing was dropped.",
+      "properties": {
+        "findings": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "statements": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "timeline": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },

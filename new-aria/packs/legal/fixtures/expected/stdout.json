@@ -75,11 +75,11 @@
       "type": "legal_document_inventoried",
       "path": "packs/legal/fixtures/case-synthetic/kronologi.txt",
       "details": {
-        "documentId": "doc_c9eebbb50c992990",
+        "documentId": "doc_64d00522cbc08e4d",
         "extraction": "text",
         "kindGuess": "DOCUMENT",
-        "sha256": "6e5ef00a1637223634103f8a6d15f8938f42fef3312e308b45429817e369c1ad",
-        "bytes": 282,
+        "sha256": "fc11bbe02f5640ce69b6196d0f7c2c29d5b5ca7cb49258e802f4547ccddc0db2",
+        "bytes": 399,
         "textTruncated": false,
         "versionGroupId": null
       }
@@ -177,7 +177,7 @@
       "rule": "missing_evidence",
       "severity": "medium",
       "path": "packs/legal/fixtures/case-synthetic/vedlegg/faktura_2024-001.pdf",
-      "message": "`vedlegg/faktura_2024-001.pdf` (page:1) refers to avtale 2024-01-15 (\"avtale datert 2024-01-15,\"), and no document among the 8 readable files in this archive matches it. The referenced document is either missing from the archive or filed under a name this pass could not connect.",
+      "message": "`vedlegg/faktura_2024-001.pdf` (page:1) refers to avtale 2024-01-15 (\"avtale datert 2024-01-15,\"), and no document among the 10 readable files in this archive matches it. The referenced document is either missing from the archive or filed under a name this pass could not connect.",
       "evidence": [
         {
           "path": "packs/legal/fixtures/case-synthetic/vedlegg/faktura_2024-001.pdf"
@@ -283,9 +283,9 @@
     "duplicates": 0,
     "reconciliation": null,
     "version_groups": 1,
-    "parties": 6,
-    "timeline_events": 12,
-    "labelled_facts": 10,
+    "parties": 7,
+    "timeline_events": 25,
+    "labelled_facts": 15,
     "document_references": 5,
     "contradictions": 1,
     "missing_references": 1,

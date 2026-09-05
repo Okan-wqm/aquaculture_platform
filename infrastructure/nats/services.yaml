@@ -246,6 +246,8 @@ services:
   - request.messaging.admin.getAuditLog
   - request.messaging.admin.triggerExport
   - request.messaging.admin.getPersonas
+  - request.messaging.admin.getMonitoringStats
+  - request.messaging.admin.getTenantsOverview
   - request.billing.admin.createInvoice
   - request.billing.admin.markInvoicePaid
   - request.billing.admin.voidInvoice
@@ -548,6 +550,8 @@ services:
   - request.messaging.admin.getAuditLog
   - request.messaging.admin.triggerExport
   - request.messaging.admin.getPersonas
+  - request.messaging.admin.getMonitoringStats
+  - request.messaging.admin.getTenantsOverview
   - events.>
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>

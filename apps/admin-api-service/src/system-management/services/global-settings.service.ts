@@ -1,14 +1,20 @@
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import * as crypto from 'crypto';
 
 import {
+  BadRequestException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
-  BadRequestException,
   OnModuleInit,
 } from '@nestjs/common';
 import { safeRegex } from '@aquaculture/backend-common/security';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { LessThanOrEqual, Repository } from 'typeorm';
 
@@ -84,6 +90,7 @@ export class GlobalSettingsService implements OnModuleInit {
     private readonly maintenanceModeRepo: Repository<MaintenanceMode>,
     @InjectRepository(SystemVersion)
     private readonly systemVersionRepo: Repository<SystemVersion>,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -756,7 +763,7 @@ export class GlobalSettingsService implements OnModuleInit {
   // Scheduled Tasks
   // ============================================================================
 
-  @Cron(CronExpression.EVERY_MINUTE)
+  @ScheduledJob({ name: 'maintenance.start-scheduled', cron: CronExpression.EVERY_MINUTE })
   async handleScheduledMaintenanceStart(): Promise<void> {
     const now = new Date();
     const upcoming = await this.maintenanceModeRepo.find({
@@ -772,7 +779,10 @@ export class GlobalSettingsService implements OnModuleInit {
     }
   }
 
-  @Cron(CronExpression.EVERY_5_MINUTES)
+  @ScheduledJob({
+    name: 'feature-toggles.scheduled-rollouts',
+    cron: CronExpression.EVERY_5_MINUTES,
+  })
   async handleScheduledFeatureRollouts(): Promise<void> {
     const now = new Date();
     const scheduled = await this.featureToggleRepo.find({

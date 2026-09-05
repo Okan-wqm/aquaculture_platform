@@ -1,0 +1,358 @@
+# Scheduled methods that still use a raw NestJS scheduler decorator instead of
+# the kernel `@ScheduledJob` (ADMIN-HIGH-013). Every raw `@Cron` / `@Interval` /
+# `@Timeout` runs on every replica of its service with no lease and no
+# heartbeat. tests/invariants/scheduled-jobs-leased.spec.ts requires every
+# scheduled method in apps/, libs/ and platform/libs/ to be `@ScheduledJob`, or
+# to appear here with an owner, a future expiry, the finding that owns the
+# conversion and a reason. `ceiling` is the maximum number of entries and only
+# decreases; an entry whose site is gone or converted fails the gate.
+#
+# admin-api-service — the finding's surface — is fully converted and may not
+# appear here. The remaining services are the fleet half of the same finding.
+version: 1
+ceiling: 67
+entries:
+  - site: apps/auth-service/src/audit/audit-log.service.ts#scheduledLogCleanup
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in auth-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/auth-service/src/modules/tenant/services/tenant-user-count-reconcile.service.ts#reconcileScheduled
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in auth-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/billing-service/src/billing/billing-scheduler.service.ts#applyScheduledPlanChanges
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in billing-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/billing-service/src/billing/billing-scheduler.service.ts#generateMonthlyInvoices
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in billing-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/billing-service/src/billing/billing-scheduler.service.ts#handleOverdueInvoices
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in billing-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/billing-service/src/billing/billing-scheduler.service.ts#handleSubscriptionExpiry
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in billing-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/billing-service/src/billing/billing-scheduler.service.ts#handleTrialExpiry
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in billing-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/billing-service/src/modules/metering/metered-billing.service.ts#warnOnStaleExchangeRates
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in billing-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/billing-service/src/modules/metering/usage-aggregator.service.ts#flushDirtyDataOnInterval
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Interval in billing-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/billing-service/src/modules/metering/usage-aggregator.service.ts#runScheduledRollups
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in billing-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/billing-service/src/modules/metering/usage-metering.service.ts#runScheduledCleanup
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Interval in billing-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/billing-service/src/modules/metering/usage-metering.service.ts#runScheduledFlush
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Interval in billing-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/billing-service/src/modules/metering/usage-metering.service.ts#runScheduledRedisSync
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Interval in billing-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/feeding-protocol/services/feeding-cron-v2.service.ts#dailySummary
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/feeding-protocol/services/feeding-cron-v2.service.ts#fcrAlertSweep
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/feeding-protocol/services/feeding-cron-v2.service.ts#generateDayPlans
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/feeding-protocol/services/feeding-cron-v2.service.ts#mealWindowSweep
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/feeding-protocol/services/feeding-cron-v2.service.ts#morningSweep
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/feeding-protocol/services/feeding-cron-v2.service.ts#retentionCleanup
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/feeding-protocol/services/feeding-cron-v2.service.ts#stockCoverageSweep
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/feeding/services/feeding-cron.service.ts#applyDailyGrowthRollup
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/feeding/services/feeding-cron.service.ts#checkFeedTransitions
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/feeding/services/feeding-cron.service.ts#cleanupOldExecutions
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/feeding/services/feeding-cron.service.ts#generateDailyPlans
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/feeding/services/feeding-cron.service.ts#updateTemperatureReadings
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/infrastructure/watchdog-cron.service.ts#runScheduledScan
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/regulatory/services/report-scheduler.service.ts#deadlineSweep
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/regulatory/services/report-scheduler.service.ts#monthlyRollover
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/regulatory/services/report-scheduler.service.ts#retrySweep
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/regulatory/services/report-scheduler.service.ts#weeklyRollover
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/scheduler/cron-jobs.service.ts#checkLowStock
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/scheduler/cron-jobs.service.ts#checkOverdueMaintenance
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/scheduler/cron-jobs.service.ts#checkOverdueWorkOrders
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/scheduler/cron-jobs.service.ts#cleanupOldData
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/scheduler/cron-jobs.service.ts#generateMaintenanceWorkOrders
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/scheduler/cron-jobs.service.ts#minioOrphanCleanup
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/scheduler/cron-jobs.service.ts#monthlyComplianceReport
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/scheduler/cron-jobs.service.ts#refreshAnalyticsViews
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/scheduler/cron-jobs.service.ts#weeklyMaintenanceSummary
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/scheduler/feeding-scheduler.service.ts#analyzeFCR
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/scheduler/feeding-scheduler.service.ts#checkFeedStock
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/scheduler/feeding-scheduler.service.ts#dailyFeedingSummary
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/scheduler/feeding-scheduler.service.ts#generateDailyFeedingPlan
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/scheduler/feeding-scheduler.service.ts#sendFeedingReminders
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/scheduler/feeding-scheduler.service.ts#weeklyFeedForecast
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/task/services/auto-rule-trigger.service.ts#processScheduleRules
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/task/services/recurring-task.service.ts#generateDueTasks
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/task/services/task.service.ts#detectOverdueTasks
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/weather/services/environment-cron.service.ts#retainCanonicalObservations
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/farm-service/src/weather/services/environment-cron.service.ts#syncDueProviders
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/hr-service/src/leave/leave-accrual.service.ts#processMonthlyAccrual
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in hr-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/hr-service/src/leave/leave-accrual.service.ts#processYearEndRollover
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in hr-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/hr-service/src/training/certification-expiry.service.ts#processExpiredCertifications
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in hr-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/messaging-service/src/ai/services/embedding.service.ts#processUnembeddedMessages
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in messaging-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/messaging-service/src/ai/services/knowledge-extraction.service.ts#processHourlyBatch
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in messaging-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/messaging-service/src/compliance/services/retention-policy.service.ts#executeRetentionCleanup
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in messaging-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/messaging-service/src/message/services/idempotency-ledger-gc.service.ts#sweep
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in messaging-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/messaging-service/src/partition/partition-manager.service.ts#handleMonthlyPartitionCron
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in messaging-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/notification-service/src/notification/services/notification-retention.service.ts#cleanupOldLogs
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in notification-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/notification-service/src/notification/services/retry-scheduler.service.ts#retryFailedNotifications
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in notification-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/observability-service/src/metrics/metrics-aggregator.service.ts#aggregateMetrics
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in observability-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/sensor-service/src/automation/automation.service.ts#checkDeployTimeout
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Interval in sensor-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/sensor-service/src/edge-device/edge-device.service.ts#markStaleDevicesOffline
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Interval in sensor-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: apps/sensor-service/src/vfd-programming/services/vfd-change-set-scheduler.service.ts#handleScheduledChangeSets
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in sensor-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: libs/backend-common/src/database/retention/retention-enforcement.service.ts#enforceAll
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in backend-common; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: platform/libs/outbox/src/outbox-worker.service.ts#cleanupPublished
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in outbox; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+  - site: platform/libs/outbox/src/outbox-worker.service.ts#pollAndPublish
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: raw @Cron in outbox; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+# Files that call CronHeartbeatService directly instead of through
+# ScheduledJobRunner. Same governance; converting the file's scheduled methods
+# to @ScheduledJob removes the direct dependency.
+directHeartbeatFiles:
+  - site: apps/farm-service/src/infrastructure/watchdog-cron.service.ts
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-013
+    reason: heartbeat adopted before the runner existed; its @Cron sites are raw entries above and convert together

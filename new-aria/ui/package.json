@@ -19,6 +19,7 @@
     "test:web": "vitest run --config web/vite.config.ts",
     "dev:server": "node --watch server/src/index.ts",
     "dev:web": "vite --config web/vite.config.ts",
+    "principals": "node server/src/principals-cli.ts",
     "start": "node server/dist/server/src/index.js"
   },
   "dependencies": {

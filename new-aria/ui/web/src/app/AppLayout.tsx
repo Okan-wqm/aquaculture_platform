@@ -110,6 +110,14 @@ function HealthStrip(): ReactNode {
   const data = health.state.data;
   return (
     <div className="sidebar__health">
+      {health.me !== null ? (
+        <div className="sidebar__health-row">
+          <span className="sidebar__health-key">Signed in</span>
+          <span title={`${health.me.principal.id} — role ${health.me.principal.role}; every receipt and access row names this principal`}>
+            {health.me.principal.displayName} <Badge tone={health.me.principal.role === 'lawyer' ? 'warning' : 'muted'}>{health.me.principal.role}</Badge>
+          </span>
+        </div>
+      ) : null}
       <div className="sidebar__health-row">
         <span className="sidebar__health-key">Profile</span>
         {profile === null ? (

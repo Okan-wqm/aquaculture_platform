@@ -32,6 +32,7 @@ import { HttpError } from './errors.ts';
 import { readJsonFile, resolveInside } from './fsafe.ts';
 import { asRecord, asString } from './jsonl.ts';
 import type { LedgerSigner } from './ledger.ts';
+import type { PrincipalDirectory } from './principals.ts';
 
 export const LEGAL_INVENTORY_TOOL_ID = 'legal-document-inventory';
 /** The pack manifest, relative to the ARIA install the adapter runs in. */
@@ -50,6 +51,8 @@ export interface LegalReadinessHolder {
   /** The console's ledger signing key, or null with the reason it could not be loaded. */
   signer: LedgerSigner | null;
   signerDetail: string | null;
+  /** The people who may open this console, or null when only the shared token does. */
+  principals: PrincipalDirectory | null;
 }
 
 function readiness(adapter: AdapterReadinessState, detail: string | null): LegalReadiness {

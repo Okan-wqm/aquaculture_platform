@@ -11176,7 +11176,11 @@ Severity: HIGH (chronology wrong on any line with two dates; deadlines never ext
 
 Owner: this session. Deadline: with Faz 3.
 
-## ORPHAN-HIGH-808 — the console has no users, so the lawyer gates the manifest declares cannot be asked — OPEN
+## ORPHAN-HIGH-808 — the console has no users, so the lawyer gates the manifest declares cannot be asked — RESOLVED (this commit)
+
+**Fix, measured 2026-09-05.** `ui/server/src/principals.ts`: a principals file on the volume (id, display name, role, token digest, case assignments, created/revoked), seeded at first boot with the operator behind the shared token and nobody else, owner-only permissions, fail-closed on every malformed shape; `principals-cli.ts` adds a person and prints their token once (only the digest is stored), lists, revokes. `auth.ts` resolves a token to ONE principal in constant time across all candidates; `x-aria-actor` is gone and every receipt names the authenticated principal. The matter wall: a principal sees only assigned cases, another matter reads 404 on every case route and is not listed, and a principal assigned to named cases cannot open one outside them (`case_not_assigned`). Every case-scoped request is written to the case's signed access ledger (`access.jsonl`, same chain and key as the receipt) BEFORE it is answered, refused attempts included; without the key the read is refused. The request log masks case and document ids and never logs a 5xx detail. A legal console refuses to start without a principals file. Smoke on the real kernel: seeded file at 0600, lawyer added by CLI, two matters opened by the operator, lawyer lists one, reads it, gets 404 on the other and 403 opening a third, holds the five lawyer gates the operator does not, access ledgers chained with the refused attempts in the other matter's ledger, 24 request lines with no case id, file name or title, revoked token 401. Tests: principals 5, auth 5, routes 4 (two principals end to end), log 3; server 97, web 65 green.
+
+**Learned on the way.** Recording access after the response was answered lost rows to a race the test caught; the ledger row is written before the answer now, like the receipt. Capturing stdout by replacing `process.stdout.write` in a test swallowed the test runner's own TAP stream; the log module takes an injectable writer instead.
 
 Severity: HIGH (custody records name whoever the caller claims to be; every token holder sees every matter).
 

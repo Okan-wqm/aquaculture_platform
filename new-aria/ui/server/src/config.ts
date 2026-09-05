@@ -25,7 +25,14 @@ export class ConfigError extends Error {
 export interface ServerConfig {
   readonly host: string;
   readonly port: number;
-  readonly token: string;
+  /** The shared operator credential, or null when only the principals file identifies people. */
+  readonly token: string | null;
+  /**
+   * The principals file on the volume: who may open the console, as what role,
+   * on which cases. Required for a legal console — a lawyer-owned gate can only
+   * be passed by a principal the console can name.
+   */
+  readonly principalsFile: string | null;
   readonly toolsDir: string;
   readonly workspaceRoot: string | null;
   readonly workspaceBase: string;
@@ -111,8 +118,14 @@ function flag(env: NodeJS.ProcessEnv, name: string): boolean {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
-  const token = required(env, 'ARIA_UI_TOKEN');
-  if (token.length < 16) {
+  const principalsRaw = env['ARIA_UI_PRINCIPALS_FILE'];
+  const principalsFile = principalsRaw !== undefined && principalsRaw.trim() !== '' ? resolve(principalsRaw.trim()) : null;
+  const tokenRaw = env['ARIA_UI_TOKEN'];
+  const token = tokenRaw !== undefined && tokenRaw.trim() !== '' ? tokenRaw.trim() : null;
+  if (token === null && principalsFile === null) {
+    throw new ConfigError('ARIA_UI_TOKEN', 'is required unless ARIA_UI_PRINCIPALS_FILE names the people who may open this console');
+  }
+  if (token !== null && token.length < 16) {
     throw new ConfigError('ARIA_UI_TOKEN', 'must be at least 16 characters');
   }
   const toolsDir = resolve(required(env, 'ARIA_TOOLS_DIR'));
@@ -123,10 +136,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   // instance manifest must stop the server here, not be discovered later by a
   // request that quietly ran without the policy it advertises.
   const instancePolicy = loadInstancePolicy(env);
+  // A legal console names lawyers in its approval policy; without a principals
+  // file no request could ever be a lawyer's, and every lawyer gate would be a
+  // permanent 403. Refused here, where the operator reads it.
+  if (instancePolicy !== null && instancePolicy.consoleModules.includes('legal') && principalsFile === null) {
+    throw new ConfigError('ARIA_UI_PRINCIPALS_FILE', `the legal console needs a principals file so a lawyer can be told from an operator (instance ${instancePolicy.instanceId})`);
+  }
   return Object.freeze({
     host: env['ARIA_UI_HOST']?.trim() || '0.0.0.0',
     port: integer(env, 'ARIA_UI_PORT', 8480, 1, 65535),
     token,
+    principalsFile,
     toolsDir,
     workspaceRoot,
     workspaceBase: env['ARIA_WORKSPACE_BASE']?.trim() || resolve(toolsDir, '..', 'workspaces'),

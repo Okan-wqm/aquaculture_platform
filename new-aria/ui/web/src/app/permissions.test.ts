@@ -5,7 +5,7 @@ import type { WhoAmIResponse } from '../../../shared/api-contract.ts';
 import { canPerform } from './permissions.ts';
 
 const ME: WhoAmIResponse = {
-  principal: { id: 'console-token-holder', displayName: 'Console token holder', role: 'operator' },
+  principal: { id: 'console-token-holder', displayName: 'Console token holder', role: 'operator', cases: '*' },
   permissions: { kernel_control: false, case_intake: true, corpus_inventory: true, statement_verification: false },
 };
 

@@ -22,7 +22,32 @@ export function redactHeaders(headers: Readonly<Record<string, string | string[]
   return out;
 }
 
-export function log(level: LogLevel, message: string, fields: LogFields = {}): void {
-  const line = JSON.stringify({ at: new Date().toISOString(), level, message, ...fields });
+/**
+ * A request path with the client's identifiers removed. A case id names a
+ * client and a document id names their file; stdout is a log pipeline, not a
+ * custody record, and must carry neither. The access ledger inside the case
+ * directory records the full request, signed.
+ */
+export function maskLegalPath(path: string): string {
+  return path.replace(/(\/legal\/cases\/)[^/]+/, '$1[case]').replace(/(\/documents\/)[^/]+/, '$1[document]');
+}
+
+type LogWriter = (line: string) => void;
+
+const stdoutWriter: LogWriter = (line) => {
   process.stdout.write(`${line}\n`);
+};
+let writer: LogWriter = stdoutWriter;
+
+/**
+ * Redirects log lines, for a test that must assert what the console would
+ * have written to stdout without disturbing the test runner's own stream.
+ * Passing null restores stdout.
+ */
+export function setLogWriter(next: LogWriter | null): void {
+  writer = next ?? stdoutWriter;
+}
+
+export function log(level: LogLevel, message: string, fields: LogFields = {}): void {
+  writer(JSON.stringify({ at: new Date().toISOString(), level, message, ...fields }));
 }

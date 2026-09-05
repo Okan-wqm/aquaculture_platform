@@ -22,6 +22,7 @@ function configWith(environmentAllows: boolean, manifest: string | null): Server
     host: '127.0.0.1',
     port: 0,
     token: 'unit-test-token-0123456789abcdef',
+    principalsFile: null,
     toolsDir: '/tmp/never-read',
     workspaceRoot: null,
     workspaceBase: '/tmp/never-read/workspaces',

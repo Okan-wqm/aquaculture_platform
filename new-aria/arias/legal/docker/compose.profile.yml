@@ -29,6 +29,13 @@ services:
       # public half is published on /api/v1/health so a client can verify a
       # receipt without trusting this console.
       ARIA_UI_LEDGER_KEY_FILE: /data/legal/keys/ledger-ed25519.pem
+      # Who may open this console, as what, on which cases. Seeded at first
+      # boot with the operator behind LEGAL_UI_TOKEN; a lawyer is added with
+      #   docker compose ... exec legal-ui npm --prefix /opt/new-aria/ui run principals -- add \
+      #     --id kari --display "Advokat Kari Nordmann" --role lawyer --cases sak-24-001
+      # which prints that person's token once. Tokens are never stored, only
+      # their digests; the receipt and the access ledger name the principal.
+      ARIA_UI_PRINCIPALS_FILE: /data/legal/principals.json
       # The instance manifest is loaded and ENFORCED. runtime.allow_actions
       # governs KERNEL control only (cycle run, pause, resume) and can only
       # narrow the environment's grant — the legal instance keeps it off. Case

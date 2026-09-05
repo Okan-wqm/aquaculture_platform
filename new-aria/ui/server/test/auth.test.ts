@@ -1,18 +1,21 @@
-// SCENARIO: bearer authorization with the per-address failure limiter.
-// EXPECTS: public health path needs no token; wrong/missing tokens are refused;
-// the right token passes and clears failures; twenty failures lock the address.
+// SCENARIO: bearer authentication resolving to ONE principal, with the per-address failure limiter.
+// EXPECTS: the public health path needs no token; wrong/missing tokens are refused;
+// a token resolves to its principal (shared token → the operator token holder,
+// a principals-file token → that person); twenty failures lock the address.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { Authorizer, extractBearer, isPublicPath } from '../src/auth.ts';
+import { Authorizer, combineResolvers, extractBearer, isPublicPath, sharedTokenResolver } from '../src/auth.ts';
+import type { Principal } from '../src/principal.ts';
 
 const TOKEN = 'unit-test-token-0123456789abcdef';
+const KARI: Principal = { id: 'kari', displayName: 'Advokat Kari Nordmann', role: 'lawyer', cases: ['sak-24-001'] };
 
 test('health is public, everything else under /api needs the header', () => {
   assert.equal(isPublicPath('/api/v1/health'), true);
   assert.equal(isPublicPath('/api/v1/overview'), false);
-  const auth = new Authorizer(TOKEN);
-  assert.equal(auth.authorize('/api/v1/health', undefined, '10.0.0.1').kind, 'ok');
+  const auth = new Authorizer(sharedTokenResolver(TOKEN));
+  assert.equal(auth.authorize('/api/v1/health', undefined, '10.0.0.1').kind, 'public');
   assert.equal(auth.authorize('/api/v1/overview', undefined, '10.0.0.1').kind, 'unauthorized');
 });
 
@@ -23,16 +26,30 @@ test('extractBearer accepts the scheme case-insensitively and rejects other sche
   assert.equal(extractBearer(undefined), null);
 });
 
-test('the right token is accepted and a wrong one refused', () => {
-  const auth = new Authorizer(TOKEN);
-  assert.equal(auth.authorize('/api/v1/overview', `Bearer ${TOKEN}`, '10.0.0.2').kind, 'ok');
+test('the shared token resolves to the operator token holder; a wrong one to nobody', () => {
+  const auth = new Authorizer(sharedTokenResolver(TOKEN));
+  const ok = auth.authorize('/api/v1/overview', `Bearer ${TOKEN}`, '10.0.0.2');
+  assert.equal(ok.kind, 'ok');
+  assert.equal(ok.kind === 'ok' ? ok.principal.id : null, 'console-token-holder');
+  assert.equal(ok.kind === 'ok' ? ok.principal.role : null, 'operator');
   assert.equal(auth.authorize('/api/v1/overview', `Bearer ${TOKEN}x`, '10.0.0.2').kind, 'unauthorized');
   assert.equal(auth.authorize('/api/v1/overview', 'Bearer short', '10.0.0.2').kind, 'unauthorized');
 });
 
+test("a principals-file token resolves to that person, and the resolvers combine without leaking which one matched", () => {
+  const byFile = (token: string): Principal | null => (token === 'kari-token-0123456789abcdefghij' ? KARI : null);
+  const auth = new Authorizer(combineResolvers([byFile, sharedTokenResolver(TOKEN)]));
+  const lawyer = auth.authorize('/api/v1/me', 'Bearer kari-token-0123456789abcdefghij', '10.0.0.5');
+  assert.equal(lawyer.kind, 'ok');
+  assert.deepEqual(lawyer.kind === 'ok' ? lawyer.principal : null, KARI);
+  const operator = auth.authorize('/api/v1/me', `Bearer ${TOKEN}`, '10.0.0.5');
+  assert.equal(operator.kind === 'ok' ? operator.principal.id : null, 'console-token-holder');
+  assert.equal(auth.authorize('/api/v1/me', 'Bearer nobody-0123456789abcdefghijklmn', '10.0.0.5').kind, 'unauthorized');
+});
+
 test('twenty failures inside the window lock the address until the window passes', () => {
   let clock = 1_000_000;
-  const auth = new Authorizer(TOKEN, { maxFailures: 3, windowMs: 60_000, now: () => clock });
+  const auth = new Authorizer(sharedTokenResolver(TOKEN), { maxFailures: 3, windowMs: 60_000, now: () => clock });
   for (let index = 0; index < 3; index += 1) {
     assert.equal(auth.authorize('/api/v1/overview', 'Bearer wrong', '10.0.0.3').kind, 'unauthorized');
   }

@@ -11,6 +11,11 @@
 // receipt is the one the server authenticated — a route never reads an
 // identity out of the request.
 //
+// Every case-scoped route sits behind the MATTER WALL: a principal sees only
+// the cases assigned to it, and a case outside that assignment reads as 404,
+// never as "exists but forbidden". Every case-scoped request is written to the
+// case's signed access ledger BEFORE it is answered.
+//
 // WHAT: builds the compiled route list the server dispatches on.
 
 import type { IncomingMessage } from 'node:http';
@@ -19,11 +24,13 @@ import type { HealthResponse, WhoAmIResponse } from '../../shared/api-contract.t
 import { DEFAULT_LIMIT, ENDPOINTS, KERNEL_CONTROL_ACTION_CLASS, LEDGER_SOURCES, MAX_LIMIT } from '../../shared/api-contract.ts';
 import type { LegalCaseCreatedResponse, LegalIntakeResponse, LegalUploadResponse } from '../../shared/legal-contract.ts';
 import { LEGAL_ENDPOINTS, LEGAL_UPLOAD_FILE_NAME_HEADER, LEGAL_UPLOAD_SOURCE_HEADER } from '../../shared/legal-contract.ts';
+import { recordAccess } from './access-log.ts';
 import { control, doctor, integrityVerify, JobTable } from './actions.ts';
 import type { ServerConfig } from './config.ts';
 import { HttpError } from './errors.ts';
 import { existsInside, resolveInside } from './fsafe.ts';
 import { permissionsFor, requireGate } from './gates.ts';
+import type { ConsoleActionClass } from './gates.ts';
 import {
   archiveRunRoot,
   createCase,
@@ -36,6 +43,8 @@ import {
 } from './legal-intake.ts';
 import type { LegalReadinessHolder } from './legal-readiness.ts';
 import { readLegalReadiness, requireLegalAdapter } from './legal-readiness.ts';
+import type { Principal } from './principal.ts';
+import { canSeeCase } from './principals.ts';
 import { readAgentRequests } from './readers/agents.ts';
 import { readCycleDetail, readCycles } from './readers/cycles.ts';
 import { readFindings } from './readers/findings.ts';
@@ -49,7 +58,7 @@ import { readPlans } from './readers/plans.ts';
 import { readPressures } from './readers/pressures.ts';
 import { listDailyReports, readDailyReport } from './readers/reports.ts';
 import { readTools } from './readers/tools.ts';
-import type { Route } from './router.ts';
+import type { RequestContext, Route } from './router.ts';
 import { clampLimit, compileRoute, readJsonBody, sendJson } from './router.ts';
 import { streamGovernance } from './sse.ts';
 
@@ -83,7 +92,72 @@ function optionalString(body: Record<string, unknown>, field: string): string | 
   return value.trim() === '' ? null : value.trim();
 }
 
+/**
+ * The matter wall. A case the principal is not assigned to does not exist for
+ * that principal: 404, the same answer as for a case nobody created, so the
+ * wall never confirms that another matter is there.
+ */
+function requireCaseAccess(principal: Principal, caseId: string): void {
+  if (!canSeeCase(principal, caseId)) throw new HttpError(404, 'case_not_found', caseId);
+}
+
+/** What a case-scoped handler answers; the wrapper records the access, then sends it. */
+interface Answer {
+  readonly status: number;
+  readonly body: unknown;
+}
+
 export function buildRoutes(config: ServerConfig, jobs: JobTable, readiness: LegalReadinessHolder): ReadonlyArray<ReturnType<typeof compileRoute>> {
+  /**
+   * A case-scoped route: behind the matter wall, optionally behind an action
+   * class gate, and written to the case's signed access ledger BEFORE it is
+   * answered — the way a receipt reaches the disk before an upload is
+   * acknowledged. A refused request (a 404 on another matter, a 403 on a gate)
+   * is recorded too: an attempt to read a client's file is worth knowing.
+   * Without the ledger key the read is refused: an unrecorded read of a
+   * client's file is the state the ledger exists to end.
+   */
+  const caseRoute = (
+    method: Route['method'],
+    pattern: string,
+    actionClass: ConsoleActionClass | null,
+    handler: (ctx: RequestContext & { readonly caseId: string }) => Promise<Answer>,
+  ): Route => ({
+    method,
+    pattern,
+    handler: async (ctx) => {
+      const caseId = requireParam(ctx.params, 'caseId');
+      if (readiness.signer === null) throw new HttpError(503, 'ledger_key_missing', readiness.signerDetail ?? 'the console holds no ledger key, so no access can be recorded');
+      const signer = readiness.signer;
+      let answer: Answer | null = null;
+      let status = 500;
+      try {
+        requireCaseAccess(ctx.principal, caseId);
+        if (actionClass !== null) requireGate(config, ctx.principal, actionClass);
+        answer = await handler({ ...ctx, caseId });
+        status = answer.status;
+      } catch (error) {
+        status = error instanceof HttpError ? error.status : 500;
+        throw error;
+      } finally {
+        // A case that does not exist at all has no ledger to write.
+        if ((await readCaseMeta(config.legalCasesDir, caseId)) !== null) {
+          await recordAccess(config.legalCasesDir, signer, {
+            caseId,
+            principalId: ctx.principal.id,
+            role: ctx.principal.role,
+            method,
+            route: pattern,
+            documentId: ctx.params['documentId'] ?? null,
+            status,
+            at: new Date().toISOString(),
+          });
+        }
+      }
+      if (answer !== null) sendJson(ctx.res, answer.status, answer.body);
+    },
+  });
+
   const routes: Route[] = [
     {
       method: 'GET',
@@ -97,6 +171,7 @@ export function buildRoutes(config: ServerConfig, jobs: JobTable, readiness: Leg
           actionsEnabled: config.allowActions,
           legal: await readLegalReadiness(config, readiness.boot),
           ledgerSigning: readiness.signer === null ? null : { keyId: readiness.signer.keyId, publicKeyPem: readiness.signer.publicKeyPem },
+          identity: readiness.principals === null ? 'shared_token' : 'principals_file',
           generatedAt: new Date().toISOString(),
         };
         sendJson(res, 200, body);
@@ -107,7 +182,7 @@ export function buildRoutes(config: ServerConfig, jobs: JobTable, readiness: Leg
       pattern: ENDPOINTS.me.path,
       handler: async ({ res, principal }) => {
         const body: WhoAmIResponse = {
-          principal: { id: principal.id, displayName: principal.displayName, role: principal.role },
+          principal: { id: principal.id, displayName: principal.displayName, role: principal.role, cases: principal.cases },
           permissions: permissionsFor(config, principal),
         };
         sendJson(res, 200, body);
@@ -160,53 +235,55 @@ export function buildRoutes(config: ServerConfig, jobs: JobTable, readiness: Leg
       },
     },
     { method: 'GET', pattern: ENDPOINTS.job.path, handler: async ({ res, params }) => sendJson(res, 200, jobs.get(requireParam(params, 'jobId'))) },
-    { method: 'GET', pattern: LEGAL_ENDPOINTS.cases.path, handler: async ({ res }) => sendJson(res, 200, await listCases(config.toolsDir)) },
-    { method: 'GET', pattern: LEGAL_ENDPOINTS.case.path, handler: async ({ res, params }) => sendJson(res, 200, await readCase(config.toolsDir, requireParam(params, 'caseId'))) },
     {
       method: 'GET',
-      pattern: LEGAL_ENDPOINTS.documents.path,
-      handler: async ({ res, params, query }) =>
-        sendJson(res, 200, await readDocuments(config.toolsDir, requireParam(params, 'caseId'), { kind: param(query, 'kind'), extraction: param(query, 'extraction'), limit: clampLimit(query, MAX_LIMIT, MAX_LIMIT) })),
-    },
-    { method: 'GET', pattern: LEGAL_ENDPOINTS.document.path, handler: async ({ res, params }) => sendJson(res, 200, await readDocument(config.toolsDir, requireParam(params, 'caseId'), requireParam(params, 'documentId'))) },
-    { method: 'GET', pattern: LEGAL_ENDPOINTS.timeline.path, handler: async ({ res, params }) => sendJson(res, 200, await readTimeline(config.toolsDir, requireParam(params, 'caseId'))) },
-    { method: 'GET', pattern: LEGAL_ENDPOINTS.parties.path, handler: async ({ res, params }) => sendJson(res, 200, await readParties(config.toolsDir, requireParam(params, 'caseId'))) },
-    {
-      method: 'GET',
-      pattern: LEGAL_ENDPOINTS.statements.path,
-      handler: async ({ res, params, query }) => {
-        const review = param(query, 'humanReview');
-        sendJson(res, 200, await readStatements(config.toolsDir, requireParam(params, 'caseId'), { status: param(query, 'status'), humanReview: review === null ? null : review === 'true' }));
+      pattern: LEGAL_ENDPOINTS.cases.path,
+      handler: async ({ res, principal }) => {
+        // The list is the matter wall's first surface: a case the principal is
+        // not assigned to is not listed.
+        const all = await listCases(config.toolsDir);
+        sendJson(res, 200, { cases: all.cases.filter((row) => canSeeCase(principal, row.caseId)) });
       },
     },
-    { method: 'GET', pattern: LEGAL_ENDPOINTS.coverage.path, handler: async ({ res, params }) => sendJson(res, 200, await readCoverage(config.toolsDir, requireParam(params, 'caseId'))) },
-    {
-      method: 'GET',
-      pattern: LEGAL_ENDPOINTS.intake.path,
-      handler: async ({ res, params }) => {
-        const caseId = requireParam(params, 'caseId');
-        const intake = await readIntakeLedger(config.legalCasesDir, caseId);
-        const body: LegalIntakeResponse = {
-          caseMeta: await readCaseMeta(config.legalCasesDir, caseId),
-          intake,
-          // Verified on every read, not on a schedule: the answer to "was this
-          // receipt edited?" must be current at the moment it is asked. Chain,
-          // every row's signature, then the signed head commitment.
-          chain: verifyIntakeChain(intake, await readIntakeHead(config.legalCasesDir, caseId), readiness.signer),
-        };
-        sendJson(res, 200, body);
-      },
-    },
+    caseRoute('GET', LEGAL_ENDPOINTS.case.path, null, async ({ caseId }) => ({ status: 200, body: await readCase(config.toolsDir, caseId) })),
+    caseRoute('GET', LEGAL_ENDPOINTS.documents.path, null, async ({ caseId, query }) => ({
+      status: 200,
+      body: await readDocuments(config.toolsDir, caseId, { kind: param(query, 'kind'), extraction: param(query, 'extraction'), limit: clampLimit(query, MAX_LIMIT, MAX_LIMIT) }),
+    })),
+    caseRoute('GET', LEGAL_ENDPOINTS.document.path, null, async ({ caseId, params }) => ({ status: 200, body: await readDocument(config.toolsDir, caseId, requireParam(params, 'documentId')) })),
+    caseRoute('GET', LEGAL_ENDPOINTS.timeline.path, null, async ({ caseId }) => ({ status: 200, body: await readTimeline(config.toolsDir, caseId) })),
+    caseRoute('GET', LEGAL_ENDPOINTS.parties.path, null, async ({ caseId }) => ({ status: 200, body: await readParties(config.toolsDir, caseId) })),
+    caseRoute('GET', LEGAL_ENDPOINTS.statements.path, null, async ({ caseId, query }) => {
+      const review = param(query, 'humanReview');
+      return { status: 200, body: await readStatements(config.toolsDir, caseId, { status: param(query, 'status'), humanReview: review === null ? null : review === 'true' }) };
+    }),
+    caseRoute('GET', LEGAL_ENDPOINTS.coverage.path, null, async ({ caseId }) => ({ status: 200, body: await readCoverage(config.toolsDir, caseId) })),
+    caseRoute('GET', LEGAL_ENDPOINTS.intake.path, null, async ({ caseId }) => {
+      const intake = await readIntakeLedger(config.legalCasesDir, caseId);
+      const body: LegalIntakeResponse = {
+        caseMeta: await readCaseMeta(config.legalCasesDir, caseId),
+        intake,
+        // Verified on every read, not on a schedule: the answer to "was this
+        // receipt edited?" must be current at the moment it is asked. Chain,
+        // every row's signature, then the signed head commitment.
+        chain: verifyIntakeChain(intake, await readIntakeHead(config.legalCasesDir, caseId), readiness.signer),
+      };
+      return { status: 200, body };
+    }),
     {
       method: 'POST',
       pattern: LEGAL_ENDPOINTS.createCase.path,
       handler: async ({ req, res, principal }) => {
         requireGate(config, principal, 'case_intake');
         const body = await readJsonBody(req);
+        const caseId = requireString(body, 'caseId');
+        // A principal assigned to named cases may only open one of those; an
+        // assignment is made by the operator, not claimed by opening a case.
+        if (!canSeeCase(principal, caseId)) throw new HttpError(403, 'case_not_assigned', `${principal.id} is not assigned to ${caseId}`);
         const created = await createCase(
           config.legalCasesDir,
           {
-            caseId: requireString(body, 'caseId'),
+            caseId,
             title: requireString(body, 'title'),
             jurisdiction: optionalString(body, 'jurisdiction'),
             courtReference: optionalString(body, 'courtReference'),
@@ -219,53 +296,41 @@ export function buildRoutes(config: ServerConfig, jobs: JobTable, readiness: Leg
         sendJson(res, 201, response);
       },
     },
-    {
-      method: 'POST',
-      pattern: LEGAL_ENDPOINTS.uploadDocument.path,
-      handler: async ({ req, res, params, principal }) => {
-        requireGate(config, principal, 'case_intake');
-        const sourceNote = singleHeader(req, LEGAL_UPLOAD_SOURCE_HEADER);
-        const outcome = await uploadDocument(req, {
-          casesDir: config.legalCasesDir,
-          caseId: requireParam(params, 'caseId'),
-          fileName: decodeFileNameHeader(singleHeader(req, LEGAL_UPLOAD_FILE_NAME_HEADER)),
-          receivedBy: principal.id,
-          sourceNote: sourceNote === undefined || sourceNote.trim() === '' ? null : sourceNote.trim().slice(0, 500),
-          maxBytes: config.maxUploadBytes,
-          now: new Date().toISOString(),
-          signer: readiness.signer,
-        });
-        const response: LegalUploadResponse = outcome;
-        sendJson(res, outcome.duplicate ? 200 : 201, response);
-      },
-    },
-    {
-      method: 'POST',
-      pattern: LEGAL_ENDPOINTS.runInventory.path,
-      handler: async ({ req, res, params, principal }) => {
-        requireGate(config, principal, 'corpus_inventory');
-        const caseId = requireParam(params, 'caseId');
-        if ((await readCaseMeta(config.legalCasesDir, caseId)) === null) throw new HttpError(404, 'case_not_found', caseId);
-        // Refused here, with the kernel's reason, rather than spawning a run
-        // that would die inside the kernel with `tool not found`.
-        requireLegalAdapter(await readLegalReadiness(config, readiness.boot));
-        const body = await readJsonBody(req);
-        // The receipt goes to the run with its digests, so the adapter can
-        // reconcile the archive against it, not merely date its records.
-        const intake = (await readIntakeLedger(config.legalCasesDir, caseId)).map((row) => ({ relativePath: row.relativePath, receivedAt: row.receivedAt, sha256: row.sha256 }));
-        sendJson(
-          res,
-          202,
-          jobs.startLegalInventory(config, {
-            caseId,
-            archiveRoot: archiveRunRoot(config.workspaceRoot, config.legalCasesDir, caseId),
-            title: optionalString(body, 'title'),
-            intake,
-            excludeRoots: config.instancePolicy === null ? [] : config.instancePolicy.corpusExcludeRoots,
-          }),
-        );
-      },
-    },
+    caseRoute('POST', LEGAL_ENDPOINTS.uploadDocument.path, 'case_intake', async ({ req, caseId, principal }) => {
+      const sourceNote = singleHeader(req, LEGAL_UPLOAD_SOURCE_HEADER);
+      const outcome = await uploadDocument(req, {
+        casesDir: config.legalCasesDir,
+        caseId,
+        fileName: decodeFileNameHeader(singleHeader(req, LEGAL_UPLOAD_FILE_NAME_HEADER)),
+        receivedBy: principal.id,
+        sourceNote: sourceNote === undefined || sourceNote.trim() === '' ? null : sourceNote.trim().slice(0, 500),
+        maxBytes: config.maxUploadBytes,
+        now: new Date().toISOString(),
+        signer: readiness.signer,
+      });
+      const response: LegalUploadResponse = outcome;
+      return { status: outcome.duplicate ? 200 : 201, body: response };
+    }),
+    caseRoute('POST', LEGAL_ENDPOINTS.runInventory.path, 'corpus_inventory', async ({ req, caseId }) => {
+      if ((await readCaseMeta(config.legalCasesDir, caseId)) === null) throw new HttpError(404, 'case_not_found', caseId);
+      // Refused here, with the kernel's reason, rather than spawning a run
+      // that would die inside the kernel with `tool not found`.
+      requireLegalAdapter(await readLegalReadiness(config, readiness.boot));
+      const body = await readJsonBody(req);
+      // The receipt goes to the run with its digests, so the adapter can
+      // reconcile the archive against it, not merely date its records.
+      const intake = (await readIntakeLedger(config.legalCasesDir, caseId)).map((row) => ({ relativePath: row.relativePath, receivedAt: row.receivedAt, sha256: row.sha256 }));
+      return {
+        status: 202,
+        body: jobs.startLegalInventory(config, {
+          caseId,
+          archiveRoot: archiveRunRoot(config.workspaceRoot, config.legalCasesDir, caseId),
+          title: optionalString(body, 'title'),
+          intake,
+          excludeRoots: config.instancePolicy === null ? [] : config.instancePolicy.corpusExcludeRoots,
+        }),
+      };
+    }),
   ];
   return routes.map(compileRoute);
 }

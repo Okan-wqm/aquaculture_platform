@@ -166,6 +166,8 @@ export interface HealthResponse {
    * console; null means no key is loaded and no receipt can be written.
    */
   readonly ledgerSigning: { readonly keyId: string; readonly publicKeyPem: string } | null;
+  /** How this console names people: a principals file (per-person tokens, roles, case assignments) or one shared operator token. */
+  readonly identity: 'principals_file' | 'shared_token';
   readonly generatedAt: string;
 }
 
@@ -175,6 +177,8 @@ export interface WhoAmIResponse {
     readonly id: string;
     readonly displayName: string;
     readonly role: string;
+    /** The cases this principal may see, or '*' for every case in the instance. */
+    readonly cases: '*' | ReadonlyArray<string>;
   };
   /** Action class → whether THIS principal may perform it under the instance's policy. */
   readonly permissions: Readonly<Record<string, boolean>>;

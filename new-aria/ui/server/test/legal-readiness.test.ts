@@ -24,6 +24,7 @@ function configFor(workspaceRoot: string | null, toolsDir: string): ServerConfig
     host: '127.0.0.1',
     port: 0,
     token: 'unit-test-token-0123456789abcdef',
+    principalsFile: null,
     toolsDir,
     workspaceRoot,
     workspaceBase: join(toolsDir, '..', 'workspaces'),

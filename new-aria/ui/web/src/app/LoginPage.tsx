@@ -58,7 +58,7 @@ export function LoginPage(): ReactNode {
     } catch (reason) {
       const failure = toError(reason);
       if (isApiClientError(failure) && failure.isUnauthorized) {
-        setError('The server rejected this token (401). Check ARIA_UI_TOKEN on the projection server.');
+        setError('The server rejected this token (401). A token identifies one person; ask the operator for yours, or check ARIA_UI_TOKEN if you run the console.');
       } else if (isApiClientError(failure)) {
         setError(`The server answered ${failure.status} ${failure.payload.error}. The console cannot verify the token until that is resolved.`);
       } else {

@@ -2,17 +2,20 @@
 //
 // WHY: one process serves the SPA and the API on one origin; it reads ARIA's
 // ledgers under ARIA_TOOLS_DIR and asks the kernel CLI for every action.
-// WHAT: config → legal adapter registration → authorizer + routes → node:http
-// server; `/api/*` goes through auth, resolves the principal and the router,
-// everything else is the static SPA; errors render as the ApiError contract;
-// SIGTERM/SIGINT close the listener.
+// WHAT: config → legal adapter registration + ledger key + principals →
+// authorizer + routes → node:http server; `/api/*` goes through auth, resolves
+// the principal and the router, everything else is the static SPA; errors
+// render as the ApiError contract; SIGTERM/SIGINT close the listener. The
+// request log names no case, document or person: a case id is a client, and
+// stdout is not a custody record — the access ledger is.
 
 import { createServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { API_PREFIX } from '../../shared/api-contract.ts';
 import { JobTable } from './actions.ts';
-import { Authorizer } from './auth.ts';
+import { Authorizer, combineResolvers, sharedTokenResolver } from './auth.ts';
+import type { PrincipalResolver } from './auth.ts';
 import { ConfigError, loadConfig } from './config.ts';
 import type { ServerConfig } from './config.ts';
 import { HttpError, toApiError } from './errors.ts';
@@ -20,14 +23,24 @@ import type { LedgerSigner } from './ledger.ts';
 import { loadOrCreateSigner } from './ledger.ts';
 import type { LegalReadinessHolder } from './legal-readiness.ts';
 import { registerLegalAdapter } from './legal-readiness.ts';
-import { log, redactHeaders } from './log.ts';
-import { TOKEN_HOLDER_PRINCIPAL } from './principal.ts';
+import { log, maskLegalPath, redactHeaders } from './log.ts';
+import { ANONYMOUS_PRINCIPAL, TOKEN_HOLDER_PRINCIPAL } from './principal.ts';
+import type { PrincipalDirectory } from './principals.ts';
+import { loadOrCreatePrincipals, tokenDigest } from './principals.ts';
 import { dispatch, sendJson } from './router.ts';
 import { buildRoutes } from './routes.ts';
 import { serveStatic } from './static.ts';
 
+/** Every credential this console accepts, each resolving to one principal. */
+function resolverFor(config: ServerConfig, principals: PrincipalDirectory | null): PrincipalResolver {
+  const resolvers: PrincipalResolver[] = [];
+  if (principals !== null) resolvers.push((token) => principals.resolve(token));
+  if (config.token !== null) resolvers.push(sharedTokenResolver(config.token));
+  return combineResolvers(resolvers);
+}
+
 export function createConsoleServer(config: ServerConfig, readiness: LegalReadinessHolder): ReturnType<typeof createServer> {
-  const authorizer = new Authorizer(config.token);
+  const authorizer = new Authorizer(resolverFor(config, readiness.principals));
   const routes = buildRoutes(config, new JobTable(), readiness);
 
   const handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
@@ -46,10 +59,10 @@ export function createConsoleServer(config: ServerConfig, readiness: LegalReadin
           res.setHeader('WWW-Authenticate', 'Bearer realm="new-aria"');
           throw new HttpError(401, 'unauthorized');
         }
-        // The principal is what the credential proved and nothing more: the
-        // shared token proves possession of the instance's operator credential,
-        // so every request it carries acts as the operator.
-        const routed = await dispatch(routes, { req, res, config, principal: TOKEN_HOLDER_PRINCIPAL, query: url.searchParams, path });
+        // The principal is what the credential proved and nothing more; a
+        // public route acts as nobody.
+        const principal = verdict.kind === 'ok' ? verdict.principal : ANONYMOUS_PRINCIPAL;
+        const routed = await dispatch(routes, { req, res, config, principal, query: url.searchParams, path });
         if (!routed) throw new HttpError(404, 'not_found');
       } else if (req.method === 'GET' || req.method === 'HEAD') {
         await serveStatic(config.staticDir, path, res);
@@ -58,12 +71,13 @@ export function createConsoleServer(config: ServerConfig, readiness: LegalReadin
       }
     } catch (error) {
       const { status, body } = toApiError(error);
-      if (status >= 500) log('error', 'request failed', { path, status, error: body.detail ?? body.error });
+      // A 5xx detail may quote a path inside a case directory; the code is enough for stdout.
+      if (status >= 500) log('error', 'request failed', { path: maskLegalPath(path), status, error: body.error });
       if (!res.headersSent) sendJson(res, status, body);
       else res.end();
     } finally {
       const elapsedMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
-      log('info', 'request', { method: req.method, path, status: res.statusCode, elapsedMs: Math.round(elapsedMs), remote, headers: redactHeaders({ 'user-agent': req.headers['user-agent'] }) });
+      log('info', 'request', { method: req.method, path: maskLegalPath(path), status: res.statusCode, elapsedMs: Math.round(elapsedMs), remote, headers: redactHeaders({ 'user-agent': req.headers['user-agent'] }) });
     }
   };
 
@@ -76,11 +90,14 @@ export function createConsoleServer(config: ServerConfig, readiness: LegalReadin
 }
 
 /**
- * Registers the legal adapter and loads (or creates) the ledger signing key
- * before the console listens, so the first request already sees the kernel's
- * answer and the first receipt can be signed. A refusal is logged and reported
- * on /health; it never stops the read-only console from serving, and without a
- * key the intake routes refuse rather than write an unsigned receipt.
+ * Registers the legal adapter, loads (or creates) the ledger signing key and
+ * loads (or seeds) the principals file before the console listens, so the
+ * first request already sees the kernel's answer, the first receipt can be
+ * signed, and the first person who logs in is a known principal. A refusal
+ * is logged and reported on /health; it never stops the read-only console
+ * from serving, and without a key the intake routes refuse rather than write
+ * an unsigned receipt. A broken principals file stops the console: an identity
+ * store that half-loads is worse than none.
  */
 export async function prepareLegalReadiness(config: ServerConfig): Promise<LegalReadinessHolder> {
   const boot = await registerLegalAdapter(config);
@@ -94,7 +111,13 @@ export async function prepareLegalReadiness(config: ServerConfig): Promise<Legal
     signerDetail = `ledger key at ${config.ledgerKeyFile} could not be loaded or created: ${error instanceof Error ? error.message : String(error)}`;
     log('error', 'ledger signing key unavailable', { detail: signerDetail });
   }
-  return { boot, signer, signerDetail };
+  let principals: PrincipalDirectory | null = null;
+  if (config.principalsFile !== null) {
+    const seed = config.token === null ? null : { id: TOKEN_HOLDER_PRINCIPAL.id, displayName: TOKEN_HOLDER_PRINCIPAL.displayName, tokenSha256: tokenDigest(config.token) };
+    principals = loadOrCreatePrincipals(config.principalsFile, seed, new Date().toISOString());
+    log('info', 'principals loaded', { path: config.principalsFile, count: principals.list().length });
+  }
+  return { boot, signer, signerDetail, principals };
 }
 
 async function main(): Promise<void> {
@@ -108,10 +131,19 @@ async function main(): Promise<void> {
     }
     throw error;
   }
-  const readiness = await prepareLegalReadiness(config);
+  let readiness: LegalReadinessHolder;
+  try {
+    readiness = await prepareLegalReadiness(config);
+  } catch (error) {
+    if (error instanceof ConfigError) {
+      log('error', 'configuration refused', { variable: error.variable, detail: error.message });
+      process.exit(2);
+    }
+    throw error;
+  }
   const server = createConsoleServer(config, readiness);
   server.listen(config.port, config.host, () => {
-    log('info', 'console listening', { host: config.host, port: config.port, toolsDir: config.toolsDir, actionsEnabled: config.allowActions, version: config.version });
+    log('info', 'console listening', { host: config.host, port: config.port, toolsDir: config.toolsDir, actionsEnabled: config.allowActions, identity: readiness.principals === null ? 'shared_token' : 'principals_file', version: config.version });
   });
   const shutdown = (signal: string): void => {
     log('info', 'shutting down', { signal });

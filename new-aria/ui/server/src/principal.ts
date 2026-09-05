@@ -41,6 +41,14 @@ export const TOKEN_HOLDER_PRINCIPAL: Principal = Object.freeze({
   cases: '*',
 });
 
+/** Whoever reaches a public route (health) acts as nobody: no cases, no gate can pass. */
+export const ANONYMOUS_PRINCIPAL: Principal = Object.freeze({
+  id: 'anonymous',
+  displayName: 'Anonymous',
+  role: 'operator',
+  cases: [],
+});
+
 export function isPrincipalRole(value: string): value is PrincipalRole {
   return (PRINCIPAL_ROLES as ReadonlyArray<string>).includes(value);
 }

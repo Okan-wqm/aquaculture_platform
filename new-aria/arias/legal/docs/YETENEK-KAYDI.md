@@ -505,3 +505,17 @@ tutanağın çekirdek bütünlük indeksine girmesi (G-5, çekirdek), yedek/geri
 Yapılmayan: OCR (kapsam dışı), cümle düzeyi sürüm farkı (kayıtlı sınır), tarih için düz metin
 etiketi (yalnız tutar), anahtar rotasyonu.
 
+### F.4 — Faz 4: kimlik, avukat kapısı, matter duvarı, erişim defteri
+
+| Kapanan | Nasıl | Kanıt |
+|---|---|---|
+| L-28 kimlik (E.1 "manifest uygulanıyor" → kapılar **soruluyor**) | `principals.ts`: volume'daki principals dosyası (id, ad, rol, token digest, dava ataması); ilk açılışta paylaşılan token'ın operatörüyle tohumlanır, başkası uydurulmaz; 0600; bozuk şekil fail-closed. `principals-cli.ts`: ekle (token **bir kez** basılır, yalnız digest saklanır), listele, iptal et. `auth.ts` token'ı sabit zamanda tek principal'a çözer; `x-aria-actor` kalktı | `principals.test.ts` 5, `auth.test.ts` 5; duman: 0600, CLI ile avukat, iptal → 401 |
+| L-22 matter duvarı | Principal yalnız atanmış davaları görür; başka dava her rotada 404 (varlığı doğrulanmaz), listede yok; atanmamış dava açma 403 `case_not_assigned` | `legal-routes.test.ts`; duman: avukat listede bir dava, diğerine 404, üçüncüyü açma 403 |
+| Avukat kapıları (NEW-approval-gates-unenforced) | Beş avukat sınıfı avukat principal'ında açık, operatörde kapalı (`/me.permissions`) | Duman: `statement_verification` avukat True / operatör False |
+| Erişim defteri (L-28 "okuma denetimi yok") | Dava başına `access.jsonl`, tutanakla aynı imzalı/taahhütlü defter; her dava kapsamlı istek **cevaplanmadan önce** yazılır; reddedilen denemeler de (o davanın defterine, durum koduyla); anahtar yoksa okuma reddedilir | Route testi: defter `intact`+`anchored`; duman: zincir doğru, kari'nin 404 denemeleri diğer davanın defterinde |
+| L-24 (PII maskesi) | `maskLegalPath`: stdout'ta `/cases/[case]/documents/[document]`; 5xx ayrıntısı loglanmaz | `log.test.ts` 3; route testi her hukuk yolunu sürüp dava id / dosya adı / başlık aramıyor; duman: 24 istek satırı temiz |
+| Hukuk konsolu principals dosyasız açılmaz | `config.ts`: `surface.console.modules` legal içeriyorsa `ARIA_UI_PRINCIPALS_FILE` şart | `loadConfig` ConfigError; compose `/data/legal/principals.json` |
+
+Yapılmayan: principals dosyası açılışta okunur (yeni kişi için yeniden başlatma; compose `restart` politikası); SPA'da yalnız
+kimlik rozeti (Faz 6'da rol bazlı kontroller); anahtar/token rotasyonu; okuma denetiminin konsolda görünmesi (Faz 6).
+

@@ -404,22 +404,35 @@ export class TenantProvisioningWorkflowService {
         await this.assignModulesWithPricing(tenant, payload, run.actorUserId);
       });
 
-      await this.runStep(run.id, leaseToken, 'publish_provisioning_requested', async () => {
-        await this.requestDbMigrateTenantSchemaProvisioning(run, tenant, payload);
-        await this.enqueueEvent(
-          {
-            ...createBaseEvent('TenantProvisioningRequested', tenant.id, {
-              aggregateId: tenant.id,
-              aggregateType: 'Tenant',
-            }),
-            slug: tenant.slug,
-            name: tenant.name,
-            operationId: run.id,
-            moduleIds: payload.moduleIds,
-          },
-          'tenant-provisioning-requested:' + run.id,
-        );
-      });
+      await this.runStep(
+        run.id,
+        leaseToken,
+        'publish_provisioning_requested',
+        async () => {
+          await this.requestDbMigrateTenantSchemaProvisioning(run, tenant, payload);
+          await this.enqueueEvent(
+            {
+              ...createBaseEvent('TenantProvisioningRequested', tenant.id, {
+                aggregateId: tenant.id,
+                aggregateType: 'Tenant',
+              }),
+              slug: tenant.slug,
+              name: tenant.name,
+              operationId: run.id,
+              moduleIds: payload.moduleIds,
+            },
+            'tenant-provisioning-requested:' + run.id,
+          );
+        },
+        {
+          // ADMIN-HIGH-009: on a retry the job this step published may have
+          // FAILED. `platform.request_tenant_schema_provisioning` is
+          // idempotent per operation_id and re-opens a FAILED/ABORTED job by
+          // design, so re-running the step is exactly the recovery; a job in
+          // any other state (including COMMITTED) leaves the step skipped.
+          postconditionHolds: () => this.dbMigrateProvisioningJobIsOutstanding(run.id, tenant.id),
+        },
+      );
 
       await this.runStep(run.id, leaseToken, 'wait_for_db_migrate_provisioner', async () => {
         await this.assertDbMigrateProvisionedTenantSchema(run.id, tenant.id);
@@ -1291,6 +1304,28 @@ export class TenantProvisioningWorkflowService {
     return parts.length > 0 ? parts.join(' ') : 'User';
   }
 
+  /**
+   * The postcondition of `publish_provisioning_requested`: a PROVISION job for
+   * this operation exists and has not terminally failed. Read from the job
+   * table itself, not from the step ledger (ADMIN-HIGH-009).
+   */
+  private async dbMigrateProvisioningJobIsOutstanding(
+    operationId: string,
+    tenantId: string,
+  ): Promise<boolean> {
+    const rows = await this.queryRows<{ status: string }>(
+      `SELECT status
+         FROM platform.tenant_schema_jobs
+        WHERE operation_id = $1::uuid
+          AND tenant_id = $2::uuid
+          AND job_type = 'PROVISION'
+        LIMIT 1`,
+      [operationId, tenantId],
+    );
+    const status = rows[0]?.status;
+    return status !== undefined && status !== 'FAILED' && status !== 'ABORTED';
+  }
+
   private async assertDbMigrateProvisionedTenantSchema(
     operationId: string,
     tenantId: string,
@@ -1665,11 +1700,28 @@ export class TenantProvisioningWorkflowService {
     }
   }
 
+  /**
+   * Run one saga step unless its ledger row already says SUCCEEDED.
+   *
+   * ADMIN-HIGH-009: a SUCCEEDED row is a record that the step's work ran, not
+   * proof that what the work established still holds. On a retry the run is
+   * reset but SUCCEEDED rows are kept, so a step whose postcondition lives in
+   * another table — `publish_provisioning_requested` establishes "a PROVISION
+   * job exists and is not terminally failed" in `platform.tenant_schema_jobs`
+   * — would be skipped even though the job it published has since FAILED, and
+   * the retry would be dead on arrival. `activateTenantAfterVerification`
+   * learned the same lesson for `activate_tenant` by re-verifying inside the
+   * step; here the check is generic: a step may declare `postconditionHolds`,
+   * and when the ledger says SUCCEEDED but the postcondition no longer holds,
+   * the step runs again. Steps that declare nothing keep the plain
+   * short-circuit.
+   */
   private async runStep(
     runId: string,
     leaseToken: string | null | undefined,
     stepName: string,
     work: () => Promise<void>,
+    options: { postconditionHolds?: () => Promise<boolean> } = {},
   ): Promise<void> {
     const existingRows = await this.queryRows<TenantProvisioningStepRow>(
       `SELECT "stepName", state, "stepOrder", attempts, "lastError", "startedAt", "completedAt"
@@ -1680,7 +1732,12 @@ export class TenantProvisioningWorkflowService {
     );
 
     if (existingRows[0]?.state === TenantProvisioningState.SUCCEEDED) {
-      return;
+      if (options.postconditionHolds === undefined || (await options.postconditionHolds())) {
+        return;
+      }
+      this.logger.warn(
+        `Step ${stepName} of operation ${runId} is recorded SUCCEEDED but its postcondition no longer holds; running it again`,
+      );
     }
 
     await this.extendLease(runId, leaseToken);

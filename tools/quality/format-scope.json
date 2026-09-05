@@ -43452,6 +43452,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/aquamobil-graphql-contract-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/aria-acceptance-lane-contract.spec.ts",
       "prettier_managed": true
     },

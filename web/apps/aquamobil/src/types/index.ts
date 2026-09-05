@@ -20,6 +20,7 @@ export type {
   QualityClass,
 } from '../generated/graphql';
 import type {
+  AccessType,
   AttendanceRecordFieldsFragment,
   GetMyNotificationsQuery,
   GetStockEventsSummaryQuery,
@@ -43,6 +44,8 @@ export type {
 } from '../generated/graphql';
 import type {
   AcknowledgeAlertInput,
+  DeleteMessageMutationVariables,
+  EditMessageMutationVariables,
   ClockInInput,
   ClockOutInput,
   CreateHarvestRecordInput,
@@ -67,7 +70,8 @@ import type {
 
 // WHY: AccessType determines platform access — PANEL_ONLY users are blocked from
 // the mobile app at login time, before any feature check occurs.
-export type AccessType = 'PANEL_ONLY' | 'MOBILE_ONLY' | 'BOTH';
+// MOB-HIGH-019: the vocabulary is the generated AccessType enum, not a mirror.
+export type { AccessType } from '../generated/graphql';
 
 // Auth types
 export interface User {
@@ -262,8 +266,8 @@ export interface QueuedPayloadByType {
   acknowledgeAlert: QueueInput<AcknowledgeAlertInput>;
   sendMessage: QueueInput<SendMessageInput>;
   /** editMessage rides as `{ id, input }` — the id splits out in buildOperationVariables. */
-  editMessage: { id: string } & QueueInput<EditMessageInput>;
-  deleteMessage: { id: string };
+  editMessage: Pick<EditMessageMutationVariables, 'id'> & QueueInput<EditMessageInput>;
+  deleteMessage: DeleteMessageMutationVariables;
   markMessagesRead: QueueInput<MarkReadInput>;
   uploadAndSendMessage: UploadAndSendMessageOfflinePayload;
 }

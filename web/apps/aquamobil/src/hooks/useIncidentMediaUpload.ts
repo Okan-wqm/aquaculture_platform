@@ -32,13 +32,14 @@ import { gql } from 'graphql-tag';
 import { useCallback, useRef, useState } from 'react';
 
 import type {
+  IncidentMediaType,
   RequestIncidentMediaUploadMutation,
   RequestIncidentMediaUploadMutationVariables,
 } from '@/generated/graphql';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 
-/** Incident category — mirrors the backend `IncidentMediaType` enum. */
-export type IncidentMediaType = 'ESCAPE' | 'WELFARE' | 'LICE';
+/** Incident category — the generated `IncidentMediaType` enum (MOB-HIGH-019). */
+export type { IncidentMediaType } from '@/generated/graphql';
 
 /**
  * Images-only client allowlist. Incident photos are visual evidence, so only

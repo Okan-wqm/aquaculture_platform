@@ -11115,3 +11115,101 @@ The same inventory run over the same case archive behaves in two different ways 
 **Consequence today, stated plainly.** The shipped Docker deployment is unaffected, because its workspace root carries no `.git`. Anyone probing the adapter from a developer worktree must point `--workspace-root` at a non-git copy, or they will conclude the adapter is broken and, after two runs, find it quarantined. Recorded as G-20 in `new-aria/docs/product/CORE-DELTAS.md` with the same evidence.
 
 Owner: operator (kernel change, requires the ARIA core delta decision). Deadline: before the legal instance is run on a git-rooted workspace, or before G-18 is closed, whichever comes first.
+
+## ORPHAN-HIGH-805 — the shipped legal profile cannot open a case, upload a document or run an inventory — OPEN
+
+Severity: HIGH (the product as deployed is inoperable; every intake capability recorded as closed is unreachable).
+
+**Measured 2026-09-04** by an independent seven-agent audit (`wf_915de46a-042`) of the closure claims in `new-aria/arias/legal/docs/YETENEK-KAYDI.md` D.1–D.7. Four defects, each alone sufficient to stop a lawyer:
+
+1. `new-aria/arias/legal/aria.manifest.json` sets `runtime.allow_actions: false`, and `ui/server/src/instance-policy.ts effectiveAllowActions` ANDs it with the environment grant. The three case POSTs (`routes.ts` createCase, uploadDocument, runInventory) call `requireActions`, so they return `403 actions_disabled` under every environment. The manifest was designed to only narrow; nothing can widen it back. The boolean was the wrong instrument: the instance's own approval policy already says WHICH action classes are automatic (`corpus_inventory`) and which need a lawyer.
+2. No step in the image, compose file or seed script registers the legal adapter. `Run inventory` returns `tool not found` until an operator runs `aria tool register` by hand inside the container.
+3. `ui/server/src/actions.ts startLegalInventory` sends `{archive_root, case_id, title}` only. The adapter accepts `intake` and `exclude_roots`; without them every timeline event's `learnedAt` is null in production and the do-not-upload folder's text is extracted (measured: excluded 0, private note excerpt present).
+4. The adapter files artifacts under `case_<id>` (`legal-document-inventory.ts:913`) while the console writes the intake receipt under `<id>`. One case, two identities: the Intake tab of the case the console lists is empty and still reports the chain intact.
+5. `ui/server/src/readers/legal.ts:51-63` casts every artifact to its interface without validation, so a hand-written `verified` statement is served verbatim, and no schema/adapter version is checked on read.
+
+**Fix (Faz 1 of the approved plan).** Action-class authorization from the approval policy on every case route, `allow_actions` narrowed to kernel-control routes; one case id from one regex in `ui/shared/legal-contract.ts`; the console forwards intake, excluded roots and run context and a test pins the argv; the console registers the adapter at boot and reports registration state in `/api/health`; artifacts are validated at the read boundary with a shared TS validator and unknown versions are refused by name.
+
+Owner: this session. Deadline: before any further legal capability is recorded as closed.
+
+## ORPHAN-HIGH-806 — the intake receipt defends against forgetfulness, not against forgery, and never meets the inventory — OPEN
+
+Severity: HIGH (the custody claim the product sells is unproven, and two uploads at once destroy it).
+
+**Measured 2026-09-04** (audit `wf_915de46a-042`):
+
+- `verifyIntakeChain` recomputes the same hashes the writer computed. A re-chained ledger verifies clean; a truncated tail verifies clean; a ledger with zero rows reads `intact`. There is no signature, no row-count commitment, no external anchor.
+- `uploadDocument` reads the ledger tail and appends with no serialization (`legal-intake.ts:322-341`). Two uploads finishing in the same event-loop turn both take the same `previousRowHash`; the chain is append-only, so the break is permanent, and the console then tells the lawyer their own evidence was tampered with (`chain: {valid:false, brokenAt:1, reason:'previous_row_hash_mismatch'}`).
+- `rename` into the archive (`:319`) precedes the receipt append (`:339`); a crash between them leaves an unreceipted document forever.
+- Nothing joins the receipt to the archive the adapter walks. With b+c on disk and a+b in the receipt the inventory reported two documents, `complete: true`, no finding.
+- Byte-identical files under two names become a "version conflict" review item instead of one document with a recorded duplicate.
+
+**Fix (Faz 2).** A shared `ledger` module: per-case serialized append, Ed25519 row signatures with the key on the volume, a head commitment (row count + head hash + signature) so truncation and re-chaining are named, `empty` distinct from `intact`; receipt row before rename; intake↔inventory reconciliation findings (`document_without_receipt`, `receipt_without_document`, `intake_hash_mismatch`) that turn coverage incomplete; `duplicateOf` for identical bytes.
+
+Owner: this session. Deadline: with Faz 2.
+
+## ORPHAN-HIGH-807 — the mechanical layer misses what a Norwegian construction archive actually looks like, and manufactures disputes at scale — OPEN
+
+Severity: HIGH (chronology wrong on any line with two dates; deadlines never extracted; 237,880 false disputes on 400 unrelated letters).
+
+**Measured 2026-09-04** (audit `wf_915de46a-042`):
+
+- `legal-document-inventory.ts:717` takes `extractDatedMentions(line)[0]` and `legal-text.ts:214` sorts mentions ascending BY VALUE, so a line with two dates yields one event dated the earliest, regardless of meaning. `:720` drops any line with fewer than three letter-words — every label/value table row — so `Fakturadato 12.03.2024` never enters the chronology.
+- No `DEADLINE` or dated `PROCEDURAL_STEP` producer exists; `PROCEDURAL_STEP` is only a guess about a file's NAME.
+- `ROLE` and `PARTY_IN` have no producer; `WAS_SENT_BY` comes only from `.eml` headers.
+- Labelled facts are read only from `Label: value` on one flowing line: XLSX (tab-separated) contributes zero facts while recorded as `extraction: text`; PDF tables split label and value across lines; digits in a label (`Pkt 3 frist:`) are excluded; amounts in prose (`Kontraktssummen er avtalt til NOK 4 950 000`) are invisible; scanned/encrypted documents are absent from reference targets, so a citation to a scanned agreement is reported missing although the file is in the archive.
+- `contradictions()` buckets facts by `(kind, label)` across the whole archive. Two unrelated invoices each stating their own `Beløp` become a `disputed` row. Measured: 200 documents → 59,404 contradictions / 42.9 MB stdout; 400 → 237,880 / 171.5 MB / 1.19 GB RSS / 200 MB `statements.json`. The kernel discards any run over 12 MiB of stdout (`tool_runner.py:34,151`), crossed at roughly 108 documents of that shape. No precision measurement exists beyond the 11-file fixture, although the manifest sets `precision_min: 1.0`.
+
+**Fix (Faz 3).** Every dated mention per line in text order; label rows enter the chronology; deadline and procedural-step producers with document locators; ROLE/PARTY_IN/WAS_SENT_BY from labelled text; tab-separated and split-line facts; prose amounts; unreadable documents kept as named targets; a subject anchor (citation or shared reference identifier) required before two documents can disagree; output caps declared in coverage; a labelled evaluation corpus with measured precision and recall gating the manifest thresholds; a 3,000-document scale test inside the kernel's budgets.
+
+Owner: this session. Deadline: with Faz 3.
+
+## ORPHAN-HIGH-808 — the console has no users, so the lawyer gates the manifest declares cannot be asked — OPEN
+
+Severity: HIGH (custody records name whoever the caller claims to be; every token holder sees every matter).
+
+**Measured 2026-09-04** (audit `wf_915de46a-042`): one shared bearer token (`ui/server/src/auth.ts`, `config.ts:107-110`); the actor is the unverified `x-aria-actor` header, sliced to 120 characters and written into the receipt as `receivedBy`/`createdBy` (`routes.ts:79-82,208,226`); `requiredRoleFor` in `instance-policy.ts` has no production caller, so the five lawyer-owned action classes in `arias/legal/config/approval-policy.json` are parsed and discarded; `GET /api/legal/cases` lists every case to any holder; reads are logged only to stdout with no actor.
+
+**Fix (Faz 4).** A principals file on the volume (id, display name, role, token digest, case assignments), constant-time token lookup, fail-closed when absent; `actorFrom` removed; every mutating route declares its action class and `requireGate` asks the policy; per-case assignment as the matter wall; a per-case hash-chained access ledger; PII masking at the logging boundary with a test driving every legal route.
+
+Owner: this session. Deadline: with Faz 4; Faz 5 cannot start before it.
+
+## ORPHAN-HIGH-809 — a lawyer cannot record a single verification, and any decision they could record is erased by the next run — OPEN
+
+Severity: HIGH (the product's central promise — "verified only by a human" — has no human path).
+
+**Measured 2026-09-04** (audit `wf_915de46a-042`): the console's whole mutating surface is seven POSTs and none touches a statement; the Statements tab's only control is Reload; `applyHumanVerification` (`statement-gate.ts:234`) has no caller outside its test; `filedMember` is written null by the adapter and set by nothing; there is no DELETE anywhere, no lifecycle or retention field on a case; `writeArtifacts` rewrites all eight files on every run — a hand-added verification was gone after one re-run, with no warning.
+
+**Fix (Faz 5).** A per-case `decisions.jsonl` on the shared ledger module, written only through gated routes with the authenticated principal; readers overlay decisions onto adapter output at read time (`applyHumanVerification` as the single path to `verified`; `filedMember`; party-merge decision; document tombstones; lifecycle state and retention date); decisions whose target vanished are shown as orphaned, never dropped; per-run artifact directories with a `current` pointer so the previous inventory stays readable.
+
+Owner: this session. Deadline: with Faz 5.
+
+## ORPHAN-MEDIUM-810 — what the pack finds does not reach the lawyer's screen with its text, its sources or its document — OPEN
+
+Severity: MEDIUM (nothing is misrepresented; it is unreachable).
+
+**Measured 2026-09-04** (audit `wf_915de46a-042`): `document_version_conflict` and `party_identity_ambiguity` appear nowhere in the case UI; the adapter's human-readable contradiction message is shown nowhere; the kernel Findings page renders v2 raw rows with `reason_code` as the message and blank severity/path (`readers/findings.ts:52-56`, `feedback_store.py:368-379`); no endpoint returns a document's bytes; `LegalParty` has no `basis` or organisation-number field, so the organisation number is displayed as a merged spelling; the chain verdict is visible only inside the Intake tab; calibration and goldset ledgers are not listed among the console's surfaces and `arias/legal/corpus` does not exist.
+
+**Fix (Faz 6).** A case-scoped findings tab with message, both paths, both locators, both values and severity; v2 rows resolved through `artifact_ref + json_pointer`; a content endpoint that streams the stored bytes, re-hashes on the way out, refuses excluded roots and writes an access row; party fields in the contract; chain verdict and reconciliation in the case header; calibration and corpus state with an explicit "no evaluation has run" state.
+
+Owner: this session. Deadline: with Faz 6.
+
+## ORPHAN-MEDIUM-811 — nothing in CI runs the legal pack or the console, nothing backs up the only copy of a client's archive — OPEN
+
+Severity: MEDIUM.
+
+**Measured 2026-09-04** (audit `wf_915de46a-042`): `scripts/ci/aria-adapters-test.sh` runs the six `packs/legal` suites and no workflow calls it; the console tests are in no script and no workflow; the `legal-cases` volume has no backup, no restore path and no proof that a restore reproduces the recorded sha256s; `arias/derive.mjs` derives an instance with the pack disabled and `corpus.kind: git_repository`; no test asserts the fixture corpus contains no real person's name.
+
+**Fix (Faz 7).** A required check running `packs/legal` and `ui` (tsc, vitest, server tests, build); a backup profile and a TypeScript `backup | restore-verify` command that checks every sha256 against the receipt and re-verifies the chain; a derivation that boots a legal instance without hand edits; a placeholder-name test over the fixtures.
+
+Owner: this session. Deadline: with Faz 7.
+
+## ORPHAN-HIGH-812 — the judgment lane is minted for legal findings and can neither run nor be accepted without three kernel changes — OPEN
+
+Severity: HIGH (every agent-side MVP line — L-08, L-10, L-11, L-13, L-19 — is blocked here).
+
+**Measured 2026-09-04** (audit `wf_915de46a-042`): the cycle's judgment phase mints two judge envelopes per sampled legal finding (10 minted, 0 skipped); nothing in the legal container drains them (`ci_executor_drain.drain_pending` ships in the image, has no GitHub dependency, and has no invoker outside `.github/workflows/aria-agent-executor.yml:517`); the four legal agent roles exist in no kernel vocabulary (`agent_surface.py` REQUEST_ROLES, INVOCATION_ROLES, DISPATCHABLE_ROLES, ROLE_TARGET_PAIRING, DEFAULT_TARGET_AGENT_WHITELIST) and `agent_resolver` searches no pack directory; every evidence grade needs a git HEAD (`finding.py:252-261`, `evidence_trust.py:116-137`), so a verdict citing a case document is refused on submit in the container's non-git root.
+
+**Why it is not fixed in Faz 1–7.** All three are kernel changes and the transport copy keeps the core byte-equal by decision (`docs/product/NEW-ARIA-URUN-TANIMI.md` B-1/B-2, single deliberate delta G-7). The candidate deltas are recorded as G-21, G-22, G-23 in `new-aria/docs/product/CORE-DELTAS.md`; Faz 8 of the approved plan applies them only after the mechanical phases are green and with the operator's decision at that gate.
+
+Owner: operator (gate decision), then this session. Deadline: the Faz 8 gate.

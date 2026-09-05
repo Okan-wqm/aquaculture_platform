@@ -166,91 +166,100 @@ değişikliği, çekirdek değişmez.
 
 | ID | Eksik | Aşama | Bugün | Engel | Kabul testi |
 |---|---|---|---|---|---|
-| **L-01** | Dava dava dosya yükleme: konsolda dava oluşturma, belge yükleme, alım tetikleme | S0 | absent (konsol salt-okunur; arşiv compose ile `/workspace`'e elle bağlanıyor) | kas (X-6) + G-9 (runner) + G-14 (kayıt) | Konsoldan `POST /api/legal/cases` ve `POST /api/legal/cases/:id/documents` ile yüklenen dosya, dava arşiv kökünde orijinal baytlarla durur (`sha256` eşit), alım defterine `received_at`+`sha256`+`bytes`+`fileName` satırı düşer, adapter koşumu sonrası dava listesinde görünür; `ARIA_UI_ALLOW_ACTIONS=0` iken yükleme 403 |
-| **L-02** | PDF/DOCX/XLSX/PPTX metnini adapter'a bağlama (`extraction: text`) | S0 | not_wired (çıkarıcı yazıldı ve doğrulandı, adapter `.pdf/.docx`'i `metadata_only` sayıyor) | kas | Fixture arşivinde `faktura_2024-001.pdf` ve `klage_utkast_v3.docx` `extraction: text`, `datesMentioned` dolu; taranmış PDF `metadata_only` + `pdf_no_text_layer`, şifreli PDF `pdf_encrypted`; `coverage.unreadable[].reason` bu sebepleri taşır; 21 mevcut test + yeni fixture testleri yeşil; iki koşum bayt-eş |
-| **L-03** | Hukuk adapter'ının kernel registry'de görünmesi ve döngüde koşması | S0 | absent | **G-14** + G-2 + G-9 | Hukuk örneğinde `aria tools list` adapter'ı listeler; `cycle run` sonrası `runs.jsonl`'da `legal-document-inventory` koşumu `ok`; `tool_manifest_sync` `packs/*/pack.json`'ı okur |
-| **L-04** | Belge arşivi kaderlerinin çekirdek `discovery` kaderlerine eşlenmesi (`text/metadata_only/unreadable/excluded`), dışlanan kök kavramı | S0 | partial (`Ikke laste opp` altındaki dosya `tracked` olarak hash'leniyor) | **G-1** | `discovery run` belge arşivinde `COMPLETION_PROOF.complete=true`; dışlanan kök altındaki dosya açılmaz ve `excluded` kaderi taşır |
-| **L-05** | Alım tutanağı (evidence receipt): custodian, toplama zamanı, kaynak, imzalı manifest | S0 | absent | G-5 (deklare yüzey) + kas | Aynı arşiv iki kez alındığında bayt-eş manifest; tutanak `state_manifest`'te deklare bir yüzeye hash-zincirli yazılır; konsolda dava başlığında görünür |
-| **L-06** | Dava artifact'larının bütünlük zincirine girmesi (belge düzeyi köken) | S0 | absent (artifact'lar düz JSON) | **G-5** | `integrity verify` `packs/legal/cases/<id>/*.json`'ı kapsar; bir artifact elle değiştirildiğinde doğrulama kırmızı |
+| **L-01** | Dava dava dosya yükleme: konsolda dava oluşturma, belge yükleme, alım tetikleme | S0 | implemented_not_wired — konsol yolu var (13+5 test), ama dağıtılan profilde manifest `allow_actions:false` üç POST'u da 403 yapıyor ve hiçbir ortam değişkeni açamıyor; adapter kayıtsız (`tool not found`); `intake` geçilmiyor; artifact `case_<id>`, tutanak `<id>` (E.1) — **Faz 1** | kas (X-6) + G-9 (runner) + G-14 (kayıt) | Konsoldan `POST /api/legal/cases` ve `POST /api/legal/cases/:id/documents` ile yüklenen dosya, dava arşiv kökünde orijinal baytlarla durur (`sha256` eşit), alım defterine `received_at`+`sha256`+`bytes`+`fileName` satırı düşer, adapter koşumu sonrası dava listesinde görünür; `ARIA_UI_ALLOW_ACTIONS=0` iken yükleme 403 |
+| **L-02** | PDF/DOCX/XLSX/PPTX metnini adapter'a bağlama (`extraction: text`) | S0 | wired, sınırlı — metin katmanı okunuyor; OCR yok; XLSX `text` sayılıp sıfır olgu veriyor; gerçek üretici (Word/Acrobat) PDF'i hiç test edilmedi — **Faz 3d** | kas | Fixture arşivinde `faktura_2024-001.pdf` ve `klage_utkast_v3.docx` `extraction: text`, `datesMentioned` dolu; taranmış PDF `metadata_only` + `pdf_no_text_layer`, şifreli PDF `pdf_encrypted`; `coverage.unreadable[].reason` bu sebepleri taşır; 21 mevcut test + yeni fixture testleri yeşil; iki koşum bayt-eş |
+| **L-03** | Hukuk adapter'ının kernel registry'de görünmesi ve döngüde koşması | S0 | partial — elle `tool register` + `tool run` çalışıyor (ölçüldü); dağıtımda kayıt adımı yok; döngü yalnız `tools/aria-adapters` okur ve `default_input` fixture'a bakar — **Faz 1d** (kayıt); G-14 çekirdek | **G-14** + G-2 + G-9 | Hukuk örneğinde `aria tools list` adapter'ı listeler; `cycle run` sonrası `runs.jsonl`'da `legal-document-inventory` koşumu `ok`; `tool_manifest_sync` `packs/*/pack.json`'ı okur |
+| **L-04** | Belge arşivi kaderlerinin çekirdek `discovery` kaderlerine eşlenmesi (`text/metadata_only/unreadable/excluded`), dışlanan kök kavramı | S0 | absent — kernel `excluded` kaderi bilmiyor; konsol `exclude_roots` göndermediği için dışlanan klasörün metni çıkarılıyor (ölçüldü) — **Faz 1c** (konsol yarısı); G-1 çekirdek | **G-1** | `discovery run` belge arşivinde `COMPLETION_PROOF.complete=true`; dışlanan kök altındaki dosya açılmaz ve `excluded` kaderi taşır |
+| **L-05** | Alım tutanağı (evidence receipt): custodian, toplama zamanı, kaynak, imzalı manifest | S0 | partial — hash-zincirli tutanak var; imza/çapa/satır sayısı yok: yeniden zincirleme ve kuyruk kesme 'intact', boş defter 'intact'; eşzamanlı iki yükleme zinciri kalıcı kırıyor (ölçüldü); tutanak envantere geçmiyor — **Faz 2** | G-5 (deklare yüzey) + kas | Aynı arşiv iki kez alındığında bayt-eş manifest; tutanak `state_manifest`'te deklare bir yüzeye hash-zincirli yazılır; konsolda dava başlığında görünür |
+| **L-06** | Dava artifact'larının bütünlük zincirine girmesi (belge düzeyi köken) | S0 | absent — artifact'lar düz JSON; okuma yolunda doğrulama yok, elle yazılmış `verified` satır olduğu gibi sunuluyor (ölçüldü) — **Faz 1e** (okuma sınırı), Faz 5 (karar defteri); G-5 çekirdek | **G-5** | `integrity verify` `packs/legal/cases/<id>/*.json`'ı kapsar; bir artifact elle değiştirildiğinde doğrulama kırmızı |
 
 ### B2. M2 — Kronoloji
 
 | ID | Eksik | Aşama | Bugün | Engel | Kabul testi |
 |---|---|---|---|---|---|
-| **L-07** | Bütün okunabilir belgelerden (PDF/DOCX dâhil) kronoloji; `occurredAt`/`learnedAt` ayrımı dolu | S1 | partial (yalnız metin dosyaları ve `.eml` başlıkları; `learnedAt` hep `null`) | L-02 + kas | Fixture'da PDF/DOCX tarihleri kronolojiye `ai_inference`+`humanReviewRequired: true` ile girer; `.eml` `Date` başlığı `learnedAt`'i doldurur; `datePrecision` `month/year` belirsiz tarihte doğru |
-| **L-08** | `aria-legal-timeline-analyst` ajanının dispatch edilebilmesi | S1 | absent | **G-3** + **G-15** | Hukuk konteynerinde ajan zarfı basılır, tüketilir, `timeline-event` kaydı `humanReviewRequired: true` ile artifact'a düşer |
-| **L-09** | Bitemporal olgu kaydı (`valid_time`/`system_time`), "o tarihte ne biliniyordu" sorgusu | S1 | absent (şema alanı var, üretici yok) | kas (şema) | Geriye dönük değiştirilmiş belge fixture'ında "o gün bilinen" ile "bugün bilinen" listeleri doğru ayrılır; her olgu ≥1 hash'li kaynağa bağlı |
+| **L-07** | Bütün okunabilir belgelerden (PDF/DOCX dâhil) kronoloji; `occurredAt`/`learnedAt` ayrımı dolu | S1 | partial — tüm okunabilir belgeler; ama satırdaki yalnız **en erken** tarih alınıyor, <3 kelimelik etiket satırları hiç girmiyor, üretimde `learnedAt` hep null — **Faz 1c + 3a** | L-02 + kas | Fixture'da PDF/DOCX tarihleri kronolojiye `ai_inference`+`humanReviewRequired: true` ile girer; `.eml` `Date` başlığı `learnedAt`'i doldurur; `datePrecision` `month/year` belirsiz tarihte doğru |
+| **L-08** | `aria-legal-timeline-analyst` ajanının dispatch edilebilmesi | S1 | absent — G-3 + G-15 + G-17 — **Faz 8** | **G-3** + **G-15** | Hukuk konteynerinde ajan zarfı basılır, tüketilir, `timeline-event` kaydı `humanReviewRequired: true` ile artifact'a düşer |
+| **L-09** | Bitemporal olgu kaydı (`valid_time`/`system_time`), "o tarihte ne biliniyordu" sorgusu | S1 | partial — `occurredAt`/`learnedAt` olaylarda ayrı; as-of sorgusu yok; ifade/taraf/sürüm kayıtlarında zaman yok — **Faz 5/6** | kas (şema) | Geriye dönük değiştirilmiş belge fixture'ında "o gün bilinen" ile "bugün bilinen" listeleri doğru ayrılır; her olgu ≥1 hash'li kaynağa bağlı |
 
 ### B3. M3 — Eksik ve tutarsız bilgi
 
 | ID | Eksik | Aşama | Bugün | Engel | Kabul testi |
 |---|---|---|---|---|---|
-| **L-10** | İddia-kanıt matrisi taslağı (`aria-legal-claim-matrix-drafter`) | S2 | absent (`statements.json` boş) | **G-3** + **G-15** | Fixture'da her iddia satırı `asserted/disputed`, ≥1 `supportingSources`, `missingEvidence[]` dolu; `verified` hiçbir satırda yok |
-| **L-11** | Çelişki bulguları (`date_contradiction`, `amount_contradiction`) kernel bulgu defterine | S2 | absent | **G-4** + **G-17** | `finding emit --claim-type date_contradiction` hukuk kaynağından kabul edilir; kanıt `source_type=document_reference` L1 kapısından geçer |
-| **L-12** | Eksik-kanıt motoru: her iddia için "hangi belge olsaydı test edilirdi" | S2 | absent | kas (ajan) | Kontrollü boşluk korpusunda recall ölçülür ve raporlanır; her uyarı iki taraflı kaynak bağı taşır |
-| **L-13** | Kapsama boşluklarının basınç kaynağı olması (okunamayan dosya → pressure) | S0 | absent | **G-6** | `run_pressure` skorunda `legal.unreadable_document` kaynağı görünür |
+| **L-10** | İddia-kanıt matrisi taslağı (`aria-legal-claim-matrix-drafter`) | S2 | partial — mekanik yarısı gerçek (2 satır, kapıdan geçerek); okuma-anlama yarısı ajan, dispatch edilemiyor — **Faz 3d** (kapsam), **Faz 8** (ajan) | **G-3** + **G-15** | Fixture'da her iddia satırı `asserted/disputed`, ≥1 `supportingSources`, `missingEvidence[]` dolu; `verified` hiçbir satırda yok |
+| **L-11** | Çelişki bulguları (`date_contradiction`, `amount_contradiction`) kernel bulgu defterine | S2 | partial — bulgular RAW deftere giriyor (5 satır ölçüldü); committed deftere G-17 yüzünden giremiyor; `finding emit` CLI yok — **Faz 8** | **G-4** + **G-17** | `finding emit --claim-type date_contradiction` hukuk kaynağından kabul edilir; kanıt `source_type=document_reference` L1 kapısından geçer |
+| **L-12** | Eksik-kanıt motoru: her iddia için "hangi belge olsaydı test edilirdi" | S2 | partial — motor var ve bağlı; recall hiç ölçülmedi; yalnız açık belge atıfları — **Faz 3e** | kas (ajan) | Kontrollü boşluk korpusunda recall ölçülür ve raporlanır; her uyarı iki taraflı kaynak bağı taşır |
+| **L-13** | Kapsama boşluklarının basınç kaynağı olması (okunamayan dosya → pressure) | S0 | absent — hukuk basınç kaynağı yok; `shadow_raw_delta` konsol koşumlarının cycle id'sini görmüyor — **Faz 8** | **G-6** | `run_pressure` skorunda `legal.unreadable_document` kaynağı görünür |
 
 ### B4. M4 — Sürüm karşılaştırma
 
 | ID | Eksik | Aşama | Bugün | Engel | Kabul testi |
 |---|---|---|---|---|---|
-| **L-14** | Sürüm grupları arasında **içerik farkı** (ne değişti: tarih, tutar, cümle) | S1 | partial (grup var: `name_suffix`/`sha`; fark yok) | L-02 + kas | `avtale_v1`↔`avtale_v2_signert` için değişen tutar/tarih listesi `versions.json`'da `humanReviewRequired: true` ile; `.docx` `w:ins/w:del` izleri ayrı raporlanır |
-| **L-15** | "Sunulan sürüm" ilanı: avukat kapısı (`filed_version_declaration`) | S1/S4 | absent (politika var, zorlayan yok) | A3 ölçümü (HUMAN_REQUIRED ground truth) | `filedMember` yalnız `lawyer` rolündeki kaydedilmiş bir kararla dolar; adapter/ajan yazamaz |
+| **L-14** | Sürüm grupları arasında **içerik farkı** (ne değişti: tarih, tutar, cümle) | S1 | partial — tarih/tutar + satır sayısı; cümle düzeyi fark yok; taranmış üyede sessiz — **Faz 6** (görünürlük); cümle farkı kayıtlı sınır | L-02 + kas | `avtale_v1`↔`avtale_v2_signert` için değişen tutar/tarih listesi `versions.json`'da `humanReviewRequired: true` ile; `.docx` `w:ins/w:del` izleri ayrı raporlanır |
+| **L-15** | "Sunulan sürüm" ilanı: avukat kapısı (`filed_version_declaration`) | S1/S4 | absent — `filedMember` hep null, yazan yok; kapı sorulmuyor; rol yok — **Faz 5** | A3 ölçümü (HUMAN_REQUIRED ground truth) | `filedMember` yalnız `lawyer` rolündeki kaydedilmiş bir kararla dolar; adapter/ajan yazamaz |
 
 ### B5. M5 — Süreç ve sorumluluklar
 
 | ID | Eksik | Aşama | Bugün | Engel | Kabul testi |
 |---|---|---|---|---|---|
-| **L-16** | Tarafların PDF/DOCX metninden çıkarılması (bugün yalnız `.eml` başlıkları) | S1 | partial | L-02 + kas | Fixture'da `Nordlys Entreprenør AS`, `Bergen Eiendom ASA`, `Kari Nordmann` taraf olarak, `kind` tahmini ve güven ≤0.5, birleştirilmeden |
-| **L-17** | Rol ve sorumluluk yeniden kurma: kim, ne zaman, hangi belgeyle (`PARTY_IN`, `WAS_SENT_BY`, `ROLE`) | S1/S2 | partial (`.eml` gönderen/alan bağları) | kas | Her `COMMUNICATION` olayının gönderen/alan bağı; `ROLE` kaydı (byggherre/entreprenør/advokat) belge kanıtıyla ve `humanReviewRequired` |
-| **L-18** | Aynı isimli taraf belirsizliği bulgusu (`party_identity_ambiguity`), birleştirmeden | S2 | absent | **G-3** (ajan) veya kas (adapter kuralı) | "Part A" / "Part A AS" için tek bulgu, iki taraf ayrı kalır |
+| **L-16** | Tarafların PDF/DOCX metninden çıkarılması (bugün yalnız `.eml` başlıkları) | S1 | wired, sınırlı — metinden 6 taraf; konsolda `basis` yok, org.nr `aliases` sütununda 'birleştirilmiş yazım' diye gösteriliyor; belirsizlik davada görünmüyor — **Faz 3c/6** | L-02 + kas | Fixture'da `Nordlys Entreprenør AS`, `Bergen Eiendom ASA`, `Kari Nordmann` taraf olarak, `kind` tahmini ve güven ≤0.5, birleştirilmeden |
+| **L-17** | Rol ve sorumluluk yeniden kurma: kim, ne zaman, hangi belgeyle (`PARTY_IN`, `WAS_SENT_BY`, `ROLE`) | S1/S2 | partial — `WAS_SENT_BY/RECEIVED_BY` yalnız .eml; `PARTY_IN` ve `ROLE` üreticisi yok, her taraf `roles: []` — **Faz 3c** | kas | Her `COMMUNICATION` olayının gönderen/alan bağı; `ROLE` kaydı (byggherre/entreprenør/advokat) belge kanıtıyla ve `humanReviewRequired` |
+| **L-18** | Aynı isimli taraf belirsizliği bulgusu (`party_identity_ambiguity`), birleştirmeden | S2 | wired — 11 test; bulgu dava arayüzünde görünmüyor — **Faz 6** | **G-3** (ajan) veya kas (adapter kuralı) | "Part A" / "Part A AS" için tek bulgu, iki taraf ayrı kalır |
 
 ### B6. M6 — Veri bütünlüğü ve usul sorunları
 
 | ID | Eksik | Aşama | Bugün | Engel | Kabul testi |
 |---|---|---|---|---|---|
-| **L-19** | Karşıt yargıç geçişi (`aria-legal-adversarial-judge`) ve konsensüs | S2 | absent | **G-3** + **G-15** | Fixture'da `supported` bir satır için karşı-belge aranır; `contradicted` kararı karşı belgeyi `file:line`+hash ile adlandırır; iki yargıç anlaşamazsa HUMAN_REQUIRED |
-| **L-20** | Usul adımı ve süre kayıtları (`PROCEDURAL_STEP`, `DEADLINE`) — bağlayıcı değil, avukat doğrulamalı | S2/S3 | absent (üretici yok) | kas | Fixture'daki "Svarfrist: 18.03.2024" `DEADLINE` kaydı olarak `assertedBy: ai_inference`, `humanReviewRequired: true` |
-| **L-21** | Avukat doğrulama akışı: `verified` yalnız insanla; konsoldan kernel CLI üzerinden | S2 | absent (konsol yazmaz; politika kağıtta) | A3 ölçümü (`resolve_human_required`) + kas (X-6) | `statement.status=verified` yalnız `verifiedBy`+`verifiedAt` dolu ve kayıt HUMAN_REQUIRED ground-truth yoluyla düşmüşse; adapter/ajan yazamaz (test) |
+| **L-19** | Karşıt yargıç geçişi (`aria-legal-adversarial-judge`) ve konsensüs | S2 | partial — yargıç zarfları basılıyor (10 zarf ölçüldü); tüketen yok (G-15), verdict reddedilir (G-17) — **Faz 8** | **G-3** + **G-15** | Fixture'da `supported` bir satır için karşı-belge aranır; `contradicted` kararı karşı belgeyi `file:line`+hash ile adlandırır; iki yargıç anlaşamazsa HUMAN_REQUIRED |
+| **L-20** | Usul adımı ve süre kayıtları (`PROCEDURAL_STEP`, `DEADLINE`) — bağlayıcı değil, avukat doğrulamalı | S2/S3 | absent — üretici yok; kabul testinin adlandırdığı cümle fixture'da da yok — **Faz 3b** | kas | Fixture'daki "Svarfrist: 18.03.2024" `DEADLINE` kaydı olarak `assertedBy: ai_inference`, `humanReviewRequired: true` |
+| **L-21** | Avukat doğrulama akışı: `verified` yalnız insanla; konsoldan kernel CLI üzerinden | S2 | absent — hiçbir yol: rota/CLI/UI yok; `applyHumanVerification`'ın üretim çağıranı yok; elle eklenen karar bir koşumda siliniyor (ölçüldü) — **Faz 4 + 5** | A3 ölçümü (`resolve_human_required`) + kas (X-6) | `statement.status=verified` yalnız `verifiedBy`+`verifiedAt` dolu ve kayıt HUMAN_REQUIRED ground-truth yoluyla düşmüşse; adapter/ajan yazamaz (test) |
 
 ### B7. M7 — Metodolojinin anonimleştirilmiş davalara taşınması
 
 | ID | Eksik | Aşama | Bugün | Engel | Kabul testi |
 |---|---|---|---|---|---|
-| **L-22** | Matter duvarı: ikinci dava geldiğinde reddeden kapı | S4 | absent (örnek yalıtımı; bilinçli sınır, `enforced_by: instance_isolation`) | **G-16** | İki karşıt matter'lı testte arama/indeks/cache/özet/log/export sızıntısı sıfır |
-| **L-23** | Karartma ve üretim kapısı (`redaction_and_production`), geri alınamazlık **garantisiz** | S4 | absent | A3 ölçümü + kas | Karartma yalnız `lawyer` onayıyla; anonimleştirme çıktısı orijinalin hash'ini taşır ve "geri döndürülemezlik garanti edilmez" ibaresi kayıtta |
-| **L-24** | Anonimleştirilmiş vaka için örnek türetme reçetesi (`arias/_template`) ve PII disiplini | S4 | partial (türetme var; PII kuralı yok) | kas | Türetilen örnekte `maskPii` benzeri disiplin loglarda; fixture korpusu gerçek kişi adı içermez (test) |
+| **L-22** | Matter duvarı: ikinci dava geldiğinde reddeden kapı | S4 | absent — tek token, herkes her davayı görüyor; `x-aria-actor` doğrulanmadan tutanağa yazılıyor — **Faz 4** | **G-16** | İki karşıt matter'lı testte arama/indeks/cache/özet/log/export sızıntısı sıfır |
+| **L-23** | Karartma ve üretim kapısı (`redaction_and_production`), geri alınamazlık **garantisiz** | S4 | absent — karartma, üretim ve belge indirme yolu yok — **Faz 6** (indirme); karartma Faz 5 sonrası, ORPHAN kayıtlı | A3 ölçümü + kas | Karartma yalnız `lawyer` onayıyla; anonimleştirme çıktısı orijinalin hash'ini taşır ve "geri döndürülemezlik garanti edilmez" ibaresi kayıtta |
+| **L-24** | Anonimleştirilmiş vaka için örnek türetme reçetesi (`arias/_template`) ve PII disiplini | S4 | partial — türetme boş kabuk üretiyor (pack `enabled:false`, `corpus.kind: git_repository`); PII maskesi yok — **Faz 7** | kas | Türetilen örnekte `maskPii` benzeri disiplin loglarda; fixture korpusu gerçek kişi adı içermez (test) |
 
 ### B8. M8 — Avukat / şirket / kamu için yüzey
 
 | ID | Eksik | Aşama | Bugün | Engel | Kabul testi |
 |---|---|---|---|---|---|
-| **L-25** | Konsolda dava dava çalışma: dava listesi, belge yükleme, kapsama, kronoloji, matris — profesyonel tasarım, İngilizce | S0–S2 | partial (projeksiyon var; yükleme yok; yeniden tasarım 2026-09-04 sürüyor) | L-01 | Konsol doğrulama: tsc + vitest + build yeşil; hukuk sekmelerinde Türkçe metin yok; iddia satırında durum, kaynak, insan-inceleme işareti görünür |
-| **L-26** | Kalibrasyon ve korpus durumunun konsolda görünmesi | S2 | absent (`LEDGER_SOURCES`'ta kalibrasyon yok) | kas (X-6) | Konsolda yargıç kalibrasyon satırları ve goldset öneri durumu |
-| **L-27** | `ui/**` ve `packs/legal/**` için CI kapsaması | S0 | absent (hiçbir workflow koşmuyor) | kas | `aria:ci:all` içinde `ui` testleri ve `packs/legal` adapter testleri; PR'da kırmızı görünür |
+| **L-25** | Konsolda dava dava çalışma: dava listesi, belge yükleme, kapsama, kronoloji, matris — profesyonel tasarım, İngilizce | S0–S2 | partial — okuma yarısı var; karar veren yarısı yok; dağıtılan profilde salt-okunur — **Faz 5/6** | L-01 | Konsol doğrulama: tsc + vitest + build yeşil; hukuk sekmelerinde Türkçe metin yok; iddia satırında durum, kaynak, insan-inceleme işareti görünür |
+| **L-26** | Kalibrasyon ve korpus durumunun konsolda görünmesi | S2 | absent — kalibrasyon/goldset yüzeyleri listelenmiyor; `arias/legal/corpus` yok — **Faz 3e/6** | kas (X-6) | Konsolda yargıç kalibrasyon satırları ve goldset öneri durumu |
+| **L-27** | `ui/**` ve `packs/legal/**` için CI kapsaması | S0 | implemented_not_wired — `aria-adapters-test.sh` paketleri koşuyor ama hiçbir workflow çağırmıyor; ui testleri hiçbir yerde — **Faz 7** | kas | `aria:ci:all` içinde `ui` testleri ve `packs/legal` adapter testleri; PR'da kırmızı görünür |
 
 ---
 
-## C. Sıradaki adımların sırası (B'den türetilmiş)
+## C. Sıradaki adımların sırası (2026-09-04 denetimi sonrası, onaylı plan)
 
-1. **L-02 + L-14 + L-07 + L-16** (kas, çekirdek değişmez): çıkarıcıyı adapter'a bağla; PDF/DOCX
-   tarih, tutar, taraf ve sürüm farkı üretsin. M1/M2/M4/M5'in gösterilebilir yarısı.
-2. **L-01 + L-25 + L-27** (yüzey): dava dava yükleme, alım defteri, CI kapsaması.
-3. **G-14 → L-03**, **G-1 → L-04**, **G-5 → L-05/L-06** (çekirdek, tek PR'lık küçük
-   açılışlar): adapter döngüde koşar, kaderler eşlenir, dava artifact'ları bütünlük
-   zincirine girer. Bu üçü kapanmadan "S0 — arşivi bozmadan aldım" cümlesi çekirdek
-   kanıt yasasının dışında kalır.
-4. **G-3 + G-15 → L-08/L-10/L-19** (çekirdek + dağıtım): hukuk ajanları hedef listesine,
-   konteynerde drain. M3/M6'nın ajanlı yarısı ancak bundan sonra.
-5. **G-4 + G-17 → L-11**: hukuk bulguları ve içerik-adresli kanıt derecesi.
-6. **G-16 → L-22**, **L-23/L-24**: ikinci dava ve anonimleştirme.
+Sıra denetimin düzelttiği boşluklardan türetildi. Faz 0–7 yalnız kas ve konsol
+(`packs/legal`, `ui`, `arias`); çekirdek dosyasına yazmaz. Faz 8 çekirdek deltasıdır ve
+ayrı bir onay kapısındadır.
 
-Bu belge, A3 ve A4 ölçümleri ve çürütme sonuçları geldiğinde güncellenir; o güncelleme
-`wired` sayısını yalnız **düşürebilir**.
+| Faz | Kapsam | Kapattığı satırlar |
+|---|---|---|
+| 0 | Dürüst kayıt: D durumları indirildi, E eklendi, bulgu kimlikleri açıldı | — |
+| 1 | Dağıtılan profil çalışsın: eylem sınıfı yetkisi, tek dava kimliği, tam adapter girdisi, otomatik kayıt, okuma sınırında doğrulama | L-01, L-03 (kayıt), L-04 (konsol), L-06 (okuma), L-07 (`learnedAt`) |
+| 2 | Alım tutanağı kanıt olsun: imza + baş taahhüdü + sıralı ekleme; alım↔envanter mutabakatı; kopya kimliği | L-05, L-31, L-32, L-34 |
+| 3 | Mekanik MVP: kronoloji, DEADLINE/PROCEDURAL_STEP, roller, olgu kapsamı, konu çapası + kesinlik + ölçek | L-07, L-20, L-17, L-16, L-10 (kapsam), L-12, L-26 (korpus), L-33, L-35 |
+| 4 | Kimlik ve avukat kapısı: principals, kapılar, matter duvarı, erişim defteri, PII maskesi | L-22, L-28, L-24 (PII) |
+| 5 | Karar katmanı: karar defteri, doğrulama, sunulan sürüm, birleştirme kararı, kaldırma/saklama, artifact geçmişi | L-21, L-15, L-29, L-36, L-37 |
+| 6 | Yüzey: dava bulguları, kaynak belge, taraf alanları, zincir hükmü, kalibrasyon/korpus durumu | L-14, L-18, L-25, L-26, L-30 |
+| 7 | İşletim: CI hattı, yedek/geri yükleme, türetme reçetesi, fixture PII testi | L-27, L-24, L-38 |
+| 8 | Model hattı (karar kapısı): G-21/G-22/G-23 → L-08, L-10 (ajan), L-11, L-13, L-19 | çekirdek |
+
+Kapsam dışı ve kimlikli: OCR, şifreli PDF, hukukî görüş, otomatik envanter tetikleyici,
+G-1/G-5/G-14/G-16.
 
 ---
 
 ## D. Bu oturumda kapananlar (2026-09-04, kanıtlı)
+
+> **Düzeltme (2026-09-04, akşam).** Bu bölümdeki "kapandı" satırları aynı gün yedi ajanlı
+> bağımsız bir denetimle çürütülmeye çalışıldı ve **14 iddianın 13'ü düştü**. Düzeltilmiş
+> durumlar ve eksikler **E bölümündedir**; E ile D çeliştiğinde E geçerlidir. D, ne
+> iddia edildiğinin ve neden yetmediğinin kaydı olarak duruyor.
 
 Ölçüm yapıldıktan sonra bu oturumda kapatılan satırlar. Her biri koşturulmuş testle
 bağlıdır; hiçbiri "yapıldı" diye işaretlenmemiştir.
@@ -388,3 +397,57 @@ kullanır, dava arşivi ise `.gitignore`'lıdır — müvekkil belgesi commit ed
 gereklilik git altında çelişiyor. Konteynerde çalışma alanı kökü git deposu **değildir**
 (`_filesystem_paths` yolu), orada çelişki yok. Sonuç: dağıtım geçerli, geliştirici
 worktree'sinde sonda alırken çalışma alanı kökü git olmayan bir kopya olmalı.
+
+---
+
+## E. Bağımsız denetim ve düzeltme (2026-09-04, `wf_915de46a-042`)
+
+Yedi ajan: üçü D.1–D.7'nin her iddiasını çürütmeye çalıştı, üçü MVP alanı başına kalan
+boşlukları ölçtü, biri yol haritasında hiç geçmeyen yetenekleri aradı. Hepsi salt-okunur,
+hepsi komut koşturup çıktısını gösterdi. Bu bölüm o sonuçtur; yumuşatılmadı.
+
+### E.1 — D'nin iddiaları, düzeltilmiş
+
+| D iddiası | Düzeltilmiş durum | Neyin eksik olduğu (ölçülmüş) | Faz |
+|---|---|---|---|
+| D.1 "Dava dava yükleme çalışıyor" | **implemented_not_wired** | Dağıtılan profilde `runtime.allow_actions:false` + `effectiveAllowActions` = ortam VE manifest → üç POST her zaman 403, hiçbir ortam değişkeni açamıyor. Açılsa bile: adapter kayıtsız, `intake` geçilmiyor (`actions.ts:187-191`), artifact `case_<id>` / tutanak `<id>` → Intake sekmesi adapter'ın davasında boş, zincir yine 'intact' | 1 |
+| D.1 "Tutanak hash-zincirli, düzenleme tespit ediliyor" | **partial** | Dış çapa, imza, satır sayısı yok: yeniden zincirlenmiş defter ve kesilmiş kuyruk 'intact'; boş defter 'intact'. Eşzamanlı iki yükleme aynı `previousRowHash`'i alıyor → zincir kalıcı kırık (ölçüldü: `brokenAt:1`) | 2 |
+| D.1 "Makine `verified` yazamaz" | **partial** | Tek fonksiyon korunuyor, artifact değil: `readers/legal.ts:51-63` cast; elle yazılmış `verified` satır avukata sunuluyor. Meşru `verified` için hiçbir yol yok (L-21); karar bir koşumda siliniyor | 1e, 5 |
+| D.1 "Manifest yükleniyor ve uygulanıyor" | **partial** | Beş bildirimden dördü hiçbir şey yapmıyor: `profile_ceiling` kernel'e geçmiyor, beş avukat kapısı okunup atılıyor (`requiredRoleFor`'un üretim çağıranı yok), `memory.namespace` uygulanmıyor, kernel manifesti hiç okumuyor. Uygulanan tek alan `allow_actions`, o da örneği çalışmaz kılıyor | 1a, 4 |
+| D.1 "Profil göstergesi doğru anahtarı okuyor" | **wired** (ayakta) | Doğru ama gösterecek şeyi yok: `/data/legal/aria-tools` boş geliyor, `profile set` hiç koşmuyor; gösterge manifestin tavanına bağlı değil | 1d |
+| D.2 "PDF/DOCX/XLSX/PPTX okunuyor, dürüst ret" | **partial** | Dağıtımda `tool not found`; OCR yok; XLSX `text` sayılıp sıfır tarih/tutar; gerçek üretici PDF'i test edilmedi | 1d, 3d |
+| D.2 "Kronoloji `learnedAt` + ay hassasiyeti + sayfa" | **partial** | Üretimde `learnedAt` hep null. `legal-document-inventory.ts:717` yalnız `[0]`'ı alıyor, `legal-text.ts:214` **değere göre** sıralıyor → satırdaki en erken tarih, anlamdan bağımsız ("Milepæl 1 levert 05.02.2024, godkjent 08.02.2024" → tek olay). `:720` <3 kelimelik satırları atıyor → "Fakturadato 12.03.2024" kronolojiye hiç girmiyor | 1c, 3a |
+| D.2 "Çelişki ve eksik atıf mekanik, iki taraflı" | **partial** | Yalnız `Label: value` akan-metin satırları; PDF/DOCX alan tabloları, XLSX (tab, iki nokta yok), rakamlı etiketler kör. `text===null` belgeler `targets`'ta yok → taranmış sözleşme 'eksik' raporlanıyor | 3d |
+| D.2 "Dört yanlış-pozitif sınıfı kapatıldı" | **partial** | Ölçekte baskın sınıf kapatılmadı: **aynı etiket, farklı konu**. 400 alakasız belgede 237.880 sahte `disputed` (237.881'in 237.880'i), 171 MB stdout, 1.19 GB RSS; kernel 12 MiB'te koşumu atıyor (~108 belge). Fixture dışında kesinlik ölçümü yok | 3e |
+| D.3 "Sürüm grupları ne değiştiğini söylüyor" | **partial** | Yalnız satır başı `Label:` tarih/tutar + satır sayısı; değişen kapsam/taraf/sorumluluk cümlesi görünmez; taranmış üyede sessiz; PDF yeniden akışında satır sayısı sinyal taşımaz | 6 |
+| D.4 "Taraflar metinden, birleştirme yok" | **partial** | Konsol `basis`'i göstermiyor (`LegalParty`'de alan yok; 'party_label' `roles`'a sızıyor); org.nr `aliases`'a itilip "birleştirilmiş yazım" başlığı altında gösteriliyor — modülün asla yapmadığını söylediği şey. Belirsizlik davada görünmüyor; başlık-türevli tarafla metin adayı hiç karşılaştırılmıyor | 3c, 6 |
+| D.5 "Matris arşivin desteklediği satırlarla dolu" | **partial** | Yalnız form şekilli satırlar; düz metindeki tutar/tarih ("Kontraktssummen er avtalt til NOK 4 950 000") görünmez; satır↔taraf bağı yok; okuma yolunda doğrulama yok | 3d, 1e |
+| D.6 "Konsol tutanağı ve sürüm farkını gösteriyor" | **partial** | Dağıtılan profilde konsol uçtan uca salt-okunur; Intake sekmesine gezinme yok; zincir hükmü o sekme dışında hiçbir yerde yok | 1a, 6 |
+| Tamlık: "Her kayıt türü konsolda görünüyor" | **partial** | `document_version_conflict` ve `party_identity_ambiguity` dava arayüzünde hiçbir yerde; adapter'ın insan için yazdığı mesaj hiçbir yerde gösterilmiyor; kernel Findings sayfası v2 satırını metinsiz, yolsuz, önemsiz basıyor (`reason_code` mesaj yerine) | 6 |
+
+### E.2 — Yol haritasında olmayan boşluklar (denetim buldu)
+
+| ID | Eksik | Bugün | Kanıt | Faz |
+|---|---|---|---|---|
+| **L-28** | Kullanıcı kimliği ve erişim denetimi | absent | Tek `ARIA_UI_TOKEN`, principal yok; `x-aria-actor` başlığı tutanağa `receivedBy` olarak yazılıyor (`routes.ts:79-82`); okuma denetim satırı yok | 4 |
+| **L-29** | İnsan kararı için kalıcı katman | absent | `writeArtifacts` her koşumda sekiz dosyayı ezer; elle eklenen `verified` bir koşumda kayboldu (ölçüldü) | 5 |
+| **L-30** | Kaynak belgeye erişim | absent | Baytları döndüren uç nokta yok; "iki tarafı da açabilmeli" diyen modülün konsolu açtırmıyor | 6 |
+| **L-31** | Alım ↔ envanter mutabakatı | absent | Tutanaksız dosya delil sayılıyor, kaybolan dosya raporlanmıyor, `complete:true` (ölçüldü: b+c diskte, a+b tutanakta → bulgu yok). `rename` (`:319`) tutanaktan (`:339`) önce → çökme tutanaksız dosya bırakır | 2 |
+| **L-32** | Eşzamanlı alımda zincir | partial | Kilit/sıralama yok; aynı turda biten iki yükleme aynı `previousRowHash`'i alıyor → kalıcı `previous_row_hash_mismatch`, konsol "değiştirildi" diyor | 2 |
+| **L-33** | Çıktı hacmi sınırı | absent | O(N²) etiket eşleme; 400 belge → 200 MB `statements.json`; 12 MiB stdout tavanı ~108 belgede aşılıyor; 11 dosyadan büyük test yok | 3e |
+| **L-34** | Kopya belge kimliği | absent | Bayt-eş iki dosya "sürüm çatışması" oluyor; `duplicateOf` yok; sayımlar şişiyor, inceleme işi üretiyor | 2 |
+| **L-35** | Belgeler arası etiket çakışması (konu çapası) | partial | `contradictions()` `(kind,label)` ile tüm arşivi eşliyor; iki alakasız fatura 'dispute' | 3e |
+| **L-36** | Silme, düzeltme, saklama/imha | absent | 13 uç noktanın hepsi GET/POST; yanlış davaya yüklenen belge çıkarılamıyor; dava yaşam döngüsü ve saklama tarihi yok | 5 |
+| **L-37** | Artifact geçmişi ve şema sürümü | absent | Her koşum öncekini ezer; okuyucu `schemaVersion`/`adapterVersion` kontrol etmiyor | 1e, 5 |
+| **L-38** | Yedek ve geri yükleme | absent | `legal-cases` volume'u yedeksiz; geri yüklemenin sha256 ve zinciri yeniden ürettiğinin kanıtı yok | 7 |
+
+### E.3 — Çekirdek kapıları, denetimin düzelttiği şekliyle
+
+| Kimlik | Düzeltme |
+|---|---|
+| G-15 | **implemented_not_wired**, kayıttan dar: `ci_executor_drain.drain_pending` GitHub'a bağlı değil ve imajda; eksik olan yalnız çağıran (`aria agent drain` yok, döngü fazı yok) |
+| G-3 | Bir kapalı literal değil **dört + çözücü**: `REQUEST_ROLES`, `INVOCATION_ROLES`, `DISPATCHABLE_ROLES`, `ROLE_TARGET_PAIRING`, `DEFAULT_TARGET_AGENT_WHITELIST` ve `agent_resolver`; beş pinleyen test |
+| G-17 | İki hattı ısırıyor: bulgu üretimi **ve** ajan sonucu kabulü (`validate_agent_response_evidence` her kanıtta `repo_verified` ister; git'siz kökte `baseline_unavailable`) |
+| L-11 | Hukuk bulguları RAW deftere **giriyor** (5 satır ölçüldü); ulaşılamayan committed defter; `finding emit` CLI yok — kayıt yanlıştı |
+| L-19 | Yargıç zarfları hukuk bulguları için **basılıyor** (10 zarf ölçüldü); eksik olan tüketim (G-15) ve kabul (G-17) |
+

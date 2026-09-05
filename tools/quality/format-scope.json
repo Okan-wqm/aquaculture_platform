@@ -42227,7 +42227,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "f6250d46046027cf29b088725fce6971e0bf36cf1e5adb7eeb198ec81707ec8b",
+      "content_sha256": "5fadca1763f96b9eda2d7e20a9de317d1f8d651a3b9d9b01ccc165db4ef62ef7",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/arias/legal/docs/YETENEK-KAYDI.md",
@@ -43195,7 +43195,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "844b62d0ac43eb8778183789641af6e9cbd341fff52f63ad753f17e137c7ff49",
+      "content_sha256": "654a482c63168cbc0e00f03cf0425fa88d1c984e6e83c77cc42ca9dade29bad0",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/docs/product/CORE-DELTAS.md",

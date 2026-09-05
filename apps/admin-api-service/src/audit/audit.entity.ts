@@ -1,3 +1,4 @@
+import { AuditMethod, AuditResult } from '@aquaculture/backend-common/audit';
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -156,4 +157,55 @@ export class AuditLog {
    */
   @Column({ type: 'boolean', default: false })
   legalHold!: boolean;
+
+  // ── AUDITTRAIL-CRITICAL-004 mandatory shape (ADR-0008) ──
+  // One shape governs both audit ledgers: these columns mirror
+  // libs/backend-common/src/audit/audit-log.entity.ts so a SUPER_ADMIN
+  // cross-tenant write and a tenant-side write answer the same questions
+  // (who acted from where, over which channel, with MFA, with what outcome,
+  // against which entity state, justified how). Added by migration
+  // 1808600000000 as nullable columns; the admin audit writer populates them
+  // under ADMIN-CRITICAL-008.
+
+  /** The actor's HOME tenant — null for platform (SUPER_ADMIN) accounts. */
+  @Column({ type: 'uuid', nullable: true })
+  @Index('IDX_admin_audit_log_actor_home_tenant')
+  actorHomeTenantId!: string | null;
+
+  /** The tenant acted on — null for platform-wide actions. */
+  @Column({ type: 'uuid', nullable: true })
+  @Index('IDX_admin_audit_log_acted_on_tenant')
+  actedOnTenantId!: string | null;
+
+  /** Channel the action arrived through; stored as the AuditMethod string. */
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  method!: AuditMethod | null;
+
+  /** MFA step-up cleared for this action. */
+  @Column({ type: 'boolean', default: false })
+  mfaVerified!: boolean;
+
+  /** Outcome of the action; stored as the AuditResult string. */
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  result!: AuditResult | null;
+
+  /** Hex SHA-256 of entity state BEFORE the mutation. */
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  preStateHash!: string | null;
+
+  /** Hex SHA-256 of entity state AFTER the mutation. */
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  postStateHash!: string | null;
+
+  /** Operator-supplied justification for override actions. */
+  @Column({ type: 'text', nullable: true })
+  justification!: string | null;
+
+  /** UUIDs of other audit rows in the same logical session. */
+  @Column({ type: 'uuid', array: true, nullable: true })
+  relatedAuditIds!: string[] | null;
+
+  /** Cross-service correlation id (distinct from the gateway requestId). */
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  correlationId!: string | null;
 }

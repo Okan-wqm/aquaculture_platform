@@ -56,14 +56,26 @@ export class TenantActivity {
   @Column({ type: 'jsonb', nullable: true })
   newValue?: Record<string, unknown>;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  performedBy?: string;
+  /**
+   * ADR-0008: an activity row without an actor is not evidence. NOT NULL
+   * since migration 1808600000000 (legacy rows backfilled as 'system:legacy').
+   */
+  @Column({ type: 'varchar', length: 100 })
+  performedBy!: string;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
   performedByEmail?: string;
 
   @CreateDateColumn({ type: 'timestamp with time zone' })
   createdAt!: Date;
+
+  /**
+   * Litigation-hold flag (ADR-0008). Mirror of the DB-level guard installed by
+   * migration 1808600000000 (canonical UPDATE refusal + legal-hold DELETE
+   * refusal); honoured by the retention kernel's disposal predicate.
+   */
+  @Column({ type: 'boolean', default: false })
+  legalHold!: boolean;
 }
 
 // Tenant Notes Entity

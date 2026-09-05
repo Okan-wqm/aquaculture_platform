@@ -143,11 +143,6 @@ export class QueryAuditTrailDto {
   tags?: string; // Comma-separated
 
   @IsOptional()
-  @Transform(({ value }) => value === 'true' || value === true)
-  @IsBoolean()
-  includeArchived?: boolean;
-
-  @IsOptional()
   @IsIn(ACTIVITY_LOG_SORT_FIELDS)
   sortBy?: ActivityLogSortField;
 

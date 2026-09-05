@@ -859,30 +859,6 @@ export class ActivityLoggingService implements OnModuleInit {
   // ============================================================================
 
   /**
-   * Archive old activity logs
-   */
-  @Cron(CronExpression.EVERY_DAY_AT_2AM)
-  async archiveOldLogs(): Promise<void> {
-    const archiveDate = new Date();
-    archiveDate.setDate(archiveDate.getDate() - 90); // Archive logs older than 90 days
-
-    const result = await this.activityRepository.update(
-      {
-        createdAt: LessThan(archiveDate),
-        isArchived: false,
-      },
-      {
-        isArchived: true,
-        archivedAt: new Date(),
-      },
-    );
-
-    if (result.affected && result.affected > 0) {
-      this.logger.log(`Archived ${result.affected} activity logs`);
-    }
-  }
-
-  /**
    * Clean up expired sessions
    */
   @Cron(CronExpression.EVERY_HOUR)

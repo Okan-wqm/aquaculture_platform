@@ -264,12 +264,16 @@ export class ActivityLog {
   @CreateDateColumn()
   createdAt!: Date;
 
-  // For archival tracking
+  /**
+   * Litigation-hold flag (ADR-0008). Mirror of the DB-level guard installed by
+   * migration 1808600000000: `trg_activity_logs_prevent_update` refuses every
+   * UPDATE and `trg_activity_logs_prevent_legal_hold_delete` refuses DELETE
+   * while this is true. The former `isArchived` / `archivedAt` lifecycle flags
+   * are gone — a WORM ledger has no mutable state; disposal is the retention
+   * kernel's (ADR-0012) and it honours this flag.
+   */
   @Column({ type: 'boolean', default: false })
-  isArchived!: boolean;
-
-  @Column({ type: 'timestamptz', nullable: true })
-  archivedAt?: Date | null;
+  legalHold!: boolean;
 }
 
 // ============================================================================

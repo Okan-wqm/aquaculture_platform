@@ -76,12 +76,10 @@ export interface AuditSummary {
 
 export interface RetentionStats {
   totalLogs: number;
-  activeLogs: number;
-  archivedLogs: number;
   oldestLog: Date | null;
   newestLog: Date | null;
   storageEstimateMB: number;
-  byCategory: Record<string, { active: number; archived: number }>;
+  byCategory: Record<string, number>;
 }
 
 // ============================================================================
@@ -197,7 +195,6 @@ export class AuditTrailService {
     endDate?: Date;
     searchQuery?: string;
     tags?: string[];
-    includeArchived?: boolean;
     sortBy?: string;
     sortOrder?: 'ASC' | 'DESC';
   }): Promise<{
@@ -223,7 +220,6 @@ export class AuditTrailService {
       endDate,
       searchQuery,
       tags,
-      includeArchived = false,
       sortBy = 'createdAt',
       sortOrder = 'DESC',
     } = options;
@@ -273,11 +269,6 @@ export class AuditTrailService {
     // Tag filter
     if (tags && tags.length > 0) {
       qb.andWhere('log.tags && ARRAY[:...tags]::varchar[]', { tags });
-    }
-
-    // Archive filter
-    if (!includeArchived) {
-      qb.andWhere('log.isArchived = :isArchived', { isArchived: false });
     }
 
     // Sorting and pagination
@@ -669,8 +660,6 @@ export class AuditTrailService {
    */
   async getRetentionStats(): Promise<RetentionStats> {
     const totalLogs = await this.activityRepository.count();
-    const archivedLogs = await this.activityRepository.count({ where: { isArchived: true } });
-    const activeLogs = totalLogs - archivedLogs;
 
     const oldestLog = await this.activityRepository.findOne({
       order: { createdAt: 'ASC' },
@@ -690,32 +679,17 @@ export class AuditTrailService {
     const categoryStats = await this.activityRepository
       .createQueryBuilder('log')
       .select('log.category', 'category')
-      .addSelect('log.isArchived', 'isArchived')
       .addSelect('COUNT(*)', 'count')
       .groupBy('log.category')
-      .addGroupBy('log.isArchived')
       .getRawMany();
 
-    const byCategory: Record<string, { active: number; archived: number }> = {};
+    const byCategory: Record<string, number> = {};
     categoryStats.forEach((s) => {
-      const cat = s.category as string;
-      if (!byCategory[cat]) {
-        byCategory[cat] = { active: 0, archived: 0 };
-      }
-      const catEntry = byCategory[cat];
-      if (catEntry) {
-        if (s.isArchived === true || s.isArchived === 'true') {
-          catEntry.archived = parseInt(s.count, 10);
-        } else {
-          catEntry.active = parseInt(s.count, 10);
-        }
-      }
+      byCategory[s.category as string] = parseInt(s.count, 10);
     });
 
     return {
       totalLogs,
-      activeLogs,
-      archivedLogs,
       oldestLog: oldestLog?.createdAt || null,
       newestLog: newestLog?.createdAt || null,
       storageEstimateMB: Math.round(storageEstimateMB * 100) / 100,

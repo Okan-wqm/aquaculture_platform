@@ -11,6 +11,7 @@ import {
   SlowQueryLog,
 } from '../database-management/entities/database-management.entity';
 import { ActivityLog } from '../security/entities/security.entity';
+import { TenantActivity } from '../tenant/entities/tenant-activity.entity';
 import { ErrorGroup, ErrorOccurrence } from '../system-management/entities/error-tracking.entity';
 import {
   BackgroundJob,
@@ -94,6 +95,18 @@ export class AdminApiRetentionBootstrapModule implements OnModuleInit {
       entity: ActivityLog,
       timestampProperty: 'createdAt',
       retentionDays: SEVEN_YEARS,
+      // ADR-0008: a WORM ledger — held rows are never disposed.
+      legalHoldProperty: 'legalHold',
+    });
+    // admin.tenant_activities is the per-tenant activity ledger (plan changes,
+    // suspensions, notes) — the same evidence class as activity_logs, same window.
+    registerRetentionPolicy({
+      id: 'admin.tenant_activities.7y',
+      ownerTag: 'soc2-cc4',
+      entity: TenantActivity,
+      timestampProperty: 'createdAt',
+      retentionDays: SEVEN_YEARS,
+      legalHoldProperty: 'legalHold',
     });
 
     // ── Request-level observability stream (AUDITTRAIL-HIGH-004) ──

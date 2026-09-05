@@ -39,15 +39,16 @@
  * is the right tier-3 (make-detectable) hedge.
  */
 
-import { execSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import { WORM_LEDGERS } from '../../libs/backend-common/src/constants/protected-tables';
 import {
   auditImmutabilityNames,
   auditImmutabilityStatements,
 } from '../../libs/backend-common/src/database/audit-immutability.sql';
-import { migrationCorpus, migrationSource } from './lib/migration-corpus';
+import { migrationCorpus, migrationSource, servicesWithMigrations } from './lib/migration-corpus';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const ENTITY_PATH = 'libs/backend-common/src/audit/audit-log.entity.ts';
@@ -139,20 +140,34 @@ describe('INVARIANT (AUDITTRAIL-CRITICAL-001 / AUDITTRAIL-HIGH-005): audit-table
     // 1. The contract itself: the generator emits the two functions and the two
     //    triggers, with the DELETE guard conditional on legalHold rather than
     //    unconditional. This is the half the squash got wrong.
-    const statements = auditImmutabilityStatements({ schema: 'shared', table: 'audit_logs' }).join('\n');
+    const statements = auditImmutabilityStatements({ schema: 'shared', table: 'audit_logs' }).join(
+      '\n',
+    );
     const names = auditImmutabilityNames({ schema: 'shared', table: 'audit_logs' });
 
     expect(statements).toMatch(
-      new RegExp(`CREATE OR REPLACE FUNCTION\\s+${names.updateFunction.replace('.', '\\.')}\\s*\\(`, 'i'),
+      new RegExp(
+        `CREATE OR REPLACE FUNCTION\\s+${names.updateFunction.replace('.', '\\.')}\\s*\\(`,
+        'i',
+      ),
     );
     expect(statements).toMatch(
-      new RegExp(`CREATE OR REPLACE FUNCTION\\s+${names.deleteFunction.replace('.', '\\.')}\\s*\\(`, 'i'),
+      new RegExp(
+        `CREATE OR REPLACE FUNCTION\\s+${names.deleteFunction.replace('.', '\\.')}\\s*\\(`,
+        'i',
+      ),
     );
     expect(statements).toMatch(
-      new RegExp(`CREATE TRIGGER\\s+${names.updateTrigger}\\s+BEFORE UPDATE ON\\s+"shared"\\."audit_logs"`, 'i'),
+      new RegExp(
+        `CREATE TRIGGER\\s+${names.updateTrigger}\\s+BEFORE UPDATE ON\\s+"shared"\\."audit_logs"`,
+        'i',
+      ),
     );
     expect(statements).toMatch(
-      new RegExp(`CREATE TRIGGER\\s+${names.deleteTrigger}\\s+BEFORE DELETE ON\\s+"shared"\\."audit_logs"`, 'i'),
+      new RegExp(
+        `CREATE TRIGGER\\s+${names.deleteTrigger}\\s+BEFORE DELETE ON\\s+"shared"\\."audit_logs"`,
+        'i',
+      ),
     );
     // The distinction the baseline lost: DELETE is refused only under hold.
     expect(statements).toMatch(/IF OLD\."legalHold" = true THEN/);
@@ -163,9 +178,7 @@ describe('INVARIANT (AUDITTRAIL-CRITICAL-001 / AUDITTRAIL-HIGH-005): audit-table
     //    the ORPHAN-HIGH-455 shape, and it is what this half exists to catch.
     const applied = migrationCorpus('admin-api-service').source;
     expect(applied).toContain('auditImmutabilityStatements');
-    expect(applied).toMatch(
-      new RegExp(`schema:\\s*'shared'\\s*,\\s*table:\\s*'audit_logs'`),
-    );
+    expect(applied).toMatch(new RegExp(`schema:\\s*'shared'\\s*,\\s*table:\\s*'audit_logs'`));
   });
 
   it('auth.audit_logs carries the append-only contract, and a migration applies it', () => {
@@ -183,20 +196,34 @@ describe('INVARIANT (AUDITTRAIL-CRITICAL-001 / AUDITTRAIL-HIGH-005): audit-table
     // 1. The contract itself: the generator emits the two functions and the two
     //    triggers, with the DELETE guard conditional on legalHold rather than
     //    unconditional. This is the half the squash got wrong.
-    const statements = auditImmutabilityStatements({ schema: 'auth', table: 'audit_logs' }).join('\n');
+    const statements = auditImmutabilityStatements({ schema: 'auth', table: 'audit_logs' }).join(
+      '\n',
+    );
     const names = auditImmutabilityNames({ schema: 'auth', table: 'audit_logs' });
 
     expect(statements).toMatch(
-      new RegExp(`CREATE OR REPLACE FUNCTION\\s+${names.updateFunction.replace('.', '\\.')}\\s*\\(`, 'i'),
+      new RegExp(
+        `CREATE OR REPLACE FUNCTION\\s+${names.updateFunction.replace('.', '\\.')}\\s*\\(`,
+        'i',
+      ),
     );
     expect(statements).toMatch(
-      new RegExp(`CREATE OR REPLACE FUNCTION\\s+${names.deleteFunction.replace('.', '\\.')}\\s*\\(`, 'i'),
+      new RegExp(
+        `CREATE OR REPLACE FUNCTION\\s+${names.deleteFunction.replace('.', '\\.')}\\s*\\(`,
+        'i',
+      ),
     );
     expect(statements).toMatch(
-      new RegExp(`CREATE TRIGGER\\s+${names.updateTrigger}\\s+BEFORE UPDATE ON\\s+"auth"\\."audit_logs"`, 'i'),
+      new RegExp(
+        `CREATE TRIGGER\\s+${names.updateTrigger}\\s+BEFORE UPDATE ON\\s+"auth"\\."audit_logs"`,
+        'i',
+      ),
     );
     expect(statements).toMatch(
-      new RegExp(`CREATE TRIGGER\\s+${names.deleteTrigger}\\s+BEFORE DELETE ON\\s+"auth"\\."audit_logs"`, 'i'),
+      new RegExp(
+        `CREATE TRIGGER\\s+${names.deleteTrigger}\\s+BEFORE DELETE ON\\s+"auth"\\."audit_logs"`,
+        'i',
+      ),
     );
     // The distinction the baseline lost: DELETE is refused only under hold.
     expect(statements).toMatch(/IF OLD\."legalHold" = true THEN/);
@@ -207,9 +234,7 @@ describe('INVARIANT (AUDITTRAIL-CRITICAL-001 / AUDITTRAIL-HIGH-005): audit-table
     //    the ORPHAN-HIGH-455 shape, and it is what this half exists to catch.
     const applied = migrationCorpus('auth-service').source;
     expect(applied).toContain('auditImmutabilityStatements');
-    expect(applied).toMatch(
-      new RegExp(`schema:\\s*'auth'\\s*,\\s*table:\\s*'audit_logs'`),
-    );
+    expect(applied).toMatch(new RegExp(`schema:\\s*'auth'\\s*,\\s*table:\\s*'audit_logs'`));
   });
 
   it('AuditLog entity (farm) declares the legalHold column', () => {
@@ -236,20 +261,35 @@ describe('INVARIANT (AUDITTRAIL-CRITICAL-001 / AUDITTRAIL-HIGH-005): audit-table
     // 1. The contract itself: the generator emits the two functions and the two
     //    triggers, with the DELETE guard conditional on legalHold rather than
     //    unconditional. This is the half the squash got wrong.
-    const statements = auditImmutabilityStatements({ schema: 'farm', table: 'farm_audit_logs' }).join('\n');
+    const statements = auditImmutabilityStatements({
+      schema: 'farm',
+      table: 'farm_audit_logs',
+    }).join('\n');
     const names = auditImmutabilityNames({ schema: 'farm', table: 'farm_audit_logs' });
 
     expect(statements).toMatch(
-      new RegExp(`CREATE OR REPLACE FUNCTION\\s+${names.updateFunction.replace('.', '\\.')}\\s*\\(`, 'i'),
+      new RegExp(
+        `CREATE OR REPLACE FUNCTION\\s+${names.updateFunction.replace('.', '\\.')}\\s*\\(`,
+        'i',
+      ),
     );
     expect(statements).toMatch(
-      new RegExp(`CREATE OR REPLACE FUNCTION\\s+${names.deleteFunction.replace('.', '\\.')}\\s*\\(`, 'i'),
+      new RegExp(
+        `CREATE OR REPLACE FUNCTION\\s+${names.deleteFunction.replace('.', '\\.')}\\s*\\(`,
+        'i',
+      ),
     );
     expect(statements).toMatch(
-      new RegExp(`CREATE TRIGGER\\s+${names.updateTrigger}\\s+BEFORE UPDATE ON\\s+"farm"\\."farm_audit_logs"`, 'i'),
+      new RegExp(
+        `CREATE TRIGGER\\s+${names.updateTrigger}\\s+BEFORE UPDATE ON\\s+"farm"\\."farm_audit_logs"`,
+        'i',
+      ),
     );
     expect(statements).toMatch(
-      new RegExp(`CREATE TRIGGER\\s+${names.deleteTrigger}\\s+BEFORE DELETE ON\\s+"farm"\\."farm_audit_logs"`, 'i'),
+      new RegExp(
+        `CREATE TRIGGER\\s+${names.deleteTrigger}\\s+BEFORE DELETE ON\\s+"farm"\\."farm_audit_logs"`,
+        'i',
+      ),
     );
     // The distinction the baseline lost: DELETE is refused only under hold.
     expect(statements).toMatch(/IF OLD\."legalHold" = true THEN/);
@@ -260,9 +300,7 @@ describe('INVARIANT (AUDITTRAIL-CRITICAL-001 / AUDITTRAIL-HIGH-005): audit-table
     //    the ORPHAN-HIGH-455 shape, and it is what this half exists to catch.
     const applied = migrationCorpus('farm-service').source;
     expect(applied).toContain('auditImmutabilityStatements');
-    expect(applied).toMatch(
-      new RegExp(`schema:\\s*'farm'\\s*,\\s*table:\\s*'farm_audit_logs'`),
-    );
+    expect(applied).toMatch(new RegExp(`schema:\\s*'farm'\\s*,\\s*table:\\s*'farm_audit_logs'`));
   });
 
   it('AuditLog entity (admin) declares the legalHold column', () => {
@@ -289,20 +327,34 @@ describe('INVARIANT (AUDITTRAIL-CRITICAL-001 / AUDITTRAIL-HIGH-005): audit-table
     // 1. The contract itself: the generator emits the two functions and the two
     //    triggers, with the DELETE guard conditional on legalHold rather than
     //    unconditional. This is the half the squash got wrong.
-    const statements = auditImmutabilityStatements({ schema: 'admin', table: 'audit_logs' }).join('\n');
+    const statements = auditImmutabilityStatements({ schema: 'admin', table: 'audit_logs' }).join(
+      '\n',
+    );
     const names = auditImmutabilityNames({ schema: 'admin', table: 'audit_logs' });
 
     expect(statements).toMatch(
-      new RegExp(`CREATE OR REPLACE FUNCTION\\s+${names.updateFunction.replace('.', '\\.')}\\s*\\(`, 'i'),
+      new RegExp(
+        `CREATE OR REPLACE FUNCTION\\s+${names.updateFunction.replace('.', '\\.')}\\s*\\(`,
+        'i',
+      ),
     );
     expect(statements).toMatch(
-      new RegExp(`CREATE OR REPLACE FUNCTION\\s+${names.deleteFunction.replace('.', '\\.')}\\s*\\(`, 'i'),
+      new RegExp(
+        `CREATE OR REPLACE FUNCTION\\s+${names.deleteFunction.replace('.', '\\.')}\\s*\\(`,
+        'i',
+      ),
     );
     expect(statements).toMatch(
-      new RegExp(`CREATE TRIGGER\\s+${names.updateTrigger}\\s+BEFORE UPDATE ON\\s+"admin"\\."audit_logs"`, 'i'),
+      new RegExp(
+        `CREATE TRIGGER\\s+${names.updateTrigger}\\s+BEFORE UPDATE ON\\s+"admin"\\."audit_logs"`,
+        'i',
+      ),
     );
     expect(statements).toMatch(
-      new RegExp(`CREATE TRIGGER\\s+${names.deleteTrigger}\\s+BEFORE DELETE ON\\s+"admin"\\."audit_logs"`, 'i'),
+      new RegExp(
+        `CREATE TRIGGER\\s+${names.deleteTrigger}\\s+BEFORE DELETE ON\\s+"admin"\\."audit_logs"`,
+        'i',
+      ),
     );
     // The distinction the baseline lost: DELETE is refused only under hold.
     expect(statements).toMatch(/IF OLD\."legalHold" = true THEN/);
@@ -313,9 +365,7 @@ describe('INVARIANT (AUDITTRAIL-CRITICAL-001 / AUDITTRAIL-HIGH-005): audit-table
     //    the ORPHAN-HIGH-455 shape, and it is what this half exists to catch.
     const applied = migrationCorpus('admin-api-service').source;
     expect(applied).toContain('auditImmutabilityStatements');
-    expect(applied).toMatch(
-      new RegExp(`schema:\\s*'admin'\\s*,\\s*table:\\s*'audit_logs'`),
-    );
+    expect(applied).toMatch(new RegExp(`schema:\\s*'admin'\\s*,\\s*table:\\s*'audit_logs'`));
   });
 
   it('no effective migration offers a down() that removes audit immutability', () => {
@@ -351,4 +401,141 @@ describe('INVARIANT (AUDITTRAIL-CRITICAL-001 / AUDITTRAIL-HIGH-005): audit-table
 
     expect(abandoned).toEqual([]);
   });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-0008 — WORM_LEDGERS is the classification; this block is its gate.
+//
+// Membership means: write-once at row granularity, physically `id` +
+// `legalHold`, canonical two triggers applied by an effective migration, and
+// no repository in the fleet that updates or deletes rows of that entity. The
+// hand-listed suites above remain for their historical findings; every entry
+// below is DERIVED from the registry so a new ledger cannot be added to the
+// list without also carrying the contract.
+// ---------------------------------------------------------------------------
+
+/** `git grep -l`; exit status 1 means "no match". */
+function gitGrepFiles(args: readonly string[]): string[] {
+  try {
+    // execFileSync, not a shell string: the patterns carry quotes and braces.
+    return execFileSync('git', ['-C', REPO_ROOT, 'grep', '-l', ...args], { encoding: 'utf8' })
+      .split('\n')
+      .filter(Boolean);
+  } catch (err: unknown) {
+    const status = (err as { status?: number }).status;
+    if (status === 1) return [];
+    throw err;
+  }
+}
+
+function stripComments(src: string): string {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .map((line) => line.replace(/(?<!:)\/\/.*$/, ''))
+    .join('\n');
+}
+
+interface LedgerEntity {
+  readonly path: string;
+  readonly className: string;
+  readonly source: string;
+}
+
+/** The ONE entity class decorated `@Entity('<table>', { schema: '<schema>' })`. */
+function ledgerEntity(schema: string, table: string): LedgerEntity {
+  const decorator = `@Entity('${table}', { schema: '${schema}' })`;
+  // Literal pathspecs (a glob pathspec such as `apps/*/src` must match the
+  // WHOLE path in git, so it would match nothing); the src filter is ours.
+  const candidates = gitGrepFiles(['-F', '-e', decorator, '--', 'apps', 'libs']).filter(
+    (path) =>
+      /\/src\//.test(path) &&
+      !/(^|\/)(migrations|\.archive|dist)\//.test(path) &&
+      path.endsWith('.entity.ts'),
+  );
+  expect(candidates).toHaveLength(1);
+  const path = candidates[0] as string;
+  const source = readFileSync(resolve(REPO_ROOT, path), 'utf8');
+  // Only THIS class: the file may hold sibling entities with their own
+  // lifecycle columns, and a ledger is judged by its own body.
+  const afterDecorator = source.slice(source.indexOf(decorator));
+  const classEnd = afterDecorator.indexOf('\n}');
+  const classBody = classEnd === -1 ? afterDecorator : afterDecorator.slice(0, classEnd + 2);
+  const className = /export class (\w+)/.exec(classBody)?.[1];
+  expect(className).toBeDefined();
+  return { path, className: className as string, source: classBody };
+}
+
+/** Repository method calls that mutate or remove existing rows. */
+const ROW_MUTATION_CALL =
+  /\.(update|delete|remove|softDelete|softRemove|restore|increment|decrement|upsert)\(/;
+
+describe('INVARIANT (ADR-0008): every WORM ledger carries the write-once contract', () => {
+  const fleetMigrations = migrationSource(...servicesWithMigrations());
+
+  it('WORM_LEDGERS is non-empty and names the admin security ledgers', () => {
+    expect(WORM_LEDGERS.length).toBeGreaterThanOrEqual(4);
+    expect(WORM_LEDGERS).toContain('admin.activity_logs');
+    expect(WORM_LEDGERS).toContain('admin.tenant_activities');
+  });
+
+  describe.each(WORM_LEDGERS.map((qualified) => qualified.split('.') as [string, string]))(
+    '%s.%s',
+    (schema, table) => {
+      const entity = ledgerEntity(schema, table);
+
+      it('declares id + legalHold on the entity', () => {
+        expect(entity.source).toMatch(/\bid!:\s*string/);
+        expect(entity.source).toMatch(/legalHold!:\s*boolean/);
+      });
+
+      it('carries no mutable lifecycle flag (isArchived / archivedAt / updatedAt)', () => {
+        expect(stripComments(entity.source)).not.toMatch(/\b(isArchived|archivedAt)\b/);
+        expect(stripComments(entity.source)).not.toMatch(/@UpdateDateColumn/);
+      });
+
+      it('has the canonical immutability statements applied by an effective migration', () => {
+        expect(fleetMigrations).toMatch(
+          new RegExp(`schema:\\s*'${schema}'\\s*,\\s*table:\\s*'${table}'`),
+        );
+        const names = auditImmutabilityNames({ schema, table });
+        const statements = auditImmutabilityStatements({ schema, table }).join('\n');
+        expect(statements).toContain(`CREATE TRIGGER ${names.updateTrigger}`);
+        expect(statements).toContain(`CREATE TRIGGER ${names.deleteTrigger}`);
+      });
+
+      it('no repository in the fleet updates or deletes its rows', () => {
+        const consumers = gitGrepFiles([
+          '-E',
+          '-e',
+          `Repository<${entity.className}>`,
+          '--',
+          'apps',
+          'libs',
+        ]).filter((path) => !path.endsWith('.spec.ts'));
+        const offenders: string[] = [];
+        for (const path of consumers) {
+          const src = stripComments(readFileSync(resolve(REPO_ROOT, path), 'utf8'));
+          const bindings = [
+            ...src.matchAll(
+              new RegExp(
+                `(?:readonly|private|public|protected)\\s+(\\w+)\\??:\\s*Repository<${entity.className}>`,
+                'g',
+              ),
+            ),
+          ].map((m) => m[1]);
+          for (const binding of bindings) {
+            const uses = new RegExp(`this\\.${binding}${ROW_MUTATION_CALL.source}`, 'g');
+            if (uses.test(src)) offenders.push(`${path} (${binding})`);
+            const qb = new RegExp(
+              `this\\.${binding}\\.createQueryBuilder\\([^)]*\\)[\\s\\S]{0,200}?\\.(update|delete|softDelete)\\(`,
+              'g',
+            );
+            if (qb.test(src)) offenders.push(`${path} (${binding} via query builder)`);
+          }
+        }
+        expect(offenders).toEqual([]);
+      });
+    },
+  );
 });

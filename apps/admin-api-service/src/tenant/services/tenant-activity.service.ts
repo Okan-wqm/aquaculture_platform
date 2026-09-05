@@ -17,7 +17,8 @@ export interface CreateActivityDto {
   metadata?: Record<string, unknown>;
   previousValue?: Record<string, unknown>;
   newValue?: Record<string, unknown>;
-  performedBy?: string;
+  /** ADR-0008: an activity row without an actor is not evidence. */
+  performedBy: string;
   performedByEmail?: string;
 }
 

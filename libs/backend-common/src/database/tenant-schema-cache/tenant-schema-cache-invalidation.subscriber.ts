@@ -1,8 +1,9 @@
 import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { IEventBus, IEventHandler, HandlerOutcome } from '@platform/event-bus';
+import { InvalidEventTenantScopeError, requireTenantScope } from '@platform/event-contracts';
 import type { TenantProvisionedEvent } from '@platform/event-contracts';
 
-import { getTenantSchemaName, isValidUUID } from '../tenant-schema.utils';
+import { getTenantSchemaName } from '../tenant-schema.utils';
 
 import { TenantSchemaCacheService } from './tenant-schema-cache.service';
 
@@ -59,11 +60,17 @@ export class TenantSchemaCacheInvalidationSubscriber
   // is nothing to await. The IEventHandler contract only requires a resolved
   // HandlerOutcome.
   handle(event: TenantProvisionedEvent): Promise<HandlerOutcome> {
-    const tenantId = event.tenantId;
-    if (!tenantId || !isValidUUID(tenantId)) {
-      return Promise.resolve(
-        HandlerOutcome.terminate('TenantProvisioned: missing or invalid tenantId'),
-      );
+    // SEC-HIGH-057 / PLAT-MEDIUM-905: tenancy is parsed through the contract,
+    // not a hand-rolled UUID guard. TenantProvisioned is tenant-bound by
+    // construction; a malformed or platform scope is terminated.
+    let tenantId: string;
+    try {
+      tenantId = requireTenantScope(event).tenantId;
+    } catch (error) {
+      if (error instanceof InvalidEventTenantScopeError) {
+        return Promise.resolve(HandlerOutcome.terminate(error.message, error));
+      }
+      throw error;
     }
     // schemaName is a tenant_<hash> derived value; do not log it (PII discipline).
     this.schemaCache.invalidate(getTenantSchemaName(tenantId));

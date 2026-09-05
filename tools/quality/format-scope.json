@@ -43920,6 +43920,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/event-handler-outcome-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/event-tenant-scope-ssot.spec.ts",
       "prettier_managed": true
     },

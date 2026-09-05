@@ -66,7 +66,6 @@ const HAND_ROLLED_GUARD_BURN_DOWN: ReadonlySet<string> = new Set([
   'apps/notification-service/src/notification/event-handlers/regulatory-report.handler.ts',
   'apps/notification-service/src/notification/event-handlers/task-assigned.handler.ts',
   'apps/notification-service/src/notification/event-handlers/task-event.handler.ts',
-  'libs/backend-common/src/database/tenant-schema-cache/tenant-schema-cache-invalidation.subscriber.ts',
 ]);
 const BURN_DOWN_FINDING_ID = 'PLAT-MEDIUM-905';
 

@@ -241,6 +241,14 @@ function classifyFormatFile(path) {
       'historical archive content is hash-pinned evidence',
     );
   }
+  if (path === 'apps/admin-api-service/openapi.json') {
+    return excluded(
+      path,
+      'generated',
+      'admin-openapi-generator',
+      'written by `nx run admin-api-service:openapi`; tests/invariants/admin-openapi-artifact-parity.spec.ts asserts the committed bytes equal a fresh generation, so reformatting would break the contract gate',
+    );
+  }
   if (path.includes('/generated/') || path.includes('.generated.')) {
     return excluded(
       path,

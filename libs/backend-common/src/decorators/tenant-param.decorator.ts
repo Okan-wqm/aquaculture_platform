@@ -31,7 +31,8 @@
  * (`no-unverified-tenant-param`) refuses the raw `@Param('tenantId')` /
  * `@Query('tenantId')` / DTO `tenantId` alternatives on the admin surface.
  */
-import { createParamDecorator, type ExecutionContext } from '@nestjs/common';
+import { applyDecorators, createParamDecorator, type ExecutionContext } from '@nestjs/common';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Allow } from 'class-validator';
 
 import {
@@ -107,5 +108,20 @@ export const TenantParam = (
 /**
  * Whitelists the body key `@TenantParam('body')` reads, without making it
  * readable: declare the property as `readonly tenantId?: undefined`.
+ *
+ * The TypeScript type is `undefined` so a handler cannot use the client's
+ * value, but the WIRE contract does carry a tenant id, so the property is also
+ * described to OpenAPI as an optional uuid string (CONTRACT-CRITICAL-003).
+ * Without that the generated document would either omit the key a client must
+ * send, or fail generation on the `undefined` type.
  */
-export const TenantIdCarrier = (): PropertyDecorator => Allow();
+export const TenantIdCarrier = (): PropertyDecorator =>
+  applyDecorators(
+    Allow(),
+    ApiPropertyOptional({
+      type: String,
+      format: 'uuid',
+      description:
+        'Tenant id. Resolved and verified server-side before the handler runs; the value a handler uses never comes from this key.',
+    }),
+  );

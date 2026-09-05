@@ -865,18 +865,12 @@ export async function createServiceApp(
   // -----------------------------------------------------------------------
   if (swagger && !isProduction) {
     try {
-      const { SwaggerModule, DocumentBuilder } = await import('@nestjs/swagger');
-      const swaggerConfig = new DocumentBuilder()
-        .setTitle(swagger.title)
-        .setDescription(swagger.description)
-        .setVersion(swagger.version)
-        .addBearerAuth(
-          { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
-          'JWT',
-        )
-        .build();
+      const { SwaggerModule } = await import('@nestjs/swagger');
+      // CONTRACT-CRITICAL-003: the served document and the committed
+      // openapi.json artifact are built by the same function.
+      const { buildOpenApiConfig } = await import('./openapi-config');
 
-      const document = SwaggerModule.createDocument(app, swaggerConfig);
+      const document = SwaggerModule.createDocument(app, buildOpenApiConfig(swagger));
       const swaggerPath = swagger.path ?? 'docs';
       SwaggerModule.setup(swaggerPath, app, document, {
         swaggerOptions: {

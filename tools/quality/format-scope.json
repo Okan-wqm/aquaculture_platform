@@ -1075,6 +1075,17 @@
       "prettier_managed": true
     },
     {
+      "class": "generated",
+      "content_sha256": "47a205a9f9b04a4151d96a0492a5f5495ec01db5c00169ebc5f78f93f0a128b3",
+      "hash_policy": "sha256",
+      "owner": "admin-openapi-generator",
+      "path": "apps/admin-api-service/openapi.json",
+      "prettier_managed": false,
+      "reason": "written by `nx run admin-api-service:openapi`; tests/invariants/admin-openapi-artifact-parity.spec.ts asserts the committed bytes equal a fresh generation, so reformatting would break the contract gate",
+      "review_required": true,
+      "source_of_truth": "generator"
+    },
+    {
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/project.json",
@@ -2172,6 +2183,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/modules/tenant-management/services/tenant-provisioning.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/openapi/admin-openapi.options.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/openapi/generate-openapi.ts",
       "prettier_managed": true
     },
     {
@@ -37090,6 +37113,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/bootstrap/openapi-config.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/bootstrap/safe-error-logger.ts",
       "prettier_managed": true
     },
@@ -43350,6 +43379,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/admin-openapi-artifact-parity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/admin-route-contract-ci.spec.ts",
       "prettier_managed": true
     },
@@ -46056,6 +46091,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/lint-gates/tsconfig.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/openapi/generate-admin-openapi.cjs",
       "prettier_managed": true
     },
     {

@@ -19,6 +19,8 @@ export {
   type TrustProxySetting,
 } from './edge-hardening';
 
+export { buildOpenApiConfig, type OpenApiDocumentOptions } from './openapi-config';
+
 export {
   sanitizeForLogging,
   truncateStack,

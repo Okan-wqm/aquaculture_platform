@@ -7,6 +7,7 @@ import { VersioningType, VERSION_NEUTRAL } from '@nestjs/common';
 import { bootstrapService } from '@aquaculture/backend-common/bootstrap';
 import { AppModule } from './app.module';
 import { assertProductionPosture } from './config/production-posture';
+import { ADMIN_OPENAPI_OPTIONS } from './openapi/admin-openapi.options';
 
 // INFRA-HIGH-142: a production process whose environment does not state the
 // debug / explorer flags as 'false' (and, via the factory's edge bundle,
@@ -29,13 +30,9 @@ bootstrapService(AppModule, {
     defaultVersion: ['1', VERSION_NEUTRAL],
   },
 
-  // Swagger UI — auto-disabled in production (SEC-L14)
-  swagger: {
-    title: 'Aquaculture Admin API',
-    description: 'Platform administration API for the Aquaculture SaaS platform',
-    version: '1.0.0',
-    path: 'docs',
-  },
+  // Swagger UI — auto-disabled in production (SEC-L14). The same options
+  // build the committed openapi.json artifact (CONTRACT-CRITICAL-003).
+  swagger: ADMIN_OPENAPI_OPTIONS,
 
   helmetOptions: { crossOriginEmbedderPolicy: false },
 

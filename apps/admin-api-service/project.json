@@ -57,6 +57,20 @@
       "options": {
         "jestConfig": "apps/admin-api-service/jest.config.ts"
       }
+    },
+    "openapi": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "outputs": [
+        "{workspaceRoot}/apps/admin-api-service/openapi.json"
+      ],
+      "inputs": [
+        "default",
+        "^default"
+      ],
+      "options": {
+        "command": "node tools/openapi/generate-admin-openapi.cjs"
+      }
     }
   }
 }

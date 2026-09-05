@@ -14,8 +14,14 @@
  *     `platformCapabilities` claim re-mints on the next token instead of
  *     surviving until natural expiry (the same path a role change takes);
  *   - every grant and revoke is an audit row written inside the same
- *     transaction — a capability change with no evidence cannot commit.
+ *     transaction — a capability change with no evidence cannot commit;
+ *   - the refresh-token revocation is an RLS-protected write with no HTTP
+ *     request behind it, so the transaction establishes its own context the
+ *     way SUPER_ADMIN login does: bound to the target's home tenant when it
+ *     has one, otherwise the audit-logged platform bypass (a platform actor's
+ *     sessions carry NULL tenantId and can satisfy no tenant predicate).
  */
+import { BypassRlsService, bindTenantRlsContext } from '@aquaculture/backend-common/database';
 import { Role } from '@aquaculture/backend-common/decorators';
 import {
   BadRequestException,
@@ -32,7 +38,7 @@ import {
   type PlatformCapability,
   type PlatformCapabilityGrantSnapshot,
 } from '@platform/event-contracts';
-import { DataSource, IsNull, Repository } from 'typeorm';
+import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
 
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
 import { AuditLogService } from '../../../audit/audit-log.service';
@@ -127,7 +133,36 @@ export class PlatformCapabilityService {
     private readonly dataSource: DataSource,
     private readonly auditLogService: AuditLogService,
     private readonly durableUserTokenInvalidation: DurableUserTokenInvalidationService,
+    private readonly bypassRls: BypassRlsService,
   ) {}
+
+  /**
+   * Run a credential-mutating transaction for `userId` under the context its
+   * RLS-protected rows need. The decision is made before the connection is
+   * checked out (the pool patch reads the frame at checkout), so the target is
+   * read first; the locked re-read inside the transaction is the one the
+   * mutation trusts.
+   */
+  private async inCredentialWriterContext<T>(
+    userId: string,
+    work: (manager: EntityManager) => Promise<T>,
+  ): Promise<T> {
+    const target = await this.userRepository.findOne({
+      where: { id: userId },
+      select: { id: true, tenantId: true },
+    });
+    if (!target) throw new NotFoundException(`User with ID "${userId}" not found`);
+    const homeTenantId = target.tenantId;
+    if (homeTenantId) {
+      return this.dataSource.transaction(async (manager) => {
+        await bindTenantRlsContext(manager, homeTenantId, 'auth');
+        return work(manager);
+      });
+    }
+    return this.bypassRls.withBypass('auth-service:platform-capability-credentials', () =>
+      this.dataSource.transaction(work),
+    );
+  }
 
   /** The capabilities a user holds right now — exactly what the next token carries. */
   async liveCapabilities(userId: string): Promise<PlatformCapability[]> {
@@ -169,7 +204,7 @@ export class PlatformCapabilityService {
       );
     }
 
-    const result = await this.dataSource.transaction(async (manager) => {
+    const result = await this.inCredentialWriterContext(input.userId, async (manager) => {
       const user = await lockUserForCredentialMutation(manager, this.userRepository, input.userId);
       if (!user) throw new NotFoundException(`User with ID "${input.userId}" not found`);
       if (user.role !== Role.SUPER_ADMIN || !user.isActive) {
@@ -256,7 +291,7 @@ export class PlatformCapabilityService {
     const reason = this.validateReason(input.reason);
     this.validateActor(input.revokedBy);
 
-    const result = await this.dataSource.transaction(async (manager) => {
+    const result = await this.inCredentialWriterContext(input.userId, async (manager) => {
       const user = await lockUserForCredentialMutation(manager, this.userRepository, input.userId);
       if (!user) throw new NotFoundException(`User with ID "${input.userId}" not found`);
 

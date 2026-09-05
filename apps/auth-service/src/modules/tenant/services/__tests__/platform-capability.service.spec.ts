@@ -1,3 +1,4 @@
+import { BypassRlsService } from '@aquaculture/backend-common/database';
 import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getDataSourceToken, getRepositoryToken } from '@nestjs/typeorm';
@@ -49,6 +50,10 @@ describe('PlatformCapabilityService', () => {
   };
   const manager = {
     withRepository: jest.fn((repository: object) => repository),
+    query: jest.fn().mockResolvedValue(undefined),
+  };
+  const bypassRls = {
+    withBypass: jest.fn((_operation: string, work: () => Promise<unknown>) => work()),
   };
   const dataSource = {
     transaction: jest.fn((work: (m: typeof manager) => Promise<unknown>) => work(manager)),
@@ -104,6 +109,7 @@ describe('PlatformCapabilityService', () => {
         { provide: DataSource, useValue: dataSource },
         { provide: AuditLogService, useValue: auditLogService },
         { provide: DurableUserTokenInvalidationService, useValue: durableInvalidation },
+        { provide: BypassRlsService, useValue: bypassRls },
       ],
     }).compile();
     service = module.get(PlatformCapabilityService);
@@ -338,5 +344,39 @@ describe('PlatformCapabilityService', () => {
         NOW,
       ),
     ).resolves.toMatchObject({ capability: 'billing-ops' });
+  });
+  describe('credential-writer context (auth-tenant-context-ssot)', () => {
+    it('runs a platform actor (no home tenant) under the audit-logged RLS bypass', async () => {
+      await service.grant({
+        userId: ADMIN,
+        capability: 'billing-ops',
+        grantedBy: GRANTOR,
+        reason: 'on-call rotation',
+      });
+
+      expect(bypassRls.withBypass).toHaveBeenCalledWith(
+        'auth-service:platform-capability-credentials',
+        expect.any(Function),
+      );
+      expect(manager.query).not.toHaveBeenCalled();
+    });
+
+    it('binds the target home tenant inside the transaction instead of bypassing', async () => {
+      const homeTenant = '6b1f2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+      userRepository.findOne.mockResolvedValue({ ...lockedUser, tenantId: homeTenant });
+
+      await service.grant({
+        userId: ADMIN,
+        capability: 'billing-ops',
+        grantedBy: GRANTOR,
+        reason: 'on-call rotation',
+      });
+
+      expect(bypassRls.withBypass).not.toHaveBeenCalled();
+      expect(manager.query).toHaveBeenCalledWith(
+        expect.stringContaining('set_config'),
+        expect.arrayContaining([homeTenant]),
+      );
+    });
   });
 });

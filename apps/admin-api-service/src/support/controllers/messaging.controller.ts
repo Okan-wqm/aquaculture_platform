@@ -4,6 +4,7 @@
  * Admin-tenant mesajlaşma endpoint'leri.
  */
 
+import { Destructive } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -156,6 +157,7 @@ export class MessagingController {
   }
 
   @AuditedOperation({ resource: 'Thread', action: 'ARCHIVE' })
+  @Destructive()
   @Post('threads/:threadId/archive')
   async archiveThread(@Param('threadId') threadId: string) {
     return this.messagingService.archiveThread(threadId);

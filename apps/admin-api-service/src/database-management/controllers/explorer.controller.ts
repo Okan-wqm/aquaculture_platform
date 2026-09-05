@@ -5,6 +5,7 @@
  * SUPER_ADMIN için geliştirme ve debug amaçlı.
  */
 
+import { Destructive } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -793,6 +794,7 @@ export class DatabaseExplorerController {
   // Fix: H8 -- per-route throttle: DB delete is sensitive (3 req / 5 min)
   @ThrottleSensitive()
   @AuditedOperation({ resource: 'Row', action: 'DELETE' })
+  @Destructive()
   @Delete('schemas/:schema/tables/:table/rows/:id')
   async deleteRow(
     @Param('schema') schema: string,

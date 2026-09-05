@@ -30,3 +30,9 @@ The mint refusal locks out every un-enrolled platform operator the moment it shi
 - Fleet-wide auth change, the highest-risk item in this arbitration; it ships behind a dated enrolment ramp.
 - ~15 destructive admin routes gain the decorator; `libs/backend-common` gains the guard.
 - The losing side: the "MFA optional, toggled in settings" model is gone. A config toggle for a mandatory control was a documented off-switch for a compliance obligation.
+
+## Implementation note (landed 2026-09-05)
+
+- Owner decision (okan, 2026-09-05): enforcement is not required yet; the structure ships so it can be switched on early. The cutover date is therefore not pinned — `SUPER_ADMIN_MFA_ENFORCED_AT` is `'detective'` in `docker-compose.droplet.yml` and setting it to an ISO-8601 date-time is the cutover. The `proposed` escalation clause above is resolved by that switch: the break-glass for a locked-out operator is to set the value back to `'detective'` in the same reviewed line, which un-refuses token issue without touching code.
+- Detective mode is not silent: an un-enrolled SUPER_ADMIN is named in a `super_admin_token_without_mfa_enrolment` warning at every token issue, and an irreversible admin operation without a fresh claim writes `DESTRUCTIVE_WITHOUT_FRESH_MFA` to `admin.audit_logs`. The operator can therefore read the exact lock-out set before choosing a date.
+- `@Destructive()` installs `DestructiveActionGuard` through `applyDecorators`; the irreversible set is derived (every DELETE plus erase / archive / purge / drop / release / export / terminate / revoke / rollback / deprovision handlers, public handlers exempt) rather than listed, and `tests/invariants/platform-admin-mfa-ssot.spec.ts` recomputes it on every PR.

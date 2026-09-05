@@ -1,3 +1,4 @@
+import { Destructive } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import { ThrottleSensitive } from '@aquaculture/backend-common/security';
 import {
@@ -357,6 +358,7 @@ export class UsersController {
    * Delete user (soft delete)
    */
   @AuditedOperation({ resource: 'User', action: 'DELETE' })
+  @Destructive()
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteUser(@Param('id', ParseUUIDPipe) id: string) {

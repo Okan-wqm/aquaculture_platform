@@ -1,3 +1,4 @@
+import { Destructive } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import { ThrottleSensitive } from '@aquaculture/backend-common/security';
 import {
@@ -640,6 +641,7 @@ export class BillingController {
   }
 
   @AuditedOperation({ resource: 'CustomPlan', action: 'DELETE' })
+  @Destructive()
   @Delete('custom-plans/:planId')
   async deleteCustomPlan(@Param('planId') planId: string): Promise<unknown> {
     await this.customPlanService.deletePlan(planId);

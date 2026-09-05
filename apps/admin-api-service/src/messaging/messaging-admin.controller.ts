@@ -11,6 +11,7 @@
  *
  * @see ADR-012 Phase 3 (Compliance)
  */
+import { Destructive } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -187,6 +188,7 @@ export class MessagingAdminController {
    * @param id - UUID of the legal hold to release
    */
   @AuditedOperation({ resource: 'LegalHold', action: 'RELEASE' })
+  @Destructive()
   @Delete('compliance/legal-holds/:id')
   @ApiOperation({ summary: 'Release a legal hold' })
   async releaseLegalHold(
@@ -318,6 +320,7 @@ export class MessagingAdminController {
    * @param id - UUID of the tenant to export
    */
   @AuditedOperation({ resource: 'Export', action: 'TRIGGER' })
+  @Destructive()
   @Post('tenants/:id/export')
   @HttpCode(HttpStatus.ACCEPTED)
   @ApiOperation({ summary: 'Trigger tenant data export' })

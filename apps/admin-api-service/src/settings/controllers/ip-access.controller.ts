@@ -1,3 +1,4 @@
+import { Destructive } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -134,6 +135,7 @@ export class IpAccessController {
    * Delete a rule
    */
   @AuditedOperation({ resource: 'Rule', action: 'DELETE' })
+  @Destructive()
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteRule(@Param('id') id: string) {
@@ -205,6 +207,7 @@ export class IpAccessController {
    * Clear all rules of a type
    */
   @AuditedOperation({ resource: 'Rules', action: 'CLEAR' })
+  @Destructive()
   @Delete('type/:ruleType/clear')
   async clearRules(
     @Param('ruleType') ruleType: 'whitelist' | 'blacklist',

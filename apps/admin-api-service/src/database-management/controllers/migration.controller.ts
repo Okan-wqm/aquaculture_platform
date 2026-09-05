@@ -4,6 +4,7 @@
  * Schema migration yönetimi endpoint'leri.
  */
 
+import { Destructive } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   BadRequestException,
@@ -144,6 +145,7 @@ export class MigrationController {
   }
 
   @AuditedOperation({ resource: 'Migration', action: 'ROLLBACK' })
+  @Destructive()
   @Post('tenant/:tenantId/rollback')
   @HttpCode(HttpStatus.OK)
   rollbackMigration(

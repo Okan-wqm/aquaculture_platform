@@ -63,9 +63,6 @@ class UpdateSecurityConfigDto {
   passwordRequireSymbols?: boolean;
 
   @IsOptional() @IsBoolean()
-  mfaEnabled?: boolean;
-
-  @IsOptional() @IsBoolean()
   enforceHttps?: boolean;
 }
 

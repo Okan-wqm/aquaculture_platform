@@ -13,6 +13,8 @@ import { Request } from 'express';
  * controller reads `req.user.id`.
  */
 export interface AuthenticatedUser extends JwtUser {
+  /** JWT issue time (epoch seconds) — the freshness anchor DestructiveActionGuard reads (ADR-0011). */
+  iat?: number;
   /** admin-api-local alias for the JWT subject (`sub`). */
   id: string;
   /** display name (falls back to email). */

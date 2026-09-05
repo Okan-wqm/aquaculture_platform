@@ -4,6 +4,7 @@
  * Endpoints for activity logging, queries, and statistics.
  */
 
+import { Destructive } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -232,6 +233,7 @@ export class ActivityLogController {
    * Terminate user sessions
    */
   @AuditedOperation({ resource: 'UserSessions', action: 'TERMINATE' })
+  @Destructive()
   @Post('sessions/user/:userId/terminate')
   @HttpCode(HttpStatus.OK)
   async terminateUserSessions(

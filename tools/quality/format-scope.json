@@ -2099,6 +2099,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1808700000000-RetireMfaEnabledSetting.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/modules/__tests__/modules.controller.spec.ts",
       "prettier_managed": true
     },
@@ -38290,6 +38296,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/decorators/destructive.decorator.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/decorators/index.ts",
       "prettier_managed": true
     },
@@ -38380,6 +38392,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/guards/__tests__/destructive-action.guard.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/guards/__tests__/mobile-feature.guard.spec.ts",
       "prettier_managed": true
     },
@@ -38399,6 +38417,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/guards/__tests__/tenant.guard.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/guards/destructive-action.guard.ts",
       "prettier_managed": true
     },
     {
@@ -39076,6 +39100,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/security/__tests__/platform-admin-mfa-policy.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/security/__tests__/security-event-subject-contract.spec.ts",
       "prettier_managed": true
     },
@@ -39173,6 +39203,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/security/ip-validation/ip-validator.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/security/platform-admin-mfa-policy.ts",
       "prettier_managed": true
     },
     {
@@ -44269,6 +44305,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/plan-quota-enforcement.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/platform-admin-mfa-ssot.spec.ts",
       "prettier_managed": true
     },
     {

@@ -332,11 +332,6 @@ const SecurityTab: React.FC<SecurityTabProps> = ({ config, onChange, onSave, sav
       </div>
     </div>
     <CheckboxField
-      label="Enable Two-Factor Authentication (MFA)"
-      checked={config.mfaEnabled}
-      onChange={(checked) => onChange({ ...config, mfaEnabled: checked })}
-    />
-    <CheckboxField
       label="Enforce HTTPS"
       checked={config.enforceHttps}
       onChange={(checked) => onChange({ ...config, enforceHttps: checked })}

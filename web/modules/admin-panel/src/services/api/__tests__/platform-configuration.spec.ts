@@ -64,7 +64,6 @@ describe('mapPlatformSettings', () => {
       row('email.from_address', 'noreply@example.com'),
       row('email.from_name', 'Example'),
       row('security.session_timeout_minutes', 120),
-      row('security.mfa_enabled', false),
       row('billing.stripe_enabled', true),
       row('billing.tax_rate', 18),
       row('rate_limit.global_rpm', 2000),
@@ -83,7 +82,6 @@ describe('mapPlatformSettings', () => {
     // ...but a stored (redacted, non-null) secret is signalled.
     expect(settings.email.hasSmtpPassword).toBe(true);
     expect(settings.security.sessionTimeoutMinutes).toBe(120);
-    expect(settings.security.mfaEnabled).toBe(false);
     expect(settings.billing.stripeEnabled).toBe(true);
     expect(settings.billing.taxRate).toBe(18);
     expect(settings.billing.stripeSecretKey).toBe('');
@@ -130,7 +128,7 @@ describe('write builders', () => {
 
   it('covers every security field with a namespaced key', () => {
     const writes = buildSecurityWrites(DEFAULT_PLATFORM_SETTINGS.security);
-    expect(writes).toHaveLength(9);
+    expect(writes).toHaveLength(8);
     expect(writes.map((write) => write.key)).toEqual([
       'security.session_timeout_minutes',
       'security.max_login_attempts',
@@ -139,7 +137,6 @@ describe('write builders', () => {
       'security.password_require_uppercase',
       'security.password_require_numbers',
       'security.password_require_symbols',
-      'security.mfa_enabled',
       'security.enforce_https',
     ]);
   });

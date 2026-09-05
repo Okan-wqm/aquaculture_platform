@@ -6,6 +6,7 @@ import {
   SESSION_MANAGER,
   USER_TOKEN_REVOCATION,
 } from '@aquaculture/backend-common/security';
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -257,6 +258,55 @@ describe('TokenService — planLevel JWT claim (MT-MEDIUM-001)', () => {
     await expect(
       service.generateTokens(buildUser({ role: Role.TENANT_ADMIN, tenantId: null })),
     ).rejects.toThrow(/without a tenant/i);
+  });
+
+  // ADR-0011 (SEC-CRITICAL-058): a platform admin without MFA cannot hold a credential.
+  describe('SUPER_ADMIN MFA enrolment at token issue (ADR-0011)', () => {
+    const switchEnv = 'SUPER_ADMIN_MFA_ENFORCED_AT';
+    const previous = process.env[switchEnv];
+    let warn: jest.SpyInstance;
+
+    beforeEach(() => {
+      warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    });
+
+    afterEach(() => {
+      warn.mockRestore();
+      if (previous === undefined) delete process.env[switchEnv];
+      else process.env[switchEnv] = previous;
+    });
+
+    it('refuses a SUPER_ADMIN token for an un-enrolled account once enforcement has started', async () => {
+      process.env[switchEnv] = '2020-01-01T00:00:00Z';
+      await expect(
+        service.generateTokens(
+          buildUser({ role: Role.SUPER_ADMIN, tenantId: null, mfaEnabled: false }),
+        ),
+      ).rejects.toThrow(/must enrol in MFA/);
+      expect(signAsync).not.toHaveBeenCalled();
+    });
+
+    it('records an un-enrolled SUPER_ADMIN in detective mode and still mints the token', async () => {
+      process.env[switchEnv] = 'detective';
+      await service.generateTokens(
+        buildUser({ role: Role.SUPER_ADMIN, tenantId: null, mfaEnabled: false }),
+      );
+      expect(signAsync).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('super_admin_token_without_mfa_enrolment'),
+      );
+    });
+
+    it('mints an enrolled SUPER_ADMIN token under enforcement without a warning', async () => {
+      process.env[switchEnv] = '2020-01-01T00:00:00Z';
+      await service.generateTokens(
+        buildUser({ role: Role.SUPER_ADMIN, tenantId: null, mfaEnabled: true }),
+      );
+      expect(signAsync).toHaveBeenCalledTimes(1);
+      expect(warn).not.toHaveBeenCalledWith(
+        expect.stringContaining('super_admin_token_without_mfa_enrolment'),
+      );
+    });
   });
 });
 

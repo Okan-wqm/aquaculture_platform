@@ -1,3 +1,4 @@
+import { Destructive } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -470,6 +471,7 @@ export class JobQueueController {
   }
 
   @AuditedOperation({ resource: 'CompletedJobs', action: 'PURGE' })
+  @Destructive()
   @Post('purge-completed')
   async purgeCompletedJobs(@Body() dto: PurgeCompletedJobsDto) {
     const count = await this.jobQueueService.purgeCompletedJobs(dto.olderThanDays);

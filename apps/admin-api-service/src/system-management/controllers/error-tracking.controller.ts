@@ -1,3 +1,4 @@
+import { Destructive } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -448,6 +449,7 @@ export class ErrorTrackingController {
   }
 
   @AuditedOperation({ resource: 'AlertRule', action: 'DELETE' })
+  @Destructive()
   @Delete('alert-rules/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteAlertRule(@Param('id') id: string) {

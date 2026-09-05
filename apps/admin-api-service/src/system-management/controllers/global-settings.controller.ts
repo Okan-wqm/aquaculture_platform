@@ -1,3 +1,4 @@
+import { Destructive } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   BadRequestException,
@@ -472,6 +473,7 @@ export class GlobalSettingsController {
   }
 
   @AuditedOperation({ resource: 'FeatureToggle', action: 'DELETE' })
+  @Destructive()
   @Delete('feature-toggles/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteFeatureToggle(@Param('id') id: string) {
@@ -628,6 +630,7 @@ export class GlobalSettingsController {
   }
 
   @AuditedOperation({ resource: 'Version', action: 'ROLLBACK' })
+  @Destructive()
   @Post('versions/:id/rollback')
   async rollbackVersion(
     @Param('id') id: string,

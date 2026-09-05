@@ -2,6 +2,7 @@ import * as crypto from 'crypto';
 
 import { getActiveSigningKid } from '@aquaculture/backend-common/auth';
 import { Role } from '@aquaculture/backend-common/decorators';
+import { readPlatformAdminMfaPolicy } from '@aquaculture/backend-common/security';
 import {
   ISessionManager,
   IUserTokenRevocation,
@@ -242,6 +243,28 @@ export class TokenService {
     if (user.role !== Role.SUPER_ADMIN && !effectiveTenantId) {
       throw new ForbiddenException(
         'A non-SUPER_ADMIN account cannot be issued a token without a tenant',
+      );
+    }
+
+    // ADR-0011 (SEC-CRITICAL-058): a platform admin without MFA cannot hold a
+    // credential, so no code path can skip the check — including the boot-time
+    // SUPER_ADMIN promotion. Enforcement follows the platform switch: until
+    // SUPER_ADMIN_MFA_ENFORCED_AT has passed the mint proceeds and the account
+    // is named in a security event so the operator sees who is un-enrolled.
+    if (user.role === Role.SUPER_ADMIN && !user.mfaEnabled) {
+      const policy = readPlatformAdminMfaPolicy();
+      if (policy.enforced) {
+        throw new ForbiddenException(
+          'A SUPER_ADMIN account must enrol in MFA before it can be issued a token (ADR-0011)',
+        );
+      }
+      this.logger.warn(
+        JSON.stringify({
+          event: 'super_admin_token_without_mfa_enrolment',
+          userId: user.id,
+          mode: policy.mode,
+          enforcedAt: policy.enforcedAt?.toISOString() ?? null,
+        }),
       );
     }
 

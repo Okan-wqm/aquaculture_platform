@@ -819,6 +819,11 @@ services:
       PASSWORD_PEPPER: '${PASSWORD_PEPPER:?PASSWORD_PEPPER is required in production — generate with openssl rand -base64 48 and store in .env on droplet}'
       # MFA encryption key is production-required; auth-service fails closed without it.
       MFA_ENCRYPTION_KEY: '${MFA_ENCRYPTION_KEY:?MFA_ENCRYPTION_KEY is required in production — generate with openssl rand -hex 32}'
+      # ADR-0011: platform-admin MFA switch. 'detective' records un-enrolled
+      # SUPER_ADMIN accounts and stale MFA claims on irreversible operations
+      # without refusing them; an ISO-8601 date-time enforces both from that
+      # instant. Required in production — auth-service refuses to boot without it.
+      SUPER_ADMIN_MFA_ENFORCED_AT: 'detective'
       WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-app.suderra.com}
       WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-AquaCulture Platform}
       SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}

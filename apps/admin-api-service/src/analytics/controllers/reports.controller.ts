@@ -4,6 +4,7 @@
  * Rapor oluşturma ve indirme endpoint'leri.
  */
 
+import { Destructive } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -230,6 +231,7 @@ export class ReportsController {
   }
 
   @AuditedOperation({ resource: 'Definition', action: 'DELETE' })
+  @Destructive()
   @Delete('definitions/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteDefinition(@Param('id') id: string): Promise<void> {

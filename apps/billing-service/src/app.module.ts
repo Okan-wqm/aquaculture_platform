@@ -1,8 +1,9 @@
 import { join } from 'path';
 
 import {
-  AuditLogModule,
+  AccessLogModule,
   AuditLogInterceptor,
+  AuditLogModule,
   AuditedOperationModule,
 } from '@aquaculture/backend-common/audit';
 import { TenantErasureTargetModule } from '@aquaculture/backend-common/compliance';
@@ -62,6 +63,12 @@ const billingSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env
 
 @Module({
   imports: [
+    // ADR-0006: this service is an nginx upstream (serviceVisibility 'public').
+    // AccessLogModule provides AccessLogService; the bootstrap factory mounts
+    // AccessLogMiddleware ahead of every Nest middleware so each request this
+    // edge terminates writes one shared.access_logs row. Enforced by
+    // tests/invariants/public-service-edge-hardening.spec.ts.
+    AccessLogModule.forRoot(),
     LoggingModule,
     ConfigModule.forRoot({
       isGlobal: true,

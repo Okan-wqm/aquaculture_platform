@@ -1,3 +1,4 @@
+import { AccessLogModule } from '@aquaculture/backend-common/audit';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import {
   AdminBypassRlsInterceptor,
@@ -8,6 +9,7 @@ import {
   SchemaDriftModule,
 } from '@aquaculture/backend-common/database';
 import { LoggingModule } from '@aquaculture/backend-common/logging';
+import { StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
 import { ServiceMetricsModule } from '@aquaculture/backend-common/metrics';
 import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
 import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
@@ -23,7 +25,7 @@ import {
   type ITokenBlacklist,
   type IUserTokenRevocation,
 } from '@aquaculture/backend-common/security';
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import { CqrsModule } from '@nestjs/cqrs';
@@ -98,6 +100,12 @@ const getAdminStoragePort = (configService: ConfigService): number => {
 
 @Module({
   imports: [
+    // ADR-0006: this service is an nginx upstream (serviceVisibility 'public').
+    // AccessLogModule provides AccessLogService; the bootstrap factory mounts
+    // AccessLogMiddleware ahead of every Nest middleware so each request this
+    // edge terminates writes one shared.access_logs row. Enforced by
+    // tests/invariants/public-service-edge-hardening.spec.ts.
+    AccessLogModule.forRoot(),
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: ['.env.local', '.env'],
@@ -360,6 +368,19 @@ const getAdminStoragePort = (configService: ConfigService): number => {
     GracefulShutdownService,
   ],
 })
-export class AppModule {
+export class AppModule implements NestModule {
   readonly moduleName = AppModule.name;
+
+  /**
+   * SEC-CRITICAL-002 / ADR-0006: strip the spoofable internal trust headers
+   * (x-user-payload, x-user-id, x-user-roles, x-tenant-id, …) from every
+   * request that does not carry a verified service-identity signature. nginx
+   * proxies /api/ straight here, so an unauthenticated caller could otherwise
+   * plant SUPER_ADMIN context on a public path. Every bootstrapped service
+   * mounts this first; enforced by
+   * tests/invariants/public-service-edge-hardening.spec.ts.
+   */
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(StripInternalHeadersMiddleware).forRoutes('*');
+  }
 }

@@ -77,7 +77,6 @@ const LoggingTracker = createOrderTrackingMiddleware('logging');
 const RateLimitTracker = createOrderTrackingMiddleware('rate-limit');
 const MetricsTracker = createOrderTrackingMiddleware('metrics');
 const StripHeadersTracker = createOrderTrackingMiddleware('strip-internal-headers');
-const CsrfTracker = createOrderTrackingMiddleware('csrf');
 const JwtTracker = createOrderTrackingMiddleware('jwt');
 const UserContextTracker = createOrderTrackingMiddleware('user-context');
 
@@ -102,7 +101,7 @@ class MiddlewareOrderController {
  *
  * Production ordering (from app.module.ts):
  *   MetricsMiddleware -> CorrelationIdMiddleware -> RequestContextMiddleware ->
- *   StripInternalHeadersMiddleware -> CsrfMiddleware -> JwtMiddleware ->
+ *   StripInternalHeadersMiddleware -> JwtMiddleware ->
  *   UserContextMiddleware -> TenantContextMiddleware -> RequestLoggingMiddleware
  */
 @Module({ controllers: [MiddlewareOrderController] })
@@ -113,7 +112,6 @@ class MiddlewareOrderModule implements NestModule {
         MetricsTracker,
         CorrelationIdTracker,
         StripHeadersTracker,
-        CsrfTracker,
         JwtTracker,
         UserContextTracker,
         TenantContextTracker,
@@ -152,7 +150,6 @@ describe('1. Middleware Chain Execution Order', () => {
       'metrics',
       'correlation-id',
       'strip-internal-headers',
-      'csrf',
       'jwt',
       'user-context',
       'tenant-context',

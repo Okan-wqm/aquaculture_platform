@@ -32,3 +32,9 @@ Option (a) is rejected: it would move the admin surface behind a second hop for 
 - All 13 Nest services boot through the changed factory; public ones gain a required variable in `docker-compose.droplet.yml`. A missing `TRUST_PROXY` now fails deploy loudly instead of silently mis-attributing IPs.
 - The losing side: ADR-002's clean "one ingress" story is gone. Operators and reviewers must treat admin-api as an edge with the same scrutiny as gateway-api.
 - Dependency: R1 (ADR-0007), R5 (ADR-0011) and R10 (ADR-0016) all mount on this decision.
+
+## Implementation note (landed 2026-09-05)
+
+- The bundle the factory applies is `TRUST_PROXY` (mandatory in production for a public service, resolved by `resolveTrustProxy`) and `AccessLogMiddleware` (`mountEdgeHardening`), both in `libs/backend-common/src/bootstrap/edge-hardening.ts`. `RequestContextMiddleware` needed no second mount: `LoggingModule` already installs it for every importer.
+- `StripInternalHeadersMiddleware` stays in each service's module chain rather than the factory. gateway-api must run `CaptureRequestedTenantMiddleware` before the strip deletes `x-act-as-tenant`; a factory-level mount would run ahead of it. The merged invariant enforces the strip on every bootstrapped Nest service with no exclusion list, which is stronger than the decision text: the four services the old spec deferred (admin-api, config, event-store, observability) now mount it.
+- `serviceVisibility` is a required boot option. The compiler refuses a service that does not declare it; the invariant refuses a declaration that disagrees with nginx, a public service whose compose entry lacks a literal `TRUST_PROXY`, and an internal service whose compose entry carries edge configuration. nginx proxies four Nest services: gateway-api, admin-api-service, sensor-service, billing-service. The last two had never set `TRUST_PROXY`.

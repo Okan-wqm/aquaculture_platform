@@ -9,13 +9,17 @@ import { AppModule } from './app.module';
 import { assertProductionPosture } from './config/production-posture';
 
 // INFRA-HIGH-142: a production process whose environment does not state the
-// debug / explorer flags as 'false' and TRUST_PROXY as set does not start.
+// debug / explorer flags as 'false' (and, via the factory's edge bundle,
+// TRUST_PROXY) does not start.
 // Before the app exists, so a misconfigured deploy fails at the first log
 // line instead of serving requests with an accidental posture.
 assertProductionPosture();
 
 bootstrapService(AppModule, {
   serviceName: 'admin-api-service',
+  // ADR-0006: nginx upstream (infrastructure/nginx/droplet.conf). The factory
+  // requires TRUST_PROXY in production and mounts the access log on every request.
+  serviceVisibility: 'public',
   portEnvVar: 'PORT',
 
   // API Versioning — URI-based (e.g., /v1/tenants)

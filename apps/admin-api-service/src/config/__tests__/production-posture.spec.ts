@@ -9,7 +9,6 @@ const SOUND_PRODUCTION_ENV = {
   ENABLE_DEBUG_TOOLS: 'false',
   ENABLE_DB_EXPLORER_WRITES: 'false',
   ENABLE_RAW_SQL_EXPLORER: 'false',
-  TRUST_PROXY: 'true',
   WALG_BACKUP_EPOCH: 'epoch-20260716-001',
 };
 
@@ -43,15 +42,6 @@ describe('admin-api production posture', () => {
       }
     },
   );
-
-  it('refuses production without TRUST_PROXY — a proxied service that trusts nothing rate-limits nothing', () => {
-    expect(
-      productionPostureViolations({ ...SOUND_PRODUCTION_ENV, TRUST_PROXY: undefined }),
-    ).toEqual(['TRUST_PROXY is required in production and is not set']);
-    expect(
-      productionPostureViolations({ ...SOUND_PRODUCTION_ENV, TRUST_PROXY: '  ' }),
-    ).toHaveLength(1);
-  });
 
   it('reports every violation at once so an operator fixes the deploy in one round', () => {
     const violations = productionPostureViolations({ NODE_ENV: 'production' });

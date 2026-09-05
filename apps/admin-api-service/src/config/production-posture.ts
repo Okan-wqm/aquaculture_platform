@@ -3,10 +3,10 @@
  *
  * Until 2026-09-05 production was fail-closed by accident: the debug-tools
  * module, explorer writes and the raw SQL explorer were each off only because
- * nobody had set their `ENABLE_*` variable, and `TRUST_PROXY` was unset so
- * every per-IP rate-limit bucket on the most privileged surface collapsed
- * into one global bucket (AUTH-010). Nothing pinned any of it; any compose
- * refactor could silently un-close the platform (INFRA-HIGH-142).
+ * nobody had set their `ENABLE_*` variable. Nothing pinned any of it; any
+ * compose refactor could silently un-close the platform (INFRA-HIGH-142).
+ * (`TRUST_PROXY`, the AUTH-010 half of that finding, moved to the kernel's
+ * edge-hardening bundle under ADR-0006.)
  *
  * This file is the single declaration. `assertProductionPosture()` runs
  * before the Nest app is created and refuses to start a production process
@@ -29,11 +29,15 @@ export const ADMIN_API_PRODUCTION_POSTURE = Object.freeze({
     'ENABLE_RAW_SQL_EXPLORER',
   ] as const),
   /**
-   * Variables the service cannot run without: TRUST_PROXY because it is a
-   * public, nginx-fronted service; WALG_BACKUP_EPOCH because a tenant schema
-   * drop must name the WAL-G archive that can restore it (ADR-0009).
+   * Variables the service cannot run without: WALG_BACKUP_EPOCH because a
+   * tenant schema drop must name the WAL-G archive that can restore it
+   * (ADR-0009). TRUST_PROXY is no longer listed here: since ADR-0006 the
+   * bootstrap factory refuses to start ANY `serviceVisibility: 'public'`
+   * service in production without it (libs/backend-common/src/bootstrap/
+   * edge-hardening.ts), so a second, admin-only assertion would be a second
+   * authority for the same rule.
    */
-  required: Object.freeze(['TRUST_PROXY', 'WALG_BACKUP_EPOCH'] as const),
+  required: Object.freeze(['WALG_BACKUP_EPOCH'] as const),
 });
 
 export type ProductionPostureEnv = Readonly<Record<string, string | undefined>>;

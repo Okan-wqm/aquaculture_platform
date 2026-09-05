@@ -135,7 +135,6 @@ services:
     container_name: aqua-auth-staging
     environment:
       NODE_OPTIONS: '--max-old-space-size=256'
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://staging.suderra.com}
       WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-staging.suderra.com}
       WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-AquaCulture Platform (Staging)}
     deploy:
@@ -149,7 +148,6 @@ services:
     container_name: aqua-farm-staging
     environment:
       NODE_OPTIONS: '--max-old-space-size=192'
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://staging.suderra.com}
       SENTINEL_HUB_ENCRYPTION_KEY: ${SENTINEL_HUB_ENCRYPTION_KEY:?SENTINEL_HUB_ENCRYPTION_KEY is required during credential cutover}
       FARM_ENVIRONMENT_MONITORING_ENABLED: ${FARM_ENVIRONMENT_MONITORING_ENABLED:-false}
       MET_NORWAY_APPLICATION_NAME: ${MET_NORWAY_APPLICATION_NAME:-}
@@ -200,7 +198,6 @@ services:
     container_name: aqua-alert-staging
     environment:
       NODE_OPTIONS: '--max-old-space-size=192'
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://staging.suderra.com}
     deploy:
       resources:
         limits:
@@ -236,7 +233,6 @@ services:
     container_name: aqua-hr-staging
     environment:
       NODE_OPTIONS: '--max-old-space-size=192'
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://staging.suderra.com}
     deploy:
       resources:
         limits:
@@ -248,7 +244,6 @@ services:
     container_name: aqua-hydroponics-staging
     environment:
       NODE_OPTIONS: '--max-old-space-size=192'
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://staging.suderra.com}
     deploy:
       resources:
         limits:
@@ -260,7 +255,6 @@ services:
     container_name: aqua-notification-staging
     environment:
       NODE_OPTIONS: '--max-old-space-size=192'
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://staging.suderra.com}
       # Staging SMTP should point at a catch-all sink (MailHog / Ethereal /
       # Postmark sandbox) so smoke-test emails never reach real inboxes.
       # SMTP_HOST is unset by default — notification-service degrades to
@@ -293,7 +287,6 @@ services:
     container_name: aqua-config-staging
     environment:
       NODE_OPTIONS: '--max-old-space-size=192'
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://staging.suderra.com}
     deploy:
       resources:
         limits:
@@ -305,7 +298,6 @@ services:
     container_name: aqua-messaging-staging
     environment:
       NODE_OPTIONS: '--max-old-space-size=256'
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://staging.suderra.com}
     deploy:
       resources:
         limits:

@@ -5,6 +5,9 @@ import { AppModule } from './app.module';
 
 bootstrapService(AppModule, {
   serviceName: 'ai-service',
+  // ADR-0006: reached only over the Docker network (gateway federation / NATS);
+  // nginx proxies nothing here, so no CORS and no edge bundle.
+  serviceVisibility: 'internal',
   portEnvVar: 'AI_SERVICE_PORT',
   hasGraphQL: true,
   // Connect the NATS microservice transport so the request.ai.chat responder

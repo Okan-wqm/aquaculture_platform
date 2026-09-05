@@ -8,7 +8,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
-import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
+import { AccessLogEntity, AccessLogModule, AuditedOperationModule } from '@aquaculture/backend-common/audit';
 import { TenantErasureTargetModule } from '@aquaculture/backend-common/compliance';
 import {
   createServiceTypeOrmConfig,
@@ -148,6 +148,12 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
 
 @Module({
   imports: [
+    // ADR-0006: this service is an nginx upstream (serviceVisibility 'public').
+    // AccessLogModule provides AccessLogService; the bootstrap factory mounts
+    // AccessLogMiddleware ahead of every Nest middleware so each request this
+    // edge terminates writes one shared.access_logs row. Enforced by
+    // tests/invariants/public-service-edge-hardening.spec.ts.
+    AccessLogModule.forRoot(),
     // Global configuration
     ConfigModule.forRoot({
       isGlobal: true,
@@ -192,6 +198,9 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
             // OutboxNotifyListener.onModuleInit getMetadata(SensorOutbox) throws
             // ("No metadata for SensorOutbox"), crash-looping sensor-service boot.
             SensorOutbox,
+            // ADR-0006: shared.access_logs — written by the factory-mounted
+            // AccessLogMiddleware; this explicit list disables autoLoadEntities.
+            AccessLogEntity,
             Sensor,
             SensorProtocol,
             SensorDataChannel,

@@ -1,6 +1,6 @@
 # ADR-002: Single Gateway-API Edge Service
 
-**Status:** Accepted (retrodocumented 2026-04-16 during W1 audit)
+**Status:** Superseded in part by ADR-0006 (`docs/recommendations/architectural-arbiter/2026-09-05-adr-0006-two-ingress-topology-edge-hardening-bundle.md`) — the "sole internet-reachable backend service" clause no longer holds: `admin-api-service`, `sensor-service` (device provisioning) and `billing-service` (Stripe webhook) are nginx upstreams alongside `gateway-api`, and the kernel applies the edge-hardening bundle to every service declaring `serviceVisibility: 'public'`. Originally Accepted (retrodocumented 2026-04-16 during W1 audit).
 **Supersedes:** none
 **Context note:** this file was 0 bytes until W1 audit flagged it as a phantom canonical ADR. Content below reflects the repository's observable reality.
 

@@ -7,6 +7,9 @@ import { AppModule } from './app.module';
 
 bootstrapService(AppModule, {
   serviceName: 'billing-service',
+  // ADR-0006: nginx upstream (infrastructure/nginx/droplet.conf). The factory
+  // requires TRUST_PROXY in production and mounts the access log on every request.
+  serviceVisibility: 'public',
   portEnvVar: 'BILLING_SERVICE_PORT',
   hasGraphQL: true,
   natsTransport: { queue: 'billing-service' },

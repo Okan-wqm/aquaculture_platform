@@ -45170,7 +45170,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "04eae05018725d2f0e8fa67be571b28c8422aaf9c9a547c0a36e185b6251a631",
+      "content_sha256": "425f61d484020866a9488a4310c32a660e8fca28cf30dfbcabddb140fb233c18",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/ui/server/src/principals.ts",
@@ -45720,7 +45720,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "ae1ff50bab98a97ce384aff2397db6c052605534bb765eea35c74efec34d530e",
+      "content_sha256": "289ea1dae4dfbe83d557275d0cb8234eebfcbe9fcf65ca46a7c48248322f25da",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/ui/server/test/principals.test.ts",

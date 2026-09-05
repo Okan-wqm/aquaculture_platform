@@ -10,11 +10,15 @@ on:
       - 'new-aria/tools/aria-adapters/**'
       - 'new-aria/ui/**'
       - 'new-aria/package.json'
+      - 'new-aria/Dockerfile'
+      - 'new-aria/.dockerignore'
+      - 'new-aria/docker-compose.yml'
       - 'new-aria/ui/package-lock.json'
       - '.github/workflows/new-aria-legal.yml'
   push:
     branches:
       - main
+      - 'feat/new-aria-*'
     paths:
       - 'new-aria/arias/legal/**'
       - 'new-aria/packs/legal/**'
@@ -22,6 +26,9 @@ on:
       - 'new-aria/tools/aria-adapters/**'
       - 'new-aria/ui/**'
       - 'new-aria/package.json'
+      - 'new-aria/Dockerfile'
+      - 'new-aria/.dockerignore'
+      - 'new-aria/docker-compose.yml'
       - 'new-aria/ui/package-lock.json'
       - '.github/workflows/new-aria-legal.yml'
 
@@ -34,7 +41,7 @@ concurrency:
 
 jobs:
   legal-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -52,6 +59,23 @@ jobs:
       - name: Install legal console dependencies
         working-directory: new-aria/ui
         run: npm ci --ignore-scripts --no-audit --no-fund --prefer-offline
+      - name: Prepare the legal process isolation profile on the ephemeral runner
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends apparmor-utils util-linux
+          sudo apparmor_parser --add new-aria/arias/legal/docker/apparmor.profile
       - name: Check the complete legal surface
         working-directory: new-aria
-        run: npm run legal:check
+        run: aa-exec --profile=aria-legal -- npm run legal:check
+      - name: Build the standalone runtime and console
+        run: |
+          docker build --tag new-aria:legal-check new-aria
+          docker build --build-arg BASE_IMAGE=new-aria:legal-check --tag new-aria-ui:legal-check --file new-aria/ui/Dockerfile new-aria
+      - name: Verify writer lifetime inside the non-root application container
+        run: |
+          docker run --rm --network none --read-only --tmpfs /tmp:rw,nosuid,nodev,mode=1777 \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --security-opt apparmor=aria-legal \
+            --security-opt seccomp=new-aria/arias/legal/docker/seccomp.json \
+            --workdir /opt/new-aria/ui --entrypoint node new-aria-ui:legal-check \
+            --test server/test/actions-lease.test.ts server/test/installation-lock.test.ts

@@ -19,3 +19,7 @@ aria-findings
 .aria-state-store
 .env
 .env.*
+# Runtime volumes and recovery material are never image inputs.
+data
+keys
+backups

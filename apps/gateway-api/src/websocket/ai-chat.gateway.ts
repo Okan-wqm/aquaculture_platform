@@ -63,7 +63,7 @@ const PERSONA_RE = /^(operator|manager|expert|supervisor)-v\d+$/;
  * connection to `/ai`, emits `ai:chat`, and receives `ai:response` — the same
  * NATS request-reply + socket.io path every other live surface uses (messaging,
  * sensor, st-language). This replaces the hand-rolled REST proxy
- * (`routes/v2/ai.routes.ts`): identity is the handshake JWT, ai-service is
+ * (the retired REST proxy — replaced by NATS request.ai.chat): identity is the handshake JWT, ai-service is
  * reached over `request.ai.chat` (queue-grouped), and there is no bespoke auth,
  * path mismatch, or signing gap.
  */

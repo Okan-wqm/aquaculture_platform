@@ -1,0 +1,19 @@
+# HTTP routes on internet-reachable services that are served OUTSIDE the
+# /api/v1 global prefix yet must NOT be reachable through nginx: they are
+# called over the Docker network by another container. Read by
+# tests/invariants/nginx-route-resolution.spec.ts, which otherwise requires
+# every unprefixed route on a public service to be covered by an nginx
+# location (an unprefixed route nginx does not forward is dead in production).
+#
+# The kernel's own prefix exclusions — health, health/(.*), metrics — are
+# Docker-internal by construction (container healthchecks, Prometheus) and
+# need no entry here.
+entries:
+  - service: sensor-service
+    routePrefix: mqtt
+    owner: okan
+    reason: >-
+      Mosquitto's go-auth plugin authenticates MQTT clients against
+      /mqtt/auth and /mqtt/acl over the aqua-internal network; nginx blocks
+      /mqtt/ deliberately so the credential check cannot be brute-forced
+      from the internet.

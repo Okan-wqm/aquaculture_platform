@@ -21,7 +21,16 @@ bootstrapService(AppModule, {
   // deliberately owns /api/marine, so exclude that explicit path from the
   // shared /api/v1 prefix instead of exposing the accidental
   // /api/v1/api/marine route.
-  prefixExclusions: ['health', 'health/(.*)', 'metrics', ...GATEWAY_MARINE_PREFIX_EXCLUSIONS],
+  // /api/csp-report is the CSP violation collector nginx forwards verbatim;
+  // CspReportController owns the explicit path (`@Controller('api')` +
+  // `@Post('csp-report')`), so it is excluded from the prefix like marine.
+  prefixExclusions: [
+    'health',
+    'health/(.*)',
+    'metrics',
+    'api/csp-report',
+    ...GATEWAY_MARINE_PREFIX_EXCLUSIONS,
+  ],
 
   // SECURITY: In production, v2 service-identity keyring signing is required for
   // authenticating inter-service requests. Without it, gateway subgraph requests

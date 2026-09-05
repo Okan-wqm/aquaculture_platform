@@ -18074,18 +18074,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/gateway-api/src/routes/v1/sensor.routes.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/gateway-api/src/routes/v2/index.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/gateway-api/src/services/http-pool.service.ts",
       "prettier_managed": true
     },
@@ -44167,6 +44155,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/nested-steering-parity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/nginx-route-resolution.spec.ts",
       "prettier_managed": true
     },
     {

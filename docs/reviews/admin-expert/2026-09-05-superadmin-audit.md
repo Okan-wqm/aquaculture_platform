@@ -104,6 +104,14 @@ Zero occurrences of `impersonat*` in gateway-api. The minted token has no consum
 **Gate:** single-authority assertion in `tests/invariants/backup-restore-verification-contract.spec.ts` — nothing outside `tools/scripts/database/` and the two DR workflows may spawn `pg_dump`/`pg_restore` or declare a backup cron.
 **Sequencing:** gates every destructive migration in this plan.
 
+## INFRA-CRITICAL-143 — nginx and service route tables disagree on five production paths
+
+**Evidence:** `infrastructure/nginx/droplet.conf` forwarded `/api/upload/*` verbatim to a gateway serving `/api/v1/upload/*`; `/api/csp-report` to a controller at `/api/v1/api/csp-report`; `/install/*` and `/api/devices/*` (installer script + Rust edge agent) to a sensor service serving them under `/api/v1`; `/api/v2/ai/*` to a proxy that never existed; and the SCADA websocket path `/scada-ws/` the client and sensor agreed on had no nginx location. Surfaced while closing the W0 open item on the upload path.
+
+**Fix:** nginx rewrite for uploads; gateway prefix exclusion `api/csp-report`; sensor prefix exclusions `install/*`, `api/devices/*`; dead v2 proxy location, validator route, empty module and unregistered `api/v1/sensors` proxy deleted; `/scada-ws/` websocket location to sensor-service.
+
+**Gate:** `tests/invariants/nginx-route-resolution.spec.ts` derives the nginx location table and every public service's served route table from source and asserts both directions; Docker-internal unprefixed routes are declared with a reason in `.claude/allowlists/internal-only-http-routes.yaml`.
+
 ## INFRA-HIGH-141 — CI quarantine policy is ungoverned prose (R12)
 
 **State:** OPEN · **Wave:** W0 · **ADR:** 0017

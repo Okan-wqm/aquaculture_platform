@@ -386,22 +386,13 @@ export class AppModule implements NestModule {
 
     // SEC-HIGH-156: resolve req.user/req.tenantId from the gateway-signed
     // verified-user assertion (after Strip sets req.verifiedIdentity, before
-    // UserContext). EXCLUDED from /api/v2/ai/*: the AI chat REST surface arrives
-    // via the gateway's REST proxy (routes/v2/ai.routes.ts), which forwards only
-    // an allowlist of headers and does NOT sign a gateway service identity, so
-    // requiring the assertion there would 400 in production — that path still
-    // authenticates via the JWT guard + x-tenant-id. Both prefix forms excluded
-    // to fail safe.
+    // UserContext). ai-service serves no direct browser REST surface — the
+    // former /api/v2/ai proxy was retired for NATS request.ai.chat — so only
+    // the health probe is excluded (tests/invariants/nginx-route-resolution.spec.ts
+    // keeps nginx and the route table in agreement).
     consumer
       .apply(VerifiedUserAssertionMiddleware)
-      .exclude(
-        'health',
-        'health/{*path}',
-        'api/v2/ai',
-        'api/v2/ai/{*path}',
-        'api/v1/api/v2/ai',
-        'api/v1/api/v2/ai/{*path}',
-      )
+      .exclude('health', 'health/{*path}')
       .forRoutes('*');
 
     consumer

@@ -2,46 +2,35 @@ import { Module, OnModuleInit } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { EmailTemplateController } from './controllers/email-template.controller';
-import { IpAccessController } from './controllers/ip-access.controller';
 import { TenantConfigurationController } from './controllers/tenant-configuration.controller';
-import {
-  EmailTemplate,
-  IpAccessRule,
-} from './entities';
+import { EmailTemplate } from './entities';
 import {
   TenantConfigurationService,
   SystemSettingService,
   EmailTemplateService,
-  IpAccessService,
 } from './services';
 import { EmailSenderService } from './services/email-sender.service';
 import { SettingsController } from './settings.controller';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([
-      EmailTemplate,
-      IpAccessRule,
-    ]),
+    TypeOrmModule.forFeature([EmailTemplate]),
   ],
   controllers: [
     SettingsController,
     TenantConfigurationController,
     EmailTemplateController,
-    IpAccessController,
   ],
   providers: [
     TenantConfigurationService,
     SystemSettingService,
     EmailTemplateService,
-    IpAccessService,
     EmailSenderService,
   ],
   exports: [
     TenantConfigurationService,
     SystemSettingService,
     EmailTemplateService,
-    IpAccessService,
     EmailSenderService,
   ],
 })

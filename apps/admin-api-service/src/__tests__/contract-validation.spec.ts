@@ -966,7 +966,10 @@ describe('Frontend-Backend Contract Validation', () => {
     // the 47 was gone before this branch touched it.
     // 538: -1 for POST /security/activities, whose body named the actor
     // through userId / userName / userEmail / ipAddress (ADMIN-CRITICAL-102).
-    expect(count).toBe(538);
+    // 526: -12 for the /settings/ip-access surface, deleted with both IP
+    // access-rule stacks — the admin-api CRUD wrote a table no guard read, and
+    // the gateway's IpWhitelistGuard was registered nowhere (SEC-HIGH-165).
+    expect(count).toBe(526);
   });
 
   it('frontend endpoint snapshot should be up to date', () => {

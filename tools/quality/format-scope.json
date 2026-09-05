@@ -2135,6 +2135,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1808800000000-RetireIpAccessRules.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/migrations/1808900000000-ProtectAdminLedgers.ts",
       "prettier_managed": true
     },
@@ -2381,12 +2387,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/settings/controllers/ip-access.controller.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/settings/controllers/tenant-configuration.controller.ts",
       "prettier_managed": true
     },
@@ -2442,12 +2442,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/settings/services/index.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/settings/services/ip-access.service.ts",
       "prettier_managed": true
     },
     {
@@ -18254,19 +18248,7 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/gateway-api/src/guards/__tests__/ip-whitelist.guard.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/gateway-api/src/guards/__tests__/jwt-revocation-chain.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/gateway-api/src/guards/__tests__/permission.guard.spec.ts",
       "prettier_managed": true
     },
     {
@@ -18285,24 +18267,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/gateway-api/src/guards/auth.guard.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/gateway-api/src/guards/ip-whitelist.guard.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/gateway-api/src/guards/permission.guard.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/gateway-api/src/guards/permission.helpers.ts",
       "prettier_managed": true
     },
     {
@@ -22664,12 +22628,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/messaging-service/src/guards/channel-authorization.guard.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/messaging-service/src/health/health.controller.ts",
       "prettier_managed": true
     },
@@ -23433,37 +23391,7 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/messaging-service/src/shared/decorators/current-channel.decorator.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/messaging-service/src/shared/enum-wire.util.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/messaging-service/src/shared/guards/__tests__/channel-member.guard.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/messaging-service/src/shared/guards/channel-member.guard.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/messaging-service/src/shared/guards/message-owner.guard.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/messaging-service/src/shared/guards/messaging-feature.guard.ts",
       "prettier_managed": true
     },
     {
@@ -40704,12 +40632,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "libs/backend-common/src/security/validators/idor-guard.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "libs/backend-common/src/security/validators/index.ts",
       "prettier_managed": true
     },
@@ -45878,6 +45800,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/no-dead-guards.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/no-default-tenant-storage-key.spec.ts",
       "prettier_managed": true
     },
@@ -50164,12 +50092,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/pages/InvoicesPage.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "web/modules/admin-panel/src/pages/IpAccessRulesPage.tsx",
       "prettier_managed": true
     },
     {

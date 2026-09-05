@@ -29,7 +29,6 @@ const PlanManagementPage = lazy(() => import('./pages/PlanManagementPage'));
 const DiscountCodePage = lazy(() => import('./pages/DiscountCodePage'));
 const TenantConfigurationPage = lazy(() => import('./pages/TenantConfigurationPage'));
 const EmailTemplatesPage = lazy(() => import('./pages/EmailTemplatesPage'));
-const IpAccessRulesPage = lazy(() => import('./pages/IpAccessRulesPage'));
 const AnalyticsDashboardPage = lazy(() => import('./pages/AnalyticsDashboardPage'));
 const ReportsPage = lazy(() => import('./pages/ReportsPage'));
 const DatabaseManagementPage = lazy(() => import('./pages/DatabaseManagementPage'));
@@ -173,7 +172,6 @@ const AdminPanelModule: React.FC = () => {
         {/* Settings */}
         <Route path="settings" element={<SystemSettingsPage />} />
         <Route path="settings/email" element={<EmailTemplatesPage />} />
-        <Route path="settings/integrations" element={<IpAccessRulesPage />} />
         <Route path="settings/provisioning" element={<ProvisioningSettingsPage />} />
 
         {/* Fallback */}

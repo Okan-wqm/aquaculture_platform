@@ -19,7 +19,7 @@
  * propagateFromTemplate).
  */
 import { TaskService } from '../task.service';
-import type { TaskChecklistItem } from '../../entities/task.entity';
+import type { StoredTaskChecklistItem, TaskChecklistItem } from '../../entities/task.entity';
 
 describe('TaskService.normaliseChecklistItem', () => {
   it('assigns a fresh UUID when the input item has no id', () => {
@@ -47,11 +47,13 @@ describe('TaskService.normaliseChecklistItem', () => {
       text: 'legacy',
       completed: true,
       completedAt: '2026-04-01T00:00:00Z',
-    } as Partial<TaskChecklistItem>);
+    } as Partial<StoredTaskChecklistItem>);
     expect(out.isCompleted).toBe(true);
     // The legacy `completed` field is NOT re-emitted — the canonical
     // shape is `isCompleted` only.
-    expect((out as TaskChecklistItem).completed).toBeUndefined();
+    // The canonical TaskChecklistItem has no `completed` member at all
+    // (FARM-HIGH-301): the legacy flag cannot be re-emitted, only read.
+    expect(out).not.toHaveProperty('completed');
     expect(out.completedAt).toBe('2026-04-01T00:00:00Z');
   });
 
@@ -63,7 +65,7 @@ describe('TaskService.normaliseChecklistItem', () => {
       text: 't',
       isCompleted: false,
       completed: true,
-    } as Partial<TaskChecklistItem>);
+    } as Partial<StoredTaskChecklistItem>);
     expect(out.isCompleted).toBe(false);
   });
 

@@ -25,7 +25,13 @@ import { assertSelfOrManager, type SelfScopeCaller } from '@aquaculture/backend-
 import { createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { randomUUID } from 'crypto';
-import { Task, TaskChecklistItem, TaskStatus, TaskPriority } from '../entities/task.entity';
+import {
+  Task,
+  StoredTaskChecklistItem,
+  TaskChecklistItem,
+  TaskStatus,
+  TaskPriority,
+} from '../entities/task.entity';
 import { RecurringTemplate } from '../entities/recurring-template.entity';
 import { CreateTaskInput } from '../dto/create-task.dto';
 import { UpdateTaskInput } from '../dto/update-task.dto';
@@ -54,7 +60,7 @@ export class TaskService {
    * save — whatever we emit REPLACES the array entry, so the stale
    * `completed` is gone after the first normalise-and-save).
    */
-  static normaliseChecklistItem(raw: Partial<TaskChecklistItem>): TaskChecklistItem {
+  static normaliseChecklistItem(raw: Partial<StoredTaskChecklistItem>): TaskChecklistItem {
     const canonicalCompleted = raw.isCompleted ?? raw.completed ?? false;
     const normalised: TaskChecklistItem = {
       id: raw.id ?? randomUUID(),
@@ -66,8 +72,13 @@ export class TaskService {
     return normalised;
   }
 
-  private static normaliseChecklistItems(
-    raw: Partial<TaskChecklistItem>[] | undefined,
+  /**
+   * Public because it is ALSO the read path: the `checklistItems` field
+   * resolvers on Task and RecurringTemplate serve every row through it, so the
+   * wire never carries the permissive stored shape (FARM-HIGH-301).
+   */
+  static normaliseChecklistItems(
+    raw: Partial<StoredTaskChecklistItem>[] | undefined,
   ): TaskChecklistItem[] {
     if (!raw || !Array.isArray(raw)) return [];
     return raw.map((item) => TaskService.normaliseChecklistItem(item));
@@ -82,7 +93,7 @@ export class TaskService {
    * are reset — a brand-new task starts with everything unchecked.
    */
   static propagateChecklistItemsFromTemplate(
-    templateItems: Partial<TaskChecklistItem>[] | undefined,
+    templateItems: Partial<StoredTaskChecklistItem>[] | undefined,
   ): TaskChecklistItem[] {
     if (!templateItems || !Array.isArray(templateItems)) return [];
     return templateItems.map((t) => ({

@@ -23,21 +23,21 @@ import {
   GraphQLISODateTime,
   registerEnumType,
 } from '@nestjs/graphql';
-import GraphQLJSON from 'graphql-type-json';
 
 /**
- * Runtime shape of a single item in `Task.checklistItems` (JSONB).
+ * STORED shape of a single item in `Task.checklistItems` (JSONB) — what a row
+ * may hold, not what the wire promises.
  *
- * `isCompleted` is the CANONICAL UI-facing field the
- * `TaskChecklistItemInput` DTO writes on creation AND the field the
- * idempotent `TaskService.setChecklistItem` path now SETs to an absolute
- * value (FARM-HIGH-057). The legacy `completed` field is retained ONLY so
- * the normaliser can read+migrate rows written by the former
- * `toggleChecklistItem` flip (which predated `isCompleted`); new writes
- * never emit it. Keeping the interface permissive (both optional)
- * documents the stored reality rather than papering over the legacy field.
+ * `isCompleted` is the CANONICAL field the `TaskChecklistItemInput` DTO writes
+ * on creation AND the field the idempotent `TaskService.setChecklistItem` path
+ * SETs to an absolute value (FARM-HIGH-057). The legacy `completed` field is
+ * retained ONLY so the normaliser can read+migrate rows written by the former
+ * `toggleChecklistItem` flip (which predated `isCompleted`); new writes never
+ * emit it. Keeping this interface permissive documents the stored reality;
+ * the wire contract is the canonical {@link TaskChecklistItem} below, served
+ * through `TaskService.normaliseChecklistItems` on every read (FARM-HIGH-301).
  */
-export interface TaskChecklistItem {
+export interface StoredTaskChecklistItem {
   /** UUID, assigned by the service on first set / on creation. */
   id?: string;
   text: string;
@@ -51,16 +51,49 @@ export interface TaskChecklistItem {
 }
 
 /**
- * Runtime shape of a single item in `Task.notes` (JSONB). Written
- * exclusively by `TaskService.addNote` — the shape is under that
- * service's control.
+ * CANONICAL checklist item — the shape `TaskService.normaliseChecklistItem`
+ * returns and the ONLY shape the GraphQL wire carries (FARM-HIGH-301). It used
+ * to be served as a `JSON` scalar, which typed the field as an opaque object in
+ * every client and left each of them to re-implement the normaliser.
  */
-export interface TaskNote {
-  id: string;
-  text: string;
-  createdBy: string;
+@ObjectType()
+export class TaskChecklistItem {
+  @Field(() => ID)
+  id!: string;
+
+  @Field()
+  text!: string;
+
+  @Field()
+  isCompleted!: boolean;
+
+  /** ISO-8601 completion timestamp; null once un-ticked. */
+  @Field(() => String, { nullable: true })
+  completedAt?: string | null;
+
+  @Field(() => String, { nullable: true })
+  completedBy?: string;
+}
+
+/**
+ * A note on a task (`Task.notes`, JSONB). Written exclusively by
+ * `TaskService.addNote` — the shape is under that service's control, so the
+ * column is served as this object type directly (FARM-HIGH-301).
+ */
+@ObjectType()
+export class TaskNote {
+  @Field(() => ID)
+  id!: string;
+
+  @Field()
+  text!: string;
+
+  @Field()
+  createdBy!: string;
+
   /** ISO-8601 string. */
-  createdAt: string;
+  @Field()
+  createdAt!: string;
 }
 
 // ============================================================================
@@ -217,11 +250,15 @@ export class Task {
   // CHECKLIST VE NOTLAR
   // -------------------------------------------------------------------------
 
-  @Field(() => GraphQLJSON, { nullable: true })
+  /**
+   * No `@Field` here on purpose: the wire field `checklistItems` is a
+   * `@ResolveField` on TaskResolver that runs the write-path normaliser, so a
+   * legacy row (`completed` instead of `isCompleted`, no id) reads canonical.
+   */
   @Column({ type: 'jsonb', default: [] })
-  checklistItems!: TaskChecklistItem[];
+  checklistItems!: StoredTaskChecklistItem[];
 
-  @Field(() => GraphQLJSON, { nullable: true })
+  @Field(() => [TaskNote])
   @Column({ type: 'jsonb', default: [] })
   notes!: TaskNote[];
 

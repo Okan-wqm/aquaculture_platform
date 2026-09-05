@@ -9,6 +9,8 @@ import {
   Resolver,
   Query,
   Mutation,
+  ResolveField,
+  Parent,
   Args,
   ID,
   InputType,
@@ -26,12 +28,15 @@ import {
   IsArray,
   Min,
   MaxLength,
+  ValidateNested,
 } from 'class-validator';
-import GraphQLJSON from 'graphql-type-json';
+import { Type } from 'class-transformer';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import { CurrentTenant, CurrentUser, Role, Roles } from '@aquaculture/backend-common/decorators';
 import { RecurringTemplate, RecurrenceFrequency } from '../entities/recurring-template.entity';
 import { TaskCategory, TaskChecklistItem, TaskPriority } from '../entities/task.entity';
+import { TaskChecklistItemInput } from '../dto/create-task.dto';
+import { TaskService } from '../services/task.service';
 import { QueryBus } from '@platform/cqrs';
 import { RecurringTaskService } from '../services/recurring-task.service';
 import { ListRecurringTemplatesQuery } from '../queries/list-recurring-templates.query';
@@ -106,9 +111,12 @@ class CreateRecurringTemplateInput {
   @Min(1)
   estimatedMinutes?: number;
 
-  @Field(() => GraphQLJSON, { nullable: true })
+  @Field(() => [TaskChecklistItemInput], { nullable: true })
   @IsOptional()
-  checklistItems?: TaskChecklistItem[];
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => TaskChecklistItemInput)
+  checklistItems?: TaskChecklistItemInput[];
 
   @Field(() => [String], { nullable: true })
   @IsOptional()
@@ -176,9 +184,12 @@ class UpdateRecurringTemplateInput {
   @Min(1)
   estimatedMinutes?: number;
 
-  @Field(() => GraphQLJSON, { nullable: true })
+  @Field(() => [TaskChecklistItemInput], { nullable: true })
   @IsOptional()
-  checklistItems?: TaskChecklistItem[];
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => TaskChecklistItemInput)
+  checklistItems?: TaskChecklistItemInput[];
 
   @Field(() => [String], { nullable: true })
   @IsOptional()
@@ -200,6 +211,16 @@ export class RecurringTemplateResolver {
     private readonly recurringTaskService: RecurringTaskService,
     private readonly queryBus: QueryBus,
   ) {}
+
+  // -------------------------------------------------------------------------
+  // FIELD RESOLVERS
+  // -------------------------------------------------------------------------
+
+  /** Same canonical read path as TaskResolver.checklistItems (FARM-HIGH-301). */
+  @ResolveField(() => [TaskChecklistItem], { name: 'checklistItems' })
+  checklistItems(@Parent() template: RecurringTemplate): TaskChecklistItem[] {
+    return TaskService.normaliseChecklistItems(template.checklistItems);
+  }
 
   // -------------------------------------------------------------------------
   // QUERIES

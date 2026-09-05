@@ -16383,6 +16383,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/task/__tests__/task-checklist-wire.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/task/__tests__/task-read-handlers.spec.ts",
       "prettier_managed": true
     },
@@ -46803,7 +46809,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "f1461961cf780641fdd06b757d20b7fb2059f9b3a394567f3e390efe3bf3888c",
+      "content_sha256": "8725e3b87a558a43ad00bc802f526967876459b481c8a5f01ec81327bda4e98d",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/apps/aquamobil/src/generated/graphql.ts",
@@ -57241,7 +57247,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "8c0115268a416b69c2add578d5774713de637dd1ad030b48417b09d0750c4a6e",
+      "content_sha256": "7503eedbe49e382b7a8b52142afb359f62fd255defe4ae1afd1998c68699f01a",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",

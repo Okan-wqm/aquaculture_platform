@@ -279,8 +279,19 @@ export const GET_MY_TASKS: TypedDocumentNode<GetMyTasksQuery, GetMyTasksQueryVar
       dueTime
       location
       estimatedMinutes
-      checklistItems
-      notes
+      checklistItems {
+        id
+        text
+        isCompleted
+        completedAt
+        completedBy
+      }
+      notes {
+        id
+        text
+        createdBy
+        createdAt
+      }
       tags
       isRecurring
       completedAt
@@ -299,7 +310,13 @@ export const GET_TODAYS_TASKS: TypedDocumentNode<GetTodaysTasksQuery, GetTodaysT
       priority
       status
       dueTime
-      checklistItems
+      checklistItems {
+        id
+        text
+        isCompleted
+        completedAt
+        completedBy
+      }
       assignedToName
     }
   }
@@ -320,8 +337,19 @@ export const GET_TASK_DETAIL: TypedDocumentNode<GetTaskDetailQuery, GetTaskDetai
       dueTime
       location
       estimatedMinutes
-      checklistItems
-      notes
+      checklistItems {
+        id
+        text
+        isCompleted
+        completedAt
+        completedBy
+      }
+      notes {
+        id
+        text
+        createdBy
+        createdAt
+      }
       tags
       isRecurring
       recurringTemplateId
@@ -367,7 +395,12 @@ export const ADD_TASK_NOTE: TypedDocumentNode<AddTaskNoteMutation, AddTaskNoteMu
   mutation AddTaskNote($taskId: ID!, $text: String!) {
     addTaskNote(taskId: $taskId, text: $text) {
       id
-      notes
+      notes {
+        id
+        text
+        createdBy
+        createdAt
+      }
     }
   }
 `;

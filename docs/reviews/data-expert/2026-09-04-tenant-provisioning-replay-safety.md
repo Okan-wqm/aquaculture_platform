@@ -277,6 +277,41 @@ this branch), so it is corrected here and in the commit that follows rather than
 left to close a finding nobody fixed. Traceability that closes the wrong finding
 is worse than none: it retires an open defect by accident.
 
+### INFRA-HIGH-148 — a migration hands the config schema to its login role
+
+Once the provisioning gate went green, `schema-invariants` ran against a
+migrated database for the first time and B.4 failed on one schema:
+
+```text
+B.4 schema "config" is owned by "config_service", expected "config_schema_owner"
+```
+
+The database is right about what it holds and the platform is wrong to hold it.
+`apps/config-service/src/database/migrations/1800100000000-OwnConfigTablesByConfigService.ts:40`
+executes `ALTER SCHEMA config OWNER TO config_service` in Phase 1, after stage
+008 has given the schema to the NOLOGIN `config_schema_owner`. Ownership carries
+DROP and ALTER over every object in the schema, so `config` ends every deploy
+owned by the role the service logs in as.
+
+The migration does not claim it. Its own docblock justifies moving "domain
+tables, enum types, and owned sequences" so config-service can enable tenant RLS
+at boot — and TABLE ownership is what that needs. The schema line is collateral,
+beyond its stated contract and against the platform's.
+
+**Why nothing caught it:** B.4's expectation used to be a hardcoded list of
+fourteen schemas that omitted `config`. Deriving it from 008's own
+`jsonb_to_recordset` table — done earlier in this same programme — added the
+fifteenth, and the first run against a migrated database failed on it.
+
+**Fixed** by `1807400000000-RestoreConfigSchemaOwnerRole`: the SCHEMA returns to
+`config_schema_owner`; tables, types, sequences and the `USAGE, CREATE` grant
+stay with `config_service`. A CREATE grant lets the service add objects without
+conferring DROP over the ones already there — that difference is the whole fix.
+
+Same family as INFRA-HIGH-146 below: a Phase 1 migration silently overriding
+Phase 0 hardening, which nothing re-checks because 008 does not run again in
+that deploy.
+
 ### INFRA-HIGH-146 — bootstrap hardening runs before the tables it hardens exist
 
 Stage 008 states the invariant that every relation in a schema is owned by

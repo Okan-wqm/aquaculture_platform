@@ -7039,6 +7039,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/config-service/src/database/migrations/1807400000000-RestoreConfigSchemaOwnerRole.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/config-service/src/database/rls-scoped-session.ts",
       "prettier_managed": true
     },

@@ -101,6 +101,7 @@ export const MESSAGE_FIELDS = gql`
     isDeleted
     createdAt
     editedAt
+    metadata
     sender {
       id
       firstName

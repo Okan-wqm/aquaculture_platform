@@ -9171,6 +9171,7 @@ export type Message = {
   id: Scalars['ID']['output'];
   isAiGenerated: Scalars['Boolean']['output'];
   isDeleted: Scalars['Boolean']['output'];
+  metadata?: Maybe<Scalars['JSON']['output']>;
   parentId?: Maybe<Scalars['String']['output']>;
   /** Aggregated emoji reaction counts */
   reactionSummary?: Maybe<Array<ReactionSummary>>;

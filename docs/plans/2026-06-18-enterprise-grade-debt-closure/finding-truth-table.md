@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `7d8b0c4f71af466c95ae606346c50695a152ea8b48edd3d2fcd1613bdec4898b`
+Registry tip: `e311089613113c73ccabf8d55dc8d1e9b1048327dfef81f3d9a263451f6796ed`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -208,6 +208,28 @@ Allowed truth buckets:
 | `ARIA-CRITICAL-031`     | OPEN           | 2026-09-01   | zcode                      | already-fixed-needs-close |
 | `ARIA-CRITICAL-032`     | OPEN           | 2026-09-01   | zcode                      | already-fixed-needs-close |
 | `SUPPLY-CRITICAL-002`   | IN-PROGRESS    | 2026-08-25   | security-reviewer          | already-fixed-needs-close |
+| `SEC-CRITICAL-056`      | OPEN           | 2026-09-05   | admin-expert               | already-fixed-needs-close |
+| `SEC-CRITICAL-057`      | OPEN           | 2026-09-05   | admin-expert               | already-fixed-needs-close |
+| `SEC-CRITICAL-058`      | OPEN           | 2026-09-05   | admin-expert               | already-fixed-needs-close |
+| `DATA-CRITICAL-012`     | OPEN           | 2026-09-05   | admin-expert               | already-fixed-needs-close |
+| `DATA-CRITICAL-013`     | OPEN           | 2026-09-05   | admin-expert               | already-fixed-needs-close |
+| `INFRA-CRITICAL-140`    | OPEN           | 2026-09-05   | admin-expert               | already-fixed-needs-close |
+| `BILLING-CRITICAL-002`  | OPEN           | 2026-09-05   | admin-expert               | real-open                 |
+| `BILLING-CRITICAL-003`  | OPEN           | 2026-09-05   | admin-expert               | real-open                 |
+| `CONTRACT-CRITICAL-003` | OPEN           | 2026-09-05   | admin-expert               | real-open                 |
+| `ADMIN-CRITICAL-008`    | OPEN           | 2026-09-05   | admin-expert               | already-fixed-needs-close |
+| `ADMIN-CRITICAL-009`    | OPEN           | 2026-09-05   | admin-expert               | real-open                 |
+| `ADMIN-CRITICAL-015`    | OPEN           | 2026-09-05   | admin-expert               | already-fixed-needs-close |
+| `OBS-CRITICAL-003`      | OPEN           | 2026-09-05   | admin-expert               | real-open                 |
+| `OBS-CRITICAL-004`      | OPEN           | 2026-09-05   | admin-expert               | already-fixed-needs-close |
+| `PLAT-CRITICAL-902`     | OPEN           | 2026-09-05   | admin-expert               | already-fixed-needs-close |
+| `INFRA-CRITICAL-143`    | OPEN           | 2026-09-05   | admin-expert               | already-fixed-needs-close |
+
+Updated 2026-09-05: the SUPER_ADMIN panel audit (`docs/reviews/admin-expert/2026-09-05-superadmin-audit.md`) minted sixteen CRITICALs. Eleven are closed on the
+audit branch by commits carrying `Closes:` trailers and wait on the post-merge close
+ceremony (`already-fixed-needs-close`); the remaining five — `BILLING-CRITICAL-002/003`
+(W4), `CONTRACT-CRITICAL-003` (W3-R9), `ADMIN-CRITICAL-009` (W3), `OBS-CRITICAL-003`
+(W5) — are `real-open` on the audit's wave plan.
 
 ## Mutation Rules
 

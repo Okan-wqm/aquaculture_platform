@@ -507,6 +507,12 @@ pub struct ScriptVm {
     gas_remaining: u32,
     /// Instruction pointer (index into `Bytecode.opcodes`).
     ip: usize,
+    /// PR935-MEDIUM-003 / EDGE-HIGH-042: wall-clock budget for one run.
+    /// Production VMs pin `MAX_TICK_WALL`; the guard is a VM property (not
+    /// a global read inside the dispatch loop) so a test that proves the
+    /// GAS ceiling can take this second, host-speed-dependent guard out of
+    /// the race explicitly instead of losing to it on a slow debug runner.
+    wall_budget: std::time::Duration,
 }
 
 impl ScriptVm {
@@ -545,6 +551,21 @@ impl ScriptVm {
             // unbounded synchronous burst.
             gas_remaining: bc.max_gas_per_tick.min(MAX_GAS_CEIL),
             ip: 0,
+            wall_budget: MAX_TICK_WALL,
+        }
+    }
+
+    /// Construct a VM with an explicit wall-clock budget (EDGE-HIGH-042).
+    /// The gas ceiling and the wall-clock guard are two independent
+    /// termination bounds that race inside `run_internal`; which one wins
+    /// for a pure-compute loop depends only on how fast the host executes a
+    /// dispatch. A test that pins ONE of them must remove the other from
+    /// the race, or it asserts host speed rather than the invariant.
+    #[cfg(test)]
+    pub(crate) fn with_wall_budget(bc: &Bytecode, wall_budget: std::time::Duration) -> Self {
+        Self {
+            wall_budget,
+            ..Self::new(bc)
         }
     }
 
@@ -623,10 +644,10 @@ impl ScriptVm {
             dispatched = dispatched.wrapping_add(1);
             if dispatched % WALL_CHECK_STRIDE == 0 {
                 let elapsed = tick_start.elapsed();
-                if elapsed > MAX_TICK_WALL {
+                if elapsed > self.wall_budget {
                     return VmOutcome::Error(VmError::WallClockExceeded {
                         elapsed_ms: elapsed.as_millis() as u64,
-                        budget_ms: MAX_TICK_WALL.as_millis() as u64,
+                        budget_ms: self.wall_budget.as_millis() as u64,
                     });
                 }
             }
@@ -1430,13 +1451,46 @@ mod tests {
         // >= 1 gas, and the runtime budget is clamped to MAX_GAS_CEIL, so this
         // MUST terminate with GasExhausted rather than hanging. The test
         // returning at all is the proof of termination.
+        //
+        // EDGE-HIGH-042: the wall-clock guard is taken out of the race on
+        // purpose. MAX_GAS_CEIL dispatches of a bare jump take ~30 ms on a
+        // fast host and >50 ms on a loaded debug-build CI runner, so with the
+        // production MAX_TICK_WALL this assertion measured host speed: the
+        // guard that fired first was whichever the runner happened to reach.
+        // Only the gas bound is under test here; the wall-clock guard has its
+        // own proof in `wall_clock_guard_halts_a_slow_io_loop_within_budget`.
         let mut b = bc(vec![Opcode::Jump { target: 0 }], 0);
         b.max_gas_per_tick = u32::MAX;
-        let mut vm = ScriptVm::new(&b);
-        assert!(matches!(
-            vm.run(&b),
-            VmOutcome::Error(VmError::GasExhausted { .. })
-        ));
+        let mut vm = ScriptVm::with_wall_budget(&b, std::time::Duration::MAX);
+        let outcome = vm.run(&b);
+        assert!(
+            matches!(outcome, VmOutcome::Error(VmError::GasExhausted { .. })),
+            "expected GasExhausted from the clamped budget, got {outcome:?}"
+        );
+        assert_eq!(
+            vm.gas_remaining(),
+            0,
+            "the clamped budget must be fully spent"
+        );
+    }
+
+    #[test]
+    fn wall_budget_is_a_vm_property_that_can_preempt_the_gas_bound() {
+        // EDGE-HIGH-042: the same pure-compute loop, with the wall budget
+        // pinned below what a single check stride can cost, must halt on
+        // the wall-clock guard — the field, not a global, decides the race.
+        let mut b = bc(vec![Opcode::Jump { target: 0 }], 0);
+        b.max_gas_per_tick = u32::MAX;
+        let mut vm = ScriptVm::with_wall_budget(&b, std::time::Duration::ZERO);
+        let outcome = vm.run(&b);
+        assert!(
+            matches!(outcome, VmOutcome::Error(VmError::WallClockExceeded { .. })),
+            "expected WallClockExceeded from a zero wall budget, got {outcome:?}"
+        );
+        assert!(
+            vm.gas_remaining() > 0,
+            "the wall guard must fire before the gas budget is spent"
+        );
     }
 
     #[test]

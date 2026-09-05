@@ -1,17 +1,11 @@
 import { Public } from '@aquaculture/backend-common/decorators';
 import type { TenantRequest } from '@aquaculture/backend-common/types';
-import {
-  Controller,
-  ForbiddenException,
-  Get,
-  NotFoundException,
-  Param,
-  Req,
-} from '@nestjs/common';
+import { Controller, ForbiddenException, Get, NotFoundException, Param, Req } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
+import { parseFrontendUrl } from '../../../config/frontend-url';
 import { Tenant } from '../../tenant/entities/tenant.entity';
 import { ActionToken, ActionTokenStatus } from '../entities/action-token.entity';
 import { User } from '../entities/user.entity';
@@ -20,6 +14,12 @@ import { ActionTokenResolver } from '../services/action-token-resolver.service';
 @Public()
 @Controller('internal')
 export class InternalAuthController {
+  /**
+   * DEPLOY-HIGH-016: parsed once at construction so a deployment without a
+   * valid FRONTEND_URL fails at boot, not at the first e-mail.
+   */
+  private readonly frontendUrl: string;
+
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
@@ -27,9 +27,11 @@ export class InternalAuthController {
     private readonly tenantRepository: Repository<Tenant>,
     @InjectRepository(ActionToken)
     private readonly actionTokenRepository: Repository<ActionToken>,
-    private readonly configService: ConfigService,
+    configService: ConfigService,
     private readonly actionTokenResolver: ActionTokenResolver,
-  ) {}
+  ) {
+    this.frontendUrl = parseFrontendUrl(configService);
+  }
 
   @Get('users/:userId/pii')
   async getUserPii(
@@ -82,14 +84,11 @@ export class InternalAuthController {
     }
 
     return {
-      actionUrl: this.actionTokenResolver.buildActionUrl(this.frontendUrl(), actionToken),
+      actionUrl: this.actionTokenResolver.buildActionUrl(this.frontendUrl, actionToken),
     };
   }
 
-  private requireNotificationService(
-    request: TenantRequest,
-    expectedTenantId?: string,
-  ): string {
+  private requireNotificationService(request: TenantRequest, expectedTenantId?: string): string {
     const identity = request.verifiedIdentity;
     if (!identity || identity.serviceName !== 'notification-service') {
       throw new ForbiddenException('Internal notification service identity is required');
@@ -103,9 +102,5 @@ export class InternalAuthController {
       throw new ForbiddenException('Tenant binding does not match request path');
     }
     return tenantId;
-  }
-
-  private frontendUrl(): string {
-    return this.configService.get<string>('FRONTEND_URL', 'http://localhost:8080').replace(/\/+$/, '');
   }
 }

@@ -6,10 +6,13 @@ import { stub } from '@aquaculture/testing';
 import { jetstream, jetstreamManager } from '@nats-io/jetstream';
 import type {
   ConsumerAPI,
+  ConsumerInfo,
+  PubAck,
   Consumers,
   JetStreamClient,
   JetStreamManager,
   StreamAPI,
+  StreamInfo,
 } from '@nats-io/jetstream';
 import type { NatsConnection, Status } from '@nats-io/nats-core';
 import { connect } from '@nats-io/transport-node';
@@ -56,9 +59,13 @@ function noConnectionStatuses(): AsyncIterable<Status> {
   };
 }
 
-// The two doubles whose recorded calls the assertions read back are typed FROM
-// the real API signatures, so `mock.calls` is checked against what the bus
-// actually passes rather than asserted into shape at each read site.
+// The doubles whose recorded calls the assertions read back are typed FROM the
+// real API signatures, so `mock.calls` is checked against what the bus actually
+// passes rather than asserted into shape at each read site.
+type JsPublish = jest.Mock<
+  ReturnType<JetStreamClient['publish']>,
+  Parameters<JetStreamClient['publish']>
+>;
 type StreamAdd = jest.Mock<ReturnType<StreamAPI['add']>, Parameters<StreamAPI['add']>>;
 type ConsumerAdd = jest.Mock<ReturnType<ConsumerAPI['add']>, Parameters<ConsumerAPI['add']>>;
 
@@ -69,7 +76,7 @@ type ConsumerAdd = jest.Mock<ReturnType<ConsumerAPI['add']>, Parameters<Consumer
  * Discard New; normalizeSubject accepts the telemetry root.
  */
 describe('Event route registry + telemetry stream (Task 2)', () => {
-  let jsPublish: jest.Mock;
+  let jsPublish: JsPublish;
   let consumersAdd: ConsumerAdd;
   let streamsAdd: StreamAdd;
   let streamsUpdate: jest.Mock;
@@ -89,9 +96,16 @@ describe('Event route registry + telemetry stream (Task 2)', () => {
         key in values ? values[key] : defaultValue,
       );
 
-    jsPublish = jest.fn().mockResolvedValue({ stream: 'X', seq: 1 });
-    consumersAdd = jest.fn().mockResolvedValue({});
-    streamsAdd = jest.fn().mockResolvedValue({});
+    jsPublish = jest.fn<
+      ReturnType<JetStreamClient['publish']>,
+      Parameters<JetStreamClient['publish']>
+    >(() => Promise.resolve(stub<PubAck>({ stream: 'X', seq: 1 })));
+    consumersAdd = jest.fn<ReturnType<ConsumerAPI['add']>, Parameters<ConsumerAPI['add']>>(() =>
+      Promise.resolve(stub<ConsumerInfo>({})),
+    );
+    streamsAdd = jest.fn<ReturnType<StreamAPI['add']>, Parameters<StreamAPI['add']>>(() =>
+      Promise.resolve(stub<StreamInfo>({})),
+    );
     streamsUpdate = jest.fn().mockResolvedValue(undefined);
     // Main stream already exists (→ update); DLQ + telemetry streams are
     // "not found" on this boot (→ add), which is what the assertions pin.
@@ -210,7 +224,7 @@ describe('Event route registry + telemetry stream (Task 2)', () => {
         aggregateType: 'Sensor',
       });
 
-      const subjects = jsPublish.mock.calls.map((call) => call[0] as string);
+      const subjects = jsPublish.mock.calls.map((call) => call[0]);
       expect(subjects).toContain('telemetry.11111111-1111-4111-8111-111111111111.SensorReading');
     });
 
@@ -226,7 +240,7 @@ describe('Event route registry + telemetry stream (Task 2)', () => {
         aggregateType: 'Batch',
       });
 
-      const subjects = jsPublish.mock.calls.map((call) => call[0] as string);
+      const subjects = jsPublish.mock.calls.map((call) => call[0]);
       expect(subjects).toContain('events.11111111-1111-4111-8111-111111111111.BatchCreated');
       expect(subjects.some((s) => s.startsWith('telemetry.'))).toBe(false);
     });

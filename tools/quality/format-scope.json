@@ -47413,6 +47413,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/scripts/tsconfig.eslint.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/scripts/tsconfig.json",
       "prettier_managed": true
     },

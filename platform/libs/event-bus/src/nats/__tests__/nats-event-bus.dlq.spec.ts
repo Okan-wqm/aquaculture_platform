@@ -6,6 +6,7 @@ import { stub } from '@aquaculture/testing';
 import { jetstream, jetstreamManager } from '@nats-io/jetstream';
 import type {
   ConsumerAPI,
+  PubAck,
   Consumers,
   JetStreamClient,
   JetStreamManager,
@@ -56,9 +57,17 @@ function noConnectionStatuses(): AsyncIterable<Status> {
  * is ACKed only AFTER the DLQ copy's PubAck; if the DLQ hop itself fails,
  * the original is NAK'd (never acked into loss).
  */
+// The doubles whose recorded calls the assertions read back are typed FROM the
+// real API signatures, so `mock.calls` is checked against what the bus actually
+// passes instead of being asserted into shape at each read site.
+type JsPublish = jest.Mock<
+  ReturnType<JetStreamClient['publish']>,
+  Parameters<JetStreamClient['publish']>
+>;
+
 describe('NatsEventBus dead-letter chain (Task 1.6)', () => {
   let consumeCallback: ((msg: unknown) => void) | null;
-  let jsPublish: jest.Mock;
+  let jsPublish: JsPublish;
   let bus: NatsEventBus;
 
   const EVENT = {
@@ -106,7 +115,10 @@ describe('NatsEventBus dead-letter chain (Task 1.6)', () => {
       );
 
     consumeCallback = null;
-    jsPublish = jest.fn().mockResolvedValue({ stream: 'AQUACULTURE_DLQ', seq: 1 });
+    jsPublish = jest.fn<
+      ReturnType<JetStreamClient['publish']>,
+      Parameters<JetStreamClient['publish']>
+    >(() => Promise.resolve(stub<PubAck>({ stream: 'AQUACULTURE_DLQ', seq: 1 })));
 
     // `stub`, not `collaborator`: a NatsConnection stands in for a VALUE here.
     // The bus legitimately READS members this boot path never sets (`info`,
@@ -206,8 +218,11 @@ describe('NatsEventBus dead-letter chain (Task 1.6)', () => {
     expect(jsPublish).toHaveBeenCalledTimes(1);
     const firstCall = jsPublish.mock.calls[0];
     if (!firstCall) throw new Error('js.publish was not called');
-    const [subject, body, opts] = firstCall as [string, string, { msgID?: string }];
+    const [subject, body, opts] = firstCall;
     expect(subject).toBe('dlq.11111111-1111-4111-8111-111111111111.SensorReading');
+    // `publish` accepts any Payload; the bus dead-letters a JSON string, and a
+    // non-string here would be the defect this test exists to catch.
+    if (typeof body !== 'string') throw new Error('the DLQ envelope was not published as a string');
     const envelope = JSON.parse(body) as DlqEnvelope;
     expect(envelope['originalSubject']).toBe(msg.subject);
     expect(envelope['originalStream']).toBe('AQUACULTURE_EVENTS');

@@ -6,7 +6,7 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 
 import {
   main as attestationMain,
@@ -36,35 +36,6 @@ function registrySeverityById(): ReadonlyMap<string, string> {
     entries.set(parsed['id'], parsed['severity']);
   }
   return entries;
-}
-
-/**
- * Registry rows as the gate reads them. Parsed here rather than imported so
- * the spec checks the gate against the SAME on-disk source of truth the gate
- * consults, instead of against the gate's own in-memory view of it.
- */
-function readRegistryEntries(): Array<{
-  id: string;
-  severity: string;
-  state: string;
-}> {
-  const registryPath = join(
-    __dirname,
-    '..',
-    '..',
-    '..',
-    '..',
-    '..',
-    '..',
-    'docs',
-    'reviews',
-    '_registry',
-    'findings.jsonl',
-  );
-  return readFileSync(registryPath, 'utf8')
-    .split('\n')
-    .filter((line) => line.trim().length > 0)
-    .map((line) => JSON.parse(line) as { id: string; severity: string; state: string });
 }
 
 describe('compliance-attestation-coverage gate', () => {

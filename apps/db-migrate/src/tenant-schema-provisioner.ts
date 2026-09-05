@@ -26,6 +26,10 @@ import {
 } from './migration-orchestrator';
 import { SCHEMA_REGISTRY, type SchemaPostMigrationHardening } from './schema-registry';
 import {
+  dropSchemaCreatedByFailedProvision,
+  tenantSchemaExists,
+} from './tenant-provision-failure-cleanup';
+import {
   ensureTenantSensorContinuousAggregateAuthority,
   type TenantSensorContinuousAggregateAuthorityResult,
 } from './tenant-sensor-continuous-aggregate-authority';
@@ -938,12 +942,17 @@ async function processJob(
   const sourceHeads: Record<string, unknown> = {};
   const tenantHeads: Record<string, unknown> = {};
   let tableCount = 0;
+  // INFRA-HIGH-150: only a schema THIS run creates may be dropped on failure.
+  // `IF NOT EXISTS` hides pre-existence, so it is observed before the CREATE.
+  let schemaCreatedByThisRun = false;
 
   try {
     await queryRunner.connect();
     await assertTenantSchemaIdentityAvailable(queryRunner, job);
     await setJobStatus(queryRunner, job, 'CREATING_SCHEMA', lease);
+    const schemaPreexisted = await tenantSchemaExists(queryRunner, job.schemaName);
     await queryRunner.query(`CREATE SCHEMA IF NOT EXISTS ${quoteIdent(job.schemaName)}`);
+    schemaCreatedByThisRun = !schemaPreexisted;
 
     const tenantAwareEntries = SCHEMA_REGISTRY.filter((entry) =>
       TENANT_AWARE_SCHEMAS.has(entry.schema),
@@ -1077,18 +1086,39 @@ async function processJob(
       tableCount,
     });
   } catch (error: unknown) {
+    // Diagnosis first: the residue (schema present? how many tables?) is what
+    // the live gate read to find each defect. Then the cleanup, recorded beside
+    // it, so the evidence says both what was left and what was done about it.
     const failureResidue = await collectFailureResidue(queryRunner, job).catch(
       (residueError: unknown) => ({
         residueCaptureFailed:
           residueError instanceof Error ? residueError.message : String(residueError),
       }),
     );
+    const cleanup = await dropSchemaCreatedByFailedProvision(queryRunner, {
+      schemaName: job.schemaName,
+      createdByThisRun: schemaCreatedByThisRun,
+    });
+    options.log({
+      level: cleanup.dropped || !cleanup.createdByThisRun ? 'warn' : 'error',
+      message: cleanup.dropped
+        ? 'Tenant schema provisioner dropped the schema this failed provision created'
+        : cleanup.createdByThisRun
+          ? 'Tenant schema provisioner could not drop the schema this failed provision created'
+          : 'Tenant schema provisioner left a pre-existing tenant schema in place after failure',
+      context: 'TenantSchemaProvisioner',
+      jobId: job.id,
+      operationId: job.operationId,
+      tenantId: job.tenantId,
+      schemaName: job.schemaName,
+      ...(cleanup.dropError !== undefined ? { dropError: cleanup.dropError } : {}),
+    });
     await writeJobEvidence(queryRunner, job, lease, {
       status: 'FAILED',
       sourceHeads,
       tenantHeads,
       tableCount,
-      failureResidue,
+      failureResidue: { ...failureResidue, cleanup },
       errorMessage: error instanceof Error ? error.message : String(error),
     }).catch((writeError: unknown) => {
       options.log({

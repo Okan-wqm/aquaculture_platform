@@ -7183,6 +7183,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/db-migrate/src/__tests__/tenant-provision-failure-cleanup.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/db-migrate/src/__tests__/tenant-schema-provisioner.contract.spec.ts",
       "prettier_managed": true
     },
@@ -7238,6 +7244,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/db-migrate/src/tenant-ledger-backfill.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/db-migrate/src/tenant-provision-failure-cleanup.ts",
       "prettier_managed": true
     },
     {

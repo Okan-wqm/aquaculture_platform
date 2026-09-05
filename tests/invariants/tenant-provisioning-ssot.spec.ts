@@ -651,7 +651,7 @@ describe('INVARIANT: admin surfaces do not carry raw invite or reset token mater
     expect(actionTokenEntity).toContain("@Entity('action_tokens', { schema: 'auth' })");
     expect(actionTokenEntity).toContain('purpose!: ActionTokenPurpose');
     expect(actionTokenEntity).toContain('tokenHash!: string');
-    expect(internalAuth).toContain('where: { id: actionTokenId');
+    expect(internalAuth).toMatch(/where:\s*\{\s*id:\s*actionTokenId\b/);
     // SEC-HIGH-056: the link is built by the one resolver, from the row id.
     expect(internalAuth).toContain('actionTokenResolver.buildActionUrl(');
     expect(

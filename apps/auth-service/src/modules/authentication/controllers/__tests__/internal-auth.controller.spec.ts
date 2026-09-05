@@ -10,6 +10,7 @@ import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { IsNull } from 'typeorm';
 
 import { Tenant } from '../../../tenant/entities/tenant.entity';
 import {
@@ -17,6 +18,8 @@ import {
   ActionTokenPurpose,
   ActionTokenStatus,
 } from '../../entities/action-token.entity';
+import { Role } from '@aquaculture/backend-common/decorators';
+
 import { User } from '../../entities/user.entity';
 import { ActionTokenResolver } from '../../services/action-token-resolver.service';
 import { InternalAuthController } from '../internal-auth.controller';
@@ -152,6 +155,93 @@ describe('InternalAuthController', () => {
       await expect(
         controller.getActionTokenUrl(ACTION_TOKEN_ID, request(undefined)),
       ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+  });
+
+  // SEC-HIGH-057: the empty tenant binding is the PLATFORM scope — the
+  // notification service delivering a super admin's recovery e-mail.
+  describe('platform-scoped internal identity (SEC-HIGH-057)', () => {
+    const platformIdentity = (): VerifiedServiceIdentity =>
+      identity({ tenantId: '', effectiveTenantId: '' });
+
+    it('resolves a NULL-tenant password-reset token for a platform-scoped call', async () => {
+      actionTokenRepository.findOne.mockResolvedValue(
+        activeToken({ purpose: ActionTokenPurpose.PASSWORD_RESET, tenantId: null }),
+      );
+
+      const result = await controller.getActionTokenUrl(
+        ACTION_TOKEN_ID,
+        request(platformIdentity()),
+      );
+
+      expect(result).toEqual({
+        actionUrl: `https://app.example.com/reset-password/${ACTION_TOKEN_ID}`,
+      });
+      expect(actionTokenRepository.findOne).toHaveBeenCalledWith({
+        where: { id: ACTION_TOKEN_ID, tenantId: IsNull(), status: ActionTokenStatus.ACTIVE },
+      });
+    });
+
+    it('never resolves a tenant token for a platform-scoped call (the lookup is NULL-bound)', async () => {
+      actionTokenRepository.findOne.mockResolvedValue(null);
+
+      await expect(
+        controller.getActionTokenUrl(ACTION_TOKEN_ID, request(platformIdentity())),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(actionTokenRepository.findOne).toHaveBeenCalledWith({
+        where: { id: ACTION_TOKEN_ID, tenantId: IsNull(), status: ActionTokenStatus.ACTIVE },
+      });
+    });
+
+    it('serves super-admin PII only to a platform-scoped call', async () => {
+      const superAdmin = Object.assign(new User(), {
+        id: 'root',
+        tenantId: null,
+        role: Role.SUPER_ADMIN,
+        email: 'root@example.com',
+        firstName: 'Root',
+        lastName: null,
+      });
+      userRepository.findOne.mockResolvedValue(superAdmin);
+
+      await expect(controller.getUserPii('root', request(platformIdentity()))).resolves.toEqual({
+        email: 'root@example.com',
+        firstName: 'Root',
+        lastName: undefined,
+      });
+      // A tenant-bound caller cannot read a platform principal.
+      await expect(controller.getUserPii('root', request(identity()))).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+
+    it('never serves a tenant user to a platform-scoped call', async () => {
+      userRepository.findOne.mockResolvedValue(
+        Object.assign(new User(), {
+          id: 'u1',
+          tenantId: TENANT_ID,
+          role: Role.MODULE_USER,
+          email: 'a@example.com',
+        }),
+      );
+
+      await expect(controller.getUserPii('u1', request(platformIdentity()))).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+
+    it('refuses tenant info to a platform-scoped call', async () => {
+      await expect(
+        controller.getTenantInfo(TENANT_ID, request(platformIdentity())),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(tenantRepository.findOne).not.toHaveBeenCalled();
+    });
+
+    it('refuses a binding that is neither a tenant id nor the platform opt-out', async () => {
+      await expect(
+        controller.getActionTokenUrl(ACTION_TOKEN_ID, request(identity({ tenantId: 'system' }))),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(actionTokenRepository.findOne).not.toHaveBeenCalled();
     });
   });
 

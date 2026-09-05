@@ -3,7 +3,13 @@ import type { TenantRequest } from '@aquaculture/backend-common/types';
 import { Controller, ForbiddenException, Get, NotFoundException, Param, Req } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import {
+  InvalidEventTenantScopeError,
+  PLATFORM_SCOPE,
+  tenantScopeOf,
+  type EventTenantScope,
+} from '@platform/event-contracts';
+import { IsNull, Repository } from 'typeorm';
 
 import { parseFrontendUrl } from '../../../config/frontend-url';
 import { Tenant } from '../../tenant/entities/tenant.entity';
@@ -38,9 +44,17 @@ export class InternalAuthController {
     @Param('userId') userId: string,
     @Req() request: TenantRequest,
   ): Promise<{ email: string; firstName?: string; lastName?: string }> {
-    const tenantId = this.requireNotificationService(request);
+    const scope = this.requireNotificationService(request);
     const user = await this.userRepository.findOne({ where: { id: userId } });
-    if (!user || user.tenantId !== tenantId) {
+    // SEC-HIGH-057: a tenant-bound caller sees only its tenant's users; a
+    // platform-scoped caller sees only platform principals (super admins with
+    // no tenant). Neither can read across the boundary.
+    const visible =
+      user !== null &&
+      (scope.kind === 'tenant'
+        ? user.tenantId === scope.tenantId
+        : (user.tenantId === null || user.tenantId === undefined) && user.isSuperAdmin());
+    if (!user || !visible) {
       throw new NotFoundException('User not found');
     }
 
@@ -56,6 +70,7 @@ export class InternalAuthController {
     @Param('tenantId') tenantId: string,
     @Req() request: TenantRequest,
   ): Promise<{ name: string }> {
+    // A platform-scoped call has no tenant to describe; the binding must match.
     this.requireNotificationService(request, tenantId);
     const tenant = await this.tenantRepository.findOne({ where: { id: tenantId } });
     if (!tenant) {
@@ -69,14 +84,22 @@ export class InternalAuthController {
     @Param('actionTokenId') actionTokenId: string,
     @Req() request: TenantRequest,
   ): Promise<{ actionUrl: string }> {
-    const tenantId = this.requireNotificationService(request);
+    const scope = this.requireNotificationService(request);
     // SEC-HIGH-056: the link carries the ActionToken row id and nothing else.
     // The legacy branch that treated this id as a token HASH and rotated a
     // fresh raw token into the URL is gone: every producer now mints an
     // ActionToken row (tenant provisioning, admin invite, createUser, password
     // reset), and the resolver on the redemption side reads that id back.
+    // SEC-HIGH-057: the lookup is bound to the caller's scope — a tenant's
+    // rows for a tenant-bound caller, NULL-tenant rows (a super admin's
+    // reset) for a platform-scoped caller. A token can never be resolved
+    // from the wrong side.
     const actionToken = await this.actionTokenRepository.findOne({
-      where: { id: actionTokenId, tenantId, status: ActionTokenStatus.ACTIVE },
+      where: {
+        id: actionTokenId,
+        tenantId: scope.kind === 'tenant' ? scope.tenantId : IsNull(),
+        status: ActionTokenStatus.ACTIVE,
+      },
     });
 
     if (!actionToken || !actionToken.isActive()) {
@@ -88,19 +111,45 @@ export class InternalAuthController {
     };
   }
 
-  private requireNotificationService(request: TenantRequest, expectedTenantId?: string): string {
+  /**
+   * The caller's tenancy scope, from the HMAC-verified internal identity.
+   *
+   * SEC-HIGH-057: the signed identity binds either a tenant id or the explicit
+   * non-tenant opt-out (`tenantId: ''`, see signedFetch). The empty binding is
+   * the PLATFORM scope — the notification service resolving a super admin's
+   * recovery e-mail — not a missing binding. Anything that is neither a UUID
+   * nor empty is refused: the signature layer never admits it, so seeing it
+   * here means a forged or corrupted identity. When the route names a tenant
+   * (`expectedTenantId`) the caller must be bound to exactly that tenant; a
+   * platform-scoped caller has no tenant to describe.
+   */
+  private requireNotificationService(
+    request: TenantRequest,
+    expectedTenantId?: string,
+  ): EventTenantScope {
     const identity = request.verifiedIdentity;
     if (!identity || identity.serviceName !== 'notification-service') {
       throw new ForbiddenException('Internal notification service identity is required');
     }
 
-    const tenantId = identity.tenantId;
-    if (!tenantId) {
-      throw new ForbiddenException('Tenant-bound internal request is required');
+    let scope: EventTenantScope;
+    try {
+      scope = identity.tenantId === '' ? PLATFORM_SCOPE : tenantScopeOf(identity.tenantId);
+    } catch (error) {
+      if (error instanceof InvalidEventTenantScopeError) {
+        throw new ForbiddenException('Tenant binding is not a tenant id');
+      }
+      throw error;
     }
-    if (expectedTenantId && tenantId !== expectedTenantId) {
-      throw new ForbiddenException('Tenant binding does not match request path');
+
+    if (expectedTenantId !== undefined) {
+      if (scope.kind !== 'tenant') {
+        throw new ForbiddenException('Tenant-bound internal request is required');
+      }
+      if (scope.tenantId !== expectedTenantId) {
+        throw new ForbiddenException('Tenant binding does not match request path');
+      }
     }
-    return tenantId;
+    return scope;
   }
 }

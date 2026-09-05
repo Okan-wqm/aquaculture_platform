@@ -118,7 +118,7 @@ describe('INVARIANT: emailed action links resolve through ActionTokenResolver', 
 
   it('the URL builder derives the link from the ActionToken row only', () => {
     expect(controller).toContain('actionTokenResolver.buildActionUrl(');
-    expect(controller).toContain('where: { id: actionTokenId');
+    expect(controller).toMatch(/where:\s*\{\s*id:\s*actionTokenId\b/);
     for (const banned of [
       'createHash',
       'randomBytes',

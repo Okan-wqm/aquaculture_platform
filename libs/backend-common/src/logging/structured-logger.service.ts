@@ -23,9 +23,7 @@ import { getRequestContext } from './request-context';
  * `password` exactly).
  */
 const SENSITIVE_KEYS: RegExp = (() => {
-  const escaped = SENSITIVE_FIELDS.map((k) =>
-    k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
-  );
+  const escaped = SENSITIVE_FIELDS.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
   return new RegExp(`^(${escaped.join('|')})$`, 'i');
 })();
 const MAX_DEPTH = 4;
@@ -34,13 +32,7 @@ const MAX_DEPTH = 4;
 const PRODUCTION_LEVELS: ReadonlySet<string> = new Set(['error', 'warn', 'log']);
 
 /** All log levels in NestJS order. */
-const ALL_LEVELS: ReadonlySet<string> = new Set([
-  'error',
-  'warn',
-  'log',
-  'debug',
-  'verbose',
-]);
+const ALL_LEVELS: ReadonlySet<string> = new Set(['error', 'warn', 'log', 'debug', 'verbose']);
 
 /**
  * Map NestJS log-level names to severity strings that Promtail / Loki / Grafana
@@ -166,11 +158,7 @@ export class StructuredLoggerService implements LoggerService {
   /*  Internal helpers                                                   */
   /* ------------------------------------------------------------------ */
 
-  private writeLog(
-    level: string,
-    message: unknown,
-    optionalParams: unknown[],
-  ): void {
+  private writeLog(level: string, message: unknown, optionalParams: unknown[]): void {
     if (!this.enabledLevels.has(level)) return;
 
     const ctx = getRequestContext();
@@ -181,8 +169,7 @@ export class StructuredLoggerService implements LoggerService {
     // Error fields are non-enumerable, so extract only the diagnostic stack.
     // Keeping the primary Error separate also prevents enumerable custom
     // properties attached by upstream libraries from becoming log metadata.
-    let stack: string | undefined =
-      message instanceof Error ? message.stack : undefined;
+    let stack: string | undefined = message instanceof Error ? message.stack : undefined;
     let extra: Record<string, unknown> | undefined;
 
     for (const param of optionalParams) {
@@ -206,9 +193,15 @@ export class StructuredLoggerService implements LoggerService {
       }
     }
 
-    const hoistedBootSignal =
-      extra && typeof extra['bootSignal'] === 'string' ? extra : undefined;
+    const hoistedBootSignal = extra && typeof extra['bootSignal'] === 'string' ? extra : undefined;
 
+    // ONE redaction boundary for every free-text field of the entry. The
+    // message and the stack are the two strings a developer writes by hand
+    // ("failed login for alice@example.com from 10.1.2.3") and, until this
+    // line, the only two the logger emitted verbatim while the same helper
+    // masked `extra`. A sink that ships these lines exports PII the moment it
+    // exists (OBS-CRITICAL-004); masking here, not at the call site, makes
+    // the safe path the only path.
     const entry: Record<string, unknown> = {
       ...(hoistedBootSignal ?? {}),
       timestamp: new Date().toISOString(),
@@ -216,18 +209,20 @@ export class StructuredLoggerService implements LoggerService {
       service: this.serviceName,
       // WHY: Error properties (message, stack) are non-enumerable — JSON.stringify produces '{}'.
       // Must extract message explicitly for DI errors, bootstrap failures, etc.
-      message: typeof message === 'string'
-        ? message
-        : message instanceof Error
-          ? message.message || String(message)
-          : JSON.stringify(message),
+      message: maskPii(
+        typeof message === 'string'
+          ? message
+          : message instanceof Error
+            ? message.message || String(message)
+            : JSON.stringify(maskSensitive(message)),
+      ),
       ...(context ? { context } : {}),
       ...(ctx.traceId ? { traceId: ctx.traceId } : {}),
       ...(ctx.correlationId ? { correlationId: ctx.correlationId } : {}),
       ...(ctx.tenantId ? { tenantId: ctx.tenantId } : {}),
       ...(ctx.userId ? { userId: ctx.userId } : {}),
       ...(ctx.spanId ? { spanId: ctx.spanId } : {}),
-      ...(stack ? { stack } : {}),
+      ...(stack ? { stack: maskPii(stack) } : {}),
       ...(extra ? { extra } : {}),
     };
 

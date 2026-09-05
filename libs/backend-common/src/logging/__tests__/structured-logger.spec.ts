@@ -161,6 +161,50 @@ describe('StructuredLoggerService', () => {
     expect(extra['username']).toBe('alice');
   });
 
+  describe('PII in the message and stack is masked on every level (OBS-CRITICAL-004)', () => {
+    const levels = ['log', 'warn', 'error', 'debug', 'verbose'] as const;
+
+    it.each(levels)('%s(): email, phone and IPv4 inside the message string are masked', (level) => {
+      logger[level]('failed login for alice@example.com from 10.1.2.3 phone +1 415 555 2671');
+      const entry = level === 'error' ? getLastStderr() : getLastStdout();
+      const message = entry['message'] as string;
+
+      expect(message).not.toContain('alice@example.com');
+      expect(message).not.toContain('10.1.2.3');
+      expect(message).not.toContain('555 2671');
+      expect(message).toContain('[EMAIL-REDACTED]');
+      expect(message).toContain('[PHONE-REDACTED]');
+    });
+
+    it('masks the message and the stack of an Error passed as the message', () => {
+      const err = new Error('lookup failed for bob@example.com');
+      logger.error(err);
+      const entry = getLastStderr();
+
+      expect(entry['message']).toBe('lookup failed for [EMAIL-REDACTED]');
+      expect(entry['stack'] as string).not.toContain('bob@example.com');
+      expect(entry['stack'] as string).toContain('[EMAIL-REDACTED]');
+    });
+
+    it('masks a stack passed as a string parameter', () => {
+      logger.error('boom', 'Error: boom for carol@example.com\n    at Object.<anonymous>');
+      const entry = getLastStderr();
+
+      expect(entry['stack'] as string).not.toContain('carol@example.com');
+    });
+
+    it('masks sensitive keys and PII values inside an object message', () => {
+      logger.log({ password: 'hunter2', note: 'call dave@example.com' });
+      const entry = getLastStdout();
+      const message = entry['message'] as string;
+
+      expect(message).not.toContain('hunter2');
+      expect(message).not.toContain('dave@example.com');
+      expect(message).toContain('[REDACTED]');
+      expect(message).toContain('[EMAIL-REDACTED]');
+    });
+  });
+
   it('should mask nested sensitive keys', () => {
     const data = {
       user: {

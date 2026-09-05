@@ -1,7 +1,7 @@
 [
   {
     "documentId": "doc_e69ec22880787b97",
-    "caseId": "case_synthetic-001",
+    "caseId": "synthetic-001",
     "relativePath": "Ikke laste opp/privat_notat.txt",
     "fileName": "privat_notat.txt",
     "extension": ".txt",
@@ -20,7 +20,7 @@
   },
   {
     "documentId": "doc_85f73fc2c720f363",
-    "caseId": "case_synthetic-001",
+    "caseId": "synthetic-001",
     "relativePath": "avtale_v1.txt",
     "fileName": "avtale_v1.txt",
     "extension": ".txt",
@@ -43,7 +43,7 @@
   },
   {
     "documentId": "doc_f4ee47acddf5586e",
-    "caseId": "case_synthetic-001",
+    "caseId": "synthetic-001",
     "relativePath": "avtale_v2_signert.txt",
     "fileName": "avtale_v2_signert.txt",
     "extension": ".txt",
@@ -67,7 +67,7 @@
   },
   {
     "documentId": "doc_3ed75d995ca0922e",
-    "caseId": "case_synthetic-001",
+    "caseId": "synthetic-001",
     "relativePath": "korrespondanse/2024-03-04_part-a_til_part-b.eml",
     "fileName": "2024-03-04_part-a_til_part-b.eml",
     "extension": ".eml",
@@ -92,7 +92,7 @@
   },
   {
     "documentId": "doc_608f1333d74135c8",
-    "caseId": "case_synthetic-001",
+    "caseId": "synthetic-001",
     "relativePath": "korrespondanse/2024-03-12_part-b_til_part-a.eml",
     "fileName": "2024-03-12_part-b_til_part-a.eml",
     "extension": ".eml",
@@ -117,7 +117,7 @@
   },
   {
     "documentId": "doc_c9eebbb50c992990",
-    "caseId": "case_synthetic-001",
+    "caseId": "synthetic-001",
     "relativePath": "kronologi.txt",
     "fileName": "kronologi.txt",
     "extension": ".txt",
@@ -143,7 +143,7 @@
   },
   {
     "documentId": "doc_02f9abbb83c5f543",
-    "caseId": "case_synthetic-001",
+    "caseId": "synthetic-001",
     "relativePath": "notat.md",
     "fileName": "notat.md",
     "extension": ".md",
@@ -165,7 +165,7 @@
   },
   {
     "documentId": "doc_f285ea9f52c64341",
-    "caseId": "case_synthetic-001",
+    "caseId": "synthetic-001",
     "relativePath": "vedlegg/faktura_2024-001.pdf",
     "fileName": "faktura_2024-001.pdf",
     "extension": ".pdf",
@@ -197,7 +197,7 @@
   },
   {
     "documentId": "doc_8b0ed5c138af6958",
-    "caseId": "case_synthetic-001",
+    "caseId": "synthetic-001",
     "relativePath": "vedlegg/forlikstilbud_kryptert.pdf",
     "fileName": "forlikstilbud_kryptert.pdf",
     "extension": ".pdf",
@@ -216,7 +216,7 @@
   },
   {
     "documentId": "doc_2977e926b8bc73a6",
-    "caseId": "case_synthetic-001",
+    "caseId": "synthetic-001",
     "relativePath": "vedlegg/klage_utkast.docx",
     "fileName": "klage_utkast.docx",
     "extension": ".docx",
@@ -245,7 +245,7 @@
   },
   {
     "documentId": "doc_095b7b0b7d534286",
-    "caseId": "case_synthetic-001",
+    "caseId": "synthetic-001",
     "relativePath": "vedlegg/skannet_kvittering.pdf",
     "fileName": "skannet_kvittering.pdf",
     "extension": ".pdf",

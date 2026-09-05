@@ -17,6 +17,26 @@
     ],
     "signedMember": "doc_f4ee47acddf5586e",
     "filedMember": null,
+    "steps": [
+      {
+        "fromDocumentId": "doc_85f73fc2c720f363",
+        "toDocumentId": "doc_f4ee47acddf5586e",
+        "values": [
+          {
+            "label": "Pris",
+            "kind": "amount",
+            "from": "nok 125000.00",
+            "to": "nok 120000.00",
+            "fromLocator": "line:5",
+            "toLocator": "line:5"
+          }
+        ],
+        "addedLines": 4,
+        "removedLines": 4,
+        "unchangedLines": 1,
+        "humanReviewRequired": true
+      }
+    ],
     "humanReviewRequired": true
   }
 ]

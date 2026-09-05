@@ -160,4 +160,67 @@ test("the legal instance shipped in this repo loads and keeps the lawyer's gates
     assert.equal(requiredRoleFor(policy, actionClass), 'lawyer', `${actionClass} must be lawyer-owned`);
   }
   assert.equal(requiredRoleFor(policy, 'corpus_inventory'), null, 'reading the archive is automatic');
+  assert.equal(requiredRoleFor(policy, 'case_intake'), null, 'taking a document in is automatic for any authenticated principal');
+  assert.deepEqual(policy.roles, ['lawyer', 'operator']);
+  assert.deepEqual(policy.corpusExcludeRoots, ['Ikke laste opp']);
+  assert.deepEqual(policy.consoleModules, ['core', 'legal']);
+});
+
+test('a gate owned by a role the policy never declared, or one the console cannot authenticate, fails closed', () => {
+  assert.throws(
+    () =>
+      loadInstancePolicy({
+        ARIA_INSTANCE_MANIFEST: writeInstance(
+          instanceDir('undeclared-role'),
+          { id: 'legal', policies: { approval: 'approval-policy.json' } },
+          { roles: [{ id: 'operator' }], gates: [{ action_class: 'statement_verification', requires_role: 'lawyer', auto: false }] },
+        ),
+      }),
+    /requires role lawyer, which the policy's roles do not declare/,
+  );
+  assert.throws(
+    () =>
+      loadInstancePolicy({
+        ARIA_INSTANCE_MANIFEST: writeInstance(
+          instanceDir('alien-role'),
+          { id: 'legal', policies: { approval: 'approval-policy.json' } },
+          { roles: [{ id: 'auditor' }], gates: [{ action_class: 'statement_verification', requires_role: 'auditor', auto: false }] },
+        ),
+      }),
+    /which this console cannot authenticate/,
+  );
+});
+
+test('a legal console whose policy leaves a legal action class ungoverned fails closed at startup', () => {
+  assert.throws(
+    () =>
+      loadInstancePolicy({
+        ARIA_INSTANCE_MANIFEST: writeInstance(
+          instanceDir('ungoverned'),
+          { id: 'legal', policies: { approval: 'approval-policy.json' }, surface: { console: { modules: ['core', 'legal'] } } },
+          LEGAL_GATES,
+        ),
+      }),
+    /leaves case_intake, party_identity_merge, filed_version_declaration, redaction_and_production, external_effect unnamed/,
+  );
+  // The same policy is fine for a console that does not present the legal module.
+  const core = loadInstancePolicy({
+    ARIA_INSTANCE_MANIFEST: writeInstance(instanceDir('core-only'), { id: 'finance', policies: { approval: 'approval-policy.json' }, surface: { console: { modules: ['core'] } } }, LEGAL_GATES),
+  });
+  assert.ok(core);
+  assert.deepEqual(core.consoleModules, ['core']);
+});
+
+test('the same action class declared twice is refused: one class has one owner', () => {
+  assert.throws(
+    () =>
+      loadInstancePolicy({
+        ARIA_INSTANCE_MANIFEST: writeInstance(
+          instanceDir('twice'),
+          { id: 'legal', policies: { approval: 'approval-policy.json' } },
+          { gates: [{ action_class: 'corpus_inventory', requires_role: null, auto: true }, { action_class: 'corpus_inventory', requires_role: 'lawyer', auto: false }] },
+        ),
+      }),
+    /declared twice/,
+  );
 });

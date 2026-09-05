@@ -1,1 +1,52 @@
-[]
+[
+  {
+    "statementId": "stmt_4e85da5aa3a6f155",
+    "statement": "vedlegg/faktura_2024-001.pdf relies on avtale 2024-01-15, which no document in this archive matches.",
+    "status": "unverifiable",
+    "assertedBy": "mechanical_extraction",
+    "assertedByPartyId": null,
+    "supportingSources": [
+      {
+        "documentId": "doc_f285ea9f52c64341",
+        "sha256": "1fdce4f6970c4f6d229a5b07441369501f2b3254f47037fcb293f20bf350cde7",
+        "locator": "page:1"
+      }
+    ],
+    "contradictingSources": [],
+    "missingEvidence": [
+      "avtale 2024-01-15 (as cited: \"avtale datert 2024-01-15,\")"
+    ],
+    "confidence": 0.5,
+    "humanReviewRequired": true,
+    "verifiedBy": null,
+    "verifiedAt": null,
+    "relatedClaimIds": []
+  },
+  {
+    "statementId": "stmt_b0dd28e9698f7c45",
+    "statement": "Fakturadato is stated as 2024-03-12 in vedlegg/faktura_2024-001.pdf and as 2024-03-14 in vedlegg/klage_utkast.docx.",
+    "status": "disputed",
+    "assertedBy": "mechanical_extraction",
+    "assertedByPartyId": null,
+    "supportingSources": [
+      {
+        "documentId": "doc_f285ea9f52c64341",
+        "sha256": "1fdce4f6970c4f6d229a5b07441369501f2b3254f47037fcb293f20bf350cde7",
+        "locator": "page:1"
+      }
+    ],
+    "contradictingSources": [
+      {
+        "documentId": "doc_2977e926b8bc73a6",
+        "sha256": "19f2f23a713b0d61e6fcadc9edaa6a6fe3a5bc1269f8aeff1b6a0c3fbdceb016",
+        "locator": "line:6"
+      }
+    ],
+    "missingEvidence": [],
+    "confidence": 0.6,
+    "humanReviewRequired": true,
+    "verifiedBy": null,
+    "verifiedAt": null,
+    "relatedClaimIds": []
+  }
+]

@@ -2,9 +2,10 @@
 //
 // WHY: one process serves the SPA and the API on one origin; it reads ARIA's
 // ledgers under ARIA_TOOLS_DIR and asks the kernel CLI for every action.
-// WHAT: config → authorizer + routes → node:http server; `/api/*` goes through
-// auth and the router, everything else is the static SPA; errors render as the
-// ApiError contract; SIGTERM/SIGINT close the listener.
+// WHAT: config → legal adapter registration → authorizer + routes → node:http
+// server; `/api/*` goes through auth, resolves the principal and the router,
+// everything else is the static SPA; errors render as the ApiError contract;
+// SIGTERM/SIGINT close the listener.
 
 import { createServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -15,14 +16,17 @@ import { Authorizer } from './auth.ts';
 import { ConfigError, loadConfig } from './config.ts';
 import type { ServerConfig } from './config.ts';
 import { HttpError, toApiError } from './errors.ts';
+import type { LegalReadinessHolder } from './legal-readiness.ts';
+import { registerLegalAdapter } from './legal-readiness.ts';
 import { log, redactHeaders } from './log.ts';
+import { TOKEN_HOLDER_PRINCIPAL } from './principal.ts';
 import { dispatch, sendJson } from './router.ts';
 import { buildRoutes } from './routes.ts';
 import { serveStatic } from './static.ts';
 
-export function createConsoleServer(config: ServerConfig): ReturnType<typeof createServer> {
+export function createConsoleServer(config: ServerConfig, readiness: LegalReadinessHolder): ReturnType<typeof createServer> {
   const authorizer = new Authorizer(config.token);
-  const routes = buildRoutes(config, new JobTable());
+  const routes = buildRoutes(config, new JobTable(), readiness);
 
   const handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const startedAt = process.hrtime.bigint();
@@ -40,7 +44,10 @@ export function createConsoleServer(config: ServerConfig): ReturnType<typeof cre
           res.setHeader('WWW-Authenticate', 'Bearer realm="new-aria"');
           throw new HttpError(401, 'unauthorized');
         }
-        const routed = await dispatch(routes, { req, res, config, query: url.searchParams, path });
+        // The principal is what the credential proved and nothing more: the
+        // shared token proves possession of the instance's operator credential,
+        // so every request it carries acts as the operator.
+        const routed = await dispatch(routes, { req, res, config, principal: TOKEN_HOLDER_PRINCIPAL, query: url.searchParams, path });
         if (!routed) throw new HttpError(404, 'not_found');
       } else if (req.method === 'GET' || req.method === 'HEAD') {
         await serveStatic(config.staticDir, path, res);
@@ -66,7 +73,18 @@ export function createConsoleServer(config: ServerConfig): ReturnType<typeof cre
   });
 }
 
-function main(): void {
+/**
+ * Registers the legal adapter before the console listens, so the first
+ * request already sees the kernel's answer. A refusal is logged and reported
+ * on /health; it never stops the read-only console from serving.
+ */
+export async function prepareLegalReadiness(config: ServerConfig): Promise<LegalReadinessHolder> {
+  const boot = await registerLegalAdapter(config);
+  log(boot.adapter === 'registered' || boot.adapter === 'not_applicable' ? 'info' : 'error', 'legal adapter readiness', { adapter: boot.adapter, toolId: boot.toolId, detail: boot.detail });
+  return { boot };
+}
+
+async function main(): Promise<void> {
   let config: ServerConfig;
   try {
     config = loadConfig();
@@ -77,7 +95,8 @@ function main(): void {
     }
     throw error;
   }
-  const server = createConsoleServer(config);
+  const readiness = await prepareLegalReadiness(config);
+  const server = createConsoleServer(config, readiness);
   server.listen(config.port, config.host, () => {
     log('info', 'console listening', { host: config.host, port: config.port, toolsDir: config.toolsDir, actionsEnabled: config.allowActions, version: config.version });
   });
@@ -91,5 +110,8 @@ function main(): void {
 }
 
 if (process.argv[1] !== undefined && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
-  main();
+  main().catch((error: unknown) => {
+    log('error', 'console failed to start', { error: error instanceof Error ? error.message : String(error) });
+    process.exit(1);
+  });
 }

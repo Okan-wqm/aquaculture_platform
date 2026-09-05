@@ -112,7 +112,6 @@ const AMOUNT_RE = new RegExp(
 // unmatched and be read as UTC — a wrong time reported with day precision
 // is exactly the silent drift a chronology cannot afford.
 const RFC2822_DATE_RE = /(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s+(\S+))?)?/;
-export const CASE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 // ---------------------------------------------------------------------------
 // Small pure helpers

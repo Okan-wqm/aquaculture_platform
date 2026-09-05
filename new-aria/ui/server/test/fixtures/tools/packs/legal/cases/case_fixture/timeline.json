@@ -1,5 +1,59 @@
 [
   {
+    "eventId": "evt_5bb137bc7b88",
+    "kind": "EVENT",
+    "occurredAt": "2024-01-15",
+    "learnedAt": null,
+    "datePrecision": "day",
+    "summary": "Leveranse iht. avtale datert 2024-01-15, versjon 2 (signert).",
+    "evidence": [
+      {
+        "documentId": "doc_f285ea9f52c64341",
+        "locator": "page:1",
+        "sha256": "1fdce4f6970c4f6d229a5b07441369501f2b3254f47037fcb293f20bf350cde7"
+      }
+    ],
+    "assertedBy": "mechanical_extraction",
+    "confidence": 0.35,
+    "humanReviewRequired": true
+  },
+  {
+    "eventId": "evt_b94e349b522a",
+    "kind": "EVENT",
+    "occurredAt": "2024-01-15",
+    "learnedAt": null,
+    "datePrecision": "day",
+    "summary": "Vi viser til avtale av 15.01.2024 og faktura 2024-001.",
+    "evidence": [
+      {
+        "documentId": "doc_2977e926b8bc73a6",
+        "locator": "line:5",
+        "sha256": "19f2f23a713b0d61e6fcadc9edaa6a6fe3a5bc1269f8aeff1b6a0c3fbdceb016"
+      }
+    ],
+    "assertedBy": "mechanical_extraction",
+    "confidence": 0.35,
+    "humanReviewRequired": true
+  },
+  {
+    "eventId": "evt_c404a6e5c03f",
+    "kind": "EVENT",
+    "occurredAt": "2024-02-05",
+    "learnedAt": null,
+    "datePrecision": "day",
+    "summary": "Milepæl 1 levert 05.02.2024, godkjent av byggeleder 08.02.2024.",
+    "evidence": [
+      {
+        "documentId": "doc_f285ea9f52c64341",
+        "locator": "page:2",
+        "sha256": "1fdce4f6970c4f6d229a5b07441369501f2b3254f47037fcb293f20bf350cde7"
+      }
+    ],
+    "assertedBy": "mechanical_extraction",
+    "confidence": 0.35,
+    "humanReviewRequired": true
+  },
+  {
     "eventId": "evt_0b7ee503b2f8",
     "kind": "EVENT",
     "occurredAt": "2024-02-20",
@@ -13,7 +67,7 @@
         "sha256": "6e5ef00a1637223634103f8a6d15f8938f42fef3312e308b45429817e369c1ad"
       }
     ],
-    "assertedBy": "ai_inference",
+    "assertedBy": "mechanical_extraction",
     "confidence": 0.35,
     "humanReviewRequired": true
   },
@@ -31,7 +85,25 @@
         "sha256": "6e5ef00a1637223634103f8a6d15f8938f42fef3312e308b45429817e369c1ad"
       }
     ],
-    "assertedBy": "ai_inference",
+    "assertedBy": "mechanical_extraction",
+    "confidence": 0.35,
+    "humanReviewRequired": true
+  },
+  {
+    "eventId": "evt_38018dec5d4a",
+    "kind": "EVENT",
+    "occurredAt": "2024-03-01",
+    "learnedAt": null,
+    "datePrecision": "day",
+    "summary": "Milepæl 2 levert 01.03.2024, IKKE godkjent - avvik meldt 04.03.2024.",
+    "evidence": [
+      {
+        "documentId": "doc_f285ea9f52c64341",
+        "locator": "page:2",
+        "sha256": "1fdce4f6970c4f6d229a5b07441369501f2b3254f47037fcb293f20bf350cde7"
+      }
+    ],
+    "assertedBy": "mechanical_extraction",
     "confidence": 0.35,
     "humanReviewRequired": true
   },
@@ -67,7 +139,7 @@
         "sha256": "b2c55428ad23c2b7ae9dd9cf5525d0728f7a90180ef91a2a6d587de7c9ad3caa"
       }
     ],
-    "assertedBy": "ai_inference",
+    "assertedBy": "mechanical_extraction",
     "confidence": 0.35,
     "humanReviewRequired": true
   },
@@ -85,7 +157,7 @@
         "sha256": "6e5ef00a1637223634103f8a6d15f8938f42fef3312e308b45429817e369c1ad"
       }
     ],
-    "assertedBy": "ai_inference",
+    "assertedBy": "mechanical_extraction",
     "confidence": 0.35,
     "humanReviewRequired": true
   },
@@ -121,7 +193,7 @@
         "sha256": "faf98c49abfe41439e67deb06a8bc80a4f783af462e5902a10f72e5984eaf4db"
       }
     ],
-    "assertedBy": "ai_inference",
+    "assertedBy": "mechanical_extraction",
     "confidence": 0.35,
     "humanReviewRequired": true
   },
@@ -139,7 +211,7 @@
         "sha256": "b2c55428ad23c2b7ae9dd9cf5525d0728f7a90180ef91a2a6d587de7c9ad3caa"
       }
     ],
-    "assertedBy": "ai_inference",
+    "assertedBy": "mechanical_extraction",
     "confidence": 0.35,
     "humanReviewRequired": true
   }

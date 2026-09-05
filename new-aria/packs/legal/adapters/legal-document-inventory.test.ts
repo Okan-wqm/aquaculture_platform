@@ -28,7 +28,7 @@ import { test } from 'node:test';
 
 import { runLegalDocumentInventory } from './legal-document-inventory';
 import type { AriaOutput, LegalInventoryInput } from './legal-document-inventory';
-import { ADAPTER_ID, ARTIFACT_ROOT } from './legal-records';
+import { ADAPTER_ID, ADAPTER_VERSION, ARTIFACT_ROOT, CASE_ID_PATTERN } from './legal-records';
 import type { LegalCaseArtifacts } from './legal-records';
 import { extractAmounts, extractDates, guessKind, jaccard, normalizedStem, parseAddressList, parseEmail, parseRfc2822Date } from './legal-text';
 
@@ -177,7 +177,7 @@ test('determinism: two runs over the same archive produce byte-identical artifac
 test('coverage: every file has a fate, counts add up, complete is true', () => {
   const { artifacts } = runGolden(tempDir('cov'));
   const { coverage } = artifacts;
-  assert.equal(coverage.caseId, 'case_synthetic-001');
+  assert.equal(coverage.caseId, 'synthetic-001');
   assert.equal(coverage.totalFiles, 11);
   // 8 text = 6 plain-text files + the invoice PDF + the complaint DOCX, whose
   // text layers are read; 2 metadata_only = the scanned PDF (no text layer) and
@@ -330,7 +330,7 @@ test('version grouping: identical bytes group across different names; copy marke
   writeArchiveFile(archive, 'vedlegg/kopi_av_brev.txt', 'Helt annet brev.\n');
   writeArchiveFile(archive, 'faktura_2024-001.txt', 'Faktura en.\n');
   writeArchiveFile(archive, 'faktura_2024-002.txt', 'Faktura to.\n');
-  const result = runLegalDocumentInventory({ archive_root: archive, case_id: 'vg', out_dir: tempDir('vg-out') });
+  const result = runLegalDocumentInventory({ archive_root: archive, case_id: 'vg-case', out_dir: tempDir('vg-out') });
   assert.ok(result.artifacts);
   assert.equal(normalizedStem('notat kopi (1).txt'), 'notat');
   assert.equal(normalizedStem('avtale_v2_signert.txt'), 'avtale');
@@ -496,11 +496,11 @@ test('no writes outside out_dir; the archive is never mutated', () => {
   const outDir = tempDir('outdir');
   const { artifactDir } = runGolden(outDir);
   assert.deepEqual(listTree(archiveAbs), before, 'archive tree changed during the run');
-  const expectedPrefix = `${ARTIFACT_ROOT}/case_synthetic-001/`;
+  const expectedPrefix = `${ARTIFACT_ROOT}/synthetic-001/`;
   const written = listTree(outDir).map((row) => row.split('\t')[0] ?? '');
   assert.deepEqual(written, sorted(ARTIFACT_NAMES.map((name) => `${expectedPrefix}${name}.json`)));
   assert.ok(written.every((path) => !path.includes('.tmp-')), 'atomic writes must leave no temp files');
-  assert.equal(artifactDir, resolve(outDir, ARTIFACT_ROOT, 'case_synthetic-001'));
+  assert.equal(artifactDir, resolve(outDir, ARTIFACT_ROOT, 'synthetic-001'));
 });
 
 test('L1: every evidence path is inside read_paths; evidence_sources equals read_paths; excluded files are outside both', () => {
@@ -520,12 +520,12 @@ test('L1: every evidence path is inside read_paths; evidence_sources equals read
 
 test('input guards: absent archive root exits clean as scope_absent; unsafe case_id and exclude_roots are rejected', () => {
   const outDir = tempDir('guards');
-  const absent = runLegalDocumentInventory({ archive_root: join(outDir, 'nope'), case_id: 'x', out_dir: outDir });
+  const absent = runLegalDocumentInventory({ archive_root: join(outDir, 'nope'), case_id: 'absent-case', out_dir: outDir });
   assert.equal(absent.output.metadata['status'], 'scope_absent');
   assert.equal(absent.artifacts, null);
   assert.deepEqual(readdirSync(outDir), []);
   assert.throws(() => runLegalDocumentInventory({ archive_root: '.', case_id: '../escape', out_dir: outDir }, WORKSPACE_ROOT), /case_id/);
-  assert.throws(() => runLegalDocumentInventory({ archive_root: '.', case_id: 'ok', exclude_roots: ['../x'], out_dir: outDir }, WORKSPACE_ROOT), /exclude_roots/);
+  assert.throws(() => runLegalDocumentInventory({ archive_root: '.', case_id: 'ok-case', exclude_roots: ['../x'], out_dir: outDir }, WORKSPACE_ROOT), /exclude_roots/);
   const missingRoot = runLegalDocumentInventory({ ...GOLDEN_INPUT, exclude_roots: ['Finnes ikke'], out_dir: tempDir('guards-2') }, WORKSPACE_ROOT);
   assert.deepEqual(missingRoot.artifacts?.coverage.excludedRoots, []);
   assert.deepEqual(missingRoot.output.metadata['exclude_roots_not_found'], ['Finnes ikke']);
@@ -700,10 +700,31 @@ test('CLI: the subprocess contract matches the in-process result', () => {
   assert.deepEqual(normalizeOutput(cliOutput), normalizeOutput(inProcess.output));
   for (const name of ARTIFACT_NAMES) {
     assert.equal(
-      readFileSync(join(outDir, ARTIFACT_ROOT, 'case_synthetic-001', `${name}.json`), 'utf8'),
+      readFileSync(join(outDir, ARTIFACT_ROOT, 'synthetic-001', `${name}.json`), 'utf8'),
       readFileSync(join(inProcess.artifactDir, `${name}.json`), 'utf8'),
     );
   }
+});
+
+// ---------------------------------------------------------------------------
+// Case identity and adapter build, pinned against the console contract
+// ---------------------------------------------------------------------------
+test('the case id pattern and the adapter build are the ones the console contract declares', () => {
+  // The pack may not import the console (X-6), so the pattern is restated here
+  // and pinned to the contract's text: one id, one pattern, both sides.
+  const pattern = /export const LEGAL_CASE_ID_PATTERN = '([^']+)' as const;/.exec(contractSource);
+  assert.ok(pattern, 'LEGAL_CASE_ID_PATTERN not found in legal-contract.ts');
+  assert.equal(CASE_ID_PATTERN, pattern[1]);
+  const versions = /export const SUPPORTED_LEGAL_ADAPTER_VERSIONS = \[([^\]]+)\] as const;/.exec(contractSource);
+  assert.ok(versions, 'SUPPORTED_LEGAL_ADAPTER_VERSIONS not found in legal-contract.ts');
+  const supported = [...(versions[1] ?? '').matchAll(/'([^']+)'/g)].map((match) => match[1] ?? '');
+  assert.ok(supported.includes(ADAPTER_VERSION), `the console must know how to read adapter build ${ADAPTER_VERSION}`);
+  // The artifact directory is the id as given: no prefix on either side.
+  const { artifacts } = runGolden(tempDir('identity'));
+  assert.equal(artifacts.case.caseId, GOLDEN_INPUT.case_id);
+  assert.equal(artifacts.coverage.caseId, GOLDEN_INPUT.case_id);
+  assert.ok(artifacts.documents.every((document) => document.caseId === GOLDEN_INPUT.case_id));
+  assert.throws(() => runLegalDocumentInventory({ archive_root: GOLDEN_INPUT.archive_root, case_id: 'Case_Upper', out_dir: tempDir('bad-id') }, WORKSPACE_ROOT), /input\.case_id must match/);
 });
 
 // ---------------------------------------------------------------------------

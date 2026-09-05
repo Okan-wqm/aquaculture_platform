@@ -32,8 +32,10 @@ export interface ServerConfig {
   readonly kernelBin: string;
   readonly staticDir: string;
   /**
-   * Whether mutating endpoints are served. The environment grants it and the
-   * instance manifest may take it away; neither alone can turn it on.
+   * Whether KERNEL control (cycle run, pause, resume) is served. The environment
+   * grants it and the instance manifest may take it away; neither alone can
+   * turn it on. Case actions are not governed here: the instance's approval
+   * policy decides them per action class (see gates.ts).
    */
   readonly allowActions: boolean;
   readonly actionTimeoutMs: number;

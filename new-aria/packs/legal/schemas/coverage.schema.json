@@ -17,7 +17,7 @@
   "properties": {
     "caseId": {
       "type": "string",
-      "pattern": "^case_[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+      "pattern": "^[a-z0-9][a-z0-9._-]{2,63}$"
     },
     "totalFiles": {
       "type": "integer",

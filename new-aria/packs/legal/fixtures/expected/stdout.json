@@ -255,7 +255,7 @@
   "belief_candidates": [],
   "cost_units": 11,
   "metadata": {
-    "case_id": "case_synthetic-001",
+    "case_id": "synthetic-001",
     "out_dir": "<out_dir>",
     "archive_root": "packs/legal/fixtures/case-synthetic",
     "adapter_version": "0.1.0",

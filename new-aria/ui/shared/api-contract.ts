@@ -76,6 +76,8 @@ export const ENDPOINTS = {
   /** `aria-kernel cycle run` as a background job — requires ARIA_UI_ALLOW_ACTIONS=1. */
   actionCycle: { method: 'POST', path: `${API_PREFIX}/actions/cycle`, response: 'JobResponse' },
   job: { method: 'GET', path: `${API_PREFIX}/jobs/:jobId`, response: 'JobResponse' },
+  /** Who the token authenticated, and which action classes that principal may perform. */
+  me: { method: 'GET', path: `${API_PREFIX}/me`, response: 'WhoAmIResponse' },
 } as const;
 
 export type EndpointName = keyof typeof ENDPOINTS;
@@ -131,14 +133,45 @@ export interface LedgerRow {
   readonly [key: string]: unknown;
 }
 
+/**
+ * The action class behind the console's kernel controls (cycle run, pause and
+ * resume). It is the ONLY class `ARIA_UI_ALLOW_ACTIONS` and the instance
+ * manifest's `runtime.allow_actions` govern; case work is governed by the
+ * instance's approval policy per class.
+ */
+export const KERNEL_CONTROL_ACTION_CLASS = 'kernel_control' as const;
+
+/** Whether a pack's adapter is registered with the kernel this console fronts. */
+export type AdapterReadinessState = 'registered' | 'unregistered' | 'quarantined' | 'not_applicable';
+
+export interface PackReadiness {
+  readonly toolId: string;
+  readonly adapter: AdapterReadinessState;
+  /** Why the adapter is not registered, in the kernel's own words; null when it is. */
+  readonly detail: string | null;
+}
+
 export interface HealthResponse {
   readonly status: 'ok';
   readonly service: 'new-aria-ui';
   readonly version: string;
   readonly toolsDirPresent: boolean;
-  /** True only when ARIA_UI_ALLOW_ACTIONS=1; the SPA hides mutating controls otherwise. */
+  /** Kernel control (cycle run, pause/resume) is enabled. Case actions are governed per class; see /me. */
   readonly actionsEnabled: boolean;
+  /** The legal pack's adapter, as the kernel registry reports it right now. */
+  readonly legal: PackReadiness;
   readonly generatedAt: string;
+}
+
+/** The authenticated principal and what it may do. Answered only with a valid token. */
+export interface WhoAmIResponse {
+  readonly principal: {
+    readonly id: string;
+    readonly displayName: string;
+    readonly role: string;
+  };
+  /** Action class → whether THIS principal may perform it under the instance's policy. */
+  readonly permissions: Readonly<Record<string, boolean>>;
 }
 
 export type RuntimeProfile = 'observe' | 'standard' | 'strict' | 'frozen' | 'autonomous';

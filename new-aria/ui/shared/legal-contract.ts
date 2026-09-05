@@ -16,6 +16,47 @@ import { API_PREFIX } from './api-contract.ts';
 
 export const LEGAL_API_PREFIX = `${API_PREFIX}/legal` as const;
 
+/**
+ * One case id, one pattern, both sides.
+ *
+ * The id names the case's intake directory (written by the console) AND the
+ * artifact directory (written by the adapter). MEASURED 2026-09-04: the adapter
+ * prefixed its directory with `case_` while the console used the bare id, so one
+ * case had two identities and the Intake tab of the case the console listed was
+ * empty. The pack may not import the console (extension point X-6), so it
+ * restates this string in packs/legal/adapters/legal-records.ts and its test
+ * pins the two texts equal.
+ */
+export const LEGAL_CASE_ID_PATTERN = '^[a-z0-9][a-z0-9._-]{2,63}$' as const;
+export const LEGAL_CASE_ID_RE = new RegExp(LEGAL_CASE_ID_PATTERN);
+
+/**
+ * Adapter builds whose artifacts this console knows how to read. An artifact
+ * from any other build is refused by name rather than rendered as if current:
+ * a shape the reader does not know is not evidence it can show.
+ */
+export const SUPPORTED_LEGAL_ADAPTER_VERSIONS = ['0.1.0'] as const;
+
+/**
+ * The action classes the console can perform on a case. Every one of them is
+ * governed by the instance's approval policy (arias/<id>/config/approval-policy.json):
+ * an automatic class is open to any authenticated principal, a role-owned class
+ * only to that role, and a class the policy does not name is refused. The
+ * console's own `allow_actions` switch governs KERNEL control only — it was the
+ * wrong instrument for case work, and under it the shipped legal instance could
+ * not open a case at all.
+ */
+export const LEGAL_ACTION_CLASSES = [
+  'case_intake',
+  'corpus_inventory',
+  'statement_verification',
+  'party_identity_merge',
+  'filed_version_declaration',
+  'redaction_and_production',
+  'external_effect',
+] as const;
+export type LegalActionClass = (typeof LEGAL_ACTION_CLASSES)[number];
+
 /** Closed record vocabulary. Adding a kind is a pack-schema decision, not a UI one. */
 export const LEGAL_RECORD_KINDS = [
   'CASE',

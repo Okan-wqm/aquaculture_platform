@@ -116,9 +116,18 @@ export function control(config: ServerConfig, verb: string, reason: string): Pro
 
 export interface LegalInventoryRequest {
   readonly caseId: string;
-  /** Archive path relative to the cases directory, which is the run's workspace root. */
+  /** Archive path relative to the workspace root the adapter runs in. */
   readonly archiveRoot: string;
   readonly title: string | null;
+  /**
+   * The case's intake receipt, one row per arrival. It is the only source of a
+   * record's learnedAt: without it every timeline event's learnedAt is null and
+   * the question the product exists to answer ("what was known on that date")
+   * cannot be asked. MEASURED 2026-09-04: the console omitted it.
+   */
+  readonly intake: ReadonlyArray<{ readonly relativePath: string; readonly receivedAt: string }>;
+  /** Corpus roots the instance manifest declares off-limits; the adapter records them as excluded and never reads them. */
+  readonly excludeRoots: ReadonlyArray<string>;
 }
 
 interface JobRecord {
@@ -177,17 +186,30 @@ export class JobTable {
    * same reason every other mutation does: the kernel owns tool execution, its
    * scope validation and its run ledger, so a console-triggered inventory is
    * recorded exactly like any other adapter run and is subject to the same
-   * declared-scope enforcement. The adapter is registered once with
+   * declared-scope enforcement. The adapter is registered at console boot with
    * `aria tool register`; the registry is additive, so registering a pack
    * adapter does not disturb the core set.
+   *
+   * Authorization is the route's job (the `corpus_inventory` gate of the
+   * instance's approval policy), not the kernel-control switch: an inventory
+   * reads the archive and writes case artifacts; it never touches the kernel's
+   * own lifecycle.
+   *
+   * The input carries everything the adapter accepts for a case: the intake
+   * receipt (learnedAt), the excluded roots, and the cycle id this run is
+   * stamped with, so case.json names the run that produced it. The kernel's
+   * run id is minted after the adapter has already been given its input, so
+   * it cannot be passed in truthfully and is left null.
    */
   startLegalInventory(config: ServerConfig, request: LegalInventoryRequest): JobResponse {
-    requireActions(config);
     const cycleId = `legal-inventory-${request.caseId}-${new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z')}`;
     const input = JSON.stringify({
       archive_root: request.archiveRoot,
       case_id: request.caseId,
       ...(request.title === null ? {} : { title: request.title }),
+      exclude_roots: request.excludeRoots,
+      intake: request.intake,
+      cycle_id: cycleId,
     });
     const argv = [
       'tool',

@@ -1,30 +1,35 @@
 // The instance manifest, actually applied.
 //
 // WHY: `arias/<id>/aria.manifest.json` declares what an instance may do —
-// `runtime.allow_actions`, `runtime.profile_ceiling`, and a pointer to an
-// approval policy naming which human role owns which action class. MEASURED on
-// 2026-09-04: nothing loads any of it. `arias/derive.mjs` copies the files and
-// rewrites identifiers; `arias/instances.test.mjs` asserts only that the policy
-// keys exist. A policy no code reads is not a policy — it is a document that
-// makes a reader believe a gate exists.
+// `runtime.allow_actions`, `runtime.profile_ceiling`, the corpus roots it must
+// never read, and a pointer to an approval policy naming which human role owns
+// which action class. MEASURED on 2026-09-04: nothing loaded any of it, and once
+// it was loaded only the boolean was enforced — so hard that the shipped legal
+// instance could not open a case, while the five lawyer gates that should have
+// decided were parsed and discarded. A policy no code reads is not a policy —
+// it is a document that makes a reader believe a gate exists.
 //
 // WHAT: loads the manifest named by ARIA_INSTANCE_MANIFEST plus the approval
-// policy it points at, and exposes them to the server. Two rules govern the
-// result, both deliberate:
+// policy it points at, and exposes them to the server. Three rules govern the
+// result, all deliberate:
 //
-//   1. The manifest may only NARROW. `allow_actions: false` turns mutating
-//      endpoints off even when the operator's environment enabled them; it can
-//      never turn them on. An instance file that travels with the product must
-//      not be able to grant more authority than the person running it did.
-//   2. It fails CLOSED. If the variable names a manifest that is missing,
-//      unparseable, or shaped wrong, the server refuses to start. The
-//      alternative — carrying on with the policy silently absent — is exactly
-//      the state this module was written to end.
+//   1. `allow_actions` governs KERNEL control only (cycle run, pause, resume),
+//      and may only NARROW: it can turn kernel control off when the operator's
+//      environment enabled it; it can never turn it on.
+//   2. Case work is decided by the policy's gates, per action class, per role
+//      (`decideGate`). A class the policy does not name is refused, not allowed.
+//   3. It fails CLOSED. A missing, unparseable or malformed manifest or policy,
+//      a gate owned by a role the console cannot authenticate, or a legal
+//      console whose policy leaves a legal action class ungoverned, stops the
+//      server. Carrying on with the policy silently absent is exactly the state
+//      this module was written to end.
 
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
+import { LEGAL_ACTION_CLASSES } from '../../shared/legal-contract.ts';
 import { ConfigError } from './config.ts';
+import { isPrincipalRole } from './principal.ts';
 
 /** The action classes an approval policy may govern, as the legal instance declares them. */
 export interface ApprovalGate {
@@ -42,11 +47,22 @@ export interface InstancePolicy {
   readonly displayName: string;
   /** Highest runtime profile this instance may reach; the console displays it. */
   readonly profileCeiling: string | null;
-  /** Whether the instance file permits mutating actions at all. */
+  /** Whether the instance file permits kernel control from the console. */
   readonly allowActions: boolean;
+  /** Corpus roots the instance declares off-limits; forwarded to every adapter run. */
+  readonly corpusExcludeRoots: ReadonlyArray<string>;
+  /** Console feature modules the instance presents (`surface.console.modules`). */
+  readonly consoleModules: ReadonlyArray<string>;
   readonly approvalPolicyPath: string | null;
+  /** Role ids the policy declares; every gate's owner is one of them. */
+  readonly roles: ReadonlyArray<string>;
   readonly gates: ReadonlyArray<ApprovalGate>;
 }
+
+export type GateDecision =
+  | { readonly allowed: true; readonly basis: 'automatic' | 'role' }
+  | { readonly allowed: false; readonly reason: 'action_class_ungoverned'; readonly requiredRole: null }
+  | { readonly allowed: false; readonly reason: 'role_required'; readonly requiredRole: string };
 
 function fail(detail: string): never {
   throw new ConfigError('ARIA_INSTANCE_MANIFEST', detail);
@@ -84,9 +100,31 @@ function readRequiredString(source: Record<string, unknown>, key: string): strin
   return value.trim();
 }
 
-function parseGates(policy: Record<string, unknown>, path: string): ApprovalGate[] {
+function readStringArray(source: Record<string, unknown>, key: string, label: string): string[] {
+  const value = source[key];
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || item.trim() === '')) {
+    fail(`${label} must be an array of non-empty strings`);
+  }
+  return (value as string[]).map((item) => item.trim());
+}
+
+function parseRoles(policy: Record<string, unknown>, path: string): string[] {
+  const raw = policy['roles'];
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) fail(`approval policy at ${path} roles must be an array`);
+  return raw.map((entry, index) => {
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) fail(`approval policy roles[${index}] must be an object`);
+    const id = (entry as Record<string, unknown>)['id'];
+    if (typeof id !== 'string' || id.trim() === '') fail(`approval policy roles[${index}].id must be a non-empty string`);
+    return id.trim();
+  });
+}
+
+function parseGates(policy: Record<string, unknown>, path: string, roles: ReadonlyArray<string>): ApprovalGate[] {
   const raw = policy['gates'];
   if (!Array.isArray(raw)) fail(`approval policy at ${path} must declare a gates array`);
+  const seen = new Set<string>();
   return raw.map((entry, index) => {
     if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
       fail(`approval policy gates[${index}] must be an object`);
@@ -96,6 +134,8 @@ function parseGates(policy: Record<string, unknown>, path: string): ApprovalGate
     if (typeof actionClass !== 'string' || actionClass.trim() === '') {
       fail(`approval policy gates[${index}].action_class must be a non-empty string`);
     }
+    if (seen.has(actionClass.trim())) fail(`approval policy gates[${index}] (${actionClass}) is declared twice; one class has one owner`);
+    seen.add(actionClass.trim());
     const requiresRoleRaw = gate['requires_role'];
     if (requiresRoleRaw !== null && requiresRoleRaw !== undefined && typeof requiresRoleRaw !== 'string') {
       fail(`approval policy gates[${index}].requires_role must be a string or null`);
@@ -112,6 +152,15 @@ function parseGates(policy: Record<string, unknown>, path: string): ApprovalGate
     }
     if (requiresRole !== null && auto) {
       fail(`approval policy gates[${index}] (${actionClass}) is automatic yet names an approving role`);
+    }
+    // A gate owned by a role the policy never declared, or one the console has
+    // no way to authenticate, is a gate nobody can ever pass. Saying so at
+    // startup beats a lawyer discovering it as a permanent 403.
+    if (requiresRole !== null && roles.length > 0 && !roles.includes(requiresRole)) {
+      fail(`approval policy gates[${index}] (${actionClass}) requires role ${requiresRole}, which the policy's roles do not declare`);
+    }
+    if (requiresRole !== null && !isPrincipalRole(requiresRole)) {
+      fail(`approval policy gates[${index}] (${actionClass}) requires role ${requiresRole}, which this console cannot authenticate`);
     }
     const description = gate['description'];
     return {
@@ -151,8 +200,16 @@ export function loadInstancePolicy(env: NodeJS.ProcessEnv = process.env): Instan
     }
   }
 
+  const corpus = readObject(manifest, 'corpus');
+  const corpusExcludeRoots = corpus === null ? [] : readStringArray(corpus, 'exclude_roots', 'corpus.exclude_roots');
+
+  const surface = readObject(manifest, 'surface');
+  const console = surface === null ? null : readObject(surface, 'console');
+  const consoleModules = console === null ? [] : readStringArray(console, 'modules', 'surface.console.modules');
+
   const policies = readObject(manifest, 'policies');
   let approvalPolicyPath: string | null = null;
+  let roles: string[] = [];
   let gates: ApprovalGate[] = [];
   if (policies !== null) {
     const approval = policies['approval'];
@@ -161,7 +218,20 @@ export function loadInstancePolicy(env: NodeJS.ProcessEnv = process.env): Instan
       // The pointer is relative to the manifest, so an instance directory stays
       // movable as a unit.
       approvalPolicyPath = resolve(dirname(manifestPath), approval.trim());
-      gates = parseGates(readJson(approvalPolicyPath, 'approval policy'), approvalPolicyPath);
+      const policy = readJson(approvalPolicyPath, 'approval policy');
+      roles = parseRoles(policy, approvalPolicyPath);
+      gates = parseGates(policy, approvalPolicyPath, roles);
+    }
+  }
+
+  // A legal console with a class no gate governs would refuse that class
+  // forever (rule 2). That is a policy defect, and it is refused here where the
+  // operator can read it, not on a lawyer's screen as a 403.
+  if (consoleModules.includes('legal')) {
+    const governed = new Set(gates.map((gate) => gate.actionClass));
+    const ungoverned = LEGAL_ACTION_CLASSES.filter((actionClass) => !governed.has(actionClass));
+    if (ungoverned.length > 0) {
+      fail(`the legal console needs every legal action class governed; ${approvalPolicyPath ?? 'the approval policy'} leaves ${ungoverned.join(', ')} unnamed`);
     }
   }
 
@@ -171,14 +241,17 @@ export function loadInstancePolicy(env: NodeJS.ProcessEnv = process.env): Instan
     displayName,
     profileCeiling,
     allowActions,
+    corpusExcludeRoots: Object.freeze(corpusExcludeRoots),
+    consoleModules: Object.freeze(consoleModules),
     approvalPolicyPath,
+    roles: Object.freeze(roles),
     gates: Object.freeze(gates),
   });
 }
 
 /**
- * The effective action permission. The environment grants; the instance file may
- * only take away. Both must say yes.
+ * The effective KERNEL-CONTROL permission. The environment grants; the instance
+ * file may only take away. Both must say yes.
  */
 export function effectiveAllowActions(environmentAllows: boolean, policy: InstancePolicy | null): boolean {
   if (policy === null) return environmentAllows;
@@ -190,4 +263,19 @@ export function requiredRoleFor(policy: InstancePolicy | null, actionClass: stri
   if (policy === null) return null;
   const gate = policy.gates.find((candidate) => candidate.actionClass === actionClass);
   return gate === undefined ? null : gate.requiresRole;
+}
+
+/**
+ * Whether a principal holding `role` may perform `actionClass` under the policy.
+ *
+ * An automatic class is open to any authenticated principal; a role-owned class
+ * only to that role; a class the policy never names is refused. The last rule
+ * is the one that makes the policy an authority: silence is not consent.
+ */
+export function decideGate(policy: InstancePolicy, role: string, actionClass: string): GateDecision {
+  const gate = policy.gates.find((candidate) => candidate.actionClass === actionClass);
+  if (gate === undefined) return { allowed: false, reason: 'action_class_ungoverned', requiredRole: null };
+  if (gate.auto || gate.requiresRole === null) return { allowed: true, basis: 'automatic' };
+  if (gate.requiresRole === role) return { allowed: true, basis: 'role' };
+  return { allowed: false, reason: 'role_required', requiredRole: gate.requiresRole };
 }

@@ -88,7 +88,7 @@
       "required": ["profile_ceiling", "allow_actions", "tools_dir", "workspace_base"],
       "properties": {
         "profile_ceiling": { "enum": ["observe", "standard", "strict", "frozen", "autonomous"] },
-        "allow_actions": { "type": "boolean", "description": "Whether the console may run mutating kernel actions." },
+        "allow_actions": { "type": "boolean", "description": "Whether the console may run mutating KERNEL actions (cycle run, pause, resume). It never governs case work: those action classes are decided by the approval policy's gates, per class and per role, and a class the policy leaves unnamed is refused." },
         "tools_dir": { "type": "string", "description": "This instance's own ledger root. Never shared." },
         "workspace_base": { "type": "string" }
       }

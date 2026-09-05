@@ -1,24 +1,35 @@
-// Health context: the one place the SPA learns `actionsEnabled` and the runtime profile.
+// Health context: the one place the SPA learns what this console may do.
 //
-// WHY: mutating controls (pause/resume, cycle run) must be invisible unless the
-// server explicitly reports ARIA_UI_ALLOW_ACTIONS=1. Reading /health once at the
-// root and sharing it by context means no page can forget the check. The runtime
-// profile belongs here for the same reason: the shell shows it on every screen,
-// so it is fetched once above the router rather than per page.
-// WHAT: /health for version, tools dir and actions; /overview for the profile,
-// requested only when a token exists so the login screen makes no 401 call.
+// WHY: mutating controls must be invisible unless the server says they may be
+// used, and the server answers two different questions. Kernel control (pause,
+// resume, cycle run) hangs off `actionsEnabled` — the environment-and-manifest
+// switch. Case work hangs off /me: the instance's approval policy decides each
+// action class for the authenticated principal, and a legal control shown from
+// the kernel switch would be wrong in both directions (measured 2026-09-04: the
+// shipped legal manifest turns kernel control off, so every case control was
+// hidden while the policy that governed them was never asked). Reading both
+// once at the root and sharing them by context means no page can pick the
+// wrong switch. The runtime profile belongs here for the same reason.
+// WHAT: /health for version, tools dir, kernel control and the legal adapter's
+// readiness; /me and /overview only when a token exists, so the login screen
+// makes no 401 call.
 import { createContext, useCallback, useContext, type ReactNode } from 'react';
-import type { HealthResponse, RuntimeProfile } from '../../../shared/api-contract.ts';
-import { getHealth, getOverview } from '../api/client.ts';
+import type { HealthResponse, RuntimeProfile, WhoAmIResponse } from '../../../shared/api-contract.ts';
+import { getHealth, getMe, getOverview } from '../api/client.ts';
 import { useRequest, type RequestState } from '../api/use-request.ts';
+import { canPerform } from './permissions.ts';
 import { useToken } from './RequireAuth.tsx';
 
 export interface HealthContextValue {
   readonly state: RequestState<HealthResponse>;
-  /** Re-reads health and the runtime profile. */
+  /** Re-reads health, the principal and the runtime profile. */
   readonly reload: () => void;
-  /** False until health has loaded AND says actions are enabled. */
+  /** False until health has loaded AND says kernel control is enabled. */
   readonly actionsEnabled: boolean;
+  /** The authenticated principal; null before /me has answered or without a token. */
+  readonly me: WhoAmIResponse | null;
+  /** Whether the authenticated principal may perform an action class. False until /me has answered. */
+  readonly can: (actionClass: string) => boolean;
   /** Current runtime profile, verbatim from the kernel; null before it is known. */
   readonly profile: RuntimeProfile | null;
 }
@@ -28,6 +39,15 @@ const HealthContext = createContext<HealthContextValue | null>(null);
 export function HealthProvider({ children }: { readonly children: ReactNode }): ReactNode {
   const token = useToken();
   const { state, reload: reloadHealth } = useRequest(() => getHealth(), []);
+  const { state: meState, reload: reloadMe } = useRequest<WhoAmIResponse | null>(
+    async (signal) => {
+      if (token === null) {
+        return null;
+      }
+      return getMe(signal);
+    },
+    [token],
+  );
   const { state: profileState, reload: reloadProfile } = useRequest<RuntimeProfile | null>(
     async (signal) => {
       if (token === null) {
@@ -40,13 +60,16 @@ export function HealthProvider({ children }: { readonly children: ReactNode }): 
   );
 
   const actionsEnabled = state.status === 'success' && state.data.actionsEnabled;
+  const me = meState.status === 'success' ? meState.data : null;
   const profile = profileState.status === 'success' ? profileState.data : null;
+  const can = useCallback((actionClass: string) => canPerform(me, actionClass), [me]);
   const reload = useCallback(() => {
     reloadHealth();
+    reloadMe();
     reloadProfile();
-  }, [reloadHealth, reloadProfile]);
+  }, [reloadHealth, reloadMe, reloadProfile]);
 
-  return <HealthContext.Provider value={{ state, reload, actionsEnabled, profile }}>{children}</HealthContext.Provider>;
+  return <HealthContext.Provider value={{ state, reload, actionsEnabled, me, can, profile }}>{children}</HealthContext.Provider>;
 }
 
 export function useHealth(): HealthContextValue {

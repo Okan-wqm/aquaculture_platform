@@ -451,3 +451,28 @@ hepsi komut koşturup çıktısını gösterdi. Bu bölüm o sonuçtur; yumuşat
 | L-11 | Hukuk bulguları RAW deftere **giriyor** (5 satır ölçüldü); ulaşılamayan committed defter; `finding emit` CLI yok — kayıt yanlıştı |
 | L-19 | Yargıç zarfları hukuk bulguları için **basılıyor** (10 zarf ölçüldü); eksik olan tüketim (G-15) ve kabul (G-17) |
 
+---
+
+## F. Plan uygulaması (2026-09-05'ten itibaren, kanıtlı)
+
+Onaylı planın fazları; her satır koşturulmuş testle ve gerçek çekirdek duman testiyle
+bağlıdır. E bölümündeki hangi eksiği kapattığı belirtilir.
+
+### F.1 — Faz 1: dağıtılan profil çalışıyor
+
+| Kapanan | Nasıl | Kanıt |
+|---|---|---|
+| E.1 "yükleme çalışıyor" → **wired** | Yetki eylem sınıfıyla: `ui/server/src/gates.ts` her dava yolunda onay politikasını soruyor; `runtime.allow_actions` yalnız çekirdek kontrolü; politikaya `case_intake` kapısı eklendi; hukuk konsolu adlandırılmamış bir sınıfla açılmayı reddediyor | `gates.test.ts` 5, `legal-routes.test.ts` uçtan uca HTTP: dağıtılan manifestle `POST cases` 201, `POST actions/cycle` 403 |
+| Tek dava kimliği | `LEGAL_CASE_ID_PATTERN` tek kaynak; kas aynı metni restate ediyor ve testi eşitliği pinliyor; adapter'daki `case_` öneki kalktı | Adapter 22 test, golden yenilendi; duman: artifact `packs/legal/cases/sak-24-001` |
+| Konsol adapter'a tam girdi | `startLegalInventory` tutanağı (`intake`), manifestin `exclude_roots`'unu ve `cycle_id`'yi geçiyor | Rota testi argv'yi pinliyor; duman: 5/5 olayda `learnedAt`, `Ikke laste opp` dışlanmış, `case.cycleId` dolu |
+| Adapter kaydı otomatik | Konsol açılışta `aria tool register`; `/health.legal` registry'nin cevabı; kayıtsızken envanter 409 sebebiyle | `legal-readiness.test.ts` 6; duman: git'siz kökte sıfır operatör komutuyla `registered`, `tool list` SHADOW |
+| Okuma sınırında doğrulama (E.1 "makine verified yazamaz" → artifact da korunuyor) | `ui/shared/legal-artifact-validate.ts` sekiz artifact'ı şemaya göre doğruluyor; `verified` taşıyan makine artifact'ı `statement_provenance_invalid`; bilinmeyen adapter sürümü `legal_artifact_version_unknown`; alım tutanağı satırları cast değil parse | `legal-artifact-validate.test.ts` 4 (golden'lar geçiyor, elle `verified` reddediliyor), `legal.test.ts` 6 |
+| Tutanak kimliği | `x-aria-actor` başlığı kaldırıldı; `createdBy`/`receivedBy` = doğrulanmış principal | Duman: sahte başlıkla `createdBy: console-token-holder` |
+
+Ölçülen ve kayda geçen: `integrity migrate-tools-bootstrap` git'siz çalışma alanını
+reddediyor (`repo_resolution_failed`), `tool register` boş kökü kendisi kuruyor; bootstrap
+adımı bu yüzden yok ve testi bunu pinliyor.
+
+Faz 1'in **yapmadığı**: kimlik hâlâ tek token (operator rolü; Faz 4), karar defteri yok
+(Faz 5), alım zinciri imzasız (Faz 2), kronoloji/çelişki kusurları duruyor (Faz 3).
+

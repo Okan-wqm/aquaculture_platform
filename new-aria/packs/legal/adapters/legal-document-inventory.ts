@@ -52,7 +52,7 @@ import { diffVersions } from './records/version-diff';
 import { identityAmbiguities, partyCandidatesIn, type IdentityAmbiguity, type PartyCandidate } from './records/party-candidates';
 import { matrixRows } from './records/matrix';
 import type { HashedRead, WalkedFile, WalkResult } from './legal-archive';
-import { ADAPTER_ID, ADAPTER_VERSION, ARTIFACT_ROOT, DEFAULT_MAX_BINARY_BYTES, DEFAULT_MAX_TEXT_BYTES, EXTRACTION_STATUSES } from './legal-records';
+import { ADAPTER_ID, ADAPTER_VERSION, ARTIFACT_ROOT, CASE_ID_RE, DEFAULT_MAX_BINARY_BYTES, DEFAULT_MAX_TEXT_BYTES, EXTRACTION_STATUSES } from './legal-records';
 import type {
   ExtractionStatus,
   LegalCase,
@@ -69,7 +69,6 @@ import type {
   VersionOrdinalBasis,
 } from './legal-records';
 import {
-  CASE_ID_RE,
   MEDIA_TYPES,
   TEXT_EXTENSIONS,
   byteCompare,
@@ -910,7 +909,10 @@ export function runLegalDocumentInventory(input: LegalInventoryInput, cwd: strin
       return normalized;
     }),
   );
-  const caseId = `case_${caseSlug}`;
+  // The id is used as given: it names the artifact directory here and the
+  // intake directory in the console, and a prefix on one side alone split one
+  // case into two identities (measured 2026-09-04).
+  const caseId = caseSlug;
   const archiveRootPosix = normalizeRelative(archiveRootInput) || '.';
   const archiveRootAbs = resolve(cwd, archiveRootInput);
   const outDir = resolve(cwd, input.out_dir ?? process.env['ARIA_TOOLS_DIR'] ?? 'aria-tools');

@@ -9,6 +9,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import type { ServerConfig } from './config.ts';
+import type { Principal } from './principal.ts';
 import { HttpError } from './errors.ts';
 
 export type HttpMethod = 'GET' | 'POST';
@@ -17,6 +18,8 @@ export interface RequestContext {
   readonly req: IncomingMessage;
   readonly res: ServerResponse;
   readonly config: ServerConfig;
+  /** Who the server authenticated for this request; never taken from the request itself. */
+  readonly principal: Principal;
   readonly params: Readonly<Record<string, string>>;
   readonly query: URLSearchParams;
   readonly path: string;

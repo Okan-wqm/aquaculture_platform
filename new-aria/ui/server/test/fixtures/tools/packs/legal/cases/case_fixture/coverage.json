@@ -1,15 +1,15 @@
 {
   "caseId": "case_fixture",
-  "totalFiles": 9,
+  "totalFiles": 11,
   "byExtraction": {
-    "text": 6,
+    "text": 8,
     "metadata_only": 2,
     "unreadable": 0,
     "excluded": 1
   },
   "byKind": {
     "COMMUNICATION": 2,
-    "DOCUMENT": 5,
+    "DOCUMENT": 7,
     "FINANCIAL_LOSS": 1,
     "PROCEDURAL_STEP": 1
   },
@@ -18,12 +18,12 @@
   ],
   "unreadable": [
     {
-      "relativePath": "vedlegg/faktura_2024-001.pdf",
-      "reason": "no_text_extraction_for_extension:.pdf"
+      "relativePath": "vedlegg/forlikstilbud_kryptert.pdf",
+      "reason": "pdf_encrypted"
     },
     {
-      "relativePath": "vedlegg/klage_utkast.docx",
-      "reason": "no_text_extraction_for_extension:.docx"
+      "relativePath": "vedlegg/skannet_kvittering.pdf",
+      "reason": "pdf_no_text_layer:1_pages"
     }
   ],
   "complete": true

@@ -43,6 +43,12 @@
       "auto": false
     },
     {
+      "action_class": "case_intake",
+      "description": "Dava açmak ve belge almak: dosya arşive girer, alım tutanağına yazılır. Külliyatı okumaz, hukukî değerlendirme değildir; kimliği doğrulanmış her kullanıcı yapabilir ve tutanak onu adlandırır.",
+      "requires_role": null,
+      "auto": true
+    },
+    {
       "action_class": "corpus_inventory",
       "description": "Arşivi okuma, hash, envanter, kapsama raporu. Külliyata yazmaz.",
       "requires_role": null,

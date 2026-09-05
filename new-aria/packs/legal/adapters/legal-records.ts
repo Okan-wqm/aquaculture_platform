@@ -14,6 +14,16 @@ export const DEFAULT_MAX_TEXT_BYTES = 262144;
 /** Largest PDF/Office file loaded whole for text extraction; larger files are inventoried metadata_only with reason binary_too_large. */
 export const DEFAULT_MAX_BINARY_BYTES = 64 * 1024 * 1024;
 export const ARTIFACT_ROOT = 'packs/legal/cases' as const;
+/**
+ * The case id names this adapter's artifact directory AND the console's intake
+ * directory for the same case: one id, one pattern, both sides. The string is
+ * restated from ui/shared/legal-contract.ts LEGAL_CASE_ID_PATTERN because the
+ * pack may not import the console (extension point X-6); the adapter test pins
+ * the two texts equal. MEASURED 2026-09-04: a `case_` prefix added here alone
+ * gave one case two identities.
+ */
+export const CASE_ID_PATTERN = '^[a-z0-9][a-z0-9._-]{2,63}$' as const;
+export const CASE_ID_RE = new RegExp(CASE_ID_PATTERN);
 
 export type LegalRecordKind =
   | 'CASE'

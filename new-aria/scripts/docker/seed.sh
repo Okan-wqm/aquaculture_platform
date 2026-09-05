@@ -70,7 +70,7 @@ LEGAL_FIXTURE="$ARIA_HOME/packs/legal/fixtures/case-synthetic"
 if [ -f "$LEGAL_ADAPTER" ] && [ -d "$LEGAL_FIXTURE" ]; then
   (cd "$ARIA_HOME" && printf '{"archive_root":"%s","case_id":"demo-synthetic","title":"Sentetik demo davası","exclude_roots":["Ikke laste opp"],"out_dir":"%s"}' "$LEGAL_FIXTURE" "$TOOLS_DIR" \
     | npx ts-node --project tools/gates/tsconfig.json "$LEGAL_ADAPTER" > "$TOOLS_DIR/seed-${STAMP}.legal.json") \
-    && echo "seed: legal demo case written under $TOOLS_DIR/packs/legal/cases/case_demo-synthetic" \
+    && echo "seed: legal demo case written under $TOOLS_DIR/packs/legal/cases/demo-synthetic" \
     || echo "seed: legal adapter run exited non-zero (see $TOOLS_DIR/seed-${STAMP}.legal.json)"
 fi
 echo "seed: ok"

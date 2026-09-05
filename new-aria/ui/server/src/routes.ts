@@ -3,18 +3,27 @@
 // WHY: the contract (ui/shared/api-contract.ts + legal-contract.ts) is the single
 // description of the API; binding by the contract's own path strings means a
 // path typo here is a type error, not a 404 discovered in the browser.
+//
+// Authorization is per ACTION CLASS. Kernel control (cycle run, pause, resume)
+// answers to the environment-and-manifest switch; every case action answers to
+// the instance's approval policy through `requireGate`, which names the class
+// and the role it needs when it refuses. The principal a route writes into a
+// receipt is the one the server authenticated — a route never reads an
+// identity out of the request.
+//
 // WHAT: builds the compiled route list the server dispatches on.
 
 import type { IncomingMessage } from 'node:http';
 
-import type { HealthResponse } from '../../shared/api-contract.ts';
-import { DEFAULT_LIMIT, ENDPOINTS, LEDGER_SOURCES, MAX_LIMIT } from '../../shared/api-contract.ts';
+import type { HealthResponse, WhoAmIResponse } from '../../shared/api-contract.ts';
+import { DEFAULT_LIMIT, ENDPOINTS, KERNEL_CONTROL_ACTION_CLASS, LEDGER_SOURCES, MAX_LIMIT } from '../../shared/api-contract.ts';
 import type { LegalCaseCreatedResponse, LegalIntakeResponse, LegalUploadResponse } from '../../shared/legal-contract.ts';
 import { LEGAL_ENDPOINTS, LEGAL_UPLOAD_FILE_NAME_HEADER, LEGAL_UPLOAD_SOURCE_HEADER } from '../../shared/legal-contract.ts';
 import { control, doctor, integrityVerify, JobTable } from './actions.ts';
 import type { ServerConfig } from './config.ts';
 import { HttpError } from './errors.ts';
 import { existsInside, resolveInside } from './fsafe.ts';
+import { permissionsFor, requireGate } from './gates.ts';
 import {
   archiveRunRoot,
   createCase,
@@ -24,6 +33,8 @@ import {
   uploadDocument,
   verifyIntakeChain,
 } from './legal-intake.ts';
+import type { LegalReadinessHolder } from './legal-readiness.ts';
+import { readLegalReadiness, requireLegalAdapter } from './legal-readiness.ts';
 import { readAgentRequests } from './readers/agents.ts';
 import { readCycleDetail, readCycles } from './readers/cycles.ts';
 import { readFindings } from './readers/findings.ts';
@@ -71,29 +82,7 @@ function optionalString(body: Record<string, unknown>, field: string): string | 
   return value.trim() === '' ? null : value.trim();
 }
 
-/**
- * The console never claims to know who a request came from beyond the token it
- * carries. Recording that plainly is more honest than inventing an identity, and
- * an operator can supply their own name for the receipt.
- */
-function actorFrom(req: IncomingMessage): string {
-  const declared = singleHeader(req, 'x-aria-actor');
-  return declared !== undefined && declared.trim() !== '' ? declared.trim().slice(0, 120) : 'console-token-holder';
-}
-
-function requireActions(config: ServerConfig): void {
-  if (!config.allowActions) {
-    throw new HttpError(
-      403,
-      'actions_disabled',
-      config.instancePolicy !== null && !config.instancePolicy.allowActions
-        ? `the instance manifest ${config.instancePolicy.instanceId} sets runtime.allow_actions false`
-        : 'set ARIA_UI_ALLOW_ACTIONS=1 to enable mutating actions',
-    );
-  }
-}
-
-export function buildRoutes(config: ServerConfig, jobs: JobTable): ReadonlyArray<ReturnType<typeof compileRoute>> {
+export function buildRoutes(config: ServerConfig, jobs: JobTable, readiness: LegalReadinessHolder): ReadonlyArray<ReturnType<typeof compileRoute>> {
   const routes: Route[] = [
     {
       method: 'GET',
@@ -105,7 +94,19 @@ export function buildRoutes(config: ServerConfig, jobs: JobTable): ReadonlyArray
           version: config.version,
           toolsDirPresent: await existsInside(config.toolsDir),
           actionsEnabled: config.allowActions,
+          legal: await readLegalReadiness(config, readiness.boot),
           generatedAt: new Date().toISOString(),
+        };
+        sendJson(res, 200, body);
+      },
+    },
+    {
+      method: 'GET',
+      pattern: ENDPOINTS.me.path,
+      handler: async ({ res, principal }) => {
+        const body: WhoAmIResponse = {
+          principal: { id: principal.id, displayName: principal.displayName, role: principal.role },
+          permissions: permissionsFor(config, principal),
         };
         sendJson(res, 200, body);
       },
@@ -140,7 +141,8 @@ export function buildRoutes(config: ServerConfig, jobs: JobTable): ReadonlyArray
     {
       method: 'POST',
       pattern: ENDPOINTS.actionControl.path,
-      handler: async ({ req, res }) => {
+      handler: async ({ req, res, principal }) => {
+        requireGate(config, principal, KERNEL_CONTROL_ACTION_CLASS);
         const body = await readJsonBody(req);
         sendJson(res, 200, await control(config, String(body['verb'] ?? ''), String(body['reason'] ?? '')));
       },
@@ -148,7 +150,8 @@ export function buildRoutes(config: ServerConfig, jobs: JobTable): ReadonlyArray
     {
       method: 'POST',
       pattern: ENDPOINTS.actionCycle.path,
-      handler: async ({ req, res }) => {
+      handler: async ({ req, res, principal }) => {
+        requireGate(config, principal, KERNEL_CONTROL_ACTION_CLASS);
         const body = await readJsonBody(req);
         const cycleId = typeof body['cycleId'] === 'string' ? body['cycleId'] : undefined;
         sendJson(res, 202, jobs.startCycle(config, cycleId, body['discoveryOnly'] === true));
@@ -194,8 +197,8 @@ export function buildRoutes(config: ServerConfig, jobs: JobTable): ReadonlyArray
     {
       method: 'POST',
       pattern: LEGAL_ENDPOINTS.createCase.path,
-      handler: async ({ req, res }) => {
-        requireActions(config);
+      handler: async ({ req, res, principal }) => {
+        requireGate(config, principal, 'case_intake');
         const body = await readJsonBody(req);
         const created = await createCase(
           config.legalCasesDir,
@@ -205,7 +208,7 @@ export function buildRoutes(config: ServerConfig, jobs: JobTable): ReadonlyArray
             jurisdiction: optionalString(body, 'jurisdiction'),
             courtReference: optionalString(body, 'courtReference'),
             custodian: requireString(body, 'custodian'),
-            createdBy: actorFrom(req),
+            createdBy: principal.id,
           },
           new Date().toISOString(),
         );
@@ -216,14 +219,14 @@ export function buildRoutes(config: ServerConfig, jobs: JobTable): ReadonlyArray
     {
       method: 'POST',
       pattern: LEGAL_ENDPOINTS.uploadDocument.path,
-      handler: async ({ req, res, params }) => {
-        requireActions(config);
+      handler: async ({ req, res, params, principal }) => {
+        requireGate(config, principal, 'case_intake');
         const sourceNote = singleHeader(req, LEGAL_UPLOAD_SOURCE_HEADER);
         const outcome = await uploadDocument(req, {
           casesDir: config.legalCasesDir,
           caseId: requireParam(params, 'caseId'),
           fileName: decodeFileNameHeader(singleHeader(req, LEGAL_UPLOAD_FILE_NAME_HEADER)),
-          receivedBy: actorFrom(req),
+          receivedBy: principal.id,
           sourceNote: sourceNote === undefined || sourceNote.trim() === '' ? null : sourceNote.trim().slice(0, 500),
           maxBytes: config.maxUploadBytes,
           now: new Date().toISOString(),
@@ -235,11 +238,15 @@ export function buildRoutes(config: ServerConfig, jobs: JobTable): ReadonlyArray
     {
       method: 'POST',
       pattern: LEGAL_ENDPOINTS.runInventory.path,
-      handler: async ({ req, res, params }) => {
-        requireActions(config);
+      handler: async ({ req, res, params, principal }) => {
+        requireGate(config, principal, 'corpus_inventory');
         const caseId = requireParam(params, 'caseId');
         if ((await readCaseMeta(config.legalCasesDir, caseId)) === null) throw new HttpError(404, 'case_not_found', caseId);
+        // Refused here, with the kernel's reason, rather than spawning a run
+        // that would die inside the kernel with `tool not found`.
+        requireLegalAdapter(await readLegalReadiness(config, readiness.boot));
         const body = await readJsonBody(req);
+        const intake = (await readIntakeLedger(config.legalCasesDir, caseId)).map((row) => ({ relativePath: row.relativePath, receivedAt: row.receivedAt }));
         sendJson(
           res,
           202,
@@ -247,6 +254,8 @@ export function buildRoutes(config: ServerConfig, jobs: JobTable): ReadonlyArray
             caseId,
             archiveRoot: archiveRunRoot(config.workspaceRoot, config.legalCasesDir, caseId),
             title: optionalString(body, 'title'),
+            intake,
+            excludeRoots: config.instancePolicy === null ? [] : config.instancePolicy.corpusExcludeRoots,
           }),
         );
       },

@@ -199,7 +199,7 @@ export function CasesPage(): ReactNode {
           Every record here is a <em>statement</em> or a mechanical inference. No status other than <code>verified</code> is a fact, and rows sourced from{' '}
           <code>ai_inference</code> are not evidence. Occurred (<code>occurredAt</code>) and Learned (<code>learnedAt</code>) are kept in separate columns and never merged.
         </Callout>
-        {health.actionsEnabled ? <NewCaseForm onCreated={reload} /> : null}
+        {health.can('case_intake') ? <NewCaseForm onCreated={reload} /> : null}
         <AsyncState state={state} onRetry={reload} skeleton="stats" errorTitle="Could not load cases">
           {(data) => {
             const totals = data.cases.reduce(

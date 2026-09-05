@@ -18,6 +18,7 @@ import {
   type FindingsResponse,
   type GovernanceResponse,
   type HealthResponse,
+  type WhoAmIResponse,
   type HumanRequiredResponse,
   type JobResponse,
   type LedgersResponse,
@@ -50,6 +51,11 @@ export interface AgentRequestsQuery extends LimitQuery {
 
 export function getHealth(transport: Transport = defaultTransport): Promise<HealthResponse> {
   return requestJson<HealthResponse>(ENDPOINTS.health.path, {}, transport);
+}
+
+/** The authenticated principal and its per-class permissions; the SPA shows a control only when this says it may be used. */
+export function getMe(signal?: AbortSignal): Promise<WhoAmIResponse> {
+  return requestJson<WhoAmIResponse>(ENDPOINTS.me.path, { signal });
 }
 
 export function getOverview(signal?: AbortSignal): Promise<OverviewResponse> {

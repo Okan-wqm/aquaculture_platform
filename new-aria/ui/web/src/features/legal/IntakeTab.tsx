@@ -94,6 +94,9 @@ interface UploadReport {
 export function IntakeTab(): ReactNode {
   const { caseId, detail } = useCaseContext();
   const health = useHealth();
+  // The kernel's own word on whether it will run the inventory tool; the button
+  // is disabled with that word rather than failing after the click.
+  const adapter = health.state.status === 'success' ? health.state.data.legal : null;
   const { state, reload } = useRequest((signal) => getLegalIntake(caseId, signal), [caseId]);
   const [reports, setReports] = useState<ReadonlyArray<UploadReport>>([]);
   const [busy, setBusy] = useState(false);
@@ -163,7 +166,7 @@ export function IntakeTab(): ReactNode {
         finding, not a silent correction.
       </Callout>
 
-      {health.actionsEnabled ? (
+      {health.can('case_intake') ? (
         <Card title="Add documents" subtitle="Files are stored under this case's archive/ and never modified">
           <div
             className={`intake-drop${dragging ? ' intake-drop--active' : ''}`}
@@ -198,21 +201,31 @@ export function IntakeTab(): ReactNode {
               </ul>
             </div>
           ) : null}
+        </Card>
+      ) : (
+        <Callout tone="warning" title="Adding documents is not permitted for this account">
+          The instance&apos;s approval policy governs <code>case_intake</code>; the server reports that this principal may not perform it, so
+          the upload control stays hidden. This is a policy decision, not a display setting.
+        </Callout>
+      )}
+
+      {health.can('corpus_inventory') ? (
+        <Card title="Inventory" subtitle="Re-reads the archive through the kernel and rewrites this case's records">
+          {adapter === null || adapter.adapter === 'registered' ? null : (
+            <Callout tone="danger" title={`The legal adapter is ${adapter.adapter.replace('_', ' ')}`}>
+              {adapter.detail ?? 'The kernel will not run the inventory tool until this is resolved.'}
+            </Callout>
+          )}
           <Toolbar>
-            <button type="button" className="button" disabled={busy} onClick={() => void startInventory()}>
+            <button type="button" className="button" disabled={busy || (adapter !== null && adapter.adapter !== 'registered')} onClick={() => void startInventory()}>
               <Icon name="refresh" />
               Run inventory
             </button>
-            <span className="muted">Re-reads the archive through the kernel and rewrites this case&apos;s records.</span>
+            <span className="muted">The run carries this receipt, so every record learns its <code>learnedAt</code> from the arrival time recorded here.</span>
           </Toolbar>
           {inventory === null ? null : <MonoPanel label="Inventory run" text={inventory} />}
         </Card>
-      ) : (
-        <Callout tone="warning" title="This console is read-only">
-          Uploading documents and running an inventory change state, so they stay hidden until the server reports{' '}
-          <code>actionsEnabled</code>. The instance manifest can also withhold it independently of the environment.
-        </Callout>
-      )}
+      ) : null}
 
       <AsyncState state={state} onRetry={reload} skeleton="table" errorTitle="Could not read the intake receipt">
         {(data) => <IntakeReceipt data={data} />}

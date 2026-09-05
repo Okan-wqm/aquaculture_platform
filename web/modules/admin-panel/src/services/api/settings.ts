@@ -1,5 +1,5 @@
 /**
- * Settings API (System Settings, IP Access)
+ * Settings API (System Settings)
  * and System Settings API (Feature Toggles, Maintenance, Performance, Errors, Jobs)
  *
  * Tenant Config  -> api/tenant-config.ts  (tenantConfigApi)
@@ -13,7 +13,6 @@ import type {
   PaginatedResult,
   PaginationParams,
   DateRangeParams,
-  IpAccessRule,
   FeatureToggle,
   MaintenanceWindow,
   PerformanceDashboard,
@@ -65,19 +64,6 @@ export const settingsApi = {
   deleteEmailTemplate: emailTemplatesApi.deleteEmailTemplate,
   previewEmailTemplate: emailTemplatesApi.previewEmailTemplate,
   sendTestEmail: emailTemplatesApi.sendTestEmail,
-
-  // IP Access Rules
-  getIpAccessRules: (params?: { tenantId?: string; type?: string; isActive?: boolean } & PaginationParams) =>
-    apiFetch<PaginatedResult<IpAccessRule>>(`/settings/ip-access?${buildQueryString(params || {})}`),
-  getIpAccessRule: (id: string) => apiFetch<IpAccessRule>(`/settings/ip-access/${id}`),
-  createIpAccessRule: (data: Omit<IpAccessRule, 'id' | 'hitCount' | 'lastHitAt' | 'createdAt'>) =>
-    apiFetch<IpAccessRule>('/settings/ip-access', { method: 'POST', body: JSON.stringify(data) }),
-  updateIpAccessRule: (id: string, data: Partial<IpAccessRule>) =>
-    apiFetch<IpAccessRule>(`/settings/ip-access/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  deleteIpAccessRule: (id: string) =>
-    apiFetch<void>(`/settings/ip-access/${id}`, { method: 'DELETE' }),
-  checkIpAccess: (ip: string, tenantId?: string) =>
-    apiFetch<{ allowed: boolean; matchedRule?: IpAccessRule }>('/settings/ip-access/check', { method: 'POST', body: JSON.stringify({ ip, tenantId }) }),
 };
 
 export const systemSettingsApi = {

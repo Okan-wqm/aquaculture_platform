@@ -218,7 +218,6 @@ export const adminNavItems: NavigationItem[] = [
     children: [
       { id: 'settings-general', label: 'General', path: '/admin/settings', icon: 'settings' },
       { id: 'settings-email', label: 'Email Templates', path: '/admin/settings/email', icon: 'support' },
-      { id: 'settings-integrations', label: 'Integrations', path: '/admin/settings/integrations', icon: 'modules' },
       { id: 'settings-provisioning', label: 'Provisioning', path: '/admin/settings/provisioning', icon: 'system' },
     ],
   },

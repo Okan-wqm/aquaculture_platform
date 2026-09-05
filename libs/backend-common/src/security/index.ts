@@ -31,7 +31,7 @@ export * from './platform-admin-mfa-policy';
 // IP Validation (X-Forwarded-For, Proxy Support)
 export * from './ip-validation';
 
-// Validators (Input Validation, IDOR Protection)
+// Validators (Input Validation)
 export * from './validators';
 
 // GDPR Compliance (Consent Management, Data Subject Rights)

@@ -76,20 +76,6 @@ export interface EmailTemplate {
   updatedBy?: string;
 }
 
-export interface IpAccessRule {
-  id: string;
-  tenantId?: string;
-  ruleType: 'whitelist' | 'blacklist';
-  ipAddress: string;
-  description?: string;
-  isActive: boolean;
-  expiresAt?: string;
-  hitCount: number;
-  lastHitAt?: string;
-  createdBy?: string;
-  createdAt: string;
-}
-
 // ============================================================================
 // Feature Toggle Types
 // ============================================================================

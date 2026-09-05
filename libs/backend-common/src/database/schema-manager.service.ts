@@ -882,7 +882,6 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'maintenance_modes',
       'feature_toggles',
       'email_templates',
-      'ip_access_rules',
       'activity_logs',
       'security_events',
       'security_incidents',

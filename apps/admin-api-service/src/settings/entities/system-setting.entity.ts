@@ -106,48 +106,6 @@ export interface EmailTemplateVariable {
   defaultValue?: string;
 }
 
-/**
- * IP Access Rule entity for whitelist/blacklist
- */
-@Entity('ip_access_rules', { schema: 'admin' })
-@Index(['ipAddress'])
-@Index(['tenantId'])
-@Index(['ruleType'])
-export class IpAccessRule {
-  @PrimaryGeneratedColumn('uuid')
-  id!: string;
-
-  @Column({ nullable: true })
-  tenantId?: string; // null = global rule
-
-  @Column()
-  ipAddress!: string; // Can be CIDR notation: 192.168.1.0/24
-
-  @Column({ type: 'varchar', length: 20 })
-  ruleType!: 'whitelist' | 'blacklist';
-
-  @Column({ nullable: true })
-  description?: string;
-
-  @Column({ default: true })
-  isActive!: boolean;
-
-  @Column({ type: 'timestamptz', nullable: true })
-  expiresAt?: Date; // null = never expires
-
-  @Column({ type: 'int', default: 0 })
-  hitCount!: number;
-
-  @Column({ type: 'timestamptz', nullable: true })
-  lastHitAt?: Date;
-
-  @CreateDateColumn()
-  createdAt!: Date;
-
-  @Column({ nullable: true })
-  createdBy?: string;
-}
-
 // ============================================================================
 // Default System Settings
 // ============================================================================

@@ -134,13 +134,15 @@ impl ManifestVersionStore {
                 .map_err(|e| format!("ManifestVersionStore mkdir {}: {}", parent.display(), e))?;
         }
 
-        let conn = Connection::open(path)
-            .map_err(|e| format!("ManifestVersionStore open {}: {}", path.display(), e))?;
-
-        let hex_key = crate::offline_queue::derive_db_encryption_key()
-            .map_err(|e| format!("ManifestVersionStore key derivation: {}", e))?;
-        conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key))
-            .map_err(|e| format!("ManifestVersionStore PRAGMA key: {}", e))?;
+        // EDGE-HIGH-026: open + key via the canonical SQLCipher factory
+        // (v1 device-secret key, DEFAULT profile). The factory owns the
+        // PRAGMA key + durability sequence; this store creates its schema.
+        let conn = crate::db::sqlcipher_factory::open_device_secret(
+            path,
+            "manifest_version",
+            crate::db::sqlcipher_factory::PragmaProfile::DEFAULT,
+        )
+        .map_err(|e| format!("ManifestVersionStore open {}: {}", path.display(), e))?;
 
         // Two tables exist during the migration window:
         //   - `manifest_version` — the multi-stream table (current).
@@ -150,9 +152,6 @@ impl ManifestVersionStore {
         //     writes land exclusively in `manifest_version`.
         conn.execute_batch(
             "
-            PRAGMA journal_mode=WAL;
-            PRAGMA synchronous=NORMAL;
-            PRAGMA busy_timeout=5000;
             CREATE TABLE IF NOT EXISTS manifest_version (
                 stream_id    TEXT NOT NULL PRIMARY KEY,
                 highest_seen INTEGER NOT NULL CHECK (highest_seen >= 0),
@@ -464,6 +463,7 @@ mod tests {
                     return;
                 }
             };
+            // INVARIANT-ALLOW: sqlcipher-test-seed — seeds an encrypted fixture.
             conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key))
                 .expect("pragma key");
             conn.execute_batch(
@@ -514,6 +514,7 @@ mod tests {
                     return;
                 }
             };
+            // INVARIANT-ALLOW: sqlcipher-test-seed — seeds an encrypted fixture.
             conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key))
                 .expect("pragma key");
             conn.execute_batch(

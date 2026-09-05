@@ -6,7 +6,9 @@
  * - onModuleInit subscribes via the cross-tenant wildcard
  * - events with missing/invalid tenantId are rejected before any write
  * - the per-tenant AsyncLocalStorage context carries the derived schemaName
- * - service errors are swallowed (no NATS poison-message redelivery loop)
+ * - service errors are RETHROWN: `WaterQualityCritical` is a one-shot signal
+ *   (W7 / FARM-MEDIUM-260), so the message must reach the platform dead-letter stream (AQUACULTURE_DLQ)
+ *   rather than being dropped
  */
 
 // Mock the logging subpath BEFORE importing the handler so the context spy is
@@ -104,10 +106,19 @@ describe('WaterQualityCriticalEventHandler', () => {
     expect(service.recordCriticalWaterQuality).toHaveBeenCalledWith(event);
   });
 
-  it('swallows service errors so NATS does not redeliver a poison message', async () => {
+  /**
+   * W7 / FARM-MEDIUM-260 — the OPPOSITE of the behaviour this spec used to pin.
+   *
+   * `WaterQualityCritical` is classified `one_shot`: farm emits it per critical
+   * measurement, at write time, and no sweep re-raises it. Swallowing a handler
+   * error therefore deleted a life-safety signal outright. The handler now
+   * rethrows so the bus NAKs, retries, and finally shelves the message in
+   * the platform dead-letter stream instead of dropping it.
+   */
+  it('rethrows service errors so the one-shot signal reaches the dead-letter shelf', async () => {
     const { handler, service } = makeHandler();
     service.recordCriticalWaterQuality.mockRejectedValueOnce(new Error('db down'));
 
-    await expect(handler.handle(makeEvent(TENANT_ID))).resolves.toBeUndefined();
+    await expect(handler.handle(makeEvent(TENANT_ID))).rejects.toThrow('db down');
   });
 });

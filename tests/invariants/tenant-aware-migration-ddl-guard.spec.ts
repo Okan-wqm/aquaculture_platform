@@ -43,6 +43,10 @@ const REVIEWED_SOURCE_SCHEMA_DDL: ReadonlySet<string> = new Set([
   // 1802000000000 above (canonical `sensor` copy + every `tenant_*` copy). Not a
   // per-tenant table wrongly schema-qualified — the fan-out lands it everywhere.
   '1808000000000-AddVfdDeviceEdgeBinding.ts',
+  // SEC-MEDIUM-083: partial unique index on the per-tenant vfd_change_sets
+  // table — canonical `sensor` copy + tenant fan-out (same pattern as
+  // 1808000000000 above). Per-tenant, not misqualified.
+  '1818000000000-EnforceSingleActiveVfdChangeSet.ts',
   // SENSOR-HIGH-064: nullable config-ack tracking columns on the per-tenant
   // edge_devices table via the SAME source-template + tenant fan-out pattern
   // (canonical `sensor` copy + every `tenant_*` copy).

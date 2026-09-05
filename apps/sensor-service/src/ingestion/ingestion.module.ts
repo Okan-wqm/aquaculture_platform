@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AutomationModule } from '../automation/automation.module';
+import { SensorErasureModule } from '../compliance/erasure/erasure.module';
 import { SensorServiceConfigModule } from '../config/sensor-service-config.module';
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
 import { ProcessModule } from '../process/process.module';
@@ -35,6 +36,8 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
     ProcessModule, // For ScadaDeployLogService in MQTT response handling
     ReleaseBundleModule, // Faz 5 — bundle ack transitions in MQTT response handling
     SensorServiceConfigModule, // ADR-022 — exports SensorServiceProfileService
+    // Task 1.8: erased-tenant tombstone for the ingress ACK-drop gate.
+    SensorErasureModule,
     // Live-data producer (SENSOR-HIGH-046): TagValueFanoutService bridges
     // ingested metrics onto the /scada gateway's tenant-fenced fan-out.
     ScadaRuntimeModule,

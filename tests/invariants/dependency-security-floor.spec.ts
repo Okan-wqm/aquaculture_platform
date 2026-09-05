@@ -455,15 +455,26 @@ describe('JavaScript dependency security floor', () => {
     expect(manifest.overrides).toEqual({
       ...(manifest.overrides ?? {}),
       'socket.io-parser': '4.2.7',
-      'fast-uri': '3.1.5',
+      'fast-uri': '3.1.6',
       nanoid: '3.3.18',
       protobufjs: '7.6.5',
       esbuild: '^0.28.1',
+      browserslist: '^4.28.8',
     });
     expect(resolvedVersions(lock, 'socket.io-parser')).toEqual(['4.2.7']);
     expect(resolvedVersions(lock, 'protobufjs')).toEqual(['7.6.5']);
-    expect(resolvedVersions(lock, 'fast-uri')).toEqual(['3.1.5']);
+    expect(resolvedVersions(lock, 'fast-uri')).toEqual(['3.1.6']);
     expect(resolvedVersions(lock, 'nanoid')).toEqual(['3.3.18']);
+    // SUPPLY-HIGH-005: browserslist <=4.28.6 (GHSA-c83g-rgw3-j3cx, GHSA-73wf-gq98-2v4g)
+    // reaches the standalone workspace through the babel chain.
+    const browserslistVersions = resolvedVersions(lock, 'browserslist');
+    expect(browserslistVersions.length).toBeGreaterThan(0);
+    for (const version of browserslistVersions) {
+      expect({ version, safe: comparable(version) >= comparable('4.28.8') }).toEqual({
+        version,
+        safe: true,
+      });
+    }
     const esbuildVersions = resolvedVersions(lock, 'esbuild');
     expect(esbuildVersions.length).toBeGreaterThan(0);
     for (const version of esbuildVersions) {
@@ -481,6 +492,41 @@ describe('JavaScript dependency security floor', () => {
       });
     }
     expect(resolvedVersions(lock, 'brace-expansion')).toEqual(['2.1.4', '5.0.9']);
+  });
+
+  test('keeps the root production graph above the 2026-09 advisory floors', () => {
+    // SUPPLY-HIGH-006: the overnight advisory-DB update that turned the root
+    // production audit red — browserslist <=4.28.6, fast-uri 3.0.0-3.1.5,
+    // qs 2.2.5-6.15.3 (transitive) and sanitize-html 1.9.0-2.17.6 (direct).
+    // The floors live here so a lockfile refresh cannot slide back under them.
+    const root = readJson<PackageManifest>('package.json');
+    const lock = readJson<Lockfile>('package-lock.json');
+
+    expect(root.overrides?.browserslist).toBe('^4.28.8');
+    expect(root.overrides?.['fast-uri']).toBe('^3.1.6');
+    expect(root.overrides?.qs).toBe('^6.15.4');
+    expect(root.dependencies?.['sanitize-html']).toBe('^2.17.7');
+
+    const floors: Readonly<Record<string, string>> = {
+      browserslist: '4.28.8',
+      'fast-uri': '3.1.6',
+      qs: '6.15.4',
+      'sanitize-html': '2.17.7',
+    };
+    for (const [dependency, floor] of Object.entries(floors)) {
+      const versions = resolvedVersions(lock, dependency);
+      expect({ dependency, resolved: versions.length > 0 }).toEqual({
+        dependency,
+        resolved: true,
+      });
+      for (const version of versions) {
+        expect({ dependency, version, safe: comparable(version) >= comparable(floor) }).toEqual({
+          dependency,
+          version,
+          safe: true,
+        });
+      }
+    }
   });
 
   test('keeps the standalone E2E graph above its patched CI supply-chain floors', () => {

@@ -57,6 +57,24 @@ export class AuthPayload {
   mfaToken?: string;
 
   /**
+   * ADR-046: when true, the tenant enforces MFA and this user has no second
+   * factor enrolled. accessToken/refreshToken are empty and mfaSetupToken is
+   * provided so the user can complete enrollment (setupMfa + verifyMfaSetup)
+   * and then sign in again. A completable path — not a lockout.
+   */
+  @Field(() => Boolean, { nullable: true })
+  mfaSetupRequired?: boolean;
+
+  /**
+   * ADR-046: short-lived (10 min) JWT (type 'mfa_setup') that authorizes ONLY
+   * setupMfa + verifyMfaSetup for this user. Rejected as a bearer credential
+   * everywhere (enforceAccessTokenType) and rejected by verifyMfaLogin.
+   * Only present when mfaSetupRequired=true.
+   */
+  @Field(() => String, { nullable: true })
+  mfaSetupToken?: string;
+
+  /**
    * INTERNAL transport only — NOT a @Field, so it never enters the GraphQL SDL
    * or client codegen. Carries the session's "remember me" choice back to the
    * resolver so it can branch the refresh-cookie maxAge (persistent vs session).

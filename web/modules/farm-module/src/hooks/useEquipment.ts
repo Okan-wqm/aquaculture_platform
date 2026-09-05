@@ -9,6 +9,7 @@ import {
   useTenantQuery,
   type SpecificationSchema,
 } from '@aquaculture/shared-ui';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 
 // Types
 export interface EquipmentType {
@@ -117,12 +118,7 @@ export interface UpdateEquipmentInput extends Partial<CreateEquipmentInput> {
   id: string;
 }
 
-interface PaginatedResponse {
-  items: Equipment[];
-  total: number;
-  page: number;
-  limit: number;
-}
+type PaginatedResponse = PaginationResultV1<Equipment>;
 
 // GraphQL queries
 const EQUIPMENT_LIST_QUERY = `
@@ -203,6 +199,9 @@ const EQUIPMENT_LIST_QUERY = `
       total
       page
       limit
+      totalPages
+      hasNextPage
+      hasPreviousPage
     }
   }
 `;

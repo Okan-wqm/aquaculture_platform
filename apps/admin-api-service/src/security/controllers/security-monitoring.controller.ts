@@ -35,6 +35,7 @@ import {
   SecurityMonitoringService,
   SecurityDashboardStats,
 } from '../services/security-monitoring.service';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 
 // ============================================================================
 // DTOs
@@ -426,12 +427,7 @@ export class SecurityMonitoringController {
   @Get('events')
   async querySecurityEvents(
     @Query() query: QuerySecurityEventsDto,
-  ): Promise<{
-    data: SecurityEvent[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  ): Promise<PaginationResultV1<SecurityEvent>> {
     // Parse threat levels from comma-separated string
     const threatLevel = query.threatLevel
       ? (query.threatLevel.split(',') as ThreatLevel[])
@@ -495,13 +491,10 @@ export class SecurityMonitoringController {
       byStatus: {} as Record<string, number>,
     };
 
-    for (const event of result.data) {
-      stats.byThreatLevel[event.threatLevel] =
-        (stats.byThreatLevel[event.threatLevel] || 0) + 1;
-      stats.byEventType[event.eventType] =
-        (stats.byEventType[event.eventType] || 0) + 1;
-      stats.byStatus[event.status] =
-        (stats.byStatus[event.status] || 0) + 1;
+    for (const event of result.items) {
+      stats.byThreatLevel[event.threatLevel] = (stats.byThreatLevel[event.threatLevel] || 0) + 1;
+      stats.byEventType[event.eventType] = (stats.byEventType[event.eventType] || 0) + 1;
+      stats.byStatus[event.status] = (stats.byStatus[event.status] || 0) + 1;
     }
 
     return stats;
@@ -525,12 +518,7 @@ export class SecurityMonitoringController {
   @Get('incidents')
   async queryIncidents(
     @Query() query: QueryIncidentsDto,
-  ): Promise<{
-    data: SecurityIncident[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  ): Promise<PaginationResultV1<SecurityIncident>> {
     return this.securityMonitoringService.queryIncidents({
       page: query.page ? parseInt(String(query.page), 10) : 1,
       limit: query.limit ? parseInt(String(query.limit), 10) : 20,
@@ -577,11 +565,9 @@ export class SecurityMonitoringController {
       bySeverity: {} as Record<string, number>,
     };
 
-    for (const incident of result.data) {
-      stats.byStatus[incident.status] =
-        (stats.byStatus[incident.status] || 0) + 1;
-      stats.bySeverity[incident.severity] =
-        (stats.bySeverity[incident.severity] || 0) + 1;
+    for (const incident of result.items) {
+      stats.byStatus[incident.status] = (stats.byStatus[incident.status] || 0) + 1;
+      stats.bySeverity[incident.severity] = (stats.bySeverity[incident.severity] || 0) + 1;
     }
 
     return stats;
@@ -616,12 +602,7 @@ export class SecurityMonitoringController {
   @Get('threat-intelligence')
   async queryThreatIntelligence(
     @Query() query: QueryThreatIntelligenceDto,
-  ): Promise<{
-    data: ThreatIntelligence[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  ): Promise<PaginationResultV1<ThreatIntelligence>> {
     return this.securityMonitoringService.queryThreatIntelligence({
       page: query.page ? parseInt(String(query.page), 10) : 1,
       limit: query.limit ? parseInt(String(query.limit), 10) : 20,
@@ -670,7 +651,7 @@ export class SecurityMonitoringController {
       byThreatLevel: {} as Record<string, number>,
     };
 
-    for (const indicator of result.data) {
+    for (const indicator of result.items) {
       stats.byIndicatorType[indicator.indicatorType] =
         (stats.byIndicatorType[indicator.indicatorType] || 0) + 1;
       stats.byThreatLevel[indicator.threatLevel] =
@@ -740,8 +721,10 @@ export class SecurityMonitoringController {
       status: 'detected',
     });
 
-    // Sort by threat level (critical first) and date
-    return result.data.sort((a, b) => {
+    // Sort by threat level (critical first) and date. The page the authority
+    // issued is frozen and stays that way: this endpoint returns a NEW list in
+    // a different order, it does not reorder the page in place.
+    return Array.from(result.items).sort((a, b) => {
       const threatOrder: Record<ThreatLevel, number> = {
         critical: 0,
         high: 1,

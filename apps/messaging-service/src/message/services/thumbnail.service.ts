@@ -1,10 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  S3Client,
-  GetObjectCommand,
-  PutObjectCommand,
-} from '@aws-sdk/client-s3';
+import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import sharp, { type FormatEnum } from 'sharp';
 import { Readable } from 'stream';
 
@@ -13,11 +9,7 @@ const THUMB_WIDTH = 256;
 const THUMB_HEIGHT = 256;
 
 /** MIME types supported for thumbnail generation */
-const THUMBNABLE_MIME_TYPES = new Set<string>([
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-]);
+const THUMBNABLE_MIME_TYPES = new Set<string>(['image/jpeg', 'image/png', 'image/webp']);
 
 /** Map input MIME to sharp output format */
 const OUTPUT_FORMAT_MAP: Record<string, keyof FormatEnum> = {
@@ -32,6 +24,14 @@ const OUTPUT_FORMAT_MAP: Record<string, keyof FormatEnum> = {
  * Triggered after upload confirmation; fetches the original from S3/MinIO,
  * generates a 256x256 thumbnail, and stores it at {key}_thumb.{ext}.
  */
+/**
+ * SEC-MEDIUM-074 (2026-08-23 scan №19): hard ceiling on intrinsic pixel
+ * count. A crafted <=268MP image passes libvips' default limitInputPixels
+ * yet decodes to ~1GB RSS per request on the send path; anything above this
+ * cap is rejected before decode instead of spiking memory.
+ */
+export const MAX_IMAGE_PIXELS = 40_000_000;
+
 @Injectable()
 export class ThumbnailService {
   private readonly logger = new Logger(ThumbnailService.name);
@@ -91,10 +91,7 @@ export class ThumbnailService {
    * @param mimeType - MIME type of the original
    * @returns The storage key of the generated thumbnail, or null if generation failed
    */
-  async generateThumbnail(
-    storageKey: string,
-    mimeType: string,
-  ): Promise<string | null> {
+  async generateThumbnail(storageKey: string, mimeType: string): Promise<string | null> {
     if (!this.canGenerateThumbnail(mimeType)) {
       this.logger.debug(`Skipping thumbnail for unsupported MIME: ${mimeType}`);
       return null;

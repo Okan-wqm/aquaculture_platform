@@ -42,7 +42,7 @@ Nx monorepo: NestJS microservices (`apps/`), React microfrontends (`web/`), plat
 ### Backend Services (`apps/`) — 17 services (15 runtime + `sensor-ingestion` Rust sidecar + `db-migrate` CLI)
 | Service | Schema | Responsibility |
 |---|---|---|
-| `gateway-api` | — | API gateway, auth guard, rate limiting, CSP, OPA |
+| `gateway-api` | — | API gateway, auth guard, rate limiting, CSP |
 | `auth-service` | `auth` | JWT (RS256), RBAC, tenant provisioning, refresh rotation, MFA |
 | `farm-service` | `farm` | Farm, pond, batch, feed, harvest, water quality (schema-per-tenant) |
 | `sensor-service` | `sensor` | Sensor ingestion, calibration, aggregation, MQTT/LoRaWAN (schema-per-tenant) |
@@ -115,7 +115,7 @@ Each bounded context lives in `apps/{service}/src/{domain}/` with: `commands/`, 
 ## Schema Ownership (ADR-011) & Drift (ADR-012)
 
 - Per-tenant vs cross-tenant placement: see the CRITICAL block. The cross-tenant table set per service is `MODULE_SCHEMAS[].infrastructureTables` (`schema-manager.service.ts`) — do not hardcode a copy. Platform-level services (`auth`, `billing`, `admin`, `notification`, `event_store`, `observability`, `config`, `gateway`) always declare `schema:` explicitly.
-- Each service registers `SchemaDriftModule.forRoot({ serviceName: '<svc>' })`; the runtime validator fires at cold start; CI invariant `e2e/tests/integration/schema-invariants.spec.ts` runs every PR.
+- Each service registers `SchemaDriftModule.forRoot({ serviceName: '<svc>' })`; the runtime validator fires at cold start. `e2e/tests/integration/schema-invariants.spec.ts` runs per PR in `db-migration-check.yml`'s `schema-invariants` job (its own migrated Postgres); it had appeared only in that workflow's `paths:` filters and never in a `run:` step, so it triggered the workflow without ever executing (FARM-MEDIUM-303). `tests/invariants/test-target-ci-reachability.spec.ts` now covers root-`package.json` `test:*` scripts as well as Nx targets, so a test entrypoint nothing invokes fails the build. The other schema surface gated per PR is `tenant-schema-routing.architecture.spec.ts`, via farm-service's `test:integration`.
 - The `shared` schema holds ONLY the canonical cross-service tables enforced by `SHARED_SCHEMA_TABLES` in `schema-invariants.spec.ts` (+ `tests/invariants/shared-schema-canonical.spec.ts`) — that spec is the SSoT for the list and count. Adding one requires an ADR + architectural-arbiter approval AND updating that SSoT (W5 `add-shared-table` gate, BLOCKER-15).
 
 ## Migration Runners (ADR-011, ADR-012)
@@ -136,7 +136,7 @@ Event interfaces live in `libs/event-contracts/src/`. New event: add the interfa
 ## Test Rules
 
 - London School TDD: mock collaborators (`@platform/testing` factories). Test files: `{domain}/__tests__/*.spec.ts`.
-- Integration: `apps/{svc}/src/__tests__/integration/` or `e2e/tests/integration/`; E2E: `e2e/tests/`, `tests/e2e/`. The schema invariant test runs every PR. New feature → test first, then implement.
+- Integration: `apps/{svc}/src/__tests__/integration/` or `e2e/tests/integration/`; E2E: `e2e/tests/`, `tests/e2e/`. farm-service's integration lane (`test:integration` — Testcontainers suites + the schema-routing architecture spec) runs per PR via `ci-affected.yml`. A test target nothing invokes is not a gate: `tests/invariants/test-target-ci-reachability.spec.ts` enforces both directions (every `test*` target reachable from CI; every CI-driven target exists) — both failure modes are otherwise silently green. New feature → test first, then implement.
 
 ## Security
 

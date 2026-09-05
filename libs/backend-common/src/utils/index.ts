@@ -28,3 +28,4 @@ export {
   PG_ERROR_ROW_LEAK_PATTERN,
 } from './sanitize-pg-error.util';
 export type { SanitizedPgError } from './sanitize-pg-error.util';
+export { isValidIanaTimeZone, isValidBcp47Locale } from './timezone.util';

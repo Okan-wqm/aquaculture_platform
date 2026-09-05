@@ -117,24 +117,74 @@ export interface FeatureToggle {
   updatedAt: string;
 }
 
+/**
+ * A maintenance window, as `GET /system/settings/maintenance` returns it.
+ *
+ * Arbitrated against the `MaintenanceMode` entity
+ * (`apps/admin-api-service/src/system-management/entities/maintenance-mode.entity.ts`).
+ * This declaration had drifted from that entity on five points while
+ * `MaintenancePage` carried its own, more accurate, shadow copy of the same
+ * name — the two disagreed, and the page's double type assertion onto
+ * `MaintenanceWindow[]` was what stopped the compiler from saying so.
+ * `MaintenanceScope` includes `region`, `MaintenanceType` has five members
+ * rather than three, and `estimatedDurationMinutes`, `affectedTenants`,
+ * `affectedRegions`, `internalNotes` and `updatedAt` are real columns this
+ * type simply omitted. `createdBy` is nullable on the entity.
+ */
 export interface MaintenanceWindow {
   id: string;
   title: string;
   description: string;
-  scope: 'global' | 'tenant' | 'service';
-  type: 'scheduled' | 'emergency' | 'rolling';
+  scope: 'global' | 'tenant' | 'service' | 'region';
+  type: 'scheduled' | 'emergency' | 'rolling_update' | 'database_migration' | 'security_patch';
   status: MaintenanceStatus;
   tenantId?: string;
+  affectedTenants?: string[];
   affectedServices?: Array<{ name: string; status: string }>;
+  affectedRegions?: string[];
   scheduledStart: string;
   scheduledEnd?: string;
   actualStart?: string;
   actualEnd?: string;
+  estimatedDurationMinutes: number;
   userMessage?: string;
+  internalNotes?: string;
   allowReadOnlyAccess: boolean;
   bypassForSuperAdmins: boolean;
-  createdBy: string;
+  createdBy?: string;
   createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Exactly the fields `CreateMaintenanceDto`
+ * (`apps/admin-api-service/src/system-management/controllers/global-settings.controller.ts`)
+ * whitelists.
+ *
+ * Declared in its own right rather than as `Omit<MaintenanceWindow, …>`: a read
+ * model minus a few keys is not a write contract, and under the platform's
+ * `forbidNonWhitelisted: true` pipe every server-owned field the omission did
+ * not happen to name is a 400.
+ */
+export interface CreateMaintenanceWindowInput {
+  title: string;
+  description: string;
+  scope?: MaintenanceWindow['scope'];
+  type?: MaintenanceWindow['type'];
+  tenantId?: string;
+  affectedTenants?: string[];
+  affectedServices?: Array<{
+    name: string;
+    status: 'unavailable' | 'degraded' | 'read_only';
+    message?: string;
+  }>;
+  scheduledStart: string;
+  scheduledEnd?: string;
+  estimatedDurationMinutes?: number;
+  userMessage?: string;
+  allowReadOnlyAccess?: boolean;
+  bypassForSuperAdmins?: boolean;
+  whitelistedIPs?: string[];
 }
 
 export interface PerformanceMetrics {

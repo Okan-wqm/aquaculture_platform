@@ -2,6 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
+import {
+  getTenantSchemaName,
+  validateTenantSchemaName,
+} from '@aquaculture/backend-common/database';
+
 import { AggregatedMetric } from '../../database/entities/sensor-metric.entity';
 
 /**
@@ -65,6 +70,17 @@ export class MetricQueryService {
   ) {}
 
   /**
+   * The tenant's schema, via the platform SSoT — identical resolution to
+   * SensorMetricWriterService, so a metric is always read from the schema it
+   * was written to. The destination is a pure function of the row data;
+   * `validateTenantSchemaName` enforces the `tenant_<16 hex>` shape before the
+   * identifier reaches any SQL (CRITICAL-003).
+   */
+  private resolveTenantSchema(tenantId: string): string {
+    return validateTenantSchemaName(getTenantSchemaName(tenantId));
+  }
+
+  /**
    * Get optimal data source based on time range
    */
   getOptimalDataSource(startTime: Date, endTime: Date): DataSourceType {
@@ -105,6 +121,7 @@ export class MetricQueryService {
    */
   private async queryRawMetrics(options: MetricQueryOptions): Promise<AggregatedMetric[]> {
     const { sensorId, channelId, tenantId, tankId, startTime, endTime, limit = 1000 } = options;
+    const schema = this.resolveTenantSchema(tenantId);
 
     let query = `
       SELECT
@@ -120,7 +137,7 @@ export class MetricQueryService {
         1 AS "sampleCount",
         CASE WHEN quality_code >= 192 THEN 1 ELSE 0 END AS "goodCount",
         CASE WHEN quality_code >= 192 THEN 100.0 ELSE 0.0 END AS "qualityPct"
-      FROM sensor.sensor_metrics
+      FROM "${schema}".sensor_metrics
       WHERE tenant_id = $1
         AND time >= $2
         AND time <= $3
@@ -171,6 +188,8 @@ export class MetricQueryService {
       throw new Error(`Invalid data source: ${dataSource}`);
     }
 
+    const schema = this.resolveTenantSchema(tenantId);
+
     let query = `
       SELECT
         bucket,
@@ -185,7 +204,7 @@ export class MetricQueryService {
         sample_count AS "sampleCount",
         good_count AS "goodCount",
         quality_pct AS "qualityPct"
-      FROM sensor.${dataSource}
+      FROM "${schema}".${dataSource}
       WHERE tenant_id = $1
         AND bucket >= $2
         AND bucket <= $3
@@ -226,6 +245,7 @@ export class MetricQueryService {
    * Get current readings for a sensor
    */
   async getCurrentReadings(sensorId: string, tenantId: string): Promise<CurrentReading[]> {
+    const schema = this.resolveTenantSchema(tenantId);
     const query = `
       SELECT DISTINCT ON (m.channel_id)
         m.sensor_id AS "sensorId",
@@ -245,8 +265,8 @@ export class MetricQueryService {
           WHEN m.value > (c.alert_thresholds->>'warningHigh')::FLOAT THEN 'warning'
           ELSE 'normal'
         END AS "alertStatus"
-      FROM sensor.sensor_metrics m
-      JOIN sensor_data_channels c ON c.id = m.channel_id
+      FROM "${schema}".sensor_metrics m
+      JOIN "${schema}".sensor_data_channels c ON c.id = m.channel_id
       WHERE m.sensor_id = $1
         AND m.tenant_id = $2
         AND m.time > NOW() - INTERVAL '10 minutes'
@@ -261,6 +281,7 @@ export class MetricQueryService {
    * Get current readings for a tank (all sensors)
    */
   async getTankCurrentReadings(tankId: string, tenantId: string): Promise<CurrentReading[]> {
+    const schema = this.resolveTenantSchema(tenantId);
     const query = `
       SELECT DISTINCT ON (m.sensor_id, m.channel_id)
         m.sensor_id AS "sensorId",
@@ -280,8 +301,8 @@ export class MetricQueryService {
           WHEN m.value > (c.alert_thresholds->>'warningHigh')::FLOAT THEN 'warning'
           ELSE 'normal'
         END AS "alertStatus"
-      FROM sensor.sensor_metrics m
-      JOIN sensor_data_channels c ON c.id = m.channel_id
+      FROM "${schema}".sensor_metrics m
+      JOIN "${schema}".sensor_data_channels c ON c.id = m.channel_id
       WHERE m.tank_id = $1
         AND m.tenant_id = $2
         AND m.time > NOW() - INTERVAL '10 minutes'
@@ -318,13 +339,14 @@ export class MetricQueryService {
     // SECURITY: Clamp inputs to safe ranges
     const safeCount = Math.min(Math.max(1, count), 10000);
     const safeLookback = Math.min(Math.max(1, lookbackHours), 8760); // max 1 year
+    const schema = this.resolveTenantSchema(tenantId);
 
     const query = `
       SELECT
         time,
         value,
         quality_code AS "qualityCode"
-      FROM sensor.sensor_metrics
+      FROM "${schema}".sensor_metrics
       WHERE channel_id = $1
         AND tenant_id = $2
         AND time >= NOW() - make_interval(hours => $3)
@@ -361,6 +383,8 @@ export class MetricQueryService {
       throw new Error(`Invalid data source: ${dataSource}`);
     }
 
+    const schema = this.resolveTenantSchema(tenantId);
+
     let query: string;
 
     if (dataSource === DataSourceType.RAW) {
@@ -372,7 +396,7 @@ export class MetricQueryService {
           STDDEV(value) AS stddev,
           COUNT(*) AS count,
           (COUNT(*) FILTER (WHERE quality_code >= 192)::FLOAT / NULLIF(COUNT(*), 0) * 100) AS "qualityPct"
-        FROM sensor.sensor_metrics
+        FROM "${schema}".sensor_metrics
         WHERE channel_id = $1
           AND tenant_id = $2
           AND time >= $3
@@ -387,7 +411,7 @@ export class MetricQueryService {
           SQRT(AVG(POWER(COALESCE(stddev_value, 0), 2))) AS stddev,
           SUM(sample_count) AS count,
           AVG(quality_pct) AS "qualityPct"
-        FROM sensor.${dataSource}
+        FROM "${schema}".${dataSource}
         WHERE channel_id = $1
           AND tenant_id = $2
           AND bucket >= $3
@@ -403,7 +427,12 @@ export class MetricQueryService {
       count: number;
       qualityPct: number;
     }
-    const results: ChannelStats[] = await this.dataSource.query(query, [channelId, tenantId, startTime, endTime]);
+    const results: ChannelStats[] = await this.dataSource.query(query, [
+      channelId,
+      tenantId,
+      startTime,
+      endTime,
+    ]);
     return results[0] || { avg: 0, min: 0, max: 0, stddev: 0, count: 0, qualityPct: 0 };
   }
 
@@ -440,6 +469,7 @@ export class MetricQueryService {
       `Trend query using ${dataSource} with ${bucketSize} buckets for ${maxPoints} max points`,
     );
 
+    const schema = this.resolveTenantSchema(tenantId);
     const query = `
       SELECT
         bucket,
@@ -452,7 +482,7 @@ export class MetricQueryService {
         last_value AS "lastValue",
         sample_count AS "sampleCount",
         quality_pct AS "qualityPct"
-      FROM sensor.${dataSource}
+      FROM "${schema}".${dataSource}
       WHERE channel_id = $1
         AND tenant_id = $2
         AND bucket >= $3

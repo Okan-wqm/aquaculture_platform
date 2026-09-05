@@ -183,7 +183,7 @@ function getDayDatesForWeek(week: number, year: number): string[] {
 }
 
 /** Extract batches from tanks data */
-function extractBatchOptions(tanks: Tank[] | undefined): BatchOption[] {
+function extractBatchOptions(tanks: readonly Tank[] | undefined): BatchOption[] {
   if (!tanks) return [];
   const options: BatchOption[] = [];
   for (const tank of tanks) {

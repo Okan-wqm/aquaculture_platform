@@ -37,9 +37,9 @@
 use anyhow::Result;
 use tracing::{debug, info, warn};
 
-use crate::mqtt::IncomingMessage;
+use crate::mqtt::{CommandMessage, IncomingMessage};
 
-use super::{command_acceptance, envelope_adapter};
+use super::envelope_adapter;
 
 impl super::CommandHandler {
     /// Handle one incoming MQTT message — topic-dispatch + the full
@@ -97,12 +97,20 @@ impl super::CommandHandler {
                 return Ok(());
             }
 
-            // Command acceptance is centralized at the trust
-            // boundary. Enforcing mode requires a tenant-bound,
-            // verified CommandEnvelope; permissive and disabled
-            // modes retain the legacy CommandMessage path. Every
-            // rejection returns before deduplication or execution.
-            let (signature_mode, tenant_bytes, rbac_store, max_age_secs, max_skew_secs) = {
+            // Batch 63 Sprint 6.4 partial: envelope-first
+            // parse. The adapter tries CommandEnvelope format;
+            // falls back to legacy CommandMessage on non-
+            // envelope payloads. Envelope payloads run
+            // through verify_envelope's 7 gates (cmd bounds,
+            // jti format, nonce bounds, freshness window,
+            // tenant binding, cmd_hash match, signature-mode
+            // rule) BEFORE reaching the legacy dispatch path.
+            //
+            // Architectural upgrade (not patch): both formats
+            // continue to work; signed envelopes get stronger
+            // gates while legacy CommandMessage retains HC-1
+            // backward compat.
+            let (signature_mode, tenant_bytes, rbac_store) = {
                 let state = self.state.read().await;
                 let tenant_bytes =
                     envelope_adapter::tenant_id_bytes_or_none(state.tenant_id.as_deref());
@@ -114,23 +122,136 @@ impl super::CommandHandler {
                     state.config.signature_mode,
                     tenant_bytes,
                     state.rbac_manifest_store.clone(),
-                    state.config.runtime.max_command_age_secs as i64,
-                    state.config.runtime.max_command_skew_secs as i64,
                 )
             };
 
-            let command = match command_acceptance::decode_command(
-                &message.payload,
-                tenant_bytes,
-                signature_mode,
-                &rbac_store,
-            ) {
-                Ok(command) => command,
-                Err(reason) => {
-                    warn!("Rejecting MQTT command before side effects: reason={reason}");
-                    return Ok(());
+            let command: CommandMessage = if let Some(tenant_bytes) = tenant_bytes {
+                match envelope_adapter::try_parse_and_verify(
+                    &message.payload,
+                    tenant_bytes,
+                    signature_mode,
+                    &rbac_store,
+                ) {
+                    envelope_adapter::AdapterOutcome::NotEnvelopeFormat => {
+                        // SEC-HIGH-057 (2026-08-23 scan №2): Enforcing mode
+                        // REJECTS every non-envelope payload — the entire
+                        // point of the mode is that only signed envelopes
+                        // execute. This is a strict superset of the
+                        // per-command LegacyPolicy gate below, which keeps
+                        // governing Permissive/Disabled.
+                        if signature_mode
+                            == crate::command_envelope::envelope::SignatureMode::Enforcing
+                        {
+                            warn!(
+                                "ENFORCING: rejected non-envelope payload on {} (unsigned legacy path forbidden)",
+                                message.topic
+                            );
+                            return Ok(());
+                        }
+                        // Disabled/Permissive: legacy path — CommandMessage parse.
+                        match serde_json::from_slice::<CommandMessage>(&message.payload) {
+                            Ok(cmd) => {
+                                // EDGE-CRITICAL-003: the legacy JSON path
+                                // carries no signature, so the catalog
+                                // LegacyPolicy still applies — DenyAlways
+                                // commands are forbidden even under
+                                // Permissive/Disabled.
+                                if let Err(reason) = super::catalog::legacy_command_permitted(
+                                    &cmd.command,
+                                    signature_mode,
+                                ) {
+                                    warn!(
+                                        "Rejecting unsigned legacy command '{}': {}",
+                                        cmd.command, reason
+                                    );
+                                    return Ok(());
+                                }
+                                cmd
+                            }
+                            Err(e) => {
+                                warn!(
+                                    "Failed to parse command (neither envelope nor legacy): {}",
+                                    e
+                                );
+                                return Ok(());
+                            }
+                        }
+                    }
+                    envelope_adapter::AdapterOutcome::Verified(adapted) => {
+                        // EDGE-HIGH-009: the signature proved WHO signed
+                        // (authN); now enforce that the actor's manifest
+                        // role HOLDS the required permission (authZ).
+                        // Previously the permission was computed and only
+                        // logged, so any enrolled operator could run any
+                        // command. Deny / engine error → fail closed.
+                        if let Err(reason) = envelope_adapter::authorize_adapted(
+                            &adapted,
+                            tenant_bytes,
+                            rbac_store.clone(),
+                        )
+                        .await
+                        {
+                            warn!(
+                                "Rejecting command '{}' (id {}): RBAC {}",
+                                adapted.command, adapted.command_id, reason
+                            );
+                            return Ok(());
+                        }
+                        // Authorized. Project into CommandMessage shape so
+                        // the existing execute_command dispatch path stays
+                        // unchanged. Batch #307: propagate the verified-
+                        // co-approver flag so cmd_force_value (and other
+                        // two-person-integrity handlers) can gate on it.
+                        CommandMessage {
+                            command_id: adapted.command_id,
+                            command: adapted.command,
+                            params: adapted.params,
+                            timestamp: adapted.timestamp,
+                            verified_co_approver: adapted.verified_co_approver,
+                        }
+                    }
+                    envelope_adapter::AdapterOutcome::VerifyFailed(err) => {
+                        warn!("Rejecting CommandEnvelope: verify_envelope Err={:?}", err);
+                        return Ok(());
+                    }
+                }
+            } else {
+                // tenant_id unavailable (provisioning
+                // incomplete) — envelope verify can't run
+                // (Gate 5 tenant binding requires it). Fall
+                // back to legacy parse until provisioning
+                // completes. This matches pre-Batch-63 behavior
+                // for pre-provisioning bootstrap commands.
+                match serde_json::from_slice::<CommandMessage>(&message.payload) {
+                    Ok(cmd) => {
+                        // EDGE-CRITICAL-003: even pre-provisioning the
+                        // unsigned legacy path must honor the
+                        // LegacyPolicy — an un-provisioned device must
+                        // not run unsigned mutating commands in
+                        // Enforcing. Bootstrap commands (ping/get_info =
+                        // AllowUnsignedInEnforcing) still pass.
+                        if let Err(reason) =
+                            super::catalog::legacy_command_permitted(&cmd.command, signature_mode)
+                        {
+                            warn!(
+                                "Rejecting unsigned legacy command '{}' (pre-provisioning): {}",
+                                cmd.command, reason
+                            );
+                            return Ok(());
+                        }
+                        cmd
+                    }
+                    Err(e) => {
+                        warn!("Failed to parse command: {}", e);
+                        return Ok(());
+                    }
                 }
             };
+
+            info!(
+                "Executing command: {} (id: {})",
+                command.command, command.command_id
+            );
 
             // IEC 62443 SL-2 FR-7: Command replay protection.
             // MQTT QoS 1 can re-deliver the same message. Reject:
@@ -143,20 +264,38 @@ impl super::CommandHandler {
             // config-driven via config.runtime.max_command_age_secs
             // + max_command_skew_secs. Pre-Batch-34 both were
             // hardcoded (300s / 60s).
-            if let Err(reason) = command_acceptance::validate_command_timestamp(
-                &command.timestamp,
-                chrono::Utc::now(),
-                max_age_secs,
-                max_skew_secs,
-            ) {
-                warn!("Rejecting MQTT command before side effects: reason={reason}");
-                return Ok(());
+            let (max_age_secs, max_skew_secs) = {
+                let state_guard = self.state.read().await;
+                (
+                    state_guard.config.runtime.max_command_age_secs as i64,
+                    state_guard.config.runtime.max_command_skew_secs as i64,
+                )
+            };
+            // SEC-HIGH-057 (№2): unparseable timestamp previously SILENTLY
+            // SKIPPED the replay age check — hard-fail instead.
+            match chrono::DateTime::parse_from_rfc3339(&command.timestamp) {
+                Ok(cmd_time) => {
+                    let age = chrono::Utc::now().signed_duration_since(cmd_time);
+                    if age.num_seconds() > max_age_secs || age.num_seconds() < -max_skew_secs {
+                        warn!(
+                            "Rejecting stale/future command: {} age={}s (id: {}, max_age={}s, max_skew={}s)",
+                            command.command,
+                            age.num_seconds(),
+                            command.command_id,
+                            max_age_secs,
+                            max_skew_secs
+                        );
+                        return Ok(());
+                    }
+                }
+                Err(_) => {
+                    warn!(
+                        "Rejecting command with unparseable timestamp '{}': replay window cannot be enforced (id: {})",
+                        command.timestamp, command.command_id
+                    );
+                    return Ok(());
+                }
             }
-
-            info!(
-                "Executing command: {} (id: {})",
-                command.command, command.command_id
-            );
             // Batch 60 Sprint 6.4 foundation: command_id dedup
             // UPGRADED to use MokaJtiDedupTable when available
             // (signature_mode != Disabled). Legacy path (the

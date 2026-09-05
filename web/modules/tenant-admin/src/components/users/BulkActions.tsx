@@ -1,5 +1,9 @@
 import React, { useState, useCallback } from 'react';
-import { RefreshCw, UserMinus } from 'lucide-react';
+import { RefreshCw, UserMinus, ShieldCheck } from 'lucide-react';
+
+import type { TenantRole } from '../../lib/types';
+import type { BulkAssignRoleResult } from '../../lib/types';
+import { DeleteConfirmModal } from '../common';
 
 export interface BulkDeactivateResult {
   userId: string;
@@ -10,9 +14,21 @@ export interface BulkDeactivateResult {
 export interface BulkActionsProps {
   selectedUsers: string[];
   onDeactivate: (userId: string) => Promise<void>;
+  /**
+   * Bulk role assignment (ADMIN-MEDIUM-016). The page-level handler runs the
+   * mutation and reports the outcome; the resolved result lets this component
+   * clear the selection ONLY when every user succeeded, so a partial failure
+   * keeps the batch selected for a retry.
+   */
+  onAssignRole: (roleId: string) => Promise<BulkAssignRoleResult>;
   onClearSelection: () => void;
   isDeactivating: boolean;
+  isAssigningRole: boolean;
+  roles: TenantRole[];
   canDeactivateUsers: boolean;
+  /** Gated separately: assigning a role is an authorization change, not a
+   *  deactivation. */
+  canAssignRoles: boolean;
 }
 
 /**
@@ -23,12 +39,18 @@ export interface BulkActionsProps {
 export const BulkActions: React.FC<BulkActionsProps> = ({
   selectedUsers,
   onDeactivate,
+  onAssignRole,
   onClearSelection,
   isDeactivating,
+  isAssigningRole,
+  roles,
   canDeactivateUsers,
+  canAssignRoles,
 }) => {
   const [results, setResults] = useState<BulkDeactivateResult[]>([]);
   const [running, setRunning] = useState(false);
+  const [selectedRoleId, setSelectedRoleId] = useState('');
+  const [isAssignConfirmOpen, setIsAssignConfirmOpen] = useState(false);
 
   const handleBulkDeactivate = useCallback(async () => {
     if (selectedUsers.length === 0 || !canDeactivateUsers) return;
@@ -55,16 +77,70 @@ export const BulkActions: React.FC<BulkActionsProps> = ({
     }
   }, [selectedUsers, canDeactivateUsers, onDeactivate, onClearSelection]);
 
-  if (selectedUsers.length === 0 || !canDeactivateUsers) return null;
+  const handleConfirmAssignRole = useCallback(async () => {
+    if (!selectedRoleId || selectedUsers.length === 0 || !canAssignRoles) return;
+    try {
+      const result = await onAssignRole(selectedRoleId);
+      setIsAssignConfirmOpen(false);
+      // Partial success keeps the selection: the admin retries the batch and
+      // the already-assigned users are idempotent on the server.
+      if (result.failed.length === 0) {
+        setSelectedRoleId('');
+        onClearSelection();
+      }
+    } catch {
+      // The page-level handler surfaced the failure; keep the selection.
+      setIsAssignConfirmOpen(false);
+    }
+  }, [selectedRoleId, selectedUsers, canAssignRoles, onAssignRole, onClearSelection]);
+
+  if (selectedUsers.length === 0 || (!canDeactivateUsers && !canAssignRoles)) return null;
 
   const failedCount = results.filter((r) => r.status === 'rejected').length;
   const successCount = results.filter((r) => r.status === 'fulfilled').length;
+  const selectedRole = roles.find((role) => role.id === selectedRoleId);
 
   return (
     <div className="bg-tenant-50 rounded-xl p-4 space-y-2">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <span className="text-sm text-tenant-700">{selectedUsers.length} user(s) selected</span>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {canAssignRoles && (
+            <>
+              <select
+                aria-label="Role to assign"
+                value={selectedRoleId}
+                onChange={(e) => setSelectedRoleId(e.target.value)}
+                disabled={isAssigningRole}
+                className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-hidden focus:ring-2 focus:ring-tenant-500 disabled:opacity-50"
+              >
+                <option value="">Select role...</option>
+                {roles.map((role) => (
+                  <option key={role.id} value={role.id}>
+                    {role.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={() => setIsAssignConfirmOpen(true)}
+                disabled={!selectedRoleId || isAssigningRole}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-tenant-700 bg-tenant-100 rounded-lg hover:bg-tenant-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isAssigningRole ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    Assigning...
+                  </>
+                ) : (
+                  <>
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    Assign role
+                  </>
+                )}
+              </button>
+            </>
+          )}
+          {canDeactivateUsers && (
           <button
             onClick={handleBulkDeactivate}
             disabled={isDeactivating || running}
@@ -82,6 +158,7 @@ export const BulkActions: React.FC<BulkActionsProps> = ({
               </>
             )}
           </button>
+          )}
         </div>
       </div>
       {results.length > 0 && failedCount > 0 && (
@@ -97,6 +174,18 @@ export const BulkActions: React.FC<BulkActionsProps> = ({
           </ul>
         </div>
       )}
+
+      <DeleteConfirmModal
+        isOpen={isAssignConfirmOpen}
+        onClose={() => setIsAssignConfirmOpen(false)}
+        onConfirm={handleConfirmAssignRole}
+        title="Assign Role"
+        message={`Assign the role "${selectedRole?.name ?? ''}" to ${selectedUsers.length} selected user(s)? Existing role assignments will be replaced.`}
+        confirmLabel="Assign Role"
+        cancelLabel="Cancel"
+        variant="warning"
+        isLoading={isAssigningRole}
+      />
     </div>
   );
 };

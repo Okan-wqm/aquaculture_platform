@@ -65,9 +65,14 @@ export function isStandingStockStale(periodEndIso: string, now: Date): boolean {
   return periodEnd.getTime() < freshFloor;
 }
 
-export function round2(value: number): number {
-  return Math.round(value * 100) / 100;
-}
+/**
+ * Re-exported, not redeclared: six assemblers import `round2` from here, and
+ * keeping that path costs nothing once the implementation is shared. A local
+ * copy is what the rounding SSoT gate forbids — this file's own copy omitted the
+ * `Number.EPSILON` term the canonical one carries, so regulatory reports rounded
+ * boundary values differently from the rest of farm-service.
+ */
+export { round2 } from '../../common/utils/rounding.util';
 
 /** ISO-8601 year + week of a calendar date (Thursday-anchored). */
 export function isoWeekOf(date: Date): { isoYear: number; isoWeek: number } {

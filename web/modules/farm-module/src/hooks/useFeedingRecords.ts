@@ -14,6 +14,7 @@ import {
   CREATE_FEEDING_RECORD_MUTATION,
   UPDATE_FEEDING_RECORD_MUTATION,
 } from '../graphql/feeding.operations';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 
 // ============================================================================
 // TYPES
@@ -136,15 +137,8 @@ export interface FeedingSummaryResponse {
   byFeedType: FeedTypeSummary[];
 }
 
-export interface FeedingRecordConnection {
-  items: FeedingRecord[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-  hasNextPage: boolean;
-  hasPreviousPage: boolean;
-}
+export type FeedingRecordConnection = PaginationResultV1<FeedingRecord>;
+
 
 
 // Input types

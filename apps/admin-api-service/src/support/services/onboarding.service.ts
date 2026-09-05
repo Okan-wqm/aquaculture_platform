@@ -14,6 +14,10 @@ import {
   OnboardingStep,
   TrainingSession,
 } from '../entities/support.entity';
+import {
+  createStandardPaginatedResult,
+  type PaginationResultV1,
+} from '@platform/pagination-contracts';
 
 // ============================================================================
 // Onboarding Steps Configuration
@@ -259,12 +263,7 @@ export class OnboardingService {
     page?: number;
     limit?: number;
     status?: OnboardingStatus;
-  }): Promise<{
-    data: OnboardingProgress[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  }): Promise<PaginationResultV1<OnboardingProgress>> {
     const { page = 1, limit = 20, status } = options;
 
     const where: Record<string, unknown> = {};
@@ -277,7 +276,7 @@ export class OnboardingService {
       take: limit,
     });
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult<OnboardingProgress>(data, total, page, limit);
   }
 
   /**

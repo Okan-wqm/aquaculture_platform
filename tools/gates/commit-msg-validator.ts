@@ -38,6 +38,7 @@ import { execFileSync, execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import { loadFindingIdAliasMap } from './finding-id-aliases';
 import { ORPHAN_MD_HEADING_REGEX, readOrphanMarkdownStore } from './finding-registry-store';
 
 // Resolve repo root via `git rev-parse --show-toplevel`
@@ -338,7 +339,23 @@ function run(cmd: string): string {
   }
 }
 
+/**
+ * Ledger ids, plus every alias that resolves to one.
+ *
+ * An alias is admitted ONLY when its canonical id is in the ledger — a mapping
+ * that points nowhere resolves nothing here, and fails
+ * `finding-id-aliases.spec.ts` outright. See `finding-id-aliases.ts` for why a
+ * merged trailer can name an id the ledger does not carry.
+ */
 function loadRegistryIds(): Set<string> {
+  const ids = loadLedgerIds();
+  for (const [alias, canonical] of loadFindingIdAliasMap(REPO_ROOT)) {
+    if (ids.has(canonical)) ids.add(alias);
+  }
+  return ids;
+}
+
+function loadLedgerIds(): Set<string> {
   if (!existsSync(REGISTRY_PATH)) return new Set();
   const content = readFileSync(REGISTRY_PATH, 'utf8').trim();
   if (!content) return new Set();

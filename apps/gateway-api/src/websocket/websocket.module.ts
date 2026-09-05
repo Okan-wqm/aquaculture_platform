@@ -14,6 +14,8 @@ import { MessagingNatsBridgeService } from './messaging-nats-bridge.service';
 import { FarmGateway } from './farm.gateway';
 import { FarmNatsBridgeService } from './farm-nats-bridge.service';
 import { AiChatGateway } from './ai-chat.gateway';
+import { TenantConnectionLimiter, WsTokenRevalidator } from '@aquaculture/backend-common/websocket';
+import { TOKEN_BLACKLIST_STORE, TokenBlacklistStore } from '../guards/redis-token-blacklist.store';
 
 @Module({
   imports: [
@@ -30,6 +32,22 @@ import { AiChatGateway } from './ai-chat.gateway';
   ],
   providers: [
     DeviceOwnershipService,
+    // SEC-MEDIUM-073/082 (2026-08-23 scan №26/№18): shared socket guards —
+    // per-tenant connection ceiling + periodic jti/user-epoch revalidation.
+    {
+      provide: TenantConnectionLimiter,
+      useClass: TenantConnectionLimiter,
+    },
+    {
+      provide: WsTokenRevalidator,
+      useFactory: (blacklist: Pick<TokenBlacklistStore, 'isValidToken'>) =>
+        new WsTokenRevalidator({
+          intervalMs: 60_000,
+          isStillValid: ({ jti, userId, issuedAt }) =>
+            blacklist.isValidToken(jti, userId, issuedAt ?? 0),
+        }),
+      inject: [TOKEN_BLACKLIST_STORE],
+    },
     SensorReadingsGateway,
     NatsBridgeService,
     STLanguageGateway,
@@ -45,13 +63,6 @@ import { AiChatGateway } from './ai-chat.gateway';
     // NATS request.ai.chat to ai-service, replacing the hand-rolled REST proxy.
     AiChatGateway,
   ],
-  exports: [
-    SensorReadingsGateway,
-    STLanguageGateway,
-    MessagingGateway,
-    FarmGateway,
-    AiChatGateway,
-  ],
+  exports: [SensorReadingsGateway, STLanguageGateway, MessagingGateway, FarmGateway, AiChatGateway],
 })
- 
 export class WebSocketModule {}

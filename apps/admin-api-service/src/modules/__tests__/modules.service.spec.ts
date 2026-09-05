@@ -117,7 +117,7 @@ describe('ModulesService', () => {
 
       const result = await service.listModules({});
 
-      expect(result.data).toHaveLength(2);
+      expect(result.items).toHaveLength(2);
       expect(result.total).toBe(2);
       expect(result.page).toBe(1);
       expect(result.limit).toBe(50);
@@ -132,7 +132,7 @@ describe('ModulesService', () => {
 
       const result = await service.listModules({ isActive: true });
 
-      expect(result.data).toHaveLength(1);
+      expect(result.items).toHaveLength(1);
       expect(mockDataSource.query).toHaveBeenCalledWith(
         expect.stringContaining('m."isActive" = $'),
         expect.arrayContaining([true]),
@@ -147,7 +147,7 @@ describe('ModulesService', () => {
 
       const result = await service.listModules({ isCore: true });
 
-      expect(result.data).toHaveLength(1);
+      expect(result.items).toHaveLength(1);
       expect(mockDataSource.query).toHaveBeenCalledWith(
         expect.stringContaining('is_core'),
         expect.arrayContaining([true]),
@@ -162,7 +162,7 @@ describe('ModulesService', () => {
 
       const result = await service.listModules({ search: 'farm' });
 
-      expect(result.data).toHaveLength(1);
+      expect(result.items).toHaveLength(1);
       expect(mockDataSource.query).toHaveBeenCalledWith(
         expect.stringContaining('ILIKE'),
         expect.arrayContaining(['%farm%']),
@@ -194,9 +194,10 @@ describe('ModulesService', () => {
 
       const result = await service.listModules({});
 
-      expect(result.data).toHaveLength(0);
+      expect(result.items).toHaveLength(0);
       expect(result.total).toBe(0);
-      expect(result.totalPages).toBe(0);
+      // An empty result is page 1 of 1 under the authority, not page 1 of 0.
+      expect(result.totalPages).toBe(1);
     });
 
     it('should combine multiple filters', async () => {
@@ -570,7 +571,7 @@ describe('ModulesService', () => {
 
       const result = await service.getModuleTenants('module-id');
 
-      expect(result.data).toHaveLength(2);
+      expect(result.items).toHaveLength(2);
       expect(result.total).toBe(2);
     });
 
@@ -593,7 +594,7 @@ describe('ModulesService', () => {
 
       const result = await service.getModuleTenants('module-id');
 
-      expect(result.data).toHaveLength(0);
+      expect(result.items).toHaveLength(0);
       expect(result.total).toBe(0);
     });
   });
@@ -607,7 +608,7 @@ describe('ModulesService', () => {
 
       const result = await service.getAssignments({});
 
-      expect(result.data).toHaveLength(2);
+      expect(result.items).toHaveLength(2);
       expect(result.total).toBe(2);
     });
 
@@ -619,7 +620,7 @@ describe('ModulesService', () => {
 
       const result = await service.getAssignments({ tenantId: 'tenant-123' });
 
-      expect(result.data).toHaveLength(1);
+      expect(result.items).toHaveLength(1);
       expect(mockDataSource.query).toHaveBeenCalledWith(
         expect.stringContaining('tm."tenantId" = $'),
         expect.arrayContaining(['tenant-123']),
@@ -634,7 +635,7 @@ describe('ModulesService', () => {
 
       const result = await service.getAssignments({ moduleId: 'module-123' });
 
-      expect(result.data).toHaveLength(1);
+      expect(result.items).toHaveLength(1);
       expect(mockDataSource.query).toHaveBeenCalledWith(
         expect.stringContaining('tm."moduleId" = $'),
         expect.arrayContaining(['module-123']),

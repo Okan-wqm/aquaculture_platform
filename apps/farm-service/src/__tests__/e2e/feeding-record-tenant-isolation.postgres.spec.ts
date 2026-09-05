@@ -50,10 +50,21 @@ import {
 import { CreateFeedingRecordHandler } from '../../feeding/handlers/create-feeding-record.handler';
 import { FeedingLedgerService } from '../../feeding/services/feeding-ledger.service';
 import { FinanceSettingsService } from '../../finance/services/finance-settings.service';
+import { FeedAllocationService } from '../../storage/services/feed-allocation.service';
+import { StockMutationLockAuthority } from '../../storage/services/stock-mutation-lock.authority';
+import { FeedingDayPlan } from '../../feeding-protocol/entities/feeding-day-plan.entity';
+import { FeedingMeal } from '../../feeding-protocol/entities/feeding-meal.entity';
+import { FeedingProtocolV2 } from '../../feeding-protocol/entities/feeding-protocol-v2.entity';
+import { ProtocolAssignment } from '../../feeding-protocol/entities/protocol-assignment.entity';
+import { BiomassGrowthApplierService } from '../../feeding-protocol/services/biomass-growth-applier.service';
+import { DayPlanRecalcService } from '../../feeding-protocol/services/day-plan-recalc.service';
+import { ProtocolResolutionService } from '../../feeding-protocol/services/protocol-resolution.service';
+import { ProtocolRateService } from '../../feeding-protocol/services/protocol-rate.service';
 import { GetFeedingRecordsHandler } from '../../feeding/query-handlers/get-feeding-records.handler';
 import { GetFeedingSummaryHandler } from '../../feeding/query-handlers/get-feeding-summary.handler';
 import { GetFeedingRecordsQuery } from '../../feeding/queries/get-feeding-records.query';
 import { GetFeedingSummaryQuery } from '../../feeding/queries/get-feeding-summary.query';
+import { FinanceSettings } from '../../finance/entities/finance-settings.entity';
 import { FarmOutbox } from '../../outbox/farm-outbox.entity';
 import {
   Species,
@@ -72,7 +83,10 @@ import {
 } from '../../tank/entities/tank.entity';
 import { StockMovementService } from '../../storage/services/stock-movement.service';
 import { LotMixService } from '../../storage/services/lot-mix.service';
-import { StorageLocation, StorageLocationType } from '../../storage/entities/storage-location.entity';
+import {
+  StorageLocation,
+  StorageLocationType,
+} from '../../storage/entities/storage-location.entity';
 import { StorageInventory, StorageItemType } from '../../storage/entities/storage-inventory.entity';
 import { StockMovement } from '../../storage/entities/stock-movement.entity';
 import { StorageLotMix } from '../../storage/entities/storage-lot-mix.entity';
@@ -137,6 +151,24 @@ describe('Feeding record tenant isolation on real Postgres', () => {
         StockMovement,
         StorageLotMix,
         FeedingRecord,
+        // FeedingLedgerService owns feed cost for every caller (C-16) and reads
+        // the tenant's default currency through FinanceSettingsService. Its
+        // in-transaction variant does NOT swallow a missing row the way the
+        // read-path variant does, so leaving the entity unregistered surfaced as
+        // `EntityMetadataNotFoundError` from inside recordFeed rather than as a
+        // currency fallback. Production registers it; the harness must too.
+        FinanceSettings,
+        // The handler binds the unit's active day plan (create-feeding-record
+        // handler, D-7), and the REAL DayPlanRecalcService this fixture wires
+        // reads meals, the protocol and its assignment while recalculating.
+        // Production never had to list them — TypeORM autoLoadEntities picks up
+        // whatever forFeature registers — which is exactly why a bare test
+        // DataSource drifts behind the code the moment a handler reaches one
+        // more table.
+        FeedingDayPlan,
+        FeedingMeal,
+        FeedingProtocolV2,
+        ProtocolAssignment,
         FarmOutbox,
       ],
       synchronize: true,
@@ -181,15 +213,23 @@ describe('Feeding record tenant isolation on real Postgres', () => {
     const batchDomainService = new BatchDomainService(new BatchLifecyclePolicyService());
     // REAL sink: storage-tracked feed → FEFO lot decrement + roll-up +
     // LowStockDetected all inside the feeding transaction.
+    const mutationLocks = new StockMutationLockAuthority();
     const stockMovementService = new StockMovementService(
       new LotMixService(),
       new SiteAuthorizationService(),
       outboxPublisher,
+      mutationLocks,
+      // W2 / FARM-CRITICAL-245: çok-lotlu FEFO tahsis motoru, yemlemenin depoya
+      // tek girişi olan `resolveFeedDeductionLocation`ın ARKASINDA. GERÇEK örnek —
+      // bu spec yazımların doğru tenant şemasına düştüğünü kanıtlıyor ve tahsis
+      // motoru artık o yazım yolunun parçası.
+      new FeedAllocationService(mutationLocks),
     );
     // P-05 tek yem yazma yolu: handler artık GERÇEK FeedingLedgerService'e
     // delege eder (kayıt + batch aggregate + FEFO düşüm + outbox tek noktada).
-    // D-7 motor yardımcıları mock — bu fixture'ın payload'ları tankId
-    // taşımadığı için plan bağlama dalı hiç koşmaz.
+    // Motor yardımcıları da GERÇEK — aşağıdaki gerekçeye bakın. (Eski not
+    // "payload'lar tankId taşımıyor" diyordu; taşıyorlar, yani plan bağlama
+    // dalı bu fixture'da KOŞAR ve sahte yardımcılarla koşuyordu.)
     const feedingLedger = new FeedingLedgerService(
       stockMovementService,
       new FinanceSettingsService(dataSource),
@@ -203,8 +243,23 @@ describe('Feeding record tenant isolation on real Postgres', () => {
       backdatePolicy as never,
       batchDomainService,
       feedingLedger,
-      { lockUnitForGrowth: jest.fn().mockResolvedValue(null) } as never,
-      { recalcForUnit: jest.fn().mockResolvedValue(null) } as never,
+      // REAL engine collaborators, not hand-rolled partials.
+      //
+      // These were a blanket-cast `{ lockUnitForGrowth: jest.fn() }` — a
+      // two-property stand-in for a growing service. When `lockBatchForWrite` was added to
+      // the applier and the handler started calling it, this spec died with
+      // `TypeError: this.growthApplier.lockBatchForWrite is not a function`,
+      // and it died only in CI: the Postgres lane cannot run where Docker is
+      // unavailable, so the drift was invisible until a runner picked it up.
+      // A partial double of a service that keeps growing has no way to stay
+      // correct; the real objects do, and both construct with no I/O of their
+      // own (the applier takes an optional metrics sink, the recalc service
+      // takes collaborators this fixture already has).
+      new BiomassGrowthApplierService(),
+      new DayPlanRecalcService(
+        outboxPublisher,
+        new ProtocolResolutionService(new ProtocolRateService()),
+      ),
     );
     getFeedingRecords = new GetFeedingRecordsHandler(dataSource);
     getFeedingSummary = new GetFeedingSummaryHandler(dataSource);
@@ -335,6 +390,12 @@ describe('Feeding record tenant isolation on real Postgres', () => {
         feedName: 'Shared Salmon Feed',
         totalKg: 10,
         percentage: 100,
+        // Per-feed cost is part of the summary contract
+        // (feeding-summary-response-contract.spec.ts pins it), and with one
+        // feed type at 100% it must equal the totalFeedCost asserted above.
+        // The omission stood because this line was unreachable: the test died
+        // earlier, at the day-plan bind, before this assertion ever ran.
+        cost: 25,
       },
     ]);
 
@@ -475,6 +536,14 @@ describe('Feeding record tenant isolation on real Postgres', () => {
           name: 'Feed Warehouse',
           code: 'FEED-WH',
           type: StorageLocationType.WAREHOUSE,
+          // `usedCapacity` AÇIKÇA verilir. Kolonun `default: 0` değeri VAR ama
+          // bir `DecimalTransformer`'ı da var: TypeORM transformer'ı insert'ten
+          // ÖNCE uygular, `undefined` NULL'a döner ve satıra açık NULL yazılır
+          // — DB default'u hiç devreye girmez, NOT NULL kısıtı patlar.
+          // Üretimdeki `CreateStorageLocationHandler` de alanı elle 0 veriyor
+          // (create-storage-location.handler.ts:54); atlamak fixture'ı
+          // üretimden farklı kılardı.
+          usedCapacity: 0,
           isActive: true,
           isDeleted: false,
           createdBy: USER_ID,
@@ -502,9 +571,41 @@ describe('Feeding record tenant isolation on real Postgres', () => {
     return { site, department, species, tank, batch, feed, storageLocation, storageLot };
   }
 
+  /**
+   * Tenant ayrıştırıcı kolonun GERÇEK adı, tablo başına.
+   *
+   * Bu helper'lar eskiden her tablo için `"tenantId"` varsayıyordu. Doğru
+   * değil: `feeding_records` camelCase (`@Column('uuid') tenantId`), ama
+   * `stock_movements` açık eşlemeyle snake_case yazar
+   * (`@Column({ name: 'tenant_id' })`) — yani `stock_movements` sayımı
+   * çalıştığı anda `42703 column "tenantId" does not exist` verirdi. Kusur
+   * görünmedi çünkü Docker gerektiren bu süiti koşan hedef CI'da hiçbir
+   * yerden çağrılmıyordu (FARM-MEDIUM-301) — FARM-CRITICAL-242 ile birebir
+   * aynı sınıf: entity'de açık `name:` taşıyan bir kolona property adıyla
+   * ham SQL yazmak.
+   *
+   * Bilinmeyen tablo fail-closed: sessizce yanlış bir predikat üretmektense
+   * patlar.
+   */
+  const TENANT_COLUMN: Readonly<Record<string, string>> = {
+    feeding_records: 'tenantId',
+    stock_movements: 'tenant_id',
+  };
+
+  function tenantColumnOf(table: string): string {
+    const column = TENANT_COLUMN[table];
+    if (!column) {
+      throw new Error(
+        `${table} için tenant kolonu bilinmiyor — entity'nin @Column adını okuyup TENANT_COLUMN'a ekleyin`,
+      );
+    }
+    return column;
+  }
+
   async function tenantRowCount(table: string, tenantId: string): Promise<number> {
     const rows: Array<{ count: string }> = await dataSource!.query(
-      `SELECT COUNT(*)::text AS count FROM "${getTenantSchemaName(tenantId)}"."${table}" WHERE "tenantId" = $1`,
+      `SELECT COUNT(*)::text AS count FROM "${getTenantSchemaName(tenantId)}"."${table}" ` +
+        `WHERE "${tenantColumnOf(table)}" = $1`,
       [tenantId],
     );
     return Number(rows[0]?.count ?? 0);
@@ -512,7 +613,7 @@ describe('Feeding record tenant isolation on real Postgres', () => {
 
   async function sourceTenantRowCount(table: string, tenantId: string): Promise<number> {
     const rows: Array<{ count: string }> = await dataSource!.query(
-      `SELECT COUNT(*)::text AS count FROM "farm"."${table}" WHERE "tenantId" = $1`,
+      `SELECT COUNT(*)::text AS count FROM "farm"."${table}" WHERE "${tenantColumnOf(table)}" = $1`,
       [tenantId],
     );
     return Number(rows[0]?.count ?? 0);
@@ -528,50 +629,37 @@ describe('Feeding record tenant isolation on real Postgres', () => {
   }
 });
 
+/**
+ * Clone every PER-TENANT table into `schema`, derived from what `synchronize`
+ * actually created in `farm` rather than from a hand-kept list.
+ *
+ * The list version had to be edited in lockstep with the `entities` array
+ * above, and a miss surfaced only at runtime, from inside a handler, as
+ * `EntityMetadataNotFoundError` — twice already (FinanceSettings, then
+ * FeedingDayPlan when the feeding-protocol merge made the handler bind a day
+ * plan). Deriving it deletes one of the two lists: registering an entity is now
+ * the single edit, and the tenant schema follows.
+ *
+ * Tables whose entity declares an explicit `schema:` are cross-tenant by
+ * ADR-011 (the outbox here) and stay in `farm`.
+ */
 async function createTenantSchema(dataSource: DataSource, schema: string): Promise<void> {
   await dataSource.query(`CREATE SCHEMA "${schema}"`);
-  await dataSource.query(`CREATE TABLE "${schema}"."sites" (LIKE "farm"."sites" INCLUDING ALL)`);
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."departments" (LIKE "farm"."departments" INCLUDING ALL)`,
+  const crossTenant = new Set(
+    dataSource.entityMetadatas
+      .filter((metadata) => metadata.schema !== undefined)
+      .map((metadata) => metadata.tableName),
   );
-  await dataSource.query(`CREATE TABLE "${schema}"."tanks" (LIKE "farm"."tanks" INCLUDING ALL)`);
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."species" (LIKE "farm"."species" INCLUDING ALL)`,
+  const sourceTables: Array<{ table_name: string }> = await dataSource.query(
+    `SELECT table_name FROM information_schema.tables
+     WHERE table_schema = 'farm' AND table_type = 'BASE TABLE'`,
   );
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."batches_v2" (LIKE "farm"."batches_v2" INCLUDING ALL)`,
-  );
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."batch_documents" (LIKE "farm"."batch_documents" INCLUDING ALL)`,
-  );
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."tank_allocations" (LIKE "farm"."tank_allocations" INCLUDING ALL)`,
-  );
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."tank_batches" (LIKE "farm"."tank_batches" INCLUDING ALL)`,
-  );
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."tank_operations" (LIKE "farm"."tank_operations" INCLUDING ALL)`,
-  );
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."suppliers" (LIKE "farm"."suppliers" INCLUDING ALL)`,
-  );
-  await dataSource.query(`CREATE TABLE "${schema}"."feeds" (LIKE "farm"."feeds" INCLUDING ALL)`);
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."storage_locations" (LIKE "farm"."storage_locations" INCLUDING ALL)`,
-  );
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."storage_inventory" (LIKE "farm"."storage_inventory" INCLUDING ALL)`,
-  );
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."stock_movements" (LIKE "farm"."stock_movements" INCLUDING ALL)`,
-  );
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."storage_lot_mixes" (LIKE "farm"."storage_lot_mixes" INCLUDING ALL)`,
-  );
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."feeding_records" (LIKE "farm"."feeding_records" INCLUDING ALL)`,
-  );
+  for (const { table_name: table } of sourceTables) {
+    if (crossTenant.has(table)) continue;
+    await dataSource.query(
+      `CREATE TABLE "${schema}"."${table}" (LIKE "farm"."${table}" INCLUDING ALL)`,
+    );
+  }
 }
 
 async function createFarmOutboxTable(dataSource: DataSource): Promise<void> {

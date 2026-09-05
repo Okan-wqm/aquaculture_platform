@@ -20,6 +20,9 @@ const SYNC_INVALIDATION_SEGMENTS = {
   // Faz 6 öğün cutover'ı: senkronlanan döküm gün planı kartlarını, hub
   // sayaçlarını, tank kartlarını (biomass büyümesi) ve depo kapsamını tazeler.
   recordMealFeeding: [['feedingDayPlans'], ['dailyOpsCounts'], ['tanks'], ['warehouseSummary']],
+  // W8/FARM-MEDIUM-269: stok düşümü YOK (yeni döküm yok) — bu yüzden
+  // warehouseSummary listede değil; plan + sayaç + biyokütle güncellenir.
+  finalizeMeal: [['feedingDayPlans'], ['dailyOpsCounts'], ['tanks']],
   recordTransfer: [['tanks'], ['dailyOpsCounts'], ['stockEventsSummary'], ['ai']],
   createWaterQuality: [['tanks'], ['equipment-params'], ['waterQuality'], ['dailyOpsCounts'], ['ai']],
   recordStockMovement: [['stockEventsSummary'], ['stock-at-location'], ['warehouseSummary']],

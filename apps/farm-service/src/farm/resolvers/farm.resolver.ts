@@ -108,7 +108,7 @@ export class FarmResolver {
     isActive?: boolean,
     @Args('search', { type: () => String, nullable: true })
     search?: string,
-  ): Promise<Farm[]> {
+  ): Promise<readonly Farm[]> {
     this.logger.debug(`Query: listFarms(tenant=${tenantId})`);
     const result: PaginatedQueryResult<Farm> = await this.queryBus.execute(
       new ListFarmsQuery(

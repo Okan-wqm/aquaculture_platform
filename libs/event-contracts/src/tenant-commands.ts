@@ -284,6 +284,29 @@ export interface SuspendTenantLifecycleCommand extends AuthTenantCommandMetadata
   reason: string;
 }
 
+/**
+ * Tenant lokalizasyonunun (saat dilimi + dil) güncellenmesi — W5.
+ *
+ * Bir LIFECYCLE komutu DEĞİLDİR (durum geçişi yok): tenant'ın kendi
+ * self-service profil ayarı. Yine de command-receipt yolundan geçer, çünkü
+ * `auth.tenants` satırına yazan tek meşru mekanizma odur (MT-HIGH-001/002) —
+ * receipt hem idempotency hem denetim izini taşır.
+ *
+ * NATS subject'i YOKTUR: komutu yalnız auth-service'in kendi GraphQL
+ * resolver'ı üretir (cross-service çağıran yok), bu yüzden
+ * `TENANT_COMMAND_SUBJECTS`'e girmez.
+ */
+export interface UpdateTenantLocalizationCommand extends AuthTenantCommandMetadata {
+  /** IANA zon kimliği — yazmadan önce doğrulanır (isValidIanaTimeZone). */
+  timezone: string;
+  /** BCP-47 dil etiketi (opsiyonel). */
+  locale?: string;
+}
+
+export interface UpdateTenantLocalizationResult extends AuthTenantCommandResult {
+  tenant?: AuthTenantSnapshot;
+}
+
 export interface DeprovisionTenantCommand extends AuthTenantCommandMetadata {
   reason: string;
 }

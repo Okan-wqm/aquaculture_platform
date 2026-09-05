@@ -5,7 +5,7 @@
  * against the routed graphqlClient seam: the searchParams-driven tab switch
  * loads the records tab with its own query, and an unknown tab falls back to
  * the default (meal board). Faz 8: legacy daily-plan/execution/protocols
- * sekmeleri ve feedConsumptionForecast sorgusu emekli — KPI başlığı v2
+ * sekmeleri ve v1 forecast sorgusu emekli — KPI başlığı v2
  * protocolFeedForecast snapshot'ını okur.
  */
 import { screen, waitFor } from '@testing-library/react';

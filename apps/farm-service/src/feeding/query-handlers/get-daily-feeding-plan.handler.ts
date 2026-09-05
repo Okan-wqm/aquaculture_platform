@@ -20,7 +20,7 @@ import {
   GetDailyFeedingPlanQuery,
   DailyFeedingPlanResult,
 } from '../queries/get-daily-feeding-plan.query';
-import { FeedingProgram } from '../entities/feeding-program.entity';
+import { FeedingProgram, FeedingProgramStatus } from '../entities/feeding-program.entity';
 import { FeedingProgramTank } from '../entities/feeding-program-tank.entity';
 import { DailyFeedingExecution } from '../entities/daily-feeding-execution.entity';
 import { Site } from '../../site/entities/site.entity';
@@ -68,7 +68,11 @@ export class GetDailyFeedingPlanHandler
       const programs = await queryRunner.manager.find(FeedingProgram, {
         where: { tenantId, siteId, isDeleted: false },
       });
-      const activePrograms = programs.filter((p) => p.status === ('active' as never));
+      // Compared against the enum MEMBER, not the string it happens to hold today.
+      // The cast made the comparison unverifiable: re-case or re-value
+      // FeedingProgramStatus.ACTIVE and this filter would silently match nothing,
+      // which is the P-30 failure shape (a swallowed query returning an empty set).
+      const activePrograms = programs.filter((p) => p.status === FeedingProgramStatus.ACTIVE);
 
       // Get program tank assignments
       const programIds = activePrograms.map((p) => p.id);

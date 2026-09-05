@@ -29,15 +29,16 @@ import {
   type RoleTemplate,
   type UserLimitCheckResult,
 } from '../services/adminApi';
+import { expectedTotalPages } from '@platform/pagination-contracts';
 
 // ============================================================================
 // User Management Page
 // ============================================================================
 
 const UserManagementPage: React.FC = () => {
-  const [users, setUsers] = useState<User[]>([]);
+  const [users, setUsers] = useState<readonly User[]>([]);
   const [stats, setStats] = useState<UserStats | null>(null);
-  const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [tenants, setTenants] = useState<readonly Tenant[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -114,7 +115,7 @@ const UserManagementPage: React.FC = () => {
   }, [searchTerm, roleFilter, statusFilter, tenantFilter, page, limit]);
 
   // Cache tenant list in a module-scoped ref to avoid re-fetching 100 tenants on every mount (PERF-003)
-  const tenantCacheRef = useRef<{ data: Tenant[]; fetchedAt: number } | null>(null);
+  const tenantCacheRef = useRef<{ data: readonly Tenant[]; fetchedAt: number } | null>(null);
   const TENANT_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
   const fetchInitialData = useCallback(async () => {
@@ -124,7 +125,7 @@ const UserManagementPage: React.FC = () => {
       const rolesPromise = usersApi.getRoleTemplates();
 
       // Use cache for tenant list if still fresh
-      const tenantsPromise: Promise<{ data: Tenant[] }> =
+      const tenantsPromise: Promise<{ data: readonly Tenant[] }> =
         tenantCacheRef.current && now - tenantCacheRef.current.fetchedAt < TENANT_CACHE_TTL
           ? Promise.resolve({ data: tenantCacheRef.current.data })
           : tenantsApi.list({ limit: 100 }).then((result) => {
@@ -576,12 +577,12 @@ const UserManagementPage: React.FC = () => {
             Previous
           </Button>
           <span className="py-2 px-4 text-sm text-gray-600">
-            Page {page} / {Math.ceil(totalUsers / limit)}
+            Page {page} / {expectedTotalPages(totalUsers, limit)}
           </span>
           <Button
             variant="outline"
             size="sm"
-            disabled={page >= Math.ceil(totalUsers / limit)}
+            disabled={page >= expectedTotalPages(totalUsers, limit)}
             onClick={() => setPage(page + 1)}
           >
             Next

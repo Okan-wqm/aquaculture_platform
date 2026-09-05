@@ -8,7 +8,13 @@
  * Workflow: Start Count -> Enter Quantities -> Submit -> Approve -> Auto-adjust inventory
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
+import {
+  useAuth,
+  graphqlClient,
+  createTenantQueryKey,
+  createTenantInvalidationKey,
+} from '@aquaculture/shared-ui';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 
 // ============================================================================
 // Types — mirror the backend GraphQL schema for inventory counts
@@ -83,13 +89,7 @@ export interface InventoryCount {
   items: InventoryCountItem[];
 }
 
-interface PaginatedInventoryCounts {
-  items: InventoryCount[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
+type PaginatedInventoryCounts = PaginationResultV1<InventoryCount>;
 
 export interface CreateInventoryCountInput {
   storageLocationId: string;
@@ -155,6 +155,8 @@ const INVENTORY_COUNTS_QUERY = `
       page
       limit
       totalPages
+      hasNextPage
+      hasPreviousPage
     }
   }
 `;

@@ -59,6 +59,13 @@ export class JwtAuthGuard {
     ]);
 
     if (isPublic) {
+      // ADR-046: public surfaces get OPTIONAL identity. setupMfa /
+      // verifyMfaSetup are @Public so the pre-session enrollment path (the
+      // mfa_setup token) can reach them, but those same mutations must keep
+      // working for an authenticated session presenting a normal Bearer token.
+      // Attach the identity when a VALID access token is present; never reject
+      // — a public route stays public.
+      await this.attachOptionalIdentity(context);
       return true;
     }
 
@@ -111,6 +118,68 @@ export class JwtAuthGuard {
         throw error;
       }
       throw new UnauthorizedException('Invalid or expired token');
+    }
+  }
+
+  /**
+   * ADR-046: best-effort identity attachment for @Public routes.
+   *
+   * Runs the EXACT verification chain the authenticated path runs (RS256 +
+   * issuer/audience via getJwtVerifyOptions, the access-type discriminator,
+   * the jti/sub/iat shape assertions, the blacklist and the user-wide
+   * revocation epoch) — a token that would not authenticate a protected route
+   * never attaches identity here either. The only behavioural difference is
+   * the failure mode: a public route swallows the failure and proceeds
+   * anonymously instead of throwing 401. This can only ADD identity that was
+   * previously discarded; it can never weaken a protected surface.
+   *
+   * Skips work when identity is already present (gateway-forwarded
+   * x-user-payload via TenantContextMiddleware) or when no Bearer token
+   * exists.
+   */
+  private async attachOptionalIdentity(context: ExecutionContext): Promise<void> {
+    const request = this.getRequest(context);
+    if (request.user) {
+      return;
+    }
+    const token = this.extractToken(request);
+    if (!token) {
+      return;
+    }
+
+    try {
+      const payload = (await this.jwtService.verifyAsync(
+        token,
+        getJwtVerifyOptions(this.configService),
+      )) as JwtPayload;
+
+      enforceAccessTokenType(payload, this.logger, this.isProduction);
+
+      if (
+        typeof payload.jti !== 'string' ||
+        payload.jti.trim().length === 0 ||
+        typeof payload.sub !== 'string' ||
+        payload.sub.trim().length === 0 ||
+        typeof payload.iat !== 'number' ||
+        !Number.isSafeInteger(payload.iat) ||
+        payload.iat <= 0
+      ) {
+        return;
+      }
+
+      const issuedAt = new Date(payload.iat * 1000);
+      const [jtiRevoked, userTokenValid] = await Promise.all([
+        this.tokenBlacklist.isBlacklisted(payload.jti),
+        this.userTokenRevocation.isTokenValid(payload.sub, issuedAt),
+      ]);
+      if (jtiRevoked || !userTokenValid) {
+        return;
+      }
+
+      request.user = payload;
+    } catch {
+      // Public route: an invalid / expired / revoked / non-access token
+      // contributes no identity — the request proceeds anonymously.
     }
   }
 

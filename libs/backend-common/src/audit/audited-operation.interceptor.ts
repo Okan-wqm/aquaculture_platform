@@ -633,8 +633,8 @@ interface RequestContext {
   /**
    * Tenant residency region marker (AUDITTRAIL-LOW-002).
    *
-   * Derived from the JWT claim `region` (when minted with one)
-   * or from the upstream OPA decision attribute. Null when the
+   * Derived from the JWT claim `region` (when minted with one).
+   * Null when the
    * deployment doesn't propagate residency on the JWT — in that
    * case `shouldHashIp` falls back to the deployment-level
    * `AUDIT_HASH_UNKNOWN_REGIONS` policy switch.

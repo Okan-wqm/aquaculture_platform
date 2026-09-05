@@ -22,9 +22,7 @@ export class TokenBudgetService {
   /** In-memory fallback — single-instance only, loses data on restart */
   private readonly localCounters = new Map<string, number>();
 
-  constructor(
-    @Optional() private readonly redisService?: RedisService,
-  ) {
+  constructor(@Optional() private readonly redisService?: RedisService) {
     this.useRedis = !!this.redisService;
     // SECURITY: Fail closed — in production, Redis is REQUIRED for distributed
     // token budget enforcement. In-memory fallback allows tenants to exceed
@@ -33,15 +31,15 @@ export class TokenBudgetService {
     if (!this.useRedis && isProduction) {
       throw new Error(
         'CRITICAL: AI token budget requires Redis in production. ' +
-        'In-memory fallback allows budget bypass across instances. ' +
-        'Configure REDIS_HOST to enable distributed budget enforcement.',
+          'In-memory fallback allows budget bypass across instances. ' +
+          'Configure REDIS_HOST to enable distributed budget enforcement.',
       );
     }
     if (!this.useRedis) {
       this.logger.warn(
         'AI token budget using in-memory Map (non-production). ' +
-        'Multi-instance deployments will have separate counters. ' +
-        'Data will be lost on service restart.',
+          'Multi-instance deployments will have separate counters. ' +
+          'Data will be lost on service restart.',
       );
     }
   }
@@ -66,11 +64,16 @@ export class TokenBudgetService {
    */
   private getMonthEndTtl(): number {
     const now = new Date();
-    const endOfMonth = new Date(Date.UTC(
-      now.getUTCFullYear(),
-      now.getUTCMonth() + 1, // Next month
-      1, 0, 0, 0,           // First day at midnight
-    ));
+    const endOfMonth = new Date(
+      Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth() + 1, // Next month
+        1,
+        0,
+        0,
+        0, // First day at midnight
+      ),
+    );
     const bufferMs = 48 * 60 * 60 * 1000; // 48 hours
     const ttlMs = endOfMonth.getTime() - now.getTime() + bufferMs;
     return Math.max(1, Math.ceil(ttlMs / 1000));
@@ -128,6 +131,45 @@ export class TokenBudgetService {
       used,
       remaining,
     };
+  }
+
+  /**
+   * SEC-MEDIUM-075 (2026-08-23 scan №20): atomically RESERVE budget before a
+   * billable provider call and settle the difference afterwards.
+   *
+   * The previous check-then-spend flow (GET here, INCRBY after the turn)
+   * let every concurrent request pass the same pre-check and all spend —
+   * overshoot bounded only by in-flight × per-turn tokens. Reserving via
+   * INCRBY-first makes the window structurally impossible: a reservation
+   * that would cross the budget rolls back and fails closed.
+   *
+   * @param tenantId        - Tenant identifier (from JWT)
+   * @param budget          - Monthly token limit
+   * @param estimatedTokens - Upper bound for the upcoming call (per-turn cap)
+   */
+  async reserveBudget(tenantId: string, budget: number, estimatedTokens: number): Promise<void> {
+    const after = await this.addUsage(tenantId, estimatedTokens);
+    if (after > budget) {
+      // Roll the reservation back — the attempt is rejected, not charged.
+      await this.addUsage(tenantId, -estimatedTokens);
+      const used = Math.max(0, after - estimatedTokens);
+      throw new Error(`Monthly token budget exceeded (${used}/${budget})`);
+    }
+  }
+
+  /**
+   * SEC-MEDIUM-075: settle a reservation — refund the unused difference
+   * between the reserved upper bound and the tokens actually consumed.
+   */
+  async settleReservation(
+    tenantId: string,
+    estimatedTokens: number,
+    actualTokens: number,
+  ): Promise<void> {
+    const refund = estimatedTokens - actualTokens;
+    if (refund > 0) {
+      await this.addUsage(tenantId, -refund);
+    }
   }
 
   // ── Redis implementation ──────────────────────────────────────────────────

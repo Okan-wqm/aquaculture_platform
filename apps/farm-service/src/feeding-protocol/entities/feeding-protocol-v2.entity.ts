@@ -136,6 +136,13 @@ export interface FcrMatrix {
   fcrValues: number[][];
 }
 
+/**
+ * Büyümenin ne zaman uygulandığı. Gün planı bu değeri ÜRETİM ANINDA kendi
+ * kolonuna kopyalar (FARM-CRITICAL-244): protokol ayarı sonradan değişse bile
+ * geçmiş planlar üretildikleri semantikle işlenir.
+ */
+export type GrowthApplicationMode = 'per_meal' | 'daily';
+
 /** Protokol davranış ayarları. */
 export interface ProtocolSettings {
   /** Ağırlık banda girince yem geçişi otomatik yürütülsün mü. */
@@ -143,7 +150,7 @@ export interface ProtocolSettings {
   /** Geçiş histerezisi (gram) — band sınırında ileri-geri salınımı önler. */
   transitionBufferG: number;
   /** FCR büyümesi öğün başına mı gün-sonu rollup'ta mı uygulanır. */
-  growthApplicationMode: 'per_meal' | 'daily';
+  growthApplicationMode: GrowthApplicationMode;
   /** Öğün varyansı bu eşiğin altına düşünce MealUnderfed alarmı (negatif yüzde eşiği). */
   underfeedAlertThresholdPercent: number;
   /** Beklenen FCR çözüm kaynağı (override her zaman öncelikli — §3). */
@@ -157,6 +164,23 @@ export interface ProtocolSettings {
   };
   minFeedingRatePercent?: number;
   maxFeedingRatePercent?: number;
+  /**
+   * Kaçırılan/atlanan öğünün kg'ının yüzde kaçı kalan öğünlere dağıtılsın
+   * (W5, kullanıcı kararı 3). **Varsayılan 0 = dağıtım YOK**: bir öğün
+   * kaçtığında kalan öğünlerin `plannedKg`'ı DEĞİŞMEZ. Balığın sindirim
+   * kapasitesi sabittir; kaçan öğünü sonrakilere yüklemek aşırı besleme,
+   * yem israfı ve su kalitesi bozulması demektir — telafi bilinçli bir
+   * operasyonel karardır, sessiz bir varsayılan değil.
+   * 0–100 arası clamp'lenir.
+   */
+  missedMealCatchUpPercent?: number;
+  /**
+   * Sensör sıcaklığındaki bu eşiği (°C) aşan sapma, gün-içi planı yeniden
+   * fiyatlar (W5, keşif-7). Varsayılan 1.5 °C; daha küçük sapmalar için
+   * yeniden hesap yapılmaz (her okuma recalc tetikleseydi 15 dk'lık süpürme
+   * tenant başına yüzlerce kilit alırdı).
+   */
+  temperatureRecalcThresholdC?: number;
 }
 
 // ============================================================================

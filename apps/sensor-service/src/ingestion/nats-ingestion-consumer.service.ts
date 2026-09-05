@@ -8,12 +8,10 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import {
-  IEventBus,
-  IEventHandler,
-} from '@platform/event-bus';
+import { IEventBus, IEventHandler } from '@platform/event-bus';
 import {
   createBaseEvent,
+  deriveEventId,
   parameterForChannelKey,
   readingFieldForParameter,
   type SensorMetricIngestedEvent,
@@ -67,10 +65,7 @@ import { SensorMetaCacheService } from './sensor-meta-cache.service';
  */
 @Injectable()
 export class NatsIngestionConsumerService
-  implements
-    OnModuleInit,
-    OnModuleDestroy,
-    IEventHandler<SensorMetricIngestedEvent>
+  implements OnModuleInit, OnModuleDestroy, IEventHandler<SensorMetricIngestedEvent>
 {
   private readonly logger = new Logger(NatsIngestionConsumerService.name);
 
@@ -80,7 +75,9 @@ export class NatsIngestionConsumerService
    * `deriveSubject`: `events.{tenantId}.{eventType}` — the wildcard
    * captures every tenant.
    */
-  private static readonly SUBJECT_PATTERN = 'events.*.SensorMetricIngested';
+  // Task 2 (SENSOR-HIGH-092): SensorMetricIngested is a high-rate telemetry
+  // type — it lives on the telemetry root / AQUACULTURE_TELEMETRY stream.
+  private static readonly SUBJECT_PATTERN = 'telemetry.*.SensorMetricIngested';
 
   /** Accumulators for bulk-flush observability (logged every minute). */
   private receivedCount = 0;
@@ -110,9 +107,7 @@ export class NatsIngestionConsumerService
 
   async onModuleInit(): Promise<void> {
     if (!this.eventBus) {
-      this.logger.warn(
-        'EVENT_BUS not provided; NatsIngestionConsumerService will not subscribe',
-      );
+      this.logger.warn('EVENT_BUS not provided; NatsIngestionConsumerService will not subscribe');
       return;
     }
 
@@ -157,13 +152,9 @@ export class NatsIngestionConsumerService
     }
     if (this.eventBus) {
       try {
-        await this.eventBus.unsubscribeFrom(
-          NatsIngestionConsumerService.SUBJECT_PATTERN,
-        );
+        await this.eventBus.unsubscribeFrom(NatsIngestionConsumerService.SUBJECT_PATTERN);
       } catch (e) {
-        this.logger.warn(
-          `unsubscribeFrom failed at shutdown: ${(e as Error).message}`,
-        );
+        this.logger.warn(`unsubscribeFrom failed at shutdown: ${(e as Error).message}`);
       }
     }
   }
@@ -279,7 +270,12 @@ export class NatsIngestionConsumerService
       farmId: event.farmId ?? sensor.farmId ?? undefined,
       pondId: event.pondId ?? sensor.pondId ?? undefined,
     };
-    this.metricWriter.enqueue(metric);
+    // 4. Hand to the single writer and AWAIT the durable outcome: the writer
+    //    settles this promise only after the row's tenant batch COMMITTED
+    //    (ack-after-commit, SENSOR-CRITICAL-087), so the event-bus ACK fires
+    //    strictly after persistence and a DB failure propagates into a NAK
+    //    for redelivery instead of an acked loss.
+    await this.metricWriter.enqueue(metric);
     this.enqueuedCount++;
 
     // 4b. Live fan-out to subscribed /scada operator sockets. Best-effort by
@@ -343,6 +339,12 @@ export class NatsIngestionConsumerService
       ...createBaseEvent('SensorReading', event.tenantId, {
         aggregateId: sensor.id,
         aggregateType: 'Sensor',
+        // Task 1.4: the child event's identity is a pure function of the
+        // SOURCE event + channel — a redelivered source re-emits the SAME
+        // child id, so JetStream dedup (Nats-Msg-Id = eventId) and
+        // downstream uniqueness keys collapse the duplicate instead of
+        // double-firing alerts.
+        eventId: deriveEventId(`${event.eventId}\u0000${event.channelId}`),
       }),
       eventType: 'SensorReading',
       sensorId: sensor.id,

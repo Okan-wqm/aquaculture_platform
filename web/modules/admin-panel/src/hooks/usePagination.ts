@@ -6,6 +6,7 @@
 
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { expectedTotalPages } from '@platform/pagination-contracts';
 
 export interface PaginationState {
   page: number;
@@ -115,7 +116,7 @@ export function usePagination(options: UsePaginationOptions = {}): UsePagination
     }
   }, [searchParams]);
 
-  const totalPages = useMemo(() => Math.max(1, Math.ceil(total / limit)), [total, limit]);
+  const totalPages = useMemo(() => expectedTotalPages(total, limit), [total, limit]);
   const offset = useMemo(() => (page - 1) * limit, [page, limit]);
   const canPrev = page > 1;
   const canNext = page < totalPages;
@@ -186,7 +187,7 @@ export function usePagination(options: UsePaginationOptions = {}): UsePagination
     (newTotal: number) => {
       setTotalState(newTotal);
       setPage((prev) => {
-        const maxPage = Math.max(1, Math.ceil(newTotal / limit));
+        const maxPage = expectedTotalPages(newTotal, limit);
         return Math.min(prev, maxPage);
       });
     },

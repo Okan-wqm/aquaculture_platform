@@ -94,9 +94,11 @@ impl TenantId {
 
 /// PostgreSQL schema name derived from a [`TenantId`].
 ///
-/// ADR-011 establishes the convention `tenant_<32-hex>` (UUID with
-/// hyphens stripped, lower-case). The newtype carries that exact
-/// shape — anything else cannot exist in a `SchemaName` value.
+/// The platform SSoT (`getTenantSchemaName`, `validateTenantSchemaName`)
+/// fixes the convention `tenant_<16-hex>` — the FIRST 16 hex chars of the
+/// UUID, lower-case (SENSOR-CRITICAL-089: the earlier 32-hex derivation
+/// produced schemas no platform scanner could see). The newtype carries
+/// that exact shape — anything else cannot exist in a `SchemaName` value.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 pub struct SchemaName(String);
 
@@ -106,16 +108,18 @@ impl SchemaName {
     /// validated UUID.
     #[must_use]
     pub fn from_tenant_id(tenant: TenantId) -> Self {
-        // `Uuid::simple` formats as 32 hex chars without hyphens,
-        // lowercase. ADR-011 fixes the prefix `tenant_`.
-        let mut s = String::with_capacity(7 + 32);
+        // The full simple form is 32 hex chars; the platform takes the
+        // first 16 (UUID randomness is dense — 64 bits is collision-free
+        // at platform scale and keeps identifiers short).
+        let simple = tenant.0.simple().to_string();
+        let mut s = String::with_capacity(7 + 16);
         s.push_str("tenant_");
-        s.push_str(&tenant.0.simple().to_string());
+        s.push_str(&simple[..16]);
         Self(s)
     }
 
-    /// Parse an arbitrary string against the strict ADR-011 shape:
-    /// `^tenant_[0-9a-f]{32}$`. Used at trust boundaries where the
+    /// Parse an arbitrary string against the strict SSoT shape:
+    /// `^tenant_[0-9a-f]{16}$`. Used at trust boundaries where the
     /// candidate is operator- or device-supplied.
     ///
     /// # Errors
@@ -123,7 +127,7 @@ impl SchemaName {
     /// does not match the whitelist exactly. The bad value is NOT
     /// echoed back so audit logs cannot be poisoned.
     pub fn try_parse(candidate: &str) -> Result<Self, TenantContextError> {
-        if candidate.len() != 7 + 32 {
+        if candidate.len() != 7 + 16 {
             return Err(TenantContextError::InvalidSchemaName);
         }
         if !candidate.starts_with("tenant_") {
@@ -309,26 +313,26 @@ mod tests {
     }
 
     #[test]
-    fn schema_name_shape_matches_adr011() {
+    fn schema_name_shape_matches_the_platform_ssot() {
         let id = TenantId::try_parse("550e8400-e29b-41d4-a716-446655440000").unwrap();
         let s = SchemaName::from_tenant_id(id);
-        assert_eq!(s.as_str(), "tenant_550e8400e29b41d4a716446655440000");
-        assert_eq!(s.as_str().len(), 7 + 32);
+        assert_eq!(s.as_str(), "tenant_550e8400e29b41d4");
+        assert_eq!(s.as_str().len(), 7 + 16);
     }
 
     #[test]
     fn schema_name_try_parse_round_trips() {
-        let raw = "tenant_550e8400e29b41d4a716446655440000";
+        let raw = "tenant_550e8400e29b41d4";
         let parsed = SchemaName::try_parse(raw).unwrap();
         assert_eq!(parsed.as_str(), raw);
     }
 
     #[test]
     fn schema_name_try_parse_rejects_uppercase_hex() {
-        // ADR-011 fixes lowercase. Uppercase MUST be rejected (a real
+        // The SSoT fixes lowercase. Uppercase MUST be rejected (a real
         // attacker tactic is to substitute homograph chars; locking
         // the alphabet eliminates the class).
-        let raw = "tenant_550E8400E29B41D4A716446655440000";
+        let raw = "tenant_550E8400E29B41D4";
         assert_eq!(
             SchemaName::try_parse(raw).unwrap_err(),
             TenantContextError::InvalidSchemaName,
@@ -337,7 +341,7 @@ mod tests {
 
     #[test]
     fn schema_name_try_parse_rejects_wrong_prefix() {
-        let raw = "TENANT_550e8400e29b41d4a716446655440000";
+        let raw = "TENANT_550e8400e29b41d4";
         assert_eq!(
             SchemaName::try_parse(raw).unwrap_err(),
             TenantContextError::InvalidSchemaName,
@@ -352,13 +356,15 @@ mod tests {
 
     #[test]
     fn schema_name_try_parse_rejects_long() {
-        let raw = "tenant_550e8400e29b41d4a716446655440000extra";
+        // The legacy 32-hex shape is exactly the regression this guards.
+        let raw = "tenant_550e8400e29b41d4a716446655440000";
         assert!(SchemaName::try_parse(raw).is_err());
+        assert!(SchemaName::try_parse("tenant_550e8400e29b41d4extra").is_err());
     }
 
     #[test]
     fn schema_name_try_parse_rejects_non_hex() {
-        let raw = "tenant_550e8400e29b41d4a716446655zz0000";
+        let raw = "tenant_550e8400e29b41zz";
         assert!(SchemaName::try_parse(raw).is_err());
     }
 

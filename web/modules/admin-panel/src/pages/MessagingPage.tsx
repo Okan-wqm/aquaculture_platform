@@ -84,7 +84,7 @@ export const MessagingPage: React.FC = () => {
 
       const result = await supportApi.getMessageThreads(params);
       // Map MessageThread to ThreadSummary
-      const mappedThreads: ThreadSummary[] = (result.data || []).map((thread: MessageThread) => ({
+      const mappedThreads: ThreadSummary[] = result.data.map((thread: MessageThread) => ({
         ...thread,
         lastMessage: thread.lastMessage || '',
         lastMessageAt: thread.lastMessageAt || '',

@@ -244,9 +244,9 @@ impl CommandHandler {
             artifact_sha256_hex: sha.to_string(),
         };
         verify_deploy_signature(&body, &sig, |msg, sig_bytes| {
-            use ed25519_dalek::Verifier;
+            // verify_strict: reject non-canonical/malleable signatures (crate-wide SSoT).
             pubkey
-                .verify(msg, &ed25519_dalek::Signature::from_bytes(sig_bytes))
+                .verify_strict(msg, &ed25519_dalek::Signature::from_bytes(sig_bytes))
                 .is_ok()
         })
         .map_err(|e| format!("deploy signature verification failed: {}", e))?;

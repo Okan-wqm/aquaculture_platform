@@ -3,6 +3,7 @@ import { Resolver, Mutation, Args, Query, Context } from '@nestjs/graphql';
 import { Request, Response } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { CurrentUser, Public, SkipTenantGuard } from '@aquaculture/backend-common/decorators';
+import { RateLimit } from '@aquaculture/backend-common/rate-limit';
 
 import { SECURITY_CONSTANTS } from '../../../constants/auth.constants';
 import { AuthPayload } from '../dto/auth-response.dto';
@@ -18,6 +19,10 @@ import {
   WebAuthnRemoveResponse,
 } from '../dto/webauthn.dto';
 import { User } from '../entities/user.entity';
+import {
+  REFRESH_TOKEN_COOKIE_NAME,
+  buildRefreshTokenCookieOptions,
+} from '../utils/refresh-token-cookie';
 import { WebAuthnService } from '../services/webauthn.service';
 
 interface GqlContext {
@@ -43,16 +48,24 @@ export class WebAuthnResolver {
   }
 
   /**
-   * Set refresh token as httpOnly cookie (same logic as AuthResolver)
+   * Set the refresh token cookie through the platform SSoT helper.
+   *
+   * SEC-LOW (2026-08-23 scan №69b): this resolver previously rolled its own
+   * cookie options — always-persistent maxAge and Express's default
+   * percent-encoding, both diverging from the refresh-token-cookie SSoT
+   * (identity encoder + rememberMe-scoped persistence). Biometric login is
+   * a session-cookie flow: rememberMe false.
    */
   private setRefreshTokenCookie(res: Response, token: string): void {
-    res.cookie('refresh_token', token, {
-      httpOnly: true,
-      secure: this.isProduction,
-      sameSite: 'lax',
-      path: '/',
-      maxAge: this.refreshTokenExpiryDays * 24 * 60 * 60 * 1000,
-    });
+    res.cookie(
+      REFRESH_TOKEN_COOKIE_NAME,
+      token,
+      buildRefreshTokenCookieOptions({
+        isProduction: this.isProduction,
+        rememberMe: false,
+        rememberMeExpiryDays: this.refreshTokenExpiryDays,
+      }),
+    );
   }
 
   /**
@@ -116,9 +129,7 @@ export class WebAuthnResolver {
   @Query(() => Boolean, {
     description: 'Check if the current user has biometric login enabled',
   })
-  async hasWebAuthnCredentials(
-    @CurrentUser('sub') userId: string,
-  ): Promise<boolean> {
+  async hasWebAuthnCredentials(@CurrentUser('sub') userId: string): Promise<boolean> {
     return this.webAuthnService.hasCredentials(userId);
   }
 
@@ -143,7 +154,18 @@ export class WebAuthnResolver {
   /**
    * Generate a challenge for WebAuthn login.
    * Public endpoint — called before authentication.
+   *
+   * SEC-LOW (2026-08-23 scan №7/№40): same per-email budget shape as the
+   * password login mutation — unthrottled challenge issuance was both a
+   * Redis-fill lane and an enrollment oracle.
    */
+  @RateLimit({
+    name: 'webauthn-login-challenge',
+    limit: 5,
+    windowMs: 15 * 60_000,
+    identifier: ({ args }) =>
+      ((args?.['input'] as { email?: string } | undefined)?.email ?? '').toLowerCase() || undefined,
+  })
   @Public()
   @Mutation(() => WebAuthnLoginChallengeResponse, {
     description: 'Generate challenge for biometric login',
@@ -157,7 +179,12 @@ export class WebAuthnResolver {
   /**
    * Verify WebAuthn assertion and complete biometric login.
    * Public endpoint — issues JWT tokens on success.
+   *
+   * Challenges are single-use (Redis GETDEL), so assertion brute-force is
+   * bounded by challenge issuance (5/15min per email above); this budget
+   * bounds the verify lane itself.
    */
+  @RateLimit({ name: 'webauthn-verify', limit: 10, windowMs: 15 * 60_000 })
   @Public()
   @Mutation(() => AuthPayload, {
     description: 'Verify biometric assertion and login',

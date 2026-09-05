@@ -80,36 +80,6 @@ export interface ActiveTank {
   biomassKg: number;
 }
 
-export interface FeedConsumptionBatchInfo {
-  batchId: string;
-  batchCode: string;
-  consumption: number;
-}
-
-export interface FeedConsumptionByType {
-  feedId: string;
-  feedCode: string;
-  feedName: string;
-  dailyConsumption: number[];
-  totalConsumption: number;
-  currentStock: number;
-  daysUntilStockout: number;
-  stockoutDate?: string;
-  reorderDate?: string;
-  reorderQuantity: number;
-  batches: FeedConsumptionBatchInfo[];
-}
-
-export interface FeedForecastAlert {
-  feedId: string;
-  feedCode: string;
-  type: 'STOCKOUT_IMMINENT' | 'LOW_STOCK' | 'REORDER_NOW';
-  message: string;
-  daysUntilStockout: number;
-}
-
-
-
 // ============================================================================
 // GRAPHQL QUERIES
 // ============================================================================
@@ -342,18 +312,3 @@ export function formatDate(dateString: string): string {
   return _dateFormatter.format(new Date(dateString));
 }
 
-/**
- * Get alert severity color
- */
-export function getAlertColor(type: FeedForecastAlert['type']): string {
-  switch (type) {
-    case 'STOCKOUT_IMMINENT':
-      return 'bg-red-100 text-red-800 border-red-200';
-    case 'REORDER_NOW':
-      return 'bg-orange-100 text-orange-800 border-orange-200';
-    case 'LOW_STOCK':
-      return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-    default:
-      return 'bg-gray-100 text-gray-800 border-gray-200';
-  }
-}

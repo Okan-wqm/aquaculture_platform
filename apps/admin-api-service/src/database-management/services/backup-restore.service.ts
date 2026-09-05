@@ -38,6 +38,10 @@ import {
 } from '../entities/database-management.entity';
 import { AuditLogInput, AuditLogService } from '../../audit/audit.service';
 import { AuditSeverity } from '../../audit/audit.entity';
+import {
+  createStandardPaginatedResult,
+  type PaginationResultV1,
+} from '@platform/pagination-contracts';
 
 const execFileAsync = promisify(execFile);
 const ENCRYPTED_BACKUP_MAGIC = Buffer.from('AQBKP2');
@@ -344,12 +348,7 @@ export class BackupRestoreService {
     limit?: number;
     status?: BackupStatus;
     backupType?: BackupType;
-  }): Promise<{
-    data: SchemaBackup[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  }): Promise<PaginationResultV1<SchemaBackup>> {
     const { page = 1, limit = 20, status, backupType } = options;
 
     const where: Record<string, unknown> = {};
@@ -363,7 +362,7 @@ export class BackupRestoreService {
       take: limit,
     });
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult<SchemaBackup>(data, total, page, limit);
   }
 
   /**

@@ -39,6 +39,7 @@ import { AdjustLeaveBalanceHandler } from '../handlers/adjust-leave-balance.hand
 import { CarryOverLeaveBalancesHandler } from '../handlers/carry-over-leave-balances.handler';
 import { CreateLeaveTypeHandler } from '../handlers/create-leave-type.handler';
 import { InitializeLeaveBalancesHandler } from '../handlers/initialize-leave-balances.handler';
+import { QueryBus } from '@nestjs/cqrs';
 import { UpdateLeaveRequestHandler } from '../handlers/update-leave-request.handler';
 import { UpdateLeaveTypeHandler } from '../handlers/update-leave-type.handler';
 import { WithdrawLeaveRequestHandler } from '../handlers/withdraw-leave-request.handler';
@@ -99,17 +100,21 @@ function makeDataSource(queryRunner: MockQueryRunner): { createQueryRunner: jest
 
 function leaveType(overrides: Partial<LeaveType> = {}): LeaveType {
   const lt = new LeaveType();
-  Object.assign(lt, {
-    id: 'lt-1',
-    tenantId: TENANT,
-    code: 'ANNUAL',
-    name: 'Annual',
-    isAccrued: true,
-    isActive: true,
-    isDeleted: false,
-    defaultDaysPerYear: 20,
-    maxCarryOverDays: 5,
-  }, overrides);
+  Object.assign(
+    lt,
+    {
+      id: 'lt-1',
+      tenantId: TENANT,
+      code: 'ANNUAL',
+      name: 'Annual',
+      isAccrued: true,
+      isActive: true,
+      isDeleted: false,
+      defaultDaysPerYear: 20,
+      maxCarryOverDays: 5,
+    },
+    overrides,
+  );
   return lt;
 }
 
@@ -121,39 +126,47 @@ function employee(overrides: Partial<Employee> = {}): Employee {
 
 function balance(overrides: Partial<LeaveBalance> = {}): LeaveBalance {
   const b = new LeaveBalance();
-  Object.assign(b, {
-    id: 'bal-1',
-    tenantId: TENANT,
-    employeeId: EMPLOYEE,
-    leaveTypeId: 'lt-1',
-    year: 2026,
-    openingBalance: 20,
-    accrued: 0,
-    used: 0,
-    pending: 0,
-    adjustment: 0,
-    carriedOver: 0,
-    isDeleted: false,
-  }, overrides);
+  Object.assign(
+    b,
+    {
+      id: 'bal-1',
+      tenantId: TENANT,
+      employeeId: EMPLOYEE,
+      leaveTypeId: 'lt-1',
+      year: 2026,
+      openingBalance: 20,
+      accrued: 0,
+      used: 0,
+      pending: 0,
+      adjustment: 0,
+      carriedOver: 0,
+      isDeleted: false,
+    },
+    overrides,
+  );
   return b;
 }
 
 function request(overrides: Partial<LeaveRequest> = {}): LeaveRequest {
   const r = new LeaveRequest();
-  Object.assign(r, {
-    id: 'req-1',
-    tenantId: TENANT,
-    requestNumber: 'LR-2026-00001',
-    employeeId: EMPLOYEE,
-    leaveTypeId: 'lt-1',
-    startDate: new Date('2026-03-02'),
-    endDate: new Date('2026-03-04'),
-    totalDays: 3,
-    status: LeaveRequestStatus.DRAFT,
-    createdBy: USER,
-    approvalHistory: [],
-    isDeleted: false,
-  }, overrides);
+  Object.assign(
+    r,
+    {
+      id: 'req-1',
+      tenantId: TENANT,
+      requestNumber: 'LR-2026-00001',
+      employeeId: EMPLOYEE,
+      leaveTypeId: 'lt-1',
+      startDate: new Date('2026-03-02'),
+      endDate: new Date('2026-03-04'),
+      totalDays: 3,
+      status: LeaveRequestStatus.DRAFT,
+      createdBy: USER,
+      approvalHistory: [],
+      isDeleted: false,
+    },
+    overrides,
+  );
   return r;
 }
 
@@ -161,7 +174,9 @@ function request(overrides: Partial<LeaveRequest> = {}): LeaveRequest {
 // CreateLeaveType
 // ===========================================================================
 describe('CreateLeaveTypeHandler', () => {
-  function build(repo: Partial<Record<keyof MockManager, jest.Mock>>): Promise<CreateLeaveTypeHandler> {
+  function build(
+    repo: Partial<Record<keyof MockManager, jest.Mock>>,
+  ): Promise<CreateLeaveTypeHandler> {
     return Test.createTestingModule({
       providers: [
         CreateLeaveTypeHandler,
@@ -187,7 +202,9 @@ describe('CreateLeaveTypeHandler', () => {
     const result = await handler.execute(new CreateLeaveTypeCommand(TENANT, USER, input));
 
     // tenant-scoping: tenantId + audit user stamped onto the created row
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({ tenantId: TENANT, createdBy: USER }));
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: TENANT, createdBy: USER }),
+    );
     expect(result.tenantId).toBe(TENANT);
   });
 
@@ -196,15 +213,19 @@ describe('CreateLeaveTypeHandler', () => {
     const save = jest.fn();
     const handler = await build({ findOne, create: jest.fn(), save });
 
-    await expect(
-      handler.execute(new CreateLeaveTypeCommand(TENANT, USER, input)),
-    ).rejects.toThrow(ConflictException);
+    await expect(handler.execute(new CreateLeaveTypeCommand(TENANT, USER, input))).rejects.toThrow(
+      ConflictException,
+    );
     expect(save).not.toHaveBeenCalled();
   });
 
   it('tenant-scoping: uniqueness lookup is scoped by tenantId', async () => {
     const findOne = jest.fn().mockResolvedValue(null);
-    const handler = await build({ findOne, create: jest.fn().mockReturnValue({}), save: jest.fn().mockResolvedValue({}) });
+    const handler = await build({
+      findOne,
+      create: jest.fn().mockReturnValue({}),
+      save: jest.fn().mockResolvedValue({}),
+    });
     await handler.execute(new CreateLeaveTypeCommand(OTHER_TENANT, USER, input));
     expect(findOne).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ tenantId: OTHER_TENANT }) }),
@@ -216,7 +237,9 @@ describe('CreateLeaveTypeHandler', () => {
 // UpdateLeaveType
 // ===========================================================================
 describe('UpdateLeaveTypeHandler', () => {
-  function build(repo: Partial<Record<keyof MockManager, jest.Mock>>): Promise<UpdateLeaveTypeHandler> {
+  function build(
+    repo: Partial<Record<keyof MockManager, jest.Mock>>,
+  ): Promise<UpdateLeaveTypeHandler> {
     return Test.createTestingModule({
       providers: [
         UpdateLeaveTypeHandler,
@@ -248,17 +271,22 @@ describe('UpdateLeaveTypeHandler', () => {
   it('validation path: unknown id → NotFoundException', async () => {
     const findOne = jest.fn().mockResolvedValue(null);
     const handler = await build({ findOne, save: jest.fn() });
-    await expect(
-      handler.execute(new UpdateLeaveTypeCommand(TENANT, USER, patch)),
-    ).rejects.toThrow(NotFoundException);
+    await expect(handler.execute(new UpdateLeaveTypeCommand(TENANT, USER, patch))).rejects.toThrow(
+      NotFoundException,
+    );
   });
 
   it('tenant-scoping: lookup is scoped by tenantId', async () => {
     const findOne = jest.fn().mockResolvedValue(leaveType());
-    const handler = await build({ findOne, save: jest.fn().mockImplementation((r: unknown) => Promise.resolve(r)) });
+    const handler = await build({
+      findOne,
+      save: jest.fn().mockImplementation((r: unknown) => Promise.resolve(r)),
+    });
     await handler.execute(new UpdateLeaveTypeCommand(OTHER_TENANT, USER, patch));
     expect(findOne).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ id: 'lt-1', tenantId: OTHER_TENANT }) }),
+      expect.objectContaining({
+        where: expect.objectContaining({ id: 'lt-1', tenantId: OTHER_TENANT }),
+      }),
     );
   });
 });
@@ -267,13 +295,12 @@ describe('UpdateLeaveTypeHandler', () => {
 // AdjustLeaveBalance
 // ===========================================================================
 describe('AdjustLeaveBalanceHandler', () => {
-  function build(manager: MockManager): Promise<{ handler: AdjustLeaveBalanceHandler; qr: MockQueryRunner }> {
+  function build(
+    manager: MockManager,
+  ): Promise<{ handler: AdjustLeaveBalanceHandler; qr: MockQueryRunner }> {
     const qr = makeQueryRunner(manager);
     return Test.createTestingModule({
-      providers: [
-        AdjustLeaveBalanceHandler,
-        { provide: DataSource, useValue: makeDataSource(qr) },
-      ],
+      providers: [AdjustLeaveBalanceHandler, { provide: DataSource, useValue: makeDataSource(qr) }],
     })
       .compile()
       .then((m) => ({ handler: m.get(AdjustLeaveBalanceHandler), qr }));
@@ -305,7 +332,9 @@ describe('AdjustLeaveBalanceHandler', () => {
     const { handler, qr } = await build(manager);
 
     await expect(
-      handler.execute(new AdjustLeaveBalanceCommand(TENANT, USER, EMPLOYEE, 'lt-1', 2026, -5, 'too much')),
+      handler.execute(
+        new AdjustLeaveBalanceCommand(TENANT, USER, EMPLOYEE, 'lt-1', 2026, -5, 'too much'),
+      ),
     ).rejects.toThrow(BadRequestException);
     expect(qr.rollbackTransaction).toHaveBeenCalled();
     expect(manager.save).not.toHaveBeenCalled();
@@ -318,7 +347,9 @@ describe('AdjustLeaveBalanceHandler', () => {
       .mockResolvedValueOnce(leaveType())
       .mockResolvedValueOnce(balance());
     const { handler } = await build(manager);
-    await handler.execute(new AdjustLeaveBalanceCommand(OTHER_TENANT, USER, EMPLOYEE, 'lt-1', 2026, 1, 'x'));
+    await handler.execute(
+      new AdjustLeaveBalanceCommand(OTHER_TENANT, USER, EMPLOYEE, 'lt-1', 2026, 1, 'x'),
+    );
     expect(manager.findOne).toHaveBeenCalledWith(
       Employee,
       expect.objectContaining({ where: expect.objectContaining({ tenantId: OTHER_TENANT }) }),
@@ -390,9 +421,9 @@ describe('InitializeLeaveBalancesHandler', () => {
 // CarryOverLeaveBalances
 // ===========================================================================
 describe('CarryOverLeaveBalancesHandler', () => {
-  function build(
-    accrual: { carryOverWithinSchema: jest.Mock },
-  ): Promise<{ handler: CarryOverLeaveBalancesHandler; qr: MockQueryRunner }> {
+  function build(accrual: {
+    carryOverWithinSchema: jest.Mock;
+  }): Promise<{ handler: CarryOverLeaveBalancesHandler; qr: MockQueryRunner }> {
     const qr = makeQueryRunner(makeManager());
     return Test.createTestingModule({
       providers: [
@@ -442,11 +473,23 @@ describe('CarryOverLeaveBalancesHandler', () => {
 // UpdateLeaveRequest
 // ===========================================================================
 describe('UpdateLeaveRequestHandler', () => {
-  function build(manager: MockManager): Promise<{ handler: UpdateLeaveRequestHandler; qr: MockQueryRunner }> {
+  function build(
+    manager: MockManager,
+  ): Promise<{ handler: UpdateLeaveRequestHandler; qr: MockQueryRunner }> {
     const qr = makeQueryRunner(manager);
     return Test.createTestingModule({
       providers: [
         UpdateLeaveRequestHandler,
+        {
+          provide: QueryBus,
+          // SEC-MEDIUM-076: totalDays is server-computed — the calendar query
+          // returns the figure the test's dates imply (5 days, no holidays).
+          useValue: {
+            execute: jest
+              .fn()
+              .mockResolvedValue({ totalDays: 5, workingDays: 5, weekends: 0, holidays: 0 }),
+          },
+        },
         { provide: DataSource, useValue: makeDataSource(qr) },
       ],
     })
@@ -490,7 +533,9 @@ describe('UpdateLeaveRequestHandler', () => {
     const { handler } = await build(manager);
 
     await expect(
-      handler.execute(new UpdateLeaveRequestCommand(TENANT, OTHER_USER, { id: 'req-1', reason: 'x' })),
+      handler.execute(
+        new UpdateLeaveRequestCommand(TENANT, OTHER_USER, { id: 'req-1', reason: 'x' }),
+      ),
     ).rejects.toThrow(ForbiddenException);
   });
 
@@ -498,7 +543,9 @@ describe('UpdateLeaveRequestHandler', () => {
     const manager = makeManager();
     manager.findOne.mockResolvedValueOnce(request()).mockResolvedValueOnce(employee());
     const { handler } = await build(manager);
-    await handler.execute(new UpdateLeaveRequestCommand(OTHER_TENANT, USER, { id: 'req-1', reason: 'x' }));
+    await handler.execute(
+      new UpdateLeaveRequestCommand(OTHER_TENANT, USER, { id: 'req-1', reason: 'x' }),
+    );
     expect(manager.findOne).toHaveBeenCalledWith(
       LeaveRequest,
       expect.objectContaining({ where: expect.objectContaining({ tenantId: OTHER_TENANT }) }),
@@ -510,7 +557,9 @@ describe('UpdateLeaveRequestHandler', () => {
 // WithdrawLeaveRequest
 // ===========================================================================
 describe('WithdrawLeaveRequestHandler', () => {
-  function build(manager: MockManager): Promise<{ handler: WithdrawLeaveRequestHandler; qr: MockQueryRunner }> {
+  function build(
+    manager: MockManager,
+  ): Promise<{ handler: WithdrawLeaveRequestHandler; qr: MockQueryRunner }> {
     const qr = makeQueryRunner(manager);
     return Test.createTestingModule({
       providers: [
@@ -530,9 +579,7 @@ describe('WithdrawLeaveRequestHandler', () => {
       .mockResolvedValueOnce(balance({ pending: 3 })); // balance (locked)
     const { handler } = await build(manager);
 
-    const result = await handler.execute(
-      new WithdrawLeaveRequestCommand(TENANT, USER, 'req-1'),
-    );
+    const result = await handler.execute(new WithdrawLeaveRequestCommand(TENANT, USER, 'req-1'));
 
     expect(result.status).toBe(LeaveRequestStatus.WITHDRAWN);
     // pending released back to 0
@@ -629,7 +676,9 @@ describe('CheckLeaveOverlapHandler', () => {
   it('tenant-scoping: query is filtered by tenantId', async () => {
     const qb = makeQb([]);
     const handler = await build(qb);
-    await handler.execute(new CheckLeaveOverlapQuery(OTHER_TENANT, EMPLOYEE, '2026-03-01', '2026-03-05'));
+    await handler.execute(
+      new CheckLeaveOverlapQuery(OTHER_TENANT, EMPLOYEE, '2026-03-01', '2026-03-05'),
+    );
     expect(qb.where).toHaveBeenCalledWith('lr.tenantId = :tenantId', { tenantId: OTHER_TENANT });
   });
 });
@@ -731,7 +780,9 @@ describe('CalculateLeaveDaysHandler', () => {
     const leaveTypeRepo = { findOne: jest.fn().mockResolvedValue(leaveType()) };
     const qb = makeHolidayQb([]);
     const handler = await build(leaveTypeRepo, qb);
-    await handler.execute(new CalculateLeaveDaysQuery(OTHER_TENANT, 'lt-1', '2026-03-02', '2026-03-03'));
+    await handler.execute(
+      new CalculateLeaveDaysQuery(OTHER_TENANT, 'lt-1', '2026-03-02', '2026-03-03'),
+    );
     expect(leaveTypeRepo.findOne).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ tenantId: OTHER_TENANT }) }),
     );

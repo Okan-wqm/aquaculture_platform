@@ -31,15 +31,19 @@ import { Role } from '@aquaculture/backend-common/decorators';
 import { OutboxPublisher } from '@platform/outbox';
 
 import { StockMovementService } from '../services/stock-movement.service';
+import { StockMutationLockAuthority } from '../services/stock-mutation-lock.authority';
+import { FeedAllocationService } from '../services/feed-allocation.service';
 import { LotMixService } from '../services/lot-mix.service';
 import { StorageInventory, StorageItemType } from '../entities/storage-inventory.entity';
 import { StorageLocation } from '../entities/storage-location.entity';
 import { StockMovement, MovementType } from '../entities/stock-movement.entity';
 import { Feed } from '../../feed/entities/feed.entity';
+import { stub } from '@aquaculture/testing';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const FEED = '33333333-3333-4333-8333-333333333333';
 const LOCATION = '22222222-2222-4222-8222-222222222222';
+const SITE = '44444444-4444-4444-8444-444444444444';
 const USER = '44444444-4444-4444-8444-444444444444';
 
 /**
@@ -47,20 +51,14 @@ const USER = '44444444-4444-4444-8444-444444444444';
  * member is supplied as a jest.fn or value; the single `as T` keeps the
  * double assignable without a double cast.
  */
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
-
 function tenantRepositoryMetadata<T extends ObjectLiteral>(): Repository<T>['metadata'] {
-  const tenantColumn = mock<
-    NonNullable<
-      ReturnType<Repository<T>['metadata']['findColumnWithPropertyName']>
-    >
+  const tenantColumn = stub<
+    NonNullable<ReturnType<Repository<T>['metadata']['findColumnWithPropertyName']>>
   >({
     databaseName: 'tenantId',
   });
 
-  return mock<Repository<T>['metadata']>({
+  return stub<Repository<T>['metadata']>({
     findColumnWithPropertyName: jest.fn((propertyName: string) =>
       propertyName === 'tenantId' ? tenantColumn : undefined,
     ),
@@ -72,7 +70,7 @@ function makeQueryBuilder(terminal: {
   getOne?: StorageInventory | null;
   getRawOne?: { total: string };
 }): SelectQueryBuilder<StorageInventory> {
-  const qb = mock<SelectQueryBuilder<StorageInventory>>({});
+  const qb = stub<SelectQueryBuilder<StorageInventory>>({});
   const chain = (): SelectQueryBuilder<StorageInventory> => qb;
   qb.where = jest.fn(chain);
   qb.andWhere = jest.fn(chain);
@@ -101,14 +99,18 @@ interface HarnessOpts {
   feed?: Feed | null;
   /** Existing movement for the idempotency key (null = none). */
   existingMovement?: StockMovement | null;
-  /** Result of resolveFeedDeductionLocation's FEFO read. */
-  resolveLot?: StorageInventory | null;
+  /** Plan the doubled FEFO allocator returns behind resolveFeedDeductionLocation. */
+  allocation?: {
+    slices: Array<{ storageLocationId: string; lotNumber?: string; quantityKg: number }>;
+    usedSiteFallback: boolean;
+    poolTotalKg: number;
+  };
   /** Post-decrement aggregate SUM returned for the item (default '250'). */
   aggregateTotal?: string;
 }
 
 function inv(over: Partial<StorageInventory>): StorageInventory {
-  return mock<StorageInventory>({
+  return stub<StorageInventory>({
     id: 'inv-1',
     tenantId: TENANT,
     storageLocationId: LOCATION,
@@ -123,6 +125,9 @@ function inv(over: Partial<StorageInventory>): StorageInventory {
 
 function makeHarness(opts: HarnessOpts = {}): {
   service: StockMovementService;
+  acquireItemLock: jest.Mock;
+  acquireIdempotencyLock: jest.Mock;
+  allocateForDeduction: jest.Mock;
   manager: EntityManager;
   repos: RepoDoubles;
   outboxEnqueue: jest.Mock;
@@ -130,11 +135,11 @@ function makeHarness(opts: HarnessOpts = {}): {
   const fromLot = opts.fromLot === undefined ? null : opts.fromLot;
   const feed =
     opts.feed === undefined
-      ? mock<Feed>({ id: FEED, name: 'Grower 4mm', unit: 'kg', minStock: 100 })
+      ? stub<Feed>({ id: FEED, name: 'Grower 4mm', unit: 'kg', minStock: 100 })
       : opts.feed;
   const fromLocation =
     opts.fromLocation === undefined
-      ? mock<StorageLocation>({ id: LOCATION, tenantId: TENANT, siteId: 'site-1' })
+      ? stub<StorageLocation>({ id: LOCATION, tenantId: TENANT, siteId: 'site-1' })
       : opts.fromLocation;
 
   // Repository.save / remove / create and EntityManager.getRepository are
@@ -150,33 +155,38 @@ function makeHarness(opts: HarnessOpts = {}): {
   // wrapper's save reflects the mutated row.
   const inventoryCreate = jest.fn();
   inventoryCreate.mockImplementation((dto: Partial<StorageInventory>) => dto);
-  const inventoryRepo = mock<Repository<StorageInventory>>({
+  const inventoryRepo = stub<Repository<StorageInventory>>({
     metadata: tenantRepositoryMetadata<StorageInventory>(),
     findOne: jest.fn().mockResolvedValue(fromLot),
     save: inventorySave,
     remove: inventoryRemove,
     create: inventoryCreate,
-    // The decrement (lot read) and post-op aggregate use the qb; the resolve
-    // read uses its own qb. getOne resolves to the resolve lot when supplied,
-    // else the from lot.
+    // The decrement (lot read) and the post-op aggregate both use the qb. The
+    // FEFO resolve no longer reads here at all — it lives behind
+    // resolveFeedDeductionLocation in FeedAllocationService, which this harness
+    // doubles.
     createQueryBuilder: jest.fn(() =>
       makeQueryBuilder({
-        getOne: opts.resolveLot !== undefined ? opts.resolveLot : fromLot,
+        getOne: fromLot,
         getRawOne: { total: opts.aggregateTotal ?? '250' },
       }),
     ),
   });
 
-  const locationRepo = mock<Repository<StorageLocation>>({
+  const locationRepo = stub<Repository<StorageLocation>>({
     metadata: tenantRepositoryMetadata<StorageLocation>(),
     findOne: jest.fn().mockResolvedValue(fromLocation),
   });
 
   const movementCreate = jest.fn();
-  movementCreate.mockImplementation((dto: Partial<StockMovement>) => mock<StockMovement>({ ...dto }));
+  movementCreate.mockImplementation((dto: Partial<StockMovement>) =>
+    stub<StockMovement>({ ...dto }),
+  );
   const movementSave = jest.fn();
-  movementSave.mockImplementation(async (row: StockMovement) => mock<StockMovement>({ ...row, id: 'mv-1' }));
-  const movementRepo = mock<Repository<StockMovement>>({
+  movementSave.mockImplementation(async (row: StockMovement) =>
+    stub<StockMovement>({ ...row, id: 'mv-1' }),
+  );
+  const movementRepo = stub<Repository<StockMovement>>({
     metadata: tenantRepositoryMetadata<StockMovement>(),
     findOne: jest.fn().mockResolvedValue(opts.existingMovement ?? null),
     create: movementCreate,
@@ -187,7 +197,7 @@ function makeHarness(opts: HarnessOpts = {}): {
   feedCreate.mockImplementation((dto: Partial<Feed>) => dto);
   const feedSave = jest.fn();
   feedSave.mockImplementation(async (row: Feed) => row);
-  const feedRepo = mock<Repository<Feed>>({
+  const feedRepo = stub<Repository<Feed>>({
     metadata: tenantRepositoryMetadata<Feed>(),
     findOne: jest.fn().mockResolvedValue(feed),
     // updateItemTotalQuantity rolls the aggregate back onto Feed.quantity via
@@ -204,18 +214,48 @@ function makeHarness(opts: HarnessOpts = {}): {
     if (entity === Feed) return feedRepo;
     throw new Error(`unexpected repository request: ${String(entity)}`);
   });
-  const manager = mock<EntityManager>({ getRepository });
+  const manager = stub<EntityManager>({ getRepository });
 
-  const lotMix = mock<LotMixService>({
+  const lotMix = stub<LotMixService>({
     detect: jest.fn().mockResolvedValue({ mixCreated: false, mix: null, effectiveLotNumber: null }),
   });
   const outboxEnqueue = jest.fn();
   outboxEnqueue.mockResolvedValue(undefined);
-  const outboxPublisher = mock<OutboxPublisher>({ enqueue: outboxEnqueue });
-  const service = new StockMovementService(lotMix, new SiteAuthorizationService(), outboxPublisher);
+  const outboxPublisher = stub<OutboxPublisher>({ enqueue: outboxEnqueue });
+  // Advisory kilit gerçek bir transaction ister; bu harness sahte bir manager
+  // kullandığı için kilit otoritesi double'lanır. Kilidin GERÇEK davranışı
+  // `stock-mutation-lock.authority.spec.ts` ve PG lane'inde pinlenir.
+  const acquireItemLock = jest.fn();
+  acquireItemLock.mockResolvedValue(undefined);
+  const acquireIdempotencyLock = jest.fn();
+  acquireIdempotencyLock.mockResolvedValue(undefined);
+  const mutationLocks = stub<StockMutationLockAuthority>({
+    acquire: acquireItemLock,
+    acquireIdempotency: acquireIdempotencyLock,
+  });
+  // Tahsis motoru double'lanır: bu harness sahte bir manager kullanıyor ve
+  // motorun GERÇEK davranışı `feed-allocation.service.spec.ts` + PG lane'inde
+  // pinli. Buradaki soru "resolveFeedDeductionLocation motora TEK giriş mi"dir.
+  const allocateForDeduction = jest.fn();
+  allocateForDeduction.mockImplementation(async () =>
+    opts.allocation === undefined
+      ? { slices: [], usedSiteFallback: false, poolTotalKg: 0 }
+      : opts.allocation,
+  );
+  const feedAllocation = stub<FeedAllocationService>({ allocateForDeduction });
+  const service = new StockMovementService(
+    lotMix,
+    new SiteAuthorizationService(),
+    outboxPublisher,
+    mutationLocks,
+    feedAllocation,
+  );
 
   return {
     service,
+    acquireItemLock,
+    acquireIdempotencyLock,
+    allocateForDeduction,
     manager,
     repos: { inventory: inventoryRepo, inventorySave, movementCreate, movementSave },
     outboxEnqueue,
@@ -244,7 +284,11 @@ describe('StockMovementService.recordMovement — SEC-HIGH-051 sink site-authz',
       service.recordMovement(manager, outInput(50), {
         tenantId: TENANT,
         userId: USER,
-        siteAuthorization: { sub: USER, roles: [Role.MODULE_USER], assignedSiteIds: ['site-OTHER'] },
+        siteAuthorization: {
+          sub: USER,
+          roles: [Role.MODULE_USER],
+          assignedSiteIds: ['site-OTHER'],
+        },
       }),
     ).rejects.toBeInstanceOf(ForbiddenException);
 
@@ -268,7 +312,10 @@ describe('StockMovementService.recordMovement — SEC-HIGH-051 sink site-authz',
 
     // Feeding authorizes on the FEEDING site at its own sink, so the internal
     // feed-deduction movement passes no siteAuthorization and is not re-gated.
-    const result = await service.recordMovement(manager, outInput(50), { tenantId: TENANT, userId: USER });
+    const result = await service.recordMovement(manager, outInput(50), {
+      tenantId: TENANT,
+      userId: USER,
+    });
     expect(result.idempotentHit).toBe(false);
   });
 });
@@ -301,7 +348,10 @@ describe('StockMovementService.recordMovement (OUT, fail-closed)', () => {
   it('decrements the lot and writes the audit row on the happy path', async () => {
     const { service, manager, repos } = makeHarness({ fromLot: inv({ quantity: 500 }) });
 
-    const result = await service.recordMovement(manager, outInput(50), { tenantId: TENANT, userId: USER });
+    const result = await service.recordMovement(manager, outInput(50), {
+      tenantId: TENANT,
+      userId: USER,
+    });
 
     // Lot decremented 500 -> 450 and saved (not removed).
     expect(repos.inventorySave).toHaveBeenCalled();
@@ -318,7 +368,7 @@ describe('StockMovementService.recordMovement (OUT, fail-closed)', () => {
 
   it('is idempotent: a matching key returns the existing movement without re-deducting', async () => {
     const { service, manager, repos } = makeHarness({
-      existingMovement: mock<StockMovement>({ id: 'mv-existing' }),
+      existingMovement: stub<StockMovement>({ id: 'mv-existing' }),
     });
 
     const result = await service.recordMovement(
@@ -343,27 +393,45 @@ describe('StockMovementService.recordMovement (OUT, fail-closed)', () => {
 });
 
 describe('StockMovementService.resolveFeedDeductionLocation', () => {
-  it('returns the FEFO lot/location when stock exists', async () => {
-    const { service, manager } = makeHarness({
-      resolveLot: inv({ storageLocationId: LOCATION, lotNumber: 'LOT-A' }),
-    });
-
-    const result = await service.resolveFeedDeductionLocation(manager, TENANT, FEED, new Date());
-
-    expect(result).toEqual({
-      storageLocationId: LOCATION,
-      lotNumber: 'LOT-A',
-      // D-9: siteId verilmedi → site fallback söz konusu değil.
+  it('is the single entry point: it delegates to the FEFO allocator, verbatim', async () => {
+    const plan = {
+      slices: [{ storageLocationId: LOCATION, lotNumber: 'LOT-A', quantityKg: 12 }],
       usedSiteFallback: false,
+      poolTotalKg: 40,
+    };
+    const { service, manager, allocateForDeduction } = makeHarness({ allocation: plan });
+    const asOf = new Date('2026-05-05T00:00:00.000Z');
+
+    const result = await service.resolveFeedDeductionLocation(
+      manager,
+      TENANT,
+      FEED,
+      12,
+      asOf,
+      'LOT-A',
+      SITE,
+    );
+
+    expect(result).toBe(plan);
+    expect(allocateForDeduction).toHaveBeenCalledWith(manager, TENANT, {
+      feedId: FEED,
+      quantityKg: 12,
+      asOf,
+      lotNumber: 'LOT-A',
+      siteId: SITE,
     });
   });
 
-  it('returns null when no usable lot is in stock (caller must fail-closed)', async () => {
-    const { service, manager } = makeHarness({ resolveLot: null });
+  it('propagates the allocator shortage instead of returning a no-deduction result', async () => {
+    // FARM-CRITICAL-237: there is NO non-deducting success path. A shortage must
+    // reach the caller as a failure, never as an empty/absent location that a
+    // caller could read as "this feed is simply not storage-tracked".
+    const { service, manager, allocateForDeduction } = makeHarness();
+    allocateForDeduction.mockRejectedValue(new BadRequestException('pool short'));
 
-    const result = await service.resolveFeedDeductionLocation(manager, TENANT, FEED, new Date());
-
-    expect(result).toBeNull();
+    await expect(
+      service.resolveFeedDeductionLocation(manager, TENANT, FEED, 12, new Date()),
+    ).rejects.toThrow('pool short');
   });
 });
 
@@ -444,7 +512,7 @@ describe('StockMovementService.recordMovement — single low-stock sink', () => 
 
   it('does not re-enqueue on an idempotent replay', async () => {
     const { service, manager, outboxEnqueue } = makeHarness({
-      existingMovement: mock<StockMovement>({ id: 'mv-existing' }),
+      existingMovement: stub<StockMovement>({ id: 'mv-existing' }),
       aggregateTotal: '0',
     });
 

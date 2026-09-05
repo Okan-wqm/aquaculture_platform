@@ -48,6 +48,10 @@ import { PlanLimits, PlanPricing } from './billing/entities/subscription.entity'
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { HealthModule } from './health/health.module';
 import { MeteringModule } from './modules/metering/metering.module';
+import { subgraphComplexityPlugin, subgraphFormatError } from '@aquaculture/backend-common/graphql';
+
+/** Shared subgraph complexity ceiling (SEC-LOW-116). */
+const GRAPHQL_MAX_COMPLEXITY = 1000;
 
 /**
  * BillingMigrationRunnerService — production schema-version gate for the
@@ -123,6 +127,14 @@ const billingSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env
        * that causes exponential resource consumption on the server.
        */
       validationRules: [depthLimit(10)],
+      /**
+       * SEC-MEDIUM-077 / SEC-LOW-116 (2026-08-23 scan №22/№61): shared subgraph
+       * hardening preset — production error masking (raw TypeORM/driver text must
+       * never reach clients through the gateway's message passthrough) and the
+       * complexity cap for direct-access defense-in-depth.
+       */
+      formatError: subgraphFormatError(process.env['NODE_ENV'] === 'production'),
+      plugins: [subgraphComplexityPlugin(GRAPHQL_MAX_COMPLEXITY)],
       buildSchemaOptions: {
         orphanedTypes: [
           InvoiceLineItem,

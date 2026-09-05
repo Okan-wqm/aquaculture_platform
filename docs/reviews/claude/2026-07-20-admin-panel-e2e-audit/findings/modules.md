@@ -1,0 +1,922 @@
+<!-- markdownlint-disable MD011 MD013 MD029 MD033 MD034 MD037 MD038 MD049 MD052 -->
+<!-- WHY: imported verbatim FE<->BE<->DB audit evidence. The quoted TypeScript is
+     what makes a finding checkable, and markdown's inline rules cannot tell it
+     from markup: `Record<string, T>` and `[P]['req']` read as inline HTML and a
+     reference link, `(typeof X)[number]` as a reversed link, snake_case
+     fragments as emphasis, a template literal as a code span with spaces, an
+     internal service URL as a bare URL, and an inline "1)" enumeration as an
+     ordered list that starts at 2. Long lines are identifier-dense finding
+     titles and evidence paths that cannot wrap without breaking the reference.
+     Reflowing them would corrupt the record this file exists to preserve --
+     the same rationale scripts/ci/markdownlint-changed.mjs states for its
+     changed-line filter. Structure is enforced by the parsers instead:
+     tools/gates/finding-registry.ts and tools/gates/commit-msg-validator.ts. -->
+
+# Module Management — findings
+
+> Part of [Admin Panel E2E Audit](../README.md). IDs `APA-xxx` are stable; severity shown is the
+> verified severity where status is CONFIRMED, else the auditor's grade pending verification.
+
+## ModulesPage — `/admin/modules` — verdict: **PARTIAL**
+
+**Chain:** FE (web/modules/admin-panel/src/pages/ModulesPage.tsx) -> modulesApi
+(services/api/modules.ts) -> apiFetch base '/api' (services/http-client.ts:23) -> nginx rewrite
+/api/(.\*) -> /api/v1/$1 to admin-api-service (infrastructure/nginx/droplet.conf:377-383) ->
+ModulesController @Controller('modules') under globalPrefix 'api/v1' + VERSION_NEUTRAL
+(apps/admin-api-service/src/modules/modules.controller.ts:65, main.ts:14-19,
+libs/backend-common/src/bootstrap/create-service-app.ts:610) -> ModulesService raw SQL against
+auth.modules/auth.tenant_modules/auth.tenants + price derived from admin.module_pricing
+(modules.service.ts:120-131,184-231). Catalog writes (create/update/activate/deactivate/delete) go
+over NATS to auth-service AuthAdminNatsHandler which persists via the TypeORM Module repository
+(apps/auth-service/src/modules/tenant/handlers/auth-admin-nats.handler.ts:429-505); assignments go
+via TENANT_COMMAND_SUBJECTS to TenantProvisioningCommandService raw SQL upserts
+(tenant-provisioning-command.service.ts:308-406). Auth: global APP_GUARD PlatformAdminGuard enforces
+RS256 JWT + SUPER_ADMIN on every route (app.module.ts:277-290,
+guards/platform-admin.guard.ts:155-177); response envelope {success,data,meta} matches the FE
+unwrapping (shared/response.interceptor.ts:44-75, http-client.ts:341-351). Entities/migrations
+verified: auth.modules + auth.tenant_modules declare schema 'auth' and match the Baseline migration
+(module.entity.ts:36,118; tenant-module.entity.ts:28; migrations/1800000000000-Baseline.ts:16,18);
+admin.module_pricing declares schema 'admin' with matching migration
+(billing/entities/module-pricing.entity.ts:56;
+migrations/1800200000000-CreateAdminEntitySurfaceTables.ts:124-156). List/stats/toggle reach real
+DB, but the catalog isActive toggle is barely enforced, toggle UI feedback is defeated by the 30s FE
+cache, assignment-with-expiry 500s, and removal state is inconsistently read back.
+
+**Endpoints exercised:**
+`GET /api/modules?search&isActive&isCore&page&limit -> GET /api/v1/modules (modules.controller.ts:72)`;
+`GET /api/modules/stats -> GET /api/v1/modules/stats (modules.controller.ts:94)`;
+`PATCH /api/modules/:id/activate -> (modules.controller.ts:171)`;
+`PATCH /api/modules/:id/deactivate -> (modules.controller.ts:179)`;
+`POST /api/modules (FE api defined; no UI trigger on page) -> (modules.controller.ts:151)`;
+`PUT /api/modules/:id -> (modules.controller.ts:160)`;
+`DELETE /api/modules/:id -> (modules.controller.ts:187)`;
+`GET /api/modules/:id | /api/modules/code/:code | /api/modules/:id/tenants -> (modules.controller.ts:119,127,135)`;
+`GET/POST /api/modules/assignments, DELETE /api/modules/assignments/:tenantId/:moduleId -> (modules.controller.ts:102,196,205)`
+
+**DB tables:** `auth.modules`, `auth.tenant_modules`, `auth.tenants`, `admin.module_pricing`
+
+### APA-065 [HIGH] Catalog activate/deactivate toggle writes real state that almost nothing enforces
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** The page's primary control PATCHes /modules/:id/(de)activate, which really persists
+  auth.modules.isActive via NATS (modules.service.ts:444-446 -> auth-admin-nats.handler.ts:453-477).
+  But the only consumer that filters on it is the SUPER_ADMIN's own sidebar query
+  (token.service.ts:402-411). The TENANT_ADMIN module list joins tenant_modules to modules WITHOUT
+  m."isActive" (token.service.ts:421-429), the non-admin path reads user_module_assignments with no
+  isActive filter (token.service.ts:436-448), the RBAC entitlement SSoT ENABLED_MODULE_CODES_SQL
+  checks only tm."isEnabled" (permission-catalogue.ts:281-286), and assignTenantModules validates
+  module existence without isActive (tenant-provisioning-command.service.ts:325-335) so a
+  deactivated module can still be assigned. Deactivating a module platform-wide therefore does not
+  remove it from any tenant's menus, entitlements, or assignability — the toggle is near-cosmetic
+  despite the page claiming to 'manage platform modules and their availability to tenants'.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/ModulesPage.tsx:78-97,329-341`
+  - `apps/auth-service/src/modules/authentication/services/token.service.ts:402-449`
+  - `apps/auth-service/src/modules/tenant/services/permission-catalogue.ts:281-286`
+  - `apps/auth-service/src/modules/tenant/services/tenant-provisioning-command.service.ts:325-335`
+- **Verification:** Verified end-to-end against current code. Write path is real: ModulesPage toggle
+  -> modulesApi.(de)activate -> admin-api modules.service.ts:444-446 setModuleStatus -> NATS
+  UPDATE_MODULE -> auth-admin-nats.handler.ts:465 persists auth.modules.isActive. Enforcement audit:
+  repo-wide grep for consumers of auth.modules / m."isActive" found exactly two readers that enforce
+  it — the SUPER_ADMIN sidebar query (token.service.ts:402-411, WHERE "isActive" = true) and
+  admin-api's own catalogue list/stats (display only). Every tenant-facing path ignores it:
+  TENANT_ADMIN sidebar (token.service.ts:421-429) joins auth.modules with only tm."isEnabled" =
+  true; non-admin sidebar (437-448) filters on the assignment's isActive/expiry via isAccessible()
+  (user-module-assignment.entity.ts:134-138) which never consults module.isActive; the RBAC
+  entitlement SSoT ENABLED_MODULE_CODES_SQL (permission-catalogue.ts:281-286) filters only
+  tm."isEnabled", so resolveEntitledCapabilities keeps granting a deactivated module's capabilities
+  at the write boundary, token mint, and role editor; assignTenantModules
+  (tenant-provisioning-command.service.ts:325-335) validates existence only and upserts
+  isEnabled=true, so deactivated modules remain assignable — directly contradicting the entity's own
+  doc comment (module.entity.ts:79-83: "Module is active and can be assigned to tenants"). No hidden
+  guard/middleware enforces it elsewhere (admin-api module-assignment.service getModuleInfoMap and
+  getTenantModulesWithPricing also ignore it). Severity stays HIGH: this is not an
+  attacker-exploitable privilege escalation (tenants only keep access they were already granted),
+  but the platform operator's kill switch for a module (compliance pull, incident response, license
+  withdrawal) silently does nothing for every tenant — false enforcement on the entitlement chain,
+  surfaced as a working control in the admin UI.
+- **Root cause:** The DB->enforcement half of the chain was never built. auth.modules.isActive has
+  documented gate semantics (entity comment "active and can be assigned to tenants"; page subtitle
+  "availability to tenants") and a complete FE->admin-api->NATS->auth write path, but there is no
+  single "effective module availability" predicate: each consumer (SUPER_ADMIN sidebar, TENANT_ADMIN
+  sidebar, non-admin assignment path, RBAC entitlement SQL, assignment validation) hand-writes its
+  own tenant_modules-to-modules join, so the platform-level condition exists only in the one query
+  where it was originally typed (the SUPER_ADMIN sidebar) and drifted out of all others. Instance of
+  the systemic "config state written but nobody reads it / duplicated predicate drift" class.
+- **Fix design:** Systemic class: state-written-but-not-enforced via duplicated hand-rolled
+  predicates. Pattern-level fix = define the availability predicate ONCE, consume it everywhere
+  (tier 1/2), pin it with specs (tier 3). (1) In permission-catalogue.ts — already the declared
+  entitlement SSoT — export a single SQL fragment, e.g. TENANT_MODULE_AVAILABLE_PREDICATE =
+  `tm."isEnabled" = true AND m."isActive" = true`, and rebuild ENABLED_MODULE_CODES_SQL from it.
+  resolveEntitledCapabilities then automatically drops a deactivated module's capabilities at the
+  write boundary, token-mint intersection, and role-editor catalogue with zero per-callsite effort.
+  (2) token.service.ts TENANT_ADMIN query: import and interpolate the same exported fragment (no
+  second hand-written copy — structural impossibility of re-drift); non-admin path: push module
+  activity into the query — userModuleAssignmentRepository.find({ where: { userId, isActive: true,
+  module: { isActive: true } }, relations: ['module'] }) — keeping isAccessible() for
+  assignment-level expiry. (3) tenant-provisioning-command.service.assignTenantModules: validation
+  query selects id + "isActive"; missing ids keep NotFoundException, inactive ids throw
+  BadRequestException('Modules not active: ...') — enforcing the entity's documented semantics
+  ("active and can be assigned to tenants") at the single writer boundary, which also protects
+  admin-api's downstream provisioning/pricing path. (4) Cache coherence:
+  auth-admin-nats.handler.updateModule, when command.isActive !== undefined, calls a new
+  TokenService.invalidateAllModuleCaches() (clears moduleCache + resourcePermissionCache wholesale —
+  platform-wide change cannot be per-user), so deactivation takes effect at next token mint instead
+  of after cache TTL. No FE change needed: ModulesPage already renders isActive truthfully; the fix
+  makes the backend honor what the page claims.
+- **Files to change:**
+  - `apps/auth-service/src/modules/tenant/services/permission-catalogue.ts`
+  - `apps/auth-service/src/modules/authentication/services/token.service.ts`
+  - `apps/auth-service/src/modules/tenant/services/tenant-provisioning-command.service.ts`
+  - `apps/auth-service/src/modules/tenant/handlers/auth-admin-nats.handler.ts`
+  - `apps/auth-service/src/modules/tenant/__tests__/permission-catalogue.spec.ts`
+  - `apps/auth-service/src/modules/authentication/services/token.service.spec.ts`
+  - `apps/auth-service/src/modules/tenant/services/__tests__/module-availability-enforcement.spec.ts`
+- **Proof of fix:** Extend
+  apps/auth-service/src/modules/tenant/**tests**/permission-catalogue.spec.ts: assert
+  ENABLED_MODULE_CODES_SQL is built from the exported TENANT_MODULE_AVAILABLE_PREDICATE (identity
+  via import, not string duplication) and that resolveEntitledCapabilities yields only CORE
+  capabilities when the module row is isActive=false. Extend
+  apps/auth-service/src/modules/authentication/services/token.service.spec.ts: getUserModules for
+  TENANT_ADMIN and for non-admin users excludes modules whose catalogue row has isActive=false (mock
+  query/repository returns a deactivated module; it must not appear), and the TENANT_ADMIN SQL
+  contains the shared predicate. New
+  apps/auth-service/src/modules/tenant/services/**tests**/module-availability-enforcement.spec.ts:
+  assignTenantModules throws BadRequestException listing inactive module ids (NotFound still covers
+  missing ids), and auth-admin-nats.handler UPDATE_MODULE with isActive change invokes
+  TokenService.invalidateAllModuleCaches(). Run nx affected --target=test + lint.
+- **Effort:** M
+
+### APA-066 [HIGH] Toggle feedback silently wrong: refresh() after activate/deactivate serves the 30s useAsyncData cache
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** handleToggleModule awaits the PATCH then calls refresh() (ModulesPage.tsx:84-90).
+  refresh() is fetchData(true) (useAsyncData.ts:297) and fetchData consults the in-memory cache
+  FIRST, returning any entry younger than the 30s default TTL without hitting the network
+  (useAsyncData.ts:172-189, cacheTTL default at 110). The list was cached at mount under the same
+  cacheKey ('modules-<search>-<filters>', ModulesPage.tsx:54), so for up to 30 seconds after a
+  successful toggle the UI re-renders the STALE isActive value — the switch appears not to work even
+  though the DB changed. The page never calls the exported clearAsyncCache()
+  (useAsyncData.ts:378-384). Same staleness applies to the 'module-stats' key.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/ModulesPage.tsx:54,84-90`
+  - `web/modules/admin-panel/src/hooks/useAsyncData.ts:110,172-189,296-297,378-384`
+- **Verification:** Confirmed by direct code reading. handleToggleModule (ModulesPage.tsx:78-97)
+  awaits the PATCH (modulesApi.activate/deactivate, services/api/modules.ts:32-33 — plain apiFetch
+  wrappers, no cache side effects) then calls refresh() (un-awaited, line 90). refresh() is
+  fetchData(true) (useAsyncData.ts:297); fetchData consults the module-level cache FIRST (lines
+  172-189) and returns any entry younger than cacheTTL (default 30000, line 110) without a network
+  call. The mount fetch populates the cache under the same key ('modules-<search>-<filters>',
+  ModulesPage.tsx:54; write at useAsyncData.ts:221-223), so any toggle within 30s of the last list
+  fetch — i.e. virtually every toggle — re-renders the stale isActive and the switch visibly does
+  not move, while the DB did change. Refutations failed: no production code calls clearAsyncCache
+  (grep: tests only); no force/bypass parameter exists on the hook; the C7 refetch effect (lines
+  344-348) fires only on cacheKey/cacheTTL/timeout change, none of which a toggle changes;
+  getCacheEntry LRU-touches but preserves the original timestamp. Same defect applies to the
+  'module-stats' hook instance (which the toggle handler never refreshes at all). Systemic class
+  confirmed: MessagingCompliancePage.tsx (cacheKeys at 216/222, 15s TTL) has the identical
+  mutate-then-refresh staleness for legal-hold release (lines 255-257); DatabaseManagementPage is
+  unaffected only because it passes no cacheKey. HIGH is correct: deterministic wrong feedback on
+  the primary mutation of a SUPER_ADMIN page controlling platform-wide module availability;
+  self-heals in <=30s and re-clicks converge (activate/deactivate are absolute state-setters, not
+  toggles), so not CRITICAL.
+- **Root cause:** FE data-layer contract defect in the admin-panel's legacy useAsyncData hook
+  (admin-panel is deliberately on this pattern per ADR-009/010, not TanStack Query, so it gets no
+  invalidateQueries semantics). The hook conflates two operations with different contracts —
+  'initial read (cache-permitted, dedup)' and 'revalidate after mutation (must hit network)' — into
+  one code path: refresh() is documented as 'Refresh data' (useAsyncData.ts:43-44) but implemented
+  as fetchData(true), which unconditionally honors the TTL cache (lines 172-189). The only
+  invalidation primitive, clearAsyncCache(), is a detached module-level export requiring pages to
+  manually reconstruct key strings — zero production callsites exist. Drift origin: the LRU/TTL
+  cache was retrofitted onto the hook for read-dedup performance (H1/PERF-001 fix comments) without
+  extending the mutation-side contract, so every cacheKey-using page with a mutate-then-refresh flow
+  (ModulesPage, MessagingCompliancePage) silently inherited stale-read-after-write. Secondary local
+  defects: refresh() at ModulesPage.tsx:90 is a floating promise (banned by repo standards), and the
+  handler never refreshes the separate 'module-stats' hook instance.
+- **Fix design:** Pattern-level fix at the hook contract (tier 2 — make correct behavior automatic),
+  so all current and future callsites are right by construction; no per-page clearAsyncCache calls
+  (that would be the workaround the discipline bans). (1) useAsyncData.ts: give fetchData an
+  explicit bypassCache option — signature fetchData(showLoading: boolean, opts?: { bypassCache:
+  boolean }). refresh() and silentRefresh() become cache-bypassing (fetchData(true|false, {
+  bypassCache: true })), matching their documented 'refresh' semantics and universal SWR/TanStack
+  refetch semantics; retry() likewise bypasses (a retry of a failure must not serve a stale
+  success). Only the automatic mount/key-change path (the C7 effect and fetch()) keeps
+  cache-honoring reads, preserving the dedup the cache was built for. On success the existing cache
+  write (lines 221-223) overwrites the entry, so other consumers of the same key converge to fresh
+  data. The in-flight dedup (inFlightRef) is preserved unchanged. This alone fixes
+  MessagingCompliancePage with zero page edits — demonstrating the pattern-level nature of the fix.
+  (2) ModulesPage.tsx local application: destructure refresh from the stats hook (e.g. refresh:
+  refreshStats) and in handleToggleModule replace the floating refresh() with
+  `await Promise.all([refresh(), refreshStats()])` inside the try, so the toggling spinner holds
+  until the UI actually reflects the new server state and both the card switch and the Active
+  Modules stat update together. (3) Tier-3 detection: contract tests in the existing hook spec (see
+  verification) lock the refresh-bypasses-cache semantics so the regression cannot silently return,
+  plus a page-level test proving the end-to-end toggle flow.
+- **Files to change:**
+  - `web/modules/admin-panel/src/hooks/useAsyncData.ts`
+  - `web/modules/admin-panel/src/pages/ModulesPage.tsx`
+  - `web/modules/admin-panel/src/hooks/__tests__/useAsyncData.spec.ts`
+  - `web/modules/admin-panel/src/pages/__tests__/ModulesPage.spec.tsx`
+- **Proof of fix:** Extend web/modules/admin-panel/src/hooks/**tests**/useAsyncData.spec.ts (Caching
+  describe block) with contract tests: (a) 'refresh() bypasses a fresh cache entry' — mount with
+  cacheKey, fetcher resolves v1 (fetcher called 1x), call result.current.refresh() within TTL,
+  assert fetcher called 2x and data === v2 and the cache entry was overwritten (a third hook mount
+  on the same key serves v2 without a fetch); (b) same for silentRefresh(); (c) regression guard:
+  initial mount with a fresh cache entry still serves cache without calling the fetcher (dedup
+  preserved); (d) retry() after failure bypasses cache. Add
+  web/modules/admin-panel/src/pages/**tests**/ModulesPage.spec.tsx (new, alongside existing
+  TenantManagementPage.spec.tsx): mock modulesApi — list resolves [module isActive:true] then
+  [module isActive:false], deactivate resolves; render, click the toggle, assert deactivate called
+  once, list called a second time (network revalidation, not cache), getStats called a second time,
+  and the switch renders the inactive state. Run via nx affected --target=test (admin-panel
+  project).
+- **Effort:** M
+
+### APA-067 [HIGH] Assign-module-to-tenant with expiresAt throws 500: interface DTOs bypass the global ValidationPipe and transform
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** CreateModuleDto/UpdateModuleDto/AssignModuleDto are TypeScript interfaces, not
+  class-validator classes (modules.controller.ts:26-62), so the platform ValidationPipe
+  (whitelist+forbidNonWhitelisted+transform, create-service-app.ts:458-461) sees metatype Object and
+  skips validation AND transformation entirely. Consequence 1: AssignModuleDto.expiresAt is declared
+  Date but arrives as a JSON string; modules.service.ts calls dto.expiresAt?.toISOString() (lines
+  610 and 618) — TypeError 'toISOString is not a function' -> 500 for every assignment that sets an
+  expiry. Consequence 2: zero input validation on all module mutations — POST /modules with missing
+  code/name/defaultRoute passes straight through to the NATS command and surfaces as a 502 from a DB
+  NOT NULL violation, and unknown body fields are neither stripped nor rejected, contradicting the
+  platform's declared validation posture.
+- **Evidence:**
+  - `apps/admin-api-service/src/modules/modules.controller.ts:26-62`
+  - `apps/admin-api-service/src/modules/modules.service.ts:610,618`
+  - `libs/backend-common/src/bootstrap/create-service-app.ts:458-461`
+  - `web/modules/admin-panel/src/services/api/modules.ts:35-45`
+- **Verification:** CONFIRMED on every claim. (1) modules.controller.ts:26-62 defines
+  CreateModuleDto/UpdateModuleDto/ModuleQuantitiesDto/AssignModuleDto as TS interfaces — the ONLY
+  interface-typed @Body() DTOs in admin-api-service (all other controllers use class-validator
+  classes, e.g. AnalyzeQueryDto, CreateTenantDto with 'HIGH-003 fix' comments). Interfaces erase at
+  runtime, so design:paramtypes emits Object and NestJS ValidationPipe.toValidate() short-circuits:
+  no whitelist, no forbidNonWhitelisted, no validation, no transform. (2) The global pipe is exactly
+  as claimed: bootstrapService (admin main.ts, no overrides) → configureValidationPipe
+  (create-service-app.ts:458-497, called at :787). No @UsePipes on the controller, no APP_PIPE in
+  app.module.ts. (3) Wire expiresAt is a JSON string; string is non-nullish so
+  `dto.expiresAt?.toISOString()` (service:610) and `dto.expiresAt.toISOString()` (:618) throw
+  TypeError, caught+rethrown at :669-674 → 500. (4) Reachability: FE api layer advertises
+  expiresAt?: string (api/modules.ts:35-45); the sole current UI caller (TenantDetailPage.tsx:293)
+  omits it, so today's UI doesn't trip the 500 — but Swagger (non-prod), direct SUPER_ADMIN API
+  clients, and first FE use of the advertised option hit it deterministically. Consequence 2 needs
+  no expiresAt: POST /modules with missing code/name flows into the NATS AdminCreateModuleCommand
+  and surfaces as 502 BadGatewayException (service:384-389), never 400. (5) NEW aggravator: the
+  service keeps a second divergent AssignModuleDto (service:98-105) adding assignedBy?, consumed at
+  :600 (`dto.assignedBy || dto.tenantId`) — with forbidNonWhitelisted effectively off, a
+  client-injected body field `assignedBy` becomes the recorded actor in the auth-service
+  module-lifecycle command (audit-attribution spoofing), and the benign default records the tenantId
+  as the actor. (6) Why tests stayed green: modules.controller.spec.ts:379-401 invokes the
+  controller method directly with an in-memory Date, bypassing HTTP serialization and the pipe.
+  Severity stays HIGH (not CRITICAL): surface is behind the global PlatformAdminGuard (SUPER_ADMIN
+  JWT), so no unauthenticated exposure — but it is a deterministic 500 on a documented parameter, a
+  full validation-posture bypass on an admin control-plane mutation surface, and an audit-actor
+  integrity hole. This is an instance of the systemic 'unvalidated interface-DTO' class; within
+  admin-api-service this controller is the only instance, but nothing prevents recurrence
+  platform-wide.
+- **Root cause:** The FE→BE contract broke at the controller boundary: the module DTOs were authored
+  as TypeScript interfaces instead of class-validator classes, so the runtime type metadata NestJS
+  relies on (design:paramtypes) degrades to Object and the platform's global ValidationPipe silently
+  skips both validation and transformation for every modules mutation. Three reinforcing drift
+  causes: (a) modules.controller.ts inlined its DTOs instead of following the service-wide `dto/`
+  class pattern, so the platform's declared posture (whitelist+forbidNonWhitelisted+transform) never
+  applied; (b) the wire contract has two owners — the controller interface and a divergent
+  service-local AssignModuleDto (adds assignedBy?) — so nobody owned the Date-vs-ISO-string question
+  and the service assumed a Date that can never arrive over JSON; (c) the London-school unit tests
+  call controller methods in-process with real Date objects, structurally incapable of detecting a
+  wire-format/pipe-bypass defect, so CI stayed green. No build/test gate exists that asserts @Body()
+  parameters are class DTOs, so the violation class is undetectable today.
+- **Fix design:** Tier-1 (make it impossible) locally + Tier-3 (make it detectable) at the pattern
+  level. LOCAL: (1) Create class-validator DTO classes in
+  apps/admin-api-service/src/modules/dto/module.dto.ts (per layer rules) and delete the four
+  controller interfaces: CreateModuleDto { @IsString()@IsNotEmpty() code; @IsString()@IsNotEmpty()
+  name; @IsOptional()@IsString() description; @IsString()@IsNotEmpty() defaultRoute;
+  @IsOptional()@IsString() icon; @IsOptional()@IsBoolean() isCore }; UpdateModuleDto with the
+  optional variants; ModuleQuantitiesDto with @IsOptional()@IsInt()@Min(0) per metric;
+  AssignModuleDto { @IsUUID() tenantId; @IsUUID() moduleId;
+  @IsOptional()@ValidateNested()@Type(()=>ModuleQuantitiesDto) quantities; @IsOptional()@IsObject()
+  configuration; @IsOptional()@IsISO8601() expiresAt?: string }. Fix the contract at the SOURCE by
+  making expiresAt the wire type (ISO-8601 string) end-to-end: it already IS a string in the FE
+  (api/modules.ts expiresAt?: string) and the service only ever re-serializes it for the NATS
+  command — so delete both .toISOString() round-trips (service:610,618) and pass the validated ISO
+  string through. No Date object ever exists in this chain, so the crash becomes unrepresentable.
+  (2) Delete the duplicate AssignModuleDto interface in modules.service.ts (single contract owner:
+  the controller DTO class) and remove assignedBy from the wire contract entirely — the actor must
+  come from the authenticated admin JWT that PlatformAdminGuard attaches as request.user
+  (guard:133), not from the body: controller passes `req.user.sub` as an explicit
+  `assignedBy: string` parameter to modulesService.assignModuleToTenant(dto, assignedBy), also
+  fixing the wrong `|| dto.tenantId` attribution fallback. With forbidNonWhitelisted now live, a
+  client-sent assignedBy is rejected 400. (3) Rewrite modules.controller.spec assignment tests to
+  exercise the real pipe: a supertest harness (mirroring the existing
+  impersonation.controller.spec.ts pattern that instantiates the platform ValidationPipe options)
+  posting JSON bodies. PATTERN LEVEL: add tests/invariants/controller-body-dto-class.spec.ts — a
+  ts-morph/compiler-API scan (same style as admin-route-contract-ci.spec.ts) over
+  apps/**/src/**/\*.controller.ts asserting every @Body() parameter type resolves to a class
+  declaration (not interface/type-literal/Object), making the entire 'unvalidated interface-DTO'
+  class a build-time failure platform-wide. No FE change needed: api/modules.ts already sends the
+  ISO-string wire shape the fixed contract declares.
+- **Files to change:**
+  - `apps/admin-api-service/src/modules/dto/module.dto.ts`
+  - `apps/admin-api-service/src/modules/modules.controller.ts`
+  - `apps/admin-api-service/src/modules/modules.service.ts`
+  - `apps/admin-api-service/src/modules/__tests__/modules.controller.spec.ts`
+  - `apps/admin-api-service/src/modules/__tests__/modules.validation.spec.ts`
+  - `tests/invariants/controller-body-dto-class.spec.ts`
+- **Proof of fix:** New tests/invariants/controller-body-dto-class.spec.ts must FAIL against the
+  pre-fix modules.controller.ts (interface-typed @Body()) and pass after — proving the systemic gate
+  detects the class. New apps/admin-api-service/src/modules/**tests**/modules.validation.spec.ts
+  (supertest + the platform ValidationPipe options, mirroring impersonation.controller.spec.ts): (a)
+  POST /modules/assignments with JSON {tenantId, moduleId, expiresAt:"2026-12-31T00:00:00.000Z"}
+  returns 201 and the mocked AuthTenantProvisioningClientService receives expiresAt as that exact
+  ISO string (direct regression for the 500); (b) same POST with body field assignedBy → 400
+  (forbidNonWhitelisted live; actor spoof blocked); (c) POST /modules with missing code → 400 with
+  field-level constraints (was 502); (d) POST /modules/assignments with expiresAt:"not-a-date"
+  → 400. Extend modules.service.spec.ts to assert assignedBy in the NATS command metadata equals the
+  JWT-derived actor parameter, never a body value or tenantId. Then nx affected --target=test and
+  --target=lint green.
+- **Effort:** M
+
+### APA-068 [HIGH] Module removal soft-disables (isEnabled=false) but every admin read path counts disabled rows as live assignments
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** removeTenantModule on auth-service only flips tenant_modules.isEnabled to false
+  (tenant-provisioning-command.service.ts:389-400). None of admin-api's reads filter isEnabled:
+  listModules tenantsCount (modules.service.ts:195,199), getModuleStats totalAssignments/moduleUsage
+  (252-262), getModuleTenants (483-505), getAssignments (550-575). So after a 'successful' removal
+  the page still shows the tenant in tenantsCount and Total Assignments — silent wrong data. Worse,
+  retrying the removal 404s: admin-api's pre-check SELECTs the row without isEnabled
+  (modules.service.ts:703-711) but the auth-side UPDATE matches only isEnabled=true rows, returning
+  modulesRemoved=0, which admin-api converts to NotFoundException (modules.service.ts:724-728) for
+  an assignment the UI still displays.
+- **Evidence:**
+  - `apps/auth-service/src/modules/tenant/services/tenant-provisioning-command.service.ts:389-400`
+  - `apps/admin-api-service/src/modules/modules.service.ts:195-199,252-262,483-505,550-575,703-728`
+- **Verification:** Refutation attempted and failed on every axis. (1) Auth-side removal is
+  soft-disable only: tenant-provisioning-command.service.ts:389-400 runs UPDATE auth.tenant_modules
+  SET "isEnabled"=false ... AND "isEnabled"=true RETURNING id — the row survives. (2) Admin-api's
+  reads are verified unfiltered: listModules tenantsCount (modules.service.ts:199 LEFT JOIN with no
+  isEnabled), getModuleStats totalAssignments (252, bare COUNT(\*)) and moduleUsage (259),
+  getModuleById/ByCode (301, 341), getModuleTenants (494, 502), getAssignments (562, 572). FE
+  renders these exact numbers (ModulesPage.tsx:256 totalAssignments, :352 tenantsCount), so stale
+  counts are user-visible. (3) The retry-404 is concretely reachable: TenantDetailPage.tsx:552-574
+  lists tenant.modules from tenant-detail.service.ts:226-241 (returns disabled rows with
+  isActive=false, "Inactive" badge, Remove button still rendered). Clicking Remove again: admin
+  pre-check (modules.service.ts:703-711) matches the disabled row, auth UPDATE matches 0 rows,
+  modulesRemoved=0 → NotFoundException (724-728). The idempotency receipt does NOT rescue the retry:
+  buildModuleLifecycleCommandMetadata generates a fresh operationId (crypto.randomUUID(),
+  modules.service.ts:778) per call and the receipt lookup keys on operationId
+  (tenant-provisioning-command.service.ts:934-942), so every retry re-executes. (4) Two aggravating
+  factors the auditor missed: (a) UI dead-end — TenantDetailPage.tsx:584 filters "Available Modules"
+  by mere presence in tenant.modules, so a removed (disabled) module can neither be removed again
+  (404) nor re-assigned from this page; (b) auth's DELETE_MODULE guard
+  (auth-admin-nats.handler.ts:484-490) counts ALL tenant_modules rows, so a module ever assigned to
+  any tenant is permanently undeletable even after all removals "succeed". (5) The isEnabled=true
+  predicate is the platform norm everywhere else: token.service.ts:426,
+  tenant.service.ts:134/178/422, tenant-admin.service.ts:141/862, permission-catalogue.ts:285, and
+  even admin-api's own module-assignment.service.ts:316/425 — proving the unfiltered queries are
+  drift, not design. Severity stays HIGH, not CRITICAL: tenant module ACCESS is correctly revoked
+  (token issuance filters isEnabled=true), so there is no security/entitlement leak — the damage is
+  silently wrong admin data, a broken removal contract, and an unrecoverable admin workflow.
+- **Root cause:** The DB→BE contract link broke: auth.tenant_modules has a soft-disable lifecycle
+  (isEnabled) owned by auth-service, but "what counts as a live assignment" was never made a shared
+  contract — it exists only as a hand-copied WHERE clause. Auth-service applies isEnabled=true
+  consistently; admin-api reaches into auth's table with raw cross-schema SQL and dropped the
+  predicate in 7 of its 9 assignment queries. The removal path compounds this with an asymmetric
+  dual-authority check: admin-api's existence pre-check uses "row exists" (modules.service.ts:704)
+  while auth's removal predicate uses "row enabled" (AND isEnabled=true), and auth's DELETE_MODULE
+  guard uses a third definition ("any row"). Three independent definitions of one domain predicate =
+  systemic contract-drift class (same family as envelope/shape mismatch): every consumer re-derives
+  a liveness invariant that should be defined once at the source.
+- **Fix design:** Pattern-level fix: define assignment-liveness ONCE, DB-enforced, and make the
+  removal contract idempotent so the dual-definition 404 becomes structurally impossible. (1) Auth
+  owns the lifecycle → new auth-service migration creates view auth.tenant_modules_active AS
+  SELECT \* FROM auth.tenant_modules WHERE "isEnabled"=true. The view IS the predicate (tier 1:
+  readers cannot see disabled rows, no string-copied WHERE to drift). (2) Make removal idempotent at
+  the source: removeTenantModule drops AND "isEnabled"=true — UPDATE matches on (tenantId, moduleId)
+  and returns the row whether it transitions or is already disabled; modulesRemoved=0 now means only
+  "never assigned". DELETE semantics: removing an existing assignment always succeeds. (3) Delete
+  admin-api's pre-check SELECT in removeModuleFromTenant (modules.service.ts:703-711) entirely —
+  auth is the single authority; map modulesRemoved=0 → NotFound. This removes the TOCTOU
+  dual-definition rather than patching it. (4) Fix auth's DELETE_MODULE handler: guard on enabled
+  assignments only, then purge soft-disabled rows (DELETE FROM auth.tenant_modules WHERE
+  "moduleId"=$1) in the same transaction before deleting the module, so the FK no longer blocks
+  deletion of a fully-removed module. (5) Switch every admin-api assignment-liveness read to the
+  view: modules.service.ts listModules join, getModuleStats count+usage, getModuleById/ByCode joins,
+  getModuleTenants, getAssignments; module-assignment.service.ts getTenantModulesWithPricing +
+  isModuleAssigned (predicate already correct — moving to the view deletes the duplicate);
+  tenant-detail.service.ts getModuleUsage. The cleanup pre-count
+  (tenant-provisioning.service.ts:854) intentionally counts physical rows before tenant deletion and
+  correctly stays on the base table — different semantic. (6) FE contract follows the source:
+  tenant.modules now means live assignments — drop the isActive field from ModuleUsageStats
+  (tenant-detail.service.ts) and the FE type (services/types/tenant.ts:154-158), delete the
+  Active/Inactive badge (TenantDetailPage.tsx:562-564), active-count at :475 becomes
+  tenant.modules.length, and the Available-Modules filter at :584 then naturally re-offers a removed
+  module for re-assignment. Re-assign after removal already re-enables via auth's ON CONFLICT DO
+  UPDATE SET isEnabled=true — no change needed there.
+- **Files to change:**
+  - `apps/auth-service/src/migrations/<new>-TenantModulesActiveView.ts`
+  - `apps/auth-service/src/modules/tenant/services/tenant-provisioning-command.service.ts`
+  - `apps/auth-service/src/modules/tenant/handlers/auth-admin-nats.handler.ts`
+  - `apps/admin-api-service/src/modules/modules.service.ts`
+  - `apps/admin-api-service/src/modules/tenant-management/services/module-assignment.service.ts`
+  - `apps/admin-api-service/src/tenant/services/tenant-detail.service.ts`
+  - `web/modules/admin-panel/src/services/types/tenant.ts`
+  - `web/modules/admin-panel/src/pages/TenantDetailPage.tsx`
+  - `apps/admin-api-service/src/modules/__tests__/modules.service.spec.ts`
+  - `e2e/tests/integration/module-assignment-lifecycle.spec.ts`
+- **Proof of fix:** New behavioral integration spec
+  e2e/tests/integration/module-assignment-lifecycle.spec.ts proving the full contract: seed module +
+  tenant, assign, remove, then assert (a) every admin read excludes the removed assignment — GET
+  /modules tenantsCount, GET /modules/stats totalAssignments + moduleUsage, GET /modules/:id, GET
+  /modules/:id/tenants, GET /modules/assignments, tenant-detail modules; (b) a second DELETE
+  /modules/assignments/:tenantId/:moduleId returns 204, not 404 (idempotent removal); (c) DELETE
+  /modules/:id now succeeds after all assignments are removed; (d) re-assign after removal
+  re-enables and reappears in all reads. Extend
+  apps/admin-api-service/src/modules/**tests**/modules.service.spec.ts: all SQL asserts target
+  tenant_modules_active and removeModuleFromTenant performs no pre-check SELECT (single-authority
+  contract). Auth-side unit specs in apps/auth-service/src/modules/tenant/**tests**/:
+  removeTenantModule returns modulesRemoved=1 for an already-disabled row and 0 only for a
+  nonexistent one; DELETE_MODULE handler spec: conflicts only on enabled assignments and purges
+  disabled rows before module delete.
+- **Effort:** M
+
+### APA-069 [HIGH] Assignment quantities/configuration are stored corrupted and never read back
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** auth.tenant_modules has a configuration jsonb column but NO quantities column
+  (Baseline.ts:18; tenant-module.entity.ts has no quantities field). On INSERT, auth-service builds
+  configuration = {...requested.configuration, quantities} then wraps it AGAIN as
+  jsonb_build_object('quantities', $5) — the tenant's configuration keys end up buried under a
+  'quantities' key with a nested 'quantities' inside ({"quantities":{...cfgKeys,
+  "quantities":{...}}}); the ON CONFLICT UPDATE branch instead merges $5 at the TOP level, producing
+  a different shape for re-assignments (tenant-provisioning-command.service.ts:340-361). Meanwhile
+  admin-api's checkExtendedColumns requires BOTH 'quantities' and 'configuration' columns to exist
+  (modules.service.ts:680-693), which is always false, so the post-assign SELECT never returns
+  quantities/configuration even though admin-api's own TenantModuleAssignment interface declares
+  them (modules.service.ts:66-77) — the data the FE submits is silently mangled on write and
+  invisible on read. The runtime information_schema sniffing itself is a schema-drift workaround the
+  repo bans.
+- **Evidence:**
+  - `apps/auth-service/src/migrations/1800000000000-Baseline.ts:18`
+  - `apps/auth-service/src/modules/tenant/entities/tenant-module.entity.ts:32-108`
+  - `apps/auth-service/src/modules/tenant/services/tenant-provisioning-command.service.ts:340-372`
+  - `apps/admin-api-service/src/modules/modules.service.ts:66-77,599,624-656,680-693`
+- **Verification:** Every claim verified in current code. (1) Baseline.ts:18 creates
+  auth.tenant_modules with configuration jsonb and no quantities column; none of the 18 active
+  auth-service migrations adds one; the entity has no quantities field. (2)
+  tenant-provisioning-command.service.ts:340-352 builds configuration={...requested.configuration,
+  quantities} then wraps it AGAIN via jsonb_build_object('quantities', $5::jsonb) — stored INSERT
+  shape is {"quantities":{...cfgKeys,"quantities":{...realQty}}}; the ON CONFLICT branch (line 360)
+  merges the same $5 at TOP level producing {...cfgKeys,"quantities":realQty} — divergent shapes for
+  first-assign vs re-assign. (3) modules.service.ts:680-693 checkExtendedColumns requires both
+  'quantities' and 'configuration' columns, which is always false, so the post-assign SELECT
+  (line 624) never returns quantities/configuration despite TenantModuleAssignment (lines 66-77) and
+  the FE type declaring them; the information_schema sniffing is a banned runtime schema-drift
+  workaround. (4) Refutation attempt found the opposite of a refutation: a live reader consumes the
+  corrupted shape — module-assignment.service.ts:311 reads (tm.configuration->>'quantities')::jsonb
+  as quantities, which for fresh-INSERT rows returns the wrapper whose users/farms/... keys are
+  undefined; this feeds recalculateTenantPricing (line 454) and reconcileTenantSubscription
+  (tenant-provisioning-workflow.service.ts:1067-1077, POST
+  /admin/tenants/:id/reconcile-subscription) → resolveProvisioningModuleItems →
+  billing.subscription_module_items with wrong quantities — concrete billing impact. Reachable:
+  CreateTenantPage submits moduleQuantities through the saga into the corrupting INSERT;
+  ModulesPage/TenantDetailPage hit POST /modules/assignments whose interface DTO bypasses
+  ValidationPipe. Severity stays HIGH (not CRITICAL): the initial create_subscription saga step
+  derives quantities from the request payload (buildModuleQuantityInputs, workflow:1128), not the
+  DB, so first-time subscription pricing is correct; corruption bites on all read-back paths and
+  permanently mangles stored data.
+- **Root cause:** The persistence contract for assignment quantities/configuration was never defined
+  at the source, so the two sides of the service boundary each invented one. admin-api was written
+  against a hypothetical extended schema (quantities + configuration columns) and papered over the
+  missing column with runtime information_schema sniffing instead of landing a migration;
+  auth-service — the actual writer — invented an ad-hoc fold-quantities-into-configuration encoding,
+  and applied even that inconsistently: the single bind param $5 is pre-wrapped for the INSERT
+  branch (jsonb_build_object('quantities', $5) where $5 already contains a quantities key) but
+  merged raw at top level in the ON CONFLICT branch. With ModuleQuantities declared independently
+  four times (event-contracts anonymous Record, admin-api controller interface,
+  module-assignment.service interface, FE billing.ts) and no round-trip test pinning the stored
+  shape, the write-side corruption and the dead read-side were mutually invisible. This is an
+  instance of two systemic classes: cross-service write/read shape mismatch where the DB is the
+  implicit contract, and unvalidated interface-DTOs that let unchecked payloads flow into pricing.
+- **Fix design:** Tier-1 (make the wrong shape impossible): promote quantities to a first-class
+  persisted contract instead of an ad-hoc fold into configuration. (1) Add `quantities jsonb NULL`
+  to auth.tenant_modules: entity field on TenantModule + new migration
+  1807300000000-AddTenantModuleQuantities.ts (nullable ADD COLUMN — blue-green safe) with a
+  deterministic data heal in the same migration: for rows where `configuration ? 'quantities'` — if
+  `configuration->'quantities' ? 'quantities'` (double-wrapped INSERT shape) set
+  `quantities = configuration->'quantities'->'quantities'` and
+  `configuration = (configuration->'quantities') - 'quantities'` (restores the buried config keys);
+  else (single-wrapped conflict shape) set `quantities = configuration->'quantities'`,
+  `configuration = configuration - 'quantities'`. The discriminator is sound because auth-service is
+  the sole writer and its INSERT path always embeds a 'quantities' key
+  (`requested.quantities ?? {}`). (2) Define ModuleQuantities ONCE in @platform/event-contracts
+  (libs/event-contracts/src/tenant-commands.ts, replacing the anonymous
+  `Record<string, number|undefined>` in AssignTenantModulesCommand.modules[].quantities; export from
+  index.ts); auth-service entity/writer and admin-api controller/service/module-assignment import it
+  (module-assignment.service.ts re-exports for its consumers); FE hand-written types
+  (services/types/billing.ts ModuleQuantities, services/types/modules.ts TenantModuleAssignment)
+  aligned field-for-field. (3) Fix the writer (tenant-provisioning-command.service.ts
+  assignTenantModules): bind quantities and configuration as two separate params — INSERT
+  `("quantities", configuration) VALUES ($5::jsonb, $6::jsonb)`; ON CONFLICT
+  `"quantities" = EXCLUDED."quantities", configuration = EXCLUDED.configuration` — both branches
+  persist the identical shape from the same expressions, structurally eliminating the insert/upsert
+  divergence. Tier-2 (correct behavior automatic): (4) DELETE checkExtendedColumns() and the
+  dual-SELECT in admin-api modules.service.ts — one SELECT always reads tm."quantities",
+  tm.configuration; add both columns to the getAssignments list SELECT so the declared
+  TenantModuleAssignment interface becomes truthful for the ModulesPage list;
+  getTenantModulesWithPricing reads tm."quantities" directly, dropping the
+  `configuration->>'quantities'` extraction (fixes reconcile-subscription and
+  recalculateTenantPricing billing inputs). (5) Systemic 'unvalidated interface-DTO' class, local
+  application: convert AssignModuleDto/ModuleQuantitiesDto in modules.controller.ts from interfaces
+  to class-validator classes (@IsUUID tenantId/moduleId; @IsOptional @ValidateNested @Type nested
+  quantities with @IsInt @Min(0) per field; expiresAt as @IsISO8601 string — this also fixes the
+  latent `dto.expiresAt?.toISOString()` TypeError, since JSON delivers a string and ValidationPipe
+  never transforms interface-typed bodies) so the platform ValidationPipe
+  (whitelist+forbidNonWhitelisted) actually engages. Tier-3 (detectable): SchemaDriftValidator at
+  auth-service boot now enforces the new column automatically once the entity declares it; add the
+  round-trip and heal specs named under verification. No information_schema sniffing, no compat
+  shim: the DB schema plus the shared ModuleQuantities type IS the contract, fixed at the source
+  (entity + migration + command contract + DTO + FE type together).
+- **Files to change:**
+  - `apps/auth-service/src/modules/tenant/entities/tenant-module.entity.ts`
+  - `apps/auth-service/src/migrations/1807300000000-AddTenantModuleQuantities.ts`
+  - `apps/auth-service/src/modules/tenant/services/tenant-provisioning-command.service.ts`
+  - `libs/event-contracts/src/tenant-commands.ts`
+  - `libs/event-contracts/src/index.ts`
+  - `apps/admin-api-service/src/modules/modules.controller.ts`
+  - `apps/admin-api-service/src/modules/modules.service.ts`
+  - `apps/admin-api-service/src/modules/tenant-management/services/module-assignment.service.ts`
+  - `web/modules/admin-panel/src/services/types/billing.ts`
+  - `web/modules/admin-panel/src/services/types/modules.ts`
+  - `apps/auth-service/src/modules/tenant/__tests__/integration/tenant-module-quantities-roundtrip.spec.ts`
+  - `apps/auth-service/src/migrations/__tests__/1807300000000-AddTenantModuleQuantities.spec.ts`
+  - `apps/admin-api-service/src/modules/__tests__/modules.service.spec.ts`
+- **Proof of fix:** New
+  apps/auth-service/src/modules/tenant/**tests**/integration/tenant-module-quantities-roundtrip.spec.ts:
+  assign (INSERT path) then re-assign (ON CONFLICT path) with quantities + configuration; assert
+  both rows persist the identical shape — quantities in the quantities column, configuration
+  byte-equal to the request, and no 'quantities' key inside configuration. New
+  apps/auth-service/src/migrations/**tests**/1807300000000-AddTenantModuleQuantities.spec.ts: seed
+  both corrupted shapes (double-wrapped INSERT form and top-level-merged conflict form), run the
+  migration, assert quantities extracted and buried configuration keys restored. Extend
+  apps/admin-api-service/src/modules/**tests**/modules.service.spec.ts: assignModuleToTenant returns
+  quantities/configuration in TenantModuleAssignment, getAssignments rows include them, and the
+  service issues NO information_schema.columns query; getTenantModulesWithPricing returns the exact
+  quantities that were assigned (the reconcile-subscription pricing input). Boot-time: auth-service
+  SchemaDriftValidator now enforces the entity↔DB quantities column automatically;
+  e2e/tests/integration/schema-invariants.spec.ts continues to run per PR.
+- **Effort:** M
+
+### APA-070 [MEDIUM] assignedBy/removedBy audit fields record the TENANT UUID instead of the acting SUPER_ADMIN
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** AssignModuleDto has no assignedBy and the controller never injects request.user, so
+  admin-api falls back to assignedBy = dto.tenantId (modules.service.ts:600) and removedBy =
+  tenantId (modules.service.ts:721-722); the actor in the command metadata is likewise the tenantId
+  (buildModuleLifecycleCommandMetadata call sites, modules.service.ts:601-607,715-720).
+  auth.tenant_modules.assignedBy is documented as 'Assigned by (SUPER_ADMIN user ID)'
+  (tenant-module.entity.ts:95-100) — every admin-panel assignment writes a falsified audit trail.
+- **Evidence:**
+  - `apps/admin-api-service/src/modules/modules.service.ts:600-607,715-722`
+  - `apps/admin-api-service/src/modules/modules.controller.ts:196-212`
+  - `apps/auth-service/src/modules/tenant/entities/tenant-module.entity.ts:95-100`
+- **Root cause:** The admin-panel assignment/removal flow never sources the acting SUPER_ADMIN
+  identity. ModulesController.assignModuleToTenant/removeModuleFromTenant take only @Body()/@Param
+  and never read the authenticated principal that PlatformAdminGuard already attaches to the
+  request. ModulesService.AssignModuleDto exposes an optional assignedBy? (line 104) that the
+  controller never fills, so `assignedBy = dto.assignedBy || dto.tenantId` (line 600) and
+  `removedBy: tenantId` (line 722) resolve to the TENANT uuid, and
+  buildModuleLifecycleCommandMetadata gets the tenantId as the actor (lines 605,718).
+  auth.tenant_modules.assignedBy is documented as the SUPER_ADMIN user id, so every admin-panel
+  assign/remove writes a falsified audit trail. Instance of the systemic 'actor identity not sourced
+  from JWT' class.
+- **Fix design:** Make the falsified value structurally impossible (Tier-1). Inject the
+  authenticated SUPER_ADMIN principal in the controller (PlatformAdminGuard already puts it on
+  request.user — read it via @Req()/a CurrentUser decorator) and pass a REQUIRED actorUserId into
+  both service methods. Change ModulesService.assignModuleToTenant(dto, actorUserId:
+  string)/removeModuleFromTenant(tenantId, moduleId, actorUserId: string) so omitting the actor is a
+  compile error; delete the optional assignedBy? from AssignModuleDto and drop the `|| dto.tenantId`
+  fallback. buildModuleLifecycleCommandMetadata + assignedBy/removedBy then use actorUserId only.
+  Verification: a ModulesController spec that authenticates as a SUPER_ADMIN and asserts
+  assignedBy/removedBy and the command actor equal the JWT user id, never dto.tenantId.
+- **Files to change:**
+  - `apps/admin-api-service/src/modules/modules.controller.ts`
+  - `apps/admin-api-service/src/modules/modules.service.ts`
+  - `apps/admin-api-service/src/modules/__tests__/modules.controller.spec.ts`
+- **Effort:** M
+
+### APA-071 [MEDIUM] 'Add Module' button is dead — no onClick, create flow unreachable from the page
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** The header button renders with styling only and no handler (ModulesPage.tsx:129-134).
+  modulesApi.create exists and the backend POST /modules chain is fully wired to auth-service
+  (modules.ts:28-29; modules.controller.ts:151-155; auth-admin-nats.handler.ts:429-451), but nothing
+  on this page (or a modal) invokes it, so the page's advertised create capability does not exist.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/ModulesPage.tsx:129-134`
+  - `web/modules/admin-panel/src/services/api/modules.ts:28-29`
+- **Root cause:** The 'Add Module' header button (ModulesPage.tsx:129-134) is presentational only —
+  it has styling but no onClick and no create modal. The create path is otherwise fully wired
+  (modulesApi.create -> POST /modules -> auth-admin-nats.handler), so the page's advertised create
+  capability is simply unreachable. Instance of the systemic 'FE advertises a capability with no
+  wiring' class.
+- **Fix design:** Wire the button to a create-module modal/form that submits via modulesApi.create
+  with fields matching CreateModuleDto (code, name, defaultRoute required; description/icon/isCore
+  optional) and calls refresh() on success. Add local open/close state and inline validation error
+  surfacing. Verification: an RTL test asserting the button opens the modal and that submitting
+  invokes modulesApi.create with the entered payload and refreshes the list.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/ModulesPage.tsx`
+  - `web/modules/admin-panel/src/pages/__tests__/ModulesPage.test.tsx`
+- **Effort:** M
+
+### APA-072 [MEDIUM] tenant_modules.expiresAt is written but never enforced on any read path
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** Time-limited assignments can be created (expiresAt persisted,
+  tenant-provisioning-command.service.ts:349-368), and TenantModule.isAccessible() models expiry
+  (tenant-module.entity.ts:138-142), but the raw-SQL paths that actually gate access ignore it: the
+  TENANT_ADMIN module list (token.service.ts:421-429) and the RBAC entitlement SSoT
+  (permission-catalogue.ts:281-286) filter only isEnabled. An expired module assignment keeps
+  granting menu access and grant-time entitlements indefinitely.
+- **Evidence:**
+  - `apps/auth-service/src/modules/authentication/services/token.service.ts:421-429`
+  - `apps/auth-service/src/modules/tenant/services/permission-catalogue.ts:281-286`
+  - `apps/auth-service/src/modules/tenant/entities/tenant-module.entity.ts:138-142`
+- **Root cause:** tenant_modules.expiresAt is persisted at assignment time and modeled by
+  TenantModule.isAccessible()/isExpired(), but the raw-SQL SSoT read paths that actually gate access
+  bypass the entity and filter only isEnabled: the TENANT_ADMIN module-menu query
+  (token.service.ts:422-429) and the RBAC entitlement query ENABLED_MODULE_CODES_SQL
+  (permission-catalogue.ts:281-286). An expired assignment keeps granting menu access and grant-time
+  entitlements forever. Instance of the systemic 'column written but never read on the gating path'
+  class (the two SQL paths also duplicate the same join+filter with no single SSoT).
+- **Fix design:** Add the expiry predicate `AND (tm."expiresAt" IS NULL OR tm."expiresAt" > NOW())`
+  to the active-tenant-module filter, and centralize it: token.service currently duplicates the
+  join+filter that ENABLED_MODULE_CODES_SQL already expresses — collapse both onto one exported SSoT
+  fragment/const in permission-catalogue.ts (the 'enabled AND not expired' definition) so the
+  predicate cannot drift between the two consumers (Tier-1 via single source). Verification: an
+  auth-service integration spec inserting an expired tenant_modules row and asserting both the
+  TENANT_ADMIN module list and resolveEntitledCapabilities exclude it, plus a non-expired row still
+  included.
+- **Files to change:**
+  - `apps/auth-service/src/modules/tenant/services/permission-catalogue.ts`
+  - `apps/auth-service/src/modules/authentication/services/token.service.ts`
+  - `apps/auth-service/src/modules/tenant/__tests__/permission-catalogue.spec.ts`
+- **Effort:** M
+
+### APA-073 [LOW] Stats fetch errors are swallowed; fallback figures computed from a single page of 50 can be wrong
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** The stats useAsyncData call destructures only data (ModulesPage.tsx:58-61); on
+  failure the tiles silently fall back to values computed from the currently loaded module list
+  (239-256), which is capped at the default limit of 50 with no pagination UI — Total Assignments
+  falls back to summing tenantsCount of visible modules only. No error indicator distinguishes real
+  stats from the fallback.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/ModulesPage.tsx:58-61,239-259`
+  - `apps/admin-api-service/src/modules/modules.controller.ts:87`
+- **Root cause:** The stats useAsyncData call destructures only `data` (ModulesPage.tsx:58-61),
+  discarding error/loading. On stats failure `stats` is undefined and each tile silently falls back
+  to `?? modules.<derived>` (239-256) computed from the currently loaded module list — which is
+  capped at the default limit of 50 with no pagination UI — so 'Total Assignments' becomes the sum
+  of tenantsCount of only the visible modules, presented as a real figure with no degraded-state
+  signal.
+- **Fix design:** Capture the stats error/loading from useAsyncData and render an explicit
+  unavailable/error indicator (or a dash) for the tiles when stats failed, instead of substituting a
+  page-capped derived number. Remove the misleading `?? modules.reduce(...)` fallback for Total
+  Assignments since it can never be correct from one page; keep genuine skeleton/loading only.
+  Verification: an RTL test where the stats fetch rejects and the tiles show the unavailable/error
+  state rather than a fabricated total.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/ModulesPage.tsx`
+  - `web/modules/admin-panel/src/pages/__tests__/ModulesPage.test.tsx`
+- **Effort:** S
+
+### APA-074 [LOW] Search fires a request per keystroke despite the 'debounced' comment; filter clicks double-fetch
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** Every keystroke changes searchTerm, which changes the cacheKey, which changes
+  fetchData identity and triggers the immediate-refetch effect (ModulesPage.tsx:54,66-68;
+  useAsyncData.ts:340-348) — there is no debounce, and the Enter handler's refresh() is redundant.
+  Filter buttons call refresh() synchronously after setState (ModulesPage.tsx:162-166), issuing one
+  request against the OLD cacheKey plus a second from the effect on the new key.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/ModulesPage.tsx:54,66-75,162-216`
+  - `web/modules/admin-panel/src/hooks/useAsyncData.ts:293,344-348`
+- **Root cause:** cacheKey is derived directly from searchTerm (ModulesPage.tsx:54) and useAsyncData
+  refetches whenever fetchData identity — which depends only on [cacheKey,cacheTTL,timeout]
+  (useAsyncData.ts:293) — changes via the effect at 344-348. So every keystroke issues a request
+  despite the 'Debounced search' comment; nothing debounces. The Enter handler's refresh() (73) and
+  each filter button's synchronous refresh() after setState (162-216) additionally fire a fetch
+  against the stale cacheKey closure, then the effect fires again on the new cacheKey — a
+  double-fetch. Admin-panel-scoped useAsyncData pattern issue.
+- **Fix design:** Feed a debounced search value (add/reuse a useDebouncedValue hook) into cacheKey
+  so typing collapses to a single request, and delete the redundant refresh() calls in the Enter and
+  filter handlers — let the cacheKey change be the single fetch trigger (setState updating
+  isActive/isCore already changes cacheKey and drives exactly one fetch). Verification: an RTL test
+  asserting rapid typing issues one debounced request and a filter click issues exactly one request
+  (no double-fetch on the stale key).
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/ModulesPage.tsx`
+  - `web/modules/admin-panel/src/hooks/useDebouncedValue.ts`
+  - `web/modules/admin-panel/src/pages/__tests__/ModulesPage.test.tsx`
+- **Effort:** S
+
+## Cross-cutting findings
+
+### APA-075 [HIGH] Per-tenant module disable is not enforced for non-admin users (MODULE_MANAGER / MODULE_USER)
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** The tenant enable/disable state (auth.tenant_modules.isEnabled) is enforced for
+  TENANT_ADMIN menus (token.service.ts:421-429), for shell route gating via hasModuleAccess
+  (web/shell/src/App.tsx:116-119, AuthContext.tsx:659-663), and at RBAC grant time
+  (capability-authority.ts:145-157 via ENABLED_MODULE_CODES_SQL). But the module list for non-admin
+  roles is built solely from auth.user_module_assignments with NO join to tenant_modules.isEnabled
+  (token.service.ts:436-448), and removeTenantModule does not touch user_module_assignments
+  (tenant-provisioning-command.service.ts:389-400). After a SUPER_ADMIN removes a module from a
+  tenant, that tenant's MODULE_USERs/MODULE_MANAGERs keep the module in their login modules list and
+  pass the shell's hasModuleAccess gate; their existing role permissions also persist (entitlement
+  is checked only at grant time, capability-authority.ts:164-201), so backend requests keep
+  succeeding on unchanged JWT permission claims. The disable toggle the admin panel exposes is
+  therefore only partially enforced.
+- **Evidence:**
+  - `apps/auth-service/src/modules/authentication/services/token.service.ts:436-448`
+  - `apps/auth-service/src/modules/tenant/services/tenant-provisioning-command.service.ts:389-400`
+  - `apps/auth-service/src/modules/tenant/services/capability-authority.ts:145-201`
+  - `web/shell/src/App.tsx:116-119`
+  - `web/shared-ui/src/contexts/AuthContext.tsx:658-663`
+- **Verification:** Confirmed by direct read. (1) token.service.ts getUserModules: the TENANT_ADMIN
+  branch (421-435) joins tenant_modules WHERE isEnabled=true, but the non-admin else-branch
+  (436-448) reads only userModuleAssignmentRepository (isActive + expiry) with relations ['module']
+  — no tenant_modules join. (2) removeTenantModule (tenant-provisioning-command.service.ts:381-406)
+  flips only tenant_modules.isEnabled=false; the full admin-panel chain (admin-api
+  modules.controller.ts:207 → modules.service.ts:698 → NATS client → auth-service) confirms this is
+  the disable path. (3) FE: roleHasModuleAccess (AuthContext.tsx:175-181) gates non-admins on the
+  modules claim, so they keep menu+route access FOREVER, including fresh logins. One sub-claim
+  REFUTED: resourcePermissions IS intersected with resolveEntitledCapabilities at every mint
+  (token.service.ts:621-635, RBAC-HIGH-010), so capability-gated endpoints revoke within ≤15m token
+  TTL + 60s cache — the auditor's 'entitlement checked only at grant time' is wrong. However the
+  backend hole survives via a broader mechanism the auditor missed: @RequireTenantPermission appears
+  in only 5 services and farm-service has ZERO occurrences — its resolvers use only
+  GqlAuthGuard/JwtAuthGuard/TenantGuard/MobileFeatureGuard (role+tenant, unchanged by disable), and
+  no server-side guard consumes the modules JWT claim (tenant-isolation.guard.ts:233 merely copies
+  it into context). So a MODULE_USER retains indefinite working FE+BE access to a disabled module's
+  role-gated surface (nearly all of farm-service). HIGH is correct: a SUPER_ADMIN admin-panel
+  control is silently ineffective for the majority of tenant users, and the codebase itself declares
+  module entitlement a revenue-integrity invariant (capability-authority.ts:52-56).
+- **Root cause:** The entitlement invariant (tenant_modules.isEnabled gates everything for the
+  tenant) was retrofitted point-by-point — TENANT_ADMIN menu branch, grant-time
+  CapabilityAuthorityService, mint-time resourcePermissions intersection (RBAC-HIGH-010) — but there
+  is no single SSoT resolver for 'effective module access', so two paths never received the check:
+  (a) the non-admin modules claim reads user_module_assignments alone (token.service.ts:436-448 — it
+  treats the assignment table as the whole truth when the contract is tenant-licensed AND
+  user-assigned), and (b) nothing enforces module entitlement at request time on role-gated-only
+  surfaces — the modules JWT claim is consumed by zero backend guards and farm-service (plus most
+  module services) has no @RequireTenantPermission usage, so RolesGuard/TenantGuard pass on claims a
+  module disable never changes. removeTenantModule not touching user_module_assignments is NOT
+  itself the bug — assignments should survive a disable so re-enable restores them; the bug is that
+  read/enforce paths derive access from the assignment table without intersecting the tenant
+  entitlement SSoT.
+- **Fix design:** Systemic class: 'entitlement enforced at grant/mint time but not on every
+  read/request path' — fix at the pattern level with one SSoT + one declarative guard, NOT by
+  syncing/deleting assignment rows (state duplication would break re-enable and re-introduce drift).
+  Leg 1 — make the modules claim automatically entitlement-correct (Tier 2): add a
+  USER_EFFECTIVE_MODULES_SQL next to ENABLED_MODULE_CODES_SQL in permission-catalogue.ts (SSoT:
+  user_module_assignments ura JOIN tenant_modules tm ON tm."moduleId"=ura."moduleId" AND
+  tm."tenantId"=$2 AND tm."isEnabled"=true JOIN modules m ON m.id=ura."moduleId" AND
+  m."isActive"=true WHERE ura."userId"=$1 AND ura."isActive"=true AND (ura."expiresAt" IS NULL OR
+  ura."expiresAt">NOW()), selecting code/name/defaultRoute). Replace the token.service.ts
+  else-branch repository read (436-448) with this query, and replace the identical unfiltered read
+  in tenant-admin.service.ts:166 with the same SSoT so the tenant-admin UI and the JWT claim cannot
+  disagree. This fixes menus, shell hasModuleAccess gating, and login redirect for non-admins within
+  the existing 60s module-cache TTL, and re-enable restores access with no re-assignment. Leg 2 —
+  make request-time enforcement automatic for whole module services (Tier 2, closes the farm-service
+  hole): new ModuleEntitlementGuard in libs/backend-common (guards/module-entitlement.guard.ts)
+  registered as APP_GUARD via a static forRoot({ moduleCode }) in each tenant-scoped module
+  service's app.module.ts (farm, sensor, hydroponics, hr, messaging, ai, alert-engine — module code
+  declared once per service, mirroring the SchemaDriftModule.forRoot precedent). Guard logic:
+  SUPER_ADMIN bypass; service-identity (HMAC internal) paths bypass; all other principals require
+  moduleCode ∈ jwt.modules — correct for every role after Leg 1 because TENANT_ADMIN's claim is
+  already isEnabled-filtered and non-admin claims become so; staleness = token TTL, identical to the
+  documented tolerance for planLevel/assignedSiteIds claims. @Public() routes (health/metrics)
+  bypass via the existing IS_PUBLIC_KEY reflector. No per-endpoint decoration, so a new resolver is
+  covered by default — wrong behavior (an unentitled request reaching a handler) becomes impossible
+  to reintroduce silently. Leg 3 — make regressions detectable (Tier 3): invariant spec asserting
+  every service listed as tenant-scoped in MODULE_SCHEMAS registers ModuleEntitlementGuard with its
+  module code, plus auth-service integration coverage that a disabled tenant module never appears in
+  a non-admin mint. Explicitly NOT done: deactivating user_module_assignments in removeTenantModule
+  (state-sync anti-pattern; disable must stay reversible) and endpoint-by-endpoint
+  @RequireTenantPermission rollout (per-callsite opt-in is exactly the pattern that drifted).
+- **Files to change:**
+  - `apps/auth-service/src/modules/tenant/services/permission-catalogue.ts`
+  - `apps/auth-service/src/modules/authentication/services/token.service.ts`
+  - `apps/auth-service/src/modules/tenant/services/tenant-admin.service.ts`
+  - `libs/backend-common/src/guards/module-entitlement.guard.ts`
+  - `libs/backend-common/src/guards/index.ts`
+  - `apps/farm-service/src/app.module.ts`
+  - `apps/sensor-service/src/app.module.ts`
+  - `apps/hydroponics-service/src/app.module.ts`
+  - `apps/hr-service/src/app.module.ts`
+  - `apps/messaging-service/src/app.module.ts`
+  - `apps/ai-service/src/app.module.ts`
+  - `apps/alert-engine/src/app.module.ts`
+  - `apps/auth-service/src/modules/authentication/services/token.service.spec.ts`
+  - `libs/backend-common/src/guards/__tests__/module-entitlement.guard.spec.ts`
+  - `tests/invariants/module-entitlement-guard.spec.ts`
+  - `apps/auth-service/src/__tests__/integration/module-entitlement-claim.spec.ts`
+- **Proof of fix:** 1) Extend
+  apps/auth-service/src/modules/authentication/services/token.service.spec.ts: for
+  MODULE_USER/MODULE_MANAGER, an active user_module_assignment whose tenant_modules row is
+  isEnabled=false (or absent) is excluded from getUserModules; flipping isEnabled back to true
+  restores the module with no assignment write; TENANT_ADMIN branch unchanged. 2) New
+  apps/auth-service/src/**tests**/integration/module-entitlement-claim.spec.ts: execute
+  RemoveTenantModuleCommand, assert the next generateTokens for a MODULE_USER omits the module code
+  from the modules claim AND its capabilities from resourcePermissions, and assert
+  user_module_assignments.isActive is still true (reversibility). 3) New
+  libs/backend-common/src/guards/**tests**/module-entitlement.guard.spec.ts: request without
+  moduleCode in jwt.modules → 403 for MODULE_USER/MODULE_MANAGER/TENANT_ADMIN; SUPER_ADMIN and
+  @Public() bypass. 4) New invariant tests/invariants/module-entitlement-guard.spec.ts (CI,
+  alongside existing invariant specs): every tenant-scoped service derived from MODULE_SCHEMAS
+  registers ModuleEntitlementGuard.forRoot with a non-empty module code as APP_GUARD — a new module
+  service that omits the guard fails the build. Run nx affected --target=test && nx affected
+  --target=lint.
+- **Effort:** L
+
+### APA-076 [MEDIUM] admin-api modules controller pattern (interface DTOs) silently disables the platform's global validation contract
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** bootstrapService installs ValidationPipe({whitelist:true, forbidNonWhitelisted:true,
+  transform:true}) globally (create-service-app.ts:458-461), but any controller that types @Body()
+  with a TypeScript interface instead of a decorated class gets metatype Object at runtime and the
+  pipe skips it entirely — no stripping, no rejection, no primitive/date transformation.
+  ModulesController does this for all three of its body DTOs (modules.controller.ts:26-62). This is
+  a structural gap (Tier-3 'make it detectable' is absent): nothing in build or CI flags an
+  interface-typed @Body(), so the security default is unenforced exactly where it is assumed to
+  hold.
+- **Evidence:**
+  - `libs/backend-common/src/bootstrap/create-service-app.ts:453-461`
+  - `apps/admin-api-service/src/modules/modules.controller.ts:26-62,153,163,198`
+- **Root cause:** bootstrapService installs
+  ValidationPipe({whitelist,forbidNonWhitelisted,transform}) globally
+  (create-service-app.ts:458-461), but a @Body() typed with a TypeScript interface compiles to
+  runtime metatype Object, so ValidationPipe.toValidate() returns false and skips it entirely — no
+  whitelist stripping, no forbidNonWhitelisted rejection, no primitive/Date transform
+  (AssignModuleDto.expiresAt?: Date is never actually coerced to a Date). ModulesController types
+  all three body DTOs as interfaces (modules.controller.ts:26-62). Nothing at build/CI flags an
+  interface-typed @Body(), so the platform's security default is silently unenforced exactly where
+  callers assume it holds. Systemic 'unvalidated interface-DTO' class spanning the platform.
+- **Fix design:** Local: convert CreateModuleDto/UpdateModuleDto/AssignModuleDto (and
+  ModuleQuantitiesDto) to decorated classes with class-validator/class-transformer decorators
+  (@IsString/@IsOptional/@IsBoolean/@Type(()=>Date), @ValidateNested for quantities), moved into
+  modules/dto/\*.dto.ts. Pattern (Tier-3 make-it-detectable, currently absent): add an architecture
+  invariant test (or ESLint rule) that parses every controller and fails when a @Body()/@Query()
+  parameter's type is not a class carrying validation metadata — so interface-typed request bodies
+  can never silently bypass the pipe again. Run the new gate to surface and fix the rest of the
+  platform's interface DTOs. Verification: tests/invariants/body-dto-must-be-validated-class.spec.ts
+  red on an interface @Body(), plus a ModulesController e2e asserting an unknown body field is
+  rejected (400) and expiresAt arrives as a Date.
+- **Files to change:**
+  - `apps/admin-api-service/src/modules/modules.controller.ts`
+  - `apps/admin-api-service/src/modules/dto/create-module.dto.ts`
+  - `apps/admin-api-service/src/modules/dto/update-module.dto.ts`
+  - `apps/admin-api-service/src/modules/dto/assign-module.dto.ts`
+  - `tests/invariants/body-dto-must-be-validated-class.spec.ts`
+- **Effort:** L
+
+### APA-077 [LOW] FE double-submit CSRF header has no server-side counterpart in admin-api
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** http-client.ts attaches X-CSRF-Token from an XSRF-TOKEN cookie on all mutating
+  methods and documents that 'the server rejects on mismatch' (http-client.ts:96-106,256-263), but
+  admin-api-service has no CSRF verification middleware/guard — the only csrf hits in the service
+  are security-event telemetry types (grep of apps/admin-api-service/src matched only security
+  entities/controllers). Risk is mitigated because auth is a Bearer token rather than a cookie, but
+  the client comment misstates the actual protection and the cookie may never be set at all.
+- **Evidence:**
+  - `web/modules/admin-panel/src/services/http-client.ts:96-106,256-263`
+  - `apps/admin-api-service/src/app.module.ts:267-306`
+- **Root cause:** http-client.ts attaches X-CSRF-Token from the XSRF-TOKEN cookie on all mutating
+  methods and documents that 'the server set this cookie and will reject mutating requests whose
+  header does not match' (96-106,256-263), but admin-api-service has no CSRF verification: the only
+  csrf references in the service are security-event telemetry entities/controllers, and it never
+  issues an XSRF-TOKEN cookie. gateway-api does have csrf.middleware, but the admin-panel path
+  (nginx rewrite /api/\* -> admin-api-service) bypasses gateway-api, so no server on this path
+  enforces the header. The documented protection does not exist; actual CSRF exposure is low because
+  auth is a Bearer token (not an ambient cookie). Contract/documentation mismatch.
+- **Fix design:** Resolve the mismatch at the source rather than leave a comment asserting a
+  non-existent check. Preferred root-cause given Bearer-token auth is the deliberate CSRF control:
+  correct the http-client docblock to state that CSRF protection derives from the non-cookie Bearer
+  credential and drop the unbacked X-CSRF-Token header + cookie read (nothing sets or checks it).
+  Alternatively, if cookie-authable browser sessions are intended, make the claim true by lifting
+  gateway-api's csrf.middleware + XSRF-TOKEN issuance into the shared bootstrap so every
+  browser-facing service enforces double-submit — but that is only warranted if a cookie credential
+  exists. Document the chosen decision (ADR/comment) so the contract and code agree. Verification:
+  if header dropped, an http-client unit test asserts no X-CSRF-Token on mutating requests; if
+  enforced, an admin-api e2e asserts a mutating request without the matching token is rejected.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/http-client.ts`
+- **Effort:** S

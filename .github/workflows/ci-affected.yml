@@ -77,7 +77,7 @@ jobs:
             --head-sha "${{ github.sha }}" \
             --development-ref deployed/development
 
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -140,7 +140,7 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -202,7 +202,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -295,7 +295,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -335,12 +335,30 @@ jobs:
           restore-keys: |
             nx-ci-${{ runner.os }}-
 
-      - name: Run type check (affected plus changed TypeScript guard)
+      # FARM-MEDIUM-302 — this step used to open with
+      # `nx affected -t type-check`, which matched ZERO projects: no project.json
+      # declares a `type-check` target and nx.json's targetDefaults has no entry,
+      # so nx exited 0 having run nothing. The line read like a gate and was
+      # pure theatre; it is removed rather than left to reassure readers.
+      #
+      # What remains is real, but it only compiles the files a PR TOUCHES:
+      # type-check-changed-files writes a temp tsconfig with
+      # `files: [changed…], include: []`. A stale file nobody edited is
+      # invisible to it — which is how a farm-service spec stayed uncompilable
+      # from one wave to the next without CI noticing.
+      #
+      # The gate that DOES see that class is gates:type-check-spec — it runs
+      # `tsc -p <project>/tsconfig.spec.json` over every project with a spec
+      # config against a per-project baseline. It existed already, but only in
+      # ci-full.yml, which fires weekly/on tags. Measured cost across 29
+      # projects: ~165s. That is affordable per-PR, and it is the difference
+      # between catching spec drift in one PR versus up to a week later.
+      - name: Run type check (changed-file guard plus strict spec baseline)
         run: |
           BASE_REF="${{ needs.detect-changes.outputs.base_sha }}"
           HEAD_REF="${{ needs.detect-changes.outputs.head_sha }}"
-          node tools/toolchain/run.mjs npx nx affected -t type-check --base="$BASE_REF" --head="$HEAD_REF" --parallel=2
           node scripts/ci/type-check-changed-files.mjs --base "$BASE_REF" --head "$HEAD_REF"
+          npm run gates:type-check-spec
         timeout-minutes: 35
         env:
           NX_DAEMON: 'false'
@@ -354,7 +372,21 @@ jobs:
       (github.event_name == 'pull_request' ||
        (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    # Raised from 40 to 45 when the integration lane joined this job
+    # (FARM-MEDIUM-301). The ceiling catches a runaway; it does not pace the
+    # steps, and it is deliberately NOT their sum — the step budgets already add
+    # to 140 minutes and always have, because target filtering means only a
+    # subset of them does real work on any one PR. Each step carries its own
+    # timeout so the STEP names the failure and the job ceiling is the backstop.
+    #
+    # 45 is not an arbitrary round number: ci-full's unfiltered `test` job
+    # carries 45 (measured — median 23m29s, max 29m03s), and
+    # tests/invariants/ci-timeout-budget-ssot.spec.ts requires the unfiltered
+    # lane's budget to be at least this filtered one's. A filtered lane that may
+    # outlast the lane that can never run fewer targets is a contradiction, so
+    # this budget is bounded ABOVE by that measured number rather than chosen
+    # here. The integration step's own 20 is what bounds a Testcontainers hang.
+    timeout-minutes: 45
     # continue-on-error removed: failing tests must block PR merge.
     # BEFORE: broken unit tests were invisible to reviewers — PRs merged with red tests.
     services:
@@ -382,7 +414,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -488,6 +520,40 @@ jobs:
           NATS_URL: nats://localhost:4222
           NATS_AUTH_MODE: none
 
+      # FARM-MEDIUM-301: `test:integration` was declared by farm-service and
+      # invoked by NOTHING — no workflow, no script, no npm script. Thirteen
+      # suites (Testcontainers tenant-isolation, the schema-routing architecture
+      # invariant apps/farm-service/CLAUDE.md names as its owner, the P0 security
+      # gate) had therefore never run, and they rotted silently: a stale spec had
+      # not compiled since the multi-lot FEFO wave landed, and a raw-SQL tenant
+      # predicate carried the same 42703 class of defect as FARM-CRITICAL-242.
+      #
+      # It runs AFTER the prewarm step above, which now unions `test` and
+      # `test:integration` when deciding whether to pull the PostgreSQL image, so
+      # a cold runner does not pay a multi-GB download inside a Jest beforeAll.
+      #
+      # The step timeout is generous and NOT yet measured: the honest number can
+      # only come from a run on a Docker-capable runner (13 suites, maxWorkers 1,
+      # one container boot per file, no reuse). Tighten it from the first green
+      # run. It is a STEP timeout on purpose — a job-level trip would report as
+      # an opaque cancellation instead of naming the lane.
+      #
+      # 20, not the 25 this lane first carried: the job ceiling is bounded above
+      # by ci-full's measured 45 (see the job's own note), and a step budget that
+      # leaves the fan-out step no room under that ceiling would make the JOB fire
+      # first — which is precisely the anonymous-cancellation failure the step
+      # budget exists to prevent.
+      - name: Run integration tests (affected only)
+        run: |
+          BASE_REF="${{ needs.detect-changes.outputs.base_sha }}"
+          HEAD_REF="${{ needs.detect-changes.outputs.head_sha }}"
+          bash scripts/ci/affected-target-policy.sh --target test:integration --base "$BASE_REF" --head "$HEAD_REF" --parallel 1
+        timeout-minutes: 20
+        env:
+          NX_DAEMON: 'false'
+          NX_NO_CLOUD: 'true'
+          NODE_OPTIONS: '--max-old-space-size=4096'
+
       - name: Run admin route contract (affected, strict)
         run: |
           BASE_REF="${{ needs.detect-changes.outputs.base_sha }}"
@@ -503,14 +569,24 @@ jobs:
       # (src/pwa/__tests__/sw-build-artifact.invariant.spec.ts) runs a REAL
       # `vite build` and asserts the deployed dist/messaging-sw.js still carries the
       # sync / notificationclick / LOGOUT handlers + a substituted precache manifest.
-      # It is the Tier-3 "make it detectable" guard for the finding, but it is
-      # deliberately EXCLUDED from the fast default `test` target (it is ~30-45s of
-      # build) and lives in a separate `test:invariant` nx target. The default
-      # affected-test step above therefore never runs it. This step closes that gap
-      # by driving the SAME affected-target policy machinery against `test:invariant`
-      # — it only fires when aquamobil (the sole project declaring that target) is
-      # affected, so it costs nothing on unrelated PRs and gates on every PR that
-      # touches the SW.
+      # It is the Tier-3 "make it detectable" guard for the finding. It runs
+      # through a separate `test:invariant` target so the fast default lane does
+      # not pay for a real build (~16s measured).
+      #
+      # UNTIL 2026-07-27 THIS STEP RAN NOTHING. No project declared
+      # `test:invariant` — the target this comment claimed aquamobil owned simply
+      # did not exist. affected-target-policy.sh received an empty project list,
+      # printed "No strict test:invariant projects remain" and exited 0, so the
+      # step was permanently, silently green while the invariant it names never
+      # executed. The target is real now (web/apps/aquamobil/package.json declares
+      # the script, which is where Nx infers this project's targets from), so the
+      # sentence above is finally true. Same class as FARM-MEDIUM-301.
+      #
+      # aquamobil's other 383 vitest tests are no longer stranded either: the
+      # project now declares a plain `test` script, so Nx infers a `test` target
+      # and the affected `test` step above selects it (FARM-MEDIUM-304). They ran
+      # nowhere before purely because a target Nx never saw cannot be selected —
+      # the suite itself was green all along (66 files, 383 tests, ~32s).
       - name: Run SW build-artifact invariant (affected only)
         run: |
           BASE_REF="${{ needs.detect-changes.outputs.base_sha }}"
@@ -575,7 +651,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -707,7 +783,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -794,7 +870,7 @@ jobs:
     continue-on-error: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Restore node_modules
@@ -893,7 +969,7 @@ jobs:
         # validator runs as `node scripts/ci/preflight-validate.ts` with no
         # transpile step). Same SHA pin as every other setup-node call in
         # this workflow.
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -939,19 +1015,18 @@ jobs:
       # ADR-015: `infrastructure/nats/services.yaml` is the single source
       # of truth for NATS authorization. `scripts/nats/generate-nats-conf.py`
       # regenerates the `authorization.users[]` block in nats.conf between
-      # `# BEGIN GENERATED` / `# END GENERATED` sentinels. Running the
-      # generator and asserting `git diff --quiet` catches the most common
-      # drift pattern (operator edits services.yaml but forgets to run the
-      # generator, OR hand-edits the generated block).
+      # `# BEGIN GENERATED` / `# END GENERATED` sentinels, and the Helm
+      # certificate roster beside it. This step asks whether the COMMIT is
+      # fresh, so it must not write: the previous form ran the generator and
+      # then asked git whether the tree got dirty, which repaired the checkout
+      # before judging it — every later step in this job then read the repaired
+      # artifact while the commit under test still carried the stale one.
+      # `--check` compares and reports; exit 3 is drift specifically, so it is
+      # distinguishable from a malformed services.yaml (1) or missing
+      # sentinels (2). Proven by tests/invariants/nats-conf-generator-check.spec.ts.
       - name: Phase A3 — NATS SSoT drift (broker ACL and certificate roster)
         run: |
-          python3 scripts/nats/generate-nats-conf.py
-          if [ -n "$(git status --porcelain -- infrastructure/docker/nats/nats.conf infrastructure/helm/aquaculture/files/nats-service-identities.yaml)" ]; then
-            echo "::error::NATS generated artifacts drifted from infrastructure/nats/services.yaml"
-            echo "Run 'python3 scripts/nats/generate-nats-conf.py' locally and commit the diff."
-            git diff -- infrastructure/docker/nats/nats.conf infrastructure/helm/aquaculture/files/nats-service-identities.yaml | head -100
-            exit 1
-          fi
+          python3 scripts/nats/generate-nats-conf.py --check
           echo "OK: broker ACL and Helm certificate roster match services.yaml"
 
       # ── Phase A3 — cert CN list structural SSoT check ────────────────────
@@ -1346,7 +1421,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Restore node_modules
@@ -1493,7 +1568,7 @@ jobs:
 
       - name: Setup Node.js
         # SEC-CI-002: pinned to SHA
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -1535,7 +1610,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Restore node_modules
@@ -1657,7 +1732,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Restore node_modules

@@ -1,0 +1,137 @@
+# Finding-ID Aliases — historical trailer ids the ledger records under another id
+#
+# A `Closes:` trailer is immutable once merged: amending it means rewriting published
+# history, which the force-push ban forbids. When an integration registers a branch's
+# findings under different ids than its commits name, the trailer and the ledger
+# disagree forever. This sidecar records the mapping so every id-resolving gate
+# (commit-msg validator, close ceremony, closure derivation) reads the SAME answer.
+#
+# Not an exemption list: an alias resolves ONLY to a canonical id that exists in
+# findings.jsonl, and tests/invariants/finding-id-aliases.spec.ts fails the build if
+# it does not. An id with neither a ledger row nor an alias still fails, as before.
+#
+# Consumers: tools/gates/finding-id-aliases.ts
+
+version: 1
+
+aliases:
+  - alias: PR935-HIGH-001
+    canonical: EDGE-HIGH-029
+    review_file: docs/reviews/edge-expert/2026-07-12-pr935-e2e-review.md
+    commits:
+      - 'eebc38460'
+    effective_date: '2026-09-05'
+    reason: >
+      Raised as PR935-HIGH-001 in the PR #935 end-to-end review and fixed on that branch. The
+      ledger schema admits no PR-numbered id prefix, so the integration registered the
+      finding as EDGE-HIGH-029; the merged commits still name the review-document id.
+  - alias: PR935-HIGH-002
+    canonical: EDGE-HIGH-030
+    review_file: docs/reviews/edge-expert/2026-07-12-pr935-e2e-review.md
+    commits:
+      - '754d2a64e'
+    effective_date: '2026-09-05'
+    reason: >
+      Raised as PR935-HIGH-002 in the PR #935 end-to-end review and fixed on that branch. The
+      ledger schema admits no PR-numbered id prefix, so the integration registered the
+      finding as EDGE-HIGH-030; the merged commits still name the review-document id.
+  - alias: PR935-HIGH-003
+    canonical: EDGE-HIGH-031
+    review_file: docs/reviews/edge-expert/2026-07-12-pr935-e2e-review.md
+    commits:
+      - '754d2a64e'
+    effective_date: '2026-09-05'
+    reason: >
+      Raised as PR935-HIGH-003 in the PR #935 end-to-end review and fixed on that branch. The
+      ledger schema admits no PR-numbered id prefix, so the integration registered the
+      finding as EDGE-HIGH-031; the merged commits still name the review-document id.
+  - alias: PR935-HIGH-004
+    canonical: EDGE-HIGH-032
+    review_file: docs/reviews/edge-expert/2026-07-12-pr935-e2e-review.md
+    commits:
+      - '0649ea5fb'
+    effective_date: '2026-09-05'
+    reason: >
+      Raised as PR935-HIGH-004 in the PR #935 end-to-end review and fixed on that branch. The
+      ledger schema admits no PR-numbered id prefix, so the integration registered the
+      finding as EDGE-HIGH-032; the merged commits still name the review-document id.
+  - alias: PR935-HIGH-005
+    canonical: EDGE-HIGH-033
+    review_file: docs/reviews/edge-expert/2026-07-12-pr935-e2e-review.md
+    commits:
+      - '6e6807431'
+    effective_date: '2026-09-05'
+    reason: >
+      Raised as PR935-HIGH-005 in the PR #935 end-to-end review and fixed on that branch. The
+      ledger schema admits no PR-numbered id prefix, so the integration registered the
+      finding as EDGE-HIGH-033; the merged commits still name the review-document id.
+  - alias: PR935-MEDIUM-001
+    canonical: EDGE-MEDIUM-034
+    review_file: docs/reviews/edge-expert/2026-07-12-pr935-e2e-review.md
+    commits:
+      - '0649ea5fb'
+    effective_date: '2026-09-05'
+    reason: >
+      Raised as PR935-MEDIUM-001 in the PR #935 end-to-end review and fixed on that branch. The
+      ledger schema admits no PR-numbered id prefix, so the integration registered the
+      finding as EDGE-MEDIUM-034; the merged commits still name the review-document id.
+  - alias: PR935-MEDIUM-002
+    canonical: EDGE-MEDIUM-035
+    review_file: docs/reviews/edge-expert/2026-07-12-pr935-e2e-review.md
+    commits:
+      - '683d4299c'
+    effective_date: '2026-09-05'
+    reason: >
+      Raised as PR935-MEDIUM-002 in the PR #935 end-to-end review and fixed on that branch. The
+      ledger schema admits no PR-numbered id prefix, so the integration registered the
+      finding as EDGE-MEDIUM-035; the merged commits still name the review-document id.
+  - alias: PR935-MEDIUM-003
+    canonical: EDGE-MEDIUM-036
+    review_file: docs/reviews/edge-expert/2026-07-12-pr935-e2e-review.md
+    commits:
+      - '72e037ab6'
+    effective_date: '2026-09-05'
+    reason: >
+      Raised as PR935-MEDIUM-003 in the PR #935 end-to-end review and fixed on that branch. The
+      ledger schema admits no PR-numbered id prefix, so the integration registered the
+      finding as EDGE-MEDIUM-036; the merged commits still name the review-document id.
+  - alias: PR935-MEDIUM-004
+    canonical: EDGE-MEDIUM-037
+    review_file: docs/reviews/edge-expert/2026-07-12-pr935-e2e-review.md
+    commits:
+      - '440d41b47'
+    effective_date: '2026-09-05'
+    reason: >
+      Raised as PR935-MEDIUM-004 in the PR #935 end-to-end review and fixed on that branch. The
+      ledger schema admits no PR-numbered id prefix, so the integration registered the
+      finding as EDGE-MEDIUM-037; the merged commits still name the review-document id.
+  - alias: PR935-LOW-006
+    canonical: EDGE-LOW-038
+    review_file: docs/reviews/edge-expert/2026-07-12-pr935-e2e-review.md
+    commits:
+      - 'fb8449d5a'
+    effective_date: '2026-09-05'
+    reason: >
+      Raised as PR935-LOW-006 in the PR #935 end-to-end review and fixed on that branch. The
+      ledger schema admits no PR-numbered id prefix, so the integration registered the
+      finding as EDGE-LOW-038; the merged commits still name the review-document id.
+  - alias: PR935-LOW-007
+    canonical: EDGE-LOW-039
+    review_file: docs/reviews/edge-expert/2026-07-12-pr935-e2e-review.md
+    commits:
+      - '440d41b47'
+    effective_date: '2026-09-05'
+    reason: >
+      Raised as PR935-LOW-007 in the PR #935 end-to-end review and fixed on that branch. The
+      ledger schema admits no PR-numbered id prefix, so the integration registered the
+      finding as EDGE-LOW-039; the merged commits still name the review-document id.
+  - alias: PR935-LOW-008
+    canonical: EDGE-LOW-040
+    review_file: docs/reviews/edge-expert/2026-07-12-pr935-e2e-review.md
+    commits:
+      - 'fb8449d5a'
+    effective_date: '2026-09-05'
+    reason: >
+      Raised as PR935-LOW-008 in the PR #935 end-to-end review and fixed on that branch. The
+      ledger schema admits no PR-numbered id prefix, so the integration registered the
+      finding as EDGE-LOW-040; the merged commits still name the review-document id.

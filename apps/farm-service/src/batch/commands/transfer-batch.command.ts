@@ -20,7 +20,6 @@ export interface TransferBatchPayload {
   transferReason?: string;       // Transfer nedeni
   transferredAt?: Date;          // Transfer tarihi (default: now)
   notes?: string;
-  skipCapacityCheck?: boolean;   // Kapasite kontrolünü atla (aşırı yüklemeye izin ver)
 }
 
 export class TransferBatchCommand implements ITenantCommand {

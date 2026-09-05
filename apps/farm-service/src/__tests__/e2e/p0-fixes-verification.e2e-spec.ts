@@ -55,8 +55,13 @@ describe('Fix 1: @Roles Authorization on Mutations', () => {
 
   it.each(resolversToCheck)('should have Roles import in %s', (resolverPath) => {
     const content = readFile(resolverPath);
+    // backend-common ÇİFT alias'lı (`@aquaculture/…` birincil, `@platform/…`
+    // ikincil) ve dekoratörler `/decorators` alt yolundan geliyor. Bu assert
+    // eskiden TEK bir alias'ı, alt yolsuz, pinliyordu; kod kanonik yola
+    // taşınınca 12 resolver'da kırmızıya döndü ve kimse görmedi. Önemli olan
+    // `Roles`'un backend-common'dan gelmesi — hangi alias/alt yol olduğu değil.
     expect(content).toMatch(
-      /import\s+\{[^}]*Roles[^}]*\}\s+from\s+'@aquaculture\/backend-common\/decorators'/,
+      /import\s+\{[^}]*\bRoles\b[^}]*\}\s+from\s+'@(?:aquaculture|platform)\/backend-common(?:\/[\w-]+)?'/,
     );
   });
 
@@ -64,13 +69,12 @@ describe('Fix 1: @Roles Authorization on Mutations', () => {
     const content = readFile(resolverPath);
     const lines = content.split('\n');
 
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i]?.includes('@Mutation(')) {
-        // Check that @Roles appears in the 1-3 lines BEFORE this @Mutation
-        const precedingLines = lines.slice(Math.max(0, i - 3), i).join('\n');
-        expect(precedingLines).toMatch(/@Roles\(/);
-      }
-    }
+    lines.forEach((line, index) => {
+      if (!line.includes('@Mutation(')) return;
+      // Check that @Roles appears in the 1-3 lines BEFORE this @Mutation
+      const precedingLines = lines.slice(Math.max(0, index - 3), index).join('\n');
+      expect(precedingLines).toMatch(/@Roles\(/);
+    });
   });
 
   it('keeps CDSE credentials off the public GraphQL surface', () => {

@@ -28,8 +28,6 @@ import type {
   MyLeaveBalancesQueryVariables,
   LeaveTypesQuery,
   LeaveTypesQueryVariables,
-  SubmitLeaveRequestMutation,
-  SubmitLeaveRequestMutationVariables,
   CancelLeaveRequestMutation,
   CancelLeaveRequestMutationVariables,
   GetMyTasksQuery,
@@ -40,12 +38,6 @@ import type {
   GetTaskDetailQueryVariables,
   GetTaskStatsQuery,
   GetTaskStatsQueryVariables,
-  CompleteTaskMutation,
-  CompleteTaskMutationVariables,
-  StartTaskMutation,
-  StartTaskMutationVariables,
-  SetChecklistItemMutation,
-  SetChecklistItemMutationVariables,
   AddTaskNoteMutation,
   AddTaskNoteMutationVariables,
   GetMyNotificationsQuery,
@@ -71,10 +63,21 @@ import type {
   MobileApproveAndSubmitReportDraftMutation,
   MobileApproveAndSubmitReportDraftMutationVariables,
 } from '@/generated/graphql';
+import {
+  CompleteTaskDocument,
+  SetChecklistItemDocument,
+  StartTaskDocument,
+  SubmitLeaveRequestDocument,
+} from '@/generated/graphql';
 
 // S1-CODEGEN: each operation is annotated with its generated
 // `TypedDocumentNode<XQuery, XQueryVariables>` (no cast — gql DocumentNode is
 // structurally assignable). The gql template stays the codegen pluck source.
+//
+// P-23 / MOB-HIGH-019: a mutation the offline queue replays is declared ONCE, in
+// pwa/operation-registry.ts, and codegen emits its `<Name>Document` from that
+// text. The online path re-exports the generated document under the name the
+// hooks already import, so the two lanes cannot drift apart.
 
 // FARM-LOW-217: the legacy GetTanksWithBatches document was deleted — the live
 // tank source is FARM_STOCK_INVENTORY_QUERY (hooks/useTanks.ts); the dead doc
@@ -246,14 +249,7 @@ export const GET_LEAVE_TYPES: TypedDocumentNode<LeaveTypesQuery, LeaveTypesQuery
   }
 `;
 
-export const SUBMIT_LEAVE_REQUEST: TypedDocumentNode<SubmitLeaveRequestMutation, SubmitLeaveRequestMutationVariables> = gql`
-  mutation SubmitLeaveRequest($id: ID!) {
-    submitLeaveRequest(id: $id) {
-      id
-      status
-    }
-  }
-`;
+export const SUBMIT_LEAVE_REQUEST = SubmitLeaveRequestDocument;
 
 export const CANCEL_LEAVE_REQUEST: TypedDocumentNode<CancelLeaveRequestMutation, CancelLeaveRequestMutationVariables> = gql`
   mutation CancelLeaveRequest($id: ID!) {
@@ -356,39 +352,16 @@ export const GET_TASK_STATS: TypedDocumentNode<GetTaskStatsQuery, GetTaskStatsQu
 // envelope (clientCommandId + payloadHash). The server REJECTS an envelope-less
 // call for these three task mutations, so the envelope is mandatory on EVERY
 // call — online and offline — not only offline-queued replays.
-export const COMPLETE_TASK: TypedDocumentNode<CompleteTaskMutation, CompleteTaskMutationVariables> = gql`
-  mutation CompleteTask($input: TaskLifecycleInput!) {
-    completeTask(input: $input) {
-      id
-      status
-      completedAt
-      completedBy
-    }
-  }
-`;
+export const COMPLETE_TASK = CompleteTaskDocument;
 
-export const START_TASK: TypedDocumentNode<StartTaskMutation, StartTaskMutationVariables> = gql`
-  mutation StartTask($input: TaskLifecycleInput!) {
-    startTask(input: $input) {
-      id
-      status
-    }
-  }
-`;
+export const START_TASK = StartTaskDocument;
 
 // FARM-HIGH-057 BREAKING CHANGE: `toggleChecklistItem` (a server-side FLIP that a
 // replayed offline command would REVERT) is replaced by `setChecklistItem`, which
 // carries the ABSOLUTE target `isCompleted` plus the command envelope. SET (not
 // flip) means any number of replays converge to the same state instead of
 // ping-ponging the item.
-export const SET_CHECKLIST_ITEM: TypedDocumentNode<SetChecklistItemMutation, SetChecklistItemMutationVariables> = gql`
-  mutation SetChecklistItem($input: SetChecklistItemInput!) {
-    setChecklistItem(input: $input) {
-      id
-      checklistItems
-    }
-  }
-`;
+export const SET_CHECKLIST_ITEM = SetChecklistItemDocument;
 
 export const ADD_TASK_NOTE: TypedDocumentNode<AddTaskNoteMutation, AddTaskNoteMutationVariables> = gql`
   mutation AddTaskNote($taskId: ID!, $text: String!) {

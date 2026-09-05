@@ -12,7 +12,6 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
-import { gql } from 'graphql-tag';
 import {
   ArrowLeft,
   ArrowLeftRight,
@@ -30,6 +29,8 @@ import { useNavigate } from 'react-router-dom';
 
 import { BarcodeScanButton } from '@/components/BarcodeScanButton';
 import { VirtualList } from '@/components/VirtualList';
+import { TransferStockDocument } from '@/generated/graphql';
+import { STORAGE_INVENTORY_ITEMS, STORAGE_LOCATIONS } from '@/graphql/storage-operations';
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
@@ -66,33 +67,6 @@ interface StorageInventoryItem {
 // ============================================================================
 // GRAPHQL
 // ============================================================================
-
-const STORAGE_ITEMS_QUERY = gql`
-  query StorageInventoryItems($itemType: StorageItemType) {
-    storageInventory(itemType: $itemType, limit: 100) {
-      itemId
-      itemName
-      unit
-      itemType
-    }
-  }
-`;
-
-const STORAGE_LOCATIONS_QUERY = gql`
-  query StorageLocations {
-    storageLocations {
-      items { id name code }
-    }
-  }
-`;
-
-const TRANSFER_STOCK_MUTATION = gql`
-  mutation TransferStock($input: TransferStockInput!) {
-    transferStock(input: $input) {
-      id quantity
-    }
-  }
-`;
 
 // ============================================================================
 // CONSTANTS
@@ -163,7 +137,7 @@ export function StockTransferPage(): JSX.Element {
     queryKey: createTenantQueryKey(tenantId, 'storage-items', selectedItemType, tenantId),
     queryFn: async () => {
       const result = await graphqlRequest<{ storageInventory: StorageInventoryItem[] }>(
-        STORAGE_ITEMS_QUERY,
+        STORAGE_INVENTORY_ITEMS,
         { itemType: selectedItemType },
       );
       return toStorageItems(result.storageInventory ?? []);
@@ -183,7 +157,7 @@ export function StockTransferPage(): JSX.Element {
     queryKey: createTenantQueryKey(tenantId, 'storage-locations', tenantId),
     queryFn: async () => {
       const result = await graphqlRequest<{ storageLocations: { items: StorageLocation[] } }>(
-        STORAGE_LOCATIONS_QUERY,
+        STORAGE_LOCATIONS,
       );
       return result.storageLocations?.items ?? [];
     },
@@ -270,7 +244,7 @@ export function StockTransferPage(): JSX.Element {
     try {
       if (isOnline) {
         await graphqlRequest<{ transferStock: { id: string } }>(
-          TRANSFER_STOCK_MUTATION,
+          TransferStockDocument,
           { input },
         );
         if (tenantId) {

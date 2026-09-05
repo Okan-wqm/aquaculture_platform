@@ -14,7 +14,6 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
-import { gql } from 'graphql-tag';
 import {
   ArrowLeft,
   ArrowDownToLine,
@@ -34,6 +33,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { BarcodeScanButton } from '@/components/BarcodeScanButton';
 import { VirtualList } from '@/components/VirtualList';
+import { RecordStockMovementDocument } from '@/generated/graphql';
+import { STORAGE_INVENTORY_ITEMS, STORAGE_LOCATIONS } from '@/graphql/storage-operations';
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
@@ -70,41 +71,6 @@ interface StorageInventoryItem {
 // ============================================================================
 // GRAPHQL
 // ============================================================================
-
-/**
- * Fetch storage items filtered by item type. The backend returns items relevant
- * to the tenant's warehouse inventory (feed brands, chemical products, etc.).
- */
-const STORAGE_ITEMS_QUERY = gql`
-  query StorageInventoryItems($itemType: StorageItemType) {
-    storageInventory(itemType: $itemType, limit: 100) {
-      itemId
-      itemName
-      unit
-      itemType
-    }
-  }
-`;
-
-/**
- * Fetch storage locations (warehouses, silos, cold stores, etc.) for the tenant.
- * Used to populate the location selector in both IN and OUT flows.
- */
-const STORAGE_LOCATIONS_QUERY = gql`
-  query StorageLocations {
-    storageLocations {
-      items { id name code }
-    }
-  }
-`;
-
-const RECORD_STOCK_MOVEMENT_MUTATION = gql`
-  mutation RecordStockMovement($input: RecordStockMovementInput!) {
-    recordStockMovement(input: $input) {
-      id movementType quantity
-    }
-  }
-`;
 
 // ============================================================================
 // CONSTANTS
@@ -198,7 +164,7 @@ export function StockMovementPage(): JSX.Element {
     queryKey: createTenantQueryKey(tenantId, 'storage-items', selectedItemType, tenantId),
     queryFn: async () => {
       const result = await graphqlRequest<{ storageInventory: StorageInventoryItem[] }>(
-        STORAGE_ITEMS_QUERY,
+        STORAGE_INVENTORY_ITEMS,
         { itemType: selectedItemType },
       );
       return toStorageItems(result.storageInventory ?? []);
@@ -219,7 +185,7 @@ export function StockMovementPage(): JSX.Element {
     queryKey: createTenantQueryKey(tenantId, 'storage-locations', tenantId),
     queryFn: async () => {
       const result = await graphqlRequest<{ storageLocations: { items: StorageLocation[] } }>(
-        STORAGE_LOCATIONS_QUERY,
+        STORAGE_LOCATIONS,
       );
       return result.storageLocations?.items ?? [];
     },
@@ -366,7 +332,7 @@ export function StockMovementPage(): JSX.Element {
     try {
       if (isOnline) {
         await graphqlRequest<{ recordStockMovement: { id: string } }>(
-          RECORD_STOCK_MOVEMENT_MUTATION,
+          RecordStockMovementDocument,
           { input },
         );
         if (tenantId) {

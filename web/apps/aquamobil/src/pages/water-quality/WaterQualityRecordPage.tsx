@@ -8,6 +8,7 @@ import type { JSX } from 'react';
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
+import { CreateWaterQualityMeasurementDocument } from '@/generated/graphql';
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
@@ -65,12 +66,6 @@ const EQUIPMENT_PARAMS_QUERY = gql`
         enumValues displayOrder isRequired chartColor
       }
     }
-  }
-`;
-
-const CREATE_WQ_MUTATION = gql`
-  mutation CreateWaterQualityMeasurement($input: CreateWaterQualityInput!) {
-    createWaterQualityMeasurement(input: $input) { id overallStatus hasAlarm }
   }
 `;
 
@@ -185,7 +180,7 @@ export function WaterQualityRecordPage(): JSX.Element {
   const { mutateAsync: createMeasurement, isPending: isSubmitting } = useMutation({
     mutationFn: async (input: CreateWaterQualityInput) =>
       graphqlRequest<{ createWaterQualityMeasurement: { id: string; overallStatus: string; hasAlarm: boolean } }>(
-        CREATE_WQ_MUTATION, { input },
+        CreateWaterQualityMeasurementDocument, { input },
       ),
     onSuccess: async () => {
       if (tenantId) {

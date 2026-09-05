@@ -44,7 +44,19 @@ const schema = existsSync(composedSupergraph) ? [composedSupergraph] : [legacyFa
 // separately (orphan finding S1-ORPHAN — fix the module fragments to the live
 // schema) rather than silently swallowed. The shared-ui SCHEMA-type block below
 // (no documents) is unaffected and keeps generating.
-const aquamobilDocuments = ['web/apps/aquamobil/src/graphql/**/*.ts'];
+// MOB-HIGH-019: every document under src/ is a codegen source — the queued-
+// operation registry (magic-commented, import-free by design), the colocated
+// page/hook documents, and src/graphql. A document outside this set gets no
+// TypedDocumentNode, and a call without one is exactly the untyped-variables
+// path that let a deleted input field ship for weeks. Operation names must be
+// unique across the set; that uniqueness is codegen's own gate and the reason
+// the registry is the single declaration of every queue-replayed mutation.
+const aquamobilDocuments = [
+  'web/apps/aquamobil/src/**/*.{ts,tsx}',
+  '!web/apps/aquamobil/src/generated/**',
+  '!web/apps/aquamobil/src/**/__tests__/**',
+  '!web/apps/aquamobil/src/**/*.spec.{ts,tsx}',
+];
 
 const config: CodegenConfig = {
   overwrite: true,
@@ -93,6 +105,9 @@ const config: CodegenConfig = {
               scalars: {
                 DateTime: 'string',
                 JSON: 'Record<string, unknown>',
+                // Unmapped, codegen types ID as `string | number` on input and
+                // lets a numeric id through the "compiler-derived" contract.
+                ID: { input: 'string', output: 'string' },
               },
             },
           },

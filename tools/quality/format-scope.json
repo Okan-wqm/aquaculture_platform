@@ -36566,7 +36566,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "80e0436f48f8e7243b65d790d05834a67b7b363d26a34be1506a7d608e75b048",
+      "content_sha256": "51e0e404083fa240d1a9cf34ff0c3814ebf48f8bde0b59f7fd2429cf226f3cac",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/apollo-router/codegen-schema.generated.json",
@@ -46785,7 +46785,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "7e466c7bd3d1e34786fb8e3bb0c9d33c8cb67909dca568b1c6c02f9ffca90229",
+      "content_sha256": "4c6131005f46a0f441a658007e26dbcae99cde9de45f464063bc6f0e5df7ce5c",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/apps/aquamobil/src/generated/graphql.ts",
@@ -46828,6 +46828,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/graphql/sensor-operations.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/graphql/storage-operations.ts",
       "prettier_managed": true
     },
     {

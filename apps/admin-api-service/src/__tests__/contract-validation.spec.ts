@@ -337,7 +337,11 @@ function findControllerFiles(dir: string): string[] {
  * Frontend: /tenants/:param/notes/:param   (template literal'den normalize edilmis)
  * Backend:  /tenants/:id/notes/:noteId      (NestJS param dekoratoru)
  *
- * Her ikisinde de :xxx segmentleri parametre olarak kabul edilir.
+ * Bir segment ya her iki tarafta da parametredir ya da her iki tarafta da
+ * AYNI literal'dir. Frontend literal'inin backend parametresine eslesmesi
+ * (`/jobs/scheduled` ↔ `/jobs/:id`) bir eslesme DEGIL, tam olarak ADMIN-HIGH-011'in
+ * "route shadowing" hatasidir: istek `:id` handler'ina duser ve `scheduled`
+ * bir kimlik gibi islenir. Bu fonksiyon o durumu artik gecirmez.
  */
 function matchPath(frontendUrl: string, backendPath: string): boolean {
   const feParts = frontendUrl.split('/').filter(Boolean);
@@ -348,17 +352,12 @@ function matchPath(frontendUrl: string, backendPath: string): boolean {
   for (let i = 0; i < feParts.length; i++) {
     const fe = feParts[i]!;
     const be = beParts[i]!;
+    const feIsParam = fe.startsWith(':');
+    const beIsParam = be.startsWith(':');
 
-    // Her ikisi de parametre ise eslestir
-    if (fe.startsWith(':') && be.startsWith(':')) continue;
+    if (feIsParam && beIsParam) continue;
+    if (!feIsParam && !beIsParam && fe === be) continue;
 
-    // Birisi parametre, digeri statik ise eslestir (frontend :param, backend :id gibi)
-    if (fe.startsWith(':') || be.startsWith(':')) continue;
-
-    // Statik segmentler eslesiyorsa devam
-    if (fe === be) continue;
-
-    // Eslesmiyor
     return false;
   }
 
@@ -971,7 +970,15 @@ describe('Frontend-Backend Contract Validation', () => {
     // the gateway's IpWhitelistGuard was registered nowhere (SEC-HIGH-165).
     // 529: +3 for the platform-capability grant surface, which narrows the
     // SUPER_ADMIN bit to named capabilities (SEC-HIGH-164).
-    expect(count).toBe(529);
+    // 463: -66 for every route that existed only to refuse — the
+    // tenant-configuration stack, the system-settings writers, the
+    // global-config CRUD, the 409 subscription/schema/migration refusals and
+    // the 501 tenant-limit query, deleted with their service methods, DTOs,
+    // clients and page controls (ADMIN-HIGH-106). The two messaging 501s the
+    // audit counted here are NOT in that number: main answered them with real
+    // cross-tenant aggregates before this landed (ADMIN-HIGH-009), and a route
+    // that returns real data is not a stub.
+    expect(count).toBe(463);
   });
 
   it('frontend endpoint snapshot should be up to date', () => {

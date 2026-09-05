@@ -286,19 +286,4 @@ export const messagingApi = {
     apiFetch<AiPersonaDefinition[]>(
       `/messaging/personas?${buildQueryString({ tenantId })}`,
     ),
-
-  /**
-   * Update an AI persona configuration.
-   * IMPORTANT: Currently returns 501 (Not Implemented) because personas are static.
-   * @param personaId - Persona identifier
-   * @param updates - Fields to update
-   */
-  updatePersona: (
-    personaId: string,
-    updates: Record<string, unknown>,
-  ): Promise<unknown> =>
-    apiFetch<unknown>(`/messaging/personas/${personaId}`, {
-      method: 'PUT',
-      body: JSON.stringify(updates),
-    }),
 };

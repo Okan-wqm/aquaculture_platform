@@ -23,11 +23,10 @@ import {
 } from '@nestjs/common';
 import { Request } from 'express';
 import { ApiTags } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, IsUUID, IsEnum, IsOptional, IsArray } from 'class-validator';
+import { IsString, IsOptional, IsArray } from 'class-validator';
 
 import { Roles } from '../../decorators/roles.decorator';
 import { getAuthUser } from '../../shared/authenticated-request';
-import { SchemaStatus } from '../entities/database-management.entity';
 import { SchemaManagementService } from '../services/schema-management.service';
 
 // ============================================================================
@@ -45,16 +44,6 @@ class SyncSchemasDto {
   @IsString({ each: true })
   modules?: string[];
 }
-
-class UpdateSchemaStatusDto {
-  @IsNotEmpty()
-  @IsEnum(['creating', 'active', 'suspended', 'deleted', 'migrating'])
-  status!: SchemaStatus;
-}
-
-// ============================================================================
-// Controller
-// ============================================================================
 
 @ApiTags('Database Management')
 @Controller('database/schemas')
@@ -91,17 +80,6 @@ export class SchemaController {
     return this.schemaService.getSchemaInfo(tenantId);
   }
 
-  @AuditedOperation({ resource: 'Schema', action: 'CREATE' })
-  @RequiresCapability('security-ops')
-  @Post()
-  @HttpCode(HttpStatus.CREATED)
-  async createSchema(@TenantParam('body', { allow: 'any' }) tenantId: string) {
-    if (!tenantId) {
-      throw new BadRequestException('tenantId is required');
-    }
-    return this.schemaService.createTenantSchema(tenantId);
-  }
-
   @AuditedOperation({ resource: 'Schemas', action: 'SYNC' })
   @RequiresCapability('security-ops')
   @Post('sync')
@@ -110,20 +88,6 @@ export class SchemaController {
     @Body() dto: SyncSchemasDto,
   ) {
     return this.schemaService.syncExistingTenantSchemas(tenantId, dto.modules);
-  }
-
-  @AuditedOperation({ resource: 'Schema', action: 'SUSPEND' })
-  @RequiresCapability('security-ops')
-  @Post(':tenantId/suspend')
-  async suspendSchema(@TenantParam('param', { allow: 'any' }) tenantId: string) {
-    return this.schemaService.suspendSchema(tenantId);
-  }
-
-  @AuditedOperation({ resource: 'Schema', action: 'ACTIVATE' })
-  @RequiresCapability('security-ops')
-  @Post(':tenantId/activate')
-  async activateSchema(@TenantParam('param', { allow: 'any' }) tenantId: string) {
-    return this.schemaService.activateSchema(tenantId);
   }
 
   // SECURITY: destructive action requires confirmation token and audit
@@ -175,13 +139,6 @@ export class SchemaController {
   @Get(':tenantId/validate')
   async validateSchemaIsolation(@TenantParam('param', { allow: 'any' }) tenantId: string) {
     return this.schemaService.validateSchemaIsolation(tenantId);
-  }
-
-  @AuditedOperation({ resource: 'SchemaStats', action: 'REFRESH' })
-  @RequiresCapability('security-ops')
-  @Post(':tenantId/refresh-stats')
-  async refreshSchemaStats(@TenantParam('param', { allow: 'any' }) tenantId: string) {
-    return this.schemaService.updateSchemaStats(tenantId);
   }
 
   // ============================================================================

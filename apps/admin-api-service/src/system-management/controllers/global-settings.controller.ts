@@ -6,7 +6,6 @@ import {
 } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
-  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -17,7 +16,6 @@ import {
   Post,
   Put,
   Query,
-  Req,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
@@ -35,15 +33,12 @@ import {
   ArrayMaxSize,
   ValidateNested,
 } from 'class-validator';
-import { Request } from 'express';
 
-import { getAuthUser, requireAuthUserName } from '../../shared/authenticated-request';
 import {
   FeatureToggleScope,
   FeatureToggleStatus,
   FeatureCondition,
 } from '../entities/feature-toggle.entity';
-import { ConfigCategory, ConfigValueType } from '../entities/global-config.entity';
 import {
   MaintenanceScope,
   MaintenanceStatus,
@@ -274,70 +269,6 @@ class CreateVersionDto {
   upgradeGuide?: string;
 }
 
-class CreateConfigDto {
-  @IsString()
-  key!: string;
-
-  @IsString()
-  name!: string;
-
-  @IsOptional()
-  @IsString()
-  description?: string;
-
-  @IsOptional()
-  @IsString()
-  category?: ConfigCategory;
-
-  @IsOptional()
-  @IsString()
-  valueType?: ConfigValueType;
-
-  @IsDefined()
-  value!: unknown;
-
-  @IsOptional()
-  defaultValue?: unknown;
-
-  @IsOptional()
-  @IsObject()
-  validation?: {
-    required?: boolean;
-    min?: number;
-    max?: number;
-    minLength?: number;
-    maxLength?: number;
-    pattern?: string;
-    allowedValues?: unknown[];
-  };
-
-  @IsOptional()
-  @IsBoolean()
-  isSecret?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  isReadOnly?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  requiresRestart?: boolean;
-
-  @IsOptional()
-  @IsString()
-  helpText?: string;
-}
-
-class UpdateConfigDto {
-  @IsDefined()
-  value!: unknown;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  reason?: string;
-}
-
 class UpdateMaintenanceDto {
   /** ADMIN-CRITICAL-009: whitelisted carrier key; the verified id arrives through @TenantParam('body'). */
   @TenantIdCarrier()
@@ -425,26 +356,6 @@ class RollbackVersionDto {
   @MaxLength(255)
   rolledBackBy!: string;
 }
-
-class BulkConfigUpdateItem {
-  @IsString()
-  @MaxLength(255)
-  key!: string;
-
-  @IsDefined()
-  value!: unknown;
-}
-
-class BulkUpdateConfigsDto {
-  @IsArray()
-  @ArrayMaxSize(100)
-  @ValidateNested({ each: true })
-  @Type(() => BulkConfigUpdateItem)
-  updates!: BulkConfigUpdateItem[];
-}
-
-// UpdateProvisioningConfig uses runtime validation in the handler
-// since it's a dynamic key-value Record<string, string>
 
 // ============================================================================
 // Controller
@@ -674,71 +585,14 @@ export class GlobalSettingsController {
   }
 
   // ============================================================================
-  // Global Configuration
-  // ============================================================================
-
-  @AuditedOperation({ resource: 'Config', action: 'CREATE' })
-  @RequiresCapability('security-ops')
-  @Post('configs')
-  createConfig(@Body() dto: CreateConfigDto): never {
-    return this.globalSettingsService.createConfig(dto);
-  }
-
-  @Get('configs')
-  queryConfigs(
-    @Query('category') category?: ConfigCategory,
-    @Query('isSecret') isSecret?: string,
-    @Query('search') search?: string,
-    @Query('page') page?: number,
-    @Query('limit') limit?: number,
-  ): ReturnType<GlobalSettingsService['queryConfigs']> {
-    return this.globalSettingsService.queryConfigs({
-      category,
-      isSecret: isSecret !== undefined ? isSecret === 'true' : undefined,
-      search,
-      page: page ? Number(page) : undefined,
-      limit: limit ? Number(limit) : undefined,
-    });
-  }
-
-  @Get('configs/:id')
-  getConfig(@Param('id') id: string): never {
-    return this.globalSettingsService.getConfigEntity(id);
-  }
-
-  @AuditedOperation({ resource: 'Config', action: 'UPDATE' })
-  @RequiresCapability('security-ops')
-  @Put('configs/:id')
-  updateConfig(@Param('id') id: string, @Body() dto: UpdateConfigDto): never {
-    return this.globalSettingsService.updateConfig(id, dto.value, 'admin', dto.reason);
-  }
-
-  @AuditedOperation({ resource: 'UpdateConfigs', action: 'BULK' })
-  @RequiresCapability('security-ops')
-  @Post('configs/bulk-update')
-  bulkUpdateConfigs(@Body() dto: BulkUpdateConfigsDto): never {
-    return this.globalSettingsService.bulkUpdateConfigs(dto.updates, 'admin');
-  }
-
-  // ============================================================================
   // Provisioning Configuration
   // ============================================================================
 
-  /** SEC-M19: Removed @Public() — this endpoint exposes platform configuration
-   *  and must be protected by the global APP_GUARD (PlatformAdminGuard). */
+  /** Env-backed read consumed by sensor-service's installer-script generator.
+   *  SEC-M19: not @Public() — protected by the global APP_GUARD (PlatformAdminGuard). */
   @Get('provisioning-config')
   getProvisioningConfig(): ReturnType<GlobalSettingsService['getProvisioningConfig']> {
     return this.globalSettingsService.getProvisioningConfig();
-  }
-
-  @AuditedOperation({ resource: 'ProvisioningConfig', action: 'UPDATE' })
-  @RequiresCapability('security-ops')
-  @Put('provisioning-config')
-  updateProvisioningConfig(@Body() body: Record<string, string>, @Req() req: Request): never {
-    if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      throw new BadRequestException('Invalid configuration payload');
-    }
-    return this.globalSettingsService.updateProvisioningConfig(body, requireAuthUserName(req));
   }
 
   // ============================================================================

@@ -57,7 +57,7 @@ describe('INVARIANT (ADR-0016): platform capabilities — one enum, one projecti
     .sort();
 
   it('reflects on the fleet of admin mutation handlers (sanity)', () => {
-    expect(handlers.length).toBeGreaterThanOrEqual(200);
+    expect(handlers.length).toBeGreaterThanOrEqual(150);
   });
 
   it('every non-public mutation handler names a capability or is governed by the ratchet', () => {

@@ -538,18 +538,6 @@ describe.skip('Tenant Management E2E Tests', () => {
       expect(true).toBe(true);
     });
 
-    it('should return tenants approaching limits', async () => {
-      // const response = await request(app.getHttpServer())
-      //   .get('/tenants/approaching-limits')
-      //   .query({ threshold: 80 })
-      //   .set(superAdminHeaders)
-      //   .expect(HttpStatus.OK);
-
-      // expect(Array.isArray(response.body)).toBe(true);
-
-      expect(true).toBe(true);
-    });
-
     it('should return expiring trials', async () => {
       // const response = await request(app.getHttpServer())
       //   .get('/tenants/expiring-trials')

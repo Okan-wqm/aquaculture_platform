@@ -353,6 +353,44 @@ linter orders static segments before parameterised ones.
 **Gate:** no controller method body reduces to a thrown Gone / Conflict / NotImplemented; smoke gate
 that every FE-called route returns something other than 404/410/501 on a booted app.
 
+**Implementation note (landed 2026-09-07):** every route that existed only to refuse is deleted with
+its service method, DTO, frontend client and page control in one commit: the whole
+tenant-configuration stack (controller, service, DTOs, entity file, the provisioning saga's fake
+`create_default_config` step, the admin-panel page, route and client — it synthesised defaults on
+read and answered 410 on write); the nine system-settings write routes and the
+`SystemSettingService` writers behind them; the global-config CRUD routes, `PUT provisioning-config`
+and the `ConfigCategory`/`ConfigValueType` vocabulary (the env-backed `GET provisioning-config`
+stays: sensor-service's installer-script generator reads it); the messaging AI Dashboard page and
+the persona toggle; `GET tenants/approaching-limits` (501) with its query, handler and client; the
+409 refusals — `POST billing/subscriptions`, `process-renewals`, `invoices/update-overdue`, four
+schema routes (create, suspend, activate, refresh-stats), three migration routes (run, rollback,
+batch run) — with the `never`-typed service methods behind them, the unreferenced
+`SchemaMigrationService`, the provisioning saga's `create_schema` step that could only throw, and
+every frontend button that called them. Custom-plan activation, which called the retired
+`createSubscription` writer and therefore could never activate a plan, now sends billing-service's
+`ProvisionTenantSubscription` command with the plan's priced modules and the plan discount allocated
+across them; both command identifiers derive from the plan id so a retry replays billing's receipt
+(`custom-plan.activation.spec.ts`). Two literal routes shadowed by `data-requests/:id` (`stats`)
+were reordered.
+
+**Correction at land time (2026-09-07):** the audit counted three messaging 501s — `GET
+messaging/monitoring/stats`, `GET messaging/tenants` and the monitoring page behind them — in the
+deletion set. Main answered them instead: `258856330` gave both routes real cross-tenant aggregates
+from messaging-service, cached there for 60 seconds (ADMIN-HIGH-009). A route that returns real data
+is not a stub, so those two routes, their client functions and the Monitoring and Tenants pages
+stay. The deletion set shrinks to the AI Dashboard page and the persona toggle, which still have no
+producer.
+
+**Gates:** `tests/invariants/admin-no-stub-routes.spec.ts` (no `NotImplementedException` in
+admin-api; `GoneException` only in the allowlisted report-download expiry; no route handler whose
+body reduces to a throw, a `throw*` helper call, or a `never` type) and
+`tests/invariants/admin-route-registration-order.spec.ts` (a parameterised route declared before a
+literal sibling it would match fails, within a controller and across controllers sharing a prefix),
+both over `tests/invariants/lib/admin-route-table.ts` (TypeScript-AST route enumeration). The FE↔BE
+contract test's `matchPath` no longer treats a frontend literal as matching a backend parameter, so
+a client for `/jobs/scheduled` can no longer pass against `/jobs/:id`; the two clients that did were
+deleted.
+
 ## ADMIN-HIGH-107 — Permissive physical types in the admin schema (C11)
 
 **State:** OPEN · **Wave:** W2

@@ -77,8 +77,6 @@ export const tenantsApi = {
   archive: (id: string) => apiFetch<void>(`/admin/tenants/${id}`, { method: 'DELETE' }),
   search: (q: string, limit?: number) =>
     apiFetch<Tenant[]>(`/admin/tenants/search?q=${encodeURIComponent(q)}&limit=${limit || 20}`),
-  getApproachingLimits: (threshold?: number) =>
-    apiFetch<Tenant[]>(`/admin/tenants/approaching-limits?threshold=${threshold || 80}`),
   getExpiringTrials: (withinDays?: number) =>
     apiFetch<Tenant[]>(`/admin/tenants/expiring-trials?withinDays=${withinDays || 7}`),
   bulkSuspend: (tenantIds: string[], reason: string) =>

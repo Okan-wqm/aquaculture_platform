@@ -19,7 +19,6 @@ import { DataSource, QueryRunner, Repository } from 'typeorm';
 
 import { TenantSchema } from '../../database-management/entities/database-management.entity';
 import { WalgRecoveryPointService } from '../../database-management/services/recovery-point.service';
-import { TenantConfigurationService } from '../../settings/services/tenant-configuration.service';
 import { Tenant, TenantStatus, TenantTier, TenantPlan } from '../entities/tenant.entity';
 import { AuthTenantProvisioningClientService } from '../services/auth-tenant-provisioning-client.service';
 import {
@@ -133,12 +132,10 @@ const mockTenantClaimQuery = (sql: string): Promise<unknown[]> => {
 
 describe('TenantProvisioningService', () => {
   let service: TenantProvisioningService;
-  let createTenantSchemaSpy: jest.SpyInstance;
   let tenantRepository: jest.Mocked<Repository<Tenant>>;
   let tenantSchemaRepository: jest.Mocked<Repository<TenantSchema>>;
   let dataSource: jest.Mocked<DataSource>;
   let authProvisioningClient: jest.Mocked<AuthTenantProvisioningClientService>;
-  let tenantConfigurationService: jest.Mocked<TenantConfigurationService>;
   let queryRunner: jest.Mocked<Partial<QueryRunner>>;
 
   beforeEach(async () => {
@@ -165,19 +162,6 @@ describe('TenantProvisioningService', () => {
       create: jest.fn((entity) => entity),
       save: jest.fn().mockImplementation(async (entity) => entity),
       update: jest.fn(),
-    };
-
-    const mockTenantConfigurationService = {
-      createConfiguration: jest.fn().mockResolvedValue(undefined),
-      getConfiguration: jest.fn().mockResolvedValue({}),
-      requestDefaultConfigurationProvisioning: jest.fn().mockReturnValue({
-        requestId: 'config-provisioning-request-id',
-        tenantId: 'tenant-id',
-        targetService: 'config-service',
-        status: 'REQUESTED',
-        sections: ['brandingConfig', 'featureFlags'],
-        requestedAt: '2026-06-21T00:00:00.000Z',
-      }),
     };
 
     const mockAuthProvisioningClient = {
@@ -239,10 +223,6 @@ describe('TenantProvisioningService', () => {
           useValue: mockDataSource,
         },
         {
-          provide: TenantConfigurationService,
-          useValue: mockTenantConfigurationService,
-        },
-        {
           provide: AuthTenantProvisioningClientService,
           useValue: mockAuthProvisioningClient,
         },
@@ -262,16 +242,6 @@ describe('TenantProvisioningService', () => {
     tenantSchemaRepository = module.get(getRepositoryToken(TenantSchema));
     dataSource = module.get(getDataSourceToken());
     authProvisioningClient = module.get(AuthTenantProvisioningClientService);
-    tenantConfigurationService = module.get(TenantConfigurationService);
-    // Schema DDL is db-migrate's; the orchestrator's private step is stubbed
-    // on the prototype so no test path reaches the schema manager.
-    createTenantSchemaSpy = jest
-      .spyOn(Object.getPrototypeOf(service), 'createTenantSchema')
-      .mockResolvedValue(undefined);
-  });
-
-  afterEach(() => {
-    createTenantSchemaSpy.mockRestore();
   });
 
   afterEach(() => {
@@ -454,36 +424,7 @@ describe('TenantProvisioningService', () => {
   // ===========================================================================
 
   describe('Database & Schema İşlemleri', () => {
-    it('tenant için schema oluşturulur', async () => {
-      // Arrange
-      const tenant = createMockTenant({ status: TenantStatus.PENDING });
-      tenantRepository.findOne.mockResolvedValue(tenant);
-      tenantRepository.save.mockResolvedValue({ ...tenant, status: TenantStatus.ACTIVE } as any);
-
-      // Act
-      const result = await service.provisionTenant(tenant.id, { skipSchemaCreation: false });
-
-      // Assert
-      expect(result.success).toBe(true);
-      const schemaStep = result.steps.find((s) => s.name === 'create_schema');
-      expect(schemaStep?.status).toBe('completed');
-    });
-
     it('default roles kurulur', async () => {
-      // Arrange
-      const tenant = createMockTenant({ status: TenantStatus.PENDING });
-      tenantRepository.findOne.mockResolvedValue(tenant);
-      tenantRepository.save.mockResolvedValue({ ...tenant, status: TenantStatus.ACTIVE } as any);
-
-      // Act
-      const result = await service.provisionTenant(tenant.id, { skipSchemaCreation: false });
-
-      // Assert
-      const rolesStep = result.steps.find((s) => s.name === 'setup_default_roles');
-      expect(rolesStep?.status).toBe('completed');
-    });
-
-    it('default configuration oluşturulur', async () => {
       // Arrange
       const tenant = createMockTenant({ status: TenantStatus.PENDING });
       tenantRepository.findOne.mockResolvedValue(tenant);
@@ -493,8 +434,8 @@ describe('TenantProvisioningService', () => {
       const result = await service.provisionTenant(tenant.id);
 
       // Assert
-      const configStep = result.steps.find((s) => s.name === 'create_default_config');
-      expect(configStep?.status).toBe('completed');
+      const rolesStep = result.steps.find((s) => s.name === 'setup_default_roles');
+      expect(rolesStep?.status).toBe('completed');
     });
 
     it('tüm step süreleri kaydedilir', async () => {
@@ -526,10 +467,10 @@ describe('TenantProvisioningService', () => {
       // Arrange
       const tenant = createMockTenant({ status: TenantStatus.PENDING });
       tenantRepository.findOne.mockResolvedValue(tenant);
-      createTenantSchemaSpy.mockRejectedValue(new Error('Database error'));
+      authProvisioningClient.setupTenantRoles.mockRejectedValueOnce(new Error('Database error'));
 
       // Act
-      const result = await service.provisionTenant(tenant.id, { skipSchemaCreation: false });
+      const result = await service.provisionTenant(tenant.id);
 
       // Assert
       expect(result.success).toBe(false);
@@ -540,32 +481,6 @@ describe('TenantProvisioningService', () => {
         expect.objectContaining({
           tenantId: tenant.id,
           reason: 'Database error',
-        }),
-      );
-    });
-
-    it('default configuration handoff hatası provisioning sonucuna yansır', async () => {
-      // Arrange
-      const tenant = createMockTenant({ status: TenantStatus.PENDING });
-      tenantRepository.findOne.mockResolvedValue(tenant);
-      tenantConfigurationService.requestDefaultConfigurationProvisioning.mockImplementationOnce(
-        () => {
-          throw new Error('Config handoff error');
-        },
-      );
-
-      // Act
-      const result = await service.provisionTenant(tenant.id);
-
-      // Assert
-      expect(result.success).toBe(false);
-      expect(result.error).toBe('Config handoff error');
-      const failedStep = result.steps.find((s) => s.name === 'create_default_config');
-      expect(failedStep?.status).toBe('failed');
-      expect(authProvisioningClient.failProvisioning).toHaveBeenCalledWith(
-        expect.objectContaining({
-          tenantId: tenant.id,
-          reason: 'Config handoff error',
         }),
       );
     });

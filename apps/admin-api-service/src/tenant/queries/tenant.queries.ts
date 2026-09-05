@@ -42,13 +42,6 @@ export class GetTenantActivityQuery {
   ) {}
 }
 
-export class GetTenantsApproachingLimitsQuery {
-  constructor(
-    public readonly thresholdPercentage = 80,
-    public readonly limitType?: 'users',
-  ) {}
-}
-
 export class GetExpiringTrialsQuery {
   constructor(public readonly withinDays = 7) {}
 }

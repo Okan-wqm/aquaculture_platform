@@ -4,6 +4,7 @@ import { ClientsModule } from '@nestjs/microservices';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { InvoiceReadOnly } from '../analytics/entities/external/invoice.entity';
+import { Tenant } from '../tenant/entities/tenant.entity';
 
 import { BillingController } from './billing.controller';
 import { CustomPlan } from './entities/custom-plan.entity';
@@ -45,6 +46,7 @@ import { UsageMeteringManagementService } from './services/usage-metering-manage
       CustomPlan,
       InvoiceReadOnly,
       UsageAggregationReadOnly,
+      Tenant,
     ]),
   ],
   controllers: [BillingController],

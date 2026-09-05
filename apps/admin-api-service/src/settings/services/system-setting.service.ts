@@ -1,35 +1,10 @@
-import { GoneException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 
 import {
   DEFAULT_SYSTEM_SETTINGS,
   SettingCategory,
   SettingValueType,
 } from '../entities/system-setting.entity';
-
-export interface CreateSystemSettingDto {
-  key: string;
-  value: string;
-  valueType?: SettingValueType;
-  category: SettingCategory;
-  description?: string;
-  displayName?: string;
-  isPublic?: boolean;
-  isReadOnly?: boolean;
-  requiresRestart?: boolean;
-  defaultValue?: string;
-  validationRule?: string;
-  sortOrder?: number;
-}
-
-export interface UpdateSystemSettingDto {
-  value?: string;
-  description?: string;
-  displayName?: string;
-  isPublic?: boolean;
-  requiresRestart?: boolean;
-  sortOrder?: number;
-  updatedBy?: string;
-}
 
 export interface SystemSettingResponse {
   id: string;
@@ -64,17 +39,14 @@ export interface EmailSendConfig extends Omit<EmailConfig, 'hasSmtpPassword'> {
   smtpPassword: string;
 }
 
-const LEGACY_CONFIG_STORE_GONE =
-  'admin-api direct system_settings writes are retired; use config-service effective configuration APIs';
-
+/**
+ * Read-only, env-backed view of the platform's system settings. config-service
+ * owns the writable configuration (ORPHAN-HIGH-373); admin-api exposes the
+ * effective values and nothing else (ADMIN-HIGH-011).
+ */
 @Injectable()
 export class SystemSettingService {
-  private readonly logger = new Logger(SystemSettingService.name);
   private readonly bootTime = new Date();
-
-  seedDefaultSettings(): void {
-    this.logger.log('Skipping legacy system_settings seed; config-service owns system configuration');
-  }
 
   getAllSettings(includePrivate = true): SettingsByCategory {
     const grouped: SettingsByCategory = {};
@@ -118,29 +90,6 @@ export class SystemSettingService {
       .map((key) => this.defaultSettingToResponse(key));
   }
 
-  createSetting(_dto: CreateSystemSettingDto): never {
-    this.throwLegacyGone();
-  }
-
-  updateSetting(_key: string, _dto: UpdateSystemSettingDto): never {
-    this.throwLegacyGone();
-  }
-
-  resetToDefault(_key: string, _updatedBy?: string): never {
-    this.throwLegacyGone();
-  }
-
-  deleteSetting(_key: string): never {
-    this.throwLegacyGone();
-  }
-
-  bulkUpdate(
-    _updates: { key: string; value: string }[],
-    _updatedBy?: string,
-  ): never {
-    this.throwLegacyGone();
-  }
-
   exportSettings(): Record<string, unknown> {
     const exported: Record<string, unknown> = {};
     for (const setting of DEFAULT_SYSTEM_SETTINGS) {
@@ -148,13 +97,6 @@ export class SystemSettingService {
       exported[setting.key] = this.getValue(setting.key);
     }
     return exported;
-  }
-
-  importSettings(
-    _data: Record<string, unknown>,
-    _updatedBy?: string,
-  ): never {
-    this.throwLegacyGone();
   }
 
   getEmailConfig(): EmailConfig {
@@ -182,21 +124,6 @@ export class SystemSettingService {
     };
   }
 
-  updateEmailConfig(
-    _config: {
-      smtpHost?: string;
-      smtpPort?: number;
-      smtpSecure?: boolean;
-      smtpUsername?: string;
-      smtpPassword?: string;
-      fromAddress?: string;
-      fromName?: string;
-    },
-    _updatedBy?: string,
-  ): never {
-    this.throwLegacyGone();
-  }
-
   getSecurityConfig(): {
     sessionTimeoutMinutes: number;
     maxLoginAttempts: number;
@@ -219,22 +146,6 @@ export class SystemSettingService {
     };
   }
 
-  updateSecurityConfig(
-    _config: {
-      sessionTimeoutMinutes?: number;
-      maxLoginAttempts?: number;
-      lockoutDurationMinutes?: number;
-      passwordMinLength?: number;
-      passwordRequireUppercase?: boolean;
-      passwordRequireNumbers?: boolean;
-      passwordRequireSymbols?: boolean;
-      enforceHttps?: boolean;
-    },
-    _updatedBy?: string,
-  ): never {
-    this.throwLegacyGone();
-  }
-
   getRateLimitConfig(): {
     globalRpm: number;
     perUserRpm: number;
@@ -247,18 +158,6 @@ export class SystemSettingService {
       perTenantRpm: this.getValue('rate_limit.per_tenant_rpm', 500),
       apiKeyRpm: this.getValue('rate_limit.api_key_rpm', 60),
     };
-  }
-
-  updateRateLimitConfig(
-    _config: {
-      globalRpm?: number;
-      perUserRpm?: number;
-      perTenantRpm?: number;
-      apiKeyRpm?: number;
-    },
-    _updatedBy?: string,
-  ): never {
-    this.throwLegacyGone();
   }
 
   getMaintenanceStatus(): {
@@ -276,15 +175,6 @@ export class SystemSettingService {
     };
   }
 
-  setMaintenanceMode(
-    _enabled: boolean,
-    _message?: string,
-    _allowedIps?: string[],
-    _updatedBy?: string,
-  ): never {
-    this.throwLegacyGone();
-  }
-
   getBillingConfig(): {
     currency: string;
     taxRate: number;
@@ -297,18 +187,6 @@ export class SystemSettingService {
       invoiceDueDays: this.envNumber('BILLING_INVOICE_DUE_DAYS', 30),
       gracePeriodDays: this.envNumber('BILLING_GRACE_PERIOD_DAYS', 7),
     };
-  }
-
-  updateBillingConfig(
-    _config: {
-      currency?: string;
-      taxRate?: number;
-      invoiceDueDays?: number;
-      gracePeriodDays?: number;
-    },
-    _updatedBy?: string,
-  ): never {
-    this.throwLegacyGone();
   }
 
   isFeatureEnabled(featureKey: string, defaultValue = false): boolean {
@@ -410,9 +288,5 @@ export class SystemSettingService {
     if (typeof value === 'boolean') return value;
     if (typeof value === 'number') return value !== 0;
     return ['true', '1', 'yes', 'on'].includes(String(value).trim().toLowerCase());
-  }
-
-  private throwLegacyGone(): never {
-    throw new GoneException(LEGACY_CONFIG_STORE_GONE);
   }
 }

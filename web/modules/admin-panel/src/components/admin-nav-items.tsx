@@ -177,12 +177,10 @@ export const adminNavItems: NavigationItem[] = [
     label: 'Messaging',
     icon: 'support',
     children: [
-      { id: 'messaging-monitoring', label: 'Monitoring', path: '/admin/messaging/monitoring', icon: 'analytics' },
       { id: 'messaging-tenants', label: 'Tenants', path: '/admin/messaging/tenants', icon: 'tenants' },
       { id: 'messaging-audit', label: 'Audit Log', path: '/admin/messaging/audit', icon: 'audit' },
       { id: 'messaging-compliance', label: 'Compliance', path: '/admin/messaging/compliance', icon: 'security' },
       { id: 'messaging-retention', label: 'Retention', path: '/admin/messaging/retention', icon: 'database' },
-      { id: 'messaging-ai-dashboard', label: 'AI Dashboard', path: '/admin/messaging/ai-dashboard', icon: 'analytics' },
       { id: 'messaging-ai-personas', label: 'AI Personas', path: '/admin/messaging/ai-personas', icon: 'users' },
     ],
   },
@@ -218,7 +216,6 @@ export const adminNavItems: NavigationItem[] = [
     children: [
       { id: 'settings-general', label: 'General', path: '/admin/settings', icon: 'settings' },
       { id: 'settings-email', label: 'Email Templates', path: '/admin/settings/email', icon: 'support' },
-      { id: 'settings-provisioning', label: 'Provisioning', path: '/admin/settings/provisioning', icon: 'system' },
     ],
   },
   { id: 'api-docs', label: 'API Docs', path: 'http://localhost:3008/docs', icon: 'apiDocs', isExternal: true },

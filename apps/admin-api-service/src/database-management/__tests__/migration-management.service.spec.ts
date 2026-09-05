@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -109,27 +109,6 @@ describe('MigrationManagementService authority boundary', () => {
     await expect(service.getPendingMigrations(randomUUID())).rejects.toBeInstanceOf(
       NotFoundException,
     );
-  });
-
-  it('fails closed for single-tenant runtime migration execution', () => {
-    expect(() => service.runMigration(randomUUID(), '1.0.0', false, 'admin')).toThrow(
-      ForbiddenException,
-    );
-    expect(schemaRepository.findOne).not.toHaveBeenCalled();
-  });
-
-  it('fails closed for batch runtime migration execution', () => {
-    expect(() => service.runBatchMigration('1.0.0', false, 'admin')).toThrow(
-      ForbiddenException,
-    );
-    expect(schemaRepository.find).not.toHaveBeenCalled();
-  });
-
-  it('fails closed for runtime rollback execution', () => {
-    expect(() => service.rollbackMigration(randomUUID(), '1.0.0', 'admin')).toThrow(
-      ForbiddenException,
-    );
-    expect(migrationRepository.find).not.toHaveBeenCalled();
   });
 
   it('keeps batch migration status read-only', async () => {

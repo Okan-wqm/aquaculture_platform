@@ -2,6 +2,8 @@
  * Tenant domain types
  */
 
+import type { ApiSchema } from '../contract';
+
 // ============================================================================
 // Tenant Enums (Backend uyumlu)
 // ============================================================================
@@ -190,47 +192,22 @@ export interface ModuleQuantityConfig {
   integrations?: number;
 }
 
-export interface CreateTenantDto {
-  name: string;
-  slug?: string;
-  tier?: TenantTier;
-  description?: string;
-  domain?: string;
-  primaryContact?: TenantContact;
-  billingContact?: TenantContact;
-  billingEmail?: string;
-  country?: string;
-  region?: string;
-  trialDays?: number;
-  maxUsers?: number;
-  maxStorage?: number;
-  limits?: Partial<TenantLimits>;
-  settings?: Partial<TenantSettings>;
-  /**
-   * Module IDs to assign to the tenant during creation
-   * Super Admin selects which modules the tenant will have access to
-   */
-  moduleIds?: string[];
-  /**
-   * Optional quantity configuration per module for pricing calculation
-   */
-  moduleQuantities?: ModuleQuantityConfig[];
-  /**
-   * Billing cycle preference: monthly, quarterly, semi_annual, annual
-   */
-  billingCycle?: 'monthly' | 'quarterly' | 'semi_annual' | 'annual';
-  catalogVersionId?: string;
-  quoteId?: string;
-  customPlanId?: string;
-}
+/** Generated from the backend contract (CONTRACT-CRITICAL-003). */
+export type CreateTenantDto = ApiSchema<'CreateTenantDto'>;
 
-export enum TenantProvisioningState {
-  QUEUED = 'QUEUED',
-  RESERVING = 'RESERVING',
-  RUNNING = 'RUNNING',
-  SUCCEEDED = 'SUCCEEDED',
-  FAILED = 'FAILED',
-}
+/**
+ * Generated from the backend contract (CONTRACT-CRITICAL-003). A TypeScript
+ * `enum` was nominal: its members were not assignable to the states the API
+ * actually returns, so the mismatch stayed invisible until the contract landed.
+ */
+export type TenantProvisioningState = ApiSchema<'CreateTenantAcceptedResponse'>['status'];
+export const TenantProvisioningState = {
+  QUEUED: 'QUEUED',
+  RESERVING: 'RESERVING',
+  RUNNING: 'RUNNING',
+  SUCCEEDED: 'SUCCEEDED',
+  FAILED: 'FAILED',
+} as const satisfies Record<string, TenantProvisioningState>;
 
 export interface TenantProvisioningStep {
   name: string;
@@ -241,30 +218,28 @@ export interface TenantProvisioningStep {
   completedAt?: string;
 }
 
-export interface CreateTenantAcceptedResponse {
-  status: TenantProvisioningState;
-  tenantStatus?: TenantStatus;
-  statusUrl: string;
-  retryAfterMs: number;
-  availableActions: Array<'retryProvisioning'>;
-  /**
-   * Per-step detail mirroring CreateTenantAcceptedResponse.steps in
-   * apps/admin-api-service/src/tenant/dto/tenant.dto.ts. Always an array — it is
-   * the only place the operator can read WHICH step failed and WHY.
-   */
-  steps: TenantProvisioningStep[];
-}
+/** Generated from the backend contract (CONTRACT-CRITICAL-003). */
+export type CreateTenantAcceptedResponse = ApiSchema<'CreateTenantAcceptedResponse'>;
 
-export interface UpdateTenantDto {
-  name?: string;
-  description?: string;
-  domain?: string;
-  tier?: TenantTier;
-  primaryContact?: TenantContact;
-  billingContact?: TenantContact;
-  billingEmail?: string;
-  country?: string;
-  region?: string;
-  limits?: Partial<TenantLimits>;
-  settings?: Partial<TenantSettings>;
+/** Generated from the backend contract (CONTRACT-CRITICAL-003). */
+export type UpdateTenantDto = ApiSchema<'UpdateTenantDto'>;
+
+/**
+ * The tiers a tenant can be MOVED to through the admin API
+ * (CONTRACT-CRITICAL-003). A tenant record's own tier can be `custom` — a
+ * negotiated plan built in the custom-plan builder — but `PUT /tenants/:id`
+ * does not accept it, so a form that offered it could only ever produce a 400.
+ */
+export type EditableTenantTier = NonNullable<UpdateTenantDto['tier']>;
+
+export const EDITABLE_TENANT_TIERS: readonly EditableTenantTier[] = [
+  'free',
+  'trial',
+  'starter',
+  'professional',
+  'enterprise',
+];
+
+export function isEditableTenantTier(value: string | undefined): value is EditableTenantTier {
+  return value !== undefined && (EDITABLE_TENANT_TIERS as readonly string[]).includes(value);
 }

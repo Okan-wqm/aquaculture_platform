@@ -4,6 +4,11 @@
  * Endpoints for activity logging, queries, and statistics.
  */
 
+import {
+  ActivityStatsQueryDto,
+  QueryActivitiesDto,
+  TerminateUserSessionsDto,
+} from './dto/activity-log.dto';
 import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
@@ -25,105 +30,6 @@ import { CurrentUser, CurrentUserData } from '../../decorators/current-user.deco
 import { ActivityLog, ActivityCategory, ActivitySeverity } from '../entities/security.entity';
 import { ActivityLoggingService, ActivityQueryOptions, ActivityStats } from '../services/activity-logging.service';
 import { ACTIVITY_LOG_SORT_FIELDS, ActivityLogSortField } from '../sorting/activity-log-sort';
-
-// ============================================================================
-// DTOs
-// ============================================================================
-
-export class QueryActivitiesDto {
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  @Min(1)
-  page?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  @Min(1)
-  @Max(100)
-  limit?: number;
-
-  @IsOptional()
-  @IsString()
-  tenantId?: string;
-
-  @IsOptional()
-  @IsString()
-  userId?: string;
-
-  @IsOptional()
-  @IsIn(['user_action', 'system_event', 'api_call', 'data_access', 'security_event', 'configuration', 'authentication'])
-  category?: ActivityCategory;
-
-  @IsOptional()
-  @IsIn(['debug', 'info', 'warning', 'error', 'critical'])
-  severity?: ActivitySeverity;
-
-  @IsOptional()
-  @IsString()
-  action?: string;
-
-  @IsOptional()
-  @IsString()
-  entityType?: string;
-
-  @IsOptional()
-  @IsString()
-  entityId?: string;
-
-  @IsOptional()
-  @IsString()
-  ipAddress?: string;
-
-  @IsOptional()
-  @Transform(({ value }) => value === 'true' || value === true)
-  @IsBoolean()
-  success?: boolean;
-
-  @IsOptional()
-  @IsString()
-  startDate?: string;
-
-  @IsOptional()
-  @IsString()
-  endDate?: string;
-
-  @IsOptional()
-  @IsString()
-  searchQuery?: string;
-
-  @IsOptional()
-  @IsString()
-  tags?: string;
-
-  @IsOptional()
-  @IsIn(ACTIVITY_LOG_SORT_FIELDS)
-  sortBy?: ActivityLogSortField;
-
-  @IsOptional()
-  @IsIn(['ASC', 'DESC'])
-  sortOrder?: 'ASC' | 'DESC';
-}
-
-class TerminateUserSessionsDto {
-  @IsIn(['logout', 'forced', 'security'])
-  reason!: 'logout' | 'forced' | 'security';
-}
-
-class ActivityStatsQueryDto {
-  @IsOptional()
-  @IsString()
-  tenantId?: string;
-
-  @IsOptional()
-  @IsString()
-  startDate?: string;
-
-  @IsOptional()
-  @IsString()
-  endDate?: string;
-}
 
 // ============================================================================
 // Controller

@@ -271,7 +271,6 @@ const CustomPlanBuilderPage: React.FC = () => {
         validFrom: config.validFrom,
         validTo: config.validTo || undefined,
         notes: config.notes,
-        createdBy: 'admin',
       });
       // Auto-submit for approval after creation
       try {
@@ -311,7 +310,6 @@ const CustomPlanBuilderPage: React.FC = () => {
         validFrom: config.validFrom,
         validTo: config.validTo || undefined,
         notes: config.notes,
-        createdBy: 'admin',
       });
       setSuccess('Plan saved as draft. Redirecting to plans list...');
       setTimeout(() => navigate('/admin/billing/custom-plans'), 1500);

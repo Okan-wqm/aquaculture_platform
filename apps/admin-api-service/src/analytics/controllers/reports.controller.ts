@@ -4,6 +4,13 @@
  * Rapor oluşturma ve indirme endpoint'leri.
  */
 
+import {
+  CreateDefinitionDto,
+  ExecuteReportDto,
+  GenerateReportDto,
+  QuickReportDto,
+  UpdateDefinitionDto,
+} from './dto/reports.dto';
 import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
@@ -37,140 +44,6 @@ import {
   ReportExecutionStatus,
 } from '../entities/analytics-snapshot.entity';
 import { ReportsService } from '../services/reports.service';
-
-// ============================================================================
-// DTOs
-// ============================================================================
-
-class GenerateReportDto {
-  @IsIn(['tenant_overview', 'tenant_churn', 'financial_revenue', 'financial_payments', 'usage_modules', 'usage_features', 'system_performance'])
-  type!: ReportType;
-
-  @IsIn(['json', 'csv', 'pdf'])
-  format!: ReportFormat;
-
-  @IsString()
-  startDate!: string;
-
-  @IsString()
-  endDate!: string;
-
-  @IsOptional()
-  @IsObject()
-  filters?: Record<string, unknown>;
-
-  @IsOptional()
-  @IsBoolean()
-  includeCharts?: boolean;
-}
-
-class CreateDefinitionDto {
-  @IsString()
-  name!: string;
-
-  @IsOptional()
-  @IsString()
-  description?: string;
-
-  @IsIn(['tenant_overview', 'tenant_churn', 'financial_revenue', 'financial_payments', 'usage_modules', 'usage_features', 'system_performance'])
-  type!: ReportType;
-
-  @IsOptional()
-  @IsIn(['json', 'csv', 'pdf'])
-  defaultFormat?: ReportFormat;
-
-  @IsOptional()
-  @IsIn(['manual', 'daily', 'weekly', 'monthly'])
-  schedule?: ReportSchedule;
-
-  @IsOptional()
-  @IsObject()
-  defaultFilters?: Record<string, unknown>;
-
-  @IsOptional()
-  @IsArray()
-  recipients?: string[];
-
-  @IsOptional()
-  @IsBoolean()
-  includeCharts?: boolean;
-}
-
-class UpdateDefinitionDto {
-  @IsOptional()
-  @IsString()
-  name?: string;
-
-  @IsOptional()
-  @IsString()
-  description?: string;
-
-  @IsOptional()
-  @IsIn(['json', 'csv', 'pdf'])
-  defaultFormat?: ReportFormat;
-
-  @IsOptional()
-  @IsIn(['active', 'inactive', 'draft'])
-  status?: ReportDefinitionStatus;
-
-  @IsOptional()
-  @IsIn(['manual', 'daily', 'weekly', 'monthly'])
-  schedule?: ReportSchedule;
-
-  @IsOptional()
-  @IsObject()
-  defaultFilters?: Record<string, unknown>;
-
-  @IsOptional()
-  @IsArray()
-  recipients?: string[];
-
-  @IsOptional()
-  @IsBoolean()
-  includeCharts?: boolean;
-}
-
-class ExecuteReportDto {
-  @IsOptional()
-  @IsString()
-  reportId?: string;
-
-  @IsOptional()
-  @IsString()
-  definitionId?: string;
-
-  @IsOptional()
-  @IsIn(['tenant_overview', 'tenant_churn', 'financial_revenue', 'financial_payments', 'usage_modules', 'usage_features', 'system_performance'])
-  reportType?: ReportType;
-
-  @IsOptional()
-  @IsString()
-  reportName?: string;
-
-  @IsIn(['json', 'csv', 'pdf'])
-  format!: ReportFormat;
-
-  @IsOptional()
-  @IsObject()
-  filters?: Record<string, unknown>;
-
-  @IsOptional()
-  @IsString()
-  startDate?: string;
-
-  @IsOptional()
-  @IsString()
-  endDate?: string;
-}
-
-class QuickReportDto {
-  @IsIn(['json', 'csv', 'pdf'])
-  format!: ReportFormat;
-
-  @IsOptional()
-  @IsObject()
-  filters?: Record<string, unknown>;
-}
 
 // ============================================================================
 // Controller

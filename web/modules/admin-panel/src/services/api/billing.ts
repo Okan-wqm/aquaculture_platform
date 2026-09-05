@@ -4,6 +4,7 @@
 
 import { apiFetch, buildQueryString } from '../http-client';
 import type {
+  CreateDiscountCodeDto,
   PlanDefinition,
   PlanTier,
   DiscountCode,
@@ -64,10 +65,11 @@ export const billingApi = {
   getDiscountStats: () => apiFetch<DiscountStats>('/billing/discounts/stats'),
   getDiscountById: (id: string) => apiFetch<DiscountCode>(`/billing/discounts/${id}`),
   getDiscountByCode: (code: string) => apiFetch<{ found: boolean; discount?: DiscountCode }>(`/billing/discounts/code/${code}`),
-  createDiscountCode: (data: Partial<DiscountCode>) => {
-    const { createdBy: _createdBy, ...payload } = data;
-    return apiFetch<DiscountCode>('/billing/discounts', { method: 'POST', body: JSON.stringify(payload) });
-  },
+  // The actor is never a body property: the server reads it from the verified
+  // principal and REFUSES a body that claims one (ADMIN-CRITICAL-008), and the
+  // contract type no longer has the field to strip.
+  createDiscountCode: (data: CreateDiscountCodeDto) =>
+    apiFetch<DiscountCode>('/billing/discounts', { method: 'POST', body: JSON.stringify(data) }),
   updateDiscountCode: (id: string, data: Partial<DiscountCode>) =>
     apiFetch<DiscountCode>(`/billing/discounts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deactivateDiscountCode: (id: string, _updatedBy?: string) =>
@@ -242,10 +244,10 @@ export const billingApi = {
     apiFetch<CustomPlan>(`/billing/custom-plans/${planId}`),
   getCustomPlanByTenant: (tenantId: string) =>
     apiFetch<CustomPlan | null>(`/billing/custom-plans/tenant/${tenantId}`),
-  createCustomPlan: (data: CreateCustomPlanDto) => {
-    const { createdBy: _createdBy, ...payload } = data;
-    return apiFetch<CustomPlan>('/billing/custom-plans', { method: 'POST', body: JSON.stringify(payload) });
-  },
+  // The actor is never a body property: the server reads it from the verified
+  // principal and REFUSES a body that claims one (ADMIN-CRITICAL-008).
+  createCustomPlan: (data: CreateCustomPlanDto) =>
+    apiFetch<CustomPlan>('/billing/custom-plans', { method: 'POST', body: JSON.stringify(data) }),
   updateCustomPlan: (planId: string, data: UpdateCustomPlanDto) =>
     apiFetch<CustomPlan>(`/billing/custom-plans/${planId}`, { method: 'PUT', body: JSON.stringify(data) }),
   submitCustomPlanForApproval: (planId: string) =>

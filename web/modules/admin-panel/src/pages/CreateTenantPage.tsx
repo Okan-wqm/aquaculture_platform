@@ -34,7 +34,10 @@ import {
 // ============================================================================
 
 // Tier'ı burada tanımlıyoruz (fix plan yok, sadece indirim oranları için)
-type PricingTier = 'free' | 'starter' | 'professional' | 'enterprise' | 'custom';
+// CONTRACT-CRITICAL-003: exactly the tiers `POST /tenants` accepts. The local
+// union used to include 'custom', which the server rejects — a tenant could
+// never have been created with it.
+type PricingTier = NonNullable<CreateTenantDto['tier']>;
 
 // Selectable pricing tiers surfaced in the wizard (Billing Revival Faz B). FREE
 // is a permanent $0 tier; the paid tiers keep their existing pricing behaviour.
@@ -764,7 +767,7 @@ const CreateTenantPage: React.FC = () => {
         // FREE is a first-class tier now (Billing Revival Faz B) — pass the real
         // selection through instead of the old free→STARTER coercion, so the
         // backend provisions a genuine plan_tier='free' subscription.
-        tier: formData.pricingTier as TenantTier,
+        tier: formData.pricingTier,
         domain: formData.domain.trim().toLowerCase() || undefined,
         country: formData.country.trim().toUpperCase() || undefined,
         region: formData.region.trim() || undefined,

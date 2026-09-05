@@ -1076,7 +1076,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "47a205a9f9b04a4151d96a0492a5f5495ec01db5c00169ebc5f78f93f0a128b3",
+      "content_sha256": "7a67b89e7bcccb2c875b0ad419f340b99d9d90fa9f14a97b535037e837ededc6",
       "hash_policy": "sha256",
       "owner": "admin-openapi-generator",
       "path": "apps/admin-api-service/openapi.json",
@@ -1149,6 +1149,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/analytics/controllers/analytics.controller.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/analytics/controllers/dto/reports.dto.ts",
       "prettier_managed": true
     },
     {
@@ -1269,6 +1275,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/auth/__tests__/password-reset.security.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/auth/dto/password-reset.dto.ts",
       "prettier_managed": true
     },
     {
@@ -1509,6 +1521,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/database-management/controllers/__tests__/explorer-sql-security.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/database-management/controllers/dto/explorer.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/database-management/controllers/dto/monitoring.dto.ts",
       "prettier_managed": true
     },
     {
@@ -2284,6 +2308,30 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/security/controllers/dto/activity-log.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/security/controllers/dto/audit-trail.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/security/controllers/dto/compliance.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/security/controllers/dto/security-monitoring.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/security/controllers/index.ts",
       "prettier_managed": true
     },
@@ -2392,6 +2440,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/settings/dto/settings.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/settings/entities/index.ts",
       "prettier_managed": true
     },
@@ -2488,6 +2542,30 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/support/controllers/dto/announcement.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/support/controllers/dto/messaging.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/support/controllers/dto/onboarding.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/support/controllers/dto/ticket.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/support/controllers/messaging.controller.ts",
       "prettier_managed": true
     },
@@ -2537,6 +2615,30 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/support/support.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/system-management/controllers/dto/error-tracking.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/system-management/controllers/dto/global-settings.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/system-management/controllers/dto/job-queue.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/system-management/controllers/dto/performance.dto.ts",
       "prettier_managed": true
     },
     {
@@ -2909,6 +3011,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/users/dto/reset-password.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/users/dto/users.dto.ts",
       "prettier_managed": true
     },
     {
@@ -41621,7 +41729,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "9ef9f49d4bbb114b140b3c8b438edd9b87b1957114264c67b76e813ce5bc909d",
+      "content_sha256": "378b8f037f45021c9285dd2df3f4a6e88fd1af43f807087263e7e94a0f5bb040",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -48694,6 +48802,23 @@
       "owner": "source",
       "path": "web/modules/admin-panel/src/services/blob-client.ts",
       "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/services/contract.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "generated",
+      "content_sha256": "4515c8aca6a44b95e9c10ba0f8eae9f8ce71b7cadc50d98f4feb928b60448601",
+      "hash_policy": "sha256",
+      "owner": "codegen-owner",
+      "path": "web/modules/admin-panel/src/services/generated/admin-api.ts",
+      "prettier_managed": false,
+      "reason": "generated artifact; source generator is canonical",
+      "review_required": true,
+      "source_of_truth": "generator"
     },
     {
       "class": "canonical_source",

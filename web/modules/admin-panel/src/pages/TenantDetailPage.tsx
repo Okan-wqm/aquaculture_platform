@@ -21,6 +21,7 @@ import {
   modulesApi,
   TenantTier,
   TenantStatus,
+  isEditableTenantTier,
   type TenantDetail,
   type SystemModule,
   type UpdateTenantDto,
@@ -198,7 +199,9 @@ const TenantDetailPage: React.FC = () => {
         name: detail.name,
         description: detail.description,
         domain: detail.domain,
-        tier: detail.tier,
+        // A tenant on a negotiated `custom` plan has no editable tier: the form
+        // leaves it unset rather than offering a value the API would reject.
+        tier: isEditableTenantTier(detail.tier) ? detail.tier : undefined,
         primaryContact: detail.primaryContact,
         billingContact: detail.billingContact,
         billingEmail: detail.billingEmail,
@@ -831,7 +834,10 @@ const TenantDetailPage: React.FC = () => {
           <Select
             label="Tier"
             value={editForm.tier || ''}
-            onChange={(e) => setEditForm({ ...editForm, tier: e.target.value as TenantTier })}
+            onChange={(e) => {
+              const next = e.target.value;
+              if (isEditableTenantTier(next)) setEditForm({ ...editForm, tier: next });
+            }}
             options={[
               { value: TenantTier.FREE, label: 'Free' },
               { value: TenantTier.STARTER, label: 'Starter' },

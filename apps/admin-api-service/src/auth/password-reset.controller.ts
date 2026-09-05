@@ -1,3 +1,7 @@
+import {
+  ForgotPasswordDto,
+  ResetPasswordDto,
+} from './dto/password-reset.dto';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import { ThrottlePasswordReset } from '@aquaculture/backend-common/security';
 import {
@@ -26,22 +30,6 @@ import { IsEmail, IsString, MinLength, MaxLength } from 'class-validator';
 import { catchError, firstValueFrom, throwError, timeout } from 'rxjs';
 
 const DEFAULT_AUTH_NATS_TIMEOUT_MS = 15_000;
-
-// DTOs
-export class ForgotPasswordDto {
-  @IsEmail({}, { message: 'Valid email address is required' })
-  email!: string;
-}
-
-export class ResetPasswordDto {
-  @IsString()
-  token!: string;
-
-  @IsString()
-  @MinLength(8, { message: 'Password must be at least 8 characters' })
-  @MaxLength(128)
-  newPassword!: string;
-}
 
 // Mark endpoints as public (bypass auth guard)
 const IS_PUBLIC_KEY = 'isPublic';

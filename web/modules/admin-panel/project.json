@@ -39,6 +39,16 @@
     },
     "test": {
       "dependsOn": ["shared-ui:build"]
+    },
+    "openapi-client": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "outputs": ["{workspaceRoot}/web/modules/admin-panel/src/services/generated/admin-api.ts"],
+      "inputs": ["{workspaceRoot}/apps/admin-api-service/openapi.json"],
+      "options": {
+        "command": "npx openapi-typescript apps/admin-api-service/openapi.json -o web/modules/admin-panel/src/services/generated/admin-api.ts"
+      },
+      "dependsOn": ["admin-api-service:openapi"]
     }
   },
   "implicitDependencies": ["shared-ui"]

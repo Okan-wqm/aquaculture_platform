@@ -4,6 +4,9 @@
  * Database performans izleme, slow query ve index optimizasyonu endpoint'leri.
  */
 
+import {
+  AnalyzeQueryDto,
+} from './dto/monitoring.dto';
 import { RequiresCapability, TenantParam } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
@@ -20,20 +23,6 @@ import { ApiTags } from '@nestjs/swagger';
 import { IsString, IsNotEmpty, IsOptional } from 'class-validator';
 
 import { DatabaseMonitoringService } from '../services/database-monitoring.service';
-
-// ============================================================================
-// DTOs
-// ============================================================================
-
-class AnalyzeQueryDto {
-  @IsString()
-  @IsNotEmpty()
-  query!: string;
-
-  @IsOptional()
-  @IsString()
-  schemaName?: string;
-}
 
 // ============================================================================
 // Controller

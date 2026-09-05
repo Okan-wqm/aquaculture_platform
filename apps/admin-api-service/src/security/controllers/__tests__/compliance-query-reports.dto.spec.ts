@@ -11,7 +11,7 @@
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 
-import { QueryReportsDto } from '../compliance.controller';
+import { QueryReportsDto } from '../dto/compliance.dto';
 
 describe('QueryReportsDto query coercion (ORPHAN-MEDIUM-148)', () => {
   it('coerces string query params (?page=2&limit=50) to numbers and validates clean', async () => {

@@ -2,6 +2,8 @@
  * User management domain types
  */
 
+import type { ApiSchema } from '../contract';
+
 export interface User {
   id: string;
   email: string;
@@ -35,14 +37,8 @@ export interface UserStats {
   loginsLast24Hours: number;
 }
 
-export interface CreateUserDto {
-  email: string;
-  firstName: string;
-  lastName: string;
-  password: string;
-  role: string;
-  tenantId?: string;
-}
+/** Generated from the backend contract (CONTRACT-CRITICAL-003). */
+export type CreateUserDto = ApiSchema<'CreateUserDto'>;
 
 export interface InviteUserDto {
   tenantId: string;

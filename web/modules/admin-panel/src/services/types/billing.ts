@@ -2,6 +2,8 @@
  * Billing domain types (Plans, Subscriptions, Invoices, Discounts, Module Pricing, Custom Plans)
  */
 
+import type { ApiSchema } from '../contract';
+
 // ============================================================================
 // Billing Enums
 // ============================================================================
@@ -35,12 +37,19 @@ export enum SubscriptionStatus {
   EXPIRED = 'expired',
 }
 
-export enum DiscountType {
-  PERCENTAGE = 'percentage',
-  FIXED_AMOUNT = 'fixed_amount',
-  FREE_TRIAL_EXTENSION = 'free_trial_extension',
-  FREE_MONTHS = 'free_months',
-}
+/**
+ * Generated from the backend contract (CONTRACT-CRITICAL-003): the values are
+ * the ones `CreateDiscountCodeDto` accepts, so a member of this object is
+ * assignable where the DTO is expected. A TypeScript `enum` was not — its
+ * members are nominal, and the drift was invisible until the contract landed.
+ */
+export type DiscountType = ApiSchema<'CreateDiscountCodeDto'>['discountType'];
+export const DiscountType = {
+  PERCENTAGE: 'percentage',
+  FIXED_AMOUNT: 'fixed_amount',
+  FREE_TRIAL_EXTENSION: 'free_trial_extension',
+  FREE_MONTHS: 'free_months',
+} as const satisfies Record<string, DiscountType>;
 
 export enum DiscountAppliesTo {
   ALL_PLANS = 'all_plans',
@@ -182,23 +191,8 @@ export interface DiscountStats {
   }>;
 }
 
-export interface CreateDiscountCodeDto {
-  code: string;
-  name: string;
-  description?: string;
-  discountType: DiscountType;
-  discountValue: number;
-  appliesTo: DiscountAppliesTo;
-  duration: DiscountDuration;
-  durationInMonths?: number;
-  validFrom?: string;
-  validUntil?: string;
-  maxRedemptions?: number;
-  maxRedemptionsPerTenant?: number;
-  campaignId?: string;
-  campaignName?: string;
-  createdBy?: string;
-}
+/** Generated from the backend contract (CONTRACT-CRITICAL-003). */
+export type CreateDiscountCodeDto = ApiSchema<'CreateDiscountCodeDto'>;
 
 // ============================================================================
 // Subscription Types
@@ -327,20 +321,11 @@ export interface PaymentOverview {
   createdBy?: string;
 }
 
-export interface RecordPaymentDto {
-  invoiceId: string;
-  amount: number;
-  paymentMethod: PaymentMethod;
-  paymentDate?: string;
-  currency?: string;
-  notes?: string;
-}
+/** Generated from the backend contract (CONTRACT-CRITICAL-003). */
+export type RecordPaymentDto = ApiSchema<'RecordPaymentDto'>;
 
-export interface RefundPaymentDto {
-  paymentId: string;
-  amount: number;
-  reason: string;
-}
+/** Generated from the backend contract (CONTRACT-CRITICAL-003). */
+export type RefundPaymentDto = ApiSchema<'RefundPaymentDto'>;
 
 // ============================================================================
 // Module Pricing Types
@@ -387,16 +372,8 @@ export interface ModulePricingWithModule extends ModulePricing {
   isModuleActive?: boolean;
 }
 
-export interface SetModulePricingDto {
-  moduleId: string;
-  moduleCode: string;
-  pricingMetrics: PricingMetric[];
-  tierMultipliers?: TierMultipliers;
-  currency?: string;
-  effectiveFrom?: string;
-  effectiveTo?: string | null;
-  notes?: string;
-}
+/** Generated from the backend contract (CONTRACT-CRITICAL-003). */
+export type SetModulePricingDto = ApiSchema<'SetModulePricingDto'>;
 
 export interface ModuleQuantities {
   users?: number;
@@ -418,13 +395,8 @@ export interface ModuleSelection {
   quantities: ModuleQuantities;
 }
 
-export interface QuoteRequest {
-  modules: ModuleSelection[];
-  tier: PlanTier;
-  billingCycle: BillingCycle;
-  discountCode?: string;
-  taxRate?: number;
-}
+/** Generated from the backend contract (CONTRACT-CRITICAL-003). */
+export type QuoteRequest = ApiSchema<'QuoteRequest'>;
 
 export interface PricingLineItem {
   metric: PricingMetricType;
@@ -565,45 +537,11 @@ export interface PaginatedCustomPlans {
   totalPages: number;
 }
 
-export interface CreateCustomPlanDto {
-  tenantId: string;
-  name: string;
-  description?: string;
-  basePlanId?: string;
-  tier?: PlanTier;
-  billingCycle?: BillingCycle;
-  modules: Array<{
-    moduleId: string;
-    moduleCode: string;
-    moduleName: string;
-    quantities: ModuleQuantities;
-  }>;
-  discountPercent?: number;
-  discountAmount?: number;
-  discountReason?: string;
-  validFrom: string;
-  validTo?: string;
-  notes?: string;
-  createdBy?: string;
-}
+/** Generated from the backend contract (CONTRACT-CRITICAL-003). */
+export type CreateCustomPlanDto = ApiSchema<'CreateCustomPlanDto'>;
 
-export interface UpdateCustomPlanDto {
-  name?: string;
-  description?: string;
-  modules?: Array<{
-    moduleId: string;
-    moduleCode: string;
-    moduleName: string;
-    quantities: ModuleQuantities;
-  }>;
-  discountPercent?: number;
-  discountAmount?: number;
-  discountReason?: string;
-  validFrom?: string;
-  validTo?: string;
-  notes?: string;
-  updatedBy?: string;
-}
+/** Generated from the backend contract (CONTRACT-CRITICAL-003). */
+export type UpdateCustomPlanDto = ApiSchema<'UpdateCustomPlanDto'>;
 
 // ============================================================================
 // Usage Metering Types

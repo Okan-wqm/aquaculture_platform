@@ -16,7 +16,14 @@
  * happily agree with an empty committed document. "No schema is empty" is the
  * assertion that keeps the contract meaning something.
  *
- * Regenerate with: `nx run admin-api-service:openapi`
+ * The same chain continues into the frontend: the admin-panel's typed client
+ * (`web/modules/admin-panel/src/services/generated/admin-api.ts`) is produced
+ * from this artifact by `openapi-typescript`, and is checked the same way. A
+ * client regenerated from a stale artifact would describe routes the server no
+ * longer has, so both links are asserted here rather than only the first.
+ *
+ * Regenerate with: `nx run admin-api-service:openapi` then
+ * `nx run admin-panel:openapi-client`.
  */
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -28,6 +35,7 @@ import { allAdminRoutes } from './lib/admin-route-table';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const ARTIFACT = 'apps/admin-api-service/openapi.json';
 const GENERATOR = 'tools/openapi/generate-admin-openapi.cjs';
+const CLIENT = 'web/modules/admin-panel/src/services/generated/admin-api.ts';
 
 interface OpenApiSchema {
   readonly properties?: Record<string, unknown>;
@@ -54,6 +62,21 @@ function regenerate(): string {
     execFileSync('node', [GENERATOR], {
       cwd: REPO_ROOT,
       env: { ...process.env, ADMIN_OPENAPI_OUT: target },
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    return readFileSync(target, 'utf8');
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+function regenerateClient(): string {
+  const directory = mkdtempSync(join(tmpdir(), 'admin-openapi-client-'));
+  const target = join(directory, 'admin-api.ts');
+  try {
+    execFileSync('npx', ['openapi-typescript', ARTIFACT, '-o', target], {
+      cwd: REPO_ROOT,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -114,5 +137,17 @@ describe('INVARIANT (CONTRACT-CRITICAL-003): the committed OpenAPI artifact matc
       );
     }
     expect(regenerated).toBe(committed);
+  });
+
+  it('has a frontend client generated from exactly these bytes', () => {
+    const committedClient = readFileSync(resolve(REPO_ROOT, CLIENT), 'utf8');
+    const regenerated = regenerateClient();
+    if (regenerated !== committedClient) {
+      throw new Error(
+        `${CLIENT} is stale against ${ARTIFACT}. ` +
+          `Run \`nx run admin-panel:openapi-client\` and commit the result.`,
+      );
+    }
+    expect(regenerated).toBe(committedClient);
   });
 });

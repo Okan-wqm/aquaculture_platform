@@ -4,6 +4,11 @@
  * Admin-tenant mesajlaşma endpoint'leri.
  */
 
+import {
+  AddMessageDto,
+  BulkMessageDto,
+  CreateThreadDto,
+} from './dto/messaging.dto';
 import { Destructive, RequiresCapability, TenantParam, TenantIdCarrier } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
@@ -25,64 +30,6 @@ import { CurrentUser, CurrentUserData } from '../../decorators/current-user.deco
 import { PlatformAdminOnly } from '../../decorators/roles.decorator';
 import { MessageAttachment, AnnouncementTarget } from '../entities/support.entity';
 import { MessagingService } from '../services/messaging.service';
-
-// ============================================================================
-// DTOs
-// ============================================================================
-
-class CreateThreadDto {
-  /** ADMIN-CRITICAL-009: whitelisted carrier key; the verified id arrives through @TenantParam('body'). */
-  @TenantIdCarrier()
-  readonly tenantId?: undefined;
-
-
-  @IsString()
-  subject!: string;
-
-  @IsString()
-  content!: string;
-
-  @IsOptional()
-  @IsString()
-  senderName?: string;
-}
-
-class AddMessageDto {
-  @IsString()
-  content!: string;
-
-  @IsOptional()
-  @IsString()
-  senderName?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  isInternal?: boolean;
-
-  @IsOptional()
-  @IsArray()
-  attachments?: MessageAttachment[];
-}
-
-class BulkMessageDto {
-  @IsString()
-  subject!: string;
-
-  @IsString()
-  content!: string;
-
-  @IsOptional()
-  @IsObject()
-  targetCriteria?: AnnouncementTarget;
-
-  @IsOptional()
-  @IsArray()
-  tenantIds?: string[];
-
-  @IsOptional()
-  @IsBoolean()
-  sendEmail?: boolean;
-}
 
 // ============================================================================
 // Controller

@@ -4,6 +4,15 @@
  * Endpoints for data subject requests, compliance reports, and GDPR management.
  */
 
+import {
+  CompleteDataRequestDto,
+  CreateDataRequestDto,
+  GenerateReportDto,
+  QueryDataRequestsDto,
+  QueryReportsDto,
+  UpdateDataRequestDto,
+  VerifyIdentityDto,
+} from './dto/compliance.dto';
 import { RequiresCapability, TenantParam, TenantIdCarrier } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
@@ -39,174 +48,6 @@ import {
   ComplianceCheckResult,
   DataInventory,
 } from '../services/compliance.service';
-
-// ============================================================================
-// DTOs
-// ============================================================================
-
-class CreateDataRequestDto {
-  /** ADMIN-CRITICAL-009: whitelisted carrier key; the verified id arrives through @TenantParam('body'). */
-  @TenantIdCarrier()
-  readonly tenantId?: undefined;
-
-  @IsString()
-  requestType!: DataRequestType;
-
-  @IsString()
-  complianceFramework!: ComplianceType;
-
-  @IsString()
-  tenantName!: string;
-
-  // Fix: C6 -- requesterId removed from client input; set from JWT
-  @IsString()
-  requesterName!: string;
-
-  @IsString()
-  requesterEmail!: string;
-
-  @IsString()
-  description!: string;
-
-  @IsOptional()
-  @IsArray()
-  dataCategories?: string[];
-
-  @IsOptional()
-  @IsString()
-  specificData?: string;
-}
-
-class UpdateDataRequestDto {
-  @IsOptional()
-  @IsString()
-  status?: DataRequestStatus;
-
-  @IsOptional()
-  @IsString()
-  assignedTo?: string;
-
-  @IsOptional()
-  @IsString()
-  assignedToName?: string;
-
-  @IsOptional()
-  @IsString()
-  completionNotes?: string;
-
-  @IsOptional()
-  @IsString()
-  rejectionReason?: string;
-}
-
-class VerifyIdentityDto {
-  // Fix: C6 -- verifiedBy removed from client input; set from JWT
-  @IsString()
-  verificationMethod!: string;
-}
-
-class CompleteDataRequestDto {
-  // Fix: C6 -- completedBy removed from client input; set from JWT
-  @IsString()
-  completionNotes!: string;
-
-  @IsOptional()
-  @IsIn(['json', 'csv', 'pdf', 'xml'])
-  deliveryFormat?: 'json' | 'csv' | 'pdf' | 'xml';
-
-  @IsOptional()
-  @IsString()
-  downloadUrl?: string;
-
-  @IsOptional()
-  @IsString()
-  downloadExpiresAt?: string;
-}
-
-class QueryDataRequestsDto {
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  page?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  limit?: number;
-
-  @IsOptional()
-  @IsString()
-  tenantId?: string;
-
-  @IsOptional()
-  @IsString()
-  requestType?: DataRequestType;
-
-  @IsOptional()
-  @IsString()
-  status?: DataRequestStatus;
-
-  @IsOptional()
-  @IsString()
-  complianceFramework?: ComplianceType;
-
-  @IsOptional()
-  @IsString()
-  startDate?: string;
-
-  @IsOptional()
-  @IsString()
-  endDate?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  overdue?: boolean;
-}
-
-class GenerateReportDto {
-  @IsString()
-  complianceType!: ComplianceType;
-
-  @IsString()
-  reportPeriodStart!: string;
-
-  @IsString()
-  reportPeriodEnd!: string;
-
-  @IsOptional()
-  @IsArray()
-  includedTenants?: string[];
-  // Fix: C6 -- generatedBy/generatedByName removed from client input; set from JWT
-}
-
-// WHY @Type on page/limit: query params arrive as strings ("?limit=50"); without
-// class-transformer coercion the global ValidationPipe runs @IsNumber against the
-// string and 400s every paginated request (ORPHAN-MEDIUM-148). QueryDataRequestsDto
-// above carried the identical defect and is fixed the same way. Exported so the DTO
-// coercion is unit-testable (compliance-query-reports.dto.spec.ts).
-export class QueryReportsDto {
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  page?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  limit?: number;
-
-  @IsOptional()
-  @IsString()
-  complianceType?: ComplianceType;
-
-  @IsOptional()
-  @IsString()
-  startDate?: string;
-
-  @IsOptional()
-  @IsString()
-  endDate?: string;
-}
 
 // ============================================================================
 // Controller

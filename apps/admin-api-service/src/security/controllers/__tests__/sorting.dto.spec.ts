@@ -1,10 +1,14 @@
+// The DTO classes are now imported directly rather than through a controller,
+// so this spec is the first module to touch decorator metadata.
+import 'reflect-metadata';
+
 import type { ClassConstructor } from 'class-transformer';
 import { plainToInstance } from 'class-transformer';
 import { validate, ValidationError } from 'class-validator';
 
-import { QueryActivitiesDto } from '../activity-log.controller';
-import { QueryAuditTrailDto } from '../audit-trail.controller';
-import { QueryErrorGroupsDto } from '../../../system-management/controllers/error-tracking.controller';
+import { QueryActivitiesDto } from '../dto/activity-log.dto';
+import { QueryAuditTrailDto } from '../dto/audit-trail.dto';
+import { QueryErrorGroupsDto } from '../../../system-management/controllers/dto/error-tracking.dto';
 
 type SortDto = QueryActivitiesDto | QueryAuditTrailDto | QueryErrorGroupsDto;
 

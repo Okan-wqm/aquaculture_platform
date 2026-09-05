@@ -4,6 +4,11 @@
  * Platform duyuru yönetimi endpoint'leri.
  */
 
+import {
+  AcknowledgeDto,
+  CreateAnnouncementDto,
+  UpdateAnnouncementDto,
+} from './dto/announcement.dto';
 import { Destructive, RequiresCapability, TenantParam, TenantIdCarrier } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
@@ -27,87 +32,6 @@ import { CurrentUser, CurrentUserData } from '../../decorators/current-user.deco
 import { PlatformAdminOnly } from '../../decorators/roles.decorator';
 import { AnnouncementType, AnnouncementStatus, AnnouncementTarget } from '../entities/support.entity';
 import { AnnouncementService } from '../services/announcement.service';
-
-// ============================================================================
-// DTOs
-// ============================================================================
-
-class CreateAnnouncementDto {
-  @IsString()
-  title!: string;
-
-  @IsString()
-  content!: string;
-
-  @IsString()
-  type!: AnnouncementType;
-
-  @IsBoolean()
-  isGlobal!: boolean;
-
-  @IsOptional()
-  @IsObject()
-  targetCriteria?: AnnouncementTarget;
-
-  @IsOptional()
-  @IsString()
-  publishAt?: string;
-
-  @IsOptional()
-  @IsString()
-  expiresAt?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  requiresAcknowledgment?: boolean;
-}
-
-class UpdateAnnouncementDto {
-  @IsOptional()
-  @IsString()
-  title?: string;
-
-  @IsOptional()
-  @IsString()
-  content?: string;
-
-  @IsOptional()
-  @IsString()
-  type?: AnnouncementType;
-
-  @IsOptional()
-  @IsBoolean()
-  isGlobal?: boolean;
-
-  @IsOptional()
-  @IsObject()
-  targetCriteria?: AnnouncementTarget;
-
-  @IsOptional()
-  @IsString()
-  publishAt?: string;
-
-  @IsOptional()
-  @IsString()
-  expiresAt?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  requiresAcknowledgment?: boolean;
-}
-
-class AcknowledgeDto {
-  /** ADMIN-CRITICAL-009: whitelisted carrier key; the verified id arrives through @TenantParam('body'). */
-  @TenantIdCarrier()
-  readonly tenantId?: undefined;
-
-
-  @IsString()
-  userId!: string;
-
-  @IsString()
-  userName!: string;
-}
 
 // ============================================================================
 // Controller

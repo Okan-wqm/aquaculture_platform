@@ -4,6 +4,13 @@
  * Tenant onboarding ve eğitim endpoint'leri.
  */
 
+import {
+  AssignGuideDto,
+  InitializeOnboardingDto,
+  ScheduleTrainingDto,
+  SendWelcomeEmailDto,
+  UpdateTrainingDto,
+} from './dto/onboarding.dto';
 import { RequiresCapability, TenantParam, TenantIdCarrier } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
@@ -24,66 +31,6 @@ import { IsString, IsOptional, IsNumber, IsIn } from 'class-validator';
 
 import { OnboardingStatus, TrainingSession } from '../entities/support.entity';
 import { OnboardingService } from '../services/onboarding.service';
-
-// ============================================================================
-// DTOs
-// ============================================================================
-
-class InitializeOnboardingDto {
-  /** ADMIN-CRITICAL-009: whitelisted carrier key; the verified id arrives through @TenantParam('body'). */
-  @TenantIdCarrier()
-  readonly tenantId?: undefined;
-
-
-  @IsString()
-  tenantName!: string;
-}
-
-class SendWelcomeEmailDto {
-  @IsString()
-  recipientEmail!: string;
-
-  @IsString()
-  recipientName!: string;
-}
-
-class ScheduleTrainingDto {
-  @IsString()
-  title!: string;
-
-  @IsIn(['video_call', 'webinar', 'in_person'])
-  type!: 'video_call' | 'webinar' | 'in_person';
-
-  @IsString()
-  scheduledAt!: string;
-
-  @IsNumber()
-  duration!: number;
-
-  @IsString()
-  trainer!: string;
-
-  @IsOptional()
-  @IsString()
-  meetingUrl?: string;
-}
-
-class UpdateTrainingDto {
-  @IsIn(['completed', 'cancelled'])
-  status!: 'completed' | 'cancelled';
-
-  @IsOptional()
-  @IsString()
-  notes?: string;
-}
-
-class AssignGuideDto {
-  @IsString()
-  guideId!: string;
-
-  @IsString()
-  guideName!: string;
-}
 
 // ============================================================================
 // Controller

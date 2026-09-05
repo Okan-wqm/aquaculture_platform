@@ -5,6 +5,13 @@
  * SUPER_ADMIN için geliştirme ve debug amaçlı.
  */
 
+import {
+  ExecuteQueryDto,
+  ExportQueryDto,
+  InsertRowDto,
+  TableQueryDto,
+  UpdateRowDto,
+} from './dto/explorer.dto';
 import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
@@ -126,80 +133,6 @@ function maskSensitiveData(
     }
   }
   return maskedRow;
-}
-
-// ============================================================================
-// DTOs
-// ============================================================================
-
-class TableQueryDto {
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  page?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  limit?: number;
-
-  @IsOptional()
-  @IsString()
-  @Matches(/^[a-zA-Z_][a-zA-Z0-9_]*$/, { message: 'orderBy must be a valid SQL identifier' })
-  orderBy?: string;
-
-  @IsOptional()
-  @IsIn(['ASC', 'DESC'])
-  orderDirection?: 'ASC' | 'DESC';
-
-  // H-S2-01: Dead `filter` field removed. It was declared in the DTO but never
-  // used in the query builder, creating a latent SQL injection vector if a future
-  // developer adds WHERE interpolation following the DTO field name convention.
-
-  // Fix: C12 -- includeSensitive kaldırıldı, sensitive data her zaman maskelenir
-}
-
-class ExportQueryDto {
-  @IsOptional()
-  @IsIn(['csv', 'json'])
-  format?: 'csv' | 'json';
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  limit?: number;
-
-  @IsOptional()
-  @IsString()
-  @Matches(/^[a-zA-Z_][a-zA-Z0-9_]*$/, { message: 'orderBy must be a valid SQL identifier' })
-  orderBy?: string;
-
-  @IsOptional()
-  @IsIn(['ASC', 'DESC'])
-  orderDirection?: 'ASC' | 'DESC';
-}
-
-class InsertRowDto {
-  @IsObject()
-  data!: Record<string, unknown>;
-}
-
-class UpdateRowDto {
-  @IsObject()
-  data!: Record<string, unknown>;
-}
-
-/**
- * SECURITY: DTO for raw SQL query execution
- * Only for SUPER_ADMIN in development/staging environments
- */
-class ExecuteQueryDto {
-  @IsString()
-  @Transform(({ value }) => value?.trim())
-  sql!: string;
-
-  @IsOptional()
-  params?: unknown[];
 }
 
 // ============================================================================

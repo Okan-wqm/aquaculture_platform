@@ -27,7 +27,7 @@ require('ts-node').register({
         {
           // DTO classes live in `*.dto.ts` and, historically, inside the
           // controller that declares them; both are visited.
-          dtoFileNameSuffix: ['.dto.ts', '.controller.ts'],
+          dtoFileNameSuffix: ['.dto.ts', '.entity.ts'],
           controllerFileNameSuffix: ['.controller.ts'],
           // Types and class-validator decorators are the source of truth;
           // JSDoc is not scanned so a comment edit cannot move the contract.

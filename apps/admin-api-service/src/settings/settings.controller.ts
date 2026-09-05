@@ -1,3 +1,6 @@
+import {
+  TestEmailConfigDto,
+} from './dto/settings.dto';
 import { RequiresCapability } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import { ThrottleSensitive } from '@aquaculture/backend-common/security';
@@ -16,17 +19,6 @@ import { IsEmail } from 'class-validator';
 import { SettingCategory } from './entities/system-setting.entity';
 import { EmailSenderService } from './services/email-sender.service';
 import { SystemSettingService } from './services/system-setting.service';
-
-/**
- * System settings are READ here and owned by config-service (ORPHAN-HIGH-373):
- * every write went through a retired store and answered 410 Gone, so the
- * write routes are gone with it (ADMIN-HIGH-011). Only the env-backed reads,
- * the live SMTP test-send and the system-info summary remain.
- */
-class TestEmailConfigDto {
-  @IsEmail()
-  to!: string;
-}
 
 @ApiTags('Settings')
 @Controller('settings')

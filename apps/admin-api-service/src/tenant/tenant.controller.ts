@@ -1,3 +1,4 @@
+import { Destructive } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import { ThrottleSensitive } from '@aquaculture/backend-common/security';
 import {
@@ -310,6 +311,7 @@ export class TenantAdminController {
   }
 
   @AuditedOperation({ resource: 'TenantNote', action: 'DELETE' })
+  @Destructive()
   @Delete(':id/notes/:noteId')
   @ApiOperation({ summary: 'Delete a tenant note' })
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -371,6 +373,7 @@ export class TenantAdminController {
   }
 
   @AuditedOperation({ resource: 'Tenant', action: 'ARCHIVE' })
+  @Destructive()
   @Delete(':id')
   @ApiOperation({ summary: 'Archive a tenant' })
   @HttpCode(HttpStatus.NO_CONTENT)

@@ -1,3 +1,4 @@
+import { Destructive } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -120,6 +121,7 @@ export class EmailTemplateController {
    * Delete a template
    */
   @AuditedOperation({ resource: 'Template', action: 'DELETE' })
+  @Destructive()
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteTemplate(@Param('id') id: string) {

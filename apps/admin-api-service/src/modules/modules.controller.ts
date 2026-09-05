@@ -1,3 +1,4 @@
+import { Destructive } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -190,6 +191,7 @@ export class ModulesController {
    * Delete module
    */
   @AuditedOperation({ resource: 'Module', action: 'DELETE' })
+  @Destructive()
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteModule(@Param('id', ParseUUIDPipe) id: string) {
@@ -210,6 +212,7 @@ export class ModulesController {
    * Remove module from tenant
    */
   @AuditedOperation({ resource: 'ModuleFromTenant', action: 'DELETE' })
+  @Destructive()
   @Delete('assignments/:tenantId/:moduleId')
   @HttpCode(HttpStatus.NO_CONTENT)
   async removeModuleFromTenant(

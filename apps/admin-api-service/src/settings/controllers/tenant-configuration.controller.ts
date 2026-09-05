@@ -1,3 +1,4 @@
+import { Destructive } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -91,6 +92,7 @@ export class TenantConfigurationController {
    * Delete configuration
    */
   @AuditedOperation({ resource: 'Configuration', action: 'DELETE' })
+  @Destructive()
   @Delete(':tenantId')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteConfiguration(@Param('tenantId') tenantId: string) {
@@ -199,6 +201,7 @@ export class TenantConfigurationController {
   }
 
   @AuditedOperation({ resource: 'ApiKey', action: 'REVOKE' })
+  @Destructive()
   @Delete(':tenantId/api-keys/:keyId')
   @HttpCode(HttpStatus.NO_CONTENT)
   async revokeApiKey(
@@ -247,6 +250,7 @@ export class TenantConfigurationController {
   }
 
   @AuditedOperation({ resource: 'Webhook', action: 'DELETE' })
+  @Destructive()
   @Delete(':tenantId/webhooks/:webhookId')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteWebhook(
@@ -331,6 +335,7 @@ export class TenantConfigurationController {
   }
 
   @AuditedOperation({ resource: 'FromIpWhitelist', action: 'DELETE' })
+  @Destructive()
   @Delete(':tenantId/security/ip-whitelist/:ip')
   async removeFromIpWhitelist(
     @Param('tenantId') tenantId: string,
@@ -349,6 +354,7 @@ export class TenantConfigurationController {
   }
 
   @AuditedOperation({ resource: 'FromIpBlacklist', action: 'DELETE' })
+  @Destructive()
   @Delete(':tenantId/security/ip-blacklist/:ip')
   async removeFromIpBlacklist(
     @Param('tenantId') tenantId: string,

@@ -245,14 +245,6 @@ export const DEFAULT_SYSTEM_SETTINGS: DefaultSystemSettings[] = [
     displayName: 'Password Min Length',
   },
   {
-    key: 'security.mfa_enabled',
-    value: 'true',
-    valueType: SettingValueType.BOOLEAN,
-    category: SettingCategory.SECURITY,
-    description: 'Enable MFA support platform-wide',
-    displayName: 'MFA Enabled',
-  },
-  {
     key: 'security.enforce_https',
     value: 'true',
     valueType: SettingValueType.BOOLEAN,

@@ -4,6 +4,7 @@
  * Endpoints for audit trail queries, export, retention policies, and alerts.
  */
 
+import { Destructive } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -366,6 +367,7 @@ export class AuditTrailController {
    * Export audit trail
    */
   @AuditedOperation({ resource: 'AuditTrail', action: 'EXPORT' })
+  @Destructive()
   @Post('export')
   async exportAuditTrail(@Body() dto: ExportAuditTrailDto, @Res() res: Response): Promise<void> {
     const options: AuditExportOptions = {
@@ -455,6 +457,7 @@ export class AuditTrailController {
    * Delete alert rule
    */
   @AuditedOperation({ resource: 'AlertRule', action: 'DELETE' })
+  @Destructive()
   @Delete('alert-rules/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
   deleteAlertRule(@Param('id') id: string): void {

@@ -205,7 +205,6 @@ export class SystemSettingService {
     passwordRequireUppercase: boolean;
     passwordRequireNumbers: boolean;
     passwordRequireSymbols: boolean;
-    mfaEnabled: boolean;
     enforceHttps: boolean;
   } {
     return {
@@ -216,7 +215,6 @@ export class SystemSettingService {
       passwordRequireUppercase: this.getValue('security.password_require_uppercase', true),
       passwordRequireNumbers: this.getValue('security.password_require_numbers', true),
       passwordRequireSymbols: this.getValue('security.password_require_symbols', false),
-      mfaEnabled: this.getValue('security.mfa_enabled', true),
       enforceHttps: this.getValue('security.enforce_https', true),
     };
   }
@@ -230,7 +228,6 @@ export class SystemSettingService {
       passwordRequireUppercase?: boolean;
       passwordRequireNumbers?: boolean;
       passwordRequireSymbols?: boolean;
-      mfaEnabled?: boolean;
       enforceHttps?: boolean;
     },
     _updatedBy?: string,

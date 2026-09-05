@@ -4,6 +4,7 @@
  * Tenant schema oluşturma, yönetim ve izolasyon endpoint'leri.
  */
 
+import { Destructive } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -126,6 +127,7 @@ export class SchemaController {
 
   // SECURITY: destructive action requires confirmation token and audit
   @AuditedOperation({ resource: 'Schema', action: 'DELETE' })
+  @Destructive()
   @Delete(':tenantId')
   @Roles('SUPER_ADMIN')
   @HttpCode(HttpStatus.NO_CONTENT)

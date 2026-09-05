@@ -4,6 +4,7 @@
  * Platform duyuru yönetimi endpoint'leri.
  */
 
+import { Destructive } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -190,6 +191,7 @@ export class AnnouncementController {
   }
 
   @AuditedOperation({ resource: 'Announcement', action: 'DELETE' })
+  @Destructive()
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteAnnouncement(@Param('id') id: string) {

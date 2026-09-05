@@ -38,6 +38,8 @@
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { resolve, relative, normalize, join, sep } from 'node:path';
 
+import { isNatsEventHandler } from './helpers/nats-event-handler';
+
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const FARM_SRC = resolve(REPO_ROOT, 'apps/farm-service/src');
 
@@ -98,7 +100,11 @@ function findTsFiles(dir: string): string[] {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const fullPath = join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (entry.name === '__tests__' || entry.name === 'node_modules' || entry.name.startsWith('.')) {
+      if (
+        entry.name === '__tests__' ||
+        entry.name === 'node_modules' ||
+        entry.name.startsWith('.')
+      ) {
         continue;
       }
       files.push(...findTsFiles(fullPath));
@@ -139,17 +145,6 @@ interface EventHandlerFile {
   readonly code: string;
 }
 
-/**
- * A NATS event handler: implements `IEventHandler` (or carries an inline
- * `IEventHandler<...>` shape) AND registers on the NATS event bus. The bus
- * registration is what distinguishes it from an in-process `@OnEvent` listener.
- */
-function isNatsEventHandler(code: string): boolean {
-  const isHandler = /\bimplements\s+[^{]*\bIEventHandler\b/.test(code) || /\bIEventHandler</.test(code);
-  const subscribesOnBus = /\.subscribeWildcard\s*\(/.test(code) || /\.subscribe\s*\(/.test(code);
-  return isHandler && subscribesOnBus;
-}
-
 function natsEventHandlers(): EventHandlerFile[] {
   return findTsFiles(FARM_SRC)
     .map((file) => ({
@@ -161,8 +156,7 @@ function natsEventHandlers(): EventHandlerFile[] {
 
 function hasDbAccess(code: string): boolean {
   return (
-    DIRECT_DB_ACCESS.some((re) => re.test(code)) ||
-    DELEGATED_DB_ACCESS.some((re) => re.test(code))
+    DIRECT_DB_ACCESS.some((re) => re.test(code)) || DELEGATED_DB_ACCESS.some((re) => re.test(code))
   );
 }
 

@@ -43860,6 +43860,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/event-tenant-scope-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/farm-batch-policy-transaction-ssot.spec.ts",
       "prettier_managed": true
     },
@@ -44095,6 +44101,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/helpers/farm-graphql-surface.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/helpers/nats-event-handler.ts",
       "prettier_managed": true
     },
     {

@@ -14,16 +14,14 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
+import { EmailTemplateService } from '../services/email-template.service';
 import {
-  EmailTemplateService,
   CreateEmailTemplateDto,
-  UpdateEmailTemplateDto,
-  RenderTemplateDto,
-} from '../services/email-template.service';
-import {
   CreateTenantOverrideDto,
-  ValidateTemplateDto,
+  RenderTemplateDto,
   SendTestEmailDto,
+  UpdateEmailTemplateDto,
+  ValidateTemplateDto,
 } from '../dto/email-template.dto';
 
 @ApiTags('Settings')
@@ -89,8 +87,11 @@ export class EmailTemplateController {
   @AuditedOperation({ resource: 'Template', action: 'CREATE' })
   @RequiresCapability('security-ops')
   @Post()
-  async createTemplate(@Body() dto: CreateEmailTemplateDto) {
-    return this.templateService.createTemplate(dto);
+  async createTemplate(
+    @TenantParam('body', { optional: true, allow: 'any' }) tenantId: string | undefined,
+    @Body() dto: CreateEmailTemplateDto,
+  ) {
+    return this.templateService.createTemplate({ ...dto, tenantId });
   }
 
   /**
@@ -143,8 +144,11 @@ export class EmailTemplateController {
   @AuditedOperation({ resource: 'EmailTemplate', action: 'RENDER_TEMPLATE' })
   @RequiresCapability('security-ops')
   @Post('render')
-  async renderTemplate(@Body() dto: RenderTemplateDto) {
-    return this.templateService.renderTemplate(dto);
+  async renderTemplate(
+    @TenantParam('body', { optional: true, allow: 'any' }) tenantId: string | undefined,
+    @Body() dto: RenderTemplateDto,
+  ) {
+    return this.templateService.renderTemplate({ ...dto, tenantId });
   }
 
   /**

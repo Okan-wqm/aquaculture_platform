@@ -30,13 +30,25 @@ import {
   CloneCustomPlanDto,
   ComparePricingDto,
   ComparePlansDto,
+  CreateCustomPlanDto,
+  CreateDiscountCodeDto,
+  CreateInvoiceDto,
+  CreatePlanDto,
   ExtendTrialDto,
   GenerateDiscountCodeDto,
   MarkInvoicePaidDto,
+  PlanChangeRequest,
   QuickEstimateDto,
+  QuoteRequest,
+  RecordPaymentDto,
+  RefundPaymentDto,
   RejectCustomPlanDto,
   SeedModulePricingDto,
+  SetModulePricingDto,
+  UpdateCustomPlanDto,
+  UpdateDiscountCodeDto,
   UpdateModulePricingDto,
+  UpdatePlanDto,
   ValidateDiscountCodeDto,
   VoidInvoiceDto,
 } from './dto/billing.dto';
@@ -44,42 +56,17 @@ import { CustomPlanStatus } from './entities/custom-plan.entity';
 import { BillingCycle, PlanTier } from './entities/plan-definition.entity';
 import { AggregationPeriod, MeterType } from './entities/usage-aggregation-readonly.entity';
 import { BillingAdminCommandClientService } from './services/billing-admin-command-client.service';
-import {
-  CreateCustomPlanDto,
-  CustomPlanFilter,
-  CustomPlanService,
-  UpdateCustomPlanDto,
-} from './services/custom-plan.service';
-import {
-  CreateDiscountCodeDto,
-  DiscountCodeService,
-  UpdateDiscountCodeDto,
-} from './services/discount-code.service';
+import { CustomPlanFilter, CustomPlanService } from './services/custom-plan.service';
+import { DiscountCodeService } from './services/discount-code.service';
 import {
   InvoiceFilters,
   InvoiceManagementService,
 } from './services/invoice-management.service';
+import { ModulePricingService } from './services/module-pricing.service';
+import { PaymentFilters, PaymentManagementService } from './services/payment-management.service';
+import { PlanDefinitionService } from './services/plan-definition.service';
+import { PricingCalculatorService } from './services/pricing-calculator.service';
 import {
-  ModulePricingService,
-  SetModulePricingDto,
-} from './services/module-pricing.service';
-import {
-  PaymentFilters,
-  PaymentManagementService,
-  RecordPaymentDto,
-  RefundPaymentDto,
-} from './services/payment-management.service';
-import {
-  CreatePlanDto,
-  PlanDefinitionService,
-  UpdatePlanDto,
-} from './services/plan-definition.service';
-import {
-  PricingCalculatorService,
-  QuoteRequest,
-} from './services/pricing-calculator.service';
-import {
-  PlanChangeRequest,
   SubscriptionFilters,
   SubscriptionManagementService,
   SubscriptionStatus,
@@ -388,11 +375,17 @@ export class BillingController {
   @AuditedOperation({ resource: 'Plan', action: 'CHANGE' })
   @RequiresCapability('billing-ops')
   @Post('subscriptions/change-plan')
-  async changePlan(@Body() request: PlanChangeRequest, @Req() req: Request): Promise<unknown> {
+  async changePlan(
+    @TenantParam('body', { allow: 'any' }) tenantId: string,
+    @Body() request: PlanChangeRequest,
+    @Req() req: Request,
+  ): Promise<unknown> {
     const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('Authentication required to change a subscription plan');
-    const { changedBy: _changedBy, ...safeRequest } = request as PlanChangeRequest & { changedBy?: unknown };
-    return this.billingAdminCommands.changeSubscriptionPlan(safeRequest, userId);
+    return this.billingAdminCommands.changeSubscriptionPlan(
+      { ...request, tenantId },
+      userId,
+    );
   }
 
   // Fix: H8 -- per-route throttle: subscription cancel is sensitive (3 req / 5 min)
@@ -587,10 +580,14 @@ export class BillingController {
   @AuditedOperation({ resource: 'CustomPlan', action: 'CREATE' })
   @RequiresCapability('billing-ops')
   @Post('custom-plans')
-  async createCustomPlan(@Body() dto: CreateCustomPlanDto, @Req() req: Request): Promise<unknown> {
+  async createCustomPlan(
+    @TenantParam('body', { allow: 'any' }) tenantId: string,
+    @Body() dto: CreateCustomPlanDto,
+    @Req() req: Request,
+  ): Promise<unknown> {
     const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('Authentication required to create a custom plan');
-    return this.customPlanService.createCustomPlan({ ...dto, createdBy: userId });
+    return this.customPlanService.createCustomPlan({ ...dto, tenantId, createdBy: userId });
   }
 
   @AuditedOperation({ resource: 'CustomPlan', action: 'UPDATE' })
@@ -731,7 +728,7 @@ export class BillingController {
   @Post('invoices')
   async createInvoice(
     @TenantParam('body', { allow: 'any' }) tenantId: string,
-    @Body() dto: BillingAdminCreateInvoiceInput,
+    @Body() dto: CreateInvoiceDto,
     @Req() req: Request,
   ): Promise<unknown> {
     const userId = getAuthUserId(req);

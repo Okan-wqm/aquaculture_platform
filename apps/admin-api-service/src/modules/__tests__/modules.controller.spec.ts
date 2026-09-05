@@ -5,7 +5,12 @@ import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
-import { ModulesController, CreateModuleDto, UpdateModuleDto, AssignModuleDto } from '../modules.controller';
+import {
+  AssignModuleDto,
+  CreateModuleDto,
+  UpdateModuleDto,
+} from '../dto/module-request.dto';
+import { ModulesController } from '../modules.controller';
 import { ModulesService, ModuleDto, PaginatedModules, ModuleStats, TenantModuleAssignment } from '../modules.service';
 
 // Mock ModulesService

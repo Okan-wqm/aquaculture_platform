@@ -12,6 +12,11 @@
  *
  * @see ADR-012 Phase 3 (Compliance)
  */
+import {
+  CreateLegalHoldDto,
+  TriggerExportDto,
+  UpdateRetentionPolicyDto,
+} from './dto/messaging-admin.dto';
 import { Destructive, RequiresCapability, TenantParam } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
@@ -39,25 +44,6 @@ import { CurrentUser, CurrentUserData } from '../decorators/current-user.decorat
 
 /** Default NATS request timeout when MESSAGING_NATS_TIMEOUT_MS is not configured. */
 const DEFAULT_NATS_TIMEOUT_MS = 15_000;
-
-// ── DTO Interfaces ──────────────────────────────────────────────────────
-
-interface CreateLegalHoldDto {
-  channelId?: string | null;
-  reason: string;
-  legalMatterId: string;
-  legalMatterDescription?: string;
-  expiresAt?: string;
-}
-
-interface UpdateRetentionPolicyDto {
-  channelId?: string | null;
-  retentionDays: number;
-}
-
-interface TriggerExportDto {
-  format?: 'csv' | 'json';
-}
 
 // ── Response Interfaces ────────────────────────────────────────────────
 

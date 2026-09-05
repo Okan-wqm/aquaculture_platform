@@ -1,3 +1,8 @@
+import {
+  AssignModuleDto,
+  CreateModuleDto,
+  UpdateModuleDto,
+} from './dto/module-request.dto';
 import { Destructive, RequiresCapability, TenantParam } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
@@ -17,50 +22,6 @@ import {
 import { ApiTags } from '@nestjs/swagger';
 
 import { ModulesService, PaginatedModules } from './modules.service';
-
-/**
- * WHY no price field: billing owns all subscription pricing (platform rule
- * D14). Per-module prices are managed through the module-pricing catalog
- * (admin.module_pricing via ModulePricingService), never through the
- * auth.modules catalogue surface. The read-side ModuleDto.price is derived
- * from that catalog.
- */
-export interface CreateModuleDto {
-  code: string;
-  name: string;
-  description?: string;
-  defaultRoute: string;
-  icon?: string;
-  isCore?: boolean;
-}
-
-export interface UpdateModuleDto {
-  name?: string;
-  description?: string;
-  defaultRoute?: string;
-  icon?: string;
-  isActive?: boolean;
-}
-
-export interface ModuleQuantitiesDto {
-  users?: number;
-  farms?: number;
-  ponds?: number;
-  sensors?: number;
-  devices?: number;
-  storageGb?: number;
-  apiCalls?: number;
-  alerts?: number;
-  reports?: number;
-  integrations?: number;
-}
-
-export interface AssignModuleDto {
-  moduleId: string;
-  quantities?: ModuleQuantitiesDto;
-  configuration?: Record<string, unknown>;
-  expiresAt?: Date;
-}
 
 @ApiTags('Modules')
 @Controller('modules')

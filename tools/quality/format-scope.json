@@ -1653,6 +1653,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/messaging/dto/messaging-admin.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/messaging/messaging-admin.controller.ts",
       "prettier_managed": true
     },
@@ -2124,6 +2130,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/modules/__tests__/modules.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/modules/dto/module-request.dto.ts",
       "prettier_managed": true
     },
     {
@@ -43314,6 +43326,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/admin-body-dto-is-class.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/admin-mutation-audit-coverage.spec.ts",
       "prettier_managed": true
     },
@@ -44113,6 +44131,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/lib/dead-contract-scan.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/lib/dto-resolution.ts",
       "prettier_managed": true
     },
     {

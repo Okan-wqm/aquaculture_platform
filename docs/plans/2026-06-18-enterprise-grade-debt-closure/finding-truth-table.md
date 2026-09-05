@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `9b3077a6a348832d9abe804fc324563e5caffa5202ce346cc8d6ceea2242a9f6`
+Registry tip: `12372ac494e42e86d64ec25a4adc741b3651024113270a7bdb6ec61e8288cf53`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -210,7 +210,6 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-040`  | IN-PROGRESS    | —            | infra-expert               | blocked                   |
 | `INFRA-CRITICAL-044`  | OPEN           | —            | infra-expert               | blocked                   |
 | `FARM-CRITICAL-238`   | IN-PROGRESS    | 4.1          | data-expert                | real-open                 |
-| `FARM-CRITICAL-240`   | IN-PROGRESS    | 4.1          | data-expert                | real-open                 |
 | `INFRA-CRITICAL-077`  | IN-PROGRESS    | 1.1          | infra-expert               | real-open                 |
 | `INFRA-CRITICAL-078`  | IN-PROGRESS    | 1.1          | security-reviewer          | real-open                 |
 | `DATA-CRITICAL-010`   | OPEN           | —            | data-expert                | real-open                 |
@@ -223,20 +222,9 @@ Allowed truth buckets:
 | `ARIA-CRITICAL-007`   | OPEN           | Task 10      | platform-autonomy          | real-open                 |
 | `ARIA-CRITICAL-009`   | OPEN           | Task 12      | platform-autonomy          | real-open                 |
 | `ARIA-CRITICAL-015`   | OPEN           | Task 19      | platform-autonomy          | real-open                 |
-| `EDGE-CRITICAL-002`   | OPEN           | 2026-07-12   | edge-expert                | already-fixed-needs-close |
-| `EDGE-CRITICAL-003`   | OPEN           | 2026-07-12   | edge-expert                | already-fixed-needs-close |
-| `EDGE-CRITICAL-004`   | OPEN           | 2026-07-12   | edge-expert                | already-fixed-needs-close |
-| `MOB-CRITICAL-018`    | OPEN           | 2026-08-16   | mobile-app-auditor         | already-fixed-needs-close |
-| `SENSOR-CRITICAL-086` | OPEN           | 2026-08-24   | zcode                      | already-fixed-needs-close |
-| `SENSOR-CRITICAL-087` | OPEN           | 2026-08-24   | zcode                      | already-fixed-needs-close |
-| `SENSOR-CRITICAL-088` | OPEN           | 2026-08-24   | zcode                      | already-fixed-needs-close |
-| `SENSOR-CRITICAL-089` | OPEN           | 2026-08-24   | zcode                      | already-fixed-needs-close |
-| `SEC-CRITICAL-092`    | OPEN           | 2026-08-23   | security-scan              | already-fixed-needs-close |
-| `SEC-CRITICAL-093`    | OPEN           | 2026-08-23   | security-scan              | already-fixed-needs-close |
 | `SENSOR-CRITICAL-108` | OPEN           | 2026-09-03   | zcode                      | real-open                 |
 | `INFRA-CRITICAL-080`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
 | `INFRA-CRITICAL-081`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
-| `INFRA-CRITICAL-082`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | already-fixed-needs-close |
 | `INFRA-CRITICAL-083`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
 | `INFRA-CRITICAL-085`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
 | `INFRA-CRITICAL-090`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
@@ -245,13 +233,6 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-097`  | OPEN           | 2026-07-19   | security-reviewer          | real-open                 |
 | `INFRA-CRITICAL-098`  | OPEN           | 2026-07-19   | security-reviewer          | real-open                 |
 | `INFRA-CRITICAL-100`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
-| `INFRA-CRITICAL-101`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | already-fixed-needs-close |
-| `FARM-CRITICAL-242`   | IN-PROGRESS    | 2026-07-27   | claude                     | already-fixed-needs-close |
-| `FARM-CRITICAL-244`   | OPEN           | 2026-07-27   | claude                     | already-fixed-needs-close |
-| `FARM-CRITICAL-245`   | OPEN           | 2026-07-27   | claude                     | already-fixed-needs-close |
-| `FARM-CRITICAL-305`   | OPEN           | 2026-07-27   | claude                     | already-fixed-needs-close |
-| `FARM-CRITICAL-306`   | OPEN           | 2026-07-28   | claude                     | already-fixed-needs-close |
-| `PLAT-CRITICAL-905`   | OPEN           | 2026-07-29   | claude                     | already-fixed-needs-close |
 | `ADMIN-CRITICAL-087`  | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
 
 ## Mutation Rules
@@ -395,6 +376,89 @@ The 2026-06-20 registry close follow-up left no OTHER active CRITICAL in
   outbox/infrastructure and migration-timing invariants.
 
 ## Resolved Evidence
+
+- `FARM-CRITICAL-240`: registry state is `RESOLVED` with closing commit `b0072bca0`
+  ("fix(farm): give physical stock one lock protocol, one FEFO compiler and a refusal"), derived by
+  `finding-registry reconcile` once PR #1423 (`bb28fa31a`) made it reachable from `main`.
+  Left the active table from bucket `real-open`.
+- `EDGE-CRITICAL-002`: registry state is `RESOLVED` with closing commit `988d590d4`
+  ("security(edge): derive the SCADA store key via the keystore resolver"), derived by
+  `finding-registry reconcile` once PR #1423 (`bb28fa31a`) made it reachable from `main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `EDGE-CRITICAL-003`: registry state is `RESOLVED` with closing commit `4cab2827c`
+  ("security(edge): enforce LegacyPolicy on the unsigned legacy command path"), derived by
+  `finding-registry reconcile` once PR #1423 (`bb28fa31a`) made it reachable from `main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `EDGE-CRITICAL-004`: registry state is `RESOLVED` with closing commit `da33f9068`
+  ("security(edge): stamp telemetry with a (device_id, edge_seq) idempotency key"), derived by
+  `finding-registry reconcile` once PR #1423 (`bb28fa31a`) made it reachable from `main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `MOB-CRITICAL-018`: registry state is `RESOLVED` with closing commit `2f5ef21eb`
+  ("fix(aquamobil): let the compiler own the water-quality input instead of a hand-written mirror"),
+  derived by
+  `finding-registry reconcile` once PR #1423 (`bb28fa31a`) made it reachable from `main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `SENSOR-CRITICAL-086`: registry state is `RESOLVED` with closing commit `4e6f129d6`
+  ("feat(sensor): hold MQTT PUBACK until the reading is durably persisted"), derived by
+  `finding-registry reconcile` once PR #1423 (`bb28fa31a`) made it reachable from `main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `SENSOR-CRITICAL-087`: registry state is `RESOLVED` with closing commit `3d784be31`
+  ("feat(sensor): settle metric writes per tenant before any source ack"), derived by
+  `finding-registry reconcile` once PR #1423 (`bb28fa31a`) made it reachable from `main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `SENSOR-CRITICAL-088`: registry state is `RESOLVED` with closing commit `0aa754516`
+  ("feat(sensor): resolve the tenant schema in telemetry readers"), derived by
+  `finding-registry reconcile` once PR #1423 (`bb28fa31a`) made it reachable from `main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `SENSOR-CRITICAL-089`: registry state is `RESOLVED` with closing commit `720531480`
+  ("chore(sensor-ingestion): restore the real sidecar pipeline on the platform SSoTs"), derived by
+  `finding-registry reconcile` once PR #1423 (`bb28fa31a`) made it reachable from `main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `SEC-CRITICAL-092`: registry state is `RESOLVED` with closing commit `55a8471d4`
+  ("security(auth): WebAuthn proof-of-possession, step-up registration, reset invalidation"),
+  derived by
+  `finding-registry reconcile` once PR #1423 (`bb28fa31a`) made it reachable from `main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `SEC-CRITICAL-093`: registry state is `RESOLVED` with closing commit `55a8471d4`
+  ("security(auth): WebAuthn proof-of-possession, step-up registration, reset invalidation"),
+  derived by
+  `finding-registry reconcile` once PR #1423 (`bb28fa31a`) made it reachable from `main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `INFRA-CRITICAL-082`: registry state is `RESOLVED` with closing commit `50b35f433`
+  ("security(ci): make the Linux platform-binary installer fail closed on integrity"), derived by
+  `finding-registry reconcile` once PR #1423 (`bb28fa31a`) made it reachable from `main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `INFRA-CRITICAL-101`: registry state is `RESOLVED` with closing commit `bfc47855e`
+  ("security(infra): stop the NATS broker holding every service's private key, and publish
+  certificates atomically"), derived by
+  `finding-registry reconcile` once PR #1423 (`bb28fa31a`) made it reachable from `main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `FARM-CRITICAL-242`: registry state is `RESOLVED` with closing commit `944af3ce0`
+  ("fix(farm): site-kapsamlı FEFO düşümünü, tarihsel attribution'ı ve atama tekilliğini
+  onar"), derived by
+  `finding-registry reconcile` once PR #1423 (`bb28fa31a`) made it reachable from `main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `FARM-CRITICAL-244`: registry state is `RESOLVED` with closing commit `630a7260c`
+  ("fix(farm): DAILY büyüme rollup'ını kümülatif mutabakata çevir"), derived by
+  `finding-registry reconcile` once PR #1423 (`bb28fa31a`) made it reachable from `main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `FARM-CRITICAL-245`: registry state is `RESOLVED` with closing commit `663e1d085`
+  ("fix(farm): yem düşümünü çok-lotlu FEFO tahsisine çevir, düzeltmeyi ledger'a bağla"), derived by
+  `finding-registry reconcile` once PR #1423 (`bb28fa31a`) made it reachable from `main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `FARM-CRITICAL-305`: registry state is `RESOLVED` with closing commit `0e47fae0a`
+  ("fix(farm): declare Site.timezone's column type so farm-service metadata can build"), derived by
+  `finding-registry reconcile` once PR #1423 (`bb28fa31a`) made it reachable from `main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `FARM-CRITICAL-306`: registry state is `RESOLVED` with closing commit `72b3b783e`
+  ("fix(farm): give growthApplicationMode an explicit GraphQL type and regenerate the client
+  contracts"), derived by
+  `finding-registry reconcile` once PR #1423 (`bb28fa31a`) made it reachable from `main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `PLAT-CRITICAL-905`: registry state is `RESOLVED` with closing commit `f09ed1522`
+  ("fix(platform): give the four orphaned jest configs an Nx project and a CI lane"), derived by
+  `finding-registry reconcile` once PR #1423 (`bb28fa31a`) made it reachable from `main`.
+  Left the active table from bucket `already-fixed-needs-close`.
 
 - `SENSOR-CRITICAL-001` + `ALERT-CRITICAL-001`: registry state is `RESOLVED` with
   closing commit `9c3155b45` (PR #651, the trailer-carrier). PR #610

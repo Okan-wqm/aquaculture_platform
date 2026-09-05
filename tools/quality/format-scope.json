@@ -7177,6 +7177,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/db-migrate/src/__tests__/tenant-ledger-backfill.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/db-migrate/src/__tests__/tenant-schema-provisioner.contract.spec.ts",
       "prettier_managed": true
     },
@@ -7226,6 +7232,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/db-migrate/src/stray-tenant-journal-heal.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/db-migrate/src/tenant-ledger-backfill.ts",
       "prettier_managed": true
     },
     {

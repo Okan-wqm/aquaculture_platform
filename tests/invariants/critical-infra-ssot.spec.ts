@@ -61,14 +61,18 @@ describe('INVARIANT (INFRA-CRITICAL-023): entity schema discipline is active', (
     expect(spec).toContain('TENANT_SCOPED_SERVICE_DIRS');
     expect(spec).toContain('CROSS_TENANT_FILENAME_PATTERNS');
     expect(spec).toContain('per-tenant entities OMIT schema');
-    expect(spec).toContain('cross-tenant entities (outbox/audit/retention/compliance) DECLARE schema');
+    expect(spec).toContain(
+      'cross-tenant entities (outbox/audit/retention/compliance) DECLARE schema',
+    );
   });
 });
 
 describe('INVARIANT (INFRA-CRITICAL-024): production DDL authority is db-migrate-only', () => {
   const catalog = repoJson<DeployCatalog>(SERVICE_CATALOG);
   const compose = repoFile(DROPLET_COMPOSE);
-  const runtimeBackends = catalog.deploy.backendImageTargets.filter((service) => service !== 'db-migrate');
+  const runtimeBackends = catalog.deploy.backendImageTargets.filter(
+    (service) => service !== 'db-migrate',
+  );
 
   it('db-migrate is the only backend image with DATABASE_MIGRATIONS_RUN=true', () => {
     const dbMigrateBlock = composeServiceBlock(compose, 'db-migrate');
@@ -144,7 +148,9 @@ describe('INVARIANT (INFRA-CRITICAL-026): shared cross-tenant tables stay canoni
   });
 
   it('platform bootstrap creates the canonical shared tables in shared schema', () => {
-    const bootstrap = repoFile('apps/db-migrate/src/sql/platform-bootstrap/006-shared-schema-tables.sql');
+    const bootstrap = repoFile(
+      'apps/db-migrate/src/sql/platform-bootstrap/006-shared-schema-tables.sql',
+    );
     // user_permissions retired 2026-07-12 (ADR-042, ORPHAN-HIGH-378) — stage
     // 006 must no longer create it.
     for (const table of [
@@ -153,11 +159,15 @@ describe('INVARIANT (INFRA-CRITICAL-026): shared cross-tenant tables stay canoni
       'user_consents',
       'access_logs',
     ] as const) {
-      expect(bootstrap).toMatch(new RegExp(`CREATE\\s+TABLE\\s+IF\\s+NOT\\s+EXISTS\\s+shared\\.${table}`, 'i'));
+      expect(bootstrap).toMatch(
+        new RegExp(`CREATE\\s+TABLE\\s+IF\\s+NOT\\s+EXISTS\\s+shared\\.${table}`, 'i'),
+      );
     }
     // Retirement lock: recreating the retired catalog in bootstrap would
     // resurrect the parallel-RBAC drift ADR-042 removed.
-    expect(bootstrap).not.toMatch(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?shared\.user_permissions/i);
+    expect(bootstrap).not.toMatch(
+      /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?shared\.user_permissions/i,
+    );
   });
 });
 
@@ -166,16 +176,21 @@ describe('INVARIANT (INFRA-CRITICAL-028): billing and alert tenant columns are U
     ['subscriptions', 'apps/billing-service/src/billing/entities/subscription.entity.ts'],
     ['invoices', 'apps/billing-service/src/billing/entities/invoice.entity.ts'],
     ['payments', 'apps/billing-service/src/billing/entities/payment.entity.ts'],
-  ] as const)('%s entity declares tenant_id as uuid and keeps soft-delete columns', (_table, path) => {
-    const src = repoFile(path);
-    expect(src).toMatch(/@Column\(\{\s*name:\s*['"]tenant_id['"],\s*type:\s*['"]uuid['"]/s);
-    expect(src).toContain("name: 'is_deleted'");
-    expect(src).toContain("name: 'deleted_at'");
-    expect(src).toContain("name: 'deleted_by'");
-  });
+  ] as const)(
+    '%s entity declares tenant_id as uuid and keeps soft-delete columns',
+    (_table, path) => {
+      const src = repoFile(path);
+      expect(src).toMatch(/@Column\(\{\s*name:\s*['"]tenant_id['"],\s*type:\s*['"]uuid['"]/s);
+      expect(src).toContain("name: 'is_deleted'");
+      expect(src).toContain("name: 'deleted_at'");
+      expect(src).toContain("name: 'deleted_by'");
+    },
+  );
 
   it('billing baseline creates tenant_id as uuid for subscriptions, invoices, and payments', () => {
-    const baseline = repoFile('apps/billing-service/src/database/migrations/1800000000000-Baseline.ts');
+    const baseline = repoFile(
+      'apps/billing-service/src/database/migrations/1800000000000-Baseline.ts',
+    );
     expect(baseline).toMatch(/"billing"\."subscriptions"[\s\S]*"tenant_id" uuid NOT NULL/);
     expect(baseline).toMatch(/"billing"\."invoices"[\s\S]*"tenant_id" uuid NOT NULL/);
     expect(baseline).toMatch(/"billing"\."payments"[\s\S]*"tenant_id" uuid NOT NULL/);
@@ -191,7 +206,9 @@ describe('INVARIANT (INFRA-CRITICAL-028): billing and alert tenant columns are U
   });
 
   it('alert migration chain aligns tenant_id columns to uuid in source and tenant fan-out', () => {
-    const baseline = repoFile('apps/alert-engine/src/database/migrations/1800000000000-Baseline.ts');
+    const baseline = repoFile(
+      'apps/alert-engine/src/database/migrations/1800000000000-Baseline.ts',
+    );
     const align = repoFile(
       'apps/alert-engine/src/database/migrations/1800100000000-AlignAlertTenantColumnsToUuid.ts',
     );
@@ -215,7 +232,15 @@ describe('INVARIANT (INFRA-CRITICAL-028): billing and alert tenant columns are U
 
 describe('INVARIANT (INFRA-CRITICAL-030): tenant migration ledgers are source-schema namespaced', () => {
   it('all tenant fan-out runners use tenantMigrationLedgerTable(sourceSchema)', () => {
-    expect(repoFile('apps/db-migrate/src/main.ts')).toContain('tenantMigrationLedgerTable(sourceSchema)');
+    // The deploy fan-out names the tenant ledger from the registry entry it is
+    // replaying; the ledger backfill (INFRA-CRITICAL-149) from its source
+    // schema. Both must go through the one helper.
+    expect(repoFile('apps/db-migrate/src/main.ts')).toContain(
+      'migrationsTableName: tenantMigrationLedgerTable(entry.schema)',
+    );
+    expect(repoFile('apps/db-migrate/src/tenant-ledger-backfill.ts')).toContain(
+      'tenantMigrationLedgerTable(sourceSchema)',
+    );
     expect(repoFile('apps/db-migrate/src/tenant-schema-provisioner.ts')).toContain(
       'tenantMigrationLedgerTable(entry.schema)',
     );
@@ -241,7 +266,9 @@ describe('INVARIANT (INFRA-CRITICAL-031): HR drift is owned by db-migrate + migr
   });
 
   it('the HR drift regression harness remains in the active migration-harness suite', () => {
-    const spec = repoFile('libs/migration-harness/src/__tests__/hr-drift-regression.integration.spec.ts');
+    const spec = repoFile(
+      'libs/migration-harness/src/__tests__/hr-drift-regression.integration.spec.ts',
+    );
     expect(spec).toContain('hr');
     expect(spec).toContain('expectNoDrift');
     expect(spec).toContain('bootPostgresContainer');
@@ -252,7 +279,9 @@ describe('INVARIANT (INFRA-CRITICAL-029/032): admin and HR drift closure has own
   it('admin-api cross-schema entities are read views and SchemaDriftValidator skips them by contract', () => {
     const jestConfig = repoFile('tests/invariants/jest.config.ts');
     const boundarySpec = repoFile('tests/invariants/admin-api-schema-boundaries.spec.ts');
-    const validator = repoFile('libs/backend-common/src/database/schema-drift-validator.service.ts');
+    const validator = repoFile(
+      'libs/backend-common/src/database/schema-drift-validator.service.ts',
+    );
     const appModule = repoFile('apps/admin-api-service/src/app.module.ts');
 
     // The property is "this boundary invariant RUNS", and it used to be spelled
@@ -266,7 +295,9 @@ describe('INVARIANT (INFRA-CRITICAL-029/032): admin and HR drift closure has own
       repoFile('tests/invariants/invariant-reachability.dormant.json'),
     ) as Record<string, unknown>;
     expect(Object.keys(dormant)).not.toContain('admin-api-schema-boundaries.spec.ts');
-    expect(boundarySpec).toContain("const WRITE_ALLOWED: ReadonlySet<string> = new Set(['admin', 'auth', 'shared'])");
+    expect(boundarySpec).toContain(
+      "const WRITE_ALLOWED: ReadonlySet<string> = new Set(['admin', 'auth', 'shared'])",
+    );
     expect(boundarySpec).toContain('must declare synchronize: false');
     expect(validator).toContain('if (entity.synchronize === false)');
     expect(validator).toContain('skippedCrossSchemaReadViews');
@@ -277,7 +308,9 @@ describe('INVARIANT (INFRA-CRITICAL-029/032): admin and HR drift closure has own
     const registry = repoFile('apps/db-migrate/src/schema-registry.ts');
     const dbMigrateTsconfig = repoFile('apps/db-migrate/tsconfig.build.json');
     const project = repoFile('libs/migration-harness/project.json');
-    const spec = repoFile('libs/migration-harness/src/__tests__/hr-drift-regression.integration.spec.ts');
+    const spec = repoFile(
+      'libs/migration-harness/src/__tests__/hr-drift-regression.integration.spec.ts',
+    );
 
     expect(registry).toContain("entitiesGlob: ['apps/hr-service/src/**/*.entity.{ts,js}']");
     expect(dbMigrateTsconfig).toContain('"../hr-service/src/**/*.entity.ts"');

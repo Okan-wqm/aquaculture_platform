@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `a17984b5dccdfeae1267cc38029ac2b6aeeb6123b1bdf1368ed0c90c7637b4e1`
+Registry tip: `826810bab86c90045aa2fb4e853d3ff126322c59b7aecccd6504d9433d33f625`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -464,6 +464,10 @@ The 2026-06-20 registry close follow-up left no OTHER active CRITICAL in
 - `FARM-CRITICAL-245`: registry state is `RESOLVED` with closing commit `663e1d085`
   ("fix(farm): yem düşümünü çok-lotlu FEFO tahsisine çevir, düzeltmeyi ledger'a bağla"), derived by
   `finding-registry reconcile` once PR #1423 (`bb28fa31a`) made it reachable from `main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `INFRA-CRITICAL-149`: registry state is `RESOLVED` with closing commit `381e06271`
+  ("fix(db-migrate): stamp a tenant ledger only when the schema can back it"), derived by
+  `finding-registry reconcile` once PR #1427 (`5cf4757b9`) made it reachable from `main`.
   Left the active table from bucket `already-fixed-needs-close`.
 - `FARM-CRITICAL-305`: registry state is `RESOLVED` with closing commit `0e47fae0a`
   ("fix(farm): declare Site.timezone's column type so farm-service metadata can build"), derived by

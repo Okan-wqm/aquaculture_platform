@@ -15,7 +15,7 @@ import { TENANT_SCHEMA_NAME_RE, queryRowsNormalized } from '@aquaculture/backend
  * whether another tenant holds the name, not whether the schema is there — so
  * the caller probes `information_schema.schemata` before creating and passes
  * the answer here. A schema left by an earlier attempt (reachable once a retry
- * re-issues the job, ADMIN-HIGH-009) is not dropped: the ledger-driven fan-out
+ * re-issues the job, ADMIN-HIGH-094) is not dropped: the ledger-driven fan-out
  * resumes it, and the stamping guard keeps a deploy from sealing it.
  *
  * Diagnosis comes first. `collectFailureResidue` runs before this and its

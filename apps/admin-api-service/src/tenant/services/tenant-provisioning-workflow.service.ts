@@ -425,7 +425,7 @@ export class TenantProvisioningWorkflowService {
           );
         },
         {
-          // ADMIN-HIGH-009: on a retry the job this step published may have
+          // ADMIN-HIGH-094: on a retry the job this step published may have
           // FAILED. `platform.request_tenant_schema_provisioning` is
           // idempotent per operation_id and re-opens a FAILED/ABORTED job by
           // design, so re-running the step is exactly the recovery; a job in
@@ -1307,7 +1307,7 @@ export class TenantProvisioningWorkflowService {
   /**
    * The postcondition of `publish_provisioning_requested`: a PROVISION job for
    * this operation exists and has not terminally failed. Read from the job
-   * table itself, not from the step ledger (ADMIN-HIGH-009).
+   * table itself, not from the step ledger (ADMIN-HIGH-094).
    */
   private async dbMigrateProvisioningJobIsOutstanding(
     operationId: string,
@@ -1703,7 +1703,7 @@ export class TenantProvisioningWorkflowService {
   /**
    * Run one saga step unless its ledger row already says SUCCEEDED.
    *
-   * ADMIN-HIGH-009: a SUCCEEDED row is a record that the step's work ran, not
+   * ADMIN-HIGH-094: a SUCCEEDED row is a record that the step's work ran, not
    * proof that what the work established still holds. On a retry the run is
    * reset but SUCCEEDED rows are kept, so a step whose postcondition lives in
    * another table — `publish_provisioning_requested` establishes "a PROVISION

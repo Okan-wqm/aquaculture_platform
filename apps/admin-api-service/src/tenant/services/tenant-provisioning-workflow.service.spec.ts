@@ -314,7 +314,7 @@ describe('TenantProvisioningWorkflowService — ledger vs physical reality (ORPH
     stepRows?: StepRow[];
     runState?: TenantProvisioningState;
     /**
-     * ADMIN-HIGH-009: answers to each `platform.tenant_schema_jobs` status
+     * ADMIN-HIGH-094: answers to each `platform.tenant_schema_jobs` status
      * read, in order; the last one repeats. Default: always COMMITTED.
      */
     jobStatuses?: string[];
@@ -629,7 +629,7 @@ describe('TenantProvisioningWorkflowService — ledger vs physical reality (ORPH
     expect(verificationStep?.lastError).toContain('physical schema does not exist');
   });
 
-  describe('a retried run re-issues the provisioning request its first attempt published (ADMIN-HIGH-009)', () => {
+  describe('a retried run re-issues the provisioning request its first attempt published (ADMIN-HIGH-094)', () => {
     const succeededPublishStep: StepRow = {
       stepName: 'publish_provisioning_requested',
       state: TenantProvisioningState.SUCCEEDED,

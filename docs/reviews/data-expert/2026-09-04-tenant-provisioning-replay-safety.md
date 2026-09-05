@@ -20,6 +20,9 @@ branch's rows were re-registered under the right-hand ids when the branch took m
 `Closes:` trailers still name the left column; the ids with no live sibling on main are also
 recorded in `docs/reviews/_registry/finding-id-aliases.yaml`. `PROC-MEDIUM-021` names an unrelated
 finding on main and cannot be aliased: its fix commit (`add2a56ae`) closes `PROC-MEDIUM-026`.
+`ADMIN-HIGH-009` (the phantom-tenant PR, #1427) is the same case: main's `ADMIN-HIGH-009` is an
+unrelated finding, so the retry defect below is `ADMIN-HIGH-094` in the ledger and its fix commit
+(`cb75f3505`) closes that row. `INFRA-CRITICAL-149` and `INFRA-HIGH-150` kept their ids.
 
 | Review id (headings, trailers) | Ledger id (findings.jsonl) |
 | ------------------------------ | -------------------------- |
@@ -28,6 +31,7 @@ finding on main and cannot be aliased: its fix commit (`add2a56ae`) closes `PROC
 | `PROC-MEDIUM-021`              | `PROC-MEDIUM-026`          |
 | `ADMIN-CRITICAL-008`           | `ADMIN-CRITICAL-093`       |
 | `SENSOR-CRITICAL-105`          | `SENSOR-CRITICAL-110`      |
+| `ADMIN-HIGH-009`               | `ADMIN-HIGH-094`           |
 
 ## Executive summary
 

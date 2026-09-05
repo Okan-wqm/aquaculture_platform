@@ -822,6 +822,10 @@ services:
       MFA_ENCRYPTION_KEY: '${MFA_ENCRYPTION_KEY:?MFA_ENCRYPTION_KEY is required in production — generate with openssl rand -hex 32}'
       WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-app.suderra.com}
       WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-AquaCulture Platform}
+      # DEPLOY-HIGH-016: origin of every e-mailed invitation / password-reset link.
+      # Required — auth-service refuses to boot in production without a valid
+      # https origin (apps/auth-service/src/config/frontend-url.ts).
+      FRONTEND_URL: '${FRONTEND_URL:?FRONTEND_URL is required in production — the https origin of the web shell, e.g. https://app.suderra.com}'
       SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
       SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
     depends_on:
@@ -1061,7 +1065,6 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
       SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
       SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
-      FRONTEND_URL: ${FRONTEND_URL:-https://app.suderra.com}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}

@@ -467,6 +467,9 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
       'PASSWORD_PEPPER',
       'MFA_ENCRYPTION_KEY',
       'SUPER_ADMIN_PASSWORD',
+      // DEPLOY-HIGH-016: origin of every e-mailed action link; parsed fail-closed
+      // by apps/auth-service/src/config/frontend-url.ts.
+      'FRONTEND_URL',
     ],
     gatewaySubgraph: subgraph(
       'auth',

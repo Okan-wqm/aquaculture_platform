@@ -248,6 +248,9 @@ services:
       PASSWORD_PEPPER: '${PASSWORD_PEPPER:?PASSWORD_PEPPER is required}'
       # MFA encryption key for TOTP secrets. Generate with: openssl rand -hex 32
       MFA_ENCRYPTION_KEY: '${MFA_ENCRYPTION_KEY:?MFA_ENCRYPTION_KEY is required}'
+      # DEPLOY-HIGH-016: origin of every e-mailed invitation / password-reset link.
+      # Required — auth-service refuses to boot in production without a valid https origin.
+      FRONTEND_URL: '${FRONTEND_URL:?FRONTEND_URL is required in production — the https origin of the web shell}'
     volumes:
       - ./certs/jwt:/var/run/jwt:ro
       # SECURITY (HIGH-002): NATS mTLS — CA plus auth-service's dedicated cert/key only.

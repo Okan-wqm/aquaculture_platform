@@ -17804,7 +17804,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "c00d0cb6c68e2d87736cc77f44cbbf45c7c006a6df2e18063bb77f866d574a3e",
+      "content_sha256": "4dca1391b6dd28cffb9f349299703bf58c615a6afda47aa186ee56ceb20792cf",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "apps/gateway-api/src/config/federated-subgraphs.generated.ts",
@@ -36620,7 +36620,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "51e0e404083fa240d1a9cf34ff0c3814ebf48f8bde0b59f7fd2429cf226f3cac",
+      "content_sha256": "0d31f76375185ec73dfc5a721230a1ef18fb68b3c049e41e56c94ecfe4d3b1f9",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/apollo-router/codegen-schema.generated.json",
@@ -36655,7 +36655,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "72e88802ad2da288333c8a4a5599b7e86017efb3f3faa0c2feb6e2238b7319c7",
+      "content_sha256": "c24bd98505006e29b1b47ad8214ece7196d38ef3ef3b2a09b7e884ba54428cc3",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/deploy/service-catalog.generated.json",
@@ -43579,6 +43579,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/audited-operation-module-wired.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/auth-frontend-url-deployment-contract.spec.ts",
       "prettier_managed": true
     },
     {

@@ -93,6 +93,7 @@ test('the permission map answers every class the console knows, for the principa
   const config = configWith(false, LEGAL_MANIFEST);
   const operator = permissionsFor(config, TOKEN_HOLDER_PRINCIPAL);
   assert.deepEqual(operator, {
+    kernel_read: true,
     kernel_control: false,
     case_intake: true,
     corpus_inventory: true,
@@ -106,6 +107,7 @@ test('the permission map answers every class the console knows, for the principa
   });
   const lawyer = permissionsFor(config, LAWYER);
   assert.equal(lawyer['statement_verification'], true);
+  assert.equal(lawyer['kernel_read'], false);
   assert.equal(lawyer['kernel_control'], false, 'a lawyer does not steer the kernel');
   assert.equal(decideAction(config, LAWYER, 'redaction_and_production').allowed, true);
 });
@@ -113,6 +115,7 @@ test('the permission map answers every class the console knows, for the principa
 test('enabled kernel control still requires an operator with unrestricted case scope', () => {
   const config = configWith(true, null);
   for (const principal of [LAWYER, { ...TOKEN_HOLDER_PRINCIPAL, cases: ['sak-24-001'] }]) {
+    assert.equal(permissionsFor(config, principal)['kernel_read'], false);
     assert.equal(permissionsFor(config, principal)['kernel_control'], false);
     assert.throws(() => requireGate(config, principal, 'kernel_control'), { code: 'action_class_refused' });
   }

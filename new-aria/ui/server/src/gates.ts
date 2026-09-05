@@ -12,8 +12,9 @@
 // class at once so the SPA can show only the controls a principal can use.
 // The boolean survives for exactly one class, kernel control, where it belongs.
 
-import { KERNEL_CONTROL_ACTION_CLASS } from '../../shared/api-contract.ts';
+import { KERNEL_CONTROL_ACTION_CLASS, KERNEL_READ_PERMISSION } from '../../shared/api-contract.ts';
 import { LEGAL_ACTION_CLASSES } from '../../shared/legal-contract.ts';
+import { extractBearer, type PrincipalResolver } from './auth.ts';
 import type { ServerConfig } from './config.ts';
 import { HttpError } from './errors.ts';
 import { decideGate } from './instance-policy.ts';
@@ -64,9 +65,23 @@ export function requireGate(config: ServerConfig, principal: Principal, actionCl
   if (!decision.allowed) throw new HttpError(403, decision.code, decision.detail);
 }
 
-/** Every class the console knows, decided for this principal. */
+/** Re-resolve the presented credential at a command's execution boundary. */
+export function requireCurrentInstanceOperator(authorizationHeader: string | undefined, resolvePrincipal: PrincipalResolver): Principal {
+  const token = extractBearer(authorizationHeader);
+  let current: Principal | null;
+  try {
+    current = token === null ? null : resolvePrincipal(token);
+  } catch {
+    throw new HttpError(403, 'instance_operator_required');
+  }
+  if (current === null || !isInstanceOperator(current)) throw new HttpError(403, 'instance_operator_required');
+  return current;
+}
+
+/** Kernel read access and every action class, decided for this principal. */
 export function permissionsFor(config: ServerConfig, principal: Principal): Record<string, boolean> {
   const permissions: Record<string, boolean> = {};
+  permissions[KERNEL_READ_PERMISSION] = isInstanceOperator(principal);
   permissions[KERNEL_CONTROL_ACTION_CLASS] = decideAction(config, principal, KERNEL_CONTROL_ACTION_CLASS).allowed;
   for (const actionClass of LEGAL_ACTION_CLASSES) {
     permissions[actionClass] = decideAction(config, principal, actionClass).allowed;

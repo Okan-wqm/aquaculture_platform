@@ -26,7 +26,6 @@ import { resolve } from 'node:path';
 
 import type { AdapterReadinessState, PackReadiness } from '../../shared/api-contract.ts';
 import { LEDGER_SOURCES } from '../../shared/api-contract.ts';
-import { runKernel } from './actions.ts';
 import type { ServerConfig } from './config.ts';
 import { HttpError } from './errors.ts';
 import { readJsonFile, resolveInside } from './fsafe.ts';
@@ -82,7 +81,7 @@ async function registryStatus(toolsDir: string): Promise<string | null> {
  * the console keeps serving its read-only surface, and the health endpoint and
  * the inventory route both say why an inventory cannot run.
  */
-export async function registerLegalAdapter(config: ServerConfig, run: KernelRunner = runKernel): Promise<LegalReadiness> {
+export async function registerLegalAdapter(config: ServerConfig, run: KernelRunner): Promise<LegalReadiness> {
   if (config.workspaceRoot === null) {
     return readiness('not_applicable', 'ARIA_WORKSPACE_ROOT is not configured, so no adapter can run');
   }

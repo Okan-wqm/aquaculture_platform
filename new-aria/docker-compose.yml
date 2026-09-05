@@ -29,6 +29,11 @@ services:
   # Operator console: reads /data/aria-tools, delegates actions to the kernel
   # baked into the same image lineage (ui/Dockerfile builds FROM new-aria:local).
   ui:
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+      - apparmor=aria-legal
+      - seccomp=./arias/legal/docker/seccomp.json
     build:
       context: .
       dockerfile: ui/Dockerfile

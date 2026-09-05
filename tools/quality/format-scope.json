@@ -42244,6 +42244,17 @@
     },
     {
       "class": "archive_immutable",
+      "content_sha256": "7cadf351b80f9c3ba78d520f07f237d39f50de6d5696df229f36ccb934a52309",
+      "hash_policy": "sha256",
+      "owner": "aria-transport-copy",
+      "path": "new-aria/arias/legal/docker/seccomp.json",
+      "prettier_managed": false,
+      "reason": "verbatim transport copy of the ARIA surface; formatting authority is the canonical root path",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
       "content_sha256": "28ca222743cd128aeeeaec3cc10c8cd42bb5cfc845e8ee429f674cb7b38b6e56",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
@@ -42255,7 +42266,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "e44deff140ab1788185e468d0dfdfce1203f51567b6026cc6158898350918d67",
+      "content_sha256": "1d26dc963fcc4fe4f3159d7037a66b1e140562aeedc6e1ea191bde4863997537",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/arias/legal/docs/YETENEK-KAYDI.md",
@@ -44950,7 +44961,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "a5dcfea0f465deb10225a1503c49337f339bc93ac259fc0b3f0dff1e4d4e209a",
+      "content_sha256": "6feedf21d49f38cbfcd4acd4dd0b09dddcb114df9653f6714e49b318bd0d66f5",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/ui/server/src/actions.ts",
@@ -44972,7 +44983,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "e39947714a2af5d92d6ad43d4a0e636e206838632c0c62ca50fc0a40eda06824",
+      "content_sha256": "c4b0d2dc70410500247a92e707fd2a3845081eb18f23d58d42de98fec6702fd2",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/ui/server/src/config.ts",
@@ -45027,7 +45038,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "61d6e19f80185eb4d842e8273a994ed21f352c4fc973dfe9590b8cdd0f711c89",
+      "content_sha256": "74576009623e128e5becb9b1d2f3c0a94af294dd345d27a6dc79185955d7c24b",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/ui/server/src/gates.ts",
@@ -45038,10 +45049,21 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "efde8fb6c920013ffc3dd982ac4980030ee4bbbc8f47215b0dd64eb5d4c718d2",
+      "content_sha256": "867a36afbf8cec1e948ea999420eedfc23e91907494ea6df2eccd8d062d52a3f",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/ui/server/src/index.ts",
+      "prettier_managed": false,
+      "reason": "verbatim transport copy of the ARIA surface; formatting authority is the canonical root path",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "4596ff3e92716129c2f0f33e29530cb444a3b3f044adca1510873bd763b1c724",
+      "hash_policy": "sha256",
+      "owner": "aria-transport-copy",
+      "path": "new-aria/ui/server/src/installation-lock.ts",
       "prettier_managed": false,
       "reason": "verbatim transport copy of the ARIA surface; formatting authority is the canonical root path",
       "review_required": true,
@@ -45093,7 +45115,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "292e14c7cb76ff60505e7558fb42d3292245d66657275333e1e2933716a0fca1",
+      "content_sha256": "4964b1893e422ad353ae2d983fbd54065543525c5f276c5d158450129287cc19",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/ui/server/src/legal-readiness.ts",
@@ -45115,6 +45137,17 @@
     },
     {
       "class": "archive_immutable",
+      "content_sha256": "e6fea98e79b061017b4a48fee6b6bffef3b9dc0886be00f5ce8a36da671bb3a2",
+      "hash_policy": "sha256",
+      "owner": "aria-transport-copy",
+      "path": "new-aria/ui/server/src/principal-admin.ts",
+      "prettier_managed": false,
+      "reason": "verbatim transport copy of the ARIA surface; formatting authority is the canonical root path",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
       "content_sha256": "2a140ee81aafa1306bb33425cfa5a9cca6cb1292799a36f2b062190dad282e12",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
@@ -45126,7 +45159,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "f915dfd75aefd6971fbd7d65843da1c8c7b6db4a759fcdce8c4de4b8b5149377",
+      "content_sha256": "fca37aaeb2d1b977c3db71cf22e301c03b455b0995a72f2c045bf8ccef8d9f60",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/ui/server/src/principals-cli.ts",
@@ -45137,7 +45170,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "a98ba3d5e1bc308a32a58bcf44c04fe1e536d57b571ad89e491ab602b287d77d",
+      "content_sha256": "04eae05018725d2f0e8fa67be571b28c8422aaf9c9a547c0a36e185b6251a631",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/ui/server/src/principals.ts",
@@ -45302,7 +45335,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "256aa3e72b1ea4f69d04348b40d71f81a592f3378cbe1b085f9968e8b44c4ea3",
+      "content_sha256": "e33c1da265a638a7c94d466390767d4e3149445a6023ea55449a65a4f9ac1c7a",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/ui/server/src/routes.ts",
@@ -45313,7 +45346,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "ee2ff9faef153200252c5ea25c7a202790a92d7bbd0618fb45f3cf8e1f84c589",
+      "content_sha256": "040454b6716a54b35fdc452692330fd20aa655ffee4a38733e33d2b3634a56bf",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/ui/server/src/sse.ts",
@@ -45328,6 +45361,17 @@
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/ui/server/src/static.ts",
+      "prettier_managed": false,
+      "reason": "verbatim transport copy of the ARIA surface; formatting authority is the canonical root path",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "60320105d49988e24eaff358a7ccf53fa640f4851cadcbb38f8bf255c881e3b8",
+      "hash_policy": "sha256",
+      "owner": "aria-transport-copy",
+      "path": "new-aria/ui/server/test/actions-lease.test.ts",
       "prettier_managed": false,
       "reason": "verbatim transport copy of the ARIA surface; formatting authority is the canonical root path",
       "review_required": true,
@@ -45544,10 +45588,21 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "20d46835e8adc3c798df2cfbef4479377fd53790129481241450878c3dfe62c5",
+      "content_sha256": "57ee1ecd91de596769487acf6854eb5fd0d8518d996ecc02c06ee8f4f4228c1e",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/ui/server/test/gates.test.ts",
+      "prettier_managed": false,
+      "reason": "verbatim transport copy of the ARIA surface; formatting authority is the canonical root path",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "2b4e1f7bedd56fb235fa3acd895001040204926876af602ef8d498d7544a5c88",
+      "hash_policy": "sha256",
+      "owner": "aria-transport-copy",
+      "path": "new-aria/ui/server/test/installation-lock.test.ts",
       "prettier_managed": false,
       "reason": "verbatim transport copy of the ARIA surface; formatting authority is the canonical root path",
       "review_required": true,
@@ -45621,7 +45676,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "093d27873d87928f18fb010fea5caa42a881870f52d75d8e88b141e2e6f49f9c",
+      "content_sha256": "12f6270be0f7abf80b5842c91b8b06ee3931bef397be576f1609408b871f89b4",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/ui/server/test/legal-routes.test.ts",
@@ -45654,7 +45709,18 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "a18470d3f3e6323864e26f58dec2f68dc36763cb68b56364ac094fc1fbd31f8b",
+      "content_sha256": "208845271c54a2ad010902924835c111d44f90e3e25506efa5a8fe9b2f40b6ff",
+      "hash_policy": "sha256",
+      "owner": "aria-transport-copy",
+      "path": "new-aria/ui/server/test/principal-admin.test.ts",
+      "prettier_managed": false,
+      "reason": "verbatim transport copy of the ARIA surface; formatting authority is the canonical root path",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "ae1ff50bab98a97ce384aff2397db6c052605534bb765eea35c74efec34d530e",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/ui/server/test/principals.test.ts",
@@ -45709,7 +45775,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "5023cb63e1f2274998f4a61f68afaf3347e889a5f0ef7235a08c160478960b10",
+      "content_sha256": "ffd91c3530ed7244aa1634fb18c4e7efba854d95b02696fb62edd078d256ab7a",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/ui/shared/api-contract.ts",
@@ -45863,7 +45929,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "266741d922649516e98c76af70a0812430914c23ce6b097be816fce95715d7d7",
+      "content_sha256": "1095b265b0ebf2ddc2ce5f4a5da0d309acf9dfa1deaf248de9d8ee0dcc00dad4",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/ui/web/src/app/AppLayout.tsx",
@@ -45874,7 +45940,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "ef5ec6bbca7c26847d45ba415ac20a7e77ac79ceb6ee1f20e9b34568d051ea37",
+      "content_sha256": "c7b6fb457a0c8f6d6f72927688a1dadc1344d75dd558ba270e9d0a938028d4d9",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/ui/web/src/app/HealthProvider.tsx",
@@ -45951,7 +46017,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "9a11f4d297e70cd68d0f39a8ed866c41a1a0799f2c4aef948810668048ad1e0f",
+      "content_sha256": "0cab70e8ce2ad3759a8e019d4874dcd5db7045dec0aa778fd5e20f44c9d46f16",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/ui/web/src/app/router.test.tsx",
@@ -45962,7 +46028,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "32624b41f98ac0b27c5b5a0e211fed48107e1438ab6193f2e5d30a0de3bff990",
+      "content_sha256": "905eb8b685f4798246da524eb66f85330010d0c81ab4008edc9c9960bc47fb44",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/ui/web/src/app/router.tsx",

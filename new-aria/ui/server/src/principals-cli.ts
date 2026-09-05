@@ -1,88 +1,48 @@
-// principals — the operator's command for who may open the console.
-//
-// WHY: a principal's token is shown ONCE, at creation, and only its digest is
-// stored; there is no other honest way to hand a lawyer a credential without
-// the console ever holding the secret. Editing the JSON by hand would mean
-// inventing a digest, which nobody can do without the token.
-//
-// WHAT (run from ui/, `npm run principals -- <command>`):
-//   add    --file <principals.json> --id kari --display "Advokat Kari Nordmann" --role lawyer --cases sak-24-001,sak-24-002 | --cases '*'
-//   list   --file <principals.json>
-//   revoke --file <principals.json> --id kari
-// The file path defaults to ARIA_UI_PRINCIPALS_FILE.
+// Online management is the default. Offline recovery takes the same storage locks as the service.
+import { ENDPOINTS } from '../../shared/api-contract.ts';
+import { loadConfig } from './config.ts';
+import { acquireInstallationLock, installationStoragePaths } from './installation-lock.ts';
+import { PrincipalAdministration, parsePrincipalCommand } from './principal-admin.ts';
+import { TOKEN_HOLDER_PRINCIPAL } from './principal.ts';
+import { loadOrCreatePrincipals } from './principals.ts';
 
-import { existsSync } from 'node:fs';
-
-import { LEGAL_CASE_ID_RE } from '../../shared/legal-contract.ts';
-import { ConfigError } from './config.ts';
-import { isPrincipalRole } from './principal.ts';
-import { addPrincipal, loadPrincipals, revokePrincipal } from './principals.ts';
-
-function argValue(argv: ReadonlyArray<string>, name: string): string | null {
+function argValue(argv: ReadonlyArray<string>, name: string): string | undefined {
   const index = argv.indexOf(`--${name}`);
-  if (index < 0) return null;
+  if (index < 0) return undefined;
   const value = argv[index + 1];
-  return value === undefined || value.startsWith('--') ? null : value;
+  if (value === undefined || value.startsWith('--')) throw new Error(`--${name} requires a value`);
+  return value;
 }
 
-function usage(): never {
-  process.stderr.write(
-    [
-      'usage:',
-      '  principals add    --file <principals.json> --id <id> --display <name> --role operator|lawyer --cases <id,id|*>',
-      '  principals list   --file <principals.json>',
-      '  principals revoke --file <principals.json> --id <id>',
-      '--file defaults to ARIA_UI_PRINCIPALS_FILE.',
-      '',
-    ].join('\n'),
-  );
-  process.exit(2);
-}
-
-export function runPrincipalsCli(argv: ReadonlyArray<string>, env: NodeJS.ProcessEnv, now: string): string {
-  const command = argv[0];
-  const file = argValue(argv, 'file') ?? env['ARIA_UI_PRINCIPALS_FILE'] ?? null;
-  if (command === undefined || file === null) usage();
-  if (command === 'list') {
-    if (!existsSync(file)) return `no principals file at ${file}\n`;
-    const rows = loadPrincipals(file).list();
-    return rows.map((row) => `${row.id}\t${row.role}\t${row.revokedAt === null ? 'active' : `revoked ${row.revokedAt}`}\t${row.cases === '*' ? '*' : row.cases.join(',')}\t${row.displayName}`).join('\n') + '\n';
+export async function runPrincipalsCli(argv: ReadonlyArray<string>, env: NodeJS.ProcessEnv, now: string): Promise<string> {
+  const action = argv[0];
+  const cases = argValue(argv, 'cases');
+  const raw = action === 'add' ? { action, id: argValue(argv, 'id'), displayName: argValue(argv, 'display'), role: argValue(argv, 'role'), cases: cases === '*' ? '*' : cases?.split(',').map((value) => value.trim()) } : action === 'revoke' ? { action, id: argValue(argv, 'id') } : { action };
+  const command = parsePrincipalCommand(raw);
+  if (argv.includes('--offline')) {
+    const config = loadConfig({ ...env, ARIA_UI_PRINCIPALS_FILE: argValue(argv, 'file') ?? env['ARIA_UI_PRINCIPALS_FILE'] });
+    if (config.principalsFile === null) throw new Error('offline mode requires a principals file');
+    const lease = acquireInstallationLock(installationStoragePaths(config));
+    try {
+      const directory = loadOrCreatePrincipals(config.principalsFile, null, now);
+      return `${JSON.stringify(new PrincipalAdministration(directory, lease).execute(TOKEN_HOLDER_PRINCIPAL, { ...command }))}\n`;
+    } finally { lease.close(); }
   }
-  if (command === 'add') {
-    const id = argValue(argv, 'id');
-    const displayName = argValue(argv, 'display');
-    const role = argValue(argv, 'role');
-    const casesRaw = argValue(argv, 'cases');
-    if (id === null || displayName === null || role === null || casesRaw === null) usage();
-    if (!isPrincipalRole(role)) throw new ConfigError('ARIA_UI_PRINCIPALS_FILE', `role ${role} is not one the console can authenticate (operator, lawyer)`);
-    const cases = casesRaw === '*' ? ('*' as const) : casesRaw.split(',').map((item) => item.trim()).filter((item) => item !== '');
-    if (cases !== '*') {
-      for (const caseId of cases) {
-        if (!LEGAL_CASE_ID_RE.test(caseId)) throw new ConfigError('ARIA_UI_PRINCIPALS_FILE', `case id ${caseId} does not match the case id pattern`);
-      }
-    }
-    const { token, record } = addPrincipal(file, { id, displayName, role, cases }, now);
-    return [
-      `added ${record.id} (${record.role}) to ${file}`,
-      'token (shown once, never stored):',
-      token,
-      '',
-    ].join('\n');
-  }
-  if (command === 'revoke') {
-    const id = argValue(argv, 'id');
-    if (id === null) usage();
-    const record = revokePrincipal(file, id, now);
-    return `revoked ${record.id} at ${record.revokedAt ?? now}\n`;
-  }
-  return usage();
+  if (argValue(argv, 'file') !== undefined) throw new Error('--file requires explicit --offline; online management uses service storage');
+  const token = env['ARIA_UI_TOKEN'];
+  if (token === undefined || token.trim() === '') throw new Error('ARIA_UI_TOKEN is required for online management');
+  const base = argValue(argv, 'url') ?? env['ARIA_UI_URL'] ?? 'http://127.0.0.1:8480';
+  const url = new URL(ENDPOINTS.principalAdmin.path, base);
+  const response = await fetch(url, { method: ENDPOINTS.principalAdmin.method, redirect: 'error', signal: AbortSignal.timeout(30_000), headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(command) });
+  if (!response.ok) throw new Error(`principal management refused (${response.status})`);
+  return `${JSON.stringify(await response.json())}\n`;
 }
 
 if (process.argv[1] !== undefined && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
   try {
-    process.stdout.write(runPrincipalsCli(process.argv.slice(2), process.env, new Date().toISOString()));
+    process.stdout.write(await runPrincipalsCli(process.argv.slice(2), process.env, new Date().toISOString()));
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-    process.exit(1);
+    process.exitCode = 1;
   }
 }

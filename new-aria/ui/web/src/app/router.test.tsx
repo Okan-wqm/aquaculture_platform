@@ -6,9 +6,12 @@ import { appRoutes } from './router.tsx';
 
 // The shell reads two endpoints: /health for version and actions, /overview for
 // the runtime profile shown in the sidebar health strip.
-function stubFetch(): void {
+function stubFetch(kernelRead = true, requests: string[] = []): void {
   vi.stubGlobal('fetch', async (input: RequestInfo | URL): Promise<Response> => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    requests.push(url);
+    if (url === '/api/v1/me') return new Response(JSON.stringify({ principal: { id: 'user', displayName: 'User', role: kernelRead ? 'operator' : 'lawyer', cases: '*' }, permissions: { kernel_read: kernelRead } }), { status: 200 });
+    if (url === '/api/v1/legal/cases') return new Response(JSON.stringify({ cases: [], total: 0 }), { status: 200 });
     if (url === '/api/v1/health') {
       return new Response(
         JSON.stringify({
@@ -69,11 +72,25 @@ describe('router auth guard', () => {
     expect(state).toEqual({ from: '/cycles' });
   });
 
+  it.each(['/', '/governance', '/actions', '/beliefs'])('keeps legal principals on the legal surface from %s', async (path) => {
+    const requests: string[] = [];
+    stubFetch(false, requests);
+    setToken('present');
+    const router = createMemoryRouter(appRoutes, { initialEntries: [path] });
+    render(<RouterProvider router={router} />);
+    await waitFor(() => expect(router.state.location.pathname).toBe('/legal/cases'));
+    expect(screen.queryByRole('link', { name: 'Governance' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Overview' })).toBeNull();
+    expect(screen.getByRole('link', { name: 'Cases' })).toBeDefined();
+    expect(screen.queryByText('standard')).toBeNull();
+    expect(requests.filter((url) => !['/api/v1/me', '/api/v1/health', '/api/v1/legal/cases'].includes(url))).toEqual([]);
+  });
+
   it('renders the protected shell and marks the current route in the sidebar', async () => {
     setToken('present');
     const router = createMemoryRouter(appRoutes, { initialEntries: ['/cycles'] });
     render(<RouterProvider router={router} />);
-    await waitFor(() => expect(screen.getByRole('navigation', { name: 'Main navigation' })).toBeDefined());
+    await waitFor(() => expect(screen.getByRole('link', { name: 'Cycles' })).toBeDefined());
     expect(router.state.location.pathname).toBe('/cycles');
     expect(screen.getByRole('link', { name: 'Cycles' }).getAttribute('aria-current')).toBe('page');
   });

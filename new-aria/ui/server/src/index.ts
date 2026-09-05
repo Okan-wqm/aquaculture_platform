@@ -13,8 +13,8 @@ import { createServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { API_PREFIX } from '../../shared/api-contract.ts';
-import { JobTable } from './actions.ts';
-import { Authorizer, sharedTokenResolver } from './auth.ts';
+import { JobTable, runKernel } from './actions.ts';
+import { Authorizer } from './auth.ts';
 import type { PrincipalResolver } from './auth.ts';
 import { ConfigError, loadConfig } from './config.ts';
 import type { ServerConfig } from './config.ts';
@@ -26,24 +26,23 @@ import { registerLegalAdapter } from './legal-readiness.ts';
 import { log, maskLegalPath, redactHeaders } from './log.ts';
 import { ANONYMOUS_PRINCIPAL, TOKEN_HOLDER_PRINCIPAL } from './principal.ts';
 import type { PrincipalDirectory } from './principals.ts';
-import { loadOrCreatePrincipals, loadPrincipals, tokenDigest } from './principals.ts';
+import { loadOrCreatePrincipals, tokenDigest } from './principals.ts';
 import { dispatch, sendJson } from './router.ts';
 import { buildRoutes } from './routes.ts';
+import { acquireInstallationLock, installationStoragePaths } from './installation-lock.ts';
+import type { InstallationLock } from './installation-lock.ts';
 import { serveStatic } from './static.ts';
 
 /** Every credential this console accepts, each resolving to one principal. */
-function resolverFor(config: ServerConfig, principals: PrincipalDirectory | null): PrincipalResolver {
-  if (config.principalsFile !== null) {
-    const path = config.principalsFile;
-    return (token) => loadPrincipals(path).resolve(token);
-  }
-  if (principals !== null) return (token) => loadPrincipals(principals.path).resolve(token);
-  return config.token === null ? () => null : sharedTokenResolver(config.token);
+function resolverFor(principals: PrincipalDirectory | null): PrincipalResolver {
+  return principals === null ? () => null : (token) => { principals.reload(); return principals.resolve(token); };
 }
 
-export function createConsoleServer(config: ServerConfig, readiness: LegalReadinessHolder): ReturnType<typeof createServer> {
-  const authorizer = new Authorizer(resolverFor(config, readiness.principals));
-  const routes = buildRoutes(config, new JobTable(), readiness);
+export function createConsoleServer(config: ServerConfig, readiness: LegalReadinessHolder, lease: InstallationLock): ReturnType<typeof createServer> {
+  for (const path of installationStoragePaths(config)) lease.assertOwns(path);
+  const resolvePrincipal = resolverFor(readiness.principals);
+  const authorizer = new Authorizer(resolvePrincipal);
+  const routes = buildRoutes(config, new JobTable(lease), readiness, resolvePrincipal, lease);
 
   const handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const startedAt = process.hrtime.bigint();
@@ -52,6 +51,7 @@ export function createConsoleServer(config: ServerConfig, readiness: LegalReadin
     const remote = req.socket.remoteAddress ?? 'unknown';
     try {
       if (path === API_PREFIX || path.startsWith(`${API_PREFIX}/`)) {
+        for (const storagePath of installationStoragePaths(config)) lease.assertOwns(storagePath);
         const verdict = authorizer.authorize(path, req.headers.authorization, remote);
         if (verdict.kind === 'rate_limited') {
           res.setHeader('Retry-After', String(verdict.retryAfterSeconds));
@@ -101,8 +101,9 @@ export function createConsoleServer(config: ServerConfig, readiness: LegalReadin
  * an unsigned receipt. A broken principals file stops the console: an identity
  * store that half-loads is worse than none.
  */
-export async function prepareLegalReadiness(config: ServerConfig): Promise<LegalReadinessHolder> {
-  const boot = await registerLegalAdapter(config);
+export async function prepareLegalReadiness(config: ServerConfig, lease: InstallationLock): Promise<LegalReadinessHolder> {
+  for (const path of installationStoragePaths(config)) lease.assertOwns(path);
+  const boot = await registerLegalAdapter(config, (cfg, argv, timeoutMs) => runKernel(cfg, argv, timeoutMs, lease));
   log(boot.adapter === 'registered' || boot.adapter === 'not_applicable' ? 'info' : 'error', 'legal adapter readiness', { adapter: boot.adapter, toolId: boot.toolId, detail: boot.detail });
   let signer: LedgerSigner | null = null;
   let signerDetail: string | null = null;
@@ -133,9 +134,10 @@ async function main(): Promise<void> {
     }
     throw error;
   }
+  const lease = acquireInstallationLock(installationStoragePaths(config));
   let readiness: LegalReadinessHolder;
   try {
-    readiness = await prepareLegalReadiness(config);
+    readiness = await prepareLegalReadiness(config, lease);
   } catch (error) {
     if (error instanceof ConfigError) {
       log('error', 'configuration refused', { variable: error.variable, detail: error.message });
@@ -143,9 +145,9 @@ async function main(): Promise<void> {
     }
     throw error;
   }
-  const server = createConsoleServer(config, readiness);
+  const server = createConsoleServer(config, readiness, lease);
   server.listen(config.port, config.host, () => {
-    log('info', 'console listening', { host: config.host, port: config.port, toolsDir: config.toolsDir, actionsEnabled: config.allowActions, identity: readiness.principals === null ? 'shared_token' : 'principals_file', version: config.version });
+    log('info', 'console listening', { host: config.host, port: config.port, toolsDir: config.toolsDir, actionsEnabled: config.allowActions, identity: 'principals_file', version: config.version });
   });
   const shutdown = (signal: string): void => {
     log('info', 'shutting down', { signal });

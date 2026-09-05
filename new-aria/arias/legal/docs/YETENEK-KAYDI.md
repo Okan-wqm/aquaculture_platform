@@ -240,7 +240,7 @@ Kullanıcının kod denetimi sonrası güncel planı önceki Faz 0–8 numaralar
 | Faz | Güncel kapsam | Takip |
 |---|---|---|
 | 0 | Yarım karar sözleşmesi/politika/okuyucu uyumu, tek CI kapısı | LEGAL-HIGH-002 |
-| 1 | Kimlik, tüm dava yüzeyleri, tek yazıcı, snapshot, boş dava | LEGAL-CRITICAL-003/002, LEGAL-HIGH-005 |
+| 1 | Kimlik, tüm dava yüzeyleri, tek yazıcı, snapshot, boş dava | LEGAL-CRITICAL-003, LEGAL-CRITICAL-006, LEGAL-CRITICAL-015, LEGAL-CRITICAL-016, LEGAL-HIGH-005, LEGAL-HIGH-013, LEGAL-HIGH-014 |
 | 2 | Dayanıklı alım, defter, kalıcı işler, değişmez koşum, tam sayfalama | LEGAL-HIGH-004, LEGAL-CRITICAL-006 |
 | 3 | Kaynak anlamı, biçimler, alıntı/konum, zaman ayrımı | LEGAL-CRITICAL-007 |
 | 4 | Avukat kararları, günlük arayüz, kaynak ve türev silme | LEGAL-CRITICAL-008 |
@@ -260,6 +260,13 @@ kaydı içerik erişimini kapatır; kaynak/türev/yedek imhasını tamamlanmış
 Tek yerel kapı: `new-aria/` içinde `npm run legal:check`; gerçek workflow:
 `.github/workflows/new-aria-legal.yml`. Küçük korpustaki precision=1.0 şartı
 korunur; bu korpus üretim kalitesi için istenen avukat etiketli korpusun yerine geçmez.
+
+Güncel doğrulama: 135 sunucu, 72 arayüz testi; iki tip denetimi, iki derleme ve
+adapter kapısı geçti. Genel çekirdek rotaları sınırsız operator iznine bağlıdır;
+SSE ve gövdesi geç tamamlanan komutlar güncel kimliği yeniden doğrular.
+Servis/CLI kilitleri ve PID namespace süreç testleri vardır. Çoklu süreç kaybı
+sırasında mutlak tek-yazıcı güvencesi ile gerçek konteyner profil doğrulaması
+tamamlanmadığından LEGAL-CRITICAL-016 ve LEGAL-CRITICAL-011 açıktır. R1 hazır değildir.
 
 ---
 
@@ -527,4 +534,3 @@ etiketi (yalnız tutar), anahtar rotasyonu.
 
 Yapılmayan: principals dosyası açılışta okunur (yeni kişi için yeniden başlatma; compose `restart` politikası); SPA'da yalnız
 kimlik rozeti (Faz 6'da rol bazlı kontroller); anahtar/token rotasyonu; okuma denetiminin konsolda görünmesi (Faz 6).
-

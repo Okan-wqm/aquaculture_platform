@@ -1,5 +1,7 @@
 // Route table. Exported separately from the browser router so tests can mount the
 // same tree in a memory router.
+import { KERNEL_READ_PERMISSION } from '../../../shared/api-contract.ts';
+import { useHealth } from './HealthProvider.tsx';
 import type { ReactNode } from 'react';
 import { createBrowserRouter, Navigate, Outlet, type RouteObject } from 'react-router-dom';
 import { ActionsPage } from '../features/core/ActionsPage.tsx';
@@ -41,6 +43,12 @@ function RootShell(): ReactNode {
   );
 }
 
+function RequireKernelRead(): ReactNode {
+  const health = useHealth();
+  if (health.me === null) return <p>Reading permissions…</p>;
+  return health.can(KERNEL_READ_PERMISSION) ? <Outlet /> : <Navigate to={ROUTES.legalCases} replace />;
+}
+
 export const appRoutes: RouteObject[] = [
   {
     element: <RootShell />,
@@ -54,21 +62,26 @@ export const appRoutes: RouteObject[] = [
             path: '/',
             element: <AppLayout />,
             children: [
-              { index: true, element: <OverviewPage /> },
-              { path: 'cycles', element: <CyclesPage /> },
-              { path: 'cycles/:cycleId', element: <CycleDetailPage /> },
-              { path: 'governance', element: <GovernancePage /> },
-              { path: 'findings', element: <FindingsPage /> },
-              { path: 'beliefs', element: <BeliefsPage /> },
-              { path: 'pressures', element: <PressuresPage /> },
-              { path: 'human-required', element: <HumanRequiredPage /> },
-              { path: 'agents', element: <AgentsPage /> },
-              { path: 'plans', element: <PlansPage /> },
-              { path: 'tools', element: <ToolsPage /> },
-              { path: 'reports', element: <ReportsPage /> },
-              { path: 'reports/:date', element: <ReportReaderPage /> },
-              { path: 'ledgers', element: <LedgersPage /> },
-              { path: 'actions', element: <ActionsPage /> },
+              {
+                element: <RequireKernelRead />,
+                children: [
+                  { index: true, element: <OverviewPage /> },
+                  { path: 'cycles', element: <CyclesPage /> },
+                  { path: 'cycles/:cycleId', element: <CycleDetailPage /> },
+                  { path: 'governance', element: <GovernancePage /> },
+                  { path: 'findings', element: <FindingsPage /> },
+                  { path: 'beliefs', element: <BeliefsPage /> },
+                  { path: 'pressures', element: <PressuresPage /> },
+                  { path: 'human-required', element: <HumanRequiredPage /> },
+                  { path: 'agents', element: <AgentsPage /> },
+                  { path: 'plans', element: <PlansPage /> },
+                  { path: 'tools', element: <ToolsPage /> },
+                  { path: 'reports', element: <ReportsPage /> },
+                  { path: 'reports/:date', element: <ReportReaderPage /> },
+                  { path: 'ledgers', element: <LedgersPage /> },
+                  { path: 'actions', element: <ActionsPage /> },
+                ],
+              },
               { path: 'legal', element: <Navigate to={ROUTES.legalCases} replace /> },
               { path: 'legal/cases', element: <CasesPage /> },
               {

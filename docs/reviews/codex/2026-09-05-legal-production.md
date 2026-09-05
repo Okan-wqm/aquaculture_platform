@@ -171,5 +171,63 @@ Durum: IN-PROGRESS. Sahip: Codex. Hedef: 2026-09-05. Faz: 1.
 İş sorgusu dava kapsamını taşımıyordu. Kabul: kayıt dava kimliğini saklar ve
 GET job yalnız o davaya atanmış principal'a cevap verir; diğer dava 404 alır.
 Genel cycle işi yalnız tüm davalara yetkili operator tarafından okunur.
-Çalışan işin yetki sürümüyle durdurulması/yayın reddi ve genel kernel okuma
-rotalarının hukuk örneğindeki kısıtları LEGAL-CRITICAL-006 altında hâlâ açıktır.
+Çalışan işin yetki sürümüyle durdurulması/yayın reddi LEGAL-CRITICAL-006 altında
+hâlâ açıktır. Genel kernel okuma kısıtları LEGAL-CRITICAL-015 ile ayrı izlenir.
+
+<a id="kernel-global-access"></a>
+
+## LEGAL-CRITICAL-015
+
+Genel çekirdek yüzeylerinin dava kullanıcılarına açılması.
+
+Durum: IN-PROGRESS. Sahip: Codex. Hedef: 2026-09-05. Faz: 1.
+
+Dava kapsamlı kullanıcılar genel çekirdek hafızası, bulgu, geçmiş, günlük,
+SSE ve tanılama yollarına erişebiliyordu. Kabul: her genel endpoint açık
+yetki sınıfı taşır; tüm davalara yetkili operator dışındaki principal istekleri
+okuyucu/komut/akış başlamadan reddedilir. Açık akışın yetkisi kaldırılınca akış
+kapanır. Arayüz aynı izne göre gezinir ve genel veriyi önceden yüklemez.
+Bu alt bulgu çalışan envanter işinin yayın sürümü kontrolünü kapsamaz.
+
+Kanıt: katalog testleri ilk durumda 51 uygunsuz cevabı yakaladı. SSE iptal,
+kapsam daraltma ve bozuk/eksik kimlik deposunda kapanır. Control/cycle/admin
+gövdesi beklerken iptal, kapsam değişimi ve token yenileme sonrası komut
+başlamaz; değişmeyen kimlikte işlev sürer. Birleşik kapı: 135 sunucu ve
+72 arayüz testi, tip denetimleri, derlemeler ve adapter kontrolleri geçti.
+
+<a id="single-writer-authority"></a>
+
+## LEGAL-CRITICAL-016
+
+Servis ve yönetim CLI'sinin ortak durum yazma yarışı.
+
+Durum: IN-PROGRESS. Sahip: Codex. Hedef: 2026-09-05. Faz: 1.
+
+Servis başlangıcı ve principal yönetim CLI'si aynı kurulum üzerinde karşılıklı
+dışlama olmadan dosya yazabiliyordu. Kabul: servis bütün başlangıç yazımlarından
+önce işletim sistemi kilidi edinir; ikinci servis ve çevrimdışı CLI aynı
+depolama üzerinde yazamaz. Süreç ölümü kilidi bırakır; bayat PID tahmini veya
+kilit dosyasını silme kullanılmaz. Çevrimiçi yönetim tek servis yazıcısına
+bağlanır ve yalnız sınırsız operator yetkisiyle çalışır. Anahtar ve mevcut
+principal dosyaları başlangıçta ezilmez. İşçi snapshot/PID/ağ izolasyonu
+LEGAL-CRITICAL-006 altında ayrıca açıktır.
+
+Uygulanan alt kapsam: servis ve CLI ortak depolama kimliklerini Linux flock
+ile kilitler; çevrimiçi yönetim tek serviste çalışır. Alt süreç özel user/mount/PID
+namespace'inde başlatılır; doğrudan çocuk kilidi devralır. Gerçek Python
+subprocess testi, tanıtıcılarını kapatıp ayrı oturum açan adapter'ın kernel
+çıkışı ve süre aşımından sonra yazmadığını doğrular.
+
+**Bu bulgu henüz kapanmış değildir.** Servis ve unshare monitörünün birlikte
+kaybında son kilit tanıtıcısının bırakılması, Linux'un PID namespace çocuklarını
+tamamen temizlemesinden önce gerçekleşebilir. Eski adapter'ın canlı sonuca
+yazmasını yapısal olarak engelleyen snapshot/iş alanı ve servis yayın katmanı
+LEGAL-CRITICAL-006 kapsamında tamamlanmalıdır. Bu commit eşzamanlı çoklu süreç
+kaybı için mutlak tek-yazıcı güvencesi iddia etmez.
+
+Konteyner kanıtı: mevcut Docker default profili namespace oluşturmayı reddetti.
+`arias/legal/docker/apparmor.profile` yüklenmeden ayrıştırıldı; seccomp dosyası
+sabit Moby kaynağından türetildi; iki console Compose servisi bu profilleri
+zorunlu kılar. Yeni AppArmor profili paylaşılan host çekirdeğine yüklenmedi;
+özel profille gerçek konteyner yürütme doğrulaması ve kurulum kapısı
+LEGAL-CRITICAL-011 altında açıktır. Korumasız çalıştırma yolu eklenmedi.

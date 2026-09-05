@@ -9,7 +9,8 @@
 // case-scoped request lands in the case's signed access ledger; the request
 // log names no case and no file; kernel control stays 403.
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, mkdirSync, mkdtempSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { request } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -22,10 +23,11 @@ import { accessCanonical, ACCESS_LEDGER } from '../src/access-log.ts';
 import type { AccessRecord } from '../src/access-log.ts';
 import { loadConfig } from '../src/config.ts';
 import { createConsoleServer, prepareLegalReadiness } from '../src/index.ts';
+import { acquireInstallationLock, installationStoragePaths } from '../src/installation-lock.ts';
 import { readHead, verifyLedger } from '../src/ledger.ts';
 import { LEGAL_ADAPTER_MANIFEST } from '../src/legal-readiness.ts';
 import { setLogWriter } from '../src/log.ts';
-import { addPrincipal, revokePrincipal } from '../src/principals.ts';
+import { addPrincipal, revokePrincipal, tokenDigest } from '../src/principals.ts';
 
 const OPERATOR_TOKEN = 'route-test-token-0123456789abcdef';
 const LEGAL_MANIFEST = new URL('../../../arias/legal/aria.manifest.json', import.meta.url).pathname;
@@ -47,7 +49,7 @@ interface Harness {
  * a kernel stand-in that records its argv and exits 0, and a principals file
  * seeded with the operator plus one lawyer assigned to sak-24-001.
  */
-async function harness(registryStatus: string | null): Promise<Harness> {
+async function harness(registryStatus: string | null, allowActions = false, bodyStarted?: () => void): Promise<Harness> {
   const workspace = mkdtempSync(join(tmpdir(), 'aria-routes-ws-'));
   mkdirSync(join(workspace, 'packs', 'legal', 'adapters'), { recursive: true });
   writeFileSync(join(workspace, LEGAL_ADAPTER_MANIFEST), '{"tool_id":"legal-document-inventory"}');
@@ -67,9 +69,9 @@ async function harness(registryStatus: string | null): Promise<Harness> {
     ARIA_TOOLS_DIR: toolsDir,
     ARIA_WORKSPACE_ROOT: workspace,
     ARIA_LEGAL_CASES_DIR: join(workspace, 'data', 'legal-cases'),
-    ARIA_INSTANCE_MANIFEST: LEGAL_MANIFEST,
+    ARIA_INSTANCE_MANIFEST: allowActions ? '' : LEGAL_MANIFEST,
     ARIA_KERNEL_BIN: kernelBin,
-    ARIA_UI_ALLOW_ACTIONS: '0',
+    ARIA_UI_ALLOW_ACTIONS: allowActions ? '1' : '0',
     ARIA_UI_HOST: '127.0.0.1',
     ARIA_UI_PORT: '8480',
     ARIA_UI_LEDGER_KEY_FILE: join(workspace, 'keys', 'ledger-ed25519.pem'),
@@ -79,9 +81,10 @@ async function harness(registryStatus: string | null): Promise<Harness> {
   // operator). Log lines go to a sink, never to the test runner's stdout.
   const logLines: string[] = [];
   setLogWriter((line) => logLines.push(line));
+  const lease = acquireInstallationLock(installationStoragePaths(config));
   let readiness;
   try {
-    readiness = await prepareLegalReadiness(config);
+    readiness = await prepareLegalReadiness(config, lease);
   } finally {
     setLogWriter(null);
   }
@@ -91,7 +94,8 @@ async function harness(registryStatus: string | null): Promise<Harness> {
   const { loadPrincipals } = await import('../src/principals.ts');
   readiness.principals = loadPrincipals(principalsFile);
 
-  const server = createConsoleServer(config, readiness);
+  const server = createConsoleServer(config, readiness, lease);
+  if (bodyStarted !== undefined) server.on('request', (req) => { req.once('data', bodyStarted); });
   await new Promise<void>((resolveListen) => server.listen(0, '127.0.0.1', resolveListen));
   const { port } = server.address() as AddressInfo;
   return {
@@ -102,7 +106,7 @@ async function harness(registryStatus: string | null): Promise<Harness> {
     argvLog,
     lawyerToken: lawyer.token,
     logLines,
-    close: () => new Promise<void>((resolveClose) => server.close(() => resolveClose())),
+    close: () => new Promise<void>((resolveClose) => server.close(() => { lease.close(); resolveClose(); })),
   };
 }
 
@@ -347,3 +351,136 @@ test('inventory jobs are readable only by principals assigned to the job case', 
     }
   } finally { await h.close(); }
 });
+
+test('every global kernel endpoint refuses case principals before producing data, streams or commands', async () => {
+  const h = await harness('registered');
+  try {
+    const principalsFile = join(h.workspace, 'data', 'legal', 'principals.json');
+    const wildcard = addPrincipal(principalsFile, { id: 'wild-lawyer', displayName: 'Wildcard lawyer', role: 'lawyer', cases: '*' }, new Date().toISOString());
+    const restricted = addPrincipal(principalsFile, { id: 'scoped-operator', displayName: 'Scoped operator', role: 'operator', cases: ['sak-24-001'] }, new Date().toISOString());
+    const before = readFileSync(h.argvLog, 'utf8');
+    const failures: string[] = [];
+    for (const token of [h.lawyerToken, wildcard.token, restricted.token]) {
+      for (const [name, endpoint] of Object.entries(ENDPOINTS)) {
+        if (['health', 'me', 'job'].includes(name)) continue;
+        const response = await fetch(`${h.base}${endpoint.path.replace(/:[A-Za-z]+/g, 'absent')}`, {
+          method: endpoint.method, headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(3000),
+        });
+        if (response.status !== 403) failures.push(`${name}: ${response.status}`);
+        if (response.status === 403) {
+          const error = await response.json();
+          assert.equal(error.error, 'instance_operator_required', name);
+        } else if (response.body !== null) await response.body.cancel();
+      }
+    }
+    assert.deepEqual(failures, []);
+    assert.equal(readFileSync(h.argvLog, 'utf8'), before, 'refused requests never invoke the kernel');
+  } finally { await h.close(); }
+});
+
+
+test('unrestricted operator retains global reads and diagnostics when kernel control is disabled', async () => {
+  const h = await harness('registered');
+  try {
+    for (const [name, endpoint] of Object.entries(ENDPOINTS)) {
+      if (endpoint.path.includes(':') || ['health', 'me', 'actionControl', 'actionCycle', 'principalAdmin'].includes(name)) continue;
+      const response = await fetch(`${h.base}${endpoint.path}`, { method: endpoint.method, headers: { authorization: `Bearer ${OPERATOR_TOKEN}` }, signal: AbortSignal.timeout(3000) });
+      assert.equal(response.status, 200, name);
+      if (response.body !== null) await response.body.cancel();
+    }
+  } finally { await h.close(); }
+});
+
+
+for (const change of ['revoked', 'restricted', 'malformed', 'missing'] as const) {
+  test(`an open governance stream closes when its principal becomes ${change}`, async () => {
+    const h = await harness('registered');
+    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+    try {
+      const path = join(h.workspace, 'data', 'legal', 'principals.json');
+      const issued = addPrincipal(path, { id: 'stream-operator', displayName: 'Stream operator', role: 'operator', cases: '*' }, new Date().toISOString());
+      const response = await fetch(`${h.base}${ENDPOINTS.governanceStream.path}`, { headers: { authorization: `Bearer ${issued.token}` }, signal: AbortSignal.timeout(5500) });
+      assert.equal(response.status, 200);
+      assert.ok(response.body);
+      reader = response.body.getReader();
+      await reader.read();
+      if (change === 'restricted') {
+        appendFileSync(join(h.toolsDir, 'governance.jsonl'), JSON.stringify({ event: 'AUTHORIZED_EVENT' }) + '\n');
+        const initial = await reader.read();
+        assert.match(new TextDecoder().decode(initial.value), /AUTHORIZED_EVENT/);
+      }
+      if (change === 'revoked') revokePrincipal(path, issued.record.id, new Date().toISOString());
+      else if (change === 'missing') unlinkSync(path);
+      else if (change === 'malformed') writeFileSync(path, '{');
+      else {
+        const directory = JSON.parse(readFileSync(path, 'utf8'));
+        directory.principals.find((principal: { id: string }) => principal.id === issued.record.id).cases = ['sak-24-001'];
+        writeFileSync(path, JSON.stringify(directory));
+      }
+      // Idle streams must close too; no appended row is needed to trigger revocation.
+      if (change === 'restricted') appendFileSync(join(h.toolsDir, 'governance.jsonl'), JSON.stringify({ event: 'RESTRICTED_EVENT' }) + '\n');
+      const activeReader = reader;
+      let frames = '';
+      const ended = (async (): Promise<boolean> => {
+        while (true) {
+          const chunk = await activeReader.read();
+          if (chunk.done) return true;
+          frames += new TextDecoder().decode(chunk.value);
+        }
+      })();
+      const closed = await Promise.race([ended, new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1800))]);
+      assert.equal(closed, true, 'revoked idle stream must close within the one-second authorization poll');
+      appendFileSync(join(h.toolsDir, 'governance.jsonl'), JSON.stringify({ event: 'AFTER_REVOCATION', at: new Date().toISOString() }) + '\n');
+      assert.equal(frames.includes('data:'), false);
+    } finally {
+      if (reader !== null) await reader.cancel();
+      await h.close();
+    }
+  });
+}
+
+
+for (const endpoint of [ENDPOINTS.actionControl, ENDPOINTS.actionCycle, ENDPOINTS.principalAdmin]) {
+  for (const change of ['revoke', 'restrict', 'rotate', 'unchanged'] as const) {
+    test(`${endpoint.path} rechecks the original credential after a split body (${change})`, async () => {
+      let bodyObserved: () => void = () => undefined;
+      const observed = new Promise<void>((resolve) => { bodyObserved = resolve; });
+      const h = await harness('registered', true, bodyObserved);
+      try {
+        const principalsFile = join(h.workspace, 'data', 'legal', 'principals.json');
+        const operator = addPrincipal(principalsFile, { id: 'waiting-operator', displayName: 'Waiting operator', role: 'operator', cases: '*' }, new Date().toISOString());
+        const before = readFileSync(h.argvLog, 'utf8');
+        const body = endpoint === ENDPOINTS.actionControl ? { verb: 'pause', reason: 'split body test' }
+          : endpoint === ENDPOINTS.actionCycle ? { cycleId: 'split-body-cycle' }
+          : { action: 'add', id: 'unexpected-user', displayName: 'Unexpected', role: 'lawyer', cases: '*' };
+        const encoded = JSON.stringify(body);
+        const pending = request(`${h.base}${endpoint.path}`, { method: 'POST', headers: { authorization: `Bearer ${operator.token}`, 'content-type': 'application/json' } });
+        const answer = new Promise<{ status: number; body: string }>((resolve, reject) => {
+          pending.on('error', reject);
+          pending.on('response', (res) => {
+            let responseBody = '';
+            res.on('data', (chunk: Buffer) => { responseBody += chunk.toString(); });
+            res.on('error', reject);
+            res.on('end', () => resolve({ status: res.statusCode ?? 0, body: responseBody }));
+          });
+        });
+        pending.write(encoded.slice(0, 1));
+        await observed;
+        if (change === 'revoke') revokePrincipal(principalsFile, operator.record.id, new Date().toISOString());
+        else if (change !== 'unchanged') {
+          const directory = JSON.parse(readFileSync(principalsFile, 'utf8'));
+          const current = directory.principals.find((entry: { id: string }) => entry.id === operator.record.id);
+          if (change === 'restrict') current.cases = ['sak-24-001'];
+          else current.tokenSha256 = tokenDigest('rotated-token-not-presented-in-request');
+          writeFileSync(principalsFile, JSON.stringify(directory));
+        }
+        pending.end(encoded.slice(1));
+        const response = await answer;
+        assert.equal(response.status, change === 'unchanged' ? (endpoint === ENDPOINTS.actionCycle ? 202 : 200) : 403, endpoint.path);
+        if (change !== 'unchanged') assert.equal(readFileSync(h.argvLog, 'utf8'), before, 'no stale-authority kernel command');
+        const directory = JSON.parse(readFileSync(principalsFile, 'utf8'));
+        assert.equal(directory.principals.some((entry: { id: string }) => entry.id === 'unexpected-user'), change === 'unchanged' && endpoint === ENDPOINTS.principalAdmin);
+      } finally { await h.close(); }
+    });
+  }
+}

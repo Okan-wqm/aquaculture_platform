@@ -8,6 +8,11 @@
 services:
   legal-ui:
     image: new-aria-ui:local
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+      - apparmor=aria-legal
+      - seccomp=./arias/legal/docker/seccomp.json
     environment:
       ARIA_UI_TOKEN: ${LEGAL_UI_TOKEN:?set a token for the legal instance only}
       ARIA_UI_PORT: "8480"
@@ -31,9 +36,11 @@ services:
       ARIA_UI_LEDGER_KEY_FILE: /data/legal/keys/ledger-ed25519.pem
       # Who may open this console, as what, on which cases. Seeded at first
       # boot with the operator behind LEGAL_UI_TOKEN; a lawyer is added with
-      #   docker compose ... exec legal-ui npm --prefix /opt/new-aria/ui run principals -- add \
+      #   docker compose ... exec legal-ui node /opt/new-aria/ui/server/dist/server/src/principals-cli.js add \
       #     --id kari --display "Advokat Kari Nordmann" --role lawyer --cases sak-24-001
-      # which prints that person's token once. Tokens are never stored, only
+      # This calls the running service using ARIA_UI_TOKEN, and prints the new token once.
+      # Offline recovery requires --offline while this service is stopped.
+      # Tokens are never stored, only
       # their digests; the receipt and the access ledger name the principal.
       ARIA_UI_PRINCIPALS_FILE: /data/legal/principals.json
       # The instance manifest is loaded and ENFORCED. runtime.allow_actions

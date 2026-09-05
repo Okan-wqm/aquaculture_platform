@@ -17,6 +17,8 @@ import { isInstanceOperator } from './principal.ts';
 import type { Principal } from './principal.ts';
 import { canSeeCase } from './principals.ts';
 import { HttpError } from './errors.ts';
+import type { InstallationLock } from './installation-lock.ts';
+import { installationStoragePaths } from './installation-lock.ts';
 
 /** The pack adapter the console can run over a case archive. */
 const LEGAL_INVENTORY_TOOL_ID = 'legal-document-inventory';
@@ -36,19 +38,40 @@ function appendBounded(current: string, chunk: Buffer, cap: number): string {
   return next.length > cap ? next.slice(next.length - cap) : next;
 }
 
-export function runKernel(config: ServerConfig, argv: ReadonlyArray<string>, timeoutMs: number): Promise<SpawnOutcome> {
+export function runKernel(config: ServerConfig, argv: ReadonlyArray<string>, timeoutMs: number, lease: InstallationLock): Promise<SpawnOutcome> {
+  for (const path of installationStoragePaths(config)) lease.assertOwns(path);
+  const lockDescriptors = lease.childFileDescriptors();
   return new Promise((resolveOutcome, rejectOutcome) => {
-    const child = spawn(config.kernelBin, [...argv], {
+    // The kernel is PID 1 in a fresh namespace. Its exit kills every adapter
+    // descendant, including processes that close inherited fds or call setsid.
+    // The unshare monitor retains the lease until that namespace is gone.
+    // Unsupported user/PID namespaces fail the job; there is no direct spawn.
+    const child = spawn('/usr/bin/unshare', ['--user', '--map-current-user', '--pid', '--fork', '--kill-child=KILL', '--mount-proc', '--', config.kernelBin, ...argv], {
       cwd: config.workspaceRoot ?? config.toolsDir,
       env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1', PYTHONUNBUFFERED: '1' },
-      stdio: ['ignore', 'pipe', 'pipe'],
+      // Inherited open-file descriptions retain the writer lease even if
+      // the service exits while the kernel is still writing persistent state.
+      stdio: ['ignore', 'pipe', 'pipe', ...lockDescriptors],
+      detached: true,
     });
+    if (child.stdout === null || child.stderr === null) {
+      child.on('error', rejectOutcome);
+      child.kill('SIGKILL');
+      rejectOutcome(new Error('kernel output pipes were not created'));
+      return;
+    }
     let stdout = '';
     let stderr = '';
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill('SIGKILL');
+      if (child.pid !== undefined) {
+        try {
+          process.kill(-child.pid, 'SIGKILL');
+        } catch (error) {
+          if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) rejectOutcome(error);
+        }
+      }
     }, timeoutMs);
     child.stdout.on('data', (chunk: Buffer) => {
       stdout = appendBounded(stdout, chunk, OUTPUT_CAP_BYTES);
@@ -75,9 +98,9 @@ function parseJsonOrNull(text: string): unknown {
   }
 }
 
-async function runAction(config: ServerConfig, argv: ReadonlyArray<string>): Promise<ActionResponse> {
+async function runAction(config: ServerConfig, argv: ReadonlyArray<string>, lease: InstallationLock): Promise<ActionResponse> {
   const startedAt = new Date().toISOString();
-  const outcome = await runKernel(config, argv, config.actionTimeoutMs);
+  const outcome = await runKernel(config, argv, config.actionTimeoutMs, lease);
   const finishedAt = new Date().toISOString();
   return {
     ok: outcome.exitCode === 0 && !outcome.timedOut,
@@ -100,21 +123,21 @@ function requireActions(config: ServerConfig): void {
   if (!config.allowActions) throw new HttpError(403, 'actions_disabled', 'set ARIA_UI_ALLOW_ACTIONS=1 to enable mutating actions');
 }
 
-export function integrityVerify(config: ServerConfig): Promise<ActionResponse> {
+export function integrityVerify(config: ServerConfig, lease: InstallationLock): Promise<ActionResponse> {
   const workspace = requireWorkspace(config);
-  return runAction(config, ['integrity', 'verify', '--tools-dir', config.toolsDir, '--workspace-root', workspace, '--workspace-base', config.workspaceBase]);
+  return runAction(config, ['integrity', 'verify', '--tools-dir', config.toolsDir, '--workspace-root', workspace, '--workspace-base', config.workspaceBase], lease);
 }
 
-export function doctor(config: ServerConfig): Promise<ActionResponse> {
+export function doctor(config: ServerConfig, lease: InstallationLock): Promise<ActionResponse> {
   const workspace = requireWorkspace(config);
-  return runAction(config, ['doctor', '--tools-dir', config.toolsDir, '--workspace-root', workspace]);
+  return runAction(config, ['doctor', '--tools-dir', config.toolsDir, '--workspace-root', workspace], lease);
 }
 
-export function control(config: ServerConfig, verb: string, reason: string): Promise<ActionResponse> {
+export function control(config: ServerConfig, verb: string, reason: string, lease: InstallationLock): Promise<ActionResponse> {
   requireActions(config);
   if (verb !== 'pause' && verb !== 'resume') throw new HttpError(400, 'control_verb_invalid');
   if (reason.trim().length < 10) throw new HttpError(400, 'reason_too_short', 'the kernel audit row needs at least 10 characters');
-  return runAction(config, ['control', verb, '--tools-dir', config.toolsDir, '--reason', reason.trim()]);
+  return runAction(config, ['control', verb, '--tools-dir', config.toolsDir, '--reason', reason.trim()], lease);
 }
 
 export interface LegalInventoryRequest {
@@ -148,6 +171,11 @@ interface JobRecord {
 
 export class JobTable {
   private readonly jobs = new Map<string, JobRecord>();
+  private readonly lease: InstallationLock;
+
+  constructor(lease: InstallationLock) {
+    this.lease = lease;
+  }
 
   startCycle(config: ServerConfig, cycleId: string | undefined, discoveryOnly: boolean): JobResponse {
     requireActions(config);
@@ -168,7 +196,7 @@ export class JobTable {
       stderrTail: '',
     };
     this.jobs.set(record.jobId, record);
-    runKernel(config, argv, config.actionTimeoutMs)
+    runKernel(config, argv, config.actionTimeoutMs, this.lease)
       .then((outcome) => {
         record.state = outcome.exitCode === 0 && !outcome.timedOut ? 'succeeded' : 'failed';
         record.exitCode = outcome.exitCode;
@@ -250,7 +278,7 @@ export class JobTable {
       stderrTail: '',
     };
     this.jobs.set(record.jobId, record);
-    runKernel(config, argv, config.actionTimeoutMs)
+    runKernel(config, argv, config.actionTimeoutMs, this.lease)
       .then((outcome) => {
         record.state = outcome.exitCode === 0 && !outcome.timedOut ? 'succeeded' : 'failed';
         record.exitCode = outcome.exitCode;

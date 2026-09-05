@@ -81,20 +81,28 @@ test('every malformed shape fails closed: bad JSON, unknown schema, bad id, alie
   assert.throws(() => loadPrincipals(path), /must be a JSON object/);
 });
 
-test('the CLI adds, lists and revokes over argv, printing the token once', () => {
+test('offline CLI explicitly locks storage and adds, lists and revokes without disclosing stored digests', async () => {
   const path = file('cli');
-  const added = runPrincipalsCli(['add', '--file', path, '--id', 'kari', '--display', 'Advokat Kari Nordmann', '--role', 'lawyer', '--cases', 'sak-24-001,sak-24-002'], {}, NOW);
-  assert.match(added, /added kari \(lawyer\)/);
-  const token = added.trim().split('\n').at(-1) ?? '';
-  assert.ok(token.length >= 40);
-  assert.equal(loadPrincipals(path).resolve(token)?.id, 'kari');
-  const listed = runPrincipalsCli(['list', '--file', path], {}, NOW);
-  assert.match(listed, /^kari\tlawyer\tactive\tsak-24-001,sak-24-002\tAdvokat Kari Nordmann$/m);
-  assert.match(runPrincipalsCli(['revoke', '--file', path, '--id', 'kari'], {}, NOW), /revoked kari/);
-  assert.equal(loadPrincipals(path).resolve(token), null);
-  assert.throws(() => runPrincipalsCli(['add', '--file', path, '--id', 'x', '--display', 'X', '--role', 'judge', '--cases', '*'], {}, NOW), /role judge/);
-  assert.throws(() => runPrincipalsCli(['add', '--file', path, '--id', 'y', '--display', 'Y', '--role', 'lawyer', '--cases', 'Bad Case'], {}, NOW), /case id/);
-  // The file path may come from the environment.
-  assert.match(runPrincipalsCli(['list'], { ARIA_UI_PRINCIPALS_FILE: path }, NOW), /kari/);
+  const env = { ARIA_UI_PRINCIPALS_FILE: path, ARIA_TOOLS_DIR: path + '-tools' };
+  const added = JSON.parse(await runPrincipalsCli(['add', '--offline', '--id', 'kari', '--display', 'Kari', '--role', 'lawyer', '--cases', '*'], env, NOW));
+  assert.equal(loadPrincipals(path).resolve(added.token)?.id, 'kari');
+  const listed = await runPrincipalsCli(['list', '--offline'], env, NOW);
+  assert.match(listed, /kari/);
+  assert.ok(!listed.includes('tokenSha256'));
+  assert.ok(!listed.includes(added.token));
+  await runPrincipalsCli(['revoke', '--offline', '--id', 'kari'], env, NOW);
+  assert.equal(loadPrincipals(path).resolve(added.token), null);
+  await assert.rejects(runPrincipalsCli(['list', '--file', path], env, NOW), /explicit --offline/);
   assert.ok(existsSync(path));
+});
+
+
+test('existing principals are never reseeded when bootstrap token changes', () => {
+  const path = file('no-reseed');
+  loadOrCreatePrincipals(path, { id: 'original', displayName: 'Original', tokenSha256: tokenDigest('original-token') }, NOW);
+  const before = readFileSync(path, 'utf8');
+  const loaded = loadOrCreatePrincipals(path, { id: 'replacement', displayName: 'Replacement', tokenSha256: tokenDigest('replacement-token') }, NOW);
+  assert.equal(readFileSync(path, 'utf8'), before);
+  assert.equal(loaded.resolve('replacement-token'), null);
+  assert.equal(loaded.resolve('original-token')?.id, 'original');
 });

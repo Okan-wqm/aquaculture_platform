@@ -4,8 +4,9 @@
 // description of the API; binding by the contract's own path strings means a
 // path typo here is a type error, not a 404 discovered in the browser.
 //
-// Authorization is per ACTION CLASS. Kernel control (cycle run, pause, resume)
-// answers to the environment-and-manifest switch; every case action answers to
+// Endpoint authorization runs before dispatch: global kernel data and commands
+// require an unrestricted instance operator. Action authorization is then per
+// ACTION CLASS. Kernel control (cycle run, pause, resume) answers to the environment-and-manifest switch; every case action answers to
 // the instance's approval policy through `requireGate`, which names the class
 // and the role it needs when it refuses. The principal a route writes into a
 // receipt is the one the server authenticated — a route never reads an
@@ -21,9 +22,10 @@
 import type { IncomingMessage } from 'node:http';
 
 import type { HealthResponse, WhoAmIResponse } from '../../shared/api-contract.ts';
-import { DEFAULT_LIMIT, ENDPOINTS, KERNEL_CONTROL_ACTION_CLASS, LEDGER_SOURCES, MAX_LIMIT } from '../../shared/api-contract.ts';
+import { DEFAULT_LIMIT, ENDPOINTS, ENDPOINT_ACCESS, KERNEL_CONTROL_ACTION_CLASS, LEDGER_SOURCES, MAX_LIMIT } from '../../shared/api-contract.ts';
 import type { LegalCaseCreatedResponse, LegalIntakeResponse, LegalUploadResponse } from '../../shared/legal-contract.ts';
 import { LEGAL_ENDPOINTS, LEGAL_UPLOAD_FILE_NAME_HEADER, LEGAL_UPLOAD_SOURCE_HEADER } from '../../shared/legal-contract.ts';
+import type { PrincipalResolver } from './auth.ts';
 import { recordAccess } from './access-log.ts';
 import { control, doctor, integrityVerify, JobTable } from './actions.ts';
 import type { ServerConfig } from './config.ts';
@@ -31,7 +33,8 @@ import { lifecycleFrom, readDecisionState, verifiedDecisions } from './decisions
 import { readLedgerSnapshot } from './ledger.ts';
 import { HttpError } from './errors.ts';
 import { existsInside, resolveInside } from './fsafe.ts';
-import { permissionsFor, requireGate } from './gates.ts';
+import { permissionsFor, requireCurrentInstanceOperator, requireGate } from './gates.ts';
+import type { InstallationLock } from './installation-lock.ts';
 import type { ConsoleActionClass } from './gates.ts';
 import {
   archiveRunRoot,
@@ -47,7 +50,8 @@ import {
 } from './legal-intake.ts';
 import type { LegalReadinessHolder } from './legal-readiness.ts';
 import { readLegalReadiness, requireLegalAdapter } from './legal-readiness.ts';
-import type { Principal } from './principal.ts';
+import { principalAdminRoute } from './principal-admin.ts';
+import { isInstanceOperator, type Principal } from './principal.ts';
 import { canSeeCase } from './principals.ts';
 import { readAgentRequests } from './readers/agents.ts';
 import { readCycleDetail, readCycles } from './readers/cycles.ts';
@@ -111,7 +115,7 @@ interface Answer {
   readonly body: unknown;
 }
 
-export function buildRoutes(config: ServerConfig, jobs: JobTable, readiness: LegalReadinessHolder): ReadonlyArray<ReturnType<typeof compileRoute>> {
+export function buildRoutes(config: ServerConfig, jobs: JobTable, readiness: LegalReadinessHolder, resolvePrincipal: PrincipalResolver, lease: InstallationLock): ReadonlyArray<ReturnType<typeof compileRoute>> {
   /**
    * A case-scoped route: behind the matter wall, optionally behind an action
    * class gate, and written to the case's signed access ledger BEFORE it is
@@ -166,6 +170,7 @@ export function buildRoutes(config: ServerConfig, jobs: JobTable, readiness: Leg
 
   const decisionContext = { casesDir: config.legalCasesDir, verifier: readiness.signer };
   const routes: Route[] = [
+    principalAdminRoute(readiness.principals, lease, resolvePrincipal),
     {
       method: 'GET',
       pattern: ENDPOINTS.health.path,
@@ -204,7 +209,10 @@ export function buildRoutes(config: ServerConfig, jobs: JobTable, readiness: Leg
       handler: async ({ res, query }) =>
         sendJson(res, 200, await readGovernance(config.toolsDir, { limit: clampLimit(query, DEFAULT_LIMIT, MAX_LIMIT), since: param(query, 'since'), event: param(query, 'event') })),
     },
-    { method: 'GET', pattern: ENDPOINTS.governanceStream.path, handler: ({ req, res }) => streamGovernance(resolveInside(config.toolsDir, LEDGER_SOURCES.governance), req, res) },
+    { method: 'GET', pattern: ENDPOINTS.governanceStream.path, handler: ({ req, res }) => streamGovernance(resolveInside(config.toolsDir, LEDGER_SOURCES.governance), req, res, () => {
+      requireCurrentInstanceOperator(req.headers.authorization, resolvePrincipal);
+      return true;
+    }) },
     {
       method: 'GET',
       pattern: ENDPOINTS.findings.path,
@@ -220,15 +228,16 @@ export function buildRoutes(config: ServerConfig, jobs: JobTable, readiness: Leg
     { method: 'GET', pattern: ENDPOINTS.reportsDaily.path, handler: async ({ res }) => sendJson(res, 200, await listDailyReports(config.toolsDir)) },
     { method: 'GET', pattern: ENDPOINTS.reportDaily.path, handler: async ({ res, params }) => sendJson(res, 200, await readDailyReport(config.toolsDir, requireParam(params, 'date'))) },
     { method: 'GET', pattern: ENDPOINTS.ledgers.path, handler: async ({ res }) => sendJson(res, 200, await readLedgers(config.toolsDir)) },
-    { method: 'POST', pattern: ENDPOINTS.actionIntegrityVerify.path, handler: async ({ res }) => sendJson(res, 200, await integrityVerify(config)) },
-    { method: 'POST', pattern: ENDPOINTS.actionDoctor.path, handler: async ({ res }) => sendJson(res, 200, await doctor(config)) },
+    { method: 'POST', pattern: ENDPOINTS.actionIntegrityVerify.path, handler: async ({ res }) => sendJson(res, 200, await integrityVerify(config, lease)) },
+    { method: 'POST', pattern: ENDPOINTS.actionDoctor.path, handler: async ({ res }) => sendJson(res, 200, await doctor(config, lease)) },
     {
       method: 'POST',
       pattern: ENDPOINTS.actionControl.path,
       handler: async ({ req, res, principal }) => {
         requireGate(config, principal, KERNEL_CONTROL_ACTION_CLASS);
         const body = await readJsonBody(req);
-        sendJson(res, 200, await control(config, String(body['verb'] ?? ''), String(body['reason'] ?? '')));
+        requireGate(config, requireCurrentInstanceOperator(req.headers.authorization, resolvePrincipal), KERNEL_CONTROL_ACTION_CLASS);
+        sendJson(res, 200, await control(config, String(body['verb'] ?? ''), String(body['reason'] ?? ''), lease));
       },
     },
     {
@@ -238,6 +247,7 @@ export function buildRoutes(config: ServerConfig, jobs: JobTable, readiness: Leg
         requireGate(config, principal, KERNEL_CONTROL_ACTION_CLASS);
         const body = await readJsonBody(req);
         const cycleId = typeof body['cycleId'] === 'string' ? body['cycleId'] : undefined;
+        requireGate(config, requireCurrentInstanceOperator(req.headers.authorization, resolvePrincipal), KERNEL_CONTROL_ACTION_CLASS);
         sendJson(res, 202, jobs.startCycle(config, cycleId, body['discoveryOnly'] === true));
       },
     },
@@ -345,5 +355,23 @@ export function buildRoutes(config: ServerConfig, jobs: JobTable, readiness: Leg
       };
     }),
   ];
-  return routes.map(compileRoute);
+  return routes.map((route) => {
+    const endpoint = Object.entries(ENDPOINTS).find(([, entry]) => entry.method === route.method && entry.path === route.pattern);
+    const legal = Object.values(LEGAL_ENDPOINTS).some((entry) => entry.method === route.method && entry.path === route.pattern);
+    if (endpoint === undefined) {
+      if (!legal) throw new Error(`Route has no authorization classification: ${route.method} ${route.pattern}`);
+      return compileRoute(route);
+    }
+    const name = endpoint[0] as keyof typeof ENDPOINTS;
+    const access = ENDPOINT_ACCESS[name];
+    return compileRoute({
+      ...route,
+      handler: async (ctx) => {
+        if (access === 'instance_operator' && !isInstanceOperator(ctx.principal)) {
+          throw new HttpError(403, 'instance_operator_required', 'global kernel access requires an operator with unrestricted case scope');
+        }
+        await route.handler(ctx);
+      },
+    });
+  });
 }

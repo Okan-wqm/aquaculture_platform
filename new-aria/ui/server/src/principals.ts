@@ -107,7 +107,7 @@ function writeAtomic(path: string, file: PrincipalsFile): void {
 /** The loaded principals, answering "whose token is this?" in constant time per candidate. */
 export class PrincipalDirectory {
   readonly path: string;
-  private readonly records: ReadonlyArray<PrincipalRecord>;
+  private records: ReadonlyArray<PrincipalRecord>;
 
   constructor(path: string, file: PrincipalsFile) {
     this.path = path;
@@ -126,6 +126,10 @@ export class PrincipalDirectory {
     }
     if (found === null) return null;
     return { id: found.id, displayName: found.displayName, role: found.role, cases: found.cases };
+  }
+
+  reload(): void {
+    this.records = loadPrincipals(this.path).list();
   }
 
   list(): ReadonlyArray<PrincipalRecord> {

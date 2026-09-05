@@ -23,6 +23,7 @@ RUN npm run build
 
 FROM ${BASE_IMAGE} AS runtime
 USER root
+RUN apt-get update && apt-get install -y --no-install-recommends util-linux && rm -rf /var/lib/apt/lists/*
 COPY --from=build --chown=aria:aria /build/ui/package.json /opt/new-aria/ui/package.json
 COPY --from=build --chown=aria:aria /build/ui/server/dist /opt/new-aria/ui/server/dist
 COPY --from=build --chown=aria:aria /build/ui/web/dist /opt/new-aria/ui/web/dist

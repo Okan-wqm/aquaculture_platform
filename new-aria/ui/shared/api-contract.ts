@@ -31,6 +31,7 @@ export const MAX_LIMIT = 1000 as const;
 // Path params use `:name`. Query params are documented per entry.
 // ---------------------------------------------------------------------------
 export const ENDPOINTS = {
+  principalAdmin: { method: 'POST', path: `${API_PREFIX}/admin/principals`, response: 'PrincipalAdminResponse' },
   health: { method: 'GET', path: `${API_PREFIX}/health`, response: 'HealthResponse' },
   overview: { method: 'GET', path: `${API_PREFIX}/overview`, response: 'OverviewResponse' },
   cycles: { method: 'GET', path: `${API_PREFIX}/cycles`, response: 'CyclesResponse', query: ['limit'] },
@@ -81,6 +82,36 @@ export const ENDPOINTS = {
 } as const;
 
 export type EndpointName = keyof typeof ENDPOINTS;
+
+/** Every endpoint must declare its access boundary; additions fail typecheck until classified. */
+export const ENDPOINT_ACCESS = {
+  principalAdmin: 'instance_operator',
+  health: 'public',
+  me: 'principal',
+  job: 'job_scope',
+  overview: 'instance_operator',
+  cycles: 'instance_operator',
+  cycle: 'instance_operator',
+  governance: 'instance_operator',
+  governanceStream: 'instance_operator',
+  findings: 'instance_operator',
+  beliefs: 'instance_operator',
+  pressures: 'instance_operator',
+  humanRequired: 'instance_operator',
+  agentRequests: 'instance_operator',
+  plans: 'instance_operator',
+  tools: 'instance_operator',
+  reportsDaily: 'instance_operator',
+  reportDaily: 'instance_operator',
+  ledgers: 'instance_operator',
+  actionIntegrityVerify: 'instance_operator',
+  actionControl: 'instance_operator',
+  actionDoctor: 'instance_operator',
+  actionCycle: 'instance_operator',
+} as const satisfies Record<EndpointName, 'public' | 'principal' | 'job_scope' | 'instance_operator'>;
+
+export const KERNEL_READ_PERMISSION = 'kernel_read' as const;
+
 
 // ---------------------------------------------------------------------------
 // Ledger sources (relative to ARIA_TOOLS_DIR). Names are state_manifest

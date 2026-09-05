@@ -11,9 +11,10 @@
 // once at the root and sharing them by context means no page can pick the
 // wrong switch. The runtime profile belongs here for the same reason.
 // WHAT: /health for version, tools dir, kernel control and the legal adapter's
-// readiness; /me and /overview only when a token exists, so the login screen
-// makes no 401 call.
+// readiness; /me only when a token exists, and /overview only after /me grants
+// kernel_read. Legal principals never fetch the global runtime profile.
 import { createContext, useCallback, useContext, type ReactNode } from 'react';
+import { KERNEL_READ_PERMISSION } from '../../../shared/api-contract.ts';
 import type { HealthResponse, RuntimeProfile, WhoAmIResponse } from '../../../shared/api-contract.ts';
 import { getHealth, getMe, getOverview } from '../api/client.ts';
 import { useRequest, type RequestState } from '../api/use-request.ts';
@@ -48,20 +49,21 @@ export function HealthProvider({ children }: { readonly children: ReactNode }): 
     },
     [token],
   );
+  const me = meState.status === 'success' ? meState.data : null;
+  const kernelRead = canPerform(me, KERNEL_READ_PERMISSION);
   const { state: profileState, reload: reloadProfile } = useRequest<RuntimeProfile | null>(
     async (signal) => {
-      if (token === null) {
+      if (token === null || !kernelRead) {
         return null;
       }
       const overview = await getOverview(signal);
       return overview.profile.current;
     },
-    [token],
+    [token, kernelRead],
   );
 
   const actionsEnabled = state.status === 'success' && state.data.actionsEnabled;
-  const me = meState.status === 'success' ? meState.data : null;
-  const profile = profileState.status === 'success' ? profileState.data : null;
+  const profile = kernelRead && profileState.status === 'success' ? profileState.data : null;
   const can = useCallback((actionClass: string) => canPerform(me, actionClass), [me]);
   const reload = useCallback(() => {
     reloadHealth();

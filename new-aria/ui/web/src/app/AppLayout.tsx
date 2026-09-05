@@ -1,3 +1,4 @@
+import { KERNEL_READ_PERMISSION } from '../../../shared/api-contract.ts';
 import { useEffect, useState, type ReactNode } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { clearToken } from '../api/token-store.ts';
@@ -15,6 +16,7 @@ interface NavEntry {
 
 interface NavGroupDef {
   readonly title: string;
+  readonly permission: string | null;
   readonly icon: IconName;
   readonly entries: ReadonlyArray<NavEntry>;
 }
@@ -23,6 +25,7 @@ interface NavGroupDef {
 const NAV_GROUPS: ReadonlyArray<NavGroupDef> = [
   {
     title: 'Core',
+    permission: KERNEL_READ_PERMISSION,
     icon: 'core',
     entries: [
       { to: ROUTES.overview, label: 'Overview', end: true },
@@ -42,6 +45,7 @@ const NAV_GROUPS: ReadonlyArray<NavGroupDef> = [
   },
   {
     title: 'Legal',
+    permission: null,
     icon: 'legal',
     entries: [{ to: ROUTES.legalCases, label: 'Cases' }],
   },
@@ -118,7 +122,7 @@ function HealthStrip(): ReactNode {
           </span>
         </div>
       ) : null}
-      <div className="sidebar__health-row">
+      {health.can(KERNEL_READ_PERMISSION) ? <div className="sidebar__health-row">
         <span className="sidebar__health-key">Profile</span>
         {profile === null ? (
           <Badge tone="muted" title="The runtime profile is read from the governance ledger.">
@@ -129,7 +133,7 @@ function HealthStrip(): ReactNode {
             {profile}
           </Badge>
         )}
-      </div>
+      </div> : null}
       {data !== null ? (
         <>
           <div className="sidebar__health-row">
@@ -163,6 +167,7 @@ function HealthStrip(): ReactNode {
  * bar; it closes on navigation so a tap never leaves the operator behind a scrim.
  */
 export function AppLayout(): ReactNode {
+  const health = useHealth();
   const location = useLocation();
   const [navOpen, setNavOpen] = useState(false);
 
@@ -196,7 +201,7 @@ export function AppLayout(): ReactNode {
           <span className="sidebar__brand-sub">Operator console</span>
         </div>
         <nav className="sidebar__nav" aria-label="Main navigation">
-          {NAV_GROUPS.map((group) => (
+          {NAV_GROUPS.filter((group) => group.permission === null || health.can(group.permission)).map((group) => (
             <NavGroup key={group.title} group={group} />
           ))}
         </nav>

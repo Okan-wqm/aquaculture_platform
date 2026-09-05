@@ -146,7 +146,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     host: env['ARIA_UI_HOST']?.trim() || '0.0.0.0',
     port: integer(env, 'ARIA_UI_PORT', 8480, 1, 65535),
     token,
-    principalsFile,
+    principalsFile: principalsFile ?? resolve(toolsDir, '..', 'principals.json'),
     toolsDir,
     workspaceRoot,
     workspaceBase: env['ARIA_WORKSPACE_BASE']?.trim() || resolve(toolsDir, '..', 'workspaces'),

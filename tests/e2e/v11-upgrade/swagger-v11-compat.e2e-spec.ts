@@ -303,7 +303,6 @@ describe('Swagger v11 Compatibility -- admin-api OpenAPI Regression', () => {
     'Billing',
     'Database Management',
     'Health',
-    'Impersonation',
     'Modules',
     'Security',
     'Settings',
@@ -420,9 +419,8 @@ describe('Swagger v11 Compatibility -- admin-api OpenAPI Regression', () => {
         expect(ADMIN_API_TAGS).toContain('Support');
         expect(ADMIN_API_TAGS).toContain('Database Management');
         expect(ADMIN_API_TAGS).toContain('Modules');
-        expect(ADMIN_API_TAGS).toContain('Impersonation');
         expect(ADMIN_API_TAGS).toContain('Authentication');
-        expect(ADMIN_API_TAGS.length).toBe(12);
+        expect(ADMIN_API_TAGS.length).toBe(11);
       });
     });
 

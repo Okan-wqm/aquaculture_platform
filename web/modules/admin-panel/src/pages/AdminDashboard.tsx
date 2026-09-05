@@ -13,7 +13,6 @@ import {
   systemApi,
   usersApi,
   auditApi,
-  debugApi,
   type SystemMetrics,
   type ServiceHealth,
   type UserStats,
@@ -25,21 +24,12 @@ import {
 // Types
 // ============================================================================
 
-interface CacheStats {
-  totalEntries: number;
-  totalSize: number;
-  hitRate: number;
-  missRate: number;
-  byStore: Array<{ store: string; entries: number; size: number }>;
-}
-
 interface DashboardData {
   metrics: SystemMetrics | null;
   userStats: UserStats | null;
   services: ServiceHealth[];
   recentLogs: AuditLog[];
   circuitBreakers: CircuitBreakerStatus | null;
-  cacheStats: CacheStats | null;
   loading: boolean;
   error: string | null;
 }
@@ -311,60 +301,6 @@ const CircuitBreakerCard: React.FC<{
 };
 
 // ============================================================================
-// Cache Stats Component
-// ============================================================================
-
-const CacheStatsCard: React.FC<{
-  cacheStats: CacheStats | null;
-  onClearCache: () => void;
-  clearing: boolean;
-}> = ({ cacheStats, onClearCache, clearing }) => {
-  return (
-    <Card>
-      <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-gray-900">Cache</h3>
-        <button
-          onClick={onClearCache}
-          disabled={clearing}
-          className="inline-flex items-center px-3 py-1.5 border border-red-300 rounded-md text-xs font-medium text-red-700 bg-white hover:bg-red-50 disabled:opacity-50"
-        >
-          {clearing ? 'Clearing...' : 'Clear Cache'}
-        </button>
-      </div>
-      <div className="p-4">
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <p className="text-xs text-gray-500">Total Entries</p>
-            <p className="text-lg font-semibold text-gray-900">
-              {cacheStats ? formatMetricNumber(cacheStats.totalEntries) : '-'}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs text-gray-500">Hit Rate</p>
-            <p className="text-lg font-semibold text-gray-900">
-              {cacheStats ? `${(cacheStats.hitRate * 100).toFixed(1)}%` : '-'}
-            </p>
-          </div>
-        </div>
-        {cacheStats && cacheStats.byStore.length > 0 && (
-          <div className="mt-3 pt-3 border-t border-gray-100">
-            <p className="text-xs text-gray-500 mb-2">By Store</p>
-            <div className="space-y-1">
-              {cacheStats.byStore.map((store) => (
-                <div key={store.store} className="flex items-center justify-between text-xs">
-                  <span className="text-gray-600">{store.store}</span>
-                  <span className="font-medium text-gray-900">{store.entries} entries</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    </Card>
-  );
-};
-
-// ============================================================================
 // Admin Dashboard
 // ============================================================================
 
@@ -375,7 +311,6 @@ const AdminDashboard: React.FC = () => {
     services: [],
     recentLogs: [],
     circuitBreakers: null,
-    cacheStats: null,
     loading: true,
     error: null,
   });
@@ -413,7 +348,6 @@ const AdminDashboard: React.FC = () => {
         services: services.status === 'fulfilled' ? services.value : [],
         recentLogs: logsResult.status === 'fulfilled' ? logsResult.value.data : [],
         circuitBreakers: circuitBreakers.status === 'fulfilled' ? circuitBreakers.value : null,
-        cacheStats: null,
         loading: false,
         error: null,
       });
@@ -471,24 +405,7 @@ const AdminDashboard: React.FC = () => {
     };
   }, [fetchDashboardData]);
 
-  const [clearingCache, setClearingCache] = useState(false);
-
-  // Cache management is available in Debug Tools page (/admin/system/debug-tools)
-  // which is only accessible in non-production environments.
-  const handleClearCache = useCallback(async () => {
-    setClearingCache(true);
-    try {
-      await debugApi.invalidateCacheByPattern('*');
-      const freshStats = await debugApi.getCacheStats();
-      setData((prev) => ({ ...prev, cacheStats: freshStats }));
-    } catch {
-      // Debug endpoints are blocked in production by nginx
-    } finally {
-      setClearingCache(false);
-    }
-  }, []);
-
-  const { metrics, userStats, services, recentLogs, circuitBreakers, cacheStats, loading, error } = data;
+  const { metrics, userStats, services, recentLogs, circuitBreakers, loading, error } = data;
 
   // Calculate metrics with fallbacks
   const platformMetrics = metrics?.platform || {
@@ -603,15 +520,6 @@ const AdminDashboard: React.FC = () => {
         <div className="lg:col-span-2 space-y-6">
           <ServiceStatusCard services={services} />
           <DatabaseStatsCard database={metrics?.database} />
-          {cacheStats && (
-            <CacheStatsCard
-              cacheStats={cacheStats}
-              onClearCache={() => {
-                void handleClearCache();
-              }}
-              clearing={clearingCache}
-            />
-          )}
         </div>
         <div className="space-y-6">
           <CircuitBreakerCard

@@ -74,17 +74,3 @@ entries:
       Security ledger whose write-once and legal-hold classification is
       decided by ADR-0008; its window is registered with that migration so
       the legalHold predicate exists on the day the policy does.
-  - table: admin.debug_sessions
-    owner: okan
-    expiry: 2026-12-31
-    findingId: SEC-CRITICAL-057
-    reason: >-
-      Deleted with the impersonation / debug-tools module under ADR-0007;
-      sessions are expired by status in the meantime, not disposed.
-  - table: admin.impersonation_sessions
-    owner: okan
-    expiry: 2026-12-31
-    findingId: SEC-CRITICAL-057
-    reason: >-
-      Dropped under ADR-0007; the table is locked by a WORM trigger today and
-      cannot be disposed by any engine.

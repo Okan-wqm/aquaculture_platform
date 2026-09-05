@@ -1078,7 +1078,6 @@ services:
       # client address is the X-Forwarded-For hop — without TRUST_PROXY every
       # per-IP throttle bucket is the bridge address (AUTH-010).
       TRUST_PROXY: 'true'
-      ENABLE_DEBUG_TOOLS: 'false'
       ENABLE_DB_EXPLORER_WRITES: 'false'
       ENABLE_RAW_SQL_EXPLORER: 'false'
       # ADR-0009: a tenant schema drop records the WAL-G recovery point (this

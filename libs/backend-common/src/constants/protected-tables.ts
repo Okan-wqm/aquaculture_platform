@@ -127,7 +127,8 @@ export const PROTECTED_TABLES = [
   // ── Auth audit (SOC 2 CC7.2 detective control) ──
   'auth.audit_logs',
   'admin.audit_logs',
-  'admin.impersonation_sessions',
+  // admin.impersonation_sessions left this list with its deletion (ADR-0007);
+  // the row is physically gone, the invariant did not relax (ADR-0008).
 
   // ── Findings registry (immutable event ledger + cutover proof) ──
   'event_store.finding_events',

@@ -1,9 +1,10 @@
 /**
  * Production posture of admin-api-service — declared once, asserted at boot.
  *
- * Until 2026-09-05 production was fail-closed by accident: the debug-tools
- * module, explorer writes and the raw SQL explorer were each off only because
- * nobody had set their `ENABLE_*` variable. Nothing pinned any of it; any
+ * Until 2026-09-05 production was fail-closed by accident: explorer writes
+ * and the raw SQL explorer were each off only because nobody had set their
+ * `ENABLE_*` variable (the debug-tools module, the third such flag, is
+ * deleted under ADR-0007). Nothing pinned any of it; any
  * compose refactor could silently un-close the platform (INFRA-HIGH-142).
  * (`TRUST_PROXY`, the AUTH-010 half of that finding, moved to the kernel's
  * edge-hardening bundle under ADR-0006.)
@@ -23,11 +24,7 @@
 
 export const ADMIN_API_PRODUCTION_POSTURE = Object.freeze({
   /** Feature flags that must be an explicit 'false' in production. */
-  pinnedFalse: Object.freeze([
-    'ENABLE_DEBUG_TOOLS',
-    'ENABLE_DB_EXPLORER_WRITES',
-    'ENABLE_RAW_SQL_EXPLORER',
-  ] as const),
+  pinnedFalse: Object.freeze(['ENABLE_DB_EXPLORER_WRITES', 'ENABLE_RAW_SQL_EXPLORER'] as const),
   /**
    * Variables the service cannot run without: WALG_BACKUP_EPOCH because a
    * tenant schema drop must name the WAL-G archive that can restore it

@@ -39,5 +39,5 @@ bootstrapService(AppModule, {
 
   helmetOptions: { crossOriginEmbedderPolicy: false },
 
-  additionalCorsHeaders: ['X-Tenant-ID', 'X-Request-ID', 'X-Impersonate-User'],
+  additionalCorsHeaders: ['X-Tenant-ID', 'X-Request-ID'],
 });

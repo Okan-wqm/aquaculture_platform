@@ -43,13 +43,9 @@ import { AuditLogModule } from './audit/audit.module';
 import { PasswordResetModule } from './auth/password-reset.module';
 import { BillingModule } from './billing/billing.module';
 import { DatabaseManagementModule } from './database-management/database-management.module';
-// SECURITY (NEW-03): DebugToolsModule uses forRoot() pattern — disabled by default in all
-// environments. Only enabled when ENABLE_DEBUG_TOOLS=true. See debug-tools.module.ts for details.
-import { DebugToolsModule } from './debug-tools/debug-tools.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { PlatformAdminGuard } from './guards/platform-admin.guard';
 import { HealthModule } from './health/health.module';
-import { ImpersonationModule } from './impersonation/impersonation.module';
 import { GracefulShutdownService } from './lifecycle/graceful-shutdown.service';
 import { MessagingAdminModule } from './messaging/messaging-admin.module';
 import { SystemMetricsModule } from './metrics/system-metrics.module';
@@ -258,12 +254,8 @@ const getAdminStoragePort = (configService: ConfigService): number => {
     SupportModule,
     SecurityModule,
     SystemManagementModule,
-    ImpersonationModule,
     MessagingAdminModule,
     PasswordResetModule,
-    // SECURITY (NEW-03): forRoot() returns empty module when ENABLE_DEBUG_TOOLS != 'true'.
-    // No controllers, providers, or entities are registered in the disabled state.
-    DebugToolsModule.forRoot(),
     // SECURITY (CRITICAL-001): RS256 asymmetric verification via the shared
     // PlatformJwtModule. admin-api-service is a token CONSUMER, not an issuer.
     // Replaced the per-service JwtModule.registerAsync block (WS2.B,

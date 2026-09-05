@@ -1,5 +1,6 @@
 import { DynamicMeasurementForm } from '@aquaculture/farm-shared';
 import type { ParameterFieldConfig } from '@aquaculture/farm-shared';
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { useQuery } from '@tanstack/react-query';
 import { gql } from 'graphql-tag';
 import { BlockTitle, List, ListInput } from 'konsta/react';
@@ -10,6 +11,12 @@ import { useNavigate, useParams } from 'react-router-dom';
 
 import { AlreadyRecordedNotice } from '@/components/AlreadyRecordedNotice';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
+import type {
+  EquipmentListQuery,
+  EquipmentListQueryVariables,
+  EquipmentParametersQuery,
+  EquipmentParametersQueryVariables,
+} from '@/generated/graphql';
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
@@ -27,17 +34,6 @@ interface EquipmentItem {
   equipmentType: { category: string; name: string } | null;
 }
 
-interface EquipmentParameterConfig {
-  parameterConfig: {
-    id: string; code: string; name: string; unit: string;
-    dataType: 'NUMBER' | 'ENUM' | 'BOOLEAN'; precision: number; group: string;
-    optimalMin: number | null; optimalMax: number | null;
-    warningMin: number | null; warningMax: number | null;
-    criticalMin: number | null; criticalMax: number | null;
-    enumValues: string[] | null; displayOrder: number; isRequired: boolean; chartColor: string;
-  };
-}
-
 type FieldValue = number | string | boolean;
 
 // ============================================================================
@@ -50,13 +46,13 @@ type FieldValue = number | string | boolean;
  * ensuring non-tank equipment (sensors, pumps, filters) with
  * status='operational' are included alongside tank equipment (status='active').
  */
-const EQUIPMENT_LIST_QUERY = gql`
+const EQUIPMENT_LIST_QUERY: TypedDocumentNode<EquipmentListQuery, EquipmentListQueryVariables> = gql`
   query EquipmentList($filter: EquipmentFilterInput) {
     equipmentList(filter: $filter) { items { id name code equipmentType { category name } } }
   }
 `;
 
-const EQUIPMENT_PARAMS_QUERY = gql`
+const EQUIPMENT_PARAMS_QUERY: TypedDocumentNode<EquipmentParametersQuery, EquipmentParametersQueryVariables> = gql`
   query EquipmentParameters($equipmentId: ID!) {
     equipmentParameters(equipmentId: $equipmentId) {
       parameterConfig {
@@ -113,7 +109,7 @@ export function WaterQualityRecordPage(): JSX.Element {
   const { data: equipmentData, isLoading: equipmentLoading } = useQuery<EquipmentItem[]>({
     queryKey: createTenantQueryKey(tenantId, 'equipment-list', tenantId),
     queryFn: async () => {
-      const result = await graphqlRequest<{ equipmentList: { items: EquipmentItem[] } }>(
+      const result = await graphqlRequest(
         EQUIPMENT_LIST_QUERY, { filter: { isActive: true } },
       );
       return result.equipmentList?.items ?? [];
@@ -152,7 +148,7 @@ export function WaterQualityRecordPage(): JSX.Element {
   const { data: parameterConfigs, isLoading: paramsLoading } = useQuery<ParameterFieldConfig[]>({
     queryKey: createTenantQueryKey(tenantId, 'equipment-params', selectedEquipmentId, tenantId),
     queryFn: async () => {
-      const result = await graphqlRequest<{ equipmentParameters: EquipmentParameterConfig[] }>(
+      const result = await graphqlRequest(
         EQUIPMENT_PARAMS_QUERY, { equipmentId: selectedEquipmentId },
       );
       return (result.equipmentParameters ?? [])

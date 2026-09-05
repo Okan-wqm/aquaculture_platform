@@ -55,7 +55,7 @@ async function fetchMessages(
     filter.cursor = cursor;
   }
 
-  const result = await graphqlRequest<{ messages: MessagePage }>(
+  const result = await graphqlRequest(
     GET_MESSAGES,
     { channelId, filter },
   );

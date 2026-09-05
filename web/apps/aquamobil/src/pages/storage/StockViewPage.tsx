@@ -116,7 +116,7 @@ export function StockViewPage(): JSX.Element {
   const { data: locationsData, isLoading: locationsLoading } = useQuery<StorageLocation[]>({
     queryKey: createTenantQueryKey(tenantId, 'storage-locations', tenantId),
     queryFn: async () => {
-      const result = await graphqlRequest<{ storageLocations: { items: StorageLocation[] } }>(
+      const result = await graphqlRequest(
         STORAGE_LOCATIONS,
       );
       return result.storageLocations?.items ?? [];
@@ -145,7 +145,7 @@ export function StockViewPage(): JSX.Element {
       }
       // Attempt server fetch first
       if (isOnline) {
-        const result = await graphqlRequest<{ storageInventory: StockItem[] }>(
+        const result = await graphqlRequest(
           STOCK_AT_LOCATION,
           { locationId: selectedLocationId },
         );

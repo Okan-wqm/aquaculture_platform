@@ -14,7 +14,7 @@
 // ============================================================================
 
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
-import { type DocumentNode, print } from 'graphql';
+import { print } from 'graphql';
 
 import { type GraphQLErrorPayload, readGraphQLResponse } from '@/utils/graphql-response';
 
@@ -284,39 +284,24 @@ type VariablesArg<TVars> = [TVars] extends [Record<string, never>]
 /**
  * Execute a GraphQL operation through the authenticated fetch pipeline.
  *
- * S1-CODEGEN: two call shapes, both fully typed and both `print()`ing the
- * DocumentNode to the wire (callers never hand-write the query text):
- *
- *   1. INFERENCE — `graphqlRequest(MY_CHANNELS, vars)` with NO explicit type
- *      args. `MY_CHANNELS` is a codegen `TypedDocumentNode<TResult, TVars>`, so
- *      BOTH the result AND the variable types flow from the document — a
- *      query/result/variable drift is a COMPILE error. This is the canonical,
- *      maximally-safe path for the generated operation constants.
- *
- *   2. EXPLICIT RESULT — `graphqlRequest<{ x: T }>(DOC, vars)` with ONE explicit
- *      type arg. Used by call sites that pin a hand-authored result shape (the
- *      nominal `Channel`/`Message`/… view types) or by inline `gql` documents
- *      not yet promoted into the codegen pluck set. `DOC` is accepted as a
- *      `DocumentNode`; `variables` is loose. The operation TEXT is still
- *      validated against the schema by the codegen CI gate, so drift is caught
- *      at build time even on this path.
+ * S1-CODEGEN / MOB-HIGH-019: ONE call shape. `document` must be a codegen
+ * `TypedDocumentNode<TResult, TVars>` (every document under src/ is a codegen
+ * source), so BOTH the result AND the variable types flow from the document
+ * and a query/result/variable drift is a COMPILE error. There is no
+ * `DocumentNode + Record<string, unknown>` escape hatch any more: that overload
+ * — selected by every call that wrote one explicit result generic — typed the
+ * variables as an untyped bag, and the document-text CI gate cannot see a
+ * variables object. It is how a deleted input field shipped for weeks.
  *
  * @returns The `data` field from the GraphQL response, typed as the result type.
  * @throws {GraphQLError} when the response contains `errors`.
  * @throws {Error}        when the HTTP response is not ok.
  */
-export function graphqlRequest<TResult, TVars>(
+export async function graphqlRequest<TResult, TVars>(
   document: TypedDocumentNode<TResult, TVars>,
   ...args: VariablesArg<TVars>
-): Promise<TResult>;
-export function graphqlRequest<TResult>(
-  document: DocumentNode,
-  variables?: Record<string, unknown>,
-): Promise<TResult>;
-export async function graphqlRequest<TResult>(
-  document: DocumentNode,
-  variables?: Record<string, unknown>,
 ): Promise<TResult> {
+  const [variables] = args;
   const response = await authenticatedFetch('/graphql', {
     method: 'POST',
     body: JSON.stringify({ query: print(document), variables }),

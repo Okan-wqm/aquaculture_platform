@@ -163,7 +163,7 @@ export function StockMovementPage(): JSX.Element {
   const { data: itemsData, isLoading: itemsLoading } = useQuery<StorageItem[]>({
     queryKey: createTenantQueryKey(tenantId, 'storage-items', selectedItemType, tenantId),
     queryFn: async () => {
-      const result = await graphqlRequest<{ storageInventory: StorageInventoryItem[] }>(
+      const result = await graphqlRequest(
         STORAGE_INVENTORY_ITEMS,
         { itemType: selectedItemType },
       );
@@ -184,7 +184,7 @@ export function StockMovementPage(): JSX.Element {
   const { data: locationsData, isLoading: locationsLoading } = useQuery<StorageLocation[]>({
     queryKey: createTenantQueryKey(tenantId, 'storage-locations', tenantId),
     queryFn: async () => {
-      const result = await graphqlRequest<{ storageLocations: { items: StorageLocation[] } }>(
+      const result = await graphqlRequest(
         STORAGE_LOCATIONS,
       );
       return result.storageLocations?.items ?? [];

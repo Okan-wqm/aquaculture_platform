@@ -33,10 +33,9 @@ const CATEGORY_LABELS: Record<string, string> = {
 export function TaskCard({ task, onPress }: TaskCardProps): ReactElement {
   const navigate = useNavigate();
 
-  const checklistItems = Array.isArray(task.checklistItems) ? task.checklistItems : [];
-  const completedItems = checklistItems.filter((item) =>
-    typeof item === 'object' && item !== null ? (item as { isCompleted?: boolean }).isCompleted : false,
-  );
+  // FARM-HIGH-301: checklistItems is a typed object list on the wire.
+  const checklistItems = task.checklistItems;
+  const completedItems = checklistItems.filter((item) => item.isCompleted);
   const totalItems = checklistItems.length;
   const progress = totalItems > 0 ? (completedItems.length / totalItems) * 100 : 0;
 

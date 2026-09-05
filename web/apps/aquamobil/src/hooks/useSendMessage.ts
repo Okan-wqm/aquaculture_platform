@@ -80,6 +80,10 @@ export function useSendMessage(channelId: string | undefined): UseSendMessageRet
 
   const mutation = useMutation({
     mutationFn: async (params: SendMessageParams & { _idempotencyKey: string }) => {
+      // WHY guard-throw: `sendMessage` already rejects a missing channelId, but
+      // the generated SendMessageInput requires a string and the type is not
+      // narrowed here. Throwing narrows it without a non-null assertion.
+      if (!channelId) throw new Error('useSendMessage: channelId is required');
       const { _idempotencyKey, ...sendParams } = params;
 
       const input = {
@@ -93,7 +97,7 @@ export function useSendMessage(channelId: string | undefined): UseSendMessageRet
         metadata: sendParams.metadata ?? null,
       };
 
-      const result = await graphqlRequest<{ sendMessage: Message }>(
+      const result = await graphqlRequest(
         SEND_MESSAGE,
         { input },
       );
@@ -137,8 +141,13 @@ export function useSendMessage(channelId: string | undefined): UseSendMessageRet
               id: user.id,
               firstName: user.name?.split(' ')[0] ?? null,
               lastName: user.name?.split(' ').slice(1).join(' ') ?? null,
+              profileImageUrl: null,
+              isOnline: true,
             }
-          : undefined,
+          : null,
+        attachments: [],
+        receipts: null,
+        reactionSummary: null,
         _status: 'pending',
         _idempotencyKey: params._idempotencyKey,
       };

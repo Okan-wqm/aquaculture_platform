@@ -46809,7 +46809,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "8725e3b87a558a43ad00bc802f526967876459b481c8a5f01ec81327bda4e98d",
+      "content_sha256": "f01c8df0042b854da525e870f7c0cea5c250db9dedea91d80fb2bf418abe1ec9",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/apps/aquamobil/src/generated/graphql.ts",

@@ -52,7 +52,7 @@ export function MemberRow({ member }: MemberRowProps): ReactElement {
   const roleBadge = ROLE_BADGES[member.role];
   const RoleIcon = roleBadge.icon;
   const memberName = member.user ? getUserDisplayName(member.user) : 'Unknown User';
-  const memberAvatar = member.user?.profileImageUrl ?? member.user?.avatarUrl ?? null;
+  const memberAvatar = member.user?.profileImageUrl ?? null;
   const memberOnline = member.user?.isOnline ?? false;
 
   return (

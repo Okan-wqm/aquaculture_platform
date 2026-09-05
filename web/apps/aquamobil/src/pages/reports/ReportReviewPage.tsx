@@ -90,7 +90,7 @@ export function ReportReviewPage(): JSX.Element {
   const draftsQuery = useQuery({
     queryKey: createTenantQueryKey(tenantId, 'reportDrafts'),
     queryFn: async () => {
-      const result = await graphqlRequest<MobileReportDraftsQuery>(MOBILE_REPORT_DRAFTS, {});
+      const result = await graphqlRequest(MOBILE_REPORT_DRAFTS, {});
       return result.reportDrafts;
     },
     enabled: isAuthenticated && !!tenantId && isOnline,
@@ -105,7 +105,7 @@ export function ReportReviewPage(): JSX.Element {
   const approveMutation = useMutation({
     mutationFn: async () => {
       if (!draftId) throw new Error('Missing draft id');
-      const result = await graphqlRequest<MobileApproveAndSubmitReportDraftMutation>(
+      const result = await graphqlRequest(
         MOBILE_APPROVE_AND_SUBMIT_REPORT_DRAFT,
         { draftId },
       );

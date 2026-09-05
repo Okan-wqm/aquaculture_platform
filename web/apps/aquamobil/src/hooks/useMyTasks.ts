@@ -64,7 +64,7 @@ export function useMyTasks(segment: Segment = 'today'): UseMyTasksReturn {
       // SECURITY (MT-CRITICAL-051): per-user offline cache namespace.
       const cacheKey = userScopedCacheKey(user.id, 'myTasks');
       try {
-        const result = await graphqlRequest<{ myTasks: Task[] }>(
+        const result = await graphqlRequest(
           GET_MY_TASKS,
           { status: ['PENDING', 'IN_PROGRESS', 'OVERDUE'] },
         );

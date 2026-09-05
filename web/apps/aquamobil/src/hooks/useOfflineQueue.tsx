@@ -31,7 +31,6 @@ import type {
   QueuedPayload,
   UploadAndSendMessageOfflinePayload,
 } from '@/types';
-import type { MediaUploadResponse } from '@/types/messaging';
 import { recordLastSyncAt } from '@/utils/last-sync';
 import { logger } from '@/utils/logger';
 import { applyOptimisticKpiBump } from '@/utils/offline-optimistic';
@@ -102,7 +101,7 @@ async function replayUploadAndSendMessage(
   }
 
   // Step 1: presigned PUT URL.
-  const presign = await graphqlRequest<{ requestMediaUpload: MediaUploadResponse }>(
+  const presign = await graphqlRequest(
     REQUEST_MEDIA_UPLOAD,
     {
       input: {
@@ -127,7 +126,7 @@ async function replayUploadAndSendMessage(
 
   // Step 3: send the message referencing the uploaded object. The stable
   // idempotencyKey makes this safe to retry after a lost response.
-  const sent = await graphqlRequest<{ sendMessage: { id: string } }>(SEND_MESSAGE, {
+  const sent = await graphqlRequest(SEND_MESSAGE, {
     input: {
       channelId: payload.channelId,
       content: null,

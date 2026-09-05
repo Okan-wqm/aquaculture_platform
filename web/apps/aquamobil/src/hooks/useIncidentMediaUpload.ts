@@ -27,9 +27,14 @@
  * response drift is a compile error at this call site.
  */
 
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { gql } from 'graphql-tag';
 import { useCallback, useRef, useState } from 'react';
 
+import type {
+  RequestIncidentMediaUploadMutation,
+  RequestIncidentMediaUploadMutationVariables,
+} from '@/generated/graphql';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 
 /** Incident category — mirrors the backend `IncidentMediaType` enum. */
@@ -58,19 +63,12 @@ const COMPRESSION_THRESHOLD = 2 * 1024 * 1024; // 2 MB
 /** Target size after compression. */
 const COMPRESSION_TARGET = 1.5 * 1024 * 1024; // 1.5 MB
 
-/** Response shape of the `requestIncidentMediaUpload` mutation. */
-interface IncidentMediaUploadResponse {
-  uploadUrl: string;
-  storageKey: string;
-  expiresAt: string;
-}
-
 /**
  * Presigned-upload request. tenantId/userId come from the JWT via backend
  * decorators, never as variables — the same convention as every other mobile
  * operation.
  */
-const REQUEST_INCIDENT_MEDIA_UPLOAD = gql`
+const REQUEST_INCIDENT_MEDIA_UPLOAD: TypedDocumentNode<RequestIncidentMediaUploadMutation, RequestIncidentMediaUploadMutationVariables> = gql`
   mutation RequestIncidentMediaUpload($input: RequestIncidentMediaUploadInput!) {
     requestIncidentMediaUpload(input: $input) {
       uploadUrl
@@ -238,9 +236,7 @@ export function useIncidentMediaUpload(): UseIncidentMediaUploadReturn {
         }
 
         // Step 1: presigned PUT URL from farm-service.
-        const result = await graphqlRequest<{
-          requestIncidentMediaUpload: IncidentMediaUploadResponse;
-        }>(REQUEST_INCIDENT_MEDIA_UPLOAD, {
+        const result = await graphqlRequest(REQUEST_INCIDENT_MEDIA_UPLOAD, {
           input: {
             incidentType,
             filename: file.name,

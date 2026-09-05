@@ -65,7 +65,7 @@ export function TaskDetailPage(): JSX.Element {
     setError(null);
 
     try {
-      const result = await graphqlRequest<{ task: Task }>(
+      const result = await graphqlRequest(
         GET_TASK_DETAIL,
         { id: taskId },
       );
@@ -230,21 +230,10 @@ export function TaskDetailPage(): JSX.Element {
   const statusInfo = STATUS_LABELS[task.status] || STATUS_LABELS.PENDING;
   const categoryLabel = CATEGORY_LABELS[task.category] || task.category;
 
-  const checklistItems: ChecklistItem[] = Array.isArray(task.checklistItems)
-    ? task.checklistItems.map((item) =>
-        typeof item === 'object' && item !== null
-          ? (item)
-          : { id: String(item), text: String(item), isCompleted: false },
-      )
-    : [];
-
-  const notes: TaskNote[] = Array.isArray(task.notes)
-    ? task.notes.map((note) =>
-        typeof note === 'object' && note !== null
-          ? (note)
-          : { id: String(note), text: String(note), createdBy: '', createdAt: '' },
-      )
-    : [];
+  // FARM-HIGH-301: the checklist and notes are typed object lists on the wire,
+  // normalised by the server — no client-side repair of a JSON blob any more.
+  const checklistItems: ChecklistItem[] = task.checklistItems;
+  const notes: TaskNote[] = task.notes;
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">

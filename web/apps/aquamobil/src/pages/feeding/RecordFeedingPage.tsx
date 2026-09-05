@@ -19,6 +19,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 
 import { AlreadyRecordedNotice } from '@/components/AlreadyRecordedNotice';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
+import type { FeedingDayPlansQuery } from '@/generated/graphql';
 import { GET_FEEDING_DAY_PLANS } from '@/graphql/operations';
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
@@ -32,47 +33,12 @@ import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 // TYPES — feedingDayPlans tipli sorgusunun aynası (P-25)
 // ============================================================================
 
-type MealStatus = 'SCHEDULED' | 'FED' | 'PARTIALLY_FED' | 'SKIPPED' | 'MISSED' | 'CANCELLED';
-
-interface DayPlanMeal {
-  id: string;
-  mealIndex: number;
-  scheduledAt: string;
-  percentOfDaily: number;
-  plannedKg: number;
-  status: MealStatus;
-  actualKg: number;
-  varianceKg: number | null;
-  variancePercent: number | null;
-  feedId: string;
-  fedAt?: string | null;
-  feedingMethod?: string | null;
-  notes?: string | null;
-}
-
-interface FeedingDayPlanSlice {
-  id: string;
-  unitId: string;
-  unitName: string;
-  unitCode: string;
-  planDate: string;
-  status: string;
-  plannedTotalKg: number;
-  unplannedActualKg: number;
-  mealsPlanned: number;
-  avgWeightG: number;
-  fishCount: number;
-  biomassKg: number;
-  waterTempC: number | null;
-  temperatureSource: string;
-  usingDefaultTemperature: boolean;
-  feedId: string;
-  feedCode: string;
-  feedName: string;
-  effectiveRatePercent: number;
-  expectedFcr: number;
-  meals: DayPlanMeal[];
-}
+// MOB-HIGH-019: the day-plan slice, its meals and the meal status vocabulary
+// are the generated result of GET_FEEDING_DAY_PLANS — the same shape
+// useDailyOpsStats reads — never a hand-written mirror.
+type FeedingDayPlanSlice = FeedingDayPlansQuery['feedingDayPlans'][number];
+type DayPlanMeal = NonNullable<FeedingDayPlanSlice['meals']>[number];
+type MealStatus = DayPlanMeal['status'];
 
 type FeedingMethodOption = 'manual' | 'automatic' | 'demand';
 
@@ -149,11 +115,8 @@ function useTodaysDayPlans(): {
       if (!accessToken || !tenantId) {
         throw new Error('Not authenticated');
       }
-      const result = await graphqlRequest<{ feedingDayPlans: FeedingDayPlanSlice[] }>(
-        GET_FEEDING_DAY_PLANS,
-        { planDate: dateStr },
-      );
-      const plans = result.feedingDayPlans ?? [];
+      const result = await graphqlRequest(GET_FEEDING_DAY_PLANS, { planDate: dateStr });
+      const plans = result.feedingDayPlans;
       await cacheData(tenantId, cacheKey, plans, DAY_PLANS_CACHE_TTL_MS);
       return plans;
     },

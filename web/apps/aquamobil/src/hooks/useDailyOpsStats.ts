@@ -5,24 +5,19 @@ import { useMemo } from 'react';
 import { useTodaysAttendance } from './useAttendance';
 import { useAuth } from './useAuth';
 
+import type { FeedingDayPlansQuery, GetTodaysDailyOpsCountsQuery } from '@/generated/graphql';
 import { GET_FEEDING_DAY_PLANS, GET_TASK_STATS, GET_TODAYS_DAILY_OPS_COUNTS } from '@/graphql/operations';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { DailyOpsStats, TaskStats } from '@/types';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
-// WHY inline type: mirrors GraphQL response shape used only here (Faz 6 öğün
-// cutover'ı — sayım aggregate ile aynı semantik: fed|skipped / iptal-dışı).
-// Enum alanları tel üzerinde AD taşır ('FED', 'SKIPPED', 'CANCELLED').
-interface DayPlanMealSlice { status: string }
-interface FeedingDayPlanSlice { meals: DayPlanMealSlice[] }
-
-// WHY explicit shape: backend aggregate returns flat counts, not entity lists.
-interface DailyOpsCountsResponse {
-  mortalityCount: number;
-  wqReadingsCount: number;
-  feedingCompletedCount: number;
-  feedingTotalCount: number;
-}
+// MOB-HIGH-019: the day-plan slice is the generated result of the SAME document
+// RecordFeedingPage reads (Faz 6 öğün cutover'ı — sayım aggregate ile aynı
+// semantik: fed|skipped / iptal-dışı). Meal status is the generated
+// FeedingMealStatus enum, so the comparisons below are checked against the
+// wire vocabulary instead of a `string`.
+type FeedingDayPlanSlice = FeedingDayPlansQuery['feedingDayPlans'][number];
+type DailyOpsCountsResponse = GetTodaysDailyOpsCountsQuery['todaysDailyOpsCounts'];
 
 /**
  * Aggregates clock-in (HR), feeding (farm), mortality/WQ (farm), and task
@@ -46,10 +41,10 @@ export function useDailyOpsStats(): { stats: DailyOpsStats; isLoading: boolean }
   const { data: dayPlans, isLoading: feedingLoading } = useQuery<FeedingDayPlanSlice[]>({
     queryKey: createTenantQueryKey(tenantId, 'feedingDayPlans', tenantId, todayStr),
     queryFn: async () => {
-      const result = await graphqlRequest<{ feedingDayPlans: FeedingDayPlanSlice[] }>(
+      const result = await graphqlRequest(
         GET_FEEDING_DAY_PLANS, { planDate: todayStr },
       );
-      return result.feedingDayPlans ?? [];
+      return result.feedingDayPlans;
     },
     enabled: isAuthenticated && !!tenantId,
     staleTime: 1000 * 60 * 5, // WHY 5min: feeding plan changes infrequently
@@ -60,7 +55,7 @@ export function useDailyOpsStats(): { stats: DailyOpsStats; isLoading: boolean }
   const { data: taskStats, isLoading: taskStatsLoading } = useQuery<TaskStats>({
     queryKey: createTenantQueryKey(tenantId, 'taskStats', tenantId),
     queryFn: async () => {
-      const result = await graphqlRequest<{ taskStats: TaskStats }>(GET_TASK_STATS);
+      const result = await graphqlRequest(GET_TASK_STATS);
       return result.taskStats;
     },
     enabled: isAuthenticated && !!tenantId,
@@ -72,7 +67,7 @@ export function useDailyOpsStats(): { stats: DailyOpsStats; isLoading: boolean }
   const { data: opsCounts, isLoading: opsCountsLoading } = useQuery<DailyOpsCountsResponse>({
     queryKey: createTenantQueryKey(tenantId, 'dailyOpsCounts', tenantId),
     queryFn: async () => {
-      const result = await graphqlRequest<{ todaysDailyOpsCounts: DailyOpsCountsResponse }>(
+      const result = await graphqlRequest(
         GET_TODAYS_DAILY_OPS_COUNTS,
       );
       return result.todaysDailyOpsCounts;

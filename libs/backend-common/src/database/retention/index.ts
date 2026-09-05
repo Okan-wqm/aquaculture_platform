@@ -10,6 +10,6 @@ export {
   getRetentionPolicy,
   clearRetentionPolicyRegistry,
 } from './retention-policy';
-export type { RetentionPolicy } from './retention-policy';
+export type { EntityClass, RetentionPolicy, RetentionPolicyRegistration } from './retention-policy';
 export { RetentionEnforcementService } from './retention-enforcement.service';
 export type { RetentionEnforcementReport } from './retention-enforcement.service';

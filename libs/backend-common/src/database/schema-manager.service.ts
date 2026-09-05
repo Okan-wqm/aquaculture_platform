@@ -907,7 +907,6 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'plan_definitions',
       'plan_module_assignments',
       'threat_intelligence',
-      'retention_policies',
       'database_metrics',
       'slow_query_logs',
       'ingest_backend_policy_state',

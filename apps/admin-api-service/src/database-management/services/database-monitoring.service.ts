@@ -102,7 +102,9 @@ export class DatabaseMonitoringService {
     await queryRunner.connect();
 
     try {
-      const stats = await queryRows<ConnectionStatsRow>(queryRunner, `
+      const stats = await queryRows<ConnectionStatsRow>(
+        queryRunner,
+        `
         SELECT
           count(*) as total,
           count(*) FILTER (WHERE state = 'active') as active,
@@ -110,12 +112,10 @@ export class DatabaseMonitoringService {
           count(*) FILTER (WHERE wait_event IS NOT NULL AND state != 'idle') as waiting
         FROM pg_stat_activity
         WHERE datname = current_database()
-      `);
-
-      const maxConnResult = await queryRows<MaxConnectionsRow>(
-        queryRunner,
-        `SHOW max_connections`,
+      `,
       );
+
+      const maxConnResult = await queryRows<MaxConnectionsRow>(queryRunner, `SHOW max_connections`);
       const maxConnections = parseDbInt(maxConnResult[0]?.max_connections, 100);
       const total = parseDbInt(stats[0]?.total);
 
@@ -135,17 +135,19 @@ export class DatabaseMonitoringService {
   /**
    * Get connections by tenant
    */
-  async getConnectionsByTenant(): Promise<Array<{
-    tenantId: string;
-    schemaName: string;
-    activeConnections: number;
-    maxConnections: number;
-  }>> {
+  async getConnectionsByTenant(): Promise<
+    Array<{
+      tenantId: string;
+      schemaName: string;
+      activeConnections: number;
+      maxConnections: number;
+    }>
+  > {
     const schemas = await this.schemaRepository.find({
       where: { status: 'active' as SchemaStatus },
     });
 
-    return schemas.map(schema => ({
+    return schemas.map((schema) => ({
       tenantId: schema.tenantId,
       schemaName: schema.schemaName,
       activeConnections: schema.connectionCount,
@@ -180,14 +182,17 @@ export class DatabaseMonitoringService {
       `);
 
       if (pgStatExists[0]?.exists) {
-        const stats = await queryRunner.query(`
+        const stats = await queryRunner.query(
+          `
           SELECT
             sum(calls) as total_queries,
             avg(mean_exec_time) as avg_time,
             count(*) FILTER (WHERE mean_exec_time > $1) as slow_queries,
             sum(calls) / GREATEST(EXTRACT(epoch FROM (max(stats_reset) - min(stats_reset))), 1) as qps
           FROM pg_stat_statements
-        `, [SLOW_QUERY_THRESHOLD_MS]);
+        `,
+          [SLOW_QUERY_THRESHOLD_MS],
+        );
 
         return {
           totalQueries: parseInt(stats[0]?.total_queries || '0', 10),
@@ -301,7 +306,12 @@ export class DatabaseMonitoringService {
     minExecutionTime?: number;
     groupByQuery?: boolean;
   }): Promise<SlowQueryResult> {
-    const { tenantId, limit = 50, minExecutionTime = SLOW_QUERY_THRESHOLD_MS, groupByQuery = false } = options;
+    const {
+      tenantId,
+      limit = 50,
+      minExecutionTime = SLOW_QUERY_THRESHOLD_MS,
+      groupByQuery = false,
+    } = options;
 
     if (groupByQuery) {
       return this.getGroupedSlowQueries(tenantId, minExecutionTime, limit);
@@ -369,7 +379,8 @@ export class DatabaseMonitoringService {
       params.push(limit);
       const limitParam = `$${params.length}`;
 
-      const results = await queryRunner.query(`
+      const results = await queryRunner.query(
+        `
         SELECT
           "normalizedQuery" as query,
           count(*)::text as count,
@@ -383,7 +394,9 @@ export class DatabaseMonitoringService {
         GROUP BY "normalizedQuery"
         ORDER BY count(*) DESC
         LIMIT ${limitParam}
-      `, params);
+      `,
+        params,
+      );
 
       if (results.length > 0) {
         return {
@@ -450,14 +463,15 @@ export class DatabaseMonitoringService {
 
     if (!extCheck[0]?.exists) {
       this.logger.warn(
-        'pg_stat_statements extension is not installed by db-migrate/infra. '
-        + 'Falling back to pg_stat_activity for active query monitoring.',
+        'pg_stat_statements extension is not installed by db-migrate/infra. ' +
+          'Falling back to pg_stat_activity for active query monitoring.',
       );
       return this.getSlowQueriesFromPgActivity(queryRunner, limit);
     }
 
     try {
-      const results = await queryRunner.query(`
+      const results = await queryRunner.query(
+        `
         SELECT
           query,
           calls::text as count,
@@ -471,7 +485,9 @@ export class DatabaseMonitoringService {
           AND calls > 0
         ORDER BY mean_exec_time DESC
         LIMIT $1
-      `, [limit]);
+      `,
+        [limit],
+      );
 
       return {
         source: 'pg_stat_statements',
@@ -492,8 +508,8 @@ export class DatabaseMonitoringService {
       };
     } catch (queryError) {
       this.logger.warn(
-        `pg_stat_statements query failed: ${queryError instanceof Error ? queryError.message : String(queryError)}. `
-        + 'Falling back to pg_stat_activity.',
+        `pg_stat_statements query failed: ${queryError instanceof Error ? queryError.message : String(queryError)}. ` +
+          'Falling back to pg_stat_activity.',
       );
       return this.getSlowQueriesFromPgActivity(queryRunner, limit);
     }
@@ -508,7 +524,8 @@ export class DatabaseMonitoringService {
     queryRunner: ReturnType<DataSource['createQueryRunner']>,
     limit: number,
   ): Promise<SlowQueryResult> {
-    const results = await queryRunner.query(`
+    const results = await queryRunner.query(
+      `
       SELECT
         query,
         state,
@@ -527,7 +544,9 @@ export class DatabaseMonitoringService {
         AND pid != pg_backend_pid()
       ORDER BY query_start ASC
       LIMIT $1
-    `, [limit]);
+    `,
+      [limit],
+    );
 
     return {
       source: 'pg_stat_activity',
@@ -546,9 +565,10 @@ export class DatabaseMonitoringService {
       metadata: {
         total: results.length,
         limit,
-        note: 'Data sourced from pg_stat_activity (currently running queries only). '
-          + 'Install pg_stat_statements extension and add it to shared_preload_libraries '
-          + 'for historical query statistics.',
+        note:
+          'Data sourced from pg_stat_activity (currently running queries only). ' +
+          'Install pg_stat_statements extension and add it to shared_preload_libraries ' +
+          'for historical query statistics.',
       },
     };
   }
@@ -598,7 +618,10 @@ export class DatabaseMonitoringService {
 
     // Step 1: Enforce maximum query length before any processing
     if (query.length > MAX_EXPLAIN_QUERY_LENGTH) {
-      return { valid: false, error: `Query exceeds maximum allowed length (${MAX_EXPLAIN_QUERY_LENGTH} chars)` };
+      return {
+        valid: false,
+        error: `Query exceeds maximum allowed length (${MAX_EXPLAIN_QUERY_LENGTH} chars)`,
+      };
     }
 
     const trimmedQuery = query.trim();
@@ -621,7 +644,10 @@ export class DatabaseMonitoringService {
     // Step 4: Defense-in-depth — reject dangerous patterns even within allowed statements
     const forbiddenPatterns: Array<{ pattern: RegExp; reason: string }> = [
       // DDL/DML keywords that should never appear in a read-only EXPLAIN context
-      { pattern: /\b(insert|update|delete|drop|create|alter|truncate|grant|revoke|vacuum)\b/i, reason: 'DDL/DML statement' },
+      {
+        pattern: /\b(insert|update|delete|drop|create|alter|truncate|grant|revoke|vacuum)\b/i,
+        reason: 'DDL/DML statement',
+      },
       // SQL comments can hide malicious payloads
       { pattern: /--/, reason: 'SQL line comment' },
       { pattern: /\/\*/, reason: 'SQL block comment' },
@@ -681,7 +707,9 @@ export class DatabaseMonitoringService {
     // Validate schema name if provided
     if (schemaName) {
       if (!this.validateSchemaName(schemaName)) {
-        throw new Error('Invalid schema name format. Only alphanumeric characters, underscores, and hyphens are allowed.');
+        throw new Error(
+          'Invalid schema name format. Only alphanumeric characters, underscores, and hyphens are allowed.',
+        );
       }
     }
 
@@ -702,7 +730,9 @@ export class DatabaseMonitoringService {
 
       if (schemaName) {
         // Use identifier quoting for schema name (already validated against allowlist)
-        await queryRunner.query(`SET LOCAL search_path TO ${queryRunner.connection.driver.escape(schemaName)}`);
+        await queryRunner.query(
+          `SET LOCAL search_path TO ${queryRunner.connection.driver.escape(schemaName)}`,
+        );
       }
 
       // EXPLAIN with ANALYZE false produces an estimated plan without executing the query.
@@ -728,14 +758,16 @@ export class DatabaseMonitoringService {
   /**
    * Get storage usage by tenant
    */
-  async getStorageByTenant(): Promise<Array<{
-    tenantId: string;
-    schemaName: string;
-    totalSizeBytes: number;
-    dataSizeBytes: number;
-    indexSizeBytes: number;
-    tableCount: number;
-  }>> {
+  async getStorageByTenant(): Promise<
+    Array<{
+      tenantId: string;
+      schemaName: string;
+      totalSizeBytes: number;
+      dataSizeBytes: number;
+      indexSizeBytes: number;
+      tableCount: number;
+    }>
+  > {
     const schemas = await this.schemaRepository.find();
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -751,7 +783,8 @@ export class DatabaseMonitoringService {
       }> = [];
 
       for (const schema of schemas) {
-        const sizeResult = await queryRunner.query(`
+        const sizeResult = await queryRunner.query(
+          `
           SELECT
             COALESCE(SUM(pg_total_relation_size(quote_ident(schemaname) || '.' || quote_ident(tablename))), 0) as total_size,
             COALESCE(SUM(pg_table_size(quote_ident(schemaname) || '.' || quote_ident(tablename))), 0) as data_size,
@@ -759,7 +792,9 @@ export class DatabaseMonitoringService {
             count(*) as table_count
           FROM pg_tables
           WHERE schemaname = $1
-        `, [schema.schemaName]);
+        `,
+          [schema.schemaName],
+        );
 
         results.push({
           tenantId: schema.tenantId,
@@ -828,7 +863,8 @@ export class DatabaseMonitoringService {
       const recommendations: IndexRecommendation[] = [];
 
       // Find tables with sequential scans but no indexes
-      const seqScans = await queryRunner.query(`
+      const seqScans = await queryRunner.query(
+        `
         SELECT
           schemaname,
           relname as table_name,
@@ -838,17 +874,16 @@ export class DatabaseMonitoringService {
         FROM pg_stat_user_tables
         WHERE seq_scan > idx_scan * 2
           AND n_live_tup > 1000
-          ${schemaName ? "AND schemaname = $1" : ""}
+          ${schemaName ? 'AND schemaname = $1' : ''}
         ORDER BY seq_scan DESC
         LIMIT 10
-      `, schemaName ? [schemaName] : []);
+      `,
+        schemaName ? [schemaName] : [],
+      );
 
       for (const table of seqScans) {
         // Get commonly filtered columns
-        const columns = await this.suggestIndexColumns(
-          table.schemaname,
-          table.table_name,
-        );
+        const columns = await this.suggestIndexColumns(table.schemaname, table.table_name);
 
         if (columns.length > 0) {
           recommendations.push({
@@ -865,7 +900,8 @@ export class DatabaseMonitoringService {
       }
 
       // Find unused indexes
-      const unusedIndexes = await queryRunner.query(`
+      const unusedIndexes = await queryRunner.query(
+        `
         SELECT
           schemaname,
           relname as table_name,
@@ -874,10 +910,12 @@ export class DatabaseMonitoringService {
         FROM pg_stat_user_indexes
         WHERE idx_scan = 0
           AND schemaname NOT IN ('pg_catalog', 'information_schema')
-          ${schemaName ? "AND schemaname = $1" : ""}
+          ${schemaName ? 'AND schemaname = $1' : ''}
         ORDER BY pg_relation_size(indexrelid) DESC
         LIMIT 10
-      `, schemaName ? [schemaName] : []);
+      `,
+        schemaName ? [schemaName] : [],
+      );
 
       for (const idx of unusedIndexes) {
         recommendations.push({
@@ -907,7 +945,8 @@ export class DatabaseMonitoringService {
 
     try {
       // Get primary key columns (these typically need indexes on FKs)
-      const result = await queryRunner.query(`
+      const result = await queryRunner.query(
+        `
         SELECT column_name
         FROM information_schema.columns
         WHERE table_schema = $1
@@ -915,7 +954,9 @@ export class DatabaseMonitoringService {
           AND (column_name LIKE '%_id' OR column_name LIKE '%_at' OR column_name = 'status')
         ORDER BY ordinal_position
         LIMIT 3
-      `, [schemaName, tableName]);
+      `,
+        [schemaName, tableName],
+      );
 
       return result.map((r: Record<string, unknown>) => r.column_name as string);
     } finally {
@@ -1108,24 +1149,5 @@ export class DatabaseMonitoringService {
       .andWhere('metric.recordedAt >= :since', { since })
       .orderBy('metric.recordedAt', 'ASC')
       .getMany();
-  }
-
-  /**
-   * Cleanup old metrics (runs daily)
-   */
-  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
-  async cleanupOldMetrics(): Promise<void> {
-    this.logger.log('Cleaning up old metrics');
-
-    const retentionDays = 30;
-    const cutoffDate = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
-
-    await this.metricRepository.delete({
-      recordedAt: LessThan(cutoffDate),
-    });
-
-    await this.slowQueryRepository.delete({
-      recordedAt: LessThan(cutoffDate),
-    });
   }
 }

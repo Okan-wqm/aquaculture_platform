@@ -285,7 +285,12 @@ export class JobQueueService {
         const pendingDeps = await this.jobRepo.count({
           where: {
             id: In(job.dependencies),
-            status: In([JobStatus.PENDING, JobStatus.RUNNING, JobStatus.SCHEDULED, JobStatus.RETRYING]),
+            status: In([
+              JobStatus.PENDING,
+              JobStatus.RUNNING,
+              JobStatus.SCHEDULED,
+              JobStatus.RETRYING,
+            ]),
           },
         });
         if (pendingDeps > 0) continue;
@@ -645,26 +650,27 @@ export class JobQueueService {
     const now = new Date();
     const hourAgo = new Date(now.getTime() - 60 * 60 * 1000);
 
-    const [pending, running, completed, failed, throughputResult, avgTimeResult] = await Promise.all([
-      this.jobRepo.count({ where: { queueName, status: JobStatus.PENDING } }),
-      this.jobRepo.count({ where: { queueName, status: JobStatus.RUNNING } }),
-      this.jobRepo.count({ where: { queueName, status: JobStatus.COMPLETED } }),
-      this.jobRepo.count({ where: { queueName, status: JobStatus.FAILED } }),
-      this.jobRepo
-        .createQueryBuilder('j')
-        .select('COUNT(*)', 'count')
-        .where('j.queueName = :queueName', { queueName })
-        .andWhere('j.status = :status', { status: JobStatus.COMPLETED })
-        .andWhere('j.completedAt >= :hourAgo', { hourAgo })
-        .getRawOne(),
-      this.jobRepo
-        .createQueryBuilder('j')
-        .select('AVG(j.durationMs)', 'avg')
-        .where('j.queueName = :queueName', { queueName })
-        .andWhere('j.status = :status', { status: JobStatus.COMPLETED })
-        .andWhere('j.durationMs IS NOT NULL')
-        .getRawOne(),
-    ]);
+    const [pending, running, completed, failed, throughputResult, avgTimeResult] =
+      await Promise.all([
+        this.jobRepo.count({ where: { queueName, status: JobStatus.PENDING } }),
+        this.jobRepo.count({ where: { queueName, status: JobStatus.RUNNING } }),
+        this.jobRepo.count({ where: { queueName, status: JobStatus.COMPLETED } }),
+        this.jobRepo.count({ where: { queueName, status: JobStatus.FAILED } }),
+        this.jobRepo
+          .createQueryBuilder('j')
+          .select('COUNT(*)', 'count')
+          .where('j.queueName = :queueName', { queueName })
+          .andWhere('j.status = :status', { status: JobStatus.COMPLETED })
+          .andWhere('j.completedAt >= :hourAgo', { hourAgo })
+          .getRawOne(),
+        this.jobRepo
+          .createQueryBuilder('j')
+          .select('AVG(j.durationMs)', 'avg')
+          .where('j.queueName = :queueName', { queueName })
+          .andWhere('j.status = :status', { status: JobStatus.COMPLETED })
+          .andWhere('j.durationMs IS NOT NULL')
+          .getRawOne(),
+      ]);
 
     return {
       queueName,
@@ -734,30 +740,6 @@ export class JobQueueService {
 
     this.logger.log(`Purged ${result.affected} completed jobs older than ${olderThanDays} days`);
     return result.affected || 0;
-  }
-
-  // ============================================================================
-  // Cleanup
-  // ============================================================================
-
-  @Cron(CronExpression.EVERY_DAY_AT_4AM)
-  async cleanupOldJobs(): Promise<void> {
-    // Clean up completed jobs older than 30 days
-    await this.purgeCompletedJobs(30);
-
-    // Clean up old execution logs
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 30);
-
-    await this.logRepo.delete({ timestamp: LessThan(cutoff) });
-
-    // Clean up cancelled jobs older than 7 days
-    await this.jobRepo.delete({
-      status: JobStatus.CANCELLED,
-      updatedAt: LessThan(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)),
-    });
-
-    this.logger.log('Completed job cleanup');
   }
 
   @Cron(CronExpression.EVERY_MINUTE)

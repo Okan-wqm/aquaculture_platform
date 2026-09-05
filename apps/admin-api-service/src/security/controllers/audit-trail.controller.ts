@@ -20,13 +20,25 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Type, Transform } from 'class-transformer';
-import { IsOptional, IsNumber, IsString, IsBoolean, IsIn, IsArray, IsObject, Min, Max } from 'class-validator';
+import {
+  IsOptional,
+  IsNumber,
+  IsString,
+  IsBoolean,
+  IsIn,
+  IsArray,
+  IsObject,
+  Min,
+  Max,
+} from 'class-validator';
 import { Request, Response } from 'express';
 
 import { AuditLog, AuditSeverity as ImmutableAuditSeverity } from '../../audit/audit.entity';
 import { AuditLogFilter, AuditLogService, PaginatedAuditLogs } from '../../audit/audit.service';
 import { getAuthUser } from '../../shared/authenticated-request';
-import { ActivityCategory, ActivitySeverity, RetentionPolicyEntity, ComplianceType } from '../entities/security.entity';
+import { listRetentionPolicies } from '@aquaculture/backend-common/database';
+
+import { ActivityCategory, ActivitySeverity } from '../entities/security.entity';
 import {
   AuditTrailService,
   AuditExportOptions,
@@ -70,7 +82,15 @@ export class QueryAuditTrailDto {
   userEmail?: string;
 
   @IsOptional()
-  @IsIn(['user_action', 'system_event', 'api_call', 'data_access', 'security_event', 'configuration', 'authentication'])
+  @IsIn([
+    'user_action',
+    'system_event',
+    'api_call',
+    'data_access',
+    'security_event',
+    'configuration',
+    'authentication',
+  ])
   category?: ActivityCategory;
 
   @IsOptional()
@@ -167,79 +187,6 @@ class ExportAuditTrailDto {
   includeChanges?: boolean;
 }
 
-class CreateRetentionPolicyDto {
-  @IsString()
-  name!: string;
-
-  @IsString()
-  category!: ActivityCategory;
-
-  @IsOptional()
-  @IsString()
-  description?: string;
-
-  @IsNumber()
-  retentionDays!: number;
-
-  @IsOptional()
-  @IsNumber()
-  archiveAfterDays?: number;
-
-  @IsOptional()
-  @IsNumber()
-  deleteAfterArchiveDays?: number;
-
-  @IsOptional()
-  @IsBoolean()
-  isGlobal?: boolean;
-
-  @IsOptional()
-  @IsArray()
-  specificTenants?: string[];
-
-  @IsOptional()
-  @IsArray()
-  complianceFrameworks?: ComplianceType[];
-}
-
-class UpdateRetentionPolicyDto {
-  @IsOptional()
-  @IsString()
-  name?: string;
-
-  @IsOptional()
-  @IsString()
-  description?: string;
-
-  @IsOptional()
-  @IsNumber()
-  retentionDays?: number;
-
-  @IsOptional()
-  @IsNumber()
-  archiveAfterDays?: number;
-
-  @IsOptional()
-  @IsNumber()
-  deleteAfterArchiveDays?: number;
-
-  @IsOptional()
-  @IsBoolean()
-  isGlobal?: boolean;
-
-  @IsOptional()
-  @IsArray()
-  specificTenants?: string[];
-
-  @IsOptional()
-  @IsArray()
-  complianceFrameworks?: ComplianceType[];
-
-  @IsOptional()
-  @IsBoolean()
-  isActive?: boolean;
-}
-
 class CreateAlertRuleDto {
   @IsString()
   name!: string;
@@ -313,6 +260,16 @@ class UpdateAuditAlertRuleDto {
 // Controller
 // ============================================================================
 
+export interface RetentionPolicyView {
+  id: string;
+  ownerTag: string;
+  schema: string;
+  tableName: string;
+  timestampColumn: string;
+  retentionDays: number;
+  legalHoldAware: boolean;
+}
+
 @ApiTags('Security')
 @Controller('security/audit')
 export class AuditTrailController {
@@ -324,22 +281,22 @@ export class AuditTrailController {
   private writeMetaAudit(req: Request, action: string, details: Record<string, unknown>): void {
     const user = getAuthUser(req);
     const userAgentHeader = req.headers['user-agent'];
-    const userAgent = Array.isArray(userAgentHeader)
-      ? userAgentHeader.join(',')
-      : userAgentHeader;
+    const userAgent = Array.isArray(userAgentHeader) ? userAgentHeader.join(',') : userAgentHeader;
 
-    void this.auditLogService.log({
-      action: 'AUDIT_LOG_ACCESSED',
-      entityType: 'AuditLog',
-      performedBy: user?.id ?? 'unknown',
-      performedByEmail: user?.email,
-      ipAddress: (req.ip || req.socket?.remoteAddress) ?? undefined,
-      userAgent,
-      details: { subAction: action, ...details },
-      severity: ImmutableAuditSeverity.INFO,
-    }).catch(() => {
-      // Meta-audit failure must not block the primary immutable audit read.
-    });
+    void this.auditLogService
+      .log({
+        action: 'AUDIT_LOG_ACCESSED',
+        entityType: 'AuditLog',
+        performedBy: user?.id ?? 'unknown',
+        performedByEmail: user?.email,
+        ipAddress: (req.ip || req.socket?.remoteAddress) ?? undefined,
+        userAgent,
+        details: { subAction: action, ...details },
+        severity: ImmutableAuditSeverity.INFO,
+      })
+      .catch(() => {
+        // Meta-audit failure must not block the primary immutable audit read.
+      });
   }
 
   /**
@@ -429,10 +386,7 @@ export class AuditTrailController {
    * Export audit trail
    */
   @Post('export')
-  async exportAuditTrail(
-    @Body() dto: ExportAuditTrailDto,
-    @Res() res: Response,
-  ): Promise<void> {
+  async exportAuditTrail(@Body() dto: ExportAuditTrailDto, @Res() res: Response): Promise<void> {
     const options: AuditExportOptions = {
       format: dto.format,
       tenantId: dto.tenantId,
@@ -452,57 +406,26 @@ export class AuditTrailController {
   }
 
   // ============================================================================
-  // Retention Policies
+  // Retention Policies — READ-ONLY view of the build-time registry (ADR-0012)
   // ============================================================================
 
   /**
-   * Get all retention policies
+   * The retention windows in force, straight from the kernel registry.
+   * Windows are compliance commitments declared in code
+   * (AdminApiRetentionBootstrapModule) and enforced by the single platform
+   * enforcer; there is no runtime editor and no per-policy "apply".
    */
   @Get('retention-policies')
-  async getRetentionPolicies(): Promise<RetentionPolicyEntity[]> {
-    return this.auditService.getRetentionPolicies();
-  }
-
-  /**
-   * Get retention policy by ID
-   */
-  @Get('retention-policies/:id')
-  async getRetentionPolicy(@Param('id') id: string): Promise<RetentionPolicyEntity> {
-    return this.auditService.getRetentionPolicy(id);
-  }
-
-  /**
-   * Create retention policy
-   */
-  @Post('retention-policies')
-  @HttpCode(HttpStatus.CREATED)
-  async createRetentionPolicy(
-    @Body() dto: CreateRetentionPolicyDto,
-  ): Promise<RetentionPolicyEntity> {
-    return this.auditService.createRetentionPolicy({
-      ...dto,
-      createdBy: 'admin', // Would come from auth context
-    });
-  }
-
-  /**
-   * Update retention policy
-   */
-  @Put('retention-policies/:id')
-  async updateRetentionPolicy(
-    @Param('id') id: string,
-    @Body() dto: UpdateRetentionPolicyDto,
-  ): Promise<RetentionPolicyEntity> {
-    return this.auditService.updateRetentionPolicy(id, dto, 'admin');
-  }
-
-  /**
-   * Delete retention policy
-   */
-  @Delete('retention-policies/:id')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async deleteRetentionPolicy(@Param('id') id: string): Promise<void> {
-    await this.auditService.deleteRetentionPolicy(id);
+  getRetentionPolicies(): RetentionPolicyView[] {
+    return listRetentionPolicies().map((policy) => ({
+      id: policy.id,
+      ownerTag: policy.ownerTag,
+      schema: policy.schema,
+      tableName: policy.tableName,
+      timestampColumn: policy.timestampColumn,
+      retentionDays: policy.retentionDays,
+      legalHoldAware: policy.legalHoldAware,
+    }));
   }
 
   /**
@@ -511,16 +434,6 @@ export class AuditTrailController {
   @Get('retention-stats')
   async getRetentionStats(): Promise<RetentionStats> {
     return this.auditService.getRetentionStats();
-  }
-
-  /**
-   * Apply retention policies manually
-   */
-  @Post('retention-policies/apply')
-  @HttpCode(HttpStatus.OK)
-  async applyRetentionPolicies(): Promise<{ success: boolean }> {
-    await this.auditService.applyRetentionPolicies();
-    return { success: true };
   }
 
   // ============================================================================

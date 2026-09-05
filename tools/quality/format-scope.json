@@ -2219,6 +2219,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1808400000000-RetireRuntimeRetentionPolicies.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/modules/__tests__/modules.controller.spec.ts",
       "prettier_managed": true
     },
@@ -44473,6 +44479,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/restore-mutation-tenant-admin.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/retention-authority-ssot.spec.ts",
       "prettier_managed": true
     },
     {

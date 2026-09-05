@@ -68,7 +68,8 @@ export interface AlertNotification {
 export class ErrorTrackingService {
   private readonly logger = new Logger(ErrorTrackingService.name);
   private alertCooldowns: Map<string, Date> = new Map();
-  private notificationHandlers: Map<string, (notification: AlertNotification) => Promise<void>> = new Map();
+  private notificationHandlers: Map<string, (notification: AlertNotification) => Promise<void>> =
+    new Map();
 
   constructor(
     @InjectRepository(ErrorOccurrence)
@@ -321,8 +322,14 @@ export class ErrorTrackingService {
       }
 
       // Merge affected tenants and releases
-      const tenants = new Set([...(target.affectedTenants || []), ...(source.affectedTenants || [])]);
-      const releases = new Set([...(target.affectedReleases || []), ...(source.affectedReleases || [])]);
+      const tenants = new Set([
+        ...(target.affectedTenants || []),
+        ...(source.affectedTenants || []),
+      ]);
+      const releases = new Set([
+        ...(target.affectedReleases || []),
+        ...(source.affectedReleases || []),
+      ]);
       target.affectedTenants = Array.from(tenants);
       target.affectedReleases = Array.from(releases);
     }
@@ -376,10 +383,7 @@ export class ErrorTrackingService {
       ERROR_GROUP_SORT_FIELDS,
       'lastSeenAt',
     ) as ErrorGroupSortField;
-    query.orderBy(
-      ERROR_GROUP_SORT_COLUMNS[normalizedSortField],
-      safeSortOrder(params.sortOrder),
-    );
+    query.orderBy(ERROR_GROUP_SORT_COLUMNS[normalizedSortField], safeSortOrder(params.sortOrder));
 
     const page = params.page || 1;
     const limit = params.limit || 20;
@@ -496,10 +500,7 @@ export class ErrorTrackingService {
     return this.alertRuleRepo.save(rule);
   }
 
-  async updateAlertRule(
-    id: string,
-    data: Partial<ErrorAlertRule>,
-  ): Promise<ErrorAlertRule> {
+  async updateAlertRule(id: string, data: Partial<ErrorAlertRule>): Promise<ErrorAlertRule> {
     const rule = await this.alertRuleRepo.findOne({ where: { id } });
     if (!rule) {
       throw new NotFoundException(`Alert rule not found: ${id}`);
@@ -723,7 +724,12 @@ export class ErrorTrackingService {
     // Top error groups
     const topErrorGroups = await this.groupRepo.find({
       where: {
-        status: In([ErrorStatus.NEW, ErrorStatus.ACKNOWLEDGED, ErrorStatus.IN_PROGRESS, ErrorStatus.RECURRING]),
+        status: In([
+          ErrorStatus.NEW,
+          ErrorStatus.ACKNOWLEDGED,
+          ErrorStatus.IN_PROGRESS,
+          ErrorStatus.RECURRING,
+        ]),
       },
       order: { occurrenceCount: 'DESC' },
       take: 10,
@@ -798,41 +804,15 @@ export class ErrorTrackingService {
   }
 
   // ============================================================================
-  // Cleanup
+  // Alert cooldowns
   // ============================================================================
-
-  @Cron(CronExpression.EVERY_DAY_AT_3AM)
-  async cleanupOldErrors(): Promise<void> {
-    const retentionDays = 90;
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - retentionDays);
-
-    // Delete old occurrences
-    const deleteResult = await this.occurrenceRepo.delete({
-      timestamp: LessThan(cutoff),
-    });
-
-    // Update group counts and delete empty groups
-    const emptyGroups = await this.groupRepo
-      .createQueryBuilder('g')
-      .leftJoin('error_occurrences', 'o', 'o.groupId = g.id')
-      .where('o.id IS NULL')
-      .getMany();
-
-    if (emptyGroups.length > 0) {
-      await this.groupRepo.delete({ id: In(emptyGroups.map((g) => g.id)) });
-    }
-
-    this.logger.log(
-      `Cleaned up ${deleteResult.affected} error occurrences and ${emptyGroups.length} empty groups`,
-    );
-  }
 
   @Cron(CronExpression.EVERY_HOUR)
   async clearExpiredCooldowns(): Promise<void> {
     const now = Date.now();
     for (const [key, timestamp] of this.alertCooldowns.entries()) {
-      if (now - timestamp.getTime() > 24 * 60 * 60 * 1000) { // 24 hours
+      if (now - timestamp.getTime() > 24 * 60 * 60 * 1000) {
+        // 24 hours
         this.alertCooldowns.delete(key);
       }
     }

@@ -54,17 +54,34 @@ export type SecurityEventType =
   | 'device_anomaly'
   | 'time_anomaly';
 
-export type SecurityEventStatus = 'detected' | 'investigating' | 'confirmed' | 'mitigated' | 'false_positive' | 'escalated';
+export type SecurityEventStatus =
+  | 'detected'
+  | 'investigating'
+  | 'confirmed'
+  | 'mitigated'
+  | 'false_positive'
+  | 'escalated';
 
 export type ThreatLevel = 'low' | 'medium' | 'high' | 'critical';
 
 export type ComplianceType = 'gdpr' | 'ccpa' | 'hipaa' | 'pci_dss' | 'sox' | 'iso27001';
 
-export type DataRequestType = 'access' | 'deletion' | 'portability' | 'rectification' | 'restriction';
+export type DataRequestType =
+  | 'access'
+  | 'deletion'
+  | 'portability'
+  | 'rectification'
+  | 'restriction';
 
 export type DataRequestStatus = 'pending' | 'in_progress' | 'completed' | 'rejected' | 'expired';
 
-export type IncidentStatus = 'open' | 'investigating' | 'contained' | 'eradicated' | 'recovered' | 'closed';
+export type IncidentStatus =
+  | 'open'
+  | 'investigating'
+  | 'contained'
+  | 'eradicated'
+  | 'recovered'
+  | 'closed';
 
 export type IncidentSeverity = 'low' | 'medium' | 'high' | 'critical';
 
@@ -775,63 +792,6 @@ export class ComplianceReport {
 
   @Column({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null;
-
-  @CreateDateColumn()
-  createdAt!: Date;
-
-  @UpdateDateColumn()
-  updatedAt!: Date;
-}
-
-// ============================================================================
-// Retention Policy Entity
-// ============================================================================
-
-@Entity('retention_policies', { schema: 'admin' })
-@Index(['name'], { unique: true })
-export class RetentionPolicyEntity {
-  @PrimaryGeneratedColumn('uuid')
-  id!: string;
-
-  @Column({ type: 'varchar', length: 100, unique: true })
-  name!: string;
-
-  @Column({ type: 'varchar', length: 50 })
-  category!: ActivityCategory;
-
-  @Column({ type: 'text', nullable: true })
-  description?: string | null;
-
-  // Retention settings
-  @Column({ type: 'int' })
-  retentionDays!: number;
-
-  @Column({ type: 'int', nullable: true })
-  archiveAfterDays?: number | null;
-
-  @Column({ type: 'int', nullable: true })
-  deleteAfterArchiveDays?: number | null;
-
-  // Scope
-  @Column({ type: 'boolean', default: true })
-  isGlobal!: boolean;
-
-  @Column({ type: 'simple-array', nullable: true })
-  specificTenants?: string[] | null;
-
-  // Compliance requirements
-  @Column({ type: 'simple-array', nullable: true })
-  complianceFrameworks?: ComplianceType[] | null;
-
-  @Column({ type: 'boolean', default: true })
-  isActive!: boolean;
-
-  // Audit
-  @Column({ type: 'varchar', length: 100 })
-  createdBy!: string;
-
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  updatedBy?: string | null;
 
   @CreateDateColumn()
   createdAt!: Date;

@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan } from 'typeorm';
+import { Repository } from 'typeorm';
 
 import {
   CapturedQuery,
@@ -114,7 +113,9 @@ export class QueryInspectorService {
     query.where('q.tenantId = :tenantId', { tenantId: params.tenantId });
 
     if (params.debugSessionId) {
-      query.andWhere('q.debugSessionId = :debugSessionId', { debugSessionId: params.debugSessionId });
+      query.andWhere('q.debugSessionId = :debugSessionId', {
+        debugSessionId: params.debugSessionId,
+      });
     }
     if (params.queryType) {
       query.andWhere('q.queryType = :queryType', { queryType: params.queryType });
@@ -243,14 +244,20 @@ export class QueryInspectorService {
     // Generate recommendations
     const recommendations: string[] = [];
     if (slowQueries.length > 20) {
-      recommendations.push('High number of slow queries detected. Consider reviewing database indexes.');
+      recommendations.push(
+        'High number of slow queries detected. Consider reviewing database indexes.',
+      );
     }
-    const selectQueries = slowQueries.filter(q => q.queryType === QueryLogType.SELECT);
+    const selectQueries = slowQueries.filter((q) => q.queryType === QueryLogType.SELECT);
     if (selectQueries.length > 10) {
-      recommendations.push('Many slow SELECT queries. Consider adding appropriate indexes or optimizing queries.');
+      recommendations.push(
+        'Many slow SELECT queries. Consider adding appropriate indexes or optimizing queries.',
+      );
     }
-    if (patterns.some(p => p.avgDuration > 500)) {
-      recommendations.push('Some query patterns have very high average duration. Review execution plans.');
+    if (patterns.some((p) => p.avgDuration > 500)) {
+      recommendations.push(
+        'Some query patterns have very high average duration. Review execution plans.',
+      );
     }
 
     return { slowQueries, patterns, recommendations };
@@ -310,17 +317,5 @@ export class QueryInspectorService {
       this.logger.error('Failed to flush query buffer', error);
       this.queryBuffer.push(...queries);
     }
-  }
-
-  /**
-   * Cleanup old query data
-   */
-  @Cron(CronExpression.EVERY_DAY_AT_5AM)
-  async cleanupOldData(): Promise<void> {
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 7);
-
-    await this.queryRepo.delete({ timestamp: LessThan(cutoff) });
-    this.logger.log('Cleaned up old query data');
   }
 }

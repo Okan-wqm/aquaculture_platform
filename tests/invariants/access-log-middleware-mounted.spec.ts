@@ -50,11 +50,11 @@ describe('INVARIANT: access-log middleware is mounted + retained (AUDITTRAIL-HIG
   });
 
   it('access_logs has a registered retention policy (activating the writer cannot grow it unbounded)', () => {
-    const retention = read(
-      'apps/admin-api-service/src/retention/retention-bootstrap.module.ts',
-    );
-    expect(retention).toMatch(/tableName:\s*'access_logs'/);
-    expect(retention).toMatch(/schema:\s*'shared'/);
+    const retention = read('apps/admin-api-service/src/retention/retention-bootstrap.module.ts');
+    // ADR-0012: the policy is entity-typed — schema, table and the physical
+    // column come from AccessLogEntity's metadata, not from strings.
+    expect(retention).toMatch(/entity:\s*AccessLogEntity/);
+    expect(retention).toMatch(/timestampProperty:\s*'createdAt'/);
     // 90-day observability horizon, distinct from the 7y audit_logs policies.
     expect(retention).toMatch(/id:\s*'shared\.access_logs\.90d'/);
   });

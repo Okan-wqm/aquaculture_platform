@@ -1,0 +1,90 @@
+# Append-only stream tables that have NO registered retention policy.
+#
+# tests/invariants/retention-authority-ssot.spec.ts judges every entity whose
+# table name reads as a stream (_logs, _events, _metrics, _snapshots,
+# _occurrences, _attempts, _sessions, _history, _calls, _queries) in the
+# admin, shared and observability schemas: it must be bound to a
+# registerRetentionPolicy() call, or appear here with an owner, an expiry, the
+# finding that owns the decision, and the reason. An entry past its expiry
+# fails the suite. The list only shrinks (ADR-0012).
+#
+# `scheduledDisposers` carries the scheduled methods OUTSIDE the kernel
+# RetentionEnforcementService that still delete rows by age. Each is either a
+# per-tenant table the cross-tenant registry cannot address, or a kernel
+# mechanism with its own contract; each names the owner who retires it.
+version: 1
+scheduledDisposers:
+  - file: platform/libs/outbox/src/outbox-worker.service.ts
+    owner: okan
+    expiry: 2026-12-31
+    findingId: DATA-CRITICAL-013
+    reason: >-
+      Outbox GC of published rows is a kernel delivery mechanism (ADR-006
+      outbox contract), not a compliance window; it runs per outbox entity
+      inside the publishing transaction's own module.
+  - file: apps/messaging-service/src/message/services/idempotency-ledger-gc.service.ts
+    owner: okan
+    expiry: 2026-12-31
+    findingId: DATA-CRITICAL-013
+    reason: >-
+      messaging.message_send_idempotency is a per-tenant-routed ledger; the
+      cross-tenant registry cannot address it until messaging registers a
+      schema-qualified policy.
+  - file: apps/notification-service/src/notification/services/notification-retention.service.ts
+    owner: okan
+    expiry: 2026-12-31
+    findingId: DATA-CRITICAL-013
+    reason: >-
+      Notification log window is configured by NOTIFICATION_LOG_RETENTION_DAYS;
+      migrating it to the registry moves the window into code, which is the
+      intended end state and is notification-service's change to make.
+  - file: apps/farm-service/src/feeding/services/feeding-cron.service.ts
+    owner: okan
+    expiry: 2026-12-31
+    findingId: DATA-CRITICAL-013
+    reason: >-
+      Monthly feeding-event archival runs inside per-tenant schemas via
+      search_path, which the cross-tenant registry does not serve.
+entries:
+  - table: admin.login_attempts
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-014
+    reason: >-
+      Detective store with no producer; the decision is producer-or-delete
+      (ADMIN-HIGH-014). A window over a table nothing writes would be a claim
+      of coverage the platform does not have.
+  - table: admin.user_sessions
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-014
+    reason: >-
+      Detective store with no producer; producer-or-delete decision pending.
+  - table: admin.api_usage_logs
+    owner: okan
+    expiry: 2026-12-31
+    findingId: ADMIN-HIGH-014
+    reason: >-
+      Detective store with no producer; producer-or-delete decision pending.
+  - table: admin.security_events
+    owner: okan
+    expiry: 2026-12-31
+    findingId: DATA-CRITICAL-012
+    reason: >-
+      Security ledger whose write-once and legal-hold classification is
+      decided by ADR-0008; its window is registered with that migration so
+      the legalHold predicate exists on the day the policy does.
+  - table: admin.debug_sessions
+    owner: okan
+    expiry: 2026-12-31
+    findingId: SEC-CRITICAL-057
+    reason: >-
+      Deleted with the impersonation / debug-tools module under ADR-0007;
+      sessions are expired by status in the meantime, not disposed.
+  - table: admin.impersonation_sessions
+    owner: okan
+    expiry: 2026-12-31
+    findingId: SEC-CRITICAL-057
+    reason: >-
+      Dropped under ADR-0007; the table is locked by a WORM trigger today and
+      cannot be disposed by any engine.

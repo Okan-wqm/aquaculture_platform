@@ -59,7 +59,12 @@ export type ThreatIndicatorType =
   | 'user_agent'
   | 'cidr';
 export type ComplianceType = 'gdpr' | 'ccpa' | 'hipaa' | 'pci_dss' | 'sox' | 'iso27001';
-export type DataRequestType = 'access' | 'deletion' | 'portability' | 'rectification' | 'restriction';
+export type DataRequestType =
+  | 'access'
+  | 'deletion'
+  | 'portability'
+  | 'rectification'
+  | 'restriction';
 export type DataRequestStatus = 'pending' | 'in_progress' | 'completed' | 'rejected' | 'expired';
 
 export interface BackendActivityLog {
@@ -310,23 +315,18 @@ export interface BackendSecurityHealthScore {
   recommendations: string[];
 }
 
+/**
+ * A retention window in force, as declared in the owning service's retention
+ * bootstrap module and enforced by the platform's single registry-driven
+ * enforcer (ADR-0012). Read-only: windows are compliance commitments
+ * reviewed as code, not settings.
+ */
 export interface RetentionPolicy {
   id: string;
-  name: string;
-  entityType?: string;
-  category?: string;
-  description?: string | null;
+  ownerTag: string;
+  schema: string;
+  tableName: string;
+  timestampColumn: string;
   retentionDays: number;
-  archiveAfterDays?: number;
-  deleteAfterArchiveDays?: number | null;
-  isGlobal?: boolean;
-  specificTenants?: string[] | null;
-  complianceFrameworks?: string[] | null;
-  isActive: boolean;
-  createdBy?: string;
-  updatedBy?: string | null;
-  createdAt?: string;
-  updatedAt?: string;
-  lastRunAt?: string;
-  nextRunAt?: string;
+  legalHoldAware: boolean;
 }

@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, LessThan, Between } from 'typeorm';
+import { Repository, DataSource, Between } from 'typeorm';
 import * as os from 'os';
 import * as fs from 'fs';
 import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
@@ -938,22 +938,6 @@ export class PerformanceMonitoringService {
     query.orderBy('s.timestamp', 'DESC').limit(params.limit || 100);
 
     return query.getMany();
-  }
-
-  // ============================================================================
-  // Cleanup
-  // ============================================================================
-
-  @Cron(CronExpression.EVERY_DAY_AT_2AM)
-  async cleanupOldMetrics(): Promise<void> {
-    const retentionDays = 30;
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - retentionDays);
-
-    await this.metricRepo.delete({ timestamp: LessThan(cutoff) });
-    await this.snapshotRepo.delete({ timestamp: LessThan(cutoff) });
-
-    this.logger.log(`Cleaned up metrics older than ${retentionDays} days`);
   }
 
   // ============================================================================

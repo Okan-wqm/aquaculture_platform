@@ -96,7 +96,7 @@ the droplet.
 
 The control plane is the authority for that check. Wiring it in front of
 `droplet-up.sh` and `post-deploy-verify.sh` in the deploy lane is tracked as
-`INFRA-HIGH-141`; until that lands, those two scripts still resolve `node`
+`INFRA-HIGH-152`; until that lands, those two scripts still resolve `node`
 from `PATH`.
 
 ### Automatic Deployment via GitHub Actions

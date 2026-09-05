@@ -4744,7 +4744,7 @@ Status: OPEN (2026-06-15; owner: hr-service maintainer; tracked follow-up). Regi
 
 ---
 
-## ORPHAN-MEDIUM-118 — farm tenant-routing architecture spec allowlists only `farm-outbox`, but its regex also matches two other legitimately cross-tenant farm tables
+## ORPHAN-MEDIUM-118 — farm tenant-routing architecture spec allowlists only `farm-outbox`, but its regex also matches two other legitimately cross-tenant farm tables — RESOLVED (spec deleted 2026-09-04; `tests/invariants/entity-schema-declaration.spec.ts` is the sole owner of the rule)
 
 Severity: MEDIUM. Discovered 2026-06-16 during the CLAUDE.md steering-file back-test (multi-tenant-saas-expert lead; lead-verified firsthand).
 

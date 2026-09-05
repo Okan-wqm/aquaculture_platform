@@ -360,7 +360,10 @@ jobs:
   # ===================================================================
   tenant-clone-parity:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 15 -> 20: the job now also provisions a real tenant through the
+    # production provisioner (DATA-CRITICAL-010), which replays every
+    # tenant-aware service's migration set into a fresh schema.
+    timeout-minutes: 20
     env:
       AQUA_TEST_DB_VALUE: aquaculture-test
 
@@ -422,6 +425,54 @@ jobs:
 
       - name: Run tenant-clone-parity test
         run: npm run test:tenant-clone
+        env:
+          DATABASE_URL: postgresql://aquaculture:aquaculture-test@localhost:5432/aquaculture
+
+      # DATA-CRITICAL-010: the gate the finding's own closure criterion asks
+      # for. Until this step, NO spec in the repository entered the PROVISION
+      # branch — so "a super admin creates a tenant", the first thing the pilot
+      # does, was the one path CI never executed, and a Baseline corpus that
+      # could not be replayed into any tenant schema stayed green for four
+      # months. It runs here because the database above has just been migrated
+      # by the real db-migrate entry point, which is the same binary the spec
+      # then invokes in `tenant-schema-provisioner --once` mode. The tenant it
+      # creates is left in place on purpose: schema-invariants B.5a asserts
+      # every tenant-scoped schema has at least one clone, and with
+      # tenant-clone-parity dropping its fixture in afterAll that assertion was
+      # passing against zero tenants on every run.
+      - name: Provision a real tenant through the production provisioner
+        env:
+          DATABASE_URL: postgresql://aquaculture:aquaculture-test@localhost:5432/aquaculture
+          DATABASE_HOST: localhost
+          DATABASE_PORT: '5432'
+          DATABASE_USER: aquaculture
+          DATABASE_PASSWORD: aquaculture-test
+          DATABASE_NAME: aquaculture
+          AUTH_SERVICE_DB_PASS: ${{ env.AQUA_TEST_DB_VALUE }}
+          FARM_SERVICE_DB_PASS: ${{ env.AQUA_TEST_DB_VALUE }}
+          SENSOR_SERVICE_DB_PASS: ${{ env.AQUA_TEST_DB_VALUE }}
+          BILLING_SERVICE_DB_PASS: ${{ env.AQUA_TEST_DB_VALUE }}
+          HR_SERVICE_DB_PASS: ${{ env.AQUA_TEST_DB_VALUE }}
+          ALERT_SERVICE_DB_PASS: ${{ env.AQUA_TEST_DB_VALUE }}
+          ADMIN_SERVICE_DB_PASS: ${{ env.AQUA_TEST_DB_VALUE }}
+          GATEWAY_SERVICE_DB_PASS: ${{ env.AQUA_TEST_DB_VALUE }}
+          NOTIFICATION_SERVICE_DB_PASS: ${{ env.AQUA_TEST_DB_VALUE }}
+          HYDROPONICS_SERVICE_DB_PASS: ${{ env.AQUA_TEST_DB_VALUE }}
+          AI_SERVICE_DB_PASS: ${{ env.AQUA_TEST_DB_VALUE }}
+          MESSAGING_SERVICE_DB_PASS: ${{ env.AQUA_TEST_DB_VALUE }}
+          OBSERVABILITY_SERVICE_DB_PASS: ${{ env.AQUA_TEST_DB_VALUE }}
+          EVENT_STORE_SERVICE_DB_PASS: ${{ env.AQUA_TEST_DB_VALUE }}
+          CONFIG_SERVICE_DB_PASS: ${{ env.AQUA_TEST_DB_VALUE }}
+        run: npm run test:tenant-provisioning
+
+      # SENSOR-MEDIUM-052: CLAUDE.md named this spec as the per-PR schema
+      # invariant gate, but nothing invoked it — this workflow only listed it as
+      # a path filter. It runs here because the database above has just been
+      # migrated by the real db-migrate entry point, which is exactly the live
+      # DDL the spec asserts against (public/shared layout, per-service
+      # cross-tenant `schema:` placement).
+      - name: Run schema invariants against the migrated database
+        run: npm run test:schema-invariants
         env:
           DATABASE_URL: postgresql://aquaculture:aquaculture-test@localhost:5432/aquaculture
 

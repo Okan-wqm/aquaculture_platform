@@ -322,11 +322,6 @@ jobs:
             npm ci --ignore-scripts --no-audit
           fi
 
-      # 2026-05-05: Type-check targets can include Rust-backed crates. Prepare the exact
-      # pinned toolchain before Nx starts parallel cargo-backed tasks.
-      - name: Install Rust toolchain (rust-toolchain.toml)
-        uses: ./.github/actions/setup-rust-workspace
-
       - name: Restore Nx cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -482,7 +477,9 @@ jobs:
             exit 0
           fi
 
-          AFFECTED_TEST_PROJECTS="$(node tools/toolchain/run.mjs npx nx show projects --affected --base="$BASE_REF" --head="$HEAD_REF" --with-target=test)"
+          # --json: the bare output is newline-separated names on a runner but a
+          # JSON array when piped elsewhere, and `grep -Fx` on an array matches nothing.
+          AFFECTED_TEST_PROJECTS="$(node tools/toolchain/run.mjs npx nx show projects --affected --base="$BASE_REF" --head="$HEAD_REF" --with-target=test --json | node -e 'for (const name of JSON.parse(require("fs").readFileSync(0, "utf8"))) process.stdout.write(`${name}\n`);')"
 
           if printf '%s\n' "$AFFECTED_TEST_PROJECTS" | grep -Fxq 'migration-harness'; then
             # Image prewarm happens in the dedicated dependency-aware step
@@ -592,6 +589,23 @@ jobs:
           BASE_REF="${{ needs.detect-changes.outputs.base_sha }}"
           HEAD_REF="${{ needs.detect-changes.outputs.head_sha }}"
           bash scripts/ci/affected-target-policy.sh --target test:invariant --base "$BASE_REF" --head "$HEAD_REF" --parallel 1
+        timeout-minutes: 20
+        env:
+          NX_DAEMON: 'false'
+          NX_NO_CLOUD: 'true'
+          NODE_OPTIONS: '--max-old-space-size=4096'
+
+      # INFRA-MEDIUM-158: farm-service and auth-service declare `test:integration`
+      # (Testcontainers-backed *.postgres.spec.ts, each spec boots its own
+      # PostgreSQL; the image is prewarmed by the dependency-aware step above).
+      # Until this step no workflow invoked the target. Same policy machinery as
+      # `test`, `--parallel 1` because both configs are runInBand and every spec
+      # owns a container.
+      - name: Run integration tests (affected, Testcontainers)
+        run: |
+          BASE_REF="${{ needs.detect-changes.outputs.base_sha }}"
+          HEAD_REF="${{ needs.detect-changes.outputs.head_sha }}"
+          bash scripts/ci/affected-target-policy.sh --target test:integration --base "$BASE_REF" --head "$HEAD_REF" --parallel 1
         timeout-minutes: 20
         env:
           NX_DAEMON: 'false'
@@ -1455,66 +1469,65 @@ jobs:
         run: |
           set +e
           npm audit --audit-level=moderate --omit=dev --json > npm-audit-root-production.json
-          ROOT_PRODUCTION_AUDIT_STATUS=$?
           node scripts/ci/audit-source-map.mjs npm-audit-root-production.json npm-audit-root-production.md
           ROOT_PRODUCTION_MAP_STATUS=$?
           npm audit --audit-level=high --json > npm-audit-root-full.json
-          ROOT_FULL_AUDIT_STATUS=$?
           node scripts/ci/audit-source-map.mjs npm-audit-root-full.json npm-audit-root-full.md
           ROOT_FULL_MAP_STATUS=$?
           npm --prefix web/apps/aquamobil audit --audit-level=moderate --omit=dev --json > npm-audit-aquamobil-production.json
-          AQUAMOBIL_PRODUCTION_AUDIT_STATUS=$?
           node scripts/ci/audit-source-map.mjs npm-audit-aquamobil-production.json npm-audit-aquamobil-production.md
           AQUAMOBIL_PRODUCTION_MAP_STATUS=$?
           npm --prefix web/apps/aquamobil audit --audit-level=high --json > npm-audit-aquamobil-full.json
-          AQUAMOBIL_FULL_AUDIT_STATUS=$?
           node scripts/ci/audit-source-map.mjs npm-audit-aquamobil-full.json npm-audit-aquamobil-full.md
           AQUAMOBIL_FULL_MAP_STATUS=$?
           npm --prefix e2e audit --audit-level=moderate --omit=dev --json > npm-audit-e2e-production.json
-          E2E_PRODUCTION_AUDIT_STATUS=$?
           node scripts/ci/audit-source-map.mjs npm-audit-e2e-production.json npm-audit-e2e-production.md
           E2E_PRODUCTION_MAP_STATUS=$?
           npm --prefix e2e audit --audit-level=high --json > npm-audit-e2e-full.json
-          E2E_FULL_AUDIT_STATUS=$?
           node scripts/ci/audit-source-map.mjs npm-audit-e2e-full.json npm-audit-e2e-full.md
           E2E_FULL_MAP_STATUS=$?
           set -e
-          if [ "$ROOT_PRODUCTION_AUDIT_STATUS" -ne 0 ]; then
-            exit "$ROOT_PRODUCTION_AUDIT_STATUS"
-          fi
           if [ "$ROOT_PRODUCTION_MAP_STATUS" -ne 0 ]; then
             exit "$ROOT_PRODUCTION_MAP_STATUS"
-          fi
-          if [ "$ROOT_FULL_AUDIT_STATUS" -ne 0 ]; then
-            exit "$ROOT_FULL_AUDIT_STATUS"
           fi
           if [ "$ROOT_FULL_MAP_STATUS" -ne 0 ]; then
             exit "$ROOT_FULL_MAP_STATUS"
           fi
-          if [ "$AQUAMOBIL_PRODUCTION_AUDIT_STATUS" -ne 0 ]; then
-            exit "$AQUAMOBIL_PRODUCTION_AUDIT_STATUS"
-          fi
           if [ "$AQUAMOBIL_PRODUCTION_MAP_STATUS" -ne 0 ]; then
             exit "$AQUAMOBIL_PRODUCTION_MAP_STATUS"
-          fi
-          if [ "$AQUAMOBIL_FULL_AUDIT_STATUS" -ne 0 ]; then
-            exit "$AQUAMOBIL_FULL_AUDIT_STATUS"
           fi
           if [ "$AQUAMOBIL_FULL_MAP_STATUS" -ne 0 ]; then
             exit "$AQUAMOBIL_FULL_MAP_STATUS"
           fi
-          if [ "$E2E_PRODUCTION_AUDIT_STATUS" -ne 0 ]; then
-            exit "$E2E_PRODUCTION_AUDIT_STATUS"
-          fi
           if [ "$E2E_PRODUCTION_MAP_STATUS" -ne 0 ]; then
             exit "$E2E_PRODUCTION_MAP_STATUS"
-          fi
-          if [ "$E2E_FULL_AUDIT_STATUS" -ne 0 ]; then
-            exit "$E2E_FULL_AUDIT_STATUS"
           fi
           if [ "$E2E_FULL_MAP_STATUS" -ne 0 ]; then
             exit "$E2E_FULL_MAP_STATUS"
           fi
+      # The verdict is npm-audit-gate's, not npm's own exit code. npm audit is
+      # all-or-nothing, so one advisory with no safe remediation turns this
+      # REQUIRED check red forever — and a permanently red required check stops
+      # being read, which protects nothing. The gate applies the reviewed,
+      # DATED exceptions in scripts/ci/npm-audit-exceptions.json and fails on
+      # everything else, including an expired exception and an advisory that
+      # has reached a package its exception was not reviewed against. The JSON
+      # reports above are still produced and uploaded either way, so the raw
+      # npm output stays available to a reviewer.
+      - name: Gate npm audit on reviewed exceptions
+        run: |
+          node scripts/ci/npm-audit-gate.mjs --audit npm-audit-root-production.json \
+            --level moderate --scope root-production --exceptions scripts/ci/npm-audit-exceptions.json
+          node scripts/ci/npm-audit-gate.mjs --audit npm-audit-root-full.json \
+            --level high --scope root-full --exceptions scripts/ci/npm-audit-exceptions.json
+          node scripts/ci/npm-audit-gate.mjs --audit npm-audit-aquamobil-production.json \
+            --level moderate --scope aquamobil-production --exceptions scripts/ci/npm-audit-exceptions.json
+          node scripts/ci/npm-audit-gate.mjs --audit npm-audit-aquamobil-full.json \
+            --level high --scope aquamobil-full --exceptions scripts/ci/npm-audit-exceptions.json
+          node scripts/ci/npm-audit-gate.mjs --audit npm-audit-e2e-production.json \
+            --level moderate --scope e2e-production --exceptions scripts/ci/npm-audit-exceptions.json
+          node scripts/ci/npm-audit-gate.mjs --audit npm-audit-e2e-full.json \
+            --level high --scope e2e-full --exceptions scripts/ci/npm-audit-exceptions.json
       - name: Upload npm audit source map
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

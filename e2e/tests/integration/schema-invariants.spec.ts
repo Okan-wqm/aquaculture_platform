@@ -52,6 +52,7 @@ import { getMetadataArgsStorage } from 'typeorm';
 import { TestDatabase } from '../../helpers/db.helper';
 
 const REPO_ROOT = resolve(__dirname, '..', '..', '..');
+
 const requireEntity = createRequire(__filename);
 
 /**
@@ -100,6 +101,34 @@ const PLATFORM_LEVEL_SCHEMAS: ReadonlyArray<string> = [
 
 const TENANT_FANOUT_TABLES_BY_SCHEMA: ReadonlyMap<string, ReadonlyArray<string>> = new Map(
   MODULE_SCHEMAS.map((moduleSchema) => [moduleSchema.sourceSchema, moduleSchema.tables]),
+);
+
+/**
+ * Every table name a tenant schema is SUPPOSED to carry, from the registry.
+ *
+ * B.5b looks for platform-schema tables cloned into a tenant, and it can only
+ * compare by NAME — `information_schema` has no notion of "clone of". Names are
+ * not unique across schemas, so a per-tenant table whose name also exists in a
+ * platform schema reads as a trust-boundary violation when it is nothing of the
+ * kind: `messages` lives in `auth` and `admin` AND is messaging's per-tenant
+ * table; `retention_policies` and `legal_holds` collide the same way.
+ *
+ * That never surfaced because B.5b had never run against a database with a real
+ * tenant in it — B.5a was passing vacuously against zero tenants for the same
+ * reason. The first genuinely provisioned tenant produced four false positives
+ * and no true ones.
+ *
+ * Subtracting the registered per-tenant names keeps the assertion pointed at
+ * what it means: a tenant table that is a clone of something only a platform
+ * schema owns. A platform table that ALSO gets registered per-tenant would stop
+ * being caught here — but that registration is itself the violation, and
+ * `entity-schema-declaration` and B.1/B.2 are the gates that own it.
+ */
+const REGISTERED_TENANT_TABLE_NAMES: ReadonlySet<string> = new Set(
+  MODULE_SCHEMAS.flatMap((moduleSchema) => [
+    ...moduleSchema.tables,
+    ...(moduleSchema.referenceDataTables ?? []),
+  ]),
 );
 
 // The TENANT_SCOPED set is also the allow-list for entities legitimately
@@ -686,7 +715,9 @@ describe('Schema Invariants (2026-04-14 public-schema teardown)', () => {
          WHERE table_schema = $1 AND table_type = 'BASE TABLE'`,
         [platformSchema],
       );
-      const sourceTableNames = sourceTables.rows.map((r) => r.table_name);
+      const sourceTableNames = sourceTables.rows
+        .map((r) => r.table_name)
+        .filter((tableName) => !REGISTERED_TENANT_TABLE_NAMES.has(tableName));
       if (sourceTableNames.length === 0) return;
 
       const violations = await db.query<{ table_schema: string; table_name: string }>(

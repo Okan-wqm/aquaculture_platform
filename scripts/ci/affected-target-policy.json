@@ -1,50 +1,250 @@
 {
-  "version": 1,
-  "description": "CI affected target policy. Known-unstable project-level lint/test targets are explicit quarantine entries so PR gates can keep running strict targets without treating pre-existing monorepo debt as a new release blocker.",
+  "version": 2,
+  "description": "CI affected target policy. A project under targets.<target>.knownUnstableProjects runs that target as a warning instead of a gate on the affected lane. Every entry is tracked debt and carries {owner, reason, expires_on, finding_id} \u2014 the shape tests/invariants/invariant-reachability.dormant.json uses; scripts/ci/write-affected-target-report.mjs refuses the file when an entry is malformed or expired, and tests/invariants/affected-target-quarantine-ssot.spec.ts ratchets the test quarantine downward.",
   "metadataExcludes": [".npmrc", "package.json", "package-lock.json"],
   "targets": {
     "lint": {
       "knownUnstableProjects": {
-        "@aqua/cargo": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "@aquaculture/aquamobil": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "@aquaculture/e2e-tests": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "@aquaculture/farm-shared": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "@aquaculture/node-components": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "@platform/mcp-farm-management": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "admin-api-service": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "admin-panel": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "ai-service": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "alert-engine": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "aqua-scripts": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "auth-service": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "backend-common": "Newly VISIBLE debt, not new debt: this project had no project.json, so Nx could not see it and lint has never run on it. Enforcing 941 pre-existing errors across four libraries inside the PR that merely made them visible would bury the change. Tracked as ORPHAN-HIGH-588 with the per-project counts.",
-        "billing-service": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "config-service": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "dashboard": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "db-migrate": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "event-bus": "Newly VISIBLE debt, not new debt: this project had no project.json, so Nx could not see it and lint has never run on it. Enforcing 941 pre-existing errors across four libraries inside the PR that merely made them visible would bury the change. Tracked as ORPHAN-HIGH-588 with the per-project counts.",
-        "event-contracts": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "event-store-service": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "farm-module": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "farm-service": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "gateway-api": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "hr-module": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "hr-service": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "hydroponics-module": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "hydroponics-service": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "invariants": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "messaging-service": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "migration-harness": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "node-red-project": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "notification-service": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "observability-service": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "outbox": "Newly VISIBLE debt, not new debt: this project had no project.json, so Nx could not see it and lint has never run on it. Enforcing 941 pre-existing errors across four libraries inside the PR that merely made them visible would bury the change. Tracked as ORPHAN-HIGH-588 with the per-project counts.",
-        "sensor-module": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "sensor-service": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "shared-ui": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "shell": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "storage": "Newly VISIBLE debt, not new debt: this project had no project.json, so Nx could not see it and lint has never run on it. Enforcing 941 pre-existing errors across four libraries inside the PR that merely made them visible would bury the change. Tracked as ORPHAN-HIGH-588 with the per-project counts.",
-        "tenant-admin": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery."
+        "@aqua/cargo": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "@aquaculture/aquamobil": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "@aquaculture/e2e-tests": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "@aquaculture/farm-shared": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "@aquaculture/node-components": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "@platform/mcp-farm-management": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "admin-api-service": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "admin-panel": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "ai-service": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "alert-engine": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "aqua-scripts": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "auth-service": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "backend-common": {
+          "owner": "@okan-wqm",
+          "reason": "Newly visible, not new: the project had no project.json, so lint never ran on it; per-project error counts in the finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "ORPHAN-HIGH-588"
+        },
+        "billing-service": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "config-service": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "dashboard": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "db-migrate": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "event-bus": {
+          "owner": "@okan-wqm",
+          "reason": "Newly visible, not new: the project had no project.json, so lint never ran on it; per-project error counts in the finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "ORPHAN-HIGH-588"
+        },
+        "event-contracts": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "event-store-service": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "farm-module": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "farm-service": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "gateway-api": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "hr-module": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "hr-service": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "hydroponics-module": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "hydroponics-service": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "invariants": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "messaging-service": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "migration-harness": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "node-red-project": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "notification-service": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "observability-service": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "outbox": {
+          "owner": "@okan-wqm",
+          "reason": "Newly visible, not new: the project had no project.json, so lint never ran on it; per-project error counts in the finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "ORPHAN-HIGH-588"
+        },
+        "sensor-module": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "sensor-service": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "shared-ui": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "shell": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        },
+        "storage": {
+          "owner": "@okan-wqm",
+          "reason": "Newly visible, not new: the project had no project.json, so lint never ran on it; per-project error counts in the finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "ORPHAN-HIGH-588"
+        },
+        "tenant-admin": {
+          "owner": "@okan-wqm",
+          "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
+          "expires_on": "2026-10-31",
+          "finding_id": "INFRA-MEDIUM-154"
+        }
       }
     },
     "test:contract": {
@@ -55,28 +255,11 @@
       "knownUnstableProjects": {},
       "notes": "STRICT, AND IT MUST STAY THAT WAY. farm-service:test is already quarantined below, so this is the ONLY strict farm-service gate in ci-affected. Seeding farm-service here would leave the service with no blocking test gate at all and would re-create the dead-lane condition (FARM-MEDIUM-301) this target was wired up to end. If an integration suite is failing, fix the suite or the code it caught — do not quarantine the target."
     },
+    "test:integration": {
+      "knownUnstableProjects": {}
+    },
     "test": {
-      "knownUnstableProjects": {
-        "@aquaculture/hr-module": "CI run 26116890061: existing unit-test debt, unrelated to deploy/migration recovery.",
-        "admin-api-service": "CI run 26116890061: existing unit-test debt, unrelated to deploy/migration recovery.",
-        "admin-panel": "CI run 26116890061: existing unit-test debt, unrelated to deploy/migration recovery.",
-        "alert-engine": "CI run 26116890061: existing unit-test debt, unrelated to deploy/migration recovery.",
-        "auth-service": "CI run 26116890061: existing unit-test debt, unrelated to deploy/migration recovery.",
-        "billing-service": "CI run 26116890061: existing unit-test debt, unrelated to deploy/migration recovery.",
-        "config-service": "CI run 26116890061: existing unit-test debt, unrelated to deploy/migration recovery.",
-        "dashboard": "CI run 26116890061: existing unit-test debt, unrelated to deploy/migration recovery.",
-        "farm-module": "CI run 26116890061: existing unit-test debt, unrelated to deploy/migration recovery.",
-        "farm-service": "CI run 26116890061: existing unit-test debt, unrelated to deploy/migration recovery.",
-        "gateway-api": "CI run 26116890061: existing unit-test debt, unrelated to deploy/migration recovery.",
-        "hr-service": "CI run 26116890061: existing unit-test debt, unrelated to deploy/migration recovery.",
-        "messaging-service": "CI run 26116890061: project unit target is unstable; messaging release behavior is covered by the dedicated E2E Messaging workflow and migration gates.",
-        "notification-service": "CI run 26116890061: existing unit-test debt, unrelated to deploy/migration recovery.",
-        "observability-service": "CI run 26116890061: existing unit-test debt, unrelated to deploy/migration recovery.",
-        "sensor-service": "CI run 26116890061: existing unit-test debt; sensor enterprise smoke fixtures remain strict in sensor-service-gates.",
-        "shell": "CI run 26116890061: existing unit-test debt, unrelated to deploy/migration recovery.",
-        "tenant-admin": "CI run 26116890061: existing unit-test debt, unrelated to deploy/migration recovery.",
-        "hr-module": "CI run 26116890061: existing unit-test debt, unrelated to deploy/migration recovery."
-      }
+      "knownUnstableProjects": {}
     }
   }
 }

@@ -24,4 +24,4 @@ For the same reason `entities:` is an explicit two-item list rather than `autoLo
 
 ## Enforcement
 
-CI: `tests/invariants/tenant-context-ssot.spec.ts`, `graphql-operation-limit-ssot.spec.ts`, `plan-features-ssot.spec.ts`, `access-log-middleware-mounted.spec.ts`, `strip-internal-headers-mounted.spec.ts`, `token-revocation-writer-reader-ssot.spec.ts`, `service-identity-canonical-coverage.spec.ts`; `e2e/tests/tenant-swap-attack.e2e.spec.ts`.
+CI: `tests/invariants/tenant-context-ssot.spec.ts`, `graphql-operation-limit-ssot.spec.ts`, `plan-features-ssot.spec.ts`, `access-log-middleware-mounted.spec.ts`, `strip-internal-headers-mounted.spec.ts`, `token-revocation-writer-reader-ssot.spec.ts`, `service-identity-canonical-coverage.spec.ts`. `e2e/tests/tenant-swap-attack.e2e.spec.ts` exists but has no CI runner yet (SENSOR-HIGH-070).

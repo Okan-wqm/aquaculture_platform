@@ -6,7 +6,6 @@ export default {
     '<rootDir>/src/**/__tests__/integration/**/*.spec.ts',
     '<rootDir>/src/**/*.integration.spec.ts',
     '<rootDir>/src/**/*.postgres.spec.ts',
-    '<rootDir>/src/__tests__/e2e/**/*.architecture.spec.ts',
     '<rootDir>/src/__tests__/e2e/race-conditions.spec.ts',
     // Saf statik/reflection kapısı (Docker gerektirmez), ama HİÇBİR config'e
     // girmiyordu: unit config `\.e2e-spec\.ts$`'i ignore ediyor ve buradaki

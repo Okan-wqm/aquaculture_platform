@@ -31,6 +31,8 @@
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
+import { nxProjects } from './helpers/nx';
+
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const EXCLUSIONS = join(REPO_ROOT, 'scripts/ci/lint-all-exclusions.json');
 const AFFECTED_POLICY = join(REPO_ROOT, 'scripts/ci/affected-target-policy.json');
@@ -90,7 +92,7 @@ describe('lint quarantine has one source', () => {
     // unstable; the reverse is fine and common (that list is far broader and
     // mostly historical).
     const affected = JSON.parse(readFileSync(AFFECTED_POLICY, 'utf8')) as {
-      targets?: { lint?: { knownUnstableProjects?: Record<string, string> } };
+      targets?: { lint?: { knownUnstableProjects?: Record<string, unknown> } };
     };
     const known = new Set(Object.keys(affected.targets?.lint?.knownUnstableProjects ?? {}));
     const contradictions = Object.keys(exclusions()).filter((project) => !known.has(project));
@@ -102,19 +104,9 @@ describe('lint quarantine has one source', () => {
     // A stale entry silently widens nothing, but it does make the list look
     // larger than the debt actually is — and the list is what gets paid down.
     const declared = Object.keys(exclusions());
-    const nxProjects = new Set(
-      (
-        JSON.parse(
-          require('node:child_process').execFileSync('npx', ['nx', 'show', 'projects', '--json'], {
-            cwd: REPO_ROOT,
-            encoding: 'utf8',
-            env: { ...process.env, NX_DAEMON: 'false' },
-          }),
-        ) as string[]
-      ).map((name) => name),
-    );
+    const workspaceProjects = new Set(nxProjects());
 
-    const vanished = declared.filter((project) => !nxProjects.has(project));
+    const vanished = declared.filter((project) => !workspaceProjects.has(project));
 
     expect(vanished).toEqual([]);
   });

@@ -2231,6 +2231,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1808400000000-HardenDryRunSchemaDeletionGuard.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/modules/__tests__/modules.controller.spec.ts",
       "prettier_managed": true
     },
@@ -7864,12 +7870,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/farm-service/src/__tests__/e2e/graphql-loader-tenant-source.architecture.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/farm-service/src/__tests__/e2e/helpers/farm-tenant-fixture.ts",
       "prettier_managed": true
     },
@@ -7883,12 +7883,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/__tests__/e2e/mortality-cull-harvest-tenant-isolation.postgres.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/farm-service/src/__tests__/e2e/p0-fixes-verification.e2e-spec.ts",
       "prettier_managed": true
     },
     {
@@ -7930,7 +7924,7 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/farm-service/src/__tests__/e2e/tenant-schema-routing.architecture.spec.ts",
+      "path": "apps/farm-service/src/__tests__/p0-fixes-verification.spec.ts",
       "prettier_managed": true
     },
     {
@@ -23361,6 +23355,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/messaging-service/src/migrations/1802200000000-EnsureTenantMessagesEmbeddingColumn.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/messaging-service/src/monitoring/monitoring.module.ts",
       "prettier_managed": true
     },
@@ -34803,6 +34803,18 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/data-expert/2026-09-04-tenant-provisioning-replay-safety.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/data-expert/2026-09-04-value-transformer-column-defaults.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/database-reviewer/2026-04-10-full-repo-audit.md",
       "prettier_managed": true
     },
@@ -35422,6 +35434,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/infra-expert/2026-09-04-production-host-control-plane-integration.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/infra-expert/2026-09-05-clippy-affected-merge-scope.md",
       "prettier_managed": true
     },
     {
@@ -37025,12 +37043,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "e2e/tests/integration/entity-migration-parity.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "e2e/tests/integration/event-publishing.spec.ts",
       "prettier_managed": true
     },
@@ -37080,6 +37092,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "e2e/tests/integration/tenant-clone-parity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "e2e/tests/integration/tenant-provisioning-replay.spec.ts",
       "prettier_managed": true
     },
     {
@@ -38443,6 +38461,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/database/__tests__/db-migrate-authority.util.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/__tests__/decimal-transformer.spec.ts",
       "prettier_managed": true
     },
     {
@@ -42650,7 +42674,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "c4c8a7c0830f903fcbf4170f800209bdca73b2fddda070cf4f22ac8d514b68b9",
+      "content_sha256": "08c9a62a6a80f5e3510c6565866d015eb7599e265d9a55a5a3223013a6955865",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -43214,6 +43238,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "scripts/ci/lib/reviewed-exception.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "scripts/ci/lint-all-exclusions.json",
       "prettier_managed": true
     },
@@ -43233,6 +43263,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "scripts/ci/markdownlint-changed.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "scripts/ci/npm-audit-exceptions.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "scripts/ci/npm-audit-gate.mjs",
       "prettier_managed": true
     },
     {
@@ -43377,6 +43419,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "scripts/migration/baseline-generator.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "scripts/migration/dequalify-tenant-baselines.mjs",
       "prettier_managed": true
     },
     {
@@ -44486,6 +44534,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/affected-target-quarantine-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/agent-doc-shape.spec.ts",
       "prettier_managed": true
     },
@@ -45158,6 +45212,30 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/helpers/nx.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/helpers/spec-runners.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/helpers/ts-source.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/helpers/workflows.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/hr-graphql-fe-be-parity.spec.ts",
       "prettier_managed": true
     },
@@ -45459,6 +45537,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/non-http-entrypoint-tenant-context.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/npm-audit-exception-ssot.spec.ts",
       "prettier_managed": true
     },
     {
@@ -45927,6 +46011,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/upcaster-chain.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/value-transformer-column-default.spec.ts",
       "prettier_managed": true
     },
     {
@@ -47491,24 +47581,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "tools/testing/tsconfig.json",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "tools/testing/vitest-resource-policy.json",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "tools/testing/vitest-resource-policy.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "tools/toolchain/check-versions.mjs",
       "prettier_managed": true
     },
@@ -47622,7 +47694,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "3a494074cf6314ff438d6985d9f926cae085cd7ccf3317a7e931f83f45a9631b",
+      "content_sha256": "6b17a4b468a273a0d6d58ef2e6ce94155ce22b3a948fd2b9af15e6d68628d4c2",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "web/apps/aquamobil/package-lock.json",

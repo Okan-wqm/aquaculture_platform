@@ -232,6 +232,49 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  test-integration:
+    runs-on: ubuntu-latest
+    # INFRA-MEDIUM-158: farm-service and auth-service declare `test:integration`
+    # (Testcontainers-backed *.postgres.spec.ts — every spec boots its own
+    # PostgreSQL from the migration-harness image pin). Until this job no
+    # workflow invoked the target on the full lane either. A SEPARATE job, not a
+    # step in `test`: the `test` job's budgets are pinned to its measured
+    # distribution in tests/invariants/ci-timeout-budget-ssot.spec.ts, and an
+    # extra 10-15 minutes of container boots inside it would make that record
+    # wrong. No Rust project declares test:integration, so no toolchain setup
+    # precedes the fan-out.
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      # SEC-CI-002: pinned to SHA
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        # SEC-CI-002: pinned to SHA
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --prefer-offline
+
+      # One prewarm for every spec in the lane; the image pin is read from the
+      # harness-owned SSoT so this job never carries a digest of its own.
+      - name: Prewarm PostgreSQL testcontainer image
+        run: docker pull "$(node scripts/ci/print-migration-harness-postgres-image.mjs)"
+
+      - name: Run integration tests
+        run: npm run test:integration:all
+        timeout-minutes: 20
+        env:
+          NX_DAEMON: 'false'
+          NX_NO_CLOUD: 'true'
+          NODE_OPTIONS: '--max-old-space-size=4096'
+
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -437,66 +480,65 @@ jobs:
         run: |
           set +e
           npm audit --audit-level=moderate --omit=dev --json > npm-audit-root-production.json
-          ROOT_PRODUCTION_AUDIT_STATUS=$?
           node scripts/ci/audit-source-map.mjs npm-audit-root-production.json npm-audit-root-production.md
           ROOT_PRODUCTION_MAP_STATUS=$?
           npm audit --audit-level=high --json > npm-audit-root-full.json
-          ROOT_FULL_AUDIT_STATUS=$?
           node scripts/ci/audit-source-map.mjs npm-audit-root-full.json npm-audit-root-full.md
           ROOT_FULL_MAP_STATUS=$?
           npm --prefix web/apps/aquamobil audit --audit-level=moderate --omit=dev --json > npm-audit-aquamobil-production.json
-          AQUAMOBIL_PRODUCTION_AUDIT_STATUS=$?
           node scripts/ci/audit-source-map.mjs npm-audit-aquamobil-production.json npm-audit-aquamobil-production.md
           AQUAMOBIL_PRODUCTION_MAP_STATUS=$?
           npm --prefix web/apps/aquamobil audit --audit-level=high --json > npm-audit-aquamobil-full.json
-          AQUAMOBIL_FULL_AUDIT_STATUS=$?
           node scripts/ci/audit-source-map.mjs npm-audit-aquamobil-full.json npm-audit-aquamobil-full.md
           AQUAMOBIL_FULL_MAP_STATUS=$?
           npm --prefix e2e audit --audit-level=moderate --omit=dev --json > npm-audit-e2e-production.json
-          E2E_PRODUCTION_AUDIT_STATUS=$?
           node scripts/ci/audit-source-map.mjs npm-audit-e2e-production.json npm-audit-e2e-production.md
           E2E_PRODUCTION_MAP_STATUS=$?
           npm --prefix e2e audit --audit-level=high --json > npm-audit-e2e-full.json
-          E2E_FULL_AUDIT_STATUS=$?
           node scripts/ci/audit-source-map.mjs npm-audit-e2e-full.json npm-audit-e2e-full.md
           E2E_FULL_MAP_STATUS=$?
           set -e
-          if [ "$ROOT_PRODUCTION_AUDIT_STATUS" -ne 0 ]; then
-            exit "$ROOT_PRODUCTION_AUDIT_STATUS"
-          fi
           if [ "$ROOT_PRODUCTION_MAP_STATUS" -ne 0 ]; then
             exit "$ROOT_PRODUCTION_MAP_STATUS"
-          fi
-          if [ "$ROOT_FULL_AUDIT_STATUS" -ne 0 ]; then
-            exit "$ROOT_FULL_AUDIT_STATUS"
           fi
           if [ "$ROOT_FULL_MAP_STATUS" -ne 0 ]; then
             exit "$ROOT_FULL_MAP_STATUS"
           fi
-          if [ "$AQUAMOBIL_PRODUCTION_AUDIT_STATUS" -ne 0 ]; then
-            exit "$AQUAMOBIL_PRODUCTION_AUDIT_STATUS"
-          fi
           if [ "$AQUAMOBIL_PRODUCTION_MAP_STATUS" -ne 0 ]; then
             exit "$AQUAMOBIL_PRODUCTION_MAP_STATUS"
-          fi
-          if [ "$AQUAMOBIL_FULL_AUDIT_STATUS" -ne 0 ]; then
-            exit "$AQUAMOBIL_FULL_AUDIT_STATUS"
           fi
           if [ "$AQUAMOBIL_FULL_MAP_STATUS" -ne 0 ]; then
             exit "$AQUAMOBIL_FULL_MAP_STATUS"
           fi
-          if [ "$E2E_PRODUCTION_AUDIT_STATUS" -ne 0 ]; then
-            exit "$E2E_PRODUCTION_AUDIT_STATUS"
-          fi
           if [ "$E2E_PRODUCTION_MAP_STATUS" -ne 0 ]; then
             exit "$E2E_PRODUCTION_MAP_STATUS"
-          fi
-          if [ "$E2E_FULL_AUDIT_STATUS" -ne 0 ]; then
-            exit "$E2E_FULL_AUDIT_STATUS"
           fi
           if [ "$E2E_FULL_MAP_STATUS" -ne 0 ]; then
             exit "$E2E_FULL_MAP_STATUS"
           fi
+      # The verdict is npm-audit-gate's, not npm's own exit code. npm audit is
+      # all-or-nothing, so one advisory with no safe remediation turns this
+      # REQUIRED check red forever — and a permanently red required check stops
+      # being read, which protects nothing. The gate applies the reviewed,
+      # DATED exceptions in scripts/ci/npm-audit-exceptions.json and fails on
+      # everything else, including an expired exception and an advisory that
+      # has reached a package its exception was not reviewed against. The JSON
+      # reports above are still produced and uploaded either way, so the raw
+      # npm output stays available to a reviewer.
+      - name: Gate npm audit on reviewed exceptions
+        run: |
+          node scripts/ci/npm-audit-gate.mjs --audit npm-audit-root-production.json \
+            --level moderate --scope root-production --exceptions scripts/ci/npm-audit-exceptions.json
+          node scripts/ci/npm-audit-gate.mjs --audit npm-audit-root-full.json \
+            --level high --scope root-full --exceptions scripts/ci/npm-audit-exceptions.json
+          node scripts/ci/npm-audit-gate.mjs --audit npm-audit-aquamobil-production.json \
+            --level moderate --scope aquamobil-production --exceptions scripts/ci/npm-audit-exceptions.json
+          node scripts/ci/npm-audit-gate.mjs --audit npm-audit-aquamobil-full.json \
+            --level high --scope aquamobil-full --exceptions scripts/ci/npm-audit-exceptions.json
+          node scripts/ci/npm-audit-gate.mjs --audit npm-audit-e2e-production.json \
+            --level moderate --scope e2e-production --exceptions scripts/ci/npm-audit-exceptions.json
+          node scripts/ci/npm-audit-gate.mjs --audit npm-audit-e2e-full.json \
+            --level high --scope e2e-full --exceptions scripts/ci/npm-audit-exceptions.json
       - name: Upload npm audit source map
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -543,6 +585,7 @@ jobs:
     needs:
       - lint-and-typecheck
       - test
+      - test-integration
       - build
       - generate-sri-hashes
       - deploy-ssot-gates
@@ -574,6 +617,7 @@ jobs:
           for entry in \
             "lint-and-typecheck:${{ needs.lint-and-typecheck.result }}" \
             "test:${{ needs.test.result }}" \
+            "test-integration:${{ needs.test-integration.result }}" \
             "build:${{ needs.build.result }}" \
             "generate-sri-hashes:${{ needs.generate-sri-hashes.result }}" \
             "deploy-ssot-gates:${{ needs.deploy-ssot-gates.result }}" \

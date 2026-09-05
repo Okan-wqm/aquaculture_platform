@@ -88,4 +88,20 @@ describe('INVARIANT (tenant-context SSoT): gateway resolves + signs ONE effectiv
     // The verified (req.tenantId) read must appear before the header fallback.
     expect(verified).toBeLessThan(header);
   });
+
+  it('farm GraphQL context derives DataLoader tenant identity from the verified request, never x-tenant-id', () => {
+    // GraphQL context is built before resolver-level guards run. If the
+    // loaders chose their schema from a raw `x-tenant-id` header, a spoofed
+    // header would create tenant-B loaders inside a tenant-A request. Lived in
+    // apps/farm-service/src/__tests__/e2e/*.architecture.spec.ts until
+    // 2026-09-04 — a lane no workflow ran (INFRA-MEDIUM-158).
+    const src = readStripped('apps/farm-service/src/app.module.ts');
+    const start = src.indexOf('context: ({ req }');
+    expect(start).toBeGreaterThan(-1);
+    const contextBlock = src.slice(start, src.indexOf('buildSchemaOptions:', start));
+    expect(contextBlock).toContain('req.user?.tenantId');
+    expect(contextBlock).toContain('req.tenantId');
+    expect(contextBlock).not.toContain("req.headers['x-tenant-id']");
+    expect(contextBlock).not.toContain('req.headers["x-tenant-id"]');
+  });
 });

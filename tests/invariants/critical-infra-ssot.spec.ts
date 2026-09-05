@@ -195,8 +195,18 @@ describe('INVARIANT (INFRA-CRITICAL-028): billing and alert tenant columns are U
     const align = repoFile(
       'apps/alert-engine/src/database/migrations/1800100000000-AlignAlertTenantColumnsToUuid.ts',
     );
-    expect(baseline).toMatch(/"alert"\."alert_incidents"[\s\S]*"tenant_id" uuid NOT NULL/);
-    expect(baseline).toMatch(/"alert"\."alert_audit_log"[\s\S]*"tenant_id" uuid/);
+    // Bounded to the CREATE TABLE statement itself (a backtick ends the query
+    // string), so the column claim is about THAT table rather than about
+    // anything that happens to appear later in the file. `alert_incidents` is
+    // per-tenant so its DDL is unqualified and follows the replay's
+    // search_path; `alert_audit_log` is cross-tenant and stays in `alert`
+    // (DATA-CRITICAL-010).
+    expect(baseline).toMatch(
+      /CREATE TABLE IF NOT EXISTS "alert_incidents" \([^`]*"tenant_id" uuid NOT NULL/,
+    );
+    expect(baseline).toMatch(
+      /CREATE TABLE IF NOT EXISTS "alert"\."alert_audit_log" \([^`]*"tenant_id" uuid/,
+    );
     expect(align).toContain("'alert_rules'");
     expect(align).toContain("'escalation_policies'");
     expect(align).toContain("'alert_history'");

@@ -1,12 +1,7 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
-
 import createVitestTestPolicy from '@aquaculture/testing/vitest';
-
-import { loadVitestResourceProfile } from '../../../tools/testing/vitest-resource-policy';
-
-const resourceProfile = loadVitestResourceProfile('reactDom');
 
 // WHY: Aquamobil has its own node_modules/react (hoisted differently from root).
 // @testing-library/react (in root node_modules) imports react-dom from root,
@@ -26,7 +21,7 @@ export default defineConfig({
       // allowlist SSoT resolves under vitest too (this config has its own alias
       // block, separate from vite.config.ts).
       '@aquaculture/shared-contracts': resolve(__dirname, '../../../libs/shared-contracts/src'),
-      'react': resolve(rootNodeModules, 'react'),
+      react: resolve(rootNodeModules, 'react'),
       'react-dom': resolve(rootNodeModules, 'react-dom'),
       'react/jsx-runtime': resolve(rootNodeModules, 'react/jsx-runtime'),
       'react/jsx-dev-runtime': resolve(rootNodeModules, 'react/jsx-dev-runtime'),
@@ -38,26 +33,11 @@ export default defineConfig({
     root: resolve(__dirname),
     include: ['src/**/*.{spec,test}.{ts,tsx}'],
     exclude: ['**/node_modules/**', '**/dist/**'],
-    // The shared policy comes FIRST so the local overrides below are visible as
-    // overrides. It carries worker bounds and — the reason it is mandatory for
-    // every Vitest producer — the v8 + lcov coverage reporter that
-    // `tools/quality/coverage-report-inventory.json` expects to find a report
-    // from. Declaring a `test` script made this project a coverage producer
-    // (FARM-MEDIUM-304); a producer whose config does not spread this policy
-    // emits no lcov, and the evidence contract would be pinning a file that is
-    // never written.
+    // Worker pool, per-test timeout and LCOV coverage come from the one policy
+    // every Vitest producer in the workspace spreads (INFRA-HIGH-157). The
+    // former tools/testing resource profile was a second copy of the same
+    // knobs with a single consumer — this file — and no CI runner ever read
+    // it, because this project declared no `test` target.
     ...createVitestTestPolicy(),
-    // WHY the timeout is overridden: jsdom transform + collect is heavy (~70s
-    // collect alone) and the suite runs file-parallel. On a CPU-contended CI
-    // runner, async component specs that do real work (e.g. RecordEntityPage's
-    // queue-error confirm flow) can exceed the 5000ms default and flake RED even
-    // though they pass in isolation. Raising the per-test timeout removes the
-    // load-induced flake without masking a real failure — a genuinely hung test
-    // still trips the ceiling.
-    //
-    // Sourced from tools/testing/vitest-resource-policy.json's 'reactDom' profile
-    // (the SSoT for vitest worker/timeout budgets) instead of a local literal, so
-    // this and any future jsdom+React project tune the same knob in one place.
-    testTimeout: resourceProfile.testTimeoutMs,
   },
 });

@@ -170,9 +170,15 @@ export function foldHandlerOutcomes(
  * redelivery. Everything else (connection refused, timeout, 5xx, a plain
  * Error from a driver) is assumed transient and retried within the budget.
  * Handlers that catch broadly use this to pick `terminate` vs `retry`
- * instead of swallowing.
+ * instead of swallowing. An error carrying its own `failureClass`
+ * ('permanent' | 'transient') is believed as declared.
  */
 export function isTerminalHandlerError(error: unknown): boolean {
+  // An error that classified itself (EmailDeliveryError, an internal HTTP
+  // call result, InvalidEventTenantScopeError) is believed as is.
+  const declared = (error as { failureClass?: unknown } | null)?.failureClass;
+  if (declared === 'permanent') return true;
+  if (declared === 'transient') return false;
   if (error instanceof HttpException) {
     const status = error.getStatus();
     return status === 400 || status === 409 || status === 422;

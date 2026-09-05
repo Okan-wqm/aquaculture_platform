@@ -99,6 +99,15 @@ describe('foldHandlerOutcomes (PLAT-HIGH-902)', () => {
     expect(isTerminalHandlerError(validation)).toBe(true);
 
     expect(outcomeForError('incident', new BadRequestException('bad')).kind).toBe('terminate');
+    // A self-classified error is believed as declared.
+    expect(
+      isTerminalHandlerError(Object.assign(new Error('smtp 550'), { failureClass: 'permanent' })),
+    ).toBe(true);
+    expect(
+      isTerminalHandlerError(
+        Object.assign(new BadRequestException('x'), { failureClass: 'transient' }),
+      ),
+    ).toBe(false);
     expect(outcomeForError('incident', new Error('db down'))).toEqual(
       expect.objectContaining({ kind: 'retry', reason: 'incident: db down' }),
     );

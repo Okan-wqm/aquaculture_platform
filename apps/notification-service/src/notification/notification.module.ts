@@ -17,6 +17,7 @@ import { RegulatoryReportEventHandler } from './event-handlers/regulatory-report
 import { TaskEventHandler } from './event-handlers/task-event.handler';
 import { NotificationResolver } from './resolvers/notification.resolver';
 import { DeadLetterQueueService } from './services/dead-letter-queue.service';
+import { NotificationLogDeadLetterSink } from './services/notification-log-dead-letter.sink';
 import { EmailService } from './services/email.service';
 import { InAppNotificationService } from './services/in-app.service';
 import { NotificationDispatcherService } from './services/notification-dispatcher.service';
@@ -51,6 +52,7 @@ import { SmsService } from './services/sms.service';
     NotificationDispatcherService,
     InAppNotificationService,
     DeadLetterQueueService,
+    NotificationLogDeadLetterSink,
 
     // Scheduled jobs
     NotificationRetentionService,
@@ -71,6 +73,14 @@ import { SmsService } from './services/sms.service';
     // Resolvers
     NotificationResolver,
   ],
-  exports: [NotificationDispatcherService, EmailService, SmsService, PushService, InAppNotificationService, DeadLetterQueueService],
+  exports: [
+    NotificationDispatcherService,
+    EmailService,
+    SmsService,
+    PushService,
+    InAppNotificationService,
+    DeadLetterQueueService,
+    NotificationLogDeadLetterSink,
+  ],
 })
 export class NotificationModule {}

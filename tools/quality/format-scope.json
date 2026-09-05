@@ -23521,7 +23521,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/notification-service/src/notification/services/__tests__/email.service.delivery-error.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/notification-service/src/notification/services/__tests__/email.service.regulatory-recipients.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/notification-service/src/notification/services/__tests__/notification-log-dead-letter.sink.spec.ts",
       "prettier_managed": true
     },
     {
@@ -23558,6 +23570,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/notification-service/src/notification/services/notification-dispatcher.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/notification-service/src/notification/services/notification-log-dead-letter.sink.ts",
       "prettier_managed": true
     },
     {
@@ -38632,6 +38650,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/http/__tests__/http-failure-class.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/http/__tests__/signed-http-client.spec.ts",
       "prettier_managed": true
     },
@@ -38645,6 +38669,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/http/gateway-verified-user-assertion.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/http/http-failure-class.ts",
       "prettier_managed": true
     },
     {

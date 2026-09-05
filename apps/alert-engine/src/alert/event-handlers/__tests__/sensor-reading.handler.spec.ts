@@ -48,6 +48,7 @@ jest.mock('@aquaculture/backend-common/database', () => ({
 }));
 
 import { IEventBus } from '@platform/event-bus';
+import { createBaseEvent, type SensorReadingEvent } from '@platform/event-contracts';
 
 import { AlertEvaluationService } from '../../services/alert-evaluation.service';
 import { SensorReadingEventHandler } from '../sensor-reading.handler';
@@ -77,6 +78,23 @@ function createHandler(): SensorReadingEventHandler {
     evaluationService as AlertEvaluationService,
     eventBus as IEventBus,
   );
+}
+
+/**
+ * A well-formed SensorReadingEvent built through `createBaseEvent`, the only
+ * producer of the branded `EventId`. `eventType` is overridable because the
+ * handler's catch branches on the delivery class of the event it was handed,
+ * not on a compile-time constant.
+ */
+function sensorReadingEvent(options: { eventId: string; eventType?: string }): SensorReadingEvent {
+  const base = createBaseEvent<SensorReadingEvent>('SensorReading', TEST_TENANT_ID);
+  return {
+    ...base,
+    eventType: (options.eventType ?? 'SensorReading') as SensorReadingEvent['eventType'],
+    correlationId: options.eventId,
+    sensorId: 'sensor-1',
+    readingTemperature: 25,
+  };
 }
 
 // ===========================================================================
@@ -278,41 +296,47 @@ describe('SensorReadingEventHandler', () => {
   // 5. Handle evaluation errors gracefully
   // -------------------------------------------------------------------------
   describe('error handling', () => {
-    it('rethrows evaluation failures so the event-bus NAKs for redelivery (Task 1.5)', async () => {
+    it('logs and acks an evaluation failure — SensorReading is classified reproducible', async () => {
       const handler = createHandler();
 
       mockEvaluationService.evaluateSensorReading.mockRejectedValueOnce(
         new Error('DB connection lost'),
       );
 
-      // Logged AND rethrown — a lost DB write must redeliver, not ack.
+      // The delivery class decides. FARM_SIGNAL_DELIVERY_SEMANTICS classifies
+      // SensorReading as reproducible precisely because rethrowing on the
+      // platform's highest-volume subject would be a redelivery storm, and the
+      // next reading seconds later re-evaluates every threshold rule.
       await expect(
-        handler.handle({
-          eventId: 'evt-9',
-          eventType: 'SensorReading',
-          timestamp: new Date(),
-          tenantId: TEST_TENANT_ID,
-          sensorId: 'sensor-1',
-          readings: { temperature: 25 },
-        } as any),
-      ).rejects.toThrow('DB connection lost');
+        handler.handle(sensorReadingEvent({ eventId: 'evt-9' })),
+      ).resolves.toBeUndefined();
+      expect(mockEvaluationService.evaluateSensorReading).toHaveBeenCalledTimes(1);
     });
 
-    it('rethrows storage-context failures too (same redelivery contract)', async () => {
+    it('logs and acks a storage-context failure for the same reason', async () => {
       const handler = createHandler();
 
       mockRun.mockRejectedValueOnce(new Error('AsyncLocalStorage failure'));
 
       await expect(
-        handler.handle({
-          eventId: 'evt-10',
-          eventType: 'SensorReading',
-          timestamp: new Date(),
-          tenantId: TEST_TENANT_ID,
-          sensorId: 'sensor-1',
-          readings: { temperature: 25 },
-        } as any),
-      ).rejects.toThrow('AsyncLocalStorage failure');
+        handler.handle(sensorReadingEvent({ eventId: 'evt-10' })),
+      ).resolves.toBeUndefined();
+    });
+
+    it('rethrows when the event type IS durable-delivery class', async () => {
+      const handler = createHandler();
+
+      mockEvaluationService.evaluateSensorReading.mockRejectedValueOnce(
+        new Error('DB connection lost'),
+      );
+
+      // MealMissed is one_shot in the same SSoT: nothing re-derives it, so the
+      // handler must NAK for redelivery rather than ack the loss. Routing a
+      // one-shot type through this handler is hypothetical today — the point is
+      // that the branch is taken from the classification, not hard-coded.
+      await expect(
+        handler.handle(sensorReadingEvent({ eventId: 'evt-11', eventType: 'MealMissed' })),
+      ).rejects.toThrow('DB connection lost');
     });
   });
 });

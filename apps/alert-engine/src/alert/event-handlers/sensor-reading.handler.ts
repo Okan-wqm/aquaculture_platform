@@ -1,7 +1,11 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Inject } from '@nestjs/common';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
-import { PARAMETER_BY_READING_FIELD, type SensorReadingEvent } from '@platform/event-contracts';
+import {
+  PARAMETER_BY_READING_FIELD,
+  requiresDurableDelivery,
+  type SensorReadingEvent,
+} from '@platform/event-contracts';
 import { getTenantSchemaName, isValidUUID } from '@aquaculture/backend-common/database';
 import { requestContextStorage, RequestContext } from '@aquaculture/backend-common/logging';
 import { AlertEvaluationService } from '../services/alert-evaluation.service';
@@ -123,24 +127,22 @@ export class SensorReadingEventHandler implements IEventHandler<SensorReadingEve
         });
       });
     } catch (error) {
-      // Task 1.5: logged AND rethrown so the event-bus NAKs for
-      // redelivery. Deterministic ids + the (rule_id, source_event_id)
-      // unique key make the redelivery idempotent; poison inputs are
-      // filtered before this point (schema/tenant guards above).
       this.logger.error(
         `Error processing sensor reading: ${(error as Error).message}`,
         (error as Error).stack,
       );
-      // Task 1.5 (PR #1338): a failed threshold evaluation is rethrown so the
-      // bus NAKs for redelivery. The reading that crossed a threshold may be
-      // the only one that does — the next reading seconds later can already be
-      // back under it, so "the next reading re-evaluates" is not a recovery
-      // for the alert that was missed. Redelivery is bounded, not a storm:
-      // after NATS_DLQ_AFTER_DELIVERIES the bus dead-letters the envelope to
-      // the AQUACULTURE_DLQ stream (handleMessageFailure). The W7
-      // durable/reproducible classification still governs the feeding-signal
-      // handlers, whose reproducible signals are re-emitted by the next tick.
-      throw error;
+      // The delivery class decides, not this handler. #1338 rethrew here
+      // unconditionally on the argument that a threshold crossing is one-shot
+      // even when the reading stream is not; the classification SSoT
+      // (FARM_SIGNAL_DELIVERY_SEMANTICS) already weighed exactly that case and
+      // ruled the other way for SensorReading — "rethrowing here would turn one
+      // bad reading into a redelivery storm on the platform's highest-volume
+      // subject for no gain", with the next reading seconds later re-evaluating
+      // every rule. Deferring keeps one authority over delivery semantics; a
+      // one-shot event routed through this handler still rethrows.
+      if (requiresDurableDelivery(event.eventType)) {
+        throw error;
+      }
     }
   }
 }

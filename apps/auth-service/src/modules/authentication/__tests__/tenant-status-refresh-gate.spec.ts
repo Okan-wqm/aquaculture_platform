@@ -35,6 +35,7 @@ import { Invitation } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { User } from '../entities/user.entity';
+import { ActionTokenResolver } from '../services/action-token-resolver.service';
 import { AuthenticationService } from '../services/authentication.service';
 import { DurableAccessTokenInvalidationService } from '../services/durable-access-token-invalidation.service';
 import { DurableUserTokenInvalidationService } from '../services/durable-user-token-invalidation.service';
@@ -131,6 +132,7 @@ describe('AuthenticationService — tenant-status refresh gate (RBAC-HIGH-007)',
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthenticationService,
+        ActionTokenResolver,
         { provide: getRepositoryToken(User), useValue: mockUserRepository },
         { provide: getRepositoryToken(RefreshToken), useValue: { update: jest.fn() } },
         { provide: getRepositoryToken(Invitation), useValue: {} },

@@ -58,6 +58,7 @@ import {
 } from '../entities/action-token.entity';
 import { Invitation, InvitationStatus } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
+import { ActionTokenResolver, type ActionLinkLock } from './action-token-resolver.service';
 import { User } from '../entities/user.entity';
 
 import { MfaService } from './mfa.service';
@@ -158,6 +159,7 @@ export class AuthenticationService {
     // platform-level SUPER_ADMIN (tenantId NULL), so they route through the
     // allowlisted best-effort path rather than the raw event bus.
     private readonly bestEffort: BestEffortEventPublisher,
+    private readonly actionTokenResolver: ActionTokenResolver,
     private readonly auditLogService: AuditLogService,
     private readonly tokenService: TokenService,
     private readonly durableAccessTokenInvalidation: DurableAccessTokenInvalidationService,
@@ -722,44 +724,19 @@ export class AuthenticationService {
     lastName?: string,
     ipAddress?: string,
   ): Promise<AuthPayload> {
-    // SECURITY: Hash token with SHA-256 for lookup against hashed tokens (SEC-005)
-    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-
     // Execute all reads + validation + writes inside a single transaction
     const result = await this.dataSource.transaction(async (manager) => {
-      const actionToken = await this.preTenantAuthRepository(manager, ActionToken)
-        .createQueryBuilder('actionToken')
-        .setLock('pessimistic_write')
-        .where('actionToken.id = :token', { token })
-        .andWhere('actionToken.purpose = :purpose', { purpose: ActionTokenPurpose.INVITATION })
-        .getOne();
+      // SEC-HIGH-056: the URL segment is resolved through the ONE resolver
+      // (ActionToken row id first, legacy raw token second) — the same path
+      // validateInvitation reads, so the two can no longer disagree.
+      const { actionToken, invitation } = await this.loadInvitationForSegment(
+        manager,
+        token,
+        'pessimistic_write',
+      );
 
       if (actionToken && !actionToken.isActive()) {
         throw new BadRequestException('Invalid invitation token');
-      }
-
-      const lookupTokenHash = actionToken?.tokenHash ?? tokenHash;
-
-      // SECURITY: Lock the invitation row to prevent concurrent acceptance
-      // Try hashed token first, then fall back to plaintext for backward compatibility
-      // Invitation redemption runs BEFORE tenant context is established
-      // — the invitation token IS the pre-tenant credential, so the
-      // lookup must scan across all tenants by construction. auth-
-      // service is the one service where cross-tenant auth flows are
-      // first-class; tenantManagerRepo cannot be used here.
-      let invitation = await this.preTenantAuthRepository(manager, Invitation)
-        .createQueryBuilder('invitation')
-        .setLock('pessimistic_write')
-        .where('invitation.token = :tokenHash', { tokenHash: lookupTokenHash })
-        .getOne();
-
-      if (!invitation && !actionToken) {
-        // Backward compatibility: try plaintext token for pre-migration invitations
-        invitation = await this.preTenantAuthRepository(manager, Invitation)
-          .createQueryBuilder('invitation')
-          .setLock('pessimistic_write')
-          .where('invitation.token = :token', { token })
-          .getOne();
       }
 
       if (!invitation) {
@@ -773,18 +750,14 @@ export class AuthenticationService {
         throw new BadRequestException('Invitation cannot be accepted');
       }
 
-      // Find user by invitation token hash (within transaction).
-      // Same cross-tenant-before-tenant-resolved rationale as above.
-      let user = await this.preTenantAuthRepository(manager, User).findOne({
-        where: { invitationToken: lookupTokenHash },
+      // Find user by invitation token hash (within transaction). Invitation
+      // redemption runs BEFORE tenant context is established — the token IS
+      // the pre-tenant credential, so the lookup scans across all tenants by
+      // construction (auth-service is the one service where cross-tenant auth
+      // flows are first-class; tenantManagerRepo cannot be used here).
+      const user = await this.preTenantAuthRepository(manager, User).findOne({
+        where: { invitationToken: invitation.token },
       });
-
-      if (!user && !actionToken) {
-        // Backward compatibility: try plaintext token for pre-migration users
-        user = await this.preTenantAuthRepository(manager, User).findOne({
-          where: { invitationToken: token },
-        });
-      }
 
       if (!user) {
         // SECURITY: Generic message to prevent token enumeration
@@ -855,39 +828,77 @@ export class AuthenticationService {
     lastName?: string;
     expired?: boolean;
   }> {
-    // SECURITY: Hash token for lookup against hashed tokens (SEC-005)
-    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    // SEC-HIGH-056: read through the SAME resolution acceptInvitation uses.
+    // The e-mailed segment is the ActionToken row id; hashing it and looking
+    // it up as an invitation token (the old body) could never match, so every
+    // invitation rendered the generic "invalid" screen while accept would have
+    // succeeded. The gate is canBeAccepted() (PENDING or RESENT, not expired)
+    // for the same reason: a resent invitation that accept admits must not be
+    // reported invalid by the pre-check that fronts it.
+    return this.dataSource.transaction(async (manager) => {
+      const { actionToken, invitation } = await this.loadInvitationForSegment(
+        manager,
+        token,
+        'none',
+      );
 
-    // Try hashed token first, then fall back to plaintext for backward compatibility
-    let invitation = await this.invitationRepository.findOne({
-      where: { token: tokenHash },
+      if (actionToken && !actionToken.isActive()) {
+        return { valid: false, expired: actionToken.expiresAt <= new Date() };
+      }
+
+      if (!invitation) {
+        return { valid: false };
+      }
+
+      if (!invitation.canBeAccepted()) {
+        return { valid: false, expired: invitation.isExpired() };
+      }
+
+      return {
+        valid: true,
+        email: invitation.email,
+        role: invitation.role,
+        firstName: invitation.firstName ?? undefined,
+        lastName: invitation.lastName ?? undefined,
+      };
     });
+  }
 
-    if (!invitation) {
-      // Backward compatibility: try plaintext token for pre-migration invitations
-      invitation = await this.invitationRepository.findOne({
-        where: { token },
-      });
+  /**
+   * Resolve an invitation link segment to its ActionToken row (when the link
+   * carries one) and the Invitation row it points at. Shared by
+   * validateInvitation (read, no lock) and acceptInvitation (pessimistic
+   * lock) so the pre-check and the redemption cannot diverge.
+   */
+  private async loadInvitationForSegment(
+    manager: EntityManager,
+    segment: string,
+    lock: ActionLinkLock,
+  ): Promise<{ actionToken: ActionToken | null; invitation: Invitation | null }> {
+    const resolution = await this.actionTokenResolver.resolve(
+      segment,
+      ActionTokenPurpose.INVITATION,
+      manager,
+      lock,
+    );
+    if (resolution.kind === 'unresolvable') {
+      return { actionToken: null, invitation: null };
     }
 
-    if (!invitation) {
-      return { valid: false };
+    const tokenHash =
+      resolution.kind === 'action-token' ? resolution.actionToken.tokenHash : resolution.tokenHash;
+    const query = this.preTenantAuthRepository(manager, Invitation)
+      .createQueryBuilder('invitation')
+      .where('invitation.token = :tokenHash', { tokenHash });
+    if (lock === 'pessimistic_write') {
+      // SECURITY: lock the invitation row to prevent concurrent acceptance.
+      query.setLock('pessimistic_write');
     }
-
-    if (invitation.isExpired()) {
-      return { valid: false, expired: true };
-    }
-
-    if (!invitation.isPending()) {
-      return { valid: false };
-    }
+    const invitation = await query.getOne();
 
     return {
-      valid: true,
-      email: invitation.email,
-      role: invitation.role,
-      firstName: invitation.firstName ?? undefined,
-      lastName: invitation.lastName ?? undefined,
+      actionToken: resolution.kind === 'action-token' ? resolution.actionToken : null,
+      invitation,
     };
   }
 
@@ -1647,35 +1658,36 @@ export class AuthenticationService {
     ipAddress?: string,
     userAgent?: string,
   ): Promise<AuthPayload> {
-    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
     const transactionResult = await this.dataSource.transaction(async (manager) => {
       const actionTokenRepository = this.preTenantAuthRepository(manager, ActionToken);
       const userRepository = this.preTenantAuthRepository(manager, User);
       const refreshTokenRepository = this.preTenantAuthRepository(manager, RefreshToken);
-      const actionToken = await actionTokenRepository.findOne({
-        where: {
-          id: token,
-          purpose: ActionTokenPurpose.PASSWORD_RESET,
-          status: ActionTokenStatus.ACTIVE,
-        },
-        lock: { mode: 'pessimistic_write' },
-      });
+      // SEC-HIGH-056: one resolver for every emailed link segment.
+      const resolution = await this.actionTokenResolver.resolve(
+        token,
+        ActionTokenPurpose.PASSWORD_RESET,
+        manager,
+        'pessimistic_write',
+      );
+      if (resolution.kind === 'unresolvable') {
+        throw new BadRequestException('Invalid or expired password reset token');
+      }
+      const actionToken = resolution.kind === 'action-token' ? resolution.actionToken : null;
       if (actionToken && !actionToken.isActive()) {
         throw new BadRequestException('Invalid or expired password reset token');
       }
+      const tokenHash =
+        resolution.kind === 'action-token'
+          ? resolution.actionToken.tokenHash
+          : resolution.tokenHash;
 
       const userQuery = userRepository
         .createQueryBuilder('user')
         .setLock('pessimistic_write')
-        .where('user.passwordResetExpires > :now', { now: new Date() });
+        .where('user.passwordResetExpires > :now', { now: new Date() })
+        .andWhere('user.passwordResetToken = :tokenHash', { tokenHash });
       if (actionToken) {
-        userQuery
-          .andWhere('user.id = :userId', { userId: actionToken.userId })
-          .andWhere('user.passwordResetToken = :tokenHash', {
-            tokenHash: actionToken.tokenHash,
-          });
-      } else {
-        userQuery.andWhere('user.passwordResetToken = :tokenHash', { tokenHash });
+        userQuery.andWhere('user.id = :userId', { userId: actionToken.userId });
       }
       const user = await userQuery.getOne();
       if (!user?.isActive) {

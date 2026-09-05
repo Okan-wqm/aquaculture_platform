@@ -4997,7 +4997,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/__tests__/action-token-resolver.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/__tests__/authentication.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/__tests__/invitation-links.spec.ts",
       "prettier_managed": true
     },
     {
@@ -5064,6 +5076,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/controllers/__tests__/auth-credential-nats.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/controllers/__tests__/internal-auth.controller.spec.ts",
       "prettier_managed": true
     },
     {
@@ -5274,6 +5292,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/services/account.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/services/action-token-resolver.service.ts",
       "prettier_managed": true
     },
     {

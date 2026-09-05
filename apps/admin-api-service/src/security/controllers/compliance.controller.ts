@@ -4,6 +4,7 @@
  * Endpoints for data subject requests, compliance reports, and GDPR management.
  */
 
+import { RequiresCapability } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -224,6 +225,7 @@ export class ComplianceController {
    * Fix: C6 -- JWT-based identity
    */
   @AuditedOperation({ resource: 'DataRequest', action: 'CREATE' })
+  @RequiresCapability('security-ops')
   @Post('data-requests')
   @HttpCode(HttpStatus.CREATED)
   async createDataRequest(
@@ -273,6 +275,7 @@ export class ComplianceController {
    * Fix: C6 -- JWT-based identity (was hardcoded 'admin')
    */
   @AuditedOperation({ resource: 'DataRequest', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put('data-requests/:id')
   async updateDataRequest(
     @Param('id') id: string,
@@ -296,6 +299,7 @@ export class ComplianceController {
    * Fix: C6 -- JWT-based identity
    */
   @AuditedOperation({ resource: 'Identity', action: 'VERIFY' })
+  @RequiresCapability('security-ops')
   @Post('data-requests/:id/verify')
   @HttpCode(HttpStatus.OK)
   async verifyIdentity(
@@ -317,6 +321,7 @@ export class ComplianceController {
    * Fix: C6 -- JWT-based identity
    */
   @AuditedOperation({ resource: 'DataRequest', action: 'COMPLETE' })
+  @RequiresCapability('security-ops')
   @Post('data-requests/:id/complete')
   @HttpCode(HttpStatus.OK)
   async completeDataRequest(
@@ -339,6 +344,7 @@ export class ComplianceController {
    * Record download of data request
    */
   @AuditedOperation({ resource: 'Download', action: 'RECORD' })
+  @RequiresCapability('security-ops')
   @Post('data-requests/:id/download')
   @HttpCode(HttpStatus.OK)
   async recordDownload(@Param('id') id: string): Promise<{ success: boolean }> {
@@ -379,6 +385,7 @@ export class ComplianceController {
    * Fix: C6 -- JWT-based identity
    */
   @AuditedOperation({ resource: 'Report', action: 'GENERATE' })
+  @RequiresCapability('security-ops')
   @Post('reports')
   @HttpCode(HttpStatus.CREATED)
   async generateReport(

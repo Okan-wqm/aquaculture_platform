@@ -1,4 +1,4 @@
-import { Destructive } from '@aquaculture/backend-common/decorators';
+import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -151,6 +151,7 @@ export class ModulesController {
    * Create new system module
    */
   @AuditedOperation({ resource: 'Module', action: 'CREATE' })
+  @RequiresCapability('security-ops')
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async createModule(@Body() dto: CreateModuleDto) {
@@ -161,6 +162,7 @@ export class ModulesController {
    * Update module
    */
   @AuditedOperation({ resource: 'Module', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put(':id')
   async updateModule(
     @Param('id', ParseUUIDPipe) id: string,
@@ -173,6 +175,7 @@ export class ModulesController {
    * Activate module
    */
   @AuditedOperation({ resource: 'Module', action: 'ACTIVATE' })
+  @RequiresCapability('security-ops')
   @Patch(':id/activate')
   async activateModule(@Param('id', ParseUUIDPipe) id: string) {
     return this.modulesService.setModuleStatus(id, true);
@@ -182,6 +185,7 @@ export class ModulesController {
    * Deactivate module
    */
   @AuditedOperation({ resource: 'Module', action: 'DEACTIVATE' })
+  @RequiresCapability('security-ops')
   @Patch(':id/deactivate')
   async deactivateModule(@Param('id', ParseUUIDPipe) id: string) {
     return this.modulesService.setModuleStatus(id, false);
@@ -192,6 +196,7 @@ export class ModulesController {
    */
   @AuditedOperation({ resource: 'Module', action: 'DELETE' })
   @Destructive()
+  @RequiresCapability('security-ops')
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteModule(@Param('id', ParseUUIDPipe) id: string) {
@@ -202,6 +207,7 @@ export class ModulesController {
    * Assign module to tenant
    */
   @AuditedOperation({ resource: 'ModuleToTenant', action: 'ASSIGN' })
+  @RequiresCapability('security-ops')
   @Post('assignments')
   @HttpCode(HttpStatus.CREATED)
   async assignModuleToTenant(@Body() dto: AssignModuleDto) {
@@ -213,6 +219,7 @@ export class ModulesController {
    */
   @AuditedOperation({ resource: 'ModuleFromTenant', action: 'DELETE' })
   @Destructive()
+  @RequiresCapability('security-ops')
   @Delete('assignments/:tenantId/:moduleId')
   @HttpCode(HttpStatus.NO_CONTENT)
   async removeModuleFromTenant(

@@ -1,3 +1,4 @@
+import { RequiresCapability } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -213,6 +214,7 @@ export class PerformanceController {
   }
 
   @AuditedOperation({ resource: 'Thresholds', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Post('thresholds')
   updateThresholds(@Body() dto: UpdateThresholdsDto) {
     this.performanceService.updateThresholds(dto.thresholds);
@@ -260,6 +262,7 @@ export class PerformanceController {
   // ============================================================================
 
   @AuditedOperation({ resource: 'Metric', action: 'RECORD' })
+  @RequiresCapability('security-ops')
   @Post('metrics')
   async recordMetric(@Body() dto: RecordMetricDto) {
     await this.performanceService.recordMetric(dto);
@@ -267,6 +270,7 @@ export class PerformanceController {
   }
 
   @AuditedOperation({ resource: 'RequestMetric', action: 'RECORD' })
+  @RequiresCapability('security-ops')
   @Post('metrics/request')
   async recordRequestMetric(
     @Body() dto: RecordRequestMetricDto,
@@ -282,6 +286,7 @@ export class PerformanceController {
   }
 
   @AuditedOperation({ resource: 'Performance', action: 'FLUSH_METRICS' })
+  @RequiresCapability('security-ops')
   @Post('metrics/flush')
   async flushMetrics() {
     await this.performanceService.flushMetrics();

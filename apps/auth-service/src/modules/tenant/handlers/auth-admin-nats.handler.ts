@@ -55,6 +55,12 @@ import {
   type AdminDeactivateUserResult,
   type AdminForceLogoutUserCommand,
   type AdminForceLogoutUserResult,
+  type AdminGrantPlatformCapabilityCommand,
+  type AdminGrantPlatformCapabilityResult,
+  type AdminRevokePlatformCapabilityCommand,
+  type AdminRevokePlatformCapabilityResult,
+  type AdminListPlatformCapabilityGrantsQuery,
+  type AdminListPlatformCapabilityGrantsResult,
   type AdminInviteUserCommand,
   type AdminInviteUserResult,
   type AdminCheckUserLimitQuery,
@@ -82,6 +88,14 @@ import {
 import { Repository } from 'typeorm';
 
 import { Module as SystemModuleEntity } from '../../system-module/entities/module.entity';
+import {
+  CapabilityAlreadyGrantedError,
+  CapabilityGrantNotFoundError,
+  NotPlatformAdminError,
+  PlatformCapabilityPolicyError,
+  PlatformCapabilityService,
+  toGrantSnapshot,
+} from '../services/platform-capability.service';
 import { TenantProvisioningCommandService } from '../services/tenant-provisioning-command.service';
 import { UserLifecycleService } from '../services/user-lifecycle.service';
 
@@ -96,6 +110,8 @@ type ResetErrorCode = NonNullable<AdminResetUserPasswordResult['errorCode']>;
 type UpdateErrorCode = NonNullable<AdminUpdateUserResult['errorCode']>;
 type DeactivateErrorCode = NonNullable<AdminDeactivateUserResult['errorCode']>;
 type ForceLogoutErrorCode = NonNullable<AdminForceLogoutUserResult['errorCode']>;
+type GrantCapabilityErrorCode = NonNullable<AdminGrantPlatformCapabilityResult['errorCode']>;
+type RevokeCapabilityErrorCode = NonNullable<AdminRevokePlatformCapabilityResult['errorCode']>;
 type InviteErrorCode = NonNullable<AdminInviteUserResult['errorCode']>;
 type CheckUserLimitErrorCode = NonNullable<AdminCheckUserLimitResult['errorCode']>;
 type ModuleCreateErrorCode = NonNullable<AdminCreateModuleResult['errorCode']>;
@@ -113,6 +129,7 @@ export class AuthAdminNatsHandler {
   constructor(
     private readonly userLifecycleService: UserLifecycleService,
     private readonly tenantProvisioningCommandService: TenantProvisioningCommandService,
+    private readonly platformCapabilityService: PlatformCapabilityService,
     @InjectRepository(SystemModuleEntity)
     private readonly moduleRepository: Repository<SystemModuleEntity>,
   ) {}
@@ -351,6 +368,94 @@ export class AuthAdminNatsHandler {
   }
 
   private mapForceLogoutError(err: unknown): ForceLogoutErrorCode {
+    if (err instanceof NotFoundException) return 'USER_NOT_FOUND';
+    return 'INTERNAL_ERROR';
+  }
+
+  /**
+   * ADR-0016 — grant a platform capability to a SUPER_ADMIN. The service is
+   * the single writer and enforces the policy (active SUPER_ADMIN target,
+   * time-boxed dual-controlled break-glass, one live grant per capability);
+   * the grant revokes the target's sessions so the claim re-mints.
+   */
+  @MessagePattern(AUTH_ADMIN_COMMAND_SUBJECTS.GRANT_PLATFORM_CAPABILITY)
+  async grantPlatformCapability(
+    @Payload() command: AdminGrantPlatformCapabilityCommand,
+  ): Promise<AdminGrantPlatformCapabilityResult> {
+    try {
+      const grant = await this.platformCapabilityService.grant({
+        userId: command.userId,
+        capability: command.capability,
+        grantedBy: command.grantedBy,
+        expiresAt: command.expiresAt,
+        reason: command.reason,
+      });
+      return { success: true, grant: toGrantSnapshot(grant) };
+    } catch (err) {
+      const errorCode = this.mapGrantCapabilityError(err);
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `grantPlatformCapability failed: userId=${command.userId}, capability=${command.capability}, code=${errorCode}, reason=${message}`,
+      );
+      return { success: false, errorCode, error: message };
+    }
+  }
+
+  /** ADR-0016 — revoke the live grant of one capability; the target's sessions are revoked. */
+  @MessagePattern(AUTH_ADMIN_COMMAND_SUBJECTS.REVOKE_PLATFORM_CAPABILITY)
+  async revokePlatformCapability(
+    @Payload() command: AdminRevokePlatformCapabilityCommand,
+  ): Promise<AdminRevokePlatformCapabilityResult> {
+    try {
+      const grant = await this.platformCapabilityService.revoke({
+        userId: command.userId,
+        capability: command.capability,
+        revokedBy: command.revokedBy,
+        reason: command.reason,
+      });
+      return { success: true, grant: toGrantSnapshot(grant) };
+    } catch (err) {
+      const errorCode = this.mapRevokeCapabilityError(err);
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `revokePlatformCapability failed: userId=${command.userId}, capability=${command.capability}, code=${errorCode}, reason=${message}`,
+      );
+      return { success: false, errorCode, error: message };
+    }
+  }
+
+  /** ADR-0016 — every grant row of one user plus the live set the next token carries. */
+  @MessagePattern(AUTH_ADMIN_COMMAND_SUBJECTS.LIST_PLATFORM_CAPABILITY_GRANTS)
+  async listPlatformCapabilityGrants(
+    @Payload() query: AdminListPlatformCapabilityGrantsQuery,
+  ): Promise<AdminListPlatformCapabilityGrantsResult> {
+    try {
+      const { grants, active } = await this.platformCapabilityService.listGrants(query.userId);
+      return { success: true, grants, active };
+    } catch (err) {
+      const errorCode: AdminListPlatformCapabilityGrantsResult['errorCode'] =
+        err instanceof NotFoundException ? 'USER_NOT_FOUND' : 'INTERNAL_ERROR';
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `listPlatformCapabilityGrants failed: userId=${query.userId}, code=${errorCode}, reason=${message}`,
+      );
+      return { success: false, errorCode, error: message };
+    }
+  }
+
+  private mapGrantCapabilityError(err: unknown): GrantCapabilityErrorCode {
+    if (err instanceof PlatformCapabilityPolicyError) return err.code;
+    if (err instanceof NotPlatformAdminError) return err.code;
+    if (err instanceof CapabilityAlreadyGrantedError) return err.code;
+    if (err instanceof NotFoundException) return 'USER_NOT_FOUND';
+    return 'INTERNAL_ERROR';
+  }
+
+  private mapRevokeCapabilityError(err: unknown): RevokeCapabilityErrorCode {
+    if (err instanceof CapabilityGrantNotFoundError) return err.code;
+    if (err instanceof PlatformCapabilityPolicyError) {
+      return err.code === 'INVALID_CAPABILITY' ? 'INVALID_CAPABILITY' : 'VALIDATION_ERROR';
+    }
     if (err instanceof NotFoundException) return 'USER_NOT_FOUND';
     return 'INTERNAL_ERROR';
   }

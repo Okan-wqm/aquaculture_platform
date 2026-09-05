@@ -44,6 +44,8 @@ import { PasswordResetModule } from './auth/password-reset.module';
 import { BillingModule } from './billing/billing.module';
 import { DatabaseManagementModule } from './database-management/database-management.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
+import { PlatformCapabilityGuard } from '@aquaculture/backend-common/guards';
+
 import { PlatformAdminGuard } from './guards/platform-admin.guard';
 import { HealthModule } from './health/health.module';
 import { GracefulShutdownService } from './lifecycle/graceful-shutdown.service';
@@ -348,6 +350,15 @@ const getAdminStoragePort = (configService: ConfigService): number => {
     {
       provide: APP_GUARD,
       useExisting: ThrottlerGuard,
+    },
+    // ADR-0016: the third guard. It runs only on requests PlatformAdminGuard
+    // has admitted and ANDs the route's @RequiresCapability against the
+    // platformCapabilities claim, so a grant can narrow but never widen what
+    // the SUPER_ADMIN role admits. Registered AFTER the throttler so a
+    // capability refusal still counts against the operator's bucket.
+    {
+      provide: APP_GUARD,
+      useClass: PlatformCapabilityGuard,
     },
     {
       provide: APP_INTERCEPTOR,

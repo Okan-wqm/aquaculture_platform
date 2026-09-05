@@ -127,6 +127,13 @@ export interface JwtUser {
    * Read by TenantPermissionGuard and programmatic hasResourcePermission checks.
    */
   resourcePermissions?: string[];
+  /**
+   * ADR-0016: platform-operator capabilities (`billing-ops`, `support-ops`,
+   * `security-ops`, `platform-read-only`, `break-glass`) minted by auth-service
+   * from `auth.platform_capability_grants`. Present only on SUPER_ADMIN
+   * principals; read by PlatformCapabilityGuard and DestructiveActionGuard.
+   */
+  platformCapabilities?: string[];
 }
 
 /**

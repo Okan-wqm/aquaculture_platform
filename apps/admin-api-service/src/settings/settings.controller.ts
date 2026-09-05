@@ -1,3 +1,4 @@
+import { RequiresCapability } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import { ThrottleSensitive } from '@aquaculture/backend-common/security';
 import {
@@ -137,6 +138,7 @@ export class SettingsController {
    */
   @ThrottleSensitive()
   @AuditedOperation({ resource: 'Setting', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put('key/:key')
   updateSetting(
     @Param('key') key: string,
@@ -154,6 +156,7 @@ export class SettingsController {
    */
   @ThrottleSensitive()
   @AuditedOperation({ resource: 'ToDefault', action: 'RESET' })
+  @RequiresCapability('security-ops')
   @Post('key/:key/reset')
   resetToDefault(@Param('key') key: string, @Req() req: Request): never {
     const userId = getAuthUserId(req);
@@ -167,6 +170,7 @@ export class SettingsController {
    */
   @ThrottleSensitive()
   @AuditedOperation({ resource: 'Update', action: 'BULK' })
+  @RequiresCapability('security-ops')
   @Put('bulk')
   bulkUpdate(
     @Body() dto: BulkUpdateSettingsDto,
@@ -195,6 +199,7 @@ export class SettingsController {
    */
   @ThrottleSensitive()
   @AuditedOperation({ resource: 'EmailConfig', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put('config/email')
   updateEmailConfig(
     @Body() dto: UpdateEmailConfigDto,
@@ -207,6 +212,7 @@ export class SettingsController {
 
   @ThrottleSensitive()
   @AuditedOperation({ resource: 'EmailConfig', action: 'TEST' })
+  @RequiresCapability('security-ops')
   @Post('config/email/test')
   async testEmailConfig(@Body() dto: TestEmailConfigDto): Promise<unknown> {
     const connection = await this.emailSenderService.testConnection();
@@ -251,6 +257,7 @@ export class SettingsController {
    */
   @ThrottleSensitive()
   @AuditedOperation({ resource: 'SecurityConfig', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put('config/security')
   updateSecurityConfig(
     @Body() body: UpdateSecurityConfigDto,
@@ -277,6 +284,7 @@ export class SettingsController {
    */
   @ThrottleSensitive()
   @AuditedOperation({ resource: 'RateLimitConfig', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put('config/rate-limits')
   updateRateLimitConfig(
     @Body() body: UpdateRateLimitConfigDto,
@@ -301,6 +309,7 @@ export class SettingsController {
    */
   @ThrottleSensitive()
   @AuditedOperation({ resource: 'MaintenanceMode', action: 'SET' })
+  @RequiresCapability('security-ops')
   @Put('config/maintenance')
   setMaintenanceMode(
     @Body() dto: SetMaintenanceModeDto,
@@ -330,6 +339,7 @@ export class SettingsController {
    */
   @ThrottleSensitive()
   @AuditedOperation({ resource: 'BillingConfig', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put('config/billing')
   updateBillingConfig(
     @Body() dto: UpdateBillingConfigDto,
@@ -377,6 +387,7 @@ export class SettingsController {
    */
   @ThrottleSensitive()
   @AuditedOperation({ resource: 'Settings', action: 'IMPORT' })
+  @RequiresCapability('security-ops')
   @Post('import')
   importSettings(
     @Body() dto: ImportSettingsDto,

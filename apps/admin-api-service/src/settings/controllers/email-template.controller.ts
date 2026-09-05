@@ -1,4 +1,4 @@
-import { Destructive } from '@aquaculture/backend-common/decorators';
+import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -87,6 +87,7 @@ export class EmailTemplateController {
    * Create a new template
    */
   @AuditedOperation({ resource: 'Template', action: 'CREATE' })
+  @RequiresCapability('security-ops')
   @Post()
   async createTemplate(@Body() dto: CreateEmailTemplateDto) {
     return this.templateService.createTemplate(dto);
@@ -96,6 +97,7 @@ export class EmailTemplateController {
    * Update a template
    */
   @AuditedOperation({ resource: 'Template', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put(':id')
   async updateTemplate(
     @Param('id') id: string,
@@ -108,6 +110,7 @@ export class EmailTemplateController {
    * Create tenant-specific override
    */
   @AuditedOperation({ resource: 'TenantOverride', action: 'CREATE' })
+  @RequiresCapability('security-ops')
   @Post('code/:code/override')
   async createTenantOverride(
     @Param('code') code: string,
@@ -122,6 +125,7 @@ export class EmailTemplateController {
    */
   @AuditedOperation({ resource: 'Template', action: 'DELETE' })
   @Destructive()
+  @RequiresCapability('security-ops')
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteTemplate(@Param('id') id: string) {
@@ -136,6 +140,7 @@ export class EmailTemplateController {
    * Render a template with variables
    */
   @AuditedOperation({ resource: 'EmailTemplate', action: 'RENDER_TEMPLATE' })
+  @RequiresCapability('security-ops')
   @Post('render')
   async renderTemplate(@Body() dto: RenderTemplateDto) {
     return this.templateService.renderTemplate(dto);
@@ -153,6 +158,7 @@ export class EmailTemplateController {
    * Validate template syntax
    */
   @AuditedOperation({ resource: 'Template', action: 'VALIDATE' })
+  @RequiresCapability('security-ops')
   @Post('validate')
   async validateTemplate(
     @Body() dto: ValidateTemplateDto,
@@ -173,6 +179,7 @@ export class EmailTemplateController {
    * Wiring a real dispatch is ADMIN-HIGH-011 (retired / stub surfaces).
    */
   @AuditedOperation({ resource: 'EmailTemplate', action: 'RENDER_TEST' })
+  @RequiresCapability('security-ops')
   @Post(':id/test')
   async sendTestEmail(
     @Param('id') id: string,

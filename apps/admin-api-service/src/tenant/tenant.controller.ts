@@ -1,4 +1,4 @@
-import { Destructive } from '@aquaculture/backend-common/decorators';
+import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import { ThrottleSensitive } from '@aquaculture/backend-common/security';
 import {
@@ -83,6 +83,7 @@ export class TenantPublicController {
   constructor(private readonly provisioningWorkflowService: TenantProvisioningWorkflowService) {}
 
   @AuditedOperation({ resource: 'Tenant', action: 'CREATE' })
+  @RequiresCapability('security-ops')
   @Post()
   @ApiOperation({ summary: 'Create a new tenant provisioning operation' })
   @HttpCode(HttpStatus.ACCEPTED)
@@ -118,6 +119,7 @@ export class TenantPublicController {
 
   @ThrottleSensitive()
   @AuditedOperation({ resource: 'TenantProvisioningOperation', action: 'RETRY' })
+  @RequiresCapability('security-ops')
   @Post('provisioning/:operationId/retry')
   @ApiOperation({ summary: 'Retry a failed tenant provisioning operation' })
   @HttpCode(HttpStatus.ACCEPTED)
@@ -214,6 +216,7 @@ export class TenantAdminController {
 
   @ThrottleSensitive()
   @AuditedOperation({ resource: 'Suspend', action: 'BULK' })
+  @RequiresCapability('security-ops')
   @Post('bulk/suspend')
   @ApiOperation({ summary: 'Bulk suspend multiple tenants' })
   @HttpCode(HttpStatus.OK)
@@ -226,6 +229,7 @@ export class TenantAdminController {
 
   @ThrottleSensitive()
   @AuditedOperation({ resource: 'Activate', action: 'BULK' })
+  @RequiresCapability('security-ops')
   @Post('bulk/activate')
   @ApiOperation({ summary: 'Bulk activate multiple tenants' })
   @HttpCode(HttpStatus.OK)
@@ -279,6 +283,7 @@ export class TenantAdminController {
   }
 
   @AuditedOperation({ resource: 'TenantNote', action: 'CREATE' })
+  @RequiresCapability('security-ops')
   @Post(':id/notes')
   @ApiOperation({ summary: 'Create a note for a tenant' })
   @HttpCode(HttpStatus.CREATED)
@@ -298,6 +303,7 @@ export class TenantAdminController {
   }
 
   @AuditedOperation({ resource: 'TenantNote', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Patch(':id/notes/:noteId')
   @ApiOperation({ summary: 'Update a tenant note' })
   async updateTenantNote(
@@ -311,6 +317,7 @@ export class TenantAdminController {
 
   @AuditedOperation({ resource: 'TenantNote', action: 'DELETE' })
   @Destructive()
+  @RequiresCapability('security-ops')
   @Delete(':id/notes/:noteId')
   @ApiOperation({ summary: 'Delete a tenant note' })
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -327,6 +334,7 @@ export class TenantAdminController {
   // ============================================================================
 
   @AuditedOperation({ resource: 'Tenant', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put(':id')
   @ApiOperation({ summary: 'Update tenant details' })
   async updateTenant(
@@ -339,6 +347,7 @@ export class TenantAdminController {
 
   @ThrottleSensitive()
   @AuditedOperation({ resource: 'Tenant', action: 'SUSPEND' })
+  @RequiresCapability('security-ops')
   @Patch(':id/suspend')
   @ApiOperation({ summary: 'Suspend a tenant' })
   async suspendTenant(
@@ -351,6 +360,7 @@ export class TenantAdminController {
 
   @ThrottleSensitive()
   @AuditedOperation({ resource: 'Tenant', action: 'ACTIVATE' })
+  @RequiresCapability('security-ops')
   @Patch(':id/activate')
   @ApiOperation({ summary: 'Activate a suspended tenant' })
   async activateTenant(
@@ -361,6 +371,7 @@ export class TenantAdminController {
   }
 
   @AuditedOperation({ resource: 'Tenant', action: 'DEACTIVATE' })
+  @RequiresCapability('security-ops')
   @Patch(':id/deactivate')
   @ApiOperation({ summary: 'Deactivate a tenant' })
   async deactivateTenant(
@@ -373,6 +384,7 @@ export class TenantAdminController {
 
   @AuditedOperation({ resource: 'Tenant', action: 'ARCHIVE' })
   @Destructive()
+  @RequiresCapability('security-ops')
   @Delete(':id')
   @ApiOperation({ summary: 'Archive a tenant' })
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -385,6 +397,7 @@ export class TenantAdminController {
 
   @ThrottleSensitive()
   @AuditedOperation({ resource: 'TenantErasure', action: 'REQUEST' })
+  @RequiresCapability('security-ops')
   @Post(':id/erasure')
   @ApiOperation({ summary: 'Request irreversible GDPR tenant erasure' })
   @HttpCode(HttpStatus.ACCEPTED)
@@ -408,6 +421,7 @@ export class TenantAdminController {
    */
   @ThrottleSensitive()
   @AuditedOperation({ resource: 'TenantAdmin', action: 'RECONCILE_TENANT_SUBSCRIPTION' })
+  @RequiresCapability('security-ops')
   @Post(':id/reconcile-subscription')
   @ApiOperation({ summary: 'Idempotently create a missing tenant billing subscription' })
   @HttpCode(HttpStatus.OK)

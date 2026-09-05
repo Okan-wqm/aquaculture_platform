@@ -1,4 +1,4 @@
-import { Destructive } from '@aquaculture/backend-common/decorators';
+import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import { ThrottleSensitive } from '@aquaculture/backend-common/security';
 import {
@@ -18,6 +18,12 @@ import {
   Req,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import {
+  PLATFORM_CAPABILITIES,
+  isPlatformCapability,
+  type PlatformCapability,
+  type PlatformCapabilityGrantSnapshot,
+} from '@platform/event-contracts';
 import { Type } from 'class-transformer';
 import {
   IsString,
@@ -33,6 +39,8 @@ import {
   Min,
   Max,
   Matches,
+  IsIn,
+  IsISO8601,
 } from 'class-validator';
 
 import { ResetPasswordByAdminDto } from './dto/reset-password.dto';
@@ -47,6 +55,29 @@ import {
   UserLimitCheckResult,
 } from './services/user-provisioning.service';
 import { UsersService, UserFilter, PaginatedUsers } from './users.service';
+
+/** ADR-0016 — grant one platform capability. The actor is the verified principal, never a body field. */
+export class GrantPlatformCapabilityDto {
+  @IsIn(PLATFORM_CAPABILITIES)
+  capability!: PlatformCapability;
+
+  /** ISO-8601. Required for `break-glass` (≤ 4 h), optional standing grants otherwise. */
+  @IsOptional()
+  @IsISO8601({ strict: true })
+  expiresAt?: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(512)
+  reason!: string;
+}
+
+export class RevokePlatformCapabilityDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(512)
+  reason!: string;
+}
 
 // Allowed sort fields whitelist for security
 const ALLOWED_SORT_FIELDS = ['createdAt', 'updatedAt', 'email', 'firstName', 'lastName', 'role'] as const;
@@ -297,6 +328,7 @@ export class UsersController {
    * Create new user (SUPER_ADMIN can create users for any tenant)
    */
   @AuditedOperation({ resource: 'User', action: 'CREATE' })
+  @RequiresCapability('security-ops')
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async createUser(@Body() dto: CreateUserDto) {
@@ -307,6 +339,7 @@ export class UsersController {
    * Update user
    */
   @AuditedOperation({ resource: 'User', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put(':id')
   async updateUser(
     @Param('id', ParseUUIDPipe) id: string,
@@ -319,6 +352,7 @@ export class UsersController {
    * Activate user
    */
   @AuditedOperation({ resource: 'User', action: 'ACTIVATE' })
+  @RequiresCapability('security-ops')
   @Patch(':id/activate')
   async activateUser(@Param('id', ParseUUIDPipe) id: string) {
     return this.usersService.setUserStatus(id, true);
@@ -328,6 +362,7 @@ export class UsersController {
    * Deactivate user
    */
   @AuditedOperation({ resource: 'User', action: 'DEACTIVATE' })
+  @RequiresCapability('security-ops')
   @Patch(':id/deactivate')
   async deactivateUser(@Param('id', ParseUUIDPipe) id: string) {
     return this.usersService.setUserStatus(id, false);
@@ -337,6 +372,7 @@ export class UsersController {
    * Reset user password
    */
   @AuditedOperation({ resource: 'UserPassword', action: 'RESET' })
+  @RequiresCapability('security-ops')
   @Patch(':id/reset-password')
   async resetUserPassword(
     @Param('id', ParseUUIDPipe) id: string,
@@ -349,6 +385,7 @@ export class UsersController {
    * Force logout user (invalidate all sessions)
    */
   @AuditedOperation({ resource: 'Users', action: 'FORCE_LOGOUT' })
+  @RequiresCapability('security-ops')
   @Patch(':id/force-logout')
   async forceLogout(@Param('id', ParseUUIDPipe) id: string) {
     return this.usersService.forceLogout(id);
@@ -359,6 +396,7 @@ export class UsersController {
    */
   @AuditedOperation({ resource: 'User', action: 'DELETE' })
   @Destructive()
+  @RequiresCapability('security-ops')
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteUser(@Param('id', ParseUUIDPipe) id: string) {
@@ -385,6 +423,7 @@ export class UsersController {
    */
   @ThrottleSensitive()
   @AuditedOperation({ resource: 'User', action: 'INVITE' })
+  @RequiresCapability('security-ops')
   @Post('invite')
   @HttpCode(HttpStatus.CREATED)
   async inviteUser(
@@ -414,6 +453,65 @@ export class UsersController {
       deliveryStatus: result.deliveryStatus ?? 'queued',
       message: 'Invitation created successfully. Notification delivery queued.',
     };
+  }
+
+  // ============================================
+  // Platform Capability Endpoints (ADR-0016)
+  // ============================================
+
+  /**
+   * Every capability grant of a SUPER_ADMIN, live and historical, plus the
+   * live set the next token carries.
+   */
+  @Get(':id/capabilities')
+  async listPlatformCapabilities(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<{ grants: PlatformCapabilityGrantSnapshot[]; active: PlatformCapability[] }> {
+    return this.usersService.listPlatformCapabilities(id);
+  }
+
+  /**
+   * Grant a capability. `security-ops` is the only capability that grants
+   * capabilities; `break-glass` must come from another SUPER_ADMIN, with an
+   * expiry within four hours (enforced by auth-service, the single writer).
+   */
+  @AuditedOperation({ resource: 'PlatformCapability', action: 'GRANT' })
+  @RequiresCapability('security-ops')
+  @Post(':id/capabilities')
+  async grantPlatformCapability(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: GrantPlatformCapabilityDto,
+    @Req() req: { user: { id: string } },
+  ): Promise<PlatformCapabilityGrantSnapshot> {
+    return this.usersService.grantPlatformCapability({
+      userId: id,
+      capability: dto.capability,
+      grantedBy: req.user.id,
+      expiresAt: dto.expiresAt,
+      reason: dto.reason,
+    });
+  }
+
+  /** Revoke the live grant of one capability; the target's sessions are revoked with it. */
+  @AuditedOperation({ resource: 'PlatformCapability', action: 'REVOKE' })
+  @RequiresCapability('security-ops')
+  @Destructive({ requiresBreakGlass: false, reason: 'revokes an operator capability and their sessions' })
+  @Post(':id/capabilities/:capability/revoke')
+  async revokePlatformCapability(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('capability') capability: string,
+    @Body() dto: RevokePlatformCapabilityDto,
+    @Req() req: { user: { id: string } },
+  ): Promise<PlatformCapabilityGrantSnapshot> {
+    if (!isPlatformCapability(capability)) {
+      throw new BadRequestException(`'${capability}' is not a platform capability`);
+    }
+    return this.usersService.revokePlatformCapability({
+      userId: id,
+      capability,
+      revokedBy: req.user.id,
+      reason: dto.reason,
+    });
   }
 
   // ============================================

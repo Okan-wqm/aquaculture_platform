@@ -4,7 +4,7 @@
  * Schema migration yönetimi endpoint'leri.
  */
 
-import { Destructive } from '@aquaculture/backend-common/decorators';
+import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   BadRequestException,
@@ -122,6 +122,7 @@ export class MigrationController {
   }
 
   @AuditedOperation({ resource: 'Migration', action: 'RUN' })
+  @RequiresCapability('security-ops')
   @Post('tenant/:tenantId/run')
   @HttpCode(HttpStatus.OK)
   runMigration(
@@ -146,6 +147,7 @@ export class MigrationController {
 
   @AuditedOperation({ resource: 'Migration', action: 'ROLLBACK' })
   @Destructive()
+  @RequiresCapability('security-ops')
   @Post('tenant/:tenantId/rollback')
   @HttpCode(HttpStatus.OK)
   rollbackMigration(
@@ -172,6 +174,7 @@ export class MigrationController {
   // ============================================================================
 
   @AuditedOperation({ resource: 'BatchMigration', action: 'RUN' })
+  @RequiresCapability('security-ops')
   @Post('batch/run')
   @HttpCode(HttpStatus.OK)
   runBatchMigration(

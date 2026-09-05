@@ -11,7 +11,7 @@
  *
  * @see ADR-012 Phase 3 (Compliance)
  */
-import { Destructive } from '@aquaculture/backend-common/decorators';
+import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -160,6 +160,7 @@ export class MessagingAdminController {
    * Create a new legal hold on messaging data.
    */
   @AuditedOperation({ resource: 'LegalHold', action: 'CREATE' })
+  @RequiresCapability('support-ops')
   @Post('compliance/legal-holds')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a legal hold' })
@@ -189,6 +190,7 @@ export class MessagingAdminController {
    */
   @AuditedOperation({ resource: 'LegalHold', action: 'RELEASE' })
   @Destructive()
+  @RequiresCapability('support-ops')
   @Delete('compliance/legal-holds/:id')
   @ApiOperation({ summary: 'Release a legal hold' })
   async releaseLegalHold(
@@ -228,6 +230,7 @@ export class MessagingAdminController {
    * @param id - Tenant ID (used as scope identifier)
    */
   @AuditedOperation({ resource: 'RetentionPolicy', action: 'UPDATE' })
+  @RequiresCapability('support-ops')
   @Put('retention/policies/:id')
   @ApiOperation({ summary: 'Update a retention policy' })
   async updateRetentionPolicy(
@@ -321,6 +324,7 @@ export class MessagingAdminController {
    */
   @AuditedOperation({ resource: 'Export', action: 'TRIGGER' })
   @Destructive()
+  @RequiresCapability('support-ops')
   @Post('tenants/:id/export')
   @HttpCode(HttpStatus.ACCEPTED)
   @ApiOperation({ summary: 'Trigger tenant data export' })
@@ -362,6 +366,7 @@ export class MessagingAdminController {
    * @param id - Persona ID
    */
   @AuditedOperation({ resource: 'Persona', action: 'UPDATE' })
+  @RequiresCapability('support-ops')
   @Put('personas/:id')
   @ApiOperation({ summary: 'Update AI persona configuration' })
   async updatePersona(

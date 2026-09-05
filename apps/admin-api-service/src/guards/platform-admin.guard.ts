@@ -26,6 +26,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
+import { toPlatformCapabilities } from '@platform/event-contracts';
 import * as jwt from 'jsonwebtoken';
 
 import { ROLES_KEY } from '../decorators/roles.decorator';
@@ -68,6 +69,8 @@ export interface JwtPayload {
   iat: number;
   exp: number /** MFA step-up cleared on this session (auth-service claim). */;
   mfaVerified?: boolean;
+  /** ADR-0016: platform-operator capabilities minted from auth.platform_capability_grants. */
+  platformCapabilities?: string[];
 }
 
 // Product language calls this actor "platform admin"; the auth domain
@@ -236,6 +239,10 @@ export class PlatformAdminGuard implements CanActivate {
         // and by DestructiveActionGuard for the MFA freshness window (ADR-0011).
         mfaVerified: payload.mfaVerified === true,
         iat: payload.iat,
+        // ADR-0016: read by PlatformCapabilityGuard (route capability) and
+        // DestructiveActionGuard (break-glass). Narrowed to the closed enum so a
+        // forged or stale string can never act as a capability.
+        platformCapabilities: toPlatformCapabilities(payload.platformCapabilities),
       };
 
       const requestContext = requestContextStorage.getStore();

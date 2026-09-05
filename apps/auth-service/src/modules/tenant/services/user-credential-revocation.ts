@@ -12,7 +12,9 @@ export type UserCredentialInvalidationOperation =
   | 'admin-user-deactivate'
   | 'admin-user-authorization-update'
   | 'admin-force-logout'
-  | 'tenant-user-deactivate';
+  | 'tenant-user-deactivate'
+  // ADR-0016: a capability grant or revoke changes what the next token carries.
+  | 'platform-capability-changed';
 
 /**
  * Canonical transaction fence for tenant-owned credential mutations.

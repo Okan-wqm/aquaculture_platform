@@ -13,13 +13,19 @@ import { Injectable, Logger, Optional, Inject, ForbiddenException } from '@nestj
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
-import { TenantPlan, PLAN_LEVEL } from '@platform/event-contracts';
+import {
+  TenantPlan,
+  PLAN_LEVEL,
+  toPlatformCapabilities,
+  type PlatformCapability,
+} from '@platform/event-contracts';
 import * as bcrypt from 'bcryptjs';
 import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
 
 import { parseHashRefreshTokens } from '../../../config/hash-refresh-tokens';
 import { parseAccessTokenLifetimeSeconds } from '../../../config/jwt-lifetime';
 import { SECURITY_CONSTANTS } from '../../../constants/auth.constants';
+import { LIVE_PLATFORM_CAPABILITY_GRANT_SQL } from '../../tenant/entities/platform-capability-grant.entity';
 import { MobileSettingsService } from '../../tenant/services/mobile-settings.service';
 import { resolveEntitledCapabilities } from '../../tenant/services/permission-catalogue';
 import {
@@ -67,6 +73,14 @@ export interface JwtPayload {
   planLevel?: number;
   modules?: string[];
   resourcePermissions?: string[];
+  /**
+   * ADR-0016: platform-operator capabilities projected from
+   * `auth.platform_capability_grants` at mint. SUPER_ADMIN only; omitted when
+   * the user holds none (a SUPER_ADMIN with no grant is read-only on the
+   * platform-admin surface). Same staleness contract as `modules`: a grant or
+   * revoke revokes the user's sessions so the claim re-mints immediately.
+   */
+  platformCapabilities?: PlatformCapability[];
   /**
    * SEC-HIGH-051: farm-service Site ids the user is assigned to (object-level
    * site authorization). Like `modules`/`resourcePermissions`/`planLevel`, this
@@ -299,14 +313,21 @@ export class TokenService {
     // JWT claim), the user's assigned site ids (SEC-HIGH-051) and enabled mobile
     // features (SEC-HIGH-052) are independent, so a single Promise.all keeps
     // token mint to one read latency instead of five serial round-trips.
-    const [modules, resourcePermissions, planLevel, assignedSites, mobileFeatures] =
-      await Promise.all([
-        this.getUserModules(user),
-        this.getUserResourcePermissions(user),
-        this.resolveTenantPlanLevel(effectiveTenantId),
-        this.getUserAssignedSites(user, issuedAtEpochSeconds, options.manager),
-        this.getUserMobileFeatures(user),
-      ]);
+    const [
+      modules,
+      resourcePermissions,
+      planLevel,
+      assignedSites,
+      mobileFeatures,
+      platformCapabilities,
+    ] = await Promise.all([
+      this.getUserModules(user),
+      this.getUserResourcePermissions(user),
+      this.resolveTenantPlanLevel(effectiveTenantId),
+      this.getUserAssignedSites(user, issuedAtEpochSeconds, options.manager),
+      this.getUserMobileFeatures(user),
+      this.getPlatformCapabilities(user),
+    ]);
     const moduleCodes = modules.map((m) => m.code);
     const assignedSiteIds = assignedSites.siteIds;
 
@@ -337,6 +358,8 @@ export class TokenService {
       // managers/admins carry no superfluous claim and `'x' in payload` is false.
       ...(assignedSiteIds.length > 0 ? { assignedSiteIds } : {}),
       ...(mobileFeatures.length > 0 ? { mobileFeatures } : {}),
+      // ADR-0016: omitted when empty, like the claims above.
+      ...(platformCapabilities.length > 0 ? { platformCapabilities } : {}),
       type: 'access',
       jti,
       iat: issuedAtEpochSeconds,
@@ -610,6 +633,31 @@ export class TokenService {
       return undefined;
     }
     return PLAN_LEVEL[plan] ?? 0;
+  }
+
+  /**
+   * ADR-0016: the SUPER_ADMIN's live platform capabilities — the rows of
+   * `auth.platform_capability_grants` that are neither revoked nor expired.
+   * Tenant principals carry no capability claim. Like every authorization
+   * read at mint this is authoritative and fails loud: a query error aborts
+   * the mint rather than issuing a token with a narrower claim than the user
+   * holds (or, worse, with none and a silent read-only downgrade).
+   */
+  private async getPlatformCapabilities(user: User): Promise<PlatformCapability[]> {
+    if (user.role !== Role.SUPER_ADMIN) {
+      return [];
+    }
+    const rows: Array<{ capability: string }> = await this.dataSource.query(
+      `
+      SELECT "capability"
+      FROM "auth"."platform_capability_grants"
+      WHERE "userId" = $1
+        AND ${LIVE_PLATFORM_CAPABILITY_GRANT_SQL}
+      ORDER BY "capability" ASC
+      `,
+      [user.id],
+    );
+    return toPlatformCapabilities(rows.map((row) => row.capability));
   }
 
   /**

@@ -4,7 +4,7 @@
  * Platform duyuru yönetimi endpoint'leri.
  */
 
-import { Destructive } from '@aquaculture/backend-common/decorators';
+import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -148,6 +148,7 @@ export class AnnouncementController {
   }
 
   @AuditedOperation({ resource: 'Announcement', action: 'CREATE' })
+  @RequiresCapability('support-ops')
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async createAnnouncement(
@@ -173,6 +174,7 @@ export class AnnouncementController {
   }
 
   @AuditedOperation({ resource: 'Announcement', action: 'UPDATE' })
+  @RequiresCapability('support-ops')
   @Put(':id')
   async updateAnnouncement(
     @Param('id') id: string,
@@ -192,6 +194,7 @@ export class AnnouncementController {
 
   @AuditedOperation({ resource: 'Announcement', action: 'DELETE' })
   @Destructive()
+  @RequiresCapability('support-ops')
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteAnnouncement(@Param('id') id: string) {
@@ -203,12 +206,14 @@ export class AnnouncementController {
   // ============================================================================
 
   @AuditedOperation({ resource: 'Announcement', action: 'PUBLISH' })
+  @RequiresCapability('support-ops')
   @Post(':id/publish')
   async publishAnnouncement(@Param('id') id: string) {
     return this.announcementService.publishAnnouncement(id);
   }
 
   @AuditedOperation({ resource: 'Announcement', action: 'CANCEL' })
+  @RequiresCapability('support-ops')
   @Post(':id/cancel')
   async cancelAnnouncement(@Param('id') id: string) {
     return this.announcementService.cancelAnnouncement(id);
@@ -246,6 +251,7 @@ export class AnnouncementController {
   }
 
   @AuditedOperation({ resource: 'View', action: 'RECORD' })
+  @RequiresCapability('support-ops')
   @Post(':id/view')
   @PlatformAdminOnly()
   async recordView(
@@ -265,6 +271,7 @@ export class AnnouncementController {
   }
 
   @AuditedOperation({ resource: 'Acknowledgment', action: 'RECORD' })
+  @RequiresCapability('support-ops')
   @Post(':id/acknowledge')
   @PlatformAdminOnly()
   async recordAcknowledgment(

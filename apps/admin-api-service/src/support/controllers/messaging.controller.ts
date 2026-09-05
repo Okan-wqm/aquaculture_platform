@@ -4,7 +4,7 @@
  * Admin-tenant mesajlaşma endpoint'leri.
  */
 
-import { Destructive } from '@aquaculture/backend-common/decorators';
+import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -123,6 +123,7 @@ export class MessagingController {
   }
 
   @AuditedOperation({ resource: 'Thread', action: 'CREATE' })
+  @RequiresCapability('support-ops')
   @Post('threads')
   @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
@@ -145,12 +146,14 @@ export class MessagingController {
   }
 
   @AuditedOperation({ resource: 'Thread', action: 'CLOSE' })
+  @RequiresCapability('support-ops')
   @Post('threads/:threadId/close')
   async closeThread(@Param('threadId') threadId: string) {
     return this.messagingService.closeThread(threadId);
   }
 
   @AuditedOperation({ resource: 'Thread', action: 'REOPEN' })
+  @RequiresCapability('support-ops')
   @Post('threads/:threadId/reopen')
   async reopenThread(@Param('threadId') threadId: string) {
     return this.messagingService.reopenThread(threadId);
@@ -158,6 +161,7 @@ export class MessagingController {
 
   @AuditedOperation({ resource: 'Thread', action: 'ARCHIVE' })
   @Destructive()
+  @RequiresCapability('support-ops')
   @Post('threads/:threadId/archive')
   async archiveThread(@Param('threadId') threadId: string) {
     return this.messagingService.archiveThread(threadId);
@@ -183,6 +187,7 @@ export class MessagingController {
   }
 
   @AuditedOperation({ resource: 'Message', action: 'ADD' })
+  @RequiresCapability('support-ops')
   @Post('threads/:threadId/messages')
   @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
@@ -206,6 +211,7 @@ export class MessagingController {
   }
 
   @AuditedOperation({ resource: 'AsRead', action: 'MARK' })
+  @RequiresCapability('support-ops')
   @Post('threads/:threadId/read')
   @PlatformAdminOnly()
   async markAsRead(@Param('threadId') threadId: string) {
@@ -218,6 +224,7 @@ export class MessagingController {
   // ============================================================================
 
   @AuditedOperation({ resource: 'BulkMessage', action: 'SEND' })
+  @RequiresCapability('support-ops')
   @Post('bulk')
   @HttpCode(HttpStatus.OK)
   async sendBulkMessage(

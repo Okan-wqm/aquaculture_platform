@@ -19,15 +19,19 @@
  *      metadata (the interceptor writes through getRepository).
  */
 
-import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-
 import * as yaml from 'js-yaml';
 
-const REPO_ROOT = resolve(__dirname, '..', '..');
-const SERVICE_SRC = 'apps/admin-api-service/src';
+import {
+  ADMIN_SERVICE_SRC,
+  adminControllerFiles,
+  adminMutationHandlers,
+  readRepoFile as read,
+  stripComments,
+  type AdminMutationHandler,
+} from './lib/admin-mutation-handlers';
+
 const ALLOWLIST = '.claude/allowlists/admin-unaudited-mutations.yaml';
+const SERVICE_SRC = ADMIN_SERVICE_SRC;
 
 interface AllowlistEntry {
   handler: string;
@@ -37,75 +41,16 @@ interface AllowlistEntry {
   reason: string;
 }
 
-interface Handler {
-  readonly id: string;
-  readonly audited: boolean;
-}
-
-function read(rel: string): string {
-  return readFileSync(resolve(REPO_ROOT, rel), 'utf8');
-}
-
-function stripComments(src: string): string {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .split('\n')
-    .map((line) => line.replace(/(?<!:)\/\/.*$/, ''))
-    .join('\n');
-}
-
-function controllerFiles(): string[] {
-  return execFileSync(
-    'git',
-    [
-      '-C',
-      REPO_ROOT,
-      'ls-files',
-      '--cached',
-      '--others',
-      '--exclude-standard',
-      `${SERVICE_SRC}/**/*.controller.ts`,
-    ],
-    {
-      encoding: 'utf8',
-    },
-  )
-    .split('\n')
-    .filter((rel) => rel.length > 0 && !rel.endsWith('.spec.ts'));
-}
-
-const HTTP_MUTATION = /^\s*@(Post|Put|Patch|Delete)\(/;
-const SIGNATURE = /^\s*(?:async\s+)?([A-Za-z_]\w*)\s*\(/;
-
-/** Every mutation handler in a controller, with whether its decorator block audits it. */
-function mutationHandlers(rel: string): Handler[] {
-  const lines = stripComments(read(rel)).split('\n');
-  const handlers: Handler[] = [];
-  for (let i = 0; i < lines.length; i += 1) {
-    if (!HTTP_MUTATION.test(lines[i] ?? '')) continue;
-    // Walk back over the contiguous decorator block, then forward to the signature.
-    let start = i;
-    while (start > 0 && /^\s*@/.test(lines[start - 1] ?? '')) start -= 1;
-    let name: string | undefined;
-    // The signature is the first non-decorator line after the block.
-    let sigIndex = i + 1;
-    while (sigIndex < lines.length && /^\s*@|^\s*$/.test(lines[sigIndex] ?? '')) sigIndex += 1;
-    // Multi-line decorator arguments end with ")"; skip continuation lines.
-    while (sigIndex < lines.length && !SIGNATURE.test(lines[sigIndex] ?? '')) sigIndex += 1;
-    name = SIGNATURE.exec(lines[sigIndex] ?? '')?.[1];
-    if (!name) throw new Error(`${rel}:${i + 1}: mutation decorator with no handler signature`);
-    const block = lines.slice(start, sigIndex).join('\n');
-    handlers.push({ id: `${rel}#${name}`, audited: /@AuditedOperation\(/.test(block) });
-    i = sigIndex;
-  }
-  return handlers;
+/** Whether the handler's own decorator block audits it. */
+function isAudited(handler: AdminMutationHandler): boolean {
+  return /@AuditedOperation\(/.test(handler.block);
 }
 
 describe('INVARIANT (ADMIN-CRITICAL-008): every admin mutation handler is audited', () => {
-  const files = controllerFiles();
-  const handlers = files.flatMap(mutationHandlers);
+  const files = adminControllerFiles();
+  const handlers = files.flatMap(adminMutationHandlers);
   const unaudited = handlers
-    .filter((h) => !h.audited)
+    .filter((h) => !isAudited(h))
     .map((h) => h.id)
     .sort();
   const doc = yaml.load(read(ALLOWLIST)) as { entries?: AllowlistEntry[] };

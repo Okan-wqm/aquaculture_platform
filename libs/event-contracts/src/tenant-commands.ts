@@ -11,6 +11,8 @@
  * Subject convention: request.auth.tenant.<CommandType>
  */
 
+import type { PlatformCapability } from './enums/platform-capability.enum';
+
 // ==================== NATS Subject Constants ====================
 
 export const TENANT_COMMAND_SUBJECTS = {
@@ -317,6 +319,11 @@ export const AUTH_ADMIN_COMMAND_SUBJECTS = {
   CREATE_MODULE: 'request.auth.admin.createModule',
   UPDATE_MODULE: 'request.auth.admin.updateModule',
   DELETE_MODULE: 'request.auth.admin.deleteModule',
+  // ADR-0016: platform capabilities are auth.platform_capability_grants rows;
+  // admin-api grants and revokes them here and reads them back for the panel.
+  GRANT_PLATFORM_CAPABILITY: 'request.auth.admin.grantPlatformCapability',
+  REVOKE_PLATFORM_CAPABILITY: 'request.auth.admin.revokePlatformCapability',
+  LIST_PLATFORM_CAPABILITY_GRANTS: 'request.auth.admin.listPlatformCapabilityGrants',
 } as const;
 
 export const AUTH_PUBLIC_COMMAND_SUBJECTS = {
@@ -774,6 +781,91 @@ export interface AdminCheckUserLimitResult {
 /**
  * Union type for all admin-api → auth-service user lifecycle commands.
  */
+/**
+ * ADR-0016 — a platform capability grant as auth-service reports it.
+ * `revokedAt`/`revokedBy` are null while the grant is live; `expiresAt` is
+ * null for a standing grant and mandatory (≤ 4 h) for `break-glass`.
+ */
+export interface PlatformCapabilityGrantSnapshot {
+  id: string;
+  userId: string;
+  capability: PlatformCapability;
+  grantedBy: string;
+  grantedAt: string;
+  expiresAt: string | null;
+  revokedBy: string | null;
+  revokedAt: string | null;
+  reason: string;
+}
+
+/**
+ * Grant one capability to a SUPER_ADMIN. auth-service enforces the policy:
+ * the target must be an active SUPER_ADMIN; `break-glass` needs an
+ * `expiresAt` within four hours and a grantor other than the target
+ * (dual control); a duplicate live grant is a conflict. The grant revokes
+ * the target's refresh tokens and advances the durable access-token
+ * invalidation epoch so the claim re-mints on the next token.
+ */
+export interface AdminGrantPlatformCapabilityCommand {
+  userId: string;
+  capability: PlatformCapability;
+  /** UUID of the SUPER_ADMIN performing the grant — the actor, never client-supplied on the REST side. */
+  grantedBy: string;
+  /** ISO-8601; required for `break-glass`, optional standing grants otherwise. */
+  expiresAt?: string;
+  /** Why the grant exists — a ticket or an incident reference. */
+  reason: string;
+  correlationId?: string;
+}
+
+export interface AdminGrantPlatformCapabilityResult {
+  success: boolean;
+  grant?: PlatformCapabilityGrantSnapshot;
+  errorCode?:
+    | 'USER_NOT_FOUND'
+    | 'NOT_PLATFORM_ADMIN'
+    | 'INVALID_CAPABILITY'
+    | 'SELF_GRANT_FORBIDDEN'
+    | 'EXPIRY_REQUIRED'
+    | 'EXPIRY_TOO_LONG'
+    | 'EXPIRY_IN_PAST'
+    | 'ALREADY_GRANTED'
+    | 'VALIDATION_ERROR'
+    | 'INTERNAL_ERROR';
+  error?: string;
+}
+
+/** Revoke the live grant of one capability. Same token-invalidation side effect as a grant. */
+export interface AdminRevokePlatformCapabilityCommand {
+  userId: string;
+  capability: PlatformCapability;
+  revokedBy: string;
+  reason: string;
+  correlationId?: string;
+}
+
+export interface AdminRevokePlatformCapabilityResult {
+  success: boolean;
+  grant?: PlatformCapabilityGrantSnapshot;
+  errorCode?: 'USER_NOT_FOUND' | 'GRANT_NOT_FOUND' | 'INVALID_CAPABILITY' | 'VALIDATION_ERROR' | 'INTERNAL_ERROR';
+  error?: string;
+}
+
+/** Every grant row of one user, live and historical, newest first. */
+export interface AdminListPlatformCapabilityGrantsQuery {
+  userId: string;
+  correlationId?: string;
+}
+
+export interface AdminListPlatformCapabilityGrantsResult {
+  success: boolean;
+  grants?: PlatformCapabilityGrantSnapshot[];
+  /** The capabilities the user holds right now — what the next token will carry. */
+  active?: PlatformCapability[];
+  errorCode?: 'USER_NOT_FOUND' | 'INTERNAL_ERROR';
+  error?: string;
+}
+
 export type AuthAdminCommand =
   | AdminCreateUserCommand
   | AdminResetUserPasswordCommand
@@ -784,7 +876,10 @@ export type AuthAdminCommand =
   | AdminCheckUserLimitQuery
   | AdminCreateModuleCommand
   | AdminUpdateModuleCommand
-  | AdminDeleteModuleCommand;
+  | AdminDeleteModuleCommand
+  | AdminGrantPlatformCapabilityCommand
+  | AdminRevokePlatformCapabilityCommand
+  | AdminListPlatformCapabilityGrantsQuery;
 
 export type AuthPublicCommand =
   | PublicRequestPasswordResetCommand

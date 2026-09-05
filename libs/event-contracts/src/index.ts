@@ -12,6 +12,8 @@ export * from './billing/plan-catalog';
 // billing + admin entities re-export this; the FE literals are pinned to it.
 export * from './billing/billing-plan-tier';
 export * from './enums/tenant-status.enum';
+// ADR-0016: closed platform-operator capability set, minted into the JWT by auth-service.
+export * from './enums/platform-capability.enum';
 // Tenant lifecycle transition authority (auth-audit HIGH-007). Pure,
 // dependency-free logic that gates every status change + login + erasure.
 export * from './enums/tenant-status.machine';

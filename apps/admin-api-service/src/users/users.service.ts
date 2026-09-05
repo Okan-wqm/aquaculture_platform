@@ -20,6 +20,14 @@ import {
   type AdminDeactivateUserResult,
   type AdminForceLogoutUserCommand,
   type AdminForceLogoutUserResult,
+  type AdminGrantPlatformCapabilityCommand,
+  type AdminGrantPlatformCapabilityResult,
+  type AdminListPlatformCapabilityGrantsQuery,
+  type AdminListPlatformCapabilityGrantsResult,
+  type AdminRevokePlatformCapabilityCommand,
+  type AdminRevokePlatformCapabilityResult,
+  type PlatformCapability,
+  type PlatformCapabilityGrantSnapshot,
   type AdminResetUserPasswordCommand,
   type AdminResetUserPasswordResult,
   type AdminUpdateUserCommand,
@@ -711,6 +719,107 @@ export class UsersService {
    * connection issues to 503, and domain exceptions flow through as HTTP
    * exceptions so the REST layer surfaces them unchanged.
    */
+  /**
+   * ADR-0016 — platform capability grants. auth-service is the single
+   * writer and the policy owner (active SUPER_ADMIN target, time-boxed
+   * dual-controlled break-glass, one live grant per capability); admin-api
+   * carries the operator's intent and the verified actor over NATS.
+   */
+  async listPlatformCapabilities(userId: string): Promise<{
+    grants: PlatformCapabilityGrantSnapshot[];
+    active: PlatformCapability[];
+  }> {
+    const query: AdminListPlatformCapabilityGrantsQuery = { userId };
+    const result = await this.sendAuthCommand<
+      AdminListPlatformCapabilityGrantsQuery,
+      AdminListPlatformCapabilityGrantsResult
+    >(AUTH_ADMIN_COMMAND_SUBJECTS.LIST_PLATFORM_CAPABILITY_GRANTS, query);
+    if (!result.success) {
+      throw result.errorCode === 'USER_NOT_FOUND'
+        ? new NotFoundException(result.error ?? 'User not found')
+        : new InternalServerErrorException(result.error ?? 'Failed to list capabilities');
+    }
+    return { grants: result.grants ?? [], active: result.active ?? [] };
+  }
+
+  async grantPlatformCapability(input: {
+    userId: string;
+    capability: PlatformCapability;
+    grantedBy: string;
+    expiresAt?: string;
+    reason: string;
+  }): Promise<PlatformCapabilityGrantSnapshot> {
+    const command: AdminGrantPlatformCapabilityCommand = { ...input };
+    const result = await this.sendAuthCommand<
+      AdminGrantPlatformCapabilityCommand,
+      AdminGrantPlatformCapabilityResult
+    >(AUTH_ADMIN_COMMAND_SUBJECTS.GRANT_PLATFORM_CAPABILITY, command);
+    if (!result.success || !result.grant) {
+      throw this.mapGrantCapabilityError(result);
+    }
+    this.logger.log(
+      `Granted platform capability ${input.capability} to userId=${input.userId} by ${input.grantedBy}`,
+    );
+    return result.grant;
+  }
+
+  async revokePlatformCapability(input: {
+    userId: string;
+    capability: PlatformCapability;
+    revokedBy: string;
+    reason: string;
+  }): Promise<PlatformCapabilityGrantSnapshot> {
+    const command: AdminRevokePlatformCapabilityCommand = { ...input };
+    const result = await this.sendAuthCommand<
+      AdminRevokePlatformCapabilityCommand,
+      AdminRevokePlatformCapabilityResult
+    >(AUTH_ADMIN_COMMAND_SUBJECTS.REVOKE_PLATFORM_CAPABILITY, command);
+    if (!result.success || !result.grant) {
+      throw this.mapRevokeCapabilityError(result);
+    }
+    this.logger.log(
+      `Revoked platform capability ${input.capability} from userId=${input.userId} by ${input.revokedBy}`,
+    );
+    return result.grant;
+  }
+
+  private mapGrantCapabilityError(result: AdminGrantPlatformCapabilityResult): HttpException {
+    const msg = result.error ?? 'Failed to grant capability';
+    switch (result.errorCode) {
+      case 'USER_NOT_FOUND':
+        return new NotFoundException(msg);
+      case 'NOT_PLATFORM_ADMIN':
+        return new HttpException(msg, HttpStatus.FORBIDDEN);
+      case 'ALREADY_GRANTED':
+        return new ConflictException(msg);
+      case 'INVALID_CAPABILITY':
+      case 'SELF_GRANT_FORBIDDEN':
+      case 'EXPIRY_REQUIRED':
+      case 'EXPIRY_TOO_LONG':
+      case 'EXPIRY_IN_PAST':
+      case 'VALIDATION_ERROR':
+        return new BadRequestException(msg);
+      case 'INTERNAL_ERROR':
+      default:
+        return new InternalServerErrorException(msg);
+    }
+  }
+
+  private mapRevokeCapabilityError(result: AdminRevokePlatformCapabilityResult): HttpException {
+    const msg = result.error ?? 'Failed to revoke capability';
+    switch (result.errorCode) {
+      case 'USER_NOT_FOUND':
+      case 'GRANT_NOT_FOUND':
+        return new NotFoundException(msg);
+      case 'INVALID_CAPABILITY':
+      case 'VALIDATION_ERROR':
+        return new BadRequestException(msg);
+      case 'INTERNAL_ERROR':
+      default:
+        return new InternalServerErrorException(msg);
+    }
+  }
+
   private async sendAuthCommand<TCommand, TResult>(
     subject: string,
     command: TCommand,

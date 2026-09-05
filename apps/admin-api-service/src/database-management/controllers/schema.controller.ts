@@ -4,7 +4,7 @@
  * Tenant schema oluşturma, yönetim ve izolasyon endpoint'leri.
  */
 
-import { Destructive } from '@aquaculture/backend-common/decorators';
+import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -98,6 +98,7 @@ export class SchemaController {
   }
 
   @AuditedOperation({ resource: 'Schema', action: 'CREATE' })
+  @RequiresCapability('security-ops')
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async createSchema(@Body() dto: CreateSchemaDto) {
@@ -108,18 +109,21 @@ export class SchemaController {
   }
 
   @AuditedOperation({ resource: 'Schemas', action: 'SYNC' })
+  @RequiresCapability('security-ops')
   @Post('sync')
   async syncSchemas(@Body() dto: SyncSchemasDto) {
     return this.schemaService.syncExistingTenantSchemas(dto.tenantId, dto.modules);
   }
 
   @AuditedOperation({ resource: 'Schema', action: 'SUSPEND' })
+  @RequiresCapability('security-ops')
   @Post(':tenantId/suspend')
   async suspendSchema(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
     return this.schemaService.suspendSchema(tenantId);
   }
 
   @AuditedOperation({ resource: 'Schema', action: 'ACTIVATE' })
+  @RequiresCapability('security-ops')
   @Post(':tenantId/activate')
   async activateSchema(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
     return this.schemaService.activateSchema(tenantId);
@@ -128,6 +132,7 @@ export class SchemaController {
   // SECURITY: destructive action requires confirmation token and audit
   @AuditedOperation({ resource: 'Schema', action: 'DELETE' })
   @Destructive()
+  @RequiresCapability('security-ops')
   @Delete(':tenantId')
   @Roles('SUPER_ADMIN')
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -176,6 +181,7 @@ export class SchemaController {
   }
 
   @AuditedOperation({ resource: 'SchemaStats', action: 'REFRESH' })
+  @RequiresCapability('security-ops')
   @Post(':tenantId/refresh-stats')
   async refreshSchemaStats(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
     return this.schemaService.updateSchemaStats(tenantId);
@@ -200,6 +206,7 @@ export class SchemaController {
   // ============================================================================
 
   @AuditedOperation({ resource: 'Schema', action: 'BACKFILL_TRACKING_RECORDS' })
+  @RequiresCapability('security-ops')
   @Post('backfill-tracking')
   async backfillTrackingRecords() {
     return this.schemaService.backfillTrackingRecords();

@@ -377,10 +377,21 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     // intersection. Default 'farm' keeps core caps entitled; add 'ai'/'hr' to
     // license those module-gated categories.
     enabledModuleCodes?: string[];
+    // ADR-0016: the live rows of auth.platform_capability_grants for the user.
+    platformCapabilities?: string[];
+    onPlatformCapabilityQuery?: (sql: string) => Promise<unknown>;
   }): jest.Mock =>
     jest.fn((sql: string) => {
       if (typeof sql !== 'string') {
         return Promise.resolve([]);
+      }
+      if (sql.includes('platform_capability_grants')) {
+        if (overrides?.onPlatformCapabilityQuery) {
+          return overrides.onPlatformCapabilityQuery(sql);
+        }
+        return Promise.resolve(
+          (overrides?.platformCapabilities ?? []).map((capability) => ({ capability })),
+        );
       }
       // Entitlement query (RBAC-HIGH-010): tenant_modules JOIN modules.
       if (sql.includes('tenant_modules') && sql.includes('"auth"."modules"')) {
@@ -793,6 +804,79 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
 
       const claim = capturedPayload().resourcePermissions ?? [];
       expect(claim).toEqual(expect.arrayContaining(['sites:view', 'ai_settings:manage']));
+    });
+  });
+
+  describe('platformCapabilities claim (ADR-0016)', () => {
+    const capabilityQuery = (): [string, unknown[]] | undefined =>
+      query.mock.calls.find(
+        ([sql]) => typeof sql === 'string' && sql.includes('platform_capability_grants'),
+      ) as [string, unknown[]] | undefined;
+
+    it('projects the live grants of a SUPER_ADMIN, bound by user id, live-predicate in SQL', async () => {
+      service = await createService({
+        query: buildQueryRouter({ platformCapabilities: ['billing-ops', 'security-ops'] }),
+      });
+
+      await service.generateTokens(
+        buildUser({
+          id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          role: Role.SUPER_ADMIN,
+          tenantId: null,
+        }),
+      );
+
+      expect(lastPayload?.platformCapabilities).toEqual(['billing-ops', 'security-ops']);
+      const call = capabilityQuery();
+      expect(call).toBeDefined();
+      const [sql, params] = call as [string, unknown[]];
+      expect(sql).toContain('"auth"."platform_capability_grants"');
+      expect(sql).toContain('"revokedAt" IS NULL');
+      expect(sql).toContain('"expiresAt" > now()');
+      expect(params).toEqual(['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa']);
+    });
+
+    it('omits the claim entirely when the SUPER_ADMIN holds no live grant', async () => {
+      service = await createService({ query: buildQueryRouter({ platformCapabilities: [] }) });
+
+      await service.generateTokens(buildUser({ role: Role.SUPER_ADMIN, tenantId: null }));
+
+      expect(lastPayload).toBeDefined();
+      expect('platformCapabilities' in (lastPayload as JwtPayload)).toBe(false);
+    });
+
+    it('drops a stored value outside the closed enum instead of minting it', async () => {
+      service = await createService({
+        query: buildQueryRouter({ platformCapabilities: ['billing-ops', 'root'] }),
+      });
+
+      await service.generateTokens(buildUser({ role: Role.SUPER_ADMIN, tenantId: null }));
+
+      expect(lastPayload?.platformCapabilities).toEqual(['billing-ops']);
+    });
+
+    it('never reads the grant table for a tenant principal', async () => {
+      service = await createService({
+        query: buildQueryRouter({ platformCapabilities: ['billing-ops'] }),
+      });
+
+      await service.generateTokens(buildUser({ role: Role.TENANT_ADMIN }));
+
+      expect(capabilityQuery()).toBeUndefined();
+      expect('platformCapabilities' in (lastPayload as JwtPayload)).toBe(false);
+    });
+
+    it('fails the mint loud when the grant read fails (no silent read-only downgrade)', async () => {
+      service = await createService({
+        query: buildQueryRouter({
+          onPlatformCapabilityQuery: () => Promise.reject(new Error('relation missing')),
+        }),
+      });
+
+      await expect(
+        service.generateTokens(buildUser({ role: Role.SUPER_ADMIN, tenantId: null })),
+      ).rejects.toThrow('relation missing');
+      expect(signAsync).not.toHaveBeenCalled();
     });
   });
 

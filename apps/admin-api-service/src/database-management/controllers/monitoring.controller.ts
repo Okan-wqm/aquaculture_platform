@@ -4,6 +4,7 @@
  * Database performans izleme, slow query ve index optimizasyonu endpoint'leri.
  */
 
+import { RequiresCapability } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -91,6 +92,7 @@ export class MonitoringController {
   }
 
   @AuditedOperation({ resource: 'Monitoring', action: 'ANALYZE_QUERY' })
+  @RequiresCapability('security-ops')
   @Post('analyze-query')
   @HttpCode(HttpStatus.OK)
   async analyzeQuery(@Body() dto: AnalyzeQueryDto) {

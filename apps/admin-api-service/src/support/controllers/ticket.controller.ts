@@ -4,6 +4,7 @@
  * Destek ticket yönetimi endpoint'leri.
  */
 
+import { RequiresCapability } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -242,6 +243,7 @@ export class TicketController {
   }
 
   @AuditedOperation({ resource: 'Ticket', action: 'CREATE' })
+  @RequiresCapability('support-ops')
   @Post()
   @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
@@ -267,6 +269,7 @@ export class TicketController {
   }
 
   @AuditedOperation({ resource: 'Ticket', action: 'UPDATE' })
+  @RequiresCapability('support-ops')
   @Put(':id')
   async updateTicket(
     @Param('id') id: string,
@@ -288,6 +291,7 @@ export class TicketController {
   // ============================================================================
 
   @AuditedOperation({ resource: 'Ticket', action: 'ASSIGN' })
+  @RequiresCapability('support-ops')
   @Post(':id/assign')
   async assignTicket(
     @Param('id') id: string,
@@ -301,6 +305,7 @@ export class TicketController {
   }
 
   @AuditedOperation({ resource: 'Status', action: 'CHANGE' })
+  @RequiresCapability('support-ops')
   @Post(':id/status')
   async changeStatus(
     @Param('id') id: string,
@@ -315,6 +320,7 @@ export class TicketController {
   }
 
   @AuditedOperation({ resource: 'Priority', action: 'CHANGE' })
+  @RequiresCapability('support-ops')
   @Post(':id/priority')
   async changePriority(
     @Param('id') id: string,
@@ -347,6 +353,7 @@ export class TicketController {
   }
 
   @AuditedOperation({ resource: 'Comment', action: 'ADD' })
+  @RequiresCapability('support-ops')
   @Post(':id/comments')
   @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
@@ -389,6 +396,7 @@ export class TicketController {
   }
 
   @AuditedOperation({ resource: 'Reply', action: 'ADD' })
+  @RequiresCapability('support-ops')
   @Post(':id/replies')
   @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
@@ -416,6 +424,7 @@ export class TicketController {
   // ============================================================================
 
   @AuditedOperation({ resource: 'SatisfactionRating', action: 'SUBMIT' })
+  @RequiresCapability('support-ops')
   @Post(':id/satisfaction')
   @PlatformAdminOnly()
   async submitSatisfactionRating(

@@ -1,3 +1,4 @@
+import { RequiresCapability } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -158,6 +159,7 @@ export class HealthController {
    * Reset a circuit breaker (auth required).
    */
   @AuditedOperation({ resource: 'CircuitBreaker', action: 'RESET' })
+  @RequiresCapability('security-ops')
   @Post('circuit-breakers/:name/reset')
   @HttpCode(HttpStatus.OK)
   resetCircuitBreaker(@Param('name') name: string) {

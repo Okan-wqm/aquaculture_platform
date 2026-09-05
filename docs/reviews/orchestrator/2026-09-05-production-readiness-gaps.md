@@ -166,3 +166,39 @@ Recorded in `/root/.claude/plans/planla-once-tek-tek-concurrent-dragon.md`
 criteria as **Faz 2c**; `SENSOR-CRITICAL-106` joins Faz 5; `INFRA-HIGH-151` joins
 Faz 6; `DEPLOY-CRITICAL-017` and claim 6's evidence chain become the
 **production go-live gate**, not Faz 8 ledger work.
+
+## Faz 2c deferred work (registered with owner + deadline)
+
+### SEC-LOW-060 — retire the raw-token resolution branch of ActionTokenResolver
+
+`ActionTokenResolver.resolve()` (apps/auth-service/src/modules/authentication/services/action-token-resolver.service.ts)
+keeps a `raw-token` branch that hashes a 64-hex URL segment and looks it up as a legacy
+`Invitation.token` / `User.passwordResetToken`. After SEC-HIGH-056 nothing mints such a link:
+every delivery carries `actionToken.id`. The branch exists only so links e-mailed BEFORE the
+PR-A deploy (invitations ≤ 7 days, resets ≤ 1 hour) still redeem. Deleting it earlier would
+invalidate every invitation in flight; keeping it re-opens the "raw secret in the URL" surface
+the ActionToken indirection closed.
+
+**Fix:** delete the `raw-token` member of `ActionLinkResolution`, `RAW_TOKEN_PATTERN` and
+`hashRawToken`, and the consumers' `raw-token` arms, once ≥ 7 days have passed after the PR-A
+production deploy; `tests/invariants/action-link-resolver-ssot.spec.ts` then asserts the
+pattern is gone. Owner @okan-wqm, deadline 2026-10-31.
+
+### PLAT-MEDIUM-905 — NATS handlers still hand-roll a tenantId UUID guard
+
+SEC-HIGH-057 introduced `eventTenantScope()` / `requireTenantScope()` in `@platform/event-contracts`
+as the one way a consumer parses an event's tenancy, and rewrote `auth-event.handler.ts` on it.
+Twelve other handlers still declare their own `UUID_REGEX` / `isValidUUID(event.tenantId)` and
+`return` on a miss (acking the message — the PLAT-HIGH-902 shape): notification-service
+`alert-triggered`, `billing-event`, `task-event`, `task-assigned`, `messaging-event`,
+`feeding-daily-summary`, `harvest-regulatory`, `regulatory-report`, `device-token-revocation`;
+ai-service `conversation-privacy-event.handler.ts`; auth-service
+`tenant-subscription-projection.handler.ts`; farm-service `tenant-onboarding.event-handler.ts`;
+backend-common `tenant-schema-cache-invalidation.subscriber.ts`. Each is a latent copy of the
+super-admin drop.
+
+**Fix:** replace every hand-rolled guard with `requireTenantScope(event)` (tenant-only events)
+or `eventTenantScope(event)` (platform-capable), returning a `HandlerOutcome.terminate` on a
+malformed scope once PLAT-HIGH-902 lands. `tests/invariants/event-tenant-scope-ssot.spec.ts`
+carries the allowlist keyed to this finding and fails on staleness. Owner @okan-wqm,
+deadline 2026-11-15.

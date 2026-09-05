@@ -242,6 +242,9 @@ const commonProjectOptions = {
   // resolves the source the same way tsconfig.base paths do at build time.
   moduleNameMapper: {
     '^@platform/outbox$': '<rootDir>/../../platform/libs/outbox/src/index.ts',
+    // outbox aliases the platform routing segment from the event contract
+    // (SEC-HIGH-057), so the specs that load outbox need the contract resolved.
+    '^@platform/event-contracts$': '<rootDir>/../../libs/event-contracts/src/index.ts',
   },
   transform: baseTransform,
 };

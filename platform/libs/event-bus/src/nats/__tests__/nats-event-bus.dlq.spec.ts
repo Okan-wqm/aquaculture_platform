@@ -17,7 +17,6 @@ import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import type { DlqEnvelope } from '../dlq-envelope';
-
 import { NatsEventBus } from '../nats-event-bus';
 
 jest.mock('@aquaculture/backend-common/nats', () => ({
@@ -31,7 +30,7 @@ jest.mock('@nats-io/transport-node', () => {
 });
 
 jest.mock('@nats-io/jetstream', () => {
-  const actual = jest.requireActual('@nats-io/jetstream');
+  const actual = jest.requireActual<typeof import('@nats-io/jetstream')>('@nats-io/jetstream');
   return { ...actual, jetstream: jest.fn(), jetstreamManager: jest.fn() };
 });
 
@@ -184,7 +183,10 @@ describe('NatsEventBus dead-letter chain (Task 1.6)', () => {
   it('NAKs with backoff while under the delivery threshold — no DLQ, no ack', async () => {
     await boot();
     const msg = makeMsg(2);
-    await requireCallback()(msg);
+    // The bus's consume callback is synchronous (`void this.processConsumerMessage`),
+    // so there is nothing to await on the call itself — the macrotask flush below
+    // is what lets the detached handling promise settle.
+    requireCallback()(msg);
     await new Promise((r) => setTimeout(r, 0));
 
     expect(msg.nak).toHaveBeenCalled();
@@ -195,7 +197,10 @@ describe('NatsEventBus dead-letter chain (Task 1.6)', () => {
   it('dead-letters at the threshold: envelope PubAck BEFORE the original ack', async () => {
     await boot();
     const msg = makeMsg(5);
-    await requireCallback()(msg);
+    // The bus's consume callback is synchronous (`void this.processConsumerMessage`),
+    // so there is nothing to await on the call itself — the macrotask flush below
+    // is what lets the detached handling promise settle.
+    requireCallback()(msg);
     await new Promise((r) => setTimeout(r, 0));
 
     expect(jsPublish).toHaveBeenCalledTimes(1);
@@ -228,7 +233,10 @@ describe('NatsEventBus dead-letter chain (Task 1.6)', () => {
     await boot();
     jsPublish.mockRejectedValue(new Error('dlq stream unavailable'));
     const msg = makeMsg(9);
-    await requireCallback()(msg);
+    // The bus's consume callback is synchronous (`void this.processConsumerMessage`),
+    // so there is nothing to await on the call itself — the macrotask flush below
+    // is what lets the detached handling promise settle.
+    requireCallback()(msg);
     await new Promise((r) => setTimeout(r, 0));
 
     expect(msg.ack).not.toHaveBeenCalled();

@@ -110,7 +110,6 @@ describe('compliance-attestation-coverage gate', () => {
     // registry entry with `"severity":"HIGH"` and no severity segment in its
     // ID, so the regex failed a finding the gate had classified correctly.
     // Assert against the registry field the gate actually reads.
-    const bySeverity = new Map(readRegistryEntries().map((e) => [e.id, e]));
     const r = runCoverageCheck({ cutoffIso: '2026-04-15T00:00:00Z' });
     // Severity is registry data, not an ID naming convention. Legacy IDs such
     // as RUST-CVE-001 are valid HIGH findings even though the severity is not

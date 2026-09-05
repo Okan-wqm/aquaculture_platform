@@ -6,9 +6,10 @@ import {
   type TenantSubscriptionChangedEvent,
 } from '@platform/event-contracts';
 
+import { EventDedupService } from '@aquaculture/backend-common/event-dedup';
+
 import { Tenant } from '../../entities/tenant.entity';
 import { TenantSubscriptionProjectionHandler } from '../tenant-subscription-projection.handler';
-import { EventDedupService } from '@aquaculture/backend-common';
 
 /**
  * DATA-LOW-001 — auth.tenants mirrors billing.subscriptions (the SSoT) by

@@ -31,6 +31,16 @@ export type RedisScopedKey =
   | { scope: 'authorization'; key: AuthorizationRedisKey };
 
 /**
+ * One key of a split `mgetScoped` fetch: the fully-resolved Redis key and the
+ * position it occupies in the caller's argument order, so the two client
+ * round trips can be reassembled without re-indexing the input.
+ */
+interface ScopedFetchEntry {
+  readonly position: number;
+  readonly key: string;
+}
+
+/**
  * Redis Service
  * Provides Redis connection and operations for the platform
  */
@@ -272,24 +282,24 @@ return tonumber(ARGV[1])
     if (!this.authClient) {
       return this.client.mget(...keys.map((key) => this.scopedKey(key)));
     }
-    const results: (string | null)[] = new Array(keys.length).fill(null);
-    const primaryIndices: number[] = [];
-    const authIndices: number[] = [];
-    for (let i = 0; i < keys.length; i++) {
-      if (keys[i]!.scope === 'authorization') {
-        authIndices.push(i);
-      } else {
-        primaryIndices.push(i);
-      }
+    // Each entry carries its own resolved key and the caller-visible position it
+    // must land in, so neither the split nor the reassembly indexes back into
+    // `keys` — the reason the previous shape needed non-null assertions.
+    const results: (string | null)[] = Array.from({ length: keys.length }, () => null);
+    const primary: ScopedFetchEntry[] = [];
+    const authorization: ScopedFetchEntry[] = [];
+    for (const [position, key] of keys.entries()) {
+      const bucket = key.scope === 'authorization' ? authorization : primary;
+      bucket.push({ position, key: this.scopedKey(key) });
     }
-    const fetch = async (indices: number[], client: Redis): Promise<void> => {
-      if (indices.length === 0) return;
-      const values = await client.mget(...indices.map((i) => this.scopedKey(keys[i]!)));
-      indices.forEach((idx, position) => {
-        results[idx] = values[position] ?? null;
+    const fetch = async (entries: ScopedFetchEntry[], client: Redis): Promise<void> => {
+      if (entries.length === 0) return;
+      const values = await client.mget(...entries.map((entry) => entry.key));
+      entries.forEach((entry, offset) => {
+        results[entry.position] = values[offset] ?? null;
       });
     };
-    await Promise.all([fetch(primaryIndices, this.client), fetch(authIndices, this.authClient)]);
+    await Promise.all([fetch(primary, this.client), fetch(authorization, this.authClient)]);
     return results;
   }
 

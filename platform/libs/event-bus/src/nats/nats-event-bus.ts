@@ -2,7 +2,6 @@ import * as os from 'os';
 
 import { emitBootInvariantSignal } from '@aquaculture/backend-common/constants';
 import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
-import { validateEventBySubject } from '@platform/event-contracts';
 // NATS v3 (@nats-io/* 3.x). v2 monolithic `nats` package split into
 // transport-node (Node connect), nats-core (connection + Msg primitives),
 // and jetstream (JS client/manager + policy enums). StringCodec/JSONCodec
@@ -36,7 +35,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { EventUpcasterRegistry } from '@platform/event-contracts';
+import { EventUpcasterRegistry, validateEventBySubject } from '@platform/event-contracts';
 
 import {
   IEventBus,
@@ -54,8 +53,8 @@ import {
   assertSubjectMatchesEvent,
 } from '../subjects/tenant-event-subject';
 
-import { DEFAULT_NATS_URL, DEFAULT_NATS_STREAM_NAME } from './event-bus-config.factory';
 import { buildDlqEnvelope } from './dlq-envelope';
+import { DEFAULT_NATS_URL, DEFAULT_NATS_STREAM_NAME } from './event-bus-config.factory';
 import {
   DEFAULT_TELEMETRY_STREAM_NAME,
   buildRoutedSubject,

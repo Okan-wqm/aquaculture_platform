@@ -36,7 +36,7 @@ jest.mock('@nats-io/transport-node', () => {
 });
 
 jest.mock('@nats-io/jetstream', () => {
-  const actual = jest.requireActual('@nats-io/jetstream');
+  const actual = jest.requireActual<typeof import('@nats-io/jetstream')>('@nats-io/jetstream');
   return { ...actual, jetstream: jest.fn(), jetstreamManager: jest.fn() };
 });
 
@@ -56,6 +56,12 @@ function noConnectionStatuses(): AsyncIterable<Status> {
   };
 }
 
+// The two doubles whose recorded calls the assertions read back are typed FROM
+// the real API signatures, so `mock.calls` is checked against what the bus
+// actually passes rather than asserted into shape at each read site.
+type StreamAdd = jest.Mock<ReturnType<StreamAPI['add']>, Parameters<StreamAPI['add']>>;
+type ConsumerAdd = jest.Mock<ReturnType<ConsumerAPI['add']>, Parameters<ConsumerAPI['add']>>;
+
 /**
  * Task 2 (SENSOR-HIGH-092): telemetry/domain stream separation. The two
  * high-rate event types route onto AQUACULTURE_TELEMETRY; everything else
@@ -64,8 +70,8 @@ function noConnectionStatuses(): AsyncIterable<Status> {
  */
 describe('Event route registry + telemetry stream (Task 2)', () => {
   let jsPublish: jest.Mock;
-  let consumersAdd: jest.Mock;
-  let streamsAdd: jest.Mock;
+  let consumersAdd: ConsumerAdd;
+  let streamsAdd: StreamAdd;
   let streamsUpdate: jest.Mock;
   let streamsInfo: jest.Mock;
 
@@ -89,12 +95,13 @@ describe('Event route registry + telemetry stream (Task 2)', () => {
     streamsUpdate = jest.fn().mockResolvedValue(undefined);
     // Main stream already exists (→ update); DLQ + telemetry streams are
     // "not found" on this boot (→ add), which is what the assertions pin.
-    streamsInfo = jest.fn().mockImplementation(async (name: string) => {
-      if (name === 'AQUACULTURE_EVENTS') {
-        return {};
-      }
-      throw new Error('stream not found');
-    });
+    streamsInfo = jest
+      .fn()
+      .mockImplementation((name: string) =>
+        name === 'AQUACULTURE_EVENTS'
+          ? Promise.resolve({})
+          : Promise.reject(new Error('stream not found')),
+      );
 
     // `stub`, not `collaborator`: a NatsConnection stands in for a VALUE here.
     // The bus legitimately READS members this boot path never sets (`info`,
@@ -182,12 +189,10 @@ describe('Event route registry + telemetry stream (Task 2)', () => {
       await boot();
 
       const telemetryAdd = streamsAdd.mock.calls.find(
-        (call) =>
-          typeof call[0] === 'object' &&
-          (call[0] as Record<string, unknown>)['name'] === DEFAULT_TELEMETRY_STREAM_NAME,
+        (call) => call[0]['name'] === DEFAULT_TELEMETRY_STREAM_NAME,
       );
-      expect(telemetryAdd).toBeDefined();
-      const config = telemetryAdd![0] as Record<string, unknown>;
+      if (!telemetryAdd) throw new Error('the telemetry stream was never added');
+      const config = telemetryAdd[0];
       expect(config['subjects']).toEqual(['telemetry.>']);
       expect(config['discard']).toBe('new');
       expect(Number(config['max_bytes'])).toBeGreaterThan(0);
@@ -236,10 +241,10 @@ describe('Event route registry + telemetry stream (Task 2)', () => {
       });
 
       const call = consumersAdd.mock.calls.find(
-        (c) => (c[1] as Record<string, unknown>)['filter_subject'] === 'telemetry.*.SensorReading',
+        (c) => c[1]['filter_subject'] === 'telemetry.*.SensorReading',
       );
-      expect(call).toBeDefined();
-      expect(call![0]).toBe(DEFAULT_TELEMETRY_STREAM_NAME);
+      if (!call) throw new Error('no telemetry consumer was added for SensorReading');
+      expect(call[0]).toBe(DEFAULT_TELEMETRY_STREAM_NAME);
     });
   });
 });

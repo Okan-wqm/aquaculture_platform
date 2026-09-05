@@ -41,7 +41,7 @@ describe('WsTokenRevalidator (SEC-MEDIUM-082 — 2026-08-23 scan №18)', () => 
     let valid = true;
     const revalidator = new WsTokenRevalidator({
       intervalMs: 1000,
-      isStillValid: async () => valid,
+      isStillValid: () => Promise.resolve(valid),
     });
     const disconnect = jest.fn();
     revalidator.register('s1', {
@@ -62,9 +62,7 @@ describe('WsTokenRevalidator (SEC-MEDIUM-082 — 2026-08-23 scan №18)', () => 
   it('a predicate THROW is fail-closed (disconnect)', async () => {
     const revalidator = new WsTokenRevalidator({
       intervalMs: 1000,
-      isStillValid: async () => {
-        throw new Error('redis down');
-      },
+      isStillValid: () => Promise.reject(new Error('redis down')),
     });
     const disconnect = jest.fn();
     revalidator.register('s1', { tenantId: 't1', userId: 'u1', jti: 'jti-1', disconnect });
@@ -76,7 +74,7 @@ describe('WsTokenRevalidator (SEC-MEDIUM-082 — 2026-08-23 scan №18)', () => 
   it('a jti-less credential is refused immediately (never re-checkable)', () => {
     const revalidator = new WsTokenRevalidator({
       intervalMs: 1000,
-      isStillValid: async () => true,
+      isStillValid: () => Promise.resolve(true),
     });
     const disconnect = jest.fn();
     revalidator.register('s1', { tenantId: 't1', userId: 'u1', jti: '  ', disconnect });
@@ -87,9 +85,9 @@ describe('WsTokenRevalidator (SEC-MEDIUM-082 — 2026-08-23 scan №18)', () => 
     let calls = 0;
     const revalidator = new WsTokenRevalidator({
       intervalMs: 1000,
-      isStillValid: async () => {
+      isStillValid: () => {
         calls += 1;
-        return true;
+        return Promise.resolve(true);
       },
     });
     const disconnect = jest.fn();

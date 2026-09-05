@@ -94,7 +94,7 @@ void test('commitHasFindingCloseTrailer reads git commit messages and fails clos
   assert.match(result.reason ?? '', /does not contain a Closes: trailer/);
 });
 
-test('commitMessageClosesFindingExactly binds the id and the anchored review file', () => {
+void test('commitMessageClosesFindingExactly binds the id and the anchored review file', () => {
   const finding = { id: 'INFRA-CRITICAL-009', review_file: 'docs/reviews/data-expert/review.md' };
   assert.equal(
     commitMessageClosesFindingExactly(
@@ -128,7 +128,7 @@ test('commitMessageClosesFindingExactly binds the id and the anchored review fil
   );
 });
 
-test('a closer rejected by an override reopen is refused by admission and skipped by derivation', () => {
+void test('a closer rejected by an override reopen is refused by admission and skipped by derivation', () => {
   const finding = {
     id: 'INFRA-CRITICAL-009',
     review_file: 'docs/reviews/data-expert/review.md',
@@ -153,7 +153,7 @@ test('a closer rejected by an override reopen is refused by admission and skippe
   assert.deepEqual(collectMergedClosures(repo, 'main', [finding]), []);
 });
 
-test('applyClosureRejection moves every closer to rejected_closing_commits and reopens', () => {
+void test('applyClosureRejection moves every closer to rejected_closing_commits and reopens', () => {
   const base = {
     id: 'INFRA-CRITICAL-009',
     severity: 'CRITICAL' as const,
@@ -216,7 +216,7 @@ test('applyClosureRejection moves every closer to rejected_closing_commits and r
   assert.equal(applyClosureRejection(stale, { shas: [closingCommit], reason: 'r' }).ok, false);
 });
 
-test('listMergedClosers returns every unrejected closer on the ref, oldest first', () => {
+void test('listMergedClosers returns every unrejected closer on the ref, oldest first', () => {
   writeFileSync(join(repo, 'again.txt'), 'again\n');
   git(['add', 'again.txt']);
   git([

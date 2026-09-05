@@ -53,7 +53,8 @@ interface Args {
 function parseArgs(argv: string[]): Args {
   const args: Args = { limit: 100, dryRun: false, subjectFilter: 'dlq.>', intervalMs: 50 };
   for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i]!;
+    const arg = argv[i];
+    if (arg === undefined) continue;
     const next = argv[i + 1];
     if (arg === '--limit' && next) {
       args.limit = Number(next);
@@ -67,15 +68,15 @@ function parseArgs(argv: string[]): Args {
       args.intervalMs = Number(next);
       i++;
     } else {
-      console.error(`Unknown argument: ${arg}`);
-      console.error(
-        'Usage: telemetry-dlq-replay [--limit N] [--dry-run] [--subject-filter S] [--interval-ms MS]',
+      process.stderr.write(`Unknown argument: ${arg}\n`);
+      process.stderr.write(
+        'Usage: telemetry-dlq-replay [--limit N] [--dry-run] [--subject-filter S] [--interval-ms MS]\n',
       );
       process.exit(2);
     }
   }
   if (!Number.isInteger(args.limit) || args.limit < 1) {
-    console.error('--limit must be a positive integer');
+    process.stderr.write('--limit must be a positive integer\n');
     process.exit(2);
   }
   return args;
@@ -84,8 +85,8 @@ function parseArgs(argv: string[]): Args {
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const url = process.env['NATS_URL'] ?? 'nats://localhost:4222';
-  console.log(
-    `[dlq-replay] connecting to ${url} (filter=${args.subjectFilter}, limit=${args.limit}${args.dryRun ? ', dry-run' : ''})`,
+  process.stdout.write(
+    `[dlq-replay] connecting to ${url} (filter=${args.subjectFilter}, limit=${args.limit}${args.dryRun ? ', dry-run' : ''})\n`,
   );
 
   const nc = await connect({ servers: url });
@@ -110,15 +111,17 @@ async function main(): Promise<void> {
     try {
       envelope = JSON.parse(msg.string()) as DlqEnvelope;
     } catch (error) {
-      console.error(`[dlq-replay] unparseable envelope on ${msg.subject} — nak: ${String(error)}`);
+      process.stderr.write(
+        `[dlq-replay] unparseable envelope on ${msg.subject} — nak: ${String(error)}\n`,
+      );
       msg.nak();
       failed++;
       continue;
     }
 
     if (!envelope.originalSubject || !envelope.payloadBase64) {
-      console.error(
-        `[dlq-replay] envelope missing originalSubject/payload — ack-discarding ${msg.subject}`,
+      process.stderr.write(
+        `[dlq-replay] envelope missing originalSubject/payload — ack-discarding ${msg.subject}\n`,
       );
       msg.ack();
       skipped++;
@@ -130,8 +133,8 @@ async function main(): Promise<void> {
       `${envelope.originalStream}.${envelope.originalSequence ?? msg.seq}`;
 
     if (args.dryRun) {
-      console.log(
-        `[dlq-replay] (dry-run) would replay ${envelope.originalSubject} msgID=${msgId} failureClass=${envelope.failureClass}`,
+      process.stdout.write(
+        `[dlq-replay] (dry-run) would replay ${envelope.originalSubject} msgID=${msgId} failureClass=${envelope.failureClass}\n`,
       );
       msg.ack();
       replayed++;
@@ -146,13 +149,13 @@ async function main(): Promise<void> {
       });
       msg.ack();
       replayed++;
-      console.log(
-        `[dlq-replay] replayed ${envelope.originalSubject} (seq ${ack.seq}) msgID=${msgId}`,
+      process.stdout.write(
+        `[dlq-replay] replayed ${envelope.originalSubject} (seq ${ack.seq}) msgID=${msgId}\n`,
       );
     } catch (error) {
       // Fail closed: no ack, message stays in the DLQ for the next run.
-      console.error(
-        `[dlq-replay] republish FAILED for ${envelope.originalSubject} — leaving in DLQ: ${String(error)}`,
+      process.stderr.write(
+        `[dlq-replay] republish FAILED for ${envelope.originalSubject} — leaving in DLQ: ${String(error)}\n`,
       );
       msg.nak();
       failed++;
@@ -163,11 +166,15 @@ async function main(): Promise<void> {
     }
   }
 
-  console.log(`[dlq-replay] done: replayed=${replayed} skipped=${skipped} failed=${failed}`);
+  process.stdout.write(
+    `[dlq-replay] done: replayed=${replayed} skipped=${skipped} failed=${failed}\n`,
+  );
   await nc.drain();
 }
 
 main().catch((error) => {
-  console.error(`[dlq-replay] fatal: ${error instanceof Error ? error.stack : String(error)}`);
+  process.stderr.write(
+    `[dlq-replay] fatal: ${error instanceof Error ? error.stack : String(error)}\n`,
+  );
   process.exit(1);
 });

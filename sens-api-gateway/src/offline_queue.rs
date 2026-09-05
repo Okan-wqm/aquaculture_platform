@@ -1702,60 +1702,30 @@ impl Clone for AsyncOfflineQueue {
     }
 }
 
-/// Test-only key-path sandbox shared by every in-crate test that reaches
-/// `derive_db_encryption_key` — the offline queue and, since the SCADA store
-/// derives its keystore-less key through the same device-secret path, the
-/// `ScadaDb` package-lifecycle tests. One owner, so no test module can seed a
-/// second `SUDERRA_DB_KEY_PATH` that races the process-wide `OnceLock` latch.
+/// Test-only seeding for the shared v1 key sandbox.
+///
+/// The sandbox PATH is owned by `db_secret::test_sandbox` — it is the
+/// TEST-BUILD DEFAULT of `db_secret::secret_key_path()`, so a test reaches it
+/// without asking and no module can seed a second path that races the
+/// process-wide `OnceLock` latch in `derive_db_encryption_key`. What remains
+/// here is the one thing a default cannot do: put DETERMINISTIC bytes in the
+/// file, for the tests that assert a stable derived key across opens.
 #[cfg(test)]
 pub(crate) mod test_support {
-    /// Test-wide shared key-path sandbox (Batch 88 / 90 / 96
-    /// architecture). Set ONCE on first backup-test
-    /// invocation; the Batch 96 `OnceLock<String>` cache
-    /// inside `derive_db_encryption_key` then latches the
-    /// derived hex + all subsequent calls return the cached
-    /// value without re-reading the env or filesystem — the
-    /// root-cause architectural fix for the parallel-test
-    /// race that previously required a Mutex guard.
-    ///
-    /// Tests that need the sandbox call `ensure_key_sandbox()`
-    /// which triggers LazyLock init (sets env) + returns.
-    /// Subsequent calls are no-op. First call that reaches
-    /// `derive_db_encryption_key` does the derivation using
-    /// the sandbox path; OnceLock caches; all further tests
-    /// see the cached value regardless of thread interleaving.
-    static TEST_KEY_PATH_INIT: std::sync::LazyLock<std::path::PathBuf> =
-        std::sync::LazyLock::new(|| {
-            let dir = std::env::temp_dir()
-                .join(format!("suderra-offline-queue-test-{}", std::process::id()));
-            std::fs::create_dir_all(&dir).expect("mkdir test key dir");
-            let path = dir.join("db.key");
-            // SAFETY: set_var happens ONCE inside LazyLock::
-            // new (internal synchronization). Correct
-            // memory-ordering visibility is guaranteed by
-            // Batch 96's OnceLock<String> cache in
-            // derive_db_encryption_key — once any thread
-            // latches the derived hex, no thread re-reads
-            // the env regardless of interleaving.
-            unsafe {
-                std::env::set_var("SUDERRA_DB_KEY_PATH", &path);
-            }
-            path
-        });
-
     pub(crate) fn ensure_key_sandbox() {
-        let path = &*TEST_KEY_PATH_INIT;
-        match std::fs::read(path) {
+        let path = crate::db_secret::test_sandbox::path();
+        match std::fs::read(&path) {
             Ok(bytes) if bytes.len() >= crate::db_secret::MIN_SECRET_KEY_LEN => {}
             _ => {
-                std::fs::write(path, vec![0xA5u8; 32]).expect("seed test db key");
+                std::fs::write(&path, vec![0xA5u8; 32]).expect("seed test db key");
             }
         }
-        // SAFETY: tests in this binary mutate process-wide env. Re-setting the
-        // canonical sandbox path on every caller keeps v1 fallback tests from
-        // inheriting a transient path left by another env-mutating test.
+        // SAFETY: tests in this binary mutate process-wide env. Clearing the
+        // override returns the resolver to its test-build default — this same
+        // sandbox — so a transient path left set by a sibling env-mutating test
+        // cannot leak into the v1 fallback tests.
         unsafe {
-            std::env::set_var("SUDERRA_DB_KEY_PATH", path);
+            std::env::remove_var(crate::db_secret::SECRET_KEY_OVERRIDE_ENV);
         }
     }
 }

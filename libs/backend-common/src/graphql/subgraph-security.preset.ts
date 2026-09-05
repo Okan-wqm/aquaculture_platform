@@ -60,28 +60,33 @@ export function subgraphComplexityPlugin(
   logger: { warn: (message: string) => unknown } = consoleSilent,
 ): ApolloServerPlugin {
   return {
-    requestDidStart: async () => ({
-      didResolveOperation: async ({
-        request,
-        document,
-        schema,
-      }: QueryComplexityOperationContext): Promise<void> => {
-        const complexity = getComplexity({
+    // Neither hook awaits anything — the complexity estimate is synchronous — so
+    // both return their promise explicitly instead of being `async` for a
+    // contract they never use (the shape gateway-api's plugin already uses).
+    requestDidStart: () =>
+      Promise.resolve({
+        didResolveOperation: ({
+          request,
+          document,
           schema,
-          operationName: request.operationName ?? undefined,
-          query: document,
-          variables: request.variables ?? undefined,
-          estimators: [fieldExtensionsEstimator(), simpleEstimator({ defaultComplexity: 1 })],
-        });
-        if (complexity > maxComplexity) {
-          logger.warn(`Query complexity ${complexity} exceeds max ${maxComplexity}`);
-          const error = new GraphQLError(
-            `Query too complex: ${complexity}. Maximum allowed: ${maxComplexity}`,
-            { extensions: { code: 'QUERY_COMPLEXITY_EXCEEDED' } },
-          );
-          throw error;
-        }
-      },
-    }),
+        }: QueryComplexityOperationContext): Promise<void> => {
+          const complexity = getComplexity({
+            schema,
+            operationName: request.operationName ?? undefined,
+            query: document,
+            variables: request.variables ?? undefined,
+            estimators: [fieldExtensionsEstimator(), simpleEstimator({ defaultComplexity: 1 })],
+          });
+          if (complexity > maxComplexity) {
+            logger.warn(`Query complexity ${complexity} exceeds max ${maxComplexity}`);
+            const error = new GraphQLError(
+              `Query too complex: ${complexity}. Maximum allowed: ${maxComplexity}`,
+              { extensions: { code: 'QUERY_COMPLEXITY_EXCEEDED' } },
+            );
+            throw error;
+          }
+          return Promise.resolve();
+        },
+      }),
   };
 }

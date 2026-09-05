@@ -78,6 +78,7 @@ import {
   findNonCanonicalFindingEvidence,
   requiresCanonicalFindingEvidence,
 } from './finding-evidence-shape';
+import { loadCanonicalToAliases } from './finding-id-aliases';
 import {
   atomicWriteFileWithRegistryLease,
   atomicWriteRegistryFile,
@@ -89,7 +90,6 @@ import {
   type RegistryLockLease,
   withRegistryFileLock,
 } from './finding-registry-store';
-import { loadCanonicalToAliases } from './finding-id-aliases';
 import {
   closureAdmissible,
   commitHasFindingCloseTrailer,

@@ -66,7 +66,8 @@ export interface JwtPayload {
   type?: string;
   jti?: string;
   iat: number;
-  exp: number;
+  exp: number /** MFA step-up cleared on this session (auth-service claim). */;
+  mfaVerified?: boolean;
 }
 
 // Product language calls this actor "platform admin"; the auth domain
@@ -237,6 +238,10 @@ export class PlatformAdminGuard implements CanActivate {
       if (requestContext) {
         requestContext.userId = payload.sub;
         requestContext.tenantId = payload.tenantId;
+        // ADMIN-CRITICAL-008: the audit writer derives the actor from this
+        // frame; a request body can never name who acted.
+        requestContext.userEmail = payload.email;
+        requestContext.mfaVerified = payload.mfaVerified === true;
       }
 
       // Admin API is a platform-admin boundary. In the current auth model that

@@ -173,17 +173,6 @@ export class ActivityLoggingService implements OnModuleInit {
   }
 
   /**
-   * Log activity immediately (bypass buffer)
-   */
-  async logActivityImmediate(params: LogActivityParams): Promise<ActivityLog> {
-    const log = this.activityRepository.create({
-      ...params,
-      severity: params.severity || this.determineSeverity(params),
-    });
-    return this.activityRepository.save(log);
-  }
-
-  /**
    * Flush the log buffer to database
    */
   private async flushBuffer(): Promise<void> {
@@ -592,7 +581,7 @@ export class ActivityLoggingService implements OnModuleInit {
   async terminateAllUserSessions(
     userId: string,
     reason: 'logout' | 'forced' | 'security',
-    terminatedBy?: string,
+    terminatedBy: string,
   ): Promise<number> {
     const result = await this.sessionRepository.update(
       { userId, isActive: true },

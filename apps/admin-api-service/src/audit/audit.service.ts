@@ -1,30 +1,58 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import {
-  Repository,
-  Between,
-  FindOptionsWhere,
-  MoreThanOrEqual,
-  LessThanOrEqual,
-} from 'typeorm';
+import { Repository, Between, FindOptionsWhere, MoreThanOrEqual, LessThanOrEqual } from 'typeorm';
+
+import { AuditMethod, AuditResult } from '@aquaculture/backend-common/audit';
+import { getRequestContext } from '@aquaculture/backend-common/logging';
 
 import { AuditLog, AuditSeverity } from './audit.entity';
 
-export interface AuditLogInput {
+/**
+ * What a caller may say about an audited action. Deliberately WITHOUT actor,
+ * IP, user agent or channel: those are facts the platform established when it
+ * verified the request (ADMIN-CRITICAL-008), and the writer reads them from
+ * the AsyncLocalStorage request frame the guard populated. A request body
+ * cannot name who acted because no field exists to carry it.
+ */
+export interface AuditEntry {
   action: string;
   entityType: string;
   entityId?: string;
+  /** The tenant acted on (recorded as both tenantId and actedOnTenantId). */
   tenantId?: string;
-  performedBy: string;
-  performedByEmail?: string;
-  ipAddress?: string;
-  userAgent?: string;
   details?: Record<string, unknown>;
   previousValue?: Record<string, unknown>;
   newValue?: Record<string, unknown>;
   severity?: AuditSeverity;
-  requestId?: string;
-  sessionId?: string;
+  /** Outcome; SUCCESS unless the caller records a refusal or failure. */
+  result?: AuditResult;
+  justification?: string;
+  preStateHash?: string;
+  postStateHash?: string;
+  relatedAuditIds?: string[];
+}
+
+/**
+ * The actor of a background continuation that runs OUTSIDE the request that
+ * authorised it (the cron-driven provisioning workflow resumes a run whose
+ * actorUserId was recorded when a verified SUPER_ADMIN started it). The only
+ * legitimate source is a persisted run row; `source` says so on the row.
+ */
+export interface ContinuationActor {
+  userId: string;
+  userEmail?: string;
+  source: 'workflow-run';
+}
+
+/** Thrown when a request-path audit write finds no verified principal in the frame. */
+export class AuditActorMissingError extends Error {
+  constructor(action: string) {
+    super(
+      `Refusing to record audit action ${action}: no verified principal in the request context. ` +
+        'Audit rows name the actor the guard verified, never a caller-supplied string (ADMIN-CRITICAL-008).',
+    );
+    this.name = 'AuditActorMissingError';
+  }
 }
 
 export interface AuditLogFilter {
@@ -81,40 +109,93 @@ export class AuditLogService {
   /**
    * Log an audit event
    */
-  async log(input: AuditLogInput): Promise<AuditLog | null> {
-    try {
-      const auditLog = this.auditLogRepository.create({
-        ...input,
-        severity: input.severity || this.determineSeverity(input.action),
-      });
-
-      const savedLog = await this.auditLogRepository.save(auditLog);
-
-      this.logger.debug(
-        `Audit log created: ${input.action} by ${input.performedBy}`,
-      );
-
-      return savedLog;
-    } catch (error) {
-      // BUG-029 fix: return null instead of an unsaved entity that callers
-      // may mistakenly treat as persisted (e.g., checking .id for existence).
-      // Don't throw - audit logging should not break main operations.
-      this.logger.error(
-        `Failed to create audit log: ${(error as Error).message}`,
-        (error as Error).stack,
-      );
-      return null;
+  /**
+   * Record an audited action performed by the principal the guard verified on
+   * the current request. Fails CLOSED: a missing actor or a failed INSERT
+   * throws, so the operation that could not be audited does not complete.
+   */
+  async record(entry: AuditEntry): Promise<AuditLog> {
+    const ctx = getRequestContext();
+    if (!ctx.userId) {
+      throw new AuditActorMissingError(entry.action);
     }
+    return this.persist(entry, {
+      performedBy: ctx.userId,
+      performedByEmail: ctx.userEmail,
+      ipAddress: ctx.ip,
+      userAgent: ctx.userAgent,
+      correlationId: ctx.correlationId,
+      mfaVerified: ctx.mfaVerified === true,
+      method: AuditMethod.HTTP,
+      actorHomeTenantId: ctx.tenantId ?? null,
+    });
   }
 
   /**
-   * Query audit logs with filtering and pagination
+   * Record an audited action on behalf of a persisted continuation actor
+   * (ADMIN-CRITICAL-008). Only the workflow runner may call this; the
+   * invariant `tests/invariants/admin-audit-actor-authority.spec.ts` keeps the
+   * caller set closed. Fails closed on a failed INSERT like `record`.
    */
-  async query(
-    filter: AuditLogFilter,
-    page = 1,
-    limit = 50,
-  ): Promise<PaginatedAuditLogs> {
+  async recordForActor(actor: ContinuationActor, entry: AuditEntry): Promise<AuditLog> {
+    return this.persist(entry, {
+      performedBy: actor.userId,
+      performedByEmail: actor.userEmail,
+      ipAddress: undefined,
+      userAgent: undefined,
+      correlationId: getRequestContext().correlationId,
+      mfaVerified: false,
+      method: AuditMethod.CRON,
+      actorHomeTenantId: null,
+    });
+  }
+
+  private async persist(
+    entry: AuditEntry,
+    actor: {
+      performedBy: string;
+      performedByEmail: string | undefined;
+      ipAddress: string | undefined;
+      userAgent: string | undefined;
+      correlationId: string | undefined;
+      mfaVerified: boolean;
+      method: AuditMethod;
+      actorHomeTenantId: string | null;
+    },
+  ): Promise<AuditLog> {
+    const auditLog = this.auditLogRepository.create({
+      action: entry.action,
+      entityType: entry.entityType,
+      entityId: entry.entityId,
+      tenantId: entry.tenantId,
+      details: entry.details,
+      previousValue: entry.previousValue,
+      newValue: entry.newValue,
+      severity: entry.severity || this.determineSeverity(entry.action),
+      performedBy: actor.performedBy,
+      performedByEmail: actor.performedByEmail,
+      ipAddress: actor.ipAddress,
+      userAgent: actor.userAgent,
+      // AUDITTRAIL-CRITICAL-004 mandatory shape (ADR-0008)
+      actorHomeTenantId: actor.actorHomeTenantId,
+      actedOnTenantId: entry.tenantId ?? null,
+      method: actor.method,
+      mfaVerified: actor.mfaVerified,
+      result: entry.result ?? AuditResult.SUCCESS,
+      justification: entry.justification ?? null,
+      preStateHash: entry.preStateHash ?? null,
+      postStateHash: entry.postStateHash ?? null,
+      relatedAuditIds: entry.relatedAuditIds ?? null,
+      correlationId: actor.correlationId ?? null,
+    });
+    // No try/catch: an audit row that cannot be written is a failed
+    // operation, not a log line (ADMIN-CRITICAL-008).
+    const saved = await this.auditLogRepository.save(auditLog);
+    this.logger.debug(`Audit log created: ${entry.action} by ${actor.performedBy}`);
+    return saved;
+  }
+
+  async query(filter: AuditLogFilter, page = 1, limit = 50): Promise<PaginatedAuditLogs> {
     try {
       const skip = (page - 1) * limit;
       const take = Math.min(limit, 100);
@@ -214,11 +295,7 @@ export class AuditLogService {
   /**
    * Get audit logs for a specific entity
    */
-  async getEntityHistory(
-    entityType: string,
-    entityId: string,
-    limit = 100,
-  ): Promise<AuditLog[]> {
+  async getEntityHistory(entityType: string, entityId: string, limit = 100): Promise<AuditLog[]> {
     return this.auditLogRepository.find({
       where: { entityType, entityId },
       order: { createdAt: 'DESC' },
@@ -280,10 +357,7 @@ export class AuditLogService {
    * "tenantId accidentally undefined" footgun, pass `null` or `undefined`
    * deliberately — the meta-audit entry records the absence.
    */
-  async getSecurityLogs(
-    tenantId?: string,
-    limit = 100,
-  ): Promise<AuditLog[]> {
+  async getSecurityLogs(tenantId?: string, limit = 100): Promise<AuditLog[]> {
     const securityActions = [
       'LOGIN_SUCCESS',
       'LOGIN_FAILED',

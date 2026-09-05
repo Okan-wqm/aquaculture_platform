@@ -386,18 +386,22 @@ export class TenantProvisioningWorkflowService {
       });
 
       await this.runStep(run.id, leaseToken, 'audit_create_requested', async () => {
-        await this.auditLogService.log({
-          action: 'TENANT_CREATE_REQUESTED',
-          entityType: 'tenant',
-          entityId: tenant.id,
-          performedBy: run.actorUserId,
-          details: {
-            operationId: run.id,
-            name: tenant.name,
-            slug: tenant.slug,
-            moduleIds: payload.moduleIds,
+        // The runner is a cron continuation of a request a verified SUPER_ADMIN
+        // made; the actor is the persisted run row (ADMIN-CRITICAL-008).
+        await this.auditLogService.recordForActor(
+          { userId: run.actorUserId, source: 'workflow-run' },
+          {
+            action: 'TENANT_CREATE_REQUESTED',
+            entityType: 'tenant',
+            entityId: tenant.id,
+            details: {
+              operationId: run.id,
+              name: tenant.name,
+              slug: tenant.slug,
+              moduleIds: payload.moduleIds,
+            },
           },
-        });
+        );
       });
 
       await this.runStep(run.id, leaseToken, 'assign_modules', async () => {
@@ -454,17 +458,21 @@ export class TenantProvisioningWorkflowService {
       });
 
       await this.runStep(run.id, leaseToken, 'audit_provisioned', async () => {
-        await this.auditLogService.log({
-          action: 'TENANT_PROVISIONED',
-          entityType: 'tenant',
-          entityId: tenant.id,
-          performedBy: run.actorUserId,
-          details: {
-            operationId: run.id,
-            moduleIds: payload.moduleIds,
-            tenantStatus: TenantStatus.ACTIVE,
+        // The runner is a cron continuation of a request a verified SUPER_ADMIN
+        // made; the actor is the persisted run row (ADMIN-CRITICAL-008).
+        await this.auditLogService.recordForActor(
+          { userId: run.actorUserId, source: 'workflow-run' },
+          {
+            action: 'TENANT_PROVISIONED',
+            entityType: 'tenant',
+            entityId: tenant.id,
+            details: {
+              operationId: run.id,
+              moduleIds: payload.moduleIds,
+              tenantStatus: TenantStatus.ACTIVE,
+            },
           },
-        });
+        );
       });
 
       await this.runStep(run.id, leaseToken, 'publish_onboarding_requested', async () => {

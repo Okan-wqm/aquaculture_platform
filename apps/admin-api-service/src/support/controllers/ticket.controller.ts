@@ -39,13 +39,6 @@ class CreateTicketDto {
   tenantName?: string;
 
   @IsString()
-  createdByName!: string;
-
-  @IsOptional()
-  @IsString()
-  createdByEmail?: string;
-
-  @IsString()
   subject!: string;
 
   @IsString()
@@ -122,19 +115,11 @@ class AddCommentDto {
 class ChangeStatusDto {
   @IsString()
   status!: TicketStatus;
-
-  @IsOptional()
-  @IsString()
-  changedByName?: string;
 }
 
 class ChangePriorityDto {
   @IsString()
   priority!: TicketPriority;
-
-  @IsOptional()
-  @IsString()
-  changedByName?: string;
 }
 
 class SatisfactionRatingDto {
@@ -258,17 +243,19 @@ export class TicketController {
   @Post()
   @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
-  async createTicket(@Body() dto: CreateTicketDto) {
-    if (!dto.tenantId || !dto.subject || !dto.description || !dto.createdByName) {
-      throw new BadRequestException('tenantId, subject, description, and createdByName are required');
+  async createTicket(@Body() dto: CreateTicketDto, @CurrentUser() user: CurrentUserData) {
+    if (!dto.tenantId || !dto.subject || !dto.description) {
+      throw new BadRequestException('tenantId, subject, and description are required');
     }
 
+    // ADMIN-CRITICAL-008: the creator is the verified platform admin, not a
+    // name the request body offers.
     return this.ticketService.createTicket({
       tenantId: dto.tenantId,
       tenantName: dto.tenantName,
-      createdBy: 'tenant-user-id', // In production, would come from auth context
-      createdByName: dto.createdByName,
-      createdByEmail: dto.createdByEmail,
+      createdBy: user.id,
+      createdByName: user.email,
+      createdByEmail: user.email,
       subject: dto.subject,
       description: dto.description,
       category: dto.category,
@@ -319,12 +306,7 @@ export class TicketController {
       throw new BadRequestException('status is required');
     }
 
-    return this.ticketService.changeStatus(
-      id,
-      dto.status,
-      user.id,
-      dto.changedByName || user.email,
-    );
+    return this.ticketService.changeStatus(id, dto.status, user.id, user.email);
   }
 
   @Post(':id/priority')
@@ -337,12 +319,7 @@ export class TicketController {
       throw new BadRequestException('priority is required');
     }
 
-    return this.ticketService.changePriority(
-      id,
-      dto.priority,
-      user.id,
-      dto.changedByName || user.email,
-    );
+    return this.ticketService.changePriority(id, dto.priority, user.id, user.email);
   }
 
   // ============================================================================

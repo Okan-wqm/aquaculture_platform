@@ -27,10 +27,9 @@ import { Type, Transform } from 'class-transformer';
 import { IsOptional, IsNumber, IsString, IsIn, IsObject, Matches } from 'class-validator';
 import { Response, Request } from 'express';
 import { DataSource } from 'typeorm';
-import type { AuditLogInput } from '../../audit/audit.service';
+import type { AuditEntry } from '../../audit/audit.service';
 import { AuditLogService } from '../../audit/audit.service';
 import { AuditSeverity } from '../../audit/audit.entity';
-import { getAuthUser } from '../../shared/authenticated-request';
 
 import { ThrottleSensitive, ThrottleExport } from '@aquaculture/backend-common/security';
 import { MODULE_SCHEMAS, DEFAULT_TENANT_MODULES } from '@aquaculture/backend-common/database';
@@ -321,28 +320,28 @@ export class DatabaseExplorerController {
     }
   }
 
-  private async requireAuditLog(input: AuditLogInput): Promise<void> {
-    const auditLog = await this.auditLogService.log(input);
-    if (!auditLog) {
+  private async requireAuditLog(entry: AuditEntry): Promise<void> {
+    // The writer fails closed (ADMIN-CRITICAL-008); a refused audit row is a
+    // refused explorer operation, surfaced as 403 rather than a bare 500.
+    try {
+      await this.auditLogService.record(entry);
+    } catch (error) {
+      this.logger.error(
+        `Database explorer operation refused: audit row could not be written (${(error as Error).message})`,
+      );
       throw new ForbiddenException('Database explorer operation could not be audited');
     }
   }
 
   private async auditExplorerWriteIntent(
-    req: Request,
     operation: ExplorerWriteOperation,
     schema: string,
     table: string,
     details: Record<string, unknown>,
   ): Promise<void> {
-    const user = getAuthUser(req);
     await this.requireAuditLog({
       action: `DATABASE_EXPLORER_${operation.toUpperCase()}_INTENT`,
       entityType: 'DatabaseTable',
-      performedBy: user?.id || 'SUPER_ADMIN',
-      performedByEmail: user?.email,
-      ipAddress: req.ip,
-      userAgent: req.get('user-agent'),
       severity: AuditSeverity.CRITICAL,
       details: {
         schema,
@@ -518,7 +517,6 @@ export class DatabaseExplorerController {
       await this.requireAuditLog({
         action: 'DATABASE_EXPLORER_READ',
         entityType: 'DatabaseTable',
-        performedBy: 'SUPER_ADMIN',
         details: { schema, table, page, limit, rowsReturned: rows.length },
       });
 
@@ -597,7 +595,6 @@ export class DatabaseExplorerController {
       await this.requireAuditLog({
         action: 'DATABASE_EXPLORER_EXPORT',
         entityType: 'DatabaseTable',
-        performedBy: 'SUPER_ADMIN',
         severity: AuditSeverity.WARNING,
         details: { schema, table, format, rowsExported: rows.length },
       });
@@ -695,7 +692,7 @@ export class DatabaseExplorerController {
       }
     }
 
-    await this.auditExplorerWriteIntent(req, 'insert', schema, table, { columns });
+    await this.auditExplorerWriteIntent('insert', schema, table, { columns });
 
     // WHY: Write operations must use a write-capable runner, not the read-only runner.
     // Previously createReadOnlyQueryRunner() set SET TRANSACTION READ ONLY,
@@ -762,7 +759,7 @@ export class DatabaseExplorerController {
         throw new BadRequestException('Table has no primary key');
       }
 
-      await this.auditExplorerWriteIntent(req, 'update', schema, table, {
+      await this.auditExplorerWriteIntent('update', schema, table, {
         rowId: id,
         primaryKeyColumn: pkColumn,
         columns,
@@ -816,7 +813,7 @@ export class DatabaseExplorerController {
         throw new BadRequestException('Table has no primary key');
       }
 
-      await this.auditExplorerWriteIntent(req, 'delete', schema, table, {
+      await this.auditExplorerWriteIntent('delete', schema, table, {
         rowId: id,
         primaryKeyColumn: pkColumn,
       });
@@ -1051,7 +1048,6 @@ export class DatabaseExplorerController {
       await this.requireAuditLog({
         action: 'DATABASE_EXPLORER_RAW_SQL',
         entityType: 'DatabaseQuery',
-        performedBy: 'SUPER_ADMIN',
         severity: AuditSeverity.WARNING,
         details: {
           sql: sql.substring(0, 2000),

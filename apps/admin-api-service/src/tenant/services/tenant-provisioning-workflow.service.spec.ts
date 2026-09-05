@@ -411,7 +411,10 @@ describe('TenantProvisioningWorkflowService — ledger vs physical reality (ORPH
           },
         },
         { provide: OutboxPublisher, useValue: { enqueue: jest.fn().mockResolvedValue(undefined) } },
-        { provide: AuditLogService, useValue: { log: jest.fn().mockResolvedValue(undefined) } },
+        {
+          provide: AuditLogService,
+          useValue: { recordForActor: jest.fn().mockResolvedValue(undefined) },
+        },
         {
           provide: TenantProvisioningService,
           useValue: { provisionTenant: jest.fn().mockResolvedValue({ success: true }) },

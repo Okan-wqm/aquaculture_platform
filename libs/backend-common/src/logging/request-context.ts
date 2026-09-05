@@ -14,6 +14,15 @@ export interface RequestContext {
   tenantId?: string;
   /** Authenticated user ID (JWT sub claim) */
   userId?: string;
+  /**
+   * ADMIN-CRITICAL-008: the verified principal's email and MFA state, set by
+   * the guard that verified the JWT — never by a request body. Audit writers
+   * that derive the actor from this frame cannot be handed a client string.
+   */
+  userEmail?: string;
+  mfaVerified?: boolean;
+  /** Client User-Agent as received at the ingress. */
+  userAgent?: string;
   /** OpenTelemetry span ID (16-char hex) */
   spanId?: string;
   /** HTTP method of the incoming request */

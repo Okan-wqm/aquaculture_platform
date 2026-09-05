@@ -70,7 +70,7 @@ function createLegalHoldService(): TenantErasureLegalHoldService {
 
 function createAuditLogService(): TenantErasureAuditLogger {
   return {
-    log: jest.fn().mockResolvedValue(undefined),
+    record: jest.fn().mockResolvedValue(undefined),
   };
 }
 

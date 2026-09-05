@@ -54,7 +54,6 @@ export interface CreateLegalHoldInput {
   reason: string;
   legalMatterId: string;
   legalMatterDescription?: string;
-  requestedBy?: string;
   expiresAt?: string;
 }
 

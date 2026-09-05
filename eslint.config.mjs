@@ -476,6 +476,19 @@ export default [
     rules: { 'aquaculture/no-unsandboxed-html-frame': 'error' },
   },
 
+  // ── override 8b: no-actor-in-input-dto (admin-api, NON-project only) ──
+  // 'error' from the first commit: every existing violation (terminatedBy,
+  // requestedBy, createdBy*/changedBy* on ticket and messaging bodies, the
+  // client-writable activity-log POST) was removed in the same change. A
+  // validated request body must not claim who acted; the audit writer reads
+  // the guard-verified principal from the request frame. ADMIN-CRITICAL-008.
+  {
+    files: ['apps/admin-api-service/src/**/*.ts'],
+    ignores: [...PROJECT_GLOBS, 'apps/**/*.spec.ts', 'apps/**/*.test.ts', 'apps/**/__tests__/**'],
+    plugins: { aquaculture },
+    rules: { 'aquaculture/no-actor-in-input-dto': 'error' },
+  },
+
   // ── override 9: no-direct-event-publish (NON-project only) ──
   {
     files: ['apps/**/src/**/*.ts', 'libs/**/src/**/*.ts', 'platform/libs/**/src/**/*.ts'],

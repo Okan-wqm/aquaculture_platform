@@ -35,7 +35,7 @@ describe('DatabaseExplorerController Security', () => {
   };
 
   const mockAuditLogService = {
-    log: jest.fn().mockResolvedValue({ id: 'audit-log-id' }),
+    record: jest.fn().mockResolvedValue({ id: 'audit-log-id' }),
   };
 
   // Mock the guard to always allow (we're testing controller logic, not auth)
@@ -73,7 +73,7 @@ describe('DatabaseExplorerController Security', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockQueryRunner.query.mockResolvedValue([]);
-    mockAuditLogService.log.mockResolvedValue({ id: 'audit-log-id' });
+    mockAuditLogService.record.mockResolvedValue({ id: 'audit-log-id' });
     // Reset NODE_ENV for each test
     process.env['NODE_ENV'] = 'development';
     process.env['ENABLE_RAW_SQL_EXPLORER'] = 'true';

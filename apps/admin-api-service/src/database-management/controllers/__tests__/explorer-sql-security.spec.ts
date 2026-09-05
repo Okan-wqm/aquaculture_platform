@@ -36,7 +36,7 @@ describe('Explorer SQL Security', () => {
   };
 
   const mockAuditLogService = {
-    log: jest.fn().mockResolvedValue({ id: 'audit-log-id' }),
+    record: jest.fn().mockResolvedValue({ id: 'audit-log-id' }),
   };
 
   const mockGuard = { canActivate: jest.fn().mockReturnValue(true) };
@@ -72,7 +72,7 @@ describe('Explorer SQL Security', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockQueryRunner.query.mockResolvedValue([]);
-    mockAuditLogService.log.mockResolvedValue({ id: 'audit-log-id' });
+    mockAuditLogService.record.mockResolvedValue({ id: 'audit-log-id' });
     process.env['NODE_ENV'] = 'development';
     process.env['ENABLE_RAW_SQL_EXPLORER'] = 'true';
   });

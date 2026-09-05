@@ -43248,6 +43248,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/admin-audit-actor-authority.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/admin-billing-runtime-contract.spec.ts",
       "prettier_managed": true
     },
@@ -45161,6 +45167,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/eslint-rules/dist/rules/no-actor-in-input-dto.d.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/eslint-rules/dist/rules/no-actor-in-input-dto.js",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/eslint-rules/dist/rules/no-bare-graphql-query-string.d.ts",
       "prettier_managed": true
     },
@@ -45270,6 +45288,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/eslint-rules/README.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/eslint-rules/rules/no-actor-in-input-dto.ts",
       "prettier_managed": true
     },
     {

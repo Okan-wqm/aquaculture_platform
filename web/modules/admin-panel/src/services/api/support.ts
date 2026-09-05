@@ -33,7 +33,7 @@ export const supportApi = {
     apiFetch<PaginatedResult<SupportTicket>>(`/support/tickets?${buildQueryString(params || {})}`),
   getTicket: (id: string) => apiFetch<SupportTicket>(`/support/tickets/${id}`),
   getTicketReplies: (ticketId: string) => apiFetch<TicketReply[]>(`/support/tickets/${ticketId}/replies`),
-  createTicket: (data: { subject: string; description: string; category: TicketCategory; priority: TicketPriority; tenantId: string; createdBy: string }) =>
+  createTicket: (data: { subject: string; description: string; category: TicketCategory; priority: TicketPriority; tenantId: string }) =>
     apiFetch<SupportTicket>('/support/tickets', { method: 'POST', body: JSON.stringify(data) }),
   // Fix: backend uses PUT (not PATCH)
   updateTicket: (id: string, data: Partial<{ status: TicketStatus; priority: TicketPriority; assignedTo: string; tags: string[] }>) =>
@@ -63,10 +63,10 @@ export const supportApi = {
   getTicketComments: (ticketId: string) => apiFetch<Array<{ id: string; ticketId: string; authorId: string; authorName: string; authorType: string; content: string; isInternal: boolean; attachments: unknown[]; createdAt: string }>>(`/support/tickets/${ticketId}/comments`),
   addTicketComment: (ticketId: string, data: { content: string; isInternal?: boolean }) =>
     apiFetch<unknown>(`/support/tickets/${ticketId}/comments`, { method: 'POST', body: JSON.stringify(data) }),
-  updateTicketStatus: (ticketId: string, status: string, changedByName?: string) =>
-    apiFetch<unknown>(`/support/tickets/${ticketId}/status`, { method: 'POST', body: JSON.stringify({ status, changedByName }) }),
-  updateTicketPriority: (ticketId: string, priority: string, changedByName?: string) =>
-    apiFetch<unknown>(`/support/tickets/${ticketId}/priority`, { method: 'POST', body: JSON.stringify({ priority, changedByName }) }),
+  updateTicketStatus: (ticketId: string, status: string) =>
+    apiFetch<unknown>(`/support/tickets/${ticketId}/status`, { method: 'POST', body: JSON.stringify({ status }) }),
+  updateTicketPriority: (ticketId: string, priority: string) =>
+    apiFetch<unknown>(`/support/tickets/${ticketId}/priority`, { method: 'POST', body: JSON.stringify({ priority }) }),
 
   // Messaging - Backend: /support/messages
   getMessageThreads: (params?: { tenantId?: string; status?: string } & PaginationParams) =>

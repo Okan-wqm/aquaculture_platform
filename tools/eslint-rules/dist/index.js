@@ -1,4 +1,4 @@
-"use strict";
+'use strict';
 /**
  * @aquaculture/eslint-rules — custom lint rules
  *
@@ -14,27 +14,35 @@
  *
  * See `/root/.claude/plans/declarative-riding-shamir.md` BLOCKER-20.
  */
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
+var __importDefault =
+  (this && this.__importDefault) ||
+  function (mod) {
+    return mod && mod.__esModule ? mod : { default: mod };
+  };
+Object.defineProperty(exports, '__esModule', { value: true });
 exports.rules = void 0;
-const no_bare_graphql_query_string_1 = __importDefault(require("./rules/no-bare-graphql-query-string"));
-const no_bare_tenant_query_key_1 = __importDefault(require("./rules/no-bare-tenant-query-key"));
-const no_claude_sdk_raw_call_1 = __importDefault(require("./rules/no-claude-sdk-raw-call"));
-const no_direct_event_publish_1 = __importDefault(require("./rules/no-direct-event-publish"));
-const no_high_cardinality_metric_label_1 = __importDefault(require("./rules/no-high-cardinality-metric-label"));
-const no_unpinned_ssrf_fetch_1 = __importDefault(require("./rules/no-unpinned-ssrf-fetch"));
-const no_unsandboxed_html_frame_1 = __importDefault(require("./rules/no-unsandboxed-html-frame"));
-const require_entity_schema_1 = __importDefault(require("./rules/require-entity-schema"));
+const no_actor_in_input_dto_1 = __importDefault(require('./rules/no-actor-in-input-dto'));
+const no_bare_graphql_query_string_1 = __importDefault(
+  require('./rules/no-bare-graphql-query-string'),
+);
+const no_bare_tenant_query_key_1 = __importDefault(require('./rules/no-bare-tenant-query-key'));
+const no_claude_sdk_raw_call_1 = __importDefault(require('./rules/no-claude-sdk-raw-call'));
+const no_direct_event_publish_1 = __importDefault(require('./rules/no-direct-event-publish'));
+const no_high_cardinality_metric_label_1 = __importDefault(
+  require('./rules/no-high-cardinality-metric-label'),
+);
+const no_unpinned_ssrf_fetch_1 = __importDefault(require('./rules/no-unpinned-ssrf-fetch'));
+const no_unsandboxed_html_frame_1 = __importDefault(require('./rules/no-unsandboxed-html-frame'));
+const require_entity_schema_1 = __importDefault(require('./rules/require-entity-schema'));
 exports.rules = {
-    'require-entity-schema': require_entity_schema_1.default,
-    'no-bare-tenant-query-key': no_bare_tenant_query_key_1.default,
-    'no-direct-event-publish': no_direct_event_publish_1.default,
-    'no-high-cardinality-metric-label': no_high_cardinality_metric_label_1.default,
-    'no-claude-sdk-raw-call': no_claude_sdk_raw_call_1.default,
-    'no-bare-graphql-query-string': no_bare_graphql_query_string_1.default,
-    'no-unpinned-ssrf-fetch': no_unpinned_ssrf_fetch_1.default,
-    'no-unsandboxed-html-frame': no_unsandboxed_html_frame_1.default,
+  'require-entity-schema': require_entity_schema_1.default,
+  'no-bare-tenant-query-key': no_bare_tenant_query_key_1.default,
+  'no-direct-event-publish': no_direct_event_publish_1.default,
+  'no-high-cardinality-metric-label': no_high_cardinality_metric_label_1.default,
+  'no-claude-sdk-raw-call': no_claude_sdk_raw_call_1.default,
+  'no-bare-graphql-query-string': no_bare_graphql_query_string_1.default,
+  'no-unpinned-ssrf-fetch': no_unpinned_ssrf_fetch_1.default,
+  'no-unsandboxed-html-frame': no_unsandboxed_html_frame_1.default,
+  'no-actor-in-input-dto': no_actor_in_input_dto_1.default,
 };
 //# sourceMappingURL=index.js.map

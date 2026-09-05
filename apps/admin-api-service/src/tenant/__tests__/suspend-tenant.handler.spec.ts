@@ -107,7 +107,7 @@ describe('Tenant lifecycle handlers — MT-HIGH-003 transition legality + DB-ADM
         { provide: getRepositoryToken(Tenant), useValue: tenantRepository },
         { provide: getDataSourceToken(), useValue: dataSource },
         { provide: OutboxPublisher, useValue: outboxPublisher },
-        { provide: AuditLogService, useValue: { log: jest.fn().mockResolvedValue(undefined) } },
+        { provide: AuditLogService, useValue: { record: jest.fn().mockResolvedValue(undefined) } },
         { provide: AuthTenantProvisioningClientService, useValue: client },
       ],
     }).compile();

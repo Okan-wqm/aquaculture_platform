@@ -44,7 +44,7 @@ import { TenantAdminController } from '../tenant.controller';
 
 // Mock services
 const mockAuditLogService = {
-  log: jest.fn(),
+  record: jest.fn(),
   logTenantAction: jest.fn(),
 };
 
@@ -411,7 +411,7 @@ describe('Tenant Integration Tests', () => {
         expect(mockAuthProvisioningClient.activateTenant).toHaveBeenCalledTimes(1);
         expect(mockAuthProvisioningClient.deprovisionTenant).toHaveBeenCalledTimes(1);
         expect(mockAuthProvisioningClient.archiveTenant).toHaveBeenCalledTimes(1);
-        expect(mockAuditLogService.log).toHaveBeenCalledTimes(4);
+        expect(mockAuditLogService.record).toHaveBeenCalledTimes(4);
         expect(queryRunner.commitTransaction).toHaveBeenCalledTimes(4);
         // Single-writer: admin-api never writes auth.tenants (the owner does).
         expect(queryRunner.manager.save).not.toHaveBeenCalled();

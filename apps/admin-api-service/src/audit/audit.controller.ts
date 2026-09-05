@@ -3,14 +3,10 @@ import {
   Get,
   Query,
   Param,
-  Req,
   ParseUUIDPipe,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { Request } from 'express';
-
 import { PaginationQueryDto } from '../shared/pagination-query.dto';
-import { getAuthUser } from '../shared/authenticated-request';
 
 import { AuditLog, AuditSeverity } from './audit.entity';
 import { AuditLogService, AuditLogFilter } from './audit.service';
@@ -25,23 +21,19 @@ export class AuditLogController {
    * An admin reading sensitive audit entries must leave a trace. Without
    * this, an insider could read audit data without detection.
    */
-  private writeMetaAudit(req: Request, action: string, details: Record<string, unknown>): void {
-    const user = getAuthUser(req);
-    this.auditLogService.log({
+  private async writeMetaAudit(action: string, details: Record<string, unknown>): Promise<void> {
+    // Awaited and fail-closed (ADMIN-CRITICAL-008): an audit read whose own
+    // trace cannot be written does not return the data. The actor is the
+    // guard-verified principal in the request frame, never a caller string.
+    await this.auditLogService.record({
       action: 'AUDIT_LOG_ACCESSED',
       entityType: 'AuditLog',
-      performedBy: user?.id || 'unknown',
-      ipAddress: (req.ip || req.socket?.remoteAddress) ?? undefined,
-      userAgent: req.headers['user-agent'],
       details: { subAction: action, ...details },
-    }).catch(() => {
-      // Meta-audit failure must not block the primary audit read
     });
   }
 
   @Get()
   async queryAuditLogs(
-    @Req() req: Request,
     @Query('action') action?: string,
     @Query('entityType') entityType?: string,
     @Query('entityId') entityId?: string,
@@ -66,7 +58,7 @@ export class AuditLogController {
     };
 
     // ADMIN-MEDIUM-003: meta-audit -- record that audit logs were queried
-    this.writeMetaAudit(req, 'QUERY', { filter: { action, entityType, tenantId, severity } });
+    await this.writeMetaAudit('QUERY', { filter: { action, entityType, tenantId, severity } });
 
     return this.auditLogService.query(
       filter,
@@ -77,13 +69,12 @@ export class AuditLogController {
 
   @Get('entity/:entityType/:entityId')
   async getEntityHistory(
-    @Req() req: Request,
     @Param('entityType') entityType: string,
     @Param('entityId', ParseUUIDPipe) entityId: string,
     @Query('limit') limit?: string,
   ): Promise<AuditLog[]> {
     // ADMIN-MEDIUM-003: meta-audit
-    this.writeMetaAudit(req, 'ENTITY_HISTORY', { entityType, entityId });
+    await this.writeMetaAudit('ENTITY_HISTORY', { entityType, entityId });
     return this.auditLogService.getEntityHistory(
       entityType,
       entityId,
@@ -93,14 +84,13 @@ export class AuditLogController {
 
   @Get('user/:userId')
   async getUserActivity(
-    @Req() req: Request,
     @Param('userId') userId: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('limit') limit?: string,
   ): Promise<AuditLog[]> {
     // ADMIN-MEDIUM-003: meta-audit
-    this.writeMetaAudit(req, 'USER_ACTIVITY', { targetUserId: userId });
+    await this.writeMetaAudit('USER_ACTIVITY', { targetUserId: userId });
     return this.auditLogService.getUserActivity(
       userId,
       startDate ? new Date(startDate) : undefined,
@@ -111,12 +101,11 @@ export class AuditLogController {
 
   @Get('security')
   async getSecurityLogs(
-    @Req() req: Request,
     @Query('tenantId') tenantId?: string,
     @Query('limit') limit?: string,
   ): Promise<AuditLog[]> {
     // ADMIN-MEDIUM-003: meta-audit -- security log access is especially sensitive
-    this.writeMetaAudit(req, 'SECURITY_LOGS', { tenantId });
+    await this.writeMetaAudit('SECURITY_LOGS', { tenantId });
     return this.auditLogService.getSecurityLogs(
       tenantId,
       limit ? parseInt(limit, 10) : 100,

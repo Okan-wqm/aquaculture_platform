@@ -14,7 +14,6 @@ import {
   Param,
   Body,
   Res,
-  Req,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
@@ -31,11 +30,10 @@ import {
   Min,
   Max,
 } from 'class-validator';
-import { Request, Response } from 'express';
+import { Response } from 'express';
 
 import { AuditLog, AuditSeverity as ImmutableAuditSeverity } from '../../audit/audit.entity';
 import { AuditLogFilter, AuditLogService, PaginatedAuditLogs } from '../../audit/audit.service';
-import { getAuthUser } from '../../shared/authenticated-request';
 import { listRetentionPolicies } from '@aquaculture/backend-common/database';
 
 import { ActivityCategory, ActivitySeverity } from '../entities/security.entity';
@@ -273,35 +271,23 @@ export class AuditTrailController {
     private readonly auditLogService: AuditLogService,
   ) {}
 
-  private writeMetaAudit(req: Request, action: string, details: Record<string, unknown>): void {
-    const user = getAuthUser(req);
-    const userAgentHeader = req.headers['user-agent'];
-    const userAgent = Array.isArray(userAgentHeader) ? userAgentHeader.join(',') : userAgentHeader;
-
-    void this.auditLogService
-      .log({
-        action: 'AUDIT_LOG_ACCESSED',
-        entityType: 'AuditLog',
-        performedBy: user?.id ?? 'unknown',
-        performedByEmail: user?.email,
-        ipAddress: (req.ip || req.socket?.remoteAddress) ?? undefined,
-        userAgent,
-        details: { subAction: action, ...details },
-        severity: ImmutableAuditSeverity.INFO,
-      })
-      .catch(() => {
-        // Meta-audit failure must not block the primary immutable audit read.
-      });
+  private async writeMetaAudit(action: string, details: Record<string, unknown>): Promise<void> {
+    // Awaited and fail-closed (ADMIN-CRITICAL-008): reading the security
+    // ledger leaves a trace or does not happen. The actor is the guard-
+    // verified principal in the request frame, never a caller string.
+    await this.auditLogService.record({
+      action: 'AUDIT_LOG_ACCESSED',
+      entityType: 'AuditLog',
+      details: { subAction: action, ...details },
+      severity: ImmutableAuditSeverity.INFO,
+    });
   }
 
   /**
    * Query audit trail
    */
   @Get()
-  async queryAuditTrail(
-    @Req() req: Request,
-    @Query() query: QueryAuditTrailDto,
-  ): Promise<PaginatedAuditLogs> {
+  async queryAuditTrail(@Query() query: QueryAuditTrailDto): Promise<PaginatedAuditLogs> {
     const action = query.action ?? query.actions?.split(',')[0];
     const severity = query.severity?.split(',')[0] as ImmutableAuditSeverity | undefined;
     const filter: AuditLogFilter = {
@@ -317,7 +303,7 @@ export class AuditTrailController {
       search: query.search ?? query.searchQuery,
     };
 
-    this.writeMetaAudit(req, 'SECURITY_AUDIT_QUERY', {
+    await this.writeMetaAudit('SECURITY_AUDIT_QUERY', {
       action,
       entityType: query.entityType,
       tenantId: query.tenantId,
@@ -336,12 +322,11 @@ export class AuditTrailController {
    */
   @Get('entity/:entityType/:entityId')
   async getEntityAuditTrail(
-    @Req() req: Request,
     @Param('entityType') entityType: string,
     @Param('entityId') entityId: string,
     @Query('limit') limit?: string,
   ): Promise<AuditLog[]> {
-    this.writeMetaAudit(req, 'SECURITY_AUDIT_ENTITY', { entityType, entityId });
+    await this.writeMetaAudit('SECURITY_AUDIT_ENTITY', { entityType, entityId });
 
     return this.auditLogService.getEntityHistory(
       entityType,
@@ -355,7 +340,6 @@ export class AuditTrailController {
    */
   @Get('summary')
   async getAuditSummary(
-    @Req() req: Request,
     @Query('tenantId') tenantId?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
@@ -372,7 +356,7 @@ export class AuditTrailController {
       ? new Date(startDate)
       : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-    this.writeMetaAudit(req, 'SECURITY_AUDIT_SUMMARY', { tenantId });
+    await this.writeMetaAudit('SECURITY_AUDIT_SUMMARY', { tenantId });
 
     return this.auditLogService.getStatistics(tenantId, start, end);
   }

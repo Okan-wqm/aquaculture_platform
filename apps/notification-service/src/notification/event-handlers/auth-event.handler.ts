@@ -5,12 +5,15 @@ import { maskEmail } from '@aquaculture/backend-common/utils';
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
-import type { PasswordResetRequestedEvent, UserAccountLockedEvent, UserInvitedEvent } from '@platform/event-contracts';
+import { eventTenantScope, requireTenantScope } from '@platform/event-contracts';
+import type {
+  EventTenantScope,
+  PasswordResetRequestedEvent,
+  UserAccountLockedEvent,
+  UserInvitedEvent,
+} from '@platform/event-contracts';
 
 import { EmailService } from '../services/email.service';
-
-// UUID v4 regex for tenant ID validation
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
  * Minimal user PII resolved from auth-service at delivery time.
@@ -38,6 +41,16 @@ interface ResolvedActionInfo {
 }
 
 /**
+ * The tenant binding of an internal call for a scope: the tenant id, or the
+ * explicit non-tenant opt-out (`''`) that signedFetch documents for proven
+ * non-tenant paths. auth-service reads the empty binding as the platform
+ * scope and resolves NULL-tenant principals only (SEC-HIGH-057).
+ */
+function signedTenantBinding(scope: EventTenantScope): string {
+  return scope.kind === 'tenant' ? scope.tenantId : '';
+}
+
+/**
  * Auth Event Handler
  *
  * Listens to PasswordResetRequested and UserInvited events
@@ -46,10 +59,21 @@ interface ResolvedActionInfo {
  * SECURITY (CRITICAL-001/002): Events no longer carry PII or secret URLs.
  * This handler resolves user details, tenant info, and action URLs at
  * delivery time via authenticated internal API calls to auth-service.
+ *
+ * Tenancy (SEC-HIGH-057): the event's scope is parsed through the contract
+ * (eventTenantScope), never a hand-rolled UUID guard. A platform-scoped
+ * event — a super admin's password reset or lockout — is delivered through
+ * the platform-scope internal identity (signedFetch `tenantId: ''`), which
+ * auth-service resolves against NULL-tenant principals only. UserInvited is
+ * structurally tenant-bound (requireTenantScope). A malformed scope throws,
+ * so the bus redelivers/dead-letters it instead of the handler silently
+ * acknowledging a dropped e-mail.
  */
 @Injectable()
 export class AuthEventHandler
-  implements IEventHandler<PasswordResetRequestedEvent | UserInvitedEvent | UserAccountLockedEvent>, OnModuleInit
+  implements
+    IEventHandler<PasswordResetRequestedEvent | UserInvitedEvent | UserAccountLockedEvent>,
+    OnModuleInit
 {
   private readonly logger = new Logger(AuthEventHandler.name);
   private readonly authServiceUrl: string;
@@ -84,29 +108,31 @@ export class AuthEventHandler
     return 'AuthEvent';
   }
 
-  async handle(event: PasswordResetRequestedEvent | UserInvitedEvent | UserAccountLockedEvent): Promise<void> {
-    // SECURITY: Validate tenantId format to ensure data isolation
-    if (!event.tenantId || !UUID_REGEX.test(event.tenantId)) {
-      this.logger.error(
-        `Auth event has invalid or missing tenantId. ` +
-          'Skipping to prevent cross-tenant notification leakage.',
-      );
-      return;
-    }
+  async handle(
+    event: PasswordResetRequestedEvent | UserInvitedEvent | UserAccountLockedEvent,
+  ): Promise<void> {
+    // SEC-HIGH-057: parse, do not guard. A tenant UUID and the platform
+    // segment are both legitimate; anything else is a contract violation
+    // that must surface to the bus, not be acknowledged as "skipped".
+    const scope = eventTenantScope(event);
 
     const eventType = event.eventType;
-    this.logger.log(`Processing ${eventType} for tenant ${event.tenantId.substring(0, 8)}...`);
+    this.logger.log(
+      scope.kind === 'tenant'
+        ? `Processing ${eventType} for tenant ${scope.tenantId.substring(0, 8)}...`
+        : `Processing ${eventType} for a platform-scoped principal`,
+    );
 
     try {
       switch (eventType) {
         case 'PasswordResetRequested':
-          await this.handlePasswordResetRequested(event as PasswordResetRequestedEvent);
+          await this.handlePasswordResetRequested(event as PasswordResetRequestedEvent, scope);
           break;
         case 'UserInvited':
           await this.handleUserInvited(event as UserInvitedEvent);
           break;
         case 'UserAccountLocked':
-          await this.handleUserAccountLocked(event as UserAccountLockedEvent);
+          await this.handleUserAccountLocked(event as UserAccountLockedEvent, scope);
           break;
         default:
           this.logger.warn(`Unknown auth event type: ${eventType}`);
@@ -125,7 +151,10 @@ export class AuthEventHandler
    * Resolve user PII from auth-service at delivery time.
    * SECURITY: PII is fetched via authenticated internal API, never from the event bus.
    */
-  private async resolveUserPII(userId: string, tenantId: string): Promise<ResolvedUserPII | null> {
+  private async resolveUserPII(
+    userId: string,
+    scope: EventTenantScope,
+  ): Promise<ResolvedUserPII | null> {
     try {
       // SECURITY (SEC-CRITICAL-001 closure): use signedFetch which produces
       // v2 HMAC headers binding tenantId AND method+path+body. Manual
@@ -136,7 +165,7 @@ export class AuthEventHandler
         {
           method: 'GET',
           serviceName: 'notification-service',
-          tenantId,
+          tenantId: signedTenantBinding(scope),
           audience: 'auth-service',
           headers: { 'Content-Type': 'application/json' },
         },
@@ -195,7 +224,7 @@ export class AuthEventHandler
    */
   private async resolveActionUrl(
     actionTokenId: string,
-    tenantId: string,
+    scope: EventTenantScope,
   ): Promise<ResolvedActionInfo | null> {
     try {
       // SECURITY (SEC-CRITICAL-001 closure): see resolveUserPII for rationale.
@@ -204,7 +233,7 @@ export class AuthEventHandler
         {
           method: 'GET',
           serviceName: 'notification-service',
-          tenantId,
+          tenantId: signedTenantBinding(scope),
           audience: 'auth-service',
           headers: { 'Content-Type': 'application/json' },
         },
@@ -243,13 +272,16 @@ export class AuthEventHandler
    * address is resolved at delivery time via the authenticated internal
    * PII endpoint, identical to the password-reset flow.
    */
-  private async handleUserAccountLocked(event: UserAccountLockedEvent): Promise<void> {
+  private async handleUserAccountLocked(
+    event: UserAccountLockedEvent,
+    scope: EventTenantScope,
+  ): Promise<void> {
     if (!event.userId || !event.lockedUntil) {
       this.logger.error('UserAccountLocked event missing userId or lockedUntil. Skipping.');
       return;
     }
 
-    const userPII = await this.resolveUserPII(event.userId, event.tenantId);
+    const userPII = await this.resolveUserPII(event.userId, scope);
     if (!userPII) {
       this.logger.error(
         `Cannot send account-locked email — failed to resolve user PII for userId=${event.userId}`,
@@ -259,9 +291,7 @@ export class AuthEventHandler
 
     const displayName = userPII.firstName || 'there';
     const unlockAt = new Date(event.lockedUntil);
-    const unlockDisplay = Number.isNaN(unlockAt.getTime())
-      ? 'shortly'
-      : unlockAt.toUTCString();
+    const unlockDisplay = Number.isNaN(unlockAt.getTime()) ? 'shortly' : unlockAt.toUTCString();
 
     const subject = 'Your account was temporarily locked - Aquaculture Platform';
     const html = `
@@ -309,7 +339,10 @@ export class AuthEventHandler
     );
   }
 
-  private async handlePasswordResetRequested(event: PasswordResetRequestedEvent): Promise<void> {
+  private async handlePasswordResetRequested(
+    event: PasswordResetRequestedEvent,
+    scope: EventTenantScope,
+  ): Promise<void> {
     // SECURITY: Reject stale v1 events that carry raw tokens or PII
     if ('resetToken' in event) {
       this.logger.warn(
@@ -331,8 +364,8 @@ export class AuthEventHandler
 
     // Resolve PII and action URL at delivery time
     const [userPII, actionInfo] = await Promise.all([
-      this.resolveUserPII(event.userId, event.tenantId),
-      this.resolveActionUrl(event.actionTokenId, event.tenantId),
+      this.resolveUserPII(event.userId, scope),
+      this.resolveActionUrl(event.actionTokenId, scope),
     ]);
 
     if (!userPII || !actionInfo) {
@@ -403,6 +436,10 @@ export class AuthEventHandler
    * Handle UserInvited — resolve PII/tenant at delivery time, then send welcome email
    */
   private async handleUserInvited(event: UserInvitedEvent): Promise<void> {
+    // An invitation always targets a tenant; a platform-scoped UserInvited is
+    // a contract violation and throws (SEC-HIGH-057).
+    const scope = requireTenantScope(event);
+
     // SECURITY: Reject legacy events carrying raw PII
     if ('email' in event) {
       this.logger.warn(
@@ -418,9 +455,9 @@ export class AuthEventHandler
 
     // Resolve PII, tenant info, and action URL at delivery time
     const [userPII, tenantInfo, actionInfo] = await Promise.all([
-      this.resolveUserPII(event.userId, event.tenantId),
-      this.resolveTenantInfo(event.tenantId),
-      this.resolveActionUrl(event.actionTokenId, event.tenantId),
+      this.resolveUserPII(event.userId, scope),
+      this.resolveTenantInfo(scope.tenantId),
+      this.resolveActionUrl(event.actionTokenId, scope),
     ]);
 
     if (!userPII || !tenantInfo || !actionInfo?.actionUrl) {

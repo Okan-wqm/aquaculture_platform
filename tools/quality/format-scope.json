@@ -23419,6 +23419,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/notification-service/src/notification/event-handlers/auth-event.handler.password-reset.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/notification-service/src/notification/event-handlers/auth-event.handler.ts",
       "prettier_managed": true
     },

@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
+import { InvalidEventTenantScopeError } from '@platform/event-contracts';
 import type { UserAccountLockedEvent } from '@platform/event-contracts';
 
 import { AuthEventHandler } from './auth-event.handler';
@@ -74,8 +75,7 @@ describe('AuthEventHandler — UserAccountLocked (ORPHAN-MEDIUM-320)', () => {
   it('resolves PII at delivery time and emails the unlock instant + reset guidance', async () => {
     mockSignedFetch.mockResolvedValue({
       ok: true,
-      json: () =>
-        Promise.resolve({ email: 'owner@example.test', firstName: 'Okan' }),
+      json: () => Promise.resolve({ email: 'owner@example.test', firstName: 'Okan' }),
     } as Response);
 
     await handler.handle(lockEvent());
@@ -102,8 +102,26 @@ describe('AuthEventHandler — UserAccountLocked (ORPHAN-MEDIUM-320)', () => {
     expect(emailService.sendEmail).not.toHaveBeenCalled();
   });
 
-  it('rejects events with an invalid tenantId (cross-tenant isolation gate)', async () => {
+  it('SEC-HIGH-057: a platform-scoped lockout (super admin) resolves PII through the platform-scope identity', async () => {
+    mockSignedFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ email: 'root@example.test', firstName: 'Root' }),
+    } as Response);
+
     await handler.handle(lockEvent({ tenantId: 'system' }));
+
+    expect(mockSignedFetch).toHaveBeenCalledWith(
+      expect.stringContaining('/internal/users/user-1/pii'),
+      expect.objectContaining({ tenantId: '', audience: 'auth-service' }),
+    );
+    expect(emailService.sendEmail).toHaveBeenCalledTimes(1);
+    expect(emailService.sendEmail.mock.calls[0]?.[0]).toBe('root@example.test');
+  });
+
+  it('SEC-HIGH-057: a malformed tenancy scope throws to the bus instead of being acknowledged', async () => {
+    await expect(handler.handle(lockEvent({ tenantId: 'not-a-tenant' }))).rejects.toThrow(
+      InvalidEventTenantScopeError,
+    );
 
     expect(mockSignedFetch).not.toHaveBeenCalled();
     expect(emailService.sendEmail).not.toHaveBeenCalled();

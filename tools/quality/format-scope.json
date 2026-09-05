@@ -32155,6 +32155,78 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/recommendations/architectural-arbiter/2026-09-05-adr-0006-two-ingress-topology-edge-hardening-bundle.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/recommendations/architectural-arbiter/2026-09-05-adr-0007-cross-tenant-authority-delete-impersonation.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/recommendations/architectural-arbiter/2026-09-05-adr-0008-protected-tables-classification-principle.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/recommendations/architectural-arbiter/2026-09-05-adr-0009-walg-sole-backup-authority.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/recommendations/architectural-arbiter/2026-09-05-adr-0010-delete-both-ip-access-stacks.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/recommendations/architectural-arbiter/2026-09-05-adr-0011-platform-admin-mfa-model.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/recommendations/architectural-arbiter/2026-09-05-adr-0012-single-retention-authority-entity-typed-policies.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/recommendations/architectural-arbiter/2026-09-05-adr-0013-billing-plans-sole-catalogue-authority.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/recommendations/architectural-arbiter/2026-09-05-adr-0014-stripe-backed-provisioning-billing-command-contract.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/recommendations/architectural-arbiter/2026-09-05-adr-0015-admin-openapi-contract-ssot-class-dtos.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/recommendations/architectural-arbiter/2026-09-05-adr-0016-platform-capabilities-projected-claim.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/recommendations/architectural-arbiter/2026-09-05-adr-0017-governed-ci-quarantine-policy.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/recommendations/auth-security-expert/2026-04-06-guard-di-security-recommendations.md",
       "prettier_managed": true
     },
@@ -33338,6 +33410,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/admin-expert/2026-05-21-platform-admin-shared-ui-singleton.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/admin-expert/2026-09-05-superadmin-audit.md",
       "prettier_managed": true
     },
     {

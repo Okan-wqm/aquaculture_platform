@@ -29,6 +29,7 @@ import {
   createCase,
   decodeFileNameHeader,
   readCaseMeta,
+  readIntakeHead,
   readIntakeLedger,
   uploadDocument,
   verifyIntakeChain,
@@ -95,6 +96,7 @@ export function buildRoutes(config: ServerConfig, jobs: JobTable, readiness: Leg
           toolsDirPresent: await existsInside(config.toolsDir),
           actionsEnabled: config.allowActions,
           legal: await readLegalReadiness(config, readiness.boot),
+          ledgerSigning: readiness.signer === null ? null : { keyId: readiness.signer.keyId, publicKeyPem: readiness.signer.publicKeyPem },
           generatedAt: new Date().toISOString(),
         };
         sendJson(res, 200, body);
@@ -188,8 +190,9 @@ export function buildRoutes(config: ServerConfig, jobs: JobTable, readiness: Leg
           caseMeta: await readCaseMeta(config.legalCasesDir, caseId),
           intake,
           // Verified on every read, not on a schedule: the answer to "was this
-          // receipt edited?" must be current at the moment it is asked.
-          chain: verifyIntakeChain(intake),
+          // receipt edited?" must be current at the moment it is asked. Chain,
+          // every row's signature, then the signed head commitment.
+          chain: verifyIntakeChain(intake, await readIntakeHead(config.legalCasesDir, caseId), readiness.signer),
         };
         sendJson(res, 200, body);
       },
@@ -230,6 +233,7 @@ export function buildRoutes(config: ServerConfig, jobs: JobTable, readiness: Leg
           sourceNote: sourceNote === undefined || sourceNote.trim() === '' ? null : sourceNote.trim().slice(0, 500),
           maxBytes: config.maxUploadBytes,
           now: new Date().toISOString(),
+          signer: readiness.signer,
         });
         const response: LegalUploadResponse = outcome;
         sendJson(res, outcome.duplicate ? 200 : 201, response);
@@ -246,7 +250,9 @@ export function buildRoutes(config: ServerConfig, jobs: JobTable, readiness: Leg
         // that would die inside the kernel with `tool not found`.
         requireLegalAdapter(await readLegalReadiness(config, readiness.boot));
         const body = await readJsonBody(req);
-        const intake = (await readIntakeLedger(config.legalCasesDir, caseId)).map((row) => ({ relativePath: row.relativePath, receivedAt: row.receivedAt }));
+        // The receipt goes to the run with its digests, so the adapter can
+        // reconcile the archive against it, not merely date its records.
+        const intake = (await readIntakeLedger(config.legalCasesDir, caseId)).map((row) => ({ relativePath: row.relativePath, receivedAt: row.receivedAt, sha256: row.sha256 }));
         sendJson(
           res,
           202,

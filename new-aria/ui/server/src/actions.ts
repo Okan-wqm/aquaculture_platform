@@ -125,7 +125,7 @@ export interface LegalInventoryRequest {
    * the question the product exists to answer ("what was known on that date")
    * cannot be asked. MEASURED 2026-09-04: the console omitted it.
    */
-  readonly intake: ReadonlyArray<{ readonly relativePath: string; readonly receivedAt: string }>;
+  readonly intake: ReadonlyArray<{ readonly relativePath: string; readonly receivedAt: string; readonly sha256: string }>;
   /** Corpus roots the instance manifest declares off-limits; the adapter records them as excluded and never reads them. */
   readonly excludeRoots: ReadonlyArray<string>;
 }

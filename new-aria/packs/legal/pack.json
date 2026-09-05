@@ -69,7 +69,9 @@
     "amount_contradiction",
     "missing_evidence",
     "unreadable_document",
-    "party_identity_ambiguity"
+    "party_identity_ambiguity",
+    "document_without_receipt",
+    "intake_hash_mismatch"
   ],
   "evidence_source_types": [
     "document_reference",
@@ -90,7 +92,9 @@
         "date_contradiction",
         "amount_contradiction",
         "missing_evidence",
-        "party_identity_ambiguity"
+        "party_identity_ambiguity",
+        "document_without_receipt",
+        "intake_hash_mismatch"
       ]
     }
   ],

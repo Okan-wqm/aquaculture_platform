@@ -24,6 +24,11 @@ services:
       ARIA_WORKSPACE_BASE: /data/legal/workspaces
       ARIA_LEGAL_CASES_DIR: /opt/new-aria/data/legal-cases
       ARIA_UI_MAX_UPLOAD_BYTES: ${LEGAL_MAX_UPLOAD_BYTES:-536870912}
+      # The Ed25519 key every custody receipt is signed with. Created on the
+      # durable volume at first boot (owner-only), never in the image; the
+      # public half is published on /api/v1/health so a client can verify a
+      # receipt without trusting this console.
+      ARIA_UI_LEDGER_KEY_FILE: /data/legal/keys/ledger-ed25519.pem
       # The instance manifest is loaded and ENFORCED. runtime.allow_actions
       # governs KERNEL control only (cycle run, pause, resume) and can only
       # narrow the environment's grant — the legal instance keeps it off. Case

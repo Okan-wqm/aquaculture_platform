@@ -246,18 +246,25 @@ export function IntakeReceipt({ data }: { readonly data: LegalIntakeResponse }):
               <Stat label="Documents received" value={formatNumber(data.intake.length)} />
               <Stat
                 label="Receipt chain"
-                value={data.chain.valid ? 'intact' : 'broken'}
-                tone={data.chain.valid ? 'default' : 'danger'}
-                hint={data.chain.valid ? 'Every row hashes to its recorded value' : `Row ${formatNumber((data.chain.brokenAt ?? 0) + 1)}: ${data.chain.reason ?? 'unknown'}`}
+                value={data.chain.status}
+                tone={data.chain.status === 'broken' ? 'danger' : 'default'}
+                hint={
+                  data.chain.status === 'intact'
+                    ? `Every row hashes and signs to its recorded value; the signed head commits ${formatNumber(data.chain.rows)} rows (key ${data.chain.keyId ?? '—'})`
+                    : data.chain.status === 'empty'
+                      ? 'No document has been taken in; an empty receipt proves nothing and is not called intact'
+                      : `${data.chain.brokenAt === null ? 'Head' : `Row ${formatNumber(data.chain.brokenAt + 1)}`}: ${data.chain.reason ?? 'unknown'}`
+                }
               />
               <Stat label="Bytes taken in" value={formatBytes(data.intake.reduce((sum, row) => sum + row.bytes, 0))} />
             </div>
 
             {data.chain.valid ? null : (
               <Callout tone="danger" title="The intake receipt does not verify" role="alert">
-                Row {formatNumber((data.chain.brokenAt ?? 0) + 1)} failed with <code>{data.chain.reason ?? 'unknown'}</code>. The receipt
-                was changed after it was written, so it can no longer stand as a record of what arrived. Preserve the file and treat the
-                custody claim for this case as unproven until it is explained.
+                {data.chain.brokenAt === null ? 'The signed head commitment' : `Row ${formatNumber(data.chain.brokenAt + 1)}`} failed with{' '}
+                <code>{data.chain.reason ?? 'unknown'}</code>. The receipt was changed, cut short or re-written after it was committed, so it
+                can no longer stand as a record of what arrived. Preserve the files and treat the custody claim for this case as unproven
+                until it is explained.
               </Callout>
             )}
 

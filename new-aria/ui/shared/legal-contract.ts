@@ -140,8 +140,10 @@ export const LEGAL_ARTIFACT_ROOT = 'packs/legal/cases' as const;
 export const LEGAL_CASE_LAYOUT = {
   /** The documents themselves. The adapter's archive_root points here. */
   archive: 'archive',
-  /** Append-only, hash-chained arrival receipt. */
+  /** Append-only, hash-chained, row-signed arrival receipt. */
   intake: 'intake.jsonl',
+  /** Signed head commitment over the receipt: row count and last row hash. */
+  intakeHead: 'intake.head.json',
   /** The case's identity and custodian. */
   meta: 'case.meta.json',
 } as const;
@@ -241,6 +243,12 @@ export interface LegalDocument {
   readonly amountsMentioned: ReadonlyArray<string>;
   readonly versionGroupId: string | null;
   readonly excludedReason: string | null;
+  /**
+   * The document whose bytes this file repeats exactly, or null. Identical
+   * bytes under two names are one document delivered twice, not two versions
+   * of anything: the copy is listed, counted, and derives no record of its own.
+   */
+  readonly duplicateOf: string | null;
 }
 
 /**
@@ -339,14 +347,34 @@ export interface LegalLink {
   readonly confidence: number;
 }
 
+/**
+ * The intake receipt joined against the archive the adapter walked.
+ *
+ * A document in the archive that never went through intake, a receipt whose
+ * document is gone, and a receipt whose hash disagrees with the bytes on disk
+ * are each named by path. Any of them makes coverage incomplete: a working set
+ * with an unreceipted document in it cannot claim custody of its evidence.
+ */
+export interface LegalReconciliation {
+  readonly receipts: number;
+  readonly matched: number;
+  readonly documentsWithoutReceipt: ReadonlyArray<string>;
+  readonly receiptsWithoutDocument: ReadonlyArray<string>;
+  readonly hashMismatches: ReadonlyArray<{ readonly relativePath: string; readonly receiptSha256: string; readonly archiveSha256: string }>;
+}
+
 /** Coverage invariant, legal edition: every file in the archive has a fate. */
 export interface LegalCoverage {
   readonly caseId: string;
   readonly totalFiles: number;
+  /** Files minus exact duplicates: what the case actually holds. */
+  readonly distinctDocuments: number;
   readonly byExtraction: Record<ExtractionStatus, number>;
   readonly byKind: Record<string, number>;
   readonly excludedRoots: ReadonlyArray<string>;
   readonly unreadable: ReadonlyArray<{ readonly relativePath: string; readonly reason: string }>;
+  /** null when the run was given no receipt to reconcile against — stated, not assumed clean. */
+  readonly reconciliation: LegalReconciliation | null;
   readonly complete: boolean;
 }
 
@@ -425,10 +453,13 @@ export interface LegalCaseMeta {
  * One arrival. `sha256` is measured while the bytes stream in; the inventory
  * adapter later hashes the same file independently, and the two must agree.
  * `rowHash`/`previousRowHash` chain the receipts, so a removed or edited arrival
- * is detectable rather than invisible.
+ * is detectable rather than invisible; `signature` is the console's Ed25519
+ * signature over the row hash, made with a key that never leaves the volume,
+ * so a re-chained ledger stops verifying and a client holding the public key
+ * can check the receipt without trusting this console.
  */
 export interface LegalIntakeRecord {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly caseId: string;
   readonly relativePath: string;
   readonly fileName: string;
@@ -439,14 +470,25 @@ export interface LegalIntakeRecord {
   readonly sourceNote: string | null;
   readonly previousRowHash: string | null;
   readonly rowHash: string;
+  readonly keyId: string;
+  readonly signature: string;
 }
 
-/** The verdict of re-walking the receipt chain. */
+/**
+ * The verdict of re-walking the receipt: chain, signatures, then the signed
+ * head commitment (row count + last row hash). `empty` is a ledger with no
+ * rows — it is never called intact. `anchored` is true only when a head was
+ * present and agreed with the rows, so a truncated tail or an appended forgery
+ * cannot read as intact.
+ */
 export interface LegalIntakeChainVerdict {
+  readonly status: 'empty' | 'intact' | 'broken';
   readonly valid: boolean;
   readonly rows: number;
   readonly brokenAt: number | null;
   readonly reason: string | null;
+  readonly anchored: boolean;
+  readonly keyId: string | null;
 }
 
 export interface LegalIntakeResponse {

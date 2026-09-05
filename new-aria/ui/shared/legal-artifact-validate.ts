@@ -28,6 +28,7 @@ import type {
   LegalLink,
   LegalLinkKind,
   LegalParty,
+  LegalReconciliation,
   LegalRecordKind,
   LegalStatement,
   LegalTimelineEvent,
@@ -237,6 +238,7 @@ function validateDocument(value: unknown, path: string, fail: Fail): LegalDocume
     amountsMentioned: stringList(source['amountsMentioned'], `${path}.amountsMentioned`, fail, { unique: true }),
     versionGroupId: strOrNull(source['versionGroupId'], `${path}.versionGroupId`, fail, { pattern: VERSION_GROUP_ID }),
     excludedReason,
+    duplicateOf: strOrNull(source['duplicateOf'], `${path}.duplicateOf`, fail, { pattern: DOCUMENT_ID }),
   };
 }
 
@@ -417,9 +419,31 @@ export function validateCoverage(value: unknown): LegalCoverage {
   const byKindSource = record(source['byKind'], '$.byKind', fail);
   const byKind: Record<string, number> = {};
   for (const [kind, count] of Object.entries(byKindSource)) byKind[kind] = int(count, `$.byKind.${kind}`, fail, 0);
+  const reconciliationSource = source['reconciliation'];
+  const reconciliation: LegalReconciliation | null =
+    reconciliationSource === null
+      ? null
+      : (() => {
+          const rec = record(reconciliationSource, '$.reconciliation', fail);
+          return {
+            receipts: int(rec['receipts'], '$.reconciliation.receipts', fail, 0),
+            matched: int(rec['matched'], '$.reconciliation.matched', fail, 0),
+            documentsWithoutReceipt: stringList(rec['documentsWithoutReceipt'], '$.reconciliation.documentsWithoutReceipt', fail, { unique: true }),
+            receiptsWithoutDocument: stringList(rec['receiptsWithoutDocument'], '$.reconciliation.receiptsWithoutDocument', fail, { unique: true }),
+            hashMismatches: array(rec['hashMismatches'], '$.reconciliation.hashMismatches', fail).map((item, index) => {
+              const row = record(item, `$.reconciliation.hashMismatches[${index}]`, fail);
+              return {
+                relativePath: str(row['relativePath'], `$.reconciliation.hashMismatches[${index}].relativePath`, fail, { minLength: 1 }),
+                receiptSha256: str(row['receiptSha256'], `$.reconciliation.hashMismatches[${index}].receiptSha256`, fail, { pattern: SHA256 }),
+                archiveSha256: str(row['archiveSha256'], `$.reconciliation.hashMismatches[${index}].archiveSha256`, fail, { pattern: SHA256 }),
+              };
+            }),
+          };
+        })();
   return {
     caseId: str(source['caseId'], '$.caseId', fail, { pattern: CASE_ID }),
     totalFiles: int(source['totalFiles'], '$.totalFiles', fail, 0),
+    distinctDocuments: int(source['distinctDocuments'], '$.distinctDocuments', fail, 0),
     byExtraction,
     byKind,
     excludedRoots: stringList(source['excludedRoots'], '$.excludedRoots', fail, { unique: true }),
@@ -430,6 +454,7 @@ export function validateCoverage(value: unknown): LegalCoverage {
         reason: str(row['reason'], `$.unreadable[${index}].reason`, fail, { minLength: 1 }),
       };
     }),
+    reconciliation,
     complete: bool(source['complete'], '$.complete', fail),
   };
 }

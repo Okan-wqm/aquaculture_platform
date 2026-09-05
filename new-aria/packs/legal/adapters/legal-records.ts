@@ -113,6 +113,12 @@ export interface LegalDocument {
   readonly amountsMentioned: readonly string[];
   readonly versionGroupId: string | null;
   readonly excludedReason: string | null;
+  /**
+   * The document whose bytes this file repeats exactly, or null. Identical
+   * bytes under two names are one document delivered twice, not two versions
+   * of anything: the copy is listed, counted, and derives no record of its own.
+   */
+  readonly duplicateOf: string | null;
 }
 
 export type VersionOrdinalBasis = 'file_mtime' | 'name_suffix' | 'content_similarity' | 'unknown';
@@ -213,13 +219,29 @@ export interface LegalStatement {
   readonly relatedClaimIds: ReadonlyArray<string>;
 }
 
+/**
+ * The intake receipt joined against the archive this run walked. Mirrors
+ * LegalReconciliation in the console contract byte-for-byte.
+ */
+export interface LegalReconciliation {
+  readonly receipts: number;
+  readonly matched: number;
+  readonly documentsWithoutReceipt: readonly string[];
+  readonly receiptsWithoutDocument: readonly string[];
+  readonly hashMismatches: ReadonlyArray<{ readonly relativePath: string; readonly receiptSha256: string; readonly archiveSha256: string }>;
+}
+
 export interface LegalCoverage {
   readonly caseId: string;
   readonly totalFiles: number;
+  /** Files minus exact duplicates: what the case actually holds. */
+  readonly distinctDocuments: number;
   readonly byExtraction: Record<ExtractionStatus, number>;
   readonly byKind: Record<string, number>;
   readonly excludedRoots: readonly string[];
   readonly unreadable: ReadonlyArray<{ readonly relativePath: string; readonly reason: string }>;
+  /** null when the run was given no receipt to reconcile against — stated, not assumed clean. */
+  readonly reconciliation: LegalReconciliation | null;
   readonly complete: boolean;
 }
 

@@ -64,6 +64,7 @@ import type {
   LegalLink,
   LegalLinkKind,
   LegalParty,
+  LegalReconciliation,
   LegalTimelineEvent,
   LegalVersionStep,
   VersionOrdinalBasis,
@@ -117,7 +118,19 @@ export interface LegalInventoryInput {
    * anything became knowable and every record's learnedAt stays null — an
    * absence the chronology declares rather than fills with the run's own clock.
    */
-  readonly intake?: ReadonlyArray<{ readonly relativePath: string; readonly receivedAt: string }>;
+  readonly intake?: ReadonlyArray<{
+    readonly relativePath: string;
+    readonly receivedAt: string;
+    /**
+     * The digest the console measured at arrival. When present, the archive
+     * is RECONCILED against the receipt: a file the receipt never saw, a
+     * receipt whose file is gone, and a receipt whose digest disagrees with
+     * the bytes on disk are each named, and coverage is incomplete until a
+     * human accounts for them. Two independent measurements of the same
+     * bytes are what turn "this document reached us unchanged" into a fact.
+     */
+    readonly sha256?: string;
+  }>;
   /** ISO timestamp for LegalCase.createdAt. Absent → newest file mtime in the archive (deterministic per tree state). */
   readonly created_at?: string;
   readonly run_id?: string | null;
@@ -142,7 +155,9 @@ export type LegalClaimType =
   | 'date_contradiction'
   | 'amount_contradiction'
   | 'missing_evidence'
-  | 'party_identity_ambiguity';
+  | 'party_identity_ambiguity'
+  | 'document_without_receipt'
+  | 'intake_hash_mismatch';
 
 export interface AdapterFinding {
   readonly id: string;
@@ -232,6 +247,8 @@ function inventoryFile(file: WalkedFile, caseId: string, maxTextBytes: number, m
     amountsMentioned: amounts,
     versionGroupId: null,
     excludedReason,
+    // Set by markDuplicates once every file's digest is known.
+    duplicateOf: null,
   });
 
   if (file.excluded) {
@@ -373,8 +390,12 @@ function buildVersionGroups(entries: readonly InventoryEntry[]): VersionGrouping
     const rootB = find(b);
     if (rootA !== rootB) parent.set(byteCompare(rootA, rootB) < 0 ? rootB : rootA, byteCompare(rootA, rootB) < 0 ? rootA : rootB);
   };
+  // Lineage is read from NAMES only. Identical bytes under two names are not
+  // two versions of anything — they are one document delivered twice, and
+  // they are marked as duplicates before grouping ever sees them (measured
+  // 2026-09-04: a byte-identical copy used to become a "version conflict"
+  // review item and derive its own events, parties and references).
   const byStem = new Map<string, string>();
-  const bySha = new Map<string, string>();
   for (const entry of candidates) {
     const id = entry.document.documentId;
     parent.set(id, id);
@@ -382,9 +403,6 @@ function buildVersionGroups(entries: readonly InventoryEntry[]): VersionGrouping
     const stemOwner = byStem.get(stem);
     if (stemOwner) union(id, stemOwner);
     else byStem.set(stem, id);
-    const shaOwner = bySha.get(entry.document.sha256);
-    if (shaOwner) union(id, shaOwner);
-    else bySha.set(entry.document.sha256, id);
   }
   const groups = new Map<string, InventoryEntry[]>();
   for (const entry of candidates) {
@@ -795,6 +813,88 @@ function deriveRecords(entries: readonly InventoryEntry[], grouping: VersionGrou
 }
 
 // ---------------------------------------------------------------------------
+// Duplicates and reconciliation
+// ---------------------------------------------------------------------------
+
+/**
+ * Marks byte-identical files as duplicates of one primary.
+ *
+ * The primary is the shortest path, then the first in byte order — a rule a
+ * reader can predict, not a judgement about which copy matters. A duplicate
+ * stays in the inventory (it was delivered, it has a receipt, it is counted)
+ * but derives no records of its own: one document delivered twice must not
+ * appear twice in the chronology, the party list or the reference index.
+ */
+function markDuplicates(entries: readonly InventoryEntry[]): InventoryEntry[] {
+  const bySha = new Map<string, InventoryEntry[]>();
+  for (const entry of entries) {
+    if (entry.document.sha256 === '') continue;
+    const bucket = bySha.get(entry.document.sha256) ?? [];
+    bucket.push(entry);
+    bySha.set(entry.document.sha256, bucket);
+  }
+  const primaryOf = new Map<string, string>();
+  for (const bucket of bySha.values()) {
+    if (bucket.length < 2) continue;
+    const ordered = [...bucket].sort((a, b) => a.document.relativePath.length - b.document.relativePath.length || byteCompare(a.document.relativePath, b.document.relativePath));
+    const primary = ordered[0];
+    if (primary === undefined) continue;
+    for (const copy of ordered.slice(1)) primaryOf.set(copy.document.documentId, primary.document.documentId);
+  }
+  return entries.map((entry) => {
+    const duplicateOf = primaryOf.get(entry.document.documentId) ?? null;
+    return duplicateOf === null ? entry : { ...entry, document: { ...entry.document, duplicateOf } };
+  });
+}
+
+/**
+ * Joins the intake receipt against the walked archive.
+ *
+ * The console recorded what arrived; this run recorded what is there. A file
+ * the receipt never saw was not taken in through intake; a receipt whose file
+ * is gone names evidence that has left the archive; a receipt whose digest
+ * disagrees with the bytes on disk means the bytes changed after arrival.
+ * Each is named by path, and none is silently absorbed into "complete".
+ */
+function reconcileIntake(
+  entries: readonly InventoryEntry[],
+  intake: ReadonlyArray<{ readonly relativePath: string; readonly receivedAt: string; readonly sha256?: string }>,
+): LegalReconciliation {
+  const byPath = new Map<string, InventoryEntry>();
+  for (const entry of entries) {
+    if (!entry.file.excluded) byPath.set(entry.document.relativePath, entry);
+  }
+  const receipted = new Set<string>();
+  const receiptsWithoutDocument: string[] = [];
+  const hashMismatches: { relativePath: string; receiptSha256: string; archiveSha256: string }[] = [];
+  let matched = 0;
+  for (const receipt of intake) {
+    const relativePath = normalizeRelative(receipt.relativePath);
+    receipted.add(relativePath);
+    const entry = byPath.get(relativePath);
+    if (entry === undefined) {
+      receiptsWithoutDocument.push(relativePath);
+      continue;
+    }
+    // A receipt without a digest (an older caller) can only prove presence; a
+    // file that could not be hashed (unreadable) cannot be compared at all.
+    if (typeof receipt.sha256 === 'string' && receipt.sha256 !== '' && entry.document.sha256 !== '' && receipt.sha256 !== entry.document.sha256) {
+      hashMismatches.push({ relativePath, receiptSha256: receipt.sha256, archiveSha256: entry.document.sha256 });
+      continue;
+    }
+    matched += 1;
+  }
+  const documentsWithoutReceipt = [...byPath.keys()].filter((relativePath) => !receipted.has(relativePath));
+  return {
+    receipts: intake.length,
+    matched,
+    documentsWithoutReceipt: uniqueSorted(documentsWithoutReceipt),
+    receiptsWithoutDocument: uniqueSorted(receiptsWithoutDocument),
+    hashMismatches: hashMismatches.sort((a, b) => byteCompare(a.relativePath, b.relativePath)),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Coverage + case
 // ---------------------------------------------------------------------------
 function buildCoverage(
@@ -802,6 +902,7 @@ function buildCoverage(
   entries: readonly InventoryEntry[],
   walk: WalkResult,
   excludedRoots: readonly string[],
+  reconciliation: LegalReconciliation | null,
 ): LegalCoverage {
   const byExtraction: Record<ExtractionStatus, number> = { text: 0, metadata_only: 0, unreadable: 0, excluded: 0 };
   const kindCounts = new Map<string, number>();
@@ -823,15 +924,21 @@ function buildCoverage(
   for (const kind of [...kindCounts.keys()].sort(byteCompare)) {
     byKind[kind] = kindCounts.get(kind) ?? 0;
   }
+  const reconciled =
+    reconciliation === null ||
+    (reconciliation.documentsWithoutReceipt.length === 0 && reconciliation.receiptsWithoutDocument.length === 0 && reconciliation.hashMismatches.length === 0);
   return {
     caseId,
     totalFiles: entries.length,
+    distinctDocuments: entries.filter((entry) => entry.document.duplicateOf === null).length,
     byExtraction,
     byKind,
     excludedRoots: [...excludedRoots].sort(byteCompare),
     unreadable,
-    // Complete = every file has a fate AND no directory was left unwalked.
-    complete: walk.directoryErrors.length === 0 && entries.every((entry) => EXTRACTION_STATUSES.includes(entry.document.extraction)),
+    reconciliation,
+    // Complete = every file has a fate AND no directory was left unwalked AND,
+    // when a receipt was supplied, the archive and the receipt agree.
+    complete: walk.directoryErrors.length === 0 && entries.every((entry) => EXTRACTION_STATUSES.includes(entry.document.extraction)) && reconciled,
   };
 }
 
@@ -936,19 +1043,25 @@ export function runLegalDocumentInventory(input: LegalInventoryInput, cwd: strin
   }
 
   const walk = walkArchive(archiveRootAbs, excludeRoots);
-  const entries = walk.files.map((file) => inventoryFile(file, caseId, maxTextBytes, maxBinaryBytes));
-  const grouping = buildVersionGroups(entries);
+  const entries = markDuplicates(walk.files.map((file) => inventoryFile(file, caseId, maxTextBytes, maxBinaryBytes)));
+  // Everything derived — lineage, facts, parties, events — is read from the
+  // primaries. A duplicate is inventoried and counted, and says nothing twice.
+  const primaries = entries.filter((entry) => entry.document.duplicateOf === null);
+  const grouping = buildVersionGroups(primaries);
   const documents: LegalDocument[] = entries
     .map((entry) => ({ ...entry.document, versionGroupId: grouping.groupIdByDocument.get(entry.document.documentId) ?? null }))
     .sort((a, b) => byteCompare(a.relativePath, b.relativePath));
   // The receipt is keyed by the path inside archive/, which is exactly the
   // relative path the walk produces, so the two line up without translation.
   const learnedAt = new Map((input.intake ?? []).map((row) => [normalizeRelative(row.relativePath), row.receivedAt]));
-  const derived = deriveRecords(entries, grouping, learnedAt);
-  const factIndex = buildFactIndex(entries, grouping);
+  const derived = deriveRecords(primaries, grouping, learnedAt);
+  const factIndex = buildFactIndex(primaries, grouping);
   const statements = matrixRows(factIndex.contradictions, factIndex.missing);
   const presentExcludedRoots = excludeRoots.filter((root) => walk.matchedExcludeRoots.has(root) || existsSync(resolve(archiveRootAbs, root)));
-  const coverage = buildCoverage(caseId, entries, walk, presentExcludedRoots);
+  // Reconciled only when a receipt was supplied: an absent receipt is stated
+  // as null, never treated as "everything matched".
+  const reconciliation = input.intake === undefined ? null : reconcileIntake(entries, input.intake);
+  const coverage = buildCoverage(caseId, entries, walk, presentExcludedRoots, reconciliation);
   const newestMtime = entries.reduce<Date | null>((newest, entry) => (newest === null || entry.file.mtime > newest ? entry.file.mtime : newest), null);
   const legalCase: LegalCase = {
     caseId,
@@ -1085,6 +1198,39 @@ export function runLegalDocumentInventory(input: LegalInventoryInput, cwd: strin
       confidence: 0.5,
     });
   }
+  // The receipt and the archive disagree. A document nobody took in through
+  // intake, and a document whose bytes are not the bytes that arrived, are each
+  // a finding on that document. A receipt whose document is gone has no bytes
+  // to cite, so it lives in coverage.reconciliation and makes coverage
+  // incomplete rather than posing as a finding with invented evidence.
+  if (reconciliation !== null) {
+    for (const relativePath of reconciliation.documentsWithoutReceipt) {
+      findings.push({
+        id: `${ADAPTER_ID}:without-receipt:${relativePath}`,
+        rule: 'document_without_receipt',
+        severity: 'medium',
+        path: workspacePath(relativePath),
+        message:
+          `\`${relativePath}\` is in the archive but no intake receipt records its arrival; ` +
+          'nothing states when it arrived, from whom, or what it hashed to when it did. Custody of it is unproven until a human accounts for it.',
+        evidence: [{ path: workspacePath(relativePath) }],
+        confidence: 0.95,
+      });
+    }
+    for (const mismatch of reconciliation.hashMismatches) {
+      findings.push({
+        id: `${ADAPTER_ID}:intake-hash-mismatch:${mismatch.relativePath}`,
+        rule: 'intake_hash_mismatch',
+        severity: 'medium',
+        path: workspacePath(mismatch.relativePath),
+        message:
+          `\`${mismatch.relativePath}\` hashed to ${mismatch.receiptSha256.slice(0, 12)}… at intake and to ${mismatch.archiveSha256.slice(0, 12)}… now; ` +
+          'the bytes on disk are not the bytes that arrived. Which copy is the evidence requires human review.',
+        evidence: [{ path: workspacePath(mismatch.relativePath) }],
+        confidence: 0.95,
+      });
+    }
+  }
   const sortedReadPaths = uniqueSorted(readPaths);
   const output: AriaOutput = {
     observations: observations.sort((a, b) => byteCompare(a.id, b.id)),
@@ -1104,11 +1250,23 @@ export function runLegalDocumentInventory(input: LegalInventoryInput, cwd: strin
       exclude_roots_not_found: excludeRoots.filter((root) => !presentExcludedRoots.includes(root)),
       coverage: {
         totalFiles: coverage.totalFiles,
+        distinctDocuments: coverage.distinctDocuments,
         byExtraction: coverage.byExtraction,
         excludedRoots: coverage.excludedRoots,
         unreadable: coverage.unreadable.length,
         complete: coverage.complete,
       },
+      duplicates: entries.length - primaries.length,
+      reconciliation:
+        reconciliation === null
+          ? null
+          : {
+              receipts: reconciliation.receipts,
+              matched: reconciliation.matched,
+              documents_without_receipt: reconciliation.documentsWithoutReceipt.length,
+              receipts_without_document: reconciliation.receiptsWithoutDocument.length,
+              hash_mismatches: reconciliation.hashMismatches.length,
+            },
       version_groups: grouping.versions.length,
       parties: derived.parties.length,
       timeline_events: derived.timeline.length,

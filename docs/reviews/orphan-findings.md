@@ -11136,7 +11136,11 @@ Severity: HIGH (the product as deployed is inoperable; every intake capability r
 
 Owner: this session. Deadline: before any further legal capability is recorded as closed.
 
-## ORPHAN-HIGH-806 — the intake receipt defends against forgetfulness, not against forgery, and never meets the inventory — OPEN
+## ORPHAN-HIGH-806 — the intake receipt defends against forgetfulness, not against forgery, and never meets the inventory — RESOLVED (this commit)
+
+**Fix, measured 2026-09-05.** `ui/server/src/ledger.ts`: every receipt row is signed (Ed25519, `node:crypto`, no dependency) with a key created on the volume at first boot with owner-only permissions and never in the image; a signed head commitment beside the ledger states the row count and the last row hash; appends are serialised per ledger; the verdict is `empty | intact | broken` with the failing row or the head named, and `anchored` says whether the head agreed. The public key is published on `/health` so a client can verify a receipt without trusting the console. The receipt row is appended BEFORE the bytes are renamed into the archive. The receipt travels to the inventory run with its digests, and the adapter reconciles the archive against it: `document_without_receipt` and `intake_hash_mismatch` are findings on the document, a receipt whose document is gone is named in `coverage.reconciliation`, and any of the three makes coverage incomplete. Byte-identical files are one document with `duplicateOf` on the copy: no version conflict, no records derived twice, `coverage.distinctDocuments` beside `totalFiles`. Smoke on the real kernel: twelve uploads (eight concurrent) chain intact and anchored under one published key; cutting the last row reads `head_mismatch:truncated`; re-chaining the whole ledger with perfect hashes reads `signature_invalid` at row 0; an empty case reads `empty`; a file placed in the archive behind intake's back is named and coverage turns incomplete while the kernel still records the run ok with valid evidence. Tests: ledger 6, intake 16, server 86, adapter 23, web 65.
+
+**Learned on the way.** The rewrite of `legal-intake.ts` lost the literal control bytes inside the forbidden-character regex (they had never been visible), which made `.` illegal in a file name; the regex is now written with escapes so the source carries no invisible bytes.
 
 Severity: HIGH (the custody claim the product sells is unproven, and two uploads at once destroy it).
 

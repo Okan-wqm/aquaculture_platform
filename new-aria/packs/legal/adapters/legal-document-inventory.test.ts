@@ -322,7 +322,7 @@ test('version grouping: the two avtale files form one group, v1 before v2, signe
   assert.ok(artifacts.documents.filter((document) => document.versionGroupId !== null).length === 2, 'singletons carry versionGroupId null');
 });
 
-test('version grouping: identical bytes group across different names; copy markers are stripped; invoice numbers are not', () => {
+test('identical bytes under two names are ONE document delivered twice: a duplicate, never a version conflict; copy markers and invoice numbers keep their meaning', () => {
   const archive = tempDir('vg-archive');
   writeArchiveFile(archive, 'notat.txt', 'Samme innhold.\n');
   writeArchiveFile(archive, 'notat kopi (1).txt', 'Samme innhold.\n');
@@ -336,14 +336,97 @@ test('version grouping: identical bytes group across different names; copy marke
   assert.equal(normalizedStem('avtale_v2_signert.txt'), 'avtale');
   assert.equal(normalizedStem('rapport-final-draft.docx'), 'rapport');
   assert.notEqual(normalizedStem('faktura_2024-001.txt'), normalizedStem('faktura_2024-002.txt'));
-  assert.equal(result.artifacts.versions.length, 2, 'notat pair + byte-identical brev pair; invoices stay apart');
-  for (const group of result.artifacts.versions) {
-    assert.equal(group.members.length, 2);
-    assert.ok(group.members.every((member) => member.basis === 'content_similarity'), 'identical bytes → content_similarity basis');
-  }
-  const byteTwins = result.artifacts.links.filter((link) => link.kind === 'VERSION_OF');
-  assert.equal(byteTwins.length, 2);
-  assert.ok(byteTwins.every((link) => link.confidence === 0.9));
+
+  // MEASURED 2026-09-04: a byte-identical copy used to become a "version
+  // conflict" review item and count as a second document. Now the copy is
+  // named as exactly that, the primary is the shortest path, and no lineage
+  // question is manufactured out of it.
+  const byPath = new Map(result.artifacts.documents.map((document) => [document.relativePath, document]));
+  const notat = byPath.get('notat.txt');
+  const notatCopy = byPath.get('notat kopi (1).txt');
+  const brev = byPath.get('brev.txt');
+  const brevCopy = byPath.get('vedlegg/kopi_av_brev.txt');
+  assert.ok(notat && notatCopy && brev && brevCopy);
+  assert.equal(notat.duplicateOf, null);
+  assert.equal(notatCopy.duplicateOf, notat.documentId);
+  assert.equal(brev.duplicateOf, null);
+  assert.equal(brevCopy.duplicateOf, brev.documentId);
+  assert.equal(byPath.get('faktura_2024-001.txt')?.duplicateOf, null, 'different bytes are never duplicates');
+  assert.deepEqual(result.artifacts.versions, [], 'identical bytes form no version group');
+  assert.deepEqual(result.artifacts.links.filter((link) => link.kind === 'VERSION_OF'), []);
+  assert.ok(!result.output.findings.some((finding) => finding.rule === 'document_version_conflict'), 'no review item is manufactured from a copy');
+  assert.equal(result.artifacts.coverage.totalFiles, 6, 'every delivered file is still counted');
+  assert.equal(result.artifacts.coverage.distinctDocuments, 4, 'and the case holds four distinct documents');
+  assert.equal(result.output.metadata['duplicates'], 2);
+  // The copy was delivered and read: it stays in read_paths and is observed,
+  // but nothing is derived from it twice.
+  assert.ok(result.output.read_paths.includes(join(archive, 'vedlegg/kopi_av_brev.txt')) || result.output.read_paths.some((path) => path.endsWith('vedlegg/kopi_av_brev.txt')));
+});
+
+test('reconciliation: the intake receipt is joined against the archive, and every disagreement is named', () => {
+  const archive = tempDir('rec-archive');
+  writeArchiveFile(archive, 'b.txt', 'Brev B.\n');
+  writeArchiveFile(archive, 'c.txt', 'Brev C.\n');
+  const sha = (text: string): string => require('node:crypto').createHash('sha256').update(text).digest('hex');
+
+  // No receipt supplied: reconciliation is stated as null, never assumed clean.
+  const unreconciled = runLegalDocumentInventory({ archive_root: archive, case_id: 'rec-none', out_dir: tempDir('rec-none-out') });
+  assert.equal(unreconciled.artifacts?.coverage.reconciliation, null);
+  assert.equal(unreconciled.artifacts?.coverage.complete, true);
+
+  // The audit's scenario: a.txt and b.txt receipted, b.txt and c.txt on disk.
+  const drifted = runLegalDocumentInventory({
+    archive_root: archive,
+    case_id: 'rec-drift',
+    out_dir: tempDir('rec-drift-out'),
+    intake: [
+      { relativePath: 'a.txt', receivedAt: '2026-09-04T12:00:00.000Z', sha256: sha('Brev A.\n') },
+      { relativePath: 'b.txt', receivedAt: '2026-09-04T12:01:00.000Z', sha256: sha('Brev B.\n') },
+    ],
+  });
+  const rec = drifted.artifacts?.coverage.reconciliation;
+  assert.ok(rec);
+  assert.deepEqual(rec.receiptsWithoutDocument, ['a.txt'], 'a receipted document that has left the archive is named');
+  assert.deepEqual(rec.documentsWithoutReceipt, ['c.txt'], 'a document nobody took in through intake is named');
+  assert.deepEqual(rec.hashMismatches, []);
+  assert.equal(rec.matched, 1);
+  assert.equal(drifted.artifacts?.coverage.complete, false, 'a case whose receipt and archive disagree is not complete');
+  const withoutReceipt = drifted.output.findings.find((finding) => finding.rule === 'document_without_receipt');
+  assert.ok(withoutReceipt, 'the unreceipted document is a finding on that document');
+  assert.ok(drifted.output.read_paths.includes(withoutReceipt.evidence[0]?.path ?? ''), 'its evidence is the document itself');
+  assert.ok(!drifted.output.findings.some((finding) => finding.rule === 'intake_hash_mismatch'));
+
+  // The bytes on disk are not the bytes that arrived.
+  const tampered = runLegalDocumentInventory({
+    archive_root: archive,
+    case_id: 'rec-tamper',
+    out_dir: tempDir('rec-tamper-out'),
+    intake: [
+      { relativePath: 'b.txt', receivedAt: '2026-09-04T12:01:00.000Z', sha256: sha('Brev B, original.\n') },
+      { relativePath: 'c.txt', receivedAt: '2026-09-04T12:02:00.000Z', sha256: sha('Brev C.\n') },
+    ],
+  });
+  const tamperRec = tampered.artifacts?.coverage.reconciliation;
+  assert.ok(tamperRec);
+  assert.equal(tamperRec.hashMismatches.length, 1);
+  assert.equal(tamperRec.hashMismatches[0]?.relativePath, 'b.txt');
+  assert.equal(tamperRec.hashMismatches[0]?.archiveSha256, sha('Brev B.\n'));
+  assert.equal(tamperRec.matched, 1);
+  assert.ok(tampered.output.findings.some((finding) => finding.rule === 'intake_hash_mismatch'));
+  assert.equal(tampered.artifacts?.coverage.complete, false);
+
+  // Everything accounted for: complete again.
+  const clean = runLegalDocumentInventory({
+    archive_root: archive,
+    case_id: 'rec-clean',
+    out_dir: tempDir('rec-clean-out'),
+    intake: [
+      { relativePath: 'b.txt', receivedAt: '2026-09-04T12:01:00.000Z', sha256: sha('Brev B.\n') },
+      { relativePath: 'c.txt', receivedAt: '2026-09-04T12:02:00.000Z', sha256: sha('Brev C.\n') },
+    ],
+  });
+  assert.equal(clean.artifacts?.coverage.reconciliation?.matched, 2);
+  assert.equal(clean.artifacts?.coverage.complete, true);
 });
 
 test('parties come from e-mail headers AND document text, one per address or spelling, never merged', () => {

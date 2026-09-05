@@ -16,6 +16,8 @@ import { Authorizer } from './auth.ts';
 import { ConfigError, loadConfig } from './config.ts';
 import type { ServerConfig } from './config.ts';
 import { HttpError, toApiError } from './errors.ts';
+import type { LedgerSigner } from './ledger.ts';
+import { loadOrCreateSigner } from './ledger.ts';
 import type { LegalReadinessHolder } from './legal-readiness.ts';
 import { registerLegalAdapter } from './legal-readiness.ts';
 import { log, redactHeaders } from './log.ts';
@@ -74,14 +76,25 @@ export function createConsoleServer(config: ServerConfig, readiness: LegalReadin
 }
 
 /**
- * Registers the legal adapter before the console listens, so the first
- * request already sees the kernel's answer. A refusal is logged and reported
- * on /health; it never stops the read-only console from serving.
+ * Registers the legal adapter and loads (or creates) the ledger signing key
+ * before the console listens, so the first request already sees the kernel's
+ * answer and the first receipt can be signed. A refusal is logged and reported
+ * on /health; it never stops the read-only console from serving, and without a
+ * key the intake routes refuse rather than write an unsigned receipt.
  */
 export async function prepareLegalReadiness(config: ServerConfig): Promise<LegalReadinessHolder> {
   const boot = await registerLegalAdapter(config);
   log(boot.adapter === 'registered' || boot.adapter === 'not_applicable' ? 'info' : 'error', 'legal adapter readiness', { adapter: boot.adapter, toolId: boot.toolId, detail: boot.detail });
-  return { boot };
+  let signer: LedgerSigner | null = null;
+  let signerDetail: string | null = null;
+  try {
+    signer = loadOrCreateSigner(config.ledgerKeyFile);
+    log('info', 'ledger signing key', { keyId: signer.keyId, path: config.ledgerKeyFile });
+  } catch (error) {
+    signerDetail = `ledger key at ${config.ledgerKeyFile} could not be loaded or created: ${error instanceof Error ? error.message : String(error)}`;
+    log('error', 'ledger signing key unavailable', { detail: signerDetail });
+  }
+  return { boot, signer, signerDetail };
 }
 
 async function main(): Promise<void> {

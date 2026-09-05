@@ -160,6 +160,12 @@ export interface HealthResponse {
   readonly actionsEnabled: boolean;
   /** The legal pack's adapter, as the kernel registry reports it right now. */
   readonly legal: PackReadiness;
+  /**
+   * The key this console signs its custody ledgers with. The public half is
+   * published here so a client can verify a receipt without trusting the
+   * console; null means no key is loaded and no receipt can be written.
+   */
+  readonly ledgerSigning: { readonly keyId: string; readonly publicKeyPem: string } | null;
   readonly generatedAt: string;
 }
 

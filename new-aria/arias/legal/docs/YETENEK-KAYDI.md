@@ -476,3 +476,16 @@ adımı bu yüzden yok ve testi bunu pinliyor.
 Faz 1'in **yapmadığı**: kimlik hâlâ tek token (operator rolü; Faz 4), karar defteri yok
 (Faz 5), alım zinciri imzasız (Faz 2), kronoloji/çelişki kusurları duruyor (Faz 3).
 
+### F.2 — Faz 2: alım tutanağı kanıt oldu
+
+| Kapanan | Nasıl | Kanıt |
+|---|---|---|
+| L-05 (E.1 "zincir düzenlemeyi tespit ediyor" → **wired**) | `ui/server/src/ledger.ts`: her satır Ed25519 ile imzalı (anahtar volume'da, ilk açılışta 0600 ile üretiliyor, imajda değil); defter yanında imzalı **baş taahhüdü** (satır sayısı + son hash); ekleme dava başına sıralı; hüküm `empty/intact/broken` + `anchored`; açık anahtar `/health`'te | `ledger.test.ts` 6, `legal-intake.test.ts` 16; duman: 12 satır (8 eşzamanlı) `intact`+`anchored`; kuyruk kesme → `head_mismatch:truncated`; kusursuz hash'le yeniden zincirleme → `signature_invalid` satır 0; boş dava → `empty` |
+| L-32 eşzamanlı alım | Ekleme kuyruğu defter başına; kuyruk kritik bölümün içinde okunuyor | Test: 12 eşzamanlı yükleme → 12 satır, intact; duman: 8 eşzamanlı |
+| L-31 alım↔envanter mutabakatı | Tutanak satırı **rename'den önce** yazılıyor; tutanak koşuma sha256 ile gidiyor; adapter arşivi tutanakla birleştiriyor: `document_without_receipt` ve `intake_hash_mismatch` bulgu, kaybolan belge `coverage.reconciliation`'da; üçü de kapsamayı `complete:false` yapıyor | Adapter mutabakat testi (denetimin b+c/a+b senaryosu, hash sapması, temiz durum); duman: arşive kaçak konan dosya adlandırıldı, `complete: False`, kernel koşumu `ok` |
+| L-34 kopya kimliği | Bayt-eş dosyalar tek belge; kopyada `duplicateOf`; sürüm çatışması yok; türetilen kayıt bir kez; `coverage.distinctDocuments` | Adapter testi (notat/kopi, brev/kopi_av_brev); duman: `kopi_av_avtale.txt → duplicateOf` |
+| Tutanak şeması | `schemaVersion: 2` (+`keyId`, `signature`); eski satır okuma yolunda `intake_ledger_invalid` ile reddediliyor | `legal-intake.test.ts` |
+
+Yapılmayan: anahtar rotasyonu (tek anahtar; farklı `keyId` taşıyan satır `key_unknown` ile reddedilir),
+tutanağın çekirdek bütünlük indeksine girmesi (G-5, çekirdek), yedek/geri yükleme tatbikatı (Faz 7).
+

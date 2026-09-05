@@ -16,6 +16,7 @@ import type { HealthResponse, JobResponse, WhoAmIResponse } from '../../shared/a
 import type { LegalCaseCreatedResponse, LegalIntakeResponse, LegalUploadResponse } from '../../shared/legal-contract.ts';
 import { loadConfig } from '../src/config.ts';
 import { createConsoleServer } from '../src/index.ts';
+import { loadOrCreateSigner } from '../src/ledger.ts';
 import { LEGAL_ADAPTER_MANIFEST } from '../src/legal-readiness.ts';
 
 const TOKEN = 'route-test-token-0123456789abcdef';
@@ -57,8 +58,13 @@ async function harness(registryStatus: string | null): Promise<Harness> {
     ARIA_UI_ALLOW_ACTIONS: '0',
     ARIA_UI_HOST: '127.0.0.1',
     ARIA_UI_PORT: '8480',
+    ARIA_UI_LEDGER_KEY_FILE: join(workspace, 'keys', 'ledger-ed25519.pem'),
   });
-  const server = createConsoleServer(config, { boot: { toolId: 'legal-document-inventory', adapter: registryStatus === null ? 'unregistered' : 'registered', detail: registryStatus === null ? 'stub: never registered' : null, checkedAt: '2026-09-04T00:00:00.000Z' } });
+  const server = createConsoleServer(config, {
+    boot: { toolId: 'legal-document-inventory', adapter: registryStatus === null ? 'unregistered' : 'registered', detail: registryStatus === null ? 'stub: never registered' : null, checkedAt: '2026-09-04T00:00:00.000Z' },
+    signer: loadOrCreateSigner(config.ledgerKeyFile),
+    signerDetail: null,
+  });
   await new Promise<void>((resolveListen) => server.listen(0, '127.0.0.1', resolveListen));
   const { port } = server.address() as AddressInfo;
   return {
@@ -110,8 +116,14 @@ test('the shipped legal profile takes a case in, end to end, with kernel control
     assert.equal(record.receivedBy, 'console-token-holder');
     assert.equal(readFileSync(join(h.workspace, 'data', 'legal-cases', 'sak-24-001', 'archive', 'vedlegg', 'faktura.txt'), 'utf8'), 'Fakturadato: 12.03.2024\n');
 
+    assert.ok(health.ledgerSigning, 'the public half of the ledger key is published');
+    assert.equal(health.ledgerSigning.keyId, record.keyId, 'the receipt names the published key');
+    assert.match(health.ledgerSigning.publicKeyPem, /BEGIN PUBLIC KEY/);
+
     const intake = (await call(h.base, 'GET', '/api/v1/legal/cases/sak-24-001/intake')).body as unknown as LegalIntakeResponse;
-    assert.equal(intake.chain.valid, true);
+    assert.equal(intake.chain.status, 'intact');
+    assert.equal(intake.chain.anchored, true, 'the signed head commits the row');
+    assert.equal(intake.chain.keyId, record.keyId);
     assert.equal(intake.intake.length, 1);
 
     const started = await call(h.base, 'POST', '/api/v1/legal/cases/sak-24-001/inventory', { title: 'Bergen Eiendom mot Nordlys' });
@@ -124,7 +136,7 @@ test('the shipped legal profile takes a case in, end to end, with kernel control
     assert.equal(input['case_id'], 'sak-24-001');
     assert.equal(input['archive_root'], 'data/legal-cases/sak-24-001/archive');
     assert.deepEqual(input['exclude_roots'], ['Ikke laste opp'], "the manifest's excluded roots reach the run");
-    assert.deepEqual(input['intake'], [{ relativePath: 'vedlegg/faktura.txt', receivedAt: record.receivedAt }], 'the receipt reaches the run, so learnedAt can be filled');
+    assert.deepEqual(input['intake'], [{ relativePath: 'vedlegg/faktura.txt', receivedAt: record.receivedAt, sha256: record.sha256 }], 'the receipt reaches the run with its digest, so learnedAt can be filled and the archive reconciled');
     const cycleIndex = job.command.indexOf('--cycle-id');
     assert.equal(input['cycle_id'], job.command[cycleIndex + 1], 'the input names the cycle the run is stamped with');
     assert.equal(job.command[job.command.indexOf('--workspace-root') + 1], h.workspace);

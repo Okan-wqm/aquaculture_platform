@@ -16,7 +16,8 @@
     "datesMentioned": [],
     "amountsMentioned": [],
     "versionGroupId": null,
-    "excludedReason": "excluded_root:Ikke laste opp"
+    "excludedReason": "excluded_root:Ikke laste opp",
+    "duplicateOf": null
   },
   {
     "documentId": "doc_85f73fc2c720f363",
@@ -39,7 +40,8 @@
       "kr 125 000,00"
     ],
     "versionGroupId": "vg_d517012e6195",
-    "excludedReason": null
+    "excludedReason": null,
+    "duplicateOf": null
   },
   {
     "documentId": "doc_f4ee47acddf5586e",
@@ -63,7 +65,8 @@
       "kr 120 000,00"
     ],
     "versionGroupId": "vg_d517012e6195",
-    "excludedReason": null
+    "excludedReason": null,
+    "duplicateOf": null
   },
   {
     "documentId": "doc_3ed75d995ca0922e",
@@ -88,7 +91,8 @@
       "kr 125 000,00"
     ],
     "versionGroupId": null,
-    "excludedReason": null
+    "excludedReason": null,
+    "duplicateOf": null
   },
   {
     "documentId": "doc_608f1333d74135c8",
@@ -113,7 +117,8 @@
       "NOK 25 000"
     ],
     "versionGroupId": null,
-    "excludedReason": null
+    "excludedReason": null,
+    "duplicateOf": null
   },
   {
     "documentId": "doc_c9eebbb50c992990",
@@ -139,7 +144,8 @@
       "kr 25 000,-"
     ],
     "versionGroupId": null,
-    "excludedReason": null
+    "excludedReason": null,
+    "duplicateOf": null
   },
   {
     "documentId": "doc_02f9abbb83c5f543",
@@ -161,7 +167,8 @@
     ],
     "amountsMentioned": [],
     "versionGroupId": null,
-    "excludedReason": null
+    "excludedReason": null,
+    "duplicateOf": null
   },
   {
     "documentId": "doc_f285ea9f52c64341",
@@ -193,7 +200,8 @@
       "kr 1 237 500,00"
     ],
     "versionGroupId": null,
-    "excludedReason": null
+    "excludedReason": null,
+    "duplicateOf": null
   },
   {
     "documentId": "doc_8b0ed5c138af6958",
@@ -212,7 +220,8 @@
     "datesMentioned": [],
     "amountsMentioned": [],
     "versionGroupId": null,
-    "excludedReason": null
+    "excludedReason": null,
+    "duplicateOf": null
   },
   {
     "documentId": "doc_2977e926b8bc73a6",
@@ -241,7 +250,8 @@
       "NOK 230 175"
     ],
     "versionGroupId": null,
-    "excludedReason": null
+    "excludedReason": null,
+    "duplicateOf": null
   },
   {
     "documentId": "doc_095b7b0b7d534286",
@@ -260,6 +270,7 @@
     "datesMentioned": [],
     "amountsMentioned": [],
     "versionGroupId": null,
-    "excludedReason": null
+    "excludedReason": null,
+    "duplicateOf": null
   }
 ]

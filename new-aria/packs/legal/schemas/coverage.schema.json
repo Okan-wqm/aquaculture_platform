@@ -8,10 +8,12 @@
   "required": [
     "caseId",
     "totalFiles",
+    "distinctDocuments",
     "byExtraction",
     "byKind",
     "excludedRoots",
     "unreadable",
+    "reconciliation",
     "complete"
   ],
   "properties": {
@@ -22,6 +24,11 @@
     "totalFiles": {
       "type": "integer",
       "minimum": 0
+    },
+    "distinctDocuments": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Files minus exact duplicates."
     },
     "byExtraction": {
       "type": "object",
@@ -103,6 +110,73 @@
           "reason": {
             "type": "string",
             "minLength": 1
+          }
+        }
+      }
+    },
+    "reconciliation": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "The intake receipt joined against the walked archive; null when the run was given no receipt.",
+      "additionalProperties": false,
+      "required": [
+        "receipts",
+        "matched",
+        "documentsWithoutReceipt",
+        "receiptsWithoutDocument",
+        "hashMismatches"
+      ],
+      "properties": {
+        "receipts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "matched": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "documentsWithoutReceipt": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "receiptsWithoutDocument": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "hashMismatches": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "relativePath",
+              "receiptSha256",
+              "archiveSha256"
+            ],
+            "properties": {
+              "relativePath": {
+                "type": "string",
+                "minLength": 1
+              },
+              "receiptSha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "archiveSha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
           }
         }
       }

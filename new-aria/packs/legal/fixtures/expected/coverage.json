@@ -1,6 +1,7 @@
 {
   "caseId": "synthetic-001",
   "totalFiles": 11,
+  "distinctDocuments": 11,
   "byExtraction": {
     "text": 8,
     "metadata_only": 2,
@@ -26,5 +27,6 @@
       "reason": "pdf_no_text_layer:1_pages"
     }
   ],
+  "reconciliation": null,
   "complete": true
 }

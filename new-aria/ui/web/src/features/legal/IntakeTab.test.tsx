@@ -13,7 +13,7 @@ import { IntakeReceipt } from './IntakeTab.tsx';
 
 function record(overrides: Partial<LegalIntakeRecord> & Pick<LegalIntakeRecord, 'relativePath' | 'sha256' | 'rowHash'>): LegalIntakeRecord {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     caseId: 'sak-24-001',
     fileName: overrides.relativePath,
     bytes: 2048,
@@ -21,9 +21,13 @@ function record(overrides: Partial<LegalIntakeRecord> & Pick<LegalIntakeRecord, 
     receivedBy: 'operator',
     sourceNote: null,
     previousRowHash: null,
+    keyId: 'abcdef0123456789',
+    signature: 'c2lnbmF0dXJl',
     ...overrides,
   };
 }
+
+const INTACT = { status: 'intact' as const, valid: true, rows: 2, brokenAt: null, reason: null, anchored: true, keyId: 'abcdef0123456789' };
 
 const FIRST = record({ relativePath: 'vedlegg/faktura_2024-001.pdf', sha256: 'a'.repeat(64), rowHash: 'c'.repeat(64) });
 const SECOND = record({
@@ -48,7 +52,7 @@ function response(overrides: Partial<LegalIntakeResponse> = {}): LegalIntakeResp
       createdBy: 'operator',
     },
     intake: [FIRST, SECOND],
-    chain: { valid: true, rows: 2, brokenAt: null, reason: null },
+    chain: INTACT,
     ...overrides,
   };
 }
@@ -85,7 +89,7 @@ describe('IntakeReceipt', () => {
   it('raises an alert naming the broken row and the reason when the receipt was edited', () => {
     render(
       <IntakeReceipt
-        data={response({ chain: { valid: false, rows: 2, brokenAt: 1, reason: 'row_hash_mismatch' } })}
+        data={response({ chain: { status: 'broken', valid: false, rows: 2, brokenAt: 1, reason: 'row_hash_mismatch', anchored: false, keyId: 'abcdef0123456789' } })}
       />,
     );
     expect(screen.getByText('Receipt chain').nextElementSibling?.textContent).toBe('broken');
@@ -103,9 +107,25 @@ describe('IntakeReceipt', () => {
     expect(screen.queryByText('Custody')).toBeNull();
   });
 
-  it('explains an empty receipt rather than printing an empty table', () => {
-    render(<IntakeReceipt data={response({ intake: [], chain: { valid: true, rows: 0, brokenAt: null, reason: null } })} />);
+  it('explains an empty receipt rather than printing an empty table, and never calls it intact', () => {
+    render(<IntakeReceipt data={response({ intake: [], chain: { status: 'empty', valid: true, rows: 0, brokenAt: null, reason: null, anchored: false, keyId: 'abcdef0123456789' } })} />);
     expect(screen.getByText('Nothing has been taken in yet')).toBeDefined();
     expect(screen.getByText('Documents received').nextElementSibling?.textContent).toBe('0');
+    // MEASURED 2026-09-04: zero rows used to read "intact". An empty receipt
+    // proves nothing, and the console must not lend it the word.
+    expect(screen.getByText('Receipt chain').nextElementSibling?.textContent).toBe('empty');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('names the head commitment, not a row, when the ledger was cut short or re-written', () => {
+    render(
+      <IntakeReceipt
+        data={response({ chain: { status: 'broken', valid: false, rows: 2, brokenAt: null, reason: 'head_mismatch:truncated', anchored: false, keyId: 'abcdef0123456789' } })}
+      />,
+    );
+    const alert = screen.getByRole('alert');
+    expect(alert.textContent).toContain('The signed head commitment');
+    expect(alert.textContent).toContain('head_mismatch:truncated');
+    expect(alert.textContent).not.toContain('Row 1');
   });
 });

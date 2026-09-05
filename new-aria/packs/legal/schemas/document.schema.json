@@ -22,7 +22,8 @@
     "datesMentioned",
     "amountsMentioned",
     "versionGroupId",
-    "excludedReason"
+    "excludedReason",
+    "duplicateOf"
   ],
   "properties": {
     "documentId": {
@@ -134,6 +135,14 @@
         "string",
         "null"
       ]
+    },
+    "duplicateOf": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^doc_[0-9a-f]{16}$",
+      "description": "The document whose bytes this file repeats exactly (same sha256 under another name), or null. A duplicate derives no records of its own."
     }
   },
   "allOf": [

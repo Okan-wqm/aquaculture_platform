@@ -44,6 +44,11 @@ export interface ServerConfig {
   readonly legalCasesDir: string;
   /** Largest single document accepted at intake. */
   readonly maxUploadBytes: number;
+  /**
+   * The Ed25519 key the console signs its custody ledgers with. It lives on
+   * the volume, never in the image; created on first boot when absent.
+   */
+  readonly ledgerKeyFile: string;
   /** The instance manifest, when one is configured; null means none. */
   readonly instancePolicy: InstancePolicy | null;
 }
@@ -134,6 +139,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     // its own root; it defaults beside the workspaces rather than inside them.
     legalCasesDir: resolve(env['ARIA_LEGAL_CASES_DIR']?.trim() || resolve(toolsDir, '..', 'legal-cases')),
     maxUploadBytes: integer(env, 'ARIA_UI_MAX_UPLOAD_BYTES', 512 * 1024 * 1024, 1024, 8 * 1024 * 1024 * 1024),
+    // Beside the ledgers it signs, on the durable volume, never under the corpus.
+    ledgerKeyFile: resolve(env['ARIA_UI_LEDGER_KEY_FILE']?.trim() || resolve(toolsDir, '..', 'keys', 'ledger-ed25519.pem')),
     instancePolicy,
   });
 }

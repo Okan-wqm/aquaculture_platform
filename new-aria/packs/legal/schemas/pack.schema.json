@@ -180,7 +180,9 @@
           "amount_contradiction",
           "missing_evidence",
           "unreadable_document",
-          "party_identity_ambiguity"
+          "party_identity_ambiguity",
+          "document_without_receipt",
+          "intake_hash_mismatch"
         ]
       }
     },
@@ -242,7 +244,9 @@
                 "amount_contradiction",
                 "missing_evidence",
                 "unreadable_document",
-                "party_identity_ambiguity"
+                "party_identity_ambiguity",
+                "document_without_receipt",
+                "intake_hash_mismatch"
               ]
             }
           }
@@ -285,7 +289,9 @@
                 "amount_contradiction",
                 "missing_evidence",
                 "unreadable_document",
-                "party_identity_ambiguity"
+                "party_identity_ambiguity",
+                "document_without_receipt",
+                "intake_hash_mismatch"
               ]
             }
           },

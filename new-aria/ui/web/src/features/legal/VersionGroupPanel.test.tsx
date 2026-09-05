@@ -34,6 +34,7 @@ function legalDocument(documentId: string, fileName: string): LegalDocument {
     amountsMentioned: [],
     versionGroupId: 'vg_0123456789ab',
     excludedReason: null,
+    duplicateOf: null,
   };
 }
 

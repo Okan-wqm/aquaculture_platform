@@ -34819,6 +34819,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/orchestrator/2026-09-05-production-readiness-gaps.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/orphan-findings.md",
       "prettier_managed": true
     },

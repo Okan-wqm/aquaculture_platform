@@ -1,7 +1,12 @@
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import * as crypto from 'crypto';
 
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan, In } from 'typeorm';
 import { safeSortField, safeSortOrder } from '@aquaculture/backend-common/pagination';
@@ -78,6 +83,7 @@ export class ErrorTrackingService {
     private readonly groupRepo: Repository<ErrorGroup>,
     @InjectRepository(ErrorAlertRule)
     private readonly alertRuleRepo: Repository<ErrorAlertRule>,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {
     // Register default notification handlers
     this.registerNotificationHandler('email', this.sendEmailNotification.bind(this));
@@ -807,7 +813,11 @@ export class ErrorTrackingService {
   // Alert cooldowns
   // ============================================================================
 
-  @Cron(CronExpression.EVERY_HOUR)
+  @ScheduledJob({
+    name: 'error-tracking.clear-expired-cooldowns',
+    cron: CronExpression.EVERY_HOUR,
+    scope: 'each-replica',
+  })
   async clearExpiredCooldowns(): Promise<void> {
     const now = Date.now();
     for (const [key, timestamp] of this.alertCooldowns.entries()) {

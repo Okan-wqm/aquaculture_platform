@@ -1,7 +1,12 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, LessThan, LessThanOrEqual, IsNull } from 'typeorm';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { CronExpression } from '@nestjs/schedule';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, In, IsNull, LessThan, LessThanOrEqual, Repository } from 'typeorm';
 
 import {
   BackgroundJob,
@@ -83,6 +88,9 @@ export class JobQueueService {
     private readonly logRepo: Repository<JobExecutionLog>,
     @InjectRepository(JobQueue)
     private readonly queueRepo: Repository<JobQueue>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {
     this.workerId = `worker-${Date.now()}-${Math.random().toString(36).substring(7)}`;
   }
@@ -234,7 +242,7 @@ export class JobQueueService {
   // Job Processing
   // ============================================================================
 
-  @Cron(CronExpression.EVERY_10_SECONDS)
+  @ScheduledJob({ name: 'job-queue.process-jobs', cron: CronExpression.EVERY_10_SECONDS })
   async processJobs(): Promise<void> {
     if (this.isProcessing) return;
 
@@ -254,67 +262,94 @@ export class JobQueueService {
   }
 
   private async processQueueJobs(queue: JobQueue): Promise<void> {
-    // Check concurrency
     const runningCount = await this.jobRepo.count({
       where: { queueName: queue.name, status: JobStatus.RUNNING },
     });
-
     if (runningCount >= queue.concurrency) return;
 
-    const availableSlots = queue.concurrency - runningCount;
-    const now = new Date();
-
-    // Get jobs ready to process
-    const jobs = await this.jobRepo
-      .createQueryBuilder('j')
-      .where('j.queueName = :queueName', { queueName: queue.name })
-      .andWhere('j.status IN (:...statuses)', {
-        statuses: [JobStatus.PENDING, JobStatus.SCHEDULED, JobStatus.RETRYING],
-      })
-      .andWhere('(j.scheduledAt IS NULL OR j.scheduledAt <= :now)', { now })
-      .andWhere('(j.nextRetryAt IS NULL OR j.nextRetryAt <= :now)', { now })
-      .andWhere('j.isPaused = false')
-      .orderBy('j.priority', 'DESC')
-      .addOrderBy('j.createdAt', 'ASC')
-      .take(availableSlots)
-      .getMany();
-
-    for (const job of jobs) {
-      // Check dependencies
-      if (job.dependencies && job.dependencies.length > 0) {
-        const pendingDeps = await this.jobRepo.count({
-          where: {
-            id: In(job.dependencies),
-            status: In([
-              JobStatus.PENDING,
-              JobStatus.RUNNING,
-              JobStatus.SCHEDULED,
-              JobStatus.RETRYING,
-            ]),
-          },
-        });
-        if (pendingDeps > 0) continue;
-      }
-
+    const claimed = await this.claimReadyJobs(queue.name, queue.concurrency - runningCount);
+    for (const job of claimed) {
       await this.executeJob(job);
     }
+  }
+
+  /**
+   * Claim up to `slots` ready jobs atomically (ADMIN-HIGH-013).
+   *
+   * The candidate rows are selected `FOR UPDATE SKIP LOCKED` and moved to
+   * RUNNING inside the same transaction, so two replicas — or one replica's
+   * overlapping ticks — can never execute the same job: a row another
+   * transaction holds is skipped, not waited for, and a row this transaction
+   * claims is RUNNING before anyone else can see it as ready. Jobs whose
+   * dependencies are still open are left unclaimed (their lock is released at
+   * commit) and picked up by a later tick.
+   */
+  private async claimReadyJobs(queueName: string, slots: number): Promise<BackgroundJob[]> {
+    if (slots <= 0) return [];
+    return this.dataSource.transaction(async (manager) => {
+      const now = new Date();
+      const candidates = await manager
+        .createQueryBuilder(BackgroundJob, 'j')
+        .setLock('pessimistic_write')
+        .setOnLocked('skip_locked')
+        .where('j.queueName = :queueName', { queueName })
+        .andWhere('j.status IN (:...statuses)', {
+          statuses: [JobStatus.PENDING, JobStatus.SCHEDULED, JobStatus.RETRYING],
+        })
+        .andWhere('(j.scheduledAt IS NULL OR j.scheduledAt <= :now)', { now })
+        .andWhere('(j.nextRetryAt IS NULL OR j.nextRetryAt <= :now)', { now })
+        .andWhere('j.isPaused = false')
+        .orderBy('j.priority', 'DESC')
+        .addOrderBy('j.createdAt', 'ASC')
+        .take(slots)
+        .getMany();
+
+      const claimed: BackgroundJob[] = [];
+      for (const job of candidates) {
+        // A job with no handler in this process is left for a replica that has
+        // one; claiming it would park it in RUNNING with nobody to run it.
+        if (!this.jobHandlers.has(job.name)) continue;
+        if (job.dependencies && job.dependencies.length > 0) {
+          const pendingDeps = await manager.count(BackgroundJob, {
+            where: {
+              id: In(job.dependencies),
+              status: In([
+                JobStatus.PENDING,
+                JobStatus.RUNNING,
+                JobStatus.SCHEDULED,
+                JobStatus.RETRYING,
+              ]),
+            },
+          });
+          if (pendingDeps > 0) continue;
+        }
+        job.status = JobStatus.RUNNING;
+        job.startedAt = now;
+        job.attempts += 1;
+        job.workerId = this.workerId;
+        claimed.push(await manager.save(BackgroundJob, job));
+      }
+      return claimed;
+    });
   }
 
   private async executeJob(job: BackgroundJob): Promise<void> {
     const handler = this.jobHandlers.get(job.name);
     if (!handler) {
-      this.logger.warn(`No handler registered for job: ${job.name}`);
+      // Unreachable after claimReadyJobs, which only claims jobs this process
+      // can run; if it ever happens the row must not stay RUNNING forever.
+      job.status = JobStatus.FAILED;
+      job.errorMessage = `No handler registered for job: ${job.name}`;
+      job.completedAt = new Date();
+      await this.jobRepo.save(job);
+      this.logger.error(job.errorMessage);
       return;
     }
 
     const startTime = Date.now();
 
-    // Mark job as running
-    job.status = JobStatus.RUNNING;
-    job.startedAt = new Date();
-    job.attempts++;
-    job.workerId = this.workerId;
-    await this.jobRepo.save(job);
+    // The job arrives already claimed (RUNNING, attempts advanced, worker set)
+    // by claimReadyJobs' locked transaction; this method only executes it.
 
     // Create execution log
     const log = this.logRepo.create({
@@ -742,7 +777,7 @@ export class JobQueueService {
     return result.affected || 0;
   }
 
-  @Cron(CronExpression.EVERY_MINUTE)
+  @ScheduledJob({ name: 'job-queue.schedule-recurring', cron: CronExpression.EVERY_MINUTE })
   async processScheduledRecurringJobs(): Promise<void> {
     const now = new Date();
 
@@ -766,7 +801,7 @@ export class JobQueueService {
     }
   }
 
-  @Cron(CronExpression.EVERY_5_MINUTES)
+  @ScheduledJob({ name: 'job-queue.detect-stuck', cron: CronExpression.EVERY_5_MINUTES })
   async detectStuckJobs(): Promise<void> {
     // Find jobs running longer than their timeout
     const stuckJobs = await this.jobRepo

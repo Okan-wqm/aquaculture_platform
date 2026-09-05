@@ -61,7 +61,7 @@ function rel(file: string): string {
 /** Bodies of every @Cron / @Interval / @Timeout method in a source file. */
 function scheduledMethodBodies(source: string): string[] {
   const bodies: string[] = [];
-  for (const match of source.matchAll(/@(?:Cron|Interval|Timeout)\(/g)) {
+  for (const match of source.matchAll(/@(?:Cron|Interval|Timeout|ScheduledJob)\(/g)) {
     const start = match.index ?? 0;
     // A method at class-member indentation ends at the first "\n  }\n".
     const end = source.indexOf('\n  }\n', start);

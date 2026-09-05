@@ -4,8 +4,9 @@
  * Destek ticket sistemi - SLA tracking, önceliklendirme, atama.
  */
 
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { ScheduledJob, ScheduledJobRunner, type ScheduledJobExecutor } from '@aquaculture/backend-common/scheduling';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, LessThan, IsNull, Not } from 'typeorm';
 
@@ -45,6 +46,7 @@ export class TicketService {
     private readonly ticketRepository: Repository<SupportTicket>,
     @InjectRepository(TicketComment)
     private readonly commentRepository: Repository<TicketComment>,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   // ============================================================================
@@ -533,7 +535,7 @@ export class TicketService {
   /**
    * Check SLA breaches (runs every 5 minutes)
    */
-  @Cron(CronExpression.EVERY_5_MINUTES)
+  @ScheduledJob({ name: 'support-tickets.check-sla-breaches', cron: CronExpression.EVERY_5_MINUTES })
   async checkSLABreaches(): Promise<void> {
     const now = new Date();
 

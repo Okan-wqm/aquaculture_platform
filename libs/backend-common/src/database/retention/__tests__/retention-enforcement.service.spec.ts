@@ -2,8 +2,9 @@ import 'reflect-metadata';
 import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
 import type { DataSource } from 'typeorm';
 
-import { clearRetentionPolicyRegistry, registerRetentionPolicy } from '../retention-policy';
+import { DEFAULT_DELETE_BATCH_SIZE } from '../../batched-delete';
 import { RetentionEnforcementService } from '../retention-enforcement.service';
+import { clearRetentionPolicyRegistry, registerRetentionPolicy } from '../retention-policy';
 
 @Entity('migration_events', { schema: 'observability' })
 class MigrationEventFixture {
@@ -139,7 +140,8 @@ describe('RetentionEnforcementService', () => {
     expect(calls[0]!.sql).toContain('RETURNING 1');
     // Cutoff = 2026-04-21 - 395d
     const expectedCutoff = new Date(now.getTime() - 395 * 86_400_000).toISOString();
-    expect(calls[0]!.params).toEqual([expectedCutoff]);
+    expect(calls[0]?.sql).toContain('ctid = ANY(ARRAY(SELECT ctid FROM');
+    expect(calls[0]?.params).toEqual([expectedCutoff, DEFAULT_DELETE_BATCH_SIZE]);
   });
 
   it('legal-hold predicate AND-NOT wraps into WHERE; hold rows preserved', async () => {
@@ -277,6 +279,7 @@ describe('RetentionEnforcementService — equality filters (ADR-0012)', () => {
     expect(calls[0]!.params).toEqual([
       new Date(now.getTime() - 30 * 86_400_000).toISOString(),
       'completed',
+      DEFAULT_DELETE_BATCH_SIZE,
     ]);
   });
 });

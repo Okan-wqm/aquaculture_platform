@@ -1,8 +1,20 @@
+import {
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
 import { ErrorAlertRule, ErrorGroup, ErrorOccurrence } from '../../entities/error-tracking.entity';
 import { ErrorTrackingService } from '../error-tracking.service';
+
+/** ADMIN-HIGH-013: scheduled ticks run through the kernel runner; these suites exercise the bodies. */
+const passThroughScheduledJobs: ScheduledJobExecutor = {
+  run: async (_job, body) => {
+    await body();
+    return 'ran';
+  },
+};
 
 const MALICIOUS_SORT = 'createdAt) DESC; SELECT pg_sleep(1); --';
 
@@ -24,6 +36,7 @@ describe('ErrorTrackingService sort safety', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ErrorTrackingService,
+        { provide: ScheduledJobRunner, useValue: passThroughScheduledJobs },
         { provide: getRepositoryToken(ErrorOccurrence), useValue: {} },
         {
           provide: getRepositoryToken(ErrorGroup),

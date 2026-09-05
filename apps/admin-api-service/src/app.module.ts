@@ -11,6 +11,7 @@ import {
 import { LoggingModule } from '@aquaculture/backend-common/logging';
 import { StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
 import { ServiceMetricsModule } from '@aquaculture/backend-common/metrics';
+import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
 import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
 import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
 import {
@@ -200,6 +201,9 @@ const getAdminStoragePort = (configService: ConfigService): number => {
     CircuitBreakerModule,
     // Schedule module — single forRoot() for the entire service
     ScheduleModule.forRoot(),
+    // ADMIN-HIGH-013: every @ScheduledJob tick takes a per-(service, job)
+    // advisory lock and reports a heartbeat through this runner.
+    ScheduledJobModule.forRoot({ serviceName: 'admin-api-service' }),
     // NATS Event Bus for cross-service event publishing
     EventBusModule.forRootAsync({
       imports: [ConfigModule],

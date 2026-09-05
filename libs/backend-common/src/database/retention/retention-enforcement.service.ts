@@ -37,6 +37,8 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
+import { deleteInBatches } from '../batched-delete';
+
 import { listRetentionPolicies, type RetentionPolicy } from './retention-policy';
 
 export interface RetentionEnforcementReport {
@@ -135,16 +137,20 @@ export class RetentionEnforcementService {
       params.push(filter.value);
       filterSql += ` AND "${filter.column}" = $${params.length}`;
     }
-    // RETURNING 1 — same pattern as backfillColumn. TypeORM's
-    // PostgresQueryRunner.query returns the result rows array;
-    // rows.length is the portable row-count observation.
-    const sql =
-      `DELETE FROM ${quotedSchema}.${quotedTable} ` +
-      `WHERE ${baseWhere}${legalHold}${filterSql} ` +
-      `RETURNING 1`;
-    const result = await this.dataSource.query(sql, params);
-    if (Array.isArray(result)) return result.length;
-    return 0;
+    // Bounded batches addressed by ctid (ADMIN-HIGH-013): a year of rows is
+    // never one statement, one lock set and one WAL burst. RETURNING 1 rows
+    // are the portable row-count observation.
+    const { deleted, capped } = await deleteInBatches(this.dataSource, {
+      qualifiedTable: `${quotedSchema}.${quotedTable}`,
+      where: `${baseWhere}${legalHold}${filterSql}`,
+      params,
+    });
+    if (capped) {
+      this.logger.warn(
+        `retention [${p.id}] stopped at the per-run batch cap with rows still past cutoff; the next run continues`,
+      );
+    }
+    return deleted;
   }
 
   private cutoffFor(p: RetentionPolicy, now: Date): Date {

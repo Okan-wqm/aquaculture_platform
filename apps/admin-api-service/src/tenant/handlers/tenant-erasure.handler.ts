@@ -1,3 +1,8 @@
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import { LegalHoldService } from '@aquaculture/backend-common/compliance';
 import {
   createCleanupDropProof,
@@ -13,7 +18,6 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
-import { Interval } from '@nestjs/schedule';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
 import {
@@ -253,6 +257,7 @@ export class TenantErasureProofHandler implements IEventHandler<ErasureProofEven
     private readonly outboxPublisher: TenantErasureOutboxPublisher,
     @Inject(LegalHoldService)
     private readonly legalHoldService: TenantErasureLegalHoldService,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -301,7 +306,7 @@ export class TenantErasureProofHandler implements IEventHandler<ErasureProofEven
     );
   }
 
-  @Interval(30_000)
+  @ScheduledJob({ name: 'tenant-erasure.poll-schema-deletion', every: 30_000 })
   async pollSchemaDeletionCompletion(): Promise<void> {
     const operations = queryRowsNormalized<{ id: string; tenantId: string }>(
       await this.dataSource.query(
@@ -342,7 +347,7 @@ export class TenantErasureProofHandler implements IEventHandler<ErasureProofEven
    * heartbeat moves only after the replacement outbox row is durable in the
    * same transaction, so a failed enqueue remains immediately recoverable.
    */
-  @Interval(30_000)
+  @ScheduledJob({ name: 'tenant-erasure.recover-stale-requests', every: 30_000 })
   async recoverStaleErasureRequests(): Promise<void> {
     await this.dataSource.transaction(async (manager) => {
       const operations = queryRowsNormalized<TenantErasureRecoveryRow>(

@@ -4,8 +4,9 @@
  * Platform duyuru sistemi - global ve hedefli duyurular.
  */
 
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { ScheduledJob, ScheduledJobRunner, type ScheduledJobExecutor } from '@aquaculture/backend-common/scheduling';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThanOrEqual, MoreThanOrEqual, In } from 'typeorm';
 
@@ -30,6 +31,7 @@ export class AnnouncementService {
     private readonly announcementRepository: Repository<Announcement>,
     @InjectRepository(AnnouncementAcknowledgment)
     private readonly acknowledgmentRepository: Repository<AnnouncementAcknowledgment>,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   // ============================================================================
@@ -408,7 +410,7 @@ export class AnnouncementService {
   /**
    * Publish scheduled announcements
    */
-  @Cron(CronExpression.EVERY_MINUTE)
+  @ScheduledJob({ name: 'announcements.publish-scheduled', cron: CronExpression.EVERY_MINUTE })
   async publishScheduledAnnouncements(): Promise<void> {
     const now = new Date();
 
@@ -429,7 +431,7 @@ export class AnnouncementService {
   /**
    * Expire old announcements
    */
-  @Cron(CronExpression.EVERY_HOUR)
+  @ScheduledJob({ name: 'announcements.expire', cron: CronExpression.EVERY_HOUR })
   async expireAnnouncements(): Promise<void> {
     const now = new Date();
 

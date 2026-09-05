@@ -1,3 +1,7 @@
+import {
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import { ConflictException, Logger } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
@@ -13,6 +17,14 @@ import { TenantProvisioningService } from './tenant-provisioning.service';
 import { TenantProvisioningWorkflowService } from './tenant-provisioning-workflow.service';
 
 import { OutboxPublisher } from '@platform/outbox';
+
+/** ADMIN-HIGH-013: scheduled ticks run through the kernel runner; these suites exercise the bodies. */
+const passThroughScheduledJobs: ScheduledJobExecutor = {
+  run: async (_job, body) => {
+    await body();
+    return 'ran';
+  },
+};
 
 /**
  * Regression guard for ORPHAN-HIGH-214 / the 2026-06 tenant-create-500.
@@ -67,6 +79,7 @@ describe('TenantProvisioningWorkflowService — duplicate pre-check is unlocked 
     const moduleRef = await Test.createTestingModule({
       providers: [
         TenantProvisioningWorkflowService,
+        { provide: ScheduledJobRunner, useValue: passThroughScheduledJobs },
         { provide: getDataSourceToken(), useValue: mockDataSource },
         { provide: OutboxPublisher, useValue: {} },
         { provide: AuditLogService, useValue: {} },
@@ -183,6 +196,7 @@ describe('TenantProvisioningWorkflowService.reconcileTenantSubscription', () => 
     const moduleRef = await Test.createTestingModule({
       providers: [
         TenantProvisioningWorkflowService,
+        { provide: ScheduledJobRunner, useValue: passThroughScheduledJobs },
         { provide: getDataSourceToken(), useValue: mockDataSource },
         { provide: OutboxPublisher, useValue: {} },
         { provide: AuditLogService, useValue: {} },
@@ -403,6 +417,7 @@ describe('TenantProvisioningWorkflowService — ledger vs physical reality (ORPH
     const moduleRef = await Test.createTestingModule({
       providers: [
         TenantProvisioningWorkflowService,
+        { provide: ScheduledJobRunner, useValue: passThroughScheduledJobs },
         {
           provide: getDataSourceToken(),
           useValue: {

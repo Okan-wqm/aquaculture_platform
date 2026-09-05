@@ -5,8 +5,9 @@
  * compliance reporting, and data governance.
  */
 
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { ScheduledJob, ScheduledJobRunner, type ScheduledJobExecutor } from '@aquaculture/backend-common/scheduling';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, LessThan, MoreThan, In } from 'typeorm';
 
@@ -171,6 +172,7 @@ export class ComplianceService {
     private readonly activityRepository: Repository<ActivityLog>,
     @InjectRepository(SecurityIncident)
     private readonly incidentRepository: Repository<SecurityIncident>,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   // ============================================================================
@@ -909,7 +911,7 @@ export class ComplianceService {
   /**
    * Check for overdue requests and send reminders
    */
-  @Cron(CronExpression.EVERY_DAY_AT_9AM)
+  @ScheduledJob({ name: 'compliance.check-overdue-requests', cron: CronExpression.EVERY_DAY_AT_9AM })
   async checkOverdueRequests(): Promise<void> {
     const overdue = await this.getOverdueRequests();
 
@@ -930,7 +932,7 @@ export class ComplianceService {
   /**
    * Auto-generate monthly compliance reports
    */
-  @Cron('0 0 1 * *') // First day of each month
+  @ScheduledJob({ name: 'compliance.monthly-reports', cron: '0 0 1 * *' }) // First day of each month
   async generateMonthlyReports(): Promise<void> {
     this.logger.log('Generating monthly compliance reports...');
 
@@ -953,7 +955,7 @@ export class ComplianceService {
   /**
    * Expire old download URLs
    */
-  @Cron(CronExpression.EVERY_HOUR)
+  @ScheduledJob({ name: 'compliance.expire-download-urls', cron: CronExpression.EVERY_HOUR })
   async expireDownloadUrls(): Promise<void> {
     const result = await this.dataRequestRepository
       .createQueryBuilder()

@@ -20,6 +20,9 @@ export {
 } from './query-result-normalizer';
 export type { NormalizedQueryResult, StringColumnRow } from './query-result-normalizer';
 
+// Bounded, ctid-addressed age-based disposal (ADMIN-HIGH-013).
+export * from './batched-delete';
+
 // Source Schema Bootstrap
 export * from './source-schema-bootstrap.service';
 

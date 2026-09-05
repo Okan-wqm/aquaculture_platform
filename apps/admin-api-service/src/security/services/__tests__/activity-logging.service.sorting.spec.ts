@@ -1,3 +1,7 @@
+import {
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
@@ -8,6 +12,14 @@ import {
   UserSession,
 } from '../../entities/security.entity';
 import { ActivityLoggingService } from '../activity-logging.service';
+
+/** ADMIN-HIGH-013: scheduled ticks run through the kernel runner; these suites exercise the bodies. */
+const passThroughScheduledJobs: ScheduledJobExecutor = {
+  run: async (_job, body) => {
+    await body();
+    return 'ran';
+  },
+};
 
 const MALICIOUS_SORT = 'createdAt) DESC; SELECT pg_sleep(1); --';
 
@@ -29,6 +41,7 @@ describe('ActivityLoggingService sort safety', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ActivityLoggingService,
+        { provide: ScheduledJobRunner, useValue: passThroughScheduledJobs },
         {
           provide: getRepositoryToken(ActivityLog),
           useValue: { createQueryBuilder: jest.fn().mockReturnValue(queryBuilder) },

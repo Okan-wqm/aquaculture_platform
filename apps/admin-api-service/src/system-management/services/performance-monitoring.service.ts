@@ -1,5 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, Between } from 'typeorm';
 import * as os from 'os';
@@ -156,6 +161,7 @@ export class PerformanceMonitoringService {
      * snapshot.
      */
     private readonly circuitBreaker: CircuitBreakerService,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   // ============================================================================
@@ -765,7 +771,7 @@ export class PerformanceMonitoringService {
   // Snapshots
   // ============================================================================
 
-  @Cron(CronExpression.EVERY_MINUTE)
+  @ScheduledJob({ name: 'performance.snapshot', cron: CronExpression.EVERY_MINUTE })
   async createPerformanceSnapshot(): Promise<void> {
     try {
       const [appMetrics, dbMetrics, infraMetrics, alerts] = await Promise.all([

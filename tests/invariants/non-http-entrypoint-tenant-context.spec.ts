@@ -66,7 +66,7 @@ const TENANT_SCOPED_SERVICES = [
   'alert-engine',
 ] as const;
 
-const ENTRY_POINT = /@(MessagePattern|EventPattern|Cron)\s*\(/;
+const ENTRY_POINT = /@(MessagePattern|EventPattern|Cron|Interval|Timeout|ScheduledJob)\s*\(/;
 const ORM_WRITE = /\.(save|insert|update|delete|softDelete|softRemove|remove|upsert)\s*\(/;
 const RAW_WRITE = /(INSERT\s+INTO|UPDATE\s+\w|DELETE\s+FROM)/i;
 

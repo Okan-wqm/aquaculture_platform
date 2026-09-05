@@ -5,8 +5,9 @@
  * incident response, and real-time security monitoring.
  */
 
-import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { ScheduledJob, ScheduledJobRunner, type ScheduledJobExecutor } from '@aquaculture/backend-common/scheduling';
+import { Inject, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, MoreThan, LessThan, Between, In } from 'typeorm';
 
@@ -131,6 +132,7 @@ export class SecurityMonitoringService implements OnModuleInit {
     private readonly apiUsageRepository: Repository<ApiUsageLog>,
     @InjectRepository(UserSession)
     private readonly sessionRepository: Repository<UserSession>,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -1086,7 +1088,7 @@ export class SecurityMonitoringService implements OnModuleInit {
   /**
    * Clean up old threat intelligence
    */
-  @Cron(CronExpression.EVERY_DAY_AT_4AM)
+  @ScheduledJob({ name: 'threat-intel.cleanup-expired', cron: CronExpression.EVERY_DAY_AT_4AM })
   async cleanupThreatIntelligence(): Promise<void> {
     const result = await this.threatIntelRepository.update(
       {
@@ -1104,7 +1106,7 @@ export class SecurityMonitoringService implements OnModuleInit {
   /**
    * Update threat intel feeds
    */
-  @Cron(CronExpression.EVERY_HOUR)
+  @ScheduledJob({ name: 'threat-intel.update-feeds', cron: CronExpression.EVERY_HOUR })
   async updateThreatFeeds(): Promise<void> {
     for (const feed of this.threatIntelFeeds) {
       if (!feed.isActive) continue;

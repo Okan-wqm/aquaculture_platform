@@ -1,14 +1,20 @@
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import * as crypto from 'crypto';
 
 import { getTenantSchemaName, queryRowsNormalized } from '@aquaculture/backend-common/database';
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { CronExpression } from '@nestjs/schedule';
 import { InjectDataSource } from '@nestjs/typeorm';
 import {
   createBaseEvent,
@@ -139,6 +145,7 @@ export class TenantProvisioningWorkflowService {
     private readonly authProvisioningClient: AuthTenantProvisioningClientService,
     private readonly billingCommandClient: BillingAdminCommandClientService,
     private readonly metrics: TenantProvisioningMetricsService,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   async createTenantOperation(
@@ -540,7 +547,10 @@ export class TenantProvisioningWorkflowService {
     }
   }
 
-  @Cron(CronExpression.EVERY_10_SECONDS)
+  @ScheduledJob({
+    name: 'tenant-provisioning.process-queued-operations',
+    cron: CronExpression.EVERY_10_SECONDS,
+  })
   async processQueuedOperations(): Promise<void> {
     if (this.processingQueue) return;
     this.processingQueue = true;

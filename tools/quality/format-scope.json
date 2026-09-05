@@ -2585,6 +2585,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/system-management/services/__tests__/job-queue.claim.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/system-management/services/error-tracking.service.ts",
       "prettier_managed": true
     },
@@ -37312,6 +37318,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/database/__tests__/batched-delete.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/database/__tests__/database-logging-resolution.spec.ts",
       "prettier_managed": true
     },
@@ -37529,6 +37541,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/database/base-migration.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/batched-delete.ts",
       "prettier_managed": true
     },
     {
@@ -39047,6 +39065,48 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/resilience/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/scheduling/__tests__/scheduled-job-runner.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/scheduling/__tests__/scheduled-job.decorator.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/scheduling/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/scheduling/scheduled-job-runner.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/scheduling/scheduled-job.decorator.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/scheduling/scheduled-job.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/scheduling/scheduled-job.registry.ts",
       "prettier_managed": true
     },
     {
@@ -44064,6 +44124,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/lib/scheduled-method-table.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/lint-quarantine-ssot.spec.ts",
       "prettier_managed": true
     },
@@ -44461,6 +44527,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/scada-storage-tenant-context.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/scheduled-jobs-leased.spec.ts",
       "prettier_managed": true
     },
     {

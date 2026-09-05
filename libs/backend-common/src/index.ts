@@ -99,6 +99,7 @@ export * from './logging';
 export * from './telemetry';
 export * from './metrics';
 export * from './orchestrator-leader-election';
+export * from './scheduling';
 export * from './orchestrator-rate-limit';
 export * from './security';
 export * from './pagination';

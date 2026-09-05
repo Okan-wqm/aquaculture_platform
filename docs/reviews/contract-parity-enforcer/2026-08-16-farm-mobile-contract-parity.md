@@ -71,6 +71,14 @@ silently narrows them back to closed TS unions with no runtime validation
 **State:** OPEN
 **Raised as:** `PARITY-LOW-010` by `contract-parity-enforcer` in
 cycle `2026-08-16-farm-mobile-agent-audit`
+**Registered as:** `FARM-HIGH-300` (2026-09-05, at the verifier's severity).
+`PARITY` is not a registry domain and the defect is a farm-service DTO
+contract, so it is registered under `FARM`. NOTE: the orchestrator cycle report
+`docs/reviews/orchestrator/2026-08-16-farm-mobile-audit-cycle.md` uses the
+label `FARM-HIGH-300` for a DIFFERENT, still-unregistered finding (fabricated
+AI feeding advice); that label was never allocated by the registry, and when
+it is registered it will receive a fresh number. The registry id is
+authoritative.
 **Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**

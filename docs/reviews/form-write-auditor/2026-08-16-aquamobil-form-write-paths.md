@@ -68,6 +68,9 @@ every measurement is rejected, and the offline lane still claims success
 **State:** OPEN
 **Raised as:** `PRODUCT-FORM-CRITICAL-001` by `form-write-auditor` in
 cycle `2026-08-16-farm-mobile-agent-audit`
+**Registered as:** `MOB-CRITICAL-018` (2026-09-05). `PRODUCT-*` is not a registry
+domain, so the finding — together with `PRODUCT-MOBILE-CRITICAL-001`, the same
+root cause filed by `mobile-app-auditor` — lives in the registry under `MOB`.
 **Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**

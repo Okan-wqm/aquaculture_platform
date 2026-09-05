@@ -1,3 +1,11 @@
+import {
+  CreateUserDto,
+  GrantPlatformCapabilityDto,
+  InviteUserRequestDto,
+  ListUsersQueryDto,
+  RevokePlatformCapabilityDto,
+  UpdateUserDto,
+} from './dto/users.dto';
 import { Destructive, RequiresCapability, TenantParam, TenantIdCarrier } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import { ThrottleSensitive } from '@aquaculture/backend-common/security';
@@ -56,181 +64,7 @@ import {
 } from './services/user-provisioning.service';
 import { UsersService, UserFilter, PaginatedUsers } from './users.service';
 
-/** ADR-0016 — grant one platform capability. The actor is the verified principal, never a body field. */
-export class GrantPlatformCapabilityDto {
-  @IsIn(PLATFORM_CAPABILITIES)
-  capability!: PlatformCapability;
-
-  /** ISO-8601. Required for `break-glass` (≤ 4 h), optional standing grants otherwise. */
-  @IsOptional()
-  @IsISO8601({ strict: true })
-  expiresAt?: string;
-
-  @IsString()
-  @MinLength(1)
-  @MaxLength(512)
-  reason!: string;
-}
-
-export class RevokePlatformCapabilityDto {
-  @IsString()
-  @MinLength(1)
-  @MaxLength(512)
-  reason!: string;
-}
-
 // Allowed sort fields whitelist for security
-const ALLOWED_SORT_FIELDS = ['createdAt', 'updatedAt', 'email', 'firstName', 'lastName', 'role'] as const;
-type SortField = typeof ALLOWED_SORT_FIELDS[number];
-
-export class CreateUserDto {
-  /** ADMIN-CRITICAL-009: whitelisted carrier key; the verified id arrives through @TenantParam('body'). */
-  @TenantIdCarrier()
-  readonly tenantId?: undefined;
-
-  @IsEmail({}, { message: 'Invalid email format' })
-  @MaxLength(255)
-  email!: string;
-
-  @IsString()
-  @MinLength(1)
-  @MaxLength(100)
-  firstName!: string;
-
-  @IsString()
-  @MinLength(1)
-  @MaxLength(100)
-  lastName!: string;
-
-  @IsString()
-  @MinLength(8, { message: 'Password must be at least 8 characters' })
-  @MaxLength(128)
-  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/, {
-    message: 'Password must contain uppercase, lowercase, number and special character',
-  })
-  password!: string;
-
-  @IsString()
-  @IsEnum(['SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER'], {
-    message: 'Invalid role',
-  })
-  role!: string;
-}
-
-export class UpdateUserDto {
-  /** ADMIN-CRITICAL-009: whitelisted carrier key; the verified id arrives through @TenantParam('body'). */
-  @TenantIdCarrier()
-  readonly tenantId?: undefined;
-
-  @IsOptional()
-  @IsString()
-  @MinLength(1)
-  @MaxLength(100)
-  firstName?: string;
-
-  @IsOptional()
-  @IsString()
-  @MinLength(1)
-  @MaxLength(100)
-  lastName?: string;
-
-  @IsOptional()
-  @IsString()
-  @IsEnum(['SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER'], {
-    message: 'Invalid role',
-  })
-  role?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  isActive?: boolean;
-}
-
-export class InviteUserRequestDto {
-  /** ADMIN-CRITICAL-009: whitelisted carrier key; the verified id arrives through @TenantParam('body'). */
-  @TenantIdCarrier()
-  readonly tenantId?: undefined;
-
-
-  @IsEmail({}, { message: 'Invalid email format' })
-  @MaxLength(255)
-  email!: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  firstName?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  lastName?: string;
-
-  @IsString()
-  @IsEnum(['TENANT_ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER'], {
-    message: 'Invalid role for invitation',
-  })
-  role!: string;
-
-  @IsOptional()
-  @IsArray()
-  @IsUUID('4', { each: true })
-  moduleIds?: string[];
-
-  @IsOptional()
-  @IsUUID('4')
-  primaryModuleId?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(1000)
-  message?: string;
-}
-
-// Query DTO for list users with validation
-export class ListUsersQueryDto {
-  @IsOptional()
-  @IsUUID('4')
-  tenantId?: string;
-
-  @IsOptional()
-  @IsString()
-  @IsEnum(['SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER'])
-  role?: string;
-
-  @IsOptional()
-  @IsEnum(['active', 'inactive', 'all'])
-  status?: 'active' | 'inactive' | 'all';
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  @Matches(/^[a-zA-Z0-9@._\-\s]*$/, { message: 'Invalid search characters' })
-  search?: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(1000)
-  page?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  limit?: number;
-
-  @IsOptional()
-  @IsString()
-  @IsEnum(ALLOWED_SORT_FIELDS, { message: 'Invalid sort field' })
-  sortBy?: SortField;
-
-  @IsOptional()
-  @IsEnum(['ASC', 'DESC'])
-  sortOrder?: 'ASC' | 'DESC';
-}
 
 @ApiTags('Users')
 @Controller('users')

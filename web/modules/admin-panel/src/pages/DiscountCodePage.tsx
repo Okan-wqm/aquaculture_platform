@@ -40,7 +40,6 @@ const DiscountCodePage: React.FC = () => {
     discountValue: 10,
     appliesTo: DiscountAppliesTo.ALL_PLANS,
     duration: DiscountDuration.ONCE,
-    createdBy: 'admin',
   });
 
   useEffect(() => {
@@ -92,8 +91,7 @@ const DiscountCodePage: React.FC = () => {
         discountValue: 10,
         appliesTo: DiscountAppliesTo.ALL_PLANS,
         duration: DiscountDuration.ONCE,
-        createdBy: 'admin',
-      });
+          });
       loadData();
     } catch (err) {
       setError((err as Error).message);
@@ -607,8 +605,7 @@ const DiscountCodePage: React.FC = () => {
                     discountValue: 10,
                     appliesTo: DiscountAppliesTo.ALL_PLANS,
                     duration: DiscountDuration.ONCE,
-                    createdBy: 'admin',
-                  });
+                                  });
                 }}
               >
                 Cancel

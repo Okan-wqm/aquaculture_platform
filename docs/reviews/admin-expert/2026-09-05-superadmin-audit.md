@@ -328,6 +328,32 @@ with thinner schemas than the artifact; closing it means adding the plugin to
 admin-panel with `services/types/*` deleted, the single `Paginated<T>` envelope, and retiring
 `contract-validation.spec.ts` with its `KNOWN_EXCEPTIONS`.
 
+**Implementation note — the generated client (landed 2026-09-07):**
+`web/modules/admin-panel/src/services/generated/admin-api.ts` is produced from the artifact by
+`openapi-typescript` (`nx run admin-panel:openapi-client`), and the parity gate now asserts that
+link too: a client regenerated from a stale artifact fails the same spec. Responses are typed as
+well as requests — moving the 56 DTO classes that were declared inside `*.controller.ts` files into
+sibling `dto/*.dto.ts` files was the precondition, because the `@nestjs/swagger` plugin visits a
+file EITHER as a controller (typing responses) or as a model (typing DTOs), never as both, so a DTO
+beside its routes cost that whole controller's response schemas. The artifact now carries 334 typed
+responses and 185 schemas, none empty. Consumption has started where it proves the most:
+`services/contract.ts` exposes `ApiSchema<'Name'>`, and eleven hand-written request types in
+`services/types/*` are now aliases of it. The compiler immediately found five real drifts that had
+been invisible, and each is fixed rather than cast away: the custom-plan builder and the discount
+page were sending a hardcoded `createdBy: 'admin'` (a fabricated actor the server now REFUSES,
+ADMIN-CRITICAL-008); the tenant-create form's tier union contained `custom`, which `POST /tenants`
+does not accept, so that path could only ever have 400'd; the tenant-detail edit form prefilled a
+`custom` tier into an update body that rejects it, and now leaves it unset behind an
+`isEditableTenantTier` guard; and two TypeScript `enum`s (`DiscountType`, `TenantProvisioningState`)
+were nominal, so their members were not assignable to the strings the API actually exchanges — both
+are now unions derived from the contract with a const object preserving every call site. Still open
+under this finding (owner okan, deadline 2026-12-31): the remaining sixteen hand-written types in
+`services/types/*` that shadow a generated schema (entities like `Tenant`, `SupportTicket`,
+`FeatureToggle`) are not yet aliased — each has a wide page-level blast radius and is its own
+change; the single `Paginated<T>` envelope; and retiring `contract-validation.spec.ts` with its
+`KNOWN_EXCEPTIONS`, which stays until those pages are migrated so the URL-shape check is not lost in
+the meantime.
+
 ## ADMIN-CRITICAL-102 — Actor from client strings; 273 mutations unaudited
 
 **State:** OPEN · **Wave:** W2

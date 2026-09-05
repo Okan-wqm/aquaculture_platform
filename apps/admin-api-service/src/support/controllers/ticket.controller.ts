@@ -5,6 +5,15 @@
  */
 
 import {
+  AddCommentDto,
+  AssignTicketDto,
+  ChangePriorityDto,
+  ChangeStatusDto,
+  CreateTicketDto,
+  SatisfactionRatingDto,
+  UpdateTicketDto,
+} from './dto/ticket.dto';
+import {
   RequiresCapability,
   TenantParam,
   TenantIdCarrier,
@@ -36,112 +45,6 @@ import {
   TicketAttachment,
 } from '../entities/support.entity';
 import { TicketService } from '../services/ticket.service';
-
-// ============================================================================
-// DTOs
-// ============================================================================
-
-class CreateTicketDto {
-  /** ADMIN-CRITICAL-009: whitelisted carrier key; the verified id arrives through @TenantParam('body'). */
-  @TenantIdCarrier()
-  readonly tenantId?: undefined;
-
-  @IsOptional()
-  @IsString()
-  tenantName?: string;
-
-  @IsString()
-  subject!: string;
-
-  @IsString()
-  description!: string;
-
-  @IsOptional()
-  @IsString()
-  category?: TicketCategory;
-
-  @IsOptional()
-  @IsString()
-  priority?: TicketPriority;
-
-  @IsOptional()
-  @IsArray()
-  tags?: string[];
-}
-
-class UpdateTicketDto {
-  @IsOptional()
-  @IsString()
-  subject?: string;
-
-  @IsOptional()
-  @IsString()
-  description?: string;
-
-  @IsOptional()
-  @IsString()
-  category?: TicketCategory;
-
-  @IsOptional()
-  @IsString()
-  priority?: TicketPriority;
-
-  @IsOptional()
-  @IsString()
-  status?: TicketStatus;
-
-  @IsOptional()
-  @IsArray()
-  tags?: string[];
-
-  @IsOptional()
-  @IsString()
-  dueAt?: string;
-}
-
-class AssignTicketDto {
-  @IsString()
-  assignedTo!: string;
-
-  @IsString()
-  assignedToName!: string;
-}
-
-class AddCommentDto {
-  @IsString()
-  content!: string;
-
-  @IsOptional()
-  @IsString()
-  authorName?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  isInternal?: boolean;
-
-  @IsOptional()
-  @IsArray()
-  attachments?: TicketAttachment[];
-}
-
-class ChangeStatusDto {
-  @IsString()
-  status!: TicketStatus;
-}
-
-class ChangePriorityDto {
-  @IsString()
-  priority!: TicketPriority;
-}
-
-class SatisfactionRatingDto {
-  @IsNumber()
-  rating!: number;
-
-  @IsOptional()
-  @IsString()
-  feedback?: string;
-}
 
 // ============================================================================
 // Controller

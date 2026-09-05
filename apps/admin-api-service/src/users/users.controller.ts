@@ -1,4 +1,4 @@
-import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
+import { Destructive, RequiresCapability, TenantParam, TenantIdCarrier } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import { ThrottleSensitive } from '@aquaculture/backend-common/security';
 import {
@@ -84,6 +84,10 @@ const ALLOWED_SORT_FIELDS = ['createdAt', 'updatedAt', 'email', 'firstName', 'la
 type SortField = typeof ALLOWED_SORT_FIELDS[number];
 
 export class CreateUserDto {
+  /** ADMIN-CRITICAL-009: whitelisted carrier key; the verified id arrives through @TenantParam('body'). */
+  @TenantIdCarrier()
+  readonly tenantId?: undefined;
+
   @IsEmail({}, { message: 'Invalid email format' })
   @MaxLength(255)
   email!: string;
@@ -111,13 +115,13 @@ export class CreateUserDto {
     message: 'Invalid role',
   })
   role!: string;
-
-  @IsOptional()
-  @IsUUID('4', { message: 'Invalid tenant ID format' })
-  tenantId?: string;
 }
 
 export class UpdateUserDto {
+  /** ADMIN-CRITICAL-009: whitelisted carrier key; the verified id arrives through @TenantParam('body'). */
+  @TenantIdCarrier()
+  readonly tenantId?: undefined;
+
   @IsOptional()
   @IsString()
   @MinLength(1)
@@ -138,17 +142,15 @@ export class UpdateUserDto {
   role?: string;
 
   @IsOptional()
-  @IsUUID('4', { message: 'Invalid tenant ID format' })
-  tenantId?: string;
-
-  @IsOptional()
   @IsBoolean()
   isActive?: boolean;
 }
 
 export class InviteUserRequestDto {
-  @IsUUID('4', { message: 'Invalid tenant ID format' })
-  tenantId!: string;
+  /** ADMIN-CRITICAL-009: whitelisted carrier key; the verified id arrives through @TenantParam('body'). */
+  @TenantIdCarrier()
+  readonly tenantId?: undefined;
+
 
   @IsEmail({}, { message: 'Invalid email format' })
   @MaxLength(255)
@@ -273,7 +275,7 @@ export class UsersController {
    */
   @Get('by-tenant/:tenantId')
   async getUsersByTenant(
-    @Param('tenantId', ParseUUIDPipe) tenantId: string,
+    @TenantParam('param') tenantId: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ): Promise<PaginatedUsers> {
@@ -343,6 +345,7 @@ export class UsersController {
   @Put(':id')
   async updateUser(
     @Param('id', ParseUUIDPipe) id: string,
+    @TenantParam('body', { optional: true, allow: 'any' }) tenantId: string | undefined,
     @Body() dto: UpdateUserDto,
   ) {
     return this.usersService.updateUser(id, dto);
@@ -412,7 +415,7 @@ export class UsersController {
    */
   @Get('tenant/:tenantId/limit')
   async checkUserLimit(
-    @Param('tenantId', ParseUUIDPipe) tenantId: string,
+    @TenantParam('param') tenantId: string,
   ): Promise<UserLimitCheckResult> {
     return this.userProvisioningService.checkUserLimit(tenantId);
   }
@@ -427,11 +430,12 @@ export class UsersController {
   @Post('invite')
   @HttpCode(HttpStatus.CREATED)
   async inviteUser(
+    @TenantParam('body') tenantId: string,
     @Body() dto: InviteUserRequestDto,
     @Req() req: { user: { id: string } },
   ) {
     const result = await this.userProvisioningService.inviteUser({
-      tenantId: dto.tenantId,
+      tenantId,
       email: dto.email,
       firstName: dto.firstName,
       lastName: dto.lastName,

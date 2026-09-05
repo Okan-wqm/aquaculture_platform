@@ -43,5 +43,8 @@ export declare const rules: {
     'no-actor-in-input-dto': import("@typescript-eslint/utils/ts-eslint").RuleModule<"actorFromClient", [], unknown, import("@typescript-eslint/utils/ts-eslint").RuleListener> & {
         name: string;
     };
+    'no-unverified-tenant-param': import("@typescript-eslint/utils/ts-eslint").RuleModule<"rawTenantParam" | "tenantInInputDto", [], unknown, import("@typescript-eslint/utils/ts-eslint").RuleListener> & {
+        name: string;
+    };
 };
 //# sourceMappingURL=index.d.ts.map

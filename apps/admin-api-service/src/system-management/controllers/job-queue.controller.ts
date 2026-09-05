@@ -1,4 +1,4 @@
-import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
+import { Destructive, RequiresCapability, TenantParam, TenantIdCarrier } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -53,6 +53,10 @@ class CreateQueueDto {
 }
 
 class CreateJobDto {
+  /** ADMIN-CRITICAL-009: whitelisted carrier key; the verified id arrives through @TenantParam('body'). */
+  @TenantIdCarrier()
+  readonly tenantId?: undefined;
+
   @IsString()
   name!: string;
 
@@ -90,10 +94,6 @@ class CreateJobDto {
   @IsOptional()
   @IsObject()
   retryPolicy?: JobRetryPolicy;
-
-  @IsOptional()
-  @IsString()
-  tenantId?: string;
 
   @IsOptional()
   @IsString()
@@ -145,6 +145,10 @@ class UpdateQueueDto {
 }
 
 class ScheduleJobDto {
+  /** ADMIN-CRITICAL-009: whitelisted carrier key; the verified id arrives through @TenantParam('body'). */
+  @TenantIdCarrier()
+  readonly tenantId?: undefined;
+
   @IsString()
   name!: string;
 
@@ -180,10 +184,6 @@ class ScheduleJobDto {
 
   @IsOptional()
   @IsString()
-  tenantId?: string;
-
-  @IsOptional()
-  @IsString()
   userId?: string;
 
   @IsOptional()
@@ -200,6 +200,10 @@ class ScheduleJobDto {
 }
 
 class RecurringJobDto {
+  /** ADMIN-CRITICAL-009: whitelisted carrier key; the verified id arrives through @TenantParam('body'). */
+  @TenantIdCarrier()
+  readonly tenantId?: undefined;
+
   @IsString()
   name!: string;
 
@@ -232,10 +236,6 @@ class RecurringJobDto {
   @IsOptional()
   @IsObject()
   retryPolicy?: JobRetryPolicy;
-
-  @IsOptional()
-  @IsString()
-  tenantId?: string;
 
   @IsOptional()
   @IsString()
@@ -371,9 +371,10 @@ export class JobQueueController {
   @RequiresCapability('security-ops')
   @Post('schedule')
   async scheduleJob(
+    @TenantParam('body', { optional: true, allow: 'any' }) tenantId: string | undefined,
     @Body() dto: ScheduleJobDto,
   ) {
-    const { scheduledAt: scheduledAtStr, ...rest } = dto;
+    const { scheduledAt: scheduledAtStr, ...rest } = { ...dto, tenantId };
     const definition: JobDefinition = rest;
     return this.jobQueueService.scheduleJob(definition, new Date(scheduledAtStr));
   }
@@ -382,9 +383,10 @@ export class JobQueueController {
   @RequiresCapability('security-ops')
   @Post('recurring')
   async scheduleRecurringJob(
+    @TenantParam('body', { optional: true, allow: 'any' }) tenantId: string | undefined,
     @Body() dto: RecurringJobDto,
   ) {
-    const { cronExpression, ...rest } = dto;
+    const { cronExpression, ...rest } = { ...dto, tenantId };
     const definition: JobDefinition = rest;
     return this.jobQueueService.scheduleRecurringJob(definition, cronExpression);
   }
@@ -394,7 +396,7 @@ export class JobQueueController {
     @Query('queueName') queueName?: string,
     @Query('status') status?: JobStatus,
     @Query('jobType') jobType?: JobType,
-    @Query('tenantId') tenantId?: string,
+    @TenantParam('query', { optional: true }) tenantId?: string,
     @Query('tags') tags?: string,
     @Query('search') search?: string,
     @Query('page') page?: number,

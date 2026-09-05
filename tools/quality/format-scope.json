@@ -2945,6 +2945,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/tenant/tenant-lookup.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/tenant/tenant.controller.ts",
       "prettier_managed": true
     },
@@ -38448,6 +38454,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/compliance/tenant-erasure/__tests__/tenant-erasure-table-policy.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/compliance/tenant-erasure/__tests__/tenant-erasure-target-executor.cascade.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/compliance/tenant-erasure/__tests__/tenant-erasure-target-executor.hooks.spec.ts",
       "prettier_managed": true
     },
@@ -38473,6 +38491,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/compliance/tenant-erasure/tenant-erasure-subscription.options.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/compliance/tenant-erasure/tenant-erasure-table-policy.ts",
       "prettier_managed": true
     },
     {
@@ -39577,6 +39601,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/decorators/roles.decorator.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/decorators/tenant-param.decorator.ts",
       "prettier_managed": true
     },
     {
@@ -40734,6 +40764,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/tenant/__tests__/verified-tenant.pipe.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/tenant/constants.ts",
       "prettier_managed": true
     },
@@ -40741,6 +40777,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/tenant/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/tenant/verified-tenant.pipe.ts",
       "prettier_managed": true
     },
     {
@@ -44834,6 +44876,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/admin-tenant-param-verified.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/adoption-invariants.spec.ts",
       "prettier_managed": true
     },
@@ -46358,6 +46406,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/tenant-erasure-table-policy.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/tenant-execution-context-registered.spec.ts",
       "prettier_managed": true
     },
@@ -46962,7 +47016,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "79f208fe11706ae0ac66ca1edce91722626d904c4c5bd76e53c04ce534254a0e",
+      "content_sha256": "20de2d63c7e07e8ff18a5ad3f6dc4134d29456b0f0bdd758092d7c1e75dc0c42",
       "hash_policy": "sha256",
       "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/index.d.ts",
@@ -46973,7 +47027,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "a2c008a69328d35f1b452c7ce4a40213cc86be81f16d3afd5b9e81f009f4d0d1",
+      "content_sha256": "afb022efd16d04da4f5659021953034055851104784a9dcde2b2fec02f163425",
       "hash_policy": "sha256",
       "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/index.js",
@@ -47160,6 +47214,28 @@
     },
     {
       "class": "generated",
+      "content_sha256": "126887d1e48debda843e9aa508a000fc70163f640acf613c2622ea753c5419ea",
+      "hash_policy": "sha256",
+      "owner": "eslint-rules-owner",
+      "path": "tools/eslint-rules/dist/rules/no-unverified-tenant-param.d.ts",
+      "prettier_managed": false,
+      "reason": "tsc output pinned byte-for-byte by the banned-phrase-gate CI check, which rebuilds it and diffs; formatting it makes the committed artifact differ from what the gate builds",
+      "review_required": true,
+      "source_of_truth": "generator"
+    },
+    {
+      "class": "generated",
+      "content_sha256": "8545add2a93b16ea9c8afe8513e5cabb8c26fd3111abb971691bf3020153828a",
+      "hash_policy": "sha256",
+      "owner": "eslint-rules-owner",
+      "path": "tools/eslint-rules/dist/rules/no-unverified-tenant-param.js",
+      "prettier_managed": false,
+      "reason": "tsc output pinned byte-for-byte by the banned-phrase-gate CI check, which rebuilds it and diffs; formatting it makes the committed artifact differ from what the gate builds",
+      "review_required": true,
+      "source_of_truth": "generator"
+    },
+    {
+      "class": "generated",
       "content_sha256": "1b5bbe41afedb5f9a8b1edeec626b32fdcef2bee6967206ea307c0653d3ffb0b",
       "hash_policy": "sha256",
       "owner": "eslint-rules-owner",
@@ -47244,6 +47320,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/eslint-rules/rules/no-unsandboxed-html-frame.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/eslint-rules/rules/no-unverified-tenant-param.ts",
       "prettier_managed": true
     },
     {

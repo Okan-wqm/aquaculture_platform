@@ -1,3 +1,4 @@
+import { TenantIdCarrier } from '@aquaculture/backend-common/decorators';
 import {
   IsString,
   IsOptional,
@@ -78,12 +79,13 @@ export class ComparePlansDto {
 // ============================================================================
 
 export class ValidateDiscountCodeDto {
+  /** ADMIN-CRITICAL-009: whitelisted carrier key; the verified id arrives through @TenantParam('body'). */
+  @TenantIdCarrier()
+  readonly tenantId?: undefined;
+
   @IsString()
   @MaxLength(100)
   code!: string;
-
-  @IsUUID('4')
-  tenantId!: string;
 
   @IsOptional()
   @IsUUID('4')
@@ -96,12 +98,13 @@ export class ValidateDiscountCodeDto {
 }
 
 export class ApplyDiscountCodeDto {
+  /** ADMIN-CRITICAL-009: whitelisted carrier key; the verified id arrives through @TenantParam('body'). */
+  @TenantIdCarrier()
+  readonly tenantId?: undefined;
+
   @IsString()
   @MaxLength(100)
   code!: string;
-
-  @IsUUID('4')
-  tenantId!: string;
 
   @IsNumber()
   @Min(0)

@@ -47,6 +47,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { PlatformCapabilityGuard } from '@aquaculture/backend-common/guards';
 
 import { PlatformAdminGuard } from './guards/platform-admin.guard';
+import { TenantLookupModule } from './tenant/tenant-lookup.module';
 import { HealthModule } from './health/health.module';
 import { GracefulShutdownService } from './lifecycle/graceful-shutdown.service';
 import { MessagingAdminModule } from './messaging/messaging-admin.module';
@@ -292,6 +293,9 @@ const getAdminStoragePort = (configService: ConfigService): number => {
      * See ADR-012 + docs/runbooks/schema-drift-response.md.
      */
     SchemaDriftModule.forRoot({ serviceName: 'admin-api' }),
+    // ADMIN-CRITICAL-009: binds the kernel TENANT_ACTIVE_CHECK port so every
+    // @TenantParam() resolves against auth.tenants before a handler runs.
+    TenantLookupModule,
   ],
   providers: [
     AdminSchemaVersionGate,

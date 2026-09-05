@@ -58,7 +58,10 @@ describe('DatabaseExplorerController Security', () => {
     // Production attaches the verified operator before the controller runs, and
     // every audited read here records who performed it. Injecting it at the
     // edge — rather than through the guard double — keeps the spec honest no
-    // matter which guard the controller resolves.
+    // matter which guard the controller resolves. ADR-0011 adds a second
+    // reason: a DELETE route carries @Destructive(), whose guard refuses an
+    // anonymous request before any validation runs, and these suites assert
+    // that validation.
     app.use((req: { user?: unknown }, _res: unknown, next: () => void) => {
       req.user = {
         id: 'super-admin-1',

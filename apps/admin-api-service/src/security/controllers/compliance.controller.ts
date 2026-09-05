@@ -4,7 +4,7 @@
  * Endpoints for data subject requests, compliance reports, and GDPR management.
  */
 
-import { RequiresCapability } from '@aquaculture/backend-common/decorators';
+import { RequiresCapability, TenantParam, TenantIdCarrier } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -46,14 +46,15 @@ import type { PaginationResultV1 } from '@platform/pagination-contracts';
 // ============================================================================
 
 class CreateDataRequestDto {
+  /** ADMIN-CRITICAL-009: whitelisted carrier key; the verified id arrives through @TenantParam('body'). */
+  @TenantIdCarrier()
+  readonly tenantId?: undefined;
+
   @IsString()
   requestType!: DataRequestType;
 
   @IsString()
   complianceFramework!: ComplianceType;
-
-  @IsString()
-  tenantId!: string;
 
   @IsString()
   tenantName!: string;
@@ -230,12 +231,13 @@ export class ComplianceController {
   @Post('data-requests')
   @HttpCode(HttpStatus.CREATED)
   async createDataRequest(
+    @TenantParam('body') tenantId: string,
     @Body() dto: CreateDataRequestDto,
     @Req() req: Request,
   ): Promise<DataRequest> {
     const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('User not authenticated');
-    return this.complianceService.createDataRequest({ ...dto, requesterId: userId });
+    return this.complianceService.createDataRequest({ ...dto, tenantId, requesterId: userId });
   }
 
   /**
@@ -361,7 +363,7 @@ export class ComplianceController {
    */
   @Get('data-requests/stats')
   async getDataRequestStats(
-    @Query('tenantId') tenantId?: string,
+    @TenantParam('query', { optional: true }) tenantId?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
   ) {

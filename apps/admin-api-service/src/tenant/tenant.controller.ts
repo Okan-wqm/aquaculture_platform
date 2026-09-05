@@ -1,4 +1,8 @@
-import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
+import {
+  Destructive,
+  RequiresCapability,
+  TenantParam,
+} from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import { ThrottleSensitive } from '@aquaculture/backend-common/security';
 import {
@@ -248,26 +252,26 @@ export class TenantAdminController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get tenant by ID' })
-  async getTenantById(@Param('id', ParseUUIDPipe) id: string): Promise<Tenant> {
+  async getTenantById(@TenantParam('param', { key: 'id' }) id: string): Promise<Tenant> {
     return this.queryBus.execute(new GetTenantByIdQuery(id));
   }
 
   @Get(':id/detail')
   @ApiOperation({ summary: 'Get detailed tenant information' })
-  async getTenantDetail(@Param('id', ParseUUIDPipe) id: string): Promise<TenantDetailDto> {
+  async getTenantDetail(@TenantParam('param', { key: 'id' }) id: string): Promise<TenantDetailDto> {
     return this.detailService.getTenantDetail(id);
   }
 
   @Get(':id/usage')
   @ApiOperation({ summary: 'Get tenant resource usage' })
-  async getTenantUsage(@Param('id', ParseUUIDPipe) id: string): Promise<TenantUsageDto> {
+  async getTenantUsage(@TenantParam('param', { key: 'id' }) id: string): Promise<TenantUsageDto> {
     return this.queryBus.execute(new GetTenantUsageQuery(id));
   }
 
   @Get(':id/activities')
   @ApiOperation({ summary: 'Get tenant activity timeline' })
   async getTenantActivities(
-    @Param('id', ParseUUIDPipe) id: string,
+    @TenantParam('param', { key: 'id' }) id: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ): Promise<PaginationResultV1<TenantActivity>> {
@@ -277,7 +281,7 @@ export class TenantAdminController {
   @Get(':id/notes')
   @ApiOperation({ summary: 'Get tenant notes' })
   async getTenantNotes(
-    @Param('id', ParseUUIDPipe) id: string,
+    @TenantParam('param', { key: 'id' }) id: string,
     @Query('category') category?: string,
   ): Promise<TenantNote[]> {
     return this.activityService.getNotes(id, { category });
@@ -289,7 +293,7 @@ export class TenantAdminController {
   @ApiOperation({ summary: 'Create a note for a tenant' })
   @HttpCode(HttpStatus.CREATED)
   async createTenantNote(
-    @Param('id', ParseUUIDPipe) id: string,
+    @TenantParam('param', { key: 'id' }) id: string,
     @Body() body: CreateTenantNoteDto, // HIGH-003 fix: typed DTO with @MaxLength(5000) and @IsEnum(categories)
     @CurrentUser() user: AdminUser,
   ): Promise<TenantNote> {
@@ -308,7 +312,7 @@ export class TenantAdminController {
   @Patch(':id/notes/:noteId')
   @ApiOperation({ summary: 'Update a tenant note' })
   async updateTenantNote(
-    @Param('id', ParseUUIDPipe) id: string,
+    @TenantParam('param', { key: 'id' }) id: string,
     @Param('noteId', ParseUUIDPipe) noteId: string,
     @Body() body: UpdateTenantNoteDto, // HIGH-003 fix: typed DTO with @MaxLength(5000) and @IsEnum(categories)
   ): Promise<TenantNote> {
@@ -323,7 +327,7 @@ export class TenantAdminController {
   @ApiOperation({ summary: 'Delete a tenant note' })
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteTenantNote(
-    @Param('id', ParseUUIDPipe) id: string,
+    @TenantParam('param', { key: 'id' }) id: string,
     @Param('noteId', ParseUUIDPipe) noteId: string,
   ): Promise<void> {
     // HIGH-004 fix: pass tenantId to verify ownership
@@ -339,7 +343,7 @@ export class TenantAdminController {
   @Put(':id')
   @ApiOperation({ summary: 'Update tenant details' })
   async updateTenant(
-    @Param('id', ParseUUIDPipe) id: string,
+    @TenantParam('param', { key: 'id', allow: 'any' }) id: string,
     @Body() dto: UpdateTenantDto,
     @CurrentUser() user: AdminUser,
   ): Promise<Tenant> {
@@ -352,7 +356,7 @@ export class TenantAdminController {
   @Patch(':id/suspend')
   @ApiOperation({ summary: 'Suspend a tenant' })
   async suspendTenant(
-    @Param('id', ParseUUIDPipe) id: string,
+    @TenantParam('param', { key: 'id', allow: 'any' }) id: string,
     @Body() dto: SuspendTenantDto,
     @CurrentUser() user: AdminUser,
   ): Promise<Tenant> {
@@ -365,7 +369,7 @@ export class TenantAdminController {
   @Patch(':id/activate')
   @ApiOperation({ summary: 'Activate a suspended tenant' })
   async activateTenant(
-    @Param('id', ParseUUIDPipe) id: string,
+    @TenantParam('param', { key: 'id', allow: 'any' }) id: string,
     @CurrentUser() user: AdminUser,
   ): Promise<Tenant> {
     return this.commandBus.execute(new ActivateTenantCommand(id, user.id));
@@ -376,7 +380,7 @@ export class TenantAdminController {
   @Patch(':id/deactivate')
   @ApiOperation({ summary: 'Deactivate a tenant' })
   async deactivateTenant(
-    @Param('id', ParseUUIDPipe) id: string,
+    @TenantParam('param', { key: 'id', allow: 'any' }) id: string,
     @Body() dto: DeactivateTenantDto,
     @CurrentUser() user: AdminUser,
   ): Promise<Tenant> {
@@ -390,7 +394,7 @@ export class TenantAdminController {
   @ApiOperation({ summary: 'Archive a tenant' })
   @HttpCode(HttpStatus.NO_CONTENT)
   async archiveTenant(
-    @Param('id', ParseUUIDPipe) id: string,
+    @TenantParam('param', { key: 'id', allow: 'any' }) id: string,
     @CurrentUser() user: AdminUser,
   ): Promise<void> {
     await this.commandBus.execute(new ArchiveTenantCommand(id, user.id));
@@ -403,7 +407,7 @@ export class TenantAdminController {
   @ApiOperation({ summary: 'Request irreversible GDPR tenant erasure' })
   @HttpCode(HttpStatus.ACCEPTED)
   async requestTenantErasure(
-    @Param('id', ParseUUIDPipe) id: string,
+    @TenantParam('param', { key: 'id', allow: 'any' }) id: string,
     @Body() dto: RequestTenantErasureDto,
     @CurrentUser() user: AdminUser,
   ): Promise<TenantErasureOperationAcceptedResponse> {
@@ -427,7 +431,7 @@ export class TenantAdminController {
   @ApiOperation({ summary: 'Idempotently create a missing tenant billing subscription' })
   @HttpCode(HttpStatus.OK)
   async reconcileTenantSubscription(
-    @Param('id', ParseUUIDPipe) id: string,
+    @TenantParam('param', { key: 'id', allow: 'any' }) id: string,
     @CurrentUser() user: AdminUser,
   ): Promise<{
     tenantId: string;

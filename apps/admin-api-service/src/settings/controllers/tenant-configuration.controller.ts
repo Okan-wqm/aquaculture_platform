@@ -1,4 +1,4 @@
-import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
+import { Destructive, RequiresCapability, TenantParam } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -65,7 +65,7 @@ export class TenantConfigurationController {
    * Get configuration by tenant ID
    */
   @Get(':tenantId')
-  async getConfiguration(@Param('tenantId') tenantId: string) {
+  async getConfiguration(@TenantParam('param') tenantId: string) {
     return this.configService.getConfigurationByTenantId(tenantId);
   }
 
@@ -73,7 +73,7 @@ export class TenantConfigurationController {
    * Get or create configuration
    */
   @Get(':tenantId/ensure')
-  async getOrCreateConfiguration(@Param('tenantId') tenantId: string) {
+  async getOrCreateConfiguration(@TenantParam('param') tenantId: string) {
     return this.configService.getOrCreateConfiguration(tenantId);
   }
 
@@ -84,7 +84,7 @@ export class TenantConfigurationController {
   @RequiresCapability('security-ops')
   @Put(':tenantId')
   async updateConfiguration(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param') tenantId: string,
     @Body() dto: UpdateTenantConfigurationDto,
   ) {
     return this.configService.updateConfiguration(tenantId, dto);
@@ -98,7 +98,7 @@ export class TenantConfigurationController {
   @RequiresCapability('security-ops')
   @Delete(':tenantId')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async deleteConfiguration(@Param('tenantId') tenantId: string) {
+  async deleteConfiguration(@TenantParam('param') tenantId: string) {
     // configService is a synchronous legacy adapter (deleteConfiguration
     // throws GoneException synchronously); awaiting a non-thenable is an
     // await-thenable error. The handler stays async to preserve the Nest
@@ -110,7 +110,7 @@ export class TenantConfigurationController {
    * Get configuration summary for dashboard
    */
   @Get(':tenantId/summary')
-  async getConfigurationSummary(@Param('tenantId') tenantId: string) {
+  async getConfigurationSummary(@TenantParam('param') tenantId: string) {
     return this.configService.getConfigurationSummary(tenantId);
   }
 
@@ -119,7 +119,7 @@ export class TenantConfigurationController {
   // ============================================================================
 
   @Get(':tenantId/user-limits')
-  async getUserLimits(@Param('tenantId') tenantId: string) {
+  async getUserLimits(@TenantParam('param') tenantId: string) {
     return this.configService.getUserLimits(tenantId);
   }
 
@@ -128,7 +128,7 @@ export class TenantConfigurationController {
   @RequiresCapability('security-ops')
   @Put(':tenantId/user-limits')
   async updateUserLimits(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param') tenantId: string,
     @Body() dto: UpdateUserLimitsDto,
     @Req() req: Request,
   ) {
@@ -142,7 +142,7 @@ export class TenantConfigurationController {
   // ============================================================================
 
   @Get(':tenantId/storage')
-  async getStorageConfig(@Param('tenantId') tenantId: string) {
+  async getStorageConfig(@TenantParam('param') tenantId: string) {
     return this.configService.getStorageConfig(tenantId);
   }
 
@@ -151,7 +151,7 @@ export class TenantConfigurationController {
   @RequiresCapability('security-ops')
   @Put(':tenantId/storage')
   async updateStorageConfig(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param') tenantId: string,
     @Body() dto: UpdateStorageConfigDto,
     @Req() req: Request,
   ) {
@@ -164,7 +164,7 @@ export class TenantConfigurationController {
   @RequiresCapability('security-ops')
   @Post(':tenantId/storage/check-limit')
   async checkStorageLimit(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param') tenantId: string,
     @Body() dto: CheckStorageLimitDto,
   ) {
     const allowed = this.configService.checkStorageLimit(tenantId, dto.additionalSizeGB);
@@ -176,7 +176,7 @@ export class TenantConfigurationController {
   // ============================================================================
 
   @Get(':tenantId/api')
-  async getApiConfig(@Param('tenantId') tenantId: string) {
+  async getApiConfig(@TenantParam('param') tenantId: string) {
     return this.configService.getApiConfig(tenantId);
   }
 
@@ -185,7 +185,7 @@ export class TenantConfigurationController {
   @RequiresCapability('security-ops')
   @Put(':tenantId/api')
   async updateApiConfig(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param') tenantId: string,
     @Body() dto: UpdateApiConfigDto,
     @Req() req: Request,
   ) {
@@ -202,7 +202,7 @@ export class TenantConfigurationController {
   @RequiresCapability('security-ops')
   @Post(':tenantId/api-keys')
   async createApiKey(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param') tenantId: string,
     @Body() dto: CreateApiKeyDto,
   ) {
     return this.configService.createApiKey(tenantId, dto);
@@ -214,7 +214,7 @@ export class TenantConfigurationController {
   @Delete(':tenantId/api-keys/:keyId')
   @HttpCode(HttpStatus.NO_CONTENT)
   async revokeApiKey(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param') tenantId: string,
     @Param('keyId') keyId: string,
   ) {
     this.configService.revokeApiKey(tenantId, keyId);
@@ -224,7 +224,7 @@ export class TenantConfigurationController {
   @RequiresCapability('security-ops')
   @Post(':tenantId/api-keys/validate')
   async validateApiKey(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param') tenantId: string,
     @Body() dto: ValidateApiKeyDto,
   ) {
     const result = this.configService.validateApiKey(tenantId, dto.apiKey);
@@ -236,7 +236,7 @@ export class TenantConfigurationController {
   // ============================================================================
 
   @Get(':tenantId/webhooks')
-  async getWebhooks(@Param('tenantId') tenantId: string) {
+  async getWebhooks(@TenantParam('param') tenantId: string) {
     return this.configService.getWebhooks(tenantId);
   }
 
@@ -244,7 +244,7 @@ export class TenantConfigurationController {
   @RequiresCapability('security-ops')
   @Post(':tenantId/webhooks')
   async createWebhook(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param') tenantId: string,
     @Body() dto: CreateWebhookDto,
   ) {
     return this.configService.createWebhook(tenantId, dto);
@@ -254,7 +254,7 @@ export class TenantConfigurationController {
   @RequiresCapability('security-ops')
   @Put(':tenantId/webhooks/:webhookId')
   async updateWebhook(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param') tenantId: string,
     @Param('webhookId') webhookId: string,
     @Body() dto: UpdateWebhookDto,
   ) {
@@ -267,7 +267,7 @@ export class TenantConfigurationController {
   @Delete(':tenantId/webhooks/:webhookId')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteWebhook(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param') tenantId: string,
     @Param('webhookId') webhookId: string,
   ) {
     this.configService.deleteWebhook(tenantId, webhookId);
@@ -278,7 +278,7 @@ export class TenantConfigurationController {
   // ============================================================================
 
   @Get(':tenantId/domain')
-  async getDomainConfig(@Param('tenantId') tenantId: string) {
+  async getDomainConfig(@TenantParam('param') tenantId: string) {
     return this.configService.getDomainConfig(tenantId);
   }
 
@@ -286,7 +286,7 @@ export class TenantConfigurationController {
   @RequiresCapability('security-ops')
   @Post(':tenantId/domain/verify')
   async initiateCustomDomainVerification(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param') tenantId: string,
     @Body() dto: VerifyDomainDto,
   ) {
     return this.configService.initiateCustomDomainVerification(tenantId, dto);
@@ -295,13 +295,13 @@ export class TenantConfigurationController {
   @AuditedOperation({ resource: 'CustomDomain', action: 'VERIFY' })
   @RequiresCapability('security-ops')
   @Post(':tenantId/domain/confirm')
-  async verifyCustomDomain(@Param('tenantId') tenantId: string) {
+  async verifyCustomDomain(@TenantParam('param') tenantId: string) {
     const verified = this.configService.verifyCustomDomain(tenantId);
     return { verified };
   }
 
   @Get(':tenantId/branding')
-  async getBrandingConfig(@Param('tenantId') tenantId: string) {
+  async getBrandingConfig(@TenantParam('param') tenantId: string) {
     return this.configService.getBrandingConfig(tenantId);
   }
 
@@ -310,7 +310,7 @@ export class TenantConfigurationController {
   @RequiresCapability('security-ops')
   @Put(':tenantId/branding')
   async updateBranding(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param') tenantId: string,
     @Body() dto: UpdateBrandingDto,
     @Req() req: Request,
   ) {
@@ -324,7 +324,7 @@ export class TenantConfigurationController {
   // ============================================================================
 
   @Get(':tenantId/security')
-  async getSecurityConfig(@Param('tenantId') tenantId: string) {
+  async getSecurityConfig(@TenantParam('param') tenantId: string) {
     return this.configService.getSecurityConfig(tenantId);
   }
 
@@ -333,7 +333,7 @@ export class TenantConfigurationController {
   @RequiresCapability('security-ops')
   @Put(':tenantId/security')
   async updateSecurityConfig(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param') tenantId: string,
     @Body() dto: UpdateTenantSecurityDto,
     @Req() req: Request,
   ) {
@@ -346,7 +346,7 @@ export class TenantConfigurationController {
   @RequiresCapability('security-ops')
   @Post(':tenantId/security/ip-whitelist')
   async addToIpWhitelist(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param') tenantId: string,
     @Body() dto: IpAddressDto,
   ) {
     return this.configService.addToIpWhitelist(tenantId, dto.ip);
@@ -357,7 +357,7 @@ export class TenantConfigurationController {
   @RequiresCapability('security-ops')
   @Delete(':tenantId/security/ip-whitelist/:ip')
   async removeFromIpWhitelist(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param') tenantId: string,
     @Param('ip') ip: string,
   ) {
     return this.configService.removeFromIpWhitelist(tenantId, ip);
@@ -367,7 +367,7 @@ export class TenantConfigurationController {
   @RequiresCapability('security-ops')
   @Post(':tenantId/security/ip-blacklist')
   async addToIpBlacklist(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param') tenantId: string,
     @Body() dto: IpAddressDto,
   ) {
     return this.configService.addToIpBlacklist(tenantId, dto.ip);
@@ -378,7 +378,7 @@ export class TenantConfigurationController {
   @RequiresCapability('security-ops')
   @Delete(':tenantId/security/ip-blacklist/:ip')
   async removeFromIpBlacklist(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param') tenantId: string,
     @Param('ip') ip: string,
   ) {
     return this.configService.removeFromIpBlacklist(tenantId, ip);
@@ -389,7 +389,7 @@ export class TenantConfigurationController {
   // ============================================================================
 
   @Get(':tenantId/notifications')
-  async getNotificationConfig(@Param('tenantId') tenantId: string) {
+  async getNotificationConfig(@TenantParam('param') tenantId: string) {
     return this.configService.getNotificationConfig(tenantId);
   }
 
@@ -398,7 +398,7 @@ export class TenantConfigurationController {
   @RequiresCapability('security-ops')
   @Put(':tenantId/notifications')
   async updateNotificationConfig(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param') tenantId: string,
     @Body() dto: UpdateNotificationConfigDto,
     @Req() req: Request,
   ) {
@@ -412,7 +412,7 @@ export class TenantConfigurationController {
   // ============================================================================
 
   @Get(':tenantId/features')
-  async getFeatureFlags(@Param('tenantId') tenantId: string) {
+  async getFeatureFlags(@TenantParam('param') tenantId: string) {
     return this.configService.getFeatureFlags(tenantId);
   }
 
@@ -421,7 +421,7 @@ export class TenantConfigurationController {
   @RequiresCapability('security-ops')
   @Put(':tenantId/features')
   async updateFeatureFlags(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param') tenantId: string,
     @Body() dto: UpdateFeatureFlagsDto,
     @Req() req: Request,
   ) {
@@ -434,7 +434,7 @@ export class TenantConfigurationController {
   @RequiresCapability('security-ops')
   @Post(':tenantId/features/modules/:moduleCode/enable')
   async enableModule(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param') tenantId: string,
     @Param('moduleCode') moduleCode: string,
   ) {
     return this.configService.enableModule(tenantId, moduleCode);
@@ -444,7 +444,7 @@ export class TenantConfigurationController {
   @RequiresCapability('security-ops')
   @Post(':tenantId/features/modules/:moduleCode/disable')
   async disableModule(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param') tenantId: string,
     @Param('moduleCode') moduleCode: string,
   ) {
     return this.configService.disableModule(tenantId, moduleCode);
@@ -455,7 +455,7 @@ export class TenantConfigurationController {
   // ============================================================================
 
   @Get(':tenantId/data-retention')
-  async getDataRetentionConfig(@Param('tenantId') tenantId: string) {
+  async getDataRetentionConfig(@TenantParam('param') tenantId: string) {
     return this.configService.getDataRetentionConfig(tenantId);
   }
 
@@ -464,7 +464,7 @@ export class TenantConfigurationController {
   @RequiresCapability('security-ops')
   @Put(':tenantId/data-retention')
   async updateDataRetentionConfig(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param') tenantId: string,
     @Body() dto: UpdateDataRetentionDto,
     @Req() req: Request,
   ) {

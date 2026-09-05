@@ -4,7 +4,7 @@
  * Schema migration yönetimi endpoint'leri.
  */
 
-import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
+import { Destructive, RequiresCapability, TenantParam } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   BadRequestException,
@@ -112,12 +112,12 @@ export class MigrationController {
   // ============================================================================
 
   @Get('tenant/:tenantId/pending')
-  async getPendingMigrations(@Param('tenantId') tenantId: string) {
+  async getPendingMigrations(@TenantParam('param', { allow: 'any' }) tenantId: string) {
     return this.migrationService.getPendingMigrations(tenantId);
   }
 
   @Get('tenant/:tenantId/history')
-  async getTenantMigrationHistory(@Param('tenantId') tenantId: string) {
+  async getTenantMigrationHistory(@TenantParam('param', { allow: 'any' }) tenantId: string) {
     return this.migrationService.getMigrationHistory(tenantId);
   }
 
@@ -126,7 +126,7 @@ export class MigrationController {
   @Post('tenant/:tenantId/run')
   @HttpCode(HttpStatus.OK)
   runMigration(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param', { allow: 'any' }) tenantId: string,
     @Body() dto: RunMigrationDto,
     @Req() req: Request,
   ): never {
@@ -151,7 +151,7 @@ export class MigrationController {
   @Post('tenant/:tenantId/rollback')
   @HttpCode(HttpStatus.OK)
   rollbackMigration(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param', { allow: 'any' }) tenantId: string,
     @Body() dto: RollbackMigrationDto,
     @Req() req: Request,
   ): never {

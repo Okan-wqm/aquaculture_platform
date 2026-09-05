@@ -4,7 +4,7 @@
  * Admin-tenant mesajlaşma endpoint'leri.
  */
 
-import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
+import { Destructive, RequiresCapability, TenantParam, TenantIdCarrier } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -31,8 +31,10 @@ import { MessagingService } from '../services/messaging.service';
 // ============================================================================
 
 class CreateThreadDto {
-  @IsString()
-  tenantId!: string;
+  /** ADMIN-CRITICAL-009: whitelisted carrier key; the verified id arrives through @TenantParam('body'). */
+  @TenantIdCarrier()
+  readonly tenantId?: undefined;
+
 
   @IsString()
   subject!: string;
@@ -118,7 +120,7 @@ export class MessagingController {
 
   @Get('threads/tenant/:tenantId')
   @PlatformAdminOnly()
-  async getThreadsForTenant(@Param('tenantId') tenantId: string) {
+  async getThreadsForTenant(@TenantParam('param') tenantId: string) {
     return this.messagingService.getThreadsForTenant(tenantId);
   }
 
@@ -128,15 +130,16 @@ export class MessagingController {
   @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
   async createThread(
+    @TenantParam('body') tenantId: string,
     @Body() dto: CreateThreadDto,
     @CurrentUser() user: CurrentUserData,
   ) {
-    if (!dto.tenantId || !dto.subject || !dto.content) {
+    if (!tenantId || !dto.subject || !dto.content) {
       throw new BadRequestException('tenantId, subject, and content are required');
     }
 
     return this.messagingService.createThread(
-      dto.tenantId,
+      tenantId,
       dto.subject,
       dto.content,
       user.id,

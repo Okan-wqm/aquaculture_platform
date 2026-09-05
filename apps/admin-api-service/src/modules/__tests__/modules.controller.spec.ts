@@ -1,3 +1,5 @@
+import { TENANT_ACTIVE_CHECK } from '@aquaculture/backend-common/middleware';
+import { TenantStatus } from '@platform/event-contracts';
 import { NotFoundException, ConflictException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -84,6 +86,12 @@ describe('ModulesController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [ModulesController],
       providers: [
+        // ADMIN-CRITICAL-009: @TenantParam resolves ids through the kernel
+        // port; these suites exercise the controllers, not the lookup.
+        {
+          provide: TENANT_ACTIVE_CHECK,
+          useValue: { lookupTenant: () => Promise.resolve({ status: TenantStatus.ACTIVE }) },
+        },
         {
           provide: ModulesService,
           useValue: mockModulesService,
@@ -397,8 +405,10 @@ describe('ModulesController', () => {
   });
 
   describe('assignModuleToTenant', () => {
+    // ADMIN-CRITICAL-009: the tenant arrives verified through @TenantParam('body'),
+    // never as a DTO field; the controller folds it back into the service input.
+    const tenantId = 'tenant-uuid';
     const assignDto: AssignModuleDto = {
-      tenantId: 'tenant-uuid',
       moduleId: 'module-uuid',
     };
 
@@ -406,10 +416,10 @@ describe('ModulesController', () => {
       const mockAssignment = createMockAssignment();
       mockModulesService.assignModuleToTenant.mockResolvedValueOnce(mockAssignment);
 
-      const result = await controller.assignModuleToTenant(assignDto);
+      const result = await controller.assignModuleToTenant(tenantId, assignDto);
 
       expect(result).toEqual(mockAssignment);
-      expect(service.assignModuleToTenant).toHaveBeenCalledWith(assignDto);
+      expect(service.assignModuleToTenant).toHaveBeenCalledWith({ ...assignDto, tenantId });
     });
 
     it('should assign with expiration date', async () => {
@@ -418,10 +428,10 @@ describe('ModulesController', () => {
       const mockAssignment = createMockAssignment({ expiresAt });
       mockModulesService.assignModuleToTenant.mockResolvedValueOnce(mockAssignment);
 
-      const result = await controller.assignModuleToTenant(dtoWithExpiry);
+      const result = await controller.assignModuleToTenant(tenantId, dtoWithExpiry);
 
       expect(result.expiresAt).toEqual(expiresAt);
-      expect(service.assignModuleToTenant).toHaveBeenCalledWith(dtoWithExpiry);
+      expect(service.assignModuleToTenant).toHaveBeenCalledWith({ ...dtoWithExpiry, tenantId });
     });
   });
 

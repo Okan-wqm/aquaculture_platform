@@ -24,7 +24,7 @@ from .cycle_progress import emit_progress
 from .impact_graph import cycle_service_examination
 from .memory import decay_beliefs_by_head_distance, decay_stale_beliefs_by_age, update_memory
 from .observability import generate_observability_dashboard, record_cycle_metrics
-from .runtime_artifacts import read_runs_for_cycle, verify_artifacts
+from .runtime_artifacts import budget_projection, read_runs_for_cycle, verify_artifacts
 from .pressure import run_pressure
 from .genesis_policy import load_policy
 from .reflection import run_reflection
@@ -1316,6 +1316,10 @@ def _phase_tools(context: PhaseContext) -> dict[str, Any]:
                 "raw_observations_count": int(runner.get("raw_observations_count") or 0),
                 "emitted_findings_count": _emitted_count(run, "findings"),
                 "emitted_observations_count": _emitted_count(run, "observations"),
+                # ORPHAN-HIGH-801 — carry the measurement and the budget it
+                # ran under into the operator-facing row, so budget pressure
+                # is visible one night BEFORE it becomes a timeout.
+                **budget_projection(run),
             },
         )
     return {"decisions": decisions, "run_summary": run_summary}

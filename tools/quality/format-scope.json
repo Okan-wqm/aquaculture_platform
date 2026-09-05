@@ -41244,6 +41244,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/migration-harness/src/__tests__/resolve-external-postgres.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/migration-harness/src/__tests__/scaffold.spec.ts",
       "prettier_managed": true
     },
@@ -42638,7 +42644,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "455781464b917dcd338edfb402df210746073b2ca2dd0d66257c7268611f7c00",
+      "content_sha256": "c4c8a7c0830f903fcbf4170f800209bdca73b2fddda070cf4f22ac8d514b68b9",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",

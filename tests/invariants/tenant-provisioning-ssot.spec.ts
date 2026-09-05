@@ -579,8 +579,12 @@ describe('INVARIANT: admin-api runtime code does not execute tenant schema DDL d
         'apps/admin-api-service/src/database-management/services/schema-management.service.ts',
       ),
     );
-    expect(schemaManagement).toContain('Runtime tenant schema creation is disabled');
-    expect(schemaManagement).toContain('Runtime admin.tenant_schemas status writes are disabled');
+    // ADMIN-HIGH-011: the runtime create / status / stats writers are not
+    // refusing stubs any more — they do not exist. A method that exists only
+    // to throw is itself a finding (tests/invariants/admin-no-stub-routes.spec.ts).
+    expect(schemaManagement).not.toContain('createTenantSchema(');
+    expect(schemaManagement).not.toContain('updateSchemaStatus(');
+    expect(schemaManagement).not.toContain('updateSchemaStats(');
     expect(schemaManagement).toContain('Runtime schema deletion is disabled');
     expect(schemaManagement).toContain('completed by aqua-db-migrate');
     expect(schemaManagement).not.toMatch(
@@ -698,7 +702,11 @@ describe('INVARIANT: destructive tenant schema cleanup requires workflow proof',
     const provisionerWorker = readRepoFile('apps/db-migrate/src/tenant-schema-provisioner.ts');
     const adminPanelDbApi = readRepoFile('web/modules/admin-panel/src/services/api/database.ts');
 
-    expect(provisioning).toContain("purpose: 'provisioning_rollback'");
+    // ADMIN-HIGH-011: admin-api no longer carries a `create_schema` saga step —
+    // it could only throw, so there is no provisioning rollback of a schema
+    // admin never created; db-migrate owns the schema and its rollback.
+    expect(provisioning).not.toContain("'create_schema'");
+    expect(provisioning).not.toContain('createTenantSchema');
     expect(provisioning).toContain("purpose: 'tenant_deprovision'");
     expect(provisioning).toContain('legalHoldCheckedAt');
     // ADR-0009: the deprovision proof carries the WAL-G recovery point captured

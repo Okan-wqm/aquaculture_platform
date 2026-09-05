@@ -66,7 +66,8 @@ export function listAdminSourceFiles(): string[] {
       '--others',
       '--exclude-standard',
       '--',
-      `${ADMIN_SERVICE_SRC}/**/*.ts`,
+      // git pathspec `*` spans '/' — `**/` would skip files directly under src/.
+      `${ADMIN_SERVICE_SRC}/*.ts`,
     ],
     { encoding: 'utf8' },
   )

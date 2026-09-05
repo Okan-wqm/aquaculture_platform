@@ -119,10 +119,22 @@ export function readCommitMessage(repoRoot: string, sha: string): string {
   });
 }
 
+/**
+ * Closure ADMISSION guard shared by `close`, `reopen --reject-closure` and
+ * `reconcile`: does this commit's own message name this finding?
+ *
+ * It takes the finding as a `FindingTrailerTarget`, not a bare id, so the
+ * aliases the derivation (`commitMessageClosesFindingExactly`) resolves are the
+ * aliases admission resolves. With a bare id the two disagreed by construction:
+ * `reconcile` matched a merged `Closes: …#PR935-HIGH-001` to EDGE-HIGH-029
+ * through the alias sidecar, then refused that same commit here because this
+ * guard had never heard of the alias — and one refusal aborts the whole
+ * ceremony (PROC-MEDIUM-024).
+ */
 export function commitHasFindingCloseTrailer(
   repoRoot: string,
   sha: string,
-  findingId: string,
+  finding: FindingTrailerTarget,
 ): TraceabilityResult {
   let message: string;
   try {
@@ -138,14 +150,15 @@ export function commitHasFindingCloseTrailer(
     };
   }
 
-  if (commitMessageClosesFinding(message, findingId)) {
+  const names = [finding.id, ...(finding.aliases ?? [])];
+  if (names.some((name) => commitMessageClosesFinding(message, name))) {
     return { ok: true };
   }
 
   return {
     ok: false,
     reason:
-      `commit ${sha} does not contain a Closes: trailer for ${findingId}. ` +
+      `commit ${sha} does not contain a Closes: trailer for ${names.join(' / ')}. ` +
       `Record the main-reachable commit that carries the finding trailer; ` +
       `merge commits without the trailer are not valid registry closers.`,
   };

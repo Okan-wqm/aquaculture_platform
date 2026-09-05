@@ -985,7 +985,8 @@ function cmdClose(id: string, shortSha: string, lease: RegistryLockLease): numbe
     return 1;
   }
 
-  const traceability = commitHasFindingCloseTrailer(REPO_ROOT, shortSha, id);
+  const [target] = withFindingAliases(REPO_ROOT, [entry]);
+  const traceability = commitHasFindingCloseTrailer(REPO_ROOT, shortSha, target ?? entry);
   if (!traceability.ok) {
     process.stderr.write(`close refused: ${traceability.reason}\n\n`);
     return 1;
@@ -1151,6 +1152,7 @@ function cmdReopen(id: string, lease: RegistryLockLease, rejection?: ClosureReje
     // finding (or a closer the ceremony already recorded): rejecting anything
     // else is a typo, not a decision.
     const shas: string[] = [];
+    const [target = entry] = withFindingAliases(REPO_ROOT, [entry]);
     for (const given of rejection.shas) {
       const resolved = resolveFullSha(REPO_ROOT, given);
       if (resolved.sha === undefined) {
@@ -1160,7 +1162,7 @@ function cmdReopen(id: string, lease: RegistryLockLease, rejection?: ClosureReje
       const recorded = entry.closing_commits.some((closer) =>
         closer.startsWith(resolved.sha ?? ''),
       );
-      const trailer = commitHasFindingCloseTrailer(REPO_ROOT, resolved.sha, id);
+      const trailer = commitHasFindingCloseTrailer(REPO_ROOT, resolved.sha, target);
       if (!recorded && !trailer.ok) {
         process.stderr.write(`reopen refused: ${trailer.reason}\n`);
         return 1;
@@ -1454,21 +1456,35 @@ export function listMergedClosers(
  * Oldest closure wins when several commits close the same finding: it is the one
  * that made the finding true, and later commits are follow-ups.
  */
+/**
+ * Attach every alias the sidecar records for each candidate's canonical id.
+ *
+ * The ONE place aliases join a finding, used by the derivation
+ * (`collectMergedClosures`, the drift gate) AND the admission guard in every
+ * ceremony (`close`, `reopen --reject-closure`, `reconcile`) — a trailer naming
+ * a renumbered finding's historical id resolves to the ledger row that tracks
+ * it wherever the question is asked. When only the derivation knew the aliases,
+ * `reconcile` planned a closure from an aliased trailer and then refused the
+ * same commit at admission (PROC-MEDIUM-024).
+ */
+export function withFindingAliases<T extends FindingTrailerTarget>(
+  repoRoot: string,
+  candidates: readonly T[],
+): T[] {
+  const aliasesByCanonical = loadCanonicalToAliases(repoRoot);
+  return candidates.map((candidate) => {
+    const aliases = aliasesByCanonical.get(candidate.id);
+    return aliases === undefined ? candidate : { ...candidate, aliases };
+  });
+}
+
 export function collectMergedClosures(
   repoRoot: string,
   ref: string,
   candidates: readonly FindingTrailerTarget[],
 ): MergedClosure[] {
   const commits = readMergedCommits(repoRoot, ref);
-  // Attached here, once, so `reconcile`, the drift gate and every future caller
-  // read merged history through the SAME alias mapping the commit-msg validator
-  // admits — a trailer naming a renumbered finding's historical id resolves to
-  // the ledger row that tracks it, instead of looking like an unrelated commit.
-  const aliasesByCanonical = loadCanonicalToAliases(repoRoot);
-  const targets = candidates.map((candidate) => {
-    const aliases = aliasesByCanonical.get(candidate.id);
-    return aliases === undefined ? candidate : { ...candidate, aliases };
-  });
+  const targets = withFindingAliases(repoRoot, candidates);
 
   const found = new Map<string, string>();
   for (const commit of commits) {
@@ -1592,15 +1608,18 @@ function cmdReconcile(args: string[], lease: RegistryLockLease): number {
       process.stderr.write(`reconcile refused for ${item.findingId}: ${reachability.reason}\n`);
       return 1;
     }
-    const traceability = commitHasFindingCloseTrailer(REPO_ROOT, item.sha, item.findingId);
+    const index = entries.findIndex((entry) => entry.id === item.findingId);
+    const entry = entries[index];
+    if (index === -1 || !entry) continue;
+    // Admission reads the SAME aliased target the derivation matched — the
+    // plan above came from an alias-aware read of history, so an alias-blind
+    // guard here would refuse its own evidence (PROC-MEDIUM-024).
+    const [target = entry] = withFindingAliases(REPO_ROOT, [entry]);
+    const traceability = commitHasFindingCloseTrailer(REPO_ROOT, item.sha, target);
     if (!traceability.ok) {
       process.stderr.write(`reconcile refused for ${item.findingId}: ${traceability.reason}\n`);
       return 1;
     }
-
-    const index = entries.findIndex((entry) => entry.id === item.findingId);
-    const entry = entries[index];
-    if (index === -1 || !entry) continue;
     const admission = closureAdmissible(entry, item.sha);
     if (!admission.ok) {
       process.stderr.write(`reconcile refused for ${item.findingId}: ${admission.reason}\n`);

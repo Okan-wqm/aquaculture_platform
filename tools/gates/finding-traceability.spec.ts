@@ -87,11 +87,24 @@ void test('commitMessageClosesFinding rejects non-matching and missing trailers'
 });
 
 void test('commitHasFindingCloseTrailer reads git commit messages and fails closed', () => {
-  assert.equal(commitHasFindingCloseTrailer(repo, closingCommit, 'INFRA-CRITICAL-009').ok, true);
+  const finding = { id: 'INFRA-CRITICAL-009' };
+  assert.equal(commitHasFindingCloseTrailer(repo, closingCommit, finding).ok, true);
 
-  const result = commitHasFindingCloseTrailer(repo, trailerlessCommit, 'INFRA-CRITICAL-009');
+  const result = commitHasFindingCloseTrailer(repo, trailerlessCommit, finding);
   assert.equal(result.ok, false);
   assert.match(result.reason ?? '', /does not contain a Closes: trailer/);
+});
+
+void test('commitHasFindingCloseTrailer admits a trailer that names the finding by alias', () => {
+  // PROC-MEDIUM-024: the derivation matched this commit to the renumbered
+  // finding through its alias; admission must reach the same answer from the
+  // same target, or reconcile refuses the closure it just planned.
+  const renumbered = { id: 'EDGE-HIGH-029', aliases: ['INFRA-CRITICAL-009'] };
+  assert.equal(commitHasFindingCloseTrailer(repo, closingCommit, renumbered).ok, true);
+
+  const withoutAlias = commitHasFindingCloseTrailer(repo, closingCommit, { id: 'EDGE-HIGH-029' });
+  assert.equal(withoutAlias.ok, false);
+  assert.match(withoutAlias.reason ?? '', /trailer for EDGE-HIGH-029\./);
 });
 
 void test('commitMessageClosesFindingExactly binds the id and the anchored review file', () => {

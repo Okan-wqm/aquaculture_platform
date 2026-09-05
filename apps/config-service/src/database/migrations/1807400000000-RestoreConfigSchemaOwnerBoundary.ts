@@ -47,7 +47,13 @@ export class RestoreConfigSchemaOwnerBoundary1807400000000 implements MigrationI
   public async up(qr: QueryRunner): Promise<void> {
     await pinSearchPath(qr, 'config');
 
-    const rows: Array<{ applied: boolean }> = await qr.query(`
+    // One statement per query() call. A single string carrying the DO block AND
+    // the SELECT is a MULTI-statement simple query: the driver returns one result
+    // per statement, TypeORM hands back the LAST one's `rows` — which for a DO
+    // block is absent — so `rows` arrived undefined and `rows[0]` threw, aborting
+    // the whole config migration chain (and with it every bootstrap-from-scratch
+    // service assertion).
+    await qr.query(`
       DO $$
       BEGIN
         IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'config_schema_owner') THEN
@@ -57,9 +63,12 @@ export class RestoreConfigSchemaOwnerBoundary1807400000000 implements MigrationI
           -- objects. Neither confers DROP SCHEMA nor REASSIGN OWNED.
           GRANT USAGE, CREATE ON SCHEMA config TO config_service;
         END IF;
-      END $$;
-      SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'config_schema_owner') AS applied
+      END $$
     `);
+
+    const rows: Array<{ applied: boolean }> = await qr.query(
+      `SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'config_schema_owner') AS applied`,
+    );
 
     this.logger.log(
       rows[0]?.applied

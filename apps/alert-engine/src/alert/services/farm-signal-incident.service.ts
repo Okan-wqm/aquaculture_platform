@@ -30,6 +30,27 @@ export interface FarmSignalIncidentSpec {
 }
 
 /**
+ * Severity ordering — the ONLY place the enum's implicit ranking is made
+ * explicit. `AlertSeverity` is a string enum, so `>` on its members compares
+ * words alphabetically ('critical' < 'warning'), which is exactly backwards
+ * for the two values farm signals actually use. Ranking it once here means no
+ * caller can accidentally compare severities lexically.
+ */
+const SEVERITY_RANK: Record<AlertSeverity, number> = {
+  [AlertSeverity.INFO]: 0,
+  [AlertSeverity.LOW]: 1,
+  [AlertSeverity.WARNING]: 2,
+  [AlertSeverity.MEDIUM]: 3,
+  [AlertSeverity.HIGH]: 4,
+  [AlertSeverity.CRITICAL]: 5,
+};
+
+/** True when `next` is strictly more severe than `current`. */
+export function isSeverityEscalation(current: AlertSeverity, next: AlertSeverity): boolean {
+  return SEVERITY_RANK[next] > SEVERITY_RANK[current];
+}
+
+/**
  * FarmSignalIncidentService (FARM-LOW-144)
  *
  * The single owner of the "farm signal → AlertIncident" dedup + escalation
@@ -41,6 +62,24 @@ export interface FarmSignalIncidentSpec {
  * to the dedup window or an incident lock would have to be applied twice (and
  * could silently drift). Extracting it here makes the lifecycle impossible to
  * implement inconsistently — the callers only decide the signal-specific shape.
+ *
+ * ## Severity escalation (W7 — FARM-MEDIUM-259)
+ *
+ * Dedup used to mean "bump the occurrence counter and return", which froze an
+ * incident at the severity it was FIRST opened with. A feed-stockout incident
+ * opened at WARNING on day 7 of cover therefore stayed WARNING all the way
+ * down to day 1 — the CRITICAL threshold the coverage service computes every
+ * morning was calculated, passed to this method, and silently discarded,
+ * because the notification ladder is driven by the escalation policy matched
+ * at `startEscalation` time and that only ran on creation. The same freeze hits
+ * any signal whose severity is a function of how bad things have got.
+ *
+ * An open incident that receives a MORE severe occurrence is now promoted:
+ * severity/description/triggerData are updated, an `ESCALATED` timeline entry
+ * records the transition, and `startEscalation` is re-run so the ladder for the
+ * NEW severity engages. A same-or-lower occurrence still only bumps the
+ * counter — de-escalation is an operator decision (resolve/close), and
+ * re-running the ladder on every repeat occurrence would be a pager storm.
  */
 @Injectable()
 export class FarmSignalIncidentService {
@@ -79,8 +118,47 @@ export class FarmSignalIncidentService {
     });
 
     if (existing) {
+      const escalated = isSeverityEscalation(existing.severity, spec.severity);
+      const previousSeverity = existing.severity;
+
       existing.recordOccurrence(spec.triggeredAt);
-      await this.incidentRepository.save(existing);
+
+      if (escalated) {
+        existing.severity = spec.severity;
+        // The description and breadcrumb describe the CURRENT state (e.g.
+        // "2 days of cover", not the 7 it was opened with) — an operator
+        // opening the incident must not read a stale reason for a critical
+        // page.
+        existing.description = spec.description;
+        existing.triggerData = spec.triggerData;
+        existing.addTimelineEvent({
+          type: TimelineEventType.ESCALATED,
+          description: `Severity raised ${previousSeverity} → ${spec.severity}: ${spec.description}`,
+          data: { previousSeverity, severity: spec.severity },
+        });
+      }
+
+      const saved = await this.incidentRepository.save(existing);
+
+      if (escalated) {
+        this.logger.warn(
+          `Escalated ${spec.signalLabel} incident ${saved.id} for ${spec.ruleId}: ` +
+            `${previousSeverity} → ${spec.severity} (occurrences: ${saved.occurrenceCount})`,
+        );
+        // Re-run the ladder so the policy matched for the NEW severity engages.
+        // Non-blocking for the same reason as on creation: the incident row has
+        // already landed and must not be rolled back by a notification fault.
+        this.escalationManager
+          .startEscalation(saved, spec.severity, spec.ruleId)
+          .catch((err: Error) => {
+            this.logger.error(
+              `Failed to re-start escalation for escalated ${spec.signalLabel} incident ` +
+                `${saved.id}: ${err.message}`,
+            );
+          });
+        return;
+      }
+
       this.logger.debug(
         `Updated existing ${spec.signalLabel} incident ${existing.id} for ${spec.ruleId} ` +
           `(occurrences: ${existing.occurrenceCount})`,

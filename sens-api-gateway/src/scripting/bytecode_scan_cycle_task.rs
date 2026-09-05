@@ -210,7 +210,7 @@ mod tests {
     fn mk_entry(program_id: &str, bc: Bytecode) -> ProgramEntry {
         ProgramEntry {
             program_id: program_id.to_string(),
-            bytecode: bc,
+            bytecode: std::sync::Arc::new(bc),
             tenant_id: Some("tenant-a".to_string()),
             policy_version: 1,
             enabled: true,

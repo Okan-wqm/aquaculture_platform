@@ -17,6 +17,7 @@ import {
 } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 
 import { CurrentUser } from '../decorators/current-user.decorator';
 
@@ -259,7 +260,7 @@ export class TenantAdminController {
     @Param('id', ParseUUIDPipe) id: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-  ): Promise<{ data: TenantActivity[]; total: number; totalPages: number }> {
+  ): Promise<PaginationResultV1<TenantActivity>> {
     return this.detailService.getActivitiesTimeline(id, page || 1, limit || 20);
   }
 

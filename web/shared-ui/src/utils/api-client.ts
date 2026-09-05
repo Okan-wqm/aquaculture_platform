@@ -200,6 +200,73 @@ let accessToken: string | null = null;
 let tenantId: string | null = null;
 let tokenRefreshPromise: Promise<void> | null = null;
 
+/**
+ * SEC-MEDIUM-113 (2026-08-23 scan №58): cross-tab refresh single-flight.
+ *
+ * tokenRefreshPromise only serialized refreshes WITHIN one JS context — two
+ * tabs firing silentRefresh simultaneously each rotated the shared cookie,
+ * and the loser's now-stale refresh landed in reuse containment (all-session
+ * logout + a false CRITICAL alert). The BroadcastChannel lease makes ONE
+ * tab the refresher process-wide; other tabs poll the shared access token
+ * from localStorage (written by the winner's setTokens — see
+ * persistAccessTokenForTabs below) until the lease clears.
+ */
+const REFRESH_TAB_CHANNEL = 'aqua-refresh-single-flight';
+let refreshLeaseChannel: BroadcastChannel | null = null;
+try {
+  refreshLeaseChannel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel(REFRESH_TAB_CHANNEL) : null;
+} catch {
+  refreshLeaseChannel = null;
+}
+const REFRESH_LEASE_TIMEOUT_MS = 10_000;
+let refreshLeaseHeld = false;
+
+async function tryAcquireCrossTabRefreshLease(): Promise<boolean> {
+  if (!refreshLeaseChannel) return true; // no BC support: fall back to per-tab behavior
+  if (refreshLeaseHeld) return true;
+  return new Promise<boolean>((resolveLease) => {
+    const controller = new AbortController();
+    // Global setTimeout, matching createRequestAbortScope: the lease
+    // contention window and the request-abort window must live on the
+    // SAME timer surface or a faked-timer test advances one and stalls
+    // the other.
+    const timer = setTimeout(() => {
+      controller.abort();
+      // Nobody objected inside the contention window — take the lease.
+      refreshLeaseHeld = true;
+      resolveLease(true);
+    }, 50);
+    const onContended = (): void => {
+      controller.abort();
+      clearTimeout(timer);
+      resolveLease(false);
+    };
+    refreshLeaseChannel!.addEventListener('message', onContended, { signal: controller.signal });
+    refreshLeaseChannel!.postMessage({ type: 'refresh-intent' });
+  });
+}
+
+function releaseCrossTabRefreshLease(): void {
+  refreshLeaseHeld = false;
+}
+
+// Winner relays the fresh access token to contended tabs over the channel —
+// IN MEMORY ONLY. The access token never touches storage (SEC posture:
+// memory-only tokens; localStorage copies would be XSS-stealable).
+let relayedAccessToken: string | null = null;
+if (refreshLeaseChannel) {
+  refreshLeaseChannel.onmessage = (event: MessageEvent) => {
+    const data = event.data as { type?: string; token?: string } | null;
+    if (data?.type === 'refresh-done' && typeof data.token === 'string') {
+      relayedAccessToken = data.token;
+    }
+  };
+}
+
+function relayAccessTokenToTabs(token: string): void {
+  refreshLeaseChannel?.postMessage({ type: 'refresh-done', token });
+}
+
 type SharedAuthState = {
   accessToken: string | null;
   tenantId: string | null;
@@ -413,6 +480,22 @@ export async function silentRefresh(): Promise<boolean> {
     }
   }
 
+  // SEC-MEDIUM-113 (№58): cross-tab single-flight — if ANOTHER tab holds the
+  // refresh lease, wait for it to publish the rotated token instead of
+  // racing the shared cookie into rotation/reuse-containment paths.
+  if (!(await tryAcquireCrossTabRefreshLease())) {
+    const deadline = Date.now() + REFRESH_LEASE_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 100));
+      if (relayedAccessToken && relayedAccessToken !== getAccessToken()) {
+        setTokens(relayedAccessToken);
+        relayedAccessToken = null;
+        return true;
+      }
+    }
+    // Lease holder never finished — take over rather than leave the tab dead.
+  }
+
   // Take the lock so concurrent handleUnauthorized() calls wait on us
   let resolve: () => void;
   let reject: (err: Error) => void;
@@ -431,6 +514,7 @@ export async function silentRefresh(): Promise<boolean> {
   try {
     const success = await performTokenRefresh();
     if (success) {
+      relayAccessTokenToTabs(getAccessToken() ?? '');
       resolve!();
     } else {
       reject!(new Error('Silent refresh failed'));
@@ -441,6 +525,7 @@ export async function silentRefresh(): Promise<boolean> {
     return false;
   } finally {
     tokenRefreshPromise = null;
+    releaseCrossTabRefreshLease();
   }
 }
 

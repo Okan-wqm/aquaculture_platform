@@ -12,13 +12,8 @@ import { TankAllocation, AllocationType } from '../../entities/tank-allocation.e
 import { Equipment } from '../../../equipment/entities/equipment.entity';
 import { Species } from '../../../species/entities/species.entity';
 import { CodeGeneratorService } from '../../../database/services/code-generator.service';
-import { createMockDataSource, createMockRepository } from '@aquaculture/testing';
+import { createMockDataSource, createMockRepository, stub } from '@aquaculture/testing';
 import type { FinanceSettingsService } from '../../../finance/services/finance-settings.service';
-
-/** Typed partial-mock helper (repo pattern — keeps mocks type-safe without a blanket cast). */
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
 
 describe('CreateBatchHandler', () => {
   let handler: CreateBatchHandler;
@@ -32,7 +27,7 @@ describe('CreateBatchHandler', () => {
     generateCode: jest.fn(),
   } as unknown as jest.Mocked<CodeGeneratorService>;
   const mockOutboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
-  const mockFinanceSettings = mock<FinanceSettingsService>({
+  const mockFinanceSettings = stub<FinanceSettingsService>({
     getDefaultCurrency: jest.fn().mockResolvedValue('NOK'),
   });
 

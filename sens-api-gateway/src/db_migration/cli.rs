@@ -418,6 +418,7 @@ fn format_key_purpose(purpose: KeyPurpose) -> String {
         KeyPurpose::SqlCipherRetainPersistence => "sqlcipher-retain-persistence".into(),
         KeyPurpose::SqlCipherLicenseCache => "sqlcipher-license-cache".into(),
         KeyPurpose::SqlCipherBytecodeRetain => "sqlcipher-bytecode-retain".into(),
+        KeyPurpose::SqlCipherScadaDisplay => "sqlcipher-scada-display".into(),
         KeyPurpose::AuditHmacChain => "audit-hmac-chain".into(),
         KeyPurpose::ReplayCache => "replay-cache".into(),
         KeyPurpose::DekEscrow => "dek-escrow".into(),

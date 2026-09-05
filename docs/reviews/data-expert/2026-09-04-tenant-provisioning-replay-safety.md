@@ -12,6 +12,23 @@ and the gates that are supposed to keep that replay honest.
 2026-08-15 deadline and blocks the pilot's super-admin flow. Planning its fix
 surfaced two further defects of the same class and one gate-precision defect.
 
+## Ledger ids
+
+Five findings in this document were registered on the PR #1420 branch before `main` allocated the
+same sequence numbers to other findings. The allocator treats the sequence as the identity, so the
+branch's rows were re-registered under the right-hand ids when the branch took main. The merged
+`Closes:` trailers still name the left column; the ids with no live sibling on main are also
+recorded in `docs/reviews/_registry/finding-id-aliases.yaml`. `PROC-MEDIUM-021` names an unrelated
+finding on main and cannot be aliased: its fix commit (`add2a56ae`) closes `PROC-MEDIUM-026`.
+
+| Review id (headings, trailers) | Ledger id (findings.jsonl) |
+| ------------------------------ | -------------------------- |
+| `INFRA-HIGH-145`               | `INFRA-HIGH-155`           |
+| `INFRA-HIGH-146`               | `INFRA-HIGH-156`           |
+| `PROC-MEDIUM-021`              | `PROC-MEDIUM-026`          |
+| `ADMIN-CRITICAL-008`           | `ADMIN-CRITICAL-093`       |
+| `SENSOR-CRITICAL-105`          | `SENSOR-CRITICAL-110`      |
+
 ## Executive summary
 
 Provisioning a tenant is migration **replay**: the orchestrator pins
@@ -303,7 +320,9 @@ fourteen schemas that omitted `config`. Deriving it from 008's own
 `jsonb_to_recordset` table — done earlier in this same programme — added the
 fifteenth, and the first run against a migrated database failed on it.
 
-**Fixed** by `1807400000000-RestoreConfigSchemaOwnerRole`: the SCHEMA returns to
+**Fixed** by `1807400000000-RestoreConfigSchemaOwnerBoundary` — main landed the same
+schema-ownership return independently; the branch's own `RestoreConfigSchemaOwnerRole`
+migration, which shared the timestamp, was dropped in the merge in its favour: the SCHEMA returns to
 `config_schema_owner`; tables, types, sequences and the `USAGE, CREATE` grant
 stay with `config_service`. A CREATE grant lets the service add objects without
 conferring DROP over the ones already there — that difference is the whole fix.

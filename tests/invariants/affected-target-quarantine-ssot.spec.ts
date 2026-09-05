@@ -14,7 +14,7 @@
  * key naming a project that no longer existed. ci-full, the lane that used to
  * run those suites regardless, stopped running on pull requests, so the
  * quarantine silently became the whole story for those projects
- * (PROC-MEDIUM-020). lint-quarantine-ssot.spec.ts guarded the lint exclusion
+ * (PROC-MEDIUM-025). lint-quarantine-ssot.spec.ts guarded the lint exclusion
  * file's reasons and ceiling; nothing guarded this file.
  *
  * # WHAT
@@ -46,7 +46,7 @@ const ORPHAN_MD_PATH = join(REPO_ROOT, 'docs/reviews/orphan-findings.md');
  * Ratchet: the number of projects whose `test` target the affected lane does
  * NOT gate. Lower it when a key is deleted; never raise it. Measured
  * 2026-09-04 by running all 18 quarantined suites: every one was green, so
- * the map emptied and this ceiling is zero (PROC-MEDIUM-020).
+ * the map emptied and this ceiling is zero (PROC-MEDIUM-025).
  */
 const MAX_TEST_QUARANTINE = 0;
 

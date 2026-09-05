@@ -1,3 +1,5 @@
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
+
 /**
  * Common types shared across HR module
  */
@@ -20,18 +22,13 @@ export interface BaseEntity {
 export type PaginationInput = { limit?: number; page?: number };
 
 /**
- * @deprecated Use `StandardPaginatedResult<T>` from '@aquaculture/shared-ui' instead.
- * This offset-based response does not align with the backend standard (page/totalPages/hasNextPage).
+ * The page contract, held rather than restated.
+ *
+ * ADMIN-HIGH-004: this used to be a hand-written interface that happened to
+ * agree with the backend today and had no way of noticing when it stopped.
+ * It IS the versioned authority type now.
  */
-export interface PaginatedResponse<T> {
-  items: T[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-  hasNextPage: boolean;
-  hasPreviousPage: boolean;
-}
+export type PaginatedResponse<T> = PaginationResultV1<T>;
 
 // Re-export standard types for incremental migration
 export type { StandardPaginationInput, StandardPaginatedResult } from '@aquaculture/shared-ui';

@@ -12,7 +12,7 @@
  *   5. Unknown category → NotFoundException.
  */
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { createMockDataSource } from '@aquaculture/testing';
+import { createMockDataSource, stub } from '@aquaculture/testing';
 import type { EntityManager } from 'typeorm';
 import type { OutboxPublisher } from '@platform/outbox';
 
@@ -35,10 +35,6 @@ const CATEGORY_ID = '33333333-3333-4333-8333-333333333333';
  * Build a fully-typed partial double for an interface T (same helper
  * pattern as the feeding handler spec).
  */
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
-
 interface HarnessOpts {
   category?: Partial<FinanceCategory> | null;
   tenantCurrency?: string;
@@ -70,13 +66,13 @@ function makeHarness(opts: HarnessOpts = {}) {
   }));
 
   const enqueue = jest.fn().mockResolvedValue(undefined);
-  const outboxPublisher = mock<OutboxPublisher>({ enqueue });
+  const outboxPublisher = stub<OutboxPublisher>({ enqueue });
 
-  const seedService = mock<FinanceCategorySeedService>({
+  const seedService = stub<FinanceCategorySeedService>({
     ensureDefaults: jest.fn().mockResolvedValue(undefined),
   });
 
-  const settingsService = mock<FinanceSettingsService>({
+  const settingsService = stub<FinanceSettingsService>({
     getDefaultCurrencyInTx: jest.fn().mockResolvedValue(opts.tenantCurrency ?? 'NOK'),
   });
 

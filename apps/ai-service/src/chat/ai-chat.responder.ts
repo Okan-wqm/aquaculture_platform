@@ -64,7 +64,32 @@ export class AiChatResponder {
   @MessagePattern('request.ai.chat')
   async handleChat(@Payload() payload: AiChatNatsRequest): Promise<AiChatNatsResponse> {
     const message = (payload.message ?? payload.content ?? '').trim();
-    if (!payload.tenantId || !payload.userId || !message) {
+    // SEC-HIGH-099 (2026-08-23 scan №44): identity fields are VALIDATED, not
+    // trusted — tenantId/userId must be UUIDs (the tenant schema is derived
+    // from tenantId, so a malformed value must fail closed BEFORE any
+    // schema-derivation or tool execution), and userRoles must be an array
+    // of strings. The cert-CN ACL already restricts publishers to gateway
+    // and messaging; this closes the payload-trust gap for a compromised
+    // publisher.
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (
+      !UUID_RE.test(payload.tenantId ?? '') ||
+      !UUID_RE.test(payload.userId ?? '') ||
+      (payload.userRoles !== undefined &&
+        (!Array.isArray(payload.userRoles) ||
+          payload.userRoles.some((r) => typeof r !== 'string')))
+    ) {
+      return {
+        content: 'The AI request was missing required information.',
+        conversationId: null,
+        metadata: { errorCode: 'BAD_REQUEST' },
+        error: {
+          code: 'BAD_REQUEST',
+          message: 'tenantId and userId must be UUIDs; userRoles must be string[]',
+        },
+      };
+    }
+    if (!message) {
       // `content` carries a user-facing message so the messaging bridge (which
       // posts response.content as the AI reply and does not inspect `error`)
       // degrades gracefully; `error` lets the socket.io assistant emit ai:error.

@@ -8,8 +8,9 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { createHash } from 'node:crypto';
 import { IEventBus } from '@platform/event-bus';
-import { createBaseEvent } from '@platform/event-contracts';
+import { createBaseEvent, deriveEventId, type EventId } from '@platform/event-contracts';
 import { Repository, DataSource, EntityManager } from 'typeorm';
 
 /**
@@ -49,6 +50,8 @@ import {
 } from '@aquaculture/backend-common/database';
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
 import { SensorServiceProfileService } from '../config/sensor-service-profile.service';
+
+import { ErasedTenantTombstoneService } from '../compliance/erasure/erased-tenant-tombstone.service';
 import { VfdEdgeProvisioningService } from '../vfd/services/vfd-edge-provisioning.service';
 import { VfdEdgeReadService } from '../vfd/services/vfd-edge-read.service';
 import { VfdEdgeWriteService } from '../vfd/services/vfd-edge-write.service';
@@ -146,6 +149,38 @@ interface TenantEdgeStatusPayload {
   agent_version?: string;
   /** Edge agent includes uptime in status messages */
   uptime_seconds?: number;
+}
+
+/**
+ * Marks a failure of the DURABLE leg of message handling (the metric write
+ * transaction). Only these propagate out of handleMessage: an unpersisted
+ * reading must not be PUBACKed — the MQTT ack gate force-redelivers it from
+ * the persistent session. Non-durable failures (parse, fan-out) stay
+ * swallow-and-ack until the Task 1.6 disposition/DLQ contract classifies
+ * them (SENSOR-CRITICAL-086).
+ */
+class DurableWriteError extends Error {}
+
+/**
+ * Stable, key-sorted JSON rendering so the same logical payload always
+ * hashes to the same digest (Task 1.4 seed input).
+ */
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value) ?? 'null';
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalJson).join(',')}]`;
+  }
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, v]) => v !== undefined)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`);
+  return `{${entries.join(',')}}`;
+}
+
+function sha256Hex(text: string): string {
+  return createHash('sha256').update(text, 'utf8').digest('hex');
 }
 
 /**
@@ -252,20 +287,20 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     @Optional()
     @Inject(VfdEdgeReadService)
     private readonly vfdEdgeReadService: VfdEdgeReadService | null = null,
+    // Task 1.8: erased-tenant tombstone — trailing optional so the
+    // `new`-based unit-test harness (positional args) stays untouched.
+    @Optional()
+    private readonly tombstone: ErasedTenantTombstoneService | null = null,
   ) {
     // Legacy edge/ topic flag (default: true for backward compatibility)
     this.legacyEdgeTopicsEnabled =
       this.configService.get('LEGACY_EDGE_TOPICS_ENABLED', 'true') === 'true';
 
-    // Bind message handler to this instance
-    this.messageHandler = (topic: string, message: Buffer) => {
-      this.handleMessage(topic, message).catch((error: Error) => {
-        this.logger.error(
-          `Unhandled error in message handler for topic ${topic}: ${error.message}`,
-          error.stack,
-        );
-      });
-    };
+    // Bind message handler to this instance. The promise is RETURNED, not
+    // swallowed: MqttClientService's ack gate (dispatchDurable) awaits it to
+    // decide PUBACK-vs-redelivery (SENSOR-CRITICAL-086). A swallowed error
+    // here would ack a message that was never durably persisted.
+    this.messageHandler = (topic: string, message: Buffer) => this.handleMessage(topic, message);
   }
 
   async onModuleInit(): Promise<void> {
@@ -453,6 +488,16 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
+      // Task 1.8 (erasure tombstone): an erased tenant's late messages are
+      // ACK-dropped — persisting them would recreate the just-erased
+      // schema's data and enqueue a fresh outbox row (Swiss-cheese erasure).
+      if (this.tombstone?.isErased(sensor.tenantId)) {
+        this.logger.warn(
+          `ACK-drop for erased tenant on topic ${topic} — message discarded without persistence`,
+        );
+        return;
+      }
+
       // Parse message payload
       const data = this.parsePayload(payload, sensor);
 
@@ -463,8 +508,16 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
       const now = new Date();
 
-      // Save reading
-      await this.saveReading(sensor, data);
+      // Save reading. A failure here means the reading was NOT durably
+      // persisted — it must propagate (wrapped in DurableWriteError) so the
+      // MQTT ack gate holds PUBACK and the persistent session redelivers
+      // (SENSOR-CRITICAL-086). Everything else in this handler stays
+      // swallow-and-ack until the Task 1.6 disposition/DLQ contract lands.
+      await this.saveReading(sensor, data).catch((error: Error) => {
+        throw new DurableWriteError(
+          `Durable metric write failed for sensor ${sensor.id}: ${error.message}`,
+        );
+      });
 
       // Debounce lastSeenAt update (flushed every 30 seconds)
       this.lastSeenPending.set(sensor.id, now);
@@ -472,6 +525,11 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       // Publish real-time event for WebSocket clients
       await this.publishSensorReadingEvent(sensor, data, now);
     } catch (error) {
+      if (error instanceof DurableWriteError) {
+        // Not durable → no ack → redelivery. The ack gate in
+        // MqttClientService.forceRedelivery owns the reconnect.
+        throw error;
+      }
       this.logger.error(`Error handling MQTT message: ${(error as Error).message}`);
     }
   }
@@ -1747,6 +1805,14 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         ...createBaseEvent('SensorReading', sensor.tenantId, {
           aggregateId: sensor.id,
           aggregateType: 'Sensor',
+          // Task 1.4 legacy-path identity: UUIDv5 over tenant + sensor +
+          // producer ts + canonical payload digest, so a re-emission of the
+          // SAME reading (e.g. after the MQTT ack gate redelivers and the
+          // row already upserted) collapses onto one eventId instead of
+          // double-firing downstream effects. The EDGE-assigned
+          // sourceEventId (Task 1.7) is the durable long-term answer; this
+          // fallback binds to the payload's own ts when present.
+          eventId: this.deriveLegacyReadingEventId(sensor, data, timestamp),
         }),
         timestamp: timestamp.toISOString(),
         sensorId: sensor.id,
@@ -1757,6 +1823,40 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       this.logger.warn(`Failed to publish sensor reading event: ${(error as Error).message}`);
     }
+  }
+
+  /**
+   * Deterministic identity for the legacy MQTT path (plan Task 1.4):
+   * tenant + sensor + producer timestamp + payload SHA-256. The producer
+   * ts prefers the payload's own `ts`/`timestamp`/`producerTs` field; the
+   * receive time is the fallback (documented limitation: a redelivered
+   * legacy payload without its own ts gets a fresh receive-time identity —
+   * the edge-assigned sourceEventId removes that ambiguity).
+   */
+  private deriveLegacyReadingEventId(
+    sensor: Sensor,
+    data: Record<string, unknown>,
+    receivedAt: Date,
+  ): EventId {
+    const producerTs = this.extractProducerTs(data) ?? receivedAt.toISOString();
+    const payloadSha = sha256Hex(canonicalJson(data));
+    return deriveEventId([sensor.tenantId, sensor.id, producerTs, payloadSha].join('\u0000'));
+  }
+
+  private extractProducerTs(data: Record<string, unknown>): string | null {
+    for (const key of ['ts', 'timestamp', 'producerTs']) {
+      const raw = data[key];
+      if (typeof raw === 'number' && Number.isFinite(raw)) {
+        return new Date(raw).toISOString();
+      }
+      if (typeof raw === 'string' && raw.length > 0) {
+        const parsed = new Date(raw);
+        if (!Number.isNaN(parsed.getTime())) {
+          return parsed.toISOString();
+        }
+      }
+    }
+    return null;
   }
 
   /**

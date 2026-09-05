@@ -93,6 +93,13 @@ pub enum NatsClientError {
     #[error("NATS publish error")]
     Publish(#[source] async_nats::PublishError),
 
+    /// JetStream publish path failed (stream missing, buffer full under
+    /// Discard New, or the broker never acked within the timeout). The
+    /// sidecar treats this as "source NOT durably published" — the
+    /// outbox row stays pending and the dispatcher retries.
+    #[error("JetStream publish error (no PubAck)")]
+    JetStreamPublish(String),
+
     /// Subscribe-side errors (broker rejected the subject filter,
     /// resource limit hit).
     #[error("NATS subscribe error")]
@@ -242,6 +249,47 @@ impl NatsClient {
             .publish_with_headers(subject.into(), headers, payload)
             .await
             .map_err(NatsClientError::Publish)
+    }
+
+    /// Publish raw bytes to a subject through JetStream and AWAIT the
+    /// broker's PubAck (Task 3, SENSOR-CRITICAL-089: the sidecar's
+    /// durability contract). The optional `msg_id` sets the
+    /// `Nats-Msg-Id` header so the stream's duplicate window collapses
+    /// an at-least-once redelivery of the SAME logical event
+    /// (deterministic ids since Task 1.4). A refused PubAck (Discard
+    /// New on a full telemetry buffer) surfaces as an Err — the outbox
+    /// row stays pending and the dispatcher retries.
+    // The jetstream context is a thin handle over the shared connection;
+    // its drop timing relative to the publish→ack window is immaterial
+    // (the ack rides the connection, not the context). The tightening
+    // linter's suggested early drop is equivalent but obscures the
+    // publish-then-await durability shape this function documents.
+    #[allow(clippy::significant_drop_tightening)]
+    pub async fn publish_jetstream(
+        &self,
+        subject: impl Into<async_nats::Subject> + Send,
+        headers: async_nats::HeaderMap,
+        payload: Bytes,
+        msg_id: Option<&str>,
+    ) -> Result<(), NatsClientError> {
+        let jetstream = async_nats::jetstream::new(self.inner.clone());
+        let mut message = async_nats::jetstream::message::PublishMessage::build().payload(payload);
+        if let Some(id) = msg_id {
+            message = message.message_id(id);
+        }
+        message = message.headers(headers);
+        let publish = jetstream
+            .send_publish(subject.into(), message)
+            .await
+            .map_err(|e| NatsClientError::JetStreamPublish(e.to_string()))?;
+        // The ack handle borrows nothing, but keep the context alive for
+        // the full publish→ack window so the drop order on this path is
+        // explicit (the tightening linter's early drop is equivalent,
+        // this form reads as the durability contract it implements).
+        let ack = publish.await;
+        drop(jetstream);
+        ack.map_err(|e| NatsClientError::JetStreamPublish(e.to_string()))?;
+        Ok(())
     }
 
     /// Subscribe to a subject (or wildcard). The returned subscriber

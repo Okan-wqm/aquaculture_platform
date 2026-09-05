@@ -40,14 +40,19 @@ export class IpValidatorService implements IIpValidator {
   ];
 
   // ReDoS-safe regex patterns
-  private readonly ipv4Regex = /^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])$/;
-  private readonly ipv6Regex = /^(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$|^::(?:[0-9a-fA-F]{1,4}:){0,6}[0-9a-fA-F]{1,4}$|^(?:[0-9a-fA-F]{1,4}:){1,7}:$|^(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}$|^(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}$|^(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}$|^(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}$|^(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}$|^[0-9a-fA-F]{1,4}:(?::[0-9a-fA-F]{1,4}){1,6}$|^:(?::[0-9a-fA-F]{1,4}){1,7}$|^::$/;
+  private readonly ipv4Regex =
+    /^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])$/;
+  private readonly ipv6Regex =
+    /^(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$|^::(?:[0-9a-fA-F]{1,4}:){0,6}[0-9a-fA-F]{1,4}$|^(?:[0-9a-fA-F]{1,4}:){1,7}:$|^(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}$|^(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}$|^(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}$|^(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}$|^(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}$|^[0-9a-fA-F]{1,4}:(?::[0-9a-fA-F]{1,4}){1,6}$|^:(?::[0-9a-fA-F]{1,4}){1,7}$|^::$/;
 
   constructor(private readonly configService: ConfigService) {
     // Parse trusted proxies from environment
     const trustedProxiesStr = this.configService.get<string>('TRUSTED_PROXIES', '');
     this.trustedProxies = new Set(
-      trustedProxiesStr.split(',').map(ip => ip.trim()).filter(ip => ip.length > 0),
+      trustedProxiesStr
+        .split(',')
+        .map((ip) => ip.trim())
+        .filter((ip) => ip.length > 0),
     );
 
     // Always trust loopback addresses
@@ -66,33 +71,26 @@ export class IpValidatorService implements IIpValidator {
    * Extract client IP from request with proxy support
    *
    * Priority order:
-   * 1. CF-Connecting-IP (Cloudflare)
-   * 2. True-Client-IP (Akamai, Cloudflare Enterprise)
-   * 3. X-Real-IP (nginx)
-   * 4. X-Forwarded-For (first non-trusted IP from right)
-   * 5. req.ip (Express with trust proxy)
-   * 6. Socket remote address
+   * 1. X-Real-IP (nginx)
+   * 2. X-Forwarded-For (first non-trusted IP from right)
+   * 3. req.ip (Express with trust proxy)
+   * 4. Socket remote address
+   *
+   * SEC-MEDIUM-069/070 (2026-08-23 scan №14/№15/№32): the CDN headers
+   * CF-Connecting-IP / True-Client-IP are CLIENT-SUPPLIABLE on any
+   * deployment where that CDN does not terminate in front of nginx —
+   * trusting them let one spoofed header rotate throttle/audit identities.
+   * A CDN fronting this platform must map its header onto X-Real-IP via
+   * nginx's real_ip module; the application trusts proxy-set headers only.
    */
   extractClientIp(request: IpExtractionRequest): string {
-    // 1. Cloudflare CF-Connecting-IP
-    const cfIp = request.headers['cf-connecting-ip'];
-    if (typeof cfIp === 'string' && this.isValidIp(cfIp)) {
-      return cfIp;
-    }
-
-    // 2. True-Client-IP (Akamai, Cloudflare Enterprise)
-    const trueClientIp = request.headers['true-client-ip'];
-    if (typeof trueClientIp === 'string' && this.isValidIp(trueClientIp)) {
-      return trueClientIp;
-    }
-
-    // 3. X-Real-IP (nginx)
+    // 1. X-Real-IP (nginx)
     const realIp = request.headers['x-real-ip'];
     if (typeof realIp === 'string' && this.isValidIp(realIp)) {
       return realIp;
     }
 
-    // 4. X-Forwarded-For (most complex, requires validation)
+    // 2. X-Forwarded-For (most complex, requires validation)
     const forwardedFor = request.headers['x-forwarded-for'];
     if (forwardedFor) {
       const validatedIp = this.validateForwardedFor(
@@ -104,7 +102,7 @@ export class IpValidatorService implements IIpValidator {
       }
     }
 
-    // 5. Express req.ip (trust proxy configured)
+    // 3. Express req.ip (trust proxy configured)
     if (request.ip && this.isValidIp(request.ip)) {
       const cleanIp = this.cleanIp(request.ip);
       if (!this.isTrustedProxy(cleanIp)) {
@@ -112,7 +110,7 @@ export class IpValidatorService implements IIpValidator {
       }
     }
 
-    // 6. Socket remote address
+    // 4. Socket remote address
     const socketIp = request.socket?.remoteAddress || request.connection?.remoteAddress;
     if (socketIp && this.isValidIp(socketIp)) {
       return this.cleanIp(socketIp);
@@ -182,7 +180,10 @@ export class IpValidatorService implements IIpValidator {
     }
 
     // Split and clean IPs
-    const ips = header.split(',').map(ip => ip.trim()).filter(ip => ip.length > 0);
+    const ips = header
+      .split(',')
+      .map((ip) => ip.trim())
+      .filter((ip) => ip.length > 0);
 
     // Limit number of IPs to prevent DoS
     if (ips.length > 20) {
@@ -234,7 +235,8 @@ export class IpValidatorService implements IIpValidator {
       if (parts[0] === 10) return true;
 
       // 172.16.0.0/12
-      if (parts[0] === 172 && parts[1] !== undefined && parts[1] >= 16 && parts[1] <= 31) return true;
+      if (parts[0] === 172 && parts[1] !== undefined && parts[1] >= 16 && parts[1] <= 31)
+        return true;
 
       // 192.168.0.0/16
       if (parts[0] === 192 && parts[1] === 168) return true;
@@ -248,7 +250,8 @@ export class IpValidatorService implements IIpValidator {
 
     // IPv6 private ranges
     if (cleanedIp === '::1') return true;
-    if (cleanedIp.toLowerCase().startsWith('fc') || cleanedIp.toLowerCase().startsWith('fd')) return true;
+    if (cleanedIp.toLowerCase().startsWith('fc') || cleanedIp.toLowerCase().startsWith('fd'))
+      return true;
     if (cleanedIp.toLowerCase().startsWith('fe80')) return true;
 
     return false;

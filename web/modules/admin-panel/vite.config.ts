@@ -33,6 +33,10 @@ export default defineConfig({
     alias: {
       '@': resolve(__dirname, 'src'),
       '@aquaculture/shared-ui': resolve(__dirname, '../../shared-ui/dist'),
+      '@platform/pagination-contracts': resolve(
+        __dirname,
+        '../../../platform/libs/pagination-contracts/src/index.ts',
+      ),
       '@platform/shared-ui': resolve(__dirname, '../../shared-ui/src'),
     },
   },

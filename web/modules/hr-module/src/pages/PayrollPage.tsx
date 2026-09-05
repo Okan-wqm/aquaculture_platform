@@ -65,7 +65,7 @@ function formatDate(dateStr: string | undefined | null): string {
 // ============================================================================
 
 interface CreatePayrollModalProps {
-  employees: Employee[];
+  employees: readonly Employee[];
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (input: CreatePayrollInput) => void;

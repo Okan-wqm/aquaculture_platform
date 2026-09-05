@@ -49,7 +49,7 @@ const defaultDashboard: JobDashboard = {
 export const JobQueuePage: React.FC = () => {
   // State
   const [dashboard, setDashboard] = useState<JobDashboard | null>(null);
-  const [jobs, setJobs] = useState<BackgroundJob[]>([]);
+  const [jobs, setJobs] = useState<readonly BackgroundJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -85,9 +85,7 @@ export const JobQueuePage: React.FC = () => {
         status: filterStatus !== 'all' ? [filterStatus as JobStatus] : undefined,
         search: searchTerm || undefined,
       });
-      // Ensure response.data is an array
-      const data = response?.data;
-      setJobs(Array.isArray(data) ? data : []);
+      setJobs(response.data);
     } catch (err) {
       console.error('Failed to load jobs:', err);
       setJobs([]);

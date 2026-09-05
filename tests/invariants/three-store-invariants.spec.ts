@@ -53,6 +53,7 @@ import { execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import { loadCanonicalToAliases } from '../../tools/gates/finding-id-aliases';
 import {
   commitMessageClosesFinding,
   readCommitMessage,
@@ -1195,10 +1196,23 @@ describe('three-store invariants', () => {
       expect(registryRows[0]).toMatchObject({
         id: entry.finding_id,
         severity: entry.finding_id.split('-')[1],
-        state: 'OPEN',
         owner_agent: 'platform-autonomy',
-        closing_commits: [],
       });
+      // State is derived from merged history (finding-registry-closure-drift):
+      // a scoped finding is RESOLVED exactly when a main-reachable commit
+      // carries its Closes: trailer, and then its closing_commits record that
+      // commit. Pinning OPEN here would contradict the derivation the moment
+      // main closes one of these findings.
+      const scopedRow = registryRows[0];
+      expect(scopedRow).toBeDefined();
+      if (scopedRow !== undefined) {
+        expect(['OPEN', 'IN-PROGRESS', 'RESOLVED']).toContain(scopedRow.state);
+        if (scopedRow.state === 'RESOLVED') {
+          expect(scopedRow.closing_commits.length).toBeGreaterThan(0);
+        } else {
+          expect(scopedRow.closing_commits).toEqual([]);
+        }
+      }
       if (entry.narrative_anchor) {
         expect(narrative).toContain(`## ${entry.finding_id} `);
       }
@@ -1212,6 +1226,7 @@ describe('three-store invariants', () => {
   });
 
   describe('store-2: commit trailers match registry', () => {
+    const aliasesByCanonical = loadCanonicalToAliases(REPO_ROOT);
     const resolved = entries.filter((e) => e.state === 'RESOLVED');
 
     it('every RESOLVED finding has at least one closing_commits entry (legacy-allowlisted exceptions permitted)', () => {
@@ -1257,7 +1272,11 @@ describe('three-store invariants', () => {
           if (LEGACY_DRIFT_SET.has(`${e.id}::${sha}`)) continue;
 
           const msg = commitMessage(sha);
-          if (!commitMessageClosesFinding(msg, e.id)) {
+          // PROC-MEDIUM-024: a renumbered finding's merged trailer names its
+          // historical id; the same alias sidecar the ceremonies resolve is
+          // resolved here, or this gate rejects a closure the ledger admitted.
+          const names = [e.id, ...(aliasesByCanonical.get(e.id) ?? [])];
+          if (!names.some((name) => commitMessageClosesFinding(msg, name))) {
             throw new Error(
               `Finding ${e.id} claims SHA ${sha} as a closer but the commit message has no matching Closes: trailer. ` +
                 `Either fix the Closes: trailer (requires rebase/amend on an unmerged commit), update the registry entry, ` +

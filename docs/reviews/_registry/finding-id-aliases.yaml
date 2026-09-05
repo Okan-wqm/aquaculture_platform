@@ -1,0 +1,229 @@
+# Finding-ID Aliases — historical trailer ids the ledger records under another id
+#
+# A `Closes:` trailer is immutable once merged: amending it means rewriting published
+# history, which the force-push ban forbids. When an integration registers a branch's
+# findings under different ids than its commits name, the trailer and the ledger
+# disagree forever. This sidecar records the mapping so every id-resolving gate
+# (commit-msg validator, close ceremony, closure derivation) reads the SAME answer.
+#
+# Not an exemption list: an alias resolves ONLY to a canonical id that exists in
+# findings.jsonl, and tests/invariants/finding-id-aliases.spec.ts fails the build if
+# it does not. An id with neither a ledger row nor an alias still fails, as before.
+#
+# Consumers: tools/gates/finding-id-aliases.ts
+
+version: 1
+
+aliases:
+  - alias: PR935-HIGH-001
+    canonical: EDGE-HIGH-029
+    review_file: docs/reviews/edge-expert/2026-07-12-pr935-e2e-review.md
+    commits:
+      - 'eebc38460'
+    effective_date: '2026-09-05'
+    reason: >
+      Raised as PR935-HIGH-001 in the PR #935 end-to-end review and fixed on that branch. The
+      ledger schema admits no PR-numbered id prefix, so the integration registered the
+      finding as EDGE-HIGH-029; the merged commits still name the review-document id.
+  - alias: PR935-HIGH-002
+    canonical: EDGE-HIGH-030
+    review_file: docs/reviews/edge-expert/2026-07-12-pr935-e2e-review.md
+    commits:
+      - '754d2a64e'
+    effective_date: '2026-09-05'
+    reason: >
+      Raised as PR935-HIGH-002 in the PR #935 end-to-end review and fixed on that branch. The
+      ledger schema admits no PR-numbered id prefix, so the integration registered the
+      finding as EDGE-HIGH-030; the merged commits still name the review-document id.
+  - alias: PR935-HIGH-003
+    canonical: EDGE-HIGH-031
+    review_file: docs/reviews/edge-expert/2026-07-12-pr935-e2e-review.md
+    commits:
+      - '754d2a64e'
+    effective_date: '2026-09-05'
+    reason: >
+      Raised as PR935-HIGH-003 in the PR #935 end-to-end review and fixed on that branch. The
+      ledger schema admits no PR-numbered id prefix, so the integration registered the
+      finding as EDGE-HIGH-031; the merged commits still name the review-document id.
+  - alias: PR935-HIGH-004
+    canonical: EDGE-HIGH-032
+    review_file: docs/reviews/edge-expert/2026-07-12-pr935-e2e-review.md
+    commits:
+      - '0649ea5fb'
+    effective_date: '2026-09-05'
+    reason: >
+      Raised as PR935-HIGH-004 in the PR #935 end-to-end review and fixed on that branch. The
+      ledger schema admits no PR-numbered id prefix, so the integration registered the
+      finding as EDGE-HIGH-032; the merged commits still name the review-document id.
+  - alias: PR935-HIGH-005
+    canonical: EDGE-HIGH-033
+    review_file: docs/reviews/edge-expert/2026-07-12-pr935-e2e-review.md
+    commits:
+      - '6e6807431'
+    effective_date: '2026-09-05'
+    reason: >
+      Raised as PR935-HIGH-005 in the PR #935 end-to-end review and fixed on that branch. The
+      ledger schema admits no PR-numbered id prefix, so the integration registered the
+      finding as EDGE-HIGH-033; the merged commits still name the review-document id.
+  - alias: PR935-MEDIUM-001
+    canonical: EDGE-MEDIUM-034
+    review_file: docs/reviews/edge-expert/2026-07-12-pr935-e2e-review.md
+    commits:
+      - '0649ea5fb'
+    effective_date: '2026-09-05'
+    reason: >
+      Raised as PR935-MEDIUM-001 in the PR #935 end-to-end review and fixed on that branch. The
+      ledger schema admits no PR-numbered id prefix, so the integration registered the
+      finding as EDGE-MEDIUM-034; the merged commits still name the review-document id.
+  - alias: PR935-MEDIUM-002
+    canonical: EDGE-MEDIUM-035
+    review_file: docs/reviews/edge-expert/2026-07-12-pr935-e2e-review.md
+    commits:
+      - '683d4299c'
+    effective_date: '2026-09-05'
+    reason: >
+      Raised as PR935-MEDIUM-002 in the PR #935 end-to-end review and fixed on that branch. The
+      ledger schema admits no PR-numbered id prefix, so the integration registered the
+      finding as EDGE-MEDIUM-035; the merged commits still name the review-document id.
+  - alias: PR935-MEDIUM-003
+    canonical: EDGE-MEDIUM-036
+    review_file: docs/reviews/edge-expert/2026-07-12-pr935-e2e-review.md
+    commits:
+      - '72e037ab6'
+    effective_date: '2026-09-05'
+    reason: >
+      Raised as PR935-MEDIUM-003 in the PR #935 end-to-end review and fixed on that branch. The
+      ledger schema admits no PR-numbered id prefix, so the integration registered the
+      finding as EDGE-MEDIUM-036; the merged commits still name the review-document id.
+  - alias: PR935-MEDIUM-004
+    canonical: EDGE-MEDIUM-037
+    review_file: docs/reviews/edge-expert/2026-07-12-pr935-e2e-review.md
+    commits:
+      - '440d41b47'
+    effective_date: '2026-09-05'
+    reason: >
+      Raised as PR935-MEDIUM-004 in the PR #935 end-to-end review and fixed on that branch. The
+      ledger schema admits no PR-numbered id prefix, so the integration registered the
+      finding as EDGE-MEDIUM-037; the merged commits still name the review-document id.
+  - alias: PR935-LOW-006
+    canonical: EDGE-LOW-038
+    review_file: docs/reviews/edge-expert/2026-07-12-pr935-e2e-review.md
+    commits:
+      - 'fb8449d5a'
+    effective_date: '2026-09-05'
+    reason: >
+      Raised as PR935-LOW-006 in the PR #935 end-to-end review and fixed on that branch. The
+      ledger schema admits no PR-numbered id prefix, so the integration registered the
+      finding as EDGE-LOW-038; the merged commits still name the review-document id.
+  - alias: PR935-LOW-007
+    canonical: EDGE-LOW-039
+    review_file: docs/reviews/edge-expert/2026-07-12-pr935-e2e-review.md
+    commits:
+      - '440d41b47'
+    effective_date: '2026-09-05'
+    reason: >
+      Raised as PR935-LOW-007 in the PR #935 end-to-end review and fixed on that branch. The
+      ledger schema admits no PR-numbered id prefix, so the integration registered the
+      finding as EDGE-LOW-039; the merged commits still name the review-document id.
+  - alias: PR935-LOW-008
+    canonical: EDGE-LOW-040
+    review_file: docs/reviews/edge-expert/2026-07-12-pr935-e2e-review.md
+    commits:
+      - 'fb8449d5a'
+    effective_date: '2026-09-05'
+    reason: >
+      Raised as PR935-LOW-008 in the PR #935 end-to-end review and fixed on that branch. The
+      ledger schema admits no PR-numbered id prefix, so the integration registered the
+      finding as EDGE-LOW-040; the merged commits still name the review-document id.
+  - alias: INFRA-HIGH-140
+    canonical: INFRA-HIGH-157
+    review_file: docs/reviews/test-runner/2026-08-16-farm-mobile-test-health.md
+    commits:
+      - '4b9033b60'
+    effective_date: '2026-09-05'
+    reason: >
+      Registered as INFRA-HIGH-140 on the PR #1420 branch (claude/platform-eksiklikler-bug-fix-0jj9jg)
+      before main allocated sequence 140 of the same domain to INFRA-MEDIUM-140. The allocator treats the
+      sequence as the identity, so the branch's row was re-registered as INFRA-HIGH-157 when the branch
+      took main; the merged commits still name the id the review file was written with.
+  - alias: INFRA-MEDIUM-142
+    canonical: INFRA-MEDIUM-158
+    review_file: docs/reviews/test-runner/2026-08-16-farm-mobile-test-health.md
+    commits:
+      - '57d2655ce'
+      - 'f6f11eda1'
+      - 'f2ab70ef6'
+    effective_date: '2026-09-05'
+    reason: >
+      Registered as INFRA-MEDIUM-142 on the PR #1420 branch (claude/platform-eksiklikler-bug-fix-0jj9jg)
+      before main allocated sequence 142 of the same domain to INFRA-HIGH-142. The allocator treats the
+      sequence as the identity, so the branch's row was re-registered as INFRA-MEDIUM-158 when the branch
+      took main; the merged commits still name the id the review file was written with.
+  - alias: INFRA-MEDIUM-144
+    canonical: INFRA-MEDIUM-154
+    review_file: docs/reviews/test-runner/2026-08-16-farm-mobile-test-health.md
+    commits:
+      - 'c597668c6'
+      - 'c9a2baaff'
+    effective_date: '2026-09-05'
+    reason: >
+      Registered as INFRA-MEDIUM-144 on the PR #1420 branch (claude/platform-eksiklikler-bug-fix-0jj9jg)
+      before main allocated sequence 144 of the same domain to INFRA-HIGH-144. The allocator treats the
+      sequence as the identity, so the branch's row was re-registered as INFRA-MEDIUM-154 when the branch
+      took main; the merged commits still name the id the review file was written with.
+  - alias: PROC-MEDIUM-020
+    canonical: PROC-MEDIUM-025
+    review_file: docs/reviews/test-runner/2026-08-16-farm-mobile-test-health.md
+    commits:
+      - 'c597668c6'
+    effective_date: '2026-09-05'
+    reason: >
+      Registered as PROC-MEDIUM-020 on the PR #1420 branch (claude/platform-eksiklikler-bug-fix-0jj9jg)
+      before main allocated sequence 020 of the same domain to PROC-HIGH-020. The allocator treats the
+      sequence as the identity, so the branch's row was re-registered as PROC-MEDIUM-025 when the branch
+      took main; the merged commits still name the id the review file was written with.
+  - alias: INFRA-HIGH-145
+    canonical: INFRA-HIGH-155
+    review_file: docs/reviews/data-expert/2026-09-04-tenant-provisioning-replay-safety.md
+    commits:
+      - '8524e2a09'
+    effective_date: '2026-09-05'
+    reason: >
+      Registered as INFRA-HIGH-145 on the PR #1420 branch (claude/platform-eksiklikler-bug-fix-0jj9jg)
+      before main allocated sequence 145 of the same domain to INFRA-MEDIUM-145. The allocator treats the
+      sequence as the identity, so the branch's row was re-registered as INFRA-HIGH-155 when the branch
+      took main; the merged commits still name the id the review file was written with.
+  - alias: INFRA-HIGH-146
+    canonical: INFRA-HIGH-156
+    review_file: docs/reviews/data-expert/2026-09-04-tenant-provisioning-replay-safety.md
+    commits:
+      - '3ca73dbea'
+      - '1ac167185'
+    effective_date: '2026-09-05'
+    reason: >
+      Registered as INFRA-HIGH-146 on the PR #1420 branch (claude/platform-eksiklikler-bug-fix-0jj9jg)
+      before main allocated sequence 146 of the same domain to INFRA-MEDIUM-146. The allocator treats the
+      sequence as the identity, so the branch's row was re-registered as INFRA-HIGH-156 when the branch
+      took main; the merged commits still name the id the review file was written with.
+  - alias: ADMIN-CRITICAL-008
+    canonical: ADMIN-CRITICAL-093
+    review_file: docs/reviews/data-expert/2026-09-04-tenant-provisioning-replay-safety.md
+    commits:
+      - '1ac167185'
+    effective_date: '2026-09-05'
+    reason: >
+      Registered as ADMIN-CRITICAL-008 on the PR #1420 branch (claude/platform-eksiklikler-bug-fix-0jj9jg)
+      before main allocated sequence 008 of the same domain to ADMIN-HIGH-008. The allocator treats the
+      sequence as the identity, so the branch's row was re-registered as ADMIN-CRITICAL-093 when the branch
+      took main; the merged commits still name the id the review file was written with.
+  - alias: SENSOR-CRITICAL-105
+    canonical: SENSOR-CRITICAL-110
+    review_file: docs/reviews/data-expert/2026-09-04-tenant-provisioning-replay-safety.md
+    commits:
+      - '1b4de654c'
+    effective_date: '2026-09-05'
+    reason: >
+      Registered as SENSOR-CRITICAL-105 on the PR #1420 branch (claude/platform-eksiklikler-bug-fix-0jj9jg)
+      before main allocated sequence 105 of the same domain to SENSOR-HIGH-105. The allocator treats the
+      sequence as the identity, so the branch's row was re-registered as SENSOR-CRITICAL-110 when the branch
+      took main; the merged commits still name the id the review file was written with.

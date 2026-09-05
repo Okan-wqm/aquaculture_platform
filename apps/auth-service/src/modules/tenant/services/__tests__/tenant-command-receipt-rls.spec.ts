@@ -15,9 +15,18 @@
  * new bug — a session-wide setting on a pooled connection would leak this
  * tenant into the next caller's query.
  */
-import { TenantStatus } from '@platform/event-contracts';
+import { TenantStatus, type SuspendTenantLifecycleCommand } from '@platform/event-contracts';
+import { IUserTokenRevocation } from '@aquaculture/backend-common/security';
+import { OutboxPublisher } from '@platform/outbox';
+import { collaborator, stub, stubMember } from '@platform/testing';
+import { DataSource, Repository } from 'typeorm';
 
 import { TenantProvisioningCommandService } from '../tenant-provisioning-command.service';
+import { AuditLogService } from '../../../../audit/audit-log.service';
+import { AuditLog } from '../../../../audit/audit-log.entity';
+import { Invitation } from '../../../authentication/entities/invitation.entity';
+import { User } from '../../../authentication/entities/user.entity';
+import { Tenant } from '../../entities/tenant.entity';
 
 const TENANT_ID = '33333333-3333-4333-8333-333333333333';
 
@@ -49,30 +58,60 @@ function createManager(): MockManager {
 }
 
 function createService(manager: MockManager): TenantProvisioningCommandService {
-  const dataSource = {
-    transaction: jest.fn((_isolation: string, cb: (m: MockManager) => Promise<unknown>) =>
-      cb(manager),
-    ),
-  };
-  return new TenantProvisioningCommandService(
-    {} as never,
-    {} as never,
-    {} as never,
-    dataSource as never,
-    { enqueue: jest.fn().mockResolvedValue(undefined) } as never,
+  // `DataSource.transaction` is an overload set, so the single-signature mock
+  // is named through `stubMember` — the one place the cast is allowed to live —
+  // while every other member of the double stays fully checked.
+  const dataSource = collaborator<DataSource>(
     {
-      revokeUserTokens: jest.fn().mockResolvedValue(undefined),
-      isTokenValid: jest.fn().mockResolvedValue(true),
-    } as never,
+      transaction: stubMember<DataSource['transaction']>(
+        jest.fn((_isolation: string, cb: (m: MockManager) => Promise<unknown>) => cb(manager)),
+      ),
+    },
+    'DataSource',
+  );
+  // Every collaborator is a TYPED double. The blanket casts these seven
+  // arguments used to carry checked nothing: W5 added a seventh constructor
+  // parameter and the suite stopped compiling instead of naming what was
+  // missing, and before that a repository double that modelled no member at
+  // all would have answered `undefined` to any call the service made. The
+  // three repositories model no member ON PURPOSE — this flow works through
+  // the transaction manager, so reaching a repository here is a defect, and
+  // `collaborator` turns that into a named failure rather than a silent one.
+  return new TenantProvisioningCommandService(
+    collaborator<Repository<Tenant>>({}, 'Repository<Tenant>'),
+    collaborator<Repository<User>>({}, 'Repository<User>'),
+    collaborator<Repository<Invitation>>({}, 'Repository<Invitation>'),
+    dataSource,
+    collaborator<OutboxPublisher>({ enqueue: jest.fn(() => Promise.resolve()) }, 'OutboxPublisher'),
+    collaborator<IUserTokenRevocation>(
+      {
+        revokeUserTokens: jest.fn(() => Promise.resolve()),
+        isTokenValid: jest.fn(() => Promise.resolve(true)),
+      },
+      'IUserTokenRevocation',
+    ),
+    // W5 added the localization audit trail as the seventh collaborator: a
+    // change to `AuditLogService.log`'s shape now fails HERE at compile time.
+    collaborator<AuditLogService>(
+      { log: jest.fn(() => Promise.resolve(stub<AuditLog>({}))) },
+      'AuditLogService',
+    ),
   );
 }
 
-const command = {
+// The fixture is checked against the real command contract, so a renamed or
+// retyped field breaks here instead of silently reaching the service as a
+// shape it does not recognise.
+const command = stub<SuspendTenantLifecycleCommand>({
   operationId: '44444444-4444-4444-8444-444444444444',
   tenantId: TENANT_ID,
-  actor: { id: 'platform-admin', type: 'SUPER_ADMIN' },
+  // 'SUPER_ADMIN' is not an actor TYPE — the contract's three types are
+  // user/service/system, and a platform admin is a user. The blanket cast the
+  // fixture used to carry accepted the wrong literal without complaint; the
+  // service only ever reads `actor.id`, so nothing failed and nothing checked.
+  actor: { id: 'platform-admin', type: 'user' },
   reason: 'canary provisioning',
-} as never;
+});
 
 function sqlOf(calls: unknown[][]): string[] {
   return calls.map(([sql]) => String(sql));

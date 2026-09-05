@@ -44,6 +44,7 @@ import { Invitation } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { User } from '../entities/user.entity';
+import { WebAuthnCredential } from '../entities/webauthn-credential.entity';
 import {
   AuthenticationService,
   decodeRefreshTokenTransport,
@@ -183,6 +184,12 @@ const mockTenantRepository = {
   findOne: jest.fn(),
 };
 
+// ADR-046: the MFA-enrollment gate counts the user's registered WebAuthn
+// credentials. Zero by default, so every pre-existing suite keeps its path.
+const mockWebAuthnCredentialRepository = {
+  count: jest.fn().mockResolvedValue(0),
+};
+
 const mockJwtService = {
   signAsync: jest.fn().mockResolvedValue('mock-access-token'),
   // verifyAsync drives validateToken(); individual tests set the decoded payload.
@@ -239,6 +246,9 @@ const mockTokenService = {
 const mockMfaService = {
   isMfaAvailable: jest.fn().mockReturnValue(true),
   generateMfaChallenge: jest.fn().mockReturnValue({ mfaToken: 'mock-mfa-token' }),
+  // ADR-046: the MFA-enrollment gate mints a pre-session enrollment token when
+  // the tenant enforces MFA and the user carries no factor.
+  generateMfaSetupToken: jest.fn().mockReturnValue('mock-mfa-setup-token'),
 };
 
 const mockDataSource = {
@@ -402,6 +412,13 @@ describe('AuthenticationService', () => {
           useValue: mockUserModuleAssignmentRepository,
         },
         { provide: getRepositoryToken(Tenant), useValue: mockTenantRepository },
+        // ADR-046: the MFA-enrollment gate counts the user's registered
+        // WebAuthn credentials, so AuthenticationService injects the repo.
+        // Zero credentials keeps these suites on their existing paths.
+        {
+          provide: getRepositoryToken(WebAuthnCredential),
+          useValue: mockWebAuthnCredentialRepository,
+        },
         { provide: DataSource, useValue: mockDataSource },
         { provide: JwtService, useValue: mockJwtService },
         { provide: ConfigService, useValue: mockConfigService },
@@ -666,6 +683,97 @@ describe('AuthenticationService', () => {
 
       const result = await service.login(validInput, '127.0.0.1', 'test-agent');
       expect(result.accessToken).toBeDefined();
+    });
+
+    // ADR-046 / ADMIN-HIGH-014 — the tenant MFA-enforcement gate. The
+    // pre-fix defect was that this control existed only at login() while the
+    // sibling mint paths issued a full session to the very users it was meant
+    // to stop, so these specs assert the gate on ALL THREE callers.
+    describe('tenant MFA-enforcement gate (ADR-046)', () => {
+      const enforcingTenant = (): Tenant =>
+        createMockTenant({ status: TenantStatus.ACTIVE, enforceMfa: true });
+
+      // jest.clearAllMocks() wipes call history but KEEPS implementations, so
+      // the stubs these tests steer must be restored explicitly or they leak
+      // into every later suite in this file.
+      afterEach(() => {
+        mockMfaService.isMfaAvailable.mockReturnValue(true);
+        mockWebAuthnCredentialRepository.count.mockResolvedValue(0);
+      });
+
+      it('issues NO session for a factor-less user in an enforcing tenant', async () => {
+        const user = createMockUser();
+        mockUserRepository.findOne.mockResolvedValue(user);
+        mockTenantRepository.findOne.mockResolvedValue(enforcingTenant());
+        mockBcryptCompare.mockResolvedValue(true);
+        mockUserRepository.save.mockResolvedValue(user);
+
+        const result = await service.login(validInput, '127.0.0.1', 'test-agent');
+
+        expect(result.mfaSetupRequired).toBe(true);
+        expect(result.mfaSetupToken).toBe('mock-mfa-setup-token');
+        expect(result.accessToken).toBe('');
+        expect(result.refreshToken).toBe('');
+      });
+
+      it('lets a WebAuthn-only user through — a passkey IS a second factor', async () => {
+        const user = createMockUser();
+        mockUserRepository.findOne.mockResolvedValue(user);
+        mockTenantRepository.findOne.mockResolvedValue(enforcingTenant());
+        mockBcryptCompare.mockResolvedValue(true);
+        mockUserRepository.save.mockResolvedValue(user);
+        mockWebAuthnCredentialRepository.count.mockResolvedValue(1);
+
+        const result = await service.login(validInput, '127.0.0.1', 'test-agent');
+
+        expect(result.mfaSetupRequired).toBeUndefined();
+        expect(result.accessToken).toBeDefined();
+      });
+
+      it('does not gate a tenant that does not enforce MFA', async () => {
+        const user = createMockUser();
+        mockUserRepository.findOne.mockResolvedValue(user);
+        mockTenantRepository.findOne.mockResolvedValue(
+          createMockTenant({ status: TenantStatus.ACTIVE, enforceMfa: null }),
+        );
+        mockBcryptCompare.mockResolvedValue(true);
+        mockUserRepository.save.mockResolvedValue(user);
+
+        const result = await service.login(validInput, '127.0.0.1', 'test-agent');
+
+        expect(result.mfaSetupRequired).toBeUndefined();
+        expect(result.accessToken).toBeDefined();
+        expect(mockMfaService.generateMfaSetupToken).not.toHaveBeenCalled();
+      });
+
+      it('FAILS CLOSED when enforcement is on but MFA is unavailable', async () => {
+        const user = createMockUser();
+        mockUserRepository.findOne.mockResolvedValue(user);
+        mockTenantRepository.findOne.mockResolvedValue(enforcingTenant());
+        mockBcryptCompare.mockResolvedValue(true);
+        mockUserRepository.save.mockResolvedValue(user);
+        mockMfaService.isMfaAvailable.mockReturnValue(false);
+
+        // Enrollment is impossible, so a full session must NEVER be issued —
+        // the pre-fix behaviour fell through to tokens on an env heuristic.
+        await expect(service.login(validInput, '127.0.0.1', 'test-agent')).rejects.toThrow(
+          UnauthorizedException,
+        );
+        expect(mockMfaService.generateMfaSetupToken).not.toHaveBeenCalled();
+      });
+
+      it('is reachable from resetPassword, not only from login', () => {
+        // The gate's value is that it is ONE assertion every password-backed
+        // mint funnels through. Pin the call sites structurally so a future
+        // mint path cannot quietly skip it.
+        const source = AuthenticationService.prototype.resetPassword.toString();
+        expect(source).toContain('resolveMfaEnrollmentGate');
+      });
+
+      it('is reachable from acceptInvitation, not only from login', () => {
+        const source = AuthenticationService.prototype.acceptInvitation.toString();
+        expect(source).toContain('resolveMfaEnrollmentGate');
+      });
     });
 
     it('throws UnauthorizedException for pending-invitation user', async () => {

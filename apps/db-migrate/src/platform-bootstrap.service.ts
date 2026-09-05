@@ -14,7 +14,7 @@
  *
  * # Architecture
  *
- * The bootstrap is split into 11 ordered stages. Each stage is a single SQL
+ * The bootstrap is split into 12 ordered stages. Each stage is a single SQL
  * file under apps/db-migrate/src/sql/platform-bootstrap/, except stage 002
  * (roles) which carries env-substituted passwords and is generated in this
  * file. Order is load-bearing:
@@ -33,6 +33,9 @@
  *        backfill (DATA-HIGH-006)
  *   011  PITR drill ledger — immutable before/after transaction sentinels
  *        used by the protected timestamp-recovery ceremony (INFRA-HIGH-041)
+ *   012  shared-role-hardening — revoke PUBLIC on the shared schema and
+ *        re-grant DML to shared_schema_owner only (SEC-MEDIUM-110,
+ *        2026-08-23 scan №55: grants enumerate roles, never PUBLIC)
  *
  * # Why TypeScript wraps SQL files
  *
@@ -81,21 +84,21 @@ const SAFE_IDENT_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
  * + libs/backend-common/src/constants/protected-tables.ts.
  */
 const SERVICE_ROLES: ReadonlyArray<{ readonly role: string; readonly passEnv: string }> = [
-  { role: 'auth_service',          passEnv: 'AUTH_SERVICE_DB_PASS' },
-  { role: 'farm_service',          passEnv: 'FARM_SERVICE_DB_PASS' },
-  { role: 'sensor_service',        passEnv: 'SENSOR_SERVICE_DB_PASS' },
-  { role: 'billing_service',       passEnv: 'BILLING_SERVICE_DB_PASS' },
-  { role: 'hr_service',            passEnv: 'HR_SERVICE_DB_PASS' },
-  { role: 'alert_service',         passEnv: 'ALERT_SERVICE_DB_PASS' },
-  { role: 'admin_service',         passEnv: 'ADMIN_SERVICE_DB_PASS' },
-  { role: 'gateway_service',       passEnv: 'GATEWAY_SERVICE_DB_PASS' },
-  { role: 'notification_service',  passEnv: 'NOTIFICATION_SERVICE_DB_PASS' },
-  { role: 'hydroponics_service',   passEnv: 'HYDROPONICS_SERVICE_DB_PASS' },
-  { role: 'ai_service',            passEnv: 'AI_SERVICE_DB_PASS' },
-  { role: 'messaging_service',     passEnv: 'MESSAGING_SERVICE_DB_PASS' },
+  { role: 'auth_service', passEnv: 'AUTH_SERVICE_DB_PASS' },
+  { role: 'farm_service', passEnv: 'FARM_SERVICE_DB_PASS' },
+  { role: 'sensor_service', passEnv: 'SENSOR_SERVICE_DB_PASS' },
+  { role: 'billing_service', passEnv: 'BILLING_SERVICE_DB_PASS' },
+  { role: 'hr_service', passEnv: 'HR_SERVICE_DB_PASS' },
+  { role: 'alert_service', passEnv: 'ALERT_SERVICE_DB_PASS' },
+  { role: 'admin_service', passEnv: 'ADMIN_SERVICE_DB_PASS' },
+  { role: 'gateway_service', passEnv: 'GATEWAY_SERVICE_DB_PASS' },
+  { role: 'notification_service', passEnv: 'NOTIFICATION_SERVICE_DB_PASS' },
+  { role: 'hydroponics_service', passEnv: 'HYDROPONICS_SERVICE_DB_PASS' },
+  { role: 'ai_service', passEnv: 'AI_SERVICE_DB_PASS' },
+  { role: 'messaging_service', passEnv: 'MESSAGING_SERVICE_DB_PASS' },
   { role: 'observability_service', passEnv: 'OBSERVABILITY_SERVICE_DB_PASS' },
-  { role: 'event_store_service',   passEnv: 'EVENT_STORE_SERVICE_DB_PASS' },
-  { role: 'config_service',        passEnv: 'CONFIG_SERVICE_DB_PASS' },
+  { role: 'event_store_service', passEnv: 'EVENT_STORE_SERVICE_DB_PASS' },
+  { role: 'config_service', passEnv: 'CONFIG_SERVICE_DB_PASS' },
 ] as const;
 
 /**
@@ -118,8 +121,8 @@ const PLATFORM_FUNCTIONS: ReadonlyArray<string> = platformFunctions();
  * post-condition only counts tables named here, so behind-DBs still carrying
  * the table pass unchanged.
  */
-const SHARED_SCHEMA_TABLES: ReadonlyArray<string> = PROTECTED_TABLES.filter(
-  (table) => table.startsWith('shared.'),
+const SHARED_SCHEMA_TABLES: ReadonlyArray<string> = PROTECTED_TABLES.filter((table) =>
+  table.startsWith('shared.'),
 ).map((table) => table.slice('shared.'.length));
 
 /** Advisory lock key for the platform-bootstrap atom. */
@@ -199,7 +202,10 @@ function substitutePlaceholders(sql: string, vars: Record<string, string>): stri
  * via its `generate_credential` block (l.421–424); fail-fast guarantees
  * the contract holds.
  */
-function buildRolesSql(log: PlatformBootstrapOptions['log']): { sql: string; rolesCreated: number } {
+function buildRolesSql(log: PlatformBootstrapOptions['log']): {
+  sql: string;
+  rolesCreated: number;
+} {
   const blocks: string[] = [];
   const missingEnv: string[] = [];
   for (const { role, passEnv } of SERVICE_ROLES) {
@@ -390,7 +396,12 @@ export async function runPlatformBootstrap(
       stagesApplied.push(stage001.stage);
 
       // Stage 002 — roles (synthesised).
-      log({ level: 'info', message: 'Stage 002: roles', context: 'PlatformBootstrap', roleCount: rolesStage.rolesCreated });
+      log({
+        level: 'info',
+        message: 'Stage 002: roles',
+        context: 'PlatformBootstrap',
+        roleCount: rolesStage.rolesCreated,
+      });
       await queryRunner.query(rolesStage.sql);
       stagesApplied.push('002-roles.synthesised');
 

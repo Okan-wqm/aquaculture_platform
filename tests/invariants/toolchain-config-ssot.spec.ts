@@ -303,6 +303,14 @@ describe('Toolchain Config SSoT', () => {
       }
     }
 
+    // `ci-affected.yml:type-check` is absent on purpose. It used to drive
+    // `nx affected -t type-check`, which is what made it a broad root Nx
+    // fan-out — and that invocation matched ZERO projects, because no
+    // project.json declares a `type-check` target and nx.json has no default,
+    // so nx exited 0 having run nothing (FARM-MEDIUM-302). The no-op is gone;
+    // the job now runs the changed-file guard plus `gates:type-check-spec`,
+    // neither of which fans out across the Rust workspace, so requiring the
+    // Rust prep there would be a guard for work that does not happen.
     expect(guardedJobs.sort()).toEqual(
       [
         '.github/workflows/ci-affected.yml:build',

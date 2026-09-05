@@ -207,7 +207,7 @@ const CollapsibleSection: React.FC<{
 // ============================================================================
 
 const SiteMultiSelect: React.FC<{
-  sites: Site[];
+  sites: readonly Site[];
   selectedIds: string[];
   onChange: (ids: string[]) => void;
 }> = ({ sites, selectedIds, onChange }) => {

@@ -211,10 +211,11 @@ export class UpdateWebhookDto {
 // ============================================================================
 
 export class UpdateTenantSecurityDto {
-  @IsOptional()
-  @IsBoolean()
-  mfaRequired?: boolean;
-
+  // ADR-046: no `mfaRequired` / `sessionTimeoutMinutes` fields — tenant
+  // MFA-enforcement and session-timeout policy are owned AND enforced by
+  // auth-service (updateTenantSecurityPolicy). This legacy write path returns
+  // 410 Gone; keeping the fields would silently accept policy values that
+  // nothing persists and nothing enforces.
   @IsOptional()
   @IsBoolean()
   mfaRequiredForAdmins?: boolean;
@@ -317,12 +318,6 @@ export class UpdateTenantSecurityDto {
   @Min(1)
   @Max(1440)
   lockoutDurationMinutes?: number;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(1)
-  @Max(10080)
-  sessionTimeoutMinutes?: number;
 
   @IsOptional()
   @IsNumber()

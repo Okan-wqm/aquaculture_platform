@@ -34,10 +34,10 @@ import {
   RecordMortalityCommand,
   MortalityReason as MortalityCommandReason,
 } from '../../batch/commands/record-mortality.command';
-import { Batch, BatchInputType, BatchStatus } from '../../batch/entities/batch.entity';
+import { Batch, BatchStatus } from '../../batch/entities/batch.entity';
 import { BatchDocument } from '../../batch/entities/batch-document.entity';
 import { MortalityRecord } from '../../batch/entities/mortality-record.entity';
-import { TankAllocation, AllocationType } from '../../batch/entities/tank-allocation.entity';
+import { TankAllocation } from '../../batch/entities/tank-allocation.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { TankOperation, OperationType } from '../../batch/entities/tank-operation.entity';
 import { RecordCullHandler } from '../../batch/handlers/record-cull.handler';
@@ -46,11 +46,7 @@ import { BatchService } from '../../batch/services/batch.service';
 import { MortalityCullPolicyService } from '../../batch/services/mortality-cull-policy.service';
 import { RemovalQuantityPolicyService } from '../../batch/services/removal-quantity-policy.service';
 import { TankBatchService } from '../../batch/services/tank-batch.service';
-import {
-  Department,
-  DepartmentStatus,
-  DepartmentType,
-} from '../../department/entities/department.entity';
+import { Department } from '../../department/entities/department.entity';
 import { Equipment } from '../../equipment/entities/equipment.entity';
 import { EquipmentSystem } from '../../equipment/entities/equipment-system.entity';
 import { EquipmentType } from '../../equipment/entities/equipment-type.entity';
@@ -68,22 +64,12 @@ import { DeleteHarvestRecordHandler } from '../../harvest/handlers/delete-harves
 import { ListHarvestsHandler } from '../../harvest/handlers/list-harvests.handler';
 import { ListHarvestsQuery } from '../../harvest/queries/list-harvests.query';
 import { FarmOutbox } from '../../outbox/farm-outbox.entity';
-import {
-  Species,
-  SpeciesCategory,
-  SpeciesStatus,
-  SpeciesWaterType,
-} from '../../species/entities/species.entity';
-import { Site, SiteStatus, SiteType } from '../../site/entities/site.entity';
+import { Species } from '../../species/entities/species.entity';
+import { Site } from '../../site/entities/site.entity';
 import { SubSystem } from '../../system/entities/sub-system.entity';
 import { System } from '../../system/entities/system.entity';
-import {
-  Tank,
-  TankMaterial,
-  TankStatus,
-  TankType,
-  WaterType,
-} from '../../tank/entities/tank.entity';
+import { Tank } from '../../tank/entities/tank.entity';
+import { createFarmTenantFixture } from './helpers/farm-tenant-fixture';
 import {
   createFarmOutboxTable,
   createSourceEquipmentTypesReferenceTable,
@@ -240,19 +226,20 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
     // specs cover them) while the policy guards run for real against the DB rows.
     const auditLogService = { logWithManager: jest.fn().mockResolvedValue(undefined) };
     const mortalityCullPolicy = new MortalityCullPolicyService();
+    // The REAL TankBatch SSoT writer, not a stub. Every removal path routes its
+    // `batchDetails[]` mutation through `applyBatchDelta`, which is the single
+    // writer of `totalQuantity`/`totalBiomassKg` and (since ORPHAN-HIGH-272) of
+    // `Tank.currentCount` too. This suite asserts those exact columns below, so
+    // stubbing the writer made four assertions unsatisfiable by construction —
+    // the counts could only ever read back as the seeded values. The service
+    // takes no constructor dependencies, so running it for real costs nothing
+    // and turns those assertions into a genuine check that the Batch aggregate
+    // and the per-tank composition agree after a removal.
+    const tankBatchService = new TankBatchService();
     // Gün-içi recalc (P-31) mock — bu e2e tenant-izolasyon davranışına odaklı;
     // giriş modu politikası (D-3) gerçek (saf servis).
     const dayPlanRecalc = { recalcForUnit: jest.fn().mockResolvedValue(null) };
     const removalQuantityPolicy = new RemovalQuantityPolicyService();
-    // The REAL single count writer. Every assertion below about
-    // tank_batches.totalQuantity, tank_batches.batchDetails[] and the
-    // Tank.currentCount mirror is produced by this service and by nothing else
-    // (ORPHAN-HIGH-272), so stubbing it — as this spec did before it had ever
-    // run — leaves those assertions checking the fixture's stocking values back
-    // at 100 rather than the removals under test. It needs no collaborators:
-    // TankBatch, Tank and Equipment are all in this spec's entity set, and it
-    // takes the caller's EntityManager.
-    const tankBatchService = new TankBatchService();
     const farmStockProjection = { refreshContainers: jest.fn().mockResolvedValue(undefined) };
     const mobileCommandReceipts = {
       // A non-legacy 'started' receipt lets the stock-mutating handler proceed
@@ -526,107 +513,19 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
     expect(tenantAOutboxRows.every((row) => row.payload?.tenantId === TENANT_A)).toBe(true);
   });
 
+  /**
+   * Stocked-tank fixture comes from the SHARED builder
+   * (`helpers/farm-tenant-fixture.ts`): every suite that touches per-tank
+   * biomass needs the same site → department → species → tank → batch →
+   * allocation chain, and a per-suite copy would let the stocking semantics
+   * drift apart silently.
+   */
   async function createTenantFixture(tenantId: string, codePrefix: string): Promise<TenantFixture> {
-    const site = await withTenantContext(tenantId, () =>
-      siteRepository.save(
-        siteRepository.create({
-          tenantId,
-          name: `${codePrefix} Site`,
-          code: `${codePrefix}-SITE`,
-          type: SiteType.LAND_BASED,
-          country: 'NO',
-          timezone: 'UTC',
-          status: SiteStatus.ACTIVE,
-          isActive: true,
-        }),
-      ),
-    );
-    const department = await withTenantContext(tenantId, () =>
-      departmentRepository.save(
-        departmentRepository.create({
-          tenantId,
-          siteId: site.id,
-          name: `${codePrefix} Department`,
-          code: `${codePrefix}-DEPT`,
-          type: DepartmentType.PRODUCTION,
-          status: DepartmentStatus.ACTIVE,
-          isActive: true,
-          isDeleted: false,
-          createdBy: USER_ID,
-          updatedBy: USER_ID,
-        }),
-      ),
-    );
-    const species = await withTenantContext(tenantId, () =>
-      speciesRepository.save(
-        speciesRepository.create({
-          tenantId,
-          scientificName: 'Salmo salar',
-          commonName: 'Atlantic Salmon',
-          code: `${codePrefix}-SALMON`,
-          category: SpeciesCategory.FISH,
-          waterType: SpeciesWaterType.SALTWATER,
-          status: SpeciesStatus.ACTIVE,
-          isActive: true,
-          isCleanerFish: false,
-          isDeleted: false,
-          tags: [],
-          createdBy: USER_ID,
-          updatedBy: USER_ID,
-        }),
-      ),
-    );
-    const tank = await withTenantContext(tenantId, () =>
-      tankRepository.save(
-        tankRepository.create({
-          tenantId,
-          name: `${codePrefix} Tank`,
-          code: `${codePrefix}-TANK`,
-          departmentId: department.id,
-          tankType: TankType.CIRCULAR,
-          material: TankMaterial.FIBERGLASS,
-          waterType: WaterType.SALTWATER,
-          diameter: 5,
-          depth: 2,
-          waterDepth: 2,
-          maxBiomass: 1500,
-          currentBiomass: 1,
-          currentCount: 100,
-          maxDensity: 30,
-          status: TankStatus.ACTIVE,
-          isActive: true,
-          createdBy: USER_ID,
-          updatedBy: USER_ID,
-        }),
-      ),
-    );
-    const batch = await withTenantContext(tenantId, () =>
-      batchService.createBatch({
-        tenantId,
-        batchNumber: `${codePrefix}-BATCH`,
-        speciesId: species.id,
-        inputType: BatchInputType.FRY,
-        initialQuantity: 100,
-        initialAvgWeightG: 10,
-        stockedAt: new Date('2026-04-29T00:00:00.000Z'),
-        currency: 'USD',
-        createdBy: USER_ID,
-      }),
-    );
-
-    await withTenantContext(tenantId, () =>
-      batchService.allocateBatchToTank({
-        tenantId,
-        batchId: batch.id,
-        tankId: tank.id,
-        quantity: 100,
-        avgWeightG: 10,
-        allocationType: AllocationType.INITIAL_STOCKING,
-        allocatedBy: USER_ID,
-      }),
-    );
-
-    return { site, department, species, tank, batch };
+    return createFarmTenantFixture(dataSource!, batchService, {
+      tenantId,
+      codePrefix,
+      userId: USER_ID,
+    });
   }
 
   async function tenantRowCount(table: string, tenantId: string): Promise<number> {

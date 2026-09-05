@@ -23,6 +23,8 @@
 import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { FEED_STOCKOUT_CRITICAL_DAYS } from '@platform/event-contracts';
+
+import { FORECAST_STALE_AFTER_MS } from '../../feeding-protocol/services/protocol-feed-forecast.service';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, MoreThanOrEqual } from 'typeorm';
 import { GetWarehouseSummaryQuery } from '../queries/get-warehouse-summary.query';
@@ -105,8 +107,13 @@ export class GetWarehouseSummaryHandler
   /**
    * Feed başına stok-kapsama (Faz 7, P-27): materyalize forecast
    * snapshot'ının ucuz okuması — sorgu anında yeniden hesap YOK (K-10).
-   * Çok kapsamlı tenant'ta (site + tenant-fallback) EN KÖTÜ kapsam kazanır;
-   * ilk 07:00 süpürmesinden önce snapshot yoksa boş liste döner.
+   *
+   * YALNIZ otorite (`poolScope = 'TENANT'`) satırı okunur (W6,
+   * FARM-HIGH-249). Eski hâl tüm kapsamların EN KÖTÜSÜNÜ alıyordu: havuzda
+   * 40 günlük yem varken deposu küçük bir sitenin satırı yüzünden mobil
+   * "2 gün kaldı" diyordu — aynı fiziksel kg iki kapsamda taahhüt
+   * edildiğinden bu sayı fiziksel gerçeğe karşılık gelmiyordu.
+   * İlk 07:00 süpürmesinden önce snapshot yoksa boş liste döner.
    * Eşik SSoT'si event'in yanındaki FEED_STOCKOUT_CRITICAL_DAYS sabitidir —
    * alert-engine incident önemiyle YAPISAL hizalı (kod-ikizi eşik yok).
    */
@@ -114,35 +121,30 @@ export class GetWarehouseSummaryHandler
     manager: EntityManager,
     tenantId: string,
   ): Promise<WarehouseFeedCoverage[]> {
-    const snapshots = await manager.find(FeedingForecastSnapshot, {
-      where: { tenantId },
+    const snapshot = await manager.findOne(FeedingForecastSnapshot, {
+      where: { tenantId, poolScope: 'TENANT' },
     });
+    if (!snapshot) return [];
+    const stale = Date.now() - snapshot.computedAt.getTime() > FORECAST_STALE_AFTER_MS;
     const worstByFeed = new Map<string, WarehouseFeedCoverage>();
-    for (const snapshot of snapshots) {
-      for (const feed of snapshot.perFeed) {
-        const status =
-          feed.daysOfCover === null
-            ? 'ok'
-            : feed.daysOfCover <= FEED_STOCKOUT_CRITICAL_DAYS
-              ? 'critical'
-              : feed.daysOfCover <= feed.procurementLeadTimeDays
-                ? 'warning'
-                : 'ok';
-        const candidate: WarehouseFeedCoverage = {
-          feedId: feed.feedId,
-          feedCode: feed.feedCode,
-          feedName: feed.feedName,
-          daysOfCover: feed.daysOfCover,
-          stockoutDate: feed.stockoutDate,
-          coverageStatus: status,
-        };
-        const existing = worstByFeed.get(feed.feedId);
-        const existingDays = existing?.daysOfCover ?? Number.POSITIVE_INFINITY;
-        const candidateDays = feed.daysOfCover ?? Number.POSITIVE_INFINITY;
-        if (!existing || candidateDays < existingDays) {
-          worstByFeed.set(feed.feedId, candidate);
-        }
-      }
+    for (const feed of snapshot.perFeed) {
+      const status =
+        feed.daysOfCover === null
+          ? 'ok'
+          : feed.daysOfCover <= FEED_STOCKOUT_CRITICAL_DAYS
+            ? 'critical'
+            : feed.daysOfCover <= feed.procurementLeadTimeDays
+              ? 'warning'
+              : 'ok';
+      worstByFeed.set(feed.feedId, {
+        feedId: feed.feedId,
+        feedCode: feed.feedCode,
+        feedName: feed.feedName,
+        daysOfCover: feed.daysOfCover,
+        stockoutDate: feed.stockoutDate,
+        coverageStatus: status,
+        stale,
+      });
     }
     return [...worstByFeed.values()]
       .sort(

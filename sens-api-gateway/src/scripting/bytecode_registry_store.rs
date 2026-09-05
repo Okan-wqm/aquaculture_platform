@@ -111,17 +111,15 @@ impl BytecodeRegistryStore {
             }
         }
 
-        let conn = Connection::open(&db_path)
-            .map_err(|e| StoreError::ConnectionFailed(format!("open: {}", e)))?;
-
-        // Apply SQLCipher master-key derivation — same
-        // shared path used by offline_queue +
-        // persistence so all agent SQLCipher stores
-        // share one key ceremony.
-        let hex_key = crate::offline_queue::derive_db_encryption_key()
-            .map_err(|e| StoreError::ConnectionFailed(format!("derive encryption key: {}", e)))?;
-        conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key))
-            .map_err(|e| StoreError::ConnectionFailed(format!("apply encryption key: {}", e)))?;
+        // EDGE-HIGH-026: open + key via the canonical SQLCipher factory
+        // (v1 device-secret key). Factory owns the PRAGMA key + durability
+        // sequence; finalize_open applies perf pragmas + schema.
+        let conn = crate::db::sqlcipher_factory::open_device_secret(
+            db_path.as_ref(),
+            "bytecode_registry",
+            crate::db::sqlcipher_factory::PragmaProfile::PERF,
+        )
+        .map_err(|e| StoreError::ConnectionFailed(format!("open: {}", e)))?;
 
         Self::finalize_open(conn, path_str)
     }
@@ -171,40 +169,26 @@ impl BytecodeRegistryStore {
             }
         }
 
-        // Pull v1 inputs via the SSoT (Batch #14 db_secret
-        // + Batch #344 machine_id) — resolver only USES
-        // them on v1 / missing-manifest path.
-        let machine_id = crate::machine_id::read()
-            .map_err(|e| StoreError::ConnectionFailed(format!("machine_id read: {}", e)))?;
-        let secret_key = crate::db_secret::read_or_create_v1_secret()
-            .map_err(|e| StoreError::ConnectionFailed(format!("secret_key read: {}", e)))?;
-        let v1_inputs = crate::db_migration::consumer_key_resolver::V1Inputs {
-            machine_id: machine_id.into_bytes(),
-            secret_key,
-        };
-
+        // EDGE-HIGH-026: open + key via the canonical SQLCipher factory's
+        // resolver path. Program-bound ConsumerContext per ADR-031:
+        // deployment_uuid empty; program_artifact_sha256 carries the binding.
+        // Factory assembles v1 inputs internally + owns the PRAGMA key
+        // sequence; finalize_open applies perf pragmas + schema.
         let ctx = crate::db_migration::consumer_context::ConsumerContext {
             deployment_uuid: Vec::new(),
             program_artifact_sha256: Some(program_artifact_sha256),
         };
 
-        let resolved = crate::db_migration::consumer_key_resolver::resolve_consumer_pragma_key(
+        let conn = crate::db::sqlcipher_factory::open_resolved(
             db_path.as_ref(),
             crate::keystore::purpose::KeyPurpose::SqlCipherBytecodeRetain,
             &ctx,
             keystore.as_ref(),
-            &v1_inputs,
+            crate::db::sqlcipher_factory::PragmaProfile::PERF,
         )
         .await
-        .map_err(|e| StoreError::ConnectionFailed(format!("resolver: {}", e)))?;
-
-        let conn = Connection::open(&db_path)
-            .map_err(|e| StoreError::ConnectionFailed(format!("open: {}", e)))?;
-        conn.execute_batch(&format!(
-            "PRAGMA key = \"x'{}'\";",
-            resolved.pragma_key_hex.as_str()
-        ))
-        .map_err(|e| StoreError::ConnectionFailed(format!("apply encryption key: {}", e)))?;
+        .map_err(|e| StoreError::ConnectionFailed(format!("factory open_resolved: {}", e)))?
+        .conn;
 
         Self::finalize_open(conn, path_str)
     }
@@ -215,17 +199,9 @@ impl BytecodeRegistryStore {
     /// post-key sequence — no drift in WAL mode or
     /// migration discipline between callers.
     fn finalize_open(conn: Connection, path_str: String) -> Result<Self, StoreError> {
-        // WAL mode + sane defaults (same as
-        // SqlitePersistence).
-        conn.execute_batch(
-            "PRAGMA journal_mode=WAL;
-             PRAGMA synchronous=NORMAL;
-             PRAGMA busy_timeout=5000;
-             PRAGMA cache_size=-8000;
-             PRAGMA temp_store=MEMORY;",
-        )
-        .map_err(|e| StoreError::ConnectionFailed(e.to_string()))?;
-
+        // EDGE-HIGH-026 / PR935-MEDIUM-002: durability + perf pragmas are
+        // applied by the SQLCipher factory's PERF profile at open; this
+        // function no longer re-emits them (the factory is the SSoT).
         let store = Self {
             conn: Arc::new(Mutex::new(conn)),
             db_path: path_str,
@@ -276,7 +252,9 @@ impl BytecodeRegistryStore {
     /// this — the store trusts the caller's validation
     /// + simply persists the row.
     pub fn save(&self, entry: &ProgramEntry) -> Result<(), StoreError> {
-        let bytecode_json = serde_json::to_string(&entry.bytecode)
+        // EDGE-HIGH-021: bytecode is Arc-wrapped; deref to serialize the
+        // inner Bytecode (Arc itself is not Serialize without serde "rc").
+        let bytecode_json = serde_json::to_string(&*entry.bytecode)
             .map_err(|e| StoreError::Encoding(e.to_string()))?;
         let deployed_secs = entry.deployed_at.timestamp();
         let enabled_int = if entry.enabled { 1 } else { 0 };
@@ -360,7 +338,7 @@ impl BytecodeRegistryStore {
 
             entries.push(ProgramEntry {
                 program_id,
-                bytecode,
+                bytecode: std::sync::Arc::new(bytecode),
                 tenant_id,
                 policy_version: policy_version as u64,
                 enabled: enabled_int != 0,
@@ -467,7 +445,7 @@ mod tests {
     fn mk_entry(program_id: &str, version: u64) -> ProgramEntry {
         ProgramEntry {
             program_id: program_id.to_string(),
-            bytecode: mk_bc(program_id, version),
+            bytecode: std::sync::Arc::new(mk_bc(program_id, version)),
             tenant_id: Some("tenant-a".to_string()),
             policy_version: version,
             enabled: true,
@@ -557,9 +535,9 @@ mod tests {
         let store = BytecodeRegistryStore::in_memory().expect("ok");
         let mut entry = mk_entry("factory_default", 1);
         entry.tenant_id = None;
-        let mut bc = entry.bytecode.clone();
+        let mut bc = (*entry.bytecode).clone();
         bc.tenant_id = None;
-        entry.bytecode = bc;
+        entry.bytecode = std::sync::Arc::new(bc);
         store.save(&entry).expect("ok");
         let loaded = store.load_all().expect("ok");
         assert!(loaded[0].tenant_id.is_none());
@@ -706,6 +684,7 @@ mod tests {
 
         {
             let conn = Connection::open(&db_path).expect("seed");
+            // INVARIANT-ALLOW: sqlcipher-test-seed — seeds a v2-encrypted fixture.
             conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", v2_hex))
                 .expect("apply v2");
             conn.execute_batch(

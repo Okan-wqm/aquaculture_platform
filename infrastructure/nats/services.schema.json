@@ -32,7 +32,7 @@
           "pattern": "^[a-z][a-z0-9_-]*[a-z0-9]$",
           "minLength": 3,
           "maxLength": 40,
-          "description": "NATS user identifier. MUST exactly match the mTLS client cert CN for this service (verify_and_map maps CN \u2192 user). Lowercase snake_case."
+          "description": "NATS user identifier. MUST exactly match the mTLS client cert CN for this service (verify_and_map maps CN → user). Lowercase snake_case."
         },
         "application": {
           "type": "string",
@@ -66,10 +66,10 @@
     },
     "subject": {
       "type": "string",
-      "pattern": "^(events\\.|commands\\.|request\\.|config\\.runtime\\.|config\\.marine_credentials\\.|sensor\\.|st\\.language\\.|policy\\.|\\$JS\\.API\\.|_INBOX\\.|_INBOXBILLINGCFG\\.|_INBOXFARMMARINECFG\\.)[A-Za-z0-9_.*>-]+$",
+      "pattern": "^(events\\.|telemetry\\.|dlq\\.|commands\\.|request\\.|config\\.runtime\\.|config\\.marine_credentials\\.|sensor\\.|st\\.language\\.|policy\\.|\\$JS\\.API\\.|_INBOX[A-Z_]*\\.)[A-Za-z0-9_.*>-]+$",
       "minLength": 3,
       "maxLength": 120,
-      "description": "NATS subject pattern in a canonical platform namespace. The legacy AQUACULTURE_EVENTS. prefix is structurally rejected because it is a stream name, never a publish subject. Secret-bearing request/reply paths use distinct first-token inboxes: `_INBOXBILLINGCFG.` is restricted to billing_service and config_service, while `_INBOXFARMMARINECFG.` is restricted to farm_service and config_service, so the platform-wide `_INBOX.>` grant cannot read either reply stream."
+      "description": "NATS subject pattern in a canonical platform namespace. The legacy AQUACULTURE_EVENTS. prefix is structurally rejected because it is a stream name, never a publish subject. Reply inboxes are per-service scoped (SEC-HIGH-098, 2026-08-23 scan №43): every service subscribes `_INBOX<SERVICE>.>` matching the connection factory's inboxPrefix — no cert can subscribe another service's reply stream. The dedicated secret-bearing prefixes `_INBOXBILLINGCFG.` / `_INBOXFARMMARINECFG.` remain additional restrictions inside that scheme."
     }
   }
 }

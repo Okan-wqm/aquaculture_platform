@@ -1,0 +1,669 @@
+<!-- markdownlint-disable MD011 MD013 MD029 MD033 MD034 MD037 MD038 MD049 MD052 -->
+<!-- WHY: imported verbatim FE<->BE<->DB audit evidence. The quoted TypeScript is
+     what makes a finding checkable, and markdown's inline rules cannot tell it
+     from markup: `Record<string, T>` and `[P]['req']` read as inline HTML and a
+     reference link, `(typeof X)[number]` as a reversed link, snake_case
+     fragments as emphasis, a template literal as a code span with spaces, an
+     internal service URL as a bare URL, and an inline "1)" enumeration as an
+     ordered list that starts at 2. Long lines are identifier-dense finding
+     titles and evidence paths that cannot wrap without breaking the reference.
+     Reflowing them would corrupt the record this file exists to preserve --
+     the same rationale scripts/ci/markdownlint-changed.mjs states for its
+     changed-line filter. Structure is enforced by the parsers instead:
+     tools/gates/finding-registry.ts and tools/gates/commit-msg-validator.ts. -->
+
+# Cross-cutting: Auth Guards & CSRF — findings
+
+> Part of [Admin Panel E2E Audit](../README.md). IDs `APA-xxx` are stable; severity shown is the
+> verified severity where status is CONFIRMED, else the auditor's grade pending verification.
+
+## Cross-cutting findings
+
+### APA-366 [LOW] CSRF double-submit is false security: FE sends X-CSRF-Token but admin-api-service has zero server-side CSRF validation and no server ever sets the XSRF-TOKEN cookie
+
+- **Status:** CONFIRMED+DESIGNED (audited HIGH → verified LOW)
+- **Symptom:** The admin-panel http-client (and blob-client / shared-ui api-client) reads a
+  non-httpOnly XSRF-TOKEN cookie and echoes it as X-CSRF-Token on every POST/PUT/PATCH/DELETE, with
+  comments claiming 'server rejects on mismatch'. In reality: (1) NO backend in the repo ever sets
+  an XSRF-TOKEN cookie (repo-wide grep matches only frontend readers + one docs plan); (2)
+  admin-api-service contains no CSRF middleware at all — its only NestMiddleware is
+  CorrelationIdMiddleware, and its bootstrap registers no cookie-parser (main.ts passes no
+  earlyMiddleware/onBeforeListen), so even req.cookies would be undefined; (3) the platform's only
+  CSRF middleware lives in gateway-api, but production nginx (docker-compose.droplet.yml mounts
+  infrastructure/nginx/droplet.conf) routes 'location /api/' DIRECTLY to admin-api-service (rewrite
+  /api/(.\*) -> /api/v1/$1), bypassing the gateway entirely; (4) even on a gateway-routed path,
+  gateway-api's CsrfMiddleware uses cookie name 'csrf-token' while the FE reads 'XSRF-TOKEN' — a
+  name mismatch, so the FE would never send the header and every admin mutation would 403. The FE
+  guard clause `if (csrfToken)` silently skips the header when the cookie is absent, so the entire
+  control is dead code end-to-end. Practical exploitability is limited because admin-api auth is a
+  Bearer Authorization header (not a cookie), which a cross-site attacker cannot set — but the
+  advertised CSRF control does not exist, and tenant.security.spec.ts's header even lists 'CSRF
+  protection' as covered while containing no CSRF test. Fix architecturally: either implement the
+  double-submit middleware in admin-api-service (set XSRF-TOKEN on safe methods + cookie-parser +
+  timing-safe validation on mutations, reusing gateway's pattern with a single shared cookie-name
+  constant), or delete the dead FE CSRF code so the codebase stops claiming a control it doesn't
+  have.
+- **Evidence:**
+  - `web/modules/admin-panel/src/services/http-client.ts:97-106 (reads XSRF-TOKEN cookie, comment claims 'server will reject mutating requests whose X-CSRF-Token header does not match')`
+  - `web/modules/admin-panel/src/services/http-client.ts:256-263 (header attached only if cookie exists — silent skip otherwise)`
+  - `web/shared-ui/src/utils/api-client.ts:36-37 and web/modules/admin-panel/src/services/blob-client.ts:188 (same dead XSRF-TOKEN pattern)`
+  - `apps/gateway-api/src/middleware/csrf.middleware.ts:17-19 (CSRF_COOKIE_NAME = 'csrf-token' — mismatches FE's XSRF-TOKEN) and :56-74 (validation only exists here)`
+  - `infrastructure/nginx/droplet.conf:377-385 ('location /api/' proxies straight to admin-api-service:3000 — gateway CSRF middleware bypassed) + docker-compose.droplet.yml:1855 (droplet.conf is the production nginx.conf)`
+  - `apps/admin-api-service/src/main.ts:10-36 (no earlyMiddleware / cookieParser / CSRF option) and libs/backend-common/src/bootstrap/create-service-app.ts:743-747 (earlyMiddleware is the only cookieParser hook — unused by admin-api)`
+  - `apps/admin-api-service/src/shared/correlation-id.middleware.ts:18 (the only NestMiddleware in the service); repo grep for csrf in admin-api-service matches only an event-type enum literal (security/controllers/security-monitoring.controller.ts:55) and a doc-comment (tenant/__tests__/tenant.security.spec.ts:11 — no actual CSRF test exists)`
+- **Verification:** Every factual claim is verified. (1) FE reads a non-httpOnly XSRF-TOKEN cookie
+  and echoes X-CSRF-Token on mutations across three clients (admin-panel
+  http-client.ts:97-106/256-263, blob-client.ts:186-190, shared-ui api-client.ts:36-37), with
+  comments asserting the server sets the cookie and rejects mismatches. (2) A repo-wide grep proves
+  NO backend ever sets an XSRF-TOKEN cookie — the only res.cookie writers are gateway's 'csrf-token'
+  and auth-service's 'refresh_token'. (3) admin-api-service registers no cookie-parser (main.ts
+  passes no earlyMiddleware) and no CSRF middleware (app.module.ts; the only NestMiddleware is
+  CorrelationIdMiddleware), so req.cookies is undefined and nothing validates the header. (4)
+  Production nginx (droplet.conf:377-394, mounted by docker-compose.droplet.yml:1855) routes /api/
+  directly to admin-api-service, bypassing the gateway, which is the only place a real
+  CsrfMiddleware exists — and that middleware uses cookie name 'csrf-token', mismatching the FE's
+  'XSRF-TOKEN'. (5) getCsrfTokenFromCookie() therefore always returns null, the `if (csrfToken)`
+  clause silently skips the header, and the control is dead end-to-end. (6)
+  tenant.security.spec.ts:11 advertises 'CSRF protection' in its header while containing zero CSRF
+  tests. So the control is genuinely phantom/dead code plus audit theater — a real defect. HOWEVER,
+  platform-admin.guard.ts:90 authenticates strictly on the Authorization Bearer header, never a
+  cookie; a Bearer token is a non-ambient credential a cross-site attacker cannot attach, so classic
+  CSRF against admin-api is structurally impossible. The finding concedes this. With no exploitable
+  path today, HIGH is over-graded; this is a code-honesty / dead-control / contract-drift defect,
+  graded LOW (with a latent MEDIUM risk only if admin-api ever adds cookie-based auth while the FE
+  keeps advertising a CSRF control that isn't wired).
+- **Root cause:** The FE ships the client half of a double-submit CSRF contract (read XSRF-TOKEN
+  cookie, echo X-CSRF-Token on POST/PUT/PATCH/DELETE) against a server that never issues the cookie
+  and never validates the header. Three links broke and drifted independently: (a) the CSRF cookie
+  name was never a shared SSoT, so the FE readers hardcode 'XSRF-TOKEN' while the one real
+  server-side middleware (gateway CsrfMiddleware) uses 'csrf-token'; (b) admin-api-service — the
+  actual production target because nginx routes /api/ past the gateway — never opted its bootstrap
+  into cookieParser or any CSRF middleware, and its guard authenticates purely on the Bearer header;
+  (c) because admin-api auth is a non-ambient Bearer token, classic CSRF is structurally impossible
+  there, so the FE control and the test's 'CSRF protection' claim are not merely broken but
+  unnecessary — pure dead code documenting a guarantee that neither exists nor is needed.
+- **Fix design:** This is an instance of the systemic 'phantom control / FE-BE contract drift'
+  class: a FE-advertised security control with no server counterpart plus a cookie-name that is not
+  a single SSoT. Two architecturally valid fixes; pick the honest root-cause one. PREFERRED (Tier 1
+  — make the false claim impossible by removing it): since admin-api is Bearer-authenticated and
+  prod bypasses the gateway, double-submit CSRF cannot apply to admin-api and cannot be made real
+  without a cookie issuer — so delete the dead CSRF code (getCsrfTokenFromCookie + the
+  CSRF_PROTECTED_METHODS header-attach block) from admin-panel http-client.ts and blob-client.ts,
+  and remove the false 'CSRF protection' line from tenant.security.spec.ts so the codebase stops
+  claiming a control it doesn't have. SYSTEMIC PART (Tier 3 — make drift detectable) for surfaces
+  that DO route through the gateway (other modules): promote the CSRF cookie/header names to a
+  single exported SSoT constant (e.g. in libs/backend-common or web/shared-ui) consumed by both
+  gateway CsrfMiddleware and the web api-client, replacing the hardcoded 'XSRF-TOKEN' regex literals
+  with the shared value ('csrf-token'), and add an invariant test asserting FE-reader cookie name
+  === gateway CSRF_COOKIE_NAME so any future rename fails the build. ALTERNATIVE (only if a genuine
+  end-to-end double-submit is wanted despite Bearer auth): wire cookieParser + a real CsrfMiddleware
+  into admin-api via bootstrap earlyMiddleware (mirroring auth-service/gateway), set the SSoT cookie
+  on safe methods, timing-safe-validate on mutations, and add a real supertest to
+  tenant.security.spec.ts — but given non-ambient Bearer auth this is defense-in-depth, not a fix
+  for an exploitable hole, so the removal path is the correct root-cause choice.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/http-client.ts`
+  - `web/modules/admin-panel/src/services/blob-client.ts`
+  - `web/shared-ui/src/utils/api-client.ts`
+  - `apps/gateway-api/src/middleware/csrf.middleware.ts`
+  - `apps/admin-api-service/src/tenant/__tests__/tenant.security.spec.ts`
+  - `tests/invariants/csrf-cookie-name-ssot.spec.ts`
+- **Proof of fix:** Add tests/invariants/csrf-cookie-name-ssot.spec.ts asserting that (a) no web/
+  source reads a cookie named 'XSRF-TOKEN' (grep-based invariant — the dead reader must be gone) and
+  (b) any remaining FE CSRF cookie-name literal equals gateway-api's exported CSRF_COOKIE_NAME, so
+  FE/BE drift fails CI. Extend apps/admin-api-service/src/tenant/**tests**/tenant.security.spec.ts
+  to either drop the false 'CSRF protection' doc-line (removal path) or, if the server-side control
+  is implemented, add a supertest that POSTs a mutation without a matching cookie+header
+  (expect 403) and with a matching pair (expect success) — proving the middleware actually runs.
+- **Effort:** M
+
+### APA-367 [HIGH] PlatformAdminGuard never consults the token blacklist — force-logout / revocation is silently ineffective on the most privileged surface
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** PlatformAdminGuard validates RS256 signature, issuer/audience, expiry, token type
+  ('access') and jti presence — but never checks the platform token-blacklist /
+  user-token-revocation infrastructure that backend-common ships and that gateway-api's AuthGuard
+  actively consults (RedisTokenBlacklistStore). Because production nginx routes admin-panel /api/
+  traffic DIRECTLY to admin-api-service (bypassing gateway-api), a revoked SUPER_ADMIN access token
+  remains fully valid on every admin endpoint until natural expiry. This makes admin-api's own
+  security features silently lie: PATCH /users/:id/force-logout claims to 'invalidate all sessions',
+  and impersonation POST /impersonation/sessions/:id/terminate exists precisely for emergency cutoff
+  — yet the actor's bearer token keeps working against admin-api. Architectural fix: inject the
+  shared TokenBlacklistService (jti check) into PlatformAdminGuard, mirroring gateway-api's guard.
+- **Evidence:**
+  - `apps/admin-api-service/src/guards/platform-admin.guard.ts:108-120 (verifyAsync + enforceAccessTokenType only; no blacklist lookup anywhere in the guard)`
+  - `libs/backend-common/src/auth/jwt-verification.utils.ts:73-96 (enforceAccessTokenType checks type + jti presence only — jti is never compared against a revocation store here)`
+  - `apps/admin-api-service/src/users/users.controller.ts:341-347 ('Force logout user (invalidate all sessions)' endpoint)`
+  - `libs/backend-common/src/security/token-blacklist/token-blacklist.service.ts and user-token-revocation/ (platform revocation infra exists); grep 'TokenBlacklist' hits apps/gateway-api/src/guards/auth.guard.ts + apps/gateway-api/src/guards/redis-token-blacklist.store.ts (gateway consumes it; admin-api does not — zero matches in apps/admin-api-service/src/guards/)`
+  - `infrastructure/nginx/droplet.conf:377-385 (admin traffic bypasses gateway-api and its blacklist-checking guard)`
+- **Verification:** Confirmed. PlatformAdminGuard
+  (apps/admin-api-service/src/guards/platform-admin.guard.ts:108-179) verifies RS256 signature,
+  iss/aud, expiry, token type and jti presence, but performs NO revocation lookup. A grep for
+  TokenBlacklist|isBlacklisted|user_blacklist|TOKEN_BLACKLIST_STORE|JwtMiddleware across all of
+  apps/admin-api-service/src returns zero matches, and app.module.ts registers no
+  blacklist/revocation module and no JWT middleware. By contrast gateway-api AuthGuard consults
+  isBlacklisted(jti) (auth.guard.ts:148,195) and auth-service JwtAuthGuard consults the composite
+  isValidToken(jti,sub,iat) (jwt-auth.guard.ts:82-92). Production nginx
+  (infrastructure/nginx/droplet.conf:377-394) proxies all /api/ directly to admin-api-service, so
+  gateway-api and its blacklist check are NOT in the admin path — admin-api MUST self-enforce
+  revocation and does not.\n\nReachability is concrete: multiple real paths write the user-level
+  revocation for arbitrary users including SUPER_ADMIN — password change (account.service.ts:152
+  blacklistUserTokens 'password_change'), password reset (authentication.service.ts:1523),
+  logout-all-devices (authentication.service.ts:1135), RBAC reduction (tenant-role.service.ts:1216
+  revokeUserTokens), and user deletion (user-lifecycle.service.ts:400). After any of these, the
+  auth-service guard rejects the old SUPER_ADMIN access token but admin-api keeps honoring it until
+  natural TTL. The revocation infra is present and wireable (TokenBlacklistModule is @Global and
+  exports TOKEN_BLACKLIST; admin-api already has RedisModule; auth-service mirrors the exact
+  injection at app.module.ts:254,386).\n\nOne caveat lowering precision but not reality: the
+  finding's force-logout example is imprecise — adminForceLogout (user-lifecycle.service.ts:638-653)
+  only DELETEs refresh tokens and never writes the access-token blacklist, so force-logout does not
+  populate the blacklist even for the gateway. Fixing the guard alone will not make PATCH
+  /users/:id/force-logout cut a live access token; the handler must also call revokeUserTokens,
+  exactly as deleteUser (line 400) already does. The systemic class (JWT-verifying guard that omits
+  the shared revocation check) is real and confirmed; HIGH stands because the affected surface is
+  the platform-admin boundary (create/promote SUPER_ADMIN, reset any password, impersonate, DB
+  explorer) and the intended emergency-cutoff control is silently ineffective there, bounded only by
+  the access-token TTL.
+- **Root cause:** The broken link is BE authorization: admin-api-service is a first-class
+  authenticated boundary (prod nginx routes admin-panel traffic straight to it, bypassing
+  gateway-api), yet its PlatformAdminGuard was written as a pure signature/claims validator and
+  never adopted the platform token-revocation check that both the gateway AuthGuard and the
+  auth-service JwtAuthGuard perform via the shared ITokenBlacklist / TOKEN_BLACKLIST primitive. This
+  is a systemic drift class: 'a JWT-verifying guard that omits the mandatory revocation check.' It
+  drifted because there is no single shared verify-and-authorize primitive — each guard
+  independently calls getJwtVerifyOptions()+verifyAsync()+enforceAccessTokenType(), and only
+  enforceAccessTokenType() is a shared mandatory post-verify step; the revocation lookup is
+  copy-pasted per guard, so admin-api's copy simply omitted it. A secondary root cause on the
+  force-logout endpoint: adminForceLogout writes only the refresh-token table and never the
+  user-level access-token revocation key, so the 'invalidate all sessions' promise is incomplete on
+  both the write side (handler) and the read side (guard).
+- **Fix design:** Fix at the pattern level plus the local application, per the architectural
+  hierarchy.\n\n(1) Make correct behavior the reusable default (Tier-2): in
+  libs/backend-common/src/auth/jwt-verification.utils.ts add a shared mandatory post-verify helper
+  `enforceTokenNotRevoked(payload, tokenBlacklist, logger)` (or fold it with enforceAccessTokenType
+  into one `enforceAccessToken(payload, { tokenBlacklist, isProduction })`) that runs the composite
+  isValidToken(jti, sub, iat) and throws UnauthorizedException({code:'TOKEN_REVOKED'}). This mirrors
+  how enforceAccessTokenType was already extracted as the single shared post-verify contract, so
+  every guard calls one primitive instead of re-implementing the lookup.\n\n(2) Apply locally to
+  admin-api: register the @Global TokenBlacklistModule (and UserTokenRevocationModule for the
+  user_blacklist epoch path) in apps/admin-api-service/src/app.module.ts; inject TOKEN_BLACKLIST
+  (optional in dev, required in prod) into PlatformAdminGuard via the existing useFactory provider
+  (extend its inject array), and call the shared revocation helper immediately after
+  enforceAccessTokenType (platform-admin.guard.ts:116-120). admin-api already imports RedisModule so
+  cross-instance TOKEN_BLACKLIST_USE_REDIS works. This exactly mirrors auth-service
+  app.module.ts:254,386 + jwt-auth.guard.ts:82-92.\n\n(3) Close the write side so force-logout's
+  promise becomes true: in apps/auth-service/src/modules/tenant/services/user-lifecycle.service.ts
+  have adminForceLogout (and adminDeactivateUser) call
+  this.userTokenRevocation.revokeUserTokens(userId) after deleting refresh tokens, identical to
+  deleteUser (line 400). Without this, force-logout still won't cut a live access token even after
+  the guard reads the blacklist.\n\n(4) Make recurrence detectable (Tier-3): add a cross-guard
+  invariant asserting every guard that calls getJwtVerifyOptions()/verifyAsync() also invokes the
+  shared revocation check, so a future guard cannot silently omit it.
+- **Files to change:**
+  - `apps/admin-api-service/src/guards/platform-admin.guard.ts`
+  - `apps/admin-api-service/src/app.module.ts`
+  - `libs/backend-common/src/auth/jwt-verification.utils.ts`
+  - `apps/auth-service/src/modules/tenant/services/user-lifecycle.service.ts`
+  - `apps/admin-api-service/src/guards/__tests__/platform-admin.guard.spec.ts`
+  - `tests/invariants/guard-revocation-check.spec.ts`
+- **Proof of fix:** Unit: add
+  apps/admin-api-service/src/guards/**tests**/platform-admin.guard.spec.ts cases — (a) a
+  valid-signature SUPER_ADMIN access token whose jti is individually blacklisted → canActivate
+  throws Unauthorized TOKEN_REVOKED; (b) a token issued before a user-level revocation epoch
+  (user_blacklist) → rejected; (c) a non-revoked SUPER_ADMIN token → passes. Handler test in
+  apps/auth-service/src/modules/tenant/services/user-lifecycle.service.spec.ts asserting
+  adminForceLogout/adminDeactivateUser call userTokenRevocation.revokeUserTokens(userId).
+  Architecture invariant: add tests/invariants/guard-revocation-check.spec.ts that statically
+  asserts every guard calling getJwtVerifyOptions()/verifyAsync() (PlatformAdminGuard, gateway
+  AuthGuard, auth JwtAuthGuard, subgraph guards) also references the shared revocation helper —
+  fails build if a guard omits it. Optional e2e in e2e/tests: revoke a SUPER_ADMIN token, then a
+  subsequent admin-api request returns 401.
+- **Effort:** M
+
+### APA-368 [MEDIUM] All app-level rate limiting is in-memory per-process (not Redis) and globally disableable — public password-reset limits are volatile
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** ThrottlerGuard delegates to SlidingWindowStrategy, which stores counters in a JS Map.
+  It logs its own production warning: 'Rate limits will NOT be enforced across multiple instances.
+  Configure a Redis-backed rate limiter.' Consequences: the unauthenticated, @Public
+  /auth/forgot-password and /auth/reset-password endpoints' 3-per-hour-per-IP limit
+  (ThrottlePasswordReset) resets on every container restart and is per-replica if scaled; the same
+  applies to ThrottleSensitive on impersonation session start, billing subscription mutations, and
+  DB-explorer raw-query/DML endpoints. Additionally THROTTLE_ENABLED=false silently disables ALL
+  app-level throttling (guard returns true). app.module.ts's comment 'Redis for caching and
+  distributed rate limiting' is aspirational — the throttler never touches Redis. nginx limit_req
+  (zone=api, burst=50 nodelay) is the only cross-instance limiter, and it is far looser than the
+  3/hr password-reset intent.
+- **Evidence:**
+  - `libs/backend-common/src/security/throttler/sliding-window.strategy.ts:33 (private readonly store = new Map) and :45-52 (production warning that limits are not enforced across instances)`
+  - `libs/backend-common/src/security/throttler/throttler.guard.ts:68 (THROTTLE_ENABLED config) and :73-75 (returns true when disabled)`
+  - `libs/backend-common/src/security/throttler/throttler.decorator.ts:67 (PASSWORD_RESET: 3/3600s byIp) — enforced only in-memory`
+  - `apps/admin-api-service/src/auth/password-reset.controller.ts:74-76,109-111 (@Public + @ThrottlePasswordReset on both endpoints)`
+  - `apps/admin-api-service/src/app.module.ts:187-193 (comment 'Redis for caching and distributed rate limiting' — buildRedisOptions marked 'optional'; throttler does not use it)`
+  - `infrastructure/nginx/droplet.conf:378-379 (limit_req zone=api burst=50 nodelay — the only distributed limiter)`
+- **Root cause:** SlidingWindowStrategy is the SOLE IRateLimiterStrategy implementation (verified:
+  grep finds no Redis-backed strategy) and stores counters in a process-local JS Map
+  (sliding-window.strategy.ts:33), despite its own docblock and app.module.ts:187 claiming 'Redis
+  for distributed rate limiting' — the throttler never touches the injected RedisModule.
+  Consequences: the @Public IP-throttled /auth/forgot-password + /auth/reset-password 3/hr limit,
+  plus every @ThrottleSensitive/@ThrottleExport bucket, resets on container restart and is
+  per-replica when scaled. Compounding: THROTTLE_ENABLED=false makes ThrottlerGuard.canActivate
+  return true for ALL routes (guard.ts:73-75), a global kill switch that silently nullifies even
+  pre-auth password-reset limits. Systemic class: all app-level throttling is volatile; nginx
+  limit_req (burst=50) is the only cross-instance control and is far looser than the 3/hr intent.
+- **Fix design:** Tier-1/2: implement a RedisSlidingWindowStrategy behind the existing
+  IRateLimiterStrategy interface using a single atomic Lua sorted-set sliding window
+  (ZREMRANGEBYSCORE + ZCARD + ZADD + PEXPIRE) keyed on the same throttle key, and bind the
+  SlidingWindowStrategy DI token to the Redis impl whenever RedisModule is configured
+  (correct-by-default), falling back to in-memory only in local/test. Scope THROTTLE_ENABLED so it
+  can never disable IP-keyed pre-auth limits in production (or gate the whole kill switch to
+  non-prod). Prove with an integration spec that runs two guard instances against one Redis and
+  asserts the 4th password-reset within the hour returns 429 across instances.
+- **Files to change:**
+  - `libs/backend-common/src/security/throttler/sliding-window.strategy.ts`
+  - `libs/backend-common/src/security/throttler/redis-sliding-window.strategy.ts`
+  - `libs/backend-common/src/security/throttler/throttler.module.ts`
+  - `libs/backend-common/src/security/throttler/throttler.guard.ts`
+  - `e2e/tests/integration/throttler-distributed.spec.ts`
+- **Effort:** L
+
+### APA-369 [MEDIUM] Guard ordering makes failed-auth requests invisible to app-level throttling, and failed admin auth is logged only at debug level
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** PlatformAdminGuard is registered as the first APP_GUARD and ThrottlerGuard second, so
+  guards run auth-then-throttle. Any request with a missing/invalid/expired/forged Bearer token
+  throws 401/403 in PlatformAdminGuard BEFORE ThrottlerGuard executes — token brute-force or
+  credential-stuffing against the platform-admin API is never rate-limited at the application layer
+  (only nginx's generous zone=api limit applies) and never produces the RateLimitExceeded
+  SecurityEvent that feeds the incident pipeline (SEC-HIGH-010). Compounding this, every 401 path in
+  the guard logs via this.logger.debug(...), so failed authentication attempts against the most
+  privileged service are invisible at production log levels; only the role-denied (403) path uses
+  logger.warn. Architectural fix: swap APP_GUARD order (throttle before auth, as the
+  anonymousLimit=20 default was clearly designed for) and raise failed-auth logging to
+  warn/security-event.
+- **Evidence:**
+  - `apps/admin-api-service/src/app.module.ts:283-290 (APP_GUARD order: PlatformAdminGuard then ThrottlerGuard)`
+  - `apps/admin-api-service/src/guards/platform-admin.guard.ts:92-97,101-106,185-197 (all 401 rejection paths use logger.debug)`
+  - `libs/backend-common/src/security/throttler/throttler.guard.ts:67,110-127 (anonymousLimit=20 default + SecurityEvent publish exist but are unreachable for failed-auth requests due to guard order)`
+  - `infrastructure/nginx/droplet.conf:378-379 (edge limit_req is the only control on failed-auth floods)`
+- **Root cause:** Global APP_GUARD registration order (app.module.ts:283-290) runs
+  PlatformAdminGuard first and ThrottlerGuard second, so any request with a
+  missing/invalid/expired/forged Bearer token is rejected 401/403 by the auth guard BEFORE
+  ThrottlerGuard executes — token brute-force/credential-stuffing against the platform-admin API is
+  never app-throttled and never emits the RateLimitExceeded SecurityEvent (SEC-HIGH-010).
+  Compounding: every 401 branch in platform-admin.guard.ts (92-97,101-106,185-197) logs at
+  logger.debug (invisible at prod log level); only the 403 role-denied path (170) uses logger.warn.
+  IMPORTANT — the finding's proposed 'swap the two APP_GUARDs' fix is UNSOUND:
+  ThrottlerGuard.generateKey/getThrottleConfig (guard.ts:206,227) read request.user.sub which
+  PlatformAdminGuard populates; running throttle first would see user===undefined and re-classify
+  every authenticated SUPER_ADMIN as anonymous (20/60s, IP-keyed), reintroducing the exact
+  ORPHAN-145/146 429 storm the guard docblock says it cured.
+- **Fix design:** Do NOT reorder the global guards. Add a dedicated pre-auth IP-only throttle that
+  runs before PlatformAdminGuard and keys strictly byIp without ever reading request.user (either a
+  PreAuthIpThrottleGuard registered as the first APP_GUARD, or fold failed-auth accounting into
+  PlatformAdminGuard: on each 401, call the strategy for an ip bucket and publish the
+  SecurityEvent). Raise all 401 branches from logger.debug to logger.warn and emit an
+  AuthenticationFailed SecurityEvent so failed admin auth reaches the incident pipeline. Detectable
+  via a spec asserting N invalid-Bearer requests from one IP yield 429 plus a published security
+  event, while a valid SUPER_ADMIN fan-out from one IP is NOT throttled as anonymous.
+- **Files to change:**
+  - `apps/admin-api-service/src/guards/platform-admin.guard.ts`
+  - `apps/admin-api-service/src/app.module.ts`
+  - `libs/backend-common/src/security/throttler/pre-auth-ip-throttle.guard.ts`
+  - `apps/admin-api-service/src/__tests__/e2e/failed-auth-throttle.spec.ts`
+- **Effort:** M
+
+### APA-370 [MEDIUM] Sensitive admin mutations missing tightened throttles; circuit-breaker reset has no app-level rate limit at all
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** Rate-limit hardening is inconsistent across sensitive endpoints. PATCH
+  /users/:id/reset-password (a SUPER_ADMIN directly setting another user's password) has no
+  @ThrottleSensitive while the adjacent POST /users/invite does. POST /impersonation/permissions
+  (grant) and /impersonation/permissions/:superAdminId/revoke are unthrottled beyond the 100/min
+  default even though the session-lifecycle endpoints below them all carry @ThrottleSensitive. POST
+  /health/circuit-breakers/:name/reset is a mutating operational endpoint inside a class-level
+  @SkipThrottle() controller, so it has NO application rate limiting whatsoever (it does require
+  SUPER_ADMIN auth — the class-level @SkipThrottle was clearly intended for the public GET probes).
+  All remain auth-guarded, so this is degraded defense-in-depth rather than a broken flow.
+- **Evidence:**
+  - `apps/admin-api-service/src/users/users.controller.ts:330-339 (reset-password, no throttle decorator) vs :376-377 (invite carries @ThrottleSensitive)`
+  - `apps/admin-api-service/src/impersonation/controllers/impersonation.controller.ts:304,326 (permissions grant/revoke unthrottled) vs :345-346,371-372,387-388,403-404 (@ThrottleSensitive on session lifecycle)`
+  - `apps/admin-api-service/src/health/health.controller.ts:46-47 (class-level @SkipThrottle) and :159-167 (POST circuit-breakers/:name/reset — mutating, unthrottled, auth-required)`
+- **Root cause:** Throttle hardening is applied ad hoc per-endpoint with no enforcing gate, so
+  several sensitive mutations slipped through. Verified: PATCH /users/:id/reset-password
+  (users.controller.ts:333-339 — a SUPER_ADMIN directly setting another user's password) carries no
+  @ThrottleSensitive, while the adjacent POST /users/invite (376-377) does. POST
+  /impersonation/permissions grant (impersonation.controller.ts:304) and
+  /permissions/:superAdminId/revoke (326) are unthrottled beyond the default, while every
+  session-lifecycle endpoint below (345,371,387,403) carries @ThrottleSensitive. POST
+  /health/circuit-breakers/:name/reset (health.controller.ts:159-167) is a mutating op sitting under
+  a class-level @SkipThrottle() (47) intended for the public GET probes, so it has ZERO app-level
+  throttle. All remain auth-guarded → degraded defense-in-depth, not a broken flow. Systemic class:
+  nothing enforces 'mutating sensitive endpoint ⇒ throttle'.
+- **Fix design:** Local (tier-2): add @ThrottleSensitive to resetUserPassword, grantPermission and
+  revokePermission; on HealthController move @SkipThrottle() off the class and onto only the four
+  public GET probe methods (live/ready//startup/health), letting resetCircuitBreaker inherit the
+  default throttle or giving it explicit @ThrottleSensitive. Systemic (tier-3): add an architecture
+  spec that reflects over every admin-api @Controller and asserts each state-mutating handler
+  (POST/PATCH/PUT/DELETE) not marked @Public carries @Throttle metadata (or appears in an explicit,
+  reviewed exemption allowlist), so the next unthrottled mutation fails CI.
+- **Files to change:**
+  - `apps/admin-api-service/src/users/users.controller.ts`
+  - `apps/admin-api-service/src/impersonation/controllers/impersonation.controller.ts`
+  - `apps/admin-api-service/src/health/health.controller.ts`
+  - `apps/admin-api-service/src/__tests__/e2e/throttle-coverage.architecture.spec.ts`
+- **Effort:** M
+
+### APA-371 [LOW] Public-route metadata key is string-coupled and triplicated; password-reset controller redefines its own @Public
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** The 'isPublic' bypass key is defined independently in three places:
+  guards/platform-admin.guard.ts (IS_PUBLIC_KEY export), decorators/public.decorator.ts (the
+  canonical decorator used by health.controller), and a private re-implementation inside
+  password-reset.controller.ts (local const IS_PUBLIC_KEY + local Public()). The guard bypass works
+  only because all three string literals happen to match. A rename in any one location would either
+  silently expose endpoints or silently break the public password-reset flow with no compile-time
+  error. Backend-common's MetricsController relies on a fourth definition
+  (decorators/roles.decorator.ts in backend-common) matching the same string. Tier-1 fix: one shared
+  constant/decorator imported everywhere.
+- **Evidence:**
+  - `apps/admin-api-service/src/auth/password-reset.controller.ts:45-47 (local IS_PUBLIC_KEY + local Public definition)`
+  - `apps/admin-api-service/src/decorators/public.decorator.ts:3-4 (canonical definition)`
+  - `apps/admin-api-service/src/guards/platform-admin.guard.ts:55,80-87 (guard's own IS_PUBLIC_KEY export + reflector read)`
+  - `libs/backend-common/src/metrics/metrics.controller.ts:13-19 (documents the cross-package string coupling explicitly)`
+- **Root cause:** The 'isPublic' guard-bypass key is defined independently in four places:
+  backend-common decorators/roles.decorator.ts:124 (canonical IS_PUBLIC_KEY, whose Public() also
+  sets skipTenantGuard), admin-api decorators/public.decorator.ts:3-4, platform-admin.guard.ts:55
+  (the guard's own exported IS_PUBLIC_KEY it reads at :80), and a private re-implementation inside
+  password-reset.controller.ts:46-47 (local const + local Public()). The guard bypass works only
+  because all four string literals equal 'isPublic'; a rename in any one location would either
+  silently expose an endpoint or silently break the public password-reset flow with no compile-time
+  error. Systemic string-coupling class (the same coupling i8's interceptor also depends on).
+- **Fix design:** Tier-1 (make wrong impossible): converge on one exported Public() decorator +
+  IS_PUBLIC_KEY constant. backend-common decorators/roles.decorator.ts is already the platform SSoT
+  — import its IS_PUBLIC_KEY into platform-admin.guard.ts instead of re-declaring/exporting a local
+  copy; delete the local const+Public() in password-reset.controller.ts and import the canonical
+  @Public(); collapse admin-api decorators/public.decorator.ts to a re-export of (or remove in
+  favour of) the canonical symbol. With a single exported symbol, a rename becomes a type-level
+  break rather than silent drift.
+- **Files to change:**
+  - `apps/admin-api-service/src/auth/password-reset.controller.ts`
+  - `apps/admin-api-service/src/guards/platform-admin.guard.ts`
+  - `apps/admin-api-service/src/decorators/public.decorator.ts`
+  - `apps/admin-api-service/src/health/health.controller.ts`
+- **Effort:** S
+
+### APA-372 [LOW] Unauthenticated Prometheus /metrics endpoint exposed on the container network
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** ServiceMetricsModule mounts backend-common's MetricsController at /metrics (excluded
+  from the api/v1 global prefix) with a class-level @Public(), so PlatformAdminGuard is bypassed by
+  design (OBS-HIGH-001). It is not internet-reachable through droplet nginx (which only proxies
+  /api/, /health/, etc.), but any workload on the shared docker network can scrape admin-api's
+  operational metrics (route timings, error counts) with no auth token. Acceptable as a deliberate
+  trade-off; noted for completeness since this is the only fully unauthenticated non-probe surface
+  in the service.
+- **Evidence:**
+  - `libs/backend-common/src/metrics/metrics.controller.ts:29-31 (@Controller('metrics') @Public()) and :25-27 (excluded from global prefix, reachable at /metrics)`
+  - `apps/admin-api-service/src/app.module.ts:215-218 (ServiceMetricsModule registered)`
+  - `infrastructure/nginx/droplet.conf:309-319,377-385 (no external route to bare /metrics)`
+- **Root cause:** ServiceMetricsModule mounts backend-common's MetricsController at /metrics with a
+  class-level @Public() (metrics.controller.ts:29-31), excluded from the api/v1 global prefix, so
+  PlatformAdminGuard is bypassed by design (OBS-HIGH-001). Verified not internet-reachable — droplet
+  nginx proxies only /api/, /health/ etc. — but any workload on the shared docker network can scrape
+  admin-api's operational metrics (route timings, error counts) with no token. It is the only
+  fully-unauthenticated non-probe surface in the service. Self-described by the finding as an
+  acceptable deliberate trade-off.
+- **Fix design:** Accepted trade-off: Prometheus scrape must be tokenless for the standard scrape
+  config, so network reachability is the real control, not an auth guard. Highest-tier hardening
+  that doesn't break scraping: bind /metrics to a separate internal metrics listener/port not
+  co-resident with the tenant-data API routes, and/or constrain access with a docker-network policy
+  or firewall rule permitting only the Prometheus container. If network segmentation is judged
+  sufficient, tier-4 document the trade-off in the module docblock. No FE/contract change; nginx
+  already correctly withholds an external route.
+- **Files to change:**
+  - `libs/backend-common/src/metrics/service-metrics.module.ts`
+  - `libs/backend-common/src/metrics/metrics.controller.ts`
+  - `infrastructure/nginx/droplet.conf`
+- **Effort:** M
+
+### APA-373 [LOW] CORS allowlist drift: dead X-Impersonate-User header allowed; X-CSRF-Token not allowed
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** admin-api's bootstrap adds 'X-Impersonate-User' to the CORS allowedHeaders, but a
+  repo-wide grep shows nothing anywhere reads that header (impersonation works through
+  /impersonation REST endpoints + JWT, not a header) — a misleading remnant implying header-based
+  impersonation exists. Conversely 'X-CSRF-Token' is absent from both DEFAULT_CORS_HEADERS and
+  admin-api's additions, so if the admin panel were ever served cross-origin, every mutating request
+  carrying the CSRF header would fail preflight. Both are moot in the current same-origin nginx
+  topology but represent config drift on a security-sensitive surface.
+- **Evidence:**
+  - `apps/admin-api-service/src/main.ts:31-35 (additionalCorsHeaders: X-Tenant-ID, X-Request-ID, X-Impersonate-User — no X-CSRF-Token)`
+  - `libs/backend-common/src/bootstrap/create-service-app.ts:232-238 (DEFAULT_CORS_HEADERS lacks X-CSRF-Token) and :386-394 (merge into allowedHeaders)`
+  - `repo-wide grep for 'X-Impersonate-User': single match = apps/admin-api-service/src/main.ts:34 (no consumer exists)`
+- **Root cause:** Two-part CORS allowlist drift on admin-api. (1) main.ts:31-35
+  additionalCorsHeaders lists 'X-Impersonate-User', but a repo-wide grep finds it ONLY in main.ts
+  and the review docs — no code reads it (impersonation runs through /impersonation REST + JWT,
+  verified in impersonation.controller.ts), a misleading remnant implying header-based
+  impersonation. (2) The shared admin-panel http-client sends 'X-CSRF-Token' on every mutating
+  request (http-client.ts:258-261, double-submit CSRF), yet neither DEFAULT_CORS_HEADERS
+  (create-service-app.ts:232-238) nor admin-api's additions include it — so if admin-api were served
+  cross-origin, all mutating preflights would fail. Moot under the current same-origin nginx
+  topology (no preflight) but real drift on a security surface; the create-service-app docblock
+  example at :558 literally models adding X-CSRF-Token via additionalCorsHeaders. Systemic:
+  X-CSRF-Token is emitted by FE http-clients platform-wide but is per-service opt-in.
+- **Fix design:** Remove the dead 'X-Impersonate-User' from main.ts additionalCorsHeaders. Because
+  the double-submit CSRF header is platform-wide, make it automatic (tier-2) by adding
+  'X-CSRF-Token' to DEFAULT_CORS_HEADERS in create-service-app.ts rather than opting each service in
+  individually. Detectable (tier-3): a CORS-contract spec asserting DEFAULT_CORS_HEADERS is a
+  superset of the header set the shared FE http-client emits (Authorization, X-Tenant-Id,
+  X-Request-Id, X-Correlation-Id, X-CSRF-Token) and that no service's allowedHeaders lists a header
+  with no consumer.
+- **Files to change:**
+  - `apps/admin-api-service/src/main.ts`
+  - `libs/backend-common/src/bootstrap/create-service-app.ts`
+  - `libs/backend-common/src/bootstrap/__tests__/cors-headers.contract.spec.ts`
+- **Effort:** S
+
+### APA-374 [NOT_A_BUG] AdminBypassRlsInterceptor wraps ALL requests — including unauthenticated @Public routes — in RLS bypass
+
+- **Status:** REFUTED
+- **Symptom:** The APP_INTERCEPTOR AdminBypassRlsInterceptor runs BypassRlsService.withBypass() on
+  every request so cross-schema admin reads succeed. Because it is unconditional, the
+  unauthenticated @Public endpoints (health probes, /auth/forgot-password, /auth/reset-password)
+  also execute with app.bypass_rls granted. Today those handlers only touch NATS or the health DB
+  ping, so nothing is exploitable — but pre-auth code paths running with row-level-security disabled
+  by default is a defense-in-depth inversion: a future public endpoint that touches TypeORM would
+  silently inherit tenant-RLS bypass. Tier-2 fix: skip the bypass wrap when the 'isPublic' metadata
+  is set.
+- **Evidence:**
+  - `apps/admin-api-service/src/app.module.ts:295-304 (APP_INTERCEPTOR AdminBypassRlsInterceptor, 'EVERY request automatically runs inside BypassRlsService.withBypass()')`
+  - `apps/admin-api-service/src/app.module.ts:244-260 (RlsModule.forPoolService rationale — bypass exists for cross-tenant reads, not for pre-auth paths)`
+  - `apps/admin-api-service/src/auth/password-reset.controller.ts:74-76,109-111 (@Public pre-auth endpoints covered by the interceptor)`
+- **Refutation (brief check):** STALE / already remediated. The finding claims
+  AdminBypassRlsInterceptor unconditionally wraps every request — including unauthenticated @Public
+  routes — in RLS bypass, and proposes 'skip the bypass wrap when isPublic metadata is set.' But the
+  current interceptor (libs/backend-common/src/database/rls/admin-bypass-rls.interceptor.ts:102-113)
+  ALREADY reads IS_PUBLIC_KEY via the reflector and, when isPublic===true, logs 'RLS BYPASS SKIPPED
+  … because route is @Public()' and returns next.handle() WITHOUT entering
+  BypassRlsService.withBypass(). Because the @Public decorators on the pre-auth surfaces (health's
+  public.decorator, password-reset's local Public(), backend-common's Public()) all stamp the same
+  'isPublic' string the interceptor reads, every @Public pre-auth route is already excluded from
+  bypass. The exact architectural control the finding requests exists.
+
+### APA-375 [NOT_A_BUG] Coverage summary (provable): all 35 HTTP controllers sit behind global PlatformAdminGuard (RS256 JWT + SUPER_ADMIN) with no widening path; only intended @Public escapes exist
+
+- **Status:** REFUTED
+- **Symptom:** Positive attestation for auditability. app.module.ts registers PlatformAdminGuard as
+  the first APP_GUARD and ThrottlerGuard second, so every route in the service requires a valid
+  RS256 access token (issuer/audience/type enforced via getJwtVerifyOptions +
+  enforceAccessTokenType) AND a SUPER_ADMIN role unless explicitly marked isPublic. Role widening is
+  structurally impossible: the guard filters any @Roles(...) decoration down to SUPER_ADMIN and
+  re-adds SUPER_ADMIN if the filter empties (platform-admin.guard.ts:151-159); even
+  decorators/roles.decorator.ts's AllowAuthenticated resolves to Roles('SUPER_ADMIN'). Fully guarded
+  with zero @Public/skip escapes (verified by decorator grep over every non-test controller):
+  analytics, reports, audit-logs, billing,
+  database/{backups,explorer,migrations,monitoring,schemas}, impersonation + debug (both ALSO carry
+  explicit class-level @UseGuards(PlatformAdminGuard); debug additionally requires
+  ENABLE_DEBUG_TOOLS=true via DebugToolsModule.forRoot() and nginx returns 404 for /api/debug in
+  production), messaging, system (metrics), modules,
+  security/{activities,audit,compliance,monitoring}, settings +
+  settings/{email-templates,ip-access,tenant}, support/{announcements,messages,onboarding,tickets},
+  system/{errors,settings,jobs,performance} (global-settings' former @Public on provisioning-config
+  was removed per SEC-M19), tenants + admin/tenants, users. Intentional @Public surfaces: health GET
+  probes (live/ready//startup — read-only) and the two password-reset POSTs (pre-auth by nature,
+  IP-throttled 3/hr). The only non-HTTP @Controller is the NATS tenant-onboarding-ack handler
+  (@MessagePattern, no HTTP route). ThrottleSensitive/ThrottleExport are present on the highest-risk
+  mutations (billing subscription/invoice ops, DB-explorer DML + raw query + export, impersonation
+  session lifecycle, settings writes, tenant bulk-suspend/activate/erasure/reconcile, users/invite).
+- **Evidence:**
+  - `apps/admin-api-service/src/app.module.ts:277-290 (PlatformAdminGuard provider + APP_GUARD useExisting, then ThrottlerGuard)`
+  - `apps/admin-api-service/src/guards/platform-admin.guard.ts:59,151-177 (DEFAULT_ADMIN_ROLES=SUPER_ADMIN; decorated roles filtered to SUPER_ADMIN only — cannot widen)`
+  - `apps/admin-api-service/src/decorators/roles.decorator.ts:27-34 (PlatformAdminOnly and AllowAuthenticated both resolve to SUPER_ADMIN)`
+  - `apps/admin-api-service/src/impersonation/controllers/impersonation.controller.ts:280-281 and impersonation/controllers/debug-tools.controller.ts:369-370 (explicit @UseGuards(PlatformAdminGuard))`
+  - `apps/admin-api-service/src/debug-tools/debug-tools.module.ts:53-61 (ENABLE_DEBUG_TOOLS gate) + infrastructure/nginx/droplet.conf:198-200 (/api/debug returns 404 in production)`
+  - `apps/admin-api-service/src/system-management/controllers/global-settings.controller.ts:674-681 (SEC-M19: @Public removed from provisioning-config)`
+  - `apps/admin-api-service/src/health/health.controller.ts:55-56,67-68,98-99,127-128 (the only GET @Public probes) and auth/password-reset.controller.ts:74-76,109-111 (the only POST @Public, IP-throttled)`
+  - `apps/admin-api-service/src/tenant/handlers/tenant-onboarding-ack.handler.ts:10 (sole non-HTTP @Controller — NATS message pattern)`
+  - `Decorator sweep across all 35 controller files (grep @Controller/@UseGuards/@Public/@Throttle/@Roles): no other isPublic or skip-auth metadata exists outside tests`
+- **Refutation (brief check):** Not a defect — a verified positive coverage attestation.
+  Spot-checked and confirmed: PlatformAdminGuard is the first APP_GUARD (app.module.ts:283-290)
+  enforcing RS256 JWT + SUPER_ADMIN on every route; role-widening is structurally prevented
+  (platform-admin.guard.ts:151-159 filters any decorated @Roles down to SUPER_ADMIN and re-adds
+  SUPER_ADMIN if the filter empties; roles.decorator.ts:27-34 PlatformAdminOnly and
+  AllowAuthenticated both resolve to Roles('SUPER_ADMIN')); the only @Public escapes are the
+  read-only health probes (health.controller.ts) and the two IP-throttled pre-auth password-reset
+  POSTs (password-reset.controller.ts:74-76,109-111). Attestation holds.
+
+## Finding registry anchors
+
+Registry IDs (`docs/reviews/_registry/findings.jsonl`) tracking findings in this document:
+
+- **ADMIN-MEDIUM-049** — APA-368: all app-level rate limiting stored its sliding window in a
+  per-process in-memory `Map`, so with N replicas a documented "3 password-resets/hour/IP" limit
+  became 3×N/hour and every counter reset on each deploy/restart (unenforceable in the
+  horizontally-scaled droplet), and `ThrottlerGuard` honoured `THROTTLE_ENABLED` unconditionally —
+  one env var could disable EVERY app-level limit, incl the `@Public` pre-auth password-reset IP
+  throttle, even in production. Fix per the hierarchy: (Tier-2, correct-by-default)
+  `SlidingWindowStrategy` now runs an atomic Redis sliding window (`SLIDING_WINDOW_LUA`:
+  `ZREMRANGEBYSCORE` prune → `ZCARD` → block-or-`ZADD`-per-point keyed by a per-call random token →
+  `PEXPIRE`, one server-side round-trip so read-modify-write can't race across instances);
+  `useRedis = !!redis && configService.get('RATE_LIMIT_USE_REDIS', true)` DEFAULTS TRUE, so a wired
+  `@Optional('REDIS_CLIENT')` auto-selects the distributed path and the in-memory Map remains only
+  with no client (local/dev/test) or an explicit opt-out. Deliberately NOT a hard prod fail-fast —
+  the `@Global ThrottlerModule` is imported by all 15 services and prod Redis wiring lives in the
+  droplet `.env`, so a boot throw could crash an unwired service; production-without-Redis logs a
+  loud `logger.error` and keeps serving.
+  `ThrottlerGuard.isEnabled = isProduction ? true : configuredEnabled` scopes the kill switch to
+  non-prod. (Tier-3) two behavioral specs exercising the REAL backend-common classes (a revert fails
+  them): `sliding-window-redis.spec.ts` proves Redis-by-default Lua wiring (mocked ioredis),
+  blocked-result mapping, `reset()` key delete, and a two-instance ONE-shared-limit test against a
+  live redis-server; `throttler-guard.spec.ts` proves prod-scoping — both red-proven (5 assertions
+  fail on HEAD, fix restores 22/22). A substring-scan invariant was deliberately NOT added (strictly
+  weaker Tier-3 than the behavioral specs). Closes the xc-auth-guards actionable set.
+- **ADMIN-MEDIUM-048** — APA-369: `PlatformAdminGuard` is the first `APP_GUARD`, so a request with a
+  missing/invalid/expired/forged/revoked Bearer was rejected 401/403 BEFORE the shared
+  `ThrottlerGuard` (registered second) ran — token brute-force / credential-stuffing against the
+  platform-admin API was never app-throttled (only nginx's generous limit applied) and never emitted
+  the `RateLimitExceeded` security event, and every 401 branch logged only at `debug`. The finding's
+  own "swap the two APP_GUARDs" proposal is unsound (ThrottlerGuard reads `request.user.sub` that
+  only this guard populates → throttle-first re-classifies every SUPER_ADMIN as anonymous, reviving
+  the ORPHAN-145/146 429 storm). Fix (sound alternative): do NOT reorder; fold failed-auth
+  accounting INTO the guard via a `rejectAuth()` that every 401 routes through — log at warn,
+  account the failure against a per-IP bucket (`IpRateLimiterService.checkLimit`, keyed by
+  X-Forwarded-For/`request.ip`, only failures increment so a valid operator's fan-out never counts),
+  emit `AUTH_TOKEN_REJECTED`, and once the IP crosses the limit emit `RATE_LIMIT_EXCEEDED` + reject
+  429 with Retry-After. A 403 role-denial is a real principal → not counted. Injected
+  `IpRateLimiterService` (exported by the @Global `ThrottlerModule`) + `SecurityEventService`
+  (graceful @Optional EVENT_BUS). Tier-3: `tests/invariants/admin-failed-auth-accounting.spec.ts`
+  (guard injects both, calls the accounting, never logs at debug) — red proven. Closes the
+  xc-auth-guards actionable set except APA-368 (Redis-backed distributed throttling, tracked).
+- **ADMIN-LOW-047** — APA-373: admin-api's CORS allow-list carried a dead `X-Impersonate-User`
+  header that nothing reads (impersonation runs through `/impersonation` REST + JWT, not a header) —
+  misleading drift on a security surface. The finding also proposed adding `X-CSRF-Token` to
+  `DEFAULT_CORS_HEADERS`, but APA-366 removed the dead double-submit CSRF control so the FE no
+  longer emits it and it must NOT be added. Fix: removed `X-Impersonate-User` from `main.ts` (kept
+  `X-Tenant-ID`/`X-Request-ID`, already in `DEFAULT_CORS_HEADERS`, explicit for FE parity);
+  `DEFAULT_CORS_HEADERS` already covers the FE-emitted set. Tier-3:
+  `tests/invariants/cors-headers-contract.spec.ts` asserts `DEFAULT_CORS_HEADERS` is a superset of
+  the FE-emitted header set and no `apps/*/src/main.ts` allow-lists the consumer-less header
+  (comments stripped) — red proven. Completes the CSRF/CORS header-hygiene cluster with APA-366.
+- **ADMIN-LOW-046** — APA-366: the admin panel shipped the client half of a double-submit CSRF
+  contract (read an `XSRF-TOKEN` cookie / `<meta name="csrf-token">`, echo `X-CSRF-Token` on
+  mutations) against a server that never set the cookie and never validated the header. It was dead
+  end-to-end: no backend sets `XSRF-TOKEN`; admin-api has no CSRF middleware and prod nginx routes
+  `/api/` past the gateway; the gateway's `CsrfMiddleware` is never mounted and uses cookie name
+  `csrf-token` (not `XSRF-TOKEN`); no shell meta tag exists. And classic CSRF is structurally
+  impossible against admin-api because auth is a non-ambient Bearer header. Per the chosen direction
+  (remove + commit to Bearer + SameSite), Tier-1: deleted the dead CSRF code from `http-client.ts` +
+  `blob-client.ts` + shared-ui `api-client.ts` (removing `X-CSRF-Token` emission for every federated
+  remote — safe, since the FE already sent no valid header), fixed the stale doc-comment in
+  tenant-admin `api-client.ts`, and removed the false "CSRF protection" line from
+  `tenant.security.spec.ts`. Tier-3: promoted the gateway `CsrfMiddleware` cookie/header names to
+  exported canonical constants and added `tests/invariants/csrf-cookie-name-ssot.spec.ts` (no `web/`
+  source may read an `XSRF-TOKEN` cookie or attach an `X-CSRF-Token` header; the gateway exports the
+  canonical names) — red proven. The platform's CSRF posture is now honestly the guard-revocation
+  (APA-367) + Bearer + SameSite model. APA-373 (dead `X-Impersonate-User` CORS header +
+  CORS-contract gate) is the coupled follow-up.
+- **ADMIN-MEDIUM-045** — APA-370: throttle hardening was applied ad hoc per-endpoint with no
+  enforcing gate, so several sensitive admin mutations slipped through and one had ZERO app-level
+  throttle. `HealthController` carried a class-level `@SkipThrottle()` intended for its public GET
+  probes, but it also stripped throttling from the internal auth-required endpoints — including the
+  mutating `POST /health/circuit-breakers/:name/reset` (no application rate limit at all);
+  `PATCH /users/:id/reset-password` (SUPER_ADMIN setting another user's password) lacked
+  `@ThrottleSensitive` while the adjacent `POST /users/invite` had it; and
+  `POST /impersonation/permissions` (grant) + `.../revoke` were unthrottled beyond the default while
+  every session-lifecycle endpoint below them was `@ThrottleSensitive`. Tier-2: removed the
+  class-level `@SkipThrottle` and applied it per-method on only the four public GET probes; gave
+  `resetCircuitBreaker`, `resetUserPassword`, `grantPermission` and `revokePermission`
+  `@ThrottleSensitive()` (internal GET probes + high-frequency logging POSTs keep the default by
+  design). Tier-3: `apps/admin-api-service/src/__tests__/throttle-coverage.architecture.spec.ts`
+  fails the build if any admin controller declares a class-level `@SkipThrottle` or `@SkipThrottle`s
+  a non-`@Public` state-mutating handler — so a mutation can never silently ship un-throttled; red
+  proven. All endpoints remain SUPER_ADMIN-auth-guarded (degraded defense-in-depth, not a broken
+  flow). APA-368 (Redis-backed distributed throttling) and APA-369 (pre-auth IP throttle +
+  failed-auth logging) remain separate slices.
+- **ADMIN-LOW-044** — APA-371: the `isPublic` guard-bypass metadata key was declared in four
+  independent places (backend-common `roles.decorator.ts`, admin-api `public.decorator.ts`,
+  `PlatformAdminGuard`'s own exported const, and a private re-implementation inside
+  `password-reset.controller.ts`), all equal to the literal `'isPublic'` — so the auth bypass worked
+  only because the four strings coincidentally matched, and a rename in any one would silently
+  expose an endpoint or break the public password-reset flow with no compile-time error
+  (backend-common's `MetricsController` @Public() depends on the same string). Tier-1 fix: converged
+  every admin-api reader/stamper onto the ONE backend-common symbol — `public.decorator.ts` is now a
+  pure `export { IS_PUBLIC_KEY, Public } from '@aquaculture/backend-common/decorators'` re-export,
+  `PlatformAdminGuard` imports `IS_PUBLIC_KEY` from it (dropping its own export), and
+  `password-reset.controller.ts` deleted its local const + local `Public()` (and the unused
+  `SetMetadata` import) for the canonical `@Public()`; `health.controller.ts` and the
+  `AdminBypassRlsInterceptor` already consumed the canonical symbol. The canonical `Public()` also
+  stamps `skipTenantGuard`, inert in admin-api (no tenant guard) and matching the mounted metrics
+  route. Tier-3: `tests/invariants/public-decorator-ssot.spec.ts` asserts `public.decorator` is a
+  pure re-export and no other admin-api source re-declares the bypass key or a local `Public()`
+  (migrations, which reference an unrelated `"isPublic"` DB column, are excluded); red proven.
+  APA-370 (throttle coverage) and APA-366 (CSRF dead-code) remain separate slices.
+- **ADMIN-HIGH-043** — APA-367: PlatformAdminGuard verified the JWT signature/claims (RS256,
+  iss/aud, expiry, token-type, jti presence) but never consulted the platform token-revocation
+  infrastructure, so a force-logged-out / deleted / password-reset / RBAC-reduced SUPER_ADMIN access
+  token stayed fully valid on admin-api until its natural TTL — silently defeating the
+  emergency-cutoff controls, because prod nginx (`droplet.conf` `location /api/`) routes admin
+  traffic straight past gateway-api's blacklist-checking guard. Root cause: no shared
+  verify-and-authorize primitive — the revocation lookup was copy-pasted per guard and admin-api's
+  copy omitted it. Fix per the architectural hierarchy: (Tier-2) added the shared
+  `enforceTokenNotRevoked(payload, stores, logger)` post-verify primitive to
+  `libs/backend-common/src/auth/jwt-verification.utils.ts` consulting BOTH revocation namespaces
+  (`ITokenBlacklist.isValidToken` per-jti + `token:blacklist:` user bulk, and
+  `IUserTokenRevocation.isTokenValid` `user_blacklist:` epoch); registered the @Global
+  `TokenBlacklistModule` + `UserTokenRevocationModule` in admin-api `app.module.ts` and injected
+  both stores into `PlatformAdminGuard` as REQUIRED deps (missing wiring fails DI at boot), calling
+  the primitive right after `enforceAccessTokenType`; (write side) `adminForceLogout` +
+  `adminDeactivateUser` now call `revokeUserTokens` after deleting refresh tokens, mirroring
+  `deleteUser`, so the guard read-path is no longer inert and force-logout's "invalidate all
+  sessions" promise is true. (Tier-3) `tests/invariants/guard-revocation-check.spec.ts` asserts
+  every directly-reachable JWT boundary (gateway AuthGuard, auth JwtAuthGuard, admin-api
+  PlatformAdminGuard) references the shared check and sweeps every token-verifying guard to require
+  it either checks revocation or structurally delegates to the gateway (the farm/hr subgraph
+  `if (request.user…) return true` upstream-trust short-circuit — gateway-fronted, exempted by a
+  detectable code property, not a filename allowlist); red proven. Extending the primitive to the
+  subgraph guards' defence-in-depth direct-verify path is a distinct hardening (they are
+  gateway-fronted today); APA-368 (Redis-backed throttling) and APA-369/370/371/373 remain separate
+  slices.

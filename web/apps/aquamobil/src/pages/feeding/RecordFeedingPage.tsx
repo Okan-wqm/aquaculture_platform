@@ -10,11 +10,11 @@
  * cache'e yazılır ve çevrimdışı açılışta dürüst bir bantla gösterilir.
  * Enum alanları tel üzerinde AD taşır ('SCHEDULED', 'FED', ...).
  */
-import { useQuery } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import { List, ListInput, BlockTitle } from 'konsta/react';
 import {
   ArrowLeft,
+  Check,
   Package,
   CheckCircle,
   AlertCircle,
@@ -26,60 +26,9 @@ import {
 import { useState, useEffect, ChangeEvent, type JSX } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
-import { GET_FEEDING_DAY_PLANS } from '@/graphql/operations';
-import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
+import { useTodaysDayPlans, type DayPlanMeal, type MealStatus } from '@/hooks/useTodaysDayPlans';
 import { useI18n } from '@/i18n';
-import { cacheData, getCachedData } from '@/pwa/offline-queue';
-import { graphqlRequest } from '@/services/authenticated-fetch';
-import { logger } from '@/utils/logger';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
-
-// ============================================================================
-// TYPES — feedingDayPlans tipli sorgusunun aynası (P-25)
-// ============================================================================
-
-type MealStatus = 'SCHEDULED' | 'FED' | 'PARTIALLY_FED' | 'SKIPPED' | 'MISSED' | 'CANCELLED';
-
-interface DayPlanMeal {
-  id: string;
-  mealIndex: number;
-  scheduledAt: string;
-  percentOfDaily: number;
-  plannedKg: number;
-  status: MealStatus;
-  actualKg: number;
-  varianceKg: number | null;
-  variancePercent: number | null;
-  feedId: string;
-  fedAt?: string | null;
-  feedingMethod?: string | null;
-  notes?: string | null;
-}
-
-interface FeedingDayPlanSlice {
-  id: string;
-  unitId: string;
-  unitName: string;
-  unitCode: string;
-  planDate: string;
-  status: string;
-  plannedTotalKg: number;
-  unplannedActualKg: number;
-  mealsPlanned: number;
-  avgWeightG: number;
-  fishCount: number;
-  biomassKg: number;
-  waterTempC: number | null;
-  temperatureSource: string;
-  usingDefaultTemperature: boolean;
-  feedId: string;
-  feedCode: string;
-  feedName: string;
-  effectiveRatePercent: number;
-  expectedFcr: number;
-  meals: DayPlanMeal[];
-}
 
 type FeedingMethodOption = 'manual' | 'automatic' | 'demand';
 
@@ -110,70 +59,6 @@ function isMealOpen(meal: DayPlanMeal): boolean {
 function timeOf(iso: string): string {
   const date = new Date(iso);
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
-}
-
-// ============================================================================
-// HOOK: useTodaysDayPlans — FE-MEDIUM-054 offline-cache davranışı korunur
-// ============================================================================
-
-const DAY_PLANS_CACHE_PREFIX = 'feedingDayPlans_';
-// Kısa TTL: bariz bayat bir plan işçiyi yanıltmaktansa süresi dolsun (cache
-// kolaylıktır, otorite değildir — recordMealFeeding sunucuda doğrulanır).
-const DAY_PLANS_CACHE_TTL_MS = 1000 * 60 * 60 * 12; // 12h
-
-function useTodaysDayPlans(): {
-  plans: FeedingDayPlanSlice[];
-  isLoading: boolean;
-  isOfflineCached: boolean;
-} {
-  const { accessToken, tenantId, isAuthenticated } = useAuth();
-
-  const today = new Date();
-  const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-  const cacheKey = `${DAY_PLANS_CACHE_PREFIX}${dateStr}`;
-
-  const [cachedSeed, setCachedSeed] = useState<FeedingDayPlanSlice[] | undefined>(undefined);
-  useEffect(() => {
-    let cancelled = false;
-    if (!tenantId) return;
-    getCachedData<FeedingDayPlanSlice[]>(tenantId, cacheKey)
-      .then((cached) => {
-        if (!cancelled && cached) {
-          setCachedSeed(cached);
-        }
-      })
-      .catch((error: unknown) => {
-        logger.error('[RecordFeedingPage] failed to load cached day-plan seed', error);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [tenantId, cacheKey]);
-
-  const { data, isLoading, isSuccess } = useQuery<FeedingDayPlanSlice[]>({
-    queryKey: createTenantQueryKey(tenantId, 'feedingDayPlans', tenantId, dateStr),
-    queryFn: async () => {
-      if (!accessToken || !tenantId) {
-        throw new Error('Not authenticated');
-      }
-      const result = await graphqlRequest<{ feedingDayPlans: FeedingDayPlanSlice[] }>(
-        GET_FEEDING_DAY_PLANS,
-        { planDate: dateStr },
-      );
-      const plans = result.feedingDayPlans ?? [];
-      await cacheData(tenantId, cacheKey, plans, DAY_PLANS_CACHE_TTL_MS);
-      return plans;
-    },
-    enabled: isAuthenticated && !!accessToken && !!tenantId,
-    staleTime: 1000 * 60 * 5,
-    gcTime: 1000 * 60 * 60,
-    refetchOnWindowFocus: true,
-  });
-
-  const plans = isSuccess ? (data ?? []) : (cachedSeed ?? []);
-  const isOfflineCached = !isSuccess && (cachedSeed?.length ?? 0) > 0;
-
-  return { plans, isLoading, isOfflineCached };
 }
 
 // ============================================================================
@@ -250,6 +135,31 @@ export function RecordFeedingPage(): JSX.Element {
         feedingMethod,
         notes: notes.trim() || undefined,
       });
+      setShowSuccess(true);
+      setTimeout(() => navigate('/'), 1500);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t('feeding.errors.generic');
+      setErrors({ general: message });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  /**
+   * Öğünü DÖKÜM EKLEMEDEN kapat (W8 — FARM-MEDIUM-269).
+   *
+   * Balık doyduğunda operatörün yapması gereken "öğün bitti" demektir, kg
+   * eklemek değil. Bu yol açılana kadar tek çıkış uydurma bir 0.001 kg
+   * dökümdü: sahte bir yem kaydı, sahte bir stok düşümü ve batch'in toplam
+   * tüketimine giren sahte bir gram.
+   */
+  const handleFinalizeOnly = async (): Promise<void> => {
+    if (!selectedMeal) return;
+
+    setIsSubmitting(true);
+    setErrors({});
+    try {
+      await addToQueue('finalizeMeal', { mealId: selectedMeal.id });
       setShowSuccess(true);
       setTimeout(() => navigate('/'), 1500);
     } catch (error) {
@@ -594,6 +504,24 @@ export function RecordFeedingPage(): JSX.Element {
                 </>
               )}
             </button>
+            {/*
+              W8/FARM-MEDIUM-269 — sadece PARTIALLY_FED öğün döküm eklemeden
+              kapatılabilir. Hiç dökümü olmayan öğünün doğru fiili "atla"dır;
+              0 kg'la "beslendi" demek kaydı yalanlar, o yüzden buton yalnız
+              kısmi beslenmiş öğünde çıkar (backend de aynı kısıtı uygular).
+            */}
+            {selectedMeal.status === 'PARTIALLY_FED' && (
+              <button
+                onClick={() => {
+                  void handleFinalizeOnly();
+                }}
+                disabled={isSubmitting}
+                className="w-full mt-3 py-4 bg-white dark:bg-gray-900 text-green-700 dark:text-green-400 font-bold rounded-2xl border-2 border-green-500 disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2"
+              >
+                <Check size={20} />
+                {t('feeding.finalizeOnly')}
+              </button>
+            )}
             {!isOnline && (
               <p className="text-center text-amber-500 text-sm mt-3 font-medium">
                 {t('feeding.offlineWillSync')}

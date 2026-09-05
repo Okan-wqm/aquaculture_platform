@@ -66,6 +66,13 @@ export interface PlatformSchemaEntry {
    * are false.
    */
   readonly tenantAware: boolean;
+  /**
+   * Task 4: this schema's tenant provisioner post-step creates the
+   * TimescaleDB continuous aggregates for each provisioned tenant (the DDL
+   * cannot run inside the migration runner's per-migration transactions).
+   * Only `sensor` sets this today.
+   */
+  readonly provisionsTenantContinuousAggregates?: boolean;
 }
 
 /**
@@ -97,6 +104,13 @@ export const PLATFORM_SCHEMA_TOPOLOGY: readonly PlatformSchemaEntry[] = [
     hasMigrationRunner: true,
     hasModuleManifest: true,
     tenantAware: true,
+    // Task 4 (100-tenant readiness plan): the tenant provisioner runs the
+    // TimescaleDB continuous-aggregate DDL for THIS schema's tenants after
+    // the migration fan-out (cagg DDL cannot run inside the runner's
+    // per-migration transactions). New tenants get their rollups before
+    // ACTIVE; existing tenants backfill through the rate-limited
+    // RECONCILE queue.
+    provisionsTenantContinuousAggregates: true,
   },
   {
     schema: 'hr',

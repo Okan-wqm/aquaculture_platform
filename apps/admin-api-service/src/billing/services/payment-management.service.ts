@@ -56,6 +56,28 @@ export interface RefundPaymentDto {
   reason: string;
 }
 
+/** One dashboard window (all-time, or the trailing 30 days). */
+export interface PaymentStatsWindow {
+  totalPayments: number;
+  succeeded: number;
+  failed: number;
+  refunded: number;
+  pending: number;
+  /**
+   * succeeded + refund states over TERMINAL attempts; 0 when there were none.
+   * A refunded payment is still a payment that captured, so it belongs in the
+   * numerator; pending/processing are in flight and cancelled never attempted
+   * capture, so neither may sit in the denominator and drag the rate down.
+   */
+  successRate: number;
+  totalAmount: number;
+}
+
+/** All-time payment statistics plus the trailing-30-day window. */
+export interface PaymentStats extends PaymentStatsWindow {
+  last30Days: PaymentStatsWindow;
+}
+
 type DbNumeric = number | string | null | undefined;
 
 interface CountRow {
@@ -85,6 +107,39 @@ function mapPaymentOverview(row: PaymentOverviewRow): PaymentOverview {
     ...row,
     amount: dbNumber(row.amount),
     refundedAmount: dbNumber(row.refundedAmount),
+  };
+}
+
+interface PaymentStatusCountRow {
+  status: string;
+  count: DbNumeric;
+  total: DbNumeric;
+}
+
+/** Fold per-status GROUP BY rows into one dashboard window. */
+function summarizePaymentStatusCounts(rows: PaymentStatusCountRow[]): PaymentStatsWindow {
+  const byStatus = new Map<string, { count: number; total: number }>();
+  for (const row of rows) {
+    byStatus.set(row.status, { count: dbNumber(row.count), total: dbNumber(row.total) });
+  }
+  const count = (status: string): number => byStatus.get(status)?.count ?? 0;
+
+  const succeeded = count('succeeded');
+  const failed = count('failed');
+  const refunded = count('refunded') + count('partially_refunded');
+  const pending = count('pending') + count('processing');
+  const totalPayments = [...byStatus.values()].reduce((sum, entry) => sum + entry.count, 0);
+  const totalAmount = [...byStatus.values()].reduce((sum, entry) => sum + entry.total, 0);
+  const terminalAttempts = succeeded + refunded + failed;
+
+  return {
+    totalPayments,
+    succeeded,
+    failed,
+    refunded,
+    pending,
+    successRate: terminalAttempts > 0 ? (succeeded + refunded) / terminalAttempts : 0,
+    totalAmount,
   };
 }
 
@@ -216,5 +271,34 @@ export class PaymentManagementService {
     throw new ConflictException(
       'Payment refund is billing-service-owned. Use BillingAdminCommandClientService.refundPayment.',
     );
+  }
+
+  /**
+   * Read-only aggregate for the billing dashboard's payment-success KPI.
+   *
+   * Two windows (all-time and trailing 30 days) from one GROUP BY per window,
+   * folded through the SAME summarizer so the two can never drift apart. The
+   * dashboard shows the 30-day rate: an all-time rate on a long-lived tenant
+   * is dominated by history and stops moving when something breaks today.
+   */
+  async getPaymentStats(): Promise<PaymentStats> {
+    const [allTimeRows, last30Rows] = await Promise.all([
+      this.dataSource.query<PaymentStatusCountRow[]>(
+        `SELECT p.status, COUNT(*) AS count, COALESCE(SUM(p.amount), 0) AS total
+         FROM billing.payments p
+         GROUP BY p.status`,
+      ),
+      this.dataSource.query<PaymentStatusCountRow[]>(
+        `SELECT p.status, COUNT(*) AS count, COALESCE(SUM(p.amount), 0) AS total
+         FROM billing.payments p
+         WHERE p.payment_date >= NOW() - INTERVAL '30 days'
+         GROUP BY p.status`,
+      ),
+    ]);
+
+    return {
+      ...summarizePaymentStatusCounts(allTimeRows),
+      last30Days: summarizePaymentStatusCounts(last30Rows),
+    };
   }
 }

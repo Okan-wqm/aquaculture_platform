@@ -8,32 +8,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Button, Badge, Input, Select } from '@aquaculture/shared-ui';
 import { systemSettingsApi } from '../../services/adminApi';
+// The page-local shadow copy of this shape is gone: it disagreed with the
+// canonical type on five points, and a double type assertion at the call site
+// was the only reason that compiled.
+import type {
+  CreateMaintenanceWindowInput,
+  MaintenanceWindow,
+} from '../../services/types/settings';
 
 // ============================================================================
 // Types
 // ============================================================================
-
-interface MaintenanceWindow {
-  id: string;
-  title: string;
-  description: string;
-  scope: 'global' | 'tenant' | 'service' | 'region';
-  type: 'scheduled' | 'emergency' | 'rolling_update' | 'database_migration' | 'security_patch';
-  status: 'scheduled' | 'in_progress' | 'completed' | 'cancelled' | 'extended';
-  scheduledStart: string;
-  scheduledEnd?: string;
-  actualStart?: string;
-  actualEnd?: string;
-  estimatedDurationMinutes: number;
-  userMessage?: string;
-  allowReadOnlyAccess: boolean;
-  bypassForSuperAdmins: boolean;
-  affectedTenants?: string[];
-  affectedServices?: { name: string; status: string }[];
-  createdBy: string;
-  createdAt: string;
-  updatedAt: string;
-}
 
 interface MaintenanceForm {
   title: string;
@@ -69,7 +54,7 @@ const defaultForm: MaintenanceForm = {
 
 export const MaintenancePage: React.FC = () => {
   // State
-  const [maintenanceList, setMaintenanceList] = useState<MaintenanceWindow[]>([]);
+  const [maintenanceList, setMaintenanceList] = useState<readonly MaintenanceWindow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'upcoming' | 'active' | 'history'>('upcoming');
@@ -87,10 +72,12 @@ export const MaintenancePage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
+      // `getMaintenanceWindows` is declared `PaginatedResult<MaintenanceWindow>`
+      // and always was; the rows live under `.data`. Testing the ENVELOPE with
+      // `Array.isArray` sent every load down the `[]` branch, and the double
+      // type assertion below it is what let that compile.
       const response = await systemSettingsApi.getMaintenanceWindows();
-      // Ensure response is an array
-      const data = Array.isArray(response) ? response : [];
-      setMaintenanceList(data as unknown as MaintenanceWindow[]);
+      setMaintenanceList(response.data);
     } catch (err) {
       console.error('Failed to load maintenance windows:', err);
       setError('Failed to load maintenance windows. Please try again.');
@@ -116,24 +103,32 @@ export const MaintenancePage: React.FC = () => {
       const scheduledEnd = new Date(formData.scheduledStart);
       scheduledEnd.setMinutes(scheduledEnd.getMinutes() + formData.estimatedDurationMinutes);
 
-      // Extract only the fields expected by the API
-      const apiData = {
+      // Typed by the write contract rather than cast into one. The two casts
+      // here narrowed to unions the backend does not have — `type` was cast to
+      // `'scheduled' | 'emergency' | 'rolling'` while the dropdown offers
+      // `rolling_update`, `database_migration` and `security_patch` and
+      // `CreateMaintenanceDto` validates against the five-member enum. The
+      // runtime value was right all along; the cast was the lie, and it is what
+      // let the drifted contract sit unnoticed. `createdBy` is gone with it: it
+      // is not a whitelisted body field, so the platform's
+      // `forbidNonWhitelisted` pipe rejects the request that carries it.
+      const apiData: CreateMaintenanceWindowInput = {
         title: formData.title,
         description: formData.description,
-        scope: formData.scope as 'global' | 'tenant' | 'service',
-        type: formData.type as 'scheduled' | 'emergency' | 'rolling',
+        scope: formData.scope,
+        type: formData.type,
         scheduledStart: formData.scheduledStart,
         scheduledEnd: scheduledEnd.toISOString(),
+        estimatedDurationMinutes: formData.estimatedDurationMinutes,
         userMessage: formData.userMessage,
         allowReadOnlyAccess: formData.allowReadOnlyAccess,
         bypassForSuperAdmins: formData.bypassForSuperAdmins,
-        createdBy: 'admin', // Would come from auth context
         affectedServices: [],
       };
 
       const newMaintenance = await systemSettingsApi.createMaintenanceWindow(apiData);
 
-      setMaintenanceList([newMaintenance as unknown as MaintenanceWindow, ...maintenanceList]);
+      setMaintenanceList([newMaintenance, ...maintenanceList]);
       setShowCreateModal(false);
       setFormData(defaultForm);
     } catch (err) {
@@ -251,10 +246,7 @@ export const MaintenancePage: React.FC = () => {
     return colors[type] || 'bg-gray-100 text-gray-800';
   };
 
-  // Ensure maintenanceList is always an array before filtering
-  const safeMaintenanceList = Array.isArray(maintenanceList) ? maintenanceList : [];
-
-  const filteredMaintenance = safeMaintenanceList.filter((m) => {
+  const filteredMaintenance = maintenanceList.filter((m) => {
     if (activeTab === 'upcoming') return m.status === 'scheduled';
     if (activeTab === 'active') return m.status === 'in_progress' || m.status === 'extended';
     return m.status === 'completed' || m.status === 'cancelled';
@@ -274,15 +266,15 @@ export const MaintenancePage: React.FC = () => {
     return mins > 0 ? `${hours}h ${mins}m` : `${hours} hours`;
   };
 
-  const activeMaintenance = safeMaintenanceList.filter(
+  const activeMaintenance = maintenanceList.filter(
     (m) => m.status === 'in_progress' || m.status === 'extended'
   );
 
   const stats = {
-    scheduled: safeMaintenanceList.filter((m) => m.status === 'scheduled').length,
+    scheduled: maintenanceList.filter((m) => m.status === 'scheduled').length,
     inProgress: activeMaintenance.length,
-    completed: safeMaintenanceList.filter((m) => m.status === 'completed').length,
-    cancelled: safeMaintenanceList.filter((m) => m.status === 'cancelled').length,
+    completed: maintenanceList.filter((m) => m.status === 'completed').length,
+    cancelled: maintenanceList.filter((m) => m.status === 'cancelled').length,
   };
 
   // ============================================================================

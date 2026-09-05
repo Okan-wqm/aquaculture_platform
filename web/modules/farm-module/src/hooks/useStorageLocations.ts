@@ -2,7 +2,13 @@
  * Storage Locations hooks for farm-module
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
+import {
+  useAuth,
+  graphqlClient,
+  createTenantQueryKey,
+  createTenantInvalidationKey,
+} from '@aquaculture/shared-ui';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 
 export enum StorageLocationType {
   WAREHOUSE = 'WAREHOUSE',
@@ -54,13 +60,7 @@ export interface UpdateStorageLocationInput extends Partial<CreateStorageLocatio
   isActive?: boolean;
 }
 
-interface PaginatedResponse {
-  items: StorageLocation[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
+type PaginatedResponse = PaginationResultV1<StorageLocation>;
 
 const STORAGE_LOCATIONS_LIST_QUERY = `
   query StorageLocations($filter: StorageLocationFilterInput, $pagination: FarmPaginationInput) {
@@ -88,6 +88,8 @@ const STORAGE_LOCATIONS_LIST_QUERY = `
       page
       limit
       totalPages
+      hasNextPage
+      hasPreviousPage
     }
   }
 `;

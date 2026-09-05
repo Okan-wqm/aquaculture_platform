@@ -63,3 +63,10 @@ export type {
   ExportTriggerResult,
   AiPersonaDefinition,
 } from './api/messaging';
+export type {
+  MessagingMonitoringStats,
+  MessagingMonitoringTotals,
+  MessagingTenantsOverview,
+  MessagingOutboxHealth,
+  TenantMessagingOverviewRow,
+} from './types/messaging';

@@ -25,6 +25,10 @@ import {
   GeoLocation,
   AnomalyDetails,
 } from '../entities/security.entity';
+import {
+  createStandardPaginatedResult,
+  type PaginationResultV1,
+} from '@platform/pagination-contracts';
 
 // ============================================================================
 // Interfaces
@@ -225,12 +229,7 @@ export class SecurityMonitoringService implements OnModuleInit {
     startDate?: Date;
     endDate?: Date;
     searchQuery?: string;
-  }): Promise<{
-    data: SecurityEvent[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  }): Promise<PaginationResultV1<SecurityEvent>> {
     const {
       page = 1,
       limit = 50,
@@ -268,7 +267,7 @@ export class SecurityMonitoringService implements OnModuleInit {
 
     const [data, total] = await qb.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult<SecurityEvent>(data, total, page, limit);
   }
 
   /**
@@ -755,12 +754,7 @@ export class SecurityMonitoringService implements OnModuleInit {
     threatLevel?: ThreatLevel;
     isActive?: boolean;
     searchQuery?: string;
-  }): Promise<{
-    data: ThreatIntelligence[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  }): Promise<PaginationResultV1<ThreatIntelligence>> {
     const { page = 1, limit = 50, indicatorType, threatLevel, isActive, searchQuery } = options;
 
     const qb = this.threatIntelRepository.createQueryBuilder('threat');
@@ -781,7 +775,7 @@ export class SecurityMonitoringService implements OnModuleInit {
 
     const [data, total] = await qb.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult<ThreatIntelligence>(data, total, page, limit);
   }
 
   // ============================================================================
@@ -900,12 +894,7 @@ export class SecurityMonitoringService implements OnModuleInit {
     severity?: IncidentSeverity;
     startDate?: Date;
     endDate?: Date;
-  }): Promise<{
-    data: SecurityIncident[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  }): Promise<PaginationResultV1<SecurityIncident>> {
     const { page = 1, limit = 20, status, severity, startDate, endDate } = options;
 
     const qb = this.incidentRepository.createQueryBuilder('incident');
@@ -921,7 +910,7 @@ export class SecurityMonitoringService implements OnModuleInit {
 
     const [data, total] = await qb.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult<SecurityIncident>(data, total, page, limit);
   }
 
   // ============================================================================

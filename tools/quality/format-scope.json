@@ -35991,6 +35991,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-05-pr1423-ci-repair.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/runbooks/2026-04-14-teardown-rollout.md",
       "prettier_managed": true
     },
@@ -45056,6 +45062,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/finding-id-aliases.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/finding-registry-closure-drift.spec.ts",
       "prettier_managed": true
     },
@@ -46814,6 +46826,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/gates/finding-evidence-shape.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/finding-id-aliases.ts",
       "prettier_managed": true
     },
     {

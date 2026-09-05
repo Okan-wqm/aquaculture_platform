@@ -45,5 +45,5 @@ decision fight forever.
 
 **Closure criterion.** The command exists and is documented in `docs/reviews/_registry/README.md`;
 `finding-traceability.spec.ts` covers admission, derivation and the rejection state machine;
-PLAT-MEDIUM-901 is OPEN with `aa71b23c4` and `8b98aba5c` in `rejected_closing_commits` and the ARIA suite test
-passes; `reconcile --dry-run` reports the registry clean.
+PLAT-MEDIUM-901 is OPEN with `aa71b23c4` and `8b98aba5c` in `rejected_closing_commits` and the ARIA
+suite test passes; `reconcile --dry-run` reports the registry clean.

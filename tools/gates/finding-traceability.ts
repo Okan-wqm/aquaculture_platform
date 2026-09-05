@@ -25,6 +25,13 @@ export interface FindingTrailerTarget {
   readonly id: string;
   readonly review_file?: string;
   /**
+   * Historical ids that name this same finding in merged commit trailers,
+   * from `docs/reviews/_registry/finding-id-aliases.yaml`. A trailer written
+   * before an integration renumbered the finding cannot be amended (the
+   * force-push ban), so the derivation resolves it through the alias instead.
+   */
+  readonly aliases?: readonly string[];
+  /**
    * Closing commits an override reopen has REJECTED as closure evidence: their
    * `Closes:` trailer names this finding, but the finding was reopened on the
    * judgement that the change did not close it (a version-gated tracking
@@ -81,6 +88,14 @@ export function commitMessageClosesFindingExactly(
   message: string,
   finding: FindingTrailerTarget,
 ): boolean {
+  for (const alias of finding.aliases ?? []) {
+    // An alias is a different NAME for this finding, not a different finding:
+    // the review-file binding still applies, so the alias is matched under the
+    // same rules rather than as a free-text escape hatch.
+    if (commitMessageClosesFindingExactly(message, { ...finding, id: alias, aliases: [] })) {
+      return true;
+    }
+  }
   const idPattern = escapeRegExp(finding.id);
   const anchored = new RegExp(`^Closes:\\s+(\\S+?)#${idPattern}\\b`, 'gm');
   const bare = new RegExp(

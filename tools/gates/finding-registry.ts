@@ -89,6 +89,7 @@ import {
   type RegistryLockLease,
   withRegistryFileLock,
 } from './finding-registry-store';
+import { loadCanonicalToAliases } from './finding-id-aliases';
 import {
   closureAdmissible,
   commitHasFindingCloseTrailer,
@@ -1459,12 +1460,21 @@ export function collectMergedClosures(
   candidates: readonly FindingTrailerTarget[],
 ): MergedClosure[] {
   const commits = readMergedCommits(repoRoot, ref);
+  // Attached here, once, so `reconcile`, the drift gate and every future caller
+  // read merged history through the SAME alias mapping the commit-msg validator
+  // admits — a trailer naming a renumbered finding's historical id resolves to
+  // the ledger row that tracks it, instead of looking like an unrelated commit.
+  const aliasesByCanonical = loadCanonicalToAliases(repoRoot);
+  const targets = candidates.map((candidate) => {
+    const aliases = aliasesByCanonical.get(candidate.id);
+    return aliases === undefined ? candidate : { ...candidate, aliases };
+  });
 
   const found = new Map<string, string>();
   for (const commit of commits) {
     if (!/^[0-9a-f]{40}$/i.test(commit.sha)) continue;
     if (!commit.message.includes('Closes:')) continue;
-    for (const candidate of candidates) {
+    for (const candidate of targets) {
       if (found.has(candidate.id)) continue;
       // A closer an override reopen rejected is not evidence, however old it
       // is; the finding closes only through a commit made after the reopen.

@@ -33901,6 +33901,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/contract-parity-enforcer/2026-09-05-mobile-read-contract-drift.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/data-expert/2026-04-06-nestjs-di-reflect-metadata-docker.md",
       "prettier_managed": true
     },
@@ -46797,7 +46803,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "d4e42211fdd58275c7019013eaeee6beac29393c6b32fb894975cc2c843a917e",
+      "content_sha256": "f1461961cf780641fdd06b757d20b7fb2059f9b3a394567f3e390efe3bf3888c",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/apps/aquamobil/src/generated/graphql.ts",
@@ -57235,7 +57241,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "62d62463f357fd9c172b43a0bb9eaa8e0e57d1e8b149fd557027b8c025cc4b91",
+      "content_sha256": "8c0115268a416b69c2add578d5774713de637dd1ad030b48417b09d0750c4a6e",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",

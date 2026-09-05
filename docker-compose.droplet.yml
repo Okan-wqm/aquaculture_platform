@@ -1080,6 +1080,9 @@ services:
       ENABLE_DEBUG_TOOLS: 'false'
       ENABLE_DB_EXPLORER_WRITES: 'false'
       ENABLE_RAW_SQL_EXPLORER: 'false'
+      # ADR-0009: a tenant schema drop records the WAL-G recovery point (this
+      # epoch + pg_current_wal_lsn()) the PITR workflow restores from.
+      WALG_BACKUP_EPOCH: ${WALG_BACKUP_EPOCH:?WALG_BACKUP_EPOCH required}
     depends_on:
       postgres:
         condition: service_healthy

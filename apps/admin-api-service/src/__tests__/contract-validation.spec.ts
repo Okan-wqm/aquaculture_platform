@@ -512,18 +512,6 @@ const KNOWN_EXCEPTIONS: Array<{ url: string; method: string; reason: string }> =
     reason: 'Frontend list pending, backend /database/migrations/tenant/:tenantId/pending',
   },
 
-  // Database backup frontend expects different paths
-  {
-    url: '/database/backups/schedule',
-    method: 'POST',
-    reason: 'Backup scheduling not in controller (uses /database/backups/schedule GET)',
-  },
-  {
-    url: '/database/backups/:param/restore',
-    method: 'POST',
-    reason: 'Frontend uses /backups/:id/restore, backend uses /database/backups/restore POST',
-  },
-
   // Security activities export - frontend uses GET with query, backend uses POST
   {
     url: '/security/activities/export',
@@ -990,7 +978,7 @@ describe('Frontend-Backend Contract Validation', () => {
     // Bu, beklenmedik endpoint degisikliklerini yakalar.
     const count = backendEndpoints.length;
 
-    expect(count).toBe(603);
+    expect(count).toBe(592);
   });
 
   it('frontend endpoint snapshot should be up to date', () => {

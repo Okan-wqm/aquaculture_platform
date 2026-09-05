@@ -7,16 +7,16 @@ import {
   queryRowsNormalized,
   validateSqlIdentifier,
 } from '@aquaculture/backend-common/database';
-import type { CleanupDropProof } from '@aquaculture/backend-common/database';
+import type {
+  CleanupDropProof,
+  CleanupDropProofRecoveryPoint,
+} from '@aquaculture/backend-common/database';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 
-import {
-  TenantSchema,
-  SchemaBackup,
-} from '../../database-management/entities/database-management.entity';
-import { BackupRestoreService } from '../../database-management/services/backup-restore.service';
+import { TenantSchema } from '../../database-management/entities/database-management.entity';
+import { WalgRecoveryPointService } from '../../database-management/services/recovery-point.service';
 import { TenantConfigurationService } from '../../settings/services/tenant-configuration.service';
 import { Tenant, TenantStatus } from '../entities/tenant.entity';
 
@@ -122,7 +122,8 @@ export class TenantProvisioningService {
     {
       code: 'TENANT_ADMIN',
       name: 'Tenant Administrator',
-      description: 'Full administrative access to all tenant features. Can manage users and assign permissions.',
+      description:
+        'Full administrative access to all tenant features. Can manage users and assign permissions.',
       permissions: ['*'], // Full access - actual permissions managed by auth tenant RBAC (ADR-042)
       isDefault: false,
       isEditable: false,
@@ -138,7 +139,7 @@ export class TenantProvisioningService {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly tenantConfigurationService: TenantConfigurationService,
-    private readonly backupRestoreService: BackupRestoreService,
+    private readonly recoveryPointService: WalgRecoveryPointService,
     private readonly authProvisioningClient: AuthTenantProvisioningClientService,
     @Optional()
     private readonly legalHoldService?: LegalHoldService,
@@ -155,11 +156,7 @@ export class TenantProvisioningService {
     if (typeof value === 'string') {
       return value;
     }
-    if (
-      typeof value === 'number' ||
-      typeof value === 'boolean' ||
-      typeof value === 'bigint'
-    ) {
+    if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
       return value.toString();
     }
     if (value instanceof Date) {
@@ -249,7 +246,9 @@ export class TenantProvisioningService {
       return {
         success: false,
         tenantId,
-        steps: [{ name: 'validate_tenant', status: 'failed', error: `Tenant ${tenantId} not found` }],
+        steps: [
+          { name: 'validate_tenant', status: 'failed', error: `Tenant ${tenantId} not found` },
+        ],
         error: `Tenant ${tenantId} not found`,
       };
     }
@@ -263,11 +262,13 @@ export class TenantProvisioningService {
       return {
         success: false,
         tenantId,
-        steps: [{
-          name: 'validate_tenant',
-          status: 'failed',
-          error: `Tenant status must be PENDING, got ${tenant.status}`,
-        }],
+        steps: [
+          {
+            name: 'validate_tenant',
+            status: 'failed',
+            error: `Tenant status must be PENDING, got ${tenant.status}`,
+          },
+        ],
         error: `Tenant status must be PENDING, got ${tenant.status}`,
       };
     }
@@ -306,6 +307,9 @@ export class TenantProvisioningService {
           return this.createTenantSchema(tenant);
         },
         async () => {
+          // A rollback of a schema that never held tenant data carries no
+          // recovery point: there is nothing to restore, and the previous
+          // synthetic "encrypted backup" here was evidence of nothing.
           const proof = createCleanupDropProof({
             operationId: authCommandContext.operationId,
             tenantId: tenant.id,
@@ -313,19 +317,10 @@ export class TenantProvisioningService {
             actorId: authCommandContext.actorId,
             reason: 'tenant provisioning create_schema compensation',
             legalHoldCheckedAt: new Date(),
-            backup: {
-              id: `provisioning-rollback-${tenant.id}`,
-              checksum: crypto
-                .createHash('sha256')
-                .update(`provisioning_rollback:${authCommandContext.operationId}:${tenant.id}`)
-                .digest('hex'),
-              sizeBytes: 1,
-              isEncrypted: true,
-              createdAt: new Date(),
-              retentionDays: 7,
-            },
           });
-          const schemaRecord = await this.tenantSchemaRepository.findOne({ where: { tenantId: tenant.id } });
+          const schemaRecord = await this.tenantSchemaRepository.findOne({
+            where: { tenantId: tenant.id },
+          });
           if (schemaRecord) {
             schemaRecord.status = 'pending_deletion';
             schemaRecord.metadata = {
@@ -334,7 +329,6 @@ export class TenantProvisioningService {
               cleanupRequestedAt: new Date().toISOString(),
               cleanupProofPurpose: proof.purpose,
               cleanupProofCreatedAt: proof.createdAt,
-              cleanupProofBackupId: proof.backup?.id,
             };
             await this.tenantSchemaRepository.save(schemaRecord);
           }
@@ -344,12 +338,11 @@ export class TenantProvisioningService {
         },
       );
     } else {
-      saga.addStep(
-        'create_schema',
-        () => {
-          this.logger.log(`Skipping schema creation for tenant ${tenantId} (skipSchemaCreation=true)`);
-        },
-      );
+      saga.addStep('create_schema', () => {
+        this.logger.log(
+          `Skipping schema creation for tenant ${tenantId} (skipSchemaCreation=true)`,
+        );
+      });
     }
 
     saga.addStep(
@@ -358,15 +351,15 @@ export class TenantProvisioningService {
         await this.setupDefaultRoles(tenant, authCommandContext);
       },
       async () => {
-          await this.rollbackAuthProvisioning(
-            tenant.id,
-            ['setup_roles'],
-            'tenant role setup compensation',
-            {
-              ...authCommandContext,
-              actorId: actorId ?? tenant.createdBy ?? authCommandContext.actorId,
-            },
-          );
+        await this.rollbackAuthProvisioning(
+          tenant.id,
+          ['setup_roles'],
+          'tenant role setup compensation',
+          {
+            ...authCommandContext,
+            actorId: actorId ?? tenant.createdBy ?? authCommandContext.actorId,
+          },
+        );
       },
     );
 
@@ -394,12 +387,14 @@ export class TenantProvisioningService {
           // Compensate: best effort cleanup
           this.logger.warn(`Compensating: removing water quality params for tenant ${tenant.id}`);
           const schemaName = validateSqlIdentifier(getTenantSchemaName(tenant.id), 'schema');
-          await this.dataSource.query(
-            `DELETE FROM "${schemaName}".water_quality_parameter_configs WHERE "tenantId" = $1`,
-            [tenant.id],
-          ).catch((err: Error) => {
-            this.logger.error(`Failed to remove water quality params: ${err.message}`);
-          });
+          await this.dataSource
+            .query(
+              `DELETE FROM "${schemaName}".water_quality_parameter_configs WHERE "tenantId" = $1`,
+              [tenant.id],
+            )
+            .catch((err: Error) => {
+              this.logger.error(`Failed to remove water quality params: ${err.message}`);
+            });
         },
       );
     }
@@ -452,16 +447,15 @@ export class TenantProvisioningService {
         'activate_tenant',
         async () => {
           await this.authProvisioningClient.activateTenant({
-            ...this.buildAuthCommandMetadata(
-              'ActivateTenant',
-              tenant.id,
-              authCommandContext,
-              { finalizeActivation: true },
-            ),
+            ...this.buildAuthCommandMetadata('ActivateTenant', tenant.id, authCommandContext, {
+              finalizeActivation: true,
+            }),
           });
         },
         () => {
-          this.logger.warn(`Compensating: tenant ${tenant.id} activation is auth-owned; leaving status transition evidence intact`);
+          this.logger.warn(
+            `Compensating: tenant ${tenant.id} activation is auth-owned; leaving status transition evidence intact`,
+          );
         },
       );
     }
@@ -472,11 +466,16 @@ export class TenantProvisioningService {
     // Map saga result to ProvisioningResult
     const provisioningSteps: ProvisioningStep[] = sagaResult.steps.map((s) => ({
       name: s.name,
-      status: s.status === 'completed' ? 'completed'
-        : s.status === 'failed' ? 'failed'
-        : s.status === 'compensated' ? 'failed'
-        : s.status === 'compensation_failed' ? 'failed'
-        : 'pending',
+      status:
+        s.status === 'completed'
+          ? 'completed'
+          : s.status === 'failed'
+            ? 'failed'
+            : s.status === 'compensated'
+              ? 'failed'
+              : s.status === 'compensation_failed'
+                ? 'failed'
+                : 'pending',
       duration: s.duration,
       error: s.error,
     }));
@@ -485,15 +484,10 @@ export class TenantProvisioningService {
       this.logger.log(`Tenant ${tenantId} provisioned successfully`);
     } else {
       await this.authProvisioningClient.failProvisioning({
-        ...this.buildAuthCommandMetadata(
-          'FailProvisioning',
-          tenantId,
-          authCommandContext,
-          {
-            failedStep: sagaResult.failedStep,
-            error: sagaResult.error,
-          },
-        ),
+        ...this.buildAuthCommandMetadata('FailProvisioning', tenantId, authCommandContext, {
+          failedStep: sagaResult.failedStep,
+          error: sagaResult.error,
+        }),
         reason: sagaResult.error ?? 'Tenant provisioning failed',
       });
       this.logger.error(
@@ -507,7 +501,8 @@ export class TenantProvisioningService {
       steps: provisioningSteps,
       error: sagaResult.error,
       warnings: warnings.length > 0 ? warnings : undefined,
-      compensationErrors: sagaResult.compensationErrors.length > 0 ? sagaResult.compensationErrors : undefined,
+      compensationErrors:
+        sagaResult.compensationErrors.length > 0 ? sagaResult.compensationErrors : undefined,
       adminUser: sagaResult.success ? adminUser : undefined,
     };
   }
@@ -518,7 +513,7 @@ export class TenantProvisioningService {
   async deprovisionTenant(tenantId: string): Promise<ProvisioningResult> {
     const steps: ProvisioningStep[] = [
       { name: 'validate_tenant', status: 'pending' },
-      { name: 'backup_data', status: 'pending' },
+      { name: 'capture_recovery_point', status: 'pending' },
       { name: 'remove_resources', status: 'pending' },
       { name: 'cleanup_schema', status: 'pending' },
     ];
@@ -546,8 +541,8 @@ export class TenantProvisioningService {
     };
 
     try {
-      // Legal hold is the first non-ledger gate before any backup, delete, or
-      // schema drop. It is not optional; if the canonical service cannot answer,
+      // Legal hold is the first non-ledger gate before any recovery-point
+      // capture, delete, or schema drop. It is not optional; if the canonical service cannot answer,
       // destructive cleanup cannot run.
       if (!this.legalHoldService) {
         throw new Error('LegalHoldService is required before tenant cleanup can run');
@@ -585,15 +580,18 @@ export class TenantProvisioningService {
       }
       await updateStep(0, 'completed');
 
-      // Backup data
+      // Recovery point (ADR-0009): the WAL-G archive epoch and WAL position the
+      // tenant's data exists at, captured before anything is removed. This is
+      // what the PITR workflow restores from; it replaces the in-process
+      // pg_dump that never completed in production.
       await updateStep(1, 'in_progress');
-      const backup = await this.backupTenantData(tenant);
-      await this.attachCleanupBackup(cleanupRunId, backup);
+      const recoveryPoint = await this.recoveryPointService.capture();
+      await this.attachCleanupRecoveryPoint(cleanupRunId, recoveryPoint);
       await updateStep(1, 'completed');
       const dropProof = this.createDeprovisionDropProof({
         tenant,
         cleanupRunId,
-        backup,
+        recoveryPoint,
         preCounts,
       });
 
@@ -626,10 +624,14 @@ export class TenantProvisioningService {
         currentStep.error = (error as Error).message;
         await this.recordCleanupStep(cleanupRunId, currentStep.name, 'failed', currentStep.error);
       }
-      await this.finishCleanupRun(cleanupRunId, this.isLegalHoldError(error) ? 'DENIED' : 'FAILED', {
-        error: (error as Error).message,
-        postCounts: await this.collectTenantCleanupCounts(tenantId),
-      });
+      await this.finishCleanupRun(
+        cleanupRunId,
+        this.isLegalHoldError(error) ? 'DENIED' : 'FAILED',
+        {
+          error: (error as Error).message,
+          postCounts: await this.collectTenantCleanupCounts(tenantId),
+        },
+      );
 
       return {
         success: false,
@@ -643,9 +645,7 @@ export class TenantProvisioningService {
   /**
    * Get provisioning status for a tenant
    */
-  async getProvisioningStatus(
-    tenantId: string,
-  ): Promise<{ status: string; tenant?: Tenant }> {
+  async getProvisioningStatus(tenantId: string): Promise<{ status: string; tenant?: Tenant }> {
     const tenant = await this.tenantRepository.findOne({
       where: { id: tenantId },
     });
@@ -696,12 +696,9 @@ export class TenantProvisioningService {
     this.logger.log(`Setting up default roles for tenant ${tenant.id}`);
 
     const result = await this.authProvisioningClient.setupTenantRoles({
-      ...this.buildAuthCommandMetadata(
-        'SetupRoles',
-        tenant.id,
-        context,
-        { roles: this.defaultRoles },
-      ),
+      ...this.buildAuthCommandMetadata('SetupRoles', tenant.id, context, {
+        roles: this.defaultRoles,
+      }),
       roles: this.defaultRoles,
       createdBy: tenant.createdBy,
     });
@@ -717,16 +714,18 @@ export class TenantProvisioningService {
   async getTenantRoles(
     tenantId: string,
   ): Promise<Array<DefaultTenantRole & { id: string; createdAt: Date; updatedAt: Date }>> {
-    const roles = this.rowsFromQuery<TenantRoleRow>(await this.dataSource.query(
-      `
+    const roles = this.rowsFromQuery<TenantRoleRow>(
+      await this.dataSource.query(
+        `
       SELECT id, "tenantId", code, name, description, permissions,
              is_default, is_editable, display_order, created_at, updated_at
       FROM auth.tenant_roles
       WHERE "tenantId" = $1
       ORDER BY display_order ASC
     `,
-      [tenantId],
-    ));
+        [tenantId],
+      ),
+    );
 
     return roles.map((row) => ({
       id: this.readString(row.id),
@@ -749,15 +748,17 @@ export class TenantProvisioningService {
     tenantId: string,
     roleCode: string,
   ): Promise<(DefaultTenantRole & { id: string }) | null> {
-    const roles = this.rowsFromQuery<TenantRoleRow>(await this.dataSource.query(
-      `
+    const roles = this.rowsFromQuery<TenantRoleRow>(
+      await this.dataSource.query(
+        `
       SELECT id, code, name, description, permissions,
              is_default, is_editable, display_order
       FROM auth.tenant_roles
       WHERE "tenantId" = $1 AND code = $2
     `,
-      [tenantId, roleCode],
-    ));
+        [tenantId, roleCode],
+      ),
+    );
 
     if (roles.length === 0) {
       return null;
@@ -807,9 +808,7 @@ export class TenantProvisioningService {
     } catch (error) {
       // If configuration already exists, log and continue
       if ((error as Error).message?.includes('already exists')) {
-        this.logger.warn(
-          `Configuration already exists for tenant ${tenant.id}, skipping creation`,
-        );
+        this.logger.warn(`Configuration already exists for tenant ${tenant.id}, skipping creation`);
         return;
       }
 
@@ -827,32 +826,43 @@ export class TenantProvisioningService {
       return Number(raw ?? 0);
     };
 
-    const schemaRows = this.rowsFromQuery<TenantSchemaCleanupRow>(await this.dataSource.query(
-      `SELECT "schemaName", status
+    const schemaRows = this.rowsFromQuery<TenantSchemaCleanupRow>(
+      await this.dataSource.query(
+        `SELECT "schemaName", status
          FROM admin.tenant_schemas
         WHERE "tenantId" = $1
         ORDER BY "updatedAt" DESC`,
-      [tenantId],
-    ));
+        [tenantId],
+      ),
+    );
     const schemaNames = schemaRows
       .map((row) => this.readString(row.schemaName))
       .filter((name) => name.length > 0);
-    const schemaExistsRows = schemaNames.length > 0
-      ? this.rowsFromQuery<NamespaceRow>(await this.dataSource.query(
-          `SELECT nspname
+    const schemaExistsRows =
+      schemaNames.length > 0
+        ? this.rowsFromQuery<NamespaceRow>(
+            await this.dataSource.query(
+              `SELECT nspname
              FROM pg_namespace
             WHERE nspname = ANY($1::text[])
             ORDER BY nspname`,
-          [schemaNames],
-        ))
-      : [];
+              [schemaNames],
+            ),
+          )
+        : [];
 
     return {
       tenants: await queryCount(`SELECT COUNT(*) AS count FROM auth.tenants WHERE id = $1`),
       users: await queryCount(`SELECT COUNT(*) AS count FROM auth.users WHERE "tenantId" = $1`),
-      invitations: await queryCount(`SELECT COUNT(*) AS count FROM auth.invitations WHERE "tenantId" = $1`),
-      tenantModules: await queryCount(`SELECT COUNT(*) AS count FROM auth.tenant_modules WHERE "tenantId" = $1`),
-      tenantRoles: await queryCount(`SELECT COUNT(*) AS count FROM auth.tenant_roles WHERE "tenantId" = $1`),
+      invitations: await queryCount(
+        `SELECT COUNT(*) AS count FROM auth.invitations WHERE "tenantId" = $1`,
+      ),
+      tenantModules: await queryCount(
+        `SELECT COUNT(*) AS count FROM auth.tenant_modules WHERE "tenantId" = $1`,
+      ),
+      tenantRoles: await queryCount(
+        `SELECT COUNT(*) AS count FROM auth.tenant_roles WHERE "tenantId" = $1`,
+      ),
       schemaRecords: schemaRows.length,
       schemaNames,
       existingSchemas: schemaExistsRows.map((row) => this.readString(row.nspname)),
@@ -863,15 +873,17 @@ export class TenantProvisioningService {
     tenantId: string,
     preCounts: Record<string, unknown>,
   ): Promise<string> {
-    const rows = this.rowsFromQuery<IdRow>(await this.dataSource.query(
-      `INSERT INTO admin.cleanup_runs (
+    const rows = this.rowsFromQuery<IdRow>(
+      await this.dataSource.query(
+        `INSERT INTO admin.cleanup_runs (
           "tenantId", scope, "actorUserId", status, "preCounts", "createdAt", "updatedAt"
         ) VALUES (
           $1, 'tenant', 'system', 'RUNNING', $2::jsonb, NOW(), NOW()
         )
         RETURNING id`,
-      [tenantId, JSON.stringify(preCounts)],
-    ));
+        [tenantId, JSON.stringify(preCounts)],
+      ),
+    );
     const id = this.readString(rows[0]?.id);
     if (!id) {
       throw new Error('Failed to create tenant cleanup ledger run');
@@ -917,35 +929,27 @@ export class TenantProvisioningService {
               "updatedAt" = NOW()`,
       [cleanupRunId, stepName, status, error ?? null],
     );
-    await this.appendCleanupRunEvent(cleanupRunId, 'STEP_RECORDED', { stepName, status, error: error ?? null });
+    await this.appendCleanupRunEvent(cleanupRunId, 'STEP_RECORDED', {
+      stepName,
+      status,
+      error: error ?? null,
+    });
   }
 
-  private async attachCleanupBackup(
+  private async attachCleanupRecoveryPoint(
     cleanupRunId: string,
-    backup: SchemaBackup,
+    recoveryPoint: CleanupDropProofRecoveryPoint,
   ): Promise<void> {
     await this.dataSource.query(
       `UPDATE admin.cleanup_runs
-          SET "backupId" = $2,
-              "backupChecksum" = $3,
-              "backupSizeBytes" = $4,
-              "backupEncrypted" = $5,
+          SET "recoveryPointEpoch" = $2,
+              "recoveryPointLsn" = $3,
+              "recoveryPointCapturedAt" = $4,
               "updatedAt" = NOW()
         WHERE id = $1`,
-      [
-        cleanupRunId,
-        backup.id,
-        backup.checksum,
-        backup.sizeBytes,
-        backup.isEncrypted === true,
-      ],
+      [cleanupRunId, recoveryPoint.backupEpoch, recoveryPoint.walLsn, recoveryPoint.capturedAt],
     );
-    await this.appendCleanupRunEvidence(cleanupRunId, 'ENCRYPTED_BACKUP', {
-      backupId: backup.id,
-      checksum: backup.checksum,
-      sizeBytes: backup.sizeBytes,
-      encrypted: backup.isEncrypted === true,
-    });
+    await this.appendCleanupRunEvidence(cleanupRunId, 'RECOVERY_POINT', { ...recoveryPoint });
   }
 
   private async finishCleanupRun(
@@ -997,7 +1001,10 @@ export class TenantProvisioningService {
     evidenceType: string,
     payload: Record<string, unknown>,
   ): Promise<void> {
-    const evidenceHash = crypto.createHash('sha256').update(this.stableStringify(payload)).digest('hex');
+    const evidenceHash = crypto
+      .createHash('sha256')
+      .update(this.stableStringify(payload))
+      .digest('hex');
     await this.dataSource.query(
       `INSERT INTO admin.cleanup_run_evidence ("runId", "evidenceType", "evidenceHash", payload, "createdAt")
        VALUES ($1, $2, $3, $4::jsonb, NOW())`,
@@ -1007,32 +1014,10 @@ export class TenantProvisioningService {
 
   private isLegalHoldError(error: unknown): boolean {
     const err = error as { name?: string; message?: string };
-    return err.name === 'LegalHoldActiveError'
-      || (typeof err.message === 'string' && err.message.toLowerCase().includes('legal hold'));
-  }
-
-  private async backupTenantData(tenant: Tenant): Promise<SchemaBackup> {
-    const backup = await this.backupRestoreService.createBackup({
-      tenantId: tenant.id,
-      backupType: 'full',
-      compress: true,
-      encrypt: true,
-      retentionDays: 365,
-    });
-
-    if (backup.status !== 'completed') {
-      throw new Error(
-        `Tenant backup did not complete before deprovisioning: ${backup.status}`,
-      );
-    }
-    if (!backup.checksum || Number(backup.sizeBytes ?? 0) <= 0) {
-      throw new Error('Tenant backup proof is incomplete: checksum and size are required before cleanup');
-    }
-    if (backup.isEncrypted !== true) {
-      throw new Error('Tenant backup proof is incomplete: encrypted backup is required before cleanup');
-    }
-
-    return backup;
+    return (
+      err.name === 'LegalHoldActiveError' ||
+      (typeof err.message === 'string' && err.message.toLowerCase().includes('legal hold'))
+    );
   }
 
   private async removeTenantResources(
@@ -1040,15 +1025,10 @@ export class TenantProvisioningService {
     context: AuthProvisioningCommandContext,
   ): Promise<void> {
     await this.authProvisioningClient.rollbackTenantProvisioning({
-      ...this.buildAuthCommandMetadata(
-        'RollbackProvisioning',
-        tenant.id,
-        context,
-        {
-          completedSteps: ['create_admin', 'setup_roles', 'assign_modules'],
-          reason: 'tenant deprovision resource cleanup',
-        },
-      ),
+      ...this.buildAuthCommandMetadata('RollbackProvisioning', tenant.id, context, {
+        completedSteps: ['create_admin', 'setup_roles', 'assign_modules'],
+        reason: 'tenant deprovision resource cleanup',
+      }),
       completedSteps: ['create_admin', 'setup_roles', 'assign_modules'],
       reason: 'tenant deprovision resource cleanup',
     });
@@ -1057,12 +1037,9 @@ export class TenantProvisioningService {
   private createDeprovisionDropProof(input: {
     tenant: Tenant;
     cleanupRunId: string;
-    backup: SchemaBackup;
+    recoveryPoint: CleanupDropProofRecoveryPoint;
     preCounts: Record<string, unknown>;
   }): CleanupDropProof {
-    const algorithm = input.backup.metadata?.encryptionAlgorithm;
-    const keyId = input.backup.metadata?.encryptionKeyId;
-
     return createCleanupDropProof({
       operationId: input.cleanupRunId,
       tenantId: input.tenant.id,
@@ -1070,17 +1047,7 @@ export class TenantProvisioningService {
       actorId: 'tenant-deprovision-workflow',
       reason: 'tenant deprovision workflow schema cleanup',
       legalHoldCheckedAt: new Date(),
-      backup: {
-        id: input.backup.id,
-        checksum: input.backup.checksum,
-        sizeBytes: Number(input.backup.sizeBytes),
-        isEncrypted: true,
-        uri: input.backup.filePath || input.backup.fileName || undefined,
-        createdAt: input.backup.createdAt,
-        retentionDays: input.backup.retentionDays,
-        algorithm,
-        keyId,
-      },
+      recoveryPoint: input.recoveryPoint,
       preCounts: input.preCounts,
     });
   }
@@ -1101,7 +1068,9 @@ export class TenantProvisioningService {
       where: { tenantId: tenant.id },
     });
     if (!schemaRecord?.schemaName) {
-      throw new Error(`Cannot queue schema deletion without tenant_schemas record for ${tenant.id}`);
+      throw new Error(
+        `Cannot queue schema deletion without tenant_schemas record for ${tenant.id}`,
+      );
     }
 
     const requestedAt = new Date().toISOString();
@@ -1144,7 +1113,7 @@ export class TenantProvisioningService {
       approverId: proof.approverId,
       reason: proof.reason,
       legalHoldCheckedAt: proof.legalHoldCheckedAt,
-      backup: proof.backup,
+      recoveryPoint: proof.recoveryPoint,
       preCounts: proof.preCounts,
       postCounts: proof.postCounts,
       createdAt: proof.createdAt,
@@ -1167,12 +1136,11 @@ export class TenantProvisioningService {
   }> {
     try {
       const result = await this.authProvisioningClient.createTenantAdmin({
-        ...this.buildAuthCommandMetadata(
-          'CreateFirstAdminInvite',
-          tenantId,
-          context,
-          { email, firstName, lastName },
-        ),
+        ...this.buildAuthCommandMetadata('CreateFirstAdminInvite', tenantId, context, {
+          email,
+          firstName,
+          lastName,
+        }),
         email,
         firstName,
         lastName,
@@ -1188,9 +1156,7 @@ export class TenantProvisioningService {
         userId: result.userId,
       };
     } catch (error) {
-      this.logger.error(
-        `Failed to create first admin: ${(error as Error).message}`,
-      );
+      this.logger.error(`Failed to create first admin: ${(error as Error).message}`);
       return {
         success: false,
         error: (error as Error).message,
@@ -1214,17 +1180,14 @@ export class TenantProvisioningService {
 
     try {
       await this.authProvisioningClient.assignTenantModules({
-        ...this.buildAuthCommandMetadata(
-          'AssignModules',
-          tenantId,
-          context,
-          { moduleIds },
-        ),
+        ...this.buildAuthCommandMetadata('AssignModules', tenantId, context, { moduleIds }),
         moduleIds,
         assignedBy: context.actorId,
       });
     } catch (error) {
-      throw new Error(`Could not assign modules to tenant ${tenantId}: ${(error as Error).message}`);
+      throw new Error(
+        `Could not assign modules to tenant ${tenantId}: ${(error as Error).message}`,
+      );
     }
   }
 
@@ -1236,19 +1199,15 @@ export class TenantProvisioningService {
   ): Promise<void> {
     try {
       await this.authProvisioningClient.rollbackTenantProvisioning({
-        ...this.buildAuthCommandMetadata(
-          'RollbackProvisioning',
-          tenantId,
-          context,
-          { completedSteps, reason },
-        ),
+        ...this.buildAuthCommandMetadata('RollbackProvisioning', tenantId, context, {
+          completedSteps,
+          reason,
+        }),
         completedSteps,
         reason,
       });
     } catch (err) {
-      this.logger.error(
-        `Auth rollback failed for tenant ${tenantId}: ${(err as Error).message}`,
-      );
+      this.logger.error(`Auth rollback failed for tenant ${tenantId}: ${(err as Error).message}`);
     }
   }
 
@@ -1288,7 +1247,10 @@ export class TenantProvisioningService {
 
     if (value && typeof value === 'object') {
       const record = value as Record<string, unknown>;
-      return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${this.stableStringify(record[key])}`).join(',')}}`;
+      return `{${Object.keys(record)
+        .sort()
+        .map((key) => `${JSON.stringify(key)}:${this.stableStringify(record[key])}`)
+        .join(',')}}`;
     }
 
     return JSON.stringify(value);
@@ -1306,18 +1268,210 @@ export class TenantProvisioningService {
 
     // Common aquaculture parameters — covers freshwater + seawater basics
     const params = [
-      { code: 'temperature', name: 'Temperature', unit: '°C', precision: 1, group: 'basic', optMin: 8, optMax: 20, warnMin: 4, warnMax: 24, critMin: 2, critMax: 28, color: '#3b82f6', order: 1, required: true, axis: 'left' },
-      { code: 'dissolved_oxygen', name: 'Dissolved Oxygen', unit: 'mg/L', precision: 1, group: 'basic', optMin: 6, optMax: 12, warnMin: 4.5, warnMax: 14, critMin: 3, critMax: 16, color: '#22c55e', order: 2, required: true, axis: 'left' },
-      { code: 'ph', name: 'pH', unit: '', precision: 2, group: 'basic', optMin: 6.5, optMax: 8.5, warnMin: 6.0, warnMax: 9.0, critMin: 5.5, critMax: 9.5, color: '#8b5cf6', order: 3, required: true, axis: 'left' },
-      { code: 'ammonia', name: 'Ammonia (NH₃)', unit: 'mg/L', precision: 3, group: 'nitrogen_cycle', optMin: 0, optMax: 0.02, warnMin: 0, warnMax: 0.05, critMin: 0, critMax: 0.1, color: '#ef4444', order: 4, required: true, axis: 'right' },
-      { code: 'nitrite', name: 'Nitrite (NO₂)', unit: 'mg/L', precision: 3, group: 'nitrogen_cycle', optMin: 0, optMax: 0.1, warnMin: 0, warnMax: 0.3, critMin: 0, critMax: 0.5, color: '#f97316', order: 5, required: true, axis: 'right' },
-      { code: 'nitrate', name: 'Nitrate (NO₃)', unit: 'mg/L', precision: 1, group: 'nitrogen_cycle', optMin: 0, optMax: 50, warnMin: 0, warnMax: 80, critMin: 0, critMax: 100, color: '#eab308', order: 6, required: false, axis: 'right' },
-      { code: 'salinity', name: 'Salinity', unit: 'ppt', precision: 1, group: 'basic', optMin: 0, optMax: 38, warnMin: 0, warnMax: 42, critMin: 0, critMax: 45, color: '#0891b2', order: 7, required: false, axis: 'left' },
-      { code: 'alkalinity', name: 'Alkalinity', unit: 'mg/L CaCO₃', precision: 0, group: 'basic', optMin: 40, optMax: 200, warnMin: 20, warnMax: 300, critMin: 10, critMax: 400, color: '#a855f7', order: 8, required: false, axis: 'left' },
-      { code: 'turbidity', name: 'Turbidity', unit: 'NTU', precision: 1, group: 'basic', optMin: 0, optMax: 10, warnMin: 0, warnMax: 25, critMin: 0, critMax: 50, color: '#78716c', order: 9, required: false, axis: 'left' },
-      { code: 'co2', name: 'Carbon Dioxide', unit: 'mg/L', precision: 1, group: 'basic', optMin: 0, optMax: 15, warnMin: 0, warnMax: 25, critMin: 0, critMax: 40, color: '#06b6d4', order: 10, required: false, axis: 'right' },
-      { code: 'oxygen_saturation', name: 'Oxygen Saturation', unit: '%', precision: 0, group: 'basic', optMin: 70, optMax: 120, warnMin: 50, warnMax: 130, critMin: 30, critMax: 150, color: '#16a34a', order: 11, required: false, axis: 'left' },
-      { code: 'conductivity', name: 'Conductivity', unit: 'µS/cm', precision: 0, group: 'basic', optMin: 50, optMax: 800, warnMin: 20, warnMax: 1200, critMin: 10, critMax: 2000, color: '#14b8a6', order: 12, required: false, axis: 'right' },
+      {
+        code: 'temperature',
+        name: 'Temperature',
+        unit: '°C',
+        precision: 1,
+        group: 'basic',
+        optMin: 8,
+        optMax: 20,
+        warnMin: 4,
+        warnMax: 24,
+        critMin: 2,
+        critMax: 28,
+        color: '#3b82f6',
+        order: 1,
+        required: true,
+        axis: 'left',
+      },
+      {
+        code: 'dissolved_oxygen',
+        name: 'Dissolved Oxygen',
+        unit: 'mg/L',
+        precision: 1,
+        group: 'basic',
+        optMin: 6,
+        optMax: 12,
+        warnMin: 4.5,
+        warnMax: 14,
+        critMin: 3,
+        critMax: 16,
+        color: '#22c55e',
+        order: 2,
+        required: true,
+        axis: 'left',
+      },
+      {
+        code: 'ph',
+        name: 'pH',
+        unit: '',
+        precision: 2,
+        group: 'basic',
+        optMin: 6.5,
+        optMax: 8.5,
+        warnMin: 6.0,
+        warnMax: 9.0,
+        critMin: 5.5,
+        critMax: 9.5,
+        color: '#8b5cf6',
+        order: 3,
+        required: true,
+        axis: 'left',
+      },
+      {
+        code: 'ammonia',
+        name: 'Ammonia (NH₃)',
+        unit: 'mg/L',
+        precision: 3,
+        group: 'nitrogen_cycle',
+        optMin: 0,
+        optMax: 0.02,
+        warnMin: 0,
+        warnMax: 0.05,
+        critMin: 0,
+        critMax: 0.1,
+        color: '#ef4444',
+        order: 4,
+        required: true,
+        axis: 'right',
+      },
+      {
+        code: 'nitrite',
+        name: 'Nitrite (NO₂)',
+        unit: 'mg/L',
+        precision: 3,
+        group: 'nitrogen_cycle',
+        optMin: 0,
+        optMax: 0.1,
+        warnMin: 0,
+        warnMax: 0.3,
+        critMin: 0,
+        critMax: 0.5,
+        color: '#f97316',
+        order: 5,
+        required: true,
+        axis: 'right',
+      },
+      {
+        code: 'nitrate',
+        name: 'Nitrate (NO₃)',
+        unit: 'mg/L',
+        precision: 1,
+        group: 'nitrogen_cycle',
+        optMin: 0,
+        optMax: 50,
+        warnMin: 0,
+        warnMax: 80,
+        critMin: 0,
+        critMax: 100,
+        color: '#eab308',
+        order: 6,
+        required: false,
+        axis: 'right',
+      },
+      {
+        code: 'salinity',
+        name: 'Salinity',
+        unit: 'ppt',
+        precision: 1,
+        group: 'basic',
+        optMin: 0,
+        optMax: 38,
+        warnMin: 0,
+        warnMax: 42,
+        critMin: 0,
+        critMax: 45,
+        color: '#0891b2',
+        order: 7,
+        required: false,
+        axis: 'left',
+      },
+      {
+        code: 'alkalinity',
+        name: 'Alkalinity',
+        unit: 'mg/L CaCO₃',
+        precision: 0,
+        group: 'basic',
+        optMin: 40,
+        optMax: 200,
+        warnMin: 20,
+        warnMax: 300,
+        critMin: 10,
+        critMax: 400,
+        color: '#a855f7',
+        order: 8,
+        required: false,
+        axis: 'left',
+      },
+      {
+        code: 'turbidity',
+        name: 'Turbidity',
+        unit: 'NTU',
+        precision: 1,
+        group: 'basic',
+        optMin: 0,
+        optMax: 10,
+        warnMin: 0,
+        warnMax: 25,
+        critMin: 0,
+        critMax: 50,
+        color: '#78716c',
+        order: 9,
+        required: false,
+        axis: 'left',
+      },
+      {
+        code: 'co2',
+        name: 'Carbon Dioxide',
+        unit: 'mg/L',
+        precision: 1,
+        group: 'basic',
+        optMin: 0,
+        optMax: 15,
+        warnMin: 0,
+        warnMax: 25,
+        critMin: 0,
+        critMax: 40,
+        color: '#06b6d4',
+        order: 10,
+        required: false,
+        axis: 'right',
+      },
+      {
+        code: 'oxygen_saturation',
+        name: 'Oxygen Saturation',
+        unit: '%',
+        precision: 0,
+        group: 'basic',
+        optMin: 70,
+        optMax: 120,
+        warnMin: 50,
+        warnMax: 130,
+        critMin: 30,
+        critMax: 150,
+        color: '#16a34a',
+        order: 11,
+        required: false,
+        axis: 'left',
+      },
+      {
+        code: 'conductivity',
+        name: 'Conductivity',
+        unit: 'µS/cm',
+        precision: 0,
+        group: 'basic',
+        optMin: 50,
+        optMax: 800,
+        warnMin: 20,
+        warnMax: 1200,
+        critMin: 10,
+        critMax: 2000,
+        color: '#14b8a6',
+        order: 12,
+        required: false,
+        axis: 'right',
+      },
     ];
 
     try {
@@ -1337,17 +1491,34 @@ export class TenantProvisioningService {
               $13, $14, $15, $15, true, $16,
               false, 'default_seed', NOW(), NOW())
            ON CONFLICT ("tenantId", code) DO NOTHING`,
-          [tenantId, p.code, p.name, p.unit, p.precision, p.group,
-           p.optMin, p.optMax, p.warnMin, p.warnMax, p.critMin, p.critMax,
-           p.color, p.order, p.required, p.axis],
+          [
+            tenantId,
+            p.code,
+            p.name,
+            p.unit,
+            p.precision,
+            p.group,
+            p.optMin,
+            p.optMax,
+            p.warnMin,
+            p.warnMax,
+            p.critMin,
+            p.critMax,
+            p.color,
+            p.order,
+            p.required,
+            p.axis,
+          ],
         );
       }
 
-      this.logger.log(`Seeded ${params.length} default water quality parameters for tenant ${tenantId}`);
+      this.logger.log(
+        `Seeded ${params.length} default water quality parameters for tenant ${tenantId}`,
+      );
     } catch (error) {
       this.logger.warn(
         `Failed to seed water quality params for tenant ${tenantId}: ${(error as Error).message}. ` +
-        `Tenant can manually configure parameters via the Parameters tab.`,
+          `Tenant can manually configure parameters via the Parameters tab.`,
       );
       // Non-fatal — tenant can still use the system, just needs to set up params manually
     }

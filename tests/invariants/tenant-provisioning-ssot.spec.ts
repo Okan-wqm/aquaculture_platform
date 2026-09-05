@@ -249,9 +249,7 @@ describe('INVARIANT: auth-service owns tenant lifecycle commands', () => {
     expect(service).toMatch(/this\.outboxPublisher\.enqueue\(/);
     // TenantStatusChanged is the single emission point for all five lifecycle
     // transitions, enqueued at the status-persist site in transitionTenantStatus.
-    expect(service).toContain(
-      "createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged'",
-    );
+    expect(service).toContain("createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged'");
     // First-admin UserInvited is durable + atomic with the user/invitation write.
     expect(service).toContain('enqueueFirstAdminInvite');
   });
@@ -667,7 +665,8 @@ describe('INVARIANT: destructive tenant schema cleanup requires workflow proof',
     expect(schemaManager).toContain('proof: CleanupDropProof');
     expect(schemaManager).toContain('assertCleanupDropProof(proof, tenantId)');
     expect(schemaManager).toContain('CleanupDropProof requires legal-hold evidence');
-    expect(schemaManager).toContain('CleanupDropProof requires encrypted backup evidence');
+    expect(schemaManager).toContain('CleanupDropProof requires a WAL-G recovery point');
+    expect(schemaManager).not.toContain('encrypted backup evidence');
   });
 
   it('keeps SchemaManagerService schema deletion fail-closed under db-migrate authority', () => {
@@ -697,25 +696,23 @@ describe('INVARIANT: destructive tenant schema cleanup requires workflow proof',
       'apps/db-migrate/src/sql/platform-bootstrap/009-tenant-schema-provisioner.sql',
     );
     const provisionerWorker = readRepoFile('apps/db-migrate/src/tenant-schema-provisioner.ts');
-    const backupController = readRepoFile(
-      'apps/admin-api-service/src/database-management/controllers/backup.controller.ts',
-    );
-    const backupService = readRepoFile(
-      'apps/admin-api-service/src/database-management/services/backup-restore.service.ts',
-    );
     const adminPanelDbApi = readRepoFile('web/modules/admin-panel/src/services/api/database.ts');
 
     expect(provisioning).toContain("purpose: 'provisioning_rollback'");
     expect(provisioning).toContain("purpose: 'tenant_deprovision'");
     expect(provisioning).toContain('legalHoldCheckedAt');
-    expect(provisioning).toContain('backup: {');
-    expect(provisioning).toContain('isEncrypted: true');
+    // ADR-0009: the deprovision proof carries the WAL-G recovery point captured
+    // from the database, never a fabricated or in-process backup record.
+    expect(provisioning).toContain('this.recoveryPointService.capture()');
+    expect(provisioning).toContain('recoveryPoint: input.recoveryPoint');
+    expect(provisioning).not.toContain('isEncrypted: true');
+    expect(provisioning).not.toContain('backupRestoreService');
     expect(provisioning).toContain("'PENDING_DB_MIGRATE'");
     expect(provisioning).toContain("schemaRecord.status = 'pending_deletion';");
     expect(provisioning).toContain('platform.request_tenant_schema_deletion');
     expect(provisioning).toContain('serializeCleanupDropProof');
     expect(provisionerSql).toContain('Tenant schema deletion requires cleanupProof evidence');
-    expect(provisionerSql).toContain('Tenant schema deletion requires encrypted backup evidence');
+    expect(provisionerSql).toContain('Tenant schema deletion requires a WAL-G recovery point');
     expect(
       provisionerSql.split('CREATE OR REPLACE FUNCTION platform.request_tenant_schema_deletion')[0],
     ).not.toContain('Tenant schema deletion requires cleanupProof evidence');
@@ -730,9 +727,8 @@ describe('INVARIANT: destructive tenant schema cleanup requires workflow proof',
     );
     expect(provisionerWorker).toContain('assertDeleteProof(job)');
     expect(provisionerWorker).toContain('requires matching tombstone evidence');
-    expect(backupController).not.toContain('skipValidation');
-    expect(backupService).not.toContain('skipValidation');
     expect(adminPanelDbApi).not.toContain('skipValidation');
+    expect(adminPanelDbApi).not.toContain('/database/backups');
   });
 });
 

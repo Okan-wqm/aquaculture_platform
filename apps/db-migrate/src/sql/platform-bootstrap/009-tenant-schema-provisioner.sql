@@ -313,13 +313,17 @@ BEGIN
     RAISE EXCEPTION 'Tenant schema deletion requires legal-hold evidence';
   END IF;
 
+  -- ADR-0009: WAL-G is the sole backup authority. A deprovision drop carries
+  -- the recovery point (archive epoch + WAL LSN) the PITR workflow restores
+  -- from, captured from pg_current_wal_lsn() by the orchestrator.
   IF p_payload->'cleanupProof'->>'purpose' = 'tenant_deprovision'
      AND (
-       COALESCE((p_payload->'cleanupProof'->'backup'->>'isEncrypted')::boolean, false) IS DISTINCT FROM true
-       OR COALESCE(p_payload->'cleanupProof'->'backup'->>'checksum', '') = ''
-       OR COALESCE((p_payload->'cleanupProof'->'backup'->>'sizeBytes')::numeric, 0) <= 0
+       COALESCE(p_payload->'cleanupProof'->'recoveryPoint'->>'authority', '') <> 'wal-g'
+       OR COALESCE(p_payload->'cleanupProof'->'recoveryPoint'->>'backupEpoch', '') = ''
+       OR COALESCE(p_payload->'cleanupProof'->'recoveryPoint'->>'walLsn', '') !~ '^[0-9A-F]{1,8}/[0-9A-F]{1,8}$'
+       OR COALESCE(p_payload->'cleanupProof'->'recoveryPoint'->>'capturedAt', '') = ''
      ) THEN
-    RAISE EXCEPTION 'Tenant schema deletion requires encrypted backup evidence';
+    RAISE EXCEPTION 'Tenant schema deletion requires a WAL-G recovery point';
   END IF;
 
   IF jsonb_typeof(p_payload->'cleanupProof'->'preCounts'->'existingSchemas') IS DISTINCT FROM 'array' THEN

@@ -1497,12 +1497,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/database-management/controllers/backup.controller.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/database-management/controllers/explorer.controller.ts",
       "prettier_managed": true
     },
@@ -1539,12 +1533,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/database-management/services/backup-restore.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/database-management/services/database-monitoring.service.ts",
       "prettier_managed": true
     },
@@ -1552,6 +1540,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/database-management/services/migration-management.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/database-management/services/recovery-point.service.ts",
       "prettier_managed": true
     },
     {
@@ -2214,6 +2208,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/migrations/1808200000000-RestoreAuditImmutabilityContract.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1808300000000-RetireAdminBackupSubsystem.ts",
       "prettier_managed": true
     },
     {
@@ -37576,6 +37576,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/database/__tests__/recovery-point.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/database/__tests__/schema-drift-validator.service.spec.ts",
       "prettier_managed": true
     },
@@ -37859,6 +37865,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/database/query-result-normalizer.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/recovery-point.ts",
       "prettier_managed": true
     },
     {
@@ -43357,12 +43369,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/admin-api-schema-boundaries.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "tests/invariants/admin-backup-encryption-ssot.spec.ts",
       "prettier_managed": true
     },
     {

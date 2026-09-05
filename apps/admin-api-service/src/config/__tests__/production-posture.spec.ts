@@ -10,6 +10,7 @@ const SOUND_PRODUCTION_ENV = {
   ENABLE_DB_EXPLORER_WRITES: 'false',
   ENABLE_RAW_SQL_EXPLORER: 'false',
   TRUST_PROXY: 'true',
+  WALG_BACKUP_EPOCH: 'epoch-20260716-001',
 };
 
 describe('admin-api production posture', () => {

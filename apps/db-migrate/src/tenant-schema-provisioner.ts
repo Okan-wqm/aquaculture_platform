@@ -710,7 +710,7 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 function assertDeleteProof(job: TenantSchemaJob): void {
   const payload = asRecord(job.requestPayload);
   const proof = asRecord(payload?.['cleanupProof']);
-  const backup = asRecord(proof?.['backup']);
+  const recoveryPoint = asRecord(proof?.['recoveryPoint']);
   const tombstone = asRecord(payload?.['tombstone']);
   const preCounts = asRecord(proof?.['preCounts']);
   const existingSchemas = preCounts?.['existingSchemas'];
@@ -733,16 +733,21 @@ function assertDeleteProof(job: TenantSchemaJob): void {
       `[tenant-schema-provisioner] DELETE job ${job.id} requires legal-hold evidence`,
     );
   }
+  // ADR-0009: the drop is reversible only through WAL-G PITR, so the proof
+  // must name the archive epoch and the WAL position the data existed at.
   if (
     proof['purpose'] === 'tenant_deprovision' &&
-    (!backup ||
-      backup['isEncrypted'] !== true ||
-      typeof backup['checksum'] !== 'string' ||
-      backup['checksum'].length === 0 ||
-      Number(backup['sizeBytes']) <= 0)
+    (!recoveryPoint ||
+      recoveryPoint['authority'] !== 'wal-g' ||
+      typeof recoveryPoint['backupEpoch'] !== 'string' ||
+      recoveryPoint['backupEpoch'].trim().length === 0 ||
+      typeof recoveryPoint['walLsn'] !== 'string' ||
+      !/^[0-9A-F]{1,8}\/[0-9A-F]{1,8}$/.test(recoveryPoint['walLsn']) ||
+      typeof recoveryPoint['capturedAt'] !== 'string' ||
+      recoveryPoint['capturedAt'].length === 0)
   ) {
     throw new Error(
-      `[tenant-schema-provisioner] DELETE job ${job.id} requires encrypted backup evidence`,
+      `[tenant-schema-provisioner] DELETE job ${job.id} requires a WAL-G recovery point`,
     );
   }
   if (!preCounts || !Array.isArray(existingSchemas)) {

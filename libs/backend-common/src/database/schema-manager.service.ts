@@ -95,16 +95,49 @@ export type CleanupDropProofPurpose =
   | 'tenant_deprovision'
   | 'tenant_erasure';
 
-export interface CleanupDropProofBackupEvidence {
-  id?: string;
-  checksum: string;
-  sizeBytes: number;
-  isEncrypted: true;
-  uri?: string;
-  createdAt?: string | Date;
-  retentionDays?: number;
-  algorithm?: string;
-  keyId?: string;
+/**
+ * The recovery point a tenant's data can be restored to after its schema is
+ * dropped. WAL-G is the platform's sole backup and restore authority
+ * (ADR-0009): the base backup under `backupEpoch` plus the continuously
+ * archived WAL up to `walLsn` is what `tools/scripts/database/walg-pitr-restore.sh`
+ * consumes. Until 2026-09-05 this evidence was an admin-api in-process pg_dump
+ * that required an encryption key production never set, so every deprovision
+ * failed at the backup step or, in other environments, recorded a file nothing
+ * could restore. A recovery point is captured from the database itself
+ * (`pg_current_wal_lsn()`) and names the epoch the DR workflow restores from,
+ * so the evidence describes a restore that can actually be performed.
+ */
+export interface CleanupDropProofRecoveryPoint {
+  readonly authority: 'wal-g';
+  /** WALG_BACKUP_EPOCH of the archive the LSN belongs to. */
+  readonly backupEpoch: string;
+  /** `pg_current_wal_lsn()` at capture time, e.g. `0/1A2B3C4D`. */
+  readonly walLsn: string;
+  /** `current_database()` at capture time. */
+  readonly database: string;
+  /** ISO-8601 capture instant. */
+  readonly capturedAt: string;
+}
+
+/** PostgreSQL LSN text form: two hex halves separated by a slash. */
+export const WAL_LSN_PATTERN = /^[0-9A-F]{1,8}\/[0-9A-F]{1,8}$/;
+
+export function isCleanupDropProofRecoveryPoint(
+  value: unknown,
+): value is CleanupDropProofRecoveryPoint {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    candidate['authority'] === 'wal-g' &&
+    typeof candidate['backupEpoch'] === 'string' &&
+    candidate['backupEpoch'].trim().length > 0 &&
+    typeof candidate['walLsn'] === 'string' &&
+    WAL_LSN_PATTERN.test(candidate['walLsn']) &&
+    typeof candidate['database'] === 'string' &&
+    candidate['database'].length > 0 &&
+    typeof candidate['capturedAt'] === 'string' &&
+    !Number.isNaN(Date.parse(candidate['capturedAt']))
+  );
 }
 
 export interface CleanupDropProof {
@@ -116,7 +149,7 @@ export interface CleanupDropProof {
   readonly approverId?: string;
   readonly reason: string;
   readonly legalHoldCheckedAt?: string;
-  readonly backup?: CleanupDropProofBackupEvidence;
+  readonly recoveryPoint?: CleanupDropProofRecoveryPoint;
   readonly preCounts?: Record<string, unknown>;
   readonly postCounts?: Record<string, unknown>;
   readonly createdAt: string;
@@ -130,7 +163,7 @@ export function createCleanupDropProof(input: {
   approverId?: string;
   reason: string;
   legalHoldCheckedAt?: string | Date;
-  backup?: CleanupDropProofBackupEvidence;
+  recoveryPoint?: CleanupDropProofRecoveryPoint;
   preCounts?: Record<string, unknown>;
   postCounts?: Record<string, unknown>;
   createdAt?: string | Date;
@@ -144,7 +177,7 @@ export function createCleanupDropProof(input: {
     approverId: input.approverId,
     reason: input.reason,
     legalHoldCheckedAt: normalizeOptionalTimestamp(input.legalHoldCheckedAt),
-    backup: input.backup,
+    recoveryPoint: input.recoveryPoint,
     preCounts: input.preCounts,
     postCounts: input.postCounts,
     createdAt: normalizeTimestamp(input.createdAt ?? new Date()),
@@ -182,13 +215,8 @@ function assertCleanupDropProof(
     }
   }
   if (proof.purpose === 'tenant_deprovision') {
-    if (
-      !proof.backup ||
-      !proof.backup.checksum ||
-      Number(proof.backup.sizeBytes) <= 0 ||
-      proof.backup.isEncrypted !== true
-    ) {
-      throw new BadRequestException('CleanupDropProof requires encrypted backup evidence');
+    if (!isCleanupDropProofRecoveryPoint(proof.recoveryPoint)) {
+      throw new BadRequestException('CleanupDropProof requires a WAL-G recovery point');
     }
   }
 
@@ -805,15 +833,14 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'tenant_erasure_operations',
       'tenant_schemas',
       'schema_migrations',
-      'schema_backups',
-      'schema_restores',
       'cleanup_runs',
       'cleanup_run_steps',
       'cleanup_run_events',
       'cleanup_run_evidence',
-      // DB-ADMIN-MEDIUM-002: schema-lifecycle backup ledger — same class as
-      // schema_backups/schema_restores above (retired-tenant-schema backups).
-      'retired_schema_backups',
+      // ADR-0009: the jsonb archive that received schema_backups /
+      // schema_restores / retired_schema_backups rows before 1808300000000
+      // dropped them. WAL-G is the sole backup authority; nothing writes here.
+      'retired_backup_ledger',
       // ORPHAN-HIGH-364 follow-on: the TenantProvisioningWorkflow tables
       // (migrations 1800400/1800500/1801200) — legitimate raw-SQL/migration-
       // managed workflow state with no TypeORM entity. Registered so the drift

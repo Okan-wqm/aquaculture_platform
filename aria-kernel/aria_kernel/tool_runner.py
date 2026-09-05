@@ -217,6 +217,13 @@ def run_tool(
         "operator_feedback_refs": [],
         "memory_candidates": _valid_memory_candidates(memory_candidates, tool_id),
         "duration_ms": duration_ms,
+        # ORPHAN-HIGH-801 — the DECLARED budget travels with the measurement.
+        # A duration alone cannot answer "was this close to timing out"; the
+        # budget lives in the manifest and the row lived in the store, so the
+        # two were never in the same place and no operator, and no adapter
+        # author, could see a tool creeping toward its ceiling. They only ever
+        # learned it had crossed, as a dead cycle.
+        "timeout_ms": int(runner["timeout_ms"]),
         "cost_units": _non_negative_number(output.get("cost_units"), default=0),
         "runner": {
             "type": runner["type"],

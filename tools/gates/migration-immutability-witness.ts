@@ -42,7 +42,7 @@
  *      basename is accepted only while it names exactly one shipped migration in
  *      the repository: fourteen services call their first migration
  *      `1800000000000-Baseline.ts`, so a bare name there waived all fourteen at
- *      once, including services the PR never touched (PROC-MEDIUM-021).
+ *      once, including services the PR never touched (PROC-MEDIUM-026).
  *   4. If a modification has no waiver, fail loudly — the cure is to revert the
  *      edit and add a NEW forward migration that completes the desired state.
  *
@@ -160,7 +160,7 @@ function isShippedMigrationFile(path: string): boolean {
  * first migration `1800000000000-Baseline.ts`. One waiver line therefore waived
  * every Baseline in the repository at once, including services the PR never
  * touched — a gate whose exemption is wider than anything a reviewer would grant
- * on purpose (PROC-MEDIUM-021). The counts below decide when a basename is
+ * on purpose (PROC-MEDIUM-026). The counts below decide when a basename is
  * still safe shorthand and when it is not.
  */
 function shippedMigrationsByBaseName(): Map<string, string[]> {
@@ -287,7 +287,7 @@ function main(): void {
   }
   err('      A bare filename is accepted only when it is unique repo-wide. All');
   err('      fourteen Baselines are named 1800000000000-Baseline.ts, so a bare');
-  err('      name there would waive every one of them (PROC-MEDIUM-021).');
+  err('      name there would waive every one of them (PROC-MEDIUM-026).');
   process.exit(1);
 }
 

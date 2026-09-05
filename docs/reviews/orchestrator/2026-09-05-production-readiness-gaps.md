@@ -9,18 +9,35 @@ operator-evidence gap, not a code gap.
 
 | #   | Claim                                          | Verdict                                   | Registry                     |
 | --- | ---------------------------------------------- | ----------------------------------------- | ---------------------------- |
-| 1a  | Invite link cannot be validated                | CONFIRMED (mechanism corrected)           | `SEC-HIGH-056`               |
+| 1a  | Invite link cannot be validated                | CONFIRMED (mechanism corrected)           | `SEC-HIGH-158`               |
 | 1b  | auth-service has no `FRONTEND_URL`             | CONFIRMED (droplet, prod **and** staging) | `DEPLOY-HIGH-016`            |
-| 2   | Super-admin password recovery silently dropped | CONFIRMED (+ second blocker)              | `SEC-HIGH-057`               |
+| 2   | Super-admin password recovery silently dropped | CONFIRMED (+ second blocker)              | `SEC-HIGH-159`               |
 | 3   | Notification handler acks failures             | CONFIRMED (+ null-returning resolvers)    | `PLAT-HIGH-902`              |
-| 4   | MQTT reading vs alarm evaluation diverge       | CONFIRMED (scope half is the worse)       | `SENSOR-CRITICAL-106`        |
+| 4   | MQTT reading vs alarm evaluation diverge       | CONFIRMED (scope half is the worse)       | `SENSOR-CRITICAL-111`        |
 | 5   | Full deploy breaks the monitoring stack        | CONFIRMED (placeholder is structural)     | `DEPLOY-CRITICAL-017`        |
 | 6   | Backup activation / restore proof missing      | CONFIRMED — already tracked               | `INFRA-HIGH-033/034/035/073` |
 | 7   | MinIO bytes outside the recovery cut           | CONFIRMED                                 | `INFRA-HIGH-151`             |
 
+## Ledger ids
+
+Three of the seven were registered on the Faz 3 branch (PR #1424) before `main`
+allocated the same sequence numbers (`SEC-HIGH-056`, `SEC-HIGH-057`,
+`SENSOR-HIGH-106`) to other findings. The allocator treats the sequence as the
+identity, so the rows were re-registered under the right-hand ids when the
+branch took main; the other four (`DEPLOY-HIGH-016`, `PLAT-HIGH-902`,
+`DEPLOY-CRITICAL-017`, `INFRA-HIGH-151`) kept their ids. The Faz 2c branches
+(PR #1425, #1426) were cut before the renumbering and cite the left column in
+their `Closes:` trailers; their own merge ceremonies carry the right-hand ids.
+
+| Review id (headings, trailers) | Ledger id (findings.jsonl) |
+| ------------------------------ | -------------------------- |
+| `SEC-HIGH-056`                 | `SEC-HIGH-158`             |
+| `SEC-HIGH-057`                 | `SEC-HIGH-159`             |
+| `SENSOR-CRITICAL-106`          | `SENSOR-CRITICAL-111`      |
+
 ## Findings
 
-### SEC-HIGH-056 — invitation links cannot be validated
+### SEC-HIGH-158 — invitation links cannot be validated
 
 `internal-auth.controller.ts:73-85` builds the e-mailed link from
 `actionToken.id` (a row PK). The shell routes `/accept-invitation/:token` to
@@ -48,7 +65,7 @@ in every environment points at localhost. Same class as `DEPLOY-CRITICAL-007`.
 **Fix direction (tier 1):** a required, schema-validated auth-service config key
 that fails fast at boot in production; set in all three compose files.
 
-### SEC-HIGH-057 — super-admin password recovery silently does nothing
+### SEC-HIGH-159 — super-admin password recovery silently does nothing
 
 `authentication.service.ts:1605` publishes `PasswordResetRequested` with
 `user.tenantId ?? 'system'`; `auth-event.handler.ts:88-95` drops any event whose
@@ -77,7 +94,7 @@ documents the invariant explicitly and naks with backoff only on a thrown error
 | DeadLetter(reason)` so a handler that logs must still choose an outcome;
 resolvers distinguish permanent (404) from transient (5xx/network) failure.
 
-### SENSOR-CRITICAL-106 — the MQTT path records one reading and alarms on another
+### SENSOR-CRITICAL-111 — the MQTT path records one reading and alarms on another
 
 `mqtt-listener.service.ts:467` persists calibrated, scoped
 `SensorMetricInput` rows (`:2097-2131`); `:473` then publishes the untouched
@@ -161,8 +178,8 @@ variable rather than reading the manifest, so the two gates can diverge.
 ## Programme placement
 
 Recorded in `/root/.claude/plans/planla-once-tek-tek-concurrent-dragon.md`
-("Dış inceleme — 2026-09-05"): invitation + recovery (`SEC-HIGH-056/057`,
+("Dış inceleme — 2026-09-05"): invitation + recovery (`SEC-HIGH-158/159`,
 `DEPLOY-HIGH-016`, `PLAT-HIGH-902`) join the tenant-provisioning acceptance
-criteria as **Faz 2c**; `SENSOR-CRITICAL-106` joins Faz 5; `INFRA-HIGH-151` joins
+criteria as **Faz 2c**; `SENSOR-CRITICAL-111` joins Faz 5; `INFRA-HIGH-151` joins
 Faz 6; `DEPLOY-CRITICAL-017` and claim 6's evidence chain become the
 **production go-live gate**, not Faz 8 ledger work.

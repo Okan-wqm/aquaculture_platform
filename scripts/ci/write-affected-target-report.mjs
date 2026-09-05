@@ -73,7 +73,7 @@ function projectNames(path) {
 // exception in the repository (dormant invariants, npm advisories) and lives in
 // scripts/ci/lib/reviewed-exception.mjs — a bare reason string was the previous
 // shape here, and 19 `test` entries carried one with no owner, no clock and no
-// finding for four months (PROC-MEDIUM-020). The policy file is refused whole
+// finding for four months (PROC-MEDIUM-025). The policy file is refused whole
 // when any entry of any target is malformed or expired, so the lane fails
 // closed instead of warning about debt nobody owns.
 const POLICY_VERSION = 2;

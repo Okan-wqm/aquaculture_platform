@@ -73,7 +73,7 @@ fi
 # `nx show projects --with-target=<phantom>` resolves to an empty set, and an
 # empty set used to fall through to "no strict projects remain … exit 0": the
 # lane over `test:invariant` was green for months without running a single
-# spec (INFRA-HIGH-141). Resolved before the diff so it fires on every
+# spec (INFRA-HIGH-152). Resolved before the diff so it fires on every
 # invocation — no-change PRs and --dry-run included.
 DECLARING_PROJECTS_JSON="$(NX_DAEMON="${NX_DAEMON:-false}" NX_NO_CLOUD="${NX_NO_CLOUD:-true}" \
   node tools/toolchain/run.mjs npx nx show projects "--with-target=$TARGET" --json)"

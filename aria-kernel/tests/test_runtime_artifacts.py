@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -216,6 +217,18 @@ class AutonomySummaryDerivedCountersTests(unittest.TestCase):
     this function before, which is how the pinned zeros survived.
     """
 
+    def setUp(self) -> None:
+        # autonomy_output_summary now RE-HASHES every artifact ref, so the
+        # tests need a real store root rather than a bare dict.
+        self._store = tempfile.TemporaryDirectory()
+        self.addCleanup(self._store.cleanup)
+        self.base_dir = Path(self._store.name)
+
+    def _summary(self, result: dict, **kwargs: object) -> dict:
+        from aria_kernel.runtime_artifacts import autonomy_output_summary
+
+        return autonomy_output_summary(result, base_dir=self.base_dir, **kwargs)
+
     @staticmethod
     def _result(**cycle_overrides: object) -> dict:
         cycle: dict = {
@@ -229,18 +242,14 @@ class AutonomySummaryDerivedCountersTests(unittest.TestCase):
         return {"per_cycle": [{"cycle": cycle}]}
 
     def test_clean_cycle_reports_no_warnings(self) -> None:
-        from aria_kernel.runtime_artifacts import autonomy_output_summary
-
-        summary = autonomy_output_summary(self._result())
+        summary = self._summary(self._result())
         self.assertEqual(summary["overall_status"], "ok")
         self.assertEqual(summary["warning_count"], 0)
         self.assertEqual(summary["warnings"], [])
         self.assertEqual(summary["incomplete_lifecycle_count"], 0)
 
     def test_abandoned_cycle_surfaces_in_count_and_warnings(self) -> None:
-        from aria_kernel.runtime_artifacts import autonomy_output_summary
-
-        summary = autonomy_output_summary(self._result(
+        summary = self._summary(self._result(
             incomplete_lifecycle_count=2,
             cycle_lifecycle={"valid": False, "incomplete_count": 2},
         ))
@@ -253,9 +262,7 @@ class AutonomySummaryDerivedCountersTests(unittest.TestCase):
 
     def test_unreadable_cycle_ledger_is_its_own_warning(self) -> None:
         """A 0 count with valid=False must not read as "no incomplete cycles"."""
-        from aria_kernel.runtime_artifacts import autonomy_output_summary
-
-        summary = autonomy_output_summary(self._result(
+        summary = self._summary(self._result(
             cycle_lifecycle={
                 "valid": False,
                 "incomplete_count": 0,
@@ -266,22 +273,102 @@ class AutonomySummaryDerivedCountersTests(unittest.TestCase):
         codes = [w["code"] for w in summary["warnings"]]
         self.assertIn("cycle_lifecycle_unreadable", codes)
 
-    def test_artifact_hash_drift_warns_but_absent_refs_do_not(self) -> None:
-        from aria_kernel.runtime_artifacts import autonomy_output_summary
+    def _write_artifact(self, relative_uri: str, body: bytes) -> str:
+        target = self.base_dir / relative_uri
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(body)
+        return "sha256:" + hashlib.sha256(body).hexdigest()
 
-        drift = autonomy_output_summary(self._result(
-            artifact_refs=[{"verification_status": "mismatch"}],
-        ))
-        self.assertIn(
-            "artifact_hash_drift", [w["code"] for w in drift["warnings"]],
+    @staticmethod
+    def _ref(uri: str, sha256: str) -> dict:
+        return {
+            "schema_version": 2,
+            "artifact_id": "cyc-1.run-1.tool_run",
+            "uri": uri,
+            "sha256": sha256,
+            "content_type": "application/json",
+            "produced_by_workflow_run_id": "run-1",
+            "source_surface": "runtime_artifact",
+        }
+
+    def test_a_matching_artifact_is_not_drift(self) -> None:
+        """ORPHAN-HIGH-800 — the verdict used to read `verification_status`,
+        a key no writer in the kernel sets, so EVERY cycle with an artifact
+        reported drift. A ref whose stored bytes hash to its recorded sha256
+        is not an anomaly and must not warn."""
+        uri = "run-artifacts/hot/cyc-1/run-1/tool_run.json"
+        digest = self._write_artifact(uri, b'{"tool_id": "t"}')
+        summary = self._summary(self._result(artifact_refs=[self._ref(uri, digest)]))
+        self.assertEqual(summary["artifact_hash_status"], "ok")
+        self.assertEqual(summary["warning_count"], 0)
+
+    def test_a_tampered_artifact_is_drift_and_is_named(self) -> None:
+        uri = "run-artifacts/hot/cyc-1/run-1/tool_run.json"
+        self._write_artifact(uri, b'{"tool_id": "t"}')
+        stale = "sha256:" + hashlib.sha256(b"what the ref remembers").hexdigest()
+        summary = self._summary(self._result(artifact_refs=[self._ref(uri, stale)]))
+        self.assertEqual(summary["artifact_hash_status"], "drift")
+        warning = next(w for w in summary["warnings"] if w["code"] == "artifact_hash_drift")
+        self.assertEqual(warning["issue_count"], 1)
+        self.assertEqual(warning["issues"][0]["code"], "artifact_hash_mismatch")
+        self.assertEqual(warning["issues"][0]["path"], uri)
+
+    def test_a_missing_artifact_is_drift(self) -> None:
+        uri = "run-artifacts/hot/cyc-1/run-1/absent.json"
+        digest = "sha256:" + hashlib.sha256(b"never written").hexdigest()
+        summary = self._summary(self._result(artifact_refs=[self._ref(uri, digest)]))
+        self.assertEqual(summary["artifact_hash_status"], "drift")
+        codes = [i["code"] for w in summary["warnings"] if w["code"] == "artifact_hash_drift" for i in w["issues"]]
+        self.assertEqual(codes, ["artifact_ref_missing"])
+
+    def test_budget_projection_derives_utilisation_once(self) -> None:
+        """ORPHAN-HIGH-801 — the ratio is derived at write time so every
+        reader sees the same number instead of recomputing it."""
+        from aria_kernel.runtime_artifacts import budget_projection
+
+        self.assertEqual(
+            budget_projection({"duration_ms": 90000, "timeout_ms": 180000}),
+            {"duration_ms": 90000, "timeout_ms": 180000, "budget_utilisation": 0.5},
         )
-        # "none" (no refs to verify) is not an anomaly.
-        self.assertEqual(autonomy_output_summary(self._result())["warning_count"], 0)
+        # A run with no budget recorded reports no ratio rather than a fake one.
+        self.assertIsNone(budget_projection({"duration_ms": 90000})["budget_utilisation"])
+        self.assertIsNone(
+            budget_projection({"duration_ms": 5, "timeout_ms": 0})["budget_utilisation"],
+        )
+
+    def test_a_run_close_to_its_budget_is_announced(self) -> None:
+        """The night BEFORE the timeout, not the morning after."""
+        summary = self._summary(self._result(tool_run_summary=[{
+            "tool_id": "test-gap-adapter",
+            "status": "ok",
+            "duration_ms": 174000,
+            "timeout_ms": 180000,
+            "budget_utilisation": 0.9667,
+        }]))
+        # A run that finished, finished: pressure never changes the status.
+        self.assertEqual(summary["overall_status"], "ok")
+        pressure = next(w for w in summary["warnings"] if w["code"] == "tool_budget_pressure")
+        self.assertEqual(pressure["tool_count"], 1)
+        self.assertEqual(pressure["tools"][0]["tool_id"], "test-gap-adapter")
+        self.assertEqual(pressure["tools"][0]["duration_ms"], 174000)
+
+    def test_a_run_with_headroom_is_not_announced(self) -> None:
+        summary = self._summary(self._result(tool_run_summary=[{
+            "tool_id": "doc-staleness-adapter",
+            "status": "ok",
+            "duration_ms": 18000,
+            "timeout_ms": 180000,
+            "budget_utilisation": 0.1,
+        }]))
+        self.assertEqual(summary["warning_count"], 0)
+
+    def test_absent_refs_are_not_an_anomaly(self) -> None:
+        summary = self._summary(self._result())
+        self.assertEqual(summary["artifact_hash_status"], "none")
+        self.assertEqual(summary["warning_count"], 0)
 
     def test_suppressed_and_truncated_markers_are_summed(self) -> None:
-        from aria_kernel.runtime_artifacts import autonomy_output_summary
-
-        summary = autonomy_output_summary(self._result(
+        summary = self._summary(self._result(
             findings_suppressed=4,
             tool_run_summary=[
                 {"tool_id": "t", "status": "ok", "prompt_truncated": True},

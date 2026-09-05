@@ -240,6 +240,8 @@ export const en = {
   'feedingV2.forecast.timelineTitle': 'Unit feed transitions (next {days} days)',
   'feedingV2.forecast.computedAt': 'As of {at}',
   'feedingV2.forecast.mortalityApplied': 'Mortality projection: species survival rate',
+  'feedingV2.forecast.poolScopeSite': 'Informational site view — coverage is decided on the tenant pool',
+  'feedingV2.forecast.stale': 'Stale: computed more than 26 hours ago',
   'feedingV2.forecast.mortalityNone': 'Mortality projection: none (conservative)',
   'feedingV2.forecast.empty': 'No feed consumption projected in this scope.',
   'feedingV2.forecast.noUnits': 'No units with an active protocol in this scope.',
@@ -271,6 +273,15 @@ export const en = {
   'feedingV2.mealBoard.highWeightCv': 'High weight spread',
   'feedingV2.mealBoard.highWeightCvTitle':
     'Weight variation between batches is high — the shared feed band may not fit every batch',
+  // W7/FARM-MEDIUM-271 — pre-meal oxygen verdict (sensor-service).
+  // W8/FARM-MEDIUM-269 — close a partially-fed meal without a pour.
+  'feedingV2.mealBoard.finalizeMeal': 'Finish meal',
+  'feedingV2.mealBoard.lowOxygen': 'Low O₂',
+  'feedingV2.mealBoard.lowOxygenTitle':
+    'Pre-meal dissolved oxygen {{observed}} mg/L — below the protocol floor of {{min}} mg/L',
+  'feedingV2.mealBoard.noOxygenReading': 'No O₂ reading',
+  'feedingV2.mealBoard.noOxygenReadingTitle':
+    'The unit has a DO sensor but no fresh reading — the protocol’s {{min}} mg/L oxygen guard could not be verified',
   'feedingV2.mealBoard.biomass': 'Biomass',
   'feedingV2.mealBoard.fishCount': 'Fish',
   'feedingV2.mealBoard.avgWeight': 'Avg weight',

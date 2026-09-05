@@ -9,6 +9,7 @@ import {
   createTenantQueryKey,
   createTenantInvalidationKey,
 } from '@aquaculture/shared-ui';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 
 // ============================================================================
 // TYPES
@@ -330,15 +331,7 @@ export function useWaterQualityList(filters?: WaterQualityFilters) {
     queryKey: createTenantQueryKey(tenantId, 'waterQuality', 'list', filters),
     queryFn: async () => {
       const response = await graphqlClient.request<{
-        waterQualityMeasurements: {
-          items: WaterQualityMeasurement[];
-          total: number;
-          page: number;
-          limit: number;
-          totalPages: number;
-          hasNextPage: boolean;
-          hasPreviousPage: boolean;
-        };
+        waterQualityMeasurements: PaginationResultV1<WaterQualityMeasurement>;
       }>(GET_WATER_QUALITY_LIST, { filter: filters });
       return response.waterQualityMeasurements;
     },

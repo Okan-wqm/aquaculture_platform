@@ -18,6 +18,7 @@ import {
   UPDATE_BATCH_WEIGHT_FROM_SAMPLE_MUTATION,
   VERIFY_MEASUREMENT_MUTATION,
 } from '../graphql/growth.operations';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 
 // ============================================================================
 // TYPES
@@ -115,15 +116,7 @@ export interface GrowthMeasurement {
   actionCount: number;
 }
 
-export interface GrowthMeasurementConnection {
-  items: GrowthMeasurement[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-  hasNextPage: boolean;
-  hasPreviousPage: boolean;
-}
+export type GrowthMeasurementConnection = PaginationResultV1<GrowthMeasurement>;
 
 export interface GrowthMeasurementFilter {
   batchId?: string;

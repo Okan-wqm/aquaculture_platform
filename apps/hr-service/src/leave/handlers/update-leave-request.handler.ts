@@ -1,14 +1,10 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { BadRequestException, ForbiddenException, Logger, NotFoundException } from '@nestjs/common';
+import { CommandHandler, ICommandHandler, QueryBus } from '@nestjs/cqrs';
 import { DataSource } from 'typeorm';
 
 import { Employee } from '../../hr/entities/employee.entity';
 import { UpdateLeaveRequestCommand } from '../commands/update-leave-request.command';
+import { CalculateLeaveDaysQuery } from '../queries/calculate-leave-days.query';
 import { LeaveBalance } from '../entities/leave-balance.entity';
 import { LeaveRequest, LeaveRequestStatus } from '../entities/leave-request.entity';
 import { LeaveType } from '../entities/leave-type.entity';
@@ -27,9 +23,7 @@ import { LeaveType } from '../entities/leave-type.entity';
  * CreateLeaveRequestHandler / CancelLeaveRequestHandler.
  */
 @CommandHandler(UpdateLeaveRequestCommand)
-export class UpdateLeaveRequestHandler
-  implements ICommandHandler<UpdateLeaveRequestCommand>
-{
+export class UpdateLeaveRequestHandler implements ICommandHandler<UpdateLeaveRequestCommand> {
   private readonly logger = new Logger(UpdateLeaveRequestHandler.name);
 
   private static readonly EDITABLE_STATUSES: ReadonlySet<LeaveRequestStatus> = new Set([
@@ -37,7 +31,10 @@ export class UpdateLeaveRequestHandler
     LeaveRequestStatus.PENDING,
   ]);
 
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly queryBus: QueryBus,
+  ) {}
 
   async execute(command: UpdateLeaveRequestCommand): Promise<LeaveRequest> {
     const { tenantId, userId, input } = command;
@@ -74,13 +71,31 @@ export class UpdateLeaveRequestHandler
       }
 
       // Compute the candidate date range / totalDays from the patch.
-      const newStart = input.startDate ? new Date(input.startDate) : new Date(leaveRequest.startDate);
+      const newStart = input.startDate
+        ? new Date(input.startDate)
+        : new Date(leaveRequest.startDate);
       const newEnd = input.endDate ? new Date(input.endDate) : new Date(leaveRequest.endDate);
       if (newStart > newEnd) {
         throw new BadRequestException('Start date must be before or equal to end date');
       }
       const oldTotalDays = Number(leaveRequest.totalDays);
-      const newTotalDays = input.totalDays != null ? Number(input.totalDays) : oldTotalDays;
+      // SEC-MEDIUM-076 (2026-08-23 scan №21): the figure is recomputed from
+      // the calendar SSoT — input.totalDays is never trusted on any write path.
+      const effectiveHalfStart =
+        input.isHalfDayStart != null ? input.isHalfDayStart : leaveRequest.isHalfDayStart;
+      const effectiveHalfEnd =
+        input.isHalfDayEnd != null ? input.isHalfDayEnd : leaveRequest.isHalfDayEnd;
+      const recalculated = await this.queryBus.execute(
+        new CalculateLeaveDaysQuery(
+          tenantId,
+          leaveRequest.leaveTypeId,
+          newStart.toISOString().slice(0, 10),
+          newEnd.toISOString().slice(0, 10),
+          effectiveHalfStart || false,
+          effectiveHalfEnd || false,
+        ),
+      );
+      const newTotalDays = recalculated.totalDays;
 
       // If the year changes we'd have to move the reservation across balance
       // rows; that is a re-create concern, not an edit. Reject it explicitly.

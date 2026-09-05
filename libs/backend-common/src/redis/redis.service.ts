@@ -8,6 +8,15 @@ export interface RedisModuleOptions {
   password?: string;
   db?: number;
   keyPrefix?: string;
+  /**
+   * SEC-HIGH-108 (2026-08-23 scan №53): dedicated noeviction Redis for the
+   * authorization namespace (jti blacklist, user epoch). When set, every
+   * *Authorization* method routes to this client; unset, they share the
+   * primary client (dev shape). Production deployments set this to the
+   * redis-auth instance — an allkeys-lru eviction on the shared cache must
+   * never resurrect a revoked token.
+   */
+  authorizationUrl?: string;
 }
 
 /** Fixed namespace owned by auth-service for distributed revocation markers. */
@@ -22,6 +31,16 @@ export type RedisScopedKey =
   | { scope: 'authorization'; key: AuthorizationRedisKey };
 
 /**
+ * One key of a split `mgetScoped` fetch: the fully-resolved Redis key and the
+ * position it occupies in the caller's argument order, so the two client
+ * round trips can be reassembled without re-indexing the input.
+ */
+interface ScopedFetchEntry {
+  readonly position: number;
+  readonly key: string;
+}
+
+/**
  * Redis Service
  * Provides Redis connection and operations for the platform
  */
@@ -30,6 +49,8 @@ export class RedisService implements OnModuleDestroy {
   private readonly logger = new Logger(RedisService.name);
   private readonly client: Redis;
   private readonly keyPrefix: string;
+
+  private readonly authClient: Redis | null;
 
   constructor(options: RedisModuleOptions) {
     this.keyPrefix = options.keyPrefix ?? 'aqua:';
@@ -62,6 +83,26 @@ export class RedisService implements OnModuleDestroy {
     this.client.on('error', (err) => {
       this.logger.error('Redis connection error', err);
     });
+
+    // SEC-HIGH-108 (№53): dedicated noeviction instance for authorization
+    // state; when unset, authorization shares the primary client (dev).
+    if (options.authorizationUrl) {
+      const isAuthTls = options.authorizationUrl.startsWith('rediss://');
+      this.authClient = new Redis(
+        options.authorizationUrl,
+        isAuthTls ? { tls: { rejectUnauthorized: false } } : {},
+      );
+      this.authClient.on('error', (err) => {
+        this.logger.error('Redis AUTH connection error', err);
+      });
+    } else {
+      this.authClient = null;
+    }
+  }
+
+  /** Client that owns the authorization namespace (dedicated or primary). */
+  private authorizationClient(): Redis {
+    return this.authClient ?? this.client;
   }
 
   async onModuleDestroy(): Promise<void> {
@@ -94,7 +135,18 @@ export class RedisService implements OnModuleDestroy {
     value: string,
     ttlSeconds?: number,
   ): Promise<void> {
-    await this.setAtKey(`${AUTHORIZATION_REDIS_KEY_PREFIX}${key}`, value, ttlSeconds);
+    // SEC-HIGH-108 (№53): authorization namespace lives on the dedicated
+    // noeviction client when configured. Mirrors setAtKey's
+    // SETEX-vs-SET branching on the routed client.
+    if (ttlSeconds) {
+      await this.authorizationClient().setex(
+        `${AUTHORIZATION_REDIS_KEY_PREFIX}${key}`,
+        ttlSeconds,
+        value,
+      );
+    } else {
+      await this.authorizationClient().set(`${AUTHORIZATION_REDIS_KEY_PREFIX}${key}`, value);
+    }
   }
 
   private async setAtKey(physicalKey: string, value: string, ttlSeconds?: number): Promise<void> {
@@ -116,11 +168,26 @@ export class RedisService implements OnModuleDestroy {
     value: number,
     ttlSeconds: number,
   ): Promise<number> {
-    return this.setMaxSafeIntegerAtKey(
+    // SEC-HIGH-108 (№53): dedicated noeviction client when configured.
+    return this.setAuthorizationMaxSafeIntegerAtClient(
+      this.authorizationClient(),
       `${AUTHORIZATION_REDIS_KEY_PREFIX}${key}`,
       value,
       ttlSeconds,
     );
+  }
+
+  private async setAuthorizationMaxSafeIntegerAtClient(
+    client: Redis,
+    physicalKey: string,
+    value: number,
+    ttlSeconds: number,
+  ): Promise<number> {
+    this.assertMaxSafeIntegerInputs(value, ttlSeconds);
+    // SEC-HIGH-108 (№53): same monotonic-max Lua as setMaxSafeIntegerAtKey,
+    // routed to the caller-provided (authorization) client so the value
+    // lives on the noeviction instance when one is configured.
+    return this.evalMaxSafeInteger(client, physicalKey, value, ttlSeconds);
   }
 
   private async setMaxSafeIntegerAtKey(
@@ -128,13 +195,27 @@ export class RedisService implements OnModuleDestroy {
     value: number,
     ttlSeconds: number,
   ): Promise<number> {
+    this.assertMaxSafeIntegerInputs(value, ttlSeconds);
+    return this.evalMaxSafeInteger(this.client, physicalKey, value, ttlSeconds);
+  }
+
+  /** Shared input guard for the max-safe-integer writers. */
+  private assertMaxSafeIntegerInputs(value: number, ttlSeconds: number): void {
     if (!Number.isSafeInteger(value) || value <= 0) {
       throw new RangeError('value must be a positive safe integer');
     }
     if (!Number.isSafeInteger(ttlSeconds) || ttlSeconds <= 0) {
       throw new RangeError('ttlSeconds must be a positive safe integer');
     }
+  }
 
+  /** Shared monotonic-max SET-with-EX Lua (SSoT for both client routes). */
+  private async evalMaxSafeInteger(
+    client: Redis,
+    physicalKey: string,
+    value: number,
+    ttlSeconds: number,
+  ): Promise<number> {
     const script = `
 local current = redis.call('GET', KEYS[1])
 if current then
@@ -153,13 +234,7 @@ end
 redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
 return tonumber(ARGV[1])
 `;
-    const result: unknown = await this.client.eval(
-      script,
-      1,
-      physicalKey,
-      String(value),
-      String(ttlSeconds),
-    );
+    const result = await client.eval(script, 1, physicalKey, String(value), String(ttlSeconds));
     if (typeof result !== 'number' || !Number.isSafeInteger(result) || result <= 0) {
       throw new Error('Redis returned an invalid max-integer result');
     }
@@ -175,7 +250,8 @@ return tonumber(ARGV[1])
 
   /** Read a key from the fixed authorization-owned namespace. */
   async getAuthorization(key: AuthorizationRedisKey): Promise<string | null> {
-    return this.client.get(`${AUTHORIZATION_REDIS_KEY_PREFIX}${key}`);
+    // SEC-HIGH-108 (№53): dedicated noeviction client when configured.
+    return this.authorizationClient().get(`${AUTHORIZATION_REDIS_KEY_PREFIX}${key}`);
   }
 
   /**
@@ -192,12 +268,39 @@ return tonumber(ARGV[1])
     return this.client.mget(...keys.map((key) => this.prefixKey(key)));
   }
 
-  /** Read explicitly-scoped keys in one ordered Redis round trip. */
+  /**
+   * Read explicitly-scoped keys in one ordered Redis round trip.
+   *
+   * SEC-HIGH-108 (№53): authorization-scoped entries route to the dedicated
+   * noeviction client when one is configured; the result order still matches
+   * the input key order (split-fetch then reassemble).
+   */
   async mgetScoped(...keys: RedisScopedKey[]): Promise<(string | null)[]> {
     if (keys.length === 0) {
       return [];
     }
-    return this.client.mget(...keys.map((key) => this.scopedKey(key)));
+    if (!this.authClient) {
+      return this.client.mget(...keys.map((key) => this.scopedKey(key)));
+    }
+    // Each entry carries its own resolved key and the caller-visible position it
+    // must land in, so neither the split nor the reassembly indexes back into
+    // `keys` — the reason the previous shape needed non-null assertions.
+    const results: (string | null)[] = Array.from({ length: keys.length }, () => null);
+    const primary: ScopedFetchEntry[] = [];
+    const authorization: ScopedFetchEntry[] = [];
+    for (const [position, key] of keys.entries()) {
+      const bucket = key.scope === 'authorization' ? authorization : primary;
+      bucket.push({ position, key: this.scopedKey(key) });
+    }
+    const fetch = async (entries: ScopedFetchEntry[], client: Redis): Promise<void> => {
+      if (entries.length === 0) return;
+      const values = await client.mget(...entries.map((entry) => entry.key));
+      entries.forEach((entry, offset) => {
+        results[entry.position] = values[offset] ?? null;
+      });
+    };
+    await Promise.all([fetch(primary, this.client), fetch(authorization, this.authClient)]);
+    return results;
   }
 
   /**
@@ -205,6 +308,17 @@ return tonumber(ARGV[1])
    */
   async del(key: string): Promise<number> {
     return this.client.del(this.prefixKey(key));
+  }
+
+  /**
+   * Atomically return a key's value and delete it (Redis GETDEL, 6.2+).
+   *
+   * Single-use token consumption (WebAuthn challenges, one-time codes):
+   * a separate GET + DEL pair lets two concurrent ceremonies both observe
+   * the stored value — GETDEL makes single-use structurally guaranteed.
+   */
+  async getdel(key: string): Promise<string | null> {
+    return this.client.getdel(this.prefixKey(key));
   }
 
   /**

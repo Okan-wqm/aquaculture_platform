@@ -24,6 +24,7 @@ import {
   TenantTier,
   TenantStatus,
 } from '../services/adminApi';
+import { expectedTotalPages } from '@platform/pagination-contracts';
 
 // ============================================================================
 // Tenant Management Page
@@ -31,7 +32,7 @@ import {
 
 const TenantManagementPage: React.FC = () => {
   const navigate = useNavigate();
-  const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [tenants, setTenants] = useState<readonly Tenant[]>([]);
   const [stats, setStats] = useState<TenantStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -483,12 +484,12 @@ const TenantManagementPage: React.FC = () => {
             Previous
           </Button>
           <span className="py-2 px-4 text-sm text-gray-600">
-            Page {page} / {Math.ceil(totalTenants / limit)}
+            Page {page} / {expectedTotalPages(totalTenants, limit)}
           </span>
           <Button
             variant="outline"
             size="sm"
-            disabled={page >= Math.ceil(totalTenants / limit)}
+            disabled={page >= expectedTotalPages(totalTenants, limit)}
             onClick={() => setPage(page + 1)}
           >
             Next

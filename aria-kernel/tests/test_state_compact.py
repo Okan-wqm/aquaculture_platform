@@ -57,6 +57,8 @@ class StateCompactTests(unittest.TestCase):
             return "memory_beliefs"
         if name == "learning-events.jsonl":
             return "memory_learning_events"
+        if name == "artifact-index.jsonl":
+            return "runtime_artifact_index"
         raise ValueError(f"unknown ledger: {path}")
 
     def _seed_runs(self) -> None:
@@ -302,3 +304,93 @@ class StateCompactTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    # ------------------------------------------------------------------
+    # ORPHAN-CRITICAL-805 — the index must follow the files it describes.
+    # ------------------------------------------------------------------
+
+    def _seed_artifact_index(self) -> None:
+        """One artifact that exists on disk, one whose cycle was swept."""
+        import hashlib
+
+        live_uri = "run-artifacts/hot/cyc-20260904T194353Z-auto/run-live/tool_run.json"
+        live = self.tools / live_uri
+        live.parent.mkdir(parents=True, exist_ok=True)
+        body = b'{"tool_id": "event-contracts-adapter"}'
+        live.write_bytes(body)
+        rows = [
+            {
+                "schema_version": 1,
+                "artifact_id": "cyc-20260904T194353Z-auto.run-live.tool_run",
+                "cycle_uid": "cyc-20260904T194353Z-auto",
+                "current_uri": live_uri,
+                "sha256": hashlib.sha256(body).hexdigest(),
+                "storage_tier": "hot",
+                "run_status": "ok",
+            },
+            {
+                "schema_version": 1,
+                "artifact_id": "cyc-20260810T063724Z-auto.run-swept.tool_run",
+                "cycle_uid": "cyc-20260810T063724Z-auto",
+                "current_uri": "run-artifacts/hot/cyc-20260810T063724Z-auto/run-swept/tool_run.json",
+                "sha256": "0" * 64,
+                "storage_tier": "hot",
+                "run_status": "ok",
+            },
+        ]
+        self._write_ledger(self.tools / "run-artifacts" / "artifact-index.jsonl", rows)
+
+    def test_index_rows_for_swept_artifacts_are_dropped_and_archived(self) -> None:
+        """A row whose file `_strip_hot_artifacts` removed used to survive
+        forever, and `verify_artifacts` walks the INDEX — so one swept cycle
+        made every later cycle report integrity_failed regardless of its
+        work. Measured on the production runner 2026-09-04: 158 stale rows
+        against 18 live files."""
+        from aria_kernel.runtime_artifacts import verify_artifacts
+
+        self._seed_artifact_index()
+        self.assertFalse(verify_artifacts(base_dir=self.tools)["valid"])
+
+        result = compact_state(base_dir=self.tools, retain_days=7)
+        self.assertEqual(result["artifact_index_rows_dropped"], 1)
+
+        verdict = verify_artifacts(base_dir=self.tools)
+        self.assertTrue(verdict["valid"], msg=str(verdict.get("issues")))
+        self.assertEqual(verdict["issues"], [])
+
+        kept = load_declared_jsonl(
+            self.tools / "run-artifacts" / "artifact-index.jsonl",
+            expected_surface="runtime_artifact_index",
+        )
+        self.assertEqual([r["artifact_id"] for r in kept], ["cyc-20260904T194353Z-auto.run-live.tool_run"])
+
+        archives = sorted((self.tools / "archives").glob("artifact_index-compact-*.jsonl.gz"))
+        self.assertEqual(len(archives), 1, "compaction must not lose the rows it drops")
+        with gzip.open(archives[0], "rt", encoding="utf-8") as fh:
+            archived = [json.loads(line) for line in fh if line.strip()]
+        self.assertEqual([r["artifact_id"] for r in archived], ["cyc-20260810T063724Z-auto.run-swept.tool_run"])
+
+    def test_index_compaction_is_a_no_op_when_every_file_is_present(self) -> None:
+        from aria_kernel.runtime_artifacts import verify_artifacts
+
+        self._seed_artifact_index()
+        (self.tools / "run-artifacts" / "hot" / "cyc-20260810T063724Z-auto" / "run-swept").mkdir(parents=True)
+        # A file whose bytes do not match the recorded hash is a REAL integrity
+        # failure and must stay in the index for verify_artifacts to catch.
+        (self.tools / "run-artifacts" / "hot" / "cyc-20260810T063724Z-auto" / "run-swept" / "tool_run.json").write_bytes(b"{}")
+
+        result = compact_state(base_dir=self.tools, retain_days=7)
+        self.assertEqual(result["artifact_index_rows_dropped"], 0)
+        verdict = verify_artifacts(base_dir=self.tools)
+        self.assertFalse(verdict["valid"])
+        self.assertEqual([i["code"] for i in verdict["issues"]], ["run_artifact_hash_mismatch"])
+
+    def test_dry_run_leaves_the_index_alone(self) -> None:
+        self._seed_artifact_index()
+        result = compact_state(base_dir=self.tools, retain_days=7, dry_run=True)
+        self.assertEqual(result["artifact_index_rows_dropped"], 1)
+        rows = load_declared_jsonl(
+            self.tools / "run-artifacts" / "artifact-index.jsonl",
+            expected_surface="runtime_artifact_index",
+        )
+        self.assertEqual(len(rows), 2)

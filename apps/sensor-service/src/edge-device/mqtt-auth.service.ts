@@ -300,24 +300,26 @@ export class MqttAuthService implements OnModuleInit {
 
     switch (username) {
       case 'backend_service':
-        // backend_service: read/write on all tenant-scoped topics
-        if (isTenantTopic) return true;
-        // Legacy topics during migration
-        if (topic.startsWith('sensor/') || topic.startsWith('edge/') || topic.startsWith('alerts/')) return true;
+        // backend_service: publish on tenant-scoped topics (cloud→edge
+        // COMMANDS). SEC-MEDIUM-130 (2026-08-23 scan №75): the wildcard
+        // tenants/# read grant (subscribe ALL tenant telemetry) is removed.
+        if (isTenantTopic && (acc === 2 || acc === 3)) return true;
+        // Ack/read: device responses on commands topics only
+        if (isTenantTopic && acc === 1 && topic.includes('/commands')) return true;
+        // Legacy topics during migration (publish only)
+        if (acc === 2 && (topic.startsWith('sensor/') || topic.startsWith('edge/') || topic.startsWith('alerts/'))) return true;
         // $SYS read-only for monitoring
         if (topic.startsWith('$SYS/') && acc === 1) return true;
         return false;
 
       case 'sensor_service':
         // sensor_service: read/write on tenant-scoped sensor and device topics
+        // SEC-MEDIUM-130 (№75): wildcard subscribe across ALL tenants
+        // (tenants/+/...) removed — the service subscribes per-tenant.
         if (isTenantTopic) return true;
-        // Wildcard subscription patterns (acc=1 subscribe, acc=3 subscribe+publish)
-        if ((acc === 1 || acc === 3) && /^tenants\/\+\/devices\/\+\//.test(topic)) return true;
         // Legacy topics during migration
         if (topic.startsWith('sensor/') || topic.startsWith('sensors/') || topic.startsWith('edge/')) return true;
         if (topic.startsWith('aquaculture/')) return true;
-        // Wildcard subscription patterns for known topic prefixes
-        if ((acc === 1 || acc === 3) && /^(sensors|edge|aquaculture|tenants)\//.test(topic)) return true;
         // $SYS read-only for monitoring
         if (topic.startsWith('$SYS/') && acc === 1) return true;
         return false;
@@ -392,6 +394,23 @@ export class MqttAuthService implements OnModuleInit {
   /**
    * Invalidate the tenant cache for a device (call when device is revoked/decommissioned).
    */
+  /**
+   * Task 1.8 (erasure): drop EVERY cache entry mapping to one tenant.
+   * Returns the number of dropped entries so the erasure hook can log
+   * the blast radius. Process-local by necessity — see the hook's doc.
+   */
+  invalidateEntriesForTenant(tenantId: string): number {
+    let dropped = 0;
+    for (const [username, entry] of this.tenantIdCache) {
+      if (entry.tenantId === tenantId) {
+        this.tenantIdCache.delete(username);
+        this.negativeLookupCache.delete(`mqtt_client_id:${username}`);
+        dropped++;
+      }
+    }
+    return dropped;
+  }
+
   invalidateTenantCache(username: string): void {
     this.tenantIdCache.delete(username);
     // Also clear any negative entry so a just-provisioned/revoked device is

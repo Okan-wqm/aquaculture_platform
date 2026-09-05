@@ -1,5 +1,5 @@
 /**
- * WaterQualityRecordPage — MOB-CRITICAL-018.
+ * WaterQualityRecordPage — MOB-CRITICAL-020.
  *
  * The page used to send `parameters: {}` (a field the backend deleted) on every
  * submit and, offline, render an unconditional green "Measurement Recorded!".
@@ -109,7 +109,7 @@ async function submitOnce(): Promise<void> {
   await waitFor(() => expect(h.addToQueue).toHaveBeenCalledTimes(1));
 }
 
-describe('WaterQualityRecordPage — queue-first contract (MOB-CRITICAL-018)', () => {
+describe('WaterQualityRecordPage — queue-first contract (MOB-CRITICAL-020)', () => {
   let client: QueryClient;
 
   beforeEach(() => {

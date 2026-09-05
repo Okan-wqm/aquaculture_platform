@@ -194,7 +194,7 @@ export function WaterQualityRecordPage(): JSX.Element {
       };
       setIsSubmitting(true);
       try {
-        // Queue-first (MOB-CRITICAL-018): the queue is the platform's single
+        // Queue-first (MOB-CRITICAL-020): the queue is the platform's single
         // write path. Online, addToQueue drains immediately; offline, the
         // record waits for reconnect. Either way the success screen shows the
         // op's REAL sync status instead of a green "recorded" for a payload

@@ -143,7 +143,7 @@ export class RecurringTemplate {
 
   /**
    * No `@Field`: served by the `checklistItems` @ResolveField on
-   * RecurringTemplateResolver through the write-path normaliser (FARM-HIGH-301).
+   * RecurringTemplateResolver through the write-path normaliser (FARM-HIGH-318).
    */
   @Column({ type: 'jsonb', default: [] })
   checklistItems!: StoredTaskChecklistItem[];

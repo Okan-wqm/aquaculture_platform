@@ -1,5 +1,5 @@
 /**
- * StockTransferPage — queue-first two-phase UX (MOB-CRITICAL-018 class).
+ * StockTransferPage — queue-first two-phase UX (MOB-CRITICAL-020 class).
  * See StockMovementPage.spec.tsx for the rationale; the transfer wizard has
  * five steps (item, from, to, quantity, confirm) and no traceability step.
  */

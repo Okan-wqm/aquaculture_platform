@@ -8,6 +8,7 @@
  */
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { requiresDurableDelivery } from '@platform/event-contracts';
 import type {
   BaseEvent,
   FeedStockoutForecastEvent,
@@ -71,12 +72,16 @@ export class FeedCoverageEventHandler implements IEventHandler<BaseEvent>, OnMod
         }
       });
     } catch (error) {
-      // Swallow so NATS does not redeliver a poison message indefinitely —
-      // ertesi 07:00 süpürmesi sinyali zaten yeniden üretir.
       this.logger.error(
         `Error creating feed-coverage incident: ${(error as Error).message}`,
         (error as Error).stack,
       );
+      if (requiresDurableDelivery(event.eventType)) {
+        throw error;
+      }
+      // `FeedStockoutForecast` + `FeedTransitionUpcoming` registry'de
+      // `reproducible` — ertesi 07:00 süpürmesi snapshot'ı yeniden hesaplayıp
+      // hâlâ geçerli olan sinyali yeniden yayar (W7 / D-B5).
     }
   }
 }

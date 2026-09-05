@@ -15,6 +15,7 @@ import type {
   DateRangeParams,
   IpAccessRule,
   FeatureToggle,
+  CreateMaintenanceWindowInput,
   MaintenanceWindow,
   PerformanceDashboard,
   PerformanceMetrics,
@@ -104,7 +105,7 @@ export const systemSettingsApi = {
   getMaintenanceWindows: (params?: { status?: string; scope?: string } & PaginationParams) =>
     apiFetch<PaginatedResult<MaintenanceWindow>>(`/system/settings/maintenance?${buildQueryString(params || {})}`),
   getMaintenanceWindow: (id: string) => apiFetch<MaintenanceWindow>(`/system/settings/maintenance/${id}`),
-  createMaintenanceWindow: (data: Omit<MaintenanceWindow, 'id' | 'status' | 'actualStart' | 'actualEnd' | 'createdAt'>) =>
+  createMaintenanceWindow: (data: CreateMaintenanceWindowInput) =>
     apiFetch<MaintenanceWindow>('/system/settings/maintenance', { method: 'POST', body: JSON.stringify(data) }),
   updateMaintenanceWindow: (id: string, data: Partial<MaintenanceWindow>) =>
     apiFetch<MaintenanceWindow>(`/system/settings/maintenance/${id}`, { method: 'PUT', body: JSON.stringify(data) }),

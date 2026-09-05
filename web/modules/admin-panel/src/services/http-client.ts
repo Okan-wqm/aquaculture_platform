@@ -17,6 +17,7 @@ import {
   silentRefresh,
   clearSession,
 } from '@aquaculture/shared-ui';
+import { isPaginationMetadataV1, type PaginatedDataResultV1 } from '@platform/pagination-contracts';
 
 // API URL - Shell nginx uzerinden /api prefix'i ile admin-api-service'e yonlendirilir
 const adminImportMeta = import.meta as { readonly env?: { readonly VITE_ADMIN_API_URL?: string } };
@@ -341,8 +342,23 @@ export async function apiFetch<T>(
       const json: unknown = JSON.parse(text);
       const envelope = parseApiEnvelope(json);
       if (envelope) {
-        if (envelope.meta && 'page' in envelope.meta) {
-          return { data: envelope.data, ...envelope.meta } as T;
+        // ADMIN-HIGH-004: decode the page with the authority's validator rather
+        // than spreading whatever `meta` happened to contain. isPaginationMetadataV1
+        // also re-derives totalPages/hasNextPage/hasPreviousPage and rejects an
+        // envelope whose redundant fields disagree, so a page that reaches a
+        // component is a page the authority would have minted.
+        if (isPaginationMetadataV1(envelope.meta) && Array.isArray(envelope.data)) {
+          const { total, page, limit, totalPages, hasNextPage, hasPreviousPage } = envelope.meta;
+          const decoded: PaginatedDataResultV1<unknown> = {
+            data: envelope.data,
+            total,
+            page,
+            limit,
+            totalPages,
+            hasNextPage,
+            hasPreviousPage,
+          };
+          return decoded as T;
         }
 
         return envelope.data as T;

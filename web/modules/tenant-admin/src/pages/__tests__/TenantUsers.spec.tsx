@@ -54,6 +54,14 @@ vi.mock('@aquaculture/shared-ui', () => ({
     ...segments,
     { __sessionEpoch: mockAuthState.epoch },
   ],
+  // The mutation hooks invalidate with the epoch-LESS prefix key. Omitting it
+  // from this mock made every mutation's onSuccess throw, which mutateAsync
+  // surfaces as a rejection — so a "successful" mutation looked like a failure
+  // to any assertion that reads the page's outcome banner.
+  createTenantInvalidationKey: (
+    tenantId: string | null | undefined,
+    ...segments: readonly unknown[]
+  ) => ['tenant', tenantId, ...segments],
   getSessionSnapshot: () => ({
     effectiveTenantId: mockAuthState.tenantId,
     sessionEpoch: mockAuthState.epoch,
@@ -72,6 +80,10 @@ const {
   mockUpdateTenantUser,
   mockDeleteTenantUser,
   mockDeactivateTenantUser,
+  mockActivateTenantUser,
+  mockUnlockTenantUser,
+  mockBulkAssignUserRole,
+  mockGetUserEffectivePermissions,
   mockGetActiveTenantSites,
   mockGetUserAssignedSiteIds,
   mockAssignUserToSite,
@@ -83,6 +95,10 @@ const {
   mockUpdateTenantUser: vi.fn(),
   mockDeleteTenantUser: vi.fn(),
   mockDeactivateTenantUser: vi.fn(),
+  mockActivateTenantUser: vi.fn(),
+  mockUnlockTenantUser: vi.fn(),
+  mockBulkAssignUserRole: vi.fn(),
+  mockGetUserEffectivePermissions: vi.fn(),
   mockGetActiveTenantSites: vi.fn(),
   mockGetUserAssignedSiteIds: vi.fn(),
   mockAssignUserToSite: vi.fn(),
@@ -110,6 +126,10 @@ vi.mock('../../lib/api', () => ({
   updateTenantUser: (...args: unknown[]) => mockUpdateTenantUser(...args),
   deleteTenantUser: (...args: unknown[]) => mockDeleteTenantUser(...args),
   deactivateTenantUser: (...args: unknown[]) => mockDeactivateTenantUser(...args),
+  activateTenantUser: (...args: unknown[]) => mockActivateTenantUser(...args),
+  unlockTenantUser: (...args: unknown[]) => mockUnlockTenantUser(...args),
+  bulkAssignUserRole: (...args: unknown[]) => mockBulkAssignUserRole(...args),
+  getUserEffectivePermissions: (...args: unknown[]) => mockGetUserEffectivePermissions(...args),
   getActiveTenantSites: (...args: unknown[]) => mockGetActiveTenantSites(...args),
   getUserAssignedSiteIds: (...args: unknown[]) => mockGetUserAssignedSiteIds(...args),
   assignUserToSite: (...args: unknown[]) => mockAssignUserToSite(...args),
@@ -134,6 +154,7 @@ vi.mock('../../lib/api', () => ({
 
 vi.mock('../../utils/error-handling', () => ({
   logError: vi.fn(),
+  sanitizeErrorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
   processError: vi.fn((err: unknown) => ({
     code: 'UNKNOWN_ERROR',
     message: err instanceof Error ? err.message : String(err),
@@ -200,6 +221,10 @@ const mockApiUsers = [
     isActive: true,
     isEmailVerified: true,
     lastLoginAt: new Date(Date.now() - 86400000).toISOString(),
+    // ADMIN-HIGH-012: ACTIVE but serving a failed-login lockout. The lockout is
+    // a separate axis from isActive, so this row must offer Unlock and NOT
+    // Activate.
+    lockedUntil: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
     createdAt: '2024-02-01T00:00:00Z',
   },
   {
@@ -700,6 +725,130 @@ describe('TenantUsers Page', () => {
       await waitFor(() => {
         expect(screen.getByText('No users found')).toBeInTheDocument();
       });
+    });
+  });
+
+  // ------------------------------------------------------------------------
+  // ADMIN-HIGH-012 / ADMIN-MEDIUM-016 — user lifecycle parity.
+  //
+  // The backend already shipped guarded, tenant-scoped activateTenantUser /
+  // unlockTenantUser / bulkAssignUserRole / getUserEffectivePermissions
+  // resolvers, but no UI ever called them: deactivation was a one-way trapdoor
+  // and a locked-out user needed platform-admin intervention. These specs pin
+  // the return legs.
+  // ------------------------------------------------------------------------
+  describe('User lifecycle parity (ADMIN-HIGH-012)', () => {
+    it('offers Activate on an INACTIVE row and calls the guarded resolver', async () => {
+      const user = userEvent.setup();
+      mockActivateTenantUser.mockResolvedValue({ id: 'u3', isActive: true });
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText('Bob Wilson')).toBeInTheDocument());
+
+      await user.click(screen.getByRole('button', { name: 'Activate Bob Wilson' }));
+      await user.click(await screen.findByRole('button', { name: 'Activate' }));
+
+      await waitFor(() => expect(mockActivateTenantUser).toHaveBeenCalledWith('u3'));
+    });
+
+    it('does NOT offer Activate on an active row', async () => {
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText('John Doe')).toBeInTheDocument());
+      expect(screen.queryByRole('button', { name: 'Activate John Doe' })).not.toBeInTheDocument();
+    });
+
+    it('offers Unlock only while the lockout is in the FUTURE', async () => {
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText('Jane Smith')).toBeInTheDocument());
+
+      // Jane is active AND locked → Unlock, no Activate.
+      expect(screen.getByRole('button', { name: 'Unlock Jane Smith' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Activate Jane Smith' })).not.toBeInTheDocument();
+      // John is active and not locked → neither.
+      expect(screen.queryByRole('button', { name: 'Unlock John Doe' })).not.toBeInTheDocument();
+    });
+
+    it('clears a lockout through the guarded resolver', async () => {
+      const user = userEvent.setup();
+      mockUnlockTenantUser.mockResolvedValue({ id: 'u2', lockedUntil: null });
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText('Jane Smith')).toBeInTheDocument());
+
+      await user.click(screen.getByRole('button', { name: 'Unlock Jane Smith' }));
+      await user.click(await screen.findByRole('button', { name: 'Unlock' }));
+
+      await waitFor(() => expect(mockUnlockTenantUser).toHaveBeenCalledWith('u2'));
+    });
+
+    it('reports a lifecycle failure instead of claiming success', async () => {
+      const user = userEvent.setup();
+      mockActivateTenantUser.mockRejectedValue(new Error('Activation refused'));
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText('Bob Wilson')).toBeInTheDocument());
+
+      await user.click(screen.getByRole('button', { name: 'Activate Bob Wilson' }));
+      await user.click(await screen.findByRole('button', { name: 'Activate' }));
+
+      await waitFor(() => expect(mockActivateTenantUser).toHaveBeenCalled());
+      expect(await screen.findByText('Activation refused')).toBeInTheDocument();
+    });
+  });
+
+  describe('Bulk role assignment (ADMIN-MEDIUM-016)', () => {
+    const selectFirstUser = async (user: ReturnType<typeof userEvent.setup>): Promise<void> => {
+      await waitFor(() => expect(screen.getByText('John Doe')).toBeInTheDocument());
+      const rowCheckboxes = screen.getAllByRole('checkbox');
+      await user.click(rowCheckboxes[1]);
+    };
+
+    it('assigns a role to the selection and reports the outcome', async () => {
+      const user = userEvent.setup();
+      mockBulkAssignUserRole.mockResolvedValue({ success: ['u1'], failed: [] });
+      renderPage();
+
+      await selectFirstUser(user);
+
+      await user.selectOptions(screen.getByLabelText('Role to assign'), 'r2');
+      await user.click(screen.getByRole('button', { name: /assign role/i }));
+      await user.click(await screen.findByRole('button', { name: 'Assign Role' }));
+
+      await waitFor(() =>
+        expect(mockBulkAssignUserRole).toHaveBeenCalledWith({ userIds: ['u1'], roleId: 'r2' }),
+      );
+      expect(await screen.findByText(/Role assigned to 1 user\(s\)/)).toBeInTheDocument();
+    });
+
+    it('reports a PARTIAL failure and keeps the selection for a retry', async () => {
+      const user = userEvent.setup();
+      mockBulkAssignUserRole.mockResolvedValue({
+        success: [],
+        failed: [{ userId: 'u1', error: 'role level exceeds actor' }],
+      });
+      renderPage();
+
+      await selectFirstUser(user);
+
+      await user.selectOptions(screen.getByLabelText('Role to assign'), 'r2');
+      await user.click(screen.getByRole('button', { name: /assign role/i }));
+      await user.click(await screen.findByRole('button', { name: 'Assign Role' }));
+
+      expect(await screen.findByText(/0 user\(s\) updated, 1 failed/)).toBeInTheDocument();
+      // The batch stays selected: partial success must not look like success.
+      expect(screen.getByText(/1 user\(s\) selected/)).toBeInTheDocument();
+    });
+
+    it('cannot be triggered without choosing a role', async () => {
+      const user = userEvent.setup();
+      renderPage();
+
+      await selectFirstUser(user);
+
+      expect(screen.getByRole('button', { name: /assign role/i })).toBeDisabled();
+      expect(mockBulkAssignUserRole).not.toHaveBeenCalled();
     });
   });
 });

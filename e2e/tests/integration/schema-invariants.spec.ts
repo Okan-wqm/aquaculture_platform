@@ -53,42 +53,6 @@ import { TestDatabase } from '../../helpers/db.helper';
 
 const REPO_ROOT = resolve(__dirname, '..', '..', '..');
 
-/**
- * The schema owner/runtime split, read out of the bootstrap stage that applies
- * it: `apps/db-migrate/src/sql/platform-bootstrap/008-least-privilege-hardening.sql`.
- *
- * That file drives its own DO block from a `jsonb_to_recordset` array of
- * `{schema_name, owner_role, runtime_role, provisioner_role}`. Parsing the same
- * array is what keeps this assertion from becoming a second, drifting copy —
- * which is exactly what it had become.
- */
-function schemaOwnershipSpecs(): Array<[string, string]> {
-  const path = join(
-    REPO_ROOT,
-    'apps',
-    'db-migrate',
-    'src',
-    'sql',
-    'platform-bootstrap',
-    '008-least-privilege-hardening.sql',
-  );
-  if (!existsSync(path)) {
-    throw new Error(`B.4 SSoT missing: ${path}`);
-  }
-  const sql = readFileSync(path, 'utf8');
-  const match = /jsonb_to_recordset\(\s*'(\[[\s\S]*?\])'::jsonb/.exec(sql);
-  if (match?.[1] === undefined) {
-    throw new Error(
-      `B.4 could not find the jsonb_to_recordset schema-privilege array in ${path}. ` +
-        `If the bootstrap changed shape, update this reader — do not restate the list here.`,
-    );
-  }
-  const specs = JSON.parse(match[1]) as Array<{ schema_name: string; owner_role: string }>;
-  if (specs.length === 0) {
-    throw new Error(`B.4 schema-privilege array in ${path} is empty`);
-  }
-  return specs.map((spec) => [spec.schema_name, spec.owner_role]);
-}
 const requireEntity = createRequire(__filename);
 
 /**
@@ -136,10 +100,7 @@ const PLATFORM_LEVEL_SCHEMAS: ReadonlyArray<string> = [
 ];
 
 const TENANT_FANOUT_TABLES_BY_SCHEMA: ReadonlyMap<string, ReadonlyArray<string>> = new Map(
-  MODULE_SCHEMAS.map((moduleSchema) => [
-    moduleSchema.sourceSchema,
-    moduleSchema.tables,
-  ]),
+  MODULE_SCHEMAS.map((moduleSchema) => [moduleSchema.sourceSchema, moduleSchema.tables]),
 );
 
 /**
@@ -259,7 +220,7 @@ function loadAllEntityTableArgs(): Array<{
 
   const storage = getMetadataArgsStorage();
   return storage.tables.map((t) => {
-    const target = typeof t.target === 'function' ? (t.target) : null;
+    const target = typeof t.target === 'function' ? t.target : null;
     const own = target ? ownership.get(target) : undefined;
     return {
       serviceName: own?.service ?? 'unknown',
@@ -276,6 +237,55 @@ const ALLOWED_PUBLIC_TABLES = new Set<string>([
   'migrations',
 ]);
 
+/** One row of bootstrap stage 008's least-privilege role table. */
+interface LeastPrivilegeSpec {
+  readonly schema_name: string;
+  readonly owner_role: string;
+  readonly runtime_role: string;
+  readonly provisioner_role: string | null;
+}
+
+const LEAST_PRIVILEGE_STAGE = resolve(
+  REPO_ROOT,
+  'apps/db-migrate/src/sql/platform-bootstrap/008-least-privilege-hardening.sql',
+);
+
+/**
+ * The (schema, owner role, runtime role) triples, READ FROM the bootstrap stage
+ * that establishes them.
+ *
+ * B.4 used to carry its own hardcoded list. It drifted — it still expected the
+ * pre-stage-008 model where the runtime role owned the schema — and nothing
+ * caught the drift because the spec was never executed (FARM-MEDIUM-303). A
+ * second copy of a security-relevant mapping is exactly the thing that goes
+ * stale silently, so this one is derived: the stage embeds its table as a JSON
+ * array literal fed to `jsonb_to_recordset`, which is machine-readable as-is.
+ *
+ * Parse failure THROWS at module load rather than yielding an empty list — an
+ * empty list would turn every B.4 case into a no-op and the gate would report
+ * green while asserting nothing.
+ */
+function readLeastPrivilegeSpecs(): readonly LeastPrivilegeSpec[] {
+  const sql = readFileSync(LEAST_PRIVILEGE_STAGE, 'utf8');
+  const match = sql.match(/jsonb_to_recordset\(\s*'(\[[\s\S]*?\])'::jsonb/);
+  if (!match?.[1]) {
+    throw new Error(
+      `B.4 could not read the least-privilege role table from ${LEAST_PRIVILEGE_STAGE}. ` +
+        "The stage still exists but its `jsonb_to_recordset('[...]'::jsonb)` literal no " +
+        'longer matches — update this parser rather than re-hardcoding the roles here.',
+    );
+  }
+  const parsed: unknown = JSON.parse(match[1]);
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    throw new Error(
+      `B.4 least-privilege role table parsed to an empty list — refusing to run vacuously.`,
+    );
+  }
+  return parsed as LeastPrivilegeSpec[];
+}
+
+const LEAST_PRIVILEGE_SPECS = readLeastPrivilegeSpecs();
+
 // ORPHAN-179: derive the shared-schema canonical table set from the
 // PROTECTED_TABLES SSoT (libs/backend-common/.../protected-tables.ts) instead of
 // hand-copying it (this was the 4th unguarded copy). PROTECTED_TABLES already
@@ -284,9 +294,7 @@ const ALLOWED_PUBLIC_TABLES = new Set<string>([
 // tenant deletion for forensics). One list, no drift.
 // user_permissions retired 2026-07-12 (ADR-042, ORPHAN-HIGH-378).
 const SHARED_SCHEMA_TABLES = new Set<string>(
-  PROTECTED_TABLES.filter((t) => t.startsWith('shared.')).map((t) =>
-    t.slice('shared.'.length),
-  ),
+  PROTECTED_TABLES.filter((t) => t.startsWith('shared.')).map((t) => t.slice('shared.'.length)),
 );
 
 /**
@@ -299,6 +307,7 @@ const MOVED_TABLES: Array<[string, string]> = [
   ['channel_detection_log', 'sensor'],
   ['device_tokens', 'notification'],
   ['weather_settings', 'farm'],
+  ['sentinel_hub_settings', 'farm'],
   // P7 — moderate
   ['sensor_type_definitions', 'sensor'],
   ['feeder_calibrations', 'farm'],
@@ -528,7 +537,7 @@ describe('Schema Invariants (2026-04-14 public-schema teardown)', () => {
   // entities that pin the wrong schema (e.g. typo "shared" → "share")
   // — TypeORM accepts the typo silently and routes the table to
   // public if the schema does not yet exist.
-  it('B.2 — declared schema matches the table\'s physical schema', async () => {
+  it("B.2 — declared schema matches the table's physical schema", async () => {
     const tables = loadAllEntityTableArgs();
     const drifts: string[] = [];
     for (const t of tables) {
@@ -561,66 +570,87 @@ describe('Schema Invariants (2026-04-14 public-schema teardown)', () => {
     }
     if (drifts.length > 0) {
       throw new Error(
-        `B.2 declared-vs-physical schema drift (${drifts.length}):\n  ` +
-          drifts.join('\n  '),
+        `B.2 declared-vs-physical schema drift (${drifts.length}):\n  ` + drifts.join('\n  '),
       );
     }
   }, 30_000);
 
   // B.4 — Per-service schema ownership at the role level.
   //
-  // For every service-owned schema in the canonical list, the
-  // pg_namespace.nspowner role MUST be `<svc>_service`. The init
-  // script (00-init-schemas.sh) creates schemas with explicit
-  // AUTHORIZATION clauses; this assertion catches the failure mode
-  // where a manual operator creates the schema as the postgres
-  // superuser (which sticks ownership on `postgres`, breaking the
-  // privilege boundary that schema-per-service security relies on).
+  // The security property is the SEPARATION, not merely that some role owns the
+  // schema: DDL authority lives on a NOLOGIN `<svc>_schema_owner` role, while
+  // the login role the service runs as (`<svc>_service`) holds DML only. A
+  // compromised runtime credential therefore cannot drop or re-shape a table.
+  // Bootstrap stage 008 ("Least-Privilege Runtime Boundary") establishes it:
+  // `REASSIGN OWNED BY <runtime> TO <owner>` then `ALTER SCHEMA … OWNER TO
+  // <owner>`.
   //
-  // Derived from the SQL that APPLIES the rule, not restated beside it.
+  // This assertion previously expected the schema to be owned by the RUNTIME
+  // role and pointed at `00-init-schemas.sh` lines 89-128 — a file archived on
+  // 2026-05-18, describing the pre-stage-008 model. It was never noticed because
+  // the spec named `db-migration-check.yml` as its home but appeared only in
+  // that workflow's `paths:` filters and was never executed by a step
+  // (FARM-MEDIUM-303). Its remediation advice had become actively dangerous:
+  // running the suggested `ALTER SCHEMA "farm" OWNER TO farm_service` would hand
+  // DDL power back to the runtime login role and collapse the very boundary the
+  // assertion claims to protect.
   //
-  // This list used to be hardcoded as `<svc>_service` per schema, citing
-  // `00-init-schemas.sh`. That was the model the platform had BEFORE
-  // 008-least-privilege-hardening.sql split ownership from the runtime role:
-  // ownership carries DROP and ALTER over every object in the schema, so the
-  // role the service logs in as must NOT hold it. The stale copy did not
-  // merely fail — its own remedy text told the reader to
-  // `ALTER SCHEMA … OWNER TO <svc>_service`, which would have handed that
-  // power back. It stayed invisible because nothing ran this spec
-  // (SENSOR-MEDIUM-052); wiring it into db-migration-check is what surfaced it.
-  //
-  // Reading the bootstrap's own `jsonb_to_recordset` array means the
-  // expectation cannot drift from what the database is actually given, and a
-  // schema added there is asserted here without anyone remembering to.
-  it.each(schemaOwnershipSpecs())(
-    'B.4 — schema "%s" is owned by role "%s"',
-    async (schemaName, expectedRole) => {
+  // The (schema, owner, runtime) triples are READ FROM stage 008 rather than
+  // re-typed here. A hardcoded copy is what rotted the first time; parsing the
+  // bootstrap means a schema added there is covered automatically and a role
+  // renamed there cannot disagree with this gate.
+  it.each(LEAST_PRIVILEGE_SPECS.map((s) => [s.schema_name, s.owner_role, s.runtime_role]))(
+    'B.4 — schema "%s" is owned by "%s", not by the runtime role "%s"',
+    async (schemaName, ownerRole, runtimeRole) => {
       const result = await db.query<{ owner: string | null }>(
         `SELECT pg_get_userbyid(nspowner) AS owner
-         FROM pg_namespace
-         WHERE nspname = $1`,
+       FROM pg_namespace
+       WHERE nspname = $1`,
         [schemaName],
       );
       if (result.rows.length === 0) {
         throw new Error(
           `B.4 schema "${schemaName}" does not exist in pg_namespace. ` +
-            `008-least-privilege-hardening.sql declares it, so either the bootstrap ` +
-            `did not run or the schema was dropped.`,
+            `Bootstrap stage 003 creates it; verify aqua-db-migrate ran against this database.`,
         );
       }
       const owner = result.rows[0]?.owner;
-      if (owner !== expectedRole) {
+      if (owner === runtimeRole) {
         throw new Error(
-          `B.4 schema "${schemaName}" is owned by "${owner}", expected "${expectedRole}". ` +
-            `Ownership carries DROP and ALTER over every object in the schema, which is ` +
-            `why 008-least-privilege-hardening.sql gives it to the NOLOGIN ` +
-            `"${expectedRole}" and leaves the service login with DML only. Either that ` +
-            `bootstrap stage did not run, or an ALTER SCHEMA OWNER TO <other> reset it. ` +
-            `Fix by re-running the bootstrap — never by handing ownership to a login role.`,
+          `B.4 schema "${schemaName}" is owned by its RUNTIME role "${runtimeRole}". ` +
+            `That gives the service's login credential DDL authority over its own schema, ` +
+            `which is the least-privilege boundary bootstrap stage 008 exists to close. ` +
+            `Re-run stage 008, or \`ALTER SCHEMA "${schemaName}" OWNER TO ${ownerRole}\`.`,
+        );
+      }
+      if (owner !== ownerRole) {
+        throw new Error(
+          `B.4 schema "${schemaName}" is owned by "${owner}", expected "${ownerRole}". ` +
+            `Bootstrap stage 008 assigns ownership to the NOLOGIN owner role; a schema ` +
+            `created manually by a superuser keeps \`postgres\` as owner and never gets ` +
+            `the boundary. Fix via \`ALTER SCHEMA "${schemaName}" OWNER TO ${ownerRole}\`.`,
         );
       }
     },
   );
+
+  // The owner roles must not be able to log in: the boundary is only real while
+  // DDL authority is reachable through role membership (db_migrate) rather than
+  // through a credential someone can present.
+  it('B.4b — schema-owner roles are NOLOGIN', async () => {
+    const owners = LEAST_PRIVILEGE_SPECS.map((s) => s.owner_role);
+    const result = await db.query<{ rolname: string }>(
+      `SELECT rolname FROM pg_catalog.pg_roles
+        WHERE rolname = ANY($1::text[]) AND rolcanlogin`,
+      [owners],
+    );
+    const offenders = result.rows.map(
+      (row) =>
+        `${row.rolname} can log in — a schema-owner role is DDL authority and must be ` +
+        `reachable only through GRANT <owner> TO db_migrate, never as a credential`,
+    );
+    expect(offenders).toEqual([]);
+  });
 
   // B.5a — TENANT_SCOPED schemas: each MUST have at least one
   // tenant_<uuid> clone of its source tables in the test DB.

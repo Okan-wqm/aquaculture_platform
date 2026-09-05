@@ -255,7 +255,7 @@ export function OfflineProvider({ children }: { children: ReactNode }): ReactEle
         applyOptimisticKpiBump(queryClient, tenantId, type, payload);
       }
       await refreshQueue();
-      // MOB-CRITICAL-018: an online enqueue drains NOW. The queue-version effect
+      // MOB-CRITICAL-020: an online enqueue drains NOW. The queue-version effect
       // below still arms its 1 s safety-net timer, but a worker who taps
       // "Record" on a live connection must see the badge turn "Confirmed" —
       // not sit on "Queued" until the success screen navigates away. syncNow
@@ -313,7 +313,7 @@ export function OfflineProvider({ children }: { children: ReactNode }): ReactEle
         throw new Error(`HTTP error: ${response.status}`);
       }
 
-      // MOB-CRITICAL-018 class: keep the server's `extensions.code` so the
+      // MOB-CRITICAL-020 class: keep the server's `extensions.code` so the
       // queue classifies the failure by contract, not by message text.
       const result = await readGraphQLResponse<unknown>(response);
 

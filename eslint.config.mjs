@@ -135,7 +135,7 @@ const RESTRICTED_SYNTAX_MAIN = [
   {
     selector: "CallExpression[callee.property.name='getOrThrow'][arguments.0.value='JWT_SECRET']",
     message:
-      'JWT_SECRET reads are banned (WS2.C / ADR-016 Phase B). See the .get(\'JWT_SECRET\') message above for the migration path: PlatformJwtModule for consumers, JWT_PRIVATE_KEY for the issuer. The 2026-04-14 hydroponics-service deploy outage was a configService.getOrThrow<string>(\'JWT_SECRET\') call that crashed at boot when JWT_SECRET stopped being provisioned — this rule exists to prevent that recurrence.',
+      "JWT_SECRET reads are banned (WS2.C / ADR-016 Phase B). See the .get('JWT_SECRET') message above for the migration path: PlatformJwtModule for consumers, JWT_PRIVATE_KEY for the issuer. The 2026-04-14 hydroponics-service deploy outage was a configService.getOrThrow<string>('JWT_SECRET') call that crashed at boot when JWT_SECRET stopped being provisioned — this rule exists to prevent that recurrence.",
   },
   {
     selector:
@@ -249,6 +249,13 @@ const NON_PROVENANCE_TS_PROJECTS = [
   'libs/shared-contracts',
   'platform/libs/service-catalog',
   'tools/executors/cargo',
+  // tools/scripts owns a tsconfig with `moduleResolution: Bundler` because the
+  // operator CLIs there import packages whose declarations are reachable only
+  // through an `exports` map (`@nats-io/nats-core` publishes `types` pointing at
+  // a `.js` path, so node10 resolution error-types every value derived from it).
+  // Without this pin the parser fell back to the repo-wide node-resolution
+  // project and reported `no-unsafe-*` on correctly-typed code.
+  'tools/scripts',
 ];
 
 const nonProvenanceParserBlocks = NON_PROVENANCE_TS_PROJECTS.map((dir) => ({

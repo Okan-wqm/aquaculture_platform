@@ -1,5 +1,6 @@
 // Base event contract and shared types
 export * from './base-event';
+export * from './schemas/validator';
 
 // Cross-service shared enums (DBR-HIGH-003 cure — single source of truth
 // for values that are persisted to the DB and round-tripped via events).
@@ -11,6 +12,10 @@ export * from './billing/plan-catalog';
 // entitlement `TenantPlan`: no `trial`, plus a negotiated `custom` tier. The
 // billing + admin entities re-export this; the FE literals are pinned to it.
 export * from './billing/billing-plan-tier';
+// Telemetry capacity entitlement contract (Task 8, 100-tenant readiness):
+// the billing-side SSoT for per-tenant M/R envelope reservations and the
+// PENDING_CAPACITY → ACTIVE → SUPERSEDED/RELEASED state machine.
+export * from './billing/telemetry-capacity';
 export * from './enums/tenant-status.enum';
 // Tenant lifecycle transition authority (auth-audit HIGH-007). Pure,
 // dependency-free logic that gates every status change + login + erasure.
@@ -45,6 +50,10 @@ export * from './messaging-event-registry';
 export * from './websocket-envelopes';
 export * from './platform-event-registry';
 export * from './storage-events';
+// W7 / D-B5: "swallow vs rethrow" is a property of the EVENT, not a per-handler
+// comment. Must be exported after farm-events + storage-events (it types the
+// registry over their interfaces).
+export * from './event-delivery-semantics';
 
 // Automation domain events (sensor-service compiler / programming).
 // ORPHAN-EVENT-CONTRACT-015..018 cure.

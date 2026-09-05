@@ -477,7 +477,7 @@ describe('ReportsService - Caching', () => {
 
       const result = await service.getDefinitions({ page: 2, limit: 5 });
 
-      expect(result.data).toHaveLength(1);
+      expect(result.items).toHaveLength(1);
       expect(result.total).toBe(15);
       expect(result.page).toBe(2);
       expect(result.limit).toBe(5);

@@ -7,7 +7,7 @@
  * Both used to be answerable only by re-implementing the walk and the owner
  * table, and the second question was never asked at all — which is how
  * CLAUDE.md came to cite a farm-service spec in a lane no workflow invoked
- * and an e2e spec no job executed (INFRA-MEDIUM-142, SENSOR-MEDIUM-052).
+ * and an e2e spec no job executed (INFRA-MEDIUM-158, SENSOR-MEDIUM-052).
  *
  * A spec can have several runners (an e2e script that globs its directory
  * AND a workflow line that names it outright), so the resolver returns every

@@ -85,7 +85,7 @@ export type MessageStatus = 'pending' | 'sent' | 'failed';
 // documents select), never re-typed by hand. A field the server drops or
 // renames — or one the client used to claim that the server never sent, like
 // `MessageUser.avatarUrl`/`displayName` and `Message.metadata` before
-// MSG-HIGH-078 — is a compile error at the consumer, not a silent `undefined`.
+// MSG-HIGH-080 — is a compile error at the consumer, not a silent `undefined`.
 
 /**
  * A message sender / channel member as the federated `PublicUserProfile`

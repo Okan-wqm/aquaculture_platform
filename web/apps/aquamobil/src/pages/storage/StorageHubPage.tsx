@@ -75,7 +75,7 @@ const storageActions = [
 
 /**
  * WHY static config: ensures PurgeCSS sees all Tailwind class literals.
- * WHY total over MovementType (FARM-HIGH-300): the feed shows every movement
+ * WHY total over MovementType (FARM-HIGH-317): the feed shows every movement
  * the warehouse recorded, including the kinds the mobile wizard cannot create
  * (transfer/adjustment/return). The record is keyed by the generated enum, so
  * a movement kind without a row is a compile error — not `config.icon` of

@@ -174,7 +174,7 @@ export class EquipmentResolver {
   async equipmentByDepartment(
     @Args('departmentId', { type: () => ID }) departmentId: string,
     @CurrentTenant() tenantId: string,
-  ): Promise<EquipmentResponse[]> {
+  ): Promise<readonly EquipmentResponse[]> {
     const query = new ListEquipmentQuery(
       tenantId,
       { departmentId, isActive: true },

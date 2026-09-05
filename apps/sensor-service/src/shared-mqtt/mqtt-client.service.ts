@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  OnModuleInit,
-  OnModuleDestroy,
-} from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as mqtt from 'mqtt';
 import { MqttClient } from 'mqtt';
@@ -57,6 +52,8 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
   private readonly circuitResetDelayMs = 300000; // 5 minutes circuit breaker reset
   private isShuttingDown = false;
   private connectCallbacks: Array<() => void | Promise<void>> = [];
+  /** Per-message settle budget before the ack gate force-reconnects. */
+  private static readonly HANDLER_SETTLE_DEADLINE_MS = 10_000;
 
   constructor(private readonly configService: ConfigService) {}
 
@@ -68,15 +65,24 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
+    // SENSOR-CRITICAL-086: fail closed at boot. A missing stable identity
+    // would silently degrade to per-process clientIds, discarding the
+    // broker-side session (and its unacked QoS1 backlog) on every restart.
+    this.requireClientIdPrefix();
+
     // Delay MQTT connection to allow HTTP server to fully start first.
     // go-auth calls back to our /mqtt/auth endpoint during CONNECT,
     // so the HTTP server must be listening before we attempt MQTT connection.
     const startupDelayMs = 5000;
-    this.logger.log(`Delaying MQTT connection by ${startupDelayMs}ms to ensure HTTP server is ready`);
+    this.logger.log(
+      `Delaying MQTT connection by ${startupDelayMs}ms to ensure HTTP server is ready`,
+    );
     setTimeout(() => {
       if (this.isShuttingDown) return;
       this.connect().catch((error) => {
-        this.logger.warn(`MQTT broker unavailable at startup: ${error.message}. Will retry in background.`);
+        this.logger.warn(
+          `MQTT broker unavailable at startup: ${error.message}. Will retry in background.`,
+        );
         this.scheduleReconnect();
       });
     }, startupDelayMs);
@@ -122,14 +128,21 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
     const brokerUrl = this.configService.get<string>('MQTT_BROKER_URL', 'mqtt://localhost:1883');
     const username = this.configService.get<string>('MQTT_USERNAME');
     const password = this.configService.get<string>('MQTT_PASSWORD');
-    const clientId = `aqua-sensor-service-${process.pid}-${Date.now()}`;
+    // Stable identity: MQTT_CLIENT_ID prefix + fixed suffix. The old
+    // PID/timestamp clientId made every restart a NEW client, so the broker
+    // dropped the persistent session — and with it every unacked QoS1
+    // message — each time the process recycled (SENSOR-CRITICAL-086).
+    const clientId = `${this.requireClientIdPrefix()}-main`;
 
     this.logger.log(`Connecting to MQTT broker: ${brokerUrl}`);
     this.connectionState = MqttConnectionState.CONNECTING;
 
     const options: mqtt.IClientOptions = {
       clientId,
-      clean: true,
+      // Persistent session: the broker retains subscriptions and the unacked
+      // QoS1 backlog across reconnects — the redelivery leg of the
+      // ack-after-commit contract.
+      clean: false,
       keepalive: 60,
       reconnectPeriod: 0, // Disable auto-reconnect, we handle it manually
       connectTimeout: 30000,
@@ -142,6 +155,21 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
 
     return new Promise((resolve, reject) => {
       this.client = mqtt.connect(brokerUrl, options);
+
+      // SENSOR-CRITICAL-086 (Task 1 Step 1.2): own the QoS ack gate. For
+      // QoS 1 the library sends PUBACK only when handleMessage invokes its
+      // callback (build/lib/handlers/publish.js case 1). Dispatching here —
+      // instead of via the 'message' event, which fires BEFORE
+      // handleMessage — makes this the SINGLE dispatch point: the broker
+      // keeps the message in this persistent session until every registered
+      // handler settled durably; a failure or deadline force-reconnects
+      // without acking so the session redelivers.
+      this.client.handleMessage = (
+        packet: mqtt.IPublishPacket,
+        done: (error?: Error) => void,
+      ): void => {
+        this.dispatchDurable(packet, done);
+      };
 
       this.client.on('connect', () => {
         this.connectionState = MqttConnectionState.CONNECTED;
@@ -186,12 +214,6 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
           this.scheduleReconnect();
         }
       });
-
-      this.client.on('message', (topic, message) => {
-        if (!this.isShuttingDown) {
-          this.handleMessage(topic, message);
-        }
-      });
     });
   }
 
@@ -206,7 +228,9 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
     this.reconnectAttempts++;
 
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      this.logger.error(`Max reconnect attempts (${this.maxReconnectAttempts}) reached. Opening circuit breaker.`);
+      this.logger.error(
+        `Max reconnect attempts (${this.maxReconnectAttempts}) reached. Opening circuit breaker.`,
+      );
       this.openCircuitBreaker();
       return;
     }
@@ -219,7 +243,9 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
     const jitter = Math.random() * 0.3 * exponentialDelay; // 0-30% jitter
     const delay = Math.floor(exponentialDelay + jitter);
 
-    this.logger.log(`Scheduling reconnect attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms`);
+    this.logger.log(
+      `Scheduling reconnect attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms`,
+    );
     this.connectionState = MqttConnectionState.RECONNECTING;
 
     setTimeout(() => {
@@ -284,9 +310,7 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
     const callbacks = [...this.connectCallbacks];
     this.connectCallbacks = [];
     for (const cb of callbacks) {
-      Promise.resolve(cb()).catch((err) =>
-        this.logger.error(`Connect callback error: ${err}`),
-      );
+      Promise.resolve(cb()).catch((err) => this.logger.error(`Connect callback error: ${err}`));
     }
   }
 
@@ -414,21 +438,83 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Handle incoming MQTT message - dispatch to all registered handlers
+   * Handle one incoming PUBLISH with the ack gate held open. The library's
+   * done-callback releases PUBACK (QoS 1); it is invoked ONLY after every
+   * registered handler settled. A handler failure or the settle deadline
+   * never acks and instead force-reconnects, so the broker's persistent
+   * session redelivers the message.
    */
-  private handleMessage(topic: string, message: Buffer): void {
-    for (const handler of this.messageHandlers) {
-      try {
-        const result = handler(topic, message);
-        if (result instanceof Promise) {
-          result.catch((error: Error) => {
-            this.logger.error(`Error in message handler for topic ${topic}: ${error.message}`, error.stack);
-          });
-        }
-      } catch (error) {
-        this.logger.error(`Sync error in message handler for topic ${topic}: ${(error as Error).message}`);
-      }
+  private dispatchDurable(packet: mqtt.IPublishPacket, done: (error?: Error) => void): void {
+    if (this.isShuttingDown) {
+      // No dispatch, no ack: an in-flight message at shutdown must be
+      // redelivered from the persistent session after the restart, not
+      // silently consumed.
+      return;
     }
+
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let settled = false;
+    const settle = (): void => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      done();
+    };
+    const fail = (reason: string, error?: Error): void => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      this.logger.error(
+        `MQTT message not settled (${reason}) on topic ${packet.topic}` +
+          `${error ? `: ${error.message}` : ''} — left unacked for persistent-session redelivery`,
+      );
+      this.forceRedelivery();
+    };
+
+    timer = setTimeout(
+      () => fail('handler deadline exceeded'),
+      MqttClientService.HANDLER_SETTLE_DEADLINE_MS,
+    );
+
+    // mqtt-packet types payload as string | Buffer; without a custom
+    // parsePayload it is always the raw Buffer, but normalize so the handler
+    // contract (Buffer) holds either way.
+    const payload = Buffer.isBuffer(packet.payload) ? packet.payload : Buffer.from(packet.payload);
+
+    Promise.all(
+      this.messageHandlers.map((handler) =>
+        Promise.resolve().then(() => handler(packet.topic, payload)),
+      ),
+    ).then(settle, (error: Error) => fail('handler failure', error));
+  }
+
+  /**
+   * Tear the connection down WITHOUT acking in-flight messages. The 'close'
+   * handler schedules the reconnect; the persistent session (clean:false,
+   * stable clientId) makes the broker redeliver everything unacked.
+   */
+  private forceRedelivery(): void {
+    if (!this.client || this.isShuttingDown) return;
+    this.logger.warn(
+      'MQTT force-reconnect: unacked QoS1 messages stay queued in the persistent session',
+    );
+    this.client.end(true);
+  }
+
+  /**
+   * The stable client-identity prefix (SENSOR-CRITICAL-086). Required:
+   * without it the clientId degenerates to per-process randomness and the
+   * broker-side session is destroyed on every restart.
+   */
+  private requireClientIdPrefix(): string {
+    const prefix = this.configService.get<string>('MQTT_CLIENT_ID');
+    if (!prefix || prefix.trim().length === 0) {
+      throw new Error(
+        'MQTT_CLIENT_ID is required: persistent QoS1 sessions need a stable client identity ' +
+          '(SENSOR-CRITICAL-086). Set e.g. MQTT_CLIENT_ID=aqua-sensor-service in the service environment.',
+      );
+    }
+    return prefix.trim();
   }
 
   /**

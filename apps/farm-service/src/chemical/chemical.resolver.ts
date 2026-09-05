@@ -197,7 +197,7 @@ export class ChemicalResolver {
   async chemicalsByType(
     @Args('type', { type: () => ChemicalType }) type: ChemicalType,
     @CurrentTenant() tenantId: string,
-  ): Promise<ChemicalResponse[]> {
+  ): Promise<readonly ChemicalResponse[]> {
     const query = new ListChemicalsQuery(tenantId, { type, isActive: true }, { limit: 1000 });
     const result = await this.queryBus.execute(query) as PaginatedQueryResult<ChemicalResponse>;
     return fromCqrsPaginated(result).items;
@@ -210,9 +210,13 @@ export class ChemicalResolver {
   @Query(() => [ChemicalResponse])
   async treatmentChemicals(
     @CurrentTenant() tenantId: string,
-  ): Promise<ChemicalResponse[]> {
-    const query = new ListChemicalsQuery(tenantId, { type: ChemicalType.TREATMENT, isActive: true }, { limit: 1000 });
-    const result = await this.queryBus.execute(query) as PaginatedQueryResult<ChemicalResponse>;
+  ): Promise<readonly ChemicalResponse[]> {
+    const query = new ListChemicalsQuery(
+      tenantId,
+      { type: ChemicalType.TREATMENT, isActive: true },
+      { limit: 1000 },
+    );
+    const result = (await this.queryBus.execute(query)) as PaginatedQueryResult<ChemicalResponse>;
     return fromCqrsPaginated(result).items;
   }
 
@@ -223,9 +227,13 @@ export class ChemicalResolver {
   @Query(() => [ChemicalResponse])
   async disinfectantChemicals(
     @CurrentTenant() tenantId: string,
-  ): Promise<ChemicalResponse[]> {
-    const query = new ListChemicalsQuery(tenantId, { type: ChemicalType.DISINFECTANT, isActive: true }, { limit: 1000 });
-    const result = await this.queryBus.execute(query) as PaginatedQueryResult<ChemicalResponse>;
+  ): Promise<readonly ChemicalResponse[]> {
+    const query = new ListChemicalsQuery(
+      tenantId,
+      { type: ChemicalType.DISINFECTANT, isActive: true },
+      { limit: 1000 },
+    );
+    const result = (await this.queryBus.execute(query)) as PaginatedQueryResult<ChemicalResponse>;
     return fromCqrsPaginated(result).items;
   }
 

@@ -230,7 +230,7 @@ export function TaskDetailPage(): JSX.Element {
   const statusInfo = STATUS_LABELS[task.status] || STATUS_LABELS.PENDING;
   const categoryLabel = CATEGORY_LABELS[task.category] || task.category;
 
-  // FARM-HIGH-301: the checklist and notes are typed object lists on the wire,
+  // FARM-HIGH-318: the checklist and notes are typed object lists on the wire,
   // normalised by the server — no client-side repair of a JSON blob any more.
   const checklistItems: ChecklistItem[] = task.checklistItems;
   const notes: TaskNote[] = task.notes;

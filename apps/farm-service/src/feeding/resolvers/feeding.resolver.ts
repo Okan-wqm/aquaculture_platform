@@ -48,7 +48,6 @@ import { GetFeedingSummaryQuery, FeedingSummaryResult } from '../queries/get-fee
 
 // Services
 import { GrowthSimulatorService, GrowthSimulationResult } from '../services/growth-simulator.service';
-import { FeedConsumptionForecastService, FeedForecastSummary } from '../services/feed-consumption-forecast.service';
 
 // ============================================================================
 // ENUM REGISTRATIONS
@@ -604,115 +603,6 @@ export class GrowthSimulationResponse {
 }
 
 // ============================================================================
-// FEED CONSUMPTION FORECAST TYPES
-// ============================================================================
-
-@InputType()
-export class FeedForecastInput {
-  @Field(() => ID, { nullable: true, description: 'Filter by site' })
-  siteId?: string;
-
-  @Field(() => Int, { defaultValue: 30, description: 'Number of days to forecast' })
-  forecastDays!: number;
-
-  @Field(() => Int, { nullable: true, description: 'Lead time before stockout to recommend reorder' })
-  leadTimeDays?: number;
-
-  @Field(() => Int, { nullable: true, description: 'Safety stock days to maintain' })
-  safetyStockDays?: number;
-}
-
-@ObjectType()
-export class FeedConsumptionBatchInfo {
-  @Field(() => ID)
-  batchId!: string;
-
-  @Field()
-  batchCode!: string;
-
-  @Field(() => Float)
-  consumption!: number;
-}
-
-@ObjectType()
-export class FeedConsumptionByTypeResponse {
-  @Field(() => ID)
-  feedId!: string;
-
-  @Field()
-  feedCode!: string;
-
-  @Field()
-  feedName!: string;
-
-  @Field(() => [Float])
-  dailyConsumption!: number[];
-
-  @Field(() => Float)
-  totalConsumption!: number;
-
-  @Field(() => Float)
-  currentStock!: number;
-
-  @Field(() => Int)
-  daysUntilStockout!: number;
-
-  @Field({ nullable: true })
-  stockoutDate?: Date;
-
-  @Field({ nullable: true })
-  reorderDate?: Date;
-
-  @Field(() => Float)
-  reorderQuantity!: number;
-
-  @Field(() => [FeedConsumptionBatchInfo])
-  batches!: FeedConsumptionBatchInfo[];
-}
-
-@ObjectType()
-export class FeedForecastAlert {
-  @Field(() => ID)
-  feedId!: string;
-
-  @Field()
-  feedCode!: string;
-
-  @Field()
-  type!: string;
-
-  @Field()
-  message!: string;
-
-  @Field(() => Int)
-  daysUntilStockout!: number;
-}
-
-@ObjectType()
-export class FeedForecastResponse {
-  @Field(() => Int)
-  forecastDays!: number;
-
-  @Field()
-  startDate!: Date;
-
-  @Field()
-  endDate!: Date;
-
-  @Field(() => [FeedConsumptionByTypeResponse])
-  byFeedType!: FeedConsumptionByTypeResponse[];
-
-  @Field(() => [FeedForecastAlert])
-  alerts!: FeedForecastAlert[];
-
-  @Field(() => Float)
-  totalConsumption!: number;
-
-  @Field(() => Float)
-  totalCurrentStock!: number;
-}
-
-// ============================================================================
 // ACTIVE TANKS TYPES
 // ============================================================================
 
@@ -754,7 +644,6 @@ export class FeedingResolver {
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
     private readonly growthSimulator: GrowthSimulatorService,
-    private readonly feedForecastService: FeedConsumptionForecastService,
     @InjectDataSource()
     private readonly dataSource: DataSource,
   ) {}
@@ -913,55 +802,6 @@ export class FeedingResolver {
       projections: result.projections,
       summary: result.summary,
       feedRequirements: result.feedRequirements,
-    };
-  }
-
-  /**
-   * Forecast feed consumption across all active batches
-   * Calculates stockout dates and reorder recommendations
-   */
-  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
-  @Query(() => FeedForecastResponse, { description: 'Forecast feed consumption and stockout dates' })
-  async feedConsumptionForecast(
-    @CurrentTenant() tenantId: string,
-    @Args('input', { nullable: true }) input?: FeedForecastInput,
-  ): Promise<FeedForecastResponse> {
-    const schemaName = getTenantSchemaName(tenantId);
-    const result = await this.feedForecastService.forecastConsumption({
-      tenantId,
-      schemaName,
-      siteId: input?.siteId,
-      forecastDays: input?.forecastDays ?? 30,
-      leadTimeDays: input?.leadTimeDays,
-      safetyStockDays: input?.safetyStockDays,
-    });
-
-    return {
-      forecastDays: result.forecastDays,
-      startDate: result.startDate,
-      endDate: result.endDate,
-      byFeedType: result.byFeedType.map(f => ({
-        feedId: f.feedId,
-        feedCode: f.feedCode,
-        feedName: f.feedName,
-        dailyConsumption: f.dailyConsumption,
-        totalConsumption: f.totalConsumption,
-        currentStock: f.currentStock,
-        daysUntilStockout: f.daysUntilStockout,
-        stockoutDate: f.stockoutDate ?? undefined,
-        reorderDate: f.reorderDate ?? undefined,
-        reorderQuantity: f.reorderQuantity,
-        batches: f.batches,
-      })),
-      alerts: result.alerts.map(a => ({
-        feedId: a.feedId,
-        feedCode: a.feedCode,
-        type: a.type,
-        message: a.message,
-        daysUntilStockout: a.daysUntilStockout,
-      })),
-      totalConsumption: result.totalConsumption,
-      totalCurrentStock: result.totalCurrentStock,
     };
   }
 

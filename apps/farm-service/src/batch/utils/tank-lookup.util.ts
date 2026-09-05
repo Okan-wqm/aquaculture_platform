@@ -145,6 +145,53 @@ export async function resolveTankSiteId(
 }
 
 /**
+ * Bulk counterpart of {@link resolveTankSiteId} for read paths that authorize a
+ * LIST of units (W8 — FARM-MEDIUM-274).
+ *
+ * Same fail-closed contract, same two-table union (`equipment` primary, `tanks`
+ * legacy), same "site-less department is not an implicit allow" rule — a unit
+ * that resolves to nothing is simply ABSENT from the returned map, which
+ * `SiteAuthorizationService.assertSiteAssignment(undefined)` denies. Existing
+ * per-unit callers keep using the singular helper; this exists so a bulk read
+ * does not become N+1 (and therefore does not get skipped for being expensive,
+ * which is exactly how `effectiveUnitTemperatures` ended up unguarded).
+ */
+export async function resolveUnitSiteIds(
+  manager: EntityManager,
+  unitIds: string[],
+  tenantId: string,
+): Promise<Map<string, string>> {
+  const resolved = new Map<string, string>();
+  if (unitIds.length === 0) {
+    return resolved;
+  }
+
+  const rows: Array<{ unitId: string; siteId: string | null }> = await manager.query(
+    `SELECT DISTINCT ON (u."unitId")
+            u."unitId"  AS "unitId",
+            d."siteId"  AS "siteId"
+       FROM (
+         SELECT "id" AS "unitId", "departmentId" FROM equipment
+          WHERE "id" = ANY($1) AND "tenantId" = $2
+         UNION ALL
+         SELECT "id" AS "unitId", "departmentId" FROM tanks
+          WHERE "id" = ANY($1) AND "tenantId" = $2
+       ) u
+       JOIN departments d ON d."id" = u."departmentId" AND d."tenantId" = $2
+      WHERE u."departmentId" IS NOT NULL
+      ORDER BY u."unitId"`,
+    [unitIds, tenantId],
+  );
+
+  for (const row of rows) {
+    if (row.siteId !== null) {
+      resolved.set(row.unitId, row.siteId);
+    }
+  }
+  return resolved;
+}
+
+/**
  * SEC-HIGH-051: resolve a Site id from an already-known departmentId (the inner
  * half of {@link resolveTankSiteId}). Call sites that already loaded+locked the
  * tank (e.g. allocate-to-tank) use this to avoid a redundant tank re-lookup.

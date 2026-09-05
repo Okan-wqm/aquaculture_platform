@@ -397,6 +397,22 @@ export type FeedingMethod =
   | 'MANUAL'
   | 'SPOT';
 
+export type FinalizeMealInput = {
+  /** Stable client command UUID generated before first submission */
+  clientCommandId?: string | null | undefined;
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: string | null | undefined;
+  /** Stable per-installation device identifier */
+  deviceId?: string | null | undefined;
+  mealId: string;
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: string | null | undefined;
+  /** SHA-256 hash of the command payload before envelope fields are added */
+  payloadHash?: string | null | undefined;
+  /** Optional mobile command payload schema version */
+  schemaVersion?: string | null | undefined;
+};
+
 export type GeoLocationInput = {
   accuracy?: number | null | undefined;
   address?: string | null | undefined;
@@ -665,7 +681,7 @@ export type RecordMealFeedingInput = {
   clientCreatedAt?: string | null | undefined;
   /** Stable per-installation device identifier */
   deviceId?: string | null | undefined;
-  feedingMethod?: string | null | undefined;
+  feedingMethod?: FeedingMethod | null | undefined;
   finalize?: boolean;
   mealId: string;
   notes?: string | null | undefined;
@@ -957,8 +973,6 @@ export type TransferBatchInput = {
   quantity: number;
   /** Optional mobile command payload schema version */
   schemaVersion?: string | null | undefined;
-  /** Kapasite kontrolünü atla */
-  skipCapacityCheck?: boolean | null | undefined;
   sourceTankId: string;
   transferReason?: string | null | undefined;
   transferredAt?: string | null | undefined;
@@ -1026,19 +1040,23 @@ export type WebAuthnLoginChallengeInput = {
 };
 
 export type WebAuthnRegisterCredentialInput = {
+  /** Base64url-encoded attestation object (contains the signed authenticator data and the COSE public key) */
+  attestationObject: string;
+  /** Base64url-encoded authenticator data (present on some platforms) */
+  authenticatorData?: string | null | undefined;
   /** Challenge string that was used during registration */
   challenge: string;
   /** Base64url-encoded attestation client data JSON */
   clientDataJSON: string;
   /** Base64url-encoded credential ID from navigator.credentials.create() */
   credentialId: string;
+  /** Current account password (re-authentication required to add a biometric credential) */
+  currentPassword: string;
   /** Device name for this credential */
   deviceName?: string | null | undefined;
-  /** Origin of the request (e.g., https://example.com) */
-  origin: string;
-  /** Base64url-encoded raw public key (COSE format) */
-  publicKey: string;
-  /** Supported transports (usb, nfc, ble, internal) */
+  /** COSE algorithm identifier the authenticator chose (e.g. -7 ES256, -257 RS256) */
+  publicKeyAlgorithm: number;
+  /** Supported transports (usb, nfc, ble, internal, hybrid, smart-card) */
   transports?: Array<string> | null | undefined;
 };
 
@@ -1056,10 +1074,10 @@ export type WebAuthnVerifyLoginInput = {
   clientDataJSON: string;
   /** Base64url-encoded credential ID */
   credentialId: string;
-  /** Origin of the request */
-  origin: string;
   /** Base64url-encoded signature */
   signature: string;
+  /** Base64url-encoded user handle (what the authenticator stored) */
+  userHandle?: string | null | undefined;
 };
 
 export type WeekDay =
@@ -1351,7 +1369,7 @@ export type FeedingDayPlansQueryVariables = Exact<{
 }>;
 
 
-export type FeedingDayPlansQuery = { feedingDayPlans: Array<{ id: string, unitId: string, unitName: string, unitCode: string, planDate: string, status: FeedingDayPlanStatus, plannedTotalKg: number, unplannedActualKg: number, mealsPlanned: number, avgWeightG: number, fishCount: number, biomassKg: number, waterTempC: number | null, temperatureSource: string, usingDefaultTemperature: boolean, feedId: string, feedCode: string, feedName: string, effectiveRatePercent: number, expectedFcr: number, meals: Array<{ id: string, mealIndex: number, scheduledAt: string, percentOfDaily: number, plannedKg: number, status: FeedingMealStatus, actualKg: number, varianceKg: number | null, variancePercent: number | null, feedId: string, fedAt: string | null, feedingMethod: string | null, notes: string | null }> | null }> };
+export type FeedingDayPlansQuery = { feedingDayPlans: Array<{ id: string, unitId: string, unitName: string, unitCode: string, planDate: string, status: FeedingDayPlanStatus, plannedTotalKg: number, unplannedActualKg: number, mealsPlanned: number, avgWeightG: number, fishCount: number, biomassKg: number, waterTempC: number | null, temperatureSource: string, usingDefaultTemperature: boolean, feedId: string, feedCode: string, feedName: string, effectiveRatePercent: number, expectedFcr: number, meals: Array<{ id: string, mealIndex: number, scheduledAt: string, percentOfDaily: number, plannedKg: number, status: FeedingMealStatus, actualKg: number, varianceKg: number | null, variancePercent: number | null, feedId: string, fedAt: string | null, feedingMethod: FeedingMethod | null, notes: string | null }> | null }> };
 
 export type AttendanceRecordFieldsFragment = { id: string, employeeId: string, date: string, clockIn: string | null, clockOut: string | null, clockInMethod: ClockMethod | null, clockOutMethod: ClockMethod | null, status: AttendanceStatus, workedMinutes: number, overtimeMinutes: number, lateMinutes: number, isOffshore: boolean, remarks: string | null, shiftId: string | null };
 
@@ -1675,6 +1693,13 @@ export type RecordMealFeedingMutationVariables = Exact<{
 
 export type RecordMealFeedingMutation = { recordMealFeeding: { id: string, status: FeedingMealStatus, actualKg: number, varianceKg: number | null, variancePercent: number | null } };
 
+export type FinalizeMealMutationVariables = Exact<{
+  input: FinalizeMealInput;
+}>;
+
+
+export type FinalizeMealMutation = { finalizeMeal: { id: string, status: FeedingMealStatus, actualKg: number, varianceKg: number | null, variancePercent: number | null } };
+
 export type ClockInMutationVariables = Exact<{
   input: ClockInInput;
 }>;
@@ -1898,6 +1923,7 @@ export const RecordCullDocument = {"kind":"Document","definitions":[{"kind":"Ope
 export const CreateHarvestRecordDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"CreateHarvestRecord"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"CreateHarvestRecordInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"createHarvestRecord"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"recordCode"}},{"kind":"Field","name":{"kind":"Name","value":"quantityHarvested"}}]}}]}}]} as unknown as DocumentNode<CreateHarvestRecordMutation, CreateHarvestRecordMutationVariables>;
 export const RecordDailyFeedingDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"RecordDailyFeeding"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"RecordDailyFeedingInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"recordDailyFeeding"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"actualFeedKg"}},{"kind":"Field","name":{"kind":"Name","value":"status"}}]}}]}}]} as unknown as DocumentNode<RecordDailyFeedingMutation, RecordDailyFeedingMutationVariables>;
 export const RecordMealFeedingDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"RecordMealFeeding"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"RecordMealFeedingInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"recordMealFeeding"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"actualKg"}},{"kind":"Field","name":{"kind":"Name","value":"varianceKg"}},{"kind":"Field","name":{"kind":"Name","value":"variancePercent"}}]}}]}}]} as unknown as DocumentNode<RecordMealFeedingMutation, RecordMealFeedingMutationVariables>;
+export const FinalizeMealDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"FinalizeMeal"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"FinalizeMealInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"finalizeMeal"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"actualKg"}},{"kind":"Field","name":{"kind":"Name","value":"varianceKg"}},{"kind":"Field","name":{"kind":"Name","value":"variancePercent"}}]}}]}}]} as unknown as DocumentNode<FinalizeMealMutation, FinalizeMealMutationVariables>;
 export const ClockInDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"ClockIn"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ClockInInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"clockIn"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"date"}},{"kind":"Field","name":{"kind":"Name","value":"clockIn"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"workedMinutes"}},{"kind":"Field","name":{"kind":"Name","value":"remarks"}}]}}]}}]} as unknown as DocumentNode<ClockInMutation, ClockInMutationVariables>;
 export const ClockOutDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"ClockOut"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ClockOutInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"clockOut"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"date"}},{"kind":"Field","name":{"kind":"Name","value":"clockOut"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"workedMinutes"}}]}}]}}]} as unknown as DocumentNode<ClockOutMutation, ClockOutMutationVariables>;
 export const CreateLeaveRequestDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"CreateLeaveRequest"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"CreateLeaveRequestInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"createLeaveRequest"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"startDate"}},{"kind":"Field","name":{"kind":"Name","value":"endDate"}},{"kind":"Field","name":{"kind":"Name","value":"totalDays"}},{"kind":"Field","name":{"kind":"Name","value":"status"}}]}}]}}]} as unknown as DocumentNode<CreateLeaveRequestMutation, CreateLeaveRequestMutationVariables>;

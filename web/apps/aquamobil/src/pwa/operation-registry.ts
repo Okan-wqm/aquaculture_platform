@@ -94,6 +94,19 @@ export const OPERATION_MUTATIONS: Record<
       }
     }
   `,
+  // W8/FARM-MEDIUM-269: kısmi öğünü döküm eklemeden kapatır. Ayrı op, çünkü
+  // yük şekli farklı (kg yok) ve sunucu tarafı ledger'a HİÇ dokunmaz.
+  finalizeMeal: /* GraphQL */ `
+    mutation FinalizeMeal($input: FinalizeMealInput!) {
+      finalizeMeal(input: $input) {
+        id
+        status
+        actualKg
+        varianceKg
+        variancePercent
+      }
+    }
+  `,
   clockIn: /* GraphQL */ `
     mutation ClockIn($input: ClockInInput!) {
       clockIn(input: $input) {

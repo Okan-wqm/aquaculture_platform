@@ -81,7 +81,7 @@ function groupMessagesByDate(
 
 /**
  * Check if a message is from the AI virtual user. The bridge stamps
- * `metadata.isAi` (ai-chat-bridge.service) and, since MSG-HIGH-078, the
+ * `metadata.isAi` (ai-chat-bridge.service) and, since MSG-HIGH-080, the
  * GraphQL read path carries metadata too — history and live agree.
  */
 function isAiMessage(msg: Message): boolean {

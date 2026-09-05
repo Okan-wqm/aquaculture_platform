@@ -529,6 +529,12 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 # publish a stub with null fields — two writers, one filename.
                 first_governed_mutation_step=_RESTORE_STEP,
                 allowed_write_path_patterns=(
+                    # The generate-report preflight runs BEFORE the restore that
+                    # tells it which cycle date exists, so the directory is the
+                    # narrowest root it can honestly declare. The dated filename
+                    # is still pinned by upload_artifact_path_patterns below,
+                    # which is checked against the workflow file itself.
+                    r"^aria-tools/reports/daily$",
                     rf"^aria-tools/reports/daily/{_REPORT_DATE}\.md$",
                     rf"^{_STORE_ROOT}(/.*)?$",
                 ),
@@ -715,9 +721,11 @@ AUDITED_WORKFLOW_EXCLUSIONS: dict[str, AuditedWorkflowExclusion] = {
     ),
     "aria-state-maintenance": AuditedWorkflowExclusion(
         workflow_id="aria-state-maintenance",
-        reason="utility maintenance lane; clones aria/state to /tmp, compacts JSONL surfaces "
-        "and strips old hot artifacts, pushes the slim branch; performs no governed ARIA "
-        "mutation and uploads no ARIA artifact — the output IS the aria/state branch itself",
+        reason="utility maintenance lane; materialises aria/state through the single "
+        "restore path (state checkout + bind-tools-root), compacts JSONL surfaces, prunes "
+        "the artifact index alongside the hot artifacts it strips, pushes the slim branch; "
+        "performs no governed ARIA mutation and uploads no ARIA artifact — the output IS "
+        "the aria/state branch itself (ORPHAN-CRITICAL-807)",
         owner="aria-kernel",
         expires_at=_NEVER_EXPIRES,
     ),

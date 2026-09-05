@@ -242,7 +242,7 @@ export function StockTransferPage(): JSX.Element {
     };
 
     try {
-      // Queue-first (MOB-CRITICAL-018): online, addToQueue drains immediately;
+      // Queue-first (MOB-CRITICAL-020): online, addToQueue drains immediately;
       // offline, the transfer waits for reconnect. The success screen shows the
       // op's real sync status either way.
       const result = await addToQueue('transferStock', input);

@@ -190,7 +190,7 @@ describe('RecordFeedingPage — öğün cutover (Faz 6)', () => {
       mealId: 'meal-1',
       pourKg: 6,
       finalize: true,
-      feedingMethod: 'manual',
+      feedingMethod: 'MANUAL',
     });
     // Two-phase success: the badge tracks the queued op, no unconditional green.
     expect((await screen.findByTestId('queued-status-badge')).textContent).toBe('op-1');

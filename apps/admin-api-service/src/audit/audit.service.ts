@@ -1,12 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, Between, FindOptionsWhere, MoreThanOrEqual, LessThanOrEqual } from 'typeorm';
 import {
-  Repository,
-  Between,
-  FindOptionsWhere,
-  MoreThanOrEqual,
-  LessThanOrEqual,
-} from 'typeorm';
+  createStandardPaginatedResult,
+  type PaginationResultV1,
+} from '@platform/pagination-contracts';
 
 import { AuditLog, AuditSeverity } from './audit.entity';
 
@@ -40,13 +38,8 @@ export interface AuditLogFilter {
   search?: string;
 }
 
-export interface PaginatedAuditLogs {
-  data: AuditLog[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
+/** The page shape is the platform authority's, not a local copy. */
+export type PaginatedAuditLogs = PaginationResultV1<AuditLog>;
 
 interface ActionCountRow {
   action?: string | null;
@@ -189,25 +182,15 @@ export class AuditLogService {
 
       const [data, total] = await queryBuilder.getManyAndCount();
 
-      return {
-        data,
-        total,
-        page,
-        limit: take,
-        totalPages: Math.ceil(total / take),
-      };
+      return createStandardPaginatedResult<AuditLog>(data, total, page, take);
     } catch (error) {
       this.logger.error(
         `Failed to query audit logs: ${(error as Error).message}`,
         (error as Error).stack,
       );
-      return {
-        data: [],
-        total: 0,
-        page,
-        limit: Math.min(limit, 100),
-        totalPages: 0,
-      };
+      // An empty page is page 1 of 1 under the authority — the old `0` here
+      // was the second, disagreeing contract this finding is about.
+      return createStandardPaginatedResult<AuditLog>([], 0, page, Math.min(limit, 100));
     }
   }
 

@@ -26,6 +26,7 @@ import {
   EFFECTIVE_UNIT_TEMPERATURES_QUERY,
   FEEDING_DAY_PLANS_QUERY,
   RECORD_MEAL_FEEDING_MUTATION,
+  FINALIZE_MEAL_MUTATION,
   SKIP_MEAL_MUTATION,
   CORRECT_MEAL_POUR_MUTATION,
   PROTOCOL_FEED_FORECAST_QUERY,
@@ -33,6 +34,7 @@ import {
   TRANSITION_UNIT_FEED_MUTATION,
 } from '../graphql/feedingProtocolV2.operations';
 import { buildCommandEnvelope } from '../utils/command-envelope';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 
 // ============================================================================
 // TYPES — backend entity jsonb aynaları
@@ -209,15 +211,7 @@ export interface UpdateProtocolAssignmentInput {
   status?: 'active' | 'paused';
 }
 
-interface PaginatedResult<T> {
-  items: T[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-  hasNextPage: boolean;
-  hasPreviousPage: boolean;
-}
+type PaginatedResult<T> = PaginationResultV1<T>;
 
 export interface FeedingProtocolsV2Filter {
   status?: FeedingProtocolV2Status;
@@ -465,6 +459,23 @@ export interface MealPour {
   corrections?: number;
 }
 
+/**
+ * Öğün öncesi oksijen verdikti (W7 — FARM-MEDIUM-271).
+ *
+ * sensor-service YALNIZ olumsuz verdikt yayar, bu yüzden alanın YOKLUĞU
+ * "oksijen yeterli" DEĞİL, "olumsuz sinyal gelmedi"dir (ünitenin DO sensörü
+ * olmayabilir, protokolde taban tanımlı olmayabilir). UI bu ayrımı korur:
+ * rozet yalnız damga varken çıkar, yeşil bir "onay" rozeti gösterilmez.
+ */
+export interface MealReadinessView {
+  status: 'low_oxygen' | 'no_reading';
+  minDissolvedOxygen: number;
+  observedDissolvedOxygen?: number;
+  observedAt?: string;
+  lowOxygenReductionPercent?: number;
+  evaluatedAt: string;
+}
+
 export interface FeedingMealView {
   id: string;
   dayPlanId: string;
@@ -485,6 +496,7 @@ export interface FeedingMealView {
   feedingMethod?: string;
   recalculatedAt?: string;
   notes?: string;
+  readiness?: MealReadinessView | null;
 }
 
 export interface FeedingDayPlanView {
@@ -503,7 +515,10 @@ export interface FeedingDayPlanView {
   mealsPlanned: number;
   status: FeedingDayPlanStatus;
   skipReason?: string;
+  /** Son 50 girdi (W8/FARM-MEDIUM-286 — dizi DB düzeyinde kırpılır). */
   recalcLog: RecalcLogEntry[];
+  /** Planın ömrü boyunca TOPLAM yeniden hesap — kırpmadan bağımsız. */
+  recalcCount: number;
   createdAt: string;
   updatedAt: string;
   meals?: FeedingMealView[];
@@ -574,6 +589,26 @@ export function useRecordMealFeeding() {
         { input: { ...params, ...envelope } },
       );
       return data.recordMealFeeding;
+    },
+    onSuccess: () => invalidate(),
+  });
+}
+
+/**
+ * Öğünü döküm eklemeden kapat (W8 — FARM-MEDIUM-269). Sunucu yalnız
+ * PARTIALLY_FED öğünü kabul eder; hiç dökümü olmayan öğünün doğru fiili
+ * `useSkipMeal`'dir.
+ */
+export function useFinalizeMeal() {
+  const invalidate = useDayPlanInvalidation();
+  return useMutation({
+    mutationFn: async (params: { mealId: string }) => {
+      const envelope = await buildCommandEnvelope('finalizeMeal', { mealId: params.mealId });
+      const data = await graphqlClient.request<{ finalizeMeal: MealFeedingResult }>(
+        FINALIZE_MEAL_MUTATION,
+        { input: { ...params, ...envelope } },
+      );
+      return data.finalizeMeal;
     },
     onSuccess: () => invalidate(),
   });
@@ -667,19 +702,37 @@ export interface ForecastPerUnitView {
   unitId: string;
   unitName: string;
   unitCode: string;
+  /** Ünitenin BUGÜNKÜ yemi (gün-0 bandı) — FARM-LOW-265. */
   currentFeedId: string | null;
+  /** Ufuk sonunda ulaşılan yem (simülasyonun son bandı). */
+  terminalFeedId: string | null;
   transitions: ForecastTransitionView[];
 }
 
 export interface ForecastAlertView {
-  type: 'STOCKOUT_FORECAST' | 'TRANSITION_COVERAGE_GAP' | 'REORDER_NOW';
+  type:
+    | 'STOCKOUT_FORECAST'
+    | 'TRANSITION_COVERAGE_GAP'
+    | 'REORDER_NOW'
+    /** Havuz iyi ama sitenin yerel stoğu yetmiyor → satın alma değil TAŞIMA. */
+    | 'SITE_TRANSFER_NEEDED';
   feedId: string;
   unitId?: string | null;
+  /** Tipe özgü büyüklük (kapsama günü / eksik gün). */
   days: number;
+  /** Alarmın işaret ettiği gün indeksi — dilimleme birimi. */
+  atDay: number;
 }
 
 export interface ProtocolFeedForecastView {
   siteScopeKey: string;
+  /**
+   * 'TENANT' = kapsama/alarm otoritesi (havuz kararı); 'SITE' =
+   * bilgilendirici kapsam, yalnız SITE_TRANSFER_NEEDED üretir.
+   */
+  poolScope: 'TENANT' | 'SITE';
+  /** Snapshot 26 saatten eskiyse true — bayatlık gizlenmez. */
+  stale: boolean;
   horizonDays: number;
   /** Snapshot tazeliği — "şu an itibarıyla" damgası (D-6). */
   computedAt: string;

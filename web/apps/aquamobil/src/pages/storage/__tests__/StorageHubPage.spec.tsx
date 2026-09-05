@@ -1,6 +1,6 @@
 /**
  * StorageHubPage — the warehouse feed renders EVERY MovementType the server
- * can emit (FARM-HIGH-300).
+ * can emit (FARM-HIGH-317).
  *
  * The movement-type config used to be keyed by the three kinds the mobile
  * wizard records while the wire carried the lowercase entity value, so any
@@ -72,7 +72,7 @@ function summaryWith(overrides: Partial<WarehouseSummary>): WarehouseSummary {
   };
 }
 
-describe('StorageHubPage (FARM-HIGH-300 — total MovementType config)', () => {
+describe('StorageHubPage (FARM-HIGH-317 — total MovementType config)', () => {
   afterEach(() => {
     cleanup();
   });

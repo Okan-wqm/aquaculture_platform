@@ -234,7 +234,7 @@ export interface UseWebAuthnReturn {
   /** Clear the current error. */
   clearError: () => void;
   /** Register a new biometric credential; resolves true on success. */
-  registerCredential: (deviceName?: string) => Promise<boolean>;
+  registerCredential: (deviceName: string | undefined, currentPassword: string) => Promise<boolean>;
   /** Authenticate with biometrics; resolves the auth payload or null. */
   biometricLogin: (email: string) => Promise<BiometricLoginResult | null>;
   /** Remove a credential by id; resolves true on success. */
@@ -351,12 +351,22 @@ export function useWebAuthn(): UseWebAuthnReturn {
    * Flow:
    * 1. Request challenge from backend
    * 2. Call navigator.credentials.create() with challenge
-   * 3. Send credential back to backend for storage
+   * 3. Send the attestation to the backend, which derives the public key
+   *    from the attestation object server-side (proof-of-possession) —
+   *    the client never asserts its own key material.
+   *
+   * SEC-CRITICAL-001/002: registration requires password re-authentication
+   * (`currentPassword`) so a stolen access token alone cannot plant a
+   * biometric credential.
    */
   const registerCredential = useCallback(
-    async (deviceName?: string): Promise<boolean> => {
+    async (deviceName: string | undefined, currentPassword: string): Promise<boolean> => {
       if (!isSupported) {
         setError('Biometric authentication not supported on this device');
+        return false;
+      }
+      if (!currentPassword) {
+        setError('Enter your password to confirm biometric setup');
         return false;
       }
 
@@ -384,8 +394,8 @@ export function useWebAuthn(): UseWebAuthnReturn {
               displayName: challengeResponse.userName,
             },
             pubKeyCredParams: [
-              { alg: -7, type: 'public-key' },   // ES256 (ECDSA P-256)
-              { alg: -257, type: 'public-key' },  // RS256 (RSASSA-PKCS1-v1_5)
+              { alg: -7, type: 'public-key' }, // ES256 (ECDSA P-256)
+              { alg: -257, type: 'public-key' }, // RS256 (RSASSA-PKCS1-v1_5)
             ],
             authenticatorSelection: {
               authenticatorAttachment: 'platform', // Only platform authenticators (Touch ID, Face ID)
@@ -393,7 +403,7 @@ export function useWebAuthn(): UseWebAuthnReturn {
               residentKey: 'preferred',
             },
             timeout: 60000, // 60 seconds
-            attestation: 'none', // We don't need attestation for biometric login
+            attestation: 'none',
           },
         })) as PublicKeyCredential | null;
 
@@ -404,24 +414,25 @@ export function useWebAuthn(): UseWebAuthnReturn {
 
         const attestationResponse = credential.response as AuthenticatorAttestationResponse;
 
-        // Extract public key in SPKI format
-        const publicKey = attestationResponse.getPublicKey?.();
-        if (!publicKey) {
-          setError('Failed to extract public key from credential');
+        // COSE algorithm the authenticator chose (server-side key derivation input)
+        const publicKeyAlgorithm = attestationResponse.getPublicKeyAlgorithm?.();
+        if (typeof publicKeyAlgorithm !== 'number') {
+          setError('Authenticator did not report a supported key algorithm');
           return false;
         }
 
         // Get transports if available
         const transports = attestationResponse.getTransports?.() || [];
 
-        // Step 3: Send to backend
+        // Step 3: Send the attestation to the backend
         const registerData = await graphqlRequest(REGISTER_CREDENTIAL_MUTATION, {
           input: {
             credentialId: bufferToBase64url(credential.rawId),
-            publicKey: bufferToBase64url(publicKey),
+            attestationObject: bufferToBase64url(attestationResponse.attestationObject),
             clientDataJSON: bufferToBase64url(attestationResponse.clientDataJSON),
+            publicKeyAlgorithm,
             challenge: challengeResponse.challenge,
-            origin: window.location.origin,
+            currentPassword,
             deviceName: deviceName || 'Biometric Device',
             transports,
           },
@@ -462,9 +473,7 @@ export function useWebAuthn(): UseWebAuthnReturn {
    * Returns auth data on success, or null on failure.
    */
   const biometricLogin = useCallback(
-    async (
-      email: string,
-    ): Promise<BiometricLoginResult | null> => {
+    async (email: string): Promise<BiometricLoginResult | null> => {
       if (!isSupported) {
         setError('Biometric authentication not supported on this device');
         return null;
@@ -505,22 +514,29 @@ export function useWebAuthn(): UseWebAuthnReturn {
 
         const assertionResponse = assertion.response as AuthenticatorAssertionResponse;
 
-        // Step 3: Send assertion to backend
+        // Step 3: Send assertion to backend (origin is verified server-side
+        // from the signed clientDataJSON — never a client-declared field)
         const verifyData = await graphqlRequest(VERIFY_LOGIN_MUTATION, {
           input: {
             credentialId: bufferToBase64url(assertion.rawId),
             authenticatorData: bufferToBase64url(assertionResponse.authenticatorData),
             clientDataJSON: bufferToBase64url(assertionResponse.clientDataJSON),
             signature: bufferToBase64url(assertionResponse.signature),
+            ...(assertionResponse.userHandle
+              ? { userHandle: bufferToBase64url(assertionResponse.userHandle) }
+              : {}),
             challenge: challengeResponse.challenge,
-            origin: window.location.origin,
           },
         });
 
         return verifyData.verifyWebAuthnLogin;
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Biometric login failed';
-        if (message.includes('AbortError') || message.includes('cancelled') || message.includes('NotAllowedError')) {
+        if (
+          message.includes('AbortError') ||
+          message.includes('cancelled') ||
+          message.includes('NotAllowedError')
+        ) {
           setError('Biometric login was cancelled');
         } else {
           setError(message);

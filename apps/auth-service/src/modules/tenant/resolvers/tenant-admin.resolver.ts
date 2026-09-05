@@ -18,6 +18,10 @@ import {
   TableDataResult,
   GetTableDataInput,
 } from '../dto/tenant-admin.dto';
+import {
+  TenantSecurityPolicy,
+  UpdateTenantSecurityPolicyInput,
+} from '../dto/tenant-policy.dto';
 import { TenantAdminService } from '../services/tenant-admin.service';
 
 /**
@@ -193,6 +197,43 @@ export class TenantAdminResolver {
     @Args('userId', { type: () => ID }) targetUserId: string,
   ): Promise<User> {
     return this.tenantAdminService.activateUser(userId, targetUserId);
+  }
+
+  // =========================================================
+  // Tenant auth-security policy (ADR-046)
+  //
+  // The tenant id ALWAYS comes from @CurrentTenant (JWT claim / TenantGuard),
+  // never from an argument, so a TENANT_ADMIN can only ever read or write
+  // their OWN tenant's policy. A session with no tenant context (SUPER_ADMIN)
+  // is rejected by the decorator itself rather than guessing a tenant.
+  // =========================================================
+
+  /**
+   * Effective tenant auth-security policy (ADR-046): `enforceMfa` collapses
+   * NULL → false; `sessionTimeoutMinutes` stays nullable (null = platform TTL).
+   */
+  @Query(() => TenantSecurityPolicy)
+  @TenantAdminOrHigher()
+  async tenantSecurityPolicy(
+    @CurrentTenant() effectiveTenantId: string,
+  ): Promise<TenantSecurityPolicy> {
+    return this.tenantAdminService.getSecurityPolicy(effectiveTenantId);
+  }
+
+  /**
+   * ADR-046 policy write. An `enforceMfa` flip false/NULL → true revokes the
+   * refresh tokens of this tenant's users without a second factor (see
+   * TenantAdminService.updateSecurityPolicy); a `sessionTimeoutMinutes`
+   * reduction takes effect at the next token rotation.
+   */
+  @Mutation(() => TenantSecurityPolicy)
+  @TenantAdminOrHigher()
+  async updateTenantSecurityPolicy(
+    @CurrentUser('sub') actorId: string,
+    @CurrentTenant() effectiveTenantId: string,
+    @Args('input') input: UpdateTenantSecurityPolicyInput,
+  ): Promise<TenantSecurityPolicy> {
+    return this.tenantAdminService.updateSecurityPolicy(actorId, effectiveTenantId, input);
   }
 
   /**

@@ -1,5 +1,5 @@
 /**
- * OfflineProvider.addToQueue — MOB-CRITICAL-018 two-phase UX.
+ * OfflineProvider.addToQueue — MOB-CRITICAL-020 two-phase UX.
  *
  * The auto-sync effect arms a 1 s timer on every queue-version change, and the
  * queue-first write pages navigate away 2 s after enqueue — so an ONLINE submit
@@ -117,7 +117,7 @@ beforeEach(() => {
 
 afterEach(() => cleanup());
 
-describe('addToQueue drains immediately when online (MOB-CRITICAL-018)', () => {
+describe('addToQueue drains immediately when online (MOB-CRITICAL-020)', () => {
   it('starts a drain right after a fresh online enqueue, without waiting for the 1 s timer', async () => {
     mockQueueOperation.mockResolvedValue({ status: 'queued', id: 'op-1' });
     const { addToQueue } = await mountAddToQueue();

@@ -20,6 +20,7 @@ import {
   type GetMessageForBroadcastResponse,
   type MessageEnvelope,
 } from '@platform/event-contracts';
+import { TenantConnectionLimiter, WsTokenRevalidator } from '@aquaculture/backend-common/websocket';
 
 // Types
 
@@ -49,10 +50,19 @@ interface ConnectedClient {
   lastTyping: Map<string, number>;
 }
 
-interface JoinChannelPayload { channelId: string }
-interface LeaveChannelPayload { channelId: string }
-interface TypingPayload { channelId: string; isTyping?: boolean }
-interface ResolveNotificationRefPayload { notificationRef: string }
+interface JoinChannelPayload {
+  channelId: string;
+}
+interface LeaveChannelPayload {
+  channelId: string;
+}
+interface TypingPayload {
+  channelId: string;
+  isTyping?: boolean;
+}
+interface ResolveNotificationRefPayload {
+  notificationRef: string;
+}
 interface ResolveNotificationRefResult {
   channelId: string;
   messageId: string;
@@ -65,8 +75,7 @@ const REAUTH_INTERVAL_MS = 5 * 60_000;
 const MAX_REAUTH_FAILURES = 3;
 const TYPING_THROTTLE_MS = 3_000;
 const CLUSTER_CHANNEL_MEMBER_REMOVED_EVENT = 'messaging:channelMemberRemoved';
-const UUID_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /**
  * WebSocket Gateway for real-time messaging
@@ -83,9 +92,7 @@ const UUID_REGEX =
   namespace: '/messaging',
   transports: ['websocket', 'polling'],
 })
-export class MessagingGateway
-  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
-{
+export class MessagingGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server!: Server;
 
@@ -114,15 +121,22 @@ export class MessagingGateway
   constructor(
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    // SEC-MEDIUM-073/082 (2026-08-23 scan №26/№18)
+    private readonly connectionLimiter: TenantConnectionLimiter,
+    private readonly tokenRevalidator: WsTokenRevalidator,
     @Optional()
     @Inject('REDIS_SERVICE')
-    private readonly redisService?: { getClient(): { set(key: string, value: string, mode: string, ttl: number): Promise<string>; del(key: string): Promise<number> } },
+    private readonly redisService?: {
+      getClient(): {
+        set(key: string, value: string, mode: string, ttl: number): Promise<string>;
+        del(key: string): Promise<number>;
+      };
+    },
     @Optional()
     @Inject('NATS_SERVICE')
     private readonly natsClient?: ClientProxy,
   ) {
-    this.isProduction =
-      this.configService.get<string>('NODE_ENV') === 'production';
+    this.isProduction = this.configService.get<string>('NODE_ENV') === 'production';
   }
 
   /**
@@ -140,18 +154,15 @@ export class MessagingGateway
     const clusterAwareServer = _server as Server & {
       on(event: string, listener: (...args: unknown[]) => void): Server;
     };
-    clusterAwareServer.on(
-      CLUSTER_CHANNEL_MEMBER_REMOVED_EVENT,
-      (tenantId, channelId, userId) => {
-        if (
-          typeof tenantId === 'string' &&
-          typeof channelId === 'string' &&
-          typeof userId === 'string'
-        ) {
-          this.evictUserFromChannelLocal(tenantId, channelId, userId);
-        }
-      },
-    );
+    clusterAwareServer.on(CLUSTER_CHANNEL_MEMBER_REMOVED_EVENT, (tenantId, channelId, userId) => {
+      if (
+        typeof tenantId === 'string' &&
+        typeof channelId === 'string' &&
+        typeof userId === 'string'
+      ) {
+        this.evictUserFromChannelLocal(tenantId, channelId, userId);
+      }
+    });
     this.logger.log('Messaging WebSocket Gateway initialized');
   }
 
@@ -183,6 +194,28 @@ export class MessagingGateway
       const userId = payload.sub;
       const tenantId = payload.tenantId;
 
+      // SEC-MEDIUM-073 (№26): per-tenant ceiling.
+      if (!this.connectionLimiter.register(tenantId, client.id)) {
+        this.logger.warn(`Tenant ${tenantId} exceeded its WS connection ceiling`);
+        client.emit('error', { message: 'Too many connections for this tenant' });
+        client.disconnect();
+        return;
+      }
+
+      // SEC-MEDIUM-082 (№18): hard revocation re-check every cycle — the
+      // soft reAuth protocol (best effort, no deadline) stays, but logout /
+      // logout-all / suspension no longer depends on the client answering.
+      this.tokenRevalidator.register(client.id, {
+        tenantId,
+        userId,
+        jti: typeof payload.jti === 'string' ? payload.jti : '',
+        issuedAt: typeof payload.iat === 'number' ? payload.iat : undefined,
+        disconnect: (reason) => {
+          this.logger.warn(`Messaging socket ${client.id} disconnected: ${reason}`);
+          client.disconnect(true);
+        },
+      });
+
       this.clients.set(client.id, {
         socket: client,
         userId,
@@ -211,9 +244,7 @@ export class MessagingGateway
       }, REAUTH_INTERVAL_MS);
       this.reAuthTimers.set(client.id, reAuthTimer);
 
-      this.logger.log(
-        `Client ${client.id} connected — user ${userId}, tenant ${tenantId}`,
-      );
+      this.logger.log(`Client ${client.id} connected — user ${userId}, tenant ${tenantId}`);
 
       client.emit('connected', {
         message: 'Connected to messaging',
@@ -235,7 +266,9 @@ export class MessagingGateway
 
   async handleDisconnect(client: Socket): Promise<void> {
     const clientData = this.clients.get(client.id);
+    this.tokenRevalidator.unregister(client.id);
     if (clientData) {
+      this.connectionLimiter.release(clientData.tenantId, client.id);
       // Clear presence
       await this.clearPresence(clientData.tenantId, clientData.userId);
 
@@ -294,17 +327,12 @@ export class MessagingGateway
     clientData.channels.add(payload.channelId);
     void client.join(room);
 
-    this.logger.debug(
-      `Client ${client.id} joined channel ${payload.channelId}`,
-    );
+    this.logger.debug(`Client ${client.id} joined channel ${payload.channelId}`);
     return { success: true };
   }
 
   @SubscribeMessage('leaveChannel')
-  handleLeaveChannel(
-    client: Socket,
-    payload: LeaveChannelPayload,
-  ): { success: boolean } {
+  handleLeaveChannel(client: Socket, payload: LeaveChannelPayload): { success: boolean } {
     const clientData = this.clients.get(client.id);
     if (!clientData) {
       return { success: false };
@@ -318,17 +346,12 @@ export class MessagingGateway
     clientData.channels.delete(payload.channelId);
     void client.leave(room);
 
-    this.logger.debug(
-      `Client ${client.id} left channel ${payload.channelId}`,
-    );
+    this.logger.debug(`Client ${client.id} left channel ${payload.channelId}`);
     return { success: true };
   }
 
   @SubscribeMessage('typing')
-  handleTyping(
-    client: Socket,
-    payload: TypingPayload,
-  ): { success: boolean; reason?: string } {
+  handleTyping(client: Socket, payload: TypingPayload): { success: boolean; reason?: string } {
     const clientData = this.clients.get(client.id);
     if (!clientData) {
       return { success: false, reason: 'Not authenticated' };
@@ -402,14 +425,11 @@ export class MessagingGateway
     try {
       const result = await firstValueFrom(
         this.natsClient
-          .send<ResolveNotificationRefResult | null>(
-            'request.messaging.resolveNotificationRef',
-            {
-              notificationRef: payload.notificationRef,
-              tenantId: clientData.tenantId,
-              userId: clientData.userId,
-            },
-          )
+          .send<ResolveNotificationRefResult | null>('request.messaging.resolveNotificationRef', {
+            notificationRef: payload.notificationRef,
+            tenantId: clientData.tenantId,
+            userId: clientData.userId,
+          })
           .pipe(timeout(MessagingGateway.NATS_VERIFY_TIMEOUT_MS)),
       );
 
@@ -492,19 +512,17 @@ export class MessagingGateway
     eventName: 'newMessage' | 'messageUpdated',
   ): Promise<void> {
     if (!this.natsClient) {
-      this.logger.warn(
-        `Cannot hydrate ${eventName} for ${messageId}: NATS client unavailable`,
-      );
+      this.logger.warn(`Cannot hydrate ${eventName} for ${messageId}: NATS client unavailable`);
       return;
     }
     try {
       const request: GetMessageForBroadcastRequest = { tenantId, channelId, messageId };
       const response = await firstValueFrom(
         this.natsClient
-          .send<GetMessageForBroadcastResponse, GetMessageForBroadcastRequest>(
-            GET_MESSAGE_FOR_BROADCAST_SUBJECT,
-            request,
-          )
+          .send<
+            GetMessageForBroadcastResponse,
+            GetMessageForBroadcastRequest
+          >(GET_MESSAGE_FOR_BROADCAST_SUBJECT, request)
           .pipe(timeout(MessagingGateway.NATS_VERIFY_TIMEOUT_MS)),
       );
       if (!response?.message) {
@@ -550,9 +568,7 @@ export class MessagingGateway
     channelId: string,
     data: { eventType: string; userId?: string },
   ): void {
-    this.server
-      .to(`channel:${tenantId}:${channelId}`)
-      .emit('channelEvent', { channelId, ...data });
+    this.server.to(`channel:${tenantId}:${channelId}`).emit('channelEvent', { channelId, ...data });
   }
 
   evictUserFromChannel(tenantId: string, channelId: string, userId: string): void {
@@ -575,9 +591,7 @@ export class MessagingGateway
       userId,
     );
 
-    this.server
-      .in(`user:${tenantId}:${userId}`)
-      .socketsLeave(`channel:${tenantId}:${channelId}`);
+    this.server.in(`user:${tenantId}:${userId}`).socketsLeave(`channel:${tenantId}:${channelId}`);
     this.server.to(`user:${tenantId}:${userId}`).emit('channelMemberRemoved', {
       tenantId,
       channelId,
@@ -590,11 +604,7 @@ export class MessagingGateway
     return this.clients.size;
   }
 
-  private evictUserFromChannelLocal(
-    tenantId: string,
-    channelId: string,
-    userId: string,
-  ): void {
+  private evictUserFromChannelLocal(tenantId: string, channelId: string, userId: string): void {
     const channelRoom = `channel:${tenantId}:${channelId}`;
     for (const clientData of this.clients.values()) {
       if (clientData.tenantId !== tenantId || clientData.userId !== userId) {
@@ -620,9 +630,7 @@ export class MessagingGateway
     if (!clientData) return;
 
     if (clientData.reAuthFailures >= MAX_REAUTH_FAILURES) {
-      this.logger.warn(
-        `Client ${clientId} exceeded max re-auth failures, disconnecting`,
-      );
+      this.logger.warn(`Client ${clientId} exceeded max re-auth failures, disconnecting`);
       clientData.socket.emit('error', { code: 4401, message: 'Re-authentication failed' });
       clientData.socket.disconnect();
     }

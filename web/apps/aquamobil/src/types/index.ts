@@ -52,6 +52,7 @@ import type {
   CreateLeaveRequestInput,
   CreateWaterQualityInput,
   EditMessageInput,
+  FinalizeMealInput,
   MarkReadInput,
   RecordCullInput,
   RecordDailyFeedingInput,
@@ -130,6 +131,7 @@ export interface BatchMetrics {
 // Regulatory field-capture types (FARM-HIGH-214 / RPT-019)
 // ============================================================================
 
+
 // Attendance types
 export interface GeoLocation {
   latitude: number;
@@ -166,6 +168,7 @@ export type LeaveBalance = MyLeaveBalancesQuery['myLeaveBalances'][number];
 export type LeaveRequest = MyLeaveRequestsQuery['myLeaveRequests'][number];
 
 
+
 /**
  * MSG-MEDIUM-055 — binary offline lane payload (`uploadAndSendMessage`).
  *
@@ -199,7 +202,7 @@ export interface UploadAndSendMessageOfflinePayload {
 // input type each operation sends. The queued payload type is DERIVED from
 // those inputs — never hand-written — so a field the server removes or makes
 // required becomes a compile error at the page that builds the payload, not a
-// rejected mutation weeks later (the `parameters: {}` class, MOB-CRITICAL-018).
+// rejected mutation weeks later (the `parameters: {}` class, MOB-CRITICAL-020).
 //
 // The command envelope is stamped by the queue at enqueue
 // (offline-queue.ts attachCommandEnvelope), AFTER the page hands its payload
@@ -244,6 +247,11 @@ export interface QueuedPayloadByType {
    * only. `finalize=true` is the operator's "meal done" confirmation.
    */
   recordMealFeeding: QueueInput<RecordMealFeedingInput>;
+  /**
+   * W8/FARM-MEDIUM-269 — closes a partially fed meal WITHOUT a pour: the
+   * server touches no ledger row, so the payload carries the meal id only.
+   */
+  finalizeMeal: QueueInput<FinalizeMealInput>;
   clockIn: QueueInput<ClockInInput>;
   clockOut: QueueInput<ClockOutInput>;
   createLeaveRequest: QueueInput<CreateLeaveRequestInput>;
@@ -303,7 +311,7 @@ export interface QueuedOperation {
   lastError?: string;
   /**
    * The server's GraphQL `extensions.code` from the last failed replay
-   * (MOB-CRITICAL-018 class). Retry eligibility is decided on THIS, not on the
+   * (MOB-CRITICAL-020 class). Retry eligibility is decided on THIS, not on the
    * message text; absent for transport errors and for rows written before the
    * code was recorded, which fall back to the message heuristics.
    */
@@ -336,7 +344,7 @@ export interface SelectOption<T = string> {
 }
 
 // Task types — the shared `TaskFields` fragment both task documents select
-// (FARM-HIGH-301 typed the checklist and notes on the wire, so the item
+// (FARM-HIGH-318 typed the checklist and notes on the wire, so the item
 // shapes are schema objects, not client-side normaliser output).
 export type Task = TaskFieldsFragment;
 export type ChecklistItem = Task['checklistItems'][number];
@@ -354,7 +362,7 @@ export interface TaskStats {
 // Notification types — derived (MOB-HIGH-019).
 export type InAppNotification = GetMyNotificationsQuery['myNotifications'][number];
 
-// Storage types — FARM-HIGH-300: the storage vocabularies are GraphQL enums
+// Storage types — FARM-HIGH-317: the storage vocabularies are GraphQL enums
 // on the wire, so the client reads them from the generated schema types
 // instead of re-typing them. A server-side rename now fails `tsc`, not the
 // field worker's screen.

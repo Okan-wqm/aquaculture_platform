@@ -17,7 +17,9 @@ jest.mock('@aquaculture/backend-common/database', () => ({
     ds: unknown,
     schema: string,
     tenantId: string,
-    cb: (qr: { manager: { query: typeof managerQuery; find: typeof managerFind } }) => Promise<void>,
+    cb: (qr: {
+      manager: { query: typeof managerQuery; find: typeof managerFind };
+    }) => Promise<void>,
   ) => cb({ manager: { query: managerQuery, find: managerFind } }),
 }));
 
@@ -25,9 +27,14 @@ import { DataSource } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
 
 import { ProtocolFeedForecastService } from '../services/protocol-feed-forecast.service';
+import { DayPlanRecalcService } from '../services/day-plan-recalc.service';
+import { FeedingClockService } from '../services/feeding-clock.service';
+import { FeedingJobRunService } from '../services/feeding-job-run.service';
+import { realFinalizationService } from './helpers/meal-finalization-double';
 import { FeedingCronV2Service } from '../services/feeding-cron-v2.service';
 import { MealPlanGeneratorService } from '../services/meal-plan-generator.service';
 import { ProtocolRateService } from '../services/protocol-rate.service';
+import { ProtocolResolutionService } from '../services/protocol-resolution.service';
 import { BiomassGrowthApplierService } from '../services/biomass-growth-applier.service';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
 import { FCRCalculationService } from '../../growth/services/fcr-calculation.service';
@@ -42,16 +49,13 @@ import {
   FeedingUnitType,
 } from '../entities/protocol-assignment.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
+import { stub } from '@aquaculture/testing';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const SITE = '88888888-8888-4888-8888-888888888888';
 const UNIT = '77777777-7777-4777-8777-777777777777';
 
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
-
-const PROTOCOL = mock<FeedingProtocolV2>({
+const PROTOCOL = stub<FeedingProtocolV2>({
   id: 'proto-1',
   tenantId: TENANT,
   status: FeedingProtocolStatus.ACTIVE,
@@ -83,7 +87,7 @@ const PROTOCOL = mock<FeedingProtocolV2>({
 });
 
 function makeAssignment(over: Partial<ProtocolAssignment> = {}): ProtocolAssignment {
-  return mock<ProtocolAssignment>({
+  return stub<ProtocolAssignment>({
     id: 'assign-1',
     tenantId: TENANT,
     unitId: UNIT,
@@ -99,7 +103,7 @@ function makeAssignment(over: Partial<ProtocolAssignment> = {}): ProtocolAssignm
   });
 }
 
-const TANK_BATCH = mock<TankBatch>({
+const TANK_BATCH = stub<TankBatch>({
   tankId: UNIT,
   tenantId: TENANT,
   totalQuantity: 1000,
@@ -122,16 +126,22 @@ function makeService(fixture: DryRunFixture): {
     if (String(sql).includes('"sites"')) return [{ id: SITE, timezone: 'UTC' }];
     return [];
   });
-  managerFind.mockImplementation(async (entity: unknown, opts?: { skip?: number }): Promise<unknown[]> => {
-    if (entity === ProtocolAssignment) {
-      return (opts?.skip ?? 0) === 0 ? fixture.assignments : [];
-    }
-    if (entity === FeedingProtocolV2) return fixture.protocols;
-    if (entity === TankBatch) return fixture.tankBatches;
-    return [];
-  });
+  managerFind.mockImplementation(
+    async (entity: unknown, opts?: { skip?: number }): Promise<unknown[]> => {
+      if (entity === ProtocolAssignment) {
+        return (opts?.skip ?? 0) === 0 ? fixture.assignments : [];
+      }
+      if (entity === FeedingProtocolV2) return fixture.protocols;
+      if (entity === TankBatch) return fixture.tankBatches;
+      return [];
+    },
+  );
 
-  const generator = new MealPlanGeneratorService(new ProtocolRateService());
+  const dryRunRateService = new ProtocolRateService();
+  const generator = new MealPlanGeneratorService(
+    dryRunRateService,
+    new ProtocolResolutionService(dryRunRateService),
+  );
   const persistDayPlan = jest.spyOn(generator, 'persistDayPlan');
   const enqueue = jest.fn().mockResolvedValue(undefined);
   const getEffectiveTemperaturesForUnits = jest.fn();
@@ -139,14 +149,24 @@ function makeService(fixture: DryRunFixture): {
     new Map([[UNIT, { celsius: null, source: 'none' }]]),
   );
 
+  const growthApplier = stub<BiomassGrowthApplierService>({});
+  const outboxPublisher = stub<OutboxPublisher>({ enqueue });
+  const recalcService = stub<DayPlanRecalcService>({ recalcForUnit: jest.fn() });
+
   const service = new FeedingCronV2Service(
-    mock<DataSource>({}),
+    stub<DataSource>({}),
     generator,
-    mock<BiomassGrowthApplierService>({}),
-    mock<WaterTemperatureService>({ getEffectiveTemperaturesForUnits }),
-    mock<FCRCalculationService>({}),
-    mock<OutboxPublisher>({ enqueue }),
-    mock<ProtocolFeedForecastService>({}),
+    growthApplier,
+    stub<WaterTemperatureService>({ getEffectiveTemperaturesForUnits }),
+    stub<FCRCalculationService>({}),
+    outboxPublisher,
+    stub<ProtocolFeedForecastService>({}),
+    recalcService,
+    realFinalizationService({ growthApplier, recalcService, outboxPublisher }),
+    stub<FeedingClockService>({
+      siteZones: jest.fn().mockResolvedValue({ tenantZone: 'UTC', zoneOf: () => 'UTC' }),
+    }),
+    stub<FeedingJobRunService>({}),
   );
   return { service, persistDayPlan, enqueue };
 }
@@ -179,7 +199,7 @@ describe('FeedingCronV2Service.dryRunForTenant (K-3)', () => {
   });
 
   it('aktivasyon engellerini sınıflandırır: draft_protocol / empty_unit / missing_protocol', async () => {
-    const draftProtocol = mock<FeedingProtocolV2>({
+    const draftProtocol = stub<FeedingProtocolV2>({
       ...PROTOCOL,
       id: 'proto-draft',
       status: FeedingProtocolStatus.DRAFT,

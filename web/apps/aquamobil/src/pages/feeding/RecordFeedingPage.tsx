@@ -10,46 +10,41 @@
  * cache'e yazılır ve çevrimdışı açılışta dürüst bir bantla gösterilir.
  * Enum alanları tel üzerinde AD taşır ('SCHEDULED', 'FED', ...).
  */
-import { useQuery } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import { List, ListInput, BlockTitle } from 'konsta/react';
-import { ArrowLeft, Package, AlertCircle, Hand, Settings, Radio, Thermometer } from 'lucide-react';
+import {
+  ArrowLeft,
+  Check,
+  Package,
+  AlertCircle,
+  Hand,
+  Settings,
+  Radio,
+  Thermometer,
+} from 'lucide-react';
 import { useState, useEffect, ChangeEvent, type JSX } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { AlreadyRecordedNotice } from '@/components/AlreadyRecordedNotice';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
-import type { FeedingDayPlansQuery } from '@/generated/graphql';
-import { GET_FEEDING_DAY_PLANS } from '@/graphql/operations';
-import { useAuth } from '@/hooks/useAuth';
+import type { FeedingMethod } from '@/generated/graphql';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
+import { useTodaysDayPlans, type DayPlanMeal, type MealStatus } from '@/hooks/useTodaysDayPlans';
 import { useI18n } from '@/i18n';
-import { cacheData, getCachedData } from '@/pwa/offline-queue';
-import { graphqlRequest } from '@/services/authenticated-fetch';
-import { logger } from '@/utils/logger';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
-// ============================================================================
-// TYPES — feedingDayPlans tipli sorgusunun aynası (P-25)
-// ============================================================================
-
-// MOB-HIGH-019: the day-plan slice, its meals and the meal status vocabulary
-// are the generated result of GET_FEEDING_DAY_PLANS — the same shape
-// useDailyOpsStats reads — never a hand-written mirror.
-type FeedingDayPlanSlice = FeedingDayPlansQuery['feedingDayPlans'][number];
-type DayPlanMeal = NonNullable<FeedingDayPlanSlice['meals']>[number];
-type MealStatus = DayPlanMeal['status'];
-
-type FeedingMethodOption = 'manual' | 'automatic' | 'demand';
+// MOB-HIGH-019: the method vocabulary is the generated FeedingMethod enum the
+// server coerces on the wire — the old lowercase mirror ('manual') was rejected
+// by the enum input the moment the server typed the field.
+type FeedingMethodOption = Extract<FeedingMethod, 'MANUAL' | 'AUTOMATIC' | 'DEMAND'>;
 
 const FEEDING_METHODS: {
   value: FeedingMethodOption;
   labelKey: 'feeding.method.manual' | 'feeding.method.automatic' | 'feeding.method.demand';
   Icon: typeof Hand;
 }[] = [
-  { value: 'manual', labelKey: 'feeding.method.manual', Icon: Hand },
-  { value: 'automatic', labelKey: 'feeding.method.automatic', Icon: Settings },
-  { value: 'demand', labelKey: 'feeding.method.demand', Icon: Radio },
+  { value: 'MANUAL', labelKey: 'feeding.method.manual', Icon: Hand },
+  { value: 'AUTOMATIC', labelKey: 'feeding.method.automatic', Icon: Settings },
+  { value: 'DEMAND', labelKey: 'feeding.method.demand', Icon: Radio },
 ];
 
 const MEAL_BADGE: Record<MealStatus, string> = {
@@ -72,67 +67,7 @@ function timeOf(iso: string): string {
 }
 
 // ============================================================================
-// HOOK: useTodaysDayPlans — FE-MEDIUM-054 offline-cache davranışı korunur
-// ============================================================================
 
-const DAY_PLANS_CACHE_PREFIX = 'feedingDayPlans_';
-// Kısa TTL: bariz bayat bir plan işçiyi yanıltmaktansa süresi dolsun (cache
-// kolaylıktır, otorite değildir — recordMealFeeding sunucuda doğrulanır).
-const DAY_PLANS_CACHE_TTL_MS = 1000 * 60 * 60 * 12; // 12h
-
-function useTodaysDayPlans(): {
-  plans: FeedingDayPlanSlice[];
-  isLoading: boolean;
-  isOfflineCached: boolean;
-} {
-  const { accessToken, tenantId, isAuthenticated } = useAuth();
-
-  const today = new Date();
-  const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-  const cacheKey = `${DAY_PLANS_CACHE_PREFIX}${dateStr}`;
-
-  const [cachedSeed, setCachedSeed] = useState<FeedingDayPlanSlice[] | undefined>(undefined);
-  useEffect(() => {
-    let cancelled = false;
-    if (!tenantId) return;
-    getCachedData<FeedingDayPlanSlice[]>(tenantId, cacheKey)
-      .then((cached) => {
-        if (!cancelled && cached) {
-          setCachedSeed(cached);
-        }
-      })
-      .catch((error: unknown) => {
-        logger.error('[RecordFeedingPage] failed to load cached day-plan seed', error);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [tenantId, cacheKey]);
-
-  const { data, isLoading, isSuccess } = useQuery<FeedingDayPlanSlice[]>({
-    queryKey: createTenantQueryKey(tenantId, 'feedingDayPlans', tenantId, dateStr),
-    queryFn: async () => {
-      if (!accessToken || !tenantId) {
-        throw new Error('Not authenticated');
-      }
-      const result = await graphqlRequest(GET_FEEDING_DAY_PLANS, { planDate: dateStr });
-      const plans = result.feedingDayPlans;
-      await cacheData(tenantId, cacheKey, plans, DAY_PLANS_CACHE_TTL_MS);
-      return plans;
-    },
-    enabled: isAuthenticated && !!accessToken && !!tenantId,
-    staleTime: 1000 * 60 * 5,
-    gcTime: 1000 * 60 * 60,
-    refetchOnWindowFocus: true,
-  });
-
-  const plans = isSuccess ? (data ?? []) : (cachedSeed ?? []);
-  const isOfflineCached = !isSuccess && (cachedSeed?.length ?? 0) > 0;
-
-  return { plans, isLoading, isOfflineCached };
-}
-
-// ============================================================================
 // COMPONENT
 // ============================================================================
 
@@ -152,7 +87,7 @@ export function RecordFeedingPage(): JSX.Element {
   const [selectedMealId, setSelectedMealId] = useState<string>('');
   const [pourKg, setPourKg] = useState<string>('');
   const [finalize, setFinalize] = useState(true);
-  const [feedingMethod, setFeedingMethod] = useState<FeedingMethodOption>('manual');
+  const [feedingMethod, setFeedingMethod] = useState<FeedingMethodOption>('MANUAL');
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   // Two-phase success UX (C7): the badge tracks the queued op's real sync
@@ -209,6 +144,34 @@ export function RecordFeedingPage(): JSX.Element {
         feedingMethod,
         notes: notes.trim() || undefined,
       });
+      setQueuedOperationId(result.id);
+      setWasDuplicate(result.status === 'duplicate');
+      setTimeout(() => navigate('/'), 1500);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t('feeding.errors.generic');
+      setErrors({ general: message });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  /**
+   * Öğünü DÖKÜM EKLEMEDEN kapat (W8 — FARM-MEDIUM-269).
+   *
+   * Balık doyduğunda operatörün yapması gereken "öğün bitti" demektir, kg
+   * eklemek değil. Bu yol açılana kadar tek çıkış uydurma bir 0.001 kg
+   * dökümdü: sahte bir yem kaydı, sahte bir stok düşümü ve batch'in toplam
+   * tüketimine giren sahte bir gram.
+   */
+  const handleFinalizeOnly = async (): Promise<void> => {
+    if (!selectedMeal) return;
+
+    setIsSubmitting(true);
+    setErrors({});
+    try {
+      // Same two-phase UX as the pour path: the badge reports the op's real
+      // sync status instead of an unconditional green.
+      const result = await addToQueue('finalizeMeal', { mealId: selectedMeal.id });
       setQueuedOperationId(result.id);
       setWasDuplicate(result.status === 'duplicate');
       setTimeout(() => navigate('/'), 1500);
@@ -551,6 +514,24 @@ export function RecordFeedingPage(): JSX.Element {
                 </>
               )}
             </button>
+            {/*
+              W8/FARM-MEDIUM-269 — sadece PARTIALLY_FED öğün döküm eklemeden
+              kapatılabilir. Hiç dökümü olmayan öğünün doğru fiili "atla"dır;
+              0 kg'la "beslendi" demek kaydı yalanlar, o yüzden buton yalnız
+              kısmi beslenmiş öğünde çıkar (backend de aynı kısıtı uygular).
+            */}
+            {selectedMeal.status === 'PARTIALLY_FED' && (
+              <button
+                onClick={() => {
+                  void handleFinalizeOnly();
+                }}
+                disabled={isSubmitting}
+                className="w-full mt-3 py-4 bg-white dark:bg-gray-900 text-green-700 dark:text-green-400 font-bold rounded-2xl border-2 border-green-500 disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2"
+              >
+                <Check size={20} />
+                {t('feeding.finalizeOnly')}
+              </button>
+            )}
             {!isOnline && (
               <p className="text-center text-amber-500 text-sm mt-3 font-medium">
                 {t('feeding.offlineWillSync')}

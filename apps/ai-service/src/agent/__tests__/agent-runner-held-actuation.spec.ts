@@ -43,7 +43,12 @@ describe('AgentRunnerService held actuation (MOB-HIGH-001)', () => {
     createProposal = jest.fn().mockResolvedValue({
       id: proposalId,
       toolName: 'create_task',
-      params: { title: 'Check pond 3', category: 'GENERAL', priority: 'MEDIUM', dueDate: '2026-07-13' },
+      params: {
+        title: 'Check pond 3',
+        category: 'GENERAL',
+        priority: 'MEDIUM',
+        dueDate: '2026-07-13',
+      },
       description: 'create_task: "Check pond 3"',
     });
     executeTool = jest.fn().mockResolvedValue({
@@ -63,7 +68,12 @@ describe('AgentRunnerService held actuation (MOB-HIGH-001)', () => {
             type: 'tool_use',
             id: 'toolu_1',
             name: 'create_task',
-            input: { title: 'Check pond 3', category: 'GENERAL', priority: 'MEDIUM', dueDate: '2026-07-13' },
+            input: {
+              title: 'Check pond 3',
+              category: 'GENERAL',
+              priority: 'MEDIUM',
+              dueDate: '2026-07-13',
+            },
           },
         ],
         stopReason: 'tool_use',
@@ -83,9 +93,11 @@ describe('AgentRunnerService held actuation (MOB-HIGH-001)', () => {
         {
           provide: ToolRegistryService,
           useValue: {
-            getClaudeToolDefinitions: jest.fn().mockReturnValue([
-              { name: 'create_task', description: 'x', input_schema: { type: 'object' } },
-            ]),
+            getClaudeToolDefinitions: jest
+              .fn()
+              .mockReturnValue([
+                { name: 'create_task', description: 'x', input_schema: { type: 'object' } },
+              ]),
           },
         },
         { provide: ToolExecutorService, useValue: { executeTool } },
@@ -112,6 +124,8 @@ describe('AgentRunnerService held actuation (MOB-HIGH-001)', () => {
         {
           provide: TokenBudgetService,
           useValue: {
+            reserveBudget: jest.fn().mockResolvedValue(undefined),
+            settleReservation: jest.fn().mockResolvedValue(undefined),
             checkBudget: jest.fn().mockResolvedValue({ allowed: true, used: 0 }),
             addUsage: jest.fn().mockResolvedValue(undefined),
           },
@@ -128,12 +142,15 @@ describe('AgentRunnerService held actuation (MOB-HIGH-001)', () => {
           useValue: {
             resolveEnablement: jest.fn().mockResolvedValue({ enabled: true }),
             resolveCredential: jest.fn().mockResolvedValue({ provider: 'anthropic', apiKey: 'k' }),
-            getConfig: jest.fn().mockResolvedValue({ hourlyRequestLimit: 60, monthlyTokenBudget: 1_000_000 }),
+            getConfig: jest
+              .fn()
+              .mockResolvedValue({ hourlyRequestLimit: 60, monthlyTokenBudget: 1_000_000 }),
           },
         },
         {
           provide: AiSafetyMiddleware,
           useValue: {
+            scanUntrustedContext: jest.fn().mockReturnValue(true),
             preProcess: jest.fn().mockReturnValue({ allowed: true }),
             postProcess: jest.fn((text: string) => ({ outputText: text, piiRedacted: false })),
             validateToolCall: jest.fn().mockResolvedValue({ allowed: true }),

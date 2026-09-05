@@ -240,7 +240,7 @@ export const BulkRecordTab: React.FC = () => {
       ? { isActive: true, systemId: selectedSystemId }
       : { isActive: true },
   );
-  const equipment: Equipment[] = useMemo(
+  const equipment: readonly Equipment[] = useMemo(
     () => equipmentQuery.data?.items ?? [],
     [equipmentQuery.data],
   );

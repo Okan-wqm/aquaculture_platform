@@ -70,7 +70,7 @@ export const DebugToolsPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   // Cache state
-  const [cacheEntries, setCacheEntries] = useState<CacheEntry[]>([]);
+  const [cacheEntries, setCacheEntries] = useState<readonly CacheEntry[]>([]);
   const [cacheStats, setCacheStats] = useState<CacheStats | null>(null);
   const [cacheFilter, setCacheFilter] = useState('');
   const [showClearConfirm, setShowClearConfirm] = useState(false);
@@ -106,7 +106,7 @@ export const DebugToolsPage: React.FC = () => {
         debugApi.getCacheEntries({ limit: 100, keyPattern: cacheFilter || undefined }),
         debugApi.getCacheStats(),
       ]);
-      setCacheEntries(entriesResponse.status === 'fulfilled' ? (entriesResponse.value.data || []) : []);
+      setCacheEntries(entriesResponse.status === 'fulfilled' ? entriesResponse.value.data : []);
       setCacheStats(statsResponse.status === 'fulfilled' ? statsResponse.value : null);
       if (entriesResponse.status === 'rejected' && statsResponse.status === 'rejected') {
         setError('Cache service unavailable');

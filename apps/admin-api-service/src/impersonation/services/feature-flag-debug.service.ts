@@ -4,6 +4,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
 
 import { FeatureFlagOverride } from '../entities/debug-session.entity';
+import {
+  createStandardPaginatedResult,
+  type PaginationResultV1,
+} from '@platform/pagination-contracts';
 
 /**
  * Feature Flag Debug Service
@@ -139,7 +143,7 @@ export class FeatureFlagDebugService {
     isActive?: boolean;
     page?: number;
     limit?: number;
-  }): Promise<{ items: FeatureFlagOverride[]; total: number }> {
+  }): Promise<PaginationResultV1<FeatureFlagOverride>> {
     const query = this.overrideRepo.createQueryBuilder('o');
 
     if (params.tenantId) {
@@ -162,7 +166,7 @@ export class FeatureFlagDebugService {
     query.skip((page - 1) * limit).take(limit);
 
     const [items, total] = await query.getManyAndCount();
-    return { items, total };
+    return createStandardPaginatedResult<FeatureFlagOverride>(items, total, page, limit);
   }
 
   /**

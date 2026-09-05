@@ -989,7 +989,7 @@ describe('Offline Queue', () => {
       expect(updated.lastError.length).toBeLessThanOrEqual(200);
     });
 
-    // MOB-CRITICAL-018 class: the server's extensions.code classifies a replay
+    // MOB-CRITICAL-020 class: the server's extensions.code classifies a replay
     // failure. A permanent code is final after ONE attempt; a transport error
     // (no code) and an unknown code keep retrying; a legacy row without a code
     // still falls back to the message heuristics.

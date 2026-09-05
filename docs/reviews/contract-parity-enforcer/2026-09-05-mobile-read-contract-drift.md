@@ -9,7 +9,21 @@ mirrors that had drifted; two were the SERVER not declaring what it stores,
 sends over the socket, or types in its own entity. Those two are registered here
 because the client cannot derive a field the schema does not carry.
 
-## MSG-HIGH-078 — Message.metadata is accepted, stored and pushed over WS, but not readable through GraphQL
+## Ledger ids
+
+Both findings were registered on the Faz 3 branch (PR #1424) before `main`
+allocated the same sequence numbers (`MSG-HIGH-078`, `FARM-MEDIUM-301`) to other
+findings. The allocator treats the sequence as the identity, so the rows were
+re-registered under the right-hand ids when the branch took main. The fix
+commits (`29b04d8e3`, `0e5e2ce89`) still name the left column in their `Closes:`
+trailers; the branch's merge ceremony commit carries the right-hand ids.
+
+| Review id (headings, trailers) | Ledger id (findings.jsonl) |
+| ------------------------------ | -------------------------- |
+| `MSG-HIGH-078`                 | `MSG-HIGH-080`             |
+| `FARM-HIGH-301`                | `FARM-HIGH-318`            |
+
+## MSG-HIGH-080 — Message.metadata is accepted, stored and pushed over WS, but not readable through GraphQL
 
 **Severity:** HIGH
 **Layer:** 2
@@ -41,7 +55,7 @@ entity column and `metadata` in the AquaMobil `MessageFields` fragment; the
 generated `MessageFieldsFragment` now carries it and the client `Message` view
 type is derived from that fragment.
 
-## FARM-HIGH-301 — Task / RecurringTemplate checklist and notes are `JSON` scalars over a typed shape
+## FARM-HIGH-318 — Task / RecurringTemplate checklist and notes are `JSON` scalars over a typed shape
 
 **Severity:** HIGH
 **Layer:** 2

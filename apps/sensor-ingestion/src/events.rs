@@ -67,8 +67,18 @@ use outbox_rs::{OutboxPublisher, OutboxRecord, PublishError};
 /// dropped a segment / used uppercase hex would fail at build time.
 #[must_use]
 pub fn subject_for(record: &OutboxRecord) -> String {
+    // Task 2 (SENSOR-HIGH-092): SensorMetricIngested is a high-rate
+    // telemetry type — it publishes on the telemetry root so it lands on
+    // AQUACULTURE_TELEMETRY (Discard New, sized outage buffer), not the
+    // shared domain stream.
+    let root = if record.event_type == "SensorMetricIngested" {
+        "telemetry"
+    } else {
+        "events"
+    };
     format!(
-        "events.{}.{}",
+        "{}.{}.{}",
+        root,
         record.tenant_id.as_uuid(),
         record.event_type
     )
@@ -132,8 +142,13 @@ impl OutboxPublisher for NatsOutboxPublisher {
 
         // `Bytes::from` moves the Vec<u8> into an Arc-backed buffer
         // so async-nats can ship it without a second allocation.
+        // Task 3 (SENSOR-CRITICAL-089): JetStream publish with an AWAITED
+        // PubAck and the outbox row id as Nats-Msg-Id — the broker's
+        // duplicate window collapses dispatcher retries, and a refused
+        // ack (full Discard-New telemetry buffer) leaves the row pending.
+        let msg_id = record.id.to_string();
         self.client
-            .publish_with_headers(subject, headers, Bytes::from(json))
+            .publish_jetstream(subject, headers, Bytes::from(json), Some(&msg_id))
             .await
             .map_err(|e| PublishError::Transport(Box::new(e)))?;
         Ok(())
@@ -247,13 +262,14 @@ mod tests {
         let tenant = TenantId::try_parse(tenant_str).unwrap();
         let record = fake_record(tenant);
         let subject = subject_for(&record);
+        // Task 2: SensorMetricIngested routes to the telemetry root.
         assert_eq!(
             subject,
-            format!("events.{tenant_str}.{SENSOR_METRIC_INGESTED_EVENT_TYPE}")
+            format!("telemetry.{tenant_str}.{SENSOR_METRIC_INGESTED_EVENT_TYPE}")
         );
         // Explicit substring guards — a regression that joined with
         // `_` instead of `.` or dropped a segment surfaces here.
-        assert!(subject.starts_with("events."));
+        assert!(subject.starts_with("telemetry."));
         assert!(subject.contains(&tenant.as_uuid().to_string()));
         assert!(subject.ends_with(SENSOR_METRIC_INGESTED_EVENT_TYPE));
         // Shape is `events.{uuid}.{event_type}` — TWO dots, not three

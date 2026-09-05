@@ -16,6 +16,20 @@
 > `id` pattern in `docs/reviews/_registry/findings.jsonl.schema.json`, so these findings
 > cannot be registered at all — see `PROC-MEDIUM-016` in the cycle report.
 
+## Ledger ids
+
+`PARITY-LOW-010` was registered on the Faz 3 branch (PR #1424) as `FARM-HIGH-300`
+before `main` allocated that sequence to `FARM-HIGH-300` (transferBatch
+`skipCapacityCheck`). The allocator treats the sequence as the identity, so the
+branch's row was re-registered as `FARM-HIGH-317` when the branch took main. The
+fix commit `3d1bd4282` still names `FARM-HIGH-300` in its `Closes:` trailer; the
+id names a live sibling on main and cannot be an alias, so the branch's merge
+ceremony commit carries the `FARM-HIGH-317` trailer instead.
+
+| Review id (headings, trailers) | Ledger id (findings.jsonl) |
+| ------------------------------ | -------------------------- |
+| `FARM-HIGH-300`                | `FARM-HIGH-317`            |
+
 ## Scope
 
 Read CLAUDE.md (root \+ web/, web/apps/aquamobil/, apps/farm-service/ nested),
@@ -71,11 +85,11 @@ silently narrows them back to closed TS unions with no runtime validation
 **State:** OPEN
 **Raised as:** `PARITY-LOW-010` by `contract-parity-enforcer` in
 cycle `2026-08-16-farm-mobile-agent-audit`
-**Registered as:** `FARM-HIGH-300` (2026-09-05, at the verifier's severity).
+**Registered as:** `FARM-HIGH-317` (2026-09-05, at the verifier's severity).
 `PARITY` is not a registry domain and the defect is a farm-service DTO
 contract, so it is registered under `FARM`. NOTE: the orchestrator cycle report
 `docs/reviews/orchestrator/2026-08-16-farm-mobile-audit-cycle.md` uses the
-label `FARM-HIGH-300` for a DIFFERENT, still-unregistered finding (fabricated
+label `FARM-HIGH-317` for a DIFFERENT, still-unregistered finding (fabricated
 AI feeding advice); that label was never allocated by the registry, and when
 it is registered it will receive a fresh number. The registry id is
 authoritative.

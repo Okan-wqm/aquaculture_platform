@@ -7,7 +7,7 @@
  * Uses TanStack Query for data fetching and caching.
  */
 
-import { useQuery } from '@tanstack/react-query';
+import { useTenantQuery } from '@aquaculture/shared-ui';
 import { graphqlRequest } from '../services/tenant-api.service';
 import { TENANT_BILLING_QUERY } from '../graphql';
 import { logError } from '../utils/error-handling';
@@ -77,19 +77,30 @@ export interface TenantBillingData {
 // Query Keys
 // ============================================================================
 
-export const billingKeys = {
-  all: ['tenant-billing'] as const,
-  details: () => [...billingKeys.all, 'details'] as const,
-};
+/**
+ * Domain key SEGMENTS only. The tenant prefix and the session epoch are added
+ * by useTenantQuery — a bare ['tenant-billing'] key is a cross-tenant cache
+ * hazard: the cached billing of tenant A survives a switch to tenant B and is
+ * served to it (FE-CRITICAL-014/015/016).
+ */
+const BILLING_SEGMENTS = ['tenantBilling', 'details'] as const;
 
 // ============================================================================
 // Hook
 // ============================================================================
 
-export function useTenantBilling() {
-  const query = useQuery({
-    queryKey: billingKeys.details(),
-    queryFn: async (): Promise<TenantBillingData> => {
+export function useTenantBilling(): {
+  subscription: TenantSubscription | null;
+  invoices: TenantInvoice[];
+  planLimits: PlanLimits | null;
+  usageMetrics: UsageMetrics | null;
+  isLoading: boolean;
+  error: Error | null;
+  refetch: () => void;
+} {
+  const query = useTenantQuery<TenantBillingData>(
+    BILLING_SEGMENTS,
+    async (): Promise<TenantBillingData> => {
       try {
         const data = await graphqlRequest<{ tenantBilling: TenantBillingData }>(
           TENANT_BILLING_QUERY,
@@ -100,8 +111,8 @@ export function useTenantBilling() {
         throw err;
       }
     },
-    staleTime: 5 * 60 * 1000, // 5 minutes
-  });
+    { staleTime: 5 * 60 * 1000 },
+  );
 
   return {
     subscription: query.data?.subscription ?? null,

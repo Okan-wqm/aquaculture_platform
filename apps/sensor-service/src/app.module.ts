@@ -10,6 +10,12 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
 import { TenantErasureTargetModule } from '@aquaculture/backend-common/compliance';
+
+import {
+  MqttAuthCacheInvalidationHook,
+  PublishedOutboxPurgeHook,
+  SensorErasureModule,
+} from './compliance/erasure/erasure.module';
 import {
   createServiceTypeOrmConfig,
   isSchemaDdlOwnedByDbMigrate,
@@ -67,6 +73,7 @@ import {
 } from './edge-device/entities/v2';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { HealthModule } from './health/health.module';
+import { FeedingWindowModule } from './feeding-window/feeding-window.module';
 import { IngestionModule } from './ingestion/ingestion.module';
 import { SensorMetricsModule } from './metrics/metrics.module';
 import { TimescaleModule } from './timescale/timescale.module';
@@ -341,7 +348,13 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
       useFactory: buildEventBusConfig,
     }),
     SensorOutboxModule,
-    TenantErasureTargetModule.forService('sensor-service'),
+    TenantErasureTargetModule.forService('sensor-service', {
+      // Task 1.8: purge the tenant's PUBLISHED outbox rows + drop the MQTT
+      // auth cache entries mapping to the erased tenant, atomically with
+      // the erasure.
+      imports: [SensorErasureModule],
+      postErasureHooks: [PublishedOutboxPurgeHook, MqttAuthCacheInvalidationHook],
+    }),
 
     // SECURITY (CRITICAL-001): RS256 asymmetric verification via the shared
     // PlatformJwtModule. sensor-service is a token CONSUMER, not an issuer.
@@ -416,6 +429,9 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
 
     // Data ingestion module (MQTT listener, data processing)
     IngestionModule,
+    // W7/FARM-MEDIUM-271 — pre-meal oxygen readiness: the real consumer of
+    // farm's MealWindowUpcoming (previously a dead-end event).
+    FeedingWindowModule,
 
     // TimescaleDB lifecycle: creates the sensor.metrics_1min/1hour/1day
     // continuous aggregates over sensor_metrics at bootstrap (the rollup views

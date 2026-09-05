@@ -82,6 +82,16 @@ export interface TenantUpdatedEvent extends BaseEvent {
   plan?: string;
   status?: string;
   maxUsers?: number;
+  /**
+   * IANA saat dilimi (W5). Tenant lokalizasyonunun SSoT'si
+   * `auth.tenants.settings.localization`'dır; bu alan onu tüketen servislere
+   * (farm-service yemleme cron'ları) taşır. Yalnız lokalizasyon değiştiğinde
+   * doldurulur — diğer TenantUpdated yayımlarında `undefined` kalır ve
+   * projeksiyon tüketicileri o event'i atlar.
+   */
+  timezone?: string;
+  /** BCP-47 dil etiketi (raporlama/biçimlendirme). */
+  locale?: string;
 }
 
 /**

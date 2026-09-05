@@ -19,10 +19,8 @@
 
 use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
-use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::sync::Mutex;
 use tracing::{debug, info, warn};
 
 use super::types::{DevAddr, DevEui, DeviceClass, SessionKeys};
@@ -39,9 +37,6 @@ use super::types::{DevAddr, DevEui, DeviceClass, SessionKeys};
 pub struct SessionStore {
     /// SQLite baglantisi (Mutex ile thread-safe erisim)
     db: Mutex<Connection>,
-    /// Bellek-ici frame counter cache'i — periyodik flush ile SQLite'a yazilir
-    /// Key: DevEui, Value: (f_cnt_up, last_seen timestamp)
-    pending_counters: Arc<Mutex<HashMap<DevEui, (u32, i64)>>>,
 }
 
 /// Veritabanindan okunan oturum bilgisi
@@ -95,25 +90,24 @@ impl SessionStore {
     /// # Parametreler
     /// - `db_path`: SQLite veritabani dosya yolu
     pub fn new(db_path: &Path) -> Result<Self> {
-        let conn = Connection::open(db_path)
-            .with_context(|| format!("LoRa session DB acilamadi: {}", db_path.display()))?;
-
-        // SQLCipher sifreleme anahtarini uygula (offline_queue.rs ile ayni yontem)
-        let hex_key = crate::offline_queue::derive_db_encryption_key()?;
-        conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key))
-            .context("SQLCipher anahtar uygulanamadi")?;
-
-        // WAL modu ve performans PRAGMA'lari — esanli okuma/yazma icin
-        conn.execute_batch(
-            "PRAGMA journal_mode=WAL;
-             PRAGMA synchronous=NORMAL;
-             PRAGMA cache_size=-2000;",
-        )
-        .context("SQLite performans PRAGMA'lari uygulanamadi")?;
+        // EDGE-HIGH-026: open + key via the canonical SQLCipher factory
+        // (v1 device-secret key). This also corrects the former outlier
+        // pragma profile (cache_size=-2000, no busy_timeout/auto_vacuum) to
+        // the canonical durability sequence the factory owns.
+        //
+        // PR935-MEDIUM-001: the DURABLE profile (synchronous=FULL) makes every
+        // commit power-loss durable. This store persists the LoRaWAN uplink
+        // frame counter (EDGE-HIGH-017); at synchronous=NORMAL a power cut can
+        // lose the last advances and reopen the replay window. Uplink rates
+        // are radio-bounded, so per-commit fsync is affordable.
+        let conn = crate::db::sqlcipher_factory::open_device_secret(
+            db_path,
+            "lora_session",
+            crate::db::sqlcipher_factory::PragmaProfile::DURABLE,
+        )?;
 
         let store = Self {
             db: Mutex::new(conn),
-            pending_counters: Arc::new(Mutex::new(HashMap::new())),
         };
 
         store.init_schema()?;
@@ -132,7 +126,6 @@ impl SessionStore {
 
         let store = Self {
             db: Mutex::new(conn),
-            pending_counters: Arc::new(Mutex::new(HashMap::new())),
         };
 
         store.init_schema()?;
@@ -165,10 +158,10 @@ impl SessionStore {
 
         conn.execute_batch(
             "
-            -- WAL modu: Concurrent okuma + yazma, crash-safe
-            PRAGMA journal_mode=WAL;
-            PRAGMA synchronous=NORMAL;
-            PRAGMA busy_timeout=5000;
+            -- PR935-MEDIUM-001/002: journal_mode / synchronous / busy_timeout
+            -- are owned by the SQLCipher factory (DURABLE profile → FULL). This
+            -- schema init MUST NOT re-emit synchronous=NORMAL — doing so would
+            -- silently downgrade the frame-counter durability guarantee.
 
             -- Aktif oturumlar tablosu
             -- dev_eui: Cihaz benzersiz kimligi (hex string, PK)
@@ -317,97 +310,39 @@ impl SessionStore {
         Ok(())
     }
 
-    /// Uplink frame sayacini gunceller (bellek-ici cache)
+    /// Uplink frame sayacini ATOMİK olarak dogrular VE kalici olarak
+    /// ilerletir (EDGE-HIGH-017).
     ///
-    /// Her basarili uplink isleminde FCntUp bellek-ici cache'e yazilir.
-    /// Periyodik flush_frame_counters() cagrisi ile SQLite'a batch olarak aktarilir.
-    /// Bu sayede 2000 cihaz x 1 uplink/sn senaryosunda SQLite yazma yukunun
-    /// %99'u ortadan kaldirilir (10sn flush = 2000 yerine 1 transaction).
-    pub fn update_frame_counter(&self, dev_eui: &DevEui, f_cnt_up: u32) -> Result<()> {
-        let now = chrono::Utc::now().timestamp();
-        let mut pending = self
-            .pending_counters
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
-        pending.insert(*dev_eui, (f_cnt_up, now));
-        Ok(())
-    }
-
-    /// Bellek-ici frame counter cache'ini SQLite'a toplu olarak yazar
+    /// `f_cnt` sema uzerindeki `f_cnt_up` (= beklenen sonraki sayac)
+    /// degerinden buyuk-esitse taze kabul edilir; tek bir korumali UPDATE
+    /// ile sayac `f_cnt + 1`'e ilerletilip commit edilir ve `Ok(true)`
+    /// doner. Aksi halde (replay / bayat) hicbir satir guncellenmez ve
+    /// `Ok(false)` doner.
     ///
-    /// Tek bir transaction icerisinde tum bekleyen counter guncellmeleri
-    /// batch UPDATE ile yapilir. Lock sadece HashMap drain suresi kadar tutulur.
-    pub fn flush_frame_counters(&self) -> Result<usize> {
-        // Onceki pending'leri hizlica drain et — lock'u kisa tut
-        let pending: HashMap<DevEui, (u32, i64)> = {
-            let mut guard = self
-                .pending_counters
-                .lock()
-                .unwrap_or_else(|p| p.into_inner());
-            std::mem::take(&mut *guard)
-        };
-
-        if pending.is_empty() {
-            return Ok(0);
-        }
-
-        let count = pending.len();
+    /// Dogrulama ve ilerletme TEK bir dayanikli islemdir: `WHERE ... AND
+    /// ?f_cnt >= f_cnt_up` kosulu monoton kapiyi dogrudan veritabaninda
+    /// uygular, boylece "oku-sonra-baska-yere-yaz" penceresi (ayni surec
+    /// icinde VEYA cokme/yeniden-baslatma sonrasi) YAPISAL OLARAK olusamaz.
+    /// Bu, replay korumasinin OTORİTE kapisidir. Dayaniklilik WAL +
+    /// `synchronous=NORMAL`'dan gelir (bkz. `new`): commit edilen WAL
+    /// cerceveleri yeniden acilista tekrar oynatilir, bu da panik +
+    /// systemd `Restart=always` tehdidini kapsar.
+    pub fn check_and_advance_f_cnt_up(&self, dev_eui: &DevEui, f_cnt: u32) -> Result<bool> {
         let conn = self.acquire_lock()?;
-
-        // Tek transaction ile batch UPDATE — 2000 cihaz icin ~1-2ms
-        conn.execute_batch("BEGIN IMMEDIATE")
-            .context("Frame counter flush transaction baslatilamadi")?;
-
-        {
-            let mut stmt = conn
-                .prepare_cached(
-                    "UPDATE sessions SET f_cnt_up = ?1, last_seen = ?2 WHERE dev_eui = ?3",
-                )
-                .context("Frame counter flush statement hazirlanamadi")?;
-
-            for (dev_eui, (f_cnt_up, last_seen)) in &pending {
-                let dev_eui_hex = format!("{}", dev_eui);
-                if let Err(e) = stmt.execute(params![f_cnt_up, last_seen, dev_eui_hex]) {
-                    warn!(
-                        "Frame counter flush hatasi: dev_eui={}, hata={}",
-                        dev_eui, e
-                    );
-                }
-            }
-        }
-
-        conn.execute_batch("COMMIT")
-            .context("Frame counter flush COMMIT hatasi")?;
-
-        debug!(
-            "Frame counter flush tamamlandi: {} cihaz guncellendi",
-            count
-        );
-        Ok(count)
-    }
-
-    /// Periyodik frame counter flush gorevi baslatir
-    ///
-    /// tokio::spawn ile arka planda calisir, belirtilen araliklarda
-    /// flush_frame_counters() cagrisini yapar.
-    ///
-    /// # Parametreler
-    /// - `interval`: Flush araligi (varsayilan onerilen: 10 saniye)
-    ///
-    /// # Donus
-    /// JoinHandle — actor shutdown sirasinda iptal etmek icin saklanabilir
-    pub fn start_flush_task(self: &Arc<Self>, interval: Duration) -> tokio::task::JoinHandle<()> {
-        let store = Arc::clone(self);
-        tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(interval);
-            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-            loop {
-                ticker.tick().await;
-                if let Err(e) = store.flush_frame_counters() {
-                    warn!("Periyodik frame counter flush hatasi: {}", e);
-                }
-            }
-        })
+        let now = chrono::Utc::now().timestamp();
+        let dev_eui_hex = format!("{}", dev_eui);
+        let rows = conn
+            .execute(
+                "UPDATE sessions
+                    SET f_cnt_up = ?1, last_seen = ?2
+                  WHERE dev_eui = ?3 AND ?4 >= f_cnt_up",
+                // PR935-LOW-006: saturating_add so the stored next-expected
+                // counter cannot wrap to 0 at u32::MAX (release has no
+                // overflow-checks) — a wrap would reopen the replay window.
+                params![f_cnt.saturating_add(1), now, dev_eui_hex, f_cnt],
+            )
+            .context("FCntUp dogrula-ve-ilerlet basarisiz")?;
+        Ok(rows == 1)
     }
 
     /// Downlink frame sayacini arttirir ve yeni degeri dondurur
@@ -454,13 +389,9 @@ impl SessionStore {
     /// # Parametreler
     /// - `max_idle_secs`: Maksimum inaktivite suresi (saniye)
     pub fn cleanup_stale(&self, max_idle_secs: i64) -> Result<usize> {
-        // Cleanup oncesi pending counter'lari flush et
-        // Aksi halde cache'teki last_seen degerleri DB'ye yazilmamis olur
-        // ve aktif cihazlar yanlis olarak "stale" kabul edilebilir
-        if let Err(e) = self.flush_frame_counters() {
-            warn!("cleanup_stale oncesi flush hatasi: {}", e);
-        }
-
+        // EDGE-HIGH-017: her uplink `last_seen`'i write-through olarak
+        // gunceller (check_and_advance_f_cnt_up), dolayisiyla flush edilmemis
+        // bir cache yoktur — DB daima gunceldir, on-flush gereksizdir.
         let conn = self.acquire_lock()?;
         let cutoff = chrono::Utc::now().timestamp() - max_idle_secs;
 
@@ -760,32 +691,66 @@ mod tests {
         assert!(result.is_none());
     }
 
+    // EDGE-HIGH-017: the atomic check-and-advance is the authoritative
+    // anti-replay gate. Validation + durable advance are one transaction;
+    // the advance is IMMEDIATELY visible to the next read (no flush).
     #[test]
-    fn test_update_frame_counter() {
+    fn test_check_and_advance_accepts_fresh_and_persists() {
         let store = SessionStore::in_memory().expect("store olusturulamadi");
-        let session = make_test_session();
+        let session = make_test_session(); // f_cnt_up = 0 (next-expected)
         store.save_session(&session).expect("kayit basarisiz");
 
-        store
-            .update_frame_counter(&session.dev_eui, 42)
-            .expect("guncelleme hatasi");
+        // Fresh uplink f_cnt=42 (>= next-expected 0) → accepted + advanced.
+        let fresh = store
+            .check_and_advance_f_cnt_up(&session.dev_eui, 42)
+            .expect("advance hatasi");
+        assert!(fresh, "fresh uplink must be accepted");
 
-        // Cache'ten SQLite'a flush et (batch write mekanizmasi)
-        let flushed = store.flush_frame_counters().expect("flush hatasi");
-        assert_eq!(flushed, 1);
-
+        // The advance is visible with NO flush — stored is the next-expected
+        // value 43.
         let loaded = store
             .get_session(&session.keys.dev_addr)
             .expect("sorgu hatasi")
             .expect("oturum bulunamadi");
-        assert_eq!(loaded.keys.f_cnt_up, 42);
+        assert_eq!(loaded.keys.f_cnt_up, 43);
     }
 
     #[test]
-    fn test_frame_counter_batch_flush() {
+    fn test_check_and_advance_rejects_replay_and_stale() {
         let store = SessionStore::in_memory().expect("store olusturulamadi");
+        let session = make_test_session();
+        store.save_session(&session).expect("kayit basarisiz");
 
-        // 3 farkli cihaz olustur
+        assert!(
+            store
+                .check_and_advance_f_cnt_up(&session.dev_eui, 42)
+                .expect("advance")
+        );
+        // Replay of the same counter → rejected (42 < next-expected 43).
+        assert!(
+            !store
+                .check_and_advance_f_cnt_up(&session.dev_eui, 42)
+                .expect("replay check"),
+            "replay of the last counter must be rejected"
+        );
+        // A strictly lower (older) counter → rejected.
+        assert!(
+            !store
+                .check_and_advance_f_cnt_up(&session.dev_eui, 10)
+                .expect("stale check"),
+            "a stale counter must be rejected"
+        );
+        // The stored counter is unchanged by the rejected attempts.
+        let loaded = store
+            .get_session(&session.keys.dev_addr)
+            .expect("sorgu")
+            .expect("oturum");
+        assert_eq!(loaded.keys.f_cnt_up, 43);
+    }
+
+    #[test]
+    fn test_check_and_advance_is_per_device_independent() {
+        let store = SessionStore::in_memory().expect("store olusturulamadi");
         let mut sessions = Vec::new();
         for i in 0..3u8 {
             let mut s = make_test_session();
@@ -795,28 +760,22 @@ mod tests {
             sessions.push(s);
         }
 
-        // Hepsinin frame counter'ini cache'e yaz
+        // Each device advances independently and is immediately durable.
         for (i, s) in sessions.iter().enumerate() {
-            store
-                .update_frame_counter(&s.dev_eui, (i as u32 + 1) * 100)
-                .expect("update hatasi");
+            let f_cnt = (i as u32 + 1) * 100;
+            assert!(
+                store
+                    .check_and_advance_f_cnt_up(&s.dev_eui, f_cnt)
+                    .expect("advance")
+            );
         }
 
-        // Flush oncesi: bos flush testi yapilmamali — cache dolu
-        let flushed = store.flush_frame_counters().expect("flush hatasi");
-        assert_eq!(flushed, 3);
-
-        // Flush sonrasi: cache bos olmali
-        let flushed_again = store.flush_frame_counters().expect("flush hatasi");
-        assert_eq!(flushed_again, 0);
-
-        // Degerleri dogrula
         for (i, s) in sessions.iter().enumerate() {
             let loaded = store
                 .get_session(&s.keys.dev_addr)
                 .expect("sorgu hatasi")
                 .expect("oturum bulunamadi");
-            assert_eq!(loaded.keys.f_cnt_up, (i as u32 + 1) * 100);
+            assert_eq!(loaded.keys.f_cnt_up, (i as u32 + 1) * 100 + 1);
         }
     }
 

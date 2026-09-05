@@ -3,11 +3,11 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
 
+import { DebugSession, DebugSessionType, QueryLogType } from '../entities/debug-session.entity';
 import {
-  DebugSession,
-  DebugSessionType,
-  QueryLogType,
-} from '../entities/debug-session.entity';
+  createStandardPaginatedResult,
+  type PaginationResultV1,
+} from '@platform/pagination-contracts';
 
 /**
  * Debug Session Service
@@ -114,7 +114,7 @@ export class DebugSessionService {
     isActive?: boolean;
     page?: number;
     limit?: number;
-  }): Promise<{ data: DebugSession[]; total: number; page: number; limit: number }> {
+  }): Promise<PaginationResultV1<DebugSession>> {
     const page = params.page || 1;
     const limit = params.limit || 20;
     const skip = (page - 1) * limit;
@@ -136,7 +136,7 @@ export class DebugSessionService {
 
     const [data, total] = await query.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult<DebugSession>(data, total, page, limit);
   }
 
   /**

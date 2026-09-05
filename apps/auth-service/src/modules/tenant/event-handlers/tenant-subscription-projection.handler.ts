@@ -1,22 +1,12 @@
-import {
-  Inject,
-  Injectable,
-  Logger,
-  OnModuleInit,
-  Optional,
-} from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
-import {
-  TenantPlan,
-  type TenantSubscriptionChangedEvent,
-} from '@platform/event-contracts';
+import { IEventBus, IEventHandler, HandlerOutcome } from '@platform/event-bus';
+import { TenantPlan, type TenantSubscriptionChangedEvent } from '@platform/event-contracts';
 import { Repository } from 'typeorm';
 
 import { Tenant } from '../entities/tenant.entity';
 
-const UUID_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** Narrowing guard: a raw plan string is one of the canonical TenantPlan values. */
 function isTenantPlan(value: string): value is TenantPlan {
@@ -41,9 +31,7 @@ function isTenantPlan(value: string): value is TenantPlan {
 export class TenantSubscriptionProjectionHandler
   implements IEventHandler<TenantSubscriptionChangedEvent>, OnModuleInit
 {
-  private readonly logger = new Logger(
-    TenantSubscriptionProjectionHandler.name,
-  );
+  private readonly logger = new Logger(TenantSubscriptionProjectionHandler.name);
 
   constructor(
     @InjectRepository(Tenant)
@@ -72,17 +60,15 @@ export class TenantSubscriptionProjectionHandler
     return 'TenantSubscriptionChanged';
   }
 
-  async handle(event: TenantSubscriptionChangedEvent): Promise<void> {
+  async handle(event: TenantSubscriptionChangedEvent): Promise<HandlerOutcome> {
     if (!event.tenantId || !UUID_REGEX.test(event.tenantId)) {
       this.logger.error(
         `TenantSubscriptionChanged has an invalid/missing tenantId ('${event.tenantId}') — projection skipped to avoid a cross-tenant write.`,
       );
-      return;
+      return HandlerOutcome.terminate('TenantSubscriptionChanged: missing or invalid tenantId');
     }
 
-    const patch: Partial<
-      Pick<Tenant, 'plan' | 'trialEndsAt' | 'subscriptionEndsAt'>
-    > = {};
+    const patch: Partial<Pick<Tenant, 'plan' | 'trialEndsAt' | 'subscriptionEndsAt'>> = {};
 
     if (isTenantPlan(event.newPlan)) {
       patch.plan = event.newPlan;
@@ -103,21 +89,19 @@ export class TenantSubscriptionProjectionHandler
     }
 
     if (Object.keys(patch).length === 0) {
-      return;
+      return HandlerOutcome.ack();
     }
 
-    const result = await this.tenantRepository.update(
-      { id: event.tenantId },
-      patch,
-    );
+    const result = await this.tenantRepository.update({ id: event.tenantId }, patch);
     if (!result.affected) {
       this.logger.warn(
         `TenantSubscriptionChanged for tenant ${event.tenantId} matched no auth.tenants row — projection skipped.`,
       );
-      return;
+      return HandlerOutcome.ack();
     }
     this.logger.log(
       `Projected subscription state onto auth.tenants for tenant ${event.tenantId} (plan=${event.newPlan}).`,
     );
+    return HandlerOutcome.ack();
   }
 }

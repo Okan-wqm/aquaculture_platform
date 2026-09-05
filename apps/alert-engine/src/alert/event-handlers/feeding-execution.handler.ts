@@ -8,7 +8,7 @@
  * burada kurulur (FeedCoverageEventHandler emsali).
  */
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { IEventBus, IEventHandler, HandlerOutcome, outcomeForError } from '@platform/event-bus';
 import type {
   BaseEvent,
   FeedTypeTransitionedEvent,
@@ -42,7 +42,7 @@ export class FeedingExecutionEventHandler implements IEventHandler<BaseEvent>, O
     for (const eventType of SUBSCRIBED_TYPES) {
       await this.eventBus.subscribeWildcard(eventType, {
         getEventType: (): string => eventType,
-        handle: async (event: BaseEvent): Promise<void> => this.handle(event),
+        handle: async (event: BaseEvent): Promise<HandlerOutcome> => this.handle(event),
       });
     }
     this.logger.log(`Subscribed to ${SUBSCRIBED_TYPES.join(' + ')} (cross-tenant wildcard)`);
@@ -52,13 +52,13 @@ export class FeedingExecutionEventHandler implements IEventHandler<BaseEvent>, O
     return 'MealUnderfed';
   }
 
-  async handle(event: BaseEvent): Promise<void> {
+  async handle(event: BaseEvent): Promise<HandlerOutcome> {
     if (!event.tenantId || !isValidUUID(event.tenantId)) {
       this.logger.error(
         `${event.eventType} event has missing/invalid tenantId — skipping ` +
           'to prevent cross-tenant incident creation.',
       );
-      return;
+      return HandlerOutcome.terminate('feeding-execution: missing or invalid tenantId');
     }
 
     const context: RequestContext = {
@@ -81,13 +81,16 @@ export class FeedingExecutionEventHandler implements IEventHandler<BaseEvent>, O
           );
         }
       });
+      return HandlerOutcome.ack();
     } catch (error) {
-      // Swallow so NATS does not redeliver a poison message indefinitely —
-      // az-atım/missed/unfed sinyalleri sonraki cron döngüsünde yeniden üretilir.
+      // PLAT-HIGH-902: no swallowing. A validation/domain rejection can never
+      // succeed and is dead-lettered; anything else is retried within the
+      // consumer's delivery budget and dead-lettered when it is spent.
       this.logger.error(
         `Error handling ${event.eventType}: ${(error as Error).message}`,
         (error as Error).stack,
       );
+      return outcomeForError('feeding-execution', error);
     }
   }
 }

@@ -7,7 +7,7 @@
  * tenant search_path bağlamı burada kurulur (FcrAlertEventHandler emsali).
  */
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { IEventBus, IEventHandler, HandlerOutcome, outcomeForError } from '@platform/event-bus';
 import type {
   BaseEvent,
   FeedStockoutForecastEvent,
@@ -32,7 +32,7 @@ export class FeedCoverageEventHandler implements IEventHandler<BaseEvent>, OnMod
     await this.eventBus.subscribeWildcard('FeedStockoutForecast', this);
     await this.eventBus.subscribeWildcard('FeedTransitionUpcoming', {
       getEventType: (): string => 'FeedTransitionUpcoming',
-      handle: async (event: BaseEvent): Promise<void> => this.handle(event),
+      handle: async (event: BaseEvent): Promise<HandlerOutcome> => this.handle(event),
     });
     this.logger.log(
       'Subscribed to FeedStockoutForecast + FeedTransitionUpcoming (cross-tenant wildcard)',
@@ -43,13 +43,13 @@ export class FeedCoverageEventHandler implements IEventHandler<BaseEvent>, OnMod
     return 'FeedStockoutForecast';
   }
 
-  async handle(event: BaseEvent): Promise<void> {
+  async handle(event: BaseEvent): Promise<HandlerOutcome> {
     if (!event.tenantId || !isValidUUID(event.tenantId)) {
       this.logger.error(
         `${event.eventType} event has missing/invalid tenantId — skipping ` +
           'to prevent cross-tenant incident creation.',
       );
-      return;
+      return HandlerOutcome.terminate('feed-coverage: missing or invalid tenantId');
     }
 
     const context: RequestContext = {
@@ -65,18 +65,19 @@ export class FeedCoverageEventHandler implements IEventHandler<BaseEvent>, OnMod
             event as FeedStockoutForecastEvent,
           );
         } else if (event.eventType === 'FeedTransitionUpcoming') {
-          await this.coverageAlertService.recordTransitionGap(
-            event as FeedTransitionUpcomingEvent,
-          );
+          await this.coverageAlertService.recordTransitionGap(event as FeedTransitionUpcomingEvent);
         }
       });
+      return HandlerOutcome.ack();
     } catch (error) {
-      // Swallow so NATS does not redeliver a poison message indefinitely —
-      // ertesi 07:00 süpürmesi sinyali zaten yeniden üretir.
+      // PLAT-HIGH-902: no swallowing. A validation/domain rejection can never
+      // succeed and is dead-lettered; anything else is retried within the
+      // consumer's delivery budget and dead-lettered when it is spent.
       this.logger.error(
         `Error creating feed-coverage incident: ${(error as Error).message}`,
         (error as Error).stack,
       );
+      return outcomeForError('feed-coverage', error);
     }
   }
 }

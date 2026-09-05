@@ -12,9 +12,7 @@
 // Mock the logging subpath BEFORE importing the handler so the context spy is
 // in place; the database subpath (isValidUUID/getTenantSchemaName) stays REAL
 // so the security validation + schema derivation behave as in production.
-const mockRun = jest.fn(
-  (_context: unknown, fn: () => Promise<void>): Promise<void> => fn(),
-);
+const mockRun = jest.fn((_context: unknown, fn: () => Promise<void>): Promise<void> => fn());
 
 jest.mock('@aquaculture/backend-common/logging', () => ({
   requestContextStorage: { run: mockRun },
@@ -104,10 +102,12 @@ describe('WaterQualityCriticalEventHandler', () => {
     expect(service.recordCriticalWaterQuality).toHaveBeenCalledWith(event);
   });
 
-  it('swallows service errors so NATS does not redeliver a poison message', async () => {
+  it('reports a service failure as a retry outcome (the bus owns redelivery and dead-lettering)', async () => {
     const { handler, service } = makeHandler();
     service.recordCriticalWaterQuality.mockRejectedValueOnce(new Error('db down'));
 
-    await expect(handler.handle(makeEvent(TENANT_ID))).resolves.toBeUndefined();
+    await expect(handler.handle(makeEvent(TENANT_ID))).resolves.toEqual(
+      expect.objectContaining({ kind: 'retry' }),
+    );
   });
 });

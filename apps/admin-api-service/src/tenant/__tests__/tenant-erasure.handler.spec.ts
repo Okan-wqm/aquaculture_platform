@@ -209,8 +209,13 @@ describe('TenantErasureProofHandler', () => {
       proofHash: 'sha256:forged',
     };
 
-    await expect(handler.handle(forged)).rejects.toThrow(
-      'is bound to farm-service, payload claims sensor-service',
+    // PLAT-HIGH-902: a forged proof can never be recorded — it is terminated
+    // (dead-lettered with its reason), not redelivered until the budget is spent.
+    await expect(handler.handle(forged)).resolves.toEqual(
+      expect.objectContaining({
+        kind: 'terminate',
+        reason: expect.stringContaining('is bound to farm-service, payload claims sensor-service'),
+      }),
     );
     expect(transaction).not.toHaveBeenCalled();
   });

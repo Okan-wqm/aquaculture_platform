@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { IEventBus, IEventHandler, HandlerOutcome } from '@platform/event-bus';
 import type { FeedingDailySummaryEvent } from '@platform/event-contracts';
 import { Repository } from 'typeorm';
 
@@ -66,13 +66,13 @@ export class FeedingDailySummaryEventHandler
     return 'FeedingDailySummary';
   }
 
-  async handle(event: FeedingDailySummaryEvent): Promise<void> {
+  async handle(event: FeedingDailySummaryEvent): Promise<HandlerOutcome> {
     if (!event.tenantId || !UUID_REGEX.test(event.tenantId)) {
       this.logger.error(
         'FeedingDailySummary event has invalid or missing tenantId. ' +
           'Skipping to prevent cross-tenant notification leakage.',
       );
-      return;
+      return HandlerOutcome.terminate('FeedingDailySummary: missing or invalid tenantId');
     }
 
     const recipients = await this.resolveRecipients(event.tenantId);
@@ -81,7 +81,7 @@ export class FeedingDailySummaryEventHandler
         `No registered device users for tenant ${event.tenantId.substring(0, 8)}... — ` +
           'daily feeding summary has no reachable recipients.',
       );
-      return;
+      return HandlerOutcome.ack();
     }
 
     const completionRate =
@@ -148,6 +148,10 @@ export class FeedingDailySummaryEventHandler
       `Daily feeding summary fanned out to ${recipients.length} user(s) ` +
         `for tenant ${event.tenantId.substring(0, 8)}...`,
     );
+    // Per-recipient push failures are owned by the dispatcher's retry machine
+    // and in-app write failures are logged per user; the summary itself is
+    // consumed.
+    return HandlerOutcome.ack();
   }
 
   /**

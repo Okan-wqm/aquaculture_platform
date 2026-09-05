@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Inject } from '@nestjs/common';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { IEventBus, IEventHandler, HandlerOutcome, outcomeForError } from '@platform/event-bus';
 import { PARAMETER_BY_READING_FIELD, type SensorReadingEvent } from '@platform/event-contracts';
 import { getTenantSchemaName, isValidUUID } from '@aquaculture/backend-common/database';
 import { requestContextStorage, RequestContext } from '@aquaculture/backend-common/logging';
@@ -40,9 +40,7 @@ function extractReadingsFromEvent(event: SensorReadingEvent): Record<string, num
  * connection checkout to the correct tenant schema.
  */
 @Injectable()
-export class SensorReadingEventHandler
-  implements IEventHandler<SensorReadingEvent>, OnModuleInit
-{
+export class SensorReadingEventHandler implements IEventHandler<SensorReadingEvent>, OnModuleInit {
   private readonly logger = new Logger(SensorReadingEventHandler.name);
 
   constructor(
@@ -75,19 +73,17 @@ export class SensorReadingEventHandler
 
   // getTenantSchemaName imported from @aquaculture/backend-common
 
-  async handle(event: SensorReadingEvent): Promise<void> {
-    this.logger.debug(
-      `Processing sensor reading from ${event.sensorId}`,
-    );
+  async handle(event: SensorReadingEvent): Promise<HandlerOutcome> {
+    this.logger.debug(`Processing sensor reading from ${event.sensorId}`);
 
     // SECURITY: tenantId is required for multi-tenant isolation
     // Empty string fallback could cause cross-tenant data leakage
     if (!event.tenantId) {
       this.logger.error(
         `Missing tenantId for sensor reading from ${event.sensorId}. ` +
-        'Skipping alert evaluation to prevent multi-tenant isolation breach.',
+          'Skipping alert evaluation to prevent multi-tenant isolation breach.',
       );
-      return;
+      return HandlerOutcome.terminate('SensorReading: missing or invalid tenantId');
     }
 
     // Validate UUID format to prevent schema name injection
@@ -95,7 +91,7 @@ export class SensorReadingEventHandler
       this.logger.error(
         `Invalid tenantId format for sensor reading from ${event.sensorId}: ${event.tenantId}. Skipping.`,
       );
-      return;
+      return HandlerOutcome.terminate('SensorReading: missing or invalid tenantId');
     }
 
     // NATS handlers have NO AsyncLocalStorage context.
@@ -123,11 +119,16 @@ export class SensorReadingEventHandler
           timestamp: event.timestamp,
         });
       });
+      return HandlerOutcome.ack();
     } catch (error) {
+      // PLAT-HIGH-902: no swallowing. A validation/domain rejection can never
+      // succeed and is dead-lettered; anything else is retried within the
+      // consumer's delivery budget and dead-lettered when it is spent.
       this.logger.error(
         `Error processing sensor reading: ${(error as Error).message}`,
         (error as Error).stack,
       );
+      return outcomeForError('SensorReading', error);
     }
   }
 }

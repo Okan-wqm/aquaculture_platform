@@ -38,6 +38,11 @@ import { ConfigService } from '@nestjs/config';
 import { EventUpcasterRegistry } from '@platform/event-contracts';
 
 import {
+  EVENT_DEAD_LETTER_SINK,
+  LoggingDeadLetterSink,
+  type IDeadLetterSink,
+} from '../interfaces/dead-letter-sink';
+import {
   IEventBus,
   IEvent,
   IEventHandler,
@@ -46,6 +51,7 @@ import {
   PublishOptions,
   EventMetadata,
 } from '../interfaces/event-bus.interface';
+import { HandlerOutcome, foldHandlerOutcomes } from '../interfaces/handler-outcome';
 import {
   buildSystemEventSubject,
   buildTenantEventSubject,
@@ -54,6 +60,7 @@ import {
 } from '../subjects/tenant-event-subject';
 
 import { DEFAULT_NATS_URL, DEFAULT_NATS_STREAM_NAME } from './event-bus-config.factory';
+import { EventBusDeliveryMetrics } from './event-bus-delivery-metrics';
 import type { EventBusModuleOptions } from './nats.module';
 
 export interface CoreNatsConnectionSnapshot {
@@ -171,6 +178,10 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
   /** Optional event upcaster registry for v1→v2+ event schema migration */
   private readonly upcasterRegistry?: EventUpcasterRegistry;
 
+  /** PLAT-HIGH-902: where terminated / retry-exhausted messages are recorded. */
+  private readonly deadLetterSink: IDeadLetterSink;
+  private readonly deliveryMetrics: EventBusDeliveryMetrics;
+
   /**
    * IMPORTANT: fail-closed — when true, broker unavailability always prevents
    * module startup regardless of environment.  Production ALWAYS fails closed.
@@ -181,8 +192,13 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
     private readonly configService: ConfigService,
     @Inject('EVENT_BUS_OPTIONS') @Optional() moduleOptions?: EventBusModuleOptions,
     @Inject('EVENT_UPCASTER_REGISTRY') @Optional() upcasterRegistry?: EventUpcasterRegistry,
+    @Inject(EVENT_DEAD_LETTER_SINK) @Optional() deadLetterSink?: IDeadLetterSink,
   ) {
     this.upcasterRegistry = upcasterRegistry;
+    this.deadLetterSink = deadLetterSink ?? new LoggingDeadLetterSink();
+    this.deliveryMetrics = new EventBusDeliveryMetrics(
+      this.configService.get<string>('SERVICE_NAME', 'unknown-service'),
+    );
     this.requireBroker = moduleOptions?.required ?? false;
     this.natsUrl = this.configService.get<string>('NATS_URL', DEFAULT_NATS_URL);
     this.streamName = this.configService.get<string>('NATS_STREAM_NAME', DEFAULT_NATS_STREAM_NAME);
@@ -1229,36 +1245,58 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
     });
   }
 
+  /**
+   * Consumer `max_deliver` for a subject as registered by createSubscription:
+   * `maxRetries` (default 3); `<= 0` is unlimited.
+   */
+  private maxDeliverFor(subject: string): number {
+    return this.subscriptionOptions.get(subject)?.maxRetries ?? 3;
+  }
+
   private async processConsumerMessage(subject: string, msg: JsMsg): Promise<void> {
     try {
       // v3: msg.string() replaces StringCodec.decode(msg.data) — same UTF-8 bytes.
       const event = this.deserializeEvent(msg.string());
       const handlers = this.handlers.get(subject) ?? [];
 
-      // SECURITY: Handler failures must NOT be swallowed while the
-      // message is acked. A swallowed handler error permanently loses
-      // the event for that handler. Route failures to retry/DLQ instead.
-      let handlerFailed = false;
+      // PLAT-HIGH-902: every handler reports a delivery outcome; the bus folds
+      // them into ONE JetStream disposition. A thrown error is a retry (the
+      // previous behaviour, made explicit); a swallowed failure can no longer
+      // be acknowledged, because acknowledging now requires saying `ack`.
+      const outcomes: HandlerOutcome[] = [];
       for (const handler of handlers) {
         try {
-          await handler.handle(event);
+          outcomes.push(await handler.handle(event));
         } catch (handlerError) {
-          handlerFailed = true;
           this.logger.error(
-            `Handler error for ${event.eventType} — message will be NAK'd for retry`,
+            `Handler error for ${event.eventType} — folded as retry`,
             handlerError,
           );
+          outcomes.push(HandlerOutcome.retry('handler threw', handlerError));
         }
       }
 
-      if (handlerFailed) {
-        // v3: deliveryCount replaces v2's deprecated redeliveryCount alias
-        // (identical value) — exponential-backoff math unchanged.
-        const deliveryCount = msg.info?.deliveryCount ?? 0;
-        const backoffMs = Math.min(1000 * Math.pow(2, deliveryCount), 30000);
-        msg.nak(backoffMs);
-      } else {
-        msg.ack();
+      // v3: deliveryCount replaces v2's deprecated redeliveryCount alias
+      // (identical value); 1 on the first delivery.
+      const deliveryCount = msg.info?.deliveryCount ?? 1;
+      const maxDeliver = this.maxDeliverFor(subject);
+      const disposition = foldHandlerOutcomes(outcomes, { deliveryCount, maxDeliver });
+      this.deliveryMetrics.observeDisposition(event.eventType, disposition.kind);
+
+      switch (disposition.kind) {
+        case 'ack':
+          msg.ack();
+          return;
+        case 'nak':
+          this.logger.warn(
+            `${event.eventType} on ${subject} redelivered (delivery ${deliveryCount}/${maxDeliver > 0 ? maxDeliver : '∞'}): ${disposition.reason}`,
+          );
+          msg.nak(disposition.backoffMs);
+          return;
+        case 'term':
+          await this.deadLetter(subject, event, disposition, deliveryCount, maxDeliver);
+          msg.term(disposition.reason);
+          return;
       }
     } catch (error) {
       this.logger.error(`Message processing error on ${subject}`, error);
@@ -1268,6 +1306,42 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
       const deliveryCount = msg.info?.deliveryCount ?? 0;
       const backoffMs = Math.min(1000 * Math.pow(2, deliveryCount), 30000);
       msg.nak(backoffMs);
+    }
+  }
+
+  /**
+   * Record a message the bus will never deliver again. The sink must not be
+   * able to turn a terminate into a redelivery loop, so a failing sink is
+   * logged and the message is still terminated — the metric counts it either
+   * way.
+   */
+  private async deadLetter(
+    subject: string,
+    event: IEvent,
+    disposition: { reason: string; retryExhausted: boolean; cause?: unknown },
+    deliveryCount: number,
+    maxDeliver: number,
+  ): Promise<void> {
+    this.deliveryMetrics.observeDeadLetter(event.eventType, disposition.retryExhausted);
+    this.logger.error(
+      `${event.eventType} on ${subject} dead-lettered (${disposition.retryExhausted ? 'retry exhausted' : 'terminated'}): ${disposition.reason}`,
+    );
+    try {
+      await this.deadLetterSink.record({
+        subject,
+        event,
+        reason: disposition.reason,
+        disposition: disposition.retryExhausted ? 'retry-exhausted' : 'terminated',
+        deliveryCount,
+        maxDeliver,
+        ...(disposition.cause === undefined ? {} : { cause: disposition.cause }),
+        terminatedAt: new Date().toISOString(),
+      });
+    } catch (sinkError) {
+      this.logger.error(
+        `Dead-letter sink failed for ${event.eventType} (eventId=${event.eventId}) — message terminated without a durable record`,
+        sinkError,
+      );
     }
   }
 

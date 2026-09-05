@@ -244,7 +244,7 @@ describe('TenantOnboardingEventHandler', () => {
         slug: 'x',
         moduleIds: MODULES,
       } as TenantOnboardingRequestedEvent),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ kind: 'ack' });
     expect(wq.seedDefaults).toHaveBeenCalledTimes(1);
     // Critical invariant: downstream seeders still run even though
     // WQ failed. A broken upstream seeder must not cascade into
@@ -280,7 +280,7 @@ describe('TenantOnboardingEventHandler', () => {
         slug: 'x',
         moduleIds: MODULES,
       } as TenantOnboardingRequestedEvent),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ kind: 'ack' });
     expect(wq.seedDefaults).toHaveBeenCalledTimes(1);
     expect(species.seedDefaults).toHaveBeenCalledTimes(1);
     expect(protocol.seedDefaults).toHaveBeenCalledTimes(1);

@@ -7,7 +7,7 @@ import {
   Optional,
 } from '@nestjs/common';
 
-import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { IEventBus, IEventHandler, HandlerOutcome } from '@platform/event-bus';
 import type {
   SensorConfigurationUpdatedEvent,
   SensorReactivatedEvent,
@@ -88,9 +88,7 @@ export class SensorCacheInvalidationHandler
 
   async onModuleInit(): Promise<void> {
     if (!this.eventBus) {
-      this.logger.warn(
-        'EVENT_BUS not provided; SensorCacheInvalidationHandler will not subscribe',
-      );
+      this.logger.warn('EVENT_BUS not provided; SensorCacheInvalidationHandler will not subscribe');
       return;
     }
     for (const subject of SensorCacheInvalidationHandler.SUBJECTS) {
@@ -151,18 +149,18 @@ export class SensorCacheInvalidationHandler
    * harmless; we still catch + log unexpected exceptions to keep the
    * subscription alive.
    */
-  async handle(event: SensorLifecycleEvent): Promise<void> {
+  async handle(event: SensorLifecycleEvent): Promise<HandlerOutcome> {
     try {
       this.metaCache.invalidateSensor(event.sensorId);
       this.invalidationCount++;
-      this.logger.debug(
-        `Invalidated cache for sensor ${event.sensorId} on ${event.eventType}`,
-      );
+      this.logger.debug(`Invalidated cache for sensor ${event.sensorId} on ${event.eventType}`);
     } catch (e) {
+      // Invalidation is idempotent and the cache self-heals on TTL; log and
+      // acknowledge rather than redeliver a lifecycle event.
       this.logger.error(
         `Cache invalidation failed for sensor ${event.sensorId}: ${(e as Error).message}`,
       );
     }
-    return Promise.resolve();
+    return Promise.resolve(HandlerOutcome.ack());
   }
 }

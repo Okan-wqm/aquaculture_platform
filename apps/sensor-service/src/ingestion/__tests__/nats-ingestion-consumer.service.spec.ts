@@ -212,7 +212,7 @@ describe('NatsIngestionConsumerService', () => {
 
     it('never throws on drop paths (would poison JetStream consumer)', async () => {
       const { svc } = makeService({ sensor: null });
-      await expect(svc.handle(fakeEvent())).resolves.toBeUndefined();
+      await expect(svc.handle(fakeEvent())).resolves.toEqual({ kind: 'ack' });
     });
 
     it('drops events that fail JSON Schema validation BEFORE touching the cache', async () => {
@@ -306,7 +306,7 @@ describe('NatsIngestionConsumerService', () => {
     it('handles events normally when the fanout service is not mounted', async () => {
       const batch = makeBatch();
       const { svc } = makeService({ batch, fanout: null });
-      await expect(svc.handle(fakeEvent())).resolves.toBeUndefined();
+      await expect(svc.handle(fakeEvent())).resolves.toEqual({ kind: 'ack' });
       expect(batch.enqueue).toHaveBeenCalledTimes(1);
     });
 
@@ -407,7 +407,7 @@ describe('NatsIngestionConsumerService', () => {
       bus.publish.mockRejectedValueOnce(new Error('broker down'));
       const batch = makeBatch();
       const { svc } = makeService({ bus, batch });
-      await expect(svc.handle(fakeEvent())).resolves.toBeUndefined();
+      await expect(svc.handle(fakeEvent())).resolves.toEqual({ kind: 'ack' });
       expect(batch.enqueue).toHaveBeenCalledTimes(1);
     });
   });

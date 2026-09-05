@@ -23,10 +23,7 @@ describe('TenantSubscriptionProjectionHandler (DATA-LOW-001)', () => {
   const makeEvent = (
     fields: Partial<TenantSubscriptionChangedEvent>,
   ): TenantSubscriptionChangedEvent => ({
-    ...createBaseEvent<TenantSubscriptionChangedEvent>(
-      'TenantSubscriptionChanged',
-      TENANT_ID,
-    ),
+    ...createBaseEvent<TenantSubscriptionChangedEvent>('TenantSubscriptionChanged', TENANT_ID),
     previousPlan: 'starter',
     newPlan: 'professional',
     effectiveDate: '2026-06-12T00:00:00.000Z',
@@ -45,17 +42,12 @@ describe('TenantSubscriptionProjectionHandler (DATA-LOW-001)', () => {
       ],
     }).compile();
 
-    handler = module.get<TenantSubscriptionProjectionHandler>(
-      TenantSubscriptionProjectionHandler,
-    );
+    handler = module.get<TenantSubscriptionProjectionHandler>(TenantSubscriptionProjectionHandler);
   });
 
   it('subscribes to TenantSubscriptionChanged on boot', async () => {
     await handler.onModuleInit();
-    expect(subscribeWildcard).toHaveBeenCalledWith(
-      'TenantSubscriptionChanged',
-      handler,
-    );
+    expect(subscribeWildcard).toHaveBeenCalledWith('TenantSubscriptionChanged', handler);
   });
 
   it('projects plan + trial + subscription end onto auth.tenants', async () => {
@@ -83,15 +75,10 @@ describe('TenantSubscriptionProjectionHandler (DATA-LOW-001)', () => {
   });
 
   it('skips the plan but still projects dates for an unknown plan string', async () => {
-    await handler.handle(
-      makeEvent({ newPlan: 'legacy-unknown', subscriptionEndsAt: null }),
-    );
+    await handler.handle(makeEvent({ newPlan: 'legacy-unknown', subscriptionEndsAt: null }));
     // The exact patch proves the unknown plan was skipped (no `plan` key) while
     // the date it carried is still projected; the event sets no trialEndsAt.
-    expect(update).toHaveBeenCalledWith(
-      { id: TENANT_ID },
-      { subscriptionEndsAt: null },
-    );
+    expect(update).toHaveBeenCalledWith({ id: TENANT_ID }, { subscriptionEndsAt: null });
   });
 
   it('refuses an invalid tenantId without touching the database', async () => {
@@ -101,6 +88,6 @@ describe('TenantSubscriptionProjectionHandler (DATA-LOW-001)', () => {
 
   it('does not throw when the tenant row is absent (affected=0)', async () => {
     update.mockResolvedValue({ affected: 0 });
-    await expect(handler.handle(makeEvent({}))).resolves.toBeUndefined();
+    await expect(handler.handle(makeEvent({}))).resolves.toEqual({ kind: 'ack' });
   });
 });

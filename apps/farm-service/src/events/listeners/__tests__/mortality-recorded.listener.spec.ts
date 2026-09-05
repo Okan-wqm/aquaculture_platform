@@ -17,10 +17,7 @@ import type { IEventBus } from '@platform/event-bus';
 import type { MortalityRecordedEvent } from '@platform/event-contracts';
 
 import { Batch } from '../../../batch/entities/batch.entity';
-import {
-  MortalityRecord,
-  MortalityCause,
-} from '../../../batch/entities/mortality-record.entity';
+import { MortalityRecord, MortalityCause } from '../../../batch/entities/mortality-record.entity';
 import { TankBatch } from '../../../batch/entities/tank-batch.entity';
 import { MortalityRecordedListener } from '../mortality-recorded.listener';
 import { makeMockEventBus } from './make-mock-event-bus';
@@ -84,9 +81,7 @@ function toWireEvent(event: MortalityRecordedEvent): MortalityRecordedEvent {
   return JSON.parse(JSON.stringify(event)) as MortalityRecordedEvent;
 }
 
-function makeEvent(
-  overrides: Partial<MortalityRecordedEvent> = {},
-): MortalityRecordedEvent {
+function makeEvent(overrides: Partial<MortalityRecordedEvent> = {}): MortalityRecordedEvent {
   return {
     ...createBaseEvent<MortalityRecordedEvent>('MortalityRecorded', TENANT_ID, {
       aggregateId: BATCH_ID,
@@ -122,9 +117,7 @@ function makeListener(opts: {
   );
 
   const mortalityRepo = createMockRepository<MortalityRecord>();
-  mortalityRepo.find.mockResolvedValue(
-    (opts.mortalityRecords ?? []) as MortalityRecord[],
-  );
+  mortalityRepo.find.mockResolvedValue((opts.mortalityRecords ?? []) as MortalityRecord[]);
 
   const tankBatchRepo = createMockRepository<TankBatch>();
   tankBatchRepo.findOne.mockResolvedValue((opts.tankBatch ?? null) as TankBatch | null);
@@ -157,17 +150,13 @@ describe('MortalityRecordedListener (NATS contract migration)', () => {
     const { listener } = makeListener({
       bus,
       batch: { currentQuantity: 9000 },
-      mortalityRecords: [
-        { count: 250, recordDate: new Date(), cause: MortalityCause.DISEASE },
-      ],
+      mortalityRecords: [{ count: 250, recordDate: new Date(), cause: MortalityCause.DISEASE }],
     });
 
     // 250 fish in one event ≥ singleEventQuantity (100) ⇒ critical (≥ 200).
     await listener.handle(makeEvent({ quantity: 250 }));
 
-    const alerts = publishedEvents(bus).filter(
-      (e) => e.eventType === 'MortalityAlertRaised',
-    );
+    const alerts = publishedEvents(bus).filter((e) => e.eventType === 'MortalityAlertRaised');
     expect(alerts.length).toBeGreaterThanOrEqual(1);
     const single = alerts.find((e) => e.alertType === 'single_event');
     expect(single).toBeDefined();
@@ -191,8 +180,7 @@ describe('MortalityRecordedListener (NATS contract migration)', () => {
     await listener.handle(makeEvent({ quantity: 5, newMortalityRate: 12 }));
 
     const cumulative = publishedEvents(bus).find(
-      (e) =>
-        e.eventType === 'MortalityAlertRaised' && e.alertType === 'cumulative_rate',
+      (e) => e.eventType === 'MortalityAlertRaised' && e.alertType === 'cumulative_rate',
     );
     expect(cumulative).toBeDefined();
     expect(cumulative?.severity).toBe('critical');
@@ -203,16 +191,12 @@ describe('MortalityRecordedListener (NATS contract migration)', () => {
     const { listener } = makeListener({
       bus,
       batch: { currentQuantity: 10000 },
-      mortalityRecords: [
-        { count: 2, recordDate: new Date(), cause: MortalityCause.UNKNOWN },
-      ],
+      mortalityRecords: [{ count: 2, recordDate: new Date(), cause: MortalityCause.UNKNOWN }],
     });
 
     await listener.handle(makeEvent({ quantity: 2, newMortalityRate: 0.4 }));
 
-    const alerts = publishedEvents(bus).filter(
-      (e) => e.eventType === 'MortalityAlertRaised',
-    );
+    const alerts = publishedEvents(bus).filter((e) => e.eventType === 'MortalityAlertRaised');
     expect(alerts).toHaveLength(0);
   });
 
@@ -225,12 +209,14 @@ describe('MortalityRecordedListener (NATS contract migration)', () => {
     expect(bus.publish).not.toHaveBeenCalled();
   });
 
-  it('swallows downstream errors so NATS does not redeliver a poison message', async () => {
+  it('reports a downstream failure as a retry outcome (bounded by the bus, then dead-lettered)', async () => {
     const bus = makeBus();
     const { listener, mortalityRepo } = makeListener({ bus });
     mortalityRepo.find.mockRejectedValue(new Error('db down'));
 
-    await expect(listener.handle(makeEvent())).resolves.toBeUndefined();
+    await expect(listener.handle(makeEvent())).resolves.toEqual(
+      expect.objectContaining({ kind: 'retry' }),
+    );
   });
 
   it('evaluateMortalityAlerts is pure and returns breached alerts', () => {
@@ -257,9 +243,7 @@ describe('MortalityRecordedListener (NATS contract migration)', () => {
     const trigger = makeEvent({ quantity: 300, newMortalityRate: 12 });
     await listener.handle(trigger);
 
-    const alerts = publishedEvents(bus).filter(
-      (e) => e.eventType === 'MortalityAlertRaised',
-    );
+    const alerts = publishedEvents(bus).filter((e) => e.eventType === 'MortalityAlertRaised');
     expect(alerts.length).toBeGreaterThanOrEqual(2);
 
     const ids = alerts.map((e) => e.eventId);
@@ -294,9 +278,7 @@ describe('MortalityRecordedListener (NATS contract migration)', () => {
     );
     await listener.handle(wireEvent);
 
-    const alert = publishedEvents(bus).find(
-      (e) => e.eventType === 'MortalityAlertRaised',
-    );
+    const alert = publishedEvents(bus).find((e) => e.eventType === 'MortalityAlertRaised');
     // ORPHAN-111: recordedAt is now an ISO string on the wire.
     expect(typeof alert?.recordedAt).toBe('string');
     expect(alert?.recordedAt).toBe('2026-06-10T08:00:00.000Z');

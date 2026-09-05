@@ -11,6 +11,7 @@ import {
 import { NatsEventBus } from '../nats-event-bus';
 import { EventHandlerRegistryModule } from '../nats.module';
 import { IEventHandler, IEvent, SubscriptionOptions } from '../../interfaces/event-bus.interface';
+import { HandlerOutcome } from '../../interfaces/handler-outcome';
 
 /**
  * Lightweight SubscribeTo decorator for testing that applies metadata
@@ -62,8 +63,8 @@ class TestSensorService {
  */
 @Injectable()
 class TestAlertHandler implements IEventHandler {
-  handle(_event: IEvent): Promise<void> {
-    return Promise.resolve();
+  handle(_event: IEvent): Promise<HandlerOutcome> {
+    return Promise.resolve(HandlerOutcome.ack());
   }
 
   getEventType(): string {

@@ -1,6 +1,21 @@
-import { Module, DynamicModule, Global, Provider, Logger } from '@nestjs/common';
+import {
+  Module,
+  DynamicModule,
+  Global,
+  Provider,
+  Logger,
+  type FactoryProvider,
+  type ModuleMetadata,
+} from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { DiscoveryModule, DiscoveryService, MetadataScanner } from '@nestjs/core';
+
+import {
+  EVENT_DEAD_LETTER_SINK,
+  LoggingDeadLetterSink,
+  type IDeadLetterSink,
+} from '../interfaces/dead-letter-sink';
+
 import { NatsEventBus } from './nats-event-bus';
 import { NatsRequestReply } from './nats-request-reply';
 import {
@@ -49,6 +64,29 @@ export interface EventBusModuleOptions {
 }
 
 /**
+ * Binding for the dead-letter sink (PLAT-HIGH-902). The factory runs inside
+ * the global EventBusModule, so a service can hand the bus a sink backed by
+ * its own durable store without importing a feature module into the bus
+ * (which would cycle through 'EVENT_BUS'). Absent, the bus logs.
+ */
+export interface DeadLetterSinkBinding {
+  imports?: ModuleMetadata['imports'];
+  inject?: FactoryProvider['inject'];
+  useFactory: (...args: never[]) => IDeadLetterSink | Promise<IDeadLetterSink>;
+}
+
+function deadLetterSinkProvider(binding?: DeadLetterSinkBinding): Provider {
+  if (binding) {
+    return {
+      provide: EVENT_DEAD_LETTER_SINK,
+      useFactory: binding.useFactory,
+      inject: binding.inject ?? [],
+    };
+  }
+  return { provide: EVENT_DEAD_LETTER_SINK, useClass: LoggingDeadLetterSink };
+}
+
+/**
  * Event Bus Module - Provides NATS JetStream event bus
  * Enterprise-grade event-driven architecture for microservices
  */
@@ -58,7 +96,10 @@ export class EventBusModule {
   /**
    * Register the module with default configuration
    */
-  static forRoot(options?: EventBusModuleOptions): DynamicModule {
+  static forRoot(
+    options?: EventBusModuleOptions,
+    deadLetterSink?: DeadLetterSinkBinding,
+  ): DynamicModule {
     const providers: Provider[] = [
       {
         provide: 'EVENT_BUS_OPTIONS',
@@ -68,6 +109,7 @@ export class EventBusModule {
         provide: 'EVENT_UPCASTER_REGISTRY',
         useFactory: () => createDefaultRegistry(),
       },
+      deadLetterSinkProvider(deadLetterSink),
       NatsEventBus,
       {
         provide: 'EVENT_BUS',
@@ -80,11 +122,12 @@ export class EventBusModule {
 
     return {
       module: EventBusModule,
-      imports: [ConfigModule, DiscoveryModule],
+      imports: [ConfigModule, DiscoveryModule, ...(deadLetterSink?.imports ?? [])],
       providers,
       exports: [
         'EVENT_BUS',
         'EVENT_UPCASTER_REGISTRY',
+        EVENT_DEAD_LETTER_SINK,
         NatsEventBus,
         NatsRequestReply,
       ],
@@ -96,10 +139,10 @@ export class EventBusModule {
    */
   static forRootAsync(options: {
     imports?: any[];
-    useFactory: (
-      ...args: any[]
-    ) => Promise<EventBusModuleOptions> | EventBusModuleOptions;
+    useFactory: (...args: any[]) => Promise<EventBusModuleOptions> | EventBusModuleOptions;
     inject?: any[];
+    /** PLAT-HIGH-902: service-owned durable dead-letter store; logs when absent. */
+    deadLetterSink?: DeadLetterSinkBinding;
   }): DynamicModule {
     const providers: Provider[] = [
       {
@@ -111,6 +154,7 @@ export class EventBusModule {
         provide: 'EVENT_UPCASTER_REGISTRY',
         useFactory: () => createDefaultRegistry(),
       },
+      deadLetterSinkProvider(options.deadLetterSink),
       NatsEventBus,
       {
         provide: 'EVENT_BUS',
@@ -122,11 +166,17 @@ export class EventBusModule {
 
     return {
       module: EventBusModule,
-      imports: [ConfigModule, DiscoveryModule, ...(options.imports ?? [])],
+      imports: [
+        ConfigModule,
+        DiscoveryModule,
+        ...(options.imports ?? []),
+        ...(options.deadLetterSink?.imports ?? []),
+      ],
       providers,
       exports: [
         'EVENT_BUS',
         'EVENT_UPCASTER_REGISTRY',
+        EVENT_DEAD_LETTER_SINK,
         NatsEventBus,
         NatsRequestReply,
       ],
@@ -178,10 +228,7 @@ export class EventHandlerRegistryModule {
       }
 
       // ── Class-level @EventHandler decorator ──
-      const handlerMetadata = Reflect.getMetadata(
-        EVENT_HANDLER_METADATA,
-        metatype,
-      );
+      const handlerMetadata = Reflect.getMetadata(EVENT_HANDLER_METADATA, metatype);
 
       if (handlerMetadata && typeof instance.handle === 'function') {
         try {
@@ -196,7 +243,9 @@ export class EventHandlerRegistryModule {
       }
 
       // ── Method-level @SubscribeTo decorators ──
-      for (const methodKey of this.metadataScanner.getAllMethodNames(Object.getPrototypeOf(instance))) {
+      for (const methodKey of this.metadataScanner.getAllMethodNames(
+        Object.getPrototypeOf(instance),
+      )) {
         const subscriptionMetadata = Reflect.getMetadata(
           EVENT_SUBSCRIPTION_METADATA,
           instance,
@@ -231,9 +280,7 @@ export class EventHandlerRegistryModule {
     // IMPORTANT: fail-closed — surface ALL registration failures as a single
     // boot-time error so operators see the complete list of broken subscriptions.
     if (failures.length > 0) {
-      const summary = failures
-        .map((f) => `  - ${f.subject}: ${f.error.message}`)
-        .join('\n');
+      const summary = failures.map((f) => `  - ${f.subject}: ${f.error.message}`).join('\n');
       throw new Error(
         `EventHandlerRegistryModule failed to register ${failures.length} subscription(s):\n${summary}`,
       );

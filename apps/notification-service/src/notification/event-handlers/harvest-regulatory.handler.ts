@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { IEventBus, IEventHandler, HandlerOutcome, outcomeForError } from '@platform/event-bus';
 import type { HarvestRegulatoryRecordedEvent } from '@platform/event-contracts';
 import { InAppNotificationService } from '../services/in-app.service';
 
@@ -50,14 +50,14 @@ export class HarvestRegulatoryRecordedEventHandler
     return 'HarvestRegulatoryRecorded';
   }
 
-  async handle(event: HarvestRegulatoryRecordedEvent): Promise<void> {
+  async handle(event: HarvestRegulatoryRecordedEvent): Promise<HandlerOutcome> {
     // SECURITY: validate tenantId before any per-tenant write.
     if (!event.tenantId || !UUID_REGEX.test(event.tenantId)) {
       this.logger.error(
         'HarvestRegulatoryRecorded event has invalid or missing tenantId. ' +
           'Skipping to prevent cross-tenant notification leakage.',
       );
-      return;
+      return HandlerOutcome.terminate('HarvestRegulatoryRecorded: missing or invalid tenantId');
     }
 
     // The operator who performed the harvest is the traceability-record owner.
@@ -68,7 +68,7 @@ export class HarvestRegulatoryRecordedEventHandler
         `HarvestRegulatoryRecorded for batch ${event.batchId} has no harvestedBy — ` +
           'no in-app recipient, skipping notification.',
       );
-      return;
+      return HandlerOutcome.ack();
     }
 
     const kind = event.isFinal ? 'final' : 'partial';
@@ -79,34 +79,29 @@ export class HarvestRegulatoryRecordedEventHandler
       ` for batch ${event.batchId} was recorded for traceability.`;
 
     try {
-      await this.inAppService.createNotification(
-        event.tenantId,
-        event.harvestedBy,
-        title,
-        body,
-        {
-          type: 'HarvestRegulatoryRecorded',
-          batchId: event.batchId,
-          harvestedQuantity: event.harvestedQuantity,
-          totalWeight: event.totalWeight,
-          averageWeight: event.averageWeight,
-          // ORPHAN-111: event.harvestedAt is now honestly typed as an ISO string
-          // (the wire shape), so the defensive Date-or-string ternary is gone.
-          harvestedAt: event.harvestedAt,
-          isFinal: event.isFinal,
-          causationId: event.causationId,
-        },
-      );
+      await this.inAppService.createNotification(event.tenantId, event.harvestedBy, title, body, {
+        type: 'HarvestRegulatoryRecorded',
+        batchId: event.batchId,
+        harvestedQuantity: event.harvestedQuantity,
+        totalWeight: event.totalWeight,
+        averageWeight: event.averageWeight,
+        // ORPHAN-111: event.harvestedAt is now honestly typed as an ISO string
+        // (the wire shape), so the defensive Date-or-string ternary is gone.
+        harvestedAt: event.harvestedAt,
+        isFinal: event.isFinal,
+        causationId: event.causationId,
+      });
       this.logger.debug(
         `Harvest traceability notification created for batch ${event.batchId} ` +
           `in tenant ${event.tenantId.substring(0, 8)}...`,
       );
+      return HandlerOutcome.ack();
     } catch (error) {
-      // Swallow so NATS does not redeliver a poison message indefinitely.
       this.logger.error(
         `Error creating harvest traceability notification: ${(error as Error).message}`,
         (error as Error).stack,
       );
+      return outcomeForError('HarvestRegulatoryRecorded in-app notification', error);
     }
   }
 }

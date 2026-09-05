@@ -4,7 +4,7 @@ import { signedFetch } from '@aquaculture/backend-common/http';
 import { maskEmail } from '@aquaculture/backend-common/utils';
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { IEventBus, IEventHandler, HandlerOutcome, outcomeForError } from '@platform/event-bus';
 import { eventTenantScope, requireTenantScope } from '@platform/event-contracts';
 import type {
   EventTenantScope,
@@ -110,7 +110,7 @@ export class AuthEventHandler
 
   async handle(
     event: PasswordResetRequestedEvent | UserInvitedEvent | UserAccountLockedEvent,
-  ): Promise<void> {
+  ): Promise<HandlerOutcome> {
     // SEC-HIGH-057: parse, do not guard. A tenant UUID and the platform
     // segment are both legitimate; anything else is a contract violation
     // that must surface to the bus, not be acknowledged as "skipped".
@@ -126,22 +126,27 @@ export class AuthEventHandler
     try {
       switch (eventType) {
         case 'PasswordResetRequested':
-          await this.handlePasswordResetRequested(event as PasswordResetRequestedEvent, scope);
-          break;
+          return await this.handlePasswordResetRequested(
+            event as PasswordResetRequestedEvent,
+            scope,
+          );
         case 'UserInvited':
-          await this.handleUserInvited(event as UserInvitedEvent);
-          break;
+          return await this.handleUserInvited(event as UserInvitedEvent);
         case 'UserAccountLocked':
-          await this.handleUserAccountLocked(event as UserAccountLockedEvent, scope);
-          break;
+          return await this.handleUserAccountLocked(event as UserAccountLockedEvent, scope);
         default:
           this.logger.warn(`Unknown auth event type: ${eventType}`);
+          return HandlerOutcome.terminate(`Unknown auth event type: ${eventType}`);
       }
     } catch (error) {
       this.logger.error(
         `Error processing ${eventType} event: ${(error as Error).message}`,
         (error as Error).stack,
       );
+      // PLAT-HIGH-902: a contract violation (e.g. an invalid tenancy scope on
+      // UserInvited) or a validation rejection is dead-lettered; anything else
+      // is retried within the delivery budget. Never acknowledged as sent.
+      return outcomeForError(`${eventType} delivery`, error);
     }
   }
 
@@ -275,10 +280,10 @@ export class AuthEventHandler
   private async handleUserAccountLocked(
     event: UserAccountLockedEvent,
     scope: EventTenantScope,
-  ): Promise<void> {
+  ): Promise<HandlerOutcome> {
     if (!event.userId || !event.lockedUntil) {
       this.logger.error('UserAccountLocked event missing userId or lockedUntil. Skipping.');
-      return;
+      return HandlerOutcome.terminate('UserAccountLocked: missing userId or lockedUntil');
     }
 
     const userPII = await this.resolveUserPII(event.userId, scope);
@@ -286,7 +291,7 @@ export class AuthEventHandler
       this.logger.error(
         `Cannot send account-locked email — failed to resolve user PII for userId=${event.userId}`,
       );
-      return;
+      return HandlerOutcome.retry('UserAccountLocked: user PII could not be resolved');
     }
 
     const displayName = userPII.firstName || 'there';
@@ -337,29 +342,30 @@ export class AuthEventHandler
     this.logger.log(
       `Account-locked notification dispatched for userId=${event.userId} (unlocks ${unlockDisplay})`,
     );
+    return HandlerOutcome.ack();
   }
 
   private async handlePasswordResetRequested(
     event: PasswordResetRequestedEvent,
     scope: EventTenantScope,
-  ): Promise<void> {
+  ): Promise<HandlerOutcome> {
     // SECURITY: Reject stale v1 events that carry raw tokens or PII
     if ('resetToken' in event) {
       this.logger.warn(
         'SECURITY: Rejected v1 PasswordResetRequested event carrying raw resetToken. User must re-request.',
       );
-      return;
+      return HandlerOutcome.terminate('PasswordResetRequested: v1 shape carrying a raw token');
     }
     if ('email' in event) {
       this.logger.warn(
         'SECURITY: Rejected legacy PasswordResetRequested event carrying raw PII (email). User must re-request.',
       );
-      return;
+      return HandlerOutcome.terminate('PasswordResetRequested: legacy shape carrying PII');
     }
 
     if (!event.userId || !event.actionTokenId) {
       this.logger.error('PasswordResetRequested event missing userId or actionTokenId. Skipping.');
-      return;
+      return HandlerOutcome.terminate('PasswordResetRequested: missing userId or actionTokenId');
     }
 
     // Resolve PII and action URL at delivery time
@@ -372,7 +378,9 @@ export class AuthEventHandler
       this.logger.error(
         `Cannot send password reset email — failed to resolve user PII or action URL for userId=${event.userId}`,
       );
-      return;
+      return HandlerOutcome.retry(
+        'PasswordResetRequested: user PII or action URL could not be resolved',
+      );
     }
 
     const resetUrl = actionInfo.actionUrl;
@@ -430,12 +438,13 @@ export class AuthEventHandler
     await this.emailService.sendEmail(userPII.email, subject, html);
     // SECURITY: Mask email in logs to prevent PII exposure (H-14)
     this.logger.log(`Password reset email sent to ${maskEmail(userPII.email)}`);
+    return HandlerOutcome.ack();
   }
 
   /**
    * Handle UserInvited — resolve PII/tenant at delivery time, then send welcome email
    */
-  private async handleUserInvited(event: UserInvitedEvent): Promise<void> {
+  private async handleUserInvited(event: UserInvitedEvent): Promise<HandlerOutcome> {
     // An invitation always targets a tenant; a platform-scoped UserInvited is
     // a contract violation and throws (SEC-HIGH-057).
     const scope = requireTenantScope(event);
@@ -445,12 +454,12 @@ export class AuthEventHandler
       this.logger.warn(
         'SECURITY: Rejected legacy UserInvited event carrying raw PII (email). Re-invite required.',
       );
-      return;
+      return HandlerOutcome.terminate('UserInvited: legacy shape carrying PII');
     }
 
     if (!event.userId || !event.actionTokenId) {
       this.logger.error('UserInvited event missing userId or actionTokenId. Skipping.');
-      return;
+      return HandlerOutcome.terminate('UserInvited: missing userId or actionTokenId');
     }
 
     // Resolve PII, tenant info, and action URL at delivery time
@@ -464,7 +473,9 @@ export class AuthEventHandler
       this.logger.error(
         `Cannot send welcome email — failed to resolve user PII, tenant info, or action URL for userId=${event.userId}`,
       );
-      return;
+      return HandlerOutcome.retry(
+        'UserInvited: user PII, tenant info or action URL could not be resolved',
+      );
     }
 
     await this.emailService.sendWelcomeEmail({
@@ -480,5 +491,6 @@ export class AuthEventHandler
     this.logger.log(
       `Welcome email sent to ${maskEmail(userPII.email)} for tenant ${tenantInfo.name}`,
     );
+    return HandlerOutcome.ack();
   }
 }

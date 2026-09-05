@@ -284,7 +284,7 @@ describe('SensorReadingEventHandler', () => {
         new Error('DB connection lost'),
       );
 
-      // Should NOT throw — errors are caught and logged
+      // Should NOT throw — the failure is reported as a retry outcome
       await expect(
         handler.handle({
           eventId: 'evt-9',
@@ -294,7 +294,7 @@ describe('SensorReadingEventHandler', () => {
           sensorId: 'sensor-1',
           readings: { temperature: 25 },
         } as any),
-      ).resolves.toBeUndefined();
+      ).resolves.toEqual(expect.objectContaining({ kind: 'retry' }));
     });
 
     it('should handle requestContextStorage.run errors gracefully', async () => {
@@ -311,7 +311,7 @@ describe('SensorReadingEventHandler', () => {
           sensorId: 'sensor-1',
           readings: { temperature: 25 },
         } as any),
-      ).resolves.toBeUndefined();
+      ).resolves.toEqual(expect.objectContaining({ kind: 'retry' }));
     });
   });
 });

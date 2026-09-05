@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { IEventBus, IEventHandler, HandlerOutcome, outcomeForError } from '@platform/event-bus';
 import type { WaterQualityCriticalEvent } from '@platform/event-contracts';
 import { getTenantSchemaName, isValidUUID } from '@aquaculture/backend-common/database';
 import { requestContextStorage, RequestContext } from '@aquaculture/backend-common/logging';
@@ -56,14 +56,14 @@ export class WaterQualityCriticalEventHandler
     return 'WaterQualityCritical';
   }
 
-  async handle(event: WaterQualityCriticalEvent): Promise<void> {
+  async handle(event: WaterQualityCriticalEvent): Promise<HandlerOutcome> {
     // SECURITY: tenantId must be a canonical UUID before it becomes a schema name.
     if (!event.tenantId || !isValidUUID(event.tenantId)) {
       this.logger.error(
         'WaterQualityCritical event has missing/invalid tenantId — skipping ' +
           'to prevent cross-tenant incident creation.',
       );
-      return;
+      return HandlerOutcome.terminate('WaterQualityCritical: missing or invalid tenantId');
     }
 
     this.logger.log(
@@ -83,12 +83,16 @@ export class WaterQualityCriticalEventHandler
       await requestContextStorage.run(context, async () => {
         await this.waterQualityCriticalAlertService.recordCriticalWaterQuality(event);
       });
+      return HandlerOutcome.ack();
     } catch (error) {
-      // Swallow so NATS does not redeliver a poison message indefinitely.
+      // PLAT-HIGH-902: no swallowing. A validation/domain rejection can never
+      // succeed and is dead-lettered; anything else is retried within the
+      // consumer's delivery budget and dead-lettered when it is spent.
       this.logger.error(
         `Error creating water-quality incident: ${(error as Error).message}`,
         (error as Error).stack,
       );
+      return outcomeForError('WaterQualityCritical', error);
     }
   }
 }

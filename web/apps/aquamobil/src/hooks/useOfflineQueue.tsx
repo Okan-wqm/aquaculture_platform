@@ -5,6 +5,7 @@ import { useAuth } from './useAuth';
 import { useNetworkStatus } from './useNetworkStatus';
 
 import { REQUEST_MEDIA_UPLOAD, SEND_MESSAGE } from '@/graphql/messaging-operations';
+import { GraphQLReplayError } from '@/pwa/graphql-replay-error';
 import {
   queueOperation,
   getPendingOperations,
@@ -14,7 +15,7 @@ import {
   removeOperation,
   getPendingBlob,
   removePendingBlob,
-  MAX_RETRY_COUNT,
+  isPermanentlyFailed,
 } from '@/pwa/offline-queue';
 import {
   OPERATION_MUTATIONS,
@@ -31,6 +32,7 @@ import type {
   QueuedPayload,
   UploadAndSendMessageOfflinePayload,
 } from '@/types';
+import { readGraphQLResponse } from '@/utils/graphql-response';
 import { recordLastSyncAt } from '@/utils/last-sync';
 import { logger } from '@/utils/logger';
 import { applyOptimisticKpiBump } from '@/utils/offline-optimistic';
@@ -311,10 +313,12 @@ export function OfflineProvider({ children }: { children: ReactNode }): ReactEle
         throw new Error(`HTTP error: ${response.status}`);
       }
 
-      const result = await response.json() as { data?: unknown; errors?: Array<{ message: string }> };
+      // MOB-CRITICAL-018 class: keep the server's `extensions.code` so the
+      // queue classifies the failure by contract, not by message text.
+      const result = await readGraphQLResponse<unknown>(response);
 
       if (result.errors && result.errors.length > 0) {
-        throw new Error(result.errors[0]?.message || 'GraphQL error');
+        throw GraphQLReplayError.fromEnvelope(result.errors);
       }
 
       // createLeaveRequest chains an immediate submit (shared registry helper —
@@ -330,9 +334,9 @@ export function OfflineProvider({ children }: { children: ReactNode }): ReactEle
           throw new Error(`HTTP error: ${submitResponse.status}`);
         }
 
-        const submitResult = await submitResponse.json() as { data?: unknown; errors?: Array<{ message: string }> };
+        const submitResult = await readGraphQLResponse<unknown>(submitResponse);
         if (submitResult.errors && submitResult.errors.length > 0) {
-          throw new Error(submitResult.errors[0]?.message || 'GraphQL error');
+          throw GraphQLReplayError.fromEnvelope(submitResult.errors);
         }
       }
 
@@ -519,8 +523,10 @@ export function OfflineProvider({ children }: { children: ReactNode }): ReactEle
   useEffect(() => {
     if (!isOnline || pendingCount === 0) return;
 
+    // Same predicate as the drain: a server-classified permanent failure
+    // (BAD_USER_INPUT, …) must not keep the 30 s retry timer alive.
     const hasRetryableFailures = pendingOperations.some(
-      (op) => op.status === 'failed' && op.retryCount < MAX_RETRY_COUNT,
+      (op) => op.status === 'failed' && !isPermanentlyFailed(op),
     );
     if (!hasRetryableFailures) return;
 

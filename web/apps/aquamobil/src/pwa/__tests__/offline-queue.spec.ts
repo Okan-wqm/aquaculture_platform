@@ -178,6 +178,7 @@ afterAll(() => {
 // --------------------------------------------------------------------------
 
 import { userScopedCacheKey } from '../../utils/user-scoped-cache-key';
+import { GraphQLReplayError } from '../graphql-replay-error';
 import {
   queueOperation,
   getPendingOperations,
@@ -198,6 +199,7 @@ import {
   removePendingBlob,
   clearPendingBlobs,
   MAX_PENDING_BLOB_BYTES,
+  isPermanentlyFailed,
 } from '../offline-queue';
 
 // MOB-HIGH-019: the queued payload is the generated RecordMortalityInput minus the
@@ -985,6 +987,70 @@ describe('Offline Queue', () => {
       assertDefined(updated, 'op should still exist after a failed sync');
       assertDefined(updated.lastError, 'a failed sync should record lastError');
       expect(updated.lastError.length).toBeLessThanOrEqual(200);
+    });
+
+    // MOB-CRITICAL-018 class: the server's extensions.code classifies a replay
+    // failure. A permanent code is final after ONE attempt; a transport error
+    // (no code) and an unknown code keep retrying; a legacy row without a code
+    // still falls back to the message heuristics.
+    it('records lastErrorCode from a GraphQLReplayError and does NOT retry a permanent code', async () => {
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
+      const id = await enqueueId(TEST_QUEUE_TENANT, 'recordMortality', payload);
+      const op = await getOperation(TEST_QUEUE_TENANT, id);
+      assertDefined(op, 'enqueued op should exist before sync');
+
+      const coercion = vi.fn().mockRejectedValue(
+        GraphQLReplayError.fromEnvelope([
+          { message: 'Variable "$input" got invalid value', extensions: { code: 'BAD_USER_INPUT' } },
+        ]),
+      );
+      await syncOperation(op, coercion);
+
+      const failed = await getOperation(TEST_QUEUE_TENANT, id);
+      assertDefined(failed, 'op should remain after a failed sync');
+      expect(failed.status).toBe('failed');
+      expect(failed.retryCount).toBe(1);
+      expect(failed.lastErrorCode).toBe('BAD_USER_INPUT');
+      expect(isPermanentlyFailed(failed)).toBe(true);
+
+      // The next drain must not spend the retry budget on it.
+      const nextDrain = vi.fn().mockResolvedValue({ success: true });
+      const result = await syncAllOperations(TEST_QUEUE_TENANT, nextDrain);
+      expect(result.failed).toBe(1);
+      expect(nextDrain).not.toHaveBeenCalled();
+    });
+
+    it('retries a failure that carries a non-permanent code, and clears the code on a later transport error', async () => {
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
+      const id = await enqueueId(TEST_QUEUE_TENANT, 'recordMortality', payload);
+      await updateOperation(TEST_QUEUE_TENANT, id, {
+        status: 'failed',
+        retryCount: 1,
+        lastError: 'Validation failed upstream', // message text alone would read as permanent…
+        lastErrorCode: 'INTERNAL_SERVER_ERROR', // …but the server's code says transient
+      });
+
+      const transportFailure = vi.fn().mockRejectedValue(new Error('HTTP error: 502'));
+      const result = await syncAllOperations(TEST_QUEUE_TENANT, transportFailure);
+      expect(transportFailure).toHaveBeenCalledTimes(1);
+      expect(result.failed).toBe(1);
+
+      const after = await getOperation(TEST_QUEUE_TENANT, id);
+      assertDefined(after, 'op should remain after a failed retry');
+      expect(after.retryCount).toBe(2);
+      expect(after.lastErrorCode).toBeUndefined();
+      expect(isPermanentlyFailed(after)).toBe(false);
+    });
+
+    it('a legacy row without a code still uses the message heuristics', async () => {
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const, observedAt: OBSERVED_AT };
+      const id = await enqueueId(TEST_QUEUE_TENANT, 'recordMortality', payload);
+      await updateOperation(TEST_QUEUE_TENANT, id, { status: 'failed', retryCount: 1, lastError: 'Forbidden' });
+
+      const op = await getOperation(TEST_QUEUE_TENANT, id);
+      assertDefined(op, 'op should exist');
+      expect(op.lastErrorCode).toBeUndefined();
+      expect(isPermanentlyFailed(op)).toBe(true);
     });
 
     it('should remove operation on successful sync', async () => {

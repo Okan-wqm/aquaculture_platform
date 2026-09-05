@@ -295,7 +295,15 @@ export interface QueuedOperation {
   payload: OperationPayload;
   createdAt: string;
   retryCount: number;
+  /** Display-only, truncated to 200 chars (SEC-07). Never used to classify. */
   lastError?: string;
+  /**
+   * The server's GraphQL `extensions.code` from the last failed replay
+   * (MOB-CRITICAL-018 class). Retry eligibility is decided on THIS, not on the
+   * message text; absent for transport errors and for rows written before the
+   * code was recorded, which fall back to the message heuristics.
+   */
+  lastErrorCode?: string;
   status: 'pending' | 'syncing' | 'failed';
 }
 

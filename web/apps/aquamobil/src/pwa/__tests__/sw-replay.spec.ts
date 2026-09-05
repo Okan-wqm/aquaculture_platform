@@ -274,5 +274,39 @@ describe('handleBackgroundSyncEvent (MOB-MEDIUM-002)', () => {
     expect(remaining).toHaveLength(1);
     expect(remaining[0]?.status).toBe('failed');
     expect(remaining[0]?.retryCount).toBe(1);
+    expect(remaining[0]?.lastErrorCode).toBeUndefined();
+  });
+
+  it('a GraphQL error with a permanent extensions.code is recorded and not re-drained', async () => {
+    await queueOperation(TENANT_A, 'recordMortality', { batchId: 'b1', quantity: 1 } as never);
+    fetchMock
+      .mockResolvedValueOnce(refreshResponse(TENANT_A))
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            errors: [{ message: 'Variable "$input" got invalid value', extensions: { code: 'BAD_USER_INPUT' } }],
+          }),
+          { status: 200 },
+        ),
+      );
+    const { sw } = fakeSw();
+
+    await handleBackgroundSyncEvent(sw);
+
+    const [failed] = await getPendingOperations(TENANT_A);
+    expect(failed?.status).toBe('failed');
+    expect(failed?.retryCount).toBe(1);
+    expect(failed?.lastErrorCode).toBe('BAD_USER_INPUT');
+
+    // A second background sync must not POST the same doomed payload again
+    // (the SW still mints its identity through the refresh mutation, so filter
+    // on the replayed document rather than on the /graphql URL).
+    const postsBefore = fetchMock.mock.calls.length;
+    await handleBackgroundSyncEvent(fakeSw().sw);
+    const replayPostsAfter = fetchMock.mock.calls
+      .slice(postsBefore)
+      .filter((call) => JSON.stringify(call).includes('RecordMortality'));
+    expect(replayPostsAfter).toHaveLength(0);
+    expect((await getPendingOperations(TENANT_A))[0]?.retryCount).toBe(1);
   });
 });

@@ -1258,7 +1258,11 @@ describe('deploy SSOT contract', () => {
     );
     expect(deletionFunction).toContain("'DELETE'");
     expect(deletionFunction).toContain('Tenant schema deletion requires cleanupProof evidence');
-    expect(deletionFunction).toContain('Tenant schema deletion requires encrypted backup evidence');
+    // ADR-0009: the deletion evidence is a WAL-G recovery point captured from
+    // the database, never the admin-api "encrypted backup" receipt that
+    // described a backup nobody could restore.
+    expect(deletionFunction).toContain('Tenant schema deletion requires a WAL-G recovery point');
+    expect(deletionFunction).not.toContain('encrypted backup');
   });
 
   it('keeps runtime services out of production DDL authority in compose', () => {

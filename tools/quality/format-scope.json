@@ -43344,6 +43344,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/action-link-resolver-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/active-path-hygiene.spec.ts",
       "prettier_managed": true
     },

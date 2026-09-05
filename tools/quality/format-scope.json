@@ -24427,7 +24427,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "b28a98ba0fc3e85fe3e4fbab2cc185d35cefd7c21b3ee9915db6c09614f1041e",
+      "content_sha256": "a816e6e8d2ee1f086b8e8f615d987d530cb7a22117337a20fe315473d0863765",
       "hash_policy": "sha256",
       "owner": "archive-owner",
       "path": "apps/sensor-service/src/archive/__tests__/telemetry-retention-orchestrator.service.spec.ts",
@@ -35980,6 +35980,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/zcode/2026-09-04-telemetry-readiness-v4-port.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-05-as-never-typed-doubles.md",
       "prettier_managed": true
     },
     {
@@ -58467,7 +58473,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "c0e23ec9469e6182b2b4da372341dc890952db4733700627db7fc44c6fdd6843",
+      "content_sha256": "cecfe93e1d99c29eb5f841af3089d02e5a230346925d7b9ba5dffeb0e0ca1727",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",

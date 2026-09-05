@@ -1,4 +1,6 @@
-import { EntityManager } from 'typeorm';
+import { collaborator, stub, stubMember } from '@aquaculture/testing';
+import type { TenantErasureRequestedEvent } from '@platform/event-contracts';
+import { DataSource, EntityManager } from 'typeorm';
 
 import { ErasedTenantTombstoneService } from '../erased-tenant-tombstone.service';
 import { MqttAuthCacheInvalidationHook } from '../mqtt-auth-cache-invalidation.hook';
@@ -15,6 +17,18 @@ import { MqttAuthService } from '../../../edge-device/mqtt-auth.service';
  */
 const TENANT = '11111111-1111-4111-8111-111111111111';
 
+/**
+ * The erasure event the hooks read. `stub` type-checks the two fields the
+ * hooks touch against the real contract, so a rename in
+ * `TenantErasureRequestedEvent` breaks this fixture instead of silently
+ * feeding the hooks `undefined`. The rest of `BaseEvent` is deliberately
+ * absent — `eventId` is branded and only `createBaseEvent()` may mint one,
+ * and no hook reads it.
+ */
+function erasureEvent(dryRun: boolean): TenantErasureRequestedEvent {
+  return stub<TenantErasureRequestedEvent>({ tenantId: TENANT, dryRun });
+}
+
 function makeManager(): {
   manager: EntityManager;
   queries: Array<{ sql: string; params: unknown[] }>;
@@ -24,8 +38,17 @@ function makeManager(): {
     queries.push({ sql, params: params ?? [] });
     return ['', 3]; // [row, rowCount] — pg DELETE result shape
   });
-  const managerPartial: Partial<EntityManager> = { query: query as never };
-  return { manager: managerPartial as EntityManager, queries };
+  // `collaborator`, not `stub`: this stands in for BEHAVIOUR, so a hook that
+  // grows a second EntityManager call fails naming the missing member instead
+  // of dying on `undefined is not a function`. `query` is generic
+  // (`query<T>(...): Promise<T>`), which no single-signature jest.fn can
+  // satisfy — `stubMember` is the one place that cast is allowed to live, and
+  // it still forces this call site to name the member's real type.
+  const manager = collaborator<EntityManager>(
+    { query: stubMember<EntityManager['query']>(query) },
+    'EntityManager',
+  );
+  return { manager, queries };
 }
 
 describe('PublishedOutboxPurgeHook (Task 1.8)', () => {
@@ -33,7 +56,7 @@ describe('PublishedOutboxPurgeHook (Task 1.8)', () => {
     const hook = new PublishedOutboxPurgeHook();
     const { manager, queries } = makeManager();
 
-    await hook.onTenantErased({ tenantId: TENANT, dryRun: false } as never, manager);
+    await hook.onTenantErased(erasureEvent(false), manager);
 
     expect(queries).toHaveLength(1);
     expect(queries[0]!.sql).toContain('DELETE FROM "sensor"."sensor_outbox"');
@@ -45,7 +68,7 @@ describe('PublishedOutboxPurgeHook (Task 1.8)', () => {
     const hook = new PublishedOutboxPurgeHook();
     const { manager, queries } = makeManager();
 
-    await hook.onTenantErased({ tenantId: TENANT, dryRun: true } as never, manager);
+    await hook.onTenantErased(erasureEvent(true), manager);
     expect(queries).toHaveLength(0);
   });
 
@@ -57,13 +80,14 @@ describe('PublishedOutboxPurgeHook (Task 1.8)', () => {
 describe('MqttAuthCacheInvalidationHook (Task 1.8)', () => {
   it('drops every MQTT auth cache entry mapping to the erased tenant', async () => {
     const invalidate = jest.fn().mockReturnValue(2);
-    const mqttAuthPartial: Partial<MqttAuthService> = {
-      invalidateEntriesForTenant: invalidate as never,
-    };
-    const hook = new MqttAuthCacheInvalidationHook(mqttAuthPartial as MqttAuthService);
+    const mqttAuth = collaborator<MqttAuthService>(
+      { invalidateEntriesForTenant: invalidate },
+      'MqttAuthService',
+    );
+    const hook = new MqttAuthCacheInvalidationHook(mqttAuth);
     const { manager } = makeManager();
 
-    await hook.onTenantErased({ tenantId: TENANT, dryRun: false } as never, manager);
+    await hook.onTenantErased(erasureEvent(false), manager);
 
     expect(invalidate).toHaveBeenCalledWith(TENANT);
     expect(hook.hookName).toBe('sensor-mqtt-auth-cache-invalidation');
@@ -72,7 +96,10 @@ describe('MqttAuthCacheInvalidationHook (Task 1.8)', () => {
 
 describe('ErasedTenantTombstoneService (Task 1.8)', () => {
   it('ingress gate: isErased answers false until marked, then true', () => {
-    const svc = new ErasedTenantTombstoneService({} as never);
+    // An EMPTY collaborator is the assertion: the ingress gate is pure
+    // in-memory state, so any DataSource access from these three calls throws
+    // MissingDoubleMemberError naming the member instead of passing silently.
+    const svc = new ErasedTenantTombstoneService(collaborator<DataSource>({}, 'DataSource'));
     expect(svc.isErased(TENANT)).toBe(false);
     svc.markErased(TENANT);
     expect(svc.isErased(TENANT)).toBe(true);

@@ -1,9 +1,17 @@
 import 'reflect-metadata';
 import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
+import { stub } from '@aquaculture/testing';
 // NATS v3: connect from @nats-io/transport-node; jetstream()/jetstreamManager()
 // are top-level in @nats-io/jetstream.
 import { jetstream, jetstreamManager } from '@nats-io/jetstream';
-import type { NatsConnection } from '@nats-io/nats-core';
+import type {
+  ConsumerAPI,
+  Consumers,
+  JetStreamClient,
+  JetStreamManager,
+  StreamAPI,
+} from '@nats-io/jetstream';
+import type { NatsConnection, Status } from '@nats-io/nats-core';
 import { connect } from '@nats-io/transport-node';
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -26,6 +34,22 @@ jest.mock('@nats-io/jetstream', () => {
   const actual = jest.requireActual('@nats-io/jetstream');
   return { ...actual, jetstream: jest.fn(), jetstreamManager: jest.fn() };
 });
+
+/**
+ * The bus opens ONE `for await` over `connection.status()` at connect() and
+ * exits when it completes; this iterable completes immediately, so the boot
+ * path runs with no connection-status events. Written as a typed
+ * `AsyncIterable<Status>` so the double is checked against the real
+ * `NatsConnection['status']` signature rather than asserted into it.
+ */
+function noConnectionStatuses(): AsyncIterable<Status> {
+  return {
+    [Symbol.asyncIterator]: (): AsyncIterator<Status> => ({
+      next: (): Promise<IteratorResult<Status>> =>
+        Promise.resolve({ done: true, value: undefined }),
+    }),
+  };
+}
 
 /**
  * Task 1 Step 1.6 (SENSOR-HIGH-093): the dead-letter chain. A message that
@@ -85,41 +109,41 @@ describe('NatsEventBus dead-letter chain (Task 1.6)', () => {
     consumeCallback = null;
     jsPublish = jest.fn().mockResolvedValue({ stream: 'AQUACULTURE_DLQ', seq: 1 });
 
-    const connection = Object.assign({} as NatsConnection, {
-      status: () => ({
-        [Symbol.asyncIterator]: () => ({
-          next: () => Promise.resolve({ done: true, value: undefined }),
-        }),
-      }),
+    // `stub`, not `collaborator`: a NatsConnection stands in for a VALUE here.
+    // The bus legitimately READS members this boot path never sets (`info`,
+    // consulted by the replica clamp) and must see `undefined` there, exactly
+    // as a real connection to a standalone server yields.
+    const connection = stub<NatsConnection>({
+      status: () => noConnectionStatuses(),
       closed: () => new Promise<void>(() => undefined),
       drain: jest.fn(() => Promise.resolve()),
       close: jest.fn(() => Promise.resolve()),
       isClosed: () => false,
     });
-    jest.mocked(connect).mockResolvedValue(connection as never);
+    jest.mocked(connect).mockResolvedValue(connection);
 
     jest.mocked(jetstreamManager).mockResolvedValue(
-      Object.assign({} as never, {
-        streams: {
+      stub<JetStreamManager>({
+        streams: stub<StreamAPI>({
           info: jest.fn().mockRejectedValueOnce(new Error('not found')).mockResolvedValue({}),
           update: jest.fn().mockResolvedValue(undefined),
           add: jest.fn().mockResolvedValue({}),
-        },
-        consumers: { add: jest.fn().mockResolvedValue({}) },
+        }),
+        consumers: stub<ConsumerAPI>({ add: jest.fn().mockResolvedValue({}) }),
       }),
     );
 
     jest.mocked(jetstream).mockReturnValue(
-      Object.assign({} as never, {
+      stub<JetStreamClient>({
         publish: jsPublish,
-        consumers: {
+        consumers: stub<Consumers>({
           get: jest.fn().mockResolvedValue({
             consume: (opts: { callback: (msg: unknown) => void }) => {
               consumeCallback = opts.callback;
               return Promise.resolve({ stop: jest.fn() });
             },
           }),
-        },
+        }),
       }),
     );
 
@@ -127,7 +151,10 @@ describe('NatsEventBus dead-letter chain (Task 1.6)', () => {
     await bus.connect();
     await bus.subscribeTo('events.*.SensorReading', {
       handle: () => Promise.reject(new Error('db down')),
-    } as never);
+      // Required by IEventHandler. The cast this replaces hid its absence —
+      // the double claimed to be a handler while missing half the contract.
+      getEventType: () => 'SensorReading',
+    });
     await new Promise((r) => setTimeout(r, 0));
   }
 
@@ -142,7 +169,7 @@ describe('NatsEventBus dead-letter chain (Task 1.6)', () => {
       maxReconnectAttempts: 2,
       reconnectTimeWait: 1,
       authMode: 'mtls-cert',
-    } as never);
+    });
   });
 
   afterEach(() => {

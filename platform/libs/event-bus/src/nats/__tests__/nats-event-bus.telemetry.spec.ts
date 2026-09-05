@@ -1,9 +1,17 @@
 import 'reflect-metadata';
 import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
+import { stub } from '@aquaculture/testing';
 // NATS v3: connect from @nats-io/transport-node; jetstream()/jetstreamManager()
 // are top-level in @nats-io/jetstream.
 import { jetstream, jetstreamManager } from '@nats-io/jetstream';
-import type { NatsConnection } from '@nats-io/nats-core';
+import type {
+  ConsumerAPI,
+  Consumers,
+  JetStreamClient,
+  JetStreamManager,
+  StreamAPI,
+} from '@nats-io/jetstream';
+import type { NatsConnection, Status } from '@nats-io/nats-core';
 import { connect } from '@nats-io/transport-node';
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -31,6 +39,22 @@ jest.mock('@nats-io/jetstream', () => {
   const actual = jest.requireActual('@nats-io/jetstream');
   return { ...actual, jetstream: jest.fn(), jetstreamManager: jest.fn() };
 });
+
+/**
+ * The bus opens ONE `for await` over `connection.status()` at connect() and
+ * exits when it completes; this iterable completes immediately, so the boot
+ * path runs with no connection-status events. Written as a typed
+ * `AsyncIterable<Status>` so the double is checked against the real
+ * `NatsConnection['status']` signature rather than asserted into it.
+ */
+function noConnectionStatuses(): AsyncIterable<Status> {
+  return {
+    [Symbol.asyncIterator]: (): AsyncIterator<Status> => ({
+      next: (): Promise<IteratorResult<Status>> =>
+        Promise.resolve({ done: true, value: undefined }),
+    }),
+  };
+}
 
 /**
  * Task 2 (SENSOR-HIGH-092): telemetry/domain stream separation. The two
@@ -72,33 +96,33 @@ describe('Event route registry + telemetry stream (Task 2)', () => {
       throw new Error('stream not found');
     });
 
-    const connection = Object.assign({} as NatsConnection, {
-      status: () => ({
-        [Symbol.asyncIterator]: () => ({
-          next: () => Promise.resolve({ done: true, value: undefined }),
-        }),
-      }),
+    // `stub`, not `collaborator`: a NatsConnection stands in for a VALUE here.
+    // The bus legitimately READS members this boot path never sets (`info`,
+    // consulted by the replica clamp) and must see `undefined` there, exactly
+    // as a real connection to a standalone server yields.
+    const connection = stub<NatsConnection>({
+      status: () => noConnectionStatuses(),
       closed: () => new Promise<void>(() => undefined),
       drain: jest.fn(() => Promise.resolve()),
       close: jest.fn(() => Promise.resolve()),
       isClosed: () => false,
     });
-    jest.mocked(connect).mockResolvedValue(connection as never);
+    jest.mocked(connect).mockResolvedValue(connection);
 
     jest.mocked(jetstreamManager).mockResolvedValue(
-      Object.assign({} as never, {
-        streams: { info: streamsInfo, add: streamsAdd, update: streamsUpdate },
-        consumers: { add: consumersAdd },
+      stub<JetStreamManager>({
+        streams: stub<StreamAPI>({ info: streamsInfo, add: streamsAdd, update: streamsUpdate }),
+        consumers: stub<ConsumerAPI>({ add: consumersAdd }),
       }),
     );
     jest.mocked(jetstream).mockReturnValue(
-      Object.assign({} as never, {
+      stub<JetStreamClient>({
         publish: jsPublish,
-        consumers: {
+        consumers: stub<Consumers>({
           get: jest.fn().mockResolvedValue({
             consume: () => Promise.resolve({ stop: jest.fn() }),
           }),
-        },
+        }),
       }),
     );
 
@@ -118,7 +142,7 @@ describe('Event route registry + telemetry stream (Task 2)', () => {
       maxReconnectAttempts: 2,
       reconnectTimeWait: 1,
       authMode: 'mtls-cert',
-    } as never);
+    });
   });
 
   afterEach(() => {
@@ -179,7 +203,7 @@ describe('Event route registry + telemetry stream (Task 2)', () => {
         version: 1,
         aggregateId: 's',
         aggregateType: 'Sensor',
-      } as never);
+      });
 
       const subjects = jsPublish.mock.calls.map((call) => call[0] as string);
       expect(subjects).toContain('telemetry.11111111-1111-4111-8111-111111111111.SensorReading');
@@ -195,7 +219,7 @@ describe('Event route registry + telemetry stream (Task 2)', () => {
         version: 1,
         aggregateId: 'b',
         aggregateType: 'Batch',
-      } as never);
+      });
 
       const subjects = jsPublish.mock.calls.map((call) => call[0] as string);
       expect(subjects).toContain('events.11111111-1111-4111-8111-111111111111.BatchCreated');
@@ -206,7 +230,10 @@ describe('Event route registry + telemetry stream (Task 2)', () => {
       const bus = await boot();
       await bus.subscribeWildcard('SensorReading', {
         handle: () => Promise.resolve(),
-      } as never);
+        // Required by IEventHandler. The cast this replaces hid its absence —
+        // the double claimed to be a handler while missing half the contract.
+        getEventType: () => 'SensorReading',
+      });
 
       const call = consumersAdd.mock.calls.find(
         (c) => (c[1] as Record<string, unknown>)['filter_subject'] === 'telemetry.*.SensorReading',

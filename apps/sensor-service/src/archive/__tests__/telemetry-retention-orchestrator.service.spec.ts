@@ -1,3 +1,4 @@
+import { collaborator, stubMember } from '@aquaculture/testing';
 import { DataSource } from 'typeorm';
 
 import { TelemetryRetentionOrchestratorService } from '../telemetry-retention-orchestrator.service';
@@ -34,8 +35,17 @@ function makeService(states: Array<{ operationId: string; state: string }>): {
     };
     return qb;
   });
-  const dataSource: Partial<DataSource> = { createQueryBuilder: createQueryBuilder as never };
-  const service = new TelemetryRetentionOrchestratorService(dataSource as DataSource);
+  // `createQueryBuilder` is an overload set (3 signatures), which no
+  // single-signature jest.fn is assignable to — `stubMember` carries that one
+  // unavoidable cast while still checking the member exists on DataSource.
+  // The enclosing `collaborator` keeps every OTHER DataSource member checked:
+  // the day the orchestrator reaches for `transaction` or `query`, this double
+  // says so by name instead of yielding `undefined`.
+  const dataSource = collaborator<DataSource>(
+    { createQueryBuilder: stubMember<DataSource['createQueryBuilder']>(createQueryBuilder) },
+    'DataSource',
+  );
+  const service = new TelemetryRetentionOrchestratorService(dataSource);
   return { service };
 }
 
@@ -81,9 +91,7 @@ describe('TelemetryRetentionOrchestrator — verify-before-drop (Task 4.1)', () 
     const { service } = makeService([{ operationId: 'op-1', state: 'VERIFIED' }]);
     const recent = new Date('2026-11-01T00:00:00Z'); // 30 days before fake now
 
-    await expect(service.dropBefore(TENANT, recent, dropChunks)).rejects.toThrow(
-      /hot floor/,
-    );
+    await expect(service.dropBefore(TENANT, recent, dropChunks)).rejects.toThrow(/hot floor/);
     expect(dropChunks).not.toHaveBeenCalled();
   });
 

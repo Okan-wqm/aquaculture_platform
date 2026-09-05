@@ -16,6 +16,7 @@ import { Equipment, EquipmentStatus } from '../../../equipment/entities/equipmen
 import { FarmStockProjectionService } from '../../../farm-stock/farm-stock-projection.service';
 import { collaborator, createMockDataSource, createMockRepository } from '@aquaculture/testing';
 import { DayPlanRecalcService } from '../../../feeding-protocol/services/day-plan-recalc.service';
+import { TankBatchService } from '../../services/tank-batch.service';
 
 // FARM-HIGH-052: transfer is stock-mutating, so every command must carry the
 // idempotency envelope or the handler rejects it as legacy.
@@ -80,13 +81,19 @@ describe('TransferBatchHandler', () => {
       // MODULE_MANAGER so site authz bypasses for these domain-logic tests.
       new SiteAuthorizationService(),
       // TankBatchService SSoT writer — mocked (covered by tank-batch.service.spec).
-      {
-        applyBatchDelta: jest
-          .fn()
-          .mockImplementation(() =>
-            Promise.resolve({ totalBiomassKg: 0, cleanerFishBiomassKg: 0 }),
-          ),
-      } as never,
+      // `collaborator` names the type it stands in for, so the handler growing a
+      // second TankBatchService call fails here with the missing member's name
+      // instead of a TypeError three frames deep.
+      collaborator<TankBatchService>(
+        {
+          applyBatchDelta: jest
+            .fn()
+            .mockImplementation(() =>
+              Promise.resolve({ totalBiomassKg: 0, cleanerFishBiomassKg: 0 }),
+            ),
+        },
+        'TankBatchService',
+      ),
       {
         refreshContainers: jest.fn().mockResolvedValue(undefined),
       } as Partial<FarmStockProjectionService> as FarmStockProjectionService,

@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
-import { IEventBus } from '@platform/event-bus';
+import { IEvent, IEventBus, IEventHandler } from '@platform/event-bus';
 
 /**
  * Task 1.8 (100-tenant readiness plan): the erased-tenant tombstone set.
@@ -66,24 +66,43 @@ export class ErasedTenantTombstoneService implements OnModuleInit {
     return this.erased.has(tenantId);
   }
 
-  /** Subscribe to the platform erasure event (wired by the module). */
+  /**
+   * Subscribe to the platform erasure event (wired by the module).
+   *
+   * The subscriber is a full `IEventHandler<IEvent>`. The bus interface
+   * requires `getEventType()` alongside `handle()`, and the object passed here
+   * had only `handle` — a gap the cast hid, and a `TypeError` on the day any
+   * bus path consults the type a handler declares. Declaring the interface is
+   * what makes the compiler carry that requirement instead of a reviewer.
+   *
+   * WHY `IEvent` and not `TenantErasedEvent`: `IEvent` is exactly what the bus
+   * proves before dispatch — `deserializeEvent` accepts any decoded object
+   * carrying string `eventId`/`eventType`/`timestamp`, and the subject-anchored
+   * schema validator only covers the farm/sensor/messaging registries, so a
+   * `TenantErased` payload reaches this handler UNVALIDATED. Typing the
+   * parameter as the contract would assert a guarantee nothing enforces and
+   * turn the two checks below into dead-looking code. They are not defensive
+   * noise: `tenantId` is optional on `IEvent`, so the `typeof` test is the
+   * narrowing that makes `.slice()` safe.
+   */
   attachEventBus(eventBus: IEventBus): void {
-    void eventBus
-      .subscribeTo('events.*.TenantErased', {
-        handle: (event: Record<string, unknown>) => {
-          if (event['eventType'] === 'TenantErased' && typeof event['tenantId'] === 'string') {
-            this.markErased(event['tenantId']);
-            this.logger.warn(
-              `Tenant ${event['tenantId'].slice(0, 8)}… erased — ingress will ACK-drop its messages`,
-            );
-          }
-          return Promise.resolve();
-        },
-      } as never)
-      .catch((error: unknown) => {
-        this.logger.error(
-          `Failed to subscribe TenantErased: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      });
+    const handler: IEventHandler<IEvent> = {
+      getEventType: (): string => 'TenantErased',
+      handle: (event: IEvent): Promise<void> => {
+        if (event.eventType === 'TenantErased' && typeof event.tenantId === 'string') {
+          this.markErased(event.tenantId);
+          this.logger.warn(
+            `Tenant ${event.tenantId.slice(0, 8)}… erased — ingress will ACK-drop its messages`,
+          );
+        }
+        return Promise.resolve();
+      },
+    };
+
+    void eventBus.subscribeTo<IEvent>('events.*.TenantErased', handler).catch((error: unknown) => {
+      this.logger.error(
+        `Failed to subscribe TenantErased: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
   }
 }

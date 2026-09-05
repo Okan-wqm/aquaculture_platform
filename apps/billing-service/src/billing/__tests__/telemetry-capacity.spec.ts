@@ -15,6 +15,9 @@
  * without a database.
  */
 
+import { collaborator, stubMember } from '@aquaculture/testing';
+import { DataSource, EntityManager } from 'typeorm';
+
 import { TelemetryCapacityService } from '../services/telemetry-capacity.service';
 import {
   TelemetryCapacityEntitlementState,
@@ -23,14 +26,61 @@ import {
 import { TelemetryCapacityEntitlementEntity } from '../entities/telemetry-capacity-entitlement.entity';
 import { BillingOutbox } from '../../outbox/billing-outbox.entity';
 
-interface StoredRow {
-  id: string;
-  tenantId: string;
-  version: number;
-  state: TelemetryCapacityEntitlementState;
-  m: number;
-  r: number;
-  observedRemainingM?: number | null;
+/**
+ * The entitlement columns the fake stores, derived from the ENTITY rather
+ * than re-declared beside it: a renamed or retyped column now breaks this
+ * fixture at compile time instead of leaving the fake describing a table
+ * that no longer exists.
+ */
+type StoredRow = Pick<
+  TelemetryCapacityEntitlementEntity,
+  'id' | 'tenantId' | 'version' | 'state' | 'm' | 'r' | 'observedRemainingM'
+>;
+
+/** What the service enqueues — the subset of the outbox row it fills in. */
+type OutboxRow = Partial<BillingOutbox>;
+
+/**
+ * `satisfies` proves every entry is a real StoredRow key, so `row[key]` below
+ * needs no cast at all — the blanket-cast index access this replaces checked
+ * nothing and would have kept matching after a column rename.
+ */
+const STORED_ROW_KEYS = [
+  'id',
+  'tenantId',
+  'version',
+  'state',
+  'm',
+  'r',
+  'observedRemainingM',
+] as const satisfies readonly (keyof StoredRow)[];
+
+const STORED_ROW_KEY_SET: ReadonlySet<string> = new Set(STORED_ROW_KEYS);
+
+/**
+ * TypeORM `where` matching over the modelled columns. An unmodelled column
+ * throws instead of matching everything: a service that starts filtering on a
+ * column this fake does not carry must fail loudly, not silently return every
+ * row (which is how a capacity-envelope test goes green for the wrong reason).
+ */
+function matchesWhere(row: StoredRow, where: Partial<StoredRow>): boolean {
+  for (const key of Object.keys(where)) {
+    if (!STORED_ROW_KEY_SET.has(key)) {
+      throw new Error(`FakeManager: where clause names an unmodelled column "${key}"`);
+    }
+  }
+  return STORED_ROW_KEYS.every((key) => !(key in where) || row[key] === where[key]);
+}
+
+function isStoredRow(row: StoredRow | OutboxRow): row is StoredRow {
+  return 'state' in row;
+}
+
+function upsertById<T extends { id?: string }>(bag: T[], row: T): T {
+  const index = bag.findIndex((existing) => existing.id === row.id);
+  if (index >= 0) bag[index] = row;
+  else bag.push(row);
+  return row;
 }
 
 /**
@@ -40,61 +90,90 @@ interface StoredRow {
  * use).
  */
 class FakeManager {
-  tceRows: StoredRow[] = [];
-  outboxRows: unknown[] = [];
+  readonly tceRows: StoredRow[] = [];
+  readonly outboxRows: OutboxRow[] = [];
 
-  private bagFor(target: unknown): StoredRow[] | null {
-    if (target === TelemetryCapacityEntitlementEntity) return this.tceRows;
-    if (target === BillingOutbox) return this.outboxRows as StoredRow[];
-    return null;
+  findOne(target: unknown, where: Partial<StoredRow>): Promise<StoredRow | null> {
+    if (target !== TelemetryCapacityEntitlementEntity) return Promise.resolve(null);
+    return Promise.resolve(this.tceRows.find((row) => matchesWhere(row, where)) ?? null);
   }
 
-  findOne(target: unknown, { where }: { where: Partial<StoredRow> }): Promise<StoredRow | null> {
-    const bag = this.bagFor(target);
-    const hit = bag?.find((row) =>
-      Object.entries(where).every(([k, v]) => (row as never)[k] === v),
+  count(target: unknown, where: Partial<StoredRow>): Promise<number> {
+    if (target !== TelemetryCapacityEntitlementEntity) return Promise.resolve(0);
+    return Promise.resolve(this.tceRows.filter((row) => matchesWhere(row, where)).length);
+  }
+
+  save(target: unknown, data: StoredRow | OutboxRow): Promise<StoredRow | OutboxRow> {
+    if (target === TelemetryCapacityEntitlementEntity && isStoredRow(data)) {
+      return Promise.resolve(upsertById(this.tceRows, data));
+    }
+    if (target === BillingOutbox && !isStoredRow(data)) {
+      return Promise.resolve(upsertById(this.outboxRows, data));
+    }
+    throw new Error('FakeManager.save: unmodelled entity target');
+  }
+
+  activeM(): number {
+    return this.tceRows
+      .filter((row) => row.state === TelemetryCapacityEntitlementState.ACTIVE)
+      .reduce((sum, row) => sum + row.m, 0);
+  }
+
+  /**
+   * The typed EntityManager face the service is handed. `findOne`, `count`,
+   * `create` and `save` are all generic over the entity, and a generic
+   * signature is exactly what a single-signature fake cannot be assignable to
+   * — `stubMember` carries that unavoidable cast per member while the
+   * enclosing `collaborator` keeps every other EntityManager member checked,
+   * so a new collaborator call names itself instead of arriving as undefined.
+   */
+  asEntityManager(): EntityManager {
+    return collaborator<EntityManager>(
+      {
+        findOne: stubMember<EntityManager['findOne']>(
+          (target: unknown, options: { where: Partial<StoredRow> }) =>
+            this.findOne(target, options.where),
+        ),
+        count: stubMember<EntityManager['count']>(
+          (target: unknown, options: { where: Partial<StoredRow> }) =>
+            this.count(target, options.where),
+        ),
+        create: stubMember<EntityManager['create']>(
+          (_target: unknown, data: StoredRow | OutboxRow) => data,
+        ),
+        save: stubMember<EntityManager['save']>((target: unknown, data: StoredRow | OutboxRow) =>
+          this.save(target, data),
+        ),
+      },
+      'EntityManager',
     );
-    return Promise.resolve(hit ?? null);
-  }
-
-  count(target: unknown, { where }: { where: Partial<StoredRow> }): Promise<number> {
-    const bag = this.bagFor(target) ?? [];
-    return Promise.resolve(
-      bag.filter((row) => Object.entries(where).every(([k, v]) => (row as never)[k] === v)).length,
-    );
-  }
-
-  create(_target: unknown, data: StoredRow): StoredRow {
-    return data;
-  }
-
-  save(_target: unknown, data: StoredRow): Promise<StoredRow> {
-    const bag = this.bagFor(_target);
-    const idx = bag?.findIndex((row) => row.id === data.id) ?? -1;
-    if (idx >= 0 && bag) bag[idx] = data;
-    else bag?.push(data);
-    return Promise.resolve(data);
   }
 }
 
 class FakeDataSource {
-  manager = new FakeManager();
+  readonly manager = new FakeManager();
 
-  transaction<T>(fn: (manager: FakeManager) => Promise<T>): Promise<T> {
-    return fn(this.manager);
-  }
-
-  query(): Promise<Array<{ total: string | null }>> {
-    const activeM = this.manager.tceRows
-      .filter((row) => row.state === TelemetryCapacityEntitlementState.ACTIVE)
-      .reduce((sum, row) => sum + row.m, 0);
-    return Promise.resolve([{ total: String(activeM) }]);
+  /** The typed DataSource face the service is constructed with. */
+  asDataSource(): DataSource {
+    const entityManager = this.manager.asEntityManager();
+    return collaborator<DataSource>(
+      {
+        transaction: stubMember<DataSource['transaction']>(
+          (runInTransaction: (manager: EntityManager) => Promise<unknown>) =>
+            runInTransaction(entityManager),
+        ),
+        query: stubMember<DataSource['query']>(() =>
+          Promise.resolve([{ total: String(this.manager.activeM()) }]),
+        ),
+      },
+      'DataSource',
+    );
   }
 }
 
 function makeService(): { service: TelemetryCapacityService; ds: FakeDataSource } {
   const ds = new FakeDataSource();
-  const service = new TelemetryCapacityService(ds as never);
+  const service = new TelemetryCapacityService(ds.asDataSource());
   return { service, ds };
 }
 
@@ -194,9 +273,7 @@ describe('TelemetryCapacityService (Task 8 entitlement machine)', () => {
     const { service, ds } = makeService();
     await service.reserve(TENANT_A, { m: 10, r: 20 }, crypto.randomUUID());
     expect(ds.manager.outboxRows).toHaveLength(1);
-    expect((ds.manager.outboxRows[0] as { eventType?: string }).eventType).toBe(
-      'TelemetryCapacityEntitlementChanged',
-    );
+    expect(ds.manager.outboxRows[0]?.eventType).toBe('TelemetryCapacityEntitlementChanged');
   });
 
   it('a retried reserve with the same idempotency key resolves to the same row', async () => {

@@ -52,6 +52,10 @@ import { FeedingLedgerService } from '../../feeding/services/feeding-ledger.serv
 import { FinanceSettingsService } from '../../finance/services/finance-settings.service';
 import { FeedAllocationService } from '../../storage/services/feed-allocation.service';
 import { StockMutationLockAuthority } from '../../storage/services/stock-mutation-lock.authority';
+import { FeedingDayPlan } from '../../feeding-protocol/entities/feeding-day-plan.entity';
+import { FeedingMeal } from '../../feeding-protocol/entities/feeding-meal.entity';
+import { FeedingProtocolV2 } from '../../feeding-protocol/entities/feeding-protocol-v2.entity';
+import { ProtocolAssignment } from '../../feeding-protocol/entities/protocol-assignment.entity';
 import { BiomassGrowthApplierService } from '../../feeding-protocol/services/biomass-growth-applier.service';
 import { DayPlanRecalcService } from '../../feeding-protocol/services/day-plan-recalc.service';
 import { ProtocolResolutionService } from '../../feeding-protocol/services/protocol-resolution.service';
@@ -154,6 +158,17 @@ describe('Feeding record tenant isolation on real Postgres', () => {
         // `EntityMetadataNotFoundError` from inside recordFeed rather than as a
         // currency fallback. Production registers it; the harness must too.
         FinanceSettings,
+        // The handler binds the unit's active day plan (create-feeding-record
+        // handler, D-7), and the REAL DayPlanRecalcService this fixture wires
+        // reads meals, the protocol and its assignment while recalculating.
+        // Production never had to list them — TypeORM autoLoadEntities picks up
+        // whatever forFeature registers — which is exactly why a bare test
+        // DataSource drifts behind the code the moment a handler reaches one
+        // more table.
+        FeedingDayPlan,
+        FeedingMeal,
+        FeedingProtocolV2,
+        ProtocolAssignment,
         FarmOutbox,
       ],
       synchronize: true,
@@ -608,53 +623,37 @@ describe('Feeding record tenant isolation on real Postgres', () => {
   }
 });
 
+/**
+ * Clone every PER-TENANT table into `schema`, derived from what `synchronize`
+ * actually created in `farm` rather than from a hand-kept list.
+ *
+ * The list version had to be edited in lockstep with the `entities` array
+ * above, and a miss surfaced only at runtime, from inside a handler, as
+ * `EntityMetadataNotFoundError` — twice already (FinanceSettings, then
+ * FeedingDayPlan when the feeding-protocol merge made the handler bind a day
+ * plan). Deriving it deletes one of the two lists: registering an entity is now
+ * the single edit, and the tenant schema follows.
+ *
+ * Tables whose entity declares an explicit `schema:` are cross-tenant by
+ * ADR-011 (the outbox here) and stay in `farm`.
+ */
 async function createTenantSchema(dataSource: DataSource, schema: string): Promise<void> {
   await dataSource.query(`CREATE SCHEMA "${schema}"`);
-  await dataSource.query(`CREATE TABLE "${schema}"."sites" (LIKE "farm"."sites" INCLUDING ALL)`);
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."departments" (LIKE "farm"."departments" INCLUDING ALL)`,
+  const crossTenant = new Set(
+    dataSource.entityMetadatas
+      .filter((metadata) => metadata.schema !== undefined)
+      .map((metadata) => metadata.tableName),
   );
-  await dataSource.query(`CREATE TABLE "${schema}"."tanks" (LIKE "farm"."tanks" INCLUDING ALL)`);
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."species" (LIKE "farm"."species" INCLUDING ALL)`,
+  const sourceTables: Array<{ table_name: string }> = await dataSource.query(
+    `SELECT table_name FROM information_schema.tables
+     WHERE table_schema = 'farm' AND table_type = 'BASE TABLE'`,
   );
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."batches_v2" (LIKE "farm"."batches_v2" INCLUDING ALL)`,
-  );
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."batch_documents" (LIKE "farm"."batch_documents" INCLUDING ALL)`,
-  );
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."tank_allocations" (LIKE "farm"."tank_allocations" INCLUDING ALL)`,
-  );
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."tank_batches" (LIKE "farm"."tank_batches" INCLUDING ALL)`,
-  );
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."tank_operations" (LIKE "farm"."tank_operations" INCLUDING ALL)`,
-  );
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."suppliers" (LIKE "farm"."suppliers" INCLUDING ALL)`,
-  );
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."finance_settings" (LIKE "farm"."finance_settings" INCLUDING ALL)`,
-  );
-  await dataSource.query(`CREATE TABLE "${schema}"."feeds" (LIKE "farm"."feeds" INCLUDING ALL)`);
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."storage_locations" (LIKE "farm"."storage_locations" INCLUDING ALL)`,
-  );
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."storage_inventory" (LIKE "farm"."storage_inventory" INCLUDING ALL)`,
-  );
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."stock_movements" (LIKE "farm"."stock_movements" INCLUDING ALL)`,
-  );
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."storage_lot_mixes" (LIKE "farm"."storage_lot_mixes" INCLUDING ALL)`,
-  );
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."feeding_records" (LIKE "farm"."feeding_records" INCLUDING ALL)`,
-  );
+  for (const { table_name: table } of sourceTables) {
+    if (crossTenant.has(table)) continue;
+    await dataSource.query(
+      `CREATE TABLE "${schema}"."${table}" (LIKE "farm"."${table}" INCLUDING ALL)`,
+    );
+  }
 }
 
 async function createFarmOutboxTable(dataSource: DataSource): Promise<void> {

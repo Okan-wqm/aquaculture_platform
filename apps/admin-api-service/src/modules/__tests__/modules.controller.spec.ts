@@ -6,11 +6,11 @@ import { Test, TestingModule } from '@nestjs/testing';
 
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import {
-  ModulesController,
+  AssignModuleDto,
   CreateModuleDto,
   UpdateModuleDto,
-  AssignModuleDto,
-} from '../modules.controller';
+} from '../dto/module-request.dto';
+import { ModulesController } from '../modules.controller';
 import { createStandardPaginatedResult } from '@platform/pagination-contracts';
 
 import {

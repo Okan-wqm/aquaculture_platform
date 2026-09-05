@@ -1,5 +1,8 @@
 // Base event contract and shared types
 export * from './base-event';
+// Explicit event tenancy scope — the single spelling of the platform routing
+// segment for producers, consumers, event-bus and outbox (SEC-HIGH-057).
+export * from './tenant-scope';
 
 // Cross-service shared enums (DBR-HIGH-003 cure — single source of truth
 // for values that are persisted to the DB and round-tripped via events).

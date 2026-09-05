@@ -1,3 +1,5 @@
+import { tenantIdForScope, type EventTenantScope } from './tenant-scope';
+
 /**
  * Branded type for event IDs. Can ONLY be produced by `createBaseEvent()`.
  *
@@ -185,6 +187,10 @@ export type BillingCycle = 'monthly' | 'quarterly' | 'semi_annual' | 'annual';
  * `aggregateId` and `aggregateType` are required so that every event is properly
  * associated with a domain aggregate for event-sourced replay and per-entity audit trails.
  *
+ * `tenantId` is either the tenant UUID or an {@link EventTenantScope}: an event
+ * about a principal whose tenantId is nullable passes `tenantScopeOf(user.tenantId)`
+ * and never spells the platform routing segment itself (SEC-HIGH-057).
+ *
  * Usage:
  * ```typescript
  * const event: TenantCreatedEvent = {
@@ -196,7 +202,7 @@ export type BillingCycle = 'monthly' | 'quarterly' | 'semi_annual' | 'annual';
  */
 export function createBaseEvent<T extends BaseEvent>(
   eventType: T['eventType'],
-  tenantId: string,
+  tenantId: string | EventTenantScope,
   overrides?: Partial<
     Pick<
       BaseEvent,
@@ -211,7 +217,7 @@ export function createBaseEvent<T extends BaseEvent>(
     eventId: crypto.randomUUID() as EventId,
     eventType,
     timestamp: new Date().toISOString(),
-    tenantId,
+    tenantId: typeof tenantId === 'string' ? tenantId : tenantIdForScope(tenantId),
     version: 1,
     aggregateId: '',
     aggregateType: '',

@@ -16,6 +16,12 @@
  * literal set; opaque token/key references validate as bounded strings (they may
  * be a UUID or a SHA-256 hash, never raw PII).
  *
+ * Tenancy (SEC-HIGH-057): events about a principal whose tenantId is nullable
+ * (super admins live in auth.users with tenantId NULL) are PLATFORM-CAPABLE and
+ * admit the reserved platform segment on `tenantId` via
+ * TENANT_OR_PLATFORM_TENANT_ID_SCHEMA. UserInvited is structurally tenant-bound
+ * (an invitation always targets a tenant) and keeps the UUID-only base shape.
+ *
  * @see libs/event-contracts/src/schemas/tenant-events.schema.ts
  * @see libs/event-contracts/src/schemas/validator.ts
  */
@@ -23,6 +29,7 @@ import {
   ACCESS_TOKEN_INVALIDATION_REASONS,
   USER_ACCESS_TOKEN_INVALIDATION_REASONS,
 } from '../auth-events';
+import { TENANT_OR_PLATFORM_TENANT_ID_SCHEMA } from '../tenant-scope';
 import {
   BASE_EVENT_PROPERTIES,
   BASE_EVENT_REQUIRED,
@@ -33,6 +40,7 @@ import {
 
 export type AuthEventType =
   | 'UserLoggedIn'
+  | 'UserAccountLocked'
   | 'InvitationAccepted'
   | 'PasswordResetRequested'
   | 'PasswordResetCompleted'
@@ -98,28 +106,53 @@ function authEventSchema(
 export const AUTH_EVENT_SCHEMAS = {
   UserLoggedIn: authEventSchema(
     'UserLoggedIn',
-    { userId: UUID_SCHEMA, ipAddress: STRING, userAgent: LONG_STRING },
+    {
+      tenantId: TENANT_OR_PLATFORM_TENANT_ID_SCHEMA,
+      userId: UUID_SCHEMA,
+      ipAddress: STRING,
+      userAgent: LONG_STRING,
+    },
     ['userId'],
+  ),
+  UserAccountLocked: authEventSchema(
+    'UserAccountLocked',
+    {
+      tenantId: TENANT_OR_PLATFORM_TENANT_ID_SCHEMA,
+      userId: UUID_SCHEMA,
+      failedAttempts: { type: 'integer', minimum: 1, maximum: 1000 },
+      lockedUntil: ISO_DATE_TIME,
+    },
+    ['userId', 'failedAttempts', 'lockedUntil'],
   ),
   InvitationAccepted: authEventSchema(
     'InvitationAccepted',
-    { userId: UUID_SCHEMA, invitationId: UUID_SCHEMA, email: LONG_STRING },
+    {
+      tenantId: TENANT_OR_PLATFORM_TENANT_ID_SCHEMA,
+      userId: UUID_SCHEMA,
+      invitationId: UUID_SCHEMA,
+      email: LONG_STRING,
+    },
     ['userId'],
   ),
   PasswordResetRequested: authEventSchema(
     'PasswordResetRequested',
-    { userId: UUID_SCHEMA, actionTokenId: OPAQUE_REF, cryptoShredKeyId: OPAQUE_REF },
+    {
+      tenantId: TENANT_OR_PLATFORM_TENANT_ID_SCHEMA,
+      userId: UUID_SCHEMA,
+      actionTokenId: OPAQUE_REF,
+      cryptoShredKeyId: OPAQUE_REF,
+    },
     ['userId', 'actionTokenId', 'cryptoShredKeyId'],
   ),
   PasswordResetCompleted: authEventSchema(
     'PasswordResetCompleted',
-    { userId: UUID_SCHEMA },
+    { tenantId: TENANT_OR_PLATFORM_TENANT_ID_SCHEMA, userId: UUID_SCHEMA },
     ['userId'],
   ),
   UserAccessTokenInvalidationRequested: authEventSchema(
     'UserAccessTokenInvalidationRequested',
     {
-      tenantId: { anyOf: [UUID_SCHEMA, { const: 'system' }] },
+      tenantId: TENANT_OR_PLATFORM_TENANT_ID_SCHEMA,
       targetUserId: UUID_SCHEMA,
       invalidatedAtEpochSeconds: {
         type: 'integer',
@@ -133,7 +166,7 @@ export const AUTH_EVENT_SCHEMAS = {
   AccessTokenInvalidationRequested: authEventSchema(
     'AccessTokenInvalidationRequested',
     {
-      tenantId: { anyOf: [UUID_SCHEMA, { const: 'system' }] },
+      tenantId: TENANT_OR_PLATFORM_TENANT_ID_SCHEMA,
       targetJti: UUID_SCHEMA,
       expiresAtEpochSeconds: {
         type: 'integer',

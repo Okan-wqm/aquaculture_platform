@@ -7,6 +7,7 @@
  * real field via additionalProperties:false), full key/fixture coverage, and the
  * reject cases (unknown type, extra field, missing required, bad enum literal).
  */
+import { PLATFORM_EVENT_TENANT_ID } from '../../tenant-scope';
 import { AUTH_EVENT_SCHEMAS, type AuthEventType } from '../auth-events.schema';
 import { validateAuthEvent, type AuthEventValidationResult } from '../validator';
 
@@ -38,6 +39,11 @@ const VALID_FIXTURES: Record<AuthEventType, Record<string, unknown>> = {
     userId: USER_ID,
     ipAddress: '203.0.113.7',
     userAgent: 'Mozilla/5.0 (compatible)',
+  }),
+  UserAccountLocked: withBase('UserAccountLocked', {
+    userId: USER_ID,
+    failedAttempts: 5,
+    lockedUntil: '2026-06-12T12:30:00.000Z',
   }),
   InvitationAccepted: withBase('InvitationAccepted', {
     userId: USER_ID,
@@ -111,7 +117,7 @@ describe('validateAuthEvent (DATA-MEDIUM-001)', () => {
   const schemaKeys = Object.keys(AUTH_EVENT_SCHEMAS) as AuthEventType[];
 
   it('has a validator + fixture for every registered auth event schema', () => {
-    expect(schemaKeys.length).toBe(12);
+    expect(schemaKeys.length).toBe(13);
     for (const key of schemaKeys) {
       expect(VALID_FIXTURES[key]).toBeDefined();
     }
@@ -156,20 +162,46 @@ describe('validateAuthEvent (DATA-MEDIUM-001)', () => {
     expect(validateAuthEvent('UserLoggedIn', 42).valid).toBe(false);
   });
 
-  it('admits the exact system routing identity for auth recovery events', () => {
+  // SEC-HIGH-057: events about a principal whose tenantId is nullable (a super
+  // admin) are platform-capable; UserInvited is structurally tenant-bound.
+  const PLATFORM_CAPABLE: readonly AuthEventType[] = [
+    'UserLoggedIn',
+    'UserAccountLocked',
+    'InvitationAccepted',
+    'PasswordResetRequested',
+    'PasswordResetCompleted',
+    'UserAccessTokenInvalidationRequested',
+    'AccessTokenInvalidationRequested',
+  ];
+
+  it.each(PLATFORM_CAPABLE)('%s admits the platform routing segment on tenantId', (eventType) => {
     expectValid(
-      validateAuthEvent('UserAccessTokenInvalidationRequested', {
-        ...VALID_FIXTURES.UserAccessTokenInvalidationRequested,
-        tenantId: 'system',
-      }),
-    );
-    expectValid(
-      validateAuthEvent('AccessTokenInvalidationRequested', {
-        ...VALID_FIXTURES.AccessTokenInvalidationRequested,
-        tenantId: 'system',
+      validateAuthEvent(eventType, {
+        ...VALID_FIXTURES[eventType],
+        tenantId: PLATFORM_EVENT_TENANT_ID,
       }),
     );
   });
+
+  it('UserInvited rejects the platform segment: an invitation always targets a tenant', () => {
+    expect(
+      validateAuthEvent('UserInvited', {
+        ...VALID_FIXTURES.UserInvited,
+        tenantId: PLATFORM_EVENT_TENANT_ID,
+      }).valid,
+    ).toBe(false);
+  });
+
+  it.each(schemaKeys)(
+    '%s rejects a tenantId that is neither a UUID nor the platform segment',
+    (eventType) => {
+      for (const tenantId of ['', 'platform', 'SYSTEM', 'tenant-1']) {
+        expect(validateAuthEvent(eventType, { ...VALID_FIXTURES[eventType], tenantId }).valid).toBe(
+          false,
+        );
+      }
+    },
+  );
 
   it('accepts the site-assignment-specific user invalidation reason', () => {
     expectValid(

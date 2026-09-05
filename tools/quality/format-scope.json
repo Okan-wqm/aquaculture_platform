@@ -39694,6 +39694,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/event-contracts/src/__tests__/tenant-scope.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/event-contracts/src/__tests__/websocket-envelopes.parity.spec.ts",
       "prettier_managed": true
     },
@@ -40055,6 +40061,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/event-contracts/src/tenant-events.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/tenant-scope.ts",
       "prettier_managed": true
     },
     {

@@ -7,10 +7,14 @@
  *
  * `tenantId = system` is reserved for platform-level events that do not belong
  * to a tenant. Wildcards are only emitted by the explicit subscription helpers.
+ *
+ * The platform segment is spelled once, in the event contract
+ * (`PLATFORM_EVENT_TENANT_ID`, SEC-HIGH-057); this module aliases it.
  */
+import { PLATFORM_EVENT_TENANT_ID } from '@platform/event-contracts';
 
 export const CANONICAL_EVENT_PREFIX = 'events' as const;
-export const SYSTEM_EVENT_TENANT_SEGMENT = 'system' as const;
+export const SYSTEM_EVENT_TENANT_SEGMENT = PLATFORM_EVENT_TENANT_ID;
 
 const SUBJECT_SEGMENT_PATTERN = /^[A-Za-z0-9_-]+$/;
 const EVENT_TYPE_PATTERN = /^[A-Z][A-Za-z0-9]+$/;
@@ -26,10 +30,7 @@ export interface ParsedTenantEventSubject {
   isSystem: boolean;
 }
 
-export function assertSafeSubjectSegment(
-  value: string,
-  label: string,
-): string {
+export function assertSafeSubjectSegment(value: string, label: string): string {
   if (typeof value !== 'string' || value.length === 0) {
     throw new TypeError(`${label} must be a non-empty string`);
   }
@@ -56,10 +57,7 @@ export function assertSafeEventType(eventType: string): string {
   return eventType;
 }
 
-export function buildTenantEventSubject(
-  tenantId: string,
-  eventType: string,
-): string {
+export function buildTenantEventSubject(tenantId: string, eventType: string): string {
   return `${CANONICAL_EVENT_PREFIX}.${assertSafeSubjectSegment(
     tenantId,
     'tenantId',
@@ -67,10 +65,7 @@ export function buildTenantEventSubject(
 }
 
 export function buildSystemEventSubject(eventType: string): string {
-  return buildTenantEventSubject(
-    SYSTEM_EVENT_TENANT_SEGMENT,
-    assertSafeEventType(eventType),
-  );
+  return buildTenantEventSubject(SYSTEM_EVENT_TENANT_SEGMENT, assertSafeEventType(eventType));
 }
 
 export function buildWildcardEventSubject(eventType: string): string {
@@ -78,15 +73,10 @@ export function buildWildcardEventSubject(eventType: string): string {
 }
 
 export function buildTenantWildcardSubject(tenantId: string): string {
-  return `${CANONICAL_EVENT_PREFIX}.${assertSafeSubjectSegment(
-    tenantId,
-    'tenantId',
-  )}.>`;
+  return `${CANONICAL_EVENT_PREFIX}.${assertSafeSubjectSegment(tenantId, 'tenantId')}.>`;
 }
 
-export function parseTenantEventSubject(
-  subject: string,
-): ParsedTenantEventSubject | null {
+export function parseTenantEventSubject(subject: string): ParsedTenantEventSubject | null {
   if (typeof subject !== 'string') return null;
   const segments = subject.split('.');
   if (segments.length !== 3) return null;
@@ -94,18 +84,10 @@ export function parseTenantEventSubject(
   if (prefix !== CANONICAL_EVENT_PREFIX || !tenantId || !eventType) {
     return null;
   }
-  if (
-    tenantId === '*' ||
-    tenantId === '>' ||
-    eventType === '*' ||
-    eventType === '>'
-  ) {
+  if (tenantId === '*' || tenantId === '>' || eventType === '*' || eventType === '>') {
     return null;
   }
-  if (
-    !SUBJECT_SEGMENT_PATTERN.test(tenantId) ||
-    !EVENT_TYPE_PATTERN.test(eventType)
-  ) {
+  if (!SUBJECT_SEGMENT_PATTERN.test(tenantId) || !EVENT_TYPE_PATTERN.test(eventType)) {
     return null;
   }
   return {
@@ -115,9 +97,7 @@ export function parseTenantEventSubject(
   };
 }
 
-export function assertCanonicalTenantEventSubject(
-  subject: string,
-): ParsedTenantEventSubject {
+export function assertCanonicalTenantEventSubject(subject: string): ParsedTenantEventSubject {
   const parsed = parseTenantEventSubject(subject);
   if (!parsed) {
     throw new TypeError(
@@ -135,16 +115,14 @@ export function assertSubjectMatchesEvent(
   const parsed = assertCanonicalTenantEventSubject(subject);
   if (parsed.eventType !== event.eventType) {
     throw new TypeError(
-      `Event subject type mismatch: subject=${parsed.eventType}, ` +
-        `payload=${event.eventType}`,
+      `Event subject type mismatch: subject=${parsed.eventType}, ` + `payload=${event.eventType}`,
     );
   }
 
   const eventTenant = event.tenantId ?? SYSTEM_EVENT_TENANT_SEGMENT;
   if (parsed.tenantId !== eventTenant) {
     throw new TypeError(
-      `Event subject tenant mismatch: subject=${parsed.tenantId}, ` +
-        `payload=${eventTenant}`,
+      `Event subject tenant mismatch: subject=${parsed.tenantId}, ` + `payload=${eventTenant}`,
     );
   }
 

@@ -15,8 +15,12 @@
  * so no patched 1.x or 2.x exists, and 3.5+ is ESM-only and restructured under
  * `src/` — an override breaks minio's CommonJS
  * `require("stream-json/jsonl/Parser.js")` outright. npm's own suggestion is a
- * major DOWNGRADE of minio, and 8.0.7 is the latest published release. There is
- * no action that both keeps minio working and clears the advisory.
+ * major DOWNGRADE of minio, and 8.0.7 is the latest published release. There was
+ * no action that both kept minio working and cleared the advisory — until
+ * libs/storage moved to @aws-sdk/client-s3 (SUPPLY-MEDIUM-008) and minio left
+ * the tree with stream-json, which is the re-review condition the entry named.
+ * The exceptions file is empty again and the invariant's ratchet is at 0; the
+ * mechanism stays for the next advisory of this shape.
  *
  * # What an exception is, and is not
  *

@@ -153,6 +153,11 @@ so an override breaks minio's CommonJS
 than inferred. npm's own remediation is a major downgrade to `minio@7.1.3`, and
 8.0.7 is the latest published release.
 
+_2026-09-05 update:_ main replaced the minio client with `@aws-sdk/client-s3`
+(SUPPLY-MEDIUM-008, `3c3856970`), so minio and stream-json left the tree and the
+exception below was retired when this branch took main; the gate keeps its
+mechanism with an empty exceptions file and the ratchet at 0.
+
 `security-audit` is required for `merge-gate`, so it stays red for a reason
 nobody can act on — and a permanently red required check stops being read, at
 which point it protects nothing. The gate had no way to record a reviewed,

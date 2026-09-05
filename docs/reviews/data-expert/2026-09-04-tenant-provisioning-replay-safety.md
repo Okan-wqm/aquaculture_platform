@@ -20,6 +20,9 @@ branch's rows were re-registered under the right-hand ids when the branch took m
 `Closes:` trailers still name the left column; the ids with no live sibling on main are also
 recorded in `docs/reviews/_registry/finding-id-aliases.yaml`. `PROC-MEDIUM-021` names an unrelated
 finding on main and cannot be aliased: its fix commit (`add2a56ae`) closes `PROC-MEDIUM-026`.
+`ADMIN-HIGH-009` (the phantom-tenant PR, #1427) is the same case: main's `ADMIN-HIGH-009` is an
+unrelated finding, so the retry defect below is `ADMIN-HIGH-094` in the ledger and its fix commit
+(`cb75f3505`) closes that row. `INFRA-CRITICAL-149` and `INFRA-HIGH-150` kept their ids.
 
 | Review id (headings, trailers) | Ledger id (findings.jsonl) |
 | ------------------------------ | -------------------------- |
@@ -28,6 +31,7 @@ finding on main and cannot be aliased: its fix commit (`add2a56ae`) closes `PROC
 | `PROC-MEDIUM-021`              | `PROC-MEDIUM-026`          |
 | `ADMIN-CRITICAL-008`           | `ADMIN-CRITICAL-093`       |
 | `SENSOR-CRITICAL-105`          | `SENSOR-CRITICAL-110`      |
+| `ADMIN-HIGH-009`               | `ADMIN-HIGH-094`           |
 
 ## Executive summary
 
@@ -357,6 +361,85 @@ migrations run as the same superuser, so `ALTER DEFAULT PRIVILEGES` masks the
 grant half there; a production split between the bootstrap role and `db_migrate`
 would not be masked.
 
+## Findings from the failed runs themselves
+
+The gate reached 24/24 only after four real failed provisions. Each of those
+left a `tenant_<uuid>` schema behind with `farm` and `sensor` present and the
+other five services absent — and what the platform does with such a schema is
+worse than the failure that produced it. The three defects below were named in
+the DATA-CRITICAL-010 context section as "blast radius"; they are registered
+separately because each has its own owner, its own fix, and its own test.
+
+### INFRA-CRITICAL-149 — a deploy stamps a ledger the schema cannot back
+
+`listTenantSchemas` (`apps/db-migrate/src/main.ts:886-900`) discovers tenants by
+namespace pattern alone and consults no evidence table.
+`backfillTenantLedgersForSource` (`:397-497`) then creates `migrations_<src>` in
+every discovered schema and, finding it empty, copies the **entire** source
+ledger into it. The fan-out that follows sees nothing pending. From that deploy
+on the schema is reported fully migrated for all seven services while holding
+two; `RECONCILE_EXISTING_SCHEMA` refuses it as an empty schema; and where
+TimescaleDB is installed, deploy Phase 1.3 runs
+`REVOKE … ON "<tenant>"."sensor_metrics"` unconditionally, raises
+`relation does not exist`, and the deploy exits 1 — one failed provisioning
+breaks every subsequent deploy.
+
+**Why a "no tables at all" guard is wrong:** the schemas the gate actually left
+behind were partial, not empty. That guard passes on them and stamps the five
+missing services.
+
+**Fix direction:** per source schema. Before stamping `migrations_<src>`, the
+tenant schema must carry every per-tenant table `MODULE_SCHEMAS` registers for
+`<src>` (`tables` + `referenceDataTables` — the set the provisioning gate itself
+asserts). Otherwise the stamp is skipped and the missing set logged. Left empty,
+the ledger makes the next fan-out build the missing schemas in the same deploy:
+the rule turns a bricked tenant into a self-healing one, phantoms already in
+production included.
+
+### ADMIN-HIGH-009 — a retried provision cannot re-issue its failed job
+
+`retryOperation` (`tenant-provisioning-workflow.service.ts:281-360`) resets every
+step row except the SUCCEEDED ones, and `runStep` (`:1668-1684`) returns early on
+a SUCCEEDED row. `publish_provisioning_requested` succeeded on the first attempt,
+so on retry `platform.request_tenant_schema_provisioning` is never called again
+— although that function is idempotent per `operation_id` and re-opens a
+FAILED/ABORTED job by design (`009-tenant-schema-provisioner.sql:214-249`). The
+wait step (`:1294-1315`) reads the same FAILED job and throws. The retry is dead
+on arrival.
+
+This is the class the same file already documents for `activate_tenant`
+(`activateTenantAfterVerification`: re-verify before acting, because a SUCCEEDED
+row is old evidence on a retry). The lesson was applied to one step and not to
+the one whose postcondition lives in another table.
+
+**Fix direction:** a step's ledger row is not its postcondition. `runStep`
+accepts a postcondition probe; when the row says SUCCEEDED but the probe says
+the postcondition no longer holds, the step re-runs. For the publish step the
+probe is "a PROVISION job for this operation exists and is not FAILED/ABORTED".
+A first-attempt failure still fails the run — only an explicit retry re-issues,
+so there is no unbounded re-provision loop — and COMMITTED jobs are never
+re-issued.
+
+### INFRA-HIGH-150 — a failed provision leaves the schema it created
+
+`processJob` issues `CREATE SCHEMA IF NOT EXISTS` on an autocommit connection
+(`tenant-schema-provisioner.ts:944-946`); the replay cannot be one transaction
+(`CREATE INDEX CONCURRENTLY` and the TimescaleDB steps opt out), so a
+per-migration rollback cannot reach it. The catch block (`:1079-1104`) collects
+residue and writes FAILED evidence and contains no `DROP SCHEMA`; the only drop
+in the file is the DELETE path (`:630`).
+
+**Fix direction:** drop only a schema _this run_ created.
+`assertTenantSchemaIdentityAvailable` (`:273-291`) checks that no OTHER tenant
+holds the name, not whether the schema pre-exists, and `IF NOT EXISTS` hides
+pre-existence — so the provisioner probes `information_schema.schemata` before
+`CREATE` and remembers the answer. A schema left by an earlier attempt
+(reachable once ADMIN-HIGH-009 makes retries work) is not dropped: the
+ledger-driven fan-out resumes it, and INFRA-CRITICAL-149 keeps a deploy from
+sealing it. `collectFailureResidue` keeps running first — it is the diagnosis
+the gate used four times — and the drop outcome is recorded in the same failure
+evidence.
+
 ## Context for DATA-CRITICAL-010
 
 The three findings above were surfaced while planning the fix for
@@ -387,9 +470,11 @@ bricks every subsequent deploy. Recovery through the admin API is also closed:
 `retryOperation` skips the already-succeeded `publish_provisioning_requested`
 step, so the request is never re-issued and the FAILED job is never reset.
 
-That behaviour is not itself new — it is the blast radius of DATA-CRITICAL-010
-rather than a separate defect — but any fix must handle the phantom tenants
-that already exist, not only prevent new ones.
+That behaviour was first recorded here as the blast radius of DATA-CRITICAL-010.
+It is now registered as three defects of its own — INFRA-CRITICAL-149 (the
+stamp), ADMIN-HIGH-009 (the retry) and INFRA-HIGH-150 (the leftover schema),
+above — because each has a different owner and fix, and because the fix must
+handle the phantom tenants that already exist, not only prevent new ones.
 
 ## References
 

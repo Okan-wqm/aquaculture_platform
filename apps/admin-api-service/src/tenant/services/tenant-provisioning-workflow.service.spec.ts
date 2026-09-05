@@ -313,10 +313,17 @@ describe('TenantProvisioningWorkflowService — ledger vs physical reality (ORPH
     physicalFacts: PhysicalFacts[];
     stepRows?: StepRow[];
     runState?: TenantProvisioningState;
+    /**
+     * ADMIN-HIGH-094: answers to each `platform.tenant_schema_jobs` status
+     * read, in order; the last one repeats. Default: always COMMITTED.
+     */
+    jobStatuses?: string[];
   }): Promise<Harness> => {
     const physicalFacts = [...options.physicalFacts];
     const stepRows = options.stepRows ?? [];
     const lastPhysicalFacts = options.physicalFacts[options.physicalFacts.length - 1];
+    const jobStatuses = [...(options.jobStatuses ?? ['COMMITTED'])];
+    const lastJobStatus = jobStatuses[jobStatuses.length - 1];
 
     const query = jest.fn((sql: string, params: unknown[] = []): Promise<unknown[]> => {
       if (sql.includes('pg_catalog.pg_namespace')) {
@@ -326,7 +333,10 @@ describe('TenantProvisioningWorkflowService — ledger vs physical reality (ORPH
         return Promise.resolve([{ job_id: 'job-1' }]);
       }
       if (sql.includes('FROM platform.tenant_schema_jobs')) {
-        return Promise.resolve([{ status: 'COMMITTED', errorMessage: null }]);
+        const status = jobStatuses.shift() ?? lastJobStatus;
+        return Promise.resolve([
+          { status, errorMessage: status === 'FAILED' ? 'replay aborted' : null },
+        ]);
       }
       if (sql.includes('ts."schemaName" AS "schemaName"')) {
         return Promise.resolve([
@@ -365,10 +375,14 @@ describe('TenantProvisioningWorkflowService — ledger vs physical reality (ORPH
       }
       if (sql.includes('admin.tenant_provisioning_steps')) {
         // A one-parameter SELECT is getRunSteps (whole run); the two-parameter
-        // one is runStep's "did this step already succeed?" probe, which must
-        // stay empty so every step actually executes.
+        // one is runStep's "did this step already succeed?" probe, answered
+        // from the same rows so a test can pre-mark a step SUCCEEDED.
         if (sql.trimStart().startsWith('SELECT')) {
-          return Promise.resolve(params.length === 1 ? stepRows : []);
+          return Promise.resolve(
+            params.length === 1
+              ? stepRows
+              : stepRows.filter((row) => row.stepName === String(params[1])),
+          );
         }
         return Promise.resolve([
           {
@@ -613,5 +627,76 @@ describe('TenantProvisioningWorkflowService — ledger vs physical reality (ORPH
       attempts: 3,
     });
     expect(verificationStep?.lastError).toContain('physical schema does not exist');
+  });
+
+  describe('a retried run re-issues the provisioning request its first attempt published (ADMIN-HIGH-094)', () => {
+    const succeededPublishStep: StepRow = {
+      stepName: 'publish_provisioning_requested',
+      state: TenantProvisioningState.SUCCEEDED,
+      stepOrder: 5,
+      attempts: 1,
+      lastError: null,
+      startedAt: new Date(),
+      completedAt: new Date(),
+    };
+
+    const requestCount = (query: jest.Mock): number =>
+      query.mock.calls.filter(
+        ([sql]) =>
+          typeof sql === 'string' && sql.includes('platform.request_tenant_schema_provisioning'),
+      ).length;
+
+    it('runs the SUCCEEDED publish step again when the job it published has FAILED', async () => {
+      // The retry shape: retryOperation kept the publish row SUCCEEDED, the
+      // provisioner has since marked the job FAILED. The postcondition probe
+      // reads FAILED; once re-issued the job is REQUESTED and then COMMITTED.
+      const { service, query, activateTenant } = await createHarness({
+        physicalFacts: [{ schemaExists: true, tableCount: LEDGER_TABLE_COUNT }],
+        stepRows: [succeededPublishStep],
+        jobStatuses: ['FAILED', 'COMMITTED'],
+      });
+
+      await service.processOperation(OPERATION_ID);
+
+      expect(requestCount(query)).toBe(1);
+      expect(stepOutcomes(query)).toContainEqual({
+        step: 'publish_provisioning_requested',
+        state: TenantProvisioningState.SUCCEEDED,
+      });
+      expect(activateTenant).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves the SUCCEEDED publish step alone when its job is still outstanding or committed', async () => {
+      const { service, query, activateTenant } = await createHarness({
+        physicalFacts: [{ schemaExists: true, tableCount: LEDGER_TABLE_COUNT }],
+        stepRows: [succeededPublishStep],
+        jobStatuses: ['COMMITTED'],
+      });
+
+      await service.processOperation(OPERATION_ID);
+
+      expect(requestCount(query)).toBe(0);
+      expect(
+        stepOutcomes(query).some((outcome) => outcome.step === 'publish_provisioning_requested'),
+      ).toBe(false);
+      expect(activateTenant).toHaveBeenCalledTimes(1);
+    });
+
+    it('still fails a first attempt whose job FAILED instead of re-issuing it in a loop', async () => {
+      // No SUCCEEDED publish row: the step publishes once, the wait step reads
+      // the FAILED job and fails the run. Only an explicit retry re-issues.
+      const { service, query, activateTenant } = await createHarness({
+        physicalFacts: [{ schemaExists: true, tableCount: LEDGER_TABLE_COUNT }],
+        jobStatuses: ['FAILED'],
+      });
+
+      await service.processOperation(OPERATION_ID);
+
+      expect(requestCount(query)).toBe(1);
+      const failed = stepOutcomes(query).find((outcome) => outcome.state === 'FAILED');
+      expect(failed?.step).toBe('wait_for_db_migrate_provisioner');
+      expect(failed?.error).toContain('failed operation');
+      expect(activateTenant).not.toHaveBeenCalled();
+    });
   });
 });

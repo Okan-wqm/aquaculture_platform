@@ -11,7 +11,7 @@ import { roundToCurrency } from '@aquaculture/backend-common/monetary';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import type {
-  BillingAdminQuoteModuleSelectionCommand,
+  BillingModuleQuoteRequest,
   BillingModulePriceInput,
   BillingModulePriceSnapshot,
   BillingModuleQuote,
@@ -260,7 +260,9 @@ export class ModulePricingService {
    * once, so the quote a customer is shown and the invoice they receive are
    * the same number.
    */
-  async quote(command: BillingAdminQuoteModuleSelectionCommand): Promise<BillingModuleQuote> {
+  async quote(
+    command: BillingModuleQuoteRequest & { actorId?: string },
+  ): Promise<BillingModuleQuote> {
     const cycleMonths = BILLING_CYCLE_MONTHS[command.billingCycle];
     if (cycleMonths === undefined) {
       throw new BadRequestException(`Unknown billing cycle ${String(command.billingCycle)}`);

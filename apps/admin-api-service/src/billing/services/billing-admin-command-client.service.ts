@@ -9,8 +9,10 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
+import { randomUUID } from 'crypto';
 import {
   BILLING_ADMIN_COMMAND_SUBJECTS,
+  type BillingAdminCommandMeta,
   type BillingAdminApplyDiscountCodeCommand,
   type BillingAdminApplyDiscountCodeResult,
   type BillingAdminBulkCreateDiscountCodesCommand,
@@ -58,6 +60,14 @@ import {
   type BillingPlanTier,
   type BillingCycle,
   type BillingAdminCreateInvoiceCommand,
+  type BillingAdminMarkInvoicePaidCommand,
+  type BillingAdminVoidInvoiceCommand,
+  type BillingAdminRecordPaymentCommand,
+  type BillingAdminRefundPaymentCommand,
+  type BillingAdminChangeSubscriptionPlanCommand,
+  type BillingAdminCancelSubscriptionCommand,
+  type BillingAdminReactivateSubscriptionCommand,
+  type BillingAdminExtendSubscriptionTrialCommand,
   type BillingAdminCreateInvoiceInput,
   type BillingAdminInvoiceCommandResult,
   type BillingAdminInvoiceResult,
@@ -69,9 +79,13 @@ import {
   type BillingTenantProvisioningCommand,
   type BillingTenantProvisioningResult,
 } from '@platform/event-contracts';
+import { getRequestContext } from '@aquaculture/backend-common/logging';
 import { catchError, firstValueFrom, throwError, timeout } from 'rxjs';
 
 const DEFAULT_BILLING_NATS_TIMEOUT_MS = 15_000;
+
+/** `billing.command_receipts."idempotencyKey"` is VARCHAR(255). */
+const MAX_IDEMPOTENCY_KEY_LENGTH = 255;
 
 @Injectable()
 export class BillingAdminCommandClientService {
@@ -101,17 +115,21 @@ export class BillingAdminCommandClientService {
       tenantId,
       input,
       actorId,
-    });
+    }, `create-invoice:${tenantId}`);
     return this.unwrapInvoiceResult(result);
   }
 
   async provisionTenantSubscription(
-    command: BillingTenantProvisioningCommand,
+    command: Omit<BillingTenantProvisioningCommand, 'correlationId'>,
   ): Promise<BillingTenantProvisioningResult> {
-    const result = await this.sendBillingCommand<
-      BillingTenantProvisioningCommand,
-      BillingTenantProvisioningResult
-    >(BILLING_ADMIN_COMMAND_SUBJECTS.PROVISION_TENANT_SUBSCRIPTION, command);
+    // Provisioning carries its OWN idempotency key, derived by the workflow from
+    // the run and the request hash, and runs from a workflow continuation that
+    // may have no HTTP frame at all. It is the one command that must not
+    // require an operator header.
+    const result = await this.dispatch<BillingTenantProvisioningResult>(
+      BILLING_ADMIN_COMMAND_SUBJECTS.PROVISION_TENANT_SUBSCRIPTION,
+      { correlationId: getRequestContext().correlationId ?? randomUUID(), ...command },
+    );
     if (result.success) return result;
     throw this.mapBillingError(result.errorCode, result.error);
   }
@@ -122,13 +140,13 @@ export class BillingAdminCommandClientService {
     actorId: string,
   ): Promise<BillingAdminInvoiceResult> {
     const result = await this.sendBillingCommand<
-      { invoiceId: string; amount: number; actorId: string },
+      BillingAdminMarkInvoicePaidCommand,
       BillingAdminInvoiceCommandResult
     >(BILLING_ADMIN_COMMAND_SUBJECTS.MARK_INVOICE_PAID, {
       invoiceId,
       amount,
       actorId,
-    });
+    }, `mark-invoice-paid:${invoiceId}`);
     return this.unwrapInvoiceResult(result);
   }
 
@@ -138,13 +156,13 @@ export class BillingAdminCommandClientService {
     actorId: string,
   ): Promise<BillingAdminInvoiceResult> {
     const result = await this.sendBillingCommand<
-      { invoiceId: string; reason: string; actorId: string },
+      BillingAdminVoidInvoiceCommand,
       BillingAdminInvoiceCommandResult
     >(BILLING_ADMIN_COMMAND_SUBJECTS.VOID_INVOICE, {
       invoiceId,
       reason,
       actorId,
-    });
+    }, `void-invoice:${invoiceId}`);
     return this.unwrapInvoiceResult(result);
   }
 
@@ -153,12 +171,12 @@ export class BillingAdminCommandClientService {
     actorId: string,
   ): Promise<BillingAdminPaymentResult> {
     const result = await this.sendBillingCommand<
-      { input: BillingAdminRecordPaymentInput; actorId: string },
+      BillingAdminRecordPaymentCommand,
       BillingAdminPaymentCommandResult
     >(BILLING_ADMIN_COMMAND_SUBJECTS.RECORD_PAYMENT, {
       input,
       actorId,
-    });
+    }, `record-payment:${input.invoiceId}`);
     return this.unwrapPaymentResult(result);
   }
 
@@ -167,12 +185,12 @@ export class BillingAdminCommandClientService {
     actorId: string,
   ): Promise<BillingAdminPaymentResult> {
     const result = await this.sendBillingCommand<
-      { input: BillingAdminRefundPaymentInput; actorId: string },
+      BillingAdminRefundPaymentCommand,
       BillingAdminPaymentCommandResult
     >(BILLING_ADMIN_COMMAND_SUBJECTS.REFUND_PAYMENT, {
       input,
       actorId,
-    });
+    }, `refund-payment:${input.paymentId}`);
     return this.unwrapPaymentResult(result);
   }
 
@@ -187,13 +205,7 @@ export class BillingAdminCommandClientService {
     actorId: string,
   ): Promise<BillingAdminSubscriptionCommandResult> {
     const result = await this.sendBillingCommand<
-      {
-        tenantId: string;
-        currentPlanId?: string;
-        newPlanId: string;
-        immediate?: boolean;
-        actorId: string;
-      },
+      BillingAdminChangeSubscriptionPlanCommand,
       BillingAdminSubscriptionCommandResult
     >(BILLING_ADMIN_COMMAND_SUBJECTS.CHANGE_SUBSCRIPTION_PLAN, {
       tenantId: input.tenantId,
@@ -201,7 +213,7 @@ export class BillingAdminCommandClientService {
       newPlanId: input.newPlanId,
       immediate: input.effectiveImmediately,
       actorId,
-    });
+    }, `change-plan:${input.tenantId}`);
     return this.unwrapSubscriptionResult(result);
   }
 
@@ -212,14 +224,14 @@ export class BillingAdminCommandClientService {
     actorId: string,
   ): Promise<BillingAdminSubscriptionCommandResult> {
     const result = await this.sendBillingCommand<
-      { tenantId: string; reason: string; cancelImmediately?: boolean; actorId: string },
+      BillingAdminCancelSubscriptionCommand,
       BillingAdminSubscriptionCommandResult
     >(BILLING_ADMIN_COMMAND_SUBJECTS.CANCEL_SUBSCRIPTION, {
       tenantId,
       reason,
       cancelImmediately,
       actorId,
-    });
+    }, `cancel-subscription:${tenantId}`);
     return this.unwrapSubscriptionResult(result);
   }
 
@@ -228,12 +240,12 @@ export class BillingAdminCommandClientService {
     actorId: string,
   ): Promise<BillingAdminSubscriptionCommandResult> {
     const result = await this.sendBillingCommand<
-      { tenantId: string; actorId: string },
+      BillingAdminReactivateSubscriptionCommand,
       BillingAdminSubscriptionCommandResult
     >(BILLING_ADMIN_COMMAND_SUBJECTS.REACTIVATE_SUBSCRIPTION, {
       tenantId,
       actorId,
-    });
+    }, `reactivate-subscription:${tenantId}`);
     return this.unwrapSubscriptionResult(result);
   }
 
@@ -243,13 +255,13 @@ export class BillingAdminCommandClientService {
     actorId: string,
   ): Promise<BillingAdminSubscriptionCommandResult> {
     const result = await this.sendBillingCommand<
-      { tenantId: string; additionalDays: number; actorId: string },
+      BillingAdminExtendSubscriptionTrialCommand,
       BillingAdminSubscriptionCommandResult
     >(BILLING_ADMIN_COMMAND_SUBJECTS.EXTEND_SUBSCRIPTION_TRIAL, {
       tenantId,
       additionalDays,
       actorId,
-    });
+    }, `extend-trial:${tenantId}`);
     return this.unwrapSubscriptionResult(result);
   }
 
@@ -269,7 +281,7 @@ export class BillingAdminCommandClientService {
     const result = await this.sendBillingCommand<
       BillingAdminCreateDiscountCodeCommand,
       BillingAdminDiscountCodeCommandResult
-    >(BILLING_ADMIN_COMMAND_SUBJECTS.CREATE_DISCOUNT_CODE, { code, input, actorId });
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.CREATE_DISCOUNT_CODE, { code, input, actorId }, `create-discount:${code}`);
     return this.unwrapDiscountCode(result);
   }
 
@@ -281,7 +293,7 @@ export class BillingAdminCommandClientService {
     const result = await this.sendBillingCommand<
       BillingAdminUpdateDiscountCodeCommand,
       BillingAdminDiscountCodeCommandResult
-    >(BILLING_ADMIN_COMMAND_SUBJECTS.UPDATE_DISCOUNT_CODE, { discountCodeId, input, actorId });
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.UPDATE_DISCOUNT_CODE, { discountCodeId, input, actorId }, `update-discount:${discountCodeId}`);
     return this.unwrapDiscountCode(result);
   }
 
@@ -292,7 +304,7 @@ export class BillingAdminCommandClientService {
     const result = await this.sendBillingCommand<
       BillingAdminDeactivateDiscountCodeCommand,
       BillingAdminDiscountCodeCommandResult
-    >(BILLING_ADMIN_COMMAND_SUBJECTS.DEACTIVATE_DISCOUNT_CODE, { discountCodeId, actorId });
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.DEACTIVATE_DISCOUNT_CODE, { discountCodeId, actorId }, `deactivate-discount:${discountCodeId}`);
     return this.unwrapDiscountCode(result);
   }
 
@@ -310,7 +322,7 @@ export class BillingAdminCommandClientService {
       codePrefix,
       template,
       actorId,
-    });
+    }, `bulk-discounts:${codePrefix ?? 'auto'}:${count}`);
     if (result.success && result.discountCodes) return result.discountCodes;
     throw this.mapBillingError(result.errorCode, result.error);
   }
@@ -319,7 +331,7 @@ export class BillingAdminCommandClientService {
     const result = await this.sendBillingCommand<
       BillingAdminGenerateDiscountCodeCommand,
       BillingAdminGenerateDiscountCodeResult
-    >(BILLING_ADMIN_COMMAND_SUBJECTS.GENERATE_DISCOUNT_CODE, { prefix, length, actorId });
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.GENERATE_DISCOUNT_CODE, { prefix, length, actorId }, `generate-discount:${prefix ?? 'auto'}`);
     if (result.success && result.code) return result.code;
     throw this.mapBillingError(result.errorCode, result.error);
   }
@@ -344,7 +356,7 @@ export class BillingAdminCommandClientService {
       subscriptionChange: context.subscriptionChange,
       orderAmount: context.orderAmount,
       actorId,
-    });
+    }, `validate-discount:${code}:${tenantId}`);
     if (!result.success) throw this.mapBillingError(result.errorCode, result.error);
     return result;
   }
@@ -373,7 +385,7 @@ export class BillingAdminCommandClientService {
       subscriptionId: context.subscriptionId,
       invoiceId: context.invoiceId,
       actorId,
-    });
+    }, `apply-discount:${code}:${tenantId}`);
     if (!result.success) throw this.mapBillingError(result.errorCode, result.error);
     return result;
   }
@@ -399,7 +411,7 @@ export class BillingAdminCommandClientService {
     const result = await this.sendBillingCommand<
       BillingAdminSetModulePriceCommand,
       BillingAdminModulePriceCommandResult
-    >(BILLING_ADMIN_COMMAND_SUBJECTS.SET_MODULE_PRICE, { input, actorId });
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.SET_MODULE_PRICE, { input, actorId }, `set-module-price:${input.moduleCode}`);
     return this.unwrapModulePrice(result);
   }
 
@@ -410,7 +422,7 @@ export class BillingAdminCommandClientService {
     const result = await this.sendBillingCommand<
       BillingAdminDeactivateModulePriceCommand,
       BillingAdminModulePriceCommandResult
-    >(BILLING_ADMIN_COMMAND_SUBJECTS.DEACTIVATE_MODULE_PRICE, { modulePriceId, actorId });
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.DEACTIVATE_MODULE_PRICE, { modulePriceId, actorId }, `deactivate-module-price:${modulePriceId}`);
     return this.unwrapModulePrice(result);
   }
 
@@ -421,7 +433,7 @@ export class BillingAdminCommandClientService {
     const result = await this.sendBillingCommand<
       BillingAdminSeedModulePricesCommand,
       BillingAdminSeedModulePricesResult
-    >(BILLING_ADMIN_COMMAND_SUBJECTS.SEED_MODULE_PRICES, { moduleIds, actorId });
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.SEED_MODULE_PRICES, { moduleIds, actorId }, `seed-module-prices:${moduleIds.length}`);
     if (result.success && result.seeded !== undefined) return result.seeded;
     throw this.mapBillingError(result.errorCode, result.error);
   }
@@ -443,7 +455,7 @@ export class BillingAdminCommandClientService {
     const result = await this.sendBillingCommand<
       BillingAdminQuoteModuleSelectionCommand,
       BillingAdminQuoteModuleSelectionResult
-    >(BILLING_ADMIN_COMMAND_SUBJECTS.QUOTE_MODULE_SELECTION, { ...request, actorId });
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.QUOTE_MODULE_SELECTION, { ...request, actorId }, `quote-modules:${request.tier}:${request.billingCycle}`);
     if (result.success && result.quote) return result.quote;
     throw this.mapBillingError(result.errorCode, result.error);
   }
@@ -466,7 +478,7 @@ export class BillingAdminCommandClientService {
     const result = await this.sendBillingCommand<
       BillingAdminCreatePlanCommand,
       BillingAdminPlanCommandResult
-    >(BILLING_ADMIN_COMMAND_SUBJECTS.CREATE_PLAN, { input, actorId });
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.CREATE_PLAN, { input, actorId }, `create-plan:${input.tier}:${input.code ?? input.name}`);
     return this.unwrapPlan(result);
   }
 
@@ -478,7 +490,7 @@ export class BillingAdminCommandClientService {
     const result = await this.sendBillingCommand<
       BillingAdminUpdatePlanCommand,
       BillingAdminPlanCommandResult
-    >(BILLING_ADMIN_COMMAND_SUBJECTS.UPDATE_PLAN, { planId, input, actorId });
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.UPDATE_PLAN, { planId, input, actorId }, `update-plan:${planId}`);
     return this.unwrapPlan(result);
   }
 
@@ -486,7 +498,7 @@ export class BillingAdminCommandClientService {
     const result = await this.sendBillingCommand<
       BillingAdminDeprecatePlanCommand,
       BillingAdminPlanCommandResult
-    >(BILLING_ADMIN_COMMAND_SUBJECTS.DEPRECATE_PLAN, { planId, actorId });
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.DEPRECATE_PLAN, { planId, actorId }, `deprecate-plan:${planId}`);
     return this.unwrapPlan(result);
   }
 
@@ -509,7 +521,7 @@ export class BillingAdminCommandClientService {
     const result = await this.sendBillingCommand<
       BillingAdminCreateCustomPlanCommand,
       BillingAdminCustomPlanCommandResult
-    >(BILLING_ADMIN_COMMAND_SUBJECTS.CREATE_CUSTOM_PLAN, { input, actorId });
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.CREATE_CUSTOM_PLAN, { input, actorId }, `create-custom-plan:${input.tenantId}`);
     return this.unwrapCustomPlan(result);
   }
 
@@ -521,7 +533,7 @@ export class BillingAdminCommandClientService {
     const result = await this.sendBillingCommand<
       BillingAdminUpdateCustomPlanCommand,
       BillingAdminCustomPlanCommandResult
-    >(BILLING_ADMIN_COMMAND_SUBJECTS.UPDATE_CUSTOM_PLAN, { customPlanId, input, actorId });
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.UPDATE_CUSTOM_PLAN, { customPlanId, input, actorId }, `update-custom-plan:${customPlanId}`);
     return this.unwrapCustomPlan(result);
   }
 
@@ -533,6 +545,7 @@ export class BillingAdminCommandClientService {
       BILLING_ADMIN_COMMAND_SUBJECTS.SUBMIT_CUSTOM_PLAN,
       customPlanId,
       actorId,
+      `submit-custom-plan:${customPlanId}`,
     );
   }
 
@@ -544,6 +557,7 @@ export class BillingAdminCommandClientService {
       BILLING_ADMIN_COMMAND_SUBJECTS.APPROVE_CUSTOM_PLAN,
       customPlanId,
       actorId,
+      `approve-custom-plan:${customPlanId}`,
     );
   }
 
@@ -555,7 +569,7 @@ export class BillingAdminCommandClientService {
     const result = await this.sendBillingCommand<
       BillingAdminRejectCustomPlanCommand,
       BillingAdminCustomPlanCommandResult
-    >(BILLING_ADMIN_COMMAND_SUBJECTS.REJECT_CUSTOM_PLAN, { customPlanId, reason, actorId });
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.REJECT_CUSTOM_PLAN, { customPlanId, reason, actorId }, `reject-custom-plan:${customPlanId}`);
     return this.unwrapCustomPlan(result);
   }
 
@@ -572,7 +586,7 @@ export class BillingAdminCommandClientService {
       customPlanId,
       subscriptionId,
       actorId,
-    });
+    }, `activate-custom-plan:${customPlanId}`);
     return this.unwrapCustomPlan(result);
   }
 
@@ -588,7 +602,7 @@ export class BillingAdminCommandClientService {
       customPlanId,
       targetTenantId,
       actorId,
-    });
+    }, `clone-custom-plan:${customPlanId}:${targetTenantId}`);
     return this.unwrapCustomPlan(result);
   }
 
@@ -596,7 +610,7 @@ export class BillingAdminCommandClientService {
     const result = await this.sendBillingCommand<
       BillingAdminCustomPlanTransitionCommand,
       BillingAdminDeleteCustomPlanResult
-    >(BILLING_ADMIN_COMMAND_SUBJECTS.DELETE_CUSTOM_PLAN, { customPlanId, actorId });
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.DELETE_CUSTOM_PLAN, { customPlanId, actorId }, `delete-custom-plan:${customPlanId}`);
     if (!result.success) throw this.mapBillingError(result.errorCode, result.error);
   }
 
@@ -604,11 +618,12 @@ export class BillingAdminCommandClientService {
     subject: string,
     customPlanId: string,
     actorId: string,
+    operationScope: string,
   ): Promise<BillingCustomPlanSnapshot> {
     const result = await this.sendBillingCommand<
       BillingAdminCustomPlanTransitionCommand,
       BillingAdminCustomPlanCommandResult
-    >(subject, { customPlanId, actorId });
+    >(subject, { customPlanId, actorId }, operationScope);
     return this.unwrapCustomPlan(result);
   }
 
@@ -619,13 +634,63 @@ export class BillingAdminCommandClientService {
     throw this.mapBillingError(result.errorCode, result.error);
   }
 
-  private async sendBillingCommand<TCommand, TResult>(
+  /**
+   * Compose the ADR-0014 meta for one command.
+   *
+   * The idempotency key is the operator's `Idempotency-Key` header composed
+   * with a scope that names the operation. Both halves are load-bearing:
+   *
+   *  - the HEADER is what stays stable across retries. admin-panel's
+   *    `apiFetch` mints it once per call and re-sends it on each of its own
+   *    502/503/504 retries, so a refund whose reply was lost in a gateway
+   *    timeout arrives at billing under the key it already used.
+   *  - the SCOPE keeps two different commands raised by ONE request apart
+   *    (activating a custom plan provisions and then activates). Without it
+   *    the second would look like the first replayed under a changed payload
+   *    and be refused.
+   *
+   * There is deliberately no fallback: minting a key here would produce a
+   * fresh value per attempt, which is no key at all.
+   */
+  private billingCommandMeta(operationScope: string): {
+    idempotencyKey: string;
+    correlationId: string;
+  } {
+    const context = getRequestContext();
+    const requestKey = context.idempotencyKey;
+    if (!requestKey) {
+      throw new BadRequestException(
+        'This billing operation must carry an `Idempotency-Key` header naming the operation. ' +
+          'Send the SAME key on every retry of one action and a fresh key for a new action, ' +
+          'so a retry cannot charge, refund or provision twice (ADR-0014).',
+      );
+    }
+    const idempotencyKey = `${requestKey}:${operationScope}`;
+    if (idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
+      throw new BadRequestException(
+        `\`Idempotency-Key\` is too long: the composed key exceeds ${MAX_IDEMPOTENCY_KEY_LENGTH} characters.`,
+      );
+    }
+    return {
+      idempotencyKey,
+      // Diagnostic, not the idempotency anchor: it joins the receipt to this
+      // request's audit row and log lines.
+      correlationId: context.correlationId ?? randomUUID(),
+    };
+  }
+
+  private async sendBillingCommand<TCommand extends BillingAdminCommandMeta, TResult>(
     subject: string,
-    command: TCommand,
+    command: Omit<TCommand, 'idempotencyKey' | 'correlationId'>,
+    operationScope: string,
   ): Promise<TResult> {
+    return this.dispatch<TResult>(subject, { ...command, ...this.billingCommandMeta(operationScope) });
+  }
+
+  private async dispatch<TResult>(subject: string, command: object): Promise<TResult> {
     try {
       return await firstValueFrom(
-        this.billingNatsClient.send<TResult, TCommand>(subject, command).pipe(
+        this.billingNatsClient.send<TResult, object>(subject, command).pipe(
           timeout(this.timeoutMs),
           catchError((err: Error) => {
             this.logger.error(

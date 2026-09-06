@@ -330,7 +330,7 @@ export function buildProvisioningCommand(
   plan: CustomPlanResponseDto & { provisioningModuleItems: BillingProvisioningModuleItemLike[] },
   tenantName: string,
   actorId: string,
-): BillingTenantProvisioningCommand {
+): Omit<BillingTenantProvisioningCommand, 'correlationId'> {
   const semantic = {
     tenantId: plan.tenantId,
     tenantName,

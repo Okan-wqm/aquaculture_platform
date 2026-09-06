@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import { CommandBus } from '@nestjs/cqrs';
 import { Test } from '@nestjs/testing';
 import { BypassRlsService } from '@aquaculture/backend-common/database';
+import { BillingCommandReceiptService } from '../../services/billing-command-receipt.service';
 import { SubscriptionWriterService } from '../../services/subscription-writer.service';
 import type {
   BillingAdminCreateInvoiceCommand,
@@ -58,6 +59,7 @@ describe('BillingAdminNatsHandler.provisionTenantSubscription', () => {
     operationId: '11111111-1111-4111-8111-111111111111',
     tenantId: '22222222-2222-4222-8222-222222222222',
     idempotencyKey: 'idem-key-0123456789abcdef',
+    correlationId: 'corr-0123456789abcdef',
     requestPayloadHash: 'reqhash',
     actorId: '33333333-3333-4333-8333-333333333333',
     tenantName: 'Acme Aqua',
@@ -183,6 +185,9 @@ describe('BillingAdminNatsHandler.provisionTenantSubscription', () => {
     const moduleRef = await Test.createTestingModule({
       controllers: [BillingAdminNatsHandler],
       providers: [
+        // The controller binds BillingCommandReceiptInterceptor. At-most-once
+        // behaviour is covered by its own spec; here it only has to construct.
+        { provide: BillingCommandReceiptService, useValue: { runOnce: jest.fn() } },
         { provide: CommandBus, useValue: { execute: jest.fn() } },
         { provide: DataSource, useValue: mockDataSource },
         { provide: SubscriptionWriterService, useValue: subscriptionWriter },
@@ -347,6 +352,8 @@ describe('BillingAdminNatsHandler.provisionTenantSubscription', () => {
     const command: BillingAdminCreateInvoiceCommand = {
       tenantId: '22222222-2222-4222-8222-222222222222',
       actorId: '33333333-3333-4333-8333-333333333333',
+      idempotencyKey: 'operator-request-1:create-invoice:t2',
+      correlationId: 'corr-1',
       input: {
         billingAddress: {
           companyName: 'Acme',

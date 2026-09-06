@@ -63,6 +63,8 @@ import { DiscountCodeService } from './services/discount-code.service';
 import { ModulePricingService } from './services/module-pricing.service';
 import { CustomPlanService } from './services/custom-plan.service';
 import { SubscriptionWriterService } from './services/subscription-writer.service';
+import { BillingCommandReceiptService } from './services/billing-command-receipt.service';
+import { BillingCommandReceiptInterceptor } from './interceptors/billing-command-receipt.interceptor';
 import { PlanCatalogService } from './services/plan-catalog.service';
 import { MeteringModule } from '../modules/metering/metering.module';
 
@@ -165,6 +167,8 @@ const EventHandlers: never[] = [];
     PlanCatalogService,
     CustomPlanService,
     SubscriptionWriterService,
+    BillingCommandReceiptService,
+    BillingCommandReceiptInterceptor,
     // Faz C: invalidates the DynamicStripeClientProvider snapshot when an
     // operator saves a platform/billing.* config row (subscribes in onModuleInit).
     ConfigurationChangedHandler,

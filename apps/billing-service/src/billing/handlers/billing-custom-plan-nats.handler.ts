@@ -12,6 +12,7 @@ import {
   Controller,
   Logger,
   NotFoundException,
+  UseInterceptors,
 } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { BypassRlsService } from '@aquaculture/backend-common/database';
@@ -34,7 +35,10 @@ interface ActivateCustomPlanCommand extends BillingAdminCustomPlanTransitionComm
   subscriptionId: string;
 }
 
+import { BillingCommandReceiptInterceptor } from '../interceptors/billing-command-receipt.interceptor';
+
 @Controller()
+@UseInterceptors(BillingCommandReceiptInterceptor)
 export class BillingCustomPlanNatsHandler {
   private readonly logger = new Logger(BillingCustomPlanNatsHandler.name);
 

@@ -8,7 +8,13 @@
  * to billing as the priced module items of a provisioning command — so the
  * service that owns the prices trusted someone else's total.
  */
-import { BadRequestException, Controller, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Controller,
+  Logger,
+  NotFoundException,
+  UseInterceptors,
+} from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { BypassRlsService } from '@aquaculture/backend-common/database';
 import {
@@ -25,7 +31,13 @@ import {
 
 import { ModulePricingService, toModulePriceSnapshot } from '../services/module-pricing.service';
 
+import {
+  BillingCommandReceiptInterceptor,
+  NonMutatingBillingCommand,
+} from '../interceptors/billing-command-receipt.interceptor';
+
 @Controller()
+@UseInterceptors(BillingCommandReceiptInterceptor)
 export class BillingModulePriceNatsHandler {
   private readonly logger = new Logger(BillingModulePriceNatsHandler.name);
 
@@ -93,6 +105,9 @@ export class BillingModulePriceNatsHandler {
     });
   }
 
+  // Pure arithmetic over the current price sheet. Replaying it would quote a
+  // price the sheet no longer carries.
+  @NonMutatingBillingCommand()
   @MessagePattern(BILLING_ADMIN_COMMAND_SUBJECTS.QUOTE_MODULE_SELECTION)
   async quoteModuleSelection(
     @Payload() command: BillingAdminQuoteModuleSelectionCommand,

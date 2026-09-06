@@ -57,9 +57,34 @@ export const BILLING_ADMIN_COMMAND_SUBJECTS = {
   DELETE_CUSTOM_PLAN: 'request.billing.admin.deleteCustomPlan',
 } as const;
 
+/**
+ * What every admin billing command carries besides its own arguments
+ * (ADR-0014, BILLING-CRITICAL-003).
+ *
+ * Both fields are REQUIRED. A NATS request-reply that times out at 15s is
+ * retried — by the operator, or by the client — and with only an `actorId` the
+ * consumer could not tell a retry from a new request, so the money moved
+ * twice. The sharpest case was a refund: `RefundPaymentHandler` derives its
+ * Stripe idempotency key from the already-refunded total, so the retry of a
+ * refund that had already committed carried a DIFFERENT key and Stripe issued
+ * a second real refund.
+ *
+ * `idempotencyKey` must be derived by the CALLER from the operation it is
+ * performing (the resource id plus the action), never generated per send: a
+ * fresh key on every attempt is no key at all. The consumer writes a
+ * `billing.command_receipts` row keyed on
+ * `(tenantId, commandType, idempotencyKey)` before acting and replays the
+ * stored result on a retry.
+ *
+ * `correlationId` ties the command to the request that raised it, so a
+ * receipt, an audit row and a log line can be joined after the fact.
+ */
 export interface BillingAdminCommandMeta {
   actorId: string;
-  correlationId?: string;
+  /** Caller-derived, stable across retries of the SAME logical operation. */
+  idempotencyKey: string;
+  /** The request this command belongs to. */
+  correlationId: string;
 }
 
 export interface BillingModuleQuantities {
@@ -112,12 +137,17 @@ export interface BillingProvisioningModuleItem {
   total: string;
 }
 
-export interface BillingTenantProvisioningCommand {
+/**
+ * Provisioning carries the same meta as every other admin billing command
+ * (ADR-0014) plus its own `operationId` — the admin-side provisioning workflow
+ * step this command belongs to, which is EVIDENCE, not identity: the receipt
+ * is keyed on `(tenantId, commandType, idempotencyKey)` alone, so a caller
+ * that regenerates `operationId` on retry can no longer slip past the key.
+ */
+export interface BillingTenantProvisioningCommand extends BillingAdminCommandMeta {
   operationId: string;
   tenantId: string;
-  idempotencyKey: string;
   requestPayloadHash: string;
-  actorId: string;
   tenantName: string;
   tier: PlanTier;
   billingCycle: BillingCycle;
@@ -136,8 +166,7 @@ export interface BillingTenantProvisioningCommand {
   customPlanId?: string;
 }
 
-export interface BillingTenantProvisioningResult {
-  success: boolean;
+export interface BillingTenantProvisioningResult extends BillingAdminCommandResult {
   operationId: string;
   tenantId: string;
   subscriptionId?: string;
@@ -146,8 +175,6 @@ export interface BillingTenantProvisioningResult {
   receiptId?: string;
   resultHash?: string;
   replayed?: boolean;
-  errorCode?: BillingAdminCommandErrorCode | 'CATALOG_MISSING';
-  error?: string;
 }
 
 export interface BillingAdminAddress {
@@ -291,29 +318,40 @@ export type BillingAdminCommandErrorCode =
   | 'NOT_FOUND'
   | 'VALIDATION_ERROR'
   | 'CONFLICT'
-  | 'INTERNAL_ERROR';
+  | 'INTERNAL_ERROR'
+  /** Provisioning could not resolve an active catalogue plan for tier+cycle. */
+  | 'CATALOG_MISSING';
 
-export interface BillingAdminInvoiceCommandResult {
+/**
+ * What EVERY admin billing command replies (ADR-0014).
+ *
+ * `success` is not a convention here, it is the contract the consumer-side
+ * receipt machinery reads: a reply with `success === false` is recorded
+ * FAILED, so the operator's retry of a transient refusal RE-EXECUTES, while a
+ * reply with `success === true` is recorded SUCCEEDED and every later retry of
+ * the same idempotency key REPLAYS it instead of moving the money twice.
+ *
+ * Declaring it once makes that rule total: a new command result cannot forget
+ * the field the receipt writer branches on.
+ */
+export interface BillingAdminCommandResult {
   success: boolean;
+  errorCode?: BillingAdminCommandErrorCode;
+  error?: string;
+}
+
+export interface BillingAdminInvoiceCommandResult extends BillingAdminCommandResult {
   invoice?: BillingAdminInvoiceResult;
-  errorCode?: BillingAdminCommandErrorCode;
-  error?: string;
 }
 
-export interface BillingAdminPaymentCommandResult {
-  success: boolean;
+export interface BillingAdminPaymentCommandResult extends BillingAdminCommandResult {
   payment?: BillingAdminPaymentResult;
-  errorCode?: BillingAdminCommandErrorCode;
-  error?: string;
 }
 
-export interface BillingAdminSubscriptionCommandResult {
-  success: boolean;
+export interface BillingAdminSubscriptionCommandResult extends BillingAdminCommandResult {
   effectiveDate?: string;
   newTrialEnd?: string;
   message?: string;
-  errorCode?: BillingAdminCommandErrorCode;
-  error?: string;
 }
 
 // ============================================================================
@@ -507,29 +545,19 @@ export type BillingDiscountRejectionReason =
   | 'new_subscriptions_only'
   | 'below_minimum_order';
 
-export interface BillingAdminDiscountCodeCommandResult {
-  success: boolean;
+export interface BillingAdminDiscountCodeCommandResult extends BillingAdminCommandResult {
   discountCode?: BillingDiscountCodeSnapshot;
-  errorCode?: BillingAdminCommandErrorCode;
-  error?: string;
 }
 
-export interface BillingAdminBulkDiscountCodeCommandResult {
-  success: boolean;
+export interface BillingAdminBulkDiscountCodeCommandResult extends BillingAdminCommandResult {
   discountCodes?: BillingDiscountCodeSnapshot[];
-  errorCode?: BillingAdminCommandErrorCode;
-  error?: string;
 }
 
-export interface BillingAdminGenerateDiscountCodeResult {
-  success: boolean;
+export interface BillingAdminGenerateDiscountCodeResult extends BillingAdminCommandResult {
   code?: string;
-  errorCode?: BillingAdminCommandErrorCode;
-  error?: string;
 }
 
-export interface BillingAdminValidateDiscountCodeResult {
-  success: boolean;
+export interface BillingAdminValidateDiscountCodeResult extends BillingAdminCommandResult {
   valid: boolean;
   reason?: BillingDiscountRejectionReason;
   message?: string;
@@ -540,12 +568,9 @@ export interface BillingAdminValidateDiscountCodeResult {
    */
   discountAmount?: string;
   discountCode?: BillingDiscountCodeSnapshot;
-  errorCode?: BillingAdminCommandErrorCode;
-  error?: string;
 }
 
-export interface BillingAdminApplyDiscountCodeResult {
-  success: boolean;
+export interface BillingAdminApplyDiscountCodeResult extends BillingAdminCommandResult {
   valid?: boolean;
   reason?: BillingDiscountRejectionReason;
   /** Exact decimal strings. */
@@ -557,8 +582,6 @@ export interface BillingAdminApplyDiscountCodeResult {
   grantedTrialExtensionDays?: number;
   redemptionId?: string;
   message?: string;
-  errorCode?: BillingAdminCommandErrorCode;
-  error?: string;
 }
 
 // ============================================================================
@@ -644,18 +667,12 @@ export interface BillingAdminSeedModulePricesCommand extends BillingAdminCommand
   moduleIds: Array<{ moduleCode: string; moduleId: string }>;
 }
 
-export interface BillingAdminModulePriceCommandResult {
-  success: boolean;
+export interface BillingAdminModulePriceCommandResult extends BillingAdminCommandResult {
   modulePrice?: BillingModulePriceSnapshot;
-  errorCode?: BillingAdminCommandErrorCode;
-  error?: string;
 }
 
-export interface BillingAdminSeedModulePricesResult {
-  success: boolean;
+export interface BillingAdminSeedModulePricesResult extends BillingAdminCommandResult {
   seeded?: number;
-  errorCode?: BillingAdminCommandErrorCode;
-  error?: string;
 }
 
 // ── Quoting ────────────────────────────────────────────────────────────────
@@ -672,7 +689,14 @@ export interface BillingModuleQuoteSelection {
   quantities: Omit<BillingModuleQuantities, 'moduleId'>;
 }
 
-export interface BillingAdminQuoteModuleSelectionCommand extends BillingAdminCommandMeta {
+/**
+ * The arguments a quote needs, without the command meta.
+ *
+ * Split out because billing prices a custom plan through the SAME code in
+ * process: an in-process caller has no NATS retry to guard against, so making
+ * it invent an idempotency key would be ceremony that means nothing.
+ */
+export interface BillingModuleQuoteRequest {
   tier: BillingPlanTier;
   billingCycle: BillingCycle;
   modules: BillingModuleQuoteSelection[];
@@ -696,6 +720,10 @@ export interface BillingAdminQuoteModuleSelectionCommand extends BillingAdminCom
   negotiatedDiscountPercent?: string;
   negotiatedDiscountAmount?: string;
 }
+
+export interface BillingAdminQuoteModuleSelectionCommand
+  extends BillingAdminCommandMeta,
+    BillingModuleQuoteRequest {}
 
 export interface BillingModuleQuoteLineItem {
   metric: BillingPricingMetricType;
@@ -752,11 +780,8 @@ export interface BillingModuleQuote {
   unpricedModuleCodes: string[];
 }
 
-export interface BillingAdminQuoteModuleSelectionResult {
-  success: boolean;
+export interface BillingAdminQuoteModuleSelectionResult extends BillingAdminCommandResult {
   quote?: BillingModuleQuote;
-  errorCode?: BillingAdminCommandErrorCode;
-  error?: string;
 }
 
 // ============================================================================
@@ -923,11 +948,8 @@ export interface BillingAdminDeprecatePlanCommand extends BillingAdminCommandMet
   planId: string;
 }
 
-export interface BillingAdminPlanCommandResult {
-  success: boolean;
+export interface BillingAdminPlanCommandResult extends BillingAdminCommandResult {
   plan?: BillingPlanSnapshot;
-  errorCode?: BillingAdminCommandErrorCode;
-  error?: string;
 }
 
 // ============================================================================
@@ -1094,16 +1116,10 @@ export interface BillingAdminCloneCustomPlanCommand extends BillingAdminCommandM
   targetTenantId: string;
 }
 
-export interface BillingAdminCustomPlanCommandResult {
-  success: boolean;
+export interface BillingAdminCustomPlanCommandResult extends BillingAdminCommandResult {
   customPlan?: BillingCustomPlanSnapshot;
-  errorCode?: BillingAdminCommandErrorCode;
-  error?: string;
 }
 
-export interface BillingAdminDeleteCustomPlanResult {
-  success: boolean;
+export interface BillingAdminDeleteCustomPlanResult extends BillingAdminCommandResult {
   deleted?: boolean;
-  errorCode?: BillingAdminCommandErrorCode;
-  error?: string;
 }

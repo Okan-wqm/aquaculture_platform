@@ -13,7 +13,13 @@
  * refusal instead of a 502. Only a malformed command or a broken invariant
  * comes back as an errorCode.
  */
-import { BadRequestException, Controller, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Controller,
+  Logger,
+  NotFoundException,
+  UseInterceptors,
+} from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { BypassRlsService } from '@aquaculture/backend-common/database';
 import {
@@ -40,7 +46,13 @@ import {
   toDiscountCodeSnapshot,
 } from '../services/discount-code.service';
 
+import {
+  BillingCommandReceiptInterceptor,
+  NonMutatingBillingCommand,
+} from '../interceptors/billing-command-receipt.interceptor';
+
 @Controller()
+@UseInterceptors(BillingCommandReceiptInterceptor)
 export class BillingDiscountNatsHandler {
   private readonly logger = new Logger(BillingDiscountNatsHandler.name);
 
@@ -130,6 +142,9 @@ export class BillingDiscountNatsHandler {
     });
   }
 
+  // Mints a fresh random code and stores nothing. A repeat MUST produce a new
+  // code — replaying the first one would hand two campaigns the same code.
+  @NonMutatingBillingCommand()
   @MessagePattern(BILLING_ADMIN_COMMAND_SUBJECTS.GENERATE_DISCOUNT_CODE)
   async generateDiscountCode(
     @Payload() command: BillingAdminGenerateDiscountCodeCommand,
@@ -146,6 +161,9 @@ export class BillingDiscountNatsHandler {
     });
   }
 
+  // Read-only rule evaluation. Replaying it would answer with a verdict taken
+  // before the code's usage count, window or plan eligibility moved on.
+  @NonMutatingBillingCommand()
   @MessagePattern(BILLING_ADMIN_COMMAND_SUBJECTS.VALIDATE_DISCOUNT_CODE)
   async validateDiscountCode(
     @Payload() command: BillingAdminValidateDiscountCodeCommand,

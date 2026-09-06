@@ -12,6 +12,7 @@ import {
   Controller,
   Logger,
   NotFoundException,
+  UseInterceptors,
 } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { BypassRlsService } from '@aquaculture/backend-common/database';
@@ -26,7 +27,10 @@ import {
 
 import { PlanCatalogService, toPlanSnapshot } from '../services/plan-catalog.service';
 
+import { BillingCommandReceiptInterceptor } from '../interceptors/billing-command-receipt.interceptor';
+
 @Controller()
+@UseInterceptors(BillingCommandReceiptInterceptor)
 export class BillingPlanNatsHandler {
   private readonly logger = new Logger(BillingPlanNatsHandler.name);
 

@@ -216,6 +216,15 @@ export async function apiFetch<T>(
   let lastError: ApiError | null = null;
   let has401Retried = false;
 
+  // ADR-0014: ONE idempotency key per logical operation, minted OUTSIDE the
+  // retry loop. This client retries 502/503/504 three times on its own, so a
+  // refund whose reply was lost in a gateway timeout used to be submitted
+  // again as a brand-new request — and billing had no way to tell the two
+  // apart. X-Request-ID stays per-attempt: it identifies the attempt, this
+  // identifies the operation. Callers may override the header when several
+  // requests are one operation.
+  const idempotencyKey = method === 'GET' || method === 'HEAD' ? null : generateRequestId();
+
   for (let attempt = 0; attempt <= retryConfig.maxRetries; attempt++) {
     try {
       // Build headers fresh on every attempt so we pick up the refreshed
@@ -231,6 +240,10 @@ export async function apiFetch<T>(
       const tenantId = resolveTenantIdForScope(tenantScope);
       if (tenantId) {
         headers['X-Tenant-Id'] = tenantId;
+      }
+
+      if (idempotencyKey) {
+        headers['Idempotency-Key'] = idempotencyKey;
       }
 
       const mergedHeaders = mergeHeadersWithReservedPolicy(

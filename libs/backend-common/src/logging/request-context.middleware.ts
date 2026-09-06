@@ -12,6 +12,7 @@ import { RequestContext, requestContextStorage } from './request-context';
  *
  * It extracts:
  *  - correlationId  (X-Correlation-Id header, or auto-generated UUID)
+ *  - idempotencyKey (Idempotency-Key header — carried only, never generated)
  *  - traceId / spanId (from active OpenTelemetry span, or X-Trace-Id header)
  *  - tenantId       (X-Tenant-Id header, or from decoded JWT user payload)
  *  - userId         (from the x-user-payload header forwarded by the gateway)
@@ -64,8 +65,17 @@ export class RequestContextMiddleware implements NestMiddleware {
       verifiedTenantId || (req.headers['x-tenant-id'] as string | undefined) || extractTenantFromUser(req);
     const userId = extractUserIdFromPayload(req);
 
+    // ADR-0014: carried, never generated. A minted key would be a fresh value
+    // on every retry, i.e. no key at all.
+    const idempotencyKeyHeader = req.headers['idempotency-key'];
+    const idempotencyKey =
+      typeof idempotencyKeyHeader === 'string' && idempotencyKeyHeader.trim().length > 0
+        ? idempotencyKeyHeader.trim()
+        : undefined;
+
     const requestContext: RequestContext = {
       correlationId,
+      ...(idempotencyKey ? { idempotencyKey } : {}),
       traceId,
       spanId,
       tenantId,

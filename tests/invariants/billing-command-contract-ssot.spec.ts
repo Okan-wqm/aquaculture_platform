@@ -209,3 +209,101 @@ describe('INVARIANT (ADR-0014): billing.subscriptions is written through handler
     }
   });
 });
+
+/**
+ * INVARIANT — every admin billing command executes at most once (ADR-0014).
+ *
+ * The receipt is the DEFAULT, not a line each of 32 handler methods has to
+ * remember: skipping it costs an explicit decorator that says which of the two
+ * legitimate reasons applies. This gate is what keeps that default total.
+ */
+describe('INVARIANT (ADR-0014): admin billing commands are at-most-once', () => {
+  const RECEIPT_INTERCEPTOR = 'BillingCommandReceiptInterceptor';
+  const handlerFiles = listFiles('apps/billing-service/src/**/*.ts').filter(
+    (file) =>
+      !file.includes('__tests__') &&
+      read(file).includes('@MessagePattern(BILLING_ADMIN_COMMAND_SUBJECTS.'),
+  );
+
+  it('sees the fleet', () => {
+    expect(handlerFiles.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it.each(handlerFiles)('%s binds the receipt interceptor to its controller', (file) => {
+    // A controller that carries these subjects without the interceptor would
+    // execute every retry of every command it owns.
+    expect(code(file)).toContain(`@UseInterceptors(${RECEIPT_INTERCEPTOR})`);
+  });
+
+  it('skips the receipt only where a decorator states why', () => {
+    // Non-mutating: a quote or a validation asked twice must RECOMPUTE.
+    // Owns-receipt: tenant provisioning writes its receipt inside the same
+    // SERIALIZABLE transaction as the subscription, which is stronger.
+    const exempted = handlerFiles.flatMap((file) => {
+      const source = code(file);
+      return [
+        ...source.matchAll(
+          /@(NonMutatingBillingCommand|OwnsBillingCommandReceipt)\(\)\s*@MessagePattern\(BILLING_ADMIN_COMMAND_SUBJECTS\.([A-Z0-9_]+)\)/g,
+        ),
+      ].map((match) => `${match[2]!}:${match[1]!}`);
+    });
+    expect(exempted.sort()).toEqual([
+      'GENERATE_DISCOUNT_CODE:NonMutatingBillingCommand',
+      'PROVISION_TENANT_SUBSCRIPTION:OwnsBillingCommandReceipt',
+      'QUOTE_MODULE_SELECTION:NonMutatingBillingCommand',
+      'VALIDATE_DISCOUNT_CODE:NonMutatingBillingCommand',
+    ]);
+  });
+
+  it('requires both meta fields on the contract, with no optional escape', () => {
+    const contract = code(CONTRACT);
+    const meta = contract.slice(
+      contract.indexOf('interface BillingAdminCommandMeta {'),
+      contract.indexOf('}', contract.indexOf('interface BillingAdminCommandMeta {')),
+    );
+    expect(meta).toMatch(/\bidempotencyKey: string;/);
+    expect(meta).toMatch(/\bcorrelationId: string;/);
+    expect(meta).not.toMatch(/\?:/);
+  });
+
+  it('composes every sent command key from a caller-stated operation scope', () => {
+    // `sendBillingCommand(subject, command, operationScope)`. The third
+    // argument is what keeps two commands raised by ONE request apart; the
+    // compiler makes it mandatory, this makes it non-empty.
+    const sender = code(SENDER);
+    const scopes = [...sender.matchAll(/,\s*`([a-z0-9-]+:[^`]*)`\s*\)/g)].map((m) => m[1]!);
+    expect(scopes.length).toBeGreaterThanOrEqual(29);
+    // Every scope names the command AND at least one identifier from it, so
+    // two different resources never share a receipt.
+    for (const scope of scopes) {
+      expect(scope).toMatch(/^[a-z0-9-]+:\$\{/);
+    }
+  });
+
+  it('never mints an idempotency key on the sending side', () => {
+    // A key generated per attempt is no key at all — that is precisely the
+    // defect (`X-Request-ID` was regenerated on every retry).
+    const sender = code(SENDER);
+    const mintNearKey = /idempotencyKey[^,;\n]*\b(randomUUID|uuidv4|Date\.now)\(/;
+    expect(mintNearKey.test(sender)).toBe(false);
+  });
+
+  it('carries the operator key from the browser across its own retries', () => {
+    // admin-panel retries 502/503/504 three times. The key must be minted
+    // OUTSIDE that loop, or each retry is a new operation again.
+    const client = code('web/modules/admin-panel/src/services/http-client.ts');
+    const loopStart = client.indexOf('for (let attempt = 0');
+    expect(loopStart).toBeGreaterThan(-1);
+    expect(client.indexOf('const idempotencyKey =')).toBeLessThan(loopStart);
+    expect(client).toContain("headers['Idempotency-Key'] = idempotencyKey;");
+  });
+
+  it('keeps `supersededAt` an operator escape hatch, never a runtime write', () => {
+    // The unique receipt index is partial on `"supersededAt" IS NULL`, so code
+    // that set it would silently re-open the duplicate-execution path.
+    const runtimeWrites = listFiles('apps/billing-service/src/**/*.ts')
+      .filter((file) => !file.includes('__tests__') && !file.includes('/migrations/'))
+      .filter((file) => /supersededAt"?\s*=/.test(code(file)));
+    expect(runtimeWrites).toEqual([]);
+  });
+});

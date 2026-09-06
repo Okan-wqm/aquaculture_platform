@@ -13,6 +13,7 @@ import { BypassRlsService } from '@aquaculture/backend-common/database';
 import Decimal from 'decimal.js';
 
 import { BillingDiscountNatsHandler } from '../billing-discount-nats.handler';
+import { BillingCommandReceiptService } from '../../services/billing-command-receipt.service';
 import { DiscountCodeService, DiscountRejectedError } from '../../services/discount-code.service';
 
 const ACTOR = '33333333-3333-4333-8333-333333333333';
@@ -31,6 +32,9 @@ describe('BillingDiscountNatsHandler', () => {
     const moduleRef = await Test.createTestingModule({
       controllers: [BillingDiscountNatsHandler],
       providers: [
+        // The controller binds BillingCommandReceiptInterceptor. At-most-once
+        // behaviour is covered by its own spec; here it only has to construct.
+        { provide: BillingCommandReceiptService, useValue: { runOnce: jest.fn() } },
         { provide: DiscountCodeService, useValue: discounts },
         { provide: BypassRlsService, useValue: bypassRls },
       ],
@@ -52,6 +56,8 @@ describe('BillingDiscountNatsHandler', () => {
       tenantId: TENANT,
       orderAmount: '10',
       actorId: ACTOR,
+      idempotencyKey: 'operator-request-1:discount',
+      correlationId: 'corr-1',
     });
 
     expect(bypassRls.withBypass).toHaveBeenCalledWith(
@@ -70,6 +76,8 @@ describe('BillingDiscountNatsHandler', () => {
       tenantId: TENANT,
       orderAmount: '250.00',
       actorId: ACTOR,
+      idempotencyKey: 'operator-request-1:discount',
+      correlationId: 'corr-1',
     });
 
     expect(result).toEqual({
@@ -91,6 +99,8 @@ describe('BillingDiscountNatsHandler', () => {
       tenantId: TENANT,
       orderAmount: '10',
       actorId: ACTOR,
+      idempotencyKey: 'operator-request-1:discount',
+      correlationId: 'corr-1',
     });
 
     expect(result.success).toBe(false);
@@ -105,6 +115,8 @@ describe('BillingDiscountNatsHandler', () => {
       code: 'OVER',
       input: { name: 'Over', discountType: 'percentage', percentOff: '150' },
       actorId: ACTOR,
+      idempotencyKey: 'operator-request-1:discount',
+      correlationId: 'corr-1',
     });
 
     expect(result).toMatchObject({ success: false, errorCode: 'VALIDATION_ERROR' });
@@ -117,6 +129,8 @@ describe('BillingDiscountNatsHandler', () => {
       code: 'GONE',
       tenantId: TENANT,
       actorId: ACTOR,
+      idempotencyKey: 'operator-request-1:discount',
+      correlationId: 'corr-1',
     });
 
     expect(result).toMatchObject({ success: false, valid: false, errorCode: 'NOT_FOUND' });
@@ -130,6 +144,8 @@ describe('BillingDiscountNatsHandler', () => {
       tenantId: TENANT,
       orderAmount: '19.99',
       actorId: ACTOR,
+      idempotencyKey: 'operator-request-1:discount',
+      correlationId: 'corr-1',
       subscriptionChange: 'upgrade',
     });
 

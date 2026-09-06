@@ -6514,6 +6514,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/billing/interceptors/__tests__/billing-command-receipt.interceptor.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/billing/interceptors/billing-command-receipt.interceptor.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/billing/plan-limits.util.ts",
       "prettier_managed": true
     },
@@ -6599,6 +6611,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/billing-service/src/billing/seed/plan-seed.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/billing/services/billing-command-receipt.service.ts",
       "prettier_managed": true
     },
     {
@@ -6837,6 +6855,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/billing-service/src/database/migrations/1802300000000-MoveCustomPlans.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/database/migrations/1802400000000-BillingCommandReceiptIdentity.ts",
       "prettier_managed": true
     },
     {

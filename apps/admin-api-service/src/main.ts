@@ -36,5 +36,7 @@ bootstrapService(AppModule, {
 
   helmetOptions: { crossOriginEmbedderPolicy: false },
 
-  additionalCorsHeaders: ['X-Tenant-ID', 'X-Request-ID'],
+  // Idempotency-Key: ADR-0014. Without it in Access-Control-Allow-Headers the
+  // browser drops every admin billing mutation at the preflight.
+  additionalCorsHeaders: ['X-Tenant-ID', 'X-Request-ID', 'Idempotency-Key'],
 });

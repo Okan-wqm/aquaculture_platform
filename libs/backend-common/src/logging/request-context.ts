@@ -10,6 +10,17 @@ export interface RequestContext {
   traceId?: string;
   /** Correlation ID propagated via X-Correlation-Id header */
   correlationId?: string;
+  /**
+   * ADR-0014: the caller's `Idempotency-Key` header — ONE value per logical
+   * operation, held stable across every retry of it.
+   *
+   * It is deliberately NOT the correlation id: a correlation id is minted per
+   * attempt, so using it as an idempotency key would make every retry look
+   * like a brand-new operation, which is what let a retried refund charge back
+   * twice. Absent when the caller sent no header; commands that move money
+   * refuse rather than invent one.
+   */
+  idempotencyKey?: string;
   /** Resolved tenant ID for multi-tenant isolation */
   tenantId?: string;
   /** Authenticated user ID (JWT sub claim) */

@@ -6,6 +6,7 @@ import {
   Controller,
   Logger,
   NotFoundException,
+  UseInterceptors,
 } from '@nestjs/common';
 import { CommandBus } from '@nestjs/cqrs';
 import { MessagePattern, Payload } from '@nestjs/microservices';
@@ -32,6 +33,11 @@ import { BypassRlsService } from '@aquaculture/backend-common/database';
 import Decimal from 'decimal.js';
 import { DataSource, EntityManager } from 'typeorm';
 
+import {
+  BillingCommandReceiptInterceptor,
+  OwnsBillingCommandReceipt,
+} from '../interceptors/billing-command-receipt.interceptor';
+import { stableStringify } from '../services/billing-command-receipt.service';
 import { CancelSubscriptionCommand } from '../commands/cancel-subscription.command';
 import { ChangeSubscriptionPlanCommand } from '../commands/change-subscription-plan.command';
 import {
@@ -110,6 +116,7 @@ interface ActiveSubscriptionRow {
  * single writer and all writes go through the existing CQRS handlers.
  */
 @Controller()
+@UseInterceptors(BillingCommandReceiptInterceptor)
 export class BillingAdminNatsHandler {
   private readonly logger = new Logger(BillingAdminNatsHandler.name);
 
@@ -159,6 +166,10 @@ export class BillingAdminNatsHandler {
     return this.bypassRls.withBypass(`billing-admin:${operation}`, work);
   }
 
+  // Provisioning writes its OWN receipt INSIDE the SERIALIZABLE transaction that
+  // creates the subscription, so the receipt and the work commit or roll back
+  // together — strictly stronger than the interceptor's before/after pair.
+  @OwnsBillingCommandReceipt()
   @MessagePattern(BILLING_ADMIN_COMMAND_SUBJECTS.PROVISION_TENANT_SUBSCRIPTION)
   async provisionTenantSubscription(
     @Payload() command: BillingTenantProvisioningCommand,
@@ -478,15 +489,19 @@ export class BillingAdminNatsHandler {
     commandType: string,
     payloadHash: string,
   ): Promise<BillingCommandReceiptRow> {
+    // ADR-0014: the receipt identity is (tenantId, commandType, idempotencyKey).
+    // `operationId` is recorded as evidence but is NOT part of the key — the
+    // provisioning workflow mints a fresh one on retry, and while it led the
+    // unique index that retry inserted a second receipt and provisioned twice.
     const rows = await manager.query<BillingCommandReceiptRow[]>(
       `SELECT id, "payloadHash", status, "resultSummary", "updatedAt"
          FROM billing.command_receipts
-        WHERE "operationId" = $1
-          AND "tenantId" = $2
-          AND "commandType" = $3
-          AND "idempotencyKey" = $4
+        WHERE "tenantId" IS NOT DISTINCT FROM $1
+          AND "commandType" = $2
+          AND "idempotencyKey" = $3
+          AND "supersededAt" IS NULL
         FOR UPDATE`,
-      [command.operationId, command.tenantId, commandType, command.idempotencyKey],
+      [command.tenantId, commandType, command.idempotencyKey],
     );
     const existing = rows[0];
     if (existing) {
@@ -520,9 +535,10 @@ export class BillingAdminNatsHandler {
          "payloadHash",
          status,
          "actorId",
+         "correlationId",
          "createdAt",
          "updatedAt"
-       ) VALUES ($1, $2, $3, $4, $5, 'STARTED', $6, NOW(), NOW())
+       ) VALUES ($1, $2, $3, $4, $5, 'STARTED', $6, $7, NOW(), NOW())
        RETURNING id, "payloadHash", status, "resultSummary", "updatedAt"`,
       [
         command.operationId,
@@ -531,6 +547,7 @@ export class BillingAdminNatsHandler {
         command.idempotencyKey,
         payloadHash,
         command.actorId,
+        command.correlationId,
       ],
     );
     const receipt = inserted[0];
@@ -990,19 +1007,22 @@ export class BillingAdminNatsHandler {
          "payloadHash",
          status,
          "actorId",
+         "correlationId",
          "errorCode",
          error,
          "completedAt",
          "createdAt",
          "updatedAt"
-       ) VALUES ($1, $2, $3, $4, $5, 'FAILED', $6, $7, $8, NOW(), NOW(), NOW())
-       ON CONFLICT ("operationId", "tenantId", "commandType", "idempotencyKey") DO UPDATE SET
-         status = 'FAILED',
-         "errorCode" = EXCLUDED."errorCode",
-         error = EXCLUDED.error,
-         "completedAt" = NOW(),
-         "updatedAt" = NOW()
-       WHERE billing.command_receipts."payloadHash" = EXCLUDED."payloadHash"`,
+       ) VALUES ($1, $2, $3, $4, $5, 'FAILED', $6, $7, $8, $9, NOW(), NOW(), NOW())
+       ON CONFLICT ("tenantId", "commandType", "idempotencyKey")
+         WHERE "supersededAt" IS NULL
+         DO UPDATE SET
+           status = 'FAILED',
+           "errorCode" = EXCLUDED."errorCode",
+           error = EXCLUDED.error,
+           "completedAt" = NOW(),
+           "updatedAt" = NOW()
+         WHERE billing.command_receipts."payloadHash" = EXCLUDED."payloadHash"`,
       [
         command.operationId,
         command.tenantId,
@@ -1010,6 +1030,7 @@ export class BillingAdminNatsHandler {
         command.idempotencyKey,
         payloadHash,
         command.actorId,
+        command.correlationId,
         errorCode,
         error,
       ],
@@ -1039,21 +1060,7 @@ export class BillingAdminNatsHandler {
   }
 
   private hashBillingPayload(value: unknown): string {
-    return crypto.createHash('sha256').update(this.stableStringify(value)).digest('hex');
-  }
-
-  private stableStringify(value: unknown): string {
-    if (Array.isArray(value)) {
-      return `[${value.map((item) => this.stableStringify(item)).join(',')}]`;
-    }
-    if (value !== null && typeof value === 'object') {
-      const record = value as Record<string, unknown>;
-      return `{${Object.keys(record)
-        .sort()
-        .map((key) => `${JSON.stringify(key)}:${this.stableStringify(record[key])}`)
-        .join(',')}}`;
-    }
-    return JSON.stringify(value);
+    return crypto.createHash('sha256').update(stableStringify(value)).digest('hex');
   }
 
   private async getInvoiceTenantId(invoiceId: string): Promise<string> {

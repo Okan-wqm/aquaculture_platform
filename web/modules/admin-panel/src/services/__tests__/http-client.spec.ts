@@ -100,3 +100,83 @@ describe('admin-panel apiFetch header security contract', () => {
     expect(getHeaderValue(headers, 'Idempotency-Key')).toBe('idem-2');
   });
 });
+
+/**
+ * ADR-0014. This client retries 502/503/504 three times, and admin-api maps a
+ * billing NATS timeout to 502 — so before the key existed the browser itself
+ * re-submitted refunds as brand-new requests, and billing had no way to tell.
+ */
+describe('admin-panel apiFetch idempotency contract', () => {
+  const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>();
+
+  const headersOf = (call: FetchCall): Record<string, string> => {
+    const headers = call[1]?.headers;
+    if (!headers || headers instanceof Headers || Array.isArray(headers)) {
+      throw new Error('apiFetch must pass a plain header record to fetch');
+    }
+    return headers;
+  };
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal('fetch', fetchMock);
+    vi.mocked(getAccessToken).mockReturnValue('access-token');
+    vi.mocked(getTenantId).mockReturnValue('tenant-canonical');
+    vi.mocked(tokenLifecycle.waitForReady).mockResolvedValue(undefined);
+  });
+
+  it('sends one Idempotency-Key per mutation', async () => {
+    fetchMock.mockResolvedValue(okResponse());
+
+    await apiFetch('/billing/payments/p1/refund', { method: 'POST' });
+
+    const key = getHeaderValue(headersOf(fetchMock.mock.calls[0]!), 'Idempotency-Key');
+    expect(key).toBeTruthy();
+  });
+
+  it('repeats the SAME key across its own gateway retries', async () => {
+    fetchMock
+      .mockResolvedValueOnce(new Response('{}', { status: 503 }))
+      .mockResolvedValueOnce(okResponse());
+
+    await apiFetch(
+      '/billing/payments/p1/refund',
+      { method: 'POST' },
+      { maxRetries: 2, baseDelay: 0, maxDelay: 0 },
+    );
+
+    expect(fetchMock.mock.calls).toHaveLength(2);
+    const [first, second] = fetchMock.mock.calls.map((call) =>
+      getHeaderValue(headersOf(call), 'Idempotency-Key'),
+    );
+    expect(first).toBeTruthy();
+    // A key regenerated per attempt is no key at all — that is exactly what
+    // X-Request-ID does, and why it could not serve as the idempotency anchor.
+    expect(second).toBe(first);
+    const requestIds = fetchMock.mock.calls.map((call) =>
+      getHeaderValue(headersOf(call), 'X-Request-ID'),
+    );
+    expect(requestIds[1]).not.toBe(requestIds[0]);
+  });
+
+  it('sends no key on a read, which has nothing to make idempotent', async () => {
+    fetchMock.mockResolvedValue(okResponse());
+
+    await apiFetch('/security/events');
+
+    expect(getHeaderValue(headersOf(fetchMock.mock.calls[0]!), 'Idempotency-Key')).toBeUndefined();
+  });
+
+  it('lets a caller supply its own key when several requests are one operation', async () => {
+    fetchMock.mockResolvedValue(okResponse());
+
+    await apiFetch('/billing/invoices', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': 'operator-chosen' },
+    });
+
+    expect(getHeaderValue(headersOf(fetchMock.mock.calls[0]!), 'Idempotency-Key')).toBe(
+      'operator-chosen',
+    );
+  });
+});

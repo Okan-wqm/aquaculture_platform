@@ -4,7 +4,7 @@ import { act, cleanup, renderHook } from '@testing-library/react';
 import React, { useState } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 
-const requireFromApp = createRequire(new URL('../../package.json', import.meta.url));
+const requireFromApp = createRequire(import.meta.url);
 const requireFromRenderer = createRequire(requireFromApp.resolve('react-dom/client'));
 
 describe('standalone React runtime', () => {

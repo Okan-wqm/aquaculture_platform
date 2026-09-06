@@ -138,10 +138,20 @@ const createMockTenant = (overrides: Partial<Tenant> = {}): Tenant => {
   return tenant;
 };
 
-function createMockAccessSession(overrides: Partial<OriginatingAccessSession> = {}): OriginatingAccessSession {
+function createMockAccessSession(
+  overrides: Partial<OriginatingAccessSession> = {},
+): OriginatingAccessSession {
+  const user = createMockUser();
   const issuedAt = Math.floor(Date.now() / 1000) - 60;
-  return { sub: 'user-uuid-123', role: Role.MODULE_USER, tenantId: 'tenant-uuid-123',
-    jti: 'jti-123', iat: issuedAt, exp: issuedAt + 900, ...overrides };
+  return {
+    sub: user.id,
+    role: user.role,
+    tenantId: user.tenantId ?? null,
+    jti: 'jti-123',
+    iat: issuedAt,
+    exp: issuedAt + 900,
+    ...overrides,
+  };
 }
 
 // ============================================================================
@@ -317,7 +327,6 @@ const mockDurableUserTokenInvalidation = {
 // Test Suite
 // ============================================================================
 
-
 describe('AuthenticationService', () => {
   let service: AuthenticationService;
   let bypassRlsMock: BypassRlsService;
@@ -361,25 +370,30 @@ describe('AuthenticationService', () => {
       if (entity === ActionToken) return mockActionTokenRepository.findOne(options);
       throw new Error('Unexpected entity in authentication transaction');
     });
-    mockTransactionManager.update.mockImplementation(async (entity: unknown, criteria: unknown, values: Partial<User>) => {
-      if (entity === User) {
-        const current = await mockUserRepository.findOne();
-        if (current) {
-          const updated = Object.assign(new User(), current, values);
-          if (values.password !== undefined && values.password !== current.password) {
-            updated.credentialVersion = current.credentialVersion + 1;
+    mockTransactionManager.update.mockImplementation(
+      async (entity: unknown, criteria: unknown, values: Partial<User>) => {
+        if (entity === User) {
+          const current = await mockUserRepository.findOne();
+          if (current) {
+            const updated = Object.assign(new User(), current, values);
+            if (values.password !== undefined && values.password !== current.password) {
+              updated.credentialVersion = current.credentialVersion + 1;
+            }
+            mockUserRepository.findOne.mockResolvedValue(updated);
           }
-          mockUserRepository.findOne.mockResolvedValue(updated);
         }
-      }
-      if (entity === RefreshToken) return mockRefreshTokenRepository.update(criteria, values);
-      return { affected: 1 };
-    });
+        if (entity === RefreshToken) return mockRefreshTokenRepository.update(criteria, values);
+        return { affected: 1 };
+      },
+    );
     mockDataSource.transaction.mockImplementation(
       async (callback: (manager: typeof mockTransactionManager) => Promise<unknown>) => {
         mockTransactionManager.queryRunner.isTransactionActive = true;
-        try { return await callback(mockTransactionManager); }
-        finally { mockTransactionManager.queryRunner.isTransactionActive = false; }
+        try {
+          return await callback(mockTransactionManager);
+        } finally {
+          mockTransactionManager.queryRunner.isTransactionActive = false;
+        }
       },
     );
     // Postgres UPDATE…RETURNING tuple shape [rows, affected] (ORPHAN-HIGH-318).
@@ -395,8 +409,12 @@ describe('AuthenticationService', () => {
     mockTokenService.generateTokensInContext.mockImplementation((context: LockedAuthContext) => {
       context.assertSessionAdmission();
       return Promise.resolve({
-        accessToken: 'mock-access-token', refreshToken: 'mock-refresh-token',
-        user: context.user, expiresIn: 900, tokenType: 'Bearer', redirectUrl: '/dashboard',
+        accessToken: 'mock-access-token',
+        refreshToken: 'mock-refresh-token',
+        user: context.user,
+        expiresIn: 900,
+        tokenType: 'Bearer',
+        redirectUrl: '/dashboard',
       });
     });
 
@@ -485,8 +503,11 @@ describe('AuthenticationService', () => {
       expect(result).toHaveProperty('accessToken');
       expect(result).toHaveProperty('refreshToken');
       expect(mockUserRepository.save).not.toHaveBeenCalled();
-      expect(mockTransactionManager.update).toHaveBeenCalledWith(User, { id: user.id },
-        expect.objectContaining({ lastLoginAt: expect.any(Date) }));
+      expect(mockTransactionManager.update).toHaveBeenCalledWith(
+        User,
+        { id: user.id },
+        expect.objectContaining({ lastLoginAt: expect.any(Date) }),
+      );
     });
 
     it('throws UnauthorizedException and performs dummy hash check when user not found', async () => {
@@ -650,7 +671,9 @@ describe('AuthenticationService', () => {
       expect(user.failedLoginAttempts).toBe(3);
       expect(mockUserRepository.save).not.toHaveBeenCalled();
       expect(mockTransactionManager.update).toHaveBeenCalledWith(
-        User, { id: user.id }, expect.objectContaining({ failedLoginAttempts: 0 }),
+        User,
+        { id: user.id },
+        expect.objectContaining({ failedLoginAttempts: 0 }),
       );
     });
 
@@ -772,7 +795,6 @@ describe('AuthenticationService', () => {
         );
         expect(mockMfaService.generateMfaSetupToken).not.toHaveBeenCalled();
       });
-
     });
 
     it('throws UnauthorizedException for pending-invitation user', async () => {
@@ -800,7 +822,10 @@ describe('AuthenticationService', () => {
       expect(result.accessToken).toBe('mock-access-token');
       // ORPHAN-LOW-135: login threads the rememberMe choice (default false) into issuance.
       expect(mockTokenService.generateTokensInContext).toHaveBeenCalledWith(
-        expect.objectContaining({ user: expect.objectContaining({ id: user.id }), manager: mockTransactionManager }),
+        expect.objectContaining({
+          user: expect.objectContaining({ id: user.id }),
+          manager: mockTransactionManager,
+        }),
         '127.0.0.1',
         'test-agent',
         {
@@ -850,11 +875,16 @@ describe('AuthenticationService', () => {
     it('does not report a successful login when issuance rejects', async () => {
       const user = createMockUser();
       mockUserRepository.findOne.mockResolvedValue(user);
-      jest.spyOn(user, 'verifyPasswordAndSignalMigration').mockResolvedValue({ matched: true, shouldMigrate: false });
-      mockTokenService.generateTokensInContext.mockRejectedValueOnce(new Error('signing unavailable'));
+      jest
+        .spyOn(user, 'verifyPasswordAndSignalMigration')
+        .mockResolvedValue({ matched: true, shouldMigrate: false });
+      mockTokenService.generateTokensInContext.mockRejectedValueOnce(
+        new Error('signing unavailable'),
+      );
       await expect(service.login(validInput)).rejects.toThrow('signing unavailable');
       expect(mockAuditLogService.log).not.toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'LOGIN_SUCCESS' }), expect.anything(),
+        expect.objectContaining({ action: 'LOGIN_SUCCESS' }),
+        expect.anything(),
       );
       expect(mockEventBus.publish).not.toHaveBeenCalled();
     });
@@ -863,7 +893,9 @@ describe('AuthenticationService', () => {
       const user = createMockUser({ mfaEnabled: true });
       mockUserRepository.findOne.mockResolvedValue(user);
       mockMfaService.isMfaAvailable.mockReturnValue(true);
-      jest.spyOn(user, 'verifyPasswordAndSignalMigration').mockResolvedValue({ matched: true, shouldMigrate: true });
+      jest
+        .spyOn(user, 'verifyPasswordAndSignalMigration')
+        .mockResolvedValue({ matched: true, shouldMigrate: true });
       const originalVersion = user.credentialVersion;
       const result = await service.login(validInput);
       expect(result.mfaRequired).toBe(true);
@@ -1026,9 +1058,7 @@ describe('AuthenticationService', () => {
         new Error('outbox unavailable'),
       );
 
-      await expect(
-        service.logout(createMockAccessSession()),
-      ).rejects.toThrow('outbox unavailable');
+      await expect(service.logout(createMockAccessSession())).rejects.toThrow('outbox unavailable');
 
       expect(mockDurableAccessTokenInvalidation.applyImmediately).not.toHaveBeenCalled();
       expect(mockSessionManager.revokeAllSessions).not.toHaveBeenCalled();
@@ -1045,9 +1075,7 @@ describe('AuthenticationService', () => {
         new RangeError('session store unavailable for user-uuid-123'),
       );
 
-      await expect(
-        service.logout(createMockAccessSession()),
-      ).resolves.toBe(true);
+      await expect(service.logout(createMockAccessSession())).resolves.toBe(true);
 
       expect(mockDurableAccessTokenInvalidation.enqueue).toHaveBeenCalledTimes(1);
       const [serializedLog] = errorSpy.mock.calls.at(-1) ?? [];
@@ -1066,23 +1094,32 @@ describe('AuthenticationService', () => {
     });
 
     it('permits an inactive account in a suspended tenant to end its session', async () => {
-      mockUserRepository.findOne.mockResolvedValue(createMockUser({ isActive: false, isLocked: () => true }));
-      mockTenantRepository.findOne.mockResolvedValue(createMockTenant({ status: TenantStatus.SUSPENDED }));
+      mockUserRepository.findOne.mockResolvedValue(
+        createMockUser({ isActive: false, isLocked: () => true }),
+      );
+      mockTenantRepository.findOne.mockResolvedValue(
+        createMockTenant({ status: TenantStatus.SUSPENDED }),
+      );
       await expect(service.logout(createMockAccessSession())).resolves.toBe(true);
       expect(mockRefreshTokenRepository.update).toHaveBeenCalledWith(
-        { userId: 'user-uuid-123' }, expect.objectContaining({ isRevoked: true }),
+        { userId: 'user-uuid-123' },
+        expect.objectContaining({ isRevoked: true }),
       );
       expect(mockDurableAccessTokenInvalidation.enqueue).toHaveBeenCalledTimes(1);
     });
 
     it('rejects malformed session identity before opening a transaction', async () => {
-      await expect(service.logout(createMockAccessSession({ jti: '' }))).rejects.toThrow(ForbiddenException);
+      await expect(service.logout(createMockAccessSession({ jti: '' }))).rejects.toThrow(
+        ForbiddenException,
+      );
       expect(mockDataSource.transaction).not.toHaveBeenCalled();
       expect(mockRefreshTokenRepository.update).not.toHaveBeenCalled();
     });
 
     it('does not mutate refresh history when the verified role is stale', async () => {
-      await expect(service.logout(createMockAccessSession({ role: Role.TENANT_ADMIN }))).rejects.toThrow(ForbiddenException);
+      await expect(
+        service.logout(createMockAccessSession({ role: Role.TENANT_ADMIN })),
+      ).rejects.toThrow(ForbiddenException);
       expect(mockRefreshTokenRepository.update).not.toHaveBeenCalled();
       expect(mockDurableAccessTokenInvalidation.enqueue).not.toHaveBeenCalled();
     });

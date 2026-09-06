@@ -1,11 +1,6 @@
 {
   "schema_version": 1,
-  "lanes": [
-    "policy",
-    "types",
-    "rust",
-    "aria"
-  ],
+  "lanes": ["policy", "types", "rust", "aria"],
   "gates": [
     {
       "id": "dependency-pins",
@@ -104,34 +99,21 @@
       "id": "gate-unit-suites",
       "lane": "policy",
       "selection": "always",
-      "command": [
-        "node",
-        "tools/gates/run-all.mjs"
-      ],
+      "command": ["node", "tools/gates/run-all.mjs"],
       "hosted_owner": "ci-affected.yml:hosted-validation"
     },
     {
       "id": "format-scope",
       "lane": "policy",
       "selection": "always",
-      "command": [
-        "node",
-        "tools/quality/quality.mjs",
-        "format-scope",
-        "check"
-      ],
+      "command": ["node", "tools/quality/quality.mjs", "format-scope", "check"],
       "hosted_owner": "ci-affected.yml:hosted-validation"
     },
     {
       "id": "format-changed",
       "lane": "policy",
       "selection": "always",
-      "command": [
-        "node",
-        "tools/quality/quality.mjs",
-        "format",
-        "check-changed"
-      ],
+      "command": ["node", "tools/quality/quality.mjs", "format", "check-changed"],
       "hosted_owner": "ci-affected.yml:hosted-validation"
     },
     {
@@ -152,11 +134,7 @@
       "id": "required-check-contract",
       "lane": "policy",
       "selection": "always",
-      "command": [
-        "npm",
-        "run",
-        "gates:required-status-checks"
-      ],
+      "command": ["npm", "run", "gates:required-status-checks"],
       "hosted_owner": "ci-affected.yml:hosted-validation"
     },
     {
@@ -192,11 +170,7 @@
       "id": "gate-types",
       "lane": "types",
       "selection": "always",
-      "command": [
-        "npm",
-        "run",
-        "gates:tools-typecheck"
-      ],
+      "command": ["npm", "run", "gates:tools-typecheck"],
       "hosted_owner": "ci-affected.yml:hosted-validation"
     },
     {
@@ -233,11 +207,7 @@
       "id": "test-proof-report-contract",
       "lane": "policy",
       "selection": "always",
-      "command": [
-        "node",
-        "--test",
-        "scripts/ci/test-proof-report.spec.mjs"
-      ],
+      "command": ["node", "--test", "scripts/ci/test-proof-report.spec.mjs"],
       "hosted_owner": "ci-affected.yml:hosted-validation"
     }
   ]

@@ -156,22 +156,21 @@ describe('TenantUserManagementService', () => {
       // manager forwards query to the dataSource query mock (so existing
       // per-test query chains stay valid) and exposes the audit log via the
       // real auditLogService mock.
-      transaction: jest.fn(
-        (cb: (manager: object) => Promise<unknown>) =>
-          cb({
-            queryRunner: { isTransactionActive: true },
-            findOne: jest.fn(async (entity: unknown, options: { where: { id: string } }) => {
-              if (entity === Tenant) return mockTenantRepo.findOne(options);
-              if (entity === User) return createMockUser({ id: options.where.id });
-              throw new Error('Unexpected role identity lookup');
-            }),
-            update: jest.fn().mockResolvedValue({ affected: 1 }),
-            query: mockDataSource.query,
-            // deleteTenantUser's soft-delete runs manager.save(user) inside the
-            // transaction (SEC-MEDIUM-002); forward it to a passthrough so the
-            // audit-rollback assertions still hinge on the auditLogService mock.
-            save: jest.fn((entity: unknown) => Promise.resolve(entity)),
+      transaction: jest.fn((cb: (manager: object) => Promise<unknown>) =>
+        cb({
+          queryRunner: { isTransactionActive: true },
+          findOne: jest.fn(async (entity: unknown, options: { where: { id: string } }) => {
+            if (entity === Tenant) return mockTenantRepo.findOne(options);
+            if (entity === User) return createMockUser({ id: options.where.id });
+            throw new Error('Unexpected role identity lookup');
           }),
+          update: jest.fn().mockResolvedValue({ affected: 1 }),
+          query: mockDataSource.query,
+          // deleteTenantUser's soft-delete runs manager.save(user) inside the
+          // transaction (SEC-MEDIUM-002); forward it to a passthrough so the
+          // audit-rollback assertions still hinge on the auditLogService mock.
+          save: jest.fn((entity: unknown) => Promise.resolve(entity)),
+        }),
       ),
     };
 
@@ -568,10 +567,13 @@ describe('TenantUserManagementService', () => {
       );
       // RBAC-HIGH-001: the change revokes the user's live tokens so the new
       // effective set is enforced on the next request (fleet-wide).
-      expect(mockDurableInvalidation.enqueue).toHaveBeenCalledWith(expect.anything(),
-        expect.objectContaining({ userId: USER_ID, invalidatedAt: expect.any(Date) }));
+      expect(mockDurableInvalidation.enqueue).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ userId: USER_ID, invalidatedAt: expect.any(Date) }),
+      );
       expect(mockDurableInvalidation.applyImmediately).toHaveBeenCalledWith(
-        expect.objectContaining({ userId: USER_ID, invalidatedAt: expect.any(Date) }));
+        expect.objectContaining({ userId: USER_ID, invalidatedAt: expect.any(Date) }),
+      );
     });
 
     it('SEC-MEDIUM-002: an audit failure ROLLS BACK the role change (fail-closed)', async () => {
@@ -874,8 +876,10 @@ describe('TenantUserManagementService', () => {
       await service.updateTenantUser(TENANT_ID, USER_ID, { firstName: 'Renamed' }, USER_ID);
 
       expect(userRepository.save).not.toHaveBeenCalled();
-      expect(userRepository.update).toHaveBeenCalledWith({ id: USER_ID, tenantId: TENANT_ID },
-        { firstName: 'Renamed' });
+      expect(userRepository.update).toHaveBeenCalledWith(
+        { id: USER_ID, tenantId: TENANT_ID },
+        { firstName: 'Renamed' },
+      );
       expect(mockDataSource.transaction).not.toHaveBeenCalled();
       expect(mockAuditLogService.log).not.toHaveBeenCalled();
     });

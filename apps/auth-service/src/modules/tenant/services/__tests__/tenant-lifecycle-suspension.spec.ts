@@ -77,7 +77,9 @@ describe('TenantProvisioningCommandService — suspension audit trio', () => {
       findOne: jest.fn(),
       save: jest.fn().mockImplementation((_entity, tenant: Tenant) => Promise.resolve(tenant)),
     };
-    transaction = jest.fn(async (_isolation: string, work: (m: MockManager) => Promise<unknown>) => work(manager));
+    transaction = jest.fn(async (_isolation: string, work: (m: MockManager) => Promise<unknown>) =>
+      work(manager),
+    );
     const dataSource = { transaction };
     durableInvalidation = { enqueue: jest.fn(), applyImmediately: jest.fn() };
     outboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
@@ -110,18 +112,30 @@ describe('TenantProvisioningCommandService — suspension audit trio', () => {
     service = module.get(TenantProvisioningCommandService);
   });
 
-  it.each(['40001', '40P01'])('retries the complete receipt transaction for SQLSTATE %s without an aborted-transaction write', async (code) => {
-    const tenant = seedTenant({ status: TenantStatus.ACTIVE });
-    manager.findOne.mockRejectedValueOnce(Object.assign(new Error('Database concurrency conflict'), { code }))
-      .mockResolvedValueOnce(tenant);
-    await expect(service.suspendTenant(command())).resolves.toMatchObject({ status: TenantStatus.SUSPENDED });
-    expect(transaction).toHaveBeenCalledTimes(2);
-    expect(manager.query.mock.calls.some((call) => typeof call[0] === 'string' && call[0].includes("status = 'FAILED'"))).toBe(false);
-    expect(outboxPublisher.enqueue).toHaveBeenCalledTimes(1);
-  });
+  it.each(['40001', '40P01'])(
+    'retries the complete receipt transaction for SQLSTATE %s without an aborted-transaction write',
+    async (code) => {
+      const tenant = seedTenant({ status: TenantStatus.ACTIVE });
+      manager.findOne
+        .mockRejectedValueOnce(Object.assign(new Error('Database concurrency conflict'), { code }))
+        .mockResolvedValueOnce(tenant);
+      await expect(service.suspendTenant(command())).resolves.toMatchObject({
+        status: TenantStatus.SUSPENDED,
+      });
+      expect(transaction).toHaveBeenCalledTimes(2);
+      expect(
+        manager.query.mock.calls.some(
+          (call) => typeof call[0] === 'string' && call[0].includes("status = 'FAILED'"),
+        ),
+      ).toBe(false);
+      expect(outboxPublisher.enqueue).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it('bounds serialization retries and preserves the original SQLSTATE', async () => {
-    const failure = Object.assign(new Error('Concurrent update remains unresolved'), { code: '40001' });
+    const failure = Object.assign(new Error('Concurrent update remains unresolved'), {
+      code: '40001',
+    });
     transaction.mockRejectedValue(failure);
     await expect(service.suspendTenant(command())).rejects.toBe(failure);
     expect(transaction).toHaveBeenCalledTimes(3);
@@ -139,42 +153,70 @@ describe('TenantProvisioningCommandService — suspension audit trio', () => {
     const firstUser = '11111111-1111-4111-8111-111111111111';
     const secondUser = '22222222-2222-4222-8222-222222222222';
     let attempt = 0;
-    transaction.mockImplementation(async (_isolation: string, work: (m: MockManager) => Promise<unknown>) => {
-      attempt += 1;
-      const result = await work(manager);
-      if (attempt === 1) throw Object.assign(new Error('Commit serialization conflict'), { code: '40001' });
-      return result;
+    transaction.mockImplementation(
+      async (_isolation: string, work: (m: MockManager) => Promise<unknown>) => {
+        attempt += 1;
+        const result = await work(manager);
+        if (attempt === 1)
+          throw Object.assign(new Error('Commit serialization conflict'), { code: '40001' });
+        return result;
+      },
+    );
+    manager.findOne.mockImplementation(async () =>
+      Object.assign(new Tenant(), {
+        id: TENANT_ID,
+        status: TenantStatus.ACTIVE,
+        name: 'Tenant',
+        slug: 'retry-tenant',
+      }),
+    );
+    manager.query.mockImplementation(async (sql: string) =>
+      sql.includes('SELECT id FROM "auth"."users"')
+        ? [{ id: attempt === 1 ? firstUser : secondUser }]
+        : [],
+    );
+    await expect(service.suspendTenant(command())).resolves.toMatchObject({
+      status: TenantStatus.SUSPENDED,
     });
-    manager.findOne.mockImplementation(async () => Object.assign(new Tenant(), {
-      id: TENANT_ID, status: TenantStatus.ACTIVE, name: 'Tenant', slug: 'retry-tenant',
-    }));
-    manager.query.mockImplementation(async (sql: string) => sql.includes('SELECT id FROM "auth"."users"')
-      ? [{ id: attempt === 1 ? firstUser : secondUser }] : []);
-    await expect(service.suspendTenant(command())).resolves.toMatchObject({ status: TenantStatus.SUSPENDED });
     expect(durableInvalidation.enqueue).toHaveBeenCalledTimes(2);
     expect(durableInvalidation.applyImmediately).toHaveBeenCalledTimes(1);
-    expect(durableInvalidation.applyImmediately).toHaveBeenCalledWith(expect.objectContaining({ userId: secondUser }));
+    expect(durableInvalidation.applyImmediately).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: secondUser }),
+    );
   });
 
   it('does not project a rolled-back attempt when retry converges on another successful receipt', async () => {
     let attempt = 0;
     let receiptHash: unknown;
-    transaction.mockImplementation(async (_isolation: string, work: (m: MockManager) => Promise<unknown>) => {
-      attempt += 1;
-      const result = await work(manager);
-      if (attempt === 1) throw Object.assign(new Error('Commit serialization conflict'), { code: '40001' });
-      return result;
-    });
+    transaction.mockImplementation(
+      async (_isolation: string, work: (m: MockManager) => Promise<unknown>) => {
+        attempt += 1;
+        const result = await work(manager);
+        if (attempt === 1)
+          throw Object.assign(new Error('Commit serialization conflict'), { code: '40001' });
+        return result;
+      },
+    );
     seedTenant({ status: TenantStatus.ACTIVE });
     manager.query.mockImplementation(async (sql: string, parameters: unknown[]) => {
       if (sql.includes('INSERT INTO auth.tenant_command_receipts')) receiptHash = parameters[5];
       if (attempt === 2 && sql.includes('SELECT "payloadHash"')) {
-        return [{ payloadHash: receiptHash, status: 'SUCCEEDED', entityId: TENANT_ID,
-          resultSummary: { tenantId: TENANT_ID, status: TenantStatus.SUSPENDED } }];
+        return [
+          {
+            payloadHash: receiptHash,
+            status: 'SUCCEEDED',
+            entityId: TENANT_ID,
+            resultSummary: { tenantId: TENANT_ID, status: TenantStatus.SUSPENDED },
+          },
+        ];
       }
-      return sql.includes('SELECT id FROM "auth"."users"') ? [{ id: '11111111-1111-4111-8111-111111111111' }] : [];
+      return sql.includes('SELECT id FROM "auth"."users"')
+        ? [{ id: '11111111-1111-4111-8111-111111111111' }]
+        : [];
     });
-    await expect(service.suspendTenant(command())).resolves.toMatchObject({ status: TenantStatus.SUSPENDED });
+    await expect(service.suspendTenant(command())).resolves.toMatchObject({
+      status: TenantStatus.SUSPENDED,
+    });
     expect(transaction).toHaveBeenCalledTimes(2);
     expect(durableInvalidation.enqueue).toHaveBeenCalledTimes(1);
     expect(durableInvalidation.applyImmediately).not.toHaveBeenCalled();

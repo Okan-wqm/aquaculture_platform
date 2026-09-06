@@ -81,7 +81,6 @@ test.describe('CSRF Protection', () => {
     expect(setCookie.toLowerCase()).toContain('httponly');
     expect(setCookie.toLowerCase()).toContain('samesite=');
     expect(setCookie.toLowerCase()).toContain('secure');
-
   });
 
   test('Security headers are present on GraphQL responses', async () => {

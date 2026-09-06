@@ -22,19 +22,20 @@ export default async function globalSetup(): Promise<void> {
     // ── 1. Verify database connectivity ──────────────────────
     const healthy = await db.isHealthy();
     if (!healthy) {
-      throw new Error(
-        'Isolated E2E database is not reachable',
-      );
+      throw new Error('Isolated E2E database is not reachable');
     }
     console.log('[global-setup] Database connection verified');
 
     // Runtime and fixtures share the authoritative migrated schema; never fabricate tables.
     for (const table of ['tenants', 'users', 'refresh_tokens']) {
-      if (!await db.tableExists('auth', table)) throw new Error(`Authoritative auth.${table} migration is missing`);
+      if (!(await db.tableExists('auth', table)))
+        throw new Error(`Authoritative auth.${table} migration is missing`);
     }
     const contract = await db.query<{ present: boolean }>(
-      `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='auth' AND table_name='users' AND column_name='credentialVersion') AS present`);
-    if (!contract.rows[0] || !contract.rows[0].present) throw new Error('Authentication-state migration was not applied');
+      `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='auth' AND table_name='users' AND column_name='credentialVersion') AS present`,
+    );
+    if (!contract.rows[0] || !contract.rows[0].present)
+      throw new Error('Authentication-state migration was not applied');
 
     // ── 3. Create shared test tenant and users ───────────────
     const tenant = await createTestTenant(db, {

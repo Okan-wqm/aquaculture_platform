@@ -18,7 +18,10 @@ import { AuditLogService } from '../../../audit/audit-log.service';
 // WHY: Import AccessType so createTenantUser and updateTenantUser can accept and
 // persist the platform access level chosen by the tenant admin.
 import { LockedAuthContext } from '../../authentication/services/credential-state';
-import { DurableUserTokenInvalidationService, UserTokenInvalidationIntent } from '../../authentication/services/durable-user-token-invalidation.service';
+import {
+  DurableUserTokenInvalidationService,
+  UserTokenInvalidationIntent,
+} from '../../authentication/services/durable-user-token-invalidation.service';
 import { User, AccessType } from '../../authentication/entities/user.entity';
 import {
   MobileUserSettings,
@@ -156,13 +159,20 @@ export class TenantUserManagementService {
     operation: (manager: EntityManager) => Promise<T>,
   ): Promise<T> {
     const committed = await this.dataSource.transaction(async (manager) => {
-      const tenant = await manager.findOne(Tenant, { where: { id: tenantId }, lock: { mode: 'pessimistic_write' } });
+      const tenant = await manager.findOne(Tenant, {
+        where: { id: tenantId },
+        lock: { mode: 'pessimistic_write' },
+      });
       if (!tenant) throw new NotFoundException('Tenant not found');
       const context = await LockedAuthContext.lock(manager, userId);
-      if (context.user.tenantId !== tenantId) throw new NotFoundException('User not found in tenant');
+      if (context.user.tenantId !== tenantId)
+        throw new NotFoundException('User not found in tenant');
       const result = await operation(manager);
       const intent: UserTokenInvalidationIntent = {
-        userId, tenantId, invalidatedAt: new Date(), reason: 'role_permissions_changed',
+        userId,
+        tenantId,
+        invalidatedAt: new Date(),
+        reason: 'role_permissions_changed',
         idempotencyKey: `user-role:${userId}:${randomUUID()}`,
       };
       await this.durableUserTokenInvalidation.enqueue(manager, intent);
@@ -310,11 +320,14 @@ export class TenantUserManagementService {
     }
 
     if (profileChanged) {
-      await this.userRepository.update({ id: userId, tenantId }, {
-        ...(input.firstName !== undefined ? { firstName: user.firstName } : {}),
-        ...(input.lastName !== undefined ? { lastName: user.lastName } : {}),
-        ...(input.accessType !== undefined ? { accessType: user.accessType } : {}),
-      });
+      await this.userRepository.update(
+        { id: userId, tenantId },
+        {
+          ...(input.firstName !== undefined ? { firstName: user.firstName } : {}),
+          ...(input.lastName !== undefined ? { lastName: user.lastName } : {}),
+          ...(input.accessType !== undefined ? { accessType: user.accessType } : {}),
+        },
+      );
       // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
       this.logger.log(`Updated profile for userId=${userId} in tenant ${tenantId}`);
     }
@@ -401,7 +414,6 @@ export class TenantUserManagementService {
             `Updated role assignment for user ${userId} to role ${newRole.name} in tenant ${tenantId}`,
           );
           // RBAC-HIGH-001: role changed — revoke live tokens (enforced next request).
-
         }
       } else {
         // No existing assignment — create one through the shared
@@ -425,7 +437,6 @@ export class TenantUserManagementService {
           `Created role assignment for user ${userId} with role ${newRole.name} in tenant ${tenantId}`,
         );
         // RBAC-HIGH-001: new assignment grants capabilities — revoke stale tokens.
-
       }
     }
 
@@ -597,7 +608,6 @@ export class TenantUserManagementService {
 
     // RBAC-HIGH-001: a fresh assignment changes the user's effective set — revoke
     // any live tokens so the new capabilities (and no stale ones) take effect now.
-
 
     return roleAssignment;
   }
@@ -775,7 +785,6 @@ export class TenantUserManagementService {
     // live tokens so the change is enforced on the next request, not after the
     // access-token TTL. Fleet-wide via the shared user_blacklist Redis key.
 
-
     // Return updated assignment
     return this.getUserRoleAssignment(tenantId, userId);
   }
@@ -871,7 +880,6 @@ export class TenantUserManagementService {
 
     // RBAC-HIGH-001: role removed — revoke the user's live tokens so the loss of
     // access is enforced on the next request, not after the token TTL.
-
 
     return true;
   }

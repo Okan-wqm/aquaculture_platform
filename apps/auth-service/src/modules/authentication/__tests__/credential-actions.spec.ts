@@ -196,7 +196,10 @@ describe('credential action completion', () => {
       email: test.user.email,
     });
     await test.service.acceptInvitation(test.action.id, 'New-Credential-42!');
-    expect(await test.service.validateInvitation(test.action.id)).toEqual({ valid: false });
+    expect(await test.service.validateInvitation(test.action.id)).toEqual({
+      valid: false,
+      expired: false,
+    });
     await expect(
       test.service.acceptInvitation(test.action.id, 'Another-Credential-73!'),
     ).rejects.toThrow('Invalid or expired');

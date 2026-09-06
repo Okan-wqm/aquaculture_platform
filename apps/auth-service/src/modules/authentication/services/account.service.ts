@@ -86,10 +86,13 @@ export class AccountService {
       user.lastName = lastName;
     }
 
-    await this.userRepository.update({ id: userId }, {
-      ...(input.firstName !== undefined ? { firstName: user.firstName } : {}),
-      ...(input.lastName !== undefined ? { lastName: user.lastName } : {}),
-    });
+    await this.userRepository.update(
+      { id: userId },
+      {
+        ...(input.firstName !== undefined ? { firstName: user.firstName } : {}),
+        ...(input.lastName !== undefined ? { lastName: user.lastName } : {}),
+      },
+    );
     const savedUser = await this.findUserOrFail(userId);
 
     await Promise.allSettled([
@@ -112,39 +115,62 @@ export class AccountService {
   ): Promise<ChangeMyPasswordResponse> {
     const authenticated = await this.findUserOrFail(userId);
     const proof = snapshotCredentialProof(authenticated);
-    if (!await authenticated.validatePassword(input.currentPassword)) {
-      await this.auditAccountEvent('PASSWORD_CHANGE_FAILED', authenticated, false, 'invalid_current_password');
+    if (!(await authenticated.validatePassword(input.currentPassword))) {
+      await this.auditAccountEvent(
+        'PASSWORD_CHANGE_FAILED',
+        authenticated,
+        false,
+        'invalid_current_password',
+      );
       throw new UnauthorizedException('Current password is incorrect');
     }
     const passwordHash = await hashPassword(input.newPassword);
-    const transactionResult = await withLockedCredentialPrincipal(this.dataSource, proof, async (context) => {
-      const { manager, user } = context;
-      const refreshTokenRepository = manager.withRepository(this.refreshTokenRepository);
-      await manager.update(User, { id: userId }, {
-        password: passwordHash, failedLoginAttempts: 0, lockedUntil: null,
-      });
+    const transactionResult = await withLockedCredentialPrincipal(
+      this.dataSource,
+      proof,
+      async (context) => {
+        const { manager, user } = context;
+        const refreshTokenRepository = manager.withRepository(this.refreshTokenRepository);
+        await manager.update(
+          User,
+          { id: userId },
+          {
+            password: passwordHash,
+            failedLoginAttempts: 0,
+            lockedUntil: null,
+          },
+        );
 
-      const invalidatedAt = new Date();
-      await refreshTokenRepository.update(
-        { userId },
-        {
-          isRevoked: true,
-          revokedAt: invalidatedAt,
-          revokedReason: 'Password changed',
-        },
-      );
-      const intent: UserTokenInvalidationIntent = {
-        userId,
-        tenantId: this.invalidationTenantForUser(user),
-        invalidatedAt,
-        reason: 'password_changed',
-        idempotencyKey: `password-change:${userId}:${Math.floor(invalidatedAt.getTime() / 1000)}`,
-      };
-      await this.durableUserTokenInvalidation.enqueue(manager, intent);
-      await this.auditLogService.log({ tenantId: user.tenantId ?? undefined, performedBy: user.id,
-        action: 'PASSWORD_CHANGED', entityType: 'User', entityId: user.id }, manager);
-      return { user, intent };
-    });
+        const invalidatedAt = new Date();
+        await refreshTokenRepository.update(
+          { userId },
+          {
+            isRevoked: true,
+            revokedAt: invalidatedAt,
+            revokedReason: 'Password changed',
+          },
+        );
+        const intent: UserTokenInvalidationIntent = {
+          userId,
+          tenantId: this.invalidationTenantForUser(user),
+          invalidatedAt,
+          reason: 'password_changed',
+          idempotencyKey: `password-change:${userId}:${Math.floor(invalidatedAt.getTime() / 1000)}`,
+        };
+        await this.durableUserTokenInvalidation.enqueue(manager, intent);
+        await this.auditLogService.log(
+          {
+            tenantId: user.tenantId ?? undefined,
+            performedBy: user.id,
+            action: 'PASSWORD_CHANGED',
+            entityType: 'User',
+            entityId: user.id,
+          },
+          manager,
+        );
+        return { user, intent };
+      },
+    );
 
     const postCommitEffects: PostCommitSecurityEffect[] = [
       {

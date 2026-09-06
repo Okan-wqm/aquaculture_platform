@@ -125,6 +125,49 @@ fixture_network="${fixture_key}"
 minio_container="${fixture_key}-minio"
 created_keys=()
 cleanup() {
+  local fixture_status=$?
+  if [ "${fixture_status}" -ne 0 ]; then
+    # Failure is evidence too: preserve bounded, redacted fixture diagnostics
+    # before destroying its private TLS/environment and Docker resources.
+    if ! python3 - "${repository}" "${fixture_root}" "${fixture_status}" "${scenario:-setup}" "${image_id}" <<'PY'
+import json
+import os
+from pathlib import Path
+import sys
+
+repository, fixture_root, status, scenario, image_id = sys.argv[1:]
+output = Path(repository) / 'artifacts/postgres-recovery'
+output.mkdir(parents=True, exist_ok=True)
+record = {'github_sha': os.environ['GITHUB_SHA'], 'run_id': os.environ['GITHUB_RUN_ID'],
+          'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'], 'candidate_image_id': image_id,
+          'success': False, 'exit_status': int(status), 'scenario': scenario}
+case = Path(fixture_root) / scenario
+phases = list(case.glob('journal/*/phase.json'))
+if len(phases) == 1:
+    try:
+        record['phase'] = json.loads(phases[0].read_text()).get('phase')
+    except (OSError, json.JSONDecodeError):
+        record['phase'] = 'unreadable'
+for name in ('capacity-initial.log', 'attempt.log', 'capacity-retry.log', 'reentry.log'):
+    source = case / name
+    if not source.is_file():
+        continue
+    content = source.read_text(errors='replace')
+    for variable in ('DR_FIXTURE_PASSWORD', 'DR_FIXTURE_ACCESS', 'DR_FIXTURE_S3_SECRET'):
+        secret = os.environ.get(variable)
+        if secret:
+            content = content.replace(secret, '[redacted-fixture-credential]')
+    target = output / f'{scenario}-{name}'
+    target.write_text(content[-65536:])
+    target.chmod(0o644)
+summary = output / 'failure-summary.json'
+summary.write_text(json.dumps(record, indent=2) + '\n')
+summary.chmod(0o644)
+PY
+    then
+      printf 'Could not preserve coordinator fixture failure diagnostics.\n' >&2
+    fi
+  fi
   docker rm --force aqua-postgres aqua-dr-fixture-writer "${minio_container}" >/dev/null 2>&1 || true
   docker volume rm aqua-saas_postgres_data >/dev/null 2>&1 || true
   for key in "${created_keys[@]}"; do
@@ -293,7 +336,7 @@ PY
     capacity_status=$?
     set -e
     [ "${capacity_status}" != 0 ]
-    rg -q 'Recovery capacity refused:' "${case_root}/capacity-initial.log"
+    grep -Fq 'Recovery capacity refused:' "${case_root}/capacity-initial.log"
     [ "$(jq -r .phase "${case_root}/journal/${run_key}/phase.json")" = VERIFYING ]
     [ "$(docker inspect --format '{{.Id}} {{.State.StartedAt}}' aqua-postgres)" = "${before_container}" ]
     [ "$(docker inspect --format '{{.Id}} {{.State.StartedAt}}' aqua-dr-fixture-writer)" = "${before_writer}" ]
@@ -339,7 +382,7 @@ PY
         capacity_status=$?
         set -e
         [ "${capacity_status}" != 0 ]
-        rg -q 'Recovery capacity refused:' "${case_root}/capacity-retry.log"
+        grep -Fq 'Recovery capacity refused:' "${case_root}/capacity-retry.log"
         [ "$(jq -r .phase "${case_root}/journal/${run_key}/phase.json")" = ROLLBACK_STARTED ]
         [ "$(docker inspect --format '{{.Id}} {{.State.StartedAt}}' aqua-postgres)" = "${before_container}" ]
         [ "$(dr_cluster_digest "${data_path}")" = "${before_data_digest}" ]

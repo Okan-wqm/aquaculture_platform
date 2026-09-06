@@ -1,5 +1,7 @@
 /** AquaMobil fixtures use persisted actors and real RS256 login. */
 
+import { randomUUID } from 'node:crypto';
+
 import type { Page } from '@playwright/test';
 
 import { createTestTenant, type TestTenant } from '../../../fixtures/tenant.fixture';
@@ -7,7 +9,7 @@ import { createTestUser, createTenantAdmin, type TestUser } from '../../../fixtu
 import { TestDatabase } from '../../../helpers/db.helper';
 import { GraphQLTestClient } from '../../../helpers/graphql-client';
 import { FIXTURE_PASSWORD, loginFixtureUser } from '../../../helpers/real-auth.fixture';
-import { randomUUID } from 'node:crypto';
+
 export { FIXTURE_PASSWORD } from '../../../helpers/real-auth.fixture';
 
 

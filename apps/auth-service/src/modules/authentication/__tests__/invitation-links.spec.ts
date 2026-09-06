@@ -127,10 +127,12 @@ describe('invitation links resolve through ActionTokenResolver (SEC-HIGH-158)', 
       providers: [
         AuthenticationService,
         { provide: ActionTokenResolver, useValue: resolver },
-        ...[User, RefreshToken, Invitation, ActionToken, Tenant, WebAuthnCredential].map((entity) => ({
-          provide: getRepositoryToken(entity),
-          useValue: {},
-        })),
+        ...[User, RefreshToken, Invitation, ActionToken, Tenant, WebAuthnCredential].map(
+          (entity) => ({
+            provide: getRepositoryToken(entity),
+            useValue: {},
+          }),
+        ),
         {
           provide: DataSource,
           useValue: {
@@ -219,7 +221,9 @@ describe('invitation links resolve through ActionTokenResolver (SEC-HIGH-158)', 
 
     it('accepts a RESENT invitation through the same canBeAccepted gate as redemption', async () => {
       row = invitation({ status: InvitationStatus.RESENT });
-      await expect(service.validateInvitation(ACTION_TOKEN_ID)).resolves.toMatchObject({ valid: true });
+      await expect(service.validateInvitation(ACTION_TOKEN_ID)).resolves.toMatchObject({
+        valid: true,
+      });
     });
 
     it('reports an expired invitation row as expired', async () => {
@@ -232,9 +236,12 @@ describe('invitation links resolve through ActionTokenResolver (SEC-HIGH-158)', 
     });
 
     it('rejects a plaintext token without touching the database', async () => {
-      await expect(service.validateInvitation('plaintext-invite-token')).resolves.toEqual({ valid: false });
-      await expect(service.acceptInvitation('plaintext-invite-token', 'NewPass123!'))
-        .rejects.toBeInstanceOf(BadRequestException);
+      await expect(service.validateInvitation('plaintext-invite-token')).resolves.toEqual({
+        valid: false,
+      });
+      await expect(
+        service.acceptInvitation('plaintext-invite-token', 'NewPass123!'),
+      ).rejects.toBeInstanceOf(BadRequestException);
       expect(findOne).not.toHaveBeenCalled();
       expect(hashRawToken).not.toHaveBeenCalled();
       expectNoCompletion();
@@ -262,8 +269,9 @@ describe('invitation links resolve through ActionTokenResolver (SEC-HIGH-158)', 
       action = null;
       row = invitation({ token: createHash('sha256').update(ACTION_TOKEN_ID).digest('hex') });
       await expect(service.validateInvitation(ACTION_TOKEN_ID)).resolves.toEqual({ valid: false });
-      await expect(service.acceptInvitation(ACTION_TOKEN_ID, 'NewPass123!'))
-        .rejects.toBeInstanceOf(BadRequestException);
+      await expect(service.acceptInvitation(ACTION_TOKEN_ID, 'NewPass123!')).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
       expect(findOne.mock.calls.every(([entity]) => entity === ActionToken)).toBe(true);
       expect(hashRawToken).not.toHaveBeenCalled();
       expectNoCompletion();
@@ -277,18 +285,44 @@ describe('invitation links resolve through ActionTokenResolver (SEC-HIGH-158)', 
       readonly row: () => Invitation | null;
       readonly accepts: boolean;
     }> = [
-      { name: 'active token + pending invitation', token: actionToken, row: invitation, accepts: true },
-      { name: 'active token + resent invitation', token: actionToken,
-        row: () => invitation({ status: InvitationStatus.RESENT }), accepts: true },
-      { name: 'expired active token',
-        token: () => actionToken({ expiresAt: new Date(Date.now() - 1_000) }), row: invitation, accepts: false },
-      ...[ActionTokenStatus.CONSUMED, ActionTokenStatus.REVOKED, ActionTokenStatus.EXPIRED].map((status) => ({
-        name: `${status} token`, token: (): ActionToken => actionToken({ status }), row: invitation, accepts: false,
-      })),
-      { name: 'accepted invitation', token: actionToken,
-        row: () => invitation({ status: InvitationStatus.ACCEPTED }), accepts: false },
-      { name: 'expired invitation', token: actionToken,
-        row: () => invitation({ expiresAt: new Date(Date.now() - 1_000) }), accepts: false },
+      {
+        name: 'active token + pending invitation',
+        token: actionToken,
+        row: invitation,
+        accepts: true,
+      },
+      {
+        name: 'active token + resent invitation',
+        token: actionToken,
+        row: () => invitation({ status: InvitationStatus.RESENT }),
+        accepts: true,
+      },
+      {
+        name: 'expired active token',
+        token: () => actionToken({ expiresAt: new Date(Date.now() - 1_000) }),
+        row: invitation,
+        accepts: false,
+      },
+      ...[ActionTokenStatus.CONSUMED, ActionTokenStatus.REVOKED, ActionTokenStatus.EXPIRED].map(
+        (status) => ({
+          name: `${status} token`,
+          token: (): ActionToken => actionToken({ status }),
+          row: invitation,
+          accepts: false,
+        }),
+      ),
+      {
+        name: 'accepted invitation',
+        token: actionToken,
+        row: () => invitation({ status: InvitationStatus.ACCEPTED }),
+        accepts: false,
+      },
+      {
+        name: 'expired invitation',
+        token: actionToken,
+        row: () => invitation({ expiresAt: new Date(Date.now() - 1_000) }),
+        accepts: false,
+      },
       { name: 'unknown action token id', token: () => null, row: () => null, accepts: false },
     ];
 
@@ -297,7 +331,12 @@ describe('invitation links resolve through ActionTokenResolver (SEC-HIGH-158)', 
       row = buildInvitation();
       const validation = await service.validateInvitation(ACTION_TOKEN_ID);
       expect(validation.valid).toBe(accepts);
-      const acceptance = service.acceptInvitation(ACTION_TOKEN_ID, 'NewPass123!', 'Ada', 'Lovelace');
+      const acceptance = service.acceptInvitation(
+        ACTION_TOKEN_ID,
+        'NewPass123!',
+        'Ada',
+        'Lovelace',
+      );
       if (accepts) {
         await expect(acceptance).resolves.toEqual({ success: true, loginRequired: true });
         expect(tokens.generateTokens).not.toHaveBeenCalled();
@@ -312,24 +351,38 @@ describe('invitation links resolve through ActionTokenResolver (SEC-HIGH-158)', 
     });
 
     it('locks Tenant then User before locking and consuming the action and invitation', async () => {
-      await expect(service.acceptInvitation(ACTION_TOKEN_ID, 'NewPass123!'))
-        .resolves.toEqual({ success: true, loginRequired: true });
+      await expect(service.acceptInvitation(ACTION_TOKEN_ID, 'NewPass123!')).resolves.toEqual({
+        success: true,
+        loginRequired: true,
+      });
       expect(findOne).toHaveBeenCalledWith(User, { where: { invitationToken: TOKEN_HASH } });
       expect(findOne.mock.calls.filter(([, options]) => 'lock' in options)).toEqual([
         [Tenant, { where: { id: TENANT_ID }, lock: { mode: 'pessimistic_read' } }],
         [User, { where: { id: USER_ID }, lock: { mode: 'pessimistic_write' } }],
-        [ActionToken, { where: { id: ACTION_TOKEN_ID, purpose: ActionTokenPurpose.INVITATION },
-          lock: { mode: 'pessimistic_write' } }],
+        [
+          ActionToken,
+          {
+            where: { id: ACTION_TOKEN_ID, purpose: ActionTokenPurpose.INVITATION },
+            lock: { mode: 'pessimistic_write' },
+          },
+        ],
         [Invitation, { where: { token: TOKEN_HASH }, lock: { mode: 'pessimistic_write' } }],
       ]);
-      expect(update).toHaveBeenCalledWith(ActionToken, { id: ACTION_TOKEN_ID }, {
-        status: ActionTokenStatus.CONSUMED,
-        consumedAt: expect.any(Date),
-      });
+      expect(update).toHaveBeenCalledWith(
+        ActionToken,
+        { id: ACTION_TOKEN_ID },
+        {
+          status: ActionTokenStatus.CONSUMED,
+          consumedAt: expect.any(Date),
+        },
+      );
       expect(action).toMatchObject({ status: ActionTokenStatus.CONSUMED });
       expect(row).toMatchObject({ status: InvitationStatus.ACCEPTED, userId: USER_ID });
       expect(principal).toMatchObject({ invitationToken: null, isEmailVerified: true });
-      expect(invalidation.enqueue).toHaveBeenCalledWith(manager, expect.objectContaining({ userId: USER_ID }));
+      expect(invalidation.enqueue).toHaveBeenCalledWith(
+        manager,
+        expect.objectContaining({ userId: USER_ID }),
+      );
       expect(invalidation.applyImmediately).not.toHaveBeenCalled();
       expect(tokens.generateTokens).not.toHaveBeenCalled();
       expect(tokens.generateTokensInContext).not.toHaveBeenCalled();

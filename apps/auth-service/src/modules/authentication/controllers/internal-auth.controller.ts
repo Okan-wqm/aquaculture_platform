@@ -100,21 +100,28 @@ export class InternalAuthController {
     // rows for a tenant-bound caller, NULL-tenant rows (a super admin's
     // reset) for a platform-scoped caller. A token can never be resolved
     // from the wrong side.
-    const lookup = (): Promise<ActionToken | null> => this.actionTokenRepository.findOne({
-      where: {
-        id: actionTokenId,
-        tenantId: scope.kind === 'tenant' ? scope.tenantId : IsNull(),
-        status: ActionTokenStatus.ACTIVE,
-      },
-    });
+    const lookup = (): Promise<ActionToken | null> =>
+      this.actionTokenRepository.findOne({
+        where: {
+          id: actionTokenId,
+          tenantId: scope.kind === 'tenant' ? scope.tenantId : IsNull(),
+          status: ActionTokenStatus.ACTIVE,
+        },
+      });
     // The HMAC-verified notification scope must reach the connection before
     // checkout. A NULL-tenant action cannot satisfy tenant RLS without the
     // explicitly authorized platform frame; the query still binds tenantId.
-    const actionToken = await requestContextStorage.run({ ...getRequestContext(),
-      tenantId: scope.kind === 'tenant' ? scope.tenantId : undefined, bypassRls: false }, () =>
-      scope.kind === 'platform'
-        ? this.bypassRls.withBypass('auth-service:notification-platform-action-url', lookup)
-        : lookup());
+    const actionToken = await requestContextStorage.run(
+      {
+        ...getRequestContext(),
+        tenantId: scope.kind === 'tenant' ? scope.tenantId : undefined,
+        bypassRls: false,
+      },
+      () =>
+        scope.kind === 'platform'
+          ? this.bypassRls.withBypass('auth-service:notification-platform-action-url', lookup)
+          : lookup(),
+    );
 
     if (!actionToken || !actionToken.isActive()) {
       throw new NotFoundException('Action token not found');

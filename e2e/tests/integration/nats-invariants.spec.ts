@@ -422,9 +422,10 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
       const identityByApplication = new Map(
         servicesDoc.services.map((service) => [service.application, service.name]),
       );
-      const certificateRoot = composePath === 'docker-compose.droplet.yml'
-        ? '${DEPLOY_CERTS_DIR:-./certs}/nats'
-        : './certs/nats';
+      const certificateRoot =
+        composePath === 'docker-compose.droplet.yml'
+          ? '${DEPLOY_CERTS_DIR:-./certs}/nats'
+          : './certs/nats';
 
       for (const [application, service] of Object.entries(compose.services)) {
         const expectedIdentity = identityByApplication.get(application);

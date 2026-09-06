@@ -1,9 +1,13 @@
 import { randomUUID } from 'crypto';
 
+import { hashPassword } from '../../libs/backend-common/src/auth/password.util';
 import { TestDatabase } from '../helpers/db.helper';
 import type { TestRole } from '../helpers/jwt.helper';
-import { hashPassword } from '../../libs/backend-common/src/auth/password.util';
-import { assertIsolatedFixtureDatabase, FIXTURE_PASSWORD, loginFixtureUser } from '../helpers/real-auth.fixture';
+import {
+  assertIsolatedFixtureDatabase,
+  FIXTURE_PASSWORD,
+  loginFixtureUser,
+} from '../helpers/real-auth.fixture';
 
 /**
  * Represents a test user created by the fixture.

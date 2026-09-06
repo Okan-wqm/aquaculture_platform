@@ -27,7 +27,12 @@ jest.mock('@simplewebauthn/server', () => ({
 
 const CHALLENGE = 'c2hhbGxlbmdlLXZhbHVlLWNoYWxsZW5nZQ';
 const origin: OriginatingAccessSession = {
-  sub: 'user-uuid-1', role: Role.MODULE_USER, tenantId: 'tenant-uuid-1', jti: 'session-jti', iat: 1, exp: 4_000_000_000,
+  sub: 'user-uuid-1',
+  role: Role.MODULE_USER,
+  tenantId: 'tenant-uuid-1',
+  jti: 'session-jti',
+  iat: 1,
+  exp: 4_000_000_000,
 };
 
 const createMockUser = (overrides: Partial<User> = {}): User => {
@@ -106,19 +111,30 @@ const loginInput = (
 const registrationResult = (): Awaited<ReturnType<typeof verifyRegistrationResponse>> => ({
   verified: true,
   registrationInfo: {
-    fmt: 'none', aaguid: '00000000-0000-0000-0000-000000000000',
+    fmt: 'none',
+    aaguid: '00000000-0000-0000-0000-000000000000',
     credential: { id: 'cred-id-1', publicKey: new Uint8Array([1, 2, 3]), counter: 0 },
-    credentialType: 'public-key', attestationObject: new Uint8Array(), userVerified: true,
-    credentialDeviceType: 'singleDevice', credentialBackedUp: false,
-    origin: 'http://localhost:5173', rpID: 'localhost',
+    credentialType: 'public-key',
+    attestationObject: new Uint8Array(),
+    userVerified: true,
+    credentialDeviceType: 'singleDevice',
+    credentialBackedUp: false,
+    origin: 'http://localhost:5173',
+    rpID: 'localhost',
   },
 });
-const authenticationResult = (newCounter: number): Awaited<ReturnType<typeof verifyAuthenticationResponse>> => ({
+const authenticationResult = (
+  newCounter: number,
+): Awaited<ReturnType<typeof verifyAuthenticationResponse>> => ({
   verified: true,
   authenticationInfo: {
-    credentialID: 'cred-id-1', newCounter, userVerified: true,
-    credentialDeviceType: 'singleDevice', credentialBackedUp: false,
-    origin: 'http://localhost:5173', rpID: 'localhost',
+    credentialID: 'cred-id-1',
+    newCounter,
+    userVerified: true,
+    credentialDeviceType: 'singleDevice',
+    credentialBackedUp: false,
+    origin: 'http://localhost:5173',
+    rpID: 'localhost',
   },
 });
 
@@ -157,7 +173,9 @@ const mockGenerateTokens = jest.fn().mockResolvedValue({ accessToken: 'at', refr
 const mockManager = new EntityManager(new DataSource({ type: 'postgres' }));
 Object.defineProperty(mockManager, 'queryRunner', { value: { isTransactionActive: true } });
 const mockDataSource = {
-  transaction: jest.fn(async (operation: (manager: EntityManager) => Promise<unknown>) => operation(mockManager)),
+  transaction: jest.fn(async (operation: (manager: EntityManager) => Promise<unknown>) =>
+    operation(mockManager),
+  ),
 };
 
 // ============================================================================
@@ -186,9 +204,15 @@ describe('WebAuthnService (SEC-CRITICAL-001/002 — №37-№40)', () => {
       if (target === Tenant) return mockTenantRepository.findOne();
       return mockCredentialRepository.findOne();
     });
-    jest.spyOn(mockManager, 'count').mockImplementation(async () => mockCredentialRepository.count());
-    jest.spyOn(mockManager, 'insert').mockResolvedValue({ identifiers: [], generatedMaps: [], raw: [] });
-    jest.spyOn(mockManager, 'update').mockResolvedValue({ affected: 1, generatedMaps: [], raw: [] });
+    jest
+      .spyOn(mockManager, 'count')
+      .mockImplementation(async () => mockCredentialRepository.count());
+    jest
+      .spyOn(mockManager, 'insert')
+      .mockResolvedValue({ identifiers: [], generatedMaps: [], raw: [] });
+    jest
+      .spyOn(mockManager, 'update')
+      .mockResolvedValue({ affected: 1, generatedMaps: [], raw: [] });
     jest.spyOn(mockManager, 'delete').mockResolvedValue({ affected: 1, raw: [] });
     jest.mocked(verifyRegistrationResponse).mockResolvedValue(registrationResult());
     jest.mocked(verifyAuthenticationResponse).mockResolvedValue(authenticationResult(4));
@@ -210,7 +234,13 @@ describe('WebAuthnService (SEC-CRITICAL-001/002 — №37-№40)', () => {
           },
         },
         { provide: AuditLogService, useValue: mockAuditLog },
-        { provide: TokenService, useValue: { generateTokensInContext: mockGenerateTokens, assertOriginatingSessionInContext: mockAssertOriginatingSession } },
+        {
+          provide: TokenService,
+          useValue: {
+            generateTokensInContext: mockGenerateTokens,
+            assertOriginatingSessionInContext: mockAssertOriginatingSession,
+          },
+        },
         { provide: DataSource, useValue: mockDataSource },
         { provide: RedisService, useValue: mockRedis },
       ],
@@ -224,7 +254,9 @@ describe('WebAuthnService (SEC-CRITICAL-001/002 — №37-№40)', () => {
       user.credentialVersion += 1;
       return registrationResult();
     });
-    await expect(service.registerCredential(origin, registrationInput())).rejects.toThrow(ForbiddenException);
+    await expect(service.registerCredential(origin, registrationInput())).rejects.toThrow(
+      ForbiddenException,
+    );
     expect(mockManager.insert).not.toHaveBeenCalled();
   });
 
@@ -241,7 +273,9 @@ describe('WebAuthnService (SEC-CRITICAL-001/002 — №37-№40)', () => {
 
   it('checks the credential cap again inside registration after the ceremony', async () => {
     mockCredentialRepository.count.mockResolvedValue(10);
-    await expect(service.registerCredential(origin, registrationInput())).rejects.toThrow('Maximum 10 biometric credentials per user');
+    await expect(service.registerCredential(origin, registrationInput())).rejects.toThrow(
+      'Maximum 10 biometric credentials per user',
+    );
     expect(verifyRegistrationResponse).toHaveBeenCalled();
     expect(mockManager.insert).not.toHaveBeenCalled();
   });
@@ -251,18 +285,25 @@ describe('WebAuthnService (SEC-CRITICAL-001/002 — №37-№40)', () => {
     mockRedis.getdel.mockResolvedValue(storedChallenge('authentication'));
     jest.mocked(verifyAuthenticationResponse).mockResolvedValue(authenticationResult(0));
     await service.verifyLogin(loginInput());
-    expect(mockManager.update).toHaveBeenCalledWith(WebAuthnCredential, expect.anything(), expect.objectContaining({ counter: 0 }));
+    expect(mockManager.update).toHaveBeenCalledWith(
+      WebAuthnCredential,
+      expect.anything(),
+      expect.objectContaining({ counter: 0 }),
+    );
     expect(mockCredentialRepository.save).not.toHaveBeenCalled();
     expect(mockManager.insert).not.toHaveBeenCalled();
   });
 
   it('rejects a nonzero counter that was advanced by another login before locking', async () => {
     const credential = createMockCredential({ counter: 3 });
-    mockCredentialRepository.findOne.mockResolvedValueOnce(credential)
+    mockCredentialRepository.findOne
+      .mockResolvedValueOnce(credential)
       .mockResolvedValueOnce(createMockCredential({ counter: 5 }));
     mockRedis.getdel.mockResolvedValue(storedChallenge('authentication'));
     jest.mocked(verifyAuthenticationResponse).mockResolvedValue(authenticationResult(4));
-    await expect(service.verifyLogin(loginInput())).rejects.toThrow('Authenticator security check failed');
+    await expect(service.verifyLogin(loginInput())).rejects.toThrow(
+      'Authenticator security check failed',
+    );
     expect(mockManager.update).not.toHaveBeenCalled();
     expect(mockGenerateTokens).not.toHaveBeenCalled();
   });
@@ -270,12 +311,17 @@ describe('WebAuthnService (SEC-CRITICAL-001/002 — №37-№40)', () => {
   it('uses the same transaction manager for successful credential and audit writes', async () => {
     await service.registerCredential(origin, registrationInput());
     expect(mockManager.insert).toHaveBeenCalledTimes(1);
-    expect(mockAuditLog.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'WEBAUTHN_CREDENTIAL_REGISTERED' }), mockManager);
+    expect(mockAuditLog.log).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'WEBAUTHN_CREDENTIAL_REGISTERED' }),
+      mockManager,
+    );
     expect(mockCredentialRepository.save).not.toHaveBeenCalled();
   });
 
   it('rejects credential removal when its originating access session was revoked', async () => {
-    mockAssertOriginatingSession.mockRejectedValueOnce(new ForbiddenException('Originating session is no longer valid'));
+    mockAssertOriginatingSession.mockRejectedValueOnce(
+      new ForbiddenException('Originating session is no longer valid'),
+    );
     await expect(service.removeCredential(origin, 'cred-id-1')).rejects.toThrow(ForbiddenException);
     expect(mockManager.delete).not.toHaveBeenCalled();
   });
@@ -295,7 +341,8 @@ describe('WebAuthnService (SEC-CRITICAL-001/002 — №37-№40)', () => {
       expect.objectContaining({
         action: 'WEBAUTHN_REGISTRATION_REAUTH_FAILED',
         severity: AuditLogSeverity.WARNING,
-      }), undefined,
+      }),
+      undefined,
     );
   });
 
@@ -370,7 +417,8 @@ describe('WebAuthnService (SEC-CRITICAL-001/002 — №37-№40)', () => {
     await service.registerCredential(origin, registrationInput());
 
     expect(mockManager.insert).toHaveBeenCalledWith(
-      WebAuthnCredential, expect.objectContaining({
+      WebAuthnCredential,
+      expect.objectContaining({
         publicKey: Buffer.from(derivedKey).toString('base64url'),
         counter: 7,
         credentialId: 'cred-id-1',
@@ -389,7 +437,8 @@ describe('WebAuthnService (SEC-CRITICAL-001/002 — №37-№40)', () => {
       expect.objectContaining({
         action: 'WEBAUTHN_REGISTRATION_REJECTED',
         severity: AuditLogSeverity.WARNING,
-      }), undefined,
+      }),
+      undefined,
     );
   });
 
@@ -470,7 +519,8 @@ describe('WebAuthnService (SEC-CRITICAL-001/002 — №37-№40)', () => {
           action: 'WEBAUTHN_LOGIN_FAILED',
           tenantId: user.tenantId,
           severity: AuditLogSeverity.WARNING,
-        }), undefined,
+        }),
+        undefined,
       );
     });
 
@@ -497,31 +547,44 @@ describe('WebAuthnService (SEC-CRITICAL-001/002 — №37-№40)', () => {
           action: 'WEBAUTHN_COUNTER_ROLLBACK',
           tenantId: user.tenantId,
           severity: AuditLogSeverity.CRITICAL,
-        }), mockManager,
+        }),
+        mockManager,
       );
     });
 
     it('blocks login when the tenant status does not allow login (SEC-CRITICAL-002 №38c)', async () => {
       mockTenantRepository.findOne.mockResolvedValue(createMockTenant(TenantStatus.SUSPENDED));
 
-      await expect(service.verifyLogin(loginInput())).rejects.toThrow(
-        ForbiddenException,
-      );
+      await expect(service.verifyLogin(loginInput())).rejects.toThrow(ForbiddenException);
       expect(mockGenerateTokens).not.toHaveBeenCalled();
-      expect(mockAuditLog.log).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'WEBAUTHN_LOGIN_SUCCESS' }), expect.anything());
+      expect(mockAuditLog.log).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'WEBAUTHN_LOGIN_SUCCESS' }),
+        expect.anything(),
+      );
     });
 
     it('issues tokens and advances the counter on a successful assertion', async () => {
       const result = await service.verifyLogin(loginInput(), '10.0.0.1', 'jest');
 
-      expect(mockGenerateTokens).toHaveBeenCalledWith(expect.objectContaining({ user, manager: mockManager }), '10.0.0.1', 'jest', { mfaVerified: true });
+      expect(mockGenerateTokens).toHaveBeenCalledWith(
+        expect.objectContaining({ user, manager: mockManager }),
+        '10.0.0.1',
+        'jest',
+        { mfaVerified: true },
+      );
       expect(result).toEqual({ accessToken: 'at', refreshToken: 'rt' });
-      expect(mockAuditLog.log).toHaveBeenCalledWith(expect.objectContaining({
-        action: 'WEBAUTHN_LOGIN_SUCCESS', tenantId: user.tenantId,
-        performedBy: user.id, entityId: user.id,
-      }), mockManager);
+      expect(mockAuditLog.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'WEBAUTHN_LOGIN_SUCCESS',
+          tenantId: user.tenantId,
+          performedBy: user.id,
+          entityId: user.id,
+        }),
+        mockManager,
+      );
       expect(mockManager.update).toHaveBeenCalledWith(
-        WebAuthnCredential, expect.objectContaining({ id: credential.id, userId: user.id }),
+        WebAuthnCredential,
+        expect.objectContaining({ id: credential.id, userId: user.id }),
         expect.objectContaining({ counter: 4 }),
       );
     });

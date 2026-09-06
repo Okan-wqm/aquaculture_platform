@@ -742,7 +742,8 @@ describe('UserLifecycleService', () => {
       userRepository.save.mockResolvedValue(user);
 
       await expect(service.adminUpdateUser(USER_ID, { isActive: false })).resolves.toMatchObject({
-        id: USER_ID, isActive: false,
+        id: USER_ID,
+        isActive: false,
       });
 
       expect((await userRepository.findOneByOrFail({ id: USER_ID })).isActive).toBe(false);
@@ -871,8 +872,12 @@ describe('UserLifecycleService', () => {
       const user = createMockUser();
       let releaseUserLock: ((user: User) => void) | undefined;
       let signalLockRequested: (() => void) | undefined;
-      const lockRequested = new Promise<void>((resolve) => { signalLockRequested = resolve; });
-      const lockedUser = new Promise<User>((resolve) => { releaseUserLock = resolve; });
+      const lockRequested = new Promise<void>((resolve) => {
+        signalLockRequested = resolve;
+      });
+      const lockedUser = new Promise<User>((resolve) => {
+        releaseUserLock = resolve;
+      });
       userRepository.findOne.mockImplementation(async (options) => {
         if (options.lock) {
           if (!signalLockRequested) throw new Error('User lock observer is unavailable');
@@ -942,7 +947,8 @@ describe('UserLifecycleService', () => {
       // 1. User should be deactivated
       expect(userRepository.save).not.toHaveBeenCalled();
       expect(userRepository.update).toHaveBeenCalledWith(
-        { id: USER_ID }, expect.objectContaining({ isActive: false }),
+        { id: USER_ID },
+        expect.objectContaining({ isActive: false }),
       );
       expect(userRepository.findOne).toHaveBeenCalledWith({
         where: { id: USER_ID },

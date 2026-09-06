@@ -10,11 +10,10 @@
 
 import { test, expect } from '@playwright/test';
 import { v4 as uuidv4 } from 'uuid';
+
 import { createTestTenant } from '../../fixtures/tenant.fixture';
 import { createTestUser } from '../../fixtures/user.fixture';
 import { TestDatabase } from '../../helpers/db.helper';
-import { FIXTURE_PASSWORD } from '../../helpers/real-auth.fixture';
-
 import { GraphQLTestClient, GraphQLError } from '../../helpers/graphql-client';
 import {
   generateExpiredToken,
@@ -22,6 +21,7 @@ import {
   generateTokenWithWrongAudience,
   generateTokenWithWrongSecret,
 } from '../../helpers/jwt.helper';
+import { FIXTURE_PASSWORD, isJsonObject } from '../../helpers/real-auth.fixture';
 
 /** Response types (zero any policy) */
 interface MeResponse {
@@ -125,7 +125,6 @@ test.describe('Token Security', () => {
     );
 
     expectUnauthorized(response.body.errors, response.status);
-
   });
 
   test('Token with wrong audience is rejected', async () => {
@@ -137,33 +136,70 @@ test.describe('Token Security', () => {
     const response = await client.query<MeResponse>(ME_QUERY, {}, { token: wrongAudToken });
 
     expectUnauthorized(response.body.errors, response.status);
-
   });
 
-  test('real login and bookkeeping preserve access; deactivation rejects the prior session and new login', async ({ request }) => {
+  test('real login and bookkeeping preserve access; deactivation rejects the prior session and new login', async ({
+    request,
+  }) => {
     const db = new TestDatabase();
     try {
       const tenant = await createTestTenant(db);
       const user = await createTestUser(db, { tenantId: tenant.id });
-      const before = await client.query<CurrentUserResponse>(CURRENT_USER_QUERY, {}, { token: user.token });
+      const before = await client.query<CurrentUserResponse>(
+        CURRENT_USER_QUERY,
+        {},
+        { token: user.token },
+      );
       expect(before.status).toBe(200);
       expect(before.body.errors).toBeUndefined();
       expect(before.body.data?.currentUser?.id).toBe(user.id);
-      await db.query('UPDATE auth.users SET "lastLoginAt" = CURRENT_TIMESTAMP, "failedLoginAttempts" = 0 WHERE id = $1', [user.id]);
-      const bookkeeping = await client.query<CurrentUserResponse>(CURRENT_USER_QUERY, {}, { token: user.token });
+      await db.query(
+        'UPDATE auth.users SET "lastLoginAt" = CURRENT_TIMESTAMP, "failedLoginAttempts" = 0 WHERE id = $1',
+        [user.id],
+      );
+      const bookkeeping = await client.query<CurrentUserResponse>(
+        CURRENT_USER_QUERY,
+        {},
+        { token: user.token },
+      );
       expect(bookkeeping.body.errors).toBeUndefined();
       expect(bookkeeping.body.data?.currentUser?.id).toBe(user.id);
       await db.query('UPDATE auth.users SET "isActive" = false WHERE id = $1', [user.id]);
-      const after = await client.query<CurrentUserResponse>(CURRENT_USER_QUERY, {}, { token: user.token });
+      const after = await client.query<CurrentUserResponse>(
+        CURRENT_USER_QUERY,
+        {},
+        { token: user.token },
+      );
       expectUnauthorized(after.body.errors, after.status);
       expect(after.body.data?.currentUser).toBeFalsy();
       const denied = await request.post('/graphql', {
-        data: { query: 'mutation Login($input: LoginInput!) { login(input: $input) { accessToken } }',
-          variables: { input: { email: user.email, password: FIXTURE_PASSWORD } } },
+        data: {
+          query: 'mutation Login($input: LoginInput!) { login(input: $input) { accessToken } }',
+          variables: { input: { email: user.email, password: FIXTURE_PASSWORD } },
+        },
       });
-      const deniedBody: { data?: { login?: { accessToken?: string } }; errors?: GraphQLError[] } = await denied.json();
-      expectUnauthorized(deniedBody.errors, denied.status());
-      expect(deniedBody.data?.login?.accessToken).toBeFalsy();
+      const deniedBody: unknown = await denied.json();
+      if (!isJsonObject(deniedBody)) throw new Error('Login rejection returned invalid JSON');
+      const rawErrors = deniedBody['errors'];
+      if (rawErrors !== undefined && !Array.isArray(rawErrors))
+        throw new Error('Login rejection returned invalid GraphQL errors');
+      const errors: GraphQLError[] | undefined = rawErrors === undefined ? undefined :
+        rawErrors.map((error: unknown): GraphQLError => {
+          if (!isJsonObject(error) || typeof error['message'] !== 'string')
+            throw new Error('Login rejection returned an invalid GraphQL error');
+          const extensions = error['extensions'];
+          if (extensions !== undefined && !isJsonObject(extensions))
+            throw new Error('Login rejection returned invalid GraphQL error extensions');
+          return { message: error['message'], ...(extensions === undefined ? {} : { extensions }) };
+        });
+      const data = deniedBody['data'];
+      if (data !== undefined && data !== null && !isJsonObject(data))
+        throw new Error('Login rejection returned invalid GraphQL data');
+      const login = isJsonObject(data) ? data['login'] : undefined;
+      if (login !== undefined && login !== null && !isJsonObject(login))
+        throw new Error('Login rejection returned an invalid login payload');
+      expectUnauthorized(errors, denied.status());
+      expect(isJsonObject(login) ? login['accessToken'] : undefined).toBeFalsy();
     } finally {
       await db.close();
     }

@@ -5117,13 +5117,13 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/auth-service/src/modules/authentication/__tests__/invitation-links.spec.ts",
+      "path": "apps/auth-service/src/modules/authentication/__tests__/credential-actions.spec.ts",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/auth-service/src/modules/authentication/__tests__/credential-actions.spec.ts",
+      "path": "apps/auth-service/src/modules/authentication/__tests__/invitation-links.spec.ts",
       "prettier_managed": true
     },
     {
@@ -37158,6 +37158,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "e2e/helpers/persisted-actor.fixture.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "e2e/helpers/real-auth.fixture.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "e2e/helpers/rest-client.ts",
       "prettier_managed": true
     },
@@ -37554,6 +37566,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "e2e/tests/security/header-spoofing.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "e2e/tests/security/mfa-login.spec.ts",
       "prettier_managed": true
     },
     {
@@ -43448,6 +43466,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "scripts/ci/hosted-e2e-proof.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "scripts/ci/hosted-e2e-stack.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "scripts/ci/hosted-validation.inventory.json",
       "prettier_managed": true
     },
@@ -45147,6 +45177,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/drift-repair-naming.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/e2e-graphql-success-contract.spec.ts",
       "prettier_managed": true
     },
     {
@@ -48049,6 +48085,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/__tests__/field-ergonomics.invariant.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/__tests__/react-runtime.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -58947,7 +58989,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "eb479538f3c5e5805f42d797f306c1094b8d2992c32274ce31ce4519f4911eec",
+      "content_sha256": "3a089d33de37777a5f17383e083b0a826572992b34298082ab65664deabe67c5",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",

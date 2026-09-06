@@ -1,12 +1,8 @@
 {
   "$schema": "aqua/postgres-dr-bootstrap-policy/v2",
   "schema_version": 2,
-  "finding_ids": [
-    "INFRA-HIGH-073"
-  ],
-  "does_not_close_findings": [
-    "INFRA-HIGH-033"
-  ],
+  "finding_ids": ["INFRA-HIGH-073"],
+  "does_not_close_findings": ["INFRA-HIGH-033"],
   "release": {
     "workflow": ".github/workflows/postgres-dr-bootstrap-candidate.yml",
     "event": "workflow_dispatch",
@@ -49,14 +45,8 @@
     "rollback_compose_override": "infrastructure/deploy/postgres-dr-bootstrap-rollback.override.yml",
     "compose_project": "aqua-saas",
     "compose_interpolation_tag_source": "expected_main_sha",
-    "allowed_compose_services": [
-      "postgres"
-    ],
-    "forbidden_compose_services": [
-      "db-migrate",
-      "gateway-api",
-      "farm-service"
-    ],
+    "allowed_compose_services": ["postgres"],
+    "forbidden_compose_services": ["db-migrate", "gateway-api", "farm-service"],
     "legacy_github_ssh_enabled": false,
     "requires_production_deploy_unlock": false,
     "repository_variable_mutation_enabled": false,
@@ -91,10 +81,7 @@
       "power_loss_reentry_required": true,
       "reentry_after_rollback": "require_new_signed_run_attempt",
       "schema_version": 2,
-      "modes": [
-        "healthy_upgrade",
-        "degraded_legacy_recovery"
-      ],
+      "modes": ["healthy_upgrade", "degraded_legacy_recovery"],
       "recovery_helper": "infrastructure/scripts/postgres-dr-recovery.sh",
       "coordinator_helper": "infrastructure/scripts/postgres-dr-coordinator.sh",
       "verified_cold_copy_required": true,

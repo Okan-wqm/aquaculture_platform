@@ -116,7 +116,8 @@ export class WebAuthnService {
 
     if (user.tenantId) {
       const tenant = await this.tenantRepository.findOne({ where: { id: user.tenantId } });
-      if (!tenant || !isLoginAllowed(tenant.status)) throw new UnauthorizedException('Account not available');
+      if (!tenant || !isLoginAllowed(tenant.status))
+        throw new UnauthorizedException('Account not available');
     }
 
     // Check credential limit
@@ -245,21 +246,40 @@ export class WebAuthnService {
       await this.tokenService.assertOriginatingSessionInContext(context, session);
       const count = await context.manager.count(WebAuthnCredential, { where: { userId } });
       if (count >= MAX_CREDENTIALS_PER_USER) {
-        throw new BadRequestException(`Maximum ${MAX_CREDENTIALS_PER_USER} biometric credentials per user`);
+        throw new BadRequestException(
+          `Maximum ${MAX_CREDENTIALS_PER_USER} biometric credentials per user`,
+        );
       }
-      const existing = await context.manager.findOne(WebAuthnCredential, { where: { credentialId: derived.id } });
+      const existing = await context.manager.findOne(WebAuthnCredential, {
+        where: { credentialId: derived.id },
+      });
       if (existing) throw new BadRequestException('Credential already registered');
       const credential = {
-        id: crypto.randomUUID(), userId, credentialId: derived.id, publicKey: publicKeyBase64url,
-        counter: derived.counter, transports: derived.transports ?? input.transports,
+        id: crypto.randomUUID(),
+        userId,
+        credentialId: derived.id,
+        publicKey: publicKeyBase64url,
+        counter: derived.counter,
+        transports: derived.transports ?? input.transports,
         deviceName: input.deviceName || 'Biometric Device',
       };
       // INSERT only: unique credential ID and the User lock jointly own admission.
       await context.manager.insert(WebAuthnCredential, credential);
-      await this.logAudit('WEBAUTHN_CREDENTIAL_REGISTERED', context.user, {
-        credentialId: credential.id, deviceName: credential.deviceName,
-      }, AuditLogSeverity.INFO, context.manager);
-      return { success: true, message: 'Biometric credential registered successfully', credentialId: credential.credentialId };
+      await this.logAudit(
+        'WEBAUTHN_CREDENTIAL_REGISTERED',
+        context.user,
+        {
+          credentialId: credential.id,
+          deviceName: credential.deviceName,
+        },
+        AuditLogSeverity.INFO,
+        context.manager,
+      );
+      return {
+        success: true,
+        message: 'Biometric credential registered successfully',
+        credentialId: credential.credentialId,
+      };
     });
   }
 
@@ -344,8 +364,11 @@ export class WebAuthnService {
     if (!observedUser) throw new UnauthorizedException('Account not available');
     const proof = snapshotCredentialProof(observedUser);
     const verifiedCredential = {
-      id: credential.id, userId: credential.userId, credentialId: credential.credentialId,
-      publicKey: credential.publicKey, counter: credential.counter,
+      id: credential.id,
+      userId: credential.userId,
+      credentialId: credential.credentialId,
+      publicKey: credential.publicKey,
+      counter: credential.counter,
     };
 
     const authenticationResponse: AuthenticationResponseJSON = {
@@ -394,37 +417,72 @@ export class WebAuthnService {
       throw new UnauthorizedException('Biometric verification failed');
     }
 
-    const outcome = await withLockedCredentialPrincipal(this.dataSource, proof, async (context): Promise<{ value: AuthPayload } | { error: Error }> => {
-      context.assertSessionAdmission();
-      this.assertMfaUnlocked(context.user);
-      const current = await context.manager.findOne(WebAuthnCredential, {
-        where: { id: verifiedCredential.id, userId: context.user.id }, lock: { mode: 'pessimistic_write' },
-      });
-      if (!current || current.credentialId !== verifiedCredential.credentialId ||
-          current.publicKey !== verifiedCredential.publicKey) {
-        throw new UnauthorizedException('Credential changed during authentication');
-      }
-      // Counter-less authenticators legitimately keep both counters at zero.
-      // Otherwise only a strictly greater signed counter can advance this row.
-      if ((newCounter !== 0 || current.counter !== 0) && newCounter <= current.counter) {
-        await this.logAudit('WEBAUTHN_COUNTER_ROLLBACK', context.user, {
-          credentialId: current.id, storedCounter: current.counter, receivedCounter: newCounter,
-        }, AuditLogSeverity.CRITICAL, context.manager);
-        return { error: new UnauthorizedException('Authenticator security check failed') };
-      }
-      const update = await context.manager.update(WebAuthnCredential,
-        { id: current.id, userId: context.user.id, publicKey: verifiedCredential.publicKey },
-        { counter: newCounter, lastUsedAt: new Date() });
-      if (update.affected !== 1) throw new UnauthorizedException('Credential changed during authentication');
-      await context.manager.update(User, context.user.id, {
-        lastLoginAt: new Date(), lastLoginIp: ipAddress ?? null, failedLoginAttempts: 0, lockedUntil: null,
-      });
-      const value = await this.tokenService.generateTokensInContext(context, ipAddress, userAgent, { mfaVerified: true });
-      await this.logAudit('WEBAUTHN_LOGIN_SUCCESS', context.user, {
-        credentialId: current.id, deviceName: current.deviceName, ipAddress,
-      }, AuditLogSeverity.INFO, context.manager);
-      return { value };
-    });
+    const outcome = await withLockedCredentialPrincipal(
+      this.dataSource,
+      proof,
+      async (context): Promise<{ value: AuthPayload } | { error: Error }> => {
+        context.assertSessionAdmission();
+        this.assertMfaUnlocked(context.user);
+        const current = await context.manager.findOne(WebAuthnCredential, {
+          where: { id: verifiedCredential.id, userId: context.user.id },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (
+          !current ||
+          current.credentialId !== verifiedCredential.credentialId ||
+          current.publicKey !== verifiedCredential.publicKey
+        ) {
+          throw new UnauthorizedException('Credential changed during authentication');
+        }
+        // Counter-less authenticators legitimately keep both counters at zero.
+        // Otherwise only a strictly greater signed counter can advance this row.
+        if ((newCounter !== 0 || current.counter !== 0) && newCounter <= current.counter) {
+          await this.logAudit(
+            'WEBAUTHN_COUNTER_ROLLBACK',
+            context.user,
+            {
+              credentialId: current.id,
+              storedCounter: current.counter,
+              receivedCounter: newCounter,
+            },
+            AuditLogSeverity.CRITICAL,
+            context.manager,
+          );
+          return { error: new UnauthorizedException('Authenticator security check failed') };
+        }
+        const update = await context.manager.update(
+          WebAuthnCredential,
+          { id: current.id, userId: context.user.id, publicKey: verifiedCredential.publicKey },
+          { counter: newCounter, lastUsedAt: new Date() },
+        );
+        if (update.affected !== 1)
+          throw new UnauthorizedException('Credential changed during authentication');
+        await context.manager.update(User, context.user.id, {
+          lastLoginAt: new Date(),
+          lastLoginIp: ipAddress ?? null,
+          failedLoginAttempts: 0,
+          lockedUntil: null,
+        });
+        const value = await this.tokenService.generateTokensInContext(
+          context,
+          ipAddress,
+          userAgent,
+          { mfaVerified: true },
+        );
+        await this.logAudit(
+          'WEBAUTHN_LOGIN_SUCCESS',
+          context.user,
+          {
+            credentialId: current.id,
+            deviceName: current.deviceName,
+            ipAddress,
+          },
+          AuditLogSeverity.INFO,
+          context.manager,
+        );
+        return { value };
+      },
+    );
     if ('error' in outcome) throw outcome.error;
     return outcome.value;
   }
@@ -453,19 +511,30 @@ export class WebAuthnService {
   /**
    * Remove a WebAuthn credential.
    */
-  async removeCredential(session: OriginatingAccessSession, credentialId: string): Promise<WebAuthnRemoveResponse> {
+  async removeCredential(
+    session: OriginatingAccessSession,
+    credentialId: string,
+  ): Promise<WebAuthnRemoveResponse> {
     const userId = session.sub;
     return withLockedCredentialPrincipal(this.dataSource, userId, async (context) => {
       context.assertSessionAdmission();
       await this.tokenService.assertOriginatingSessionInContext(context, session);
       const credential = await context.manager.findOne(WebAuthnCredential, {
-        where: { credentialId, userId }, lock: { mode: 'pessimistic_write' },
+        where: { credentialId, userId },
+        lock: { mode: 'pessimistic_write' },
       });
       if (!credential) throw new BadRequestException('Credential not found');
       await context.manager.delete(WebAuthnCredential, { id: credential.id, userId });
-      await this.logAudit('WEBAUTHN_CREDENTIAL_REMOVED', context.user, {
-        credentialId: credential.id, deviceName: credential.deviceName,
-      }, AuditLogSeverity.INFO, context.manager);
+      await this.logAudit(
+        'WEBAUTHN_CREDENTIAL_REMOVED',
+        context.user,
+        {
+          credentialId: credential.id,
+          deviceName: credential.deviceName,
+        },
+        AuditLogSeverity.INFO,
+        context.manager,
+      );
       return { success: true, message: 'Credential removed successfully' };
     });
   }
@@ -563,17 +632,20 @@ export class WebAuthnService {
     severity: AuditLogSeverity = AuditLogSeverity.INFO,
     manager?: EntityManager,
   ): Promise<void> {
-    await this.auditLogService.log({
-      performedBy: user.id,
-      tenantId: user.tenantId ?? undefined,
-      action,
-      entityType: 'WebAuthnCredential',
-      entityId: user.id,
-      details: {
-        ...details,
-        timestamp: new Date().toISOString(),
+    await this.auditLogService.log(
+      {
+        performedBy: user.id,
+        tenantId: user.tenantId ?? undefined,
+        action,
+        entityType: 'WebAuthnCredential',
+        entityId: user.id,
+        details: {
+          ...details,
+          timestamp: new Date().toISOString(),
+        },
+        severity,
       },
-      severity,
-    }, manager);
+      manager,
+    );
   }
 }

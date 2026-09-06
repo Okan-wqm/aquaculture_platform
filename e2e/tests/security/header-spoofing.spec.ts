@@ -84,7 +84,6 @@ test.describe('Header Spoofing Prevention', () => {
     expect(response.status).toBe(200);
     expect(response.body.errors).toBeUndefined();
     expect(response.body.data?.me?.id).toBe(REAL_USER_ID);
-
   });
 
   test('x-tenant-id mismatch with JWT uses JWT value for tenant-scoped queries', async () => {
@@ -155,6 +154,5 @@ test.describe('Header Spoofing Prevention', () => {
     expect(response.status).toBe(200);
     expect(response.body.errors).toBeUndefined();
     expect(response.body.data?.currentUser?.id).toBe(REAL_USER_ID);
-
   });
 });

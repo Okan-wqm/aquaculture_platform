@@ -75,7 +75,8 @@ describe('InternalAuthController', () => {
         {
           provide: BypassRlsService,
           useValue: {
-            withBypass: <T>(_operation: string, callback: () => Promise<T>): Promise<T> => callback(),
+            withBypass: <T>(_operation: string, callback: () => Promise<T>): Promise<T> =>
+              callback(),
           },
         },
         { provide: getRepositoryToken(User), useValue: userRepository },

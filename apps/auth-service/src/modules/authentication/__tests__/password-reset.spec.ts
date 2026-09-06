@@ -244,7 +244,6 @@ const mockSessionManager = {
   revokeAllSessions: jest.fn().mockResolvedValue(undefined),
 };
 
-
 describe('AuthenticationService - Password Reset Flow', () => {
   let service: AuthenticationService;
 

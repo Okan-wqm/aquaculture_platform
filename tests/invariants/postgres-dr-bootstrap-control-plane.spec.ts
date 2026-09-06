@@ -508,11 +508,24 @@ describe('PostgreSQL DR bootstrap control plane', () => {
   it('reconciles an incomplete first phase render and refuses unrelated pre-journal files', () => {
     const root = mkdtempSync(join(tmpdir(), 'aqua-pre-mutation-journal-'));
     const current = join(root, 'current');
-    const runRecovery = (): ReturnType<typeof spawnSync> => spawnSync('bash', ['-c', `
+    const runRecovery = (): ReturnType<typeof spawnSync> =>
+      spawnSync(
+        'bash',
+        [
+          '-c',
+          `
       set -euo pipefail
       source "$1"
       dr_state_reconcile_staging "$2/phase.json" Okan-wqm/aquaculture_platform "$3" 10 1 "$4"
-    `, '--', join(REPO_ROOT, STATE_HELPER_PATH), current, 'a'.repeat(40), `sha256:${'b'.repeat(64)}`], { encoding: 'utf8' });
+    `,
+          '--',
+          join(REPO_ROOT, STATE_HELPER_PATH),
+          current,
+          'a'.repeat(40),
+          `sha256:${'b'.repeat(64)}`,
+        ],
+        { encoding: 'utf8' },
+      );
     try {
       mkdirSync(current, { mode: 0o700 });
       expect(runRecovery().status).toBe(0);
@@ -523,7 +536,9 @@ describe('PostgreSQL DR bootstrap control plane', () => {
       writeFileSync(join(current, 'unexpected.json'), '{}\n');
       expect(runRecovery().status).not.toBe(0);
       expect(existsSync(join(current, 'unexpected.json'))).toBe(true);
-    } finally { rmSync(root, { recursive: true, force: true }); }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('rejects concurrent candidates and proves the exact rollback image', () => {
@@ -599,7 +614,11 @@ describe('PostgreSQL DR bootstrap control plane', () => {
     const directory = mkdtempSync(join(tmpdir(), 'aqua-dr-state-reconcile-'));
     try {
       const state = join(directory, 'phase.json');
-      const result = spawnSync('bash', ['-c', `
+      const result = spawnSync(
+        'bash',
+        [
+          '-c',
+          `
         set -euo pipefail
         source "$1"
         chmod 0700 "$2"
@@ -611,11 +630,25 @@ describe('PostgreSQL DR bootstrap control plane', () => {
         dr_state_reconcile_staging "$2/phase.json" Okan-wqm/aquaculture_platform "$3" 10 1 "$4"
         dr_state_validate "$2/phase.json" Okan-wqm/aquaculture_platform "$3" 10 1 "$4"
         printf '%s' "$(dr_state_phase "$2/phase.json")"
-      `, '--', join(REPO_ROOT, STATE_HELPER_PATH), directory, 'a'.repeat(40), `sha256:${'b'.repeat(64)}`], { encoding: 'utf8' });
-      expect({ status: result.status, stderr: result.stderr, stdout: result.stdout }).toEqual({ status: 0, stderr: '', stdout: 'VERIFYING' });
+      `,
+          '--',
+          join(REPO_ROOT, STATE_HELPER_PATH),
+          directory,
+          'a'.repeat(40),
+          `sha256:${'b'.repeat(64)}`,
+        ],
+        { encoding: 'utf8' },
+      );
+      expect({ status: result.status, stderr: result.stderr, stdout: result.stdout }).toEqual({
+        status: 0,
+        stderr: '',
+        stdout: 'VERIFYING',
+      });
       expect(readdirSync(directory)).toEqual(['phase.json']);
       expect(existsSync(state)).toBe(true);
-    } finally { rmSync(directory, { recursive: true, force: true }); }
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it('persists monotonic phases across SIGKILL and preserves exact-prior recovery intent', () => {

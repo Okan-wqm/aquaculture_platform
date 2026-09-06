@@ -55,9 +55,7 @@
       ],
       "cwd": ".",
       "report": "artifacts/authentication-proof/auth-postgres.json",
-      "required_files": [
-        "1819100000000-AddUserAuthenticationState.postgres.spec.ts"
-      ]
+      "required_files": ["1819100000000-AddUserAuthenticationState.postgres.spec.ts"]
     },
     {
       "id": "db-migrate",
@@ -221,38 +219,25 @@
     {
       "id": "graphql-registry",
       "lane": "graphql",
-      "command": [
-        "node",
-        "scripts/graphql/validate-registry.mjs"
-      ],
+      "command": ["node", "scripts/graphql/validate-registry.mjs"],
       "cwd": "."
     },
     {
       "id": "graphql-registry-artifacts",
       "lane": "graphql",
-      "command": [
-        "node",
-        "scripts/graphql/generate-registry-artifacts.mjs"
-      ],
+      "command": ["node", "scripts/graphql/generate-registry-artifacts.mjs"],
       "cwd": "."
     },
     {
       "id": "graphql-supergraph",
       "lane": "graphql",
-      "command": [
-        "node",
-        "scripts/apollo-router/build-supergraph.mjs"
-      ],
+      "command": ["node", "scripts/apollo-router/build-supergraph.mjs"],
       "cwd": "."
     },
     {
       "id": "graphql-codegen",
       "lane": "graphql",
-      "command": [
-        "npm",
-        "run",
-        "codegen"
-      ],
+      "command": ["npm", "run", "codegen"],
       "cwd": "."
     },
     {

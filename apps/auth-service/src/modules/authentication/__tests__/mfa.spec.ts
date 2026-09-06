@@ -61,7 +61,6 @@ const mockTotpConsumeBuilder = new UpdateQueryBuilder<User>(mockManager.connecti
 const mockSelectBuilder = new SelectQueryBuilder<User>(mockManager.connection);
 let executeTotpConsume: jest.SpiedFunction<typeof mockTotpConsumeBuilder.execute>;
 
-
 const mockUserRepository = {
   findOne: jest.fn(),
   save: jest.fn((user: User) => Promise.resolve(user)),
@@ -100,7 +99,9 @@ const mockAuditLogService = {
 
 const mockTokenService = {
   assertOriginatingSessionInContext: jest.fn().mockResolvedValue(undefined),
-  generateStepUpInContext: jest.fn().mockResolvedValue({ accessToken: 'elevated', refreshToken: '' }),
+  generateStepUpInContext: jest
+    .fn()
+    .mockResolvedValue({ accessToken: 'elevated', refreshToken: '' }),
   generateTokensInContext: jest.fn().mockResolvedValue({
     accessToken: 'full-access-token',
     refreshToken: 'full-refresh-token',
@@ -125,8 +126,12 @@ const mockDataSource = {
   }),
 };
 const originatingSession: OriginatingAccessSession = {
-  sub: 'user-uuid-123', role: Role.MODULE_USER, tenantId: 'tenant-uuid-123',
-  jti: 'origin-jti', iat: 1, exp: 4_000_000_000,
+  sub: 'user-uuid-123',
+  role: Role.MODULE_USER,
+  tenantId: 'tenant-uuid-123',
+  jti: 'origin-jti',
+  iat: 1,
+  exp: 4_000_000_000,
 };
 const setupSubject: MfaSubject = { kind: 'session', session: originatingSession };
 
@@ -145,15 +150,24 @@ describe('MfaService', () => {
     jest.spyOn(mockTotpConsumeBuilder, 'set').mockReturnThis();
     jest.spyOn(mockTotpConsumeBuilder, 'where').mockReturnThis();
     jest.spyOn(mockTotpConsumeBuilder, 'andWhere').mockReturnThis();
-    executeTotpConsume = jest.spyOn(mockTotpConsumeBuilder, 'execute')
+    executeTotpConsume = jest
+      .spyOn(mockTotpConsumeBuilder, 'execute')
       .mockResolvedValue({ affected: 1, raw: [], generatedMaps: [] });
     mockJwtService.verify.mockReturnValue({
-      sub: 'mfa:user-uuid-123', type: 'mfa_challenge', userId: 'user-uuid-123',
-      purpose: 'mfa_verification', jti: 'mock-jti', credential: snapshotCredentialProof(createMockUser()),
+      sub: 'mfa:user-uuid-123',
+      type: 'mfa_challenge',
+      userId: 'user-uuid-123',
+      purpose: 'mfa_verification',
+      jti: 'mock-jti',
+      credential: snapshotCredentialProof(createMockUser()),
     });
-    jest.spyOn(mockManager, 'findOne').mockImplementation(async (target) => target === Tenant
-      ? Object.assign(new Tenant(), { id: 'tenant-uuid-123', status: TenantStatus.ACTIVE })
-      : mockUserRepository.findOne());
+    jest
+      .spyOn(mockManager, 'findOne')
+      .mockImplementation(async (target) =>
+        target === Tenant
+          ? Object.assign(new Tenant(), { id: 'tenant-uuid-123', status: TenantStatus.ACTIVE })
+          : mockUserRepository.findOne(),
+      );
     jest.spyOn(mockManager, 'update').mockImplementation(async (_target, _criteria, patch) => {
       const user = await mockUserRepository.findOne();
       if (user) Object.assign(user, patch);
@@ -178,72 +192,105 @@ describe('MfaService', () => {
 
   describe('credential transaction regressions', () => {
     it('rejects a signed challenge whose credential version changed before consumption', async () => {
-      mockUserRepository.findOne.mockResolvedValue(createMockUser({
-        mfaEnabled: true, mfaSecret: 'JBSWY3DPEHPK3PXP', credentialVersion: 2,
-      }));
-      await expect(service.verifyMfaLogin('signed-challenge', '123456')).rejects.toThrow(ForbiddenException);
+      mockUserRepository.findOne.mockResolvedValue(
+        createMockUser({
+          mfaEnabled: true,
+          mfaSecret: 'JBSWY3DPEHPK3PXP',
+          credentialVersion: 2,
+        }),
+      );
+      await expect(service.verifyMfaLogin('signed-challenge', '123456')).rejects.toThrow(
+        ForbiddenException,
+      );
       expect(mockTokenService.generateTokensInContext).not.toHaveBeenCalled();
     });
 
     it('commits failed attempt counters before rejecting the caller', async () => {
       const user = createMockUser({ mfaEnabled: true, mfaSecret: 'JBSWY3DPEHPK3PXP' });
       mockUserRepository.findOne.mockResolvedValue(user);
-      await expect(service.verifyMfaLogin('signed-challenge', 'WRONG-CODE')).rejects.toThrow(UnauthorizedException);
+      await expect(service.verifyMfaLogin('signed-challenge', 'WRONG-CODE')).rejects.toThrow(
+        UnauthorizedException,
+      );
       expect(transactionOutcomes).toEqual(['committed']);
       expect(user.mfaFailedAttempts).toBe(1);
       expect(mockAuditLogService.log).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'MFA_VERIFY_FAILED' }), mockManager,
+        expect.objectContaining({ action: 'MFA_VERIFY_FAILED' }),
+        mockManager,
       );
     });
 
     it('does not write a successful MFA audit when token issuance fails', async () => {
       const user = createMockUser({ mfaEnabled: true, mfaSecret: 'JBSWY3DPEHPK3PXP' });
       mockUserRepository.findOne.mockResolvedValue(user);
-      mockTokenService.generateTokensInContext.mockRejectedValueOnce(new Error('Signing unavailable'));
-      await expect(service.verifyMfaLogin('signed-challenge', generateTestTOTP(base32Decode(user.mfaSecret!))))
-        .rejects.toThrow('Signing unavailable');
+      mockTokenService.generateTokensInContext.mockRejectedValueOnce(
+        new Error('Signing unavailable'),
+      );
+      await expect(
+        service.verifyMfaLogin('signed-challenge', generateTestTOTP(base32Decode(user.mfaSecret!))),
+      ).rejects.toThrow('Signing unavailable');
       expect(transactionOutcomes).toEqual(['rolled back']);
-      expect(mockAuditLogService.log).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'MFA_VERIFY_SUCCESS' }), mockManager);
+      expect(mockAuditLogService.log).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'MFA_VERIFY_SUCCESS' }),
+        mockManager,
+      );
     });
 
     it('rejects disable when password credentials changed during password verification', async () => {
       const user = createMockUser({ mfaEnabled: true, mfaSecret: 'JBSWY3DPEHPK3PXP' });
-      user.validatePassword = jest.fn(async () => { user.credentialVersion += 1; return true; });
+      user.validatePassword = jest.fn(async () => {
+        user.credentialVersion += 1;
+        return true;
+      });
       mockUserRepository.findOne.mockResolvedValue(user);
-      await expect(service.disableMfa(originatingSession, 'password', '123456')).rejects.toThrow(ForbiddenException);
+      await expect(service.disableMfa(originatingSession, 'password', '123456')).rejects.toThrow(
+        ForbiddenException,
+      );
       expect(mockManager.update).not.toHaveBeenCalled();
     });
 
     it('keeps step-up bound to its originating access session', async () => {
       const user = createMockUser({ mfaEnabled: true, mfaSecret: 'JBSWY3DPEHPK3PXP' });
       mockUserRepository.findOne.mockResolvedValue(user);
-      await service.verifyStepUp(originatingSession, generateTestTOTP(base32Decode(user.mfaSecret!)));
+      await service.verifyStepUp(
+        originatingSession,
+        generateTestTOTP(base32Decode(user.mfaSecret!)),
+      );
       expect(mockTokenService.assertOriginatingSessionInContext).toHaveBeenCalledWith(
-        expect.objectContaining({ manager: mockManager, user }), originatingSession,
+        expect.objectContaining({ manager: mockManager, user }),
+        originatingSession,
       );
       expect(mockTokenService.generateStepUpInContext).toHaveBeenCalledWith(
-        expect.objectContaining({ manager: mockManager, user }), originatingSession, undefined, undefined,
+        expect.objectContaining({ manager: mockManager, user }),
+        originatingSession,
+        undefined,
+        undefined,
       );
       expect(mockTokenService.generateTokensInContext).not.toHaveBeenCalled();
     });
   });
 
   describe('availability', () => {
-    const createServiceWithConfig = async (config: Record<string, string | undefined>): Promise<MfaService> => {
-      const module = await Test.createTestingModule({ providers: [
-        MfaService,
-        { provide: getRepositoryToken(User), useValue: mockUserRepository },
-        { provide: JwtService, useValue: mockJwtService },
-        { provide: ConfigService, useValue: new ConfigService(config) },
-        { provide: AuditLogService, useValue: mockAuditLogService },
-        { provide: TokenService, useValue: mockTokenService },
-        { provide: DataSource, useValue: mockDataSource },
-      ] }).compile();
+    const createServiceWithConfig = async (
+      config: Record<string, string | undefined>,
+    ): Promise<MfaService> => {
+      const module = await Test.createTestingModule({
+        providers: [
+          MfaService,
+          { provide: getRepositoryToken(User), useValue: mockUserRepository },
+          { provide: JwtService, useValue: mockJwtService },
+          { provide: ConfigService, useValue: new ConfigService(config) },
+          { provide: AuditLogService, useValue: mockAuditLogService },
+          { provide: TokenService, useValue: mockTokenService },
+          { provide: DataSource, useValue: mockDataSource },
+        ],
+      }).compile();
       return module.get(MfaService);
     };
 
     it('throws during production startup when MFA_ENCRYPTION_KEY is missing', async () => {
-      await expect(createServiceWithConfig({ NODE_ENV: 'production' })).rejects.toThrow('MFA_ENCRYPTION_KEY');
+      await expect(createServiceWithConfig({ NODE_ENV: 'production' })).rejects.toThrow(
+        'MFA_ENCRYPTION_KEY',
+      );
     });
 
     it('throws during production startup when MFA_ENCRYPTION_KEY is malformed', async () => {
@@ -348,7 +395,12 @@ describe('MfaService', () => {
     it('should throw if user not found', async () => {
       mockUserRepository.findOne.mockResolvedValue(null);
 
-      await expect(service.setupMfa({ kind: 'session', session: { ...originatingSession, sub: 'nonexistent' } })).rejects.toThrow(ForbiddenException);
+      await expect(
+        service.setupMfa({
+          kind: 'session',
+          session: { ...originatingSession, sub: 'nonexistent' },
+        }),
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 
@@ -370,10 +422,12 @@ describe('MfaService', () => {
 
       // Reset mocks after setup
       jest.clearAllMocks();
-      mockUserRepository.findOne.mockResolvedValue(Object.assign(new User(), {
-        ...user,
-        mfaSecret: setupResult.secret, // In test mode, stored as plain base32
-      }));
+      mockUserRepository.findOne.mockResolvedValue(
+        Object.assign(new User(), {
+          ...user,
+          mfaSecret: setupResult.secret, // In test mode, stored as plain base32
+        }),
+      );
 
       const result = await service.verifyMfaSetup(setupSubject, validCode);
 
@@ -389,18 +443,18 @@ describe('MfaService', () => {
       });
       mockUserRepository.findOne.mockResolvedValue(user);
 
-      await expect(
-        service.verifyMfaSetup(setupSubject, '000000'),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.verifyMfaSetup(setupSubject, '000000')).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('should throw if MFA setup not initiated', async () => {
       const user = createMockUser({ mfaSecret: null });
       mockUserRepository.findOne.mockResolvedValue(user);
 
-      await expect(
-        service.verifyMfaSetup(setupSubject, '123456'),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.verifyMfaSetup(setupSubject, '123456')).rejects.toThrow(
+        BadRequestException,
+      );
     });
   });
 
@@ -412,9 +466,9 @@ describe('MfaService', () => {
       const user = createMockUser({ mfaEnabled: false });
       mockUserRepository.findOne.mockResolvedValue(user);
 
-      await expect(
-        service.disableMfa(originatingSession, 'password', '123456'),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.disableMfa(originatingSession, 'password', '123456')).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('should throw if password is invalid', async () => {
@@ -524,9 +578,9 @@ describe('MfaService', () => {
         credential: snapshotCredentialProof(createMockUser()),
       });
 
-      await expect(
-        service.verifyMfaLogin('typeless-token', '123456'),
-      ).rejects.toThrow(UnauthorizedException);
+      await expect(service.verifyMfaLogin('typeless-token', '123456')).rejects.toThrow(
+        UnauthorizedException,
+      );
       expect(mockTokenService.generateTokensInContext).not.toHaveBeenCalled();
     });
 
@@ -736,7 +790,10 @@ describe('MfaService', () => {
       // save is called twice: once by verifyAndConsumeRecoveryCode, once by verifyMfaLogin
       const lastSave = jest.mocked(mockManager.update).mock.calls;
       const codeConsumedSave = lastSave.find(
-        (call) => call[0] === User && 'mfaRecoveryCodes' in call[2] && call[2].mfaRecoveryCodes === otherHash,
+        (call) =>
+          call[0] === User &&
+          'mfaRecoveryCodes' in call[2] &&
+          call[2].mfaRecoveryCodes === otherHash,
       );
       expect(codeConsumedSave).toBeDefined();
     });
@@ -833,9 +890,9 @@ describe('MfaService', () => {
       });
       mockUserRepository.findOne.mockResolvedValue(user);
 
-      await expect(
-        service.regenerateRecoveryCodes(originatingSession, '000000'),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.regenerateRecoveryCodes(originatingSession, '000000')).rejects.toThrow(
+        BadRequestException,
+      );
     });
   });
 

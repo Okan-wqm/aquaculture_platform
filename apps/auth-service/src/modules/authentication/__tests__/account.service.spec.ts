@@ -80,8 +80,11 @@ const dataSource = {
   transaction: jest.fn(
     async <T>(callback: (manager: typeof transactionManager) => Promise<T>): Promise<T> => {
       transactionManager.queryRunner.isTransactionActive = true;
-      try { return await callback(transactionManager); }
-      finally { transactionManager.queryRunner.isTransactionActive = false; }
+      try {
+        return await callback(transactionManager);
+      } finally {
+        transactionManager.queryRunner.isTransactionActive = false;
+      }
     },
   ),
 };
@@ -107,15 +110,21 @@ describe('AccountService', () => {
     });
     transactionManager.findOne.mockImplementation((entity: unknown, options: unknown) => {
       if (entity === User) return userRepository.findOne(options);
-      if (entity === Tenant) return Promise.resolve(Object.assign(new Tenant(), {
-        id: 'tenant-1', status: TenantStatus.ACTIVE,
-      }));
+      if (entity === Tenant)
+        return Promise.resolve(
+          Object.assign(new Tenant(), {
+            id: 'tenant-1',
+            status: TenantStatus.ACTIVE,
+          }),
+        );
       throw new Error('Unexpected account identity lookup');
     });
-    transactionManager.update.mockImplementation((entity: unknown, criteria: unknown, values: Partial<User>) => {
-      if (entity === User) return userRepository.update(criteria, values);
-      throw new Error('Unexpected account mutation');
-    });
+    transactionManager.update.mockImplementation(
+      (entity: unknown, criteria: unknown, values: Partial<User>) => {
+        if (entity === User) return userRepository.update(criteria, values);
+        throw new Error('Unexpected account mutation');
+      },
+    );
     refreshTokenRepository.update.mockResolvedValue({ affected: 1 });
     durableUserTokenInvalidation.enqueue.mockResolvedValue(undefined);
     durableUserTokenInvalidation.applyImmediately.mockResolvedValue(undefined);
@@ -154,9 +163,13 @@ describe('AccountService', () => {
     expect(result.lastName).toBe('Hopper');
     expect(result.email).toBe('user@example.com');
     expect(userRepository.save).not.toHaveBeenCalled();
-    expect(userRepository.update).toHaveBeenCalledWith({ id: user.id }, {
-      firstName: 'Grace', lastName: 'Hopper',
-    });
+    expect(userRepository.update).toHaveBeenCalledWith(
+      { id: user.id },
+      {
+        firstName: 'Grace',
+        lastName: 'Hopper',
+      },
+    );
   });
 
   it('rejects blank profile names', async () => {

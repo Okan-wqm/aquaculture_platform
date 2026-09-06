@@ -33,14 +33,14 @@ import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createBaseEvent, isLoginAllowed, tenantScopeOf } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
-import type { UserAccountLockedEvent, InvitationAcceptedEvent, PasswordResetCompletedEvent, PasswordResetRequestedEvent } from '@platform/event-contracts';
+import type {
+  UserAccountLockedEvent,
+  InvitationAcceptedEvent,
+  PasswordResetCompletedEvent,
+  PasswordResetRequestedEvent,
+} from '@platform/event-contracts';
 import * as bcrypt from 'bcryptjs';
-import {
-  DataSource,
-  EntityManager,
-  IsNull,
-  Repository,
-} from 'typeorm';
+import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
 
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
 import { AuditLogService } from '../../../audit/audit-log.service';
@@ -60,7 +60,12 @@ import { RefreshToken } from '../entities/refresh-token.entity';
 import { User } from '../entities/user.entity';
 import { WebAuthnCredential } from '../entities/webauthn-credential.entity';
 
-import { LockedAuthContext, snapshotCredentialProof, withLockedCredentialPrincipal, withLockedAuthenticatedSession } from './credential-state';
+import {
+  LockedAuthContext,
+  snapshotCredentialProof,
+  withLockedCredentialPrincipal,
+  withLockedAuthenticatedSession,
+} from './credential-state';
 import { ActionTokenResolver, type ActionLinkLock } from './action-token-resolver.service';
 import { MfaService } from './mfa.service';
 import { DurableAccessTokenInvalidationService } from './durable-access-token-invalidation.service';
@@ -220,7 +225,6 @@ export class AuthenticationService {
     );
   }
 
-
   /**
    * Canonical serialization fence for every per-user refresh-credential write.
    *
@@ -312,22 +316,25 @@ export class AuthenticationService {
     manager?: EntityManager,
   ): Promise<void> {
     try {
-      await this.auditLogService.log({
-        tenantId: details.tenantId || undefined,
-        performedBy: details.userId || 'anonymous',
-        performedByEmail: details.email,
-        action,
-        entityType: 'User',
-        entityId: details.userId,
-        details: {
-          success: details.success,
-          reason: details.reason,
-          timestamp: new Date().toISOString(),
+      await this.auditLogService.log(
+        {
+          tenantId: details.tenantId || undefined,
+          performedBy: details.userId || 'anonymous',
+          performedByEmail: details.email,
+          action,
+          entityType: 'User',
+          entityId: details.userId,
+          details: {
+            success: details.success,
+            reason: details.reason,
+            timestamp: new Date().toISOString(),
+          },
+          severity,
+          ipAddress: details.ipAddress,
+          userAgent: details.userAgent,
         },
-        severity,
-        ipAddress: details.ipAddress,
-        userAgent: details.userAgent,
-      }, manager);
+        manager,
+      );
     } catch (error) {
       if (manager) throw error;
       // Rejected attempts outside a credential transaction retain best-effort diagnostics.
@@ -535,45 +542,97 @@ export class AuthenticationService {
       }
 
       const proof = snapshotCredentialProof(user);
-      const migratedPassword = shouldMigratePasswordHash ? await hashPassword(input.password) : undefined;
-      const completeLogin = (): Promise<AuthPayload> => withLockedCredentialPrincipal(
-        this.dataSource, proof, async (context) => {
+      const migratedPassword = shouldMigratePasswordHash
+        ? await hashPassword(input.password)
+        : undefined;
+      const completeLogin = (): Promise<AuthPayload> =>
+        withLockedCredentialPrincipal(this.dataSource, proof, async (context) => {
           context.assertSessionAdmission();
           const manager = context.manager;
-          await manager.update(User, { id: user.id }, {
-            failedLoginAttempts: 0, lockedUntil: null, lastLoginIp: ipAddress ?? null,
-            ...(migratedPassword ? { password: migratedPassword } : {}),
-          });
+          await manager.update(
+            User,
+            { id: user.id },
+            {
+              failedLoginAttempts: 0,
+              lockedUntil: null,
+              lastLoginIp: ipAddress ?? null,
+              ...(migratedPassword ? { password: migratedPassword } : {}),
+            },
+          );
           const principal = await context.reloadUser();
           if (principal.mfaEnabled) {
             if (!this.mfaService.isMfaAvailable()) {
               throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
             }
-            const challenge = this.mfaService.generateMfaChallenge(principal, input.rememberMe ?? false);
-            await this.logSecurityEvent('LOGIN_MFA_REQUIRED', {
-              userId: principal.id, tenantId: principal.tenantId, ipAddress, userAgent, success: true,
-            }, AuditLogSeverity.INFO, manager);
-            return { accessToken: '', refreshToken: '', user: principal, expiresIn: 0,
-              tokenType: 'Bearer', redirectUrl: '', mfaRequired: true, mfaToken: challenge.mfaToken };
+            const challenge = this.mfaService.generateMfaChallenge(
+              principal,
+              input.rememberMe ?? false,
+            );
+            await this.logSecurityEvent(
+              'LOGIN_MFA_REQUIRED',
+              {
+                userId: principal.id,
+                tenantId: principal.tenantId,
+                ipAddress,
+                userAgent,
+                success: true,
+              },
+              AuditLogSeverity.INFO,
+              manager,
+            );
+            return {
+              accessToken: '',
+              refreshToken: '',
+              user: principal,
+              expiresIn: 0,
+              tokenType: 'Bearer',
+              redirectUrl: '',
+              mfaRequired: true,
+              mfaToken: challenge.mfaToken,
+            };
           }
-          const enrollment = await this.resolveMfaEnrollmentGate(principal, context.tenant,
-            { ipAddress, userAgent }, manager);
+          const enrollment = await this.resolveMfaEnrollmentGate(
+            principal,
+            context.tenant,
+            { ipAddress, userAgent },
+            manager,
+          );
           if (enrollment) return enrollment;
           await manager.update(User, { id: principal.id }, { lastLoginAt: new Date() });
-          const payload = await this.tokenService.generateTokensInContext(context, ipAddress, userAgent,
-            { rememberMe: input.rememberMe ?? false });
-          await this.logSecurityEvent('LOGIN_SUCCESS', {
-            userId: principal.id, tenantId: principal.tenantId, ipAddress, userAgent, success: true,
-          }, AuditLogSeverity.INFO, manager);
+          const payload = await this.tokenService.generateTokensInContext(
+            context,
+            ipAddress,
+            userAgent,
+            { rememberMe: input.rememberMe ?? false },
+          );
+          await this.logSecurityEvent(
+            'LOGIN_SUCCESS',
+            {
+              userId: principal.id,
+              tenantId: principal.tenantId,
+              ipAddress,
+              userAgent,
+              success: true,
+            },
+            AuditLogSeverity.INFO,
+            manager,
+          );
           return payload;
         });
       const result = user.tenantId
-        ? await requestContextStorage.run({ ...getRequestContext(), tenantId: user.tenantId, userId: user.id }, completeLogin)
+        ? await requestContextStorage.run(
+            { ...getRequestContext(), tenantId: user.tenantId, userId: user.id },
+            completeLogin,
+          )
         : await this.bypassRls.withBypass('auth-service:super-admin-login-tokens', completeLogin);
       if (result.accessToken) {
-        await this.bestEffort.publish(createBaseEvent('UserLoggedIn', tenantScopeOf(user.tenantId), {
-          aggregateId: user.id, aggregateType: 'User', userId: user.id,
-        }));
+        await this.bestEffort.publish(
+          createBaseEvent('UserLoggedIn', tenantScopeOf(user.tenantId), {
+            aggregateId: user.id,
+            aggregateType: 'User',
+            userId: user.id,
+          }),
+        );
       }
       await this.ensureMinDuration(startTime);
       return result;
@@ -617,7 +676,8 @@ export class AuthenticationService {
     await this.bypassRls.withBypass('auth-service:invitation-acceptance', () =>
       this.dataSource.transaction(async (manager) => {
         const discoveredLink = await this.loadInvitationForSegment(manager, token, 'none');
-        if (!discoveredLink.invitation) throw new BadRequestException('Invalid or expired invitation');
+        if (!discoveredLink.invitation)
+          throw new BadRequestException('Invalid or expired invitation');
         const discovered = await manager.findOne(User, {
           where: { invitationToken: discoveredLink.invitation.token },
         });
@@ -625,44 +685,102 @@ export class AuthenticationService {
         const context = await LockedAuthContext.lock(manager, discovered.id);
         // Lock the action and invitation only after Tenant → User. The second
         // resolution observes concurrent reset/resend/acceptance before mutation.
-        const { actionToken, invitation } = await this.loadInvitationForSegment(manager, token, 'pessimistic_write');
+        const { actionToken, invitation } = await this.loadInvitationForSegment(
+          manager,
+          token,
+          'pessimistic_write',
+        );
         const user = context.user;
-        if (!invitation || !invitation.canBeAccepted() || invitation.tenantId !== user.tenantId ||
-            user.invitationToken !== invitation.token ||
-            (actionToken && (!actionToken.isActive() || actionToken.userId !== user.id ||
-              (actionToken.tenantId ?? null) !== (user.tenantId ?? null)))) {
+        if (
+          !invitation ||
+          !invitation.canBeAccepted() ||
+          invitation.tenantId !== user.tenantId ||
+          user.invitationToken !== invitation.token ||
+          (actionToken &&
+            (!actionToken.isActive() ||
+              actionToken.userId !== user.id ||
+              (actionToken.tenantId ?? null) !== (user.tenantId ?? null)))
+        ) {
           throw new BadRequestException('Invalid or expired invitation');
         }
-        await manager.update(User, { id: user.id }, {
-          password: passwordHash, invitationToken: null, invitationExpiresAt: null,
-          isEmailVerified: true, ...(firstName ? { firstName } : {}), ...(lastName ? { lastName } : {}),
-        });
-        await manager.update(Invitation, { id: invitation.id }, {
-          status: InvitationStatus.ACCEPTED, acceptedAt: new Date(), userId: user.id,
-          acceptedFromIp: ipAddress ?? null,
-        });
+        await manager.update(
+          User,
+          { id: user.id },
+          {
+            password: passwordHash,
+            invitationToken: null,
+            invitationExpiresAt: null,
+            isEmailVerified: true,
+            ...(firstName ? { firstName } : {}),
+            ...(lastName ? { lastName } : {}),
+          },
+        );
+        await manager.update(
+          Invitation,
+          { id: invitation.id },
+          {
+            status: InvitationStatus.ACCEPTED,
+            acceptedAt: new Date(),
+            userId: user.id,
+            acceptedFromIp: ipAddress ?? null,
+          },
+        );
         if (actionToken) {
-          await manager.update(ActionToken, { id: actionToken.id }, {
-            status: ActionTokenStatus.CONSUMED, consumedAt: new Date(),
-          });
+          await manager.update(
+            ActionToken,
+            { id: actionToken.id },
+            {
+              status: ActionTokenStatus.CONSUMED,
+              consumedAt: new Date(),
+            },
+          );
         }
         const intent: UserTokenInvalidationIntent = {
-          userId: user.id, tenantId: this.invalidationTenantForUser(user), invalidatedAt: new Date(),
-          reason: 'password_reset', idempotencyKey: `invitation-accepted:${invitation.id}`,
+          userId: user.id,
+          tenantId: this.invalidationTenantForUser(user),
+          invalidatedAt: new Date(),
+          reason: 'password_reset',
+          idempotencyKey: `invitation-accepted:${invitation.id}`,
         };
-        await manager.update(RefreshToken, { userId: user.id }, {
-          isRevoked: true, revokedAt: intent.invalidatedAt, revokedReason: 'Invitation accepted',
-        });
+        await manager.update(
+          RefreshToken,
+          { userId: user.id },
+          {
+            isRevoked: true,
+            revokedAt: intent.invalidatedAt,
+            revokedReason: 'Invitation accepted',
+          },
+        );
         await this.durableUserTokenInvalidation.enqueue(manager, intent);
-        await this.logSecurityEvent('INVITATION_ACCEPTED', {
-          userId: user.id, tenantId: user.tenantId, ipAddress, success: true,
-        }, AuditLogSeverity.INFO, manager);
-        await this.outboxPublisher.enqueue<InvitationAcceptedEvent>({
-          ...createBaseEvent<InvitationAcceptedEvent>('InvitationAccepted', tenantScopeOf(user.tenantId)),
-          userId: user.id, invitationId: invitation.id,
-        }, manager, { aggregateId: user.id, idempotencyKey: `invitation-accepted-event:${invitation.id}`,
-          ...(user.tenantId ? {} : { routingScope: 'system' as const }) });
-      }));
+        await this.logSecurityEvent(
+          'INVITATION_ACCEPTED',
+          {
+            userId: user.id,
+            tenantId: user.tenantId,
+            ipAddress,
+            success: true,
+          },
+          AuditLogSeverity.INFO,
+          manager,
+        );
+        await this.outboxPublisher.enqueue<InvitationAcceptedEvent>(
+          {
+            ...createBaseEvent<InvitationAcceptedEvent>(
+              'InvitationAccepted',
+              tenantScopeOf(user.tenantId),
+            ),
+            userId: user.id,
+            invitationId: invitation.id,
+          },
+          manager,
+          {
+            aggregateId: user.id,
+            idempotencyKey: `invitation-accepted-event:${invitation.id}`,
+            ...(user.tenantId ? {} : { routingScope: 'system' as const }),
+          },
+        );
+      }),
+    );
     return { success: true, loginRequired: true };
   }
 
@@ -679,15 +797,25 @@ export class AuthenticationService {
   }> {
     return this.bypassRls.withBypass('auth-service:invitation-validation', () =>
       this.dataSource.transaction(async (manager) => {
-        const { actionToken, invitation } = await this.loadInvitationForSegment(manager, token, 'none');
+        const { actionToken, invitation } = await this.loadInvitationForSegment(
+          manager,
+          token,
+          'none',
+        );
         if (actionToken && !actionToken.isActive()) {
           return { valid: false, expired: actionToken.expiresAt <= new Date() };
         }
         if (!invitation) return { valid: false };
         if (!invitation.canBeAccepted()) return { valid: false, expired: invitation.isExpired() };
-        return { valid: true, email: invitation.email, role: invitation.role,
-          firstName: invitation.firstName ?? undefined, lastName: invitation.lastName ?? undefined };
-      }));
+        return {
+          valid: true,
+          email: invitation.email,
+          role: invitation.role,
+          firstName: invitation.firstName ?? undefined,
+          lastName: invitation.lastName ?? undefined,
+        };
+      }),
+    );
   }
 
   /** The canonical link resolver and invitation gate shared by preview and redemption. */
@@ -696,13 +824,21 @@ export class AuthenticationService {
     segment: string,
     lock: ActionLinkLock,
   ): Promise<{ actionToken: ActionToken | null; invitation: Invitation | null }> {
-    const resolution = await this.actionTokenResolver.resolve(segment, ActionTokenPurpose.INVITATION, manager, lock);
+    const resolution = await this.actionTokenResolver.resolve(
+      segment,
+      ActionTokenPurpose.INVITATION,
+      manager,
+      lock,
+    );
     if (resolution.kind === 'unresolvable') return { actionToken: null, invitation: null };
     const actionToken = resolution.kind === 'action-token' ? resolution.actionToken : null;
     if (actionToken && !actionToken.isActive()) return { actionToken, invitation: null };
-    const tokenHash = resolution.kind === 'action-token' ? resolution.actionToken.tokenHash : resolution.tokenHash;
-    const invitation = await manager.findOne(Invitation, { where: { token: tokenHash },
-      ...(lock === 'pessimistic_write' ? { lock: { mode: 'pessimistic_write' as const } } : {}) });
+    const tokenHash =
+      resolution.kind === 'action-token' ? resolution.actionToken.tokenHash : resolution.tokenHash;
+    const invitation = await manager.findOne(Invitation, {
+      where: { token: tokenHash },
+      ...(lock === 'pessimistic_write' ? { lock: { mode: 'pessimistic_write' as const } } : {}),
+    });
     return { actionToken, invitation };
   }
 
@@ -940,7 +1076,11 @@ export class AuthenticationService {
     }
     if (token.isRevoked) {
       // Historical NULL-family lineages cannot be reconstructed; terminal rows never contain newer sessions.
-      if (!token.familyId || !['Token refreshed', 'Token refreshed (grace)'].includes(token.revokedReason ?? '')) return {};
+      if (
+        !token.familyId ||
+        !['Token refreshed', 'Token refreshed (grace)'].includes(token.revokedReason ?? '')
+      )
+        return {};
       if (token.expiresAt.getTime() <= Date.now()) {
         return {};
       }
@@ -954,10 +1094,12 @@ export class AuthenticationService {
         revokedAtMs !== undefined &&
         Date.now() - revokedAtMs <= REFRESH_ROTATION_GRACE_MS;
       if (rotatedWithinGrace) {
-        const claimed = await manager.withRepository(this.refreshTokenRepository).update(
-          { id: token.id, revokedReason: 'Token refreshed' },
-          { revokedReason: 'Token refreshed (grace)' },
-        );
+        const claimed = await manager
+          .withRepository(this.refreshTokenRepository)
+          .update(
+            { id: token.id, revokedReason: 'Token refreshed' },
+            { revokedReason: 'Token refreshed (grace)' },
+          );
         if (claimed.affected === 1) {
           this.logger.warn(
             JSON.stringify({
@@ -1082,24 +1224,30 @@ export class AuthenticationService {
   async logout(origin: OriginatingAccessSession): Promise<boolean> {
     const { sub: userId, jti } = origin;
     const accessTokenExpiry = new Date(origin.exp * 1000);
-    const intent = await withLockedAuthenticatedSession(this.dataSource, origin, async ({ manager, user }) => {
-      await manager.withRepository(this.refreshTokenRepository).update(
-        { userId },
-        { isRevoked: true, revokedAt: new Date(), revokedReason: 'User logged out' },
-      );
-      if (accessTokenExpiry.getTime() <= Date.now()) {
-        return null;
-      }
-      const accessIntent = {
-        targetJti: jti,
-        tenantId: this.invalidationTenantForUser(user),
-        expiresAt: accessTokenExpiry,
-        reason: 'user_logout' as const,
-        idempotencyKey: `user-logout:${jti}`,
-      };
-      await this.durableAccessTokenInvalidation.enqueue(manager, accessIntent);
-      return accessIntent;
-    });
+    const intent = await withLockedAuthenticatedSession(
+      this.dataSource,
+      origin,
+      async ({ manager, user }) => {
+        await manager
+          .withRepository(this.refreshTokenRepository)
+          .update(
+            { userId },
+            { isRevoked: true, revokedAt: new Date(), revokedReason: 'User logged out' },
+          );
+        if (accessTokenExpiry.getTime() <= Date.now()) {
+          return null;
+        }
+        const accessIntent = {
+          targetJti: jti,
+          tenantId: this.invalidationTenantForUser(user),
+          expiresAt: accessTokenExpiry,
+          reason: 'user_logout' as const,
+          idempotencyKey: `user-logout:${jti}`,
+        };
+        await this.durableAccessTokenInvalidation.enqueue(manager, accessIntent);
+        return accessIntent;
+      },
+    );
 
     const effects: PostCommitSecurityEffect[] = [];
     if (intent) {
@@ -1132,7 +1280,9 @@ export class AuthenticationService {
     const transactionResult = await this.dataSource.transaction(async (manager) => {
       const user = await this.lockCredentialPrincipal(manager, userId);
       const invalidatedAt = new Date();
-      const activeCount = await manager.withRepository(this.refreshTokenRepository).count({ where: { userId, isRevoked: false } });
+      const activeCount = await manager
+        .withRepository(this.refreshTokenRepository)
+        .count({ where: { userId, isRevoked: false } });
       await manager.withRepository(this.refreshTokenRepository).update(
         { userId },
         {
@@ -1378,11 +1528,15 @@ export class AuthenticationService {
       // only mails tenant-scoped users — operator visibility for platform
       // accounts comes from the CRITICAL audit event.
       const lockEvent: UserAccountLockedEvent = {
-        ...createBaseEvent<UserAccountLockedEvent>('UserAccountLocked', tenantScopeOf(user.tenantId), {
-          aggregateId: user.id,
-          aggregateType: 'User',
-          userId: user.id,
-        }),
+        ...createBaseEvent<UserAccountLockedEvent>(
+          'UserAccountLocked',
+          tenantScopeOf(user.tenantId),
+          {
+            aggregateId: user.id,
+            aggregateType: 'User',
+            userId: user.id,
+          },
+        ),
         userId: user.id,
         failedAttempts: updatedAttempts,
         lockedUntil: lockoutUntil.toISOString(),
@@ -1438,32 +1592,65 @@ export class AuthenticationService {
         withLockedCredentialPrincipal(this.dataSource, user.id, async (context) => {
           const { manager, user: principal } = context;
           if (!principal.isActive) throw new BadRequestException('Account is unavailable');
-          await manager.update(User, { id: principal.id }, {
-            passwordResetToken: resetTokenHash, passwordResetExpires: expiresAt,
-          });
-          await manager.update(ActionToken, {
-            userId: principal.id, purpose: ActionTokenPurpose.PASSWORD_RESET, status: ActionTokenStatus.ACTIVE,
-          }, { status: ActionTokenStatus.REVOKED, revokedAt: new Date() });
-          const actionToken = await manager.save(ActionToken, manager.create(ActionToken, {
-            purpose: ActionTokenPurpose.PASSWORD_RESET, tenantId: principal.tenantId ?? null,
-            userId: principal.id, tokenHash: resetTokenHash, status: ActionTokenStatus.ACTIVE, expiresAt,
-            auditMetadata: { source: 'password-reset-request', ipAddress },
-          }));
+          await manager.update(
+            User,
+            { id: principal.id },
+            {
+              passwordResetToken: resetTokenHash,
+              passwordResetExpires: expiresAt,
+            },
+          );
+          await manager.update(
+            ActionToken,
+            {
+              userId: principal.id,
+              purpose: ActionTokenPurpose.PASSWORD_RESET,
+              status: ActionTokenStatus.ACTIVE,
+            },
+            { status: ActionTokenStatus.REVOKED, revokedAt: new Date() },
+          );
+          const actionToken = await manager.save(
+            ActionToken,
+            manager.create(ActionToken, {
+              purpose: ActionTokenPurpose.PASSWORD_RESET,
+              tenantId: principal.tenantId ?? null,
+              userId: principal.id,
+              tokenHash: resetTokenHash,
+              status: ActionTokenStatus.ACTIVE,
+              expiresAt,
+              auditMetadata: { source: 'password-reset-request', ipAddress },
+            }),
+          );
           const scope = tenantScopeOf(principal.tenantId);
           const event: PasswordResetRequestedEvent = {
             ...createBaseEvent<PasswordResetRequestedEvent>('PasswordResetRequested', scope, {
-              aggregateId: principal.id, aggregateType: 'User', userId: principal.id, version: 2,
+              aggregateId: principal.id,
+              aggregateType: 'User',
+              userId: principal.id,
+              version: 2,
             }),
-            userId: principal.id, actionTokenId: actionToken.id, cryptoShredKeyId: principal.id,
+            userId: principal.id,
+            actionTokenId: actionToken.id,
+            cryptoShredKeyId: principal.id,
           };
           await this.outboxPublisher.enqueue(event, manager, {
-            aggregateId: principal.id, idempotencyKey: `password-reset-requested:${actionToken.id}`,
+            aggregateId: principal.id,
+            idempotencyKey: `password-reset-requested:${actionToken.id}`,
             ...(scope.kind === 'platform' ? { routingScope: 'system' as const } : {}),
           });
-          await this.logSecurityEvent('PASSWORD_RESET_REQUESTED', {
-            userId: principal.id, tenantId: principal.tenantId, ipAddress, success: true,
-          }, AuditLogSeverity.INFO, manager);
-        }));
+          await this.logSecurityEvent(
+            'PASSWORD_RESET_REQUESTED',
+            {
+              userId: principal.id,
+              tenantId: principal.tenantId,
+              ipAddress,
+              success: true,
+            },
+            AuditLogSeverity.INFO,
+            manager,
+          );
+        }),
+      );
 
       await this.ensureMinDuration(startTime);
     } catch (error) {
@@ -1494,53 +1681,118 @@ export class AuthenticationService {
     const passwordHash = await hashPassword(newPassword);
     await this.bypassRls.withBypass('auth-service:password-reset', () =>
       this.dataSource.transaction(async (manager) => {
-        const reference = await this.actionTokenResolver.resolve(token, ActionTokenPurpose.PASSWORD_RESET, manager, 'none');
-        if (reference.kind === 'unresolvable' || (reference.kind === 'action-token' && !reference.actionToken.isActive())) {
+        const reference = await this.actionTokenResolver.resolve(
+          token,
+          ActionTokenPurpose.PASSWORD_RESET,
+          manager,
+          'none',
+        );
+        if (
+          reference.kind === 'unresolvable' ||
+          (reference.kind === 'action-token' && !reference.actionToken.isActive())
+        ) {
           throw new BadRequestException('Invalid or expired password reset token');
         }
-        const tokenHash = reference.kind === 'action-token' ? reference.actionToken.tokenHash : reference.tokenHash;
-        const discovered = await manager.findOne(User, { where: { passwordResetToken: tokenHash } });
+        const tokenHash =
+          reference.kind === 'action-token' ? reference.actionToken.tokenHash : reference.tokenHash;
+        const discovered = await manager.findOne(User, {
+          where: { passwordResetToken: tokenHash },
+        });
         if (!discovered) throw new BadRequestException('Invalid or expired password reset token');
         const context = await LockedAuthContext.lock(manager, discovered.id);
-        const resolved = await this.actionTokenResolver.resolve(token, ActionTokenPurpose.PASSWORD_RESET, manager, 'pessimistic_write');
-        if (resolved.kind === 'unresolvable') throw new BadRequestException('Invalid or expired password reset token');
+        const resolved = await this.actionTokenResolver.resolve(
+          token,
+          ActionTokenPurpose.PASSWORD_RESET,
+          manager,
+          'pessimistic_write',
+        );
+        if (resolved.kind === 'unresolvable')
+          throw new BadRequestException('Invalid or expired password reset token');
         const actionToken = resolved.kind === 'action-token' ? resolved.actionToken : null;
-        const resolvedHash = resolved.kind === 'action-token' ? resolved.actionToken.tokenHash : resolved.tokenHash;
+        const resolvedHash =
+          resolved.kind === 'action-token' ? resolved.actionToken.tokenHash : resolved.tokenHash;
         const user = context.user;
-        if (!user.isActive || !user.passwordResetToken || !user.passwordResetExpires ||
-            user.passwordResetExpires.getTime() <= Date.now() || user.passwordResetToken !== resolvedHash ||
-            (actionToken && (!actionToken.isActive() || actionToken.userId !== user.id ||
-              (actionToken.tenantId ?? null) !== (user.tenantId ?? null)))) {
+        if (
+          !user.isActive ||
+          !user.passwordResetToken ||
+          !user.passwordResetExpires ||
+          user.passwordResetExpires.getTime() <= Date.now() ||
+          user.passwordResetToken !== resolvedHash ||
+          (actionToken &&
+            (!actionToken.isActive() ||
+              actionToken.userId !== user.id ||
+              (actionToken.tenantId ?? null) !== (user.tenantId ?? null)))
+        ) {
           throw new BadRequestException('Invalid or expired password reset token');
         }
-        await manager.update(User, { id: user.id }, {
-          password: passwordHash, passwordResetToken: null, passwordResetExpires: null,
-          failedLoginAttempts: 0, lockedUntil: null,
-        });
+        await manager.update(
+          User,
+          { id: user.id },
+          {
+            password: passwordHash,
+            passwordResetToken: null,
+            passwordResetExpires: null,
+            failedLoginAttempts: 0,
+            lockedUntil: null,
+          },
+        );
         if (actionToken) {
-          await manager.update(ActionToken, { id: actionToken.id }, {
-            status: ActionTokenStatus.CONSUMED, consumedAt: new Date(),
-          });
+          await manager.update(
+            ActionToken,
+            { id: actionToken.id },
+            {
+              status: ActionTokenStatus.CONSUMED,
+              consumedAt: new Date(),
+            },
+          );
         }
         await manager.delete(WebAuthnCredential, { userId: user.id });
         const invalidation: UserTokenInvalidationIntent = {
-          userId: user.id, tenantId: this.invalidationTenantForUser(user), invalidatedAt: new Date(),
+          userId: user.id,
+          tenantId: this.invalidationTenantForUser(user),
+          invalidatedAt: new Date(),
           reason: 'password_reset',
           idempotencyKey: `password-reset:${actionToken?.id ?? user.passwordResetToken}`,
         };
-        await manager.update(RefreshToken, { userId: user.id }, {
-          isRevoked: true, revokedAt: invalidation.invalidatedAt, revokedReason: 'Password reset',
-        });
+        await manager.update(
+          RefreshToken,
+          { userId: user.id },
+          {
+            isRevoked: true,
+            revokedAt: invalidation.invalidatedAt,
+            revokedReason: 'Password reset',
+          },
+        );
         await this.durableUserTokenInvalidation.enqueue(manager, invalidation);
-        await this.logSecurityEvent('PASSWORD_RESET_SUCCESS', {
-          userId: user.id, tenantId: user.tenantId, ipAddress, userAgent, success: true,
-        }, AuditLogSeverity.INFO, manager);
-        await this.outboxPublisher.enqueue<PasswordResetCompletedEvent>({
-          ...createBaseEvent<PasswordResetCompletedEvent>('PasswordResetCompleted', tenantScopeOf(user.tenantId)),
-          userId: user.id,
-        }, manager, { aggregateId: user.id, idempotencyKey: `password-reset-event:${actionToken?.id ?? user.passwordResetToken}`,
-          ...(user.tenantId ? {} : { routingScope: 'system' as const }) });
-      }));
+        await this.logSecurityEvent(
+          'PASSWORD_RESET_SUCCESS',
+          {
+            userId: user.id,
+            tenantId: user.tenantId,
+            ipAddress,
+            userAgent,
+            success: true,
+          },
+          AuditLogSeverity.INFO,
+          manager,
+        );
+        await this.outboxPublisher.enqueue<PasswordResetCompletedEvent>(
+          {
+            ...createBaseEvent<PasswordResetCompletedEvent>(
+              'PasswordResetCompleted',
+              tenantScopeOf(user.tenantId),
+            ),
+            userId: user.id,
+          },
+          manager,
+          {
+            aggregateId: user.id,
+            idempotencyKey: `password-reset-event:${actionToken?.id ?? user.passwordResetToken}`,
+            ...(user.tenantId ? {} : { routingScope: 'system' as const }),
+          },
+        );
+      }),
+    );
     return { success: true, loginRequired: true };
   }
 
@@ -1555,7 +1807,6 @@ export class AuthenticationService {
    * tenant context — the same direct read login performs for its tenant-status
    * gate. Platform users (tenantId NULL) have no tenant.
    */
-
 
   /**
    * ADR-046: a user SATISFIES tenant MFA enforcement when they have TOTP MFA
@@ -1639,15 +1890,20 @@ export class AuthenticationService {
 
     const mfaSetupToken = this.mfaService.generateMfaSetupToken(user);
 
-    await this.logSecurityEvent('LOGIN_MFA_SETUP_REQUIRED', {
-      userId: user.id,
-      email: user.email,
-      tenantId: user.tenantId,
-      ipAddress: audit.ipAddress,
-      userAgent: audit.userAgent,
-      success: true,
-      reason: 'Password valid; tenant enforces MFA and the user has no factor enrolled',
-    }, AuditLogSeverity.INFO, manager);
+    await this.logSecurityEvent(
+      'LOGIN_MFA_SETUP_REQUIRED',
+      {
+        userId: user.id,
+        email: user.email,
+        tenantId: user.tenantId,
+        ipAddress: audit.ipAddress,
+        userAgent: audit.userAgent,
+        success: true,
+        reason: 'Password valid; tenant enforces MFA and the user has no factor enrolled',
+      },
+      AuditLogSeverity.INFO,
+      manager,
+    );
 
     return {
       accessToken: '',

@@ -15,7 +15,7 @@ import {
   CustomPlanModule,
   CustomPlanLineItem,
 } from '../entities/custom-plan.entity';
-import { PlanTier, BillingCycle } from '../entities/plan-definition.entity';
+import { BillingPlanTier as PlanTier, type BillingCycle } from '@platform/event-contracts';
 
 import { BillingAdminCommandClientService } from './billing-admin-command-client.service';
 import { ModulePricingService } from './module-pricing.service';
@@ -130,7 +130,7 @@ export class CustomPlanService {
       description: dto.description,
       basePlanId: dto.basePlanId,
       tier: dto.tier || PlanTier.CUSTOM,
-      billingCycle: dto.billingCycle || BillingCycle.MONTHLY,
+      billingCycle: dto.billingCycle ?? 'monthly',
       modules,
       monthlySubtotal,
       discountPercent: dto.discountPercent || 0,

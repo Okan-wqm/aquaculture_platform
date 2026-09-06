@@ -9,6 +9,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseEnumPipe,
   ParseUUIDPipe,
   Post,
   Put,
@@ -18,10 +19,15 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import {
+  BILLING_CYCLES,
+  BillingPlanTier,
   type BillingAdminCreateInvoiceInput,
+  type BillingCycle,
   type BillingDiscountCodeInput,
   type BillingModulePriceInput,
   type BillingModulePriceTierMultiplierInput,
+  type BillingPlanInput,
+  type BillingPlanUpdateInput,
 } from '@platform/event-contracts';
 import Decimal from 'decimal.js';
 import { Request } from 'express';
@@ -52,6 +58,7 @@ import {
   RejectCustomPlanDto,
   SeedModulePricingDto,
   SetModulePricingDto,
+  StripePriceIdsDto,
   TierMultipliersDto,
   UpdateCustomPlanDto,
   UpdateDiscountCodeDto,
@@ -60,6 +67,11 @@ import {
   ValidateDiscountCodeDto,
   VoidInvoiceDto,
 } from './dto/billing.dto';
+import {
+  PlanComparisonResponseDto,
+  PlanLimitsResponseDto,
+  PlanResponseDto,
+} from './dto/plan-response.dto';
 import {
   ModulePricePageDto,
   ModulePriceResponseDto,
@@ -80,7 +92,6 @@ import {
   GeneratedDiscountCodeDto,
 } from './dto/discount-response.dto';
 import { CustomPlanStatus } from './entities/custom-plan.entity';
-import { BillingCycle, PlanTier } from './entities/plan-definition.entity';
 import { AggregationPeriod, MeterType } from './entities/usage-aggregation-readonly.entity';
 import { BillingAdminCommandClientService } from './services/billing-admin-command-client.service';
 import { CustomPlanFilter, CustomPlanService } from './services/custom-plan.service';
@@ -123,83 +134,76 @@ export class BillingController {
   // ============================================================================
 
   @Get('plans')
-  async getPlans(@Query('includeInactive') includeInactive?: string): Promise<unknown> {
+  async getPlans(@Query('includeInactive') includeInactive?: string): Promise<PlanResponseDto[]> {
     return this.planService.findAll(includeInactive === 'true');
   }
 
   @Get('plans/public')
-  async getPublicPlans(): Promise<unknown> {
+  async getPublicPlans(): Promise<PlanResponseDto[]> {
     return this.planService.findPublicPlans();
   }
 
   @Get('plans/:id')
-  async getPlanById(@Param('id') id: string): Promise<unknown> {
+  async getPlanById(@Param('id', ParseUUIDPipe) id: string): Promise<PlanResponseDto> {
     return this.planService.findById(id);
   }
 
   @Get('plans/code/:code')
-  async getPlanByCode(@Param('code') code: string): Promise<unknown> {
+  async getPlanByCode(@Param('code') code: string): Promise<PlanResponseDto> {
     return this.planService.findByCode(code);
   }
 
   @Get('plans/tier/:tier')
-  async getPlanByTier(@Param('tier') tier: PlanTier): Promise<unknown> {
+  async getPlanByTier(
+    @Param('tier', new ParseEnumPipe(BillingPlanTier)) tier: BillingPlanTier,
+  ): Promise<PlanResponseDto | null> {
     return this.planService.findByTier(tier);
   }
 
   @AuditedOperation({ resource: 'Plan', action: 'CREATE' })
   @RequiresCapability('billing-ops')
   @Post('plans')
-  async createPlan(@Body() dto: CreatePlanDto, @Req() req: Request): Promise<unknown> {
+  async createPlan(@Body() dto: CreatePlanDto, @Req() req: Request): Promise<PlanResponseDto> {
     // SECURITY: Require authenticated user for plan creation — anonymous writes to billing data are forbidden.
-    const userId = getAuthUserId(req);
-    if (!userId) throw new UnauthorizedException('Authentication required to create a plan');
-    return this.planService.create({ ...dto, createdBy: userId });
+    const userId = requireActor(req, 'create a plan');
+    return this.planService.create(toPlanInput(dto), userId);
   }
 
   @AuditedOperation({ resource: 'Plan', action: 'UPDATE' })
   @RequiresCapability('billing-ops')
   @Put('plans/:id')
-  async updatePlan(@Param('id') id: string, @Body() dto: UpdatePlanDto, @Req() req: Request): Promise<unknown> {
-    const userId = getAuthUserId(req);
-    if (!userId) throw new UnauthorizedException('Authentication required to update a plan');
-    return this.planService.update(id, { ...dto, updatedBy: userId });
+  async updatePlan(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdatePlanDto,
+    @Req() req: Request,
+  ): Promise<PlanResponseDto> {
+    const userId = requireActor(req, 'update a plan');
+    return this.planService.update(id, toPlanUpdateInput(dto), userId);
   }
 
   @AuditedOperation({ resource: 'Plan', action: 'DEPRECATE' })
   @RequiresCapability('billing-ops')
   @Post('plans/:id/deprecate')
   async deprecatePlan(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Req() req: Request,
-  ): Promise<unknown> {
-    const userId = getAuthUserId(req);
-    if (!userId) throw new UnauthorizedException('Authentication required to deprecate a plan');
+  ): Promise<PlanResponseDto> {
+    const userId = requireActor(req, 'deprecate a plan');
     return this.planService.deprecate(id, userId);
   }
 
   @AuditedOperation({ resource: 'Plans', action: 'COMPARE' })
   @RequiresCapability('billing-ops')
   @Post('plans/compare')
-  async comparePlans(
-    @Body() dto: ComparePlansDto,
-  ): Promise<unknown> {
+  async comparePlans(@Body() dto: ComparePlansDto): Promise<PlanComparisonResponseDto> {
     return this.planService.comparePlans(dto.currentPlanId, dto.newPlanId);
   }
 
   @Get('plans/defaults/:tier')
-  getDefaultLimits(@Param('tier') tier: PlanTier): unknown {
+  getDefaultLimits(
+    @Param('tier', new ParseEnumPipe(BillingPlanTier)) tier: BillingPlanTier,
+  ): PlanLimitsResponseDto {
     return this.planService.getDefaultLimitsForTier(tier);
-  }
-
-  @AuditedOperation({ resource: 'Billing', action: 'SEED_PLANS' })
-  @RequiresCapability('billing-ops')
-  @Post('plans/seed')
-  async seedPlans(@Req() req: Request): Promise<unknown> {
-    const userId = getAuthUserId(req);
-    if (!userId) throw new UnauthorizedException('Authentication required to seed plans');
-    await this.planService.seedDefaultPlans(userId);
-    return { success: true, message: 'Default plans seeded successfully' };
   }
 
   // ============================================================================
@@ -396,7 +400,7 @@ export class BillingController {
       filters.status = status.split(',') as SubscriptionStatus[];
     }
     if (planTier) {
-      filters.planTier = planTier.split(',') as PlanTier[];
+      filters.planTier = planTier.split(',') as BillingPlanTier[];
     }
     if (billingCycle) {
       filters.billingCycle = billingCycle.split(',') as BillingCycle[];
@@ -615,7 +619,7 @@ export class BillingController {
           quantities: dto.quantities ?? { users: 5 },
         })),
         tier: dto.tier,
-        billingCycle: BillingCycle.MONTHLY,
+        billingCycle: 'monthly',
       },
       userId,
     );
@@ -651,7 +655,7 @@ export class BillingController {
   async listCustomPlans(
     @TenantParam('query', { optional: true, allow: 'any' }) tenantId?: string,
     @Query('status') status?: CustomPlanStatus,
-    @Query('tier') tier?: PlanTier,
+    @Query('tier') tier?: BillingPlanTier,
     @Query('search') search?: string,
     @Query() pagination?: PaginationQueryDto,
   ): Promise<unknown> {
@@ -1075,6 +1079,102 @@ function toDiscountInput(
 /** A quick estimate names modules by code only; billing matches on the code. */
 const EMPTY_MODULE_ID = '00000000-0000-4000-8000-000000000000';
 
+/**
+ * The authored plan becomes the contract command's input (ADR-0013).
+ *
+ * The DTO is deliberately close to `BillingPlanInput` but not identical:
+ * `stripePriceIds` is a class (class-validator cannot validate a bare index
+ * signature) where the contract carries a `Record`, and the cycle keys are the
+ * `BillingCycle` values, so the conversion is a copy of the present keys.
+ */
+function toPlanInput(dto: CreatePlanDto): BillingPlanInput {
+  return {
+    code: dto.code,
+    name: dto.name,
+    description: dto.description,
+    shortDescription: dto.shortDescription,
+    tier: dto.tier,
+    currency: dto.currency,
+    defaultBillingCycle: dto.defaultBillingCycle,
+    visibility: dto.visibility,
+    isRecommended: dto.isRecommended,
+    sortOrder: dto.sortOrder,
+    limits: dto.limits,
+    features: dto.features,
+    cyclePrices: dto.cyclePrices,
+    addOns: dto.addOns,
+    trialDays: dto.trialDays,
+    gracePeriodDays: dto.gracePeriodDays,
+    upgradeMessage: dto.upgradeMessage,
+    downgradeWarning: dto.downgradeWarning,
+    icon: dto.icon,
+    color: dto.color,
+    badge: dto.badge,
+    stripeProductId: dto.stripeProductId,
+    stripePriceIds: toStripePriceIds(dto.stripePriceIds),
+  };
+}
+
+/**
+ * An update revises a subset, so an ABSENT key must stay absent — spreading a
+ * `undefined` through would clear the column instead of leaving it alone.
+ * `limits` and `features` may arrive partial; billing merges them onto the row.
+ */
+function toPlanUpdateInput(dto: UpdatePlanDto): BillingPlanUpdateInput {
+  const input: BillingPlanUpdateInput = {};
+  const copy = <TKey extends keyof UpdatePlanDto & keyof BillingPlanUpdateInput>(
+    key: TKey,
+  ): void => {
+    const value = dto[key];
+    if (value !== undefined) {
+      input[key] = value as BillingPlanUpdateInput[TKey];
+    }
+  };
+  for (const key of [
+    'code',
+    'name',
+    'description',
+    'shortDescription',
+    'tier',
+    'currency',
+    'defaultBillingCycle',
+    'visibility',
+    'isActive',
+    'isRecommended',
+    'sortOrder',
+    'limits',
+    'features',
+    'cyclePrices',
+    'addOns',
+    'trialDays',
+    'gracePeriodDays',
+    'upgradeMessage',
+    'downgradeWarning',
+    'icon',
+    'color',
+    'badge',
+    'stripeProductId',
+  ] as const) {
+    copy(key);
+  }
+  const stripePriceIds = toStripePriceIds(dto.stripePriceIds);
+  if (stripePriceIds) input.stripePriceIds = stripePriceIds;
+  return input;
+}
+
+/** The four optional cycle keys become the contract's `Record`, absent keys omitted. */
+function toStripePriceIds(
+  ids: StripePriceIdsDto | undefined,
+): Record<string, string> | undefined {
+  if (!ids) return undefined;
+  const record: Record<string, string> = {};
+  for (const cycle of BILLING_CYCLES) {
+    const priceId = ids[cycle];
+    if (priceId !== undefined) record[cycle] = priceId;
+  }
+  return record;
+}
+
 /** The DTO's flat sheet becomes the contract's metric and multiplier rows. */
 function toModulePriceInput(
   dto: SetModulePricingDto,
@@ -1104,7 +1204,7 @@ export function toTierMultiplierRows(
 ): BillingModulePriceTierMultiplierInput[] | undefined {
   if (!multipliers) return undefined;
   const rows: BillingModulePriceTierMultiplierInput[] = [];
-  for (const tier of Object.values(PlanTier)) {
+  for (const tier of Object.values(BillingPlanTier)) {
     const multiplier = multipliers[tier as keyof TierMultipliersDto];
     if (multiplier !== undefined) rows.push({ tier, multiplier });
   }

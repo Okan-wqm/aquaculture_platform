@@ -180,6 +180,21 @@ export type PlanTier = 'free' | 'starter' | 'professional' | 'enterprise';
 export type BillingCycle = 'monthly' | 'quarterly' | 'semi_annual' | 'annual';
 
 /**
+ * The same set, enumerable at runtime — a `type` alone cannot be handed to a
+ * `class-validator` `@IsIn`, a TypeORM `enum:` column, or a Postgres enum
+ * generator, and each of those previously kept its own hand-written copy.
+ * The two guards below make a copy that drifts a compile error.
+ */
+export const BILLING_CYCLES = ['monthly', 'quarterly', 'semi_annual', 'annual'] as const;
+
+/** Both directions hold, so the array IS the union — neither may drift. */
+export type BillingCycleRuntimeParity = BillingCycle extends (typeof BILLING_CYCLES)[number]
+  ? (typeof BILLING_CYCLES)[number] extends BillingCycle
+    ? true
+    : never
+  : never;
+
+/**
  * Create a base event with auto-generated eventId, timestamp (ISO 8601 string), and version.
  *
  * `aggregateId` and `aggregateType` are required so that every event is properly

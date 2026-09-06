@@ -1076,7 +1076,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "a0b68682735db1474df78a9a954a6eace39500b221787dc22f090815def5a2ed",
+      "content_sha256": "6f5c702de2a1152fe23857a9804dbfb8f98668447f463badc53ca03fc94fae4a",
       "hash_policy": "sha256",
       "owner": "admin-openapi-generator",
       "path": "apps/admin-api-service/openapi.json",
@@ -1340,6 +1340,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/billing/dto/plan-response.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/billing/entities/custom-plan.entity.ts",
       "prettier_managed": true
     },
@@ -1358,13 +1364,13 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/billing/entities/index.ts",
+      "path": "apps/admin-api-service/src/billing/entities/external/plan.entity.ts",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/billing/entities/plan-definition.entity.ts",
+      "path": "apps/admin-api-service/src/billing/entities/index.ts",
       "prettier_managed": true
     },
     {
@@ -2153,6 +2159,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/migrations/1809000000000-RetireAdminModulePricing.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1809100000000-RetireAdminPlanDefinitions.ts",
       "prettier_managed": true
     },
     {
@@ -6070,6 +6082,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/billing/__tests__/plan-catalog.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/billing/__tests__/plan-crud.handler.spec.ts",
       "prettier_managed": true
     },
@@ -6274,6 +6292,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/billing/entities/plan-catalog.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/billing/entities/plan.entity.ts",
       "prettier_managed": true
     },
@@ -6335,6 +6359,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/billing-service/src/billing/handlers/billing-module-price-nats.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/billing/handlers/billing-plan-nats.handler.ts",
       "prettier_managed": true
     },
     {
@@ -6526,6 +6556,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/billing/services/plan-catalog.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/common/guards/jwt-auth.guard.ts",
       "prettier_managed": true
     },
@@ -6699,6 +6735,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/billing-service/src/database/migrations/1802100000000-CreateModulePriceSheet.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/database/migrations/1802200000000-MergePlanCatalogue.ts",
       "prettier_managed": true
     },
     {
@@ -48919,7 +48961,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "9d7ad711b3dd8249ee859b248a5f65f321e4ebc3779a6daed58b6fde926a21ad",
+      "content_sha256": "51a8b6afda1b20aa8317f8b0cc3f3a7a108d562ce579c593640b724dcbc27f94",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/generated/admin-api.ts",
@@ -49022,6 +49064,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/test-setup.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/utils/money.ts",
       "prettier_managed": true
     },
     {

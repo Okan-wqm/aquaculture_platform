@@ -943,7 +943,9 @@ describe('Frontend-Backend Contract Validation', () => {
     // Bu, beklenmedik endpoint degisikliklerini yakalar.
     const count = backendEndpoints.length;
 
-    expect(count).toBe(462);
+    // 461 since ADR-0013 removed `POST /billing/plans/seed`: seeding the plan
+    // catalogue is billing's own boot-time concern, not an admin route.
+    expect(count).toBe(461);
   });
 
   it('frontend endpoint snapshot should be up to date', () => {

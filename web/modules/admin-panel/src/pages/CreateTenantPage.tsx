@@ -28,6 +28,7 @@ import {
   type PricingCalculation,
   type QuoteRequest,
 } from '../services/adminApi';
+import { formatDecimalAmount as formatMoney } from '../utils/money';
 
 // ============================================================================
 // Types
@@ -169,13 +170,6 @@ const getMetricLabel = (metricType: string): string =>
 
 const getQuantityField = (metricType: string): keyof ModuleQuantities | null =>
   metricToQuantityField[metricType as PricingMetricType] ?? null;
-
-/** Money arrives as an exact decimal string; format it without widening it twice. */
-const formatMoney = (amount: string | undefined): string =>
-  Number(amount ?? '0').toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
 
 const TENANT_CREATE_IDEMPOTENCY_PREFIX = 'admin-panel:tenant-create:idempotency:';
 

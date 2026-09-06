@@ -834,6 +834,12 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'module_prices',
       'module_price_metrics',
       'module_price_tier_multipliers',
+      // ADR-0013 / BILLING-CRITICAL-002: `admin.plan_definitions` folded into
+      // `billing.plans`, and the four-cycle price matrix + the add-ons it held
+      // inside jsonb became these two child tables. Both are cross-tenant
+      // catalogue tables, like the plan they belong to.
+      'plan_cycle_prices',
+      'plan_add_ons',
     ],
   },
   {
@@ -908,10 +914,9 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // registry, so the ADR-012 drift validator + orphan-drop presence checks
       // did not cover them (an unregistered real table is neither protected nor
       // reconciled). All are @Entity(..., { schema: 'admin' }).
-      // discount_codes retired 2026-09-05 and module_pricing 2026-09-06
-      // (ADR-0013 / BILLING-CRITICAL-002) — see billing.discount_codes and
-      // billing.module_prices above.
-      'plan_definitions',
+      // discount_codes retired 2026-09-05, module_pricing and plan_definitions
+      // 2026-09-06 (ADR-0013 / BILLING-CRITICAL-002) — see billing.discount_codes,
+      // billing.module_prices and billing.plans above.
       'plan_module_assignments',
       'threat_intelligence',
       'database_metrics',

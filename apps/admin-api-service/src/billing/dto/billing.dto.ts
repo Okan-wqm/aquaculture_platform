@@ -27,16 +27,21 @@ import {
   type ValidationOptions,
   type ValidatorConstraintInterface,
 } from 'class-validator';
-import { BILLING_PRICING_METRIC_TYPES } from '@platform/event-contracts';
+import {
+  BILLING_CYCLES,
+  BILLING_PLAN_VISIBILITIES,
+  BILLING_PRICING_METRIC_TYPES,
+  BillingPlanTier,
+} from '@platform/event-contracts';
 import type {
+  BillingCycle,
   BillingDiscountAppliesTo,
   BillingDiscountDuration,
   BillingDiscountSubscriptionChange,
   BillingDiscountType,
+  BillingPlanVisibility,
   BillingPricingMetricType,
 } from '@platform/event-contracts';
-
-import { BillingCycle, PlanTier, PlanVisibility } from '../entities/plan-definition.entity';
 
 /**
  * An exact decimal string. Money and rates cross the admin boundary as text
@@ -44,7 +49,8 @@ import { BillingCycle, PlanTier, PlanVisibility } from '../entities/plan-definit
  * both sides, 12.5 is not necessarily (ADR-0013).
  */
 const MONEY_STRING = /^\d{1,13}(\.\d{1,4})?$/;
-const PERCENT_STRING = /^\d{1,3}(\.\d{1,2})?$/;
+/** A percentage in [0, 100] with up to two decimals — the range the DB CHECKs. */
+const PERCENT_STRING = /^(100(\.0{1,2})?|\d{1,2}(\.\d{1,2})?)$/;
 /** A tier multiplier: (0, 10] with up to four decimals. */
 const MULTIPLIER_STRING = /^(10(\.0{1,4})?|\d(\.\d{1,4})?)$/;
 
@@ -79,48 +85,52 @@ export class PlanLimitsDto {
   @IsBoolean() dedicatedAccountManager!: boolean;
 }
 
-export class PlanCyclePricingDto {
-  @IsNumber() @Min(0) basePrice!: number;
-  @IsNumber() @Min(0) perUserPrice!: number;
-  @IsNumber() @Min(0) perFarmPrice!: number;
-  @IsNumber() @Min(0) perModulePrice!: number;
+/**
+ * What a plan costs on ONE billing cycle (ADR-0013). One object per cycle the
+ * plan is actually sold on, replacing the fixed four-key `pricing` matrix that
+ * forced every plan to price all four cycles and hid its money inside jsonb.
+ * Prices are exact decimal strings for the same reason they are `numeric(19,4)`
+ * in `billing.plan_cycle_prices`.
+ */
+export class PlanCyclePriceDto {
+  @IsIn(BILLING_CYCLES) billingCycle!: BillingCycle;
+  @Matches(MONEY_STRING, { message: 'basePrice must be a decimal string' }) basePrice!: string;
+  @Matches(MONEY_STRING, { message: 'perUserPrice must be a decimal string' })
+  perUserPrice!: string;
+  @Matches(MONEY_STRING, { message: 'perFarmPrice must be a decimal string' })
+  perFarmPrice!: string;
+  @Matches(MONEY_STRING, { message: 'perModulePrice must be a decimal string' })
+  perModulePrice!: string;
+  @Matches(PERCENT_STRING, { message: 'discountPercent must be a decimal string in [0, 100]' })
+  discountPercent!: string;
 }
 
-export class PlanDiscountedCyclePricingDto extends PlanCyclePricingDto {
-  @IsNumber() @Min(0) @Max(100) discountPercent!: number;
-}
-
-export class PlanPricingDto {
-  @ValidateNested() @Type(() => PlanCyclePricingDto) monthly!: PlanCyclePricingDto;
-  @ValidateNested()
-  @Type(() => PlanDiscountedCyclePricingDto)
-  quarterly!: PlanDiscountedCyclePricingDto;
-  @ValidateNested()
-  @Type(() => PlanDiscountedCyclePricingDto)
-  semiAnnual!: PlanDiscountedCyclePricingDto;
-  @ValidateNested()
-  @Type(() => PlanDiscountedCyclePricingDto)
-  annual!: PlanDiscountedCyclePricingDto;
-  @IsString() @MaxLength(10) currency!: string;
-}
-
+/** A priced extra. It is a row in `billing.plan_add_ons`, not a feature string. */
 export class PlanAddOnDto {
   @IsString() @MaxLength(100) code!: string;
   @IsString() @MaxLength(255) name!: string;
-  @IsString() @MaxLength(1000) description!: string;
-  @IsNumber() @Min(0) price!: number;
-  @IsEnum(BillingCycle) billingCycle!: BillingCycle;
+  @IsOptional() @IsString() @MaxLength(1000) description?: string;
+  @Matches(MONEY_STRING, { message: 'price must be a decimal string' }) price!: string;
+  @IsIn(BILLING_CYCLES) billingCycle!: BillingCycle;
 }
 
+/**
+ * The named feature sets a plan advertises. Add-ons used to live in here; they
+ * carry a price, so they are their own rows and their own request field —
+ * money two levels inside a features blob is money no CHECK can reach.
+ */
 export class PlanFeaturesDto {
   @IsArray() @IsString({ each: true }) @ArrayMaxSize(200) coreFeatures!: string[];
   @IsArray() @IsString({ each: true }) @ArrayMaxSize(200) advancedFeatures!: string[];
   @IsArray() @IsString({ each: true }) @ArrayMaxSize(200) premiumFeatures!: string[];
-  @IsArray()
-  @ArrayMaxSize(100)
-  @ValidateNested({ each: true })
-  @Type(() => PlanAddOnDto)
-  addOns!: PlanAddOnDto[];
+}
+
+/** Stripe price id per billing cycle. Keys ARE the `BillingCycle` values. */
+export class StripePriceIdsDto {
+  @IsOptional() @IsString() @MaxLength(255) monthly?: string;
+  @IsOptional() @IsString() @MaxLength(255) quarterly?: string;
+  @IsOptional() @IsString() @MaxLength(255) semi_annual?: string;
+  @IsOptional() @IsString() @MaxLength(255) annual?: string;
 }
 
 /**
@@ -216,17 +226,33 @@ export class InvoiceTaxDto {
 // ============================================================================
 
 export class CreatePlanDto {
-  @IsString() @MaxLength(100) code!: string;
+  @IsOptional() @IsString() @MaxLength(100) code?: string;
   @IsString() @MaxLength(255) name!: string;
   @IsOptional() @IsString() @MaxLength(2000) description?: string;
   @IsOptional() @IsString() @MaxLength(500) shortDescription?: string;
-  @IsEnum(PlanTier) tier!: PlanTier;
-  @IsOptional() @IsEnum(PlanVisibility) visibility?: PlanVisibility;
+  @IsEnum(BillingPlanTier) tier!: BillingPlanTier;
+  /** ISO-4217, upper-case. Denominates every price on the plan. */
+  @IsOptional()
+  @Matches(/^[A-Z]{3}$/, { message: 'currency must be an ISO-4217 code' })
+  currency?: string;
+  /** The cycle a subscription defaults to when the caller names none. */
+  @IsOptional() @IsIn(BILLING_CYCLES) defaultBillingCycle?: BillingCycle;
+  @IsOptional() @IsIn(BILLING_PLAN_VISIBILITIES) visibility?: BillingPlanVisibility;
   @IsOptional() @IsBoolean() isRecommended?: boolean;
   @IsOptional() @IsInt() @Min(0) sortOrder?: number;
   @ValidateNested() @Type(() => PlanLimitsDto) limits!: PlanLimitsDto;
-  @ValidateNested() @Type(() => PlanPricingDto) pricing!: PlanPricingDto;
-  @ValidateNested() @Type(() => PlanFeaturesDto) features!: PlanFeaturesDto;
+  @IsOptional() @ValidateNested() @Type(() => PlanFeaturesDto) features?: PlanFeaturesDto;
+  @IsArray()
+  @ArrayMaxSize(4)
+  @ValidateNested({ each: true })
+  @Type(() => PlanCyclePriceDto)
+  cyclePrices!: PlanCyclePriceDto[];
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => PlanAddOnDto)
+  addOns?: PlanAddOnDto[];
   @IsOptional() @IsInt() @Min(0) @Max(365) trialDays?: number;
   @IsOptional() @IsInt() @Min(0) @Max(365) gracePeriodDays?: number;
   @IsOptional() @IsString() @MaxLength(1000) upgradeMessage?: string;
@@ -234,30 +260,54 @@ export class CreatePlanDto {
   @IsOptional() @IsString() @MaxLength(100) icon?: string;
   @IsOptional() @IsString() @MaxLength(32) color?: string;
   @IsOptional() @IsString() @MaxLength(100) badge?: string;
+  /** `billing.plans` is the ONE writable home for the Stripe catalogue ids. */
+  @IsOptional() @IsString() @MaxLength(255) stripeProductId?: string;
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => StripePriceIdsDto)
+  stripePriceIds?: StripePriceIdsDto;
 }
 
 /** An update may send a subset of a nested object, so the nested shapes are partial. */
 export class PartialPlanLimitsDto extends PartialType(PlanLimitsDto) {}
-export class PartialPlanPricingDto extends PartialType(PlanPricingDto) {}
 export class PartialPlanFeaturesDto extends PartialType(PlanFeaturesDto) {}
 
+/**
+ * `cyclePrices` and `addOns` are NOT partial: each is the complete set for the
+ * plan. Sending half a price row would leave the other half at whatever the DB
+ * default is, which for money is a silent 0.
+ */
 export class UpdatePlanDto {
+  @IsOptional() @IsString() @MaxLength(100) code?: string;
   @IsOptional() @IsString() @MaxLength(255) name?: string;
   @IsOptional() @IsString() @MaxLength(2000) description?: string;
   @IsOptional() @IsString() @MaxLength(500) shortDescription?: string;
-  @IsOptional() @IsEnum(PlanVisibility) visibility?: PlanVisibility;
+  @IsOptional() @IsEnum(BillingPlanTier) tier?: BillingPlanTier;
+  @IsOptional()
+  @Matches(/^[A-Z]{3}$/, { message: 'currency must be an ISO-4217 code' })
+  currency?: string;
+  @IsOptional() @IsIn(BILLING_CYCLES) defaultBillingCycle?: BillingCycle;
+  @IsOptional() @IsIn(BILLING_PLAN_VISIBILITIES) visibility?: BillingPlanVisibility;
   @IsOptional() @IsBoolean() isActive?: boolean;
   @IsOptional() @IsBoolean() isRecommended?: boolean;
   @IsOptional() @IsInt() @Min(0) sortOrder?: number;
   @IsOptional() @ValidateNested() @Type(() => PartialPlanLimitsDto) limits?: PartialPlanLimitsDto;
   @IsOptional()
   @ValidateNested()
-  @Type(() => PartialPlanPricingDto)
-  pricing?: PartialPlanPricingDto;
-  @IsOptional()
-  @ValidateNested()
   @Type(() => PartialPlanFeaturesDto)
   features?: PartialPlanFeaturesDto;
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(4)
+  @ValidateNested({ each: true })
+  @Type(() => PlanCyclePriceDto)
+  cyclePrices?: PlanCyclePriceDto[];
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => PlanAddOnDto)
+  addOns?: PlanAddOnDto[];
   @IsOptional() @IsInt() @Min(0) @Max(365) trialDays?: number;
   @IsOptional() @IsInt() @Min(0) @Max(365) gracePeriodDays?: number;
   @IsOptional() @IsString() @MaxLength(1000) upgradeMessage?: string;
@@ -265,6 +315,11 @@ export class UpdatePlanDto {
   @IsOptional() @IsString() @MaxLength(100) icon?: string;
   @IsOptional() @IsString() @MaxLength(32) color?: string;
   @IsOptional() @IsString() @MaxLength(100) badge?: string;
+  @IsOptional() @IsString() @MaxLength(255) stripeProductId?: string;
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => StripePriceIdsDto)
+  stripePriceIds?: StripePriceIdsDto;
 }
 
 // ============================================================================
@@ -471,8 +526,8 @@ export class QuoteRequest {
   @ValidateNested({ each: true })
   @Type(() => ModuleSelectionDto)
   modules!: ModuleSelectionDto[];
-  @IsEnum(PlanTier) tier!: PlanTier;
-  @IsEnum(BillingCycle) billingCycle!: BillingCycle;
+  @IsEnum(BillingPlanTier) tier!: BillingPlanTier;
+  @IsIn(BILLING_CYCLES) billingCycle!: BillingCycle;
   @IsOptional() @IsString() @MaxLength(64) discountCode?: string;
   /** Exact decimal string percentage, 0-100. */
   @IsOptional()
@@ -491,7 +546,7 @@ export class PlanChangeRequest {
 
   @IsUUID('4') currentPlanId!: string;
   @IsUUID('4') newPlanId!: string;
-  @IsOptional() @IsEnum(BillingCycle) newBillingCycle?: BillingCycle;
+  @IsOptional() @IsIn(BILLING_CYCLES) newBillingCycle?: BillingCycle;
   @IsOptional() @IsString() @MaxLength(64) discountCode?: string;
   @IsOptional() @IsBoolean() effectiveImmediately?: boolean;
 }
@@ -504,8 +559,8 @@ export class CreateCustomPlanDto {
   @IsString() @MaxLength(255) name!: string;
   @IsOptional() @IsString() @MaxLength(2000) description?: string;
   @IsOptional() @IsUUID('4') basePlanId?: string;
-  @IsOptional() @IsEnum(PlanTier) tier?: PlanTier;
-  @IsOptional() @IsEnum(BillingCycle) billingCycle?: BillingCycle;
+  @IsOptional() @IsEnum(BillingPlanTier) tier?: BillingPlanTier;
+  @IsOptional() @IsIn(BILLING_CYCLES) billingCycle?: BillingCycle;
   @IsArray()
   @ArrayMaxSize(100)
   @ValidateNested({ each: true })
@@ -764,8 +819,8 @@ export class QuickEstimateDto {
   @ArrayMaxSize(50)
   moduleCodes!: string[];
 
-  @IsEnum(PlanTier)
-  tier!: PlanTier;
+  @IsEnum(BillingPlanTier)
+  tier!: BillingPlanTier;
 
   @IsOptional()
   @ValidateNested()

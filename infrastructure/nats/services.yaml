@@ -322,6 +322,11 @@ services:
       - 'request.billing.admin.deactivateModulePrice'
       - 'request.billing.admin.seedModulePrices'
       - 'request.billing.admin.quoteModuleSelection'
+      # ADR-0013: `billing.plans` is the ONLY plan catalogue; admin-panel stays
+      # the authoring UI and admin-api forwards the authored plan here.
+      - 'request.billing.admin.createPlan'
+      - 'request.billing.admin.updatePlan'
+      - 'request.billing.admin.deprecatePlan'
       - 'request.billing.tenant.provisionSubscription'
       - 'request.auth.admin.createUser'
       - 'request.auth.admin.resetUserPassword'

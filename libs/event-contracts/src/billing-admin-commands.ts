@@ -38,6 +38,12 @@ export const BILLING_ADMIN_COMMAND_SUBJECTS = {
   DEACTIVATE_MODULE_PRICE: 'request.billing.admin.deactivateModulePrice',
   SEED_MODULE_PRICES: 'request.billing.admin.seedModulePrices',
   QUOTE_MODULE_SELECTION: 'request.billing.admin.quoteModuleSelection',
+  // Plan catalogue (ADR-0013 / BILLING-CRITICAL-002). `billing.plans` is the
+  // sole catalogue of record; `admin.plan_definitions` was a shadow copy whose
+  // ids never resolved at execution.
+  CREATE_PLAN: 'request.billing.admin.createPlan',
+  UPDATE_PLAN: 'request.billing.admin.updatePlan',
+  DEPRECATE_PLAN: 'request.billing.admin.deprecatePlan',
 } as const;
 
 export interface BillingAdminCommandMeta {
@@ -723,6 +729,177 @@ export interface BillingModuleQuote {
 export interface BillingAdminQuoteModuleSelectionResult {
   success: boolean;
   quote?: BillingModuleQuote;
+  errorCode?: BillingAdminCommandErrorCode;
+  error?: string;
+}
+
+// ============================================================================
+// Plan catalogue (ADR-0013 / BILLING-CRITICAL-002)
+//
+// `admin.plan_definitions` kept a second catalogue beside `billing.plans`:
+// its own ids (which no runtime path ever resolved), its own Stripe product
+// and price ids, and a per-cycle price matrix inside a `jsonb` column. Here
+// `billing.plans` is the only catalogue, the per-cycle prices are rows, and
+// an add-on's price is a `numeric` column instead of a `number` nested two
+// levels inside a features blob.
+// ============================================================================
+
+/**
+ * What a plan permits. Counts and flags only — no money, which is why it stays
+ * a `jsonb` column: nothing here needs a CHECK a numeric column would give.
+ * `-1` means unlimited, the convention `PLAN_CATALOG` already uses (ADR-037).
+ */
+export interface BillingPlanLimitsInput {
+  maxUsers: number;
+  maxFarms: number;
+  maxPonds: number;
+  maxSensors: number;
+  maxModules: number;
+  storageGB: number;
+  dataRetentionDays: number;
+  apiRateLimit: number;
+  alertsEnabled: boolean;
+  reportsEnabled: boolean;
+  customBrandingEnabled: boolean;
+  apiAccessEnabled: boolean;
+  customIntegrationsEnabled: boolean;
+  ssoEnabled: boolean;
+  auditLogEnabled: boolean;
+  prioritySupport: boolean;
+  dedicatedAccountManager: boolean;
+}
+
+/** The named feature sets a plan advertises. Add-ons are priced, so they are rows. */
+export interface BillingPlanFeaturesInput {
+  coreFeatures: string[];
+  advancedFeatures: string[];
+  premiumFeatures: string[];
+}
+
+/**
+ * What the plan costs for one billing cycle. One row per cycle the plan is
+ * sold on — the shape `admin.plan_definitions.pricing` held as a jsonb object
+ * of four sub-objects, where no CHECK could reach a negative price and
+ * `discountPercent` could be 400.
+ */
+export interface BillingPlanCyclePriceInput {
+  billingCycle: BillingCycle;
+  /** Exact decimal strings, >= 0, in the plan's currency. */
+  basePrice: string;
+  perUserPrice: string;
+  perFarmPrice: string;
+  perModulePrice: string;
+  /** Exact decimal string, 0-100. The commitment discount for this cycle. */
+  discountPercent: string;
+}
+
+export interface BillingPlanAddOnInput {
+  code: string;
+  name: string;
+  description?: string;
+  /** Exact decimal string, >= 0. */
+  price: string;
+  billingCycle: BillingCycle;
+}
+
+export type BillingPlanVisibility = 'public' | 'private' | 'deprecated';
+
+/** Enumerable at runtime, for the same reason as `BILLING_CYCLES`. */
+export const BILLING_PLAN_VISIBILITIES = ['public', 'private', 'deprecated'] as const;
+
+export type BillingPlanVisibilityRuntimeParity =
+  BillingPlanVisibility extends (typeof BILLING_PLAN_VISIBILITIES)[number]
+    ? (typeof BILLING_PLAN_VISIBILITIES)[number] extends BillingPlanVisibility
+      ? true
+      : never
+    : never;
+
+export interface BillingPlanInput {
+  /** Operator-facing catalogue key, e.g. `starter_2024`. Unique. */
+  code?: string;
+  name: string;
+  description?: string;
+  shortDescription?: string;
+  tier: BillingPlanTier;
+  /** ISO-4217, upper-case. */
+  currency?: string;
+  /** The cycle a subscription defaults to when none is stated. */
+  defaultBillingCycle?: BillingCycle;
+  visibility?: BillingPlanVisibility;
+  isRecommended?: boolean;
+  sortOrder?: number;
+  limits: BillingPlanLimitsInput;
+  features?: BillingPlanFeaturesInput;
+  cyclePrices: BillingPlanCyclePriceInput[];
+  addOns?: BillingPlanAddOnInput[];
+  trialDays?: number;
+  gracePeriodDays?: number;
+  upgradeMessage?: string;
+  downgradeWarning?: string;
+  icon?: string;
+  color?: string;
+  badge?: string;
+  stripeProductId?: string;
+  /** Billing cycle → Stripe price id. The ONE writable home for these. */
+  stripePriceIds?: Record<string, string>;
+}
+
+/** Everything on `BillingPlanInput` may be revised; the plan's id may not. */
+export type BillingPlanUpdateInput = Partial<BillingPlanInput> & { isActive?: boolean };
+
+export interface BillingPlanSnapshot {
+  id: string;
+  code?: string | null;
+  name: string;
+  description?: string | null;
+  shortDescription?: string | null;
+  tier: BillingPlanTier;
+  currency: string;
+  defaultBillingCycle: BillingCycle;
+  visibility: BillingPlanVisibility;
+  isActive: boolean;
+  isRecommended: boolean;
+  sortOrder: number;
+  limits: BillingPlanLimitsInput;
+  features: BillingPlanFeaturesInput;
+  cyclePrices: BillingPlanCyclePriceInput[];
+  addOns: BillingPlanAddOnInput[];
+  trialDays?: number | null;
+  gracePeriodDays?: number | null;
+  upgradeMessage?: string | null;
+  downgradeWarning?: string | null;
+  icon?: string | null;
+  color?: string | null;
+  badge?: string | null;
+  stripeProductId?: string | null;
+  stripePriceIds?: Record<string, string> | null;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: string | null;
+  updatedBy?: string | null;
+}
+
+export interface BillingAdminCreatePlanCommand extends BillingAdminCommandMeta {
+  input: BillingPlanInput;
+}
+
+export interface BillingAdminUpdatePlanCommand extends BillingAdminCommandMeta {
+  planId: string;
+  input: BillingPlanUpdateInput;
+}
+
+/**
+ * Retire a plan from sale. Never a delete: existing subscriptions reference
+ * the row, so it becomes invisible and unsellable while staying resolvable.
+ */
+export interface BillingAdminDeprecatePlanCommand extends BillingAdminCommandMeta {
+  planId: string;
+}
+
+export interface BillingAdminPlanCommandResult {
+  success: boolean;
+  plan?: BillingPlanSnapshot;
   errorCode?: BillingAdminCommandErrorCode;
   error?: string;
 }

@@ -5,12 +5,14 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
-  ManyToOne,
-  JoinColumn,
 } from 'typeorm';
 import { DecimalTransformer } from '@aquaculture/backend-common/database';
 
-import { PlanDefinition, PlanTier, BillingCycle } from './plan-definition.entity';
+import {
+  BILLING_CYCLES,
+  BillingPlanTier as PlanTier,
+  type BillingCycle,
+} from '@platform/event-contracts';
 
 /**
  * Custom plan status
@@ -98,14 +100,15 @@ export class CustomPlan {
   description!: string | null;
 
   /**
-   * Base plan this was derived from (if any)
+   * The catalogue plan this was derived from, if any.
+   *
+   * A soft reference, NOT a foreign key: since ADR-0013 the catalogue is
+   * `billing.plans`, and an FK from an admin table onto another service's table
+   * would let admin's DDL block billing from retiring a plan row. The id is
+   * resolved through the read-only `PlanReadOnly` mapping.
    */
   @Column('uuid', { nullable: true })
   basePlanId!: string | null;
-
-  @ManyToOne(() => PlanDefinition, { nullable: true })
-  @JoinColumn({ name: 'base_plan_id' })
-  basePlan!: PlanDefinition | null;
 
   /**
    * Effective tier for limits/features
@@ -116,7 +119,7 @@ export class CustomPlan {
   /**
    * Billing cycle
    */
-  @Column({ type: 'enum', enum: BillingCycle, default: BillingCycle.MONTHLY })
+  @Column({ type: 'enum', enum: BILLING_CYCLES, default: 'monthly' })
   billingCycle!: BillingCycle;
 
   /**

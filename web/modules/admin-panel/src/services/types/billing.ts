@@ -116,62 +116,23 @@ export enum CustomPlanStatus {
 // Plan Types
 // ============================================================================
 
-export interface PlanPricing {
-  basePrice: number;
-  perUserPrice: number;
-  perFarmPrice: number;
-  perModulePrice: number;
-  discountPercent?: number;
-}
-
-export interface PlanLimits {
-  maxUsers: number;
-  maxFarms: number;
-  maxSensors: number;
-  maxPonds: number;
-  storageGB: number;
-  apiCallsPerMonth: number;
-  dataRetentionDays: number;
-  customReports: boolean;
-  advancedAnalytics: boolean;
-  apiAccess: boolean;
-  whiteLabeling: boolean;
-  ssoEnabled: boolean;
-  prioritySupport: boolean;
-  [key: string]: number | boolean;
-}
-
-export interface PlanFeatures {
-  coreFeatures: string[];
-  advancedFeatures: string[];
-  premiumFeatures: string[];
-}
-
-export interface PlanDefinition {
-  id: string;
-  code: string;
-  name: string;
-  description?: string;
-  shortDescription?: string;
-  tier: PlanTier;
-  visibility: string;
-  isActive: boolean;
-  isRecommended: boolean;
-  sortOrder: number;
-  badge?: string;
-  limits: PlanLimits;
-  pricing: {
-    monthly: PlanPricing;
-    quarterly: PlanPricing;
-    semiAnnual: PlanPricing;
-    annual: PlanPricing;
-  };
-  features: PlanFeatures;
-  trialDays?: number;
-  gracePeriodDays?: number;
-  createdAt: string;
-  updatedAt: string;
-}
+/**
+ * ADR-0013 / CONTRACT-CRITICAL-003: `billing.plans` is the sole catalogue and
+ * these are the backend contract's shapes, generated from it.
+ *
+ * The hand-written versions carried `pricing` as a fixed four-cycle object of
+ * IEEE-754 `number`s. billing now prices per cycle in `numeric(19,4)` and puts
+ * exact decimal STRINGS on the wire, so a plan sold only monthly no longer
+ * publishes three zeroed cycles, and $19.99 stays $19.99 in the browser.
+ */
+export type PlanDefinition = ApiSchema<'PlanResponseDto'>;
+export type PlanCyclePrice = ApiSchema<'PlanCyclePriceResponseDto'>;
+export type PlanAddOn = ApiSchema<'PlanAddOnResponseDto'>;
+export type PlanLimits = ApiSchema<'PlanLimitsResponseDto'>;
+export type PlanFeatures = ApiSchema<'PlanFeaturesResponseDto'>;
+export type PlanComparison = ApiSchema<'PlanComparisonResponseDto'>;
+export type CreatePlanDto = ApiSchema<'CreatePlanDto'>;
+export type UpdatePlanDto = ApiSchema<'UpdatePlanDto'>;
 
 // ============================================================================
 // Discount Types

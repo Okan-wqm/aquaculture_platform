@@ -293,36 +293,32 @@ describe('BillingController', () => {
         prioritySupport: false,
         dedicatedAccountManager: false,
       },
-      pricing: {
-        monthly: { basePrice: 29, perUserPrice: 5, perFarmPrice: 10, perModulePrice: 4 },
-        quarterly: {
-          basePrice: 82,
-          perUserPrice: 5,
-          perFarmPrice: 10,
-          perModulePrice: 4,
-          discountPercent: 5,
+      currency: 'USD',
+      // ADR-0013: one object per cycle the plan is actually sold on, prices as
+      // exact decimal strings. The old fixed four-key `pricing` matrix forced a
+      // plan to price every cycle and carried its money as floats in jsonb.
+      cyclePrices: [
+        {
+          billingCycle: 'monthly',
+          basePrice: '29.00',
+          perUserPrice: '5.00',
+          perFarmPrice: '10.00',
+          perModulePrice: '4.00',
+          discountPercent: '0',
         },
-        semiAnnual: {
-          basePrice: 160,
-          perUserPrice: 5,
-          perFarmPrice: 10,
-          perModulePrice: 4,
-          discountPercent: 8,
+        {
+          billingCycle: 'annual',
+          basePrice: '300.00',
+          perUserPrice: '5.00',
+          perFarmPrice: '10.00',
+          perModulePrice: '4.00',
+          discountPercent: '14',
         },
-        annual: {
-          basePrice: 300,
-          perUserPrice: 5,
-          perFarmPrice: 10,
-          perModulePrice: 4,
-          discountPercent: 14,
-        },
-        currency: 'USD',
-      },
+      ],
       features: {
         coreFeatures: ['dashboard'],
         advancedFeatures: [],
         premiumFeatures: [],
-        addOns: [],
       },
     };
 
@@ -348,26 +344,48 @@ describe('BillingController', () => {
       expect(mockPlanService.create).not.toHaveBeenCalled();
     });
 
-    it('uses the JWT user.id as createdBy', async () => {
+    it('refuses a price that is not an exact decimal string', async () => {
+      const res = await request(httpServer())
+        .post('/billing/plans')
+        .send({
+          ...validPlanDto,
+          cyclePrices: [{ ...validPlanDto.cyclePrices[0], basePrice: 29.99 }],
+        });
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
+      expect(mockPlanService.create).not.toHaveBeenCalled();
+    });
+
+    it('refuses a cycle discount above 100 percent', async () => {
+      const res = await request(httpServer())
+        .post('/billing/plans')
+        .send({
+          ...validPlanDto,
+          cyclePrices: [{ ...validPlanDto.cyclePrices[0], discountPercent: '400' }],
+        });
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
+      expect(mockPlanService.create).not.toHaveBeenCalled();
+    });
+
+    it('passes the JWT user.id as the actor, beside the plan input', async () => {
       await request(httpServer()).post('/billing/plans').send(validPlanDto);
 
       expect(mockPlanService.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          createdBy: authenticatedUser.id,
-        }),
+        expect.objectContaining({ name: 'Starter Plan', tier: 'starter' }),
+        authenticatedUser.id,
       );
     });
 
-    it('should ignore x-admin-id header for createdBy', async () => {
+    it('should ignore x-admin-id header for the actor', async () => {
       await request(httpServer())
         .post('/billing/plans')
         .set('x-admin-id', 'header-injected-id')
         .send(validPlanDto);
 
       expect(mockPlanService.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          createdBy: authenticatedUser.id,
-        }),
+        expect.anything(),
+        authenticatedUser.id,
       );
     });
   });
@@ -388,15 +406,25 @@ describe('BillingController', () => {
 
     it('should use JWT user.id even when updatedBy is absent', async () => {
       await request(httpServer())
-        .put('/billing/plans/plan-1')
+        .put('/billing/plans/8f3c1a2b-4d5e-4f60-9a71-2b3c4d5e6f7a')
         .send({ name: 'Updated Plan' });
 
       expect(mockPlanService.update).toHaveBeenCalledWith(
-        'plan-1',
-        expect.objectContaining({
-          updatedBy: authenticatedUser.id,
-        }),
+        '8f3c1a2b-4d5e-4f60-9a71-2b3c4d5e6f7a',
+        { name: 'Updated Plan' },
+        authenticatedUser.id,
       );
+    });
+
+    it('omits an absent field instead of sending it as undefined', async () => {
+      // A spread of the DTO would put `description: undefined` on the command,
+      // which billing cannot tell from "clear this column".
+      await request(httpServer())
+        .put('/billing/plans/8f3c1a2b-4d5e-4f60-9a71-2b3c4d5e6f7a')
+        .send({ name: 'Updated Plan' });
+
+      const [, input] = mockPlanService.update.mock.calls[0] as [string, object, string];
+      expect(Object.keys(input)).toEqual(['name']);
     });
   });
 
@@ -576,23 +604,24 @@ describe('BillingController', () => {
   describe('POST /billing/plans/:id/deprecate', () => {
     it('should use JWT user.id for deprecation', async () => {
       await request(httpServer())
-        .post('/billing/plans/plan-old/deprecate');
+        .post('/billing/plans/8f3c1a2b-4d5e-4f60-9a71-2b3c4d5e6f7a/deprecate');
 
       expect(mockPlanService.deprecate).toHaveBeenCalledWith(
-        'plan-old',
+        '8f3c1a2b-4d5e-4f60-9a71-2b3c4d5e6f7a',
         authenticatedUser.id,
       );
     });
   });
 
+  // ADR-0013: there is no `POST /billing/plans/seed`. Seeding the catalogue is
+  // billing's own boot-time concern (`PlanSeedService`, `OnModuleInit`), not an
+  // operator button in another service — the admin route seeded a SECOND
+  // catalogue nothing resolved.
   describe('POST /billing/plans/seed', () => {
-    it('should use JWT user.id for seed operation', async () => {
-      await request(httpServer())
-        .post('/billing/plans/seed');
+    it('is gone', async () => {
+      const res = await request(httpServer()).post('/billing/plans/seed');
 
-      expect(mockPlanService.seedDefaultPlans).toHaveBeenCalledWith(
-        authenticatedUser.id,
-      );
+      expect(res.status).toBe(HttpStatus.NOT_FOUND);
     });
   });
 
@@ -909,7 +938,9 @@ describe('BillingController', () => {
         new NotFoundException('Plan not found'),
       );
 
-      const res = await request(httpServer()).get('/billing/plans/non-existent');
+      const res = await request(httpServer()).get(
+        '/billing/plans/8f3c1a2b-4d5e-4f60-9a71-2b3c4d5e6f7a',
+      );
 
       expect(res.status).toBe(HttpStatus.NOT_FOUND);
     });

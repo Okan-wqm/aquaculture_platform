@@ -26,6 +26,7 @@ import {
   ModulePriceTierMultiplier,
 } from './entities/module-price.entity';
 import { Payment } from './entities/payment.entity';
+import { PlanAddOn, PlanCyclePrice } from './entities/plan-catalog.entity';
 import { Plan } from './entities/plan.entity';
 import { ScheduledPlanChange } from './entities/scheduled-plan-change.entity';
 import { StripeWebhookEventEntity } from './entities/stripe-webhook-event.entity';
@@ -35,6 +36,7 @@ import { ConfigurationChangedHandler } from './event-handlers/configuration-chan
 import { BillingAdminNatsHandler } from './handlers/billing-admin-nats.handler';
 import { BillingDiscountNatsHandler } from './handlers/billing-discount-nats.handler';
 import { BillingModulePriceNatsHandler } from './handlers/billing-module-price-nats.handler';
+import { BillingPlanNatsHandler } from './handlers/billing-plan-nats.handler';
 import { CancelSubscriptionHandler } from './handlers/cancel-subscription.handler';
 import { ChangeSubscriptionPlanHandler } from './handlers/change-subscription-plan.handler';
 import { CreateInvoiceHandler } from './handlers/create-invoice.handler';
@@ -55,6 +57,7 @@ import { GetTenantBillingHandler } from './query-handlers/get-tenant-billing.han
 import { PlanSeedService } from './seed/plan-seed.service';
 import { DiscountCodeService } from './services/discount-code.service';
 import { ModulePricingService } from './services/module-pricing.service';
+import { PlanCatalogService } from './services/plan-catalog.service';
 import { MeteringModule } from '../modules/metering/metering.module';
 
 const CommandHandlers = [
@@ -97,6 +100,8 @@ const EventHandlers: never[] = [];
       ModulePrice,
       ModulePriceMetric,
       ModulePriceTierMultiplier,
+      PlanCyclePrice,
+      PlanAddOn,
     ]),
     CqrsModule,
     ScheduleModule,
@@ -135,6 +140,7 @@ const EventHandlers: never[] = [];
     BillingAdminNatsHandler,
     BillingDiscountNatsHandler,
     BillingModulePriceNatsHandler,
+    BillingPlanNatsHandler,
   ],
   providers: [
     BillingResolver,
@@ -144,6 +150,7 @@ const EventHandlers: never[] = [];
     PlanSeedService,
     DiscountCodeService,
     ModulePricingService,
+    PlanCatalogService,
     // Faz C: invalidates the DynamicStripeClientProvider snapshot when an
     // operator saves a platform/billing.* config row (subscribes in onModuleInit).
     ConfigurationChangedHandler,

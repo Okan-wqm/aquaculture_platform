@@ -6,7 +6,11 @@ import { apiFetch, buildQueryString } from '../http-client';
 import type {
   BulkCreateDiscountCodesDto,
   CreateDiscountCodeDto,
+  CreatePlanDto,
+  PlanComparison,
   PlanDefinition,
+  PlanLimits,
+  UpdatePlanDto,
   PlanTier,
   DiscountApplication,
   DiscountCode,
@@ -57,20 +61,24 @@ export const billingApi = {
   getPublicPlans: () => apiFetch<PlanDefinition[]>('/billing/plans/public'),
   getPlanById: (id: string) => apiFetch<PlanDefinition>(`/billing/plans/${id}`),
   getPlanByCode: (code: string) => apiFetch<PlanDefinition>(`/billing/plans/code/${code}`),
-  createPlan: (data: Partial<PlanDefinition>) =>
+  // ADR-0013: admin-api forwards these to `request.billing.admin.*Plan`; the
+  // actor comes from the verified principal, never from the body, so no
+  // `createdBy` / `updatedBy` argument exists to pass.
+  createPlan: (data: CreatePlanDto) =>
     apiFetch<PlanDefinition>('/billing/plans', { method: 'POST', body: JSON.stringify(data) }),
-  updatePlan: (id: string, data: Partial<PlanDefinition>) =>
+  updatePlan: (id: string, data: UpdatePlanDto) =>
     apiFetch<PlanDefinition>(`/billing/plans/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  deprecatePlan: (id: string, _updatedBy?: string) =>
+  deprecatePlan: (id: string) =>
     apiFetch<PlanDefinition>(`/billing/plans/${id}/deprecate`, { method: 'POST' }),
   comparePlans: (currentPlanId: string, newPlanId: string) =>
-    apiFetch<Record<string, unknown>>('/billing/plans/compare', { method: 'POST', body: JSON.stringify({ currentPlanId, newPlanId }) }),
-  seedPlans: (_createdBy?: string) =>
-    apiFetch<{ success: boolean }>('/billing/plans/seed', { method: 'POST' }),
+    apiFetch<PlanComparison>('/billing/plans/compare', { method: 'POST', body: JSON.stringify({ currentPlanId, newPlanId }) }),
   getPlanByTier: (tier: string) =>
-    apiFetch<PlanDefinition>(`/billing/plans/tier/${tier}`),
+    apiFetch<PlanDefinition | null>(`/billing/plans/tier/${tier}`),
+  // The canonical PLAN_CATALOG limits for a tier (ADR-037), as the backend
+  // publishes them — the previous hand-written five-field shape named none of
+  // the seventeen fields the endpoint actually returns.
   getDefaultLimitsForTier: (tier: string) =>
-    apiFetch<{ users: number; farms: number; sensors: number; storage: number; apiCallsPerDay: number }>(`/billing/plans/defaults/${tier}`),
+    apiFetch<PlanLimits>(`/billing/plans/defaults/${tier}`),
 
   // Discount Codes
   //

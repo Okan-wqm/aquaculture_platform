@@ -22,14 +22,14 @@
 //   <caseId>/intake.jsonl      append-only, hash-chained, row-signed receipt
 //   <caseId>/intake.head.json  signed head commitment over the receipt
 //   <caseId>/case.meta.json    the case's own identity and custodian
-// Uploads stream to a temp file and are hashed while streaming; the receipt is
-// appended BEFORE the bytes are moved into the archive, so an interruption can
-// leave a receipt whose document the inventory reports missing — never a
-// document nobody has a receipt for.
+// Uploads retain unique transaction directories with signed receiving/received/failed
+// state. Durable bytes and a validated signed receipt precede archive publication.
+// Reconciliation preserves partial evidence and refuses corruption before new work.
 
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID, sign, verify } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
-import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import type { Dirent } from 'node:fs';
+import { link, mkdir, open, readdir, readFile, rename, stat, unlink } from 'node:fs/promises';
 import type { IncomingMessage } from 'node:http';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
@@ -38,7 +38,7 @@ import { LEGAL_CASE_ID_RE, LEGAL_CASE_LAYOUT } from '../../shared/legal-contract
 import { HttpError } from './errors.ts';
 import { resolveInside } from './fsafe.ts';
 import type { LedgerHead, LedgerSigner, LedgerVerdict, LedgerVerifier, SignedRowFields } from './ledger.ts';
-import { appendSigned, LEDGER_SCHEMA_VERSION, readHead, verifyLedger } from './ledger.ts';
+import { appendSigned, headFileName, LEDGER_SCHEMA_VERSION, readHead, verifyLedger } from './ledger.ts';
 
 /**
  * Case ids become directory names on BOTH sides — this receipt and the
@@ -57,6 +57,7 @@ export const ARCHIVE_DIR = LEGAL_CASE_LAYOUT.archive;
 export const INTAKE_LEDGER = LEGAL_CASE_LAYOUT.intake;
 export const CASE_META = LEGAL_CASE_LAYOUT.meta;
 const TEMP_DIR = '.intake-tmp';
+const ORPHAN_DIR = '.intake-orphans';
 
 export interface CaseMeta {
   readonly caseId: string;
@@ -234,25 +235,40 @@ export async function createCase(casesDir: string, meta: Omit<CaseMeta, 'created
   // A custodian is not decoration: an archive nobody is answerable for cannot
   // support a chain-of-custody claim later.
   if (meta.custodian.trim() === '') badRequest('case_custodian_missing', 'a case archive needs a named custodian');
-  try {
-    await stat(join(root, CASE_META));
-    throw new HttpError(409, 'case_already_exists', meta.caseId);
-  } catch (error) {
-    if (error instanceof HttpError) throw error;
-    if (!isMissing(error)) throw error;
-  }
-  await mkdir(join(root, ARCHIVE_DIR), { recursive: true });
-  const record: CaseMeta = {
-    caseId: meta.caseId,
-    title: meta.title.trim(),
-    jurisdiction: meta.jurisdiction === null ? null : meta.jurisdiction.trim() || null,
-    courtReference: meta.courtReference === null ? null : meta.courtReference.trim() || null,
-    custodian: meta.custodian.trim(),
-    createdAt: now,
-    createdBy: meta.createdBy,
-  };
-  await writeFile(join(root, CASE_META), `${JSON.stringify(record, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' });
-  return record;
+  return serialiseIntake(root, async () => {
+    try {
+      await stat(join(root, CASE_META));
+      throw new HttpError(409, 'case_already_exists', meta.caseId);
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      if (!isMissing(error)) throw error;
+    }
+    const archive = join(root, ARCHIVE_DIR);
+    const firstCreated = await mkdir(archive, { recursive: true });
+    let boundary = dirname(resolve(casesDir));
+    if (firstCreated !== undefined && (boundary === firstCreated || boundary.startsWith(firstCreated + sep))) boundary = dirname(firstCreated);
+    await syncDirectories(archive, boundary);
+    const record: CaseMeta = {
+      caseId: meta.caseId,
+      title: meta.title.trim(),
+      jurisdiction: meta.jurisdiction === null ? null : meta.jurisdiction.trim() || null,
+      courtReference: meta.courtReference === null ? null : meta.courtReference.trim() || null,
+      custodian: meta.custodian.trim(),
+      createdAt: now,
+      createdBy: meta.createdBy,
+    };
+    // Metadata becomes visible only after its bytes and containing namespace are durable.
+    const temporary = join(root, `case-meta-${randomUUID()}.tmp`);
+    const handle = await open(temporary, 'wx', 0o600);
+    try {
+      await handle.writeFile(`${JSON.stringify(record, null, 2)}\n`, 'utf8');
+      await handle.sync();
+    } finally { await handle.close(); }
+    await link(temporary, join(root, CASE_META));
+    await unlink(temporary);
+    await syncPath(root);
+    return record;
+  });
 }
 
 export async function readCaseMeta(casesDir: string, caseId: string): Promise<CaseMeta | null> {
@@ -300,94 +316,346 @@ async function readExistingHash(path: string): Promise<string | null> {
   return createHash('sha256').update(contents).digest('hex');
 }
 
-/**
- * Streams one document into the case archive and appends its receipt.
- *
- * The order is deliberate: bytes land in a temp file and are hashed while
- * streaming, so the size cap is enforced against what actually arrived rather
- * than a header the client supplied; the signed receipt is appended next, so
- * the ledger names the arrival before the archive holds it; only then are the
- * bytes moved into the archive. An interruption between the two leaves a
- * receipt whose document the inventory reports as missing — visible — and
- * never a document in the archive with no receipt behind it.
- */
+type ArchiveTarget = { readonly kind: 'missing' | 'conflict' } | { readonly kind: 'file'; readonly sha256: string; readonly bytes: number };
+
+/** A document occupies a leaf; every preceding path segment must remain a directory. */
+async function inspectArchiveTarget(archive: string, relativePath: string): Promise<ArchiveTarget> {
+  const segments = relativePath.split('/');
+  let current = archive;
+  for (let index = 0; index < segments.length; index++) {
+    current = join(current, segments[index] as string);
+    let info;
+    try { info = await stat(current); }
+    catch (error) { if (isMissing(error)) return { kind: 'missing' }; throw error; }
+    if (index < segments.length - 1) {
+      if (!info.isDirectory()) return { kind: 'conflict' };
+    } else {
+      if (!info.isFile()) return { kind: 'conflict' };
+      const contents = await readFile(current);
+      return { kind: 'file', sha256: createHash('sha256').update(contents).digest('hex'), bytes: contents.length };
+    }
+  }
+  throw new HttpError(502, 'intake_transaction_invalid', relativePath);
+}
+
+function overlapsDocumentPath(left: string, right: string): boolean {
+  return left.startsWith(right + '/') || right.startsWith(left + '/');
+}
+
+/** Durable per-upload state; receiving never implies that a complete document arrived. */
+interface IntakeTransaction {
+  readonly version: 1;
+  readonly id: string;
+  readonly state: 'receiving' | 'received' | 'failed';
+  readonly caseId: string;
+  readonly relativePath: string;
+  readonly payload: IntakePayload | null;
+  readonly failure: string | null;
+}
+
+const intakeQueues = new Map<string, Promise<unknown>>();
+
+/** Separate from the ledger mutex: the whole intake decision/publication is one critical section. */
+function serialiseIntake<T>(root: string, task: () => Promise<T>): Promise<T> {
+  const previous = intakeQueues.get(root) ?? Promise.resolve();
+  const next = previous.then(task, task);
+  const settled = next.catch(() => undefined);
+  intakeQueues.set(root, settled);
+  const clear = (): void => { if (intakeQueues.get(root) === settled) intakeQueues.delete(root); };
+  return next.then(value => { clear(); return value; }, error => { clear(); throw error; });
+}
+
+async function syncPath(path: string): Promise<void> {
+  const handle = await open(path, 'r');
+  try { await handle.sync(); } finally { await handle.close(); }
+}
+
+async function durableDirectory(path: string, boundary: string): Promise<void> {
+  await mkdir(path, { recursive: true });
+  await syncDirectories(path, boundary);
+}
+
+async function syncDirectories(path: string, boundary: string): Promise<void> {
+  let current = path;
+  while (current !== boundary) {
+    await syncPath(current);
+    current = dirname(current);
+  }
+  await syncPath(boundary);
+}
+
+async function syncPartial(directory: string): Promise<void> {
+  try { await syncPath(join(directory, 'document.part')); }
+  catch (error) { if (!isMissing(error)) throw error; }
+  await syncPath(directory);
+}
+
+async function writeTransaction(directory: string, transaction: IntakeTransaction, signer: LedgerSigner): Promise<void> {
+  const text = JSON.stringify(transaction);
+  const signature = sign(null, Buffer.from(text), signer.privateKey).toString('base64');
+  const temp = join(directory, `transaction-${randomUUID()}.tmp`);
+  const handle = await open(temp, 'wx', 0o600);
+  try {
+    await handle.writeFile(JSON.stringify({ transaction, keyId: signer.keyId, signature }) + '\n');
+    await handle.sync();
+  } finally { await handle.close(); }
+  await rename(temp, join(directory, 'transaction.json'));
+  await syncPath(directory);
+}
+
+function isStoredPath(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  try { return assertRelativePath(value) === value; }
+  catch { return false; }
+}
+
+function transactionPayload(value: unknown): IntakePayload {
+  if (typeof value !== 'object' || value === null) throw new HttpError(502, 'intake_transaction_invalid');
+  const row = value as Record<string, unknown>;
+  if (typeof row['caseId'] !== 'string' || !CASE_ID.test(row['caseId']) || !isStoredPath(row['relativePath']) ||
+      typeof row['fileName'] !== 'string' || row['fileName'] === '' ||
+      typeof row['bytes'] !== 'number' || !Number.isSafeInteger(row['bytes']) || row['bytes'] <= 0 ||
+      typeof row['sha256'] !== 'string' || !SHA256.test(row['sha256']) ||
+      typeof row['receivedAt'] !== 'string' || row['receivedAt'] === '' ||
+      typeof row['receivedBy'] !== 'string' || row['receivedBy'] === '' ||
+      (row['sourceNote'] !== null && typeof row['sourceNote'] !== 'string')) {
+    throw new HttpError(502, 'intake_transaction_invalid');
+  }
+  return { caseId: row['caseId'], relativePath: row['relativePath'], fileName: row['fileName'], bytes: row['bytes'],
+    sha256: row['sha256'], receivedAt: row['receivedAt'], receivedBy: row['receivedBy'], sourceNote: row['sourceNote'] };
+}
+
+/** null is reserved for a directory in which the first journal never committed. */
+async function readTransaction(directory: string, caseId: string, signer: LedgerSigner): Promise<IntakeTransaction | null> {
+  let text: string;
+  try { text = await readFile(join(directory, 'transaction.json'), 'utf8'); }
+  catch (error) {
+    if (isMissing(error)) {
+      const entries = await readdir(directory, { withFileTypes: true });
+      if (entries.every(entry => entry.isFile() && /^transaction-[a-zA-Z0-9-]+\.tmp$/.test(entry.name))) return null;
+    }
+    throw new HttpError(502, 'intake_transaction_invalid', directory);
+  }
+  let value: unknown;
+  try { value = JSON.parse(text); }
+  catch { throw new HttpError(502, 'intake_transaction_invalid', directory); }
+  if (typeof value !== 'object' || value === null) throw new HttpError(502, 'intake_transaction_invalid');
+  const envelope = value as Record<string, unknown>;
+  const transaction = envelope['transaction'];
+  if (typeof transaction !== 'object' || transaction === null || typeof envelope['signature'] !== 'string' || envelope['keyId'] !== signer.keyId ||
+      !verify(null, Buffer.from(JSON.stringify(transaction)), signer.publicKey, Buffer.from(envelope['signature'], 'base64'))) {
+    throw new HttpError(502, 'intake_transaction_invalid', directory);
+  }
+  const row = transaction as Record<string, unknown>;
+  if (row['version'] !== 1 || typeof row['id'] !== 'string' || row['id'] !== directory.split(sep).at(-1) || row['caseId'] !== caseId ||
+      (row['state'] !== 'receiving' && row['state'] !== 'received' && row['state'] !== 'failed') || !isStoredPath(row['relativePath']) ||
+      (row['state'] === 'failed' ? typeof row['failure'] !== 'string' || row['failure'] === '' : row['failure'] !== null) ||
+      (row['state'] === 'receiving' && row['payload'] !== null)) {
+    throw new HttpError(502, 'intake_transaction_invalid', directory);
+  }
+  const payload = row['payload'] === null ? null : transactionPayload(row['payload']);
+  if ((row['state'] === 'received' && payload === null) ||
+      (payload !== null && (payload.caseId !== caseId || payload.relativePath !== row['relativePath']))) {
+    throw new HttpError(502, 'intake_transaction_invalid', directory);
+  }
+  return { version: 1, id: row['id'], caseId, state: row['state'], relativePath: row['relativePath'], payload, failure: row['failure'] as string | null };
+}
+
+async function verifyReceivedBytes(directory: string, transaction: IntakeTransaction): Promise<void> {
+  const payload = transaction.payload;
+  if (payload === null) throw new HttpError(502, 'intake_transaction_invalid', directory);
+  const path = join(directory, 'document.part');
+  if (await readExistingHash(path) !== payload.sha256 || (await stat(path)).size !== payload.bytes) {
+    throw new HttpError(502, 'intake_bytes_invalid', transaction.id);
+  }
+}
+
+async function verifiedIntakeRows(casesDir: string, caseId: string, signer: LedgerSigner): Promise<IntakeRecord[]> {
+  const rows = await readIntakeLedger(casesDir, caseId);
+  const head = await readIntakeHead(casesDir, caseId);
+  const verdict = verifyIntakeChain(rows, head, signer);
+  if (!verdict.valid || (head !== null && head.ledger !== INTAKE_LEDGER) ||
+      rows.some(row => row.caseId !== caseId || !isStoredPath(row.relativePath)) ||
+      new Set(rows.map(row => row.relativePath)).size !== rows.length) {
+    throw new HttpError(502, 'intake_chain_invalid', verdict.reason ?? 'receipt_case_ledger_or_path_mismatch');
+  }
+  return rows;
+}
+
+async function publishReceived(casesDir: string, caseId: string, directory: string, transaction: IntakeTransaction, signer: LedgerSigner): Promise<UploadOutcome> {
+  const root = caseRoot(casesDir, caseId);
+  const payload = transaction.payload;
+  if (payload === null || payload.caseId !== caseId || payload.relativePath !== transaction.relativePath || !Number.isSafeInteger(payload.bytes) || payload.bytes <= 0 || !SHA256.test(payload.sha256)) {
+    throw new HttpError(502, 'intake_transaction_invalid', directory);
+  }
+  const tempPath = join(directory, 'document.part');
+  await verifyReceivedBytes(directory, transaction);
+  const rows = await verifiedIntakeRows(casesDir, caseId, signer);
+  const target = resolveInside(join(root, ARCHIVE_DIR), payload.relativePath);
+  if (rows.some(row => overlapsDocumentPath(row.relativePath, payload.relativePath))) throw new HttpError(409, 'document_name_conflict', payload.relativePath);
+  const existing = await inspectArchiveTarget(join(root, ARCHIVE_DIR), payload.relativePath);
+  if (existing.kind === 'conflict') throw new HttpError(409, 'document_name_conflict', payload.relativePath);
+  const prior = rows.find(row => row.relativePath === payload.relativePath);
+  if (prior !== undefined && (prior.sha256 !== payload.sha256 || prior.bytes !== payload.bytes)) throw new HttpError(409, 'document_name_conflict', payload.relativePath);
+  if (existing.kind === 'file' && (existing.sha256 !== payload.sha256 || existing.bytes !== payload.bytes)) throw new HttpError(409, 'document_name_conflict', payload.relativePath);
+  // A visible file without a signed receipt is never adopted as trusted evidence.
+  if (existing.kind === 'file' && prior === undefined) throw new HttpError(502, 'intake_archive_unreceipted', payload.relativePath);
+  const record = prior ?? await appendSigned<IntakePayload>({ dir: root, ledger: INTAKE_LEDGER, payload, canonical: intakeCanonical, signer, now: payload.receivedAt });
+  // appendSigned fsyncs its row. Commit the head and its directory before publication.
+  await syncPath(join(root, headFileName(INTAKE_LEDGER)));
+  await syncPath(root);
+  await verifiedIntakeRows(casesDir, caseId, signer);
+  if (existing.kind === 'missing') {
+    await durableDirectory(dirname(target), root);
+    // link is atomic and refuses an existing target; rename would overwrite evidence.
+    await link(tempPath, target);
+    await syncPath(dirname(target));
+  }
+  return { record, duplicate: prior !== undefined };
+}
+
+async function reconcileIntakeLocked(casesDir: string, caseId: string, signer: LedgerSigner): Promise<void> {
+  const root = caseRoot(casesDir, caseId);
+  const rows = await verifiedIntakeRows(casesDir, caseId, signer);
+  const temporary = join(root, TEMP_DIR);
+  let entries: Dirent[];
+  try { entries = await readdir(temporary, { withFileTypes: true }); }
+  catch (error) { if (!isMissing(error)) throw error; entries = []; }
+  const transactions: Array<{ directory: string; transaction: IntakeTransaction }> = [];
+  const orphans: string[] = [];
+  // Inspect every journal and completed byte set before changing any evidence.
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    const directory = join(temporary, entry.name);
+    if (entry.isFile() && /^upload-[a-f0-9]{16}\.part$/.test(entry.name)) {
+      orphans.push(directory);
+      continue;
+    }
+    if (!entry.isDirectory()) throw new HttpError(502, 'intake_transaction_invalid', entry.name);
+    const transaction = await readTransaction(directory, caseId, signer);
+    if (transaction === null) {
+      orphans.push(directory);
+      continue;
+    }
+    if (transaction.state === 'received') await verifyReceivedBytes(directory, transaction);
+    transactions.push({ directory, transaction });
+  }
+  const received = transactions.filter(item => item.transaction.state === 'received');
+  const pending = new Map<string, IntakePayload>();
+  for (const { transaction } of received) {
+    const payload = transaction.payload;
+    if (payload === null) throw new HttpError(502, 'intake_transaction_invalid');
+    // Committed receipts reserve their whole path topology. Conflicts against
+    // those receipts are terminal refusals; uncommitted competing paths are ambiguous.
+    if (rows.some(row => row.relativePath === payload.relativePath || overlapsDocumentPath(row.relativePath, payload.relativePath))) continue;
+    const other = pending.get(payload.relativePath);
+    if ((other !== undefined && (other.sha256 !== payload.sha256 || other.bytes !== payload.bytes)) ||
+        [...pending.keys()].some(path => overlapsDocumentPath(path, payload.relativePath))) {
+      throw new HttpError(502, 'intake_transaction_conflict', payload.relativePath);
+    }
+    pending.set(payload.relativePath, payload);
+  }
+  const published = new Set<string>();
+  // Missing archives may be republished only from a verified completed transaction.
+  // Existing accepted bytes must validate before any pending receipt is created.
+  for (const row of rows) {
+    if (!isStoredPath(row.relativePath)) throw new HttpError(502, 'intake_chain_invalid', 'receipt_path_invalid');
+    const actual = await inspectArchiveTarget(join(root, ARCHIVE_DIR), row.relativePath);
+    const recoverable = received.some(item => item.transaction.payload !== null &&
+      item.transaction.relativePath === row.relativePath && item.transaction.payload.sha256 === row.sha256 && item.transaction.payload.bytes === row.bytes);
+    if (actual.kind === 'missing' && recoverable) continue;
+    if (actual.kind !== 'file' || actual.sha256 !== row.sha256 || actual.bytes !== row.bytes) throw new HttpError(502, 'intake_bytes_invalid', row.relativePath);
+    published.add(row.relativePath);
+  }
+  for (const { transaction } of received) {
+    if (rows.some(row => row.relativePath === transaction.relativePath || overlapsDocumentPath(row.relativePath, transaction.relativePath))) continue;
+    const target = await inspectArchiveTarget(join(root, ARCHIVE_DIR), transaction.relativePath);
+    if (target.kind === 'file') throw new HttpError(502, 'intake_archive_unreceipted', transaction.relativePath);
+  }
+  for (const orphan of orphans) {
+    const quarantine = join(root, ORPHAN_DIR);
+    await durableDirectory(quarantine, root);
+    await rename(orphan, join(quarantine, randomUUID()));
+    await syncPath(quarantine);
+    await syncPath(temporary);
+  }
+  for (const { directory, transaction } of transactions) {
+    if (transaction.state === 'receiving') {
+      await syncPartial(directory);
+      await writeTransaction(directory, { ...transaction, state: 'failed', failure: 'receiving_interrupted' }, signer);
+    } else if (transaction.state === 'received') {
+      const prior = rows.find(row => row.relativePath === transaction.relativePath);
+      if (prior !== undefined && transaction.payload !== null && prior.sha256 === transaction.payload.sha256 &&
+          prior.bytes === transaction.payload.bytes && published.has(transaction.relativePath)) continue;
+      try { await publishReceived(casesDir, caseId, directory, transaction, signer); }
+      catch (error) {
+        if (!(error instanceof HttpError) || error.code !== 'document_name_conflict') throw error;
+        await writeTransaction(directory, { ...transaction, state: 'failed', failure: error.code }, signer);
+      }
+    }
+  }
+}
+
+/** Hold reconciliation and a snapshot read/copy in the same case intake critical section. */
+export function withReconciledIntake<T>(casesDir: string, caseId: string, signer: LedgerSigner, task: () => Promise<T>): Promise<T> {
+  return serialiseIntake(caseRoot(casesDir, caseId), async () => {
+    await reconcileIntakeLocked(casesDir, caseId, signer);
+    return task();
+  });
+}
+
+/** Run at startup and before inventory jobs; corruption is preserved and blocks readiness. */
+export function reconcileIntake(casesDir: string, caseId: string, signer: LedgerSigner): Promise<void> {
+  return withReconciledIntake(casesDir, caseId, signer, async () => undefined);
+}
+
+/** Streams, durably records completion, signs its receipt, then publishes without replacement. */
 export async function uploadDocument(req: IncomingMessage, options: UploadOptions): Promise<UploadOutcome> {
   const root = caseRoot(options.casesDir, options.caseId);
-  if ((await readCaseMeta(options.casesDir, options.caseId)) === null) {
-    throw new HttpError(404, 'case_not_found', options.caseId);
-  }
-  if (options.signer === null) {
-    throw new HttpError(503, 'ledger_key_missing', 'the console holds no ledger key, so no receipt can be signed and no document can be taken in');
-  }
+  if (typeof options.receivedBy !== 'string' || options.receivedBy.trim() === '' ||
+      typeof options.now !== 'string' || options.now.trim() === '' ||
+      (options.sourceNote !== null && typeof options.sourceNote !== 'string') ||
+      !Number.isSafeInteger(options.maxBytes) || options.maxBytes <= 0) badRequest('intake_metadata_invalid');
+  if ((await readCaseMeta(options.casesDir, options.caseId)) === null) throw new HttpError(404, 'case_not_found', options.caseId);
+  const signer = options.signer;
+  if (signer === null) throw new HttpError(503, 'ledger_key_missing');
   const relativePath = assertRelativePath(options.fileName);
-  const target = resolveInside(join(root, ARCHIVE_DIR), relativePath);
-  const tempDir = join(root, TEMP_DIR);
-  await mkdir(tempDir, { recursive: true });
-  await mkdir(dirname(target), { recursive: true });
-
-  const tempPath = join(tempDir, `upload-${createHash('sha256').update(`${relativePath}\n${options.now}`).digest('hex').slice(0, 16)}.part`);
-  const hash = createHash('sha256');
-  let bytes = 0;
-  try {
-    await pipeline(
-      req,
-      async function* measure(source: AsyncIterable<Buffer>): AsyncGenerator<Buffer> {
+  return serialiseIntake(root, async () => {
+    await reconcileIntakeLocked(options.casesDir, options.caseId, signer);
+    const id = randomUUID();
+    const directory = join(root, TEMP_DIR, id);
+    await durableDirectory(directory, root);
+    const receiving: IntakeTransaction = { version: 1, id, state: 'receiving', caseId: options.caseId, relativePath, payload: null, failure: null };
+    await writeTransaction(directory, receiving, signer);
+    const tempPath = join(directory, 'document.part');
+    const hash = createHash('sha256');
+    let bytes = 0;
+    try {
+      await pipeline(req, async function* measure(source: AsyncIterable<Buffer>): AsyncGenerator<Buffer> {
         for await (const chunk of source) {
           bytes += chunk.length;
-          if (bytes > options.maxBytes) {
-            throw new HttpError(413, 'document_too_large', `limit ${options.maxBytes} bytes`);
-          }
+          if (bytes > options.maxBytes) throw new HttpError(413, 'document_too_large', `limit ${options.maxBytes} bytes`);
           hash.update(chunk);
           yield chunk;
         }
-      },
-      createWriteStream(tempPath),
-    );
-  } catch (error) {
-    await rm(tempPath, { force: true });
-    throw error;
-  }
-  if (bytes === 0) {
-    await rm(tempPath, { force: true });
-    badRequest('document_empty', 'a zero-byte upload has no bytes to hash');
-  }
-  const sha256 = hash.digest('hex');
-
-  // Same path, already occupied: identical bytes are idempotent, different bytes
-  // are a conflict the operator must resolve. Silently renaming or overwriting a
-  // legal document would destroy the provenance this ledger exists for.
-  const existing = await readExistingHash(target);
-  if (existing !== null) {
-    await rm(tempPath, { force: true });
-    if (existing !== sha256) {
-      throw new HttpError(409, 'document_name_conflict', `${relativePath} already holds different bytes (sha256 ${existing.slice(0, 12)})`);
+      }, createWriteStream(tempPath, { flags: 'wx', mode: 0o600 }));
+      if (bytes === 0) badRequest('document_empty');
+      await syncPath(tempPath);
+      await syncPath(directory);
+    } catch (error) {
+      await syncPartial(directory);
+      await writeTransaction(directory, { ...receiving, state: 'failed', failure: error instanceof HttpError ? error.code : 'receiving_failed' }, signer);
+      throw error;
     }
-    const priorRows = await readIntakeLedger(options.casesDir, options.caseId);
-    const prior = priorRows.find((row) => row.relativePath === relativePath && row.sha256 === sha256);
-    if (prior !== undefined) return { record: prior, duplicate: true };
-  }
-
-  const payload: IntakePayload = {
-    caseId: options.caseId,
-    relativePath,
-    fileName: options.fileName,
-    bytes,
-    sha256,
-    receivedAt: options.now,
-    receivedBy: options.receivedBy,
-    sourceNote: options.sourceNote,
-  };
-  let record: IntakeRecord;
-  try {
-    record = await appendSigned<IntakePayload>({ dir: root, ledger: INTAKE_LEDGER, payload, canonical: intakeCanonical, signer: options.signer, now: options.now });
-  } catch (error) {
-    await rm(tempPath, { force: true });
-    throw error;
-  }
-  if (existing === null) {
-    await rename(tempPath, target);
-  }
-  return { record, duplicate: false };
+    const payload: IntakePayload = { caseId: options.caseId, relativePath, fileName: options.fileName, bytes, sha256: hash.digest('hex'), receivedAt: options.now, receivedBy: options.receivedBy, sourceNote: options.sourceNote };
+    const received: IntakeTransaction = { ...receiving, state: 'received', payload };
+    await writeTransaction(directory, received, signer);
+    try { return await publishReceived(options.casesDir, options.caseId, directory, received, signer); }
+    catch (error) {
+      // Conflicting uploads were not accepted; keep their bytes and the explicit refusal.
+      if (error instanceof HttpError && error.code === 'document_name_conflict') await writeTransaction(directory, { ...received, state: 'failed', failure: error.code }, signer);
+      throw error;
+    }
+  });
 }
 
 /** Lists the case ids present under the cases directory, sorted. */

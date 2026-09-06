@@ -4,7 +4,7 @@
 // digest; the token resolves to that principal and to nobody after revocation;
 // every malformed shape fails closed; the CLI does the same over argv.
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -105,4 +105,39 @@ test('existing principals are never reseeded when bootstrap token changes', () =
   assert.equal(readFileSync(path, 'utf8'), before);
   assert.equal(loaded.resolve('replacement-token'), null);
   assert.equal(loaded.resolve('original-token')?.id, 'original');
+});
+
+
+test('revoked bootstrap identity cannot be recreated when an initialized principal file disappears', async () => {
+  const path = file('deleted-authority');
+  const seed = { id: 'original', displayName: 'Original', tokenSha256: tokenDigest('old-bootstrap-token') };
+  loadOrCreatePrincipals(path, seed, NOW);
+  revokePrincipal(path, seed.id, NOW);
+  unlinkSync(path);
+  assert.throws(() => loadOrCreatePrincipals(path, seed, NOW), /initialized principal store is missing/);
+  assert.equal(existsSync(path), false);
+  assert.throws(() => addPrincipal(path, { id: 'replacement', displayName: 'Replacement', role: 'operator', cases: '*' }, NOW), /initialized principal store is missing/);
+  await assert.rejects(runPrincipalsCli(['add', '--offline', '--id', 'replacement', '--display', 'Replacement', '--role', 'operator', '--cases', '*'], { ARIA_TOOLS_DIR: path + '-tools', ARIA_UI_PRINCIPALS_FILE: path }, NOW), /initialized principal store is missing/);
+  assert.equal(existsSync(path), false);
+});
+
+test('legacy existing store gains metadata-only initialization marker without changing identities', () => {
+  const path = file('legacy-marker');
+  const original = JSON.stringify({ schemaVersion: 1, principals: [{ id: 'legacy', displayName: 'Legacy', role: 'operator', tokenSha256: tokenDigest('legacy-token'), cases: '*', createdAt: NOW, revokedAt: NOW }] });
+  writeFileSync(path, original);
+  const directory = loadOrCreatePrincipals(path, null, NOW);
+  assert.equal(readFileSync(path, 'utf8'), original);
+  assert.equal(directory.resolve('legacy-token'), null);
+  assert.deepEqual(JSON.parse(readFileSync(path + '.initialized', 'utf8')), { schemaVersion: 1, initialized: true });
+  assert.equal(statSync(path + '.initialized').mode & 0o777, 0o600);
+});
+
+test('invalid or interrupted initialization marker never authorizes a new seed', () => {
+  for (const marker of ['', '{', '{"schemaVersion":2,"initialized":true}', '{"schemaVersion":1,"initialized":false}']) {
+    const path = file('invalid-marker');
+    writeFileSync(path + '.initialized', marker);
+    assert.throws(() => loadOrCreatePrincipals(path, { id: 'original', displayName: 'Original', tokenSha256: tokenDigest('old-token') }, NOW), /initialization marker/);
+    assert.equal(existsSync(path), false);
+    assert.equal(readFileSync(path + '.initialized', 'utf8'), marker);
+  }
 });

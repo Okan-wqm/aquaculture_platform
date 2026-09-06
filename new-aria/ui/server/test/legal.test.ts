@@ -3,11 +3,14 @@
 // EXPECTS: case listing/summary, document filters, version group lookup,
 // timeline/parties/statements/coverage projections, malformed artifact → 502.
 import assert from 'node:assert/strict';
+import { createHash, sign } from 'node:crypto';
+import { writeFileSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { LEGAL_ARTIFACT_FILES } from '../../shared/legal-contract.ts';
 
 import { createCase } from '../src/legal-intake.ts';
 import { loadOrCreateSigner } from '../src/ledger.ts';
@@ -114,6 +117,64 @@ test('every projection exposes explicit empty human decisions and no invented ru
   assert.deepEqual(docs.removed, []);
   assert.deepEqual((await readParties(FIXTURE_TOOLS, 'case_fixture')).identityDecisions, []);
   assert.deepEqual((await readStatements(FIXTURE_TOOLS, 'case_fixture', { status: null, humanReview: null })).orphanedVerifications, []);
+});
+
+test('a current run pointer is authoritative for every projection and never falls back to flat artifacts', async () => {
+  const { tools, dir } = await copiedCase('invalid-current');
+  await writeFile(join(dir, 'current.json'), '{');
+  const context = { casesDir: join(tools, 'custody'), verifier: loadOrCreateSigner(join(tools, 'key.pem')) };
+  const readers = [
+    () => listCases(tools, () => true, context),
+    () => readCase(tools, 'case_fixture', context),
+    () => readDocuments(tools, 'case_fixture', { kind: null, extraction: null, limit: 1000 }, context),
+    () => readDocument(tools, 'case_fixture', 'any-document', context),
+    () => readTimeline(tools, 'case_fixture', context),
+    () => readParties(tools, 'case_fixture', context),
+    () => readStatements(tools, 'case_fixture', { status: null, humanReview: null }, context),
+    () => readCoverage(tools, 'case_fixture', context),
+  ];
+  for (const read of readers) {
+    await assert.rejects(read(), (error: unknown) => error instanceof HttpError && error.status === 502);
+  }
+});
+
+test('case detail and its summary use one generation when current changes during decision loading', async () => {
+  const { tools, dir } = await copiedCase('generation');
+  const verifier = loadOrCreateSigner(join(tools, 'key.pem'));
+  const hash = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex');
+  const signed = (value: Record<string, unknown>): Buffer => Buffer.from(JSON.stringify({ ...value, keyId: verifier.keyId, signature: sign(null, Buffer.from(JSON.stringify(value)), verifier.privateKey).toString('base64') }));
+  const pointers: Buffer[] = [];
+  for (const generation of ['first', 'second']) {
+    const runKey = `run-${generation}`;
+    const target = join(dir, 'runs', runKey);
+    await mkdir(target, { recursive: true });
+    const files: Array<{ name: string; bytes: number; sha256: string }> = [];
+    for (const name of [...Object.values(LEGAL_ARTIFACT_FILES), 'kernel-result.json']) {
+      let bytes = name === 'kernel-result.json' ? Buffer.from('{}') : await readFile(join(dir, name));
+      if (name === 'case.json') bytes = Buffer.from(JSON.stringify({ ...JSON.parse(bytes.toString()), title: generation }));
+      await writeFile(join(target, name), bytes);
+      files.push({ name, bytes: bytes.length, sha256: hash(bytes) });
+    }
+    const common = { schemaVersion: 1, caseId: 'case_fixture', runKey, adapterVersion: '0.1.0', snapshotSha256: 'a'.repeat(64), cycleId: null };
+    const manifest = signed({ ...common, sourceVersion: 'b'.repeat(64), files });
+    await writeFile(join(target, 'manifest.json'), manifest);
+    pointers.push(signed({ ...common, files: Object.values(LEGAL_ARTIFACT_FILES), manifestSha256: hash(manifest) }));
+  }
+  const first = pointers[0];
+  const second = pointers[1];
+  assert.ok(first && second);
+  await writeFile(join(dir, 'current.json'), first);
+  const detail = await readCase(tools, 'case_fixture', {
+    verifier,
+    get casesDir(): string {
+      writeFileSync(join(dir, 'current.json'), second);
+      return join(tools, 'custody');
+    },
+  });
+  assert.equal(detail.runKey, 'run-first');
+  assert.equal(detail.case.title, 'first');
+  assert.equal(detail.summary?.title, 'first');
+  assert.equal((await readCase(tools, 'case_fixture', { verifier, casesDir: join(tools, 'custody') })).case.title, 'second');
 });
 
 test('case authorization filters directory names before any artifact is read', async () => {

@@ -109,6 +109,22 @@ function readStringArray(source: Record<string, unknown>, key: string, label: st
   return (value as string[]).map((item) => item.trim());
 }
 
+/** Canonical archive-relative policy paths are sent unchanged to every worker. */
+function corpusExclusions(corpus: Record<string, unknown> | null): string[] {
+  if (corpus === null) return [];
+  const roots = readStringArray(corpus, 'exclude_roots', 'corpus.exclude_roots');
+  const normalized = roots.map(root => {
+    const path = root.replace(/\\/g, '/');
+    if (path.startsWith('/') || /^[A-Za-z]:/.test(path) || path.includes('\0')) fail('corpus.exclude_roots must contain relative archive paths');
+    const parts = path.split('/');
+    if (parts.includes('..')) fail('corpus.exclude_roots cannot traverse outside the archive');
+    const canonical = parts.filter(part => part !== '' && part !== '.').join('/');
+    if (canonical === '') fail('corpus.exclude_roots cannot name the archive root');
+    return canonical;
+  });
+  return [...new Set(normalized)].sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)));
+}
+
 function parseRoles(policy: Record<string, unknown>, path: string): string[] {
   const raw = policy['roles'];
   if (raw === undefined || raw === null) return [];
@@ -201,7 +217,7 @@ export function loadInstancePolicy(env: NodeJS.ProcessEnv = process.env): Instan
   }
 
   const corpus = readObject(manifest, 'corpus');
-  const corpusExcludeRoots = corpus === null ? [] : readStringArray(corpus, 'exclude_roots', 'corpus.exclude_roots');
+  const corpusExcludeRoots = corpusExclusions(corpus);
 
   const surface = readObject(manifest, 'surface');
   const console = surface === null ? null : readObject(surface, 'console');

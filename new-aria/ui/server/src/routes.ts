@@ -26,6 +26,7 @@ import { DEFAULT_LIMIT, ENDPOINTS, ENDPOINT_ACCESS, KERNEL_CONTROL_ACTION_CLASS,
 import type { LegalCaseCreatedResponse, LegalIntakeResponse, LegalUploadResponse } from '../../shared/legal-contract.ts';
 import { LEGAL_ENDPOINTS, LEGAL_UPLOAD_FILE_NAME_HEADER, LEGAL_UPLOAD_SOURCE_HEADER } from '../../shared/legal-contract.ts';
 import type { PrincipalResolver } from './auth.ts';
+import { captureCaseAuthority } from './case-authority.ts';
 import { recordAccess } from './access-log.ts';
 import { control, doctor, integrityVerify, JobTable } from './actions.ts';
 import type { ServerConfig } from './config.ts';
@@ -37,14 +38,12 @@ import { permissionsFor, requireCurrentInstanceOperator, requireGate } from './g
 import type { InstallationLock } from './installation-lock.ts';
 import type { ConsoleActionClass } from './gates.ts';
 import {
-  archiveRunRoot,
   caseRoot,
   INTAKE_LEDGER,
   parseIntakeRecord,
   createCase,
   decodeFileNameHeader,
   readCaseMeta,
-  readIntakeLedger,
   uploadDocument,
   verifyIntakeChain,
 } from './legal-intake.ts';
@@ -268,13 +267,13 @@ export function buildRoutes(config: ServerConfig, jobs: JobTable, readiness: Leg
       body: await readDocuments(config.toolsDir, caseId, { kind: param(query, 'kind'), extraction: param(query, 'extraction'), limit: clampLimit(query, MAX_LIMIT, MAX_LIMIT) }, decisionContext),
     })),
     caseRoute('GET', LEGAL_ENDPOINTS.document.path, null, async ({ caseId, params }) => ({ status: 200, body: await readDocument(config.toolsDir, caseId, requireParam(params, 'documentId'), decisionContext) })),
-    caseRoute('GET', LEGAL_ENDPOINTS.timeline.path, null, async ({ caseId }) => ({ status: 200, body: await readTimeline(config.toolsDir, caseId) })),
+    caseRoute('GET', LEGAL_ENDPOINTS.timeline.path, null, async ({ caseId }) => ({ status: 200, body: await readTimeline(config.toolsDir, caseId, decisionContext) })),
     caseRoute('GET', LEGAL_ENDPOINTS.parties.path, null, async ({ caseId }) => ({ status: 200, body: await readParties(config.toolsDir, caseId, decisionContext) })),
     caseRoute('GET', LEGAL_ENDPOINTS.statements.path, null, async ({ caseId, query }) => {
       const review = param(query, 'humanReview');
       return { status: 200, body: await readStatements(config.toolsDir, caseId, { status: param(query, 'status'), humanReview: review === null ? null : review === 'true' }, decisionContext) };
     }),
-    caseRoute('GET', LEGAL_ENDPOINTS.coverage.path, null, async ({ caseId }) => ({ status: 200, body: await readCoverage(config.toolsDir, caseId) })),
+    caseRoute('GET', LEGAL_ENDPOINTS.coverage.path, null, async ({ caseId }) => ({ status: 200, body: await readCoverage(config.toolsDir, caseId, decisionContext) })),
     caseRoute('GET', LEGAL_ENDPOINTS.decisions.path, null, async ({ caseId }) => {
       return { status: 200, body: await readDecisionState(decisionContext, caseId) };
     }),
@@ -340,18 +339,11 @@ export function buildRoutes(config: ServerConfig, jobs: JobTable, readiness: Leg
       // that would die inside the kernel with `tool not found`.
       requireLegalAdapter(await readLegalReadiness(config, readiness.boot));
       const body = await readJsonBody(req);
-      // The receipt goes to the run with its digests, so the adapter can
-      // reconcile the archive against it, not merely date its records.
-      const intake = (await readIntakeLedger(config.legalCasesDir, caseId)).map((row) => ({ relativePath: row.relativePath, receivedAt: row.receivedAt, sha256: row.sha256 }));
+      if (readiness.signer === null) throw new HttpError(503, 'ledger_key_missing');
+      const assertAuthority = captureCaseAuthority(config, req.headers.authorization, caseId);
       return {
         status: 202,
-        body: jobs.startLegalInventory(config, {
-          caseId,
-          archiveRoot: archiveRunRoot(config.workspaceRoot, config.legalCasesDir, caseId),
-          title: optionalString(body, 'title'),
-          intake,
-          excludeRoots: config.instancePolicy === null ? [] : config.instancePolicy.corpusExcludeRoots,
-        }),
+        body: await jobs.startLegalInventory(config, { caseId, title: optionalString(body, 'title') }, readiness.signer, assertAuthority),
       };
     }),
   ];

@@ -912,7 +912,181 @@
         }
       ],
       "comment": "ARIA: nosuid,nodev,noexec proc mount; AppArmor limits filesystem and target."
+    },
+    {
+      "names": [
+        "clone"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 0,
+          "value": 2080505873,
+          "op": "SCMP_CMP_EQ"
+        }
+      ],
+      "excludes": {
+        "arches": [
+          "s390",
+          "s390x"
+        ]
+      },
+      "comment": "ARIA bwrap: exact user,mount,UTS,IPC,PID,network namespace clone plus SIGCHLD; no host capability grant."
+    },
+    {
+      "names": [
+        "clone"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 1,
+          "value": 2080505873,
+          "op": "SCMP_CMP_EQ"
+        }
+      ],
+      "includes": {
+        "arches": [
+          "s390",
+          "s390x"
+        ]
+      },
+      "comment": "ARIA bwrap: same namespace clone with s390 argument ordering."
+    },
+    {
+      "names": [
+        "unshare"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 0,
+          "value": 268435456,
+          "op": "SCMP_CMP_EQ"
+        }
+      ],
+      "comment": "ARIA bwrap: second user namespace restores the non-root uid after devpts setup."
+    },
+    {
+      "names": [
+        "mount"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 3,
+          "value": 573440,
+          "op": "SCMP_CMP_EQ"
+        }
+      ],
+      "comment": "ARIA bwrap: recursive slave propagation at /; AppArmor constrains target and filesystem."
+    },
+    {
+      "names": [
+        "mount"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 3,
+          "value": 6,
+          "op": "SCMP_CMP_EQ"
+        }
+      ],
+      "comment": "ARIA bwrap: nosuid,nodev tmpfs at /tmp and /newroot/{dev,tmp}; AppArmor constrains target and filesystem."
+    },
+    {
+      "names": [
+        "mount"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 3,
+          "value": 53248,
+          "op": "SCMP_CMP_EQ"
+        }
+      ],
+      "comment": "ARIA bwrap: recursive bind beneath /newroot; AppArmor constrains target and filesystem."
+    },
+    {
+      "names": [
+        "mount"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 3,
+          "value": 3236810752,
+          "op": "SCMP_CMP_EQ"
+        }
+      ],
+      "comment": "ARIA bwrap: legacy mount magic on the initial /tmp/newroot bind; AppArmor constrains target and filesystem."
+    },
+    {
+      "names": [
+        "mount"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 3,
+          "value": 10,
+          "op": "SCMP_CMP_EQ"
+        }
+      ],
+      "comment": "ARIA bwrap: nosuid,noexec devpts at /newroot/dev/pts; AppArmor constrains target and filesystem."
+    },
+    {
+      "names": [
+        "mount"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 3,
+          "value": 311296,
+          "op": "SCMP_CMP_EQ"
+        }
+      ],
+      "comment": "ARIA bwrap: recursive private propagation at /oldroot; AppArmor constrains target and filesystem."
+    },
+    {
+      "names": [
+        "mount"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 3,
+          "value": 4292867062,
+          "valueTwo": 36902,
+          "op": "SCMP_CMP_MASKED_EQ"
+        }
+      ],
+      "comment": "ARIA bwrap: bind remount requires nosuid,nodev,remount,bind,silent; only readonly,noexec and inherited atime bits vary. AppArmor confines writable remounts to /newroot/output."
+    },
+    {
+      "names": [
+        "pivot_root"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "comment": "ARIA bwrap: AppArmor restricts both root transitions to the private /tmp and /newroot setup trees."
+    },
+    {
+      "names": [
+        "umount2"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 1,
+          "value": 2,
+          "op": "SCMP_CMP_EQ"
+        }
+      ],
+      "comment": "ARIA bwrap: detach the obsolete private roots after pivot_root; no other umount2 flags."
     }
   ],
-  "comment": "Based on Apache-2.0 Moby profiles 3c28324314729dbade8287e868eef6338c42807a: https://raw.githubusercontent.com/moby/profiles/3c28324314729dbade8287e868eef6338c42807a/seccomp/default.json. ARIA additions are the last three rules."
+  "comment": "Based on Apache-2.0 Moby profiles 3c28324314729dbade8287e868eef6338c42807a: https://raw.githubusercontent.com/moby/profiles/3c28324314729dbade8287e868eef6338c42807a/seccomp/default.json. ARIA additions follow the upstream rules: legacy writer isolation plus the argument-limited bwrap operations traced in 0.9.0 and checked against upstream 0.8.0 bubblewrap.c/bind-mount.c. cap_drop ALL, no-new-privileges and aria-legal AppArmor remain mandatory. Docker system-path masks are unchanged; these allowances cannot override kernel nested-proc restrictions (review finding 011)."
 }

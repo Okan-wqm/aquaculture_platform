@@ -61,12 +61,12 @@ kullanıcının kendi dava listesini bozmaz.
 
 Durum: OPEN. Sahip: Codex. Hedef: 2026-10-04. Faz: 1–2.
 
-Eksik: bütün iş/geçmiş/arama/hafıza/indirme/export yüzeyinde dava kapsamı;
-ajan snapshot izolasyonu; tek servis yazıcısı ve çevrimdışı yönetim kilidi;
-yetki/kaynak/sağlayıcı sürümleri ve eski işin yayın reddi; kalıcı, tekilleştirilmiş,
-iptal edilebilir işler; receiving/received alım ve yeniden başlatma uzlaştırması;
-stdin girdi sınırı; değişmez koşum manifestleri, atomik current, tam sayfalama;
-disk/inode/kapanış kapıları. Kabul: planın izolasyon, işletim ve 3000 HTTP belge /
+Uygulanan alt kapsam: servis/CLI kilidi LEGAL-CRITICAL-016; alım uzlaştırması
+LEGAL-CRITICAL-018; envanter için dava snapshot'ı, sınırlı dosya girdisi,
+yetki/kaynak/politika sürümü denetimi ve imzalı değişmez yayın LEGAL-CRITICAL-019.
+Kalan: tüm gelecek iş/geçmiş/arama/hafıza/indirme/export yüzeylerinde aynı dava
+sınırı; kalıcı, tekilleştirilmiş ve iptal edilebilir işler; sağlayıcı sürüm bağları;
+işler arası sağlık geçmişi; tam sayfalama ve disk/inode/kapanış kapıları. Kabul: planın izolasyon, işletim ve 3000 HTTP belge /
 20001 olay kapıları. Boş davanın açılması LEGAL-HIGH-013 ile ayrı izlenir. İş okuma yetkisi LEGAL-HIGH-014 ile ayrı izlenir.
 
 <a id="critical-003"></a>
@@ -220,10 +220,10 @@ subprocess testi, tanıtıcılarını kapatıp ayrı oturum açan adapter'ın ke
 
 **Bu bulgu henüz kapanmış değildir.** Servis ve unshare monitörünün birlikte
 kaybında son kilit tanıtıcısının bırakılması, Linux'un PID namespace çocuklarını
-tamamen temizlemesinden önce gerçekleşebilir. Eski adapter'ın canlı sonuca
-yazmasını yapısal olarak engelleyen snapshot/iş alanı ve servis yayın katmanı
-LEGAL-CRITICAL-006 kapsamında tamamlanmalıdır. Bu commit eşzamanlı çoklu süreç
-kaybı için mutlak tek-yazıcı güvencesi iddia etmez.
+tamamen temizlemesinden önce gerçekleşebilir. Envanter yolu artık LEGAL-CRITICAL-019 kapsamında yalnız iş alanına yazar;
+servis kendi doğruladığı baytları yayımlar ve yayın öncesinde kilidini denetler.
+Genel kernel/cycle yolları için aynı dönüşüm ve eşzamanlı çoklu süreç kaybı
+kabulü tamamlanmamıştır. Bu bulgu genel yazıcı güvencesi olarak açık kalır.
 
 Konteyner kanıtı: mevcut Docker default profili namespace oluşturmayı reddetti.
 `arias/legal/docker/apparmor.profile` yüklenmeden ayrıştırıldı; seccomp dosyası
@@ -231,3 +231,102 @@ sabit Moby kaynağından türetildi; iki console Compose servisi bu profilleri
 zorunlu kılar. Yeni AppArmor profili paylaşılan host çekirdeğine yüklenmedi;
 özel profille gerçek konteyner yürütme doğrulaması ve kurulum kapısı
 LEGAL-CRITICAL-011 altında açıktır. Korumasız çalıştırma yolu eklenmedi.
+
+<a id="principal-bootstrap-history"></a>
+
+## LEGAL-CRITICAL-017
+
+Kaybolan principal deposunun eski bootstrap kimliğini yeniden oluşturması.
+
+Durum: IN-PROGRESS. Sahip: Codex. Hedef: 2026-09-06. Faz: 1.
+
+İptal edilmiş kurulum kimliği, principal dosyası silinip servis eski seed ile
+başlatıldığında yeniden oluşturulabiliyordu. Kabul: ilk kurulumda seed çalışır;
+başlatılmış depoda dosya kaybı seed veya çevrimdışı add ile yeni yetki üretmez.
+Geçerli eski depo kayıtları değiştirilmeden taşınır; bozuk başlangıç kaydı reddedilir.
+
+Uygulama: principal dosyasının yanındaki `.initialized` kaydı yalnız sabit sürüm
+ve başlangıç metadata'sı taşır. İlk principal yazımından önce exclusive oluşturulur,
+dosya ve üst dizin diske eşitlenir. Geçerli başlangıç kaydıyla eksik depo, geçersiz
+veya yarım kayıt, yeniden seed edilmez. Kurtarma özgün yetki dosyasını geri
+getirmeyi gerektirir; çevrimdışı yönetim bu geçmişi sıfırlayamaz. Eski yedekten
+iptallerin korunması hâlâ LEGAL-CRITICAL-011 kapsamındadır.
+
+Kanıt: değişiklik öncesi üç yeni test başarısızdı; sonra 12 principal/yönetim
+testi ve sunucu tip denetimi geçti. Bağımsız kod incelemesinde önemli sorun yok.
+
+<a id="durable-intake-recovery"></a>
+
+## LEGAL-CRITICAL-018
+
+Eşzamanlı ve kesintiye uğramış belge alımının kalıcı uzlaştırılması.
+
+Durum: IN-PROGRESS. Sahip: Codex. Hedef: 2026-09-06. Faz: 2.
+
+Önceki alım aynı geçici adı paylaşabiliyor ve yayın hedefini ezebiliyordu.
+İmzalı receiving/received/failed işlem defteri, özel geçici dosya, gerçek baytların
+fsync'i ve üzerine yazmayan yayın uygulanır. Dava kuyruğu kurtarma, yeni alım ve
+snapshot yakalamayı sıralar. Servis iş kabulünden önce bütün davaları uzlaştırır.
+Bozuk imza/baş/bayt veya belirsiz işlem içerikleri korunur ve kabul durur;
+yarım içerik başarılı alım sayılmaz. Dosya/dizin adı çakışmaları receipt yazılmadan
+reddedilir; yarıda kalan ad çakışması kalıcı failed durumuna geçirilir.
+Dava metadata'sı ile yeni dizinlerin üstleri diske eşitlenmeden dava kabul edilmez.
+
+Kanıt: 40 alım testi; başlangıç uzlaştırması için iki test; bağımsız incelemenin
+bulduğu ad topolojisi ve metadata kalıcılığı sorunları düzeltildi ve yeniden
+incelendi. Kesilmiş defter otomatik yeniden imzalanmaz. Kalıcı iş kuyruğu ve
+kapasite sınırları LEGAL-CRITICAL-006 kapsamında ayrıca açıktır.
+
+<a id="isolated-inventory-publication"></a>
+
+## LEGAL-CRITICAL-019
+
+Envanter işçisinin dava snapshot'ı ve servisin doğrulanmış sonuç yayını.
+
+Durum: IN-PROGRESS. Sahip: Codex. Hedef: 2026-09-06. Faz: 1–2.
+
+İşçi canlı arşiv ve sonuç alanı yerine yalnız kopyalanmış dava belgelerini okur;
+girdi, çalışma profili ve kod salt okunur, çıktı özel iş alanındadır. Ortam
+aktarılmaz; ağ/PID/dosya alanları ayrılır. Kapsam dışı belge baytları kopyalanmaz;
+bunların alım kayıtları kapsama raporunda açık eksik olarak kalır. Kernel kayıt ve
+çalıştırma yolu korunur; 8 MiB sınırlı JSON dosyası argv'deki belge listesinin
+yerine geçer. Frozen profili ve QUARANTINED sonucu yayın engelidir.
+
+Servis sekiz artifact'ı ve kernel zarfını; dava, hash, referans, kaynak kapsamı
+ve snapshot özetiyle doğrular. Açık işçi tanıtıcılarının değiştiremediği ayrı
+bayt kopyasını imzalı koşum manifestiyle yayımlar. Yayın öncesi özgün principal,
+rol/kapsam/token, instance politikası, adapter kaydı/manifesti, çalışma profili,
+kaynak/karar başları ve canlı kurulum kilidi yeniden denetlenir. Kaldırma kararı
+snapshot alımı sırasında gelirse de yayın reddedilir. Kapsam sayaçları belge
+kayıtlarından yeniden hesaplanır; okunamayan dosyanın kayıtlı olması metninin
+okunduğu anlamına gelmez. Sürüm üyeleri/işaretçileri ve kopya sahipliği karşılıklı
+doğrulanır. CLI'nin gerçek schema-1 yanıtı, runner/health alanları ve ham
+stdout/stderr hash'leri denetlenir. Servis girdisinin hash'i ayrıca imzalanır;
+kernel input_hash iç snapshot ile zenginleştirilmiş girdiye aittir ve kompakt
+CLI snapshot'ından yeniden üretildiği iddia edilmez. Son kontrol ve
+current değişimi arasında async boşluk yoktur. Okuyucular aynı imzalı koşuma
+sabitlenir; bozuk mevcut pointer düz artifact'a dönüş sağlamaz.
+
+Kanıt: gerçek kernel dahil 50 snapshot/işçi testi; 10 yetki/kilit testi; tek
+istekte pointer değişimi için okuyucu testi; 7 Python CLI testi. Gerçek model
+kullanılmadı. Kalıcı/tekilleştirilmiş/iptal edilebilir işler, kota/sayfalama ve
+işler arası sağlık geçmişi LEGAL-CRITICAL-006 altında açıktır. Genel cycle yolu
+LEGAL-CRITICAL-016; gerçek konteyner kabulü LEGAL-CRITICAL-011 altında kalır.
+
+2026-09-06 konteyner kontrolü: hosted CI `34019440050` yerel hukuk adımı ve iki
+imaj derlemesinden geçti; üç süreç testi `unshare: mount /proc failed: Operation
+not permitted` ile kaldı. Worker için gerekli dar AppArmor/seccomp izinleri ve
+runner bağımlılıkları eklendi; profil sözdizimi, JSON/YAML/shell kontrolleri ve
+root olmayan seccomp süreç denemesi geçti. Docker'ın sistem yolu maskeleri
+korunur. Pozitif konteyner kabul testi atlanmaz veya beklenen hata testine
+çevrilmez; başarısızsa kapı kırmızı kalır. Özel profille gerçek konteyner başarısı
+kanıtlanana kadar LEGAL-CRITICAL-011 açık ve dağıtım kabulü engellidir.
+
+Son yerel birleşik doğrulama (2026-09-06): `new-aria/` altında `npm run
+legal:check` sıfır çıkışla tamamlandı: 235 sunucu ve 72 arayüz testi; sunucu/web
+tip denetimleri ve derlemeleri; adapter kapıları ve 3 davalık küçük korpusta
+4/4 beklenen bulgu, precision=1.000/recall=1.000. Ayrı 7 Python CLI testi geçti;
+Nx affected test/lint görev bulmadı. Bağımsız snapshot incelemesi, beş düzeltmenin
+ardından 69/69 testle dar yayın sınırını onayladı. Arayüzdeki profil testi,
+`/me` sonrası `/overview` yanıtını kontrollü React `act` adımlarıyla bekler;
+süre sınırı uzatılmadan görünür değerler ve yetki sırası korunur.

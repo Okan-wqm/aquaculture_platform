@@ -224,3 +224,17 @@ test('the same action class declared twice is refused: one class has one owner',
     /declared twice/,
   );
 });
+
+test('exclusion roots are canonical before a worker can receive the instance policy', () => {
+  const path = writeInstance(instanceDir('normalized-exclusions'), { id: 'legal', corpus: { exclude_roots: ['./Private/', 'Private', 'Notes\\Drafts\\', 'Notes/./Drafts'] } }, null);
+  const policy = loadInstancePolicy({ ARIA_INSTANCE_MANIFEST: path });
+  assert.ok(policy);
+  assert.deepEqual(policy.corpusExcludeRoots, ['Notes/Drafts', 'Private']);
+});
+
+for (const root of ['../private', '/private', '.', 'C:\\private', 'private/../other', 'private\u0000']) {
+  test(`invalid exclusion policy is rejected at configuration load: ${JSON.stringify(root)}`, () => {
+    const path = writeInstance(instanceDir('invalid-exclusion'), { id: 'legal', corpus: { exclude_roots: [root] } }, null);
+    assert.throws(() => loadInstancePolicy({ ARIA_INSTANCE_MANIFEST: path }), ConfigError);
+  });
+}

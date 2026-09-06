@@ -5,7 +5,9 @@
 // tool is left alone and reported; a kernel refusal is reported in the kernel's
 // words; and the inventory route refuses to spawn while the tool is not registered.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { IncomingMessage } from 'node:http';
+import { Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -14,9 +16,45 @@ import type { ServerConfig } from '../src/config.ts';
 import { HttpError } from '../src/errors.ts';
 import type { KernelRunner } from '../src/legal-readiness.ts';
 import { LEGAL_ADAPTER_MANIFEST, readLegalReadiness, registerLegalAdapter, requireLegalAdapter } from '../src/legal-readiness.ts';
+import { loadConfig } from '../src/config.ts';
+import { prepareLegalReadiness } from '../src/index.ts';
+import { acquireInstallationLock, installationStoragePaths } from '../src/installation-lock.ts';
+import { createCase, uploadDocument } from '../src/legal-intake.ts';
+import { loadOrCreateSigner } from '../src/ledger.ts';
 
 function dir(label: string): string {
   return mkdtempSync(join(tmpdir(), `aria-readiness-${label}-`));
+}
+
+for (const state of ['interrupted-publication', 'corrupted-archive'] as const) {
+  test(`startup reconciles custody before accepting work: ${state}`, async () => {
+    const root = dir('recovery');
+    const config = loadConfig({ ARIA_TOOLS_DIR: join(root, 'tools'), ARIA_UI_TOKEN: 'readiness-recovery-test-token' });
+    const lease = acquireInstallationLock(installationStoragePaths(config));
+    try {
+      const signer = loadOrCreateSigner(config.ledgerKeyFile);
+      const caseId = 'recovery-case';
+      const now = '2026-09-06T00:00:00.000Z';
+      await createCase(config.legalCasesDir, { caseId, title: 'Recovery', custodian: 'Owner', createdBy: 'owner', jurisdiction: null, courtReference: null }, now);
+      const request = new IncomingMessage(new Socket());
+      request.push(Buffer.from('original receipt bytes'));
+      request.push(null);
+      await uploadDocument(request, { casesDir: config.legalCasesDir, caseId, signer, now, fileName: 'source.txt', receivedBy: 'owner', sourceNote: null, maxBytes: 100 });
+      const target = join(config.legalCasesDir, caseId, 'archive', 'source.txt');
+      if (state === 'interrupted-publication') {
+        unlinkSync(target);
+        await prepareLegalReadiness(config, lease);
+        assert.equal(readFileSync(target, 'utf8'), 'original receipt bytes');
+      } else {
+        writeFileSync(target, 'corrupted');
+        await assert.rejects(prepareLegalReadiness(config, lease), { code: 'intake_bytes_invalid' });
+        assert.equal(readFileSync(target, 'utf8'), 'corrupted');
+      }
+    } finally {
+      lease.close();
+      rmSync(root, { recursive: true });
+    }
+  });
 }
 
 function configFor(workspaceRoot: string | null, toolsDir: string): ServerConfig {

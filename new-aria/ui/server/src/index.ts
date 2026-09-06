@@ -23,6 +23,7 @@ import type { LedgerSigner } from './ledger.ts';
 import { loadOrCreateSigner } from './ledger.ts';
 import type { LegalReadinessHolder } from './legal-readiness.ts';
 import { registerLegalAdapter } from './legal-readiness.ts';
+import { listCaseIds, reconcileIntake } from './legal-intake.ts';
 import { log, maskLegalPath, redactHeaders } from './log.ts';
 import { ANONYMOUS_PRINCIPAL, TOKEN_HOLDER_PRINCIPAL } from './principal.ts';
 import type { PrincipalDirectory } from './principals.ts';
@@ -119,6 +120,13 @@ export async function prepareLegalReadiness(config: ServerConfig, lease: Install
     const seed = config.token === null ? null : { id: TOKEN_HOLDER_PRINCIPAL.id, displayName: TOKEN_HOLDER_PRINCIPAL.displayName, tokenSha256: tokenDigest(config.token) };
     principals = loadOrCreatePrincipals(config.principalsFile, seed, new Date().toISOString());
     log('info', 'principals loaded', { path: config.principalsFile, count: principals.list().length });
+  }
+  // Complete interrupted receipt-backed publication before any request or job
+  // can observe the archive. Invalid custody state prevents startup.
+  if (signer !== null) {
+    for (const caseId of await listCaseIds(config.legalCasesDir)) {
+      await reconcileIntake(config.legalCasesDir, caseId, signer);
+    }
   }
   return { boot, signer, signerDetail, principals };
 }

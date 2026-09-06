@@ -231,7 +231,7 @@ değişikliği, çekirdek değişmez.
 
 ---
 
-## C. Güncel uygulama sırası (2026-09-05)
+## C. Güncel uygulama sırası (2026-09-06)
 
 Kullanıcının kod denetimi sonrası güncel planı önceki Faz 0–8 numaralarını
 **değiştirmiştir**. D–F bölümleri tarihsel kanıttır; bugünkü üretim kapanışı değildir.
@@ -240,14 +240,22 @@ Kullanıcının kod denetimi sonrası güncel planı önceki Faz 0–8 numaralar
 | Faz | Güncel kapsam | Takip |
 |---|---|---|
 | 0 | Yarım karar sözleşmesi/politika/okuyucu uyumu, tek CI kapısı | LEGAL-HIGH-002 |
-| 1 | Kimlik, tüm dava yüzeyleri, tek yazıcı, snapshot, boş dava | LEGAL-CRITICAL-003, LEGAL-CRITICAL-006, LEGAL-CRITICAL-015, LEGAL-CRITICAL-016, LEGAL-HIGH-005, LEGAL-HIGH-013, LEGAL-HIGH-014 |
-| 2 | Dayanıklı alım, defter, kalıcı işler, değişmez koşum, tam sayfalama | LEGAL-HIGH-004, LEGAL-CRITICAL-006 |
+| 1 | Kimlik, tüm dava yüzeyleri, tek yazıcı, snapshot, boş dava | LEGAL-CRITICAL-003, LEGAL-CRITICAL-006, LEGAL-CRITICAL-015, LEGAL-CRITICAL-016, LEGAL-CRITICAL-017, LEGAL-CRITICAL-019, LEGAL-HIGH-005, LEGAL-HIGH-013, LEGAL-HIGH-014 |
+| 2 | Dayanıklı alım, defter, kalıcı işler, değişmez koşum, tam sayfalama | LEGAL-HIGH-004, LEGAL-CRITICAL-006, LEGAL-CRITICAL-018, LEGAL-CRITICAL-019 |
 | 3 | Kaynak anlamı, biçimler, alıntı/konum, zaman ayrımı | LEGAL-CRITICAL-007 |
 | 4 | Avukat kararları, günlük arayüz, kaynak ve türev silme | LEGAL-CRITICAL-008 |
 | 5 | Yüklenen mevzuat, SQLite arama, onaylı ortak yöntem | LEGAL-HIGH-009 |
 | 6 | Gerçek ARIA, kalıcı dava hafızası, geri bildirim, dar model geçidi | LEGAL-CRITICAL-010; ayrı çekirdek onayı |
 | 7 | Kurulum, izolasyon, silme, şifreli yedek ve geri dönüş tatbikatı | LEGAL-CRITICAL-011 |
 | 8 | R1 sonrası emsal ve strateji | LEGAL-HIGH-012 |
+
+Planın bugünkü durumu: Faz 0'ın yerel sözleşme ve birleşik kontrolü uygulanmıştır;
+Faz 1–2 kısmen tamamlanmıştır. Kimlik/iptal, dava erişimi, boş dava, imzalı karar
+okuması, kalıcı alım kurtarma ve yalıtılmış envanter yayını vardır. Kalıcı işler,
+tekilleştirme/iptal, tam sayfalama ve genel kernel yazıcısının dönüşümü sürmektedir.
+Faz 3–7'nin üretim kabul kapıları açıktır; mevcut çıkarıcı ve ekranlar bu fazların
+bittiğini göstermez. Faz 8 R1 sonrasıdır. Fazların eşit iş yükü olmadığı için
+bu tablodan güvenilir bir yüzde çıkarılmaz.
 
 Kimliklerin durumu, sahipleri, hedef tarihleri ve kabul ölçütleri monorepo
 `docs/reviews/codex/2026-09-05-legal-production.md` dosyasındadır.
@@ -261,12 +269,33 @@ Tek yerel kapı: `new-aria/` içinde `npm run legal:check`; gerçek workflow:
 `.github/workflows/new-aria-legal.yml`. Küçük korpustaki precision=1.0 şartı
 korunur; bu korpus üretim kalitesi için istenen avukat etiketli korpusun yerine geçmez.
 
-Güncel doğrulama: 135 sunucu, 72 arayüz testi; iki tip denetimi, iki derleme ve
+Önceki doğrulama (2026-09-05): 135 sunucu, 72 arayüz testi; iki tip denetimi, iki derleme ve
 adapter kapısı geçti. Genel çekirdek rotaları sınırsız operator iznine bağlıdır;
 SSE ve gövdesi geç tamamlanan komutlar güncel kimliği yeniden doğrular.
 Servis/CLI kilitleri ve PID namespace süreç testleri vardır. Çoklu süreç kaybı
 sırasında mutlak tek-yazıcı güvencesi ile gerçek konteyner profil doğrulaması
 tamamlanmadığından LEGAL-CRITICAL-016 ve LEGAL-CRITICAL-011 açıktır. R1 hazır değildir.
+
+Principal deposunun kaybında eski kurulum kimliğinin yeniden oluşturulması
+LEGAL-CRITICAL-017 ile kapatılır: kalıcı başlangıç kaydı yeniden seed işlemini
+reddeder; özgün yetki deposu geri getirilmelidir. Ek 12 principal/yönetim testi ve
+sunucu tip denetimi geçti. Yedek dönüşünde iptal geçmişi ayrı kabul kapısıdır.
+
+2026-09-06 devamı: LEGAL-CRITICAL-018 alım işlemleri yeniden başlatmada
+uzlaştırılır; bozuk veriler korunarak işlem durur. LEGAL-CRITICAL-019 envanteri
+dava kopyası üzerinde çalıştırır, sonuçları servis doğrulayıp imzalı değişmez
+koşuma yayımlar. Yetki/kaynak/politika/kilit değişen iş yayımlanmaz; okuyucular
+aynı koşumu kullanır. Hedefli kanıt: 40 alım, 50 snapshot/işçi, 10 yetki/kilit,
+7 Python CLI testi. Son birleşik `npm run legal:check` kapısı geçti: 235 sunucu,
+72 arayüz testi, iki tip denetimi, iki derleme ve adapter/korpus kontrolleri.
+Küçük korpus precision=1.000/recall=1.000 (3 dava, 4 beklenen bulgu); bu ölçüm
+pilot avukatın etiketlediği üretim kabul korpusu değildir. Nx test/lint bu
+değişiklikler için görev bulmadı.
+
+İlk hosted CI koşumunda yerel hukuk adımı ve imaj derlemeleri geçti; gerçek
+konteyner süreç testlerinin üçü başarısız oldu. AppArmor/seccomp uyumu ve gerçek
+konteyner kanıtı doğrulanana kadar kurulum kapısı açık kalır. Paylaşılan hosta
+profil yüklenmedi; R1 hazır değildir.
 
 ---
 

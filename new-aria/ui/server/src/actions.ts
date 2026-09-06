@@ -19,9 +19,8 @@ import { canSeeCase } from './principals.ts';
 import { HttpError } from './errors.ts';
 import type { InstallationLock } from './installation-lock.ts';
 import { installationStoragePaths } from './installation-lock.ts';
-
-/** The pack adapter the console can run over a case archive. */
-const LEGAL_INVENTORY_TOOL_ID = 'legal-document-inventory';
+import type { LedgerSigner } from './ledger.ts';
+import { prepareLegalInventory } from './legal-runs.ts';
 
 const OUTPUT_CAP_BYTES = 1024 * 1024;
 const TAIL_CAP_BYTES = 16 * 1024;
@@ -142,18 +141,7 @@ export function control(config: ServerConfig, verb: string, reason: string, leas
 
 export interface LegalInventoryRequest {
   readonly caseId: string;
-  /** Archive path relative to the workspace root the adapter runs in. */
-  readonly archiveRoot: string;
   readonly title: string | null;
-  /**
-   * The case's intake receipt, one row per arrival. It is the only source of a
-   * record's learnedAt: without it every timeline event's learnedAt is null and
-   * the question the product exists to answer ("what was known on that date")
-   * cannot be asked. MEASURED 2026-09-04: the console omitted it.
-   */
-  readonly intake: ReadonlyArray<{ readonly relativePath: string; readonly receivedAt: string; readonly sha256: string }>;
-  /** Corpus roots the instance manifest declares off-limits; the adapter records them as excluded and never reads them. */
-  readonly excludeRoots: ReadonlyArray<string>;
 }
 
 interface JobRecord {
@@ -172,9 +160,16 @@ interface JobRecord {
 export class JobTable {
   private readonly jobs = new Map<string, JobRecord>();
   private readonly lease: InstallationLock;
+  private readonly prepareInventory: typeof prepareLegalInventory;
+  private readonly activeLegalJobs = new Map<string, Promise<void>>();
 
-  constructor(lease: InstallationLock) {
+  constructor(lease: InstallationLock, prepareInventory: typeof prepareLegalInventory = prepareLegalInventory) {
     this.lease = lease;
+    this.prepareInventory = prepareInventory;
+  }
+
+  async waitForIdle(): Promise<void> {
+    await Promise.all(this.activeLegalJobs.values());
   }
 
   startCycle(config: ServerConfig, cycleId: string | undefined, discoveryOnly: boolean): JobResponse {
@@ -212,64 +207,21 @@ export class JobTable {
     return this.view(record);
   }
 
-  /**
-   * Runs the legal document-inventory adapter over one case archive.
-   *
-   * It goes through `aria tool run` rather than a direct process spawn for the
-   * same reason every other mutation does: the kernel owns tool execution, its
-   * scope validation and its run ledger, so a console-triggered inventory is
-   * recorded exactly like any other adapter run and is subject to the same
-   * declared-scope enforcement. The adapter is registered at console boot with
-   * `aria tool register`; the registry is additive, so registering a pack
-   * adapter does not disturb the core set.
-   *
-   * Authorization is the route's job (the `corpus_inventory` gate of the
-   * instance's approval policy), not the kernel-control switch: an inventory
-   * reads the archive and writes case artifacts; it never touches the kernel's
-   * own lifecycle.
-   *
-   * The input carries everything the adapter accepts for a case: the intake
-   * receipt (learnedAt), the excluded roots, and the cycle id this run is
-   * stamped with, so case.json names the run that produced it. The kernel's
-   * run id is minted after the adapter has already been given its input, so
-   * it cannot be passed in truthfully and is left null.
-   */
-  startLegalInventory(config: ServerConfig, request: LegalInventoryRequest): JobResponse {
-    const cycleId = `legal-inventory-${request.caseId}-${new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z')}`;
-    const input = JSON.stringify({
-      archive_root: request.archiveRoot,
-      case_id: request.caseId,
-      ...(request.title === null ? {} : { title: request.title }),
-      exclude_roots: request.excludeRoots,
-      intake: request.intake,
-      cycle_id: cycleId,
-    });
-    const argv = [
-      'tool',
-      'run',
-      '--tool-id',
-      LEGAL_INVENTORY_TOOL_ID,
-      '--input',
-      input,
-      '--cycle-id',
-      cycleId,
-      // The ARIA install is the workspace root: the runner resolves the
-      // adapter's own code and its node runtime relative to it. Case archives
-      // live inside it, and archiveRunRoot has already proved they do.
-      '--workspace-root',
-      requireWorkspace(config),
-      '--tools-dir',
-      config.toolsDir,
-    ];
-    return this.spawnTracked(config, 'legal-inventory', argv, request.caseId);
-  }
-
-  private spawnTracked(config: ServerConfig, kind: JobKind, argv: ReadonlyArray<string>, caseId: string): JobResponse {
+  /** A legal job succeeds only after its isolated output has been published. */
+  async startLegalInventory(config: ServerConfig, request: LegalInventoryRequest, signer: LedgerSigner, assertAuthority: () => void): Promise<JobResponse> {
+    const assertPublicationAuthority = (): void => {
+      for (const path of installationStoragePaths(config)) this.lease.assertOwns(path);
+      assertAuthority();
+    };
+    assertPublicationAuthority();
+    const prepared = await this.prepareInventory(config, request.caseId, request.title, signer, assertPublicationAuthority);
+    assertPublicationAuthority();
     const record: JobRecord = {
-      jobId: randomUUID(),
-      kind,
-      caseId,
-      command: [config.kernelBin, ...argv],
+      jobId: prepared.runKey,
+      kind: 'legal-inventory',
+      caseId: request.caseId,
+      // Case contents and custody receipts are never public command arguments.
+      command: [],
       state: 'running',
       startedAt: new Date().toISOString(),
       finishedAt: null,
@@ -278,19 +230,20 @@ export class JobTable {
       stderrTail: '',
     };
     this.jobs.set(record.jobId, record);
-    runKernel(config, argv, config.actionTimeoutMs, this.lease)
-      .then((outcome) => {
-        record.state = outcome.exitCode === 0 && !outcome.timedOut ? 'succeeded' : 'failed';
-        record.exitCode = outcome.exitCode;
-        record.stdoutTail = outcome.stdout.slice(-TAIL_CAP_BYTES);
-        record.stderrTail = outcome.stderr.slice(-TAIL_CAP_BYTES);
-        record.finishedAt = new Date().toISOString();
-      })
-      .catch((error: unknown) => {
+    const task = Promise.resolve().then(async () => {
+      try {
+        await prepared.execute();
+        record.state = 'succeeded';
+        record.exitCode = 0;
+      } catch (error: unknown) {
         record.state = 'failed';
-        record.stderrTail = error instanceof Error ? error.message : String(error);
+        record.stderrTail = error instanceof HttpError ? error.code : 'legal_inventory_failed';
+      } finally {
         record.finishedAt = new Date().toISOString();
-      });
+        this.activeLegalJobs.delete(record.jobId);
+      }
+    });
+    this.activeLegalJobs.set(record.jobId, task);
     return this.view(record);
   }
 

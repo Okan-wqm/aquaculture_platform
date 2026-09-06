@@ -19,7 +19,7 @@
 // instance is usable before anyone is added, and never with anyone invented.
 
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 import { LEGAL_CASE_ID_RE } from '../../shared/legal-contract.ts';
@@ -147,16 +147,52 @@ export function loadPrincipals(path: string): PrincipalDirectory {
   return new PrincipalDirectory(path, parsePrincipalsFile(text, path));
 }
 
+const INITIALIZATION_MARKER = '{"schemaVersion":1,"initialized":true}\n';
+
+function hasInitializationMarker(path: string): boolean {
+  let text: string;
+  try {
+    text = readFileSync(`${path}.initialized`, 'utf8');
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return false;
+    fail(path, 'initialization marker is unreadable');
+  }
+  if (text !== INITIALIZATION_MARKER) fail(path, 'initialization marker is invalid');
+  return true;
+}
+
+/** Publish and persist the tombstone before any first-store write can occur. */
+function createInitializationMarker(path: string): void {
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  const fd = openSync(`${path}.initialized`, 'wx', 0o600);
+  try {
+    writeFileSync(fd, INITIALIZATION_MARKER, 'utf8');
+    fsyncSync(fd);
+  } finally { closeSync(fd); }
+  const directoryFd = openSync(dirname(path), 'r');
+  try { fsyncSync(directoryFd); }
+  finally { closeSync(directoryFd); }
+}
+
 /**
  * Loads the principals file, creating it on first boot with the operator
  * behind the shared token as its only entry. The seed is a real credential
  * the operator already holds, never an invented one; without a seed an empty
- * file is written and only the CLI can add a first principal.
+ * file is written and only the CLI can add a first principal. A durable marker
+ * prevents a missing initialized store from ever reopening bootstrap eligibility.
  */
 export function loadOrCreatePrincipals(path: string, seed: { readonly id: string; readonly displayName: string; readonly tokenSha256: string } | null, now: string): PrincipalDirectory {
-  if (existsSync(path)) return loadPrincipals(path);
+  const initialized = hasInitializationMarker(path);
+  if (existsSync(path)) {
+    const directory = loadPrincipals(path);
+    if (!initialized) createInitializationMarker(path);
+    return directory;
+  }
+  if (initialized) fail(path, 'initialized principal store is missing; restore the authoritative store');
   const principals: PrincipalRecord[] = seed === null ? [] : [{ ...seed, role: 'operator', cases: '*', createdAt: now, revokedAt: null }];
-  writeAtomic(path, { schemaVersion: PRINCIPALS_SCHEMA_VERSION, principals });
+  const file = parsePrincipalsFile(JSON.stringify({ schemaVersion: PRINCIPALS_SCHEMA_VERSION, principals }), path);
+  createInitializationMarker(path);
+  writeAtomic(path, file);
   return loadPrincipals(path);
 }
 
@@ -172,7 +208,7 @@ export interface AddPrincipalInput {
  * lost token is replaced by revoking the principal and adding a new one.
  */
 export function addPrincipal(path: string, input: AddPrincipalInput, now: string): { readonly token: string; readonly record: PrincipalRecord } {
-  const current = existsSync(path) ? parsePrincipalsFile(readFileSync(path, 'utf8'), path) : { schemaVersion: PRINCIPALS_SCHEMA_VERSION, principals: [] as PrincipalRecord[] };
+  const current: PrincipalsFile = { schemaVersion: PRINCIPALS_SCHEMA_VERSION, principals: loadOrCreatePrincipals(path, null, now).list() };
   if (current.principals.some((principal) => principal.id === input.id)) fail(path, `principal id ${input.id} already exists; revoke it or choose another id`);
   const token = randomBytes(32).toString('base64url');
   const record = parseRecord({ id: input.id, displayName: input.displayName, role: input.role, tokenSha256: tokenDigest(token), cases: input.cases === '*' ? '*' : [...input.cases], createdAt: now, revokedAt: null }, path, current.principals.length);

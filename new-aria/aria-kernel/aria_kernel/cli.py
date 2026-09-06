@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import stat
 import subprocess
 import sys
 import time
@@ -191,6 +192,63 @@ _TOOL_RUN_EXIT_CODES: dict[str, int] = {
     "tool_unhealthy": 3,
     "environment_unavailable": 1,
 }
+
+TOOL_RUN_INPUT_FILE_MAX_BYTES = 8 * 1024 * 1024
+
+
+def _read_tool_input_file(path_value: str) -> dict[str, Any]:
+    """Read one bounded JSON object without following a non-regular leaf."""
+    path = Path(path_value)
+    try:
+        before = path.stat(follow_symlinks=False)
+    except OSError as exc:
+        raise ValueError(f"--input-file cannot be read: {path}: {exc.strerror or exc}") from exc
+    if not stat.S_ISREG(before.st_mode):
+        raise ValueError(f"--input-file must name a regular file, not a symlink or other file type: {path}")
+
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError as exc:
+        raise ValueError(f"--input-file cannot be opened as a regular file: {path}: {exc.strerror or exc}") from exc
+    try:
+        opened = os.fstat(fd)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or opened.st_dev != before.st_dev
+            or opened.st_ino != before.st_ino
+        ):
+            raise ValueError(f"--input-file changed or is not a regular file: {path}")
+        if opened.st_size > TOOL_RUN_INPUT_FILE_MAX_BYTES:
+            raise ValueError(
+                f"--input-file exceeds the {TOOL_RUN_INPUT_FILE_MAX_BYTES} bytes limit: {path}"
+            )
+
+        chunks: list[bytes] = []
+        total = 0
+        while total <= TOOL_RUN_INPUT_FILE_MAX_BYTES:
+            chunk = os.read(fd, min(64 * 1024, TOOL_RUN_INPUT_FILE_MAX_BYTES + 1 - total))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+        if total > TOOL_RUN_INPUT_FILE_MAX_BYTES:
+            raise ValueError(
+                f"--input-file exceeds the {TOOL_RUN_INPUT_FILE_MAX_BYTES} bytes limit: {path}"
+            )
+        raw = b"".join(chunks)
+    finally:
+        os.close(fd)
+
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"--input-file must contain UTF-8 JSON: {path}") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"--input-file must contain valid JSON: {path}: {exc.msg}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"--input-file JSON must be an object: {path}")
+    return payload
 
 
 def add_workspace_args(parser: argparse.ArgumentParser) -> None:
@@ -992,7 +1050,9 @@ def build_parser() -> argparse.ArgumentParser:
     tool_unquarantine.add_argument("--fixture-update-ref", required=True)
     tool_run = add_subparser(tool_sub, "run")
     tool_run.add_argument("--tool-id", required=True)
-    tool_run.add_argument("--input", default="{}")
+    tool_run_input = tool_run.add_mutually_exclusive_group()
+    tool_run_input.add_argument("--input", default="{}")
+    tool_run_input.add_argument("--input-file")
     tool_run.add_argument("--cycle-id", required=True)
     tool_run.add_argument("--workspace-root", default=".")
     # C1 (E4) — the promotion verb the registry never had. promote_tool has
@@ -3532,7 +3592,13 @@ def _main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "tool" and args.tool_command == "run":
-        payload = json.loads(args.input)
+        if args.input_file is None:
+            payload = json.loads(args.input)
+        else:
+            try:
+                payload = _read_tool_input_file(args.input_file)
+            except ValueError as exc:
+                parser.error(str(exc))
         result = run_tool(
             args.tool_id, payload, args.cycle_id,
             workspace_root=args.workspace_root, base_dir=args.tools_dir,

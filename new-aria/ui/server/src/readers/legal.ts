@@ -45,6 +45,7 @@ import {
   validateVersions,
 } from '../../../shared/legal-artifact-validate.ts';
 import { readCaseMeta } from '../legal-intake.ts';
+import { resolveLegalRun } from '../legal-runs.ts';
 import { HttpError } from '../errors.ts';
 import { existsInside, listDirectory, readJsonFile, resolveInside } from '../fsafe.ts';
 
@@ -68,11 +69,6 @@ export interface DocumentsFilter {
 export interface StatementsFilter {
   readonly status: string | null;
   readonly humanReview: boolean | null;
-}
-
-function caseDir(toolsDir: string, caseId: string): string {
-  if (!LEGAL_CASE_ID_RE.test(caseId)) throw new HttpError(400, 'case_id_invalid');
-  return resolveInside(toolsDir, LEGAL_ARTIFACT_ROOT, caseId);
 }
 
 /** A validator's refusal becomes a 502 that names the file, the path and the reason. */
@@ -115,8 +111,7 @@ const readTimelineFile = (dir: string): Promise<ReadonlyArray<LegalTimelineEvent
 const readStatementsFile = (dir: string): Promise<ReadonlyArray<LegalStatement>> => readArray<LegalStatement>(dir, LEGAL_ARTIFACT_FILES.statements, validateStatements);
 const readLinksFile = (dir: string): Promise<ReadonlyArray<LegalLink>> => readArray<LegalLink>(dir, LEGAL_ARTIFACT_FILES.links, validateLinks);
 
-async function summarise(toolsDir: string, caseId: string, context?: DecisionContext): Promise<LegalCaseSummary> {
-  const dir = caseDir(toolsDir, caseId);
+async function summarise(dir: string, caseId: string, context?: DecisionContext): Promise<LegalCaseSummary> {
   const record = await readCaseRecord(dir);
   const documents = await readDocumentsFile(dir);
   const statements = overlayStatements(await readStatementsFile(dir), await decisionsFor(context, caseId)).statements;
@@ -144,7 +139,8 @@ export async function listCases(toolsDir: string, canRead: (caseId: string) => b
   const names = new Set([...await listDirectory(root), ...context === undefined ? [] : await listDirectory(context.casesDir)]);
   for (const name of names) {
     if (!LEGAL_CASE_ID_RE.test(name) || !canRead(name)) continue;
-    if (!(await existsInside(resolveInside(root, name, LEGAL_ARTIFACT_FILES.case)))) {
+    const { dir } = await resolveLegalRun(toolsDir, name, context === undefined ? null : context.verifier);
+    if (!(await existsInside(resolveInside(dir, LEGAL_ARTIFACT_FILES.case)))) {
       if (context === undefined) continue;
       const meta = await readCaseMeta(context.casesDir, name);
       if (meta === null) continue;
@@ -153,30 +149,35 @@ export async function listCases(toolsDir: string, canRead: (caseId: string) => b
         statementsNeedingReview: 0, timelineEvents: 0, parties: 0, createdAt: meta.createdAt });
       continue;
     }
-    cases.push(await summarise(toolsDir, name, context));
+    cases.push(await summarise(dir, name, context));
   }
   cases.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   return { cases };
 }
 
 export async function readCase(toolsDir: string, caseId: string, context?: DecisionContext): Promise<LegalCaseDetailResponse> {
-  const dir = caseDir(toolsDir, caseId);
+  const { dir, runKey } = await resolveLegalRun(toolsDir, caseId, context === undefined ? null : context.verifier);
   if (context !== undefined && !(await existsInside(resolveInside(dir, LEGAL_ARTIFACT_FILES.case)))) {
     const meta = await readCaseMeta(context.casesDir, caseId);
     if (meta === null) throw new HttpError(404, 'case_not_found');
     return { case: meta, summary: null, coverage: null, runKey: null, lifecycle: lifecycleFrom(await decisionsFor(context, caseId)) };
   }
   return {
-    runKey: null,
+    runKey,
     lifecycle: lifecycleFrom(await decisionsFor(context, caseId)),
     case: await readCaseRecord(dir),
-    summary: await summarise(toolsDir, caseId, context),
+    summary: await summarise(dir, caseId, context),
     coverage: await readObject<LegalCoverage>(dir, LEGAL_ARTIFACT_FILES.coverage, validateCoverage),
   };
 }
 
 export async function readDocuments(toolsDir: string, caseId: string, filter: DocumentsFilter, context?: DecisionContext): Promise<LegalDocumentsResponse> {
-  const dir = caseDir(toolsDir, caseId);
+  const { dir } = await resolveLegalRun(toolsDir, caseId, context === undefined ? null : context.verifier);
+  return readDocumentsIn(dir, caseId, filter, context);
+}
+
+/** Nested projections share the directory resolved at the request boundary. */
+async function readDocumentsIn(dir: string, caseId: string, filter: DocumentsFilter, context?: DecisionContext): Promise<LegalDocumentsResponse> {
   await readCaseRecord(dir);
   const allDocuments = await readDocumentsFile(dir);
   let documents = allDocuments;
@@ -202,9 +203,9 @@ export async function readDocuments(toolsDir: string, caseId: string, filter: Do
 }
 
 export async function readDocument(toolsDir: string, caseId: string, documentId: string, context?: DecisionContext): Promise<LegalDocumentResponse> {
-  const dir = caseDir(toolsDir, caseId);
+  const { dir } = await resolveLegalRun(toolsDir, caseId, context === undefined ? null : context.verifier);
   await readCaseRecord(dir);
-  const projection = await readDocuments(toolsDir, caseId, { kind: null, extraction: null, limit: Number.MAX_SAFE_INTEGER }, context);
+  const projection = await readDocumentsIn(dir, caseId, { kind: null, extraction: null, limit: Number.MAX_SAFE_INTEGER }, context);
   const document = projection.documents.find((doc) => doc.documentId === documentId);
   if (document === undefined) throw new HttpError(404, 'legal_document_not_found');
   const versionGroup = projection.versionGroups.find((group) => group.versionGroupId === document.versionGroupId) ?? null;
@@ -214,14 +215,14 @@ export async function readDocument(toolsDir: string, caseId: string, documentId:
   return { document, versionGroup, links };
 }
 
-export async function readTimeline(toolsDir: string, caseId: string): Promise<LegalTimelineResponse> {
-  const dir = caseDir(toolsDir, caseId);
+export async function readTimeline(toolsDir: string, caseId: string, context?: DecisionContext): Promise<LegalTimelineResponse> {
+  const { dir } = await resolveLegalRun(toolsDir, caseId, context === undefined ? null : context.verifier);
   await readCaseRecord(dir);
   return { events: await readTimelineFile(dir) };
 }
 
 export async function readParties(toolsDir: string, caseId: string, context?: DecisionContext): Promise<LegalPartiesResponse> {
-  const dir = caseDir(toolsDir, caseId);
+  const { dir } = await resolveLegalRun(toolsDir, caseId, context === undefined ? null : context.verifier);
   await readCaseRecord(dir);
   const parties = await readPartiesFile(dir);
   const decisions = await decisionsFor(context, caseId);
@@ -233,7 +234,7 @@ export async function readParties(toolsDir: string, caseId: string, context?: De
 }
 
 export async function readStatements(toolsDir: string, caseId: string, filter: StatementsFilter, context?: DecisionContext): Promise<LegalStatementsResponse> {
-  const dir = caseDir(toolsDir, caseId);
+  const { dir } = await resolveLegalRun(toolsDir, caseId, context === undefined ? null : context.verifier);
   await readCaseRecord(dir);
   const overlay = overlayStatements(await readStatementsFile(dir), await decisionsFor(context, caseId));
   const all = overlay.statements;
@@ -245,8 +246,8 @@ export async function readStatements(toolsDir: string, caseId: string, filter: S
   return { statements, byStatus, orphanedVerifications: overlay.orphanedVerifications, needingReview: all.filter((statement) => statement.humanReviewRequired).length };
 }
 
-export async function readCoverage(toolsDir: string, caseId: string): Promise<LegalCoverageResponse> {
-  const dir = caseDir(toolsDir, caseId);
+export async function readCoverage(toolsDir: string, caseId: string, context?: DecisionContext): Promise<LegalCoverageResponse> {
+  const { dir } = await resolveLegalRun(toolsDir, caseId, context === undefined ? null : context.verifier);
   await readCaseRecord(dir);
   return { coverage: await readObject<LegalCoverage>(dir, LEGAL_ARTIFACT_FILES.coverage, validateCoverage) };
 }

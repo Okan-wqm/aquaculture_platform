@@ -62,7 +62,18 @@ jobs:
       - name: Prepare the legal process isolation profile on the ephemeral runner
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends apparmor-utils util-linux
+          sudo apt-get install -y --no-install-recommends apparmor-utils util-linux bubblewrap python3-venv
+          # Match the image layout exposed by the worker's immutable runtime mounts.
+          sudo python3 -m venv /opt/venv
+          sudo /opt/venv/bin/python - <<'PY'
+          import subprocess, sys, tomllib
+          from pathlib import Path
+          with Path('new-aria/aria-kernel/pyproject.toml').open('rb') as source:
+              dependencies = tomllib.load(source)['project']['dependencies']
+          subprocess.check_call([sys.executable, '-m', 'pip', 'install', *dependencies])
+          PY
+          sudo apparmor_parser --skip-kernel-load --skip-cache new-aria/arias/legal/docker/apparmor.profile
+          python3 -m json.tool new-aria/arias/legal/docker/seccomp.json > /dev/null
           sudo apparmor_parser --add new-aria/arias/legal/docker/apparmor.profile
       - name: Check the complete legal surface
         working-directory: new-aria
@@ -71,11 +82,30 @@ jobs:
         run: |
           docker build --tag new-aria:legal-check new-aria
           docker build --build-arg BASE_IMAGE=new-aria:legal-check --tag new-aria-ui:legal-check --file new-aria/ui/Dockerfile new-aria
-      - name: Verify writer lifetime inside the non-root application container
+      - name: Verify writer lifetime and legal worker isolation in the non-root application container
         run: |
+          status=0
           docker run --rm --network none --read-only --tmpfs /tmp:rw,nosuid,nodev,mode=1777 \
             --cap-drop ALL --security-opt no-new-privileges \
             --security-opt apparmor=aria-legal \
             --security-opt seccomp=new-aria/arias/legal/docker/seccomp.json \
-            --workdir /opt/new-aria/ui --entrypoint node new-aria-ui:legal-check \
-            --test server/test/actions-lease.test.ts server/test/installation-lock.test.ts
+            --workdir /opt/new-aria/ui --entrypoint /bin/sh new-aria-ui:legal-check -ec '
+              id
+              bwrap --version
+              unshare --version
+              cat /proc/self/attr/current
+              grep -E "^(NoNewPrivs|Seccomp|CapEff|CapPrm|CapBnd):" /proc/self/status
+              findmnt --submounts --target /proc --output TARGET,FSTYPE,VFS-OPTIONS
+              exec node --test server/test/actions-lease.test.ts server/test/installation-lock.test.ts server/test/legal-worker.test.ts
+            ' || status=$?
+          if [ "$status" -ne 0 ]; then
+            # Only policy diagnostic fields: no environment, document paths or content.
+            sudo journalctl --kernel --since '-10 minutes' --no-pager | python3 -c '
+          import re, sys
+          for line in sys.stdin:
+              if "apparmor=\"DENIED\"" in line and "profile=\"aria-legal\"" in line:
+                  fields = re.findall(r"\b(operation|profile|comm|requested_mask|denied_mask|error|flags)=(\"[^\"]*\"|\S+)", line)
+                  print(" ".join(key + "=" + value for key, value in fields))
+          ' || true
+          fi
+          exit "$status"

@@ -56,7 +56,7 @@ async function harness(registryStatus: string | null, allowActions = false, body
   const toolsDir = join(workspace, 'aria-tools');
   mkdirSync(join(toolsDir, 'packs', 'legal', 'cases'), { recursive: true });
   writeFileSync(join(toolsDir, 'repo_identity.json'), '{}');
-  writeFileSync(join(toolsDir, 'registry.json'), JSON.stringify({ schema_version: 3, tools: registryStatus === null ? [] : [{ tool_id: 'legal-document-inventory', status: registryStatus }] }));
+  writeFileSync(join(toolsDir, 'registry.json'), JSON.stringify({ schema_version: 3, tools: registryStatus === null ? [] : [{ tool_id: 'legal-document-inventory', status: registryStatus === 'registered' ? 'SHADOW' : registryStatus }] }));
   const argvLog = join(workspace, 'kernel-argv.log');
   const kernelBin = join(workspace, 'aria-stub');
   // The stub answers `tool register` (boot) and `tool run` alike: record argv, exit 0.
@@ -186,16 +186,16 @@ test('the shipped legal profile takes a case in, end to end, with kernel control
     assert.equal(started.status, 202);
     const job = started.body as unknown as JobResponse;
     assert.equal(job.kind, 'legal-inventory');
-    const inputIndex = job.command.indexOf('--input');
-    assert.ok(inputIndex > 0, 'the kernel command carries --input');
-    const input = JSON.parse(job.command[inputIndex + 1] ?? '{}') as Record<string, unknown>;
+    assert.deepEqual(job.command, [], 'case receipts and contents are not public command arguments');
+    const jobRoot = join(h.workspace, 'workspaces', 'legal-jobs', job.jobId);
+    const input = JSON.parse(readFileSync(join(jobRoot, 'input.json'), 'utf8')) as Record<string, unknown>;
     assert.equal(input['case_id'], 'sak-24-001');
     assert.equal(input['archive_root'], 'data/legal-cases/sak-24-001/archive');
-    assert.deepEqual(input['exclude_roots'], ['Ikke laste opp'], "the manifest's excluded roots reach the run");
-    assert.deepEqual(input['intake'], [{ relativePath: 'vedlegg/faktura.txt', receivedAt: record.receivedAt, sha256: record.sha256 }], 'the receipt reaches the run with its digest, so learnedAt can be filled and the archive reconciled');
-    const cycleIndex = job.command.indexOf('--cycle-id');
-    assert.equal(input['cycle_id'], job.command[cycleIndex + 1], 'the input names the cycle the run is stamped with');
-    assert.equal(job.command[job.command.indexOf('--workspace-root') + 1], h.workspace);
+    assert.deepEqual(input['exclude_roots'], ['Ikke laste opp']);
+    assert.deepEqual(input['intake'], [{ relativePath: 'vedlegg/faktura.txt', receivedAt: record.receivedAt, sha256: record.sha256 }]);
+    assert.equal(input['cycle_id'], job.jobId);
+    assert.equal(input['out_dir'], '/output');
+    assert.equal(readFileSync(join(jobRoot, 'snapshot/vedlegg/faktura.txt'), 'utf8'), 'Fakturadato: 12.03.2024\n');
 
     const cycle = await call(h.base, OPERATOR_TOKEN, 'POST', '/api/v1/actions/cycle', {});
     assert.equal(cycle.status, 403);
@@ -484,3 +484,41 @@ for (const endpoint of [ENDPOINTS.actionControl, ENDPOINTS.actionCycle, ENDPOINT
     });
   }
 }
+
+for (const state of ['interrupted-publication', 'corrupted-archive'] as const) {
+  test(`inventory reconciles custody before preparing a job: ${state}`, async () => {
+    const h = await harness('SHADOW');
+    try {
+      assert.equal((await call(h.base, OPERATOR_TOKEN, 'POST', '/api/v1/legal/cases', { caseId: 'sak-24-001', title: 'Recovery', custodian: 'Owner' })).status, 201);
+      assert.equal((await call(h.base, OPERATOR_TOKEN, 'POST', '/api/v1/legal/cases/sak-24-001/documents', new TextEncoder().encode('original bytes'), { 'x-aria-file-name': 'source.txt' })).status, 201);
+      const path = join(h.casesDir, 'sak-24-001/archive/source.txt');
+      if (state === 'interrupted-publication') unlinkSync(path);
+      else writeFileSync(path, 'corrupted');
+      const answer = await call(h.base, OPERATOR_TOKEN, 'POST', '/api/v1/legal/cases/sak-24-001/inventory', {});
+      assert.equal(answer.status, state === 'interrupted-publication' ? 202 : 502);
+      assert.equal(readFileSync(path, 'utf8'), state === 'interrupted-publication' ? 'original bytes' : 'corrupted');
+      if (state === 'corrupted-archive') assert.equal(answer.body['error'], 'intake_bytes_invalid');
+    } finally { await h.close(); }
+  });
+}
+
+test('inventory rechecks the submitting credential after its body completes', async () => {
+  let watching = false;
+  let bodyObserved: () => void = () => undefined;
+  const observed = new Promise<void>(resolve => { bodyObserved = resolve; });
+  const h = await harness('SHADOW', false, () => { if (watching) bodyObserved(); });
+  try {
+    assert.equal((await call(h.base, OPERATOR_TOKEN, 'POST', '/api/v1/legal/cases', { caseId: 'sak-24-001', title: 'Case', custodian: 'Owner' })).status, 201);
+    watching = true;
+    const pending = request(`${h.base}/api/v1/legal/cases/sak-24-001/inventory`, { method: 'POST', headers: { authorization: `Bearer ${h.lawyerToken}`, 'content-type': 'application/json' } });
+    const answer = new Promise<number>((resolve, reject) => {
+      pending.on('error', reject);
+      pending.on('response', response => { response.resume(); response.on('end', () => resolve(response.statusCode ?? 0)); });
+    });
+    pending.write('{');
+    await observed;
+    revokePrincipal(join(h.workspace, 'data/legal/principals.json'), 'kari', '2026-09-06T00:00:00Z');
+    pending.end('}');
+    assert.equal(await answer, 401);
+  } finally { await h.close(); }
+});

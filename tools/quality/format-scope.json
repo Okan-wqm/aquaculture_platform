@@ -36798,6 +36798,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/superpowers/plans/2026-09-06-aria-security-runtime-closure.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/superpowers/plans/agent-01-tenant-isolation.md",
       "prettier_managed": true
     },

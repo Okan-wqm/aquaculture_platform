@@ -3,18 +3,37 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import Decimal from 'decimal.js';
 import { Plan } from '../entities/plan.entity';
+import { PlanCyclePrice } from '../entities/plan-catalog.entity';
 import { PlanTier, BillingCycle } from '../entities/subscription.entity';
 import { billingPlanLimitsFor } from '../plan-limits.util';
+import { BILLING_CYCLE_DISCOUNT_RATE, cycleAmountFor } from '../services/module-quote';
 
 /**
- * Seeds the default plans into the database on application startup.
+ * The default catalogue: ONE `billing.plans` row per tier, priced for EVERY
+ * billing cycle.
  *
- * Uses upsert semantics: existing plans (matched by name) are NOT overwritten,
- * so manual edits via the admin CRUD API are preserved.
+ * BILLING-CRITICAL-003. Two things were wrong here and they compounded:
  *
- * Plans are database-driven; provisioning resolves subscription pricing from
- * admin-api's PricingCalculatorService (admin.module_pricing), not from any
- * hardcoded per-tier constants.
+ *  1. The seed wrote MONTHLY rows only, and admin provisioning resolved a plan
+ *     by `{tier, billingCycle}` against `plans`. So quarterly, semi-annual and
+ *     annual provisioning every returned CATALOG_MISSING — three of the four
+ *     cycles the platform offers could not be sold at all.
+ *  2. Existing rows were matched by NAME. Identity is the tier: a rename
+ *     through the catalogue UI made the seed insert a second "Starter", and
+ *     four cycles under one name would have collided outright.
+ *
+ * The fix is not four rows per tier — that would re-fragment what the plan
+ * catalogue normalised in W4b. One plan carries `plan_cycle_prices` rows, and
+ * a cycle is OFFERED exactly when it has one. `plans.billing_cycle` is the
+ * plan's DEFAULT cycle, not the only one it can be bought on.
+ *
+ * The per-cycle price comes from `cycleAmountFor` — the same function the
+ * quote and the invoice use — so the catalogue cannot state a cycle price the
+ * platform would not charge.
+ *
+ * A failure here is FATAL. It used to be a `logger.warn`, and a catalogue that
+ * failed to seed makes every provisioning answer CATALOG_MISSING: the service
+ * comes up healthy and sells nothing.
  */
 @Injectable()
 export class PlanSeedService implements OnModuleInit {
@@ -27,158 +46,192 @@ export class PlanSeedService implements OnModuleInit {
   }
 
   private async seedDefaultPlans(): Promise<void> {
-    // Plan is the cross-tenant platform catalog; seed runs as platform admin.
-    // eslint-disable-next-line no-restricted-syntax -- cross-tenant catalog
-    const planRepo = this.dataSource.getRepository(Plan);
+    // `Plan` and `PlanCyclePrice` are the cross-tenant platform catalogue —
+    // no tenantId column, so a tenant-scoped repository would invent a scope
+    // the schema does not have. The entity-first EntityManager overloads say
+    // that in the call itself rather than through a suppressed lint rule.
+    const manager = this.dataSource.manager;
 
-    const defaultPlans: Partial<Plan>[] = [
-      {
-        // FREE — permanent $0 tier (Billing Revival Faz B). The provisioning
-        // handler resolves the catalog plan by tier+cycle, so a FREE tenant
-        // needs a real billing.plans row: $0 base and $0 per-metric so the
-        // subscription total is $0. Limits project from PLAN_CATALOG FREE
-        // (maxUsers 3 / maxFarms 1 / maxPonds 5 / maxSensors 10) via the SSoT.
-        name: 'Free',
-        tier: PlanTier.FREE,
-        basePrice: new Decimal(0),
-        currency: 'USD',
-        billingCycle: BillingCycle.MONTHLY,
-        limits: billingPlanLimitsFor(TenantPlan.FREE),
-        pricing: {
-          basePrice: 0,
-          perFarmPrice: 0,
-          perSensorPrice: 0,
-          perUserPrice: 0,
-          currency: 'USD',
-        },
-        features: {
-          coreFeatures: ['basic_monitoring', 'alerts'],
-          advancedFeatures: [],
-          premiumFeatures: [],
-        },
-        isActive: true,
-        isPublic: true,
-        sortOrder: 0,
-        createdBy: 'system',
-        updatedBy: 'system',
-      },
-      {
-        name: 'Starter',
-        tier: PlanTier.STARTER,
-        basePrice: new Decimal(49),
-        currency: 'USD',
-        billingCycle: BillingCycle.MONTHLY,
-        limits: billingPlanLimitsFor(TenantPlan.STARTER),
-        pricing: {
-          basePrice: 49,
-          perFarmPrice: 10,
-          perSensorPrice: 2,
-          perUserPrice: 5,
-          currency: 'USD',
-        },
-        features: {
-          coreFeatures: ['basic_monitoring', 'alerts', 'dashboard'],
-          advancedFeatures: [],
-          premiumFeatures: [],
-        },
-        isActive: true,
-        isPublic: true,
-        sortOrder: 1,
-        createdBy: 'system',
-        updatedBy: 'system',
-      },
-      {
-        name: 'Professional',
-        tier: PlanTier.PROFESSIONAL,
-        basePrice: new Decimal(149),
-        currency: 'USD',
-        billingCycle: BillingCycle.MONTHLY,
-        limits: billingPlanLimitsFor(TenantPlan.PROFESSIONAL),
-        pricing: {
-          basePrice: 149,
-          perFarmPrice: 15,
-          perSensorPrice: 3,
-          perUserPrice: 8,
-          currency: 'USD',
-        },
-        features: {
-          coreFeatures: [
-            'basic_monitoring',
-            'alerts',
-            'dashboard',
-            'reports',
-            'api_access',
-            'advanced_analytics',
-          ],
-          advancedFeatures: [],
-          premiumFeatures: [],
-        },
-        isActive: true,
-        isPublic: true,
-        sortOrder: 2,
-        createdBy: 'system',
-        updatedBy: 'system',
-      },
-      {
-        name: 'Enterprise',
-        tier: PlanTier.ENTERPRISE,
-        basePrice: new Decimal(499),
-        currency: 'USD',
-        billingCycle: BillingCycle.MONTHLY,
-        limits: billingPlanLimitsFor(TenantPlan.ENTERPRISE),
-        pricing: {
-          basePrice: 499,
-          perFarmPrice: 20,
-          perSensorPrice: 5,
-          perUserPrice: 10,
-          currency: 'USD',
-        },
-        features: {
-          coreFeatures: [
-            'basic_monitoring',
-            'alerts',
-            'dashboard',
-            'reports',
-            'api_access',
-            'advanced_analytics',
-            'custom_integrations',
-            'dedicated_support',
-            'sla_guarantee',
-            'white_label',
-          ],
-          advancedFeatures: [],
-          premiumFeatures: [],
-        },
-        isActive: true,
-        isPublic: true,
-        sortOrder: 3,
-        createdBy: 'system',
-        updatedBy: 'system',
-      },
-    ];
+    for (const definition of DEFAULT_PLANS) {
+      const existing = await manager.findOne(Plan, {
+        where: { tier: definition.tier, isDeleted: false },
+        order: { version: 'DESC', sortOrder: 'ASC' },
+        relations: { cyclePrices: true },
+      });
 
-    for (const planData of defaultPlans) {
-      try {
-        const existing = await planRepo.findOne({
-          where: { name: planData.name },
-        });
-
-        if (!existing) {
-          const plan = planRepo.create(planData);
-          await planRepo.save(plan);
-          this.logger.log(`Seeded plan: "${planData.name}" (${planData.tier})`);
-        } else {
-          this.logger.debug(
-            `Plan "${planData.name}" already exists (id: ${existing.id}), skipping seed`,
-          );
-        }
-      } catch (error) {
-        this.logger.warn(
-          `Failed to seed plan "${planData.name}": ${
-            error instanceof Error ? error.message : 'Unknown error'
-          }`,
-        );
+      if (existing) {
+        await this.ensureCyclePrices(existing, definition);
+        continue;
       }
+
+      const plan = manager.create(Plan, {
+        name: definition.name,
+        tier: definition.tier,
+        basePrice: definition.monthlyBasePrice,
+        currency: CURRENCY,
+        // The DEFAULT cycle. Every cycle in `cyclePrices` is purchasable.
+        billingCycle: BillingCycle.MONTHLY,
+        limits: billingPlanLimitsFor(definition.limitsFrom),
+        pricing: {
+          basePrice: definition.monthlyBasePrice.toNumber(),
+          perFarmPrice: definition.perFarmPrice.toNumber(),
+          perSensorPrice: definition.perSensorPrice.toNumber(),
+          perUserPrice: definition.perUserPrice.toNumber(),
+          currency: CURRENCY,
+        },
+        features: {
+          coreFeatures: [...definition.coreFeatures],
+          advancedFeatures: [],
+          premiumFeatures: [],
+        },
+        cyclePrices: cyclePricesFor(definition),
+        isActive: true,
+        isPublic: true,
+        sortOrder: definition.sortOrder,
+        createdBy: 'system',
+        updatedBy: 'system',
+      });
+      await manager.save(Plan, plan);
+      this.logger.log(
+        `Seeded plan "${definition.name}" (${definition.tier}) priced for ` +
+          `${cyclePricesFor(definition).length} billing cycles`,
+      );
     }
   }
+
+  /**
+   * Bring an existing plan up to every cycle it should be purchasable on.
+   *
+   * This is the upgrade path for catalogues seeded before per-cycle pricing
+   * existed. It only ADDS missing cycles — an operator's edited price is never
+   * overwritten, which is the same promise the original seed made about names.
+   */
+  private async ensureCyclePrices(plan: Plan, definition: PlanDefinition): Promise<void> {
+    const priced = new Set((plan.cyclePrices ?? []).map((price) => price.billingCycle));
+    const missing = cyclePricesFor(definition).filter((price) => !priced.has(price.billingCycle));
+    if (missing.length === 0) {
+      return;
+    }
+
+    await this.dataSource.manager.save(
+      PlanCyclePrice,
+      missing.map((price) => ({ ...price, planId: plan.id })),
+    );
+    this.logger.log(
+      `Plan "${plan.name}" (${plan.tier}) was purchasable on ${priced.size} of ` +
+        `${priced.size + missing.length} cycles; added ` +
+        `${missing.map((price) => price.billingCycle).join(', ')}`,
+    );
+  }
 }
+
+const CURRENCY = 'USD';
+
+interface PlanDefinition {
+  tier: PlanTier;
+  name: string;
+  limitsFrom: TenantPlan;
+  /** The monthly rate. Every other cycle derives from it. */
+  monthlyBasePrice: Decimal;
+  perFarmPrice: Decimal;
+  perSensorPrice: Decimal;
+  perUserPrice: Decimal;
+  coreFeatures: readonly string[];
+  sortOrder: number;
+}
+
+/**
+ * A price row per cycle, derived from the monthly rate by the ONE function the
+ * quote and the invoice also use.
+ *
+ * `discountPercent` records the commitment discount actually applied, so the
+ * catalogue row and the charge agree instead of the row carrying a number
+ * nothing bills.
+ */
+interface SeedCyclePrice {
+  billingCycle: BillingCycle;
+  basePrice: Decimal;
+  perUserPrice: Decimal;
+  perFarmPrice: Decimal;
+  perModulePrice: Decimal;
+  discountPercent: Decimal;
+}
+
+function cyclePricesFor(definition: PlanDefinition): SeedCyclePrice[] {
+  return Object.values(BillingCycle).map((billingCycle) => ({
+    billingCycle,
+    basePrice: cycleAmountFor(definition.monthlyBasePrice, billingCycle, CURRENCY).total,
+    perUserPrice: cycleAmountFor(definition.perUserPrice, billingCycle, CURRENCY).total,
+    perFarmPrice: cycleAmountFor(definition.perFarmPrice, billingCycle, CURRENCY).total,
+    perModulePrice: new Decimal(0),
+    discountPercent: new Decimal(BILLING_CYCLE_DISCOUNT_RATE[billingCycle]).times(100),
+  }));
+}
+
+const DEFAULT_PLANS: readonly PlanDefinition[] = [
+  {
+    // FREE — permanent $0 tier (Billing Revival Faz B). $0 base and $0
+    // per-metric so the subscription total is $0 on every cycle. Limits
+    // project from PLAN_CATALOG FREE via the SSoT.
+    tier: PlanTier.FREE,
+    name: 'Free',
+    limitsFrom: TenantPlan.FREE,
+    monthlyBasePrice: new Decimal(0),
+    perFarmPrice: new Decimal(0),
+    perSensorPrice: new Decimal(0),
+    perUserPrice: new Decimal(0),
+    coreFeatures: ['basic_monitoring', 'alerts'],
+    sortOrder: 0,
+  },
+  {
+    tier: PlanTier.STARTER,
+    name: 'Starter',
+    limitsFrom: TenantPlan.STARTER,
+    monthlyBasePrice: new Decimal(49),
+    perFarmPrice: new Decimal(10),
+    perSensorPrice: new Decimal(2),
+    perUserPrice: new Decimal(5),
+    coreFeatures: ['basic_monitoring', 'alerts', 'dashboard'],
+    sortOrder: 1,
+  },
+  {
+    tier: PlanTier.PROFESSIONAL,
+    name: 'Professional',
+    limitsFrom: TenantPlan.PROFESSIONAL,
+    monthlyBasePrice: new Decimal(149),
+    perFarmPrice: new Decimal(15),
+    perSensorPrice: new Decimal(3),
+    perUserPrice: new Decimal(8),
+    coreFeatures: [
+      'basic_monitoring',
+      'alerts',
+      'dashboard',
+      'reports',
+      'api_access',
+      'advanced_analytics',
+    ],
+    sortOrder: 2,
+  },
+  {
+    tier: PlanTier.ENTERPRISE,
+    name: 'Enterprise',
+    limitsFrom: TenantPlan.ENTERPRISE,
+    monthlyBasePrice: new Decimal(499),
+    perFarmPrice: new Decimal(20),
+    perSensorPrice: new Decimal(5),
+    perUserPrice: new Decimal(10),
+    coreFeatures: [
+      'basic_monitoring',
+      'alerts',
+      'dashboard',
+      'reports',
+      'api_access',
+      'advanced_analytics',
+      'custom_integrations',
+      'dedicated_support',
+      'sla_guarantee',
+      'white_label',
+    ],
+    sortOrder: 3,
+  },
+];

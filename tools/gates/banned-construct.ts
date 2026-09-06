@@ -89,6 +89,18 @@ interface BannedConstructRule {
   readonly remedy: string;
   /** Per-rule path exemptions on top of the global EXEMPT_PATHS. */
   readonly exemptPaths?: readonly RegExp[];
+  /**
+   * The construct genuinely LIVES in a comment (`eslint-disable`,
+   * `@ts-ignore`), so a comment line is exactly where it must be caught.
+   *
+   * Rules without this flag describe CODE. A comment line cannot execute a
+   * cast or a repository lookup, and a gate that trips on the prose
+   * explaining what it forbids is a gate nobody can document around — which
+   * is how you get code whose comments dance around the words that would
+   * make them clear. Same reasoning as the comment-stripper in
+   * `tests/invariants/billing-command-contract-ssot.spec.ts`.
+   */
+  readonly livesInComments?: boolean;
 }
 
 const BANNED_CONSTRUCTS: readonly BannedConstructRule[] = [
@@ -104,16 +116,19 @@ const BANNED_CONSTRUCTS: readonly BannedConstructRule[] = [
   },
   {
     construct: /@ts-ignore\b/,
+    livesInComments: true,
     label: '@ts-ignore',
     remedy: 'fix the type error',
   },
   {
     construct: /@ts-expect-error\b/,
+    livesInComments: true,
     label: '@ts-expect-error',
     remedy: 'fix the type error',
   },
   {
     construct: /@ts-nocheck\b/,
+    livesInComments: true,
     label: '@ts-nocheck',
     remedy: 'fix the file, never opt it out of the compiler',
   },
@@ -129,6 +144,7 @@ const BANNED_CONSTRUCTS: readonly BannedConstructRule[] = [
   },
   {
     construct: /eslint-disable/,
+    livesInComments: true,
     label: 'eslint-disable',
     remedy:
       'fix the violation; if the rule itself is wrong, change .eslintrc (the lint-policy SSOT) with a documented WHY',
@@ -200,6 +216,7 @@ export function scanAddedLines(lines: readonly AddedLine[]): Violation[] {
     if (!CODE_FILE.test(line.path)) continue;
     for (const rule of BANNED_CONSTRUCTS) {
       if (isExempt(line.path, rule)) continue;
+      if (!rule.livesInComments && isCommentLine(line.text)) continue;
       if (!rule.construct.test(line.text)) continue;
       violations.push({
         path: line.path,
@@ -211,6 +228,15 @@ export function scanAddedLines(lines: readonly AddedLine[]): Violation[] {
     }
   }
   return violations;
+}
+
+/**
+ * A line that is ONLY a comment. Deliberately conservative: a trailing
+ * comment on a code line still counts as code, because the code half is real.
+ */
+function isCommentLine(text: string): boolean {
+  const trimmed = text.trim();
+  return trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*');
 }
 
 function fileAsAddedLines(relPath: string): readonly AddedLine[] {

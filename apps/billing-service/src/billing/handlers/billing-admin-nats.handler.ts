@@ -213,7 +213,10 @@ export class BillingAdminNatsHandler {
         const stripeRefs = await this.subscriptionWriter.ensureStripeObjects({
           tenantId: command.tenantId,
           plan: provisioningPlan,
-          billingCycle: provisioningPlan.billingCycle,
+          // The requested cycle: it selects `stripe_price_ids[cycle]` and is
+          // part of the Stripe idempotency key, so the plan's default cycle
+          // would mint the wrong price on any non-default sale.
+          billingCycle: this.parseBillingCycle(command.billingCycle),
         });
 
         return await this.dataSource.transaction('SERIALIZABLE', async (manager) => {
@@ -609,27 +612,39 @@ export class BillingAdminNatsHandler {
 
     // eslint-disable-next-line no-restricted-syntax -- Billing Plan is a cross-tenant catalog table with no tenantId; tenantManagerRepo would invent tenant scope where the schema intentionally has none.
     const planRepository = manager.getRepository(Plan);
-    const plan = command.customPlanId
-      ? await planRepository.findOne({
-          where: {
-            id: command.customPlanId,
-            billingCycle,
-            isActive: true,
-            isDeleted: false,
-          },
-        })
-      : await planRepository.findOne({
-          where: {
-            tier,
-            billingCycle,
-            isActive: true,
-            isDeleted: false,
-          },
-          order: { version: 'DESC', sortOrder: 'ASC' },
-        });
+    // BILLING-CRITICAL-003: resolve by TIER, then check the cycle is priced.
+    // This used to filter on `billingCycle` too, which demanded a plans row
+    // whose DEFAULT cycle equalled the requested one — and the seed wrote only
+    // monthly rows, so quarterly, semi-annual and annual provisioning every
+    // answered CATALOG_MISSING. A plan is purchasable on a cycle exactly when
+    // it carries a `plan_cycle_prices` row for it (W4b normalised the matrix
+    // into those rows); `plans.billing_cycle` is the plan's default, not its
+    // only cycle. The GraphQL path already resolved by tier alone.
+    // `customPlanId` is a `billing.custom_plans` id and was being looked up in
+    // `billing.plans` — different tables, so it could never match and EVERY
+    // custom-plan activation failed here, after admin-api's own `approved`
+    // guard had already passed. A custom plan is not a catalogue plan: it is a
+    // negotiated price FOR a tenant, travelling as `enterprise` plus its own
+    // module items. The catalogue plan is still resolved by tier; the custom
+    // plan is verified to exist, to belong to this tenant, and to be approved.
+    if (command.customPlanId) {
+      await this.assertCustomPlanIsProvisionable(manager, command.tenantId, command.customPlanId);
+    }
+    const plan = await planRepository.findOne({
+      where: {
+        tier,
+        isActive: true,
+        isDeleted: false,
+      },
+      order: { version: 'DESC', sortOrder: 'ASC' },
+    });
     if (!plan) {
+      throw new NotFoundException(`No active billing catalog plan for tier=${command.tier}`);
+    }
+    if (!(plan.cyclePrices ?? []).some((price) => price.billingCycle === billingCycle)) {
       throw new NotFoundException(
-        `No active billing catalog plan for tier=${command.tier} billingCycle=${command.billingCycle}`,
+        `Plan "${plan.name}" is not priced for billingCycle=${command.billingCycle}; ` +
+          'add a cycle price to the plan before selling it on that cycle',
       );
     }
     if (
@@ -642,6 +657,43 @@ export class BillingAdminNatsHandler {
       );
     }
     return plan;
+  }
+
+  /**
+   * A custom plan may price a subscription only when it exists, belongs to the
+   * tenant being provisioned, and has been approved.
+   *
+   * None of this was checked: `customPlanId` went straight into a `plans`
+   * lookup, so a well-formed command naming ANOTHER tenant's plan — or a
+   * rejected one — was indistinguishable from a typo. `active` is accepted
+   * because provisioning is replayed on retry after the activation step has
+   * already marked the plan active.
+   */
+  private async assertCustomPlanIsProvisionable(
+    manager: EntityManager,
+    tenantId: string,
+    customPlanId: string,
+  ): Promise<void> {
+    const rows = await manager.query<Array<{ tenantId: string; status: string }>>(
+      `SELECT tenant_id AS "tenantId", status
+         FROM billing.custom_plans
+        WHERE id = $1`,
+      [customPlanId],
+    );
+    const customPlan = rows[0];
+    if (!customPlan) {
+      throw new NotFoundException(`Custom plan ${customPlanId} not found`);
+    }
+    if (customPlan.tenantId !== tenantId) {
+      throw new ConflictException(
+        `Custom plan ${customPlanId} belongs to another tenant and cannot price this subscription`,
+      );
+    }
+    if (customPlan.status !== 'approved' && customPlan.status !== 'active') {
+      throw new ConflictException(
+        `Custom plan ${customPlanId} is ${customPlan.status}; only an approved plan can price a subscription`,
+      );
+    }
   }
 
   /**
@@ -672,7 +724,10 @@ export class BillingAdminNatsHandler {
     const subscription = await this.subscriptionWriter.createWithin(manager, {
       tenantId: command.tenantId,
       plan,
-      billingCycle: plan.billingCycle,
+      // The cycle the operator ASKED for, not the plan's default. These were
+      // the same only because the lookup was over-constrained to the point of
+      // refusing three of the four cycles.
+      billingCycle: this.parseBillingCycle(command.billingCycle),
       limits: plan.limits,
       // basePrice is the recurring monthly charge the invoice scheduler bills
       // off (billing-scheduler.service.ts) — the real sum of the priced module
@@ -751,32 +806,6 @@ export class BillingAdminNatsHandler {
       throw new BadRequestException(`Unsupported billing cycle: ${value}`);
     }
     return value as BillingCycle;
-  }
-
-  private calculatePeriodEnd(startDate: Date, billingCycle: BillingCycle): Date {
-    return this.addMonthsClamped(startDate, this.cycleToMonths(billingCycle));
-  }
-
-  private cycleToMonths(billingCycle: BillingCycle): number {
-    switch (billingCycle) {
-      case BillingCycle.MONTHLY:
-        return 1;
-      case BillingCycle.QUARTERLY:
-        return 3;
-      case BillingCycle.SEMI_ANNUAL:
-        return 6;
-      case BillingCycle.ANNUAL:
-        return 12;
-    }
-  }
-
-  private addMonthsClamped(date: Date, months: number): Date {
-    const targetYear = date.getFullYear();
-    const targetMonth = date.getMonth() + months;
-    const lastDay = new Date(targetYear, targetMonth + 1, 0).getDate();
-    const result = new Date(date);
-    result.setFullYear(targetYear, targetMonth, Math.min(date.getDate(), lastDay));
-    return result;
   }
 
   private addDays(date: Date, days: number): Date {

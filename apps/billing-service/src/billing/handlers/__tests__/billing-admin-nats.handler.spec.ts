@@ -27,6 +27,7 @@ import { BillingAdminNatsHandler } from '../billing-admin-nats.handler';
  *     boundary (VALIDATION_ERROR), not mid-transaction.
  */
 describe('BillingAdminNatsHandler.provisionTenantSubscription', () => {
+  const TENANT = '22222222-2222-4222-8222-222222222222';
   const MODULE_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const MODULE_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
@@ -36,7 +37,7 @@ describe('BillingAdminNatsHandler.provisionTenantSubscription', () => {
   let bypassRls: { withBypass: jest.Mock };
   let planFindOne: jest.Mock;
   let subscriptionWriter: { ensureStripeObjects: jest.Mock; createWithin: jest.Mock };
-  let mockDataSourceRef: { transaction: jest.Mock };
+  let mockDataSourceRef: { transaction: jest.Mock; manager: { query: jest.Mock } };
 
   const plan = {
     id: 'plan-starter-1',
@@ -51,13 +52,21 @@ describe('BillingAdminNatsHandler.provisionTenantSubscription', () => {
     sortOrder: 1,
     limits: { maxFarms: 1 },
     pricing: { perFarmPrice: 10, perSensorPrice: 2, perUserPrice: 5 },
+    // W4b normalised the per-cycle matrix into rows; a cycle is purchasable
+    // exactly when the plan carries one.
+    cyclePrices: [
+      { billingCycle: 'monthly' },
+      { billingCycle: 'quarterly' },
+      { billingCycle: 'semi_annual' },
+      { billingCycle: 'annual' },
+    ],
   };
 
   const buildCommand = (
     overrides: Partial<BillingTenantProvisioningCommand> = {},
   ): BillingTenantProvisioningCommand => ({
     operationId: '11111111-1111-4111-8111-111111111111',
-    tenantId: '22222222-2222-4222-8222-222222222222',
+    tenantId: TENANT,
     idempotencyKey: 'idem-key-0123456789abcdef',
     correlationId: 'corr-0123456789abcdef',
     requestPayloadHash: 'reqhash',
@@ -375,5 +384,110 @@ describe('BillingAdminNatsHandler.provisionTenantSubscription', () => {
       'billing-admin:create-invoice',
       expect.any(Function),
     );
+  });
+  /**
+   * BILLING-CRITICAL-003: three of the four billing cycles could not be sold.
+   *
+   * Provisioning resolved a plan by `{tier, billingCycle}` against `plans`,
+   * which demanded a row whose DEFAULT cycle equalled the requested one — and
+   * the seed wrote monthly rows only. Quarterly, semi-annual and annual every
+   * answered CATALOG_MISSING. W4b had already normalised the per-cycle matrix
+   * into `plan_cycle_prices`, so the plan a tenant buys annually is the same
+   * plan, priced for that cycle.
+   */
+  it('provisions on a cycle the plan is priced for, whatever the plan default is', async () => {
+    const result = await handler.provisionTenantSubscription(
+      buildCommand({ billingCycle: 'annual' }),
+    );
+
+    expect(result.success).toBe(true);
+    // Resolved by tier alone — the cycle is not part of the plans lookup.
+    expect(planFindOne.mock.calls[0][0].where).not.toHaveProperty('billingCycle');
+    expect(subscriptionWriter.createWithin.mock.calls[0][1].billingCycle).toBe('annual');
+    // The Stripe price id and idempotency key are per-cycle, so the requested
+    // cycle has to reach Stripe too.
+    expect(subscriptionWriter.ensureStripeObjects.mock.calls[0][0].billingCycle).toBe('annual');
+  });
+
+  it('refuses a cycle the plan carries no price for, instead of billing a default', async () => {
+    planFindOne.mockResolvedValue({
+      ...plan,
+      cyclePrices: [{ billingCycle: 'monthly' }],
+    });
+
+    const result = await handler.provisionTenantSubscription(
+      buildCommand({ billingCycle: 'annual' }),
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.errorCode).toBe('CATALOG_MISSING');
+    expect(subscriptionWriter.createWithin).not.toHaveBeenCalled();
+  });
+  /**
+   * BILLING-CRITICAL-003: every custom-plan activation failed.
+   *
+   * `customPlanId` is a `billing.custom_plans` id and provisioning looked it
+   * up in `billing.plans`. Different tables — it could never match, so a
+   * negotiated plan that had passed admin-api's `approved` guard died one call
+   * later with CATALOG_MISSING, and nothing said the id had been resolved
+   * against the wrong table.
+   */
+  describe('custom plans price a subscription; they are not catalogue rows', () => {
+    const CUSTOM_PLAN_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+
+    const customPlanCommand = () =>
+      buildCommand({ tier: 'enterprise', customPlanId: CUSTOM_PLAN_ID });
+
+    const withCustomPlanRow = (row: { tenantId: string; status: string } | null): void => {
+      const managerQuery = (mockDataSourceRef.manager as { query: jest.Mock }).query;
+      const inner = managerQuery.getMockImplementation()!;
+      managerQuery.mockImplementation(async (sql: string, params: unknown[] = []) => {
+        if (/FROM billing\.custom_plans/.test(sql)) {
+          recordedQueries.push({ sql, params });
+          return row ? [row] : [];
+        }
+        return inner(sql, params);
+      });
+    };
+
+    it('resolves the CATALOGUE plan by tier and verifies the custom plan separately', async () => {
+      withCustomPlanRow({ tenantId: TENANT, status: 'approved' });
+
+      const result = await handler.provisionTenantSubscription(customPlanCommand());
+
+      expect(result.success).toBe(true);
+      // The plans lookup is by tier — the custom plan id never reaches it.
+      expect(planFindOne.mock.calls[0][0].where).not.toHaveProperty('id');
+      expect(planFindOne.mock.calls[0][0].where.tier).toBe('enterprise');
+      expect(recordedQueries.some((q) => /FROM billing\.custom_plans/.test(q.sql))).toBe(true);
+    });
+
+    it('refuses a custom plan that belongs to another tenant', async () => {
+      withCustomPlanRow({ tenantId: 'ffffffff-ffff-4fff-8fff-ffffffffffff', status: 'approved' });
+
+      const result = await handler.provisionTenantSubscription(customPlanCommand());
+
+      expect(result.success).toBe(false);
+      expect(subscriptionWriter.createWithin).not.toHaveBeenCalled();
+    });
+
+    it('refuses a custom plan that is not approved', async () => {
+      withCustomPlanRow({ tenantId: TENANT, status: 'rejected' });
+
+      const result = await handler.provisionTenantSubscription(customPlanCommand());
+
+      expect(result.success).toBe(false);
+      expect(subscriptionWriter.createWithin).not.toHaveBeenCalled();
+    });
+
+    it('refuses a custom plan id that names no row', async () => {
+      withCustomPlanRow(null);
+
+      const result = await handler.provisionTenantSubscription(customPlanCommand());
+
+      expect(result.success).toBe(false);
+      expect(result.errorCode).toBe('CATALOG_MISSING');
+      expect(subscriptionWriter.createWithin).not.toHaveBeenCalled();
+    });
   });
 });

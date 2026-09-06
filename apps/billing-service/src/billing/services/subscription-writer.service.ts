@@ -29,6 +29,7 @@ import { OutboxPublisher } from '@platform/outbox';
 import { EntityManager } from 'typeorm';
 
 import { Plan } from '../entities/plan.entity';
+import { BILLING_CYCLE_MONTHS } from './module-quote';
 import {
   BillingCycle,
   PlanTier,
@@ -188,20 +189,7 @@ export class SubscriptionWriterService {
 
 /** The end of the first billing period. Shared, because both callers need it. */
 export function periodEndFor(startDate: Date, billingCycle: BillingCycle): Date {
-  return addMonthsClamped(startDate, cycleToMonths(billingCycle));
-}
-
-function cycleToMonths(billingCycle: BillingCycle): number {
-  switch (billingCycle) {
-    case BillingCycle.MONTHLY:
-      return 1;
-    case BillingCycle.QUARTERLY:
-      return 3;
-    case BillingCycle.SEMI_ANNUAL:
-      return 6;
-    case BillingCycle.ANNUAL:
-      return 12;
-  }
+  return addMonthsClamped(startDate, BILLING_CYCLE_MONTHS[billingCycle]);
 }
 
 /**

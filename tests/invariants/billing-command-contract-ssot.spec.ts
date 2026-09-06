@@ -307,3 +307,68 @@ describe('INVARIANT (ADR-0014): admin billing commands are at-most-once', () => 
     expect(runtimeWrites).toEqual([]);
   });
 });
+
+/**
+ * INVARIANT — every billing cycle the platform offers can actually be sold
+ * (BILLING-CRITICAL-003).
+ *
+ * Provisioning resolved a plan by `{tier, billingCycle}` while the seed wrote
+ * monthly rows only, so quarterly, semi-annual and annual every answered
+ * CATALOG_MISSING. A cycle is offered exactly when the plan carries a
+ * `plan_cycle_prices` row for it — `plans.billing_cycle` is the plan's DEFAULT.
+ */
+describe('INVARIANT (BILLING-CRITICAL-003): a cycle is sellable when it is priced', () => {
+  const PROVISIONING = 'apps/billing-service/src/billing/handlers/billing-admin-nats.handler.ts';
+  const SEED = 'apps/billing-service/src/billing/seed/plan-seed.service.ts';
+  const QUOTE = 'apps/billing-service/src/billing/services/module-quote.ts';
+  const SCHEDULER = 'apps/billing-service/src/billing/billing-scheduler.service.ts';
+
+  it('never narrows the catalogue lookup by billing cycle again', () => {
+    const resolver = code(PROVISIONING);
+    const start = resolver.indexOf('private async resolveProvisioningPlan');
+    expect(start).toBeGreaterThan(-1);
+    const body = resolver.slice(start, resolver.indexOf('\n  private ', start + 1));
+    // The lookup is by tier; the cycle is checked against the priced rows.
+    expect(body).not.toMatch(/where:\s*\{[^}]*\bbillingCycle,/);
+    expect(body).toContain('cyclePrices');
+  });
+
+  it('provisions on the cycle the caller asked for, not the plan default', () => {
+    // `plan.billingCycle` reaching the writer or Stripe is the bug: it is the
+    // plan's default, and selects the wrong `stripe_price_ids[cycle]`.
+    const handler = code(PROVISIONING);
+    expect(handler).not.toContain('billingCycle: plan.billingCycle');
+    expect(handler).not.toContain('billingCycle: provisioningPlan.billingCycle');
+  });
+
+  it('resolves a custom plan against custom_plans, never against the catalogue', () => {
+    // `customPlanId` is a `billing.custom_plans` id. Looking it up in
+    // `billing.plans` could never match, so every custom-plan activation died
+    // with CATALOG_MISSING after admin-api's `approved` guard had passed.
+    const handler = code(PROVISIONING);
+    expect(handler).not.toMatch(/id:\s*command\.customPlanId/);
+    expect(handler).toContain('FROM billing.custom_plans');
+  });
+
+  it('seeds a price for every cycle, keyed on the tier', () => {
+    const seed = code(SEED);
+    expect(seed).toContain('cyclePrices');
+    expect(seed).toContain('cycleAmountFor');
+    // Identity is the tier: matching on name made a rename insert a duplicate.
+    expect(seed).toMatch(/where:\s*\{\s*tier:/);
+    expect(seed).not.toMatch(/where:\s*\{\s*name:/);
+  });
+
+  it('has ONE rule for what a cycle costs, used by the quote and the invoice', () => {
+    // The quote discounted the commitment and the scheduler did not, so an
+    // annual tenant was invoiced 15% above the price they signed.
+    expect(code(QUOTE)).toContain('export function cycleAmountFor');
+    expect(code(SCHEDULER)).toContain('cycleAmountFor(');
+    for (const file of listFiles('apps/billing-service/src/**/*.ts').filter(
+      (candidate) => !candidate.includes('__tests__') && candidate !== QUOTE,
+    )) {
+      // Nobody re-derives the months table or the commitment rate locally.
+      expect(code(file)).not.toMatch(/case BillingCycle\.SEMI_ANNUAL:\s*return 6/);
+    }
+  });
+});

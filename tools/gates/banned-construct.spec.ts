@@ -17,6 +17,8 @@
  *     (the scoping SSOT) is allowed
  *   - non-code files (md/json/yml) never fire
  *   - global exemption: the verification fixture path is skipped
+ *   - a CODE construct named in a comment does not fire, but a construct that
+ *     LIVES in a comment still does
  */
 
 import { strict as assert } from 'node:assert';
@@ -98,4 +100,44 @@ void test('clean production line produces no violations', () => {
     ),
   ]);
   assert.equal(hits.length, 0);
+});
+
+void test('a code construct named in prose does not fire', () => {
+  // A gate that trips on the comment explaining what it forbids forces every
+  // docblock to dance around the words that would make it clear.
+  const prose: readonly string[] = [
+    '// Entity-first EntityManager overloads, not getRepository(Entity).<op>().',
+    ' * `as any` is banned; fix the type or write a generic.',
+    '/* the old code did `value as unknown as TenantContext` here */',
+    '  // it.skip( was how this suite used to hide a real failure',
+  ];
+  for (const text of prose) {
+    assert.deepEqual(
+      scanAddedLines([line('apps/billing-service/src/seed.ts', text)]),
+      [],
+      `prose should not fire: ${text}`,
+    );
+  }
+});
+
+void test('a construct that LIVES in a comment still fires from a comment', () => {
+  const inComments: ReadonlyArray<readonly [string, string]> = [
+    ['eslint-disable', '// eslint-disable-next-line no-restricted-syntax -- catalogue'],
+    ['@ts-ignore', '// @ts-ignore -- legacy'],
+    ['@ts-expect-error', ' * @ts-expect-error wrong overload'],
+    ['@ts-nocheck', '/* @ts-nocheck */'],
+  ];
+  for (const [label, text] of inComments) {
+    const found = scanAddedLines([line('apps/farm-service/src/x.ts', text)]);
+    assert.equal(found.length, 1, `expected ${label} to fire on: ${text}`);
+    assert.equal(found[0]?.label, label);
+  }
+});
+
+void test('a trailing comment does not excuse the code beside it', () => {
+  const found = scanAddedLines([
+    line('apps/farm-service/src/x.ts', 'const repo = ds.getRepository(Batch); // cross-tenant'),
+  ]);
+  assert.equal(found.length, 1);
+  assert.equal(found[0]?.label, 'bare getRepository(');
 });

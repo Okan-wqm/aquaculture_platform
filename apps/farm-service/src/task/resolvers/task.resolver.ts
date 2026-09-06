@@ -9,6 +9,8 @@ import {
   Resolver,
   Query,
   Mutation,
+  ResolveField,
+  Parent,
   Args,
   ID,
   ObjectType,
@@ -23,7 +25,7 @@ import { MobileFeatureGuard } from '@aquaculture/backend-common/guards';
 import { mobileCommandEnvelopeFromInput } from '@aquaculture/backend-common/mobile-command';
 import { StandardPaginatedResponse, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { QueryBus } from '@platform/cqrs';
-import { Task, TaskStatus } from '../entities/task.entity';
+import { Task, TaskChecklistItem, TaskStatus } from '../entities/task.entity';
 import { TaskService } from '../services/task.service';
 import { GetTaskQuery } from '../queries/get-task.query';
 import { ListTasksQuery } from '../queries/list-tasks.query';
@@ -98,6 +100,22 @@ export class TaskResolver {
     private readonly taskService: TaskService,
     private readonly queryBus: QueryBus,
   ) {}
+
+  // -------------------------------------------------------------------------
+  // FIELD RESOLVERS
+  // -------------------------------------------------------------------------
+
+  /**
+   * The wire `checklistItems` is the CANONICAL shape, never the stored one
+   * (FARM-HIGH-320): every row passes through the same normaliser the write
+   * path uses, so a legacy `{ text, completed }` item reads as
+   * `{ id, text, isCompleted }` instead of an unticked, id-less object each
+   * client has to repair for itself.
+   */
+  @ResolveField(() => [TaskChecklistItem], { name: 'checklistItems' })
+  checklistItems(@Parent() task: Task): TaskChecklistItem[] {
+    return TaskService.normaliseChecklistItems(task.checklistItems);
+  }
 
   // -------------------------------------------------------------------------
   // QUERIES

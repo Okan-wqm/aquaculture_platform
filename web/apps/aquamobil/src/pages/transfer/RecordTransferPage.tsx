@@ -7,7 +7,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useTanks } from '@/hooks/useTanks';
-import type { TransferInput } from '@/types';
+import type { QueuedPayload } from '@/types';
 
 interface FormErrors {
   sourceTank?: string;
@@ -89,7 +89,7 @@ export function RecordTransferPage(): JSX.Element {
   // re-introduced `biomassKg` becomes a tsc error here, not a runtime 400. This
   // mirrors the buildPayload(): MortalityInput / CullInput pattern on the
   // mortality and cull pages.
-  const buildPayload = (batchId: string): TransferInput => ({
+  const buildPayload = (batchId: string): QueuedPayload<'recordTransfer'> => ({
     batchId,
     sourceTankId,
     destinationTankId,

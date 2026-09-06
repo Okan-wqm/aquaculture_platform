@@ -8,6 +8,7 @@ import {
   Check,
 } from 'typeorm';
 import { ObjectType, Field, ID, registerEnumType } from '@nestjs/graphql';
+import GraphQLJSON from 'graphql-type-json';
 import { MessageAttachment } from './message-attachment.entity';
 import { MessageReceipt } from './message-receipt.entity';
 import { MessageReaction } from './message-reaction.entity';
@@ -115,6 +116,14 @@ export class Message {
   @Column({ type: 'boolean', default: false })
   isAiGenerated!: boolean;
 
+  /**
+   * Arbitrary client metadata accepted by SendMessageInput.metadata (voice-note
+   * durationSeconds, AI attribution flags, …). Exposed on the read path because
+   * the live WS envelope already carries it (messaging-nats.handler WsMessage)
+   * and the mobile client renders from it — a message loaded through GraphQL
+   * must not lose what the same message carried over the socket (MSG-HIGH).
+   */
+  @Field(() => GraphQLJSON, { nullable: true })
   @Column({ type: 'jsonb', nullable: true })
   metadata!: Record<string, unknown> | null;
 

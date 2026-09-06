@@ -147,7 +147,15 @@ export class WebAuthnVerifyLoginInput {
   @IsNotEmpty()
   signature!: string;
 
-  @Field({ description: 'Base64url-encoded user handle (what the authenticator stored)' })
+  /**
+   * Nullable on the wire because a non-discoverable credential's assertion
+   * carries no user handle; the validator already accepted its absence, so a
+   * non-null SDL field here was a contract lie the typed client now catches.
+   */
+  @Field({
+    nullable: true,
+    description: 'Base64url-encoded user handle (what the authenticator stored)',
+  })
   @IsOptional()
   @IsString()
   userHandle?: string;

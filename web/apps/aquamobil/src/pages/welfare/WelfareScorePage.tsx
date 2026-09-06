@@ -25,7 +25,7 @@ import {
 
 import { PhotoCaptureField } from '@/components/PhotoCaptureField';
 import { useTanks } from '@/hooks/useTanks';
-import type { WelfareAssessmentInput } from '@/types';
+import type { QueuedPayload } from '@/types';
 
 const WELFARE_THEME: RecordEntityTheme = {
   headerGradient: 'bg-gradient-to-r from-emerald-600 to-emerald-500',
@@ -110,7 +110,7 @@ export function WelfareScorePage(): JSX.Element {
     return Object.keys(next).length === 0;
   }, [selectedTankId, selectedTank, metrics, fishSampled]);
 
-  const buildPayload = (): WelfareAssessmentInput => {
+  const buildPayload = (): QueuedPayload<'recordWelfareAssessment'> => {
     const siteId = selectedTank?.siteId;
     if (!siteId) {
       throw new Error('Cannot record welfare assessment: selected tank has no site');
@@ -131,7 +131,7 @@ export function WelfareScorePage(): JSX.Element {
   };
 
   return (
-    <RecordEntityPage<WelfareAssessmentInput>
+    <RecordEntityPage<'recordWelfareAssessment'>
       theme={WELFARE_THEME}
       entryTitle="Welfare Scores"
       confirmTitle="Confirm Welfare Scores"

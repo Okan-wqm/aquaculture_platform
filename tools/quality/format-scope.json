@@ -16821,6 +16821,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/task/__tests__/task-checklist-wire.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/task/__tests__/task-read-handlers.spec.ts",
       "prettier_managed": true
     },
@@ -34773,6 +34779,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/contract-parity-enforcer/2026-09-05-mobile-read-contract-drift.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/data-expert/2026-04-06-nestjs-di-reflect-metadata-docker.md",
       "prettier_managed": true
     },
@@ -35722,6 +35734,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/orchestrator/2026-08-16-farm-mobile-audit-cycle.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/orchestrator/2026-09-05-production-readiness-gaps.md",
       "prettier_managed": true
     },
     {
@@ -37636,7 +37654,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "cd976bce5979195e2a07bc246b3e9893a4e6b114ddcd8da20180b2c4b928882e",
+      "content_sha256": "90443cf6d60d411c0a821917be61aa810fb6192d41785b6e749c90f49d12ae2b",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/apollo-router/codegen-schema.generated.json",
@@ -44690,7 +44708,7 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "tests/invariants/aquamobil-input-mirror-parity.spec.ts",
+      "path": "tests/invariants/aquamobil-graphql-contract-ssot.spec.ts",
       "prettier_managed": true
     },
     {
@@ -47934,6 +47952,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/components/AlreadyRecordedNotice.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/components/BarcodeScanButton.tsx",
       "prettier_managed": true
     },
@@ -48209,7 +48233,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "68823f838783c632993ac9c886ea08b5e2a56dead7098b34a2f026a7afd744a8",
+      "content_sha256": "7252e5c823b6905f5af3e9bc0115409b045db3c4486076f121986b0edb9f092c",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/apps/aquamobil/src/generated/graphql.ts",
@@ -48257,7 +48281,7 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/apps/aquamobil/src/graphql/water-quality.operations.ts",
+      "path": "web/apps/aquamobil/src/graphql/storage-operations.ts",
       "prettier_managed": true
     },
     {
@@ -48378,6 +48402,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/hooks/__tests__/useNotifications-cadence.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/__tests__/useOfflineQueue-immediate-drain.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -48965,6 +48995,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/storage/__tests__/StockMovementPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/storage/__tests__/StockTransferPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/storage/__tests__/StorageHubPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/pages/storage/StockMovementPage.tsx",
       "prettier_managed": true
     },
@@ -49025,6 +49073,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/water-quality/__tests__/WaterQualityRecordPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/pages/water-quality/WaterQualityRecordPage.tsx",
       "prettier_managed": true
     },
@@ -49074,6 +49128,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/pwa/__tests__/sw-replay.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pwa/graphql-replay-error.ts",
       "prettier_managed": true
     },
     {
@@ -58689,7 +58749,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "cecfe93e1d99c29eb5f841af3089d02e5a230346925d7b9ba5dffeb0e0ca1727",
+      "content_sha256": "eb479538f3c5e5805f42d797f306c1094b8d2992c32274ce31ce4519f4911eec",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",

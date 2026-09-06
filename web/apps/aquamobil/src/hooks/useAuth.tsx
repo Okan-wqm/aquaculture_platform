@@ -24,8 +24,8 @@ interface AuthContextValue extends AuthState {
   loginWithToken: (accessToken: string, user: {
     id: string;
     email: string;
-    firstName?: string;
-    lastName?: string;
+    firstName?: string | null;
+    lastName?: string | null;
     role: string;
     tenantId: string | null;
   }) => Promise<void>;
@@ -382,7 +382,7 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
 
   const loginWithToken = useCallback(async (
     accessToken: string,
-    user: { id: string; email: string; firstName?: string; lastName?: string; role: string; tenantId: string | null },
+    user: { id: string; email: string; firstName?: string | null; lastName?: string | null; role: string; tenantId: string | null },
   ) => {
     setIsLoading(true);
     setIsMobileDisabled(false);

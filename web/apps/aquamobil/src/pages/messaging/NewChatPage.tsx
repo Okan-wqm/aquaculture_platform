@@ -209,7 +209,7 @@ export function NewChatPage(): JSX.Element {
   const { data: aiPersonas = [] } = useQuery({
     queryKey: createTenantQueryKey(tenantId, 'messaging', 'aiPersonas'),
     queryFn: async () => {
-      const result = await graphqlRequest<{ availableAiPersonas: AiPersona[] }>(
+      const result = await graphqlRequest(
         AVAILABLE_AI_PERSONAS,
       );
       return result.availableAiPersonas ?? [];

@@ -37,10 +37,15 @@
 // MSG-HIGH-054) rather than a per-comparison UPPERCASE migration.
 
 import type {
+  AllMessagesSinceQuery,
+  ChannelFieldsFragment,
+  GetMessagesQuery,
   MessageContentType,
+  MessageFieldsFragment,
   ReceiptStatus,
   ChannelMemberRole,
   NotificationPreference,
+  RequestMediaUploadMutation,
 } from '@/generated/graphql';
 
 export type {
@@ -75,86 +80,35 @@ export type MessageStatus = 'pending' | 'sent' | 'failed';
 // ENTITIES
 // ============================================================================
 
-/**
- * Federation-compatible user entity for message sender resolution.
- * WHY: The messaging-service extends the auth-service User type via federation.
- * The GraphQL response may include firstName/lastName OR displayName depending
- * on the resolver. We support both shapes for forward compatibility.
- */
-export interface MessageUser {
-  id: string;
-  firstName?: string | null;
-  lastName?: string | null;
-  // email intentionally absent: a message sender / channel member is a
-  // PublicUserProfile (display-only) — email never crosses the federated
-  // reference. Use firstName/lastName for names.
-  displayName?: string | null;
-  profileImageUrl?: string | null;
-  avatarUrl?: string | null;
-  isOnline?: boolean;
-  lastSeenAt?: string | null;
-}
+// MOB-HIGH-022: every entity below is DERIVED from the generated operation
+// result types (the `MessageFields` / `ChannelFields` fragments the read
+// documents select), never re-typed by hand. A field the server drops or
+// renames — or one the client used to claim that the server never sent, like
+// `MessageUser.avatarUrl`/`displayName` and `Message.metadata` before
+// MSG-HIGH-080 — is a compile error at the consumer, not a silent `undefined`.
 
 /**
- * Channel entity — represents a messaging channel (DIRECT, GROUP, or AI).
- * DIRECT channels have exactly 2 members and no name.
- * AI channels may have an aiPersona and aiServiceUrl for persona-based routing.
+ * A message sender / channel member as the federated `PublicUserProfile`
+ * selection delivers it. The live WS envelope carries only `{ id }` for the
+ * sender; `useMessageSocket.enrichSenderFromMembers` fills the profile from the
+ * cached channel members so both transports converge on this shape.
  */
-export interface Channel {
-  id: string;
-  type: ChannelType;
-  name: string | null;
-  description: string | null;
-  avatarUrl: string | null;
-  createdBy: string | null;
-  isArchived: boolean;
-  createdAt: string;
-  updatedAt: string;
-  /** AI persona ID for AI channels (e.g. 'expert-v1'). Null = general AI chat. */
-  aiPersona?: string | null;
-  /** Custom MCP server URL override. Null = default ai-service via NATS. */
-  aiServiceUrl?: string | null;
-  /** Populated via field resolver — active members of this channel. */
-  members?: ChannelMember[];
-  /** Server-computed member count. */
-  memberCount?: number;
-  /** Server-side last message preview for channel list. */
-  lastMessage?: Message | null;
-  /** Server-side or client-enriched unread count. */
-  unreadCount?: number;
-}
+export type MessageUser = NonNullable<MessageFieldsFragment['sender']>;
+
+/** File attachment stored in MinIO via presigned upload (presigned URLs resolved server-side). */
+export type MessageAttachment = MessageFieldsFragment['attachments'][number];
+
+/** Read receipt for delivery/read tracking. */
+export type MessageReceipt = NonNullable<MessageFieldsFragment['receipts']>[number];
+
+/** Aggregated reaction summary per emoji on a message. */
+export type ReactionSummary = NonNullable<MessageFieldsFragment['reactionSummary']>[number];
 
 /**
- * Channel membership with role, notification prefs, and read cursor.
+ * Message entity — the `MessageFields` selection plus the client-only fields the
+ * optimistic send pipeline and the WS envelope add.
  */
-export interface ChannelMember {
-  id: string;
-  channelId: string;
-  userId: string;
-  role: ChannelMemberRole;
-  notificationPreference: NotificationPreference;
-  lastReadAt: string | null;
-  joinedAt: string;
-  leftAt: string | null;
-  /** Populated via federation — user details for member list UI. */
-  user?: MessageUser;
-}
-
-/**
- * Message entity with composite PK (id, createdAt) for partition routing.
- */
-export interface Message {
-  id: string;
-  channelId: string;
-  senderId: string;
-  content: string | null;
-  contentType: MessageContentType;
-  parentId: string | null;
-  forwardedFrom: string | null;
-  isDeleted: boolean;
-  createdAt: string;
-  editedAt: string | null;
-  metadata: Record<string, unknown> | null;
+export interface Message extends MessageFieldsFragment {
   /**
    * Server idempotency key, echoed back on the `newMessage` WS envelope so the
    * client can replace its optimistic bubble with the server message instead of
@@ -162,80 +116,46 @@ export interface Message {
    * channel room).
    */
   idempotencyKey?: string | null;
-  /** Populated via field resolver. */
-  sender?: MessageUser;
-  /** Populated via field resolver. */
-  attachments?: MessageAttachment[];
-  /** Populated via field resolver. */
-  receipts?: MessageReceipt[];
-  /** Aggregated reaction counts per emoji. */
-  reactionSummary?: ReactionSummary[];
   /** Client-side optimistic status — not from the server. */
   _status?: MessageStatus;
   /** Client-side idempotency key — used for optimistic dedup. */
   _idempotencyKey?: string;
 }
 
-/**
- * File attachment stored in MinIO via presigned upload.
- */
-export interface MessageAttachment {
-  id: string;
-  originalFilename: string;
-  mimeType: string;
-  fileSize: number;
-  width: number | null;
-  height: number | null;
-  durationSeconds: number | null;
-  /** Presigned thumbnail URL for images/videos. */
-  thumbnailUrl?: string | null;
-  /** Presigned download URL — resolved by field resolver on backend. */
-  downloadUrl?: string | null;
-}
+/** Channel membership with role, notification prefs, read cursor and federated profile. */
+export type ChannelMember = NonNullable<ChannelFieldsFragment['members']>[number];
 
 /**
- * Read receipt for delivery/read tracking.
+ * Channel entity — the `ChannelFields` selection with `type` normalized to the
+ * internal lowercase form at the read boundary (`normalizeChannelType`,
+ * MSG-HIGH-054) and the nested message/member shapes widened to their view
+ * types.
  */
-export interface MessageReceipt {
-  userId: string;
-  status: ReceiptStatus;
-  deliveredAt: string | null;
-  readAt: string | null;
-}
-
-/**
- * Aggregated reaction summary per emoji on a message.
- */
-export interface ReactionSummary {
-  emoji: string;
-  count: number;
-  userIds: string[];
-  hasReacted: boolean;
+export interface Channel extends Omit<ChannelFieldsFragment, 'type' | 'lastMessage' | 'members'> {
+  type: ChannelType;
+  /** Server-side last message preview for the channel list. */
+  lastMessage: Message | null;
+  /** Active members — null when the selection did not resolve them. */
+  members: ChannelMember[] | null;
 }
 
 // ============================================================================
 // PAGINATED RESPONSES
 // ============================================================================
 
-/** Paginated channel list from myChannels query. */
+/** Paginated channel list from myChannels query (items type-normalized). */
 export interface ChannelPage {
   items: Channel[];
   total: number;
 }
 
-/** Cursor-paginated message list from messages query. */
-export interface MessagePage {
+/** Cursor-paginated message list from the messages query. */
+export interface MessagePage extends Omit<GetMessagesQuery['messages'], 'items'> {
   items: Message[];
-  hasMore: boolean;
-  cursor: string | null;
 }
 
 /** Media upload presigned URL response. */
-export interface MediaUploadResponse {
-  uploadUrl: string;
-  storageKey: string;
-  expiresAt: string;
-}
+export type MediaUploadResponse = RequestMediaUploadMutation['requestMediaUpload'];
 
 // ============================================================================
 // SOCKET.IO EVENT PAYLOADS
@@ -285,40 +205,16 @@ export interface ReadReceiptEvent {
 // INPUT TYPES — match ADR-012 section 6.2 GraphQL Input types
 // ============================================================================
 
-/** Input for sending a new message. */
-export interface SendMessageInput {
-  channelId: string;
-  content: string | null;
-  contentType: MessageContentType;
-  parentId?: string;
-  attachmentKeys?: string[];
-  idempotencyKey: string;
-  metadata?: Record<string, unknown>;
-}
-
-/**
- * Input for creating a new channel — the GraphQL *write* payload.
- *
- * WHY `type` is `ChannelTypeWire` (the SDL KEY `'DIRECT' | 'GROUP' | 'AI'`)
- * and NOT the internal lowercase `ChannelType`: the messaging subgraph
- * registers its enum WITHOUT a valuesMap, so graphql-js accepts only the enum
- * KEYS on the wire. Posting the lowercase value (`'group'`) is rejected with a
- * 400 before the resolver runs (MSG-HIGH-054). Typing the field as the wire
- * union forces every caller through {@link toWireChannelType}, making the
- * lowercase 400 a compile-time error instead of a runtime failure.
- *
- * @see web/apps/aquamobil/src/utils/channel-type-wire.ts
- */
-export interface CreateChannelInput {
-  type: ChannelTypeWire;
-  name?: string;
-  description?: string;
-  memberIds: string[];
-  /** AI persona ID for AI channels (e.g. 'expert-v1'). */
-  aiPersona?: string;
-  /** Custom MCP server URL override for AI channels. */
-  aiServiceUrl?: string;
-}
+// MOB-HIGH-022: the write payloads are the GENERATED input types — the schema
+// is the SSoT, not a hand-maintained mirror. `CreateChannelInput.type` is the
+// generated `ChannelType` enum union (the SDL KEYS 'DIRECT' | 'GROUP' | 'AI'),
+// which is what makes posting the lowercase internal value a compile error
+// (MSG-HIGH-054) — callers go through `toWireChannelType`.
+export type {
+  CreateChannelInput,
+  RequestMediaUploadInput,
+  SendMessageInput,
+} from '../generated/graphql';
 
 /**
  * AI persona definition returned by the availableAiPersonas query.
@@ -337,14 +233,6 @@ export interface AiPersona {
   color: string;
   /** List of capability labels. */
   capabilities?: string[];
-}
-
-/** Input for requesting a presigned media upload URL. */
-export interface RequestMediaUploadInput {
-  channelId: string;
-  filename: string;
-  mimeType: string;
-  fileSize: number;
 }
 
 // ============================================================================
@@ -375,11 +263,8 @@ export type SocketPresenceEvent = PresenceEvent;
  * Response for allMessagesSince bulk offline sync (H7).
  * Returns messages across all channels, capped at 50 per channel within the global limit.
  */
-export interface AllMessagesSinceResponse {
+export interface AllMessagesSinceResponse
+  extends Omit<AllMessagesSinceQuery['allMessagesSince'], 'messages'> {
   /** Messages across all channels. Field name matches backend AllMessagesSinceResponse.messages. */
   messages: Message[];
-  /** True if more messages exist beyond the limit. */
-  hasMore: boolean;
-  /** Opaque token for continuation paging. Pass back as syncToken. */
-  syncToken: string | null;
 }

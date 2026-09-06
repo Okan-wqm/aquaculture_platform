@@ -10,13 +10,11 @@
  * accidental no-op transfers that would create confusing audit trails.
  */
 
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { clsx } from 'clsx';
-import { gql } from 'graphql-tag';
 import {
   ArrowLeft,
   ArrowLeftRight,
-  CheckCircle,
   AlertCircle,
   Loader2,
   ChevronRight,
@@ -28,15 +26,15 @@ import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import type { JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { AlreadyRecordedNotice } from '@/components/AlreadyRecordedNotice';
 import { BarcodeScanButton } from '@/components/BarcodeScanButton';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
 import { VirtualList } from '@/components/VirtualList';
+import { STORAGE_INVENTORY_ITEMS, STORAGE_LOCATIONS } from '@/graphql/storage-operations';
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
-import type { StorageItemType, StockTransferInput } from '@/types';
-import { isRecoverableNetworkError } from '@/utils/network-error';
-import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
+import type { StorageItemType, QueuedPayload } from '@/types';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 // ============================================================================
@@ -67,33 +65,6 @@ interface StorageInventoryItem {
 // ============================================================================
 // GRAPHQL
 // ============================================================================
-
-const STORAGE_ITEMS_QUERY = gql`
-  query StorageInventoryItems($itemType: StorageItemType) {
-    storageInventory(itemType: $itemType, limit: 100) {
-      itemId
-      itemName
-      unit
-      itemType
-    }
-  }
-`;
-
-const STORAGE_LOCATIONS_QUERY = gql`
-  query StorageLocations {
-    storageLocations {
-      items { id name code }
-    }
-  }
-`;
-
-const TRANSFER_STOCK_MUTATION = gql`
-  mutation TransferStock($input: TransferStockInput!) {
-    transferStock(input: $input) {
-      id quantity
-    }
-  }
-`;
 
 // ============================================================================
 // CONSTANTS
@@ -132,7 +103,6 @@ export function StockTransferPage(): JSX.Element {
   const navigate = useNavigate();
   const { accessToken, tenantId, isAuthenticated } = useAuth();
   const { isOnline, addToQueue } = useOfflineQueue();
-  const queryClient = useQueryClient();
 
   // Wizard state
   const [step, setStep] = useState(1);
@@ -144,13 +114,10 @@ export function StockTransferPage(): JSX.Element {
   const [itemSearch, setItemSearch] = useState('');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showSuccess, setShowSuccess] = useState(false);
-  // MOB: the success heading used to be chosen by `isOnline`, not by what
-  // actually happened. On the recoverable-transport fallback below the write
-  // reaches the DEVICE QUEUE while isOnline is still true, so the user was
-  // told "Recorded!" for a write the server had never seen. Holding the
-  // operation id makes the screen report the operation's real state.
-  const [queuedOperationId, setQueuedOperationId] = useState<string | null>(null);
+  // Two-phase success UX (C7): the badge tracks the queued op's real sync
+  // status; a deduped double-tap renders "Already recorded" (FE-HIGH-050).
+  const [queuedOperationId, setQueuedOperationId] = useState('');
+  const [wasDuplicate, setWasDuplicate] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   // WHY ref + focus effect (not autoFocus): the quantity step renders a single
@@ -169,8 +136,8 @@ export function StockTransferPage(): JSX.Element {
   const { data: itemsData, isLoading: itemsLoading } = useQuery<StorageItem[]>({
     queryKey: createTenantQueryKey(tenantId, 'storage-items', selectedItemType, tenantId),
     queryFn: async () => {
-      const result = await graphqlRequest<{ storageInventory: StorageInventoryItem[] }>(
-        STORAGE_ITEMS_QUERY,
+      const result = await graphqlRequest(
+        STORAGE_INVENTORY_ITEMS,
         { itemType: selectedItemType },
       );
       return toStorageItems(result.storageInventory ?? []);
@@ -189,8 +156,8 @@ export function StockTransferPage(): JSX.Element {
   const { data: locationsData, isLoading: locationsLoading } = useQuery<StorageLocation[]>({
     queryKey: createTenantQueryKey(tenantId, 'storage-locations', tenantId),
     queryFn: async () => {
-      const result = await graphqlRequest<{ storageLocations: { items: StorageLocation[] } }>(
-        STORAGE_LOCATIONS_QUERY,
+      const result = await graphqlRequest(
+        STORAGE_LOCATIONS,
       );
       return result.storageLocations?.items ?? [];
     },
@@ -265,7 +232,7 @@ export function StockTransferPage(): JSX.Element {
     // Generate once for this submit attempt. The offline queue adds a command
     // envelope when queued; online direct submissions still need server-side
     // idempotency for timeout/retry safety.
-    const input: StockTransferInput = {
+    const input: QueuedPayload<'transferStock'> = {
       itemType,
       itemId: selectedItemId,
       fromLocationId,
@@ -275,85 +242,56 @@ export function StockTransferPage(): JSX.Element {
     };
 
     try {
-      if (isOnline) {
-        await graphqlRequest<{ transferStock: { id: string } }>(
-          TRANSFER_STOCK_MUTATION,
-          { input },
-        );
-        if (tenantId) {
-          await invalidateSyncedOperationQueries(queryClient, tenantId, ['transferStock']);
-        }
-      } else {
-        const { id: opId } = await addToQueue('transferStock', input);
-        setQueuedOperationId(opId);
-        return;
-      }
-
-      setShowSuccess(true);
-      setTimeout(() => navigate('/storage'), 1500);
+      // Queue-first (MOB-CRITICAL-021): online, addToQueue drains immediately;
+      // offline, the transfer waits for reconnect. The success screen shows the
+      // op's real sync status either way.
+      const result = await addToQueue('transferStock', input);
+      setQueuedOperationId(result.id);
+      setWasDuplicate(result.status === 'duplicate');
+      setTimeout(() => navigate('/storage'), 2000);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to transfer stock';
-      // Fallback only when an online transport failure occurred. Offline queue
-      // write failures should surface instead of being retried recursively.
-      if (isOnline && isRecoverableNetworkError(error)) {
-        try {
-          const { id: opId } = await addToQueue('transferStock', input);
-          setQueuedOperationId(opId);
-          return;
-        } catch (queueError) {
-          setSubmitError(queueError instanceof Error ? queueError.message : 'Failed to queue operation');
-          return;
-        }
-      }
-      setSubmitError(message);
+      setSubmitError(error instanceof Error ? error.message : 'Failed to transfer stock');
     } finally {
       setIsSubmitting(false);
     }
   }, [
     selectedItem, fromLocation, toLocation, selectedItemType, selectedItemId,
-    fromLocationId, toLocationId, quantity, isOnline, addToQueue, navigate,
-    queryClient, tenantId,
+    fromLocationId, toLocationId, quantity, addToQueue, navigate,
   ]);
 
   // ---- Success screen ------------------------------------------------------
 
   // -- Queued screen ---------------------------------------------------------
-  // A queued write is on the device, not in the database. QueuedStatusBadge
-  // reports the operation's real state, so a rejection during sync surfaces as
-  // "Sync Failed" instead of hiding behind the tick the user already left.
-  if (queuedOperationId) {
+  // Queue-first (MOB-CRITICAL-021): a write is on the device until the queue
+  // drains it, online or not. QueuedStatusBadge reports the operation's real
+  // state, so a rejection during sync surfaces as "Sync Failed" instead of
+  // hiding behind a tick the user already left; a deduped double-tap renders
+  // "Already recorded" (FE-HIGH-050).
+  if (queuedOperationId !== '') {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-amber-50 dark:bg-amber-900/10 px-6">
-        <div className="w-20 h-20 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center mb-4">
-          <Package size={48} className="text-amber-600" />
-        </div>
-        <h2 className="text-xl font-bold text-amber-700 dark:text-amber-300">Saved to device</h2>
-        <p className="text-amber-600 dark:text-amber-400 text-sm mt-1 text-center">
-          This transfer is not recorded until it reaches the server.
-        </p>
-        <div className="mt-4">
-          <QueuedStatusBadge operationId={queuedOperationId} />
-        </div>
+        {wasDuplicate ? (
+          <AlreadyRecordedNotice />
+        ) : (
+          <>
+            <div className="w-20 h-20 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center mb-4">
+              <Package size={48} className="text-amber-600" />
+            </div>
+            <h2 className="text-xl font-bold text-amber-700 dark:text-amber-300">Saved to device</h2>
+            <p className="text-amber-600 dark:text-amber-400 text-sm mt-1 text-center">
+              This transfer is not recorded until it reaches the server.
+            </p>
+            <div className="mt-4">
+              <QueuedStatusBadge operationId={queuedOperationId} />
+            </div>
+          </>
+        )}
         <button
           onClick={() => navigate('/storage')}
           className="mt-6 px-5 py-2.5 rounded-xl bg-amber-600 text-white font-medium touch-feedback"
         >
           Back to storage
         </button>
-      </div>
-    );
-  }
-
-  if (showSuccess) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-green-50 dark:bg-green-900/10">
-        <div className="w-20 h-20 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mb-4">
-          <CheckCircle size={48} className="text-green-600" />
-        </div>
-        <h2 className="text-xl font-bold text-green-700 dark:text-green-300">
-          Transfer Recorded!
-        </h2>
-        <p className="text-green-600 dark:text-green-400 text-sm mt-1">Returning to storage hub...</p>
       </div>
     );
   }

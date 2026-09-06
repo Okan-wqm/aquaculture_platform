@@ -34,6 +34,8 @@ on:
       - 'libs/backend-common/src/**/*.ts'
       # Operation documents — the gql-tagged client documents codegen plucks.
       - 'web/**/src/graphql/**/*.ts'
+      # AquaMobil plucks every document under src/ (registry, pages, hooks).
+      - 'web/apps/aquamobil/src/**'
       # The codegen config + the generated outputs themselves.
       - 'codegen.ts'
       - 'web/shared-ui/src/generated/**'
@@ -58,6 +60,7 @@ on:
       - 'apps/**/*.enum.ts'
       - 'libs/backend-common/src/**/*.ts'
       - 'web/**/src/graphql/**/*.ts'
+      - 'web/apps/aquamobil/src/**'
       - 'codegen.ts'
       - 'web/shared-ui/src/generated/**'
       - 'web/apps/*/src/generated/**'

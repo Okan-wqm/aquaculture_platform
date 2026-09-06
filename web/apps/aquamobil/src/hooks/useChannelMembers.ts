@@ -22,7 +22,7 @@ import { useAuth } from './useAuth';
 
 import { GET_CHANNEL } from '@/graphql/messaging-operations';
 import { graphqlRequest } from '@/services/authenticated-fetch';
-import type { Channel, ChannelMember } from '@/types/messaging';
+import type { ChannelMember } from '@/types/messaging';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 /**
@@ -32,7 +32,7 @@ import { createTenantQueryKey } from '@/utils/tenant-query-keys';
  * @returns Array of active (non-left) channel members
  */
 async function fetchChannelMembers(channelId: string): Promise<ChannelMember[]> {
-  const result = await graphqlRequest<{ channel: Channel }>(
+  const result = await graphqlRequest(
     GET_CHANNEL,
     { id: channelId },
   );
@@ -91,11 +91,11 @@ export function useChannelMembers(
     if (!query.data) return [];
     if (!onlineUserIds || onlineUserIds.size === 0) return query.data;
 
+    // A member without a federated profile stays profile-less: presence is a
+    // property OF the profile shape, not a substitute for it (MOB-HIGH-022).
     return query.data.map((member) => ({
       ...member,
-      user: member.user
-        ? { ...member.user, isOnline: onlineUserIds.has(member.userId) }
-        : { id: member.userId, isOnline: onlineUserIds.has(member.userId) },
+      user: member.user ? { ...member.user, isOnline: onlineUserIds.has(member.userId) } : null,
     }));
   }, [query.data, onlineUserIds]);
 

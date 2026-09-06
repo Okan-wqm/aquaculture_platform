@@ -52,6 +52,11 @@ vi.mock('@/services/authenticated-fetch', () => ({
   graphqlRequest: (...args: unknown[]) => h.graphqlRequest(...args),
 }));
 
+vi.mock('@/components/QueuedStatusBadge', () => ({
+  QueuedStatusBadge: ({ operationId }: { operationId: string }) =>
+    createElement('div', { 'data-testid': 'queued-status-badge' }, operationId),
+}));
+
 vi.mock('@/pwa/offline-queue', () => ({
   cacheData: (...args: unknown[]) => h.cacheData(...args),
   getCachedData: (...args: unknown[]) => h.getCachedData(...args),
@@ -196,7 +201,7 @@ describe('RecordFeedingPage — öğün cutover (Faz 6)', () => {
       mealId: 'meal-1',
       pourKg: 6,
       finalize: true,
-      feedingMethod: 'manual',
+      feedingMethod: 'MANUAL',
     });
 
     // MOB: the write reached the DEVICE QUEUE, not the database. The screen

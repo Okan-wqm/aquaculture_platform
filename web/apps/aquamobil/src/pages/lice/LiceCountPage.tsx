@@ -25,7 +25,7 @@ import {
 
 import { PhotoCaptureField } from '@/components/PhotoCaptureField';
 import { useTanks } from '@/hooks/useTanks';
-import type { LiceCountInput } from '@/types';
+import type { QueuedPayload } from '@/types';
 
 const LICE_THEME: RecordEntityTheme = {
   headerGradient: 'bg-gradient-to-r from-violet-600 to-violet-500',
@@ -82,7 +82,7 @@ export function LiceCountPage(): JSX.Element {
     return Object.keys(next).length === 0;
   }, [selectedTankId, selectedTank, metrics, adultFemaleLice, mobileLice, attachedLice, fishSampled]);
 
-  const buildPayload = (): LiceCountInput => {
+  const buildPayload = (): QueuedPayload<'recordLiceCount'> => {
     const siteId = selectedTank?.siteId;
     if (!siteId) {
       throw new Error('Cannot record lice count: selected tank has no site');
@@ -106,7 +106,7 @@ export function LiceCountPage(): JSX.Element {
   };
 
   return (
-    <RecordEntityPage<LiceCountInput, LiceFormErrors>
+    <RecordEntityPage<'recordLiceCount', LiceFormErrors>
       theme={LICE_THEME}
       entryTitle="Lice Count"
       confirmTitle="Confirm Lice Count"

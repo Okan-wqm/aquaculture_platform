@@ -73,7 +73,7 @@ export function useNotifications(): UseNotificationsResult {
   const listQuery = useQuery({
     queryKey: createTenantQueryKey(tenantId, 'notifications', 'list'),
     queryFn: async (): Promise<InAppNotification[]> => {
-      const result = await graphqlRequest<{ myNotifications: InAppNotification[] }>(
+      const result = await graphqlRequest(
         GET_MY_NOTIFICATIONS,
         { limit: 50 },
       );
@@ -90,7 +90,7 @@ export function useNotifications(): UseNotificationsResult {
   const countQuery = useQuery({
     queryKey: createTenantQueryKey(tenantId, 'notifications', 'unreadCount'),
     queryFn: async (): Promise<number> => {
-      const result = await graphqlRequest<{ unreadNotificationCount: number }>(GET_UNREAD_COUNT);
+      const result = await graphqlRequest(GET_UNREAD_COUNT);
       return typeof result.unreadNotificationCount === 'number'
         ? result.unreadNotificationCount
         : 0;

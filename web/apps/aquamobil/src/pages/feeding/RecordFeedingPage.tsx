@@ -25,21 +25,26 @@ import {
 import { useState, useEffect, ChangeEvent, type JSX } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
+import { AlreadyRecordedNotice } from '@/components/AlreadyRecordedNotice';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
+import type { FeedingMethod } from '@/generated/graphql';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useTodaysDayPlans, type DayPlanMeal, type MealStatus } from '@/hooks/useTodaysDayPlans';
 import { useI18n } from '@/i18n';
 
-type FeedingMethodOption = 'manual' | 'automatic' | 'demand';
+// MOB-HIGH-022: the method vocabulary is the generated FeedingMethod enum the
+// server coerces on the wire — the old lowercase mirror ('manual') was rejected
+// by the enum input the moment the server typed the field.
+type FeedingMethodOption = Extract<FeedingMethod, 'MANUAL' | 'AUTOMATIC' | 'DEMAND'>;
 
 const FEEDING_METHODS: {
   value: FeedingMethodOption;
   labelKey: 'feeding.method.manual' | 'feeding.method.automatic' | 'feeding.method.demand';
   Icon: typeof Hand;
 }[] = [
-  { value: 'manual', labelKey: 'feeding.method.manual', Icon: Hand },
-  { value: 'automatic', labelKey: 'feeding.method.automatic', Icon: Settings },
-  { value: 'demand', labelKey: 'feeding.method.demand', Icon: Radio },
+  { value: 'MANUAL', labelKey: 'feeding.method.manual', Icon: Hand },
+  { value: 'AUTOMATIC', labelKey: 'feeding.method.automatic', Icon: Settings },
+  { value: 'DEMAND', labelKey: 'feeding.method.demand', Icon: Radio },
 ];
 
 const MEAL_BADGE: Record<MealStatus, string> = {
@@ -62,6 +67,7 @@ function timeOf(iso: string): string {
 }
 
 // ============================================================================
+
 // COMPONENT
 // ============================================================================
 
@@ -81,14 +87,13 @@ export function RecordFeedingPage(): JSX.Element {
   const [selectedMealId, setSelectedMealId] = useState<string>('');
   const [pourKg, setPourKg] = useState<string>('');
   const [finalize, setFinalize] = useState(true);
-  const [feedingMethod, setFeedingMethod] = useState<FeedingMethodOption>('manual');
+  const [feedingMethod, setFeedingMethod] = useState<FeedingMethodOption>('MANUAL');
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  // MOB: a queued record is on the device, not in the database. Holding the
-  // operation id lets QueuedStatusBadge report its REAL state, so a rejection
-  // during sync surfaces as "Sync Failed" instead of disappearing behind a
-  // tick the user already walked away from.
-  const [queuedOperationId, setQueuedOperationId] = useState<string | null>(null);
+  // Two-phase success UX (C7): the badge tracks the queued op's real sync
+  // status; a deduped double-tap renders "Already recorded" (FE-HIGH-050).
+  const [queuedOperationId, setQueuedOperationId] = useState('');
+  const [wasDuplicate, setWasDuplicate] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
 
   useEffect(() => {
@@ -132,14 +137,16 @@ export function RecordFeedingPage(): JSX.Element {
     setIsSubmitting(true);
     setErrors({});
     try {
-      const { id: opId } = await addToQueue('recordMealFeeding', {
+      const result = await addToQueue('recordMealFeeding', {
         mealId: selectedMeal.id,
         pourKg: parsedPour,
         finalize,
         feedingMethod,
         notes: notes.trim() || undefined,
       });
-      setQueuedOperationId(opId);
+      setQueuedOperationId(result.id);
+      setWasDuplicate(result.status === 'duplicate');
+      setTimeout(() => navigate('/'), 1500);
     } catch (error) {
       const message = error instanceof Error ? error.message : t('feeding.errors.generic');
       setErrors({ general: message });
@@ -162,8 +169,12 @@ export function RecordFeedingPage(): JSX.Element {
     setIsSubmitting(true);
     setErrors({});
     try {
-      const { id: opId } = await addToQueue('finalizeMeal', { mealId: selectedMeal.id });
-      setQueuedOperationId(opId);
+      // Same two-phase UX as the pour path: the badge reports the op's real
+      // sync status instead of an unconditional green.
+      const result = await addToQueue('finalizeMeal', { mealId: selectedMeal.id });
+      setQueuedOperationId(result.id);
+      setWasDuplicate(result.status === 'duplicate');
+      setTimeout(() => navigate('/'), 1500);
     } catch (error) {
       const message = error instanceof Error ? error.message : t('feeding.errors.generic');
       setErrors({ general: message });
@@ -179,25 +190,30 @@ export function RecordFeedingPage(): JSX.Element {
     setErrors({});
   };
 
-  // -- Queued screen ---------------------------------------------------------
-  // Every feeding record on this page goes through the offline queue, online or
-  // not. The old screen showed a green tick and navigated home after 1.5s, so a
-  // record the server later REJECTED looked identical to one it accepted.
-  if (queuedOperationId) {
+  // Kayıt her zaman önce kuyruğa gider; ekran gerçek eşitleme durumunu gösterir
+  // (Queued → Syncing → Confirmed / Sync Failed), yeşil "kaydedildi" değil.
+  // Dedupe edilen çift dokunuş "Already recorded" ile ayrışır (FE-HIGH-050).
+  if (queuedOperationId !== '') {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-amber-50 dark:bg-amber-900/10 px-6">
-        <div className="w-20 h-20 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center mb-4">
-          <Package size={48} className="text-amber-600" />
-        </div>
-        <h2 className="text-xl font-bold text-amber-700 dark:text-amber-300">
-          {t('feeding.savedToDevice')}
-        </h2>
-        <p className="text-amber-600 dark:text-amber-400 text-sm mt-1 text-center">
-          {t('feeding.queuedForSync')}
-        </p>
-        <div className="mt-4">
-          <QueuedStatusBadge operationId={queuedOperationId} />
-        </div>
+        {wasDuplicate ? (
+          <AlreadyRecordedNotice />
+        ) : (
+          <>
+            <div className="w-20 h-20 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center mb-4">
+              <Package size={48} className="text-amber-600" />
+            </div>
+            <h2 className="text-xl font-bold text-amber-700 dark:text-amber-300">
+              {t('feeding.savedToDevice')}
+            </h2>
+            <p className="text-amber-600 dark:text-amber-400 text-sm mt-1 text-center">
+              {t('feeding.queuedForSync')}
+            </p>
+            <div className="mt-4">
+              <QueuedStatusBadge operationId={queuedOperationId} />
+            </div>
+          </>
+        )}
         <button
           onClick={() => navigate('/')}
           className="mt-6 px-5 py-2.5 rounded-xl bg-amber-600 text-white font-medium touch-feedback"

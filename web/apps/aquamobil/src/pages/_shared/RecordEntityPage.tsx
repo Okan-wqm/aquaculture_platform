@@ -26,10 +26,11 @@ import {
 } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
+import { AlreadyRecordedNotice } from '@/components/AlreadyRecordedNotice';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useTanks } from '@/hooks/useTanks';
-import type { OperationPayload, OperationType } from '@/types';
+import type { OperationType, QueuedPayload } from '@/types';
 
 /* ---------------------------------------------------------------- */
 /*  Theme                                                            */
@@ -88,7 +89,7 @@ export interface BaseFormErrors {
  * `quantity`, and `general` on it.
  */
 export interface RecordEntityPageProps<
-  TPayload extends OperationPayload,
+  K extends OperationType,
   TErrors extends BaseFormErrors = BaseFormErrors,
 > {
   /** Theme tokens (see {@link RecordEntityTheme}). */
@@ -105,7 +106,7 @@ export interface RecordEntityPageProps<
   summaryHeading: string;
 
   /** Offline-queue operation type the submit will enqueue. */
-  operationName: OperationType;
+  operationName: K;
 
   /** Word used in the "Stock fish into a tank before recording X" prompt. */
   tankEmptyActionWord: string;
@@ -128,8 +129,8 @@ export interface RecordEntityPageProps<
    */
   validate: () => boolean;
 
-  /** Builds the typed payload dispatched to the offline queue. */
-  buildPayload: () => TPayload;
+  /** Builds the payload dispatched to the offline queue — the generated input for `operationName`, envelope stripped. */
+  buildPayload: () => QueuedPayload<K>;
 
   /** Disables the Review CTA (cheap prereq check before full validate). */
   canReview: boolean;
@@ -163,9 +164,9 @@ export interface RecordEntityPageProps<
 type FormStep = 'entry' | 'confirm';
 
 export function RecordEntityPage<
-  TPayload extends OperationPayload,
+  K extends OperationType,
   TErrors extends BaseFormErrors = BaseFormErrors,
->(props: RecordEntityPageProps<TPayload, TErrors>): JSX.Element {
+>(props: RecordEntityPageProps<K, TErrors>): JSX.Element {
   const {
     theme,
     entryTitle,
@@ -463,19 +464,6 @@ function OfflineNotice(): JSX.Element {
  * checkmark or the queued badge — the operator already recorded this entry, so
  * the honest message is "Already recorded", not a second confirmation.
  */
-function AlreadyRecordedNotice(): JSX.Element {
-  return (
-    <div className="flex flex-col items-center gap-2">
-      <div className="w-20 h-20 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center">
-        <AlertCircle size={48} className="text-amber-600" />
-      </div>
-      <h2 className="text-xl font-bold text-amber-700 dark:text-amber-300">Already recorded</h2>
-      <p className="text-sm text-amber-600 dark:text-amber-400">
-        This entry was already submitted moments ago -- no duplicate was created.
-      </p>
-    </div>
-  );
-}
 
 /**
  * Shared +/- stepper used by cull + mortality. WHY: 56px hit target exceeds

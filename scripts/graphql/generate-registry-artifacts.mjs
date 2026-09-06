@@ -79,7 +79,7 @@ artifact(
       documents: [
         'web/shell/src/graphql/**/*.ts',
         'web/modules/*/src/graphql/**/*.ts',
-        'web/apps/*/src/graphql/**/*.ts',
+        'web/apps/*/src/**/*.{ts,tsx}',
       ],
     },
     null,

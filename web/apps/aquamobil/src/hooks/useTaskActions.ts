@@ -12,7 +12,7 @@ import {
 } from '@/graphql/operations';
 import { computePayloadHash } from '@/pwa/offline-queue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
-import type { ChecklistItemSetInput } from '@/types';
+import type { QueuedPayload } from '@/types';
 import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
 
 // WHY: TaskActionResult distinguishes queued-offline actions from confirmed-online
@@ -38,7 +38,8 @@ interface CommandIdentity {
 }
 
 // Lifecycle payload (completeTask/startTask) before the envelope is added.
-type TaskLifecyclePayload = { id: string };
+type TaskLifecyclePayload = QueuedPayload<'completeTask'>;
+type ChecklistItemSetPayload = QueuedPayload<'setChecklistItem'>;
 
 export function useTaskActions(): {
   completeTask: (taskId: string) => Promise<TaskActionResult>;
@@ -56,7 +57,7 @@ export function useTaskActions(): {
   // will later hash for its own envelope — so the two paths agree on "the same
   // command" and the server dedups a fall-through retry.
   const mintCommandIdentity = useCallback(
-    async (rawPayload: TaskLifecyclePayload | ChecklistItemSetInput): Promise<CommandIdentity> => ({
+    async (rawPayload: TaskLifecyclePayload | ChecklistItemSetPayload): Promise<CommandIdentity> => ({
       clientCommandId: crypto.randomUUID(),
       payloadHash: await computePayloadHash(rawPayload),
     }),
@@ -123,7 +124,7 @@ export function useTaskActions(): {
     // so an offline replay converges instead of reverting the item — which is what
     // makes the checklist safe to queue offline at all.
     async (taskId: string, itemId: string, isCompleted: boolean): Promise<TaskActionResult> => {
-      const rawPayload: ChecklistItemSetInput = { taskId, itemId, isCompleted };
+      const rawPayload: ChecklistItemSetPayload = { taskId, itemId, isCompleted };
       const { clientCommandId, payloadHash } = await mintCommandIdentity(rawPayload);
 
       if (isOnline) {

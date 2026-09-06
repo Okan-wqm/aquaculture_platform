@@ -67,7 +67,7 @@ export function useStaffSummary(): {
     // WHY filter future work entries: off days, leave days, and past dates
     // are irrelevant for the "next shift" preview.
     const futureWorkEntries = allEntries
-      .filter((e) => e.date > todayStr && e.entryType === 'work' && !e.isOffDay && !e.isLeaveDay)
+      .filter((e) => e.date > todayStr && e.entryType === 'WORK' && !e.isOffDay && !e.isLeaveDay)
       .sort((a, b) => a.date.localeCompare(b.date));
 
     const nextShiftDate = futureWorkEntries.length > 0 ? futureWorkEntries[0].date : null;

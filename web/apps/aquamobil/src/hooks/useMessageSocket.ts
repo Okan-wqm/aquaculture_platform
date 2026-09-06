@@ -31,6 +31,7 @@ import { useAuth } from './useAuth';
 import { ALL_MESSAGES_SINCE } from '@/graphql/messaging-operations';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type {
+  AllMessagesSinceResponse,
   NewMessageEvent,
   MessageUpdatedEvent,
   MessageDeletedEvent,
@@ -48,13 +49,6 @@ type MessagesQueryData = {
   pages: MessagePage[];
   pageParams: (string | null)[];
 };
-
-/** Page shape returned by the multi-channel `allMessagesSince` delta query. */
-interface AllMessagesSincePage {
-  messages: Message[];
-  hasMore: boolean;
-  syncToken: string | null;
-}
 
 /** Page size for draining the multi-channel reconnect delta. */
 const RECONNECT_SYNC_PAGE_LIMIT = 100;
@@ -132,11 +126,7 @@ function enrichSenderFromMembers(
   channelId: string,
   message: Message,
 ): Message {
-  if (
-    message.sender?.firstName ||
-    message.sender?.lastName ||
-    message.sender?.displayName
-  ) {
+  if (message.sender?.firstName || message.sender?.lastName) {
     return message;
   }
   const members = qc.getQueryData<ChannelMember[]>(
@@ -312,12 +302,12 @@ export function useMessageSocket(): UseMessageSocketResult {
         // Drain the delta in pages so a long offline window can't silently
         // drop messages past a single page limit.
         for (;;) {
-          const response: { allMessagesSince: AllMessagesSincePage } =
-            await graphqlRequest<{ allMessagesSince: AllMessagesSincePage }>(
-              ALL_MESSAGES_SINCE,
-              { since, limit: RECONNECT_SYNC_PAGE_LIMIT, syncToken: cursor },
-            );
-          const page: AllMessagesSincePage = response.allMessagesSince;
+          const response = await graphqlRequest(ALL_MESSAGES_SINCE, {
+            since,
+            limit: RECONNECT_SYNC_PAGE_LIMIT,
+            syncToken: cursor,
+          });
+          const page: AllMessagesSinceResponse = response.allMessagesSince;
           for (const message of page.messages) {
             touchedChannels.add(message.channelId);
             upsertMessageIntoChannelCache(qc, tid, userIdRef.current, message.channelId, message);

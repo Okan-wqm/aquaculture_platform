@@ -4,6 +4,7 @@ import type { JSX } from 'react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import type { WeeklyPlanEntryType } from '@/generated/graphql';
 import { useMySchedule, formatMinutesAsHours } from '@/hooks/useMySchedule';
 import type { WeeklyPlanEntry } from '@/hooks/useMySchedule';
 
@@ -11,12 +12,15 @@ import type { WeeklyPlanEntry } from '@/hooks/useMySchedule';
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const DAY_NAMES_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
-const ENTRY_TYPE_CONFIG: Record<string, { icon: typeof Clock; label: string; bgColor: string; textColor: string }> = {
-  work: { icon: Clock, label: 'Work', bgColor: 'bg-ocean-50 dark:bg-ocean-900/20', textColor: 'text-ocean-600 dark:text-ocean-400' },
-  off: { icon: Coffee, label: 'Day Off', bgColor: 'bg-gray-50 dark:bg-gray-800', textColor: 'text-gray-500' },
-  leave: { icon: Palmtree, label: 'Leave', bgColor: 'bg-sea-50 dark:bg-sea-900/20', textColor: 'text-sea-600 dark:text-sea-400' },
-  holiday: { icon: CalendarOff, label: 'Holiday', bgColor: 'bg-coral-50 dark:bg-coral-900/20', textColor: 'text-coral-600' },
-  training: { icon: GraduationCap, label: 'Training', bgColor: 'bg-purple-50 dark:bg-purple-900/20', textColor: 'text-purple-600' },
+// MOB-HIGH-022: keyed by the generated enum (wire NAMES). The old record was
+// keyed by lowercase strings, so every lookup missed and each day rendered as
+// "Day Off"; a total Record makes a missing entry type a compile error.
+const ENTRY_TYPE_CONFIG: Record<WeeklyPlanEntryType, { icon: typeof Clock; label: string; bgColor: string; textColor: string }> = {
+  WORK: { icon: Clock, label: 'Work', bgColor: 'bg-ocean-50 dark:bg-ocean-900/20', textColor: 'text-ocean-600 dark:text-ocean-400' },
+  OFF: { icon: Coffee, label: 'Day Off', bgColor: 'bg-gray-50 dark:bg-gray-800', textColor: 'text-gray-500' },
+  LEAVE: { icon: Palmtree, label: 'Leave', bgColor: 'bg-sea-50 dark:bg-sea-900/20', textColor: 'text-sea-600 dark:text-sea-400' },
+  HOLIDAY: { icon: CalendarOff, label: 'Holiday', bgColor: 'bg-coral-50 dark:bg-coral-900/20', textColor: 'text-coral-600' },
+  TRAINING: { icon: GraduationCap, label: 'Training', bgColor: 'bg-purple-50 dark:bg-purple-900/20', textColor: 'text-purple-600' },
 };
 
 function isToday(dateStr: string): boolean {
@@ -24,7 +28,7 @@ function isToday(dateStr: string): boolean {
 }
 
 function DayCard({ entry }: { entry: WeeklyPlanEntry }): JSX.Element {
-  const config = ENTRY_TYPE_CONFIG[entry.entryType] || ENTRY_TYPE_CONFIG.off;
+  const config = ENTRY_TYPE_CONFIG[entry.entryType];
   const Icon = config.icon;
   const today = isToday(entry.date);
   const dayIndex = new Date(entry.date).getDay();
@@ -58,9 +62,9 @@ function DayCard({ entry }: { entry: WeeklyPlanEntry }): JSX.Element {
         <Icon size={18} className={config.textColor} />
         <div className="flex-1">
           <div className={clsx('text-sm font-semibold', config.textColor)}>
-            {entry.entryType === 'work' && entry.shift ? entry.shift.name : config.label}
+            {entry.entryType === 'WORK' && entry.shift ? entry.shift.name : config.label}
           </div>
-          {entry.entryType === 'work' && startTime && endTime && (
+          {entry.entryType === 'WORK' && startTime && endTime && (
             <div className="text-xs text-gray-500 mt-0.5">
               {startTime.slice(0, 5)} - {endTime.slice(0, 5)}
               {entry.plannedMinutes > 0 && (
@@ -213,11 +217,11 @@ export function MySchedulePage(): JSX.Element {
                     </div>
                     <div className={clsx(
                       'h-1.5 rounded-full',
-                      entry.entryType === 'work'
+                      entry.entryType === 'WORK'
                         ? today ? 'bg-ocean-500' : 'bg-ocean-300 dark:bg-ocean-700'
-                        : entry.entryType === 'off' ? 'bg-gray-200 dark:bg-gray-700'
-                        : entry.entryType === 'leave' ? 'bg-sea-400'
-                        : entry.entryType === 'holiday' ? 'bg-coral-400'
+                        : entry.entryType === 'OFF' ? 'bg-gray-200 dark:bg-gray-700'
+                        : entry.entryType === 'LEAVE' ? 'bg-sea-400'
+                        : entry.entryType === 'HOLIDAY' ? 'bg-coral-400'
                         : 'bg-purple-400'
                     )} />
                   </div>

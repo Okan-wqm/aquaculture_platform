@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `b38cc013d240e7b7d69eeb0ff7bdbb7cdc2bb2df84bdb2d4d52bcf244b603288`
+Registry tip: `a798a8841cd16e68b49a6f1341470ac67bbbd59a6df9a927e7a57af37932ce50`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -157,7 +157,8 @@ Updated 2026-09-03 (farm + AquaMobil agent audit merge, PR #1243): the
 2026-08-16 audit cycle raised `MOB-CRITICAL-018` (AquaMobil water-quality submit
 sent a `parameters` field the farm-service input no longer declares). The same
 branch fixes it by letting GraphQL codegen own the input type and pins the
-invariant with `tests/invariants/aquamobil-input-mirror-parity.spec.ts`, so it is
+invariant with `tests/invariants/aquamobil-graphql-contract-ssot.spec.ts`
+(PR #1424 replaced the mirror-parity backstop with it — see below), so it is
 `already-fixed-needs-close` until the post-merge close ceremony records a
 main-reachable closing commit.
 
@@ -170,6 +171,17 @@ registration without proof-of-possession, credentials surviving password reset) 
 commits. The integration review also raised `SENSOR-CRITICAL-108` as `real-open`: the declared
 JetStream stream limits (~7.75 GiB) exceed the droplet's 2 GB file store while the capacity gate
 still passes, so the 60-minute telemetry buffer cannot be created as configured.
+
+Updated 2026-09-06 (mobile GraphQL contract, PR #1424): reconciling the Faz 3 branch's rows onto
+main's chain added three active CRITICALs. `MOB-CRITICAL-021` is the 2026-08-16 audit's
+`PRODUCT-FORM-CRITICAL-001` — registered on the branch as `MOB-CRITICAL-018`, renumbered twice as
+main allocated first that sequence and then 020 to other findings. The branch closes it
+architecturally (the queued payload type derives from codegen and the last four write pages are
+queue-first), so it is `already-fixed-needs-close` until the post-merge close ceremony records its
+main-reachable commits. `SENSOR-CRITICAL-111` (MQTT reading vs alarm evaluation diverge) and
+`DEPLOY-CRITICAL-017` (a full deploy replaces the monitoring stack with a placeholder Alertmanager)
+are `real-open`, placed in Faz 5 and the go-live gate by
+`docs/reviews/orchestrator/2026-09-05-production-readiness-gaps.md`.
 
 Updated 2026-09-04 (production-host control-plane slice recovery, PR #1022): carrying the branch's
 finding ledger onto main's chain added twelve active `INFRA-CRITICAL` rows from the 2026-07-19
@@ -233,6 +245,9 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-098`  | OPEN           | 2026-07-19   | security-reviewer          | real-open                 |
 | `INFRA-CRITICAL-100`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
 | `ADMIN-CRITICAL-087`  | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
+| `MOB-CRITICAL-021`    | OPEN           | 2026-09-05   | form-write-auditor         | already-fixed-needs-close |
+| `SENSOR-CRITICAL-111` | OPEN           | 2026-09-05   | sensor-expert              | real-open                 |
+| `DEPLOY-CRITICAL-017` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
 
 ## Mutation Rules
 
@@ -297,10 +312,15 @@ Allowed truth buckets:
   (PR #1243) moves the mutation onto a `.graphql` operation document so
   `CreateWaterQualityInput` is generated from the farm subgraph schema, deletes
   the hand-written mirror from `web/apps/aquamobil/src/types/index.ts`, and pins
-  the rule that no AquaMobil input type may be hand-written with
-  `tests/invariants/aquamobil-input-mirror-parity.spec.ts` (commit 2f5ef21eb).
-  The registry row stays OPEN only until the post-merge close ceremony records a
-  main-reachable closing commit.
+  the rule with `tests/invariants/aquamobil-input-mirror-parity.spec.ts` (commit
+  2f5ef21eb) — a tier-3 backstop for the mirrors that WERE still hand-written.
+  PR #1424 (registered as `MOB-CRITICAL-021`) finished the tier-1 move: every
+  input and queued payload now derives from `src/generated/graphql.ts`, so the
+  backstop guarded an empty set and its own minimum-coverage assertion failed.
+  It is replaced by `tests/invariants/aquamobil-graphql-contract-ssot.spec.ts`,
+  which forbids the hand-written mirror outright instead of comparing it to the
+  subgraph. The registry row stays OPEN only until the post-merge close ceremony
+  records a main-reachable closing commit.
 - `SENSOR-CRITICAL-086` (MQTT path could PUBACK before the source commit): PR #1338 holds the PUBACK
   until the reading is durably persisted (commit 4e6f129d6). The registry row stays OPEN only until
   the post-merge close ceremony records a main-reachable closing commit.

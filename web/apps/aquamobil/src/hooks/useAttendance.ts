@@ -69,9 +69,7 @@ export function useMyAttendanceRecords(
 
       const cacheKey = userScopedCacheKey(user.id, 'attendance-records', startDate, endDate, limit);
       try {
-        const result = await graphqlRequest<{
-          myAttendanceRecords: AttendanceRecord[];
-        }>(GET_MY_ATTENDANCE_RECORDS, { startDate, endDate, limit });
+        const result = await graphqlRequest(GET_MY_ATTENDANCE_RECORDS, { startDate, endDate, limit });
 
         const records = result.myAttendanceRecords;
 
@@ -138,9 +136,7 @@ export function useMyAttendanceSummary(
 
       const cacheKey = userScopedCacheKey(user.id, 'attendance-summary', year, month);
       try {
-        const result = await graphqlRequest<{
-          myAttendanceSummary: AttendanceSummary;
-        }>(GET_MY_ATTENDANCE_SUMMARY, { month, year });
+        const result = await graphqlRequest(GET_MY_ATTENDANCE_SUMMARY, { month, year });
 
         const summary = result.myAttendanceSummary;
         await cacheUserData(tenantId, cacheKey, summary, CACHE_TTL_1H);
@@ -184,9 +180,7 @@ export function useTodaysAttendance(): UseQueryResult<AttendanceRecord[], Error>
 
       const cacheKey = userScopedCacheKey(user.id, 'todays-attendance');
       try {
-        const result = await graphqlRequest<{
-          myTodaysAttendance: AttendanceRecord[];
-        }>(GET_TODAYS_ATTENDANCE);
+        const result = await graphqlRequest(GET_TODAYS_ATTENDANCE);
 
         const records = result.myTodaysAttendance;
         await cacheUserData(tenantId, cacheKey, records, CACHE_TTL_1H);

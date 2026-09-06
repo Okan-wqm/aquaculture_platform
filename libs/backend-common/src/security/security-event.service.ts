@@ -1,5 +1,10 @@
 import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
-import { SecurityEventType, SecurityEvent, createBaseEvent } from '@platform/event-contracts';
+import {
+  SecurityEventType,
+  SecurityEvent,
+  createBaseEvent,
+  tenantScopeOf,
+} from '@platform/event-contracts';
 import type { BaseEvent } from '@platform/event-contracts';
 import { IEventBus } from '@platform/event-bus';
 
@@ -202,7 +207,7 @@ export class SecurityEventService {
 
     try {
       const eventTypeName = SecurityEventService.EVENT_TYPE_NAMES[securityEventType];
-      const base = createBaseEvent<BaseEvent>(eventTypeName, opts.tenantId ?? 'system', {
+      const base = createBaseEvent<BaseEvent>(eventTypeName, tenantScopeOf(opts.tenantId), {
         userId: opts.userId,
         correlationId: opts.correlationId,
       });

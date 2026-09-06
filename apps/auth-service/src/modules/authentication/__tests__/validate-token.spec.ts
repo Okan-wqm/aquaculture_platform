@@ -11,6 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
@@ -22,6 +23,7 @@ import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { User } from '../entities/user.entity';
 import { WebAuthnCredential } from '../entities/webauthn-credential.entity';
+import { ActionTokenResolver } from '../services/action-token-resolver.service';
 import { AuthenticationService } from '../services/authentication.service';
 import { DurableAccessTokenInvalidationService } from '../services/durable-access-token-invalidation.service';
 import { DurableUserTokenInvalidationService } from '../services/durable-user-token-invalidation.service';
@@ -37,6 +39,8 @@ import { TokenService } from '../services/token.service';
  * pin that only type='access' tokens validate, and that verification uses the
  * RS256 + issuer + audience options (not a bare verifyAsync).
  */
+const mockOutboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
+
 describe('AuthenticationService.validateToken (SEC-MEDIUM-004)', () => {
   let service: AuthenticationService;
 
@@ -102,6 +106,7 @@ describe('AuthenticationService.validateToken (SEC-MEDIUM-004)', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthenticationService,
+        ActionTokenResolver,
         { provide: getRepositoryToken(User), useValue: { findOne: jest.fn() } },
         { provide: getRepositoryToken(RefreshToken), useValue: { update: jest.fn() } },
         { provide: getRepositoryToken(Invitation), useValue: {} },
@@ -123,6 +128,7 @@ describe('AuthenticationService.validateToken (SEC-MEDIUM-004)', () => {
           provide: BestEffortEventPublisher,
           useValue: new BestEffortEventPublisher({ publish: jest.fn() }),
         },
+        { provide: OutboxPublisher, useValue: mockOutboxPublisher },
         { provide: AuditLogService, useValue: { log: jest.fn() } },
         { provide: TokenService, useValue: { generateTokens: jest.fn() } },
         {

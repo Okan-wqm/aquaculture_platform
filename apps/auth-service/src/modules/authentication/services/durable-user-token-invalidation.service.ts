@@ -6,10 +6,11 @@ import {
 import { Inject, Injectable } from '@nestjs/common';
 import {
   createBaseEvent,
+  tenantScopeOf,
   type UserAccessTokenInvalidationReason,
   type UserAccessTokenInvalidationRequestedEvent,
 } from '@platform/event-contracts';
-import { OUTBOX_SYSTEM_TENANT_ID, OutboxPublisher } from '@platform/outbox';
+import { OutboxPublisher } from '@platform/outbox';
 import { EntityManager } from 'typeorm';
 
 export interface UserTokenInvalidationIntent {
@@ -37,12 +38,13 @@ export class DurableUserTokenInvalidationService {
   ) {}
 
   async enqueue(manager: EntityManager, intent: UserTokenInvalidationIntent): Promise<void> {
-    const systemRouted = intent.tenantId === null;
-    const eventTenantId = intent.tenantId ?? OUTBOX_SYSTEM_TENANT_ID;
+    // SEC-HIGH-159: scope derived from the principal, routed by kind.
+    const scope = tenantScopeOf(intent.tenantId);
+    const systemRouted = scope.kind === 'platform';
     const event: UserAccessTokenInvalidationRequestedEvent = {
       ...createBaseEvent<UserAccessTokenInvalidationRequestedEvent>(
         'UserAccessTokenInvalidationRequested',
-        eventTenantId,
+        scope,
         {
           aggregateId: intent.userId,
           aggregateType: 'User',

@@ -1,9 +1,6 @@
 import { BaseEvent, createBaseEvent } from '@platform/event-contracts';
 
-import {
-  BestEffortEventPublisher,
-  EventPublishPort,
-} from '../best-effort-event-publisher';
+import { BestEffortEventPublisher, EventPublishPort } from '../best-effort-event-publisher';
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111';
 
@@ -24,7 +21,6 @@ describe('BestEffortEventPublisher', () => {
     'UserLoggedIn',
     'UserProfileUpdated',
     'UserPasswordChanged',
-    'PasswordResetRequested',
     'PasswordResetCompleted',
     'InvitationAccepted',
     'UserInvited',

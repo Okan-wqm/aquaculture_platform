@@ -39,6 +39,14 @@ their `Closes:` trailers; their own merge ceremonies carry the right-hand ids.
 | `SEC-HIGH-056`                 | `SEC-HIGH-158`             |
 | `SEC-HIGH-057`                 | `SEC-HIGH-159`             |
 | `SENSOR-CRITICAL-106`          | `SENSOR-CRITICAL-111`      |
+| `SEC-LOW-060` (PR #1425)       | `SEC-LOW-160`              |
+| `PLAT-MEDIUM-905` (PR #1425)   | `PLAT-MEDIUM-910`          |
+
+The last two were raised by PR #1425's own A0 commit (the raw-token branch's
+retirement and the hand-rolled tenant-guard burn-down) and moved for the same
+reason when that branch took main: `SEC-LOW-060` names a dompurify advisory on
+main and `PLAT-MEDIUM-905` a live `PLAT-CRITICAL-905`, so neither old id can be
+an alias.
 
 ## Findings
 
@@ -188,3 +196,60 @@ Recorded in `/root/.claude/plans/planla-once-tek-tek-concurrent-dragon.md`
 criteria as **Faz 2c**; `SENSOR-CRITICAL-111` joins Faz 5; `INFRA-HIGH-151` joins
 Faz 6; `DEPLOY-CRITICAL-017` and claim 6's evidence chain become the
 **production go-live gate**, not Faz 8 ledger work.
+
+## Faz 2c deferred work (registered with owner + deadline)
+
+### SEC-LOW-160 — retire the raw-token resolution branch of ActionTokenResolver
+
+`ActionTokenResolver.resolve()` (apps/auth-service/src/modules/authentication/services/action-token-resolver.service.ts)
+keeps a `raw-token` branch that hashes a 64-hex URL segment and looks it up as a legacy
+`Invitation.token` / `User.passwordResetToken`. After SEC-HIGH-158 nothing mints such a link:
+every delivery carries `actionToken.id`. The branch exists only so links e-mailed BEFORE the
+PR-A deploy (invitations ≤ 7 days, resets ≤ 1 hour) still redeem. Deleting it earlier would
+invalidate every invitation in flight; keeping it re-opens the "raw secret in the URL" surface
+the ActionToken indirection closed.
+
+**Fix:** delete the `raw-token` member of `ActionLinkResolution`, `RAW_TOKEN_PATTERN` and
+`hashRawToken`, and the consumers' `raw-token` arms, once ≥ 7 days have passed after the PR-A
+production deploy; `tests/invariants/action-link-resolver-ssot.spec.ts` then asserts the
+pattern is gone. Owner @okan-wqm, deadline 2026-10-31.
+
+### PLAT-MEDIUM-910 — NATS handlers still hand-roll a tenantId UUID guard
+
+SEC-HIGH-159 introduced `eventTenantScope()` / `requireTenantScope()` in `@platform/event-contracts`
+as the one way a consumer parses an event's tenancy, and rewrote `auth-event.handler.ts` on it.
+Twelve other handlers still declare their own `UUID_REGEX` / `isValidUUID(event.tenantId)` and
+`return` on a miss (acking the message — the PLAT-HIGH-902 shape): notification-service
+`alert-triggered`, `billing-event`, `task-event`, `task-assigned`, `messaging-event`,
+`feeding-daily-summary`, `harvest-regulatory`, `regulatory-report`, `device-token-revocation`;
+ai-service `conversation-privacy-event.handler.ts`; auth-service
+`tenant-subscription-projection.handler.ts`; farm-service `tenant-onboarding.event-handler.ts`;
+backend-common `tenant-schema-cache-invalidation.subscriber.ts`. Each is a latent copy of the
+super-admin drop.
+
+**Fix:** replace every hand-rolled guard with `requireTenantScope(event)` (tenant-only events)
+or `eventTenantScope(event)` (platform-capable), returning a `HandlerOutcome.terminate` on a
+malformed scope once PLAT-HIGH-902 lands. `tests/invariants/event-tenant-scope-ssot.spec.ts`
+carries the allowlist keyed to this finding and fails on staleness. Owner @okan-wqm,
+deadline 2026-11-15.
+
+**Measured set (2026-09-05, the invariant's allowlist — the SSoT for this burn-down).** The
+shared detector (`tests/invariants/helpers/nats-event-handler.ts`: implements `IEventHandler`
+and subscribes on the bus) finds **25** handlers carrying a hand-rolled `tenantId` guard, not
+the twelve enumerated above — the alert-engine and farm-service handlers use backend-common's
+`isValidUUID(event.tenantId)` for the same `return`-on-miss shape:
+
+- notification-service (9): `alert-triggered`, `billing-event`, `task-event`, `task-assigned`,
+  `messaging-event`, `feeding-daily-summary`, `harvest-regulatory`, `regulatory-report`,
+  `device-token-revocation`
+- alert-engine (7): `fcr-alert`, `feed-coverage`, `feeding-execution`, `low-stock`,
+  `mortality-alert`, `sensor-reading`, `water-quality-critical`
+- farm-service (6): `events/listeners/{farm-stock-projection,harvest-completed,mortality-recorded,sensor-temperature-projection}.listener.ts`,
+  `task/services/auto-rule-trigger.service.ts`, `water-quality/event-handlers/tenant-onboarding.event-handler.ts`
+- ai-service (1): `conversation/conversation-privacy-event.handler.ts`
+- auth-service (1): `modules/tenant/event-handlers/tenant-subscription-projection.handler.ts`
+- backend-common (1): `database/tenant-schema-cache/tenant-schema-cache-invalidation.subscriber.ts`
+
+The allowlist only shrinks: a file that stops matching the guard pattern must be removed from
+it (staleness fails the spec), and the spec fails if this finding is RESOLVED while the list is
+non-empty.

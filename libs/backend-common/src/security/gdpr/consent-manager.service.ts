@@ -5,16 +5,12 @@ import { Repository } from 'typeorm';
 import type { IEventBus } from '@platform/event-bus';
 import {
   createBaseEvent,
+  tenantScopeOf,
   type ConsentRecordedEvent,
   type ConsentWithdrawnEvent,
 } from '@platform/event-contracts';
 
-import {
-  IConsentManager,
-  ConsentRecord,
-  ConsentStatus,
-  ConsentType,
-} from '../interfaces';
+import { IConsentManager, ConsentRecord, ConsentStatus, ConsentType } from '../interfaces';
 import { UserConsent } from './entities/consent.entity';
 
 /**
@@ -92,7 +88,7 @@ export class ConsentManagerService implements IConsentManager {
 
     this.logger.log(
       `Consent recorded for user ${consent.userId}: ` +
-      `${consent.consentType} = ${consent.granted}`,
+        `${consent.consentType} = ${consent.granted}`,
     );
 
     // COMPLIANCE-HIGH-002 cure: emit ConsentRecorded so downstream
@@ -105,7 +101,7 @@ export class ConsentManagerService implements IConsentManager {
       await this.emitConsentEvent({
         ...createBaseEvent<ConsentRecordedEvent>(
           'ConsentRecorded',
-          consent.tenantId ?? 'system',
+          tenantScopeOf(consent.tenantId),
           { aggregateId: saved.id, aggregateType: 'UserConsent' },
         ),
         userId: consent.userId,
@@ -153,11 +149,7 @@ export class ConsentManagerService implements IConsentManager {
   /**
    * Withdraw consent
    */
-  async withdrawConsent(
-    userId: string,
-    consentType: ConsentType,
-    reason?: string,
-  ): Promise<void> {
+  async withdrawConsent(userId: string, consentType: ConsentType, reason?: string): Promise<void> {
     // Get latest consent
     const latest = await this.consentRepository.findOne({
       where: { userId, consentType },
@@ -198,7 +190,7 @@ export class ConsentManagerService implements IConsentManager {
     await this.emitConsentEvent({
       ...createBaseEvent<ConsentWithdrawnEvent>(
         'ConsentWithdrawn',
-        latest.tenantId ?? 'system',
+        tenantScopeOf(latest.tenantId),
         { aggregateId: savedWithdrawal.id, aggregateType: 'UserConsent' },
       ),
       userId,
@@ -216,7 +208,7 @@ export class ConsentManagerService implements IConsentManager {
       order: { createdAt: 'DESC' },
     });
 
-    return entities.map(entity => ({
+    return entities.map((entity) => ({
       id: entity.id,
       userId: entity.userId,
       tenantId: entity.tenantId || undefined,
@@ -298,7 +290,7 @@ export class ConsentManagerService implements IConsentManager {
       .limit(limit)
       .getRawMany();
 
-    return result.map(r => r.userId);
+    return result.map((r) => r.userId);
   }
 
   /**

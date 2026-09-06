@@ -11,7 +11,9 @@ describe('AccountResolver', () => {
 
   const accountService = {
     updateMyProfile: jest.fn().mockResolvedValue(user),
-    changeMyPassword: jest.fn().mockResolvedValue({ success: true, message: 'Password changed successfully' }),
+    changeMyPassword: jest
+      .fn()
+      .mockResolvedValue({ success: true, message: 'Password changed successfully' }),
     getMySecuritySettings: jest.fn().mockResolvedValue({
       mfaEnabled: true,
       mfaAvailable: true,

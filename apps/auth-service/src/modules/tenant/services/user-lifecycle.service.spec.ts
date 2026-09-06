@@ -158,8 +158,12 @@ describe('UserLifecycleService', () => {
     enqueue: jest.Mock;
     applyImmediately: jest.Mock;
   };
+  // The manager the default transaction() mock handed to the service last —
+  // createUser tests read the Invitation/ActionToken writes back off it.
+  let lastTransactionManager: { save: jest.Mock } | null = null;
 
   beforeEach(async () => {
+    lastTransactionManager = null;
     mockDurableUserTokenInvalidation = {
       enqueue: jest.fn().mockResolvedValue(undefined),
       applyImmediately: jest.fn().mockResolvedValue(undefined),
@@ -189,16 +193,24 @@ describe('UserLifecycleService', () => {
         const mockManager = {
           getRepository: jest.fn().mockReturnValue(mockUserRepo),
           withRepository: jest.fn((repository: unknown) => repository),
-          create: jest.fn(<T>(_entity: unknown, data: T) => ({ ...data })),
-          // Two save shapes: save(Entity, data) (createUser action-token path)
-          // and save(entity) (deleteUser soft-delete). The 1-arg form delegates
-          // to the user repo mock so userRepository.save assertions still observe
-          // the soft-delete write.
-          save: jest.fn((entityOrData: unknown, data?: Record<string, unknown>) =>
-            data !== undefined
-              ? Promise.resolve({ id: 'action-token-id', ...data })
-              : mockUserRepo.save(entityOrData),
+          // createUser writes its User row through the transactional manager
+          // (SEC-HIGH-158: user + invitation + action token commit together);
+          // route the User shape to the injected repo mock so userRepository
+          // assertions still observe the write.
+          create: jest.fn(<T>(entity: unknown, data: T) =>
+            entity === User ? mockUserRepo.create(data) : { ...data },
           ),
+          // Three save shapes: save(User, data) (createUser), save(Entity, data)
+          // (Invitation / ActionToken rows minted by createUser) and save(entity)
+          // (deleteUser soft-delete). The User and 1-arg forms delegate to the
+          // user repo mock so userRepository.save assertions still observe them.
+          save: jest.fn((entityOrData: unknown, data?: Record<string, unknown>) => {
+            if (data === undefined) return mockUserRepo.save(entityOrData);
+            if (entityOrData === User) return mockUserRepo.save(data);
+            if (entityOrData === Invitation)
+              return Promise.resolve({ id: 'invitation-id', ...data });
+            return Promise.resolve({ id: 'action-token-id', ...data });
+          }),
           // SEC-MEDIUM-002: deleteUser revokes refresh tokens via
           // manager.update(RefreshToken, ...) inside the transaction; route it to
           // the injected refresh-token repo mock so refreshTokenRepository.update
@@ -211,6 +223,7 @@ describe('UserLifecycleService', () => {
           createQueryBuilder: jest.fn(() => createMockTenantCounterBuilder()),
           query: mockDataSource.query,
         };
+        lastTransactionManager = mockManager;
         return cb(mockManager);
       }),
     };
@@ -300,6 +313,19 @@ describe('UserLifecycleService', () => {
       roleId: ROLE_ID,
     };
 
+    // The transactional manager is created per transaction() call; read the
+    // entity-tagged save calls back off the manager the service was handed.
+    const managerSaves = (entity: unknown): Record<string, unknown>[] => {
+      if (lastTransactionManager === null) {
+        throw new Error('createUser did not open a transaction');
+      }
+      return lastTransactionManager.save.mock.calls
+        .filter((call: unknown[]) => call[0] === entity)
+        .map((call: unknown[]) => call[1] as Record<string, unknown>);
+    };
+    const invitationSaves = (): Record<string, unknown>[] => managerSaves(Invitation);
+    const actionTokenSaves = (): Record<string, unknown>[] => managerSaves(ActionToken);
+
     it('should create user with role assignment in a single flow', async () => {
       tenantRepository.findOne.mockResolvedValue(createMockTenant());
       userRepository.findOne.mockResolvedValue(null); // no existing user
@@ -319,6 +345,105 @@ describe('UserLifecycleService', () => {
           isActive: true,
         }),
       );
+    });
+
+    // SEC-HIGH-158: the e-mailed link names an ActionToken ROW ID. Before this
+    // fix createUser wrote no Invitation/ActionToken row at all and published a
+    // token HASH under `actionTokenId`, so the notification service could never
+    // resolve the row and the invitee's link was dead on arrival.
+    it('SEC-HIGH-158: mints Invitation + ActionToken in the user transaction and publishes the row id', async () => {
+      tenantRepository.findOne.mockResolvedValue(createMockTenant());
+      userRepository.findOne.mockResolvedValue(null);
+      const savedUser = createMockUser({ email: 'newuser@tenant.com' });
+      userRepository.save.mockResolvedValue(savedUser);
+      mockDataSource.query.mockResolvedValueOnce([{ id: 'assignment-001' }]);
+
+      const result = await service.createUser(TENANT_ID, createInput, ADMIN_USER_ID);
+
+      expect(mockDataSource.transaction).toHaveBeenCalledTimes(1);
+      const [txCallback] = mockDataSource.transaction.mock.calls[0] ?? [];
+      expect(typeof txCallback).toBe('function');
+      const userWrite = userRepository.create.mock.calls[0]?.[0];
+      expect(userWrite).toEqual(
+        expect.objectContaining({
+          invitationToken: expect.stringMatching(/^[0-9a-f]{64}$/),
+          invitationExpiresAt: expect.any(Date),
+        }),
+      );
+      // The Invitation and ActionToken rows share the user's token hash.
+      const invitationRow = invitationSaves()[0];
+      const actionTokenRow = actionTokenSaves()[0];
+      expect(invitationRow).toEqual(
+        expect.objectContaining({
+          token: userWrite?.invitationToken,
+          tenantId: TENANT_ID,
+          email: 'newuser@tenant.com',
+          role: Role.MODULE_USER,
+          invitedBy: ADMIN_USER_ID,
+          sendCount: 1,
+        }),
+      );
+      expect(actionTokenRow).toEqual(
+        expect.objectContaining({
+          purpose: 'INVITATION',
+          tenantId: TENANT_ID,
+          userId: USER_ID,
+          tokenHash: userWrite?.invitationToken,
+          status: 'ACTIVE',
+          auditMetadata: { source: 'tenant-user-create', invitedBy: ADMIN_USER_ID },
+        }),
+      );
+      expect(result.invitationSent).toBe(true);
+      expect(mockEventBus.publish).toHaveBeenCalledTimes(1);
+      const [publishedEvent] = mockEventBus.publish.mock.calls[0] ?? [];
+      expect(publishedEvent).toEqual(
+        expect.objectContaining({
+          eventType: 'UserInvited',
+          tenantId: TENANT_ID,
+          userId: USER_ID,
+          invitedBy: ADMIN_USER_ID,
+          credentialType: 'reset_token',
+          actionTokenId: 'action-token-id',
+          cryptoShredKeyId: USER_ID,
+        }),
+      );
+      expect(publishedEvent?.actionTokenId).not.toBe(userWrite?.invitationToken);
+      expect(JSON.stringify(publishedEvent)).not.toContain('newuser@tenant.com');
+    });
+
+    it('SEC-HIGH-158: a password-created user gets no invitation rows and no UserInvited', async () => {
+      tenantRepository.findOne.mockResolvedValue(createMockTenant());
+      userRepository.findOne.mockResolvedValue(null);
+      userRepository.save.mockResolvedValue(createMockUser({ email: 'newuser@tenant.com' }));
+      mockDataSource.query.mockResolvedValueOnce([{ id: 'assignment-001' }]);
+
+      const result = await service.createUser(
+        TENANT_ID,
+        { ...createInput, password: 'Str0ng!Passw0rd' },
+        ADMIN_USER_ID,
+      );
+
+      expect(userRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ invitationToken: null, invitationExpiresAt: null }),
+      );
+      expect(invitationSaves()).toHaveLength(0);
+      expect(actionTokenSaves()).toHaveLength(0);
+      expect(mockEventBus.publish).not.toHaveBeenCalled();
+      expect(result.invitationSent).toBe(false);
+    });
+
+    it('SEC-HIGH-158: sendInvitation=false mints nothing and publishes nothing', async () => {
+      tenantRepository.findOne.mockResolvedValue(createMockTenant());
+      userRepository.findOne.mockResolvedValue(null);
+      userRepository.save.mockResolvedValue(createMockUser({ email: 'newuser@tenant.com' }));
+      mockDataSource.query.mockResolvedValueOnce([{ id: 'assignment-001' }]);
+
+      const result = await service.createUser(TENANT_ID, createInput, ADMIN_USER_ID, false);
+
+      expect(invitationSaves()).toHaveLength(0);
+      expect(actionTokenSaves()).toHaveLength(0);
+      expect(mockEventBus.publish).not.toHaveBeenCalled();
+      expect(result.invitationSent).toBe(false);
     });
 
     it('should throw ConflictException for duplicate email', async () => {

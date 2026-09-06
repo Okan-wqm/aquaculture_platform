@@ -10,6 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { OutboxPublisher } from '@platform/outbox';
 import * as bcrypt from 'bcryptjs';
 import { DataSource } from 'typeorm';
 
@@ -22,6 +23,7 @@ import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { User } from '../entities/user.entity';
 import { WebAuthnCredential } from '../entities/webauthn-credential.entity';
+import { ActionTokenResolver } from '../services/action-token-resolver.service';
 import { AuthenticationService } from '../services/authentication.service';
 import { DurableAccessTokenInvalidationService } from '../services/durable-access-token-invalidation.service';
 import { DurableUserTokenInvalidationService } from '../services/durable-user-token-invalidation.service';
@@ -65,6 +67,8 @@ function deferredVoid(): { promise: Promise<void>; resolve: () => void } {
   });
   return { promise, resolve: resolvePromise };
 }
+
+const mockOutboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
 
 describe('AuthenticationService refresh-token reuse containment', () => {
   let service: AuthenticationService;
@@ -201,6 +205,7 @@ describe('AuthenticationService refresh-token reuse containment', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthenticationService,
+        ActionTokenResolver,
         { provide: getRepositoryToken(User), useValue: userRepository },
         { provide: getRepositoryToken(RefreshToken), useValue: {} },
         { provide: getRepositoryToken(Invitation), useValue: {} },
@@ -218,6 +223,7 @@ describe('AuthenticationService refresh-token reuse containment', () => {
         { provide: JwtService, useValue: {} },
         { provide: ConfigService, useValue: config },
         { provide: BestEffortEventPublisher, useValue: { publish: jest.fn() } },
+        { provide: OutboxPublisher, useValue: mockOutboxPublisher },
         { provide: AuditLogService, useValue: { log: jest.fn() } },
         { provide: TokenService, useValue: tokenService },
         { provide: MfaService, useValue: {} },

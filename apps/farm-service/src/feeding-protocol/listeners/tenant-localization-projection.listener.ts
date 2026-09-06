@@ -20,10 +20,10 @@
  *
  * @module FeedingProtocol/Listeners
  */
-import { isValidUUID } from '@aquaculture/backend-common/database';
 import { isValidBcp47Locale, isValidIanaTimeZone } from '@aquaculture/backend-common/utils';
 import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { requireTenantScope } from '@platform/event-contracts';
 import type { BaseEvent, TenantUpdatedEvent } from '@platform/event-contracts';
 import { DataSource } from 'typeorm';
 
@@ -57,13 +57,11 @@ export class TenantLocalizationProjectionListener
   }
 
   async handle(event: BaseEvent): Promise<void> {
-    if (!event.tenantId || !isValidUUID(event.tenantId)) {
-      this.logger.error(
-        'TenantUpdated has missing/invalid tenantId — skipping to prevent ' +
-          'cross-tenant read-model corruption.',
-      );
-      return;
-    }
+    // PLAT-MEDIUM-910: the tenancy scope is PARSED, not guarded. Skipping on a
+    // malformed tenantId acked a poison message — the projection stayed stale
+    // and nothing said so. `requireTenantScope` throws instead, so redelivery
+    // (and the dead-letter lane behind it) sees the contract violation.
+    const { tenantId } = requireTenantScope(event);
 
     const updated = event as TenantUpdatedEvent;
     // Lokalizasyon taşımayan TenantUpdated yayımları (isim/plan değişimi) bu
@@ -76,7 +74,7 @@ export class TenantLocalizationProjectionListener
       // ikamesi de yapılmaz — operatör yanlış saatte beslendiğini fark etmez.
       this.logger.error(
         `TenantUpdated carries an unresolvable IANA timezone for tenant ` +
-          `${event.tenantId.substring(0, 8)}... — projection row left unchanged.`,
+          `${tenantId.substring(0, 8)}... — projection row left unchanged.`,
       );
       return;
     }
@@ -97,11 +95,11 @@ export class TenantLocalizationProjectionListener
                "updatedAt" = now()
          WHERE farm.tenant_localization."sourceUpdatedAt" IS NULL
             OR farm.tenant_localization."sourceUpdatedAt" < EXCLUDED."sourceUpdatedAt"`,
-        [event.tenantId, updated.timezone, locale, sourceUpdatedAt],
+        [tenantId, updated.timezone, locale, sourceUpdatedAt],
       );
     } catch (error) {
       this.logger.error(
-        `Tenant-localization projection failed for tenant ${event.tenantId.substring(0, 8)}...: ` +
+        `Tenant-localization projection failed for tenant ${tenantId.substring(0, 8)}...: ` +
           `${(error as Error).message}`,
         (error as Error).stack,
       );

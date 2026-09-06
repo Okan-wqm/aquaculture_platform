@@ -24,7 +24,7 @@ const h = vi.hoisted(() => ({
   cacheData: vi.fn<(...args: unknown[]) => Promise<void>>(),
   getCachedData: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
   addToQueue: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
-  syncStatus: 'pending' as 'pending' | 'syncing' | 'synced' | 'failed',
+  syncStatus: 'pending',
 }));
 
 vi.mock('react-router-dom', () => ({

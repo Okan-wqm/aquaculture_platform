@@ -13,7 +13,6 @@ import { BillingPlanTier } from '@platform/event-contracts';
 
 import { Tenant } from '../../tenant/entities/tenant.entity';
 import { CustomPlan, CustomPlanStatus } from '../entities/custom-plan.entity';
-import { BillingCycle } from '../entities/plan-definition.entity';
 import { BillingAdminCommandClientService } from '../services/billing-admin-command-client.service';
 import { CustomPlanService } from '../services/custom-plan.service';
 import { ModulePricingService } from '../services/module-pricing.service';
@@ -27,7 +26,7 @@ function approvedPlan(overrides: Partial<CustomPlan> = {}): CustomPlan {
     tenantId: TENANT_ID,
     name: 'Negotiated',
     tier: BillingPlanTier.CUSTOM,
-    billingCycle: BillingCycle.ANNUAL,
+    billingCycle: 'annual',
     status: CustomPlanStatus.APPROVED,
     modules: [
       {

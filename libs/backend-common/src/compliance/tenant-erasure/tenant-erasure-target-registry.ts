@@ -100,7 +100,6 @@ const ADMIN_TABLES: TenantErasureTablePolicies = {
   threat_intelligence: { kind: 'excluded', reason: PLATFORM_REFERENCE },
   compliance_reports: { kind: 'excluded', reason: PLATFORM_REFERENCE },
   announcements: { kind: 'excluded', reason: PLATFORM_REFERENCE },
-  plan_definitions: { kind: 'excluded', reason: PLATFORM_REFERENCE },
   plan_module_assignments: { kind: 'excluded', reason: PLATFORM_REFERENCE },
   job_queues: { kind: 'excluded', reason: PLATFORM_REFERENCE },
   system_versions: { kind: 'excluded', reason: PLATFORM_REFERENCE },
@@ -131,6 +130,10 @@ const BILLING_TABLES: TenantErasureTablePolicies = {
   module_prices: { kind: 'excluded', reason: PLATFORM_REFERENCE },
   module_price_metrics: { kind: 'excluded', reason: PLATFORM_REFERENCE },
   module_price_tier_multipliers: { kind: 'excluded', reason: PLATFORM_REFERENCE },
+  // ADR-0013: the plan's per-cycle prices and its priced add-ons belong to the
+  // catalogue plan, not to a tenant — the same reason `plans` itself is excluded.
+  plan_cycle_prices: { kind: 'excluded', reason: PLATFORM_REFERENCE },
+  plan_add_ons: { kind: 'excluded', reason: PLATFORM_REFERENCE },
   stripe_webhook_events: {
     kind: 'excluded',
     reason: 'Stripe webhook idempotency ledger keyed by Stripe event id; carries no tenant column and is the evidence of what Stripe delivered',

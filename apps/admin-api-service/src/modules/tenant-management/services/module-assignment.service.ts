@@ -11,7 +11,7 @@ import {
 } from '@platform/event-contracts';
 import { DataSource } from 'typeorm';
 
-import { PlanTier, BillingCycle } from '../../../billing/entities/plan-definition.entity';
+import { BillingPlanTier, type BillingCycle } from '@platform/event-contracts';
 import { ModulePricingService } from '../../../billing/services/module-pricing.service';
 import { AuthTenantProvisioningClientService } from '../../../tenant/services/auth-tenant-provisioning-client.service';
 
@@ -54,7 +54,7 @@ export interface BulkModuleAssignmentDto {
     quantities?: ModuleQuantities;
   }>;
   assignedBy: string;
-  tier?: PlanTier;
+  tier?: BillingPlanTier;
   billingCycle?: BillingCycle;
 }
 
@@ -128,8 +128,8 @@ export class ModuleAssignmentService {
       tenantId,
       modules,
       assignedBy,
-      tier = PlanTier.STARTER,
-      billingCycle = BillingCycle.MONTHLY,
+      tier = BillingPlanTier.STARTER,
+      billingCycle = 'monthly',
     } = dto;
 
     this.logger.log(`Assigning ${modules.length} modules to tenant ${tenantId}`);
@@ -364,7 +364,7 @@ export class ModuleAssignmentService {
    */
   async resolveProvisioningModuleItems(params: {
     modules: Array<{ moduleId: string; quantities?: ModuleQuantities }>;
-    tier: PlanTier;
+    tier: BillingPlanTier;
     billingCycle: BillingCycle;
     /** Recorded by billing against the quote; never a client-supplied string. */
     actorId: string;
@@ -464,8 +464,8 @@ export class ModuleAssignmentService {
   async recalculateTenantPricing(
     tenantId: string,
     actorId: string,
-    tier: PlanTier = PlanTier.STARTER,
-    billingCycle: BillingCycle = BillingCycle.MONTHLY,
+    tier: BillingPlanTier = BillingPlanTier.STARTER,
+    billingCycle: BillingCycle = 'monthly',
   ): Promise<BillingModuleQuote> {
     const modules = await this.getTenantModulesWithPricing(tenantId);
 

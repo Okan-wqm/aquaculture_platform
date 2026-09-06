@@ -49,6 +49,8 @@ const CATALOGUE_TABLES = [
   'discount_codes',
   'discount_redemptions',
   'plans',
+  'plan_cycle_prices',
+  'plan_add_ons',
   'module_prices',
   'module_price_metrics',
   'module_price_tier_multipliers',
@@ -60,9 +62,11 @@ const MIGRATED_FROM_ADMIN = ['discount_codes', 'discount_redemptions'] as const;
 /**
  * Admin table names ADR-0013 retired outright — no entity may declare them at
  * all. `module_pricing` was replaced by `module_prices` plus its two child
- * tables, so a reappearance of the old name is a resurrection, not a move.
+ * tables and `plan_definitions` was folded into `billing.plans` plus
+ * `plan_cycle_prices` / `plan_add_ons`, so a reappearance of either old name is
+ * a resurrection, not a move.
  */
-const RETIRED_ADMIN_TABLES = ['module_pricing'] as const;
+const RETIRED_ADMIN_TABLES = ['module_pricing', 'plan_definitions'] as const;
 
 interface AllowlistEntry {
   site: string;

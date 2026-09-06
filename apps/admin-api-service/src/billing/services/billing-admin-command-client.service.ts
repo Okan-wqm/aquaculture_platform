@@ -38,6 +38,13 @@ import {
   type BillingModulePriceSnapshot,
   type BillingModuleQuote,
   type BillingModuleQuoteSelection,
+  type BillingAdminCreatePlanCommand,
+  type BillingAdminDeprecatePlanCommand,
+  type BillingAdminPlanCommandResult,
+  type BillingAdminUpdatePlanCommand,
+  type BillingPlanInput,
+  type BillingPlanSnapshot,
+  type BillingPlanUpdateInput,
   type BillingPlanTier,
   type BillingCycle,
   type BillingAdminCreateInvoiceCommand,
@@ -433,6 +440,46 @@ export class BillingAdminCommandClientService {
     result: BillingAdminModulePriceCommandResult,
   ): BillingModulePriceSnapshot {
     if (result.success && result.modulePrice) return result.modulePrice;
+    throw this.mapBillingError(result.errorCode, result.error);
+  }
+
+  // ── Plan catalogue (ADR-0013) ──────────────────────────────────────────
+  //
+  // `billing.plans` is the ONLY catalogue. admin-panel remains the authoring
+  // UI; admin-api forwards the authored plan here and maps the reply back
+  // through the same read shape a GET returns, so an operator sees exactly the
+  // row every runtime path will resolve.
+
+  async createPlan(input: BillingPlanInput, actorId: string): Promise<BillingPlanSnapshot> {
+    const result = await this.sendBillingCommand<
+      BillingAdminCreatePlanCommand,
+      BillingAdminPlanCommandResult
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.CREATE_PLAN, { input, actorId });
+    return this.unwrapPlan(result);
+  }
+
+  async updatePlan(
+    planId: string,
+    input: BillingPlanUpdateInput,
+    actorId: string,
+  ): Promise<BillingPlanSnapshot> {
+    const result = await this.sendBillingCommand<
+      BillingAdminUpdatePlanCommand,
+      BillingAdminPlanCommandResult
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.UPDATE_PLAN, { planId, input, actorId });
+    return this.unwrapPlan(result);
+  }
+
+  async deprecatePlan(planId: string, actorId: string): Promise<BillingPlanSnapshot> {
+    const result = await this.sendBillingCommand<
+      BillingAdminDeprecatePlanCommand,
+      BillingAdminPlanCommandResult
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.DEPRECATE_PLAN, { planId, actorId });
+    return this.unwrapPlan(result);
+  }
+
+  private unwrapPlan(result: BillingAdminPlanCommandResult): BillingPlanSnapshot {
+    if (result.success && result.plan) return result.plan;
     throw this.mapBillingError(result.errorCode, result.error);
   }
 

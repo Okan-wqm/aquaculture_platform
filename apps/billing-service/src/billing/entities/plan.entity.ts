@@ -6,6 +6,7 @@ import {
   UpdateDateColumn,
   VersionColumn,
   Index,
+  OneToMany,
   BeforeInsert,
   BeforeUpdate,
 } from 'typeorm';
@@ -13,6 +14,40 @@ import { ObjectType, Field, ID, registerEnumType, Float, Int } from '@nestjs/gra
 import { MoneyColumn } from '@aquaculture/backend-common/monetary';
 import Decimal from 'decimal.js';
 import { BillingCycle, PlanTier, PlanLimits, PlanPricing } from './subscription.entity';
+
+// Type-only: erased at runtime, so the OneToMany relations below (declared by
+// string name for the same reason) create no import cycle with the child rows.
+import type { PlanAddOn as PlanAddOnRow, PlanCyclePrice as PlanCyclePriceRow } from './plan-catalog.entity';
+
+/**
+ * Whether a plan is offered, hidden, or retired from sale (ADR-0013). Moved
+ * from `admin.plan_definitions` with the rest of the catalogue; a deprecated
+ * plan stays resolvable because live subscriptions reference it.
+ */
+export enum PlanVisibility {
+  PUBLIC = 'public',
+  PRIVATE = 'private',
+  DEPRECATED = 'deprecated',
+}
+
+registerEnumType(PlanVisibility, { name: 'PlanVisibility' });
+
+/**
+ * The named feature sets a plan advertises. Priced extras are NOT here —
+ * `admin.plan_definitions.features.addOns[].price` was money nested two levels
+ * inside a jsonb blob, and is now `billing.plan_add_ons` rows.
+ */
+@ObjectType()
+export class PlanFeatures {
+  @Field(() => [String])
+  coreFeatures!: string[];
+
+  @Field(() => [String])
+  advancedFeatures!: string[];
+
+  @Field(() => [String])
+  premiumFeatures!: string[];
+}
 
 /**
  * Plan Entity
@@ -80,9 +115,94 @@ export class Plan {
   @Column({ type: 'jsonb', nullable: true, name: 'stripe_price_ids' })
   stripePriceIds?: Record<string, string> | null;
 
-  @Field(() => [String])
-  @Column('jsonb', { default: [] })
-  features!: string[];
+  /**
+   * The named feature sets a plan advertises. ADR-0013 widened this from a
+   * flat `string[]` when `admin.plan_definitions` merged in, because that
+   * catalogue grouped them. Names and flags only — the priced half (add-ons)
+   * became `billing.plan_add_ons` rows, so no money lives in this blob.
+   */
+  @Field(() => PlanFeatures)
+  @Column('jsonb', {
+    default: () => `'{"coreFeatures":[],"advancedFeatures":[],"premiumFeatures":[]}'::jsonb`,
+  })
+  features!: PlanFeatures;
+
+  // ── Catalogue presentation and lifecycle (ADR-0013) ──────────────────────
+  //
+  // These moved off `admin.plan_definitions`, whose ids never resolved at
+  // execution: every runtime path reads `billing.plans`, so the operator-facing
+  // copy of a plan was authored somewhere nothing consulted.
+
+  /** Operator-facing catalogue key, e.g. `starter_2024`. Unique when set. */
+  @Field({ nullable: true })
+  @Column({ type: 'varchar', length: 100, nullable: true, unique: true })
+  code?: string | null;
+
+  @Field({ nullable: true })
+  @Column({ type: 'text', nullable: true })
+  description?: string | null;
+
+  @Field({ nullable: true })
+  @Column({ type: 'text', nullable: true, name: 'short_description' })
+  shortDescription?: string | null;
+
+  @Field(() => PlanVisibility)
+  @Column({
+    type: 'enum',
+    enum: PlanVisibility,
+    default: PlanVisibility.PUBLIC,
+  })
+  visibility!: PlanVisibility;
+
+  @Field()
+  @Column({ type: 'boolean', default: false, name: 'is_recommended' })
+  isRecommended!: boolean;
+
+  @Field(() => Int, { nullable: true })
+  @Column({ type: 'int', nullable: true, name: 'trial_days' })
+  trialDays?: number | null;
+
+  @Field(() => Int, { nullable: true })
+  @Column({ type: 'int', nullable: true, name: 'grace_period_days' })
+  gracePeriodDays?: number | null;
+
+  @Field({ nullable: true })
+  @Column({ type: 'text', nullable: true, name: 'upgrade_message' })
+  upgradeMessage?: string | null;
+
+  @Field({ nullable: true })
+  @Column({ type: 'text', nullable: true, name: 'downgrade_warning' })
+  downgradeWarning?: string | null;
+
+  @Field({ nullable: true })
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  icon?: string | null;
+
+  @Field({ nullable: true })
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  color?: string | null;
+
+  /** e.g. 'Best Value', 'Most Popular'. */
+  @Field({ nullable: true })
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  badge?: string | null;
+
+  /**
+   * What the plan costs per cycle. ADR-0013: one row per cycle, in `numeric`
+   * columns — the shape `admin.plan_definitions.pricing` held as jsonb where
+   * no CHECK could reach a negative price or a 400% discount.
+   */
+  // Not a GraphQL field: the per-cycle matrix is operator-facing catalogue
+  // detail served over the admin REST contract, and exposing it here would
+  // need the child entity as a runtime value — the very import cycle the
+  // string-named relation avoids.
+  @OneToMany('PlanCyclePrice', 'plan', { cascade: ['insert'], eager: true })
+  cyclePrices!: PlanCyclePriceRow[];
+
+  /** Priced extras. Rows for the same reason: `features.addOns[].price` was money in jsonb. */
+  /** Not a GraphQL field, for the same reason as `cyclePrices`. */
+  @OneToMany('PlanAddOn', 'plan', { cascade: ['insert'], eager: true })
+  addOns!: PlanAddOnRow[];
 
   @Field()
   @Column({ default: true, name: 'is_active' })

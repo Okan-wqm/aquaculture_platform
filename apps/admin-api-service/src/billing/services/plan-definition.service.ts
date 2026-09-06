@@ -1,312 +1,210 @@
-import { Injectable, Logger, NotFoundException, ConflictException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-
-import {
-  PlanDefinition,
-  PlanTier,
-  PlanVisibility,
-  PlanLimits,
-  PlanPricing,
-  PlanFeatures,
-  BillingCycle,
-} from '../entities/plan-definition.entity';
-import { adminPlanLimitsFor } from '../plan-limits.util';
-
-export interface CreatePlanDto {
-  code: string;
-  name: string;
-  description?: string;
-  shortDescription?: string;
-  tier: PlanTier;
-  visibility?: PlanVisibility;
-  isRecommended?: boolean;
-  sortOrder?: number;
-  limits: PlanLimits;
-  pricing: PlanPricing;
-  features: PlanFeatures;
-  trialDays?: number;
-  gracePeriodDays?: number;
-  upgradeMessage?: string;
-  downgradeWarning?: string;
-  icon?: string;
-  color?: string;
-  badge?: string;
-  createdBy: string;
-}
-
-export interface UpdatePlanDto {
-  name?: string;
-  description?: string;
-  shortDescription?: string;
-  visibility?: PlanVisibility;
-  isActive?: boolean;
-  isRecommended?: boolean;
-  sortOrder?: number;
-  limits?: Partial<PlanLimits>;
-  pricing?: Partial<PlanPricing>;
-  features?: Partial<PlanFeatures>;
-  trialDays?: number;
-  gracePeriodDays?: number;
-  upgradeMessage?: string;
-  downgradeWarning?: string;
-  icon?: string;
-  color?: string;
-  badge?: string;
-  updatedBy: string;
-}
-
-export interface PlanComparisonResult {
-  isUpgrade: boolean;
-  isDowngrade: boolean;
-  priceDifference: number;
-  limitChanges: Array<{
-    limit: string;
-    currentValue: number;
-    newValue: number;
-    change: 'increase' | 'decrease' | 'same';
-  }>;
-  featureChanges: Array<{
-    feature: string;
-    gaining: boolean;
-  }>;
-  warnings: string[];
-}
-
-export interface ProratedPricing {
-  currentPlanCredit: number;
-  newPlanCost: number;
-  proratedAmount: number;
-  daysRemaining: number;
-  effectiveDate: Date;
-}
-
 /**
- * Plan Definition Service
- * Manages subscription plan configurations
+ * The plan catalogue, from the platform-admin side (ADR-0013,
+ * BILLING-CRITICAL-002).
+ *
+ * `admin.plan_definitions` is gone. It was a second catalogue whose ids no
+ * runtime path resolved — create-subscription, change-plan, the billing
+ * scheduler and the provisioning handler all read `billing.plans` — with its
+ * own Stripe product and price ids and a per-cycle price matrix inside a jsonb
+ * column. admin-api keeps the PlanManagement page: it reads the read-only
+ * mapping of `billing.plans` and authors through `request.billing.admin.*Plan`.
  */
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import type {
+  BillingCycle,
+  BillingPlanInput,
+  BillingPlanSnapshot,
+  BillingPlanTier,
+  BillingPlanUpdateInput,
+} from '@platform/event-contracts';
+import Decimal from 'decimal.js';
+import { Not, Repository } from 'typeorm';
+
+import { adminPlanLimitsFor } from '../plan-limits.util';
+import {
+  PlanComparisonResponseDto,
+  PlanCyclePriceResponseDto,
+  PlanLimitsResponseDto,
+  PlanResponseDto,
+  ProratedPricingResponseDto,
+} from '../dto/plan-response.dto';
+import { PlanReadOnly } from '../entities/external/plan.entity';
+
+import { BillingAdminCommandClientService } from './billing-admin-command-client.service';
+
+const DAYS_PER_CYCLE: Readonly<Record<BillingCycle, number>> = {
+  monthly: 30,
+  quarterly: 90,
+  semi_annual: 180,
+  annual: 365,
+};
+
+const COUNTED_LIMITS = [
+  'maxUsers',
+  'maxFarms',
+  'maxPonds',
+  'maxSensors',
+  'maxModules',
+  'storageGB',
+  'dataRetentionDays',
+  'apiRateLimit',
+] as const;
+
+const FLAG_LIMITS = [
+  'alertsEnabled',
+  'reportsEnabled',
+  'customBrandingEnabled',
+  'apiAccessEnabled',
+  'customIntegrationsEnabled',
+  'ssoEnabled',
+  'auditLogEnabled',
+  'prioritySupport',
+  'dedicatedAccountManager',
+] as const;
+
 @Injectable()
 export class PlanDefinitionService {
   private readonly logger = new Logger(PlanDefinitionService.name);
 
   constructor(
-    @InjectRepository(PlanDefinition)
-    private readonly planRepo: Repository<PlanDefinition>,
+    @InjectRepository(PlanReadOnly)
+    private readonly plans: Repository<PlanReadOnly>,
+    private readonly billingCommands: BillingAdminCommandClientService,
   ) {}
 
-  /**
-   * Get all plan definitions
-   */
-  async findAll(includeInactive = false): Promise<PlanDefinition[]> {
-    const query = this.planRepo.createQueryBuilder('plan');
+  // ── Reads (billing's rows, read-only) ──────────────────────────────────
 
-    if (!includeInactive) {
-      query.where('plan.isActive = :isActive', { isActive: true });
-    }
-
-    return query
-      .orderBy('plan.sortOrder', 'ASC')
-      .addOrderBy('plan.tier', 'ASC')
-      .getMany();
-  }
-
-  /**
-   * Get public plans for pricing page
-   */
-  async findPublicPlans(): Promise<PlanDefinition[]> {
-    return this.planRepo.find({
-      where: {
-        isActive: true,
-        visibility: PlanVisibility.PUBLIC,
-      },
-      order: {
-        sortOrder: 'ASC',
-      },
+  async findAll(includeInactive = false): Promise<PlanResponseDto[]> {
+    const rows = await this.plans.find({
+      where: includeInactive ? { isDeleted: false } : { isDeleted: false, isActive: true },
+      order: { sortOrder: 'ASC', name: 'ASC' },
     });
+    return rows.map(toPlanResponse);
   }
 
-  /**
-   * Get plan by ID
-   */
-  async findById(id: string): Promise<PlanDefinition> {
-    const plan = await this.planRepo.findOne({ where: { id } });
-    if (!plan) {
-      throw new NotFoundException(`Plan with ID ${id} not found`);
-    }
-    return plan;
+  /** What a prospective customer would be shown: public, active, not retired. */
+  async findPublicPlans(): Promise<PlanResponseDto[]> {
+    const rows = await this.plans.find({
+      where: { isDeleted: false, isActive: true, visibility: 'public' },
+      order: { sortOrder: 'ASC', name: 'ASC' },
+    });
+    return rows.map(toPlanResponse);
   }
 
-  /**
-   * Get plan by code
-   */
-  async findByCode(code: string): Promise<PlanDefinition> {
-    const plan = await this.planRepo.findOne({ where: { code } });
-    if (!plan) {
-      throw new NotFoundException(`Plan with code ${code} not found`);
-    }
-    return plan;
+  async findById(id: string): Promise<PlanResponseDto> {
+    return toPlanResponse(await this.requireById(id));
   }
 
-  /**
-   * Get plan by tier
-   */
-  async findByTier(tier: PlanTier): Promise<PlanDefinition | null> {
-    return this.planRepo.findOne({
-      where: { tier, isActive: true },
+  async findByCode(code: string): Promise<PlanResponseDto> {
+    const found = await this.plans.findOne({ where: { code, isDeleted: false } });
+    if (!found) throw new NotFoundException(`Plan with code ${code} not found`);
+    return toPlanResponse(found);
+  }
+
+  async findByTier(tier: BillingPlanTier): Promise<PlanResponseDto | null> {
+    const found = await this.plans.findOne({
+      where: { tier, isDeleted: false, isActive: true },
       order: { sortOrder: 'ASC' },
     });
+    return found ? toPlanResponse(found) : null;
   }
 
   /**
-   * Create a new plan definition
+   * The canonical limits for a tier, projected from `PLAN_CATALOG` (ADR-037).
+   * Not read from a plan row: the catalogue is the limit SSoT, and a plan
+   * projects from it rather than defining it.
    */
-  async create(dto: CreatePlanDto): Promise<PlanDefinition> {
-    // Check for duplicate code
-    const existing = await this.planRepo.findOne({ where: { code: dto.code } });
-    if (existing) {
-      throw new ConflictException(`Plan with code ${dto.code} already exists`);
-    }
-
-    const plan = this.planRepo.create({
-      ...dto,
-      visibility: dto.visibility || PlanVisibility.PUBLIC,
-      isActive: true,
-    });
-
-    const saved = await this.planRepo.save(plan);
-    this.logger.log(`Created plan definition: ${saved.code} (${saved.name})`);
-    return saved;
+  getDefaultLimitsForTier(tier: BillingPlanTier): PlanLimitsResponseDto {
+    return adminPlanLimitsFor(tier);
   }
 
-  /**
-   * Update a plan definition
-   */
-  async update(id: string, dto: UpdatePlanDto): Promise<PlanDefinition> {
-    const plan = await this.findById(id);
+  // ── Writes (forwarded to billing) ──────────────────────────────────────
 
-    // Merge partial updates for nested objects
-    if (dto.limits) {
-      plan.limits = { ...plan.limits, ...dto.limits };
-    }
-    if (dto.pricing) {
-      plan.pricing = { ...plan.pricing, ...dto.pricing } as PlanPricing;
-    }
-    if (dto.features) {
-      plan.features = { ...plan.features, ...dto.features } as PlanFeatures;
-    }
-
-    // Update simple fields
-    const simpleFields: (keyof UpdatePlanDto)[] = [
-      'name', 'description', 'shortDescription', 'visibility',
-      'isActive', 'isRecommended', 'sortOrder', 'trialDays',
-      'gracePeriodDays', 'upgradeMessage', 'downgradeWarning',
-      'icon', 'color', 'badge', 'updatedBy'
-    ];
-
-    for (const field of simpleFields) {
-      if (dto[field] !== undefined) {
-        Object.assign(plan, { [field]: dto[field] });
-      }
-    }
-
-    const saved = await this.planRepo.save(plan);
-    this.logger.log(`Updated plan definition: ${saved.code}`);
-    return saved;
+  async create(input: BillingPlanInput, actorId: string): Promise<PlanResponseDto> {
+    return fromPlanSnapshot(await this.billingCommands.createPlan(input, actorId));
   }
 
-  /**
-   * Soft delete (deprecate) a plan
-   */
-  async deprecate(id: string, updatedBy: string): Promise<PlanDefinition> {
-    const plan = await this.findById(id);
-    plan.visibility = PlanVisibility.DEPRECATED;
-    plan.isActive = false;
-    plan.updatedBy = updatedBy;
-
-    const saved = await this.planRepo.save(plan);
-    this.logger.log(`Deprecated plan: ${saved.code}`);
-    return saved;
+  async update(
+    planId: string,
+    input: BillingPlanUpdateInput,
+    actorId: string,
+  ): Promise<PlanResponseDto> {
+    return fromPlanSnapshot(await this.billingCommands.updatePlan(planId, input, actorId));
   }
 
+  async deprecate(planId: string, actorId: string): Promise<PlanResponseDto> {
+    return fromPlanSnapshot(await this.billingCommands.deprecatePlan(planId, actorId));
+  }
+
+  // ── Comparison and proration (reads only) ──────────────────────────────
+
   /**
-   * Compare two plans to determine upgrade/downgrade
+   * What changes between two plans.
+   *
+   * Reads `billing.plans` — the only catalogue — and compares monthly prices
+   * in `Decimal`. The float version could report a difference of
+   * 0.010000000000047748 between $1,199.99 and $1,200.00.
    */
-  async comparePlans(currentPlanId: string, newPlanId: string): Promise<PlanComparisonResult> {
+  async comparePlans(
+    currentPlanId: string,
+    newPlanId: string,
+  ): Promise<PlanComparisonResponseDto> {
     const [currentPlan, newPlan] = await Promise.all([
-      this.findById(currentPlanId),
-      this.findById(newPlanId),
+      this.requireById(currentPlanId),
+      this.requireById(newPlanId),
     ]);
 
-    const currentPrice = currentPlan.pricing.monthly.basePrice;
-    const newPrice = newPlan.pricing.monthly.basePrice;
-    const priceDifference = newPrice - currentPrice;
+    const priceDifference = monthlyPriceOf(newPlan).minus(monthlyPriceOf(currentPlan));
 
-    // Compare limits
-    const limitKeys: (keyof PlanLimits)[] = [
-      'maxUsers', 'maxFarms', 'maxPonds', 'maxSensors', 'maxModules',
-      'storageGB', 'dataRetentionDays', 'apiRateLimit'
-    ];
-
-    const limitChanges = limitKeys.map(key => {
-      const currentValue = currentPlan.limits[key] as number;
-      const newValue = newPlan.limits[key] as number;
+    const limitChanges = COUNTED_LIMITS.map((limit) => {
+      const currentValue = Number(currentPlan.limits[limit] ?? 0);
+      const newValue = Number(newPlan.limits[limit] ?? 0);
+      // `-1` is unlimited, so it compares as the largest value, not the smallest.
       let change: 'increase' | 'decrease' | 'same' = 'same';
-
-      if (newValue > currentValue || (currentValue !== -1 && newValue === -1)) {
-        change = 'increase';
-      } else if (newValue < currentValue || (currentValue === -1 && newValue !== -1)) {
+      if (newValue > currentValue || (currentValue !== -1 && newValue === -1)) change = 'increase';
+      else if (newValue < currentValue || (currentValue === -1 && newValue !== -1)) {
         change = 'decrease';
       }
-
-      return {
-        limit: key,
-        currentValue,
-        newValue,
-        change,
-      };
+      return { limit, currentValue, newValue, change };
     });
 
-    // Compare boolean features
-    const booleanFeatures: (keyof PlanLimits)[] = [
-      'alertsEnabled', 'reportsEnabled', 'customBrandingEnabled',
-      'apiAccessEnabled', 'customIntegrationsEnabled', 'ssoEnabled',
-      'auditLogEnabled', 'prioritySupport', 'dedicatedAccountManager'
-    ];
-
     const featureChanges: Array<{ feature: string; gaining: boolean }> = [];
-    for (const feature of booleanFeatures) {
-      const currentHas = currentPlan.limits[feature] as boolean;
-      const newHas = newPlan.limits[feature] as boolean;
-      if (currentHas !== newHas) {
-        featureChanges.push({ feature, gaining: newHas });
-      }
+    for (const feature of FLAG_LIMITS) {
+      const currentHas = Boolean(currentPlan.limits[feature]);
+      const newHas = Boolean(newPlan.limits[feature]);
+      if (currentHas !== newHas) featureChanges.push({ feature, gaining: newHas });
     }
 
-    // Determine upgrade/downgrade
-    const hasAnyDecrease = limitChanges.some(c => c.change === 'decrease') ||
-                           featureChanges.some(c => !c.gaining);
-    const hasAnyIncrease = limitChanges.some(c => c.change === 'increase') ||
-                           featureChanges.some(c => c.gaining);
+    const hasDecrease =
+      limitChanges.some((c) => c.change === 'decrease') ||
+      featureChanges.some((c) => !c.gaining);
+    const hasIncrease =
+      limitChanges.some((c) => c.change === 'increase') || featureChanges.some((c) => c.gaining);
+    const samePrice = priceDifference.isZero();
 
-    const isUpgrade = priceDifference > 0 || (priceDifference === 0 && hasAnyIncrease && !hasAnyDecrease);
-    const isDowngrade = priceDifference < 0 || (priceDifference === 0 && hasAnyDecrease && !hasAnyIncrease);
+    const isUpgrade = priceDifference.isPositive() && !samePrice
+      ? true
+      : samePrice && hasIncrease && !hasDecrease;
+    const isDowngrade = priceDifference.isNegative()
+      ? true
+      : samePrice && hasDecrease && !hasIncrease;
 
-    // Generate warnings
     const warnings: string[] = [];
     if (isDowngrade) {
-      warnings.push(newPlan.downgradeWarning || 'Downgrading may result in loss of features or data.');
-
-      const lostFeatures = featureChanges.filter(c => !c.gaining);
-      if (lostFeatures.length > 0) {
-        warnings.push(`You will lose access to: ${lostFeatures.map(f => f.feature).join(', ')}`);
+      warnings.push(
+        newPlan.downgradeWarning ||
+          'Downgrading may result in loss of features or data.',
+      );
+      const lost = featureChanges.filter((c) => !c.gaining);
+      if (lost.length > 0) {
+        warnings.push(`You will lose access to: ${lost.map((f) => f.feature).join(', ')}`);
       }
-
-      const reducedLimits = limitChanges.filter(c => c.change === 'decrease');
-      if (reducedLimits.length > 0) {
-        for (const limit of reducedLimits) {
-          if (limit.limit === 'maxUsers') {
-            warnings.push(`User limit will decrease from ${limit.currentValue === -1 ? 'unlimited' : limit.currentValue} to ${limit.newValue}`);
-          }
+      for (const limit of limitChanges.filter((c) => c.change === 'decrease')) {
+        if (limit.limit === 'maxUsers') {
+          warnings.push(
+            `User limit will decrease from ${limit.currentValue === -1 ? 'unlimited' : limit.currentValue} to ${limit.newValue}`,
+          );
         }
       }
     }
@@ -314,215 +212,156 @@ export class PlanDefinitionService {
     return {
       isUpgrade,
       isDowngrade,
-      priceDifference,
-      limitChanges,
+      priceDifference: priceDifference.toString(),
+      limitChanges: [...limitChanges],
       featureChanges,
       warnings,
     };
   }
 
   /**
-   * Calculate prorated pricing for plan change
+   * What a mid-cycle plan change would cost, pro-rated by the days remaining.
+   *
+   * DEBT (owner okan, deadline 2026-12-31, BILLING-CRITICAL-003): billing's
+   * `ChangeSubscriptionPlanHandler` computes its own proration when the change
+   * is actually applied, so this preview is a second implementation of the same
+   * money rule. It moves to billing with the rest of the subscription money
+   * path under that finding; it is at least exact now, and it reads the one
+   * catalogue.
    */
   calculateProratedPricing(
-    currentPlan: PlanDefinition,
-    newPlan: PlanDefinition,
+    currentPlan: PlanResponseDto,
+    newPlan: PlanResponseDto,
     currentPeriodEnd: Date,
     billingCycle: BillingCycle,
-  ): ProratedPricing {
+  ): ProratedPricingResponseDto {
     const now = new Date();
-    const daysRemaining = Math.max(0, Math.ceil(
-      (currentPeriodEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
-    ));
+    const daysRemaining = Math.max(
+      0,
+      Math.ceil((currentPeriodEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)),
+    );
+    const cycleDays = DAYS_PER_CYCLE[billingCycle] ?? DAYS_PER_CYCLE.monthly;
+    const remainingShare = new Decimal(daysRemaining).dividedBy(cycleDays);
 
-    const cycleDays = this.getBillingCycleDays(billingCycle);
-    const dailyRateMultiplier = daysRemaining / cycleDays;
-
-    const currentPrice = this.getPriceForCycle(currentPlan.pricing, billingCycle);
-    const newPrice = this.getPriceForCycle(newPlan.pricing, billingCycle);
-
-    // Credit for unused portion of current plan
-    const currentPlanCredit = currentPrice * dailyRateMultiplier;
-
-    // Cost for new plan for remaining period
-    const newPlanCost = newPrice * dailyRateMultiplier;
-
-    // Prorated amount (positive = customer pays, negative = credit)
-    const proratedAmount = newPlanCost - currentPlanCredit;
+    const currentPrice = priceForCycle(currentPlan, billingCycle);
+    const newPrice = priceForCycle(newPlan, billingCycle);
+    const currentPlanCredit = currentPrice.times(remainingShare).toDecimalPlaces(2);
+    const newPlanCost = newPrice.times(remainingShare).toDecimalPlaces(2);
 
     return {
-      currentPlanCredit: Math.round(currentPlanCredit * 100) / 100,
-      newPlanCost: Math.round(newPlanCost * 100) / 100,
-      proratedAmount: Math.round(proratedAmount * 100) / 100,
+      currentPlanCredit: currentPlanCredit.toString(),
+      newPlanCost: newPlanCost.toString(),
+      // Positive = the customer pays, negative = they are credited.
+      proratedAmount: newPlanCost.minus(currentPlanCredit).toString(),
       daysRemaining,
-      effectiveDate: now,
+      effectiveDate: now.toISOString(),
     };
   }
 
-  /**
-   * Get default plan limits for a tier
-   */
-  getDefaultLimitsForTier(tier: PlanTier): PlanLimits {
-    // Delegate to the admin plan-limits projection util (Faz D — D9). It selects
-    // the admin fields from the canonical PLAN_CATALOG and applies the single
-    // field-name divergence (maxStorageGb → storageGB); no per-tier number is
-    // hand-maintained here.
-    return adminPlanLimitsFor(tier);
+  private async requireById(id: string): Promise<PlanReadOnly> {
+    const found = await this.plans.findOne({ where: { id, isDeleted: false } });
+    if (!found) throw new NotFoundException(`Plan with ID ${id} not found`);
+    return found;
   }
+}
 
-  /**
-   * Seed default plans
-   */
-  async seedDefaultPlans(createdBy: string): Promise<void> {
-    const existingCount = await this.planRepo.count();
-    if (existingCount > 0) {
-      this.logger.log('Plans already exist, skipping seed');
-      return;
-    }
+function monthlyPriceOf(plan: PlanReadOnly): Decimal {
+  const monthly = (plan.cyclePrices ?? []).find((price) => price.billingCycle === 'monthly');
+  return monthly?.basePrice ?? new Decimal(0);
+}
 
-    const defaultPlans: CreatePlanDto[] = [
-      {
-        code: 'free_2024',
-        name: 'Free',
-        shortDescription: 'Get started with basic features',
-        description: 'Perfect for small operations or trying out the platform',
-        tier: PlanTier.FREE,
-        sortOrder: 0,
-        limits: this.getDefaultLimitsForTier(PlanTier.FREE),
-        pricing: {
-          monthly: { basePrice: 0, perUserPrice: 0, perFarmPrice: 0, perModulePrice: 0 },
-          quarterly: { basePrice: 0, perUserPrice: 0, perFarmPrice: 0, perModulePrice: 0, discountPercent: 0 },
-          semiAnnual: { basePrice: 0, perUserPrice: 0, perFarmPrice: 0, perModulePrice: 0, discountPercent: 0 },
-          annual: { basePrice: 0, perUserPrice: 0, perFarmPrice: 0, perModulePrice: 0, discountPercent: 0 },
-          currency: 'USD',
-        },
-        features: {
-          coreFeatures: ['Dashboard', 'Basic alerts', 'Data visualization'],
-          advancedFeatures: [],
-          premiumFeatures: [],
-          addOns: [],
-        },
-        trialDays: 0,
-        gracePeriodDays: 0,
-        icon: 'gift',
-        color: '#9CA3AF',
-        createdBy,
-      },
-      {
-        code: 'starter_2024',
-        name: 'Starter',
-        shortDescription: 'Essential features for growing farms',
-        description: 'Ideal for small to medium aquaculture operations',
-        tier: PlanTier.STARTER,
-        sortOrder: 1,
-        limits: this.getDefaultLimitsForTier(PlanTier.STARTER),
-        pricing: {
-          monthly: { basePrice: 99, perUserPrice: 10, perFarmPrice: 25, perModulePrice: 15 },
-          quarterly: { basePrice: 267, perUserPrice: 27, perFarmPrice: 67, perModulePrice: 40, discountPercent: 10 },
-          semiAnnual: { basePrice: 505, perUserPrice: 51, perFarmPrice: 127, perModulePrice: 76, discountPercent: 15 },
-          annual: { basePrice: 950, perUserPrice: 96, perFarmPrice: 240, perModulePrice: 144, discountPercent: 20 },
-          currency: 'USD',
-        },
-        features: {
-          coreFeatures: ['Dashboard', 'Advanced alerts', 'Data visualization', 'Basic reports', 'Email support'],
-          advancedFeatures: ['API access', 'Audit logs'],
-          premiumFeatures: [],
-          addOns: [
-            { code: 'extra_storage', name: 'Extra Storage', description: '10GB additional storage', price: 5, billingCycle: BillingCycle.MONTHLY },
-          ],
-        },
-        trialDays: 14,
-        gracePeriodDays: 7,
-        icon: 'rocket',
-        color: '#3B82F6',
-        createdBy,
-      },
-      {
-        code: 'professional_2024',
-        name: 'Professional',
-        shortDescription: 'Advanced features for serious operations',
-        description: 'Best for medium to large aquaculture operations with multiple farms',
-        tier: PlanTier.PROFESSIONAL,
-        isRecommended: true,
-        sortOrder: 2,
-        limits: this.getDefaultLimitsForTier(PlanTier.PROFESSIONAL),
-        pricing: {
-          monthly: { basePrice: 299, perUserPrice: 8, perFarmPrice: 20, perModulePrice: 12 },
-          quarterly: { basePrice: 807, perUserPrice: 22, perFarmPrice: 54, perModulePrice: 32, discountPercent: 10 },
-          semiAnnual: { basePrice: 1527, perUserPrice: 41, perFarmPrice: 102, perModulePrice: 61, discountPercent: 15 },
-          annual: { basePrice: 2870, perUserPrice: 77, perFarmPrice: 192, perModulePrice: 115, discountPercent: 20 },
-          currency: 'USD',
-        },
-        features: {
-          coreFeatures: ['Dashboard', 'Advanced alerts', 'Data visualization', 'Custom reports', 'Priority email support'],
-          advancedFeatures: ['API access', 'Audit logs', 'Custom branding', 'Integrations', 'Phone support'],
-          premiumFeatures: [],
-          addOns: [
-            { code: 'extra_storage', name: 'Extra Storage', description: '50GB additional storage', price: 20, billingCycle: BillingCycle.MONTHLY },
-            { code: 'dedicated_training', name: 'Dedicated Training', description: '2-hour training session', price: 199, billingCycle: BillingCycle.MONTHLY },
-          ],
-        },
-        trialDays: 14,
-        gracePeriodDays: 14,
-        icon: 'briefcase',
-        color: '#8B5CF6',
-        badge: 'Most Popular',
-        createdBy,
-      },
-      {
-        code: 'enterprise_2024',
-        name: 'Enterprise',
-        shortDescription: 'Unlimited power for large operations',
-        description: 'Enterprise-grade solution for large aquaculture operations',
-        tier: PlanTier.ENTERPRISE,
-        sortOrder: 3,
-        limits: this.getDefaultLimitsForTier(PlanTier.ENTERPRISE),
-        pricing: {
-          monthly: { basePrice: 999, perUserPrice: 0, perFarmPrice: 0, perModulePrice: 0 },
-          quarterly: { basePrice: 2697, perUserPrice: 0, perFarmPrice: 0, perModulePrice: 0, discountPercent: 10 },
-          semiAnnual: { basePrice: 5095, perUserPrice: 0, perFarmPrice: 0, perModulePrice: 0, discountPercent: 15 },
-          annual: { basePrice: 9590, perUserPrice: 0, perFarmPrice: 0, perModulePrice: 0, discountPercent: 20 },
-          currency: 'USD',
-        },
-        features: {
-          coreFeatures: ['Dashboard', 'Advanced alerts', 'Data visualization', 'Custom reports', '24/7 support'],
-          advancedFeatures: ['API access', 'Audit logs', 'Custom branding', 'Integrations', 'Dedicated support'],
-          premiumFeatures: ['SSO', 'Dedicated account manager', 'Custom SLA', 'On-premise option', 'White-label'],
-          addOns: [],
-        },
-        trialDays: 30,
-        gracePeriodDays: 30,
-        icon: 'building',
-        color: '#F59E0B',
-        badge: 'Best Value',
-        createdBy,
-      },
-    ];
+function priceForCycle(plan: PlanResponseDto, billingCycle: BillingCycle): Decimal {
+  const row = plan.cyclePrices.find((price) => price.billingCycle === billingCycle);
+  return new Decimal(row?.basePrice ?? plan.cyclePrices[0]?.basePrice ?? '0');
+}
 
-    for (const planData of defaultPlans) {
-      await this.create(planData);
-    }
+/**
+ * A read of billing's catalogue becomes the same wire shape a write returns.
+ * `Decimal` fields become their exact decimal string — the value the client
+ * would have received anyway through `toJSON`, now stated in the type.
+ */
+function toPlanResponse(plan: PlanReadOnly): PlanResponseDto {
+  const cyclePrices: PlanCyclePriceResponseDto[] = (plan.cyclePrices ?? []).map((price) => ({
+    billingCycle: price.billingCycle,
+    basePrice: price.basePrice.toString(),
+    perUserPrice: price.perUserPrice.toString(),
+    perFarmPrice: price.perFarmPrice.toString(),
+    perModulePrice: price.perModulePrice.toString(),
+    discountPercent: price.discountPercent.toString(),
+  }));
 
-    this.logger.log(`Seeded ${defaultPlans.length} default plans`);
-  }
+  return {
+    id: plan.id,
+    code: plan.code ?? undefined,
+    name: plan.name,
+    description: plan.description ?? undefined,
+    shortDescription: plan.shortDescription ?? undefined,
+    tier: plan.tier,
+    currency: plan.currency,
+    defaultBillingCycle: plan.billingCycle,
+    visibility: plan.visibility,
+    isActive: plan.isActive,
+    isRecommended: plan.isRecommended,
+    sortOrder: plan.sortOrder,
+    limits: plan.limits,
+    features: plan.features,
+    cyclePrices,
+    addOns: (plan.addOns ?? []).map((addOn) => ({
+      code: addOn.code,
+      name: addOn.name,
+      description: addOn.description ?? undefined,
+      price: addOn.price.toString(),
+      billingCycle: addOn.billingCycle,
+    })),
+    trialDays: plan.trialDays ?? undefined,
+    gracePeriodDays: plan.gracePeriodDays ?? undefined,
+    upgradeMessage: plan.upgradeMessage ?? undefined,
+    downgradeWarning: plan.downgradeWarning ?? undefined,
+    icon: plan.icon ?? undefined,
+    color: plan.color ?? undefined,
+    badge: plan.badge ?? undefined,
+    stripeProductId: plan.stripeProductId ?? undefined,
+    stripePriceIds: plan.stripePriceIds ?? undefined,
+    version: plan.version,
+    createdAt: new Date(plan.createdAt).toISOString(),
+    updatedAt: new Date(plan.updatedAt).toISOString(),
+    createdBy: plan.createdBy ?? undefined,
+    updatedBy: plan.updatedBy ?? undefined,
+  };
+}
 
-  private getBillingCycleDays(cycle: BillingCycle): number {
-    switch (cycle) {
-      case BillingCycle.MONTHLY: return 30;
-      case BillingCycle.QUARTERLY: return 90;
-      case BillingCycle.SEMI_ANNUAL: return 180;
-      case BillingCycle.ANNUAL: return 365;
-      default: return 30;
-    }
-  }
-
-  private getPriceForCycle(pricing: PlanPricing, cycle: BillingCycle): number {
-    switch (cycle) {
-      case BillingCycle.MONTHLY: return pricing.monthly.basePrice;
-      case BillingCycle.QUARTERLY: return pricing.quarterly.basePrice;
-      case BillingCycle.SEMI_ANNUAL: return pricing.semiAnnual.basePrice;
-      case BillingCycle.ANNUAL: return pricing.annual.basePrice;
-      default: return pricing.monthly.basePrice;
-    }
-  }
+/** billing's command reply, in the same wire shape as a read. */
+function fromPlanSnapshot(snapshot: BillingPlanSnapshot): PlanResponseDto {
+  return {
+    id: snapshot.id,
+    code: snapshot.code ?? undefined,
+    name: snapshot.name,
+    description: snapshot.description ?? undefined,
+    shortDescription: snapshot.shortDescription ?? undefined,
+    tier: snapshot.tier,
+    currency: snapshot.currency,
+    defaultBillingCycle: snapshot.defaultBillingCycle,
+    visibility: snapshot.visibility,
+    isActive: snapshot.isActive,
+    isRecommended: snapshot.isRecommended,
+    sortOrder: snapshot.sortOrder,
+    limits: snapshot.limits,
+    features: snapshot.features,
+    cyclePrices: snapshot.cyclePrices,
+    addOns: snapshot.addOns,
+    trialDays: snapshot.trialDays ?? undefined,
+    gracePeriodDays: snapshot.gracePeriodDays ?? undefined,
+    upgradeMessage: snapshot.upgradeMessage ?? undefined,
+    downgradeWarning: snapshot.downgradeWarning ?? undefined,
+    icon: snapshot.icon ?? undefined,
+    color: snapshot.color ?? undefined,
+    badge: snapshot.badge ?? undefined,
+    stripeProductId: snapshot.stripeProductId ?? undefined,
+    stripePriceIds: snapshot.stripePriceIds ?? undefined,
+    version: snapshot.version,
+    createdAt: snapshot.createdAt,
+    updatedAt: snapshot.updatedAt,
+    createdBy: snapshot.createdBy ?? undefined,
+    updatedBy: snapshot.updatedBy ?? undefined,
+  };
 }

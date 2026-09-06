@@ -63,43 +63,43 @@ entries:
   - site: 'apps/billing-service/src/billing/entities/plan.entity.ts#PlanPricing.basePrice'
     owner: okan
     expiry: 2026-12-31
-    findingId: BILLING-CRITICAL-002
-    reason: billing.plans.pricing is the per-cycle price matrix in jsonb; W4b replaces it with per-cycle rows carrying numeric prices
+    findingId: BILLING-CRITICAL-003
+    reason: W4b moved the per-CYCLE matrix out of jsonb into billing.plan_cycle_prices, but billing.plans.pricing is the flat per-unit rate card a subscription SNAPSHOTS at signup — the same shape as subscriptions.pricing and scheduled_plan_changes.pricing, so normalising one without all three splits the snapshot; all four move together under BILLING-CRITICAL-003
   - site: 'apps/billing-service/src/billing/entities/plan.entity.ts#PlanPricing.perFarmPrice'
     owner: okan
     expiry: 2026-12-31
-    findingId: BILLING-CRITICAL-002
-    reason: billing.plans.pricing is the per-cycle price matrix in jsonb; W4b replaces it with per-cycle rows carrying numeric prices
+    findingId: BILLING-CRITICAL-003
+    reason: W4b moved the per-CYCLE matrix out of jsonb into billing.plan_cycle_prices, but billing.plans.pricing is the flat per-unit rate card a subscription SNAPSHOTS at signup — the same shape as subscriptions.pricing and scheduled_plan_changes.pricing, so normalising one without all three splits the snapshot; all four move together under BILLING-CRITICAL-003
   - site: 'apps/billing-service/src/billing/entities/plan.entity.ts#PlanPricing.perSensorPrice'
     owner: okan
     expiry: 2026-12-31
-    findingId: BILLING-CRITICAL-002
-    reason: billing.plans.pricing is the per-cycle price matrix in jsonb; W4b replaces it with per-cycle rows carrying numeric prices
+    findingId: BILLING-CRITICAL-003
+    reason: W4b moved the per-CYCLE matrix out of jsonb into billing.plan_cycle_prices, but billing.plans.pricing is the flat per-unit rate card a subscription SNAPSHOTS at signup — the same shape as subscriptions.pricing and scheduled_plan_changes.pricing, so normalising one without all three splits the snapshot; all four move together under BILLING-CRITICAL-003
   - site: 'apps/billing-service/src/billing/entities/plan.entity.ts#PlanPricing.perUserPrice'
     owner: okan
     expiry: 2026-12-31
-    findingId: BILLING-CRITICAL-002
-    reason: billing.plans.pricing is the per-cycle price matrix in jsonb; W4b replaces it with per-cycle rows carrying numeric prices
+    findingId: BILLING-CRITICAL-003
+    reason: W4b moved the per-CYCLE matrix out of jsonb into billing.plan_cycle_prices, but billing.plans.pricing is the flat per-unit rate card a subscription SNAPSHOTS at signup — the same shape as subscriptions.pricing and scheduled_plan_changes.pricing, so normalising one without all three splits the snapshot; all four move together under BILLING-CRITICAL-003
   - site: 'apps/billing-service/src/billing/entities/scheduled-plan-change.entity.ts#PlanPricing.basePrice'
     owner: okan
     expiry: 2026-12-31
-    findingId: BILLING-CRITICAL-002
-    reason: the scheduled change snapshots the same PlanPricing shape; it follows billing.plans in W4b
+    findingId: BILLING-CRITICAL-003
+    reason: the scheduled change snapshots the same flat rate card as billing.plans.pricing; the three snapshot copies normalise together under BILLING-CRITICAL-003
   - site: 'apps/billing-service/src/billing/entities/scheduled-plan-change.entity.ts#PlanPricing.perFarmPrice'
     owner: okan
     expiry: 2026-12-31
-    findingId: BILLING-CRITICAL-002
-    reason: the scheduled change snapshots the same PlanPricing shape; it follows billing.plans in W4b
+    findingId: BILLING-CRITICAL-003
+    reason: the scheduled change snapshots the same flat rate card as billing.plans.pricing; the three snapshot copies normalise together under BILLING-CRITICAL-003
   - site: 'apps/billing-service/src/billing/entities/scheduled-plan-change.entity.ts#PlanPricing.perSensorPrice'
     owner: okan
     expiry: 2026-12-31
-    findingId: BILLING-CRITICAL-002
-    reason: the scheduled change snapshots the same PlanPricing shape; it follows billing.plans in W4b
+    findingId: BILLING-CRITICAL-003
+    reason: the scheduled change snapshots the same flat rate card as billing.plans.pricing; the three snapshot copies normalise together under BILLING-CRITICAL-003
   - site: 'apps/billing-service/src/billing/entities/scheduled-plan-change.entity.ts#PlanPricing.perUserPrice'
     owner: okan
     expiry: 2026-12-31
-    findingId: BILLING-CRITICAL-002
-    reason: the scheduled change snapshots the same PlanPricing shape; it follows billing.plans in W4b
+    findingId: BILLING-CRITICAL-003
+    reason: the scheduled change snapshots the same flat rate card as billing.plans.pricing; the three snapshot copies normalise together under BILLING-CRITICAL-003
   - site: 'apps/billing-service/src/billing/entities/subscription-module-item.entity.ts#ModuleLineItem.total'
     owner: okan
     expiry: 2026-12-31
@@ -113,23 +113,23 @@ entries:
   - site: 'apps/billing-service/src/billing/entities/subscription.entity.ts#PlanPricing.basePrice'
     owner: okan
     expiry: 2026-12-31
-    findingId: BILLING-CRITICAL-002
-    reason: the subscription snapshots the plan's PlanPricing shape at signup; it follows billing.plans in W4b
+    findingId: BILLING-CRITICAL-003
+    reason: the subscription snapshots the plan's flat rate card at signup; the three snapshot copies normalise together under BILLING-CRITICAL-003
   - site: 'apps/billing-service/src/billing/entities/subscription.entity.ts#PlanPricing.perFarmPrice'
     owner: okan
     expiry: 2026-12-31
-    findingId: BILLING-CRITICAL-002
-    reason: the subscription snapshots the plan's PlanPricing shape at signup; it follows billing.plans in W4b
+    findingId: BILLING-CRITICAL-003
+    reason: the subscription snapshots the plan's flat rate card at signup; the three snapshot copies normalise together under BILLING-CRITICAL-003
   - site: 'apps/billing-service/src/billing/entities/subscription.entity.ts#PlanPricing.perSensorPrice'
     owner: okan
     expiry: 2026-12-31
-    findingId: BILLING-CRITICAL-002
-    reason: the subscription snapshots the plan's PlanPricing shape at signup; it follows billing.plans in W4b
+    findingId: BILLING-CRITICAL-003
+    reason: the subscription snapshots the plan's flat rate card at signup; the three snapshot copies normalise together under BILLING-CRITICAL-003
   - site: 'apps/billing-service/src/billing/entities/subscription.entity.ts#PlanPricing.perUserPrice'
     owner: okan
     expiry: 2026-12-31
-    findingId: BILLING-CRITICAL-002
-    reason: the subscription snapshots the plan's PlanPricing shape at signup; it follows billing.plans in W4b
+    findingId: BILLING-CRITICAL-003
+    reason: the subscription snapshots the plan's flat rate card at signup; the three snapshot copies normalise together under BILLING-CRITICAL-003
 
 # Stripe identifier properties declared by more than one WRITABLE entity. A
 # Stripe object has one owner; two writable homes means two services can mint
@@ -137,16 +137,6 @@ entries:
 # trusted. billing is the authoritative half in every pair below, so each entry
 # names the OTHER declaration — the one that goes away.
 duplicateStripeIdentifiers:
-  - site: 'apps/admin-api-service/src/billing/entities/plan-definition.entity.ts#PlanDefinition.stripeProductId'
-    owner: okan
-    expiry: 2026-12-31
-    findingId: BILLING-CRITICAL-002
-    reason: admin.plan_definitions duplicates billing.plans; W4b deletes the admin catalogue and this property with it
-  - site: 'apps/admin-api-service/src/billing/entities/plan-definition.entity.ts#PlanDefinition.stripePriceIds'
-    owner: okan
-    expiry: 2026-12-31
-    findingId: BILLING-CRITICAL-002
-    reason: admin.plan_definitions duplicates billing.plans; W4b deletes the admin catalogue and this property with it
   - site: 'apps/admin-api-service/src/tenant/entities/tenant-activity.entity.ts#TenantBillingInfo.stripeCustomerId'
     owner: okan
     expiry: 2026-12-31

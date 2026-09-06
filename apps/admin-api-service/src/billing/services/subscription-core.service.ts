@@ -3,9 +3,8 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
+import type { BillingCycle } from '@platform/event-contracts';
 import { DataSource } from 'typeorm';
-
-import { BillingCycle } from '../entities/plan-definition.entity';
 
 import { DiscountCodeService } from './discount-code.service';
 import {
@@ -197,16 +196,16 @@ export class SubscriptionCoreService {
   calculateNextPeriodEnd(start: Date, cycle: BillingCycle): Date {
     const end = new Date(start);
     switch (cycle) {
-      case BillingCycle.MONTHLY:
+      case 'monthly':
         end.setMonth(end.getMonth() + 1);
         break;
-      case BillingCycle.QUARTERLY:
+      case 'quarterly':
         end.setMonth(end.getMonth() + 3);
         break;
-      case BillingCycle.SEMI_ANNUAL:
+      case 'semi_annual':
         end.setMonth(end.getMonth() + 6);
         break;
-      case BillingCycle.ANNUAL:
+      case 'annual':
         end.setFullYear(end.getFullYear() + 1);
         break;
     }

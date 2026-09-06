@@ -17,7 +17,11 @@ import {
   ModulePriceReadOnly,
   ModulePriceTierMultiplierReadOnly,
 } from './entities/external/module-price.entity';
-import { PlanDefinition } from './entities/plan-definition.entity';
+import {
+  PlanAddOnReadOnly,
+  PlanCyclePriceReadOnly,
+  PlanReadOnly,
+} from './entities/external/plan.entity';
 import { PlanModuleAssignment } from './entities/plan-module-assignment.entity';
 import { UsageAggregationReadOnly } from './entities/usage-aggregation-readonly.entity';
 import { BillingAdminCommandClientService } from './services/billing-admin-command-client.service';
@@ -44,12 +48,14 @@ import { UsageMeteringManagementService } from './services/usage-metering-manage
       },
     ]),
     TypeOrmModule.forFeature([
-      PlanDefinition,
       DiscountCodeReadOnly,
       DiscountRedemptionReadOnly,
       ModulePriceReadOnly,
       ModulePriceMetricReadOnly,
       ModulePriceTierMultiplierReadOnly,
+      PlanReadOnly,
+      PlanCyclePriceReadOnly,
+      PlanAddOnReadOnly,
       PlanModuleAssignment,
       CustomPlan,
       InvoiceReadOnly,

@@ -268,6 +268,9 @@ services:
   - request.billing.admin.deactivateModulePrice
   - request.billing.admin.seedModulePrices
   - request.billing.admin.quoteModuleSelection
+  - request.billing.admin.createPlan
+  - request.billing.admin.updatePlan
+  - request.billing.admin.deprecatePlan
   - request.billing.tenant.provisionSubscription
   - request.auth.admin.createUser
   - request.auth.admin.resetUserPassword

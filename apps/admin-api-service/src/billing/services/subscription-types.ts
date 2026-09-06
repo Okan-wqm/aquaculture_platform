@@ -1,4 +1,4 @@
-import { BillingCycle, PlanTier } from '../entities/plan-definition.entity';
+import type { BillingCycle, BillingPlanTier } from '@platform/event-contracts';
 
 /**
  * Subscription status enum - matches billing-service
@@ -80,7 +80,7 @@ export interface ReminderConfig {
  */
 export interface SubscriptionFilters {
   status?: SubscriptionStatus[];
-  planTier?: PlanTier[];
+  planTier?: BillingPlanTier[];
   billingCycle?: BillingCycle[];
   autoRenew?: boolean;
   search?: string;

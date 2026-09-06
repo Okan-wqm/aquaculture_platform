@@ -3,7 +3,7 @@ import { EventBus } from '@nestjs/cqrs';
 import { Test } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
 
-import { PlanTier, BillingCycle } from '../../../../billing/entities/plan-definition.entity';
+import { BillingPlanTier } from '@platform/event-contracts';
 import { ModulePricingService } from '../../../../billing/services/module-pricing.service';
 import { AuthTenantProvisioningClientService } from '../../../../tenant/services/auth-tenant-provisioning-client.service';
 import { ModuleAssignmentService } from '../module-assignment.service';
@@ -79,8 +79,8 @@ describe('ModuleAssignmentService.resolveProvisioningModuleItems', () => {
         { moduleId: MODULE_A, quantities: { farms: 2 } },
         { moduleId: MODULE_B, quantities: { sensors: 5 } },
       ],
-      tier: PlanTier.STARTER,
-      billingCycle: BillingCycle.MONTHLY,
+      tier: BillingPlanTier.STARTER,
+      billingCycle: 'monthly',
       actorId: ACTOR,
     });
 
@@ -118,8 +118,8 @@ describe('ModuleAssignmentService.resolveProvisioningModuleItems', () => {
     await expect(
       service.resolveProvisioningModuleItems({
         modules: [{ moduleId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' }],
-        tier: PlanTier.STARTER,
-        billingCycle: BillingCycle.MONTHLY,
+        tier: BillingPlanTier.STARTER,
+        billingCycle: 'monthly',
         actorId: ACTOR,
       }),
     ).rejects.toBeInstanceOf(NotFoundException);

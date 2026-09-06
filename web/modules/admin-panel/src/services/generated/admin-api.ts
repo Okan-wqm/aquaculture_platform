@@ -1485,22 +1485,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/billing/plans/seed": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["BillingController_seedPlans"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/billing/discounts": {
         parameters: {
             query?: never;
@@ -6886,6 +6870,84 @@ export interface components {
                 [key: string]: string;
             };
         };
+        PlanLimitsResponseDto: {
+            maxUsers: number;
+            maxFarms: number;
+            maxPonds: number;
+            maxSensors: number;
+            maxModules: number;
+            storageGB: number;
+            dataRetentionDays: number;
+            apiRateLimit: number;
+            alertsEnabled: boolean;
+            reportsEnabled: boolean;
+            customBrandingEnabled: boolean;
+            apiAccessEnabled: boolean;
+            customIntegrationsEnabled: boolean;
+            ssoEnabled: boolean;
+            auditLogEnabled: boolean;
+            prioritySupport: boolean;
+            dedicatedAccountManager: boolean;
+        };
+        PlanFeaturesResponseDto: {
+            coreFeatures: string[];
+            advancedFeatures: string[];
+            premiumFeatures: string[];
+        };
+        PlanCyclePriceResponseDto: {
+            /** @enum {string} */
+            billingCycle: "monthly" | "quarterly" | "semi_annual" | "annual";
+            basePrice: string;
+            perUserPrice: string;
+            perFarmPrice: string;
+            perModulePrice: string;
+            discountPercent: string;
+        };
+        PlanAddOnResponseDto: {
+            code: string;
+            name: string;
+            description?: string;
+            price: string;
+            /** @enum {string} */
+            billingCycle: "monthly" | "quarterly" | "semi_annual" | "annual";
+        };
+        PlanResponseDto: {
+            id: string;
+            code?: string;
+            name: string;
+            description?: string;
+            shortDescription?: string;
+            /** @enum {string} */
+            tier: "free" | "starter" | "professional" | "enterprise" | "custom";
+            currency: string;
+            /** @enum {string} */
+            defaultBillingCycle: "monthly" | "quarterly" | "semi_annual" | "annual";
+            /** @enum {string} */
+            visibility: "public" | "private" | "deprecated";
+            isActive: boolean;
+            isRecommended: boolean;
+            sortOrder: number;
+            limits: components["schemas"]["PlanLimitsResponseDto"];
+            features: components["schemas"]["PlanFeaturesResponseDto"];
+            cyclePrices: components["schemas"]["PlanCyclePriceResponseDto"][];
+            addOns: components["schemas"]["PlanAddOnResponseDto"][];
+            trialDays?: number;
+            gracePeriodDays?: number;
+            upgradeMessage?: string;
+            downgradeWarning?: string;
+            icon?: string;
+            color?: string;
+            badge?: string;
+            stripeProductId?: string;
+            stripePriceIds?: {
+                [key: string]: string;
+            };
+            version: number;
+            createdAt: string;
+            updatedAt: string;
+            createdBy?: string;
+            updatedBy?: string;
+        };
         PlanLimitsDto: {
             maxUsers: number;
             maxFarms: number;
@@ -6905,54 +6967,52 @@ export interface components {
             prioritySupport: boolean;
             dedicatedAccountManager: boolean;
         };
-        PlanCyclePricingDto: {
-            basePrice: number;
-            perUserPrice: number;
-            perFarmPrice: number;
-            perModulePrice: number;
-        };
-        PlanDiscountedCyclePricingDto: {
-            basePrice: number;
-            perUserPrice: number;
-            perFarmPrice: number;
-            perModulePrice: number;
-            discountPercent: number;
-        };
-        PlanPricingDto: {
-            monthly: components["schemas"]["PlanCyclePricingDto"];
-            quarterly: components["schemas"]["PlanDiscountedCyclePricingDto"];
-            semiAnnual: components["schemas"]["PlanDiscountedCyclePricingDto"];
-            annual: components["schemas"]["PlanDiscountedCyclePricingDto"];
-            currency: string;
-        };
-        PlanAddOnDto: {
-            code: string;
-            name: string;
-            description: string;
-            price: number;
-            /** @enum {string} */
-            billingCycle: "monthly" | "quarterly" | "semi_annual" | "annual";
-        };
         PlanFeaturesDto: {
             coreFeatures: string[];
             advancedFeatures: string[];
             premiumFeatures: string[];
-            addOns: components["schemas"]["PlanAddOnDto"][];
+        };
+        PlanCyclePriceDto: {
+            /** @enum {string} */
+            billingCycle: "monthly" | "quarterly" | "semi_annual" | "annual";
+            basePrice: string;
+            perUserPrice: string;
+            perFarmPrice: string;
+            perModulePrice: string;
+            discountPercent: string;
+        };
+        PlanAddOnDto: {
+            code: string;
+            name: string;
+            description?: string;
+            price: string;
+            /** @enum {string} */
+            billingCycle: "monthly" | "quarterly" | "semi_annual" | "annual";
+        };
+        StripePriceIdsDto: {
+            monthly?: string;
+            quarterly?: string;
+            semi_annual?: string;
+            annual?: string;
         };
         CreatePlanDto: {
-            code: string;
+            code?: string;
             name: string;
             description?: string;
             shortDescription?: string;
             /** @enum {string} */
             tier: "free" | "starter" | "professional" | "enterprise" | "custom";
+            currency?: string;
+            /** @enum {string} */
+            defaultBillingCycle?: "monthly" | "quarterly" | "semi_annual" | "annual";
             /** @enum {string} */
             visibility?: "public" | "private" | "deprecated";
             isRecommended?: boolean;
             sortOrder?: number;
             limits: components["schemas"]["PlanLimitsDto"];
-            pricing: components["schemas"]["PlanPricingDto"];
-            features: components["schemas"]["PlanFeaturesDto"];
+            features?: components["schemas"]["PlanFeaturesDto"];
+            cyclePrices: components["schemas"]["PlanCyclePriceDto"][];
+            addOns?: components["schemas"]["PlanAddOnDto"][];
             trialDays?: number;
             gracePeriodDays?: number;
             upgradeMessage?: string;
@@ -6960,6 +7020,8 @@ export interface components {
             icon?: string;
             color?: string;
             badge?: string;
+            stripeProductId?: string;
+            stripePriceIds?: components["schemas"]["StripePriceIdsDto"];
         };
         PartialPlanLimitsDto: {
             maxUsers?: number;
@@ -6980,31 +7042,30 @@ export interface components {
             prioritySupport?: boolean;
             dedicatedAccountManager?: boolean;
         };
-        PartialPlanPricingDto: {
-            monthly?: components["schemas"]["PlanCyclePricingDto"];
-            quarterly?: components["schemas"]["PlanDiscountedCyclePricingDto"];
-            semiAnnual?: components["schemas"]["PlanDiscountedCyclePricingDto"];
-            annual?: components["schemas"]["PlanDiscountedCyclePricingDto"];
-            currency?: string;
-        };
         PartialPlanFeaturesDto: {
             coreFeatures?: string[];
             advancedFeatures?: string[];
             premiumFeatures?: string[];
-            addOns?: components["schemas"]["PlanAddOnDto"][];
         };
         UpdatePlanDto: {
+            code?: string;
             name?: string;
             description?: string;
             shortDescription?: string;
+            /** @enum {string} */
+            tier?: "free" | "starter" | "professional" | "enterprise" | "custom";
+            currency?: string;
+            /** @enum {string} */
+            defaultBillingCycle?: "monthly" | "quarterly" | "semi_annual" | "annual";
             /** @enum {string} */
             visibility?: "public" | "private" | "deprecated";
             isActive?: boolean;
             isRecommended?: boolean;
             sortOrder?: number;
             limits?: components["schemas"]["PartialPlanLimitsDto"];
-            pricing?: components["schemas"]["PartialPlanPricingDto"];
             features?: components["schemas"]["PartialPlanFeaturesDto"];
+            cyclePrices?: components["schemas"]["PlanCyclePriceDto"][];
+            addOns?: components["schemas"]["PlanAddOnDto"][];
             trialDays?: number;
             gracePeriodDays?: number;
             upgradeMessage?: string;
@@ -7012,12 +7073,33 @@ export interface components {
             icon?: string;
             color?: string;
             badge?: string;
+            stripeProductId?: string;
+            stripePriceIds?: components["schemas"]["StripePriceIdsDto"];
         };
         ComparePlansDto: {
             /** Format: uuid */
             currentPlanId: string;
             /** Format: uuid */
             newPlanId: string;
+        };
+        PlanLimitChangeDto: {
+            limit: string;
+            currentValue: number;
+            newValue: number;
+            /** @enum {string} */
+            change: "increase" | "decrease" | "same";
+        };
+        PlanFeatureChangeDto: {
+            feature: string;
+            gaining: boolean;
+        };
+        PlanComparisonResponseDto: {
+            isUpgrade: boolean;
+            isDowngrade: boolean;
+            priceDifference: string;
+            limitChanges: components["schemas"]["PlanLimitChangeDto"][];
+            featureChanges: components["schemas"]["PlanFeatureChangeDto"][];
+            warnings: string[];
         };
         DiscountCodeResponseDto: {
             id: string;
@@ -11146,7 +11228,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["PlanResponseDto"][];
                 };
             };
         };
@@ -11169,7 +11251,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["PlanResponseDto"];
                 };
             };
         };
@@ -11188,7 +11270,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["PlanResponseDto"][];
                 };
             };
         };
@@ -11209,7 +11291,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["PlanResponseDto"];
                 };
             };
         };
@@ -11234,7 +11316,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["PlanResponseDto"];
                 };
             };
         };
@@ -11255,7 +11337,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["PlanResponseDto"];
                 };
             };
         };
@@ -11297,7 +11379,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["PlanResponseDto"];
                 };
             };
         };
@@ -11320,7 +11402,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["PlanComparisonResponseDto"];
                 };
             };
         };
@@ -11341,26 +11423,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
-                };
-            };
-        };
-    };
-    BillingController_seedPlans: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["PlanLimitsResponseDto"];
                 };
             };
         };

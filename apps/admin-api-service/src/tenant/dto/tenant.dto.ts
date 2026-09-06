@@ -1,5 +1,7 @@
+import { BILLING_CYCLES, type BillingCycle } from '@platform/event-contracts';
 import { Type, Transform } from 'class-transformer';
 import {
+  IsIn,
   IsString,
   IsOptional,
   IsEmail,
@@ -340,8 +342,8 @@ export class CreateTenantDto {
    * Billing cycle preference
    */
   @IsOptional()
-  @IsEnum(['monthly', 'quarterly', 'semi_annual', 'annual'])
-  billingCycle?: 'monthly' | 'quarterly' | 'semi_annual' | 'annual';
+  @IsIn(BILLING_CYCLES)
+  billingCycle?: BillingCycle;
 
   @IsOptional()
   @IsUUID('4')

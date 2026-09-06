@@ -61,3 +61,24 @@ export class DecimalTransformer implements ValueTransformer {
     return isNaN(parsed) ? null : parsed;
   }
 }
+
+/**
+ * Map a nullable numeric column onto an optional response field, PRESERVING zero.
+ *
+ * `DecimalTransformer.from` already says "absent" with `null`, so a read has two
+ * distinct values to carry forward: `null` (nobody measured this) and `0` (someone
+ * measured zero). A truthiness guard — `value ? Number(value) : undefined` — collapses
+ * them, and always in the direction that reads as "no data":
+ *
+ *   - a batch's `sgr` of 0 is a batch that did not grow, reported as unmeasured;
+ *   - a tank's `freeboard` of 0 is a tank filled to the rim, reported as unknown;
+ *   - a feeding record's `feedCost` of 0 is feed that cost nothing, dropped from the total;
+ *   - a storage location's `capacity` of 0 is a decommissioned location, shown as unbounded.
+ *
+ * Every column this applies to is `nullable: true`, so the schema already has a
+ * representation for "unset" and zero is never a sentinel for it. Enforced by
+ * `tests/invariants/nullable-numeric-zero-preserved.spec.ts`.
+ */
+export function numberOrUndefined(value: number | string | null | undefined): number | undefined {
+  return value === null || value === undefined ? undefined : Number(value);
+}

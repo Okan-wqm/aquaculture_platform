@@ -7,7 +7,7 @@
  */
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
-import { runInTenantRead, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { numberOrUndefined, runInTenantRead, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { DataSource, EntityManager } from 'typeorm';
 import { ListEquipmentQuery } from '../queries/list-equipment.query';
 import { Equipment, EquipmentStatus, EquipmentLocation, TankSpecifications } from '../entities/equipment.entity';
@@ -404,15 +404,15 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
       material: tank.material as TankSpecifications['material'],
       waterType: tank.waterType as TankSpecifications['waterType'],
       dimensions: {
-        diameter: tank.diameter ? Number(tank.diameter) : undefined,
-        length: tank.length ? Number(tank.length) : undefined,
-        width: tank.width ? Number(tank.width) : undefined,
+        diameter: numberOrUndefined(tank.diameter),
+        length: numberOrUndefined(tank.length),
+        width: numberOrUndefined(tank.width),
         depth: Number(tank.depth),
-        waterDepth: tank.waterDepth ? Number(tank.waterDepth) : undefined,
-        freeboard: tank.freeboard ? Number(tank.freeboard) : undefined,
+        waterDepth: numberOrUndefined(tank.waterDepth),
+        freeboard: numberOrUndefined(tank.freeboard),
       },
       volume: Number(tank.volume),
-      waterVolume: tank.waterVolume ? Number(tank.waterVolume) : undefined,
+      waterVolume: numberOrUndefined(tank.waterVolume),
       maxBiomass: Number(tank.maxBiomass),
       maxDensity: Number(tank.maxDensity),
       maxCount: tank.currentCount || undefined,

@@ -11,6 +11,7 @@ import { Plan } from './entities/plan.entity';
 import { ScheduledPlanChange, ScheduledChangeStatus } from './entities/scheduled-plan-change.entity';
 import { Invoice, InvoiceStatus } from './entities/invoice.entity';
 import { randomBytes } from 'crypto';
+import { BILLING_CYCLE_MONTHS, cycleAmountFor } from './services/module-quote';
 
 /**
  * D09-F02 / D09-F03 / D09-F06: Automated billing lifecycle scheduler.
@@ -297,11 +298,24 @@ export class BillingSchedulerService {
           },
         ];
 
-        // Calculate cycle multiplier for non-monthly billing
+        // BILLING-CRITICAL-003: charge what was QUOTED. `pricing.basePrice` is
+        // the monthly rate by contract, and this multiplied it by the months
+        // while taking nothing off — but the quote an operator approves
+        // applies the longer-cycle commitment discount (5% / 10% / 15%), so an
+        // annual tenant was invoiced 15% above the price they signed, every
+        // year. `cycleAmountFor` is the one rule both sides now use.
         const cycleMonths = this.cycleToMonths(sub.billingCycle);
         if (cycleMonths > 1 && lineItems[0]) {
-          lineItems[0].description = `${sub.planName} - Base subscription (${cycleMonths} months)`;
-          lineItems[0].unitPrice = basePriceMoney.multiply(cycleMonths).toDecimal().toNumber();
+          const cycleAmount = cycleAmountFor(
+            basePriceMoney.toDecimal(),
+            sub.billingCycle,
+            pricingCurrency,
+          );
+          lineItems[0].description = cycleAmount.discount.isZero()
+            ? `${sub.planName} - Base subscription (${cycleMonths} months)`
+            : `${sub.planName} - Base subscription (${cycleMonths} months, ` +
+              `${cycleAmount.discount.toString()} ${pricingCurrency} commitment discount)`;
+          lineItems[0].unitPrice = cycleAmount.total.toNumber();
         }
 
         // Generate invoice number
@@ -469,13 +483,14 @@ export class BillingSchedulerService {
     return this.addMonthsClamped(startDate, months);
   }
 
+  /**
+   * A third copy of this table used to live here as a switch, beside
+   * `BILLING_CYCLE_MONTHS` and the quote's own multiplier. One declaration
+   * (BILLING-CRITICAL-003): adding a cycle must not mean remembering to add it
+   * in three places, one of which decides how long a customer goes unbilled.
+   */
   private cycleToMonths(billingCycle: BillingCycle): number {
-    switch (billingCycle) {
-      case BillingCycle.MONTHLY:     return 1;
-      case BillingCycle.QUARTERLY:   return 3;
-      case BillingCycle.SEMI_ANNUAL: return 6;
-      case BillingCycle.ANNUAL:      return 12;
-    }
+    return BILLING_CYCLE_MONTHS[billingCycle];
   }
 
   /**

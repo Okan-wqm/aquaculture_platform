@@ -53,6 +53,44 @@ export const BILLING_CYCLE_DISCOUNT_RATE: Readonly<Record<BillingCycle, string>>
   annual: '0.15',
 };
 
+/**
+ * What a cycle's worth of a monthly amount actually costs.
+ *
+ * BILLING-CRITICAL-003: this rule was written TWICE and the two copies
+ * disagreed. `ModulePricingService.quote` multiplied by the months and took
+ * the commitment discount off, which is the figure an operator approves;
+ * `BillingSchedulerService` multiplied by the months and took NOTHING off, so
+ * an annual tenant was invoiced 15% more than the quote they signed, every
+ * year, silently. Both now call this.
+ *
+ * Rounding happens at each currency boundary — the gross and the discount are
+ * each a real money amount that appears on the invoice, so neither may carry
+ * sub-cent residue into the total.
+ */
+export interface BillingCycleAmount {
+  /** The monthly amount times the months in the cycle. */
+  gross: Decimal;
+  /** What committing to the longer cycle takes off. */
+  discount: Decimal;
+  /** What is charged for the cycle. */
+  total: Decimal;
+}
+
+export function cycleAmountFor(
+  monthly: Decimal,
+  billingCycle: BillingCycle,
+  currency: string,
+): BillingCycleAmount {
+  const months = BILLING_CYCLE_MONTHS[billingCycle];
+  const rate = BILLING_CYCLE_DISCOUNT_RATE[billingCycle];
+  if (months === undefined || rate === undefined) {
+    throw new RangeError(`Unknown billing cycle ${String(billingCycle)}`);
+  }
+  const gross = roundToCurrency(monthly.times(months), currency);
+  const discount = roundToCurrency(gross.times(new Decimal(rate)), currency);
+  return { gross, discount, total: gross.minus(discount) };
+}
+
 /** The multiplier in force for a tier — absent means full list price. */
 export function tierMultiplierOf(sheet: ModulePrice, tier: BillingPlanTier): Decimal {
   const found = (sheet.tierMultipliers ?? []).find((entry) => entry.tier === tier);

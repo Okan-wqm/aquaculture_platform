@@ -28,7 +28,12 @@ import {
 } from '../entities/module-price.entity';
 
 import { DEFAULT_MODULE_PRICES } from './default-module-prices';
-import { BILLING_CYCLE_DISCOUNT_RATE, BILLING_CYCLE_MONTHS, priceModule } from './module-quote';
+import {
+  BILLING_CYCLE_DISCOUNT_RATE,
+  BILLING_CYCLE_MONTHS,
+  cycleAmountFor,
+  priceModule,
+} from './module-quote';
 
 import type { DiscountCodeService } from './discount-code.service';
 
@@ -316,10 +321,11 @@ export class ModulePricingService {
       negotiatedOffSubtotal.plus(negotiatedFixed),
     );
     const monthlyTotal = subtotal.minus(negotiatedDiscountAmount);
-    const cycleRate = new Decimal(BILLING_CYCLE_DISCOUNT_RATE[command.billingCycle]);
-    const cycleGross = roundToCurrency(monthlyTotal.times(cycleMonths), currency);
-    const cycleDiscountAmount = roundToCurrency(cycleGross.times(cycleRate), currency);
-    let cycleTotal = cycleGross.minus(cycleDiscountAmount);
+    // The SAME function the invoice scheduler charges through, so a quoted
+    // annual price and its invoice cannot disagree (BILLING-CRITICAL-003).
+    const cycle = cycleAmountFor(monthlyTotal, command.billingCycle, currency);
+    const cycleDiscountAmount = cycle.discount;
+    let cycleTotal = cycle.total;
 
     let discountAmount = new Decimal(0);
     let discountDescription: string | undefined;
@@ -352,7 +358,9 @@ export class ModulePricingService {
       subtotal: subtotal.toString(),
       tierDiscount: tierDiscount.toString(),
       cycleDiscountAmount: cycleDiscountAmount.toString(),
-      cycleDiscountPercent: cycleRate.times(100).toString(),
+      cycleDiscountPercent: new Decimal(BILLING_CYCLE_DISCOUNT_RATE[command.billingCycle])
+        .times(100)
+        .toString(),
       discountCode: command.discountCode,
       discountDescription,
       discountAmount: discountAmount.toString(),
@@ -362,10 +370,11 @@ export class ModulePricingService {
       taxRate: taxRate.toString(),
       total: cycleTotal.plus(tax).toString(),
       monthlyTotal: monthlyTotal.toString(),
-      annualTotal: roundToCurrency(
-        monthlyTotal.times(12).times(new Decimal(1).minus(cycleRate)),
-        currency,
-      ).toString(),
+      // What a YEAR of this selection costs — the annual commitment discount,
+      // not whichever rate the requested cycle happens to carry. Quoted
+      // monthly, this used to read 12 x monthly with no discount at all, so
+      // the annual figure beside a monthly quote overstated it by 15%.
+      annualTotal: cycleAmountFor(monthlyTotal, 'annual', currency).total.toString(),
       billingCycle: command.billingCycle,
       billingCycleMultiplier: cycleMonths,
       currency,

@@ -518,7 +518,15 @@ describe('BillingSchedulerService', () => {
       expect(activeSub.currentPeriodEnd.getMonth()).toBe(3); // April
     });
 
-    it('should multiply base price by cycle months for non-monthly billing', async () => {
+    /**
+     * BILLING-CRITICAL-003. This previously asserted 100 x 3 = 300, which is
+     * what the code did — and it is NOT the price the operator approved.
+     * `ModulePricingService.quote` takes the longer-cycle commitment discount
+     * off (5% quarterly, 10% semi-annual, 15% annual) before showing a total,
+     * so the invoice was 5% above the quote on quarterly and 15% above it on
+     * annual, every period, silently. The assertion encoded the defect.
+     */
+    it('charges a non-monthly cycle at the price the quote showed, discount included', async () => {
       const quarterlySub = buildSubscription({
         status: SubscriptionStatus.ACTIVE,
         currentPeriodEnd: PAST,
@@ -531,7 +539,43 @@ describe('BillingSchedulerService', () => {
       await service.generateMonthlyInvoices();
 
       const createdInvoice = (invRepo.create as jest.Mock).mock.calls[0][0];
-      expect(createdInvoice.total.equals(300)).toBe(true); // 100 * 3
+      // 100 x 3 = 300 gross, less the 5% quarterly commitment discount.
+      expect(createdInvoice.total.equals(285)).toBe(true);
+      expect(createdInvoice.lineItems[0].description).toContain('commitment discount');
+    });
+
+    it('charges an annual cycle 15% below the gross, matching the quote', async () => {
+      const annualSub = buildSubscription({
+        status: SubscriptionStatus.ACTIVE,
+        currentPeriodEnd: PAST,
+        billingCycle: BillingCycle.ANNUAL,
+        pricing: { basePrice: 100, currency: 'USD' },
+      });
+      (subRepo.find as jest.Mock).mockResolvedValue([annualSub]);
+      (invRepo.findOne as jest.Mock).mockResolvedValue(null);
+
+      await service.generateMonthlyInvoices();
+
+      const createdInvoice = (invRepo.create as jest.Mock).mock.calls[0][0];
+      // 1200 gross, 180 off.
+      expect(createdInvoice.total.equals(1020)).toBe(true);
+    });
+
+    it('leaves a monthly cycle alone — there is no commitment to discount', async () => {
+      const monthlySub = buildSubscription({
+        status: SubscriptionStatus.ACTIVE,
+        currentPeriodEnd: PAST,
+        billingCycle: BillingCycle.MONTHLY,
+        pricing: { basePrice: 100, currency: 'USD' },
+      });
+      (subRepo.find as jest.Mock).mockResolvedValue([monthlySub]);
+      (invRepo.findOne as jest.Mock).mockResolvedValue(null);
+
+      await service.generateMonthlyInvoices();
+
+      const createdInvoice = (invRepo.create as jest.Mock).mock.calls[0][0];
+      expect(createdInvoice.total.equals(100)).toBe(true);
+      expect(createdInvoice.lineItems[0].description).not.toContain('commitment discount');
     });
 
     it('should generate invoice number with INV- prefix', async () => {

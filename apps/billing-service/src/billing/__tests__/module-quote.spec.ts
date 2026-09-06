@@ -8,7 +8,7 @@
  */
 import { roundToCurrency } from '@aquaculture/backend-common/monetary';
 import type { BillingModuleQuoteSelection } from '@platform/event-contracts';
-import { BillingPlanTier } from '@platform/event-contracts';
+import { BILLING_CYCLES, BillingPlanTier } from '@platform/event-contracts';
 import Decimal from 'decimal.js';
 
 import type {
@@ -16,7 +16,7 @@ import type {
   ModulePriceMetric,
   ModulePriceTierMultiplier,
 } from '../entities/module-price.entity';
-import { priceModule, tierMultiplierOf } from '../services/module-quote';
+import { cycleAmountFor, priceModule, tierMultiplierOf } from '../services/module-quote';
 
 function metric(
   metricType: ModulePriceMetric['metricType'],
@@ -177,5 +177,45 @@ describe('roundToCurrency', () => {
   it('respects the currency minor unit', () => {
     expect(roundToCurrency(new Decimal('1.005'), 'USD').toString()).toBe('1.01');
     expect(roundToCurrency(new Decimal('1.5'), 'JPY').toString()).toBe('2');
+  });
+});
+
+/**
+ * BILLING-CRITICAL-003: what a cycle costs was written twice and the copies
+ * disagreed. `ModulePricingService.quote` applied the commitment discount;
+ * `BillingSchedulerService` multiplied by the months and applied nothing, so
+ * the invoice ran above the approved quote by exactly that discount.
+ */
+describe('cycleAmountFor — one rule for the quote and the invoice', () => {
+  it.each([
+    ['monthly' as const, '100', '100', '0'],
+    ['quarterly' as const, '100', '285', '15'],
+    ['semi_annual' as const, '100', '540', '60'],
+    ['annual' as const, '100', '1020', '180'],
+  ])('%s: %s/month costs %s for the cycle (%s off)', (cycle, monthly, total, discount) => {
+    const amount = cycleAmountFor(new Decimal(monthly), cycle, 'USD');
+
+    expect(amount.total.toString()).toBe(total);
+    expect(amount.discount.toString()).toBe(discount);
+    expect(amount.gross.minus(amount.discount).toString()).toBe(total);
+  });
+
+  it('rounds the gross and the discount at the currency boundary, not once at the end', () => {
+    // 33.33 x 12 = 399.96; 15% of that is 59.994, which is not a payable
+    // amount. Both halves appear on the invoice, so both are money.
+    const amount = cycleAmountFor(new Decimal('33.33'), 'annual', 'USD');
+
+    expect(amount.gross.toString()).toBe('399.96');
+    expect(amount.discount.toString()).toBe('59.99');
+    expect(amount.total.toString()).toBe('339.97');
+  });
+
+  it('has a commercial term for every cycle the platform can store', () => {
+    // Totality against the contract's own list, so adding a cycle to
+    // BILLING_CYCLES without pricing it fails here rather than at the first
+    // invoice — where the missing term would silently bill one month.
+    for (const cycle of BILLING_CYCLES) {
+      expect(() => cycleAmountFor(new Decimal('10'), cycle, 'USD')).not.toThrow();
+    }
   });
 });

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from .artifact_safety import scrub_json
-from .ledger import LedgerIntegrityError, append_declared_jsonl, file_hash, load_declared_jsonl, load_jsonl, verify_jsonl
+from .ledger import state_transaction, LedgerIntegrityError, append_declared_jsonl, file_hash, load_declared_jsonl, load_jsonl, verify_jsonl
 from .tool_registry import GovernanceError, ensure_tools_binding, ensure_tools_dir, tools_dir, utc_now
 
 
@@ -142,88 +142,128 @@ def write_run_artifact(
     ``artifact_ref``, ``artifact_hash`` and ``artifact_status`` onto the
     run row without re-reading the artifact.
     """
-    root = run_artifacts_root(base_dir)
-    artifact_id = f"{_safe_segment(cycle_uid)}.{_safe_segment(run_id)}.{_safe_segment(kind)}"
-    artifact_path = root / "hot" / _safe_segment(cycle_uid) / _safe_segment(run_id) / f"{_safe_segment(kind)}.json"
-    _assert_under_root(artifact_path, root)
-    payload = {
-        "schema_version": 1,
-        "artifact_id": artifact_id,
-        "artifact_kind": kind,
-        "run_id": run_id,
-        "cycle_uid": cycle_uid,
-        "tool_id": tool_id,
-        "created_at": utc_now(),
-        "payload": scrub_json(payload),
-    }
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
-    digest = _sha256_bytes(encoded)
-    try:
-        _atomic_write_bytes(artifact_path, encoded)
-        actual = _sha256_bytes(artifact_path.read_bytes())
-        if actual != digest:
-            raise GovernanceError("run_artifact_hash_mismatch_after_write")
-        status = "present"
-        reason = None
-    except Exception as exc:
+    tools = ensure_tools_dir(base_dir)
+    paths = [tools / relative for relative in ARTIFACT_PROJECTION_PATHS.values()]
+    with state_transaction(paths) as transaction:
+        root = tools / "run-artifacts"
+        artifact_id = f"{_safe_segment(cycle_uid)}.{_safe_segment(run_id)}.{_safe_segment(kind)}"
+        artifact_path = root / "hot" / _safe_segment(cycle_uid) / _safe_segment(run_id) / f"{_safe_segment(kind)}.json"
+        _assert_under_root(artifact_path, root)
+        payload = {
+            "schema_version": 1,
+            "artifact_id": artifact_id,
+            "artifact_kind": kind,
+            "run_id": run_id,
+            "cycle_uid": cycle_uid,
+            "tool_id": tool_id,
+            "created_at": utc_now(),
+            "payload": scrub_json(payload),
+        }
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+        uri = _relative_uri(tools, artifact_path)
+        _resolve_uri(tools, uri)
+        existing_rows = {
+            surface: [row for row in transaction.load_declared_jsonl(
+                tools / relative, expected_surface=surface,
+            ) if row.get("artifact_id") == artifact_id]
+            for surface, relative in ARTIFACT_PROJECTION_PATHS.items()
+        }
+        exists = artifact_path.exists()
+        if exists:
+            previous_bytes = artifact_path.read_bytes()
+            try:
+                previous = json.loads(previous_bytes)
+            except (ValueError, UnicodeError) as exc:
+                raise GovernanceError("run_artifact_identity_collision") from exc
+            if not isinstance(previous, dict) or {
+                key: value for key, value in previous.items() if key != "created_at"
+            } != {key: value for key, value in payload.items() if key != "created_at"}:
+                raise GovernanceError("run_artifact_identity_collision")
+            encoded = previous_bytes
+        elif any(existing_rows.values()):
+            raise GovernanceError("run_artifact_existing_evidence_missing")
+        digest = _sha256_bytes(encoded)
+        for surface, rows in existing_rows.items():
+            for row in rows:
+                row_uri = row.get("current_uri") or row.get("uri") or row.get("path")
+                row_size = row.get("size_bytes") if "size_bytes" in row else row.get("bytes")
+                if row.get("sha256") != digest or row_uri != uri or row_size != len(encoded):
+                    raise GovernanceError("run_artifact_identity_collision")
+                if surface != "runtime_artifact_inventory" and (
+                    row.get("run_status") != run_status or row.get("owner") != owner
+                    or row.get("repo_state_id") != repo_state_id
+                ):
+                    raise GovernanceError("run_artifact_identity_collision")
+        try:
+            if not exists:
+                _atomic_write_bytes(artifact_path, encoded)
+            actual = _sha256_bytes(artifact_path.read_bytes())
+            if actual != digest:
+                raise GovernanceError("run_artifact_hash_mismatch_after_write")
+            status = "present"
+            reason = None
+        except Exception as exc:
+            return {
+                "artifact_id": artifact_id,
+                "artifact_ref": None,
+                "artifact_hash": None,
+                "artifact_status": "write_failed",
+                "artifact_error": str(exc),
+            }
+
+        uri = _relative_uri(tools, artifact_path)
+        ref = {
+            "schema_version": ARTIFACT_REF_V2_SCHEMA_VERSION,
+            "artifact_id": artifact_id,
+            "uri": uri,
+            "sha256": digest,
+            "content_type": "application/json",
+            "produced_by_workflow_run_id": run_id,
+            "source_surface": "runtime_artifact",
+        }
+        index_row = {
+            "schema_version": 1,
+            "artifact_id": artifact_id,
+            "cycle_id": cycle_uid,
+            "cycle_uid": cycle_uid,
+            "run_id": run_id,
+            "tool_id": tool_id,
+            "kind": kind,
+            "sha256": digest,
+            "size_bytes": len(encoded),
+            "created_at": utc_now(),
+            "storage_tier": "hot",
+            "current_uri": uri,
+            "owner": owner,
+            "repo_state_id": repo_state_id,
+            "run_status": run_status,
+            "artifact_status": status,
+        }
+        if not existing_rows["runtime_artifact_index"]:
+            transaction.append_declared_jsonl(tools / "run-artifacts/artifact-index.jsonl", index_row, expected_surface="runtime_artifact_index")
+        if not existing_rows["runtime_artifact_manifest"]:
+            transaction.append_declared_jsonl(tools / "run-artifacts/manifest.jsonl", {"event": "artifact_created", **index_row}, expected_surface="runtime_artifact_manifest")
+        if not existing_rows["runtime_artifact_inventory"]:
+            transaction.append_declared_jsonl(tools / "observability/artifact-inventory.jsonl", {
+                "schema_version": 1,
+                "recorded_at": utc_now(),
+                "cycle_id": cycle_uid,
+                "run_id": run_id,
+                "artifact_id": artifact_id,
+                "artifact_class": kind,
+                "path": uri,
+                "bytes": len(encoded),
+                "sha256": digest,
+                "storage_tier": "hot",
+                "retention_action": None,
+            }, expected_surface="runtime_artifact_inventory")
         return {
             "artifact_id": artifact_id,
-            "artifact_ref": None,
-            "artifact_hash": None,
-            "artifact_status": "write_failed",
-            "artifact_error": str(exc),
+            "artifact_ref": ref,
+            "artifact_hash": digest,
+            "artifact_status": status,
+            "artifact_error": reason,
         }
-
-    uri = _relative_uri(ensure_tools_dir(base_dir), artifact_path)
-    ref = {
-        "schema_version": ARTIFACT_REF_V2_SCHEMA_VERSION,
-        "artifact_id": artifact_id,
-        "uri": uri,
-        "sha256": digest,
-        "content_type": "application/json",
-        "produced_by_workflow_run_id": run_id,
-        "source_surface": "runtime_artifact",
-    }
-    index_row = {
-        "schema_version": 1,
-        "artifact_id": artifact_id,
-        "cycle_id": cycle_uid,
-        "cycle_uid": cycle_uid,
-        "run_id": run_id,
-        "tool_id": tool_id,
-        "kind": kind,
-        "sha256": digest,
-        "size_bytes": len(encoded),
-        "created_at": utc_now(),
-        "storage_tier": "hot",
-        "current_uri": uri,
-        "owner": owner,
-        "repo_state_id": repo_state_id,
-        "run_status": run_status,
-        "artifact_status": status,
-    }
-    append_declared_jsonl(artifact_index_path(base_dir), index_row, expected_surface="runtime_artifact_index")
-    append_declared_jsonl(artifact_manifest_path(base_dir), {"event": "artifact_created", **index_row}, expected_surface="runtime_artifact_manifest")
-    append_declared_jsonl(artifact_inventory_path(base_dir), {
-        "schema_version": 1,
-        "recorded_at": utc_now(),
-        "cycle_id": cycle_uid,
-        "run_id": run_id,
-        "artifact_id": artifact_id,
-        "artifact_class": kind,
-        "path": uri,
-        "bytes": len(encoded),
-        "sha256": digest,
-        "storage_tier": "hot",
-        "retention_action": None,
-    }, expected_surface="runtime_artifact_inventory")
-    return {
-        "artifact_id": artifact_id,
-        "artifact_ref": ref,
-        "artifact_hash": digest,
-        "artifact_status": status,
-        "artifact_error": reason,
-    }
 
 
 def budget_projection(run_row: dict[str, Any]) -> dict[str, Any]:
@@ -368,43 +408,139 @@ def resolve_finding_from_artifact(
     return findings[index]
 
 
-def verify_artifacts(*, base_dir: str | Path | None = None) -> dict[str, Any]:
-    root = Path(base_dir) if base_dir is not None else ensure_tools_dir(None)
+ARTIFACT_PROJECTION_PATHS = {
+    "runtime_artifact_index": "run-artifacts/artifact-index.jsonl",
+    "runtime_artifact_manifest": "run-artifacts/manifest.jsonl",
+    "runtime_artifact_inventory": "observability/artifact-inventory.jsonl",
+}
+
+
+def artifact_projection_issues(
+    projections: dict[str, list[dict[str, Any]]],
+    blobs: dict[str, tuple[str, int]],
+    retention_events: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Validate the whole artifact graph against independently verified bytes.
+
+    Both filesystem verification and immutable Git admission use this contract.
+    Projection rows are evidence claims, including historical rows that no
+    currently active run references. Missing bytes never erase those claims.
+    """
     issues: list[dict[str, Any]] = []
-    rows = load_declared_jsonl(root / "run-artifacts" / "artifact-index.jsonl", expected_surface="runtime_artifact_index")
-    verified = 0
-    for row in rows:
-        artifact_id = str(row.get("artifact_id") or "")
-        uri = str(row.get("current_uri") or "")
-        expected = str(row.get("sha256") or "")
-        if not uri:
-            issues.append({"code": "run_artifact_missing", "artifact_id": artifact_id, "reason": "empty_uri"})
+    latest: dict[str, dict[str, tuple[str, str]]] = {}
+    checked: set[tuple[str, str, str]] = set()
+    for surface in ARTIFACT_PROJECTION_PATHS:
+        by_id: dict[str, tuple[str, str]] = {}
+        latest[surface] = by_id
+        for row in projections.get(surface, []):
+            artifact_id = str(row.get("artifact_id") or "")
+            uri = str(row.get("current_uri") or row.get("uri") or row.get("path") or "")
+            digest = str(row.get("sha256") or "")
+            if not artifact_id or not uri or not _is_sha256_digest(digest):
+                issues.append({"code": "artifact_projection_invalid", "artifact_id": artifact_id, "surface": surface})
+            by_id[artifact_id] = (uri, digest)
+            recorded_size = row.get("size_bytes") if "size_bytes" in row else row.get("bytes")
+            blob = blobs.get(uri)
+            if recorded_size is not None and blob is not None and (
+                not isinstance(recorded_size, int) or isinstance(recorded_size, bool)
+                or recorded_size != blob[1]
+            ):
+                issues.append({"code": "artifact_projection_size_mismatch", "artifact_id": artifact_id, "surface": surface})
+            key = (artifact_id, uri, digest)
+            if key in checked:
+                continue
+            checked.add(key)
+            blob = blobs.get(uri)
+            if blob is None:
+                issues.append({"code": "run_artifact_missing", "artifact_id": artifact_id, "path": uri})
+            elif blob[0] != digest:
+                issues.append({"code": "run_artifact_hash_mismatch", "artifact_id": artifact_id,
+                               "expected": digest, "actual": blob[0]})
+    referenced_uris = {uri for _artifact_id, uri, _digest in checked}
+    for uri in sorted(blobs):
+        if uri.startswith("run-artifacts/hot/") and uri.endswith(".json") and uri not in referenced_uris:
+            issues.append({"code": "artifact_unindexed", "artifact_id": "", "path": uri})
+    artifact_ids = set().union(*(set(rows) for rows in latest.values()))
+    for artifact_id in sorted(artifact_ids):
+        claims = []
+        for surface, by_id in latest.items():
+            claim = by_id.get(artifact_id)
+            if claim is None:
+                issues.append({"code": "artifact_projection_missing", "artifact_id": artifact_id, "surface": surface})
+            else:
+                claims.append(claim)
+        if len(set(claims)) > 1:
+            issues.append({"code": "artifact_projection_mismatch", "artifact_id": artifact_id})
+    for row in retention_events:
+        kind = row.get("event") or row.get("kind")
+        if kind not in {"artifact_archived", "ledger_compacted"}:
             continue
+        uri = str(row.get("new_path") or row.get("archive_path") or "")
+        digest = str(row.get("archive_sha256") or row.get("sha256") or "")
+        blob = blobs.get(uri)
+        if blob is None or blob[0] != digest:
+            issues.append({"code": "retention_archive_hash_mismatch",
+                           "artifact_id": str(row.get("artifact_id") or ""), "archive_path": uri})
+        if kind == "artifact_archived":
+            artifact_id = str(row.get("artifact_id") or "")
+            claim = latest["runtime_artifact_index"].get(artifact_id)
+            original = str(row.get("original_path") or row.get("source_path") or "")
+            source_hash = str(row.get("source_sha256") or row.get("sha256") or "")
+            source = blobs.get(original)
+            size = row.get("size")
+            if (
+                claim != (original, source_hash) or source is None
+                or source[0] != source_hash or digest != source_hash
+                or not isinstance(size, int) or isinstance(size, bool)
+                or source[1] != size or blob is None or blob[1] != size
+                or not uri.startswith(f".archive/runtime/{artifact_id}/")
+            ):
+                issues.append({"code": "retention_artifact_binding_mismatch",
+                               "artifact_id": artifact_id, "original_path": original,
+                               "archive_path": uri})
+    return issues
+
+
+def verify_artifacts(*, base_dir: str | Path | None = None) -> dict[str, Any]:
+    root = tools_dir(base_dir)
+    issues: list[dict[str, Any]] = []
+    projections = {
+        surface: _safe_load_jsonl(root / relative, issues, surface, expected_surface=surface)
+        for surface, relative in ARTIFACT_PROJECTION_PATHS.items()
+    }
+    events = _safe_load_jsonl(root / "retention/events.jsonl", issues, "retention_events", expected_surface="retention_events")
+    uris = {str(row.get("current_uri") or row.get("uri") or row.get("path") or "")
+            for rows in projections.values() for row in rows}
+    uris.update(str(row.get("new_path") or row.get("archive_path") or "")
+                for row in events if (row.get("event") or row.get("kind")) in {"artifact_archived", "ledger_compacted"})
+    uris.update(path.relative_to(root).as_posix()
+                for path in (root / "run-artifacts/hot").rglob("*.json"))
+    blobs: dict[str, tuple[str, int]] = {}
+    for uri in sorted(uris):
         try:
             path = _resolve_uri(root, uri)
-        except GovernanceError as exc:
-            issues.append({"code": "run_artifact_path_escape", "artifact_id": artifact_id, "reason": str(exc)})
-            continue
-        if not path.exists():
-            issues.append({"code": "run_artifact_missing", "artifact_id": artifact_id, "path": uri})
-            continue
-        actual = _sha256_bytes(path.read_bytes())
-        if actual != expected:
-            issues.append({
-                "code": "run_artifact_hash_mismatch",
-                "artifact_id": artifact_id,
-                "expected": expected,
-                "actual": actual,
-            })
-            continue
-        verified += 1
+            if path.is_file():
+                digest = hashlib.sha256()
+                size = 0
+                with path.open("rb") as handle:
+                    before = os.fstat(handle.fileno())
+                    while chunk := handle.read(1024 * 1024):
+                        size += len(chunk)
+                        digest.update(chunk)
+                    after = os.fstat(handle.fileno())
+                if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
+                    after.st_size, after.st_mtime_ns, after.st_ctime_ns
+                ) or size != after.st_size:
+                    raise OSError("run_artifact_changed_during_read")
+                blobs[uri] = ("sha256:" + digest.hexdigest(), size)
+        except (OSError, GovernanceError) as exc:
+            issues.append({"code": "run_artifact_unreadable", "path": uri, "reason": str(exc)})
+    issues.extend(artifact_projection_issues(projections, blobs, events))
+    ids = {str(row.get("artifact_id") or "") for rows in projections.values() for row in rows}
+    invalid_ids = {issue.get("artifact_id") for issue in issues}
     return {
-        "schema_version": 1,
-        "status": "ok" if not issues else "drift",
-        "valid": not issues,
-        "artifact_count": len(rows),
-        "verified_count": verified,
-        "issues": issues,
+        "schema_version": 1, "status": "ok" if not issues else "drift", "valid": not issues,
+        "artifact_count": len(ids), "verified_count": len(ids - invalid_ids), "issues": issues,
     }
 
 
@@ -497,6 +633,7 @@ def verify_runtime_artifacts(
                 verified += 1
     verified += _verify_cycle_files(root=root, cycle_id=cycle_id, issues=issues)
     _verify_artifact_indexes(root=root, artifact_refs_seen=artifact_refs_seen, issues=issues)
+    issues.extend(verify_artifacts(base_dir=root)["issues"])
     _verify_manifests_and_inventory(root=root, cycle_id=cycle_id, artifact_refs_seen=artifact_refs_seen, issues=issues)
     _verify_retention_events(root=root, issues=issues)
     return {"schema_version": 1, "status": "ok" if not issues else "failed", "valid": not issues, "cycle_id": cycle_id, "verified_artifact_count": verified, "issues": issues}
@@ -628,7 +765,8 @@ def retention_dry_run(
     base_dir: str | Path | None = None,
     retain_hot_cycles: int = 20,
 ) -> dict[str, Any]:
-    rows = load_declared_jsonl(artifact_index_path(base_dir), expected_surface="runtime_artifact_index")
+    root = tools_dir(base_dir)
+    rows = load_declared_jsonl(root / "run-artifacts/artifact-index.jsonl", expected_surface="runtime_artifact_index")
     candidates = _retention_candidates(rows, retain_hot_cycles=retain_hot_cycles)
     return {
         "schema_version": 1,
@@ -659,49 +797,61 @@ def retention_apply(
         if workspace_root is not None
         else ensure_tools_dir(base_dir)
     )
-    candidates = _retention_candidates(load_declared_jsonl(artifact_index_path(root), expected_surface="runtime_artifact_index"), retain_hot_cycles=retain_hot_cycles)
-    archived: list[dict[str, Any]] = []
-    for candidate in candidates:
-        if candidate.get("review_required"):
-            continue
-        source = _resolve_uri(root, str(candidate["current_uri"]))
-        if not source.exists():
-            continue
-        archive_path = root / ".archive" / "runtime" / str(candidate["artifact_id"]) / source.name
-        _assert_under_root(archive_path, root / ".archive")
-        archive_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, archive_path)
-        actual = _sha256_bytes(archive_path.read_bytes())
-        if actual != candidate.get("sha256"):
-            raise GovernanceError("archive_hash_mismatch")
-        event = {
+    paths = [root / relative for relative in ARTIFACT_PROJECTION_PATHS.values()]
+    paths.append(root / "retention/events.jsonl")
+    with state_transaction(paths) as transaction:
+        verdict = verify_artifacts(base_dir=root)
+        if not verdict["valid"]:
+            raise GovernanceError("retention_artifact_integrity_failed:" + json.dumps(verdict["issues"], sort_keys=True))
+        candidates = _retention_candidates(transaction.load_declared_jsonl(root / "run-artifacts/artifact-index.jsonl", expected_surface="runtime_artifact_index"), retain_hot_cycles=retain_hot_cycles)
+        archived: list[dict[str, Any]] = []
+        for candidate in candidates:
+            if candidate.get("review_required"):
+                continue
+            source = _resolve_uri(root, str(candidate["current_uri"]))
+            if not source.is_file():
+                raise GovernanceError(f"retention_missing_source:{candidate['artifact_id']}")
+            content = source.read_bytes()
+            if _sha256_bytes(content) != candidate.get("sha256"):
+                raise GovernanceError(f"retention_source_hash_mismatch:{candidate['artifact_id']}")
+            archive_path = root / ".archive" / "runtime" / str(candidate["artifact_id"]) / source.name
+            _assert_under_root(archive_path, root / ".archive")
+            if archive_path.exists():
+                if _sha256_bytes(archive_path.read_bytes()) != candidate.get("sha256"):
+                    raise GovernanceError("archive_hash_mismatch")
+            else:
+                _atomic_write_bytes(archive_path, content)
+            actual = _sha256_bytes(archive_path.read_bytes())
+            if actual != candidate.get("sha256"):
+                raise GovernanceError("archive_hash_mismatch")
+            event = {
+                "schema_version": 1,
+                "event": "artifact_archived",
+                "manifest_id": f"retention.{candidate['artifact_id']}",
+                "artifact_id": candidate["artifact_id"],
+                "cycle_uid": candidate.get("cycle_uid"),
+                "original_path": candidate["current_uri"],
+                "new_path": _relative_uri(root, archive_path),
+                "sha256": actual,
+                "size": archive_path.stat().st_size,
+                "reason": reason.strip(),
+                "candidate_reason": candidate.get("reason"),
+                "operator_approval_ref": operator_approval_ref.strip(),
+                "reviewed": True,
+                "recorded_at": utc_now(),
+            }
+            transaction.append_declared_jsonl(
+                root / "retention/events.jsonl",
+                event,
+                expected_surface="retention_events",
+            )
+            archived.append(event)
+        return {
             "schema_version": 1,
-            "event": "artifact_archived",
-            "manifest_id": f"retention.{candidate['artifact_id']}",
-            "artifact_id": candidate["artifact_id"],
-            "cycle_uid": candidate.get("cycle_uid"),
-            "original_path": candidate["current_uri"],
-            "new_path": _relative_uri(root, archive_path),
-            "sha256": actual,
-            "size": archive_path.stat().st_size,
-            "reason": reason.strip(),
-            "candidate_reason": candidate.get("reason"),
-            "operator_approval_ref": operator_approval_ref.strip(),
-            "reviewed": True,
-            "recorded_at": utc_now(),
+            "mode": "apply",
+            "archived_count": len(archived),
+            "archived": archived,
         }
-        append_declared_jsonl(
-            retention_events_path(root),
-            event,
-            expected_surface="retention_events",
-        )
-        archived.append(event)
-    return {
-        "schema_version": 1,
-        "mode": "apply",
-        "archived_count": len(archived),
-        "archived": archived,
-    }
 
 def restore_artifact(
     *,
@@ -1586,13 +1736,15 @@ def _relative_uri(root: Path, path: Path) -> str:
 
 
 def _resolve_uri(root: Path, uri: str) -> Path:
-    candidate = (root / uri).resolve()
-    try:
-        candidate.relative_to(root.resolve())
-    except ValueError as exc:
-        raise GovernanceError(f"run_artifact_path_escape:{uri}") from exc
-    if candidate.is_symlink():
+    relative = Path(uri)
+    if relative.is_absolute() or ".." in relative.parts or not relative.parts:
         raise GovernanceError(f"run_artifact_path_escape:{uri}")
+    candidate = root
+    for part in relative.parts:
+        candidate = candidate / part
+        if candidate.is_symlink():
+            raise GovernanceError(f"run_artifact_path_escape:{uri}")
+    _assert_under_root(candidate, root)
     return candidate
 
 
@@ -1618,7 +1770,12 @@ def _atomic_write_bytes(path: Path, content: bytes) -> None:
     fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
     try:
         try:
-            os.write(fd, content)
+            remaining = memoryview(content)
+            while remaining:
+                written = os.write(fd, remaining)
+                if written <= 0:
+                    raise OSError("artifact_write_incomplete")
+                remaining = remaining[written:]
             os.fsync(fd)
         finally:
             os.close(fd)

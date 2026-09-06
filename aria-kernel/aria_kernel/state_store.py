@@ -1015,6 +1015,11 @@ def _publish_state_locked(
         "continuity": continuity,
         "push_outcome": push_outcome,
         "remote_tip": remote_tip,
+        "code_sha": _read_commit_ref(store.repo_root, "HEAD"),
+        "previous_state_sha": pre_commit_head,
+        "new_state_sha": committed_head,
+        "snapshot_sha256": hashlib.sha256(snapshot_bytes).hexdigest(),
+        "validator_version": "state-artifact-projections-v1",
     }
 
 
@@ -4492,6 +4497,18 @@ def verify_state_store(store: StateStore, *, repo_hash: str) -> dict[str, Any]:
     if published is None:
         return {"valid": True, "status": "genesis", "drifted_surfaces": []}
 
+    integrity_error = None
+    try:
+        from .autonomy_evidence import _verify_published_snapshot_commit
+
+        _verify_published_snapshot_commit(
+            store=store, repo_identity=repo_hash,
+            state_commit=_read_commit_ref(store.root, _publication_anchor(store)),
+            expected_snapshot=published,
+        )
+    except Exception as exc:  # every unverifiable immutable claim fails admission
+        integrity_error = str(exc)
+
     observed = build_snapshot(
         snapshot_id=published.get("snapshot_id", "recomputed"),
         cycle_id=published.get("cycle_id", "recomputed"),
@@ -4515,8 +4532,9 @@ def verify_state_store(store: StateStore, *, repo_hash: str) -> dict[str, Any]:
     )
     root_matches = observed.get("manifest_root") == published.get("manifest_root")
     return {
-        "valid": root_matches and not drifted,
-        "status": "ok" if root_matches and not drifted else "drifted",
+        "valid": root_matches and not drifted and integrity_error is None,
+        "integrity_error": integrity_error,
+        "status": "ok" if root_matches and not drifted and integrity_error is None else "drifted",
         "claimed_manifest_root": published.get("manifest_root"),
         "observed_manifest_root": observed.get("manifest_root"),
         "drifted_surfaces": drifted,

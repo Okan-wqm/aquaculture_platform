@@ -1,0 +1,236 @@
+name: Finding Closure Reconcile
+
+# =============================================================================
+# Records the closures a merge to main leaves behind.
+#
+# `finding-registry-closure-drift` asserts that every finding whose `Closes:`
+# trailer is reachable from origin/main reads RESOLVED. The moment a PR merges,
+# main violates that assertion — the closing commit exists, the registry row
+# does not yet say so — and nothing performs the closure. The cost lands on
+# whoever opens the next PR: their CI is red for someone else's merge. That
+# happened five times in a single day (PR #1424's six findings, #1450's three,
+# #1453's one, #1452's PLAT-HIGH-902, #1456's two), each time paid by hand.
+#
+# This lane runs `reconcile` on every push to main and proposes the resulting
+# rows. It is deliberately SEPARATE from finding-state-sweep:
+#
+#   * different trigger — a closure appears at merge time, staleness accrues
+#     by the calendar;
+#   * different reviewability — reconcile is mechanically derived from the
+#     merged commits' own `Closes:` trailers, while the sweep's STALE/BLOCKED
+#     transitions are a judgement about whether work has gone cold;
+#   * different urgency — a pending closure keeps the next PR red, a pending
+#     staleness transition does not.
+#
+# Sharing one PR branch would put the fast, mechanical change behind review of
+# the slow, human one. They mutate the same hash-chained file, but
+# open-report-pr.sh rebases onto main and force-pushes with lease on every run,
+# so whichever merges first, the other regenerates against the new tip.
+#
+# Why a PR and not a push: unchanged from the sweep — auto-commits to main are
+# a tampering surface, and this file is an audit artifact. This lane removes
+# the "nobody noticed" delay, not the review.
+# =============================================================================
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'If true, print the reconcile plan without mutating'
+        default: 'false'
+        required: false
+
+permissions:
+  contents: write # open a PR with registry mutations
+  pull-requests: write
+
+concurrency:
+  # A burst of merges must not race two reconciles onto the same branch.
+  group: finding-closure-reconcile
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # SEC-CI-002: pinned SHA per infra-expert rule.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-aria-kernel
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - name: Install dependencies (ts-node only)
+        # Dependency resolution must be peer-clean; do not hide package graph
+        # conflicts in reporting jobs.
+        run: npm ci --ignore-scripts --no-audit --prefer-offline
+
+      - name: Compute reconcile plan (dry run)
+        id: plan
+        env:
+          DRY_RUN_INPUT: ${{ github.event.inputs.dry_run || 'false' }}
+        run: |
+          set -euo pipefail
+          DRY_RUN="${DRY_RUN_INPUT}"
+          case "$DRY_RUN" in
+            true|false) ;;
+            *)
+              echo "::error::dry_run must be true or false: $DRY_RUN" >&2
+              exit 1
+              ;;
+          esac
+          echo "dry_run=${DRY_RUN}" >> "$GITHUB_OUTPUT"
+          npx ts-node --project tools/gates/tsconfig.json \
+            tools/gates/finding-registry.ts reconcile \
+            --dry-run | tee /tmp/reconcile-plan.txt
+          # `Reconcile clean:` is the tool's own no-drift sentinel.
+          if grep -q "^Reconcile clean:" /tmp/reconcile-plan.txt; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Persist enterprise workflow preflight
+        if: steps.plan.outputs.has_changes == 'true' && steps.plan.outputs.dry_run != 'true'
+        env:
+          PYTHONPATH: aria-kernel
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          from aria_kernel.preflight import verify_workflow_preflight
+
+          written = [
+              "docs/reviews/_registry/findings.jsonl",
+              "docs/plans/2026-06-18-enterprise-grade-debt-closure/manifest.json",
+              "docs/plans/2026-06-18-enterprise-grade-debt-closure/README.md",
+              "docs/plans/2026-06-18-enterprise-grade-debt-closure/finding-truth-table.md",
+          ]
+          verdict = verify_workflow_preflight(
+              workflow_id="finding-closure-reconcile",
+              job_id="reconcile",
+              profile="standard",
+              workspace_root=os.environ["GITHUB_WORKSPACE"],
+              allowed_write_roots=written,
+              path_allowlist=written,
+              network_policy=["github_api"],
+              network_enforcement_evidence="GitHub App PR API via automation/open-report-pr.sh",
+              token_provenance="github_app:installation",
+              dlp_mode="fail_closed",
+              dlp_scan_clean=True,
+              audit_reason="record merged-closer state transitions through automation PR",
+              audit_artifact_path=Path(os.environ["RUNNER_TEMP"])
+              / "finding-closure-reconcile-preflight.json",
+              external_root_allowlist=[str(Path(os.environ["RUNNER_TEMP"]).resolve())],
+          )
+          if not verdict.valid:
+              raise SystemExit(";".join(verdict.reasons))
+          PY
+
+      - name: Apply reconcile
+        if: steps.plan.outputs.has_changes == 'true' && steps.plan.outputs.dry_run != 'true'
+        run: |
+          set -euo pipefail
+          npx ts-node --project tools/gates/tsconfig.json \
+            tools/gates/finding-registry.ts reconcile
+
+      - name: Verify post-reconcile chain integrity
+        if: steps.plan.outputs.has_changes == 'true' && steps.plan.outputs.dry_run != 'true'
+        run: |
+          npx ts-node --project tools/gates/tsconfig.json \
+            tools/gates/finding-registry.ts verify
+
+      - name: Repin the debt plan to the new chain tip
+        if: steps.plan.outputs.has_changes == 'true' && steps.plan.outputs.dry_run != 'true'
+        run: |
+          set -euo pipefail
+          # The repin REFUSES when the active-CRITICAL set changes, because a
+          # new or retired CRITICAL needs a truth-table row with an owner and a
+          # bucket — a judgement this lane must not fake. Failing here is the
+          # correct outcome: it asks for the human edit instead of publishing a
+          # manifest that disagrees with the registry.
+          npm run gates:debt-plan:repin
+
+      - name: Mint GitHub App installation token
+        id: app_token
+        if: steps.plan.outputs.has_changes == 'true' && steps.plan.outputs.dry_run != 'true'
+        env:
+          ARIA_GH_APP_ID: ${{ secrets.ARIA_GH_APP_ID }}
+          ARIA_GH_APP_INSTALLATION_ID: ${{ secrets.ARIA_GH_APP_INSTALLATION_ID }}
+          ARIA_GH_APP_PRIVATE_KEY: ${{ secrets.ARIA_GH_APP_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$ARIA_GH_APP_ID" ] || [ -z "$ARIA_GH_APP_INSTALLATION_ID" ] || [ -z "$ARIA_GH_APP_PRIVATE_KEY" ]; then
+            echo "::notice::GitHub App not configured; PR will use GITHUB_TOKEN (may trigger action_required on CI)"
+            echo "token=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          KEY_FILE="$RUNNER_TEMP/gh-app-private-key.pem"
+          umask 077
+          printf '%s\n' "$ARIA_GH_APP_PRIVATE_KEY" > "$KEY_FILE"
+          export ARIA_GH_APP_PRIVATE_KEY_PATH="$KEY_FILE"
+          PYTHONPATH=aria-kernel python3 -c "
+          from pathlib import Path
+          from aria_kernel.gh_token_factory import mint_installation_token
+          lease = mint_installation_token(
+              cycle_id='finding-closure-reconcile-r${{ github.run_id }}',
+              workspace_root='.',
+          )
+          print('token=' + Path(lease.token_file).read_text(encoding='utf-8').strip())
+          " >> "$GITHUB_OUTPUT"
+          rm -f "$KEY_FILE"
+
+      - name: Open or update reconcile PR
+        if: steps.plan.outputs.has_changes == 'true' && steps.plan.outputs.dry_run != 'true'
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token || github.token }}
+          PR_TOKEN_SOURCE: ${{ steps.app_token.outputs.token && 'aria-github-app' || 'actions-default' }}
+        run: |
+          set -euo pipefail
+          BODY_FILE="$RUNNER_TEMP/finding-closure-reconcile-pr-body.md"
+          {
+            echo "Findings whose \`Closes:\` trailer is already reachable from \`main\`, recorded as RESOLVED."
+            echo ""
+            echo '```'
+            cat /tmp/reconcile-plan.txt
+            echo '```'
+            echo ""
+            echo "Each transition is derived from the closing commit's own trailer — this lane makes no"
+            echo "judgement. Until it merges, \`finding-registry-closure-drift\` stays red for every new PR."
+          } > "$BODY_FILE"
+
+          export PR_BRANCH="automation/finding-closure-reconcile"
+          export PR_TITLE="chore(findings): record closures reachable from main"
+          export PR_BODY_FILE="$BODY_FILE"
+          export COMMIT_MESSAGE="chore(findings): record merged-closer state transitions"
+          # open-report-pr.sh splits this on newlines and checks each path
+          # exists verbatim, so no entry may carry the block's indentation.
+          DEBT_PLAN="docs/plans/2026-06-18-enterprise-grade-debt-closure"
+          CHANGED_PATHS=$(printf '%s\n' \
+            "docs/reviews/_registry/findings.jsonl" \
+            "${DEBT_PLAN}/manifest.json" \
+            "${DEBT_PLAN}/README.md" \
+            "${DEBT_PLAN}/finding-truth-table.md")
+          export CHANGED_PATHS
+          bash tools/scripts/automation/open-report-pr.sh
+
+      # ADR-036 — upload the enterprise-preflight audit proof so the governed
+      # write decision is retained as CI evidence.
+      - name: Upload reconcile preflight proof
+        if: steps.plan.outputs.has_changes == 'true' && steps.plan.outputs.dry_run != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: finding-closure-reconcile-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/finding-closure-reconcile-preflight.json
+          if-no-files-found: error
+          retention-days: 365

@@ -91,10 +91,13 @@ function createService(manager: MockManager): TenantProvisioningCommandService {
       },
       'IUserTokenRevocation',
     ),
-    collaborator<DurableUserTokenInvalidationService>({
-      enqueue: jest.fn(() => Promise.resolve()),
-      applyImmediately: jest.fn(() => Promise.resolve()),
-    }, 'DurableUserTokenInvalidationService'),
+    collaborator<DurableUserTokenInvalidationService>(
+      {
+        enqueue: jest.fn(() => Promise.resolve()),
+        applyImmediately: jest.fn(() => Promise.resolve()),
+      },
+      'DurableUserTokenInvalidationService',
+    ),
     // W5 added the localization audit trail as the seventh collaborator: a
     // change to `AuditLogService.log`'s shape now fails HERE at compile time.
     collaborator<AuditLogService>(

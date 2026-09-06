@@ -273,10 +273,16 @@ export class TenantAdminService {
     // SECURITY: Wrap user creation + assignment in a transaction to prevent
     // orphaned users on assignment failure or partial state
     return this.dataSource.transaction(async (manager) => {
-      const lockedTenant = await manager.findOne(Tenant, { where: { id: admin.tenantId! }, lock: { mode: 'pessimistic_write' } });
-      if (!lockedTenant || lockedTenant.status !== TenantStatus.ACTIVE) throw new ForbiddenException('Tenant is not active');
-      user = await manager.findOne(User, { where: { email: input.email.toLowerCase(), tenantId: admin.tenantId! },
-        lock: { mode: 'pessimistic_write' } });
+      const lockedTenant = await manager.findOne(Tenant, {
+        where: { id: admin.tenantId! },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!lockedTenant || lockedTenant.status !== TenantStatus.ACTIVE)
+        throw new ForbiddenException('Tenant is not active');
+      user = await manager.findOne(User, {
+        where: { email: input.email.toLowerCase(), tenantId: admin.tenantId! },
+        lock: { mode: 'pessimistic_write' },
+      });
 
       // User.tenantId is nullable in the schema (platform-admin users
       // belong to no tenant). tenantManagerRepo requires a non-null
@@ -445,10 +451,18 @@ export class TenantAdminService {
   }
 
   private async lockSiteAccessPrincipals(
-    manager: EntityManager, actorId: string, targetId: string, tenantId: string,
+    manager: EntityManager,
+    actorId: string,
+    targetId: string,
+    tenantId: string,
   ): Promise<void> {
-    const actor = await manager.findOne(User, { where: { id: actorId }, select: { id: true, tenantId: true } });
-    const tenants = [...new Set([tenantId, actor?.tenantId].filter((id): id is string => typeof id === 'string'))].sort();
+    const actor = await manager.findOne(User, {
+      where: { id: actorId },
+      select: { id: true, tenantId: true },
+    });
+    const tenants = [
+      ...new Set([tenantId, actor?.tenantId].filter((id): id is string => typeof id === 'string')),
+    ].sort();
     for (const id of tenants) {
       await manager.findOne(Tenant, { where: { id }, lock: { mode: 'pessimistic_read' } });
     }
@@ -879,7 +893,12 @@ export class TenantAdminService {
     }
 
     const saved = await this.dataSource.transaction(async (manager) => {
-      const current = await lockUserForCredentialMutation(manager, this.userRepository, userId, admin.tenantId ?? undefined);
+      const current = await lockUserForCredentialMutation(
+        manager,
+        this.userRepository,
+        userId,
+        admin.tenantId ?? undefined,
+      );
       if (!current) throw new NotFoundException('User not found');
       await manager.update(User, { id: userId }, { isActive: true });
       return manager.findOneByOrFail(User, { id: userId });
@@ -944,8 +963,14 @@ export class TenantAdminService {
     const wasLockedUntil = user.lockedUntil ?? null;
     user.failedLoginAttempts = 0;
     user.lockedUntil = null;
-    await this.userRepository.update({ id: userId, tenantId: admin.tenantId }, { failedLoginAttempts: 0, lockedUntil: null });
-    const saved = await this.userRepository.findOneByOrFail({ id: userId, tenantId: admin.tenantId });
+    await this.userRepository.update(
+      { id: userId, tenantId: admin.tenantId },
+      { failedLoginAttempts: 0, lockedUntil: null },
+    );
+    const saved = await this.userRepository.findOneByOrFail({
+      id: userId,
+      tenantId: admin.tenantId,
+    });
 
     this.logger.log(`Cleared login lockout for userId=${userId}`);
 
@@ -1022,46 +1047,93 @@ export class TenantAdminService {
     input: UpdateTenantSecurityPolicyInput,
   ): Promise<TenantSecurityPolicy> {
     const committed = await this.dataSource.transaction(async (manager) => {
-      const tenant = await manager.findOne(Tenant, { where: { id: tenantId }, lock: { mode: 'pessimistic_write' } });
+      const tenant = await manager.findOne(Tenant, {
+        where: { id: tenantId },
+        lock: { mode: 'pessimistic_write' },
+      });
       if (!tenant) throw new NotFoundException('Tenant not found');
       const admin = await manager.findOne(User, { where: { id: tenantAdminId, isActive: true } });
-      if (!admin || (admin.role !== Role.SUPER_ADMIN &&
-          (admin.role !== Role.TENANT_ADMIN || admin.tenantId !== tenantId))) {
+      if (
+        !admin ||
+        (admin.role !== Role.SUPER_ADMIN &&
+          (admin.role !== Role.TENANT_ADMIN || admin.tenantId !== tenantId))
+      ) {
         throw new ForbiddenException('Tenant security policy management is not permitted');
       }
       const nextEnforceMfa = input.enforceMfa ?? tenant.enforceMfa ?? null;
-      const nextSessionTimeoutMinutes = input.sessionTimeoutMinutes ?? tenant.sessionTimeoutMinutes ?? null;
+      const nextSessionTimeoutMinutes =
+        input.sessionTimeoutMinutes ?? tenant.sessionTimeoutMinutes ?? null;
       const flippedOn = tenant.enforceMfa !== true && nextEnforceMfa === true;
-      await manager.update(Tenant, { id: tenantId }, {
-        enforceMfa: nextEnforceMfa, sessionTimeoutMinutes: nextSessionTimeoutMinutes,
-      });
+      await manager.update(
+        Tenant,
+        { id: tenantId },
+        {
+          enforceMfa: nextEnforceMfa,
+          sessionTimeoutMinutes: nextSessionTimeoutMinutes,
+        },
+      );
       const intents: UserTokenInvalidationIntent[] = [];
       if (flippedOn) {
-        const users = await manager.createQueryBuilder(User, 'user').where('user.tenantId = :tenantId', { tenantId })
-          .orderBy('user.id', 'ASC').setLock('pessimistic_write').getMany();
+        const users = await manager
+          .createQueryBuilder(User, 'user')
+          .where('user.tenantId = :tenantId', { tenantId })
+          .orderBy('user.id', 'ASC')
+          .setLock('pessimistic_write')
+          .getMany();
         const invalidatedAt = new Date();
         for (const user of users) {
-          if (user.mfaEnabled || await manager.count(WebAuthnCredential, { where: { userId: user.id } }) > 0) continue;
-          await revokeActiveRefreshTokens(manager, this.refreshTokenRepository, user.id, invalidatedAt,
-            'Tenant MFA enforcement enabled');
-          const intent = createCredentialInvalidationIntent(user, invalidatedAt,
-            'tenant-mfa-enforcement-enabled', 'logout_all_devices');
+          if (
+            user.mfaEnabled ||
+            (await manager.count(WebAuthnCredential, { where: { userId: user.id } })) > 0
+          )
+            continue;
+          await revokeActiveRefreshTokens(
+            manager,
+            this.refreshTokenRepository,
+            user.id,
+            invalidatedAt,
+            'Tenant MFA enforcement enabled',
+          );
+          const intent = createCredentialInvalidationIntent(
+            user,
+            invalidatedAt,
+            'tenant-mfa-enforcement-enabled',
+            'logout_all_devices',
+          );
           await this.durableUserTokenInvalidation.enqueue(manager, intent);
           intents.push(intent);
         }
       }
-      await this.auditLogService.log({ tenantId, performedBy: tenantAdminId,
-        action: 'TENANT_SECURITY_POLICY_UPDATED', entityType: 'Tenant', entityId: tenantId,
-        details: { enforceMfa: nextEnforceMfa, sessionTimeoutMinutes: nextSessionTimeoutMinutes,
-          enforcementFlippedOn: flippedOn, revokedUserCount: intents.length },
-        severity: flippedOn ? AuditLogSeverity.WARNING : AuditLogSeverity.INFO,
-      }, manager);
-      return { policy: { enforceMfa: nextEnforceMfa === true, sessionTimeoutMinutes: nextSessionTimeoutMinutes }, intents };
+      await this.auditLogService.log(
+        {
+          tenantId,
+          performedBy: tenantAdminId,
+          action: 'TENANT_SECURITY_POLICY_UPDATED',
+          entityType: 'Tenant',
+          entityId: tenantId,
+          details: {
+            enforceMfa: nextEnforceMfa,
+            sessionTimeoutMinutes: nextSessionTimeoutMinutes,
+            enforcementFlippedOn: flippedOn,
+            revokedUserCount: intents.length,
+          },
+          severity: flippedOn ? AuditLogSeverity.WARNING : AuditLogSeverity.INFO,
+        },
+        manager,
+      );
+      return {
+        policy: {
+          enforceMfa: nextEnforceMfa === true,
+          sessionTimeoutMinutes: nextSessionTimeoutMinutes,
+        },
+        intents,
+      };
     });
-    await Promise.allSettled(committed.intents.map((intent) => this.durableUserTokenInvalidation.applyImmediately(intent)));
+    await Promise.allSettled(
+      committed.intents.map((intent) => this.durableUserTokenInvalidation.applyImmediately(intent)),
+    );
     return committed.policy;
   }
-
 
   /**
    * Get list of tables in tenant's schema

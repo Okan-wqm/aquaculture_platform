@@ -171,13 +171,13 @@ describe('UserLifecycleService', () => {
     const mockUserRepo = createMockRepository();
     const mockTenantRepo = createMockRepository();
     mockTenantRepo.findOne.mockResolvedValue(createMockTenant());
-    mockUserRepo.findOneByOrFail.mockImplementation(async () => {
-      const user: User | null = await mockUserRepo.findOne();
+    mockUserRepo.findOneByOrFail.mockImplementation(async (where: unknown) => {
+      const user: User | null = await mockUserRepo.findOne({ where });
       if (!user) throw new NotFoundException('User not found');
       return user;
     });
-    mockUserRepo.update.mockImplementation(async (_criteria: unknown, values: Partial<User>) => {
-      const current: User | null = await mockUserRepo.findOne();
+    mockUserRepo.update.mockImplementation(async (criteria: unknown, values: Partial<User>) => {
+      const current: User | null = await mockUserRepo.findOne({ where: criteria });
       if (!current) throw new NotFoundException('User not found');
       const updated = Object.assign(new User(), current, values);
       mockUserRepo.findOne.mockResolvedValue(updated);
@@ -315,11 +315,17 @@ describe('UserLifecycleService', () => {
   });
 
   function setUserAndAuditActor(user: User, actor: User): void {
+    let currentUser = user;
     userRepository.findOne.mockImplementation(async (options) => {
       const where = options.where;
       if (!where || Array.isArray(where)) throw new Error('Expected an identity lookup');
       if (where.tenantId && where.tenantId !== TENANT_ID) return null;
-      return where.id === ADMIN_USER_ID ? actor : user;
+      if (where.id === ADMIN_USER_ID) return actor;
+      return where.id === currentUser.id ? currentUser : null;
+    });
+    userRepository.update.mockImplementation(async (_criteria, values) => {
+      currentUser = Object.assign(new User(), currentUser, values);
+      return { affected: 1, raw: [], generatedMaps: [] };
     });
   }
 
@@ -737,16 +743,22 @@ describe('UserLifecycleService', () => {
     });
 
     it('does not touch RefreshToken until the canonical User lock resolves', async () => {
+      const user = createMockUser();
       let releaseUserLock: ((user: User) => void) | undefined;
-      userRepository.findOne.mockReturnValueOnce(
-        new Promise<User>((resolve) => {
-          releaseUserLock = resolve;
-        }),
-      );
+      let signalLockRequested: (() => void) | undefined;
+      const lockRequested = new Promise<void>((resolve) => { signalLockRequested = resolve; });
+      const lockedUser = new Promise<User>((resolve) => { releaseUserLock = resolve; });
+      userRepository.findOne.mockImplementation(async (options) => {
+        if (options.lock) {
+          if (!signalLockRequested) throw new Error('User lock observer is unavailable');
+          signalLockRequested();
+          return lockedUser;
+        }
+        return user;
+      });
 
       const operation = service.adminForceLogout(USER_ID);
-      await Promise.resolve();
-      await Promise.resolve();
+      await lockRequested;
 
       expect(refreshTokenRepository.createQueryBuilder).not.toHaveBeenCalled();
       expect(refreshTokenRepository.update).not.toHaveBeenCalled();
@@ -754,7 +766,7 @@ describe('UserLifecycleService', () => {
       if (!releaseUserLock) {
         throw new Error('User-lock test gate was not initialized');
       }
-      releaseUserLock(createMockUser());
+      releaseUserLock(user);
       await operation;
 
       expect(refreshTokenRepository.createQueryBuilder).toHaveBeenCalledTimes(1);
@@ -805,7 +817,7 @@ describe('UserLifecycleService', () => {
       // 1. User should be deactivated
       expect(userRepository.save).not.toHaveBeenCalled();
       expect(userRepository.update).toHaveBeenCalledWith(
-        { id: USER_ID, tenantId: TENANT_ID }, expect.objectContaining({ isActive: false }),
+        { id: USER_ID }, expect.objectContaining({ isActive: false }),
       );
       expect(userRepository.findOne).toHaveBeenCalledWith({
         where: { id: USER_ID },
@@ -951,9 +963,7 @@ describe('UserLifecycleService', () => {
       // ran in a swallowed try/catch (fail-OPEN) — a deletion could persist with
       // no audit evidence. The whole soft-delete now runs inside one
       // transaction, so a throwing audit aborts it.
-      userRepository.findOne
-        .mockResolvedValueOnce(createMockUser()) // target user lookup
-        .mockResolvedValueOnce(createMockUser({ id: ADMIN_USER_ID })); // admin lookup
+      setUserAndAuditActor(createMockUser(), createMockUser({ id: ADMIN_USER_ID }));
       mockAuditLogService.log.mockRejectedValueOnce(new Error('audit DB down'));
 
       await expect(service.deleteUser(TENANT_ID, USER_ID, ADMIN_USER_ID)).rejects.toThrow(

@@ -38,9 +38,11 @@ export class DurableUserTokenInvalidationService {
 
   async enqueue(manager: EntityManager, intent: UserTokenInvalidationIntent): Promise<void> {
     // Captured inside the credential transaction; replay must never invent a later cutoff.
-    await manager.query(`UPDATE auth.users SET "accessTokenInvalidBeforeEpochSeconds" =
+    await manager.query(
+      `UPDATE auth.users SET "accessTokenInvalidBeforeEpochSeconds" =
       GREATEST("accessTokenInvalidBeforeEpochSeconds", $2) WHERE id = $1`,
-      [intent.userId, userInvalidationEpochFromDate(intent.invalidatedAt)]);
+      [intent.userId, userInvalidationEpochFromDate(intent.invalidatedAt)],
+    );
     const systemRouted = intent.tenantId === null;
     const eventTenantId = intent.tenantId ?? OUTBOX_SYSTEM_TENANT_ID;
     const event: UserAccessTokenInvalidationRequestedEvent = {

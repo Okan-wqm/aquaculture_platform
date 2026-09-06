@@ -119,9 +119,11 @@ function makeFixture(options: FixtureOptions = {}) {
   const manager = {
     queryRunner: { isTransactionActive: true },
     findOne: jest.fn(async (entity: unknown, query: { where: { id: string } }) => {
-      if (entity === Tenant) return Object.assign(new Tenant(), {
-        id: query.where.id, status: TenantStatus.ACTIVE,
-      });
+      if (entity === Tenant)
+        return Object.assign(new Tenant(), {
+          id: query.where.id,
+          status: TenantStatus.ACTIVE,
+        });
       if (entity === User) return query.where.id === actor?.id ? actor : target;
       throw new Error('Unexpected site authority lookup');
     }),

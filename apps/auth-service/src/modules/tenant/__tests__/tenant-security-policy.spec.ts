@@ -38,9 +38,17 @@ describe('TenantAdminService — tenant auth-security policy (ADR-046)', () => {
     Object.assign(new Tenant(), { id: TENANT_ID, name: 'Acme', ...overrides });
 
   const buildUser = (overrides: Partial<User>): User =>
-    Object.assign(new User(), { id: ADMIN_ID, email: 'admin@example.com', tenantId: TENANT_ID,
-      role: Role.TENANT_ADMIN, isActive: true, credentialVersion: 1, mfaEnabled: false,
-      accessTokenInvalidBeforeEpochSeconds: 0, ...overrides });
+    Object.assign(new User(), {
+      id: ADMIN_ID,
+      email: 'admin@example.com',
+      tenantId: TENANT_ID,
+      role: Role.TENANT_ADMIN,
+      isActive: true,
+      credentialVersion: 1,
+      mfaEnabled: false,
+      accessTokenInvalidBeforeEpochSeconds: 0,
+      ...overrides,
+    });
 
   interface Harness {
     service: TenantAdminService;

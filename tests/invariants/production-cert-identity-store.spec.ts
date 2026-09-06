@@ -259,11 +259,36 @@ describe('production certificate identity store', () => {
       expect(readFileSync(caKey)).toEqual(originalKey);
       expect(readFileSync(serverCertificate)).not.toEqual(originalServer);
       expect(readFileSync(clientCertificate)).not.toEqual(originalClient);
-      runOpenSsl(['verify', '-CAfile', caCertificate, '-verify_hostname', 'aqua-redis', serverCertificate]);
+      runOpenSsl([
+        'verify',
+        '-CAfile',
+        caCertificate,
+        '-verify_hostname',
+        'aqua-redis',
+        serverCertificate,
+      ]);
       runOpenSsl(['verify', '-CAfile', caCertificate, '-purpose', 'sslclient', clientCertificate]);
-      const clientSubject = spawnSync('openssl', ['x509', '-in', clientCertificate, '-noout', '-subject', '-nameopt', 'RFC2253'], { encoding: 'utf8' });
+      const clientSubject = spawnSync(
+        'openssl',
+        ['x509', '-in', clientCertificate, '-noout', '-subject', '-nameopt', 'RFC2253'],
+        { encoding: 'utf8' },
+      );
       expect(clientSubject.stdout.trim()).toBe('subject=CN=auth_service');
-      const serverIdentity = spawnSync('openssl', ['x509', '-in', serverCertificate, '-noout', '-subject', '-ext', 'subjectAltName', '-nameopt', 'RFC2253'], { encoding: 'utf8' });
+      const serverIdentity = spawnSync(
+        'openssl',
+        [
+          'x509',
+          '-in',
+          serverCertificate,
+          '-noout',
+          '-subject',
+          '-ext',
+          'subjectAltName',
+          '-nameopt',
+          'RFC2253',
+        ],
+        { encoding: 'utf8' },
+      );
       expect(serverIdentity.stdout).toContain('subject=O=Aquaculture Platform,CN=redis');
       expect(serverIdentity.stdout).toContain('DNS:redis, DNS:aqua-redis, DNS:localhost');
 

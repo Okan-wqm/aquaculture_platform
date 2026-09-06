@@ -244,8 +244,9 @@ const authSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
           );
         }
 
-        parseAccessTokenLifetimeSeconds(configService.get<string>(
-          'JWT_EXPIRES_IN', SECURITY_CONSTANTS.DEFAULT_JWT_EXPIRES_IN));
+        parseAccessTokenLifetimeSeconds(
+          configService.get<string>('JWT_EXPIRES_IN', SECURITY_CONSTANTS.DEFAULT_JWT_EXPIRES_IN),
+        );
         return {
           privateKey,
           publicKey,

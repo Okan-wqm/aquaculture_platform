@@ -80,7 +80,10 @@ function createService(manager: MockManager): {
     dataSource as never,
     outbox as never,
     { revokeUserTokens: jest.fn(), isTokenValid: jest.fn() } as never,
-    collaborator<DurableUserTokenInvalidationService>(revocation, 'DurableUserTokenInvalidationService'),
+    collaborator<DurableUserTokenInvalidationService>(
+      revocation,
+      'DurableUserTokenInvalidationService',
+    ),
     // W5: lokalizasyon yazımının fail-CLOSED denetim izi (lifecycle yolunda
     // kullanılmaz). Tipli çift: `AuditLogService.log` imzası değişirse bu
     // satır DERLEME zamanında kırılır, ve lifecycle yolu beklenmedik bir
@@ -152,8 +155,16 @@ describe('TenantProvisioningCommandService — suspend session termination (RBAC
     expect(revocation.applyImmediately).toHaveBeenCalledTimes(2);
     const intents = revocation.enqueue.mock.calls.map(([, intent]) => intent);
     expect(intents).toEqual([
-      expect.objectContaining({ userId: USER_A, tenantId: TENANT_ID, invalidatedAt: expect.any(Date) }),
-      expect.objectContaining({ userId: USER_B, tenantId: TENANT_ID, invalidatedAt: expect.any(Date) }),
+      expect.objectContaining({
+        userId: USER_A,
+        tenantId: TENANT_ID,
+        invalidatedAt: expect.any(Date),
+      }),
+      expect.objectContaining({
+        userId: USER_B,
+        tenantId: TENANT_ID,
+        invalidatedAt: expect.any(Date),
+      }),
     ]);
     expect(intents[0].invalidatedAt).toBe(intents[1].invalidatedAt);
     expect(revocation.applyImmediately).toHaveBeenNthCalledWith(1, intents[0]);

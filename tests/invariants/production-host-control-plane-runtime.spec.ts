@@ -884,24 +884,53 @@ describe('production host publisher and common lock runtime', () => {
     writeFileSync(join(repository, 'certs', 'fixture.pem'), 'fixture identity');
     try {
       expect(runControl(fixture, ['publish']).status).toBe(0);
-      const published = spawnUtf8('/bin/bash', ['-c', `
+      const published = spawnUtf8(
+        '/bin/bash',
+        [
+          '-c',
+          `
         set -euo pipefail
         source "$1"
         acquire_deploy_control_lock() { :; }
         assert_deploy_infrastructure() { :; }
         materialize_deploy_checkout "$2"
         seal_deploy_configuration
-      `, '--', join(REPO_ROOT, 'scripts/deploy/deploy-paths.sh'), sha], { env: {
-        ...runtimeEnv(fixture), DEPLOY_SOURCE_REPO: repository, DEPLOY_RELEASES_ROOT: releases,
-        DEPLOY_CONFIG_ROOT: configuration, DEPLOY_ENV_FILE: join(repository, '.env'),
-        DEPLOY_CERTS_DIR: join(repository, 'certs'), DEPLOY_ATTEMPT: '10-1',
-      } });
-      expect({ status: published.status, stderr: published.stderr }).toEqual({ status: 0, stderr: expect.any(String) });
+      `,
+          '--',
+          join(REPO_ROOT, 'scripts/deploy/deploy-paths.sh'),
+          sha,
+        ],
+        {
+          env: {
+            ...runtimeEnv(fixture),
+            DEPLOY_SOURCE_REPO: repository,
+            DEPLOY_RELEASES_ROOT: releases,
+            DEPLOY_CONFIG_ROOT: configuration,
+            DEPLOY_ENV_FILE: join(repository, '.env'),
+            DEPLOY_CERTS_DIR: join(repository, 'certs'),
+            DEPLOY_ATTEMPT: '10-1',
+          },
+        },
+      );
+      expect({ status: published.status, stderr: published.stderr }).toEqual({
+        status: 0,
+        stderr: expect.any(String),
+      });
       expect(statSync(join(releases, sha, '10-1')).mode & 0o777).toBe(0o555);
-      const retained = runSourcedControl(fixture, 'aqua_control_plane_lock_acquire exclusive 1; aqua_control_plane_prune_releases');
-      expect({ status: retained.status, stderr: retained.stderr }).toEqual({ status: 0, stderr: '' });
-      expect(readFileSync(join(releases, sha, '10-1', 'fixture.txt'), 'utf8')).toBe('immutable release');
-    } finally { removeFixtureRoot(fixture.root); }
+      const retained = runSourcedControl(
+        fixture,
+        'aqua_control_plane_lock_acquire exclusive 1; aqua_control_plane_prune_releases',
+      );
+      expect({ status: retained.status, stderr: retained.stderr }).toEqual({
+        status: 0,
+        stderr: '',
+      });
+      expect(readFileSync(join(releases, sha, '10-1', 'fixture.txt'), 'utf8')).toBe(
+        'immutable release',
+      );
+    } finally {
+      removeFixtureRoot(fixture.root);
+    }
   });
 
   it('prunes release state to a bounded audit window while preserving every live reference', () => {
@@ -1442,7 +1471,13 @@ describe('production host publisher and common lock runtime', () => {
     const stateRoot = join(fixture.controlRoot, 'dr-bootstrap');
     const entry = join(stateRoot, `${fixture.mainSha}-1-1`);
     const reader = join(REPO_ROOT, 'scripts/deploy/validate-postgres-dr-state.py');
-    const readDirect = (): SpawnSyncReturns<string> => spawnUtf8('/usr/bin/python3', [reader, stateRoot, String(statSync(fixture.controlRoot).uid), `sha256:${'3'.repeat(64)}`]);
+    const readDirect = (): SpawnSyncReturns<string> =>
+      spawnUtf8('/usr/bin/python3', [
+        reader,
+        stateRoot,
+        String(statSync(fixture.controlRoot).uid),
+        `sha256:${'3'.repeat(64)}`,
+      ]);
     try {
       writeTerminalJournalArtifacts(fixture, 'COMMITTED');
       expect(readDirect().status).toBe(0);
@@ -1476,8 +1511,12 @@ describe('production host publisher and common lock runtime', () => {
       expect(runControl(fixture, ['publish']).status).not.toBe(0);
       rmSync(extra);
       expect(readDirect().status).toBe(0);
-    } finally { removeFixtureRoot(fixture.root); }
-    expect(readFileSync(join(REPO_ROOT, 'scripts/deploy/deploy-paths.sh'), 'utf8')).toContain('scripts/deploy/validate-postgres-dr-state.py');
+    } finally {
+      removeFixtureRoot(fixture.root);
+    }
+    expect(readFileSync(join(REPO_ROOT, 'scripts/deploy/deploy-paths.sh'), 'utf8')).toContain(
+      'scripts/deploy/validate-postgres-dr-state.py',
+    );
     expect(readFileSync(CONTROL_PLANE, 'utf8')).toContain('/validate-postgres-dr-state.py');
   });
 

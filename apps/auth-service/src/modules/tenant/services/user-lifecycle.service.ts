@@ -559,10 +559,17 @@ export class UserLifecycleService {
         throw new NotFoundException(`User with ID "${userId}" not found`);
       }
 
-      await manager.update(User, { id: userId }, {
-        password: passwordHash, passwordResetToken: null, passwordResetExpires: null,
-        failedLoginAttempts: 0, lockedUntil: null,
-      });
+      await manager.update(
+        User,
+        { id: userId },
+        {
+          password: passwordHash,
+          passwordResetToken: null,
+          passwordResetExpires: null,
+          failedLoginAttempts: 0,
+          lockedUntil: null,
+        },
+      );
 
       const invalidatedAt = new Date();
       const refreshTokensRevoked = await revokeActiveRefreshTokens(
@@ -629,12 +636,23 @@ export class UserLifecycleService {
       patch.isActive !== undefined || patch.role !== undefined || patch.tenantId !== undefined;
     if (mutatesAuthorization) {
       const transactionResult = await this.dataSource.transaction(async (manager) => {
-        const discovered = await manager.findOne(User, { where: { id: userId }, select: { id: true, tenantId: true } });
+        const discovered = await manager.findOne(User, {
+          where: { id: userId },
+          select: { id: true, tenantId: true },
+        });
         if (!discovered) throw new NotFoundException('User not found');
-        const tenantIds = [...new Set([discovered.tenantId, patch.tenantId]
-          .filter((id): id is string => typeof id === 'string'))].sort();
+        const tenantIds = [
+          ...new Set(
+            [discovered.tenantId, patch.tenantId].filter(
+              (id): id is string => typeof id === 'string',
+            ),
+          ),
+        ].sort();
         for (const tenantId of tenantIds) {
-          const tenant = await manager.findOne(Tenant, { where: { id: tenantId }, lock: { mode: 'pessimistic_write' } });
+          const tenant = await manager.findOne(Tenant, {
+            where: { id: tenantId },
+            lock: { mode: 'pessimistic_write' },
+          });
           if (!tenant) throw new NotFoundException('Tenant not found');
         }
         const user = await lockUserForCredentialMutation(manager, this.userRepository, userId);
@@ -665,13 +683,17 @@ export class UserLifecycleService {
         if (patch.tenantId !== undefined) user.tenantId = patch.tenantId;
         if (patch.isActive !== undefined) user.isActive = patch.isActive;
 
-        await manager.update(User, { id: userId }, {
-          ...(patch.firstName !== undefined ? { firstName: patch.firstName } : {}),
-          ...(patch.lastName !== undefined ? { lastName: patch.lastName } : {}),
-          ...(requestedRole !== undefined ? { role: requestedRole } : {}),
-          ...(patch.tenantId !== undefined ? { tenantId: patch.tenantId } : {}),
-          ...(patch.isActive !== undefined ? { isActive: patch.isActive } : {}),
-        });
+        await manager.update(
+          User,
+          { id: userId },
+          {
+            ...(patch.firstName !== undefined ? { firstName: patch.firstName } : {}),
+            ...(patch.lastName !== undefined ? { lastName: patch.lastName } : {}),
+            ...(requestedRole !== undefined ? { role: requestedRole } : {}),
+            ...(patch.tenantId !== undefined ? { tenantId: patch.tenantId } : {}),
+            ...(patch.isActive !== undefined ? { isActive: patch.isActive } : {}),
+          },
+        );
         const saved = await manager.findOneByOrFail(User, { id: userId });
         if (patch.tenantId !== undefined) {
           for (const tenantId of tenantIds) {
@@ -714,10 +736,13 @@ export class UserLifecycleService {
     if (patch.lastName !== undefined) user.lastName = patch.lastName;
     if (patch.isActive !== undefined) user.isActive = patch.isActive;
 
-    await this.userRepository.update({ id: userId }, {
-      ...(patch.firstName !== undefined ? { firstName: patch.firstName } : {}),
-      ...(patch.lastName !== undefined ? { lastName: patch.lastName } : {}),
-    });
+    await this.userRepository.update(
+      { id: userId },
+      {
+        ...(patch.firstName !== undefined ? { firstName: patch.firstName } : {}),
+        ...(patch.lastName !== undefined ? { lastName: patch.lastName } : {}),
+      },
+    );
     const saved = await this.userRepository.findOneByOrFail({ id: userId });
     this.logger.log(`Admin updated userId=${saved.id}`);
     return saved;
@@ -928,7 +953,10 @@ export class UserLifecycleService {
     //    EntityManager guarantees that a User without an Invitation row
     //    (or vice versa) cannot exist if any single insert fails.
     const result = await this.dataSource.transaction(async (manager) => {
-      const lockedTenant = await manager.findOne(Tenant, { where: { id: input.tenantId }, lock: { mode: 'pessimistic_write' } });
+      const lockedTenant = await manager.findOne(Tenant, {
+        where: { id: input.tenantId },
+        lock: { mode: 'pessimistic_write' },
+      });
       if (!lockedTenant) throw new NotFoundException('Tenant not found');
       const lockedCount = await manager.count(User, { where: { tenantId: input.tenantId } });
       if (lockedTenant.maxUsers !== -1 && lockedCount >= lockedTenant.maxUsers) {

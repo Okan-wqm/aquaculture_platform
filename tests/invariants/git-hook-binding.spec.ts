@@ -146,27 +146,36 @@ describe('local metadata and required hosted validation boundary', () => {
     }
   });
 
-  it.each(['build-status', 'merge-gate'])('%s requires real auth and recovery execution', (name) => {
-    const job = workflow.jobs[name];
-    if (!job || !job.steps) throw new Error(`Missing aggregate ${name}`);
-    const code = job.steps.map((step) => step.run ?? '').join('\n');
-    for (const required of ['authentication-proof', 'authentication-e2e', 'postgres-recovery-proof']) {
-      expect(job.needs).toContain(required);
-      const assertion = code.indexOf(`needs.${required}.result`);
-      expect(assertion).toBeGreaterThanOrEqual(0);
-      expect(assertion).toBeLessThan(code.indexOf('needs.detect-changes.outputs.has_changes'));
-    }
-    const recovery = workflow.jobs['postgres-recovery-proof'];
-    if (!recovery || !recovery.steps) throw new Error('Missing recovery proof');
-    const build = recovery.steps.find((step) => step.uses && step.uses.startsWith('docker/build-push-action@'));
-    if (!build || !build.with) throw new Error('Missing loaded image build');
-    expect(build.with['load']).toBe(true);
-    expect(build.with['push']).toBe(false);
-    const commands = recovery.steps.map((step) => step.run ?? '').join('\n');
-    expect(commands).toContain('POSTGRES_DR_TEST_IMAGE');
-    expect(commands).toContain('bash scripts/ci/test-postgres-dr-recovery.sh');
-    expect(commands).toContain('bash scripts/ci/test-nats-leaf-rollout.sh');
-  });
+  it.each(['build-status', 'merge-gate'])(
+    '%s requires real auth and recovery execution',
+    (name) => {
+      const job = workflow.jobs[name];
+      if (!job || !job.steps) throw new Error(`Missing aggregate ${name}`);
+      const code = job.steps.map((step) => step.run ?? '').join('\n');
+      for (const required of [
+        'authentication-proof',
+        'authentication-e2e',
+        'postgres-recovery-proof',
+      ]) {
+        expect(job.needs).toContain(required);
+        const assertion = code.indexOf(`needs.${required}.result`);
+        expect(assertion).toBeGreaterThanOrEqual(0);
+        expect(assertion).toBeLessThan(code.indexOf('needs.detect-changes.outputs.has_changes'));
+      }
+      const recovery = workflow.jobs['postgres-recovery-proof'];
+      if (!recovery || !recovery.steps) throw new Error('Missing recovery proof');
+      const build = recovery.steps.find(
+        (step) => step.uses && step.uses.startsWith('docker/build-push-action@'),
+      );
+      if (!build || !build.with) throw new Error('Missing loaded image build');
+      expect(build.with['load']).toBe(true);
+      expect(build.with['push']).toBe(false);
+      const commands = recovery.steps.map((step) => step.run ?? '').join('\n');
+      expect(commands).toContain('POSTGRES_DR_TEST_IMAGE');
+      expect(commands).toContain('bash scripts/ci/test-postgres-dr-recovery.sh');
+      expect(commands).toContain('bash scripts/ci/test-nats-leaf-rollout.sh');
+    },
+  );
 
   it('runs candidate E2E on hosted Actions with no production SSH test execution', () => {
     const code = read('.github/workflows/e2e-tests.yml');
@@ -186,5 +195,4 @@ describe('local metadata and required hosted validation boundary', () => {
     expect(fixture).not.toContain('generateTestToken');
     expect(read('e2e/global-setup.ts')).not.toMatch(/CREATE (?:SCHEMA|TABLE)/);
   });
-
 });

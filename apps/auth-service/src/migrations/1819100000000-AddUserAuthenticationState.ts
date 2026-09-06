@@ -15,7 +15,9 @@ export class AddUserAuthenticationState1819100000000 implements MigrationInterfa
         RAISE EXCEPTION 'Incompatible user authentication state columns';
       END IF;
     END $$`);
-    await queryRunner.query(`UPDATE auth.users SET "credentialVersion" = 1 WHERE "credentialVersion" IS NULL`);
+    await queryRunner.query(
+      `UPDATE auth.users SET "credentialVersion" = 1 WHERE "credentialVersion" IS NULL`,
+    );
     await queryRunner.query(`UPDATE auth.users SET "accessTokenInvalidBeforeEpochSeconds" = 0
       WHERE "accessTokenInvalidBeforeEpochSeconds" IS NULL`);
     await queryRunner.query(`ALTER TABLE auth.users

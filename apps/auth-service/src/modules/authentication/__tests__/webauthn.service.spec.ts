@@ -468,6 +468,7 @@ describe('WebAuthnService (SEC-CRITICAL-001/002 — №37-№40)', () => {
       expect(mockAuditLog.log).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'WEBAUTHN_LOGIN_FAILED',
+          tenantId: user.tenantId,
           severity: AuditLogSeverity.WARNING,
         }), undefined,
       );
@@ -494,6 +495,7 @@ describe('WebAuthnService (SEC-CRITICAL-001/002 — №37-№40)', () => {
       expect(mockAuditLog.log).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'WEBAUTHN_COUNTER_ROLLBACK',
+          tenantId: user.tenantId,
           severity: AuditLogSeverity.CRITICAL,
         }), mockManager,
       );
@@ -514,6 +516,10 @@ describe('WebAuthnService (SEC-CRITICAL-001/002 — №37-№40)', () => {
 
       expect(mockGenerateTokens).toHaveBeenCalledWith(expect.objectContaining({ user, manager: mockManager }), '10.0.0.1', 'jest', { mfaVerified: true });
       expect(result).toEqual({ accessToken: 'at', refreshToken: 'rt' });
+      expect(mockAuditLog.log).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'WEBAUTHN_LOGIN_SUCCESS', tenantId: user.tenantId,
+        performedBy: user.id, entityId: user.id,
+      }), mockManager);
       expect(mockManager.update).toHaveBeenCalledWith(
         WebAuthnCredential, expect.objectContaining({ id: credential.id, userId: user.id }),
         expect.objectContaining({ counter: 4 }),

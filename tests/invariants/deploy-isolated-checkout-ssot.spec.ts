@@ -67,7 +67,9 @@ describe('deploy isolated SHA-pinned checkout SSOT', () => {
     expect(exec).not.toContain('worktree remove');
     expect(exec).not.toContain('ln -sfn');
     expect(exec).toContain('cp -aL -- "${seed_certs}/." "${configuration_stage}/certs/"');
-    expect(exec).toContain('cp --preserve=mode,ownership -- "${seed_env}" "${configuration_stage}/.env"');
+    expect(exec).toContain(
+      'cp --preserve=mode,ownership -- "${seed_env}" "${configuration_stage}/.env"',
+    );
     expect(exec).toContain('export COMPOSE_PROJECT_NAME=aqua-saas');
   });
 
@@ -96,9 +98,7 @@ describe('deploy isolated SHA-pinned checkout SSOT', () => {
     const exec = executableShell(dropletUp);
     // Sources the SSoT snippet from the PERSISTENT source repo (the checkout it
     // creates may not exist yet on first deploy).
-    expect(exec).toContain(
-      'source "${DEPLOY_SCRIPT_ROOT}/scripts/deploy/deploy-paths.sh"',
-    );
+    expect(exec).toContain('source "${DEPLOY_SCRIPT_ROOT}/scripts/deploy/deploy-paths.sh"');
     expect(exec).toContain('materialize_deploy_checkout "${DEPLOY_SHA}"');
     expect(exec).toContain('cd "${DEPLOY_CHECKOUT_DIR}"');
 
@@ -120,9 +120,7 @@ describe('deploy isolated SHA-pinned checkout SSOT', () => {
   it('verifies from the isolated checkout so the HEAD == TARGET_SHA guard is a true invariant', () => {
     const exec = executableShell(verify);
     // Piped over SSH via `bash -s` -> source the SSoT from the persistent repo.
-    expect(exec).toContain(
-      'source "${DEPLOY_SCRIPT_ROOT}/scripts/deploy/deploy-paths.sh"',
-    );
+    expect(exec).toContain('source "${DEPLOY_SCRIPT_ROOT}/scripts/deploy/deploy-paths.sh"');
     expect(exec).toContain('cd "${DEPLOY_CHECKOUT_DIR}"');
     expect(exec).not.toMatch(/\bcd\s+\/var\/aqua-saas\b/);
     // The HEAD check remains, now against the deploy-owned worktree.
@@ -187,7 +185,9 @@ describe('deploy isolated SHA-pinned checkout SSOT', () => {
     expect(dropletUp).toContain('migration_boundary_crossed');
     expect(dropletUp).toContain('runtime_generation_unproven');
     expect(dropletUp).toContain('incomplete_runtime_snapshot');
-    expect(dropletUp).toContain('--env-file "${rollback_config}/.env" -f "${rollback_source}/docker-compose.droplet.yml"');
+    expect(dropletUp).toContain(
+      '--env-file "${rollback_config}/.env" -f "${rollback_source}/docker-compose.droplet.yml"',
+    );
   });
 
   it('preserves the rollback + health-gate + public https smoke behavior (untouched by isolation)', () => {
@@ -200,29 +200,50 @@ describe('deploy isolated SHA-pinned checkout SSOT', () => {
   });
 });
 
-
 describe('immutable deploy source publication', () => {
   function fixture(): { root: string; repository: string; sha: string } {
     const root = mkdtempSync(join(tmpdir(), 'aqua-release-publication-'));
     const repository = join(root, 'repository');
     mkdirSync(repository);
-    for (const args of [['init'], ['config', 'user.name', 'Release Fixture'], ['config', 'user.email', 'fixture@example.invalid'], ['config', 'commit.gpgsign', 'false']]) {
+    for (const args of [
+      ['init'],
+      ['config', 'user.name', 'Release Fixture'],
+      ['config', 'user.email', 'fixture@example.invalid'],
+      ['config', 'commit.gpgsign', 'false'],
+    ]) {
       const result = spawnSync('git', args, { cwd: repository, encoding: 'utf8' });
       if (result.status !== 0) throw new Error(result.stderr);
     }
     writeFileSync(join(repository, 'app.txt'), 'first release\n');
     spawnSync('git', ['add', 'app.txt'], { cwd: repository });
-    const commit = spawnSync('git', ['commit', '-m', 'fixture'], { cwd: repository, encoding: 'utf8' });
+    const commit = spawnSync('git', ['commit', '-m', 'fixture'], {
+      cwd: repository,
+      encoding: 'utf8',
+    });
     if (commit.status !== 0) throw new Error(commit.stderr);
-    const sha = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repository, encoding: 'utf8' }).stdout.trim();
+    const sha = spawnSync('git', ['rev-parse', 'HEAD'], {
+      cwd: repository,
+      encoding: 'utf8',
+    }).stdout.trim();
     writeFileSync(join(repository, '.env'), 'FIXTURE_VALUE=first\n', { mode: 0o600 });
     mkdirSync(join(repository, 'certs'));
     writeFileSync(join(repository, 'certs', 'fixture.pem'), 'first identity\n');
     return { root, repository, sha };
   }
 
-  function publish(root: string, repository: string, sha: string, attempt: string, admit = true, interruptAt: 'none' | 'add' | 'move' = 'none'): SpawnSyncReturns<string> {
-    return spawnSync('/bin/bash', ['-c', `
+  function publish(
+    root: string,
+    repository: string,
+    sha: string,
+    attempt: string,
+    admit = true,
+    interruptAt: 'none' | 'add' | 'move' = 'none',
+  ): SpawnSyncReturns<string> {
+    return spawnSync(
+      '/bin/bash',
+      [
+        '-c',
+        `
       set -euo pipefail
       source "$1"
       acquire_deploy_control_lock() { :; }
@@ -232,10 +253,24 @@ describe('immutable deploy source publication', () => {
         command git "$@"
       }
       materialize_deploy_checkout "$2"
-    `, '--', join(REPO_ROOT, 'scripts/deploy/deploy-paths.sh'), sha], {
-      encoding: 'utf8',
-      env: { ...process.env, DEPLOY_SOURCE_REPO: repository, DEPLOY_RELEASES_ROOT: join(root, 'releases'), DEPLOY_CONFIG_ROOT: join(root, 'config'), DEPLOY_ENV_FILE: join(repository, '.env'), DEPLOY_CERTS_DIR: join(repository, 'certs'), DEPLOY_ATTEMPT: attempt },
-    });
+    `,
+        '--',
+        join(REPO_ROOT, 'scripts/deploy/deploy-paths.sh'),
+        sha,
+      ],
+      {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          DEPLOY_SOURCE_REPO: repository,
+          DEPLOY_RELEASES_ROOT: join(root, 'releases'),
+          DEPLOY_CONFIG_ROOT: join(root, 'config'),
+          DEPLOY_ENV_FILE: join(repository, '.env'),
+          DEPLOY_CERTS_DIR: join(repository, 'certs'),
+          DEPLOY_ATTEMPT: attempt,
+        },
+      },
+    );
   }
 
   it('keeps old source and credential bytes unchanged when another attempt is published', () => {
@@ -245,25 +280,49 @@ describe('immutable deploy source publication', () => {
       writeFileSync(join(value.repository, '.env'), 'FIXTURE_VALUE=second\n');
       writeFileSync(join(value.repository, 'certs', 'fixture.pem'), 'second identity\n');
       expect(publish(value.root, value.repository, value.sha, '11-1').status).toBe(0);
-      expect(readFileSync(join(value.root, 'releases', value.sha, '10-1', 'app.txt'), 'utf8')).toBe('first release\n');
-      expect(readFileSync(join(value.root, 'config', value.sha, '10-1', '.env'), 'utf8')).toBe('FIXTURE_VALUE=first\n');
-      expect(readFileSync(join(value.root, 'config', value.sha, '10-1', 'certs', 'fixture.pem'), 'utf8')).toBe('first identity\n');
-      expect(readFileSync(join(value.root, 'config', value.sha, '11-1', 'certs', 'fixture.pem'), 'utf8')).toBe('second identity\n');
-    } finally { rmSync(value.root, { recursive: true, force: true }); }
+      expect(readFileSync(join(value.root, 'releases', value.sha, '10-1', 'app.txt'), 'utf8')).toBe(
+        'first release\n',
+      );
+      expect(readFileSync(join(value.root, 'config', value.sha, '10-1', '.env'), 'utf8')).toBe(
+        'FIXTURE_VALUE=first\n',
+      );
+      expect(
+        readFileSync(join(value.root, 'config', value.sha, '10-1', 'certs', 'fixture.pem'), 'utf8'),
+      ).toBe('first identity\n');
+      expect(
+        readFileSync(join(value.root, 'config', value.sha, '11-1', 'certs', 'fixture.pem'), 'utf8'),
+      ).toBe('second identity\n');
+    } finally {
+      rmSync(value.root, { recursive: true, force: true });
+    }
   });
 
-  it.each(['add', 'move'] as const)('reenters an interrupted %s publication without replacing the prepared generation', (boundary) => {
-    const value = fixture();
-    try {
-      expect(publish(value.root, value.repository, value.sha, '10-1', true, boundary).status).toBe(95);
-      expect(existsSync(join(value.root, 'releases', value.sha, '10-1'))).toBe(false);
-      writeFileSync(join(value.repository, '.env'), 'FIXTURE_VALUE=changed-after-interruption\n');
-      const resumed = publish(value.root, value.repository, value.sha, '10-1');
-      expect({ status: resumed.status, stderr: resumed.stderr }).toEqual({ status: 0, stderr: expect.any(String) });
-      expect(readFileSync(join(value.root, 'config', value.sha, '10-1', '.env'), 'utf8')).toBe('FIXTURE_VALUE=first\n');
-      expect(readFileSync(join(value.root, 'releases', value.sha, '10-1', 'app.txt'), 'utf8')).toBe('first release\n');
-    } finally { rmSync(value.root, { recursive: true, force: true }); }
-  });
+  it.each(['add', 'move'] as const)(
+    'reenters an interrupted %s publication without replacing the prepared generation',
+    (boundary) => {
+      const value = fixture();
+      try {
+        expect(
+          publish(value.root, value.repository, value.sha, '10-1', true, boundary).status,
+        ).toBe(95);
+        expect(existsSync(join(value.root, 'releases', value.sha, '10-1'))).toBe(false);
+        writeFileSync(join(value.repository, '.env'), 'FIXTURE_VALUE=changed-after-interruption\n');
+        const resumed = publish(value.root, value.repository, value.sha, '10-1');
+        expect({ status: resumed.status, stderr: resumed.stderr }).toEqual({
+          status: 0,
+          stderr: expect.any(String),
+        });
+        expect(readFileSync(join(value.root, 'config', value.sha, '10-1', '.env'), 'utf8')).toBe(
+          'FIXTURE_VALUE=first\n',
+        );
+        expect(
+          readFileSync(join(value.root, 'releases', value.sha, '10-1', 'app.txt'), 'utf8'),
+        ).toBe('first release\n');
+      } finally {
+        rmSync(value.root, { recursive: true, force: true });
+      }
+    },
+  );
 
   it('publishes no source or private generation when infrastructure admission rejects the candidate', () => {
     const value = fixture();
@@ -271,6 +330,8 @@ describe('immutable deploy source publication', () => {
       expect(publish(value.root, value.repository, value.sha, '10-1', false).status).not.toBe(0);
       expect(existsSync(join(value.root, 'releases'))).toBe(false);
       expect(existsSync(join(value.root, 'config'))).toBe(false);
-    } finally { rmSync(value.root, { recursive: true, force: true }); }
+    } finally {
+      rmSync(value.root, { recursive: true, force: true });
+    }
   });
 });

@@ -96,12 +96,17 @@ function makeSiteAssignmentRepository(find: jest.Mock): {
 let principalForMint: User;
 
 async function mint(
-  service: TokenService, user: User, ipAddress?: string, userAgent?: string,
+  service: TokenService,
+  user: User,
+  ipAddress?: string,
+  userAgent?: string,
   options?: GenerateTokensOptions,
 ): Promise<Awaited<ReturnType<TokenService['generateTokens']>>> {
-  principalForMint = Object.assign(user, { isActive: user.isActive ?? true,
+  principalForMint = Object.assign(user, {
+    isActive: user.isActive ?? true,
     credentialVersion: user.credentialVersion ?? 1,
-    accessTokenInvalidBeforeEpochSeconds: user.accessTokenInvalidBeforeEpochSeconds ?? 0 });
+    accessTokenInvalidBeforeEpochSeconds: user.accessTokenInvalidBeforeEpochSeconds ?? 0,
+  });
   return service.generateTokens(snapshotCredentialProof(user), ipAddress, userAgent, options);
 }
 
@@ -118,17 +123,27 @@ function makeTransactionalDataSource(query: jest.Mock): {
   const manager = queryRunner.manager;
   const lockedUserFindOne = jest.fn().mockImplementation(() => Promise.resolve(principalForMint));
   jest.spyOn(manager, 'findOne').mockImplementation(async (entity, options) => {
-    if (entity === Tenant) return Object.assign(new Tenant(), {
-      id: principalForMint.tenantId, status: TenantStatus.ACTIVE });
+    if (entity === Tenant)
+      return Object.assign(new Tenant(), {
+        id: principalForMint.tenantId,
+        status: TenantStatus.ACTIVE,
+      });
     if (entity !== User) throw new Error('Unexpected identity entity');
     if (options.lock) return lockedUserFindOne(options);
     return principalForMint;
   });
   jest.spyOn(manager, 'query').mockImplementation(query);
   jest.spyOn(manager, 'withRepository').mockImplementation((repository) => repository);
-  const transaction = jest.fn((work: (transactionManager: EntityManager) => Promise<unknown>) => work(manager));
-  return { dataSource: { query, transaction, manager }, userRepository: { findOne: lockedUserFindOne },
-    lockedUserFindOne, transaction, manager };
+  const transaction = jest.fn((work: (transactionManager: EntityManager) => Promise<unknown>) =>
+    work(manager),
+  );
+  return {
+    dataSource: { query, transaction, manager },
+    userRepository: { findOne: lockedUserFindOne },
+    lockedUserFindOne,
+    transaction,
+    manager,
+  };
 }
 
 /**
@@ -182,7 +197,10 @@ describe('TokenService — planLevel JWT claim (MT-MEDIUM-001)', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TokenService,
-        { provide: TOKEN_BLACKLIST, useValue: { isBlacklisted: jest.fn().mockResolvedValue(false), add: jest.fn() } },
+        {
+          provide: TOKEN_BLACKLIST,
+          useValue: { isBlacklisted: jest.fn().mockResolvedValue(false), add: jest.fn() },
+        },
         {
           provide: getRepositoryToken(User),
           useValue: transactionHarness.userRepository,
@@ -384,7 +402,10 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TokenService,
-        { provide: TOKEN_BLACKLIST, useValue: { isBlacklisted: jest.fn().mockResolvedValue(false), add: jest.fn() } },
+        {
+          provide: TOKEN_BLACKLIST,
+          useValue: { isBlacklisted: jest.fn().mockResolvedValue(false), add: jest.fn() },
+        },
         {
           provide: getRepositoryToken(User),
           useValue: transactionHarness.userRepository,
@@ -621,9 +642,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         }),
       });
 
-      await expect(mint(service, buildUser({}))).rejects.toThrow(
-        /relation does not exist/,
-      );
+      await expect(mint(service, buildUser({}))).rejects.toThrow(/relation does not exist/);
       // A failed permission read must abort the mint, not sign a token.
       expect(signAsync).not.toHaveBeenCalled();
     });
@@ -795,7 +814,10 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       finishCredentialFence(null);
       await expect(pendingMint).rejects.toThrow('User credentials changed during authentication');
 
-      expect(credentialUserLockFindOne).toHaveBeenCalledWith({ where: { id: authenticatedSnapshot.id }, lock: { mode: 'pessimistic_write' } });
+      expect(credentialUserLockFindOne).toHaveBeenCalledWith({
+        where: { id: authenticatedSnapshot.id },
+        lock: { mode: 'pessimistic_write' },
+      });
       expect(refreshSave).not.toHaveBeenCalled();
       expect(createSession).not.toHaveBeenCalled();
     });
@@ -836,8 +858,13 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
 
       expect(enforceSessionLimit).not.toHaveBeenCalled();
       expect(createSession).not.toHaveBeenCalled();
-      expect(refreshSave).toHaveBeenCalledWith(expect.objectContaining({ userId: user.id,
-        tenantId: VALID_TENANT_ID, familyId: expect.any(String) }));
+      expect(refreshSave).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: user.id,
+          tenantId: VALID_TENANT_ID,
+          familyId: expect.any(String),
+        }),
+      );
     });
 
     it('does not enforce or establish a session during refresh-token rotation', async () => {
@@ -857,21 +884,40 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     it('uses the context manager for every claim read and refresh insertion', async () => {
       service = await createService();
       const principal = buildUser({ role: Role.MODULE_USER });
-      principalForMint = Object.assign(principal, { credentialVersion: 1, accessTokenInvalidBeforeEpochSeconds: 0, isActive: true });
+      principalForMint = Object.assign(principal, {
+        credentialVersion: 1,
+        accessTokenInvalidBeforeEpochSeconds: 0,
+        isActive: true,
+      });
       const query = buildQueryRouter();
       const harness = makeTransactionalDataSource(query);
-      const context = await LockedAuthContext.lock(harness.manager, snapshotCredentialProof(principal));
+      const context = await LockedAuthContext.lock(
+        harness.manager,
+        snapshotCredentialProof(principal),
+      );
       const scopedSave = jest.fn().mockResolvedValue(undefined);
-      const scopedRepository = Object.assign(new Repository<RefreshToken>(RefreshToken, harness.manager), {
-        create: jest.fn((value: Partial<RefreshToken>) => Object.assign(new RefreshToken(), value)), save: scopedSave,
-      });
+      const scopedRepository = Object.assign(
+        new Repository<RefreshToken>(RefreshToken, harness.manager),
+        {
+          create: jest.fn((value: Partial<RefreshToken>) =>
+            Object.assign(new RefreshToken(), value),
+          ),
+          save: scopedSave,
+        },
+      );
       const withRepository = jest.mocked(harness.manager.withRepository);
       withRepository.mockImplementation((repository) => {
         if (repository.save === refreshSave) return scopedRepository;
         return repository;
       });
-      await service.generateTokensInContext(context, undefined, undefined, { establishSession: false, familyId: 'same-family' });
-      expect(query).toHaveBeenCalledWith(expect.stringContaining('user_role_assignments'), [principal.id, principal.tenantId]);
+      await service.generateTokensInContext(context, undefined, undefined, {
+        establishSession: false,
+        familyId: 'same-family',
+      });
+      expect(query).toHaveBeenCalledWith(expect.stringContaining('user_role_assignments'), [
+        principal.id,
+        principal.tenantId,
+      ]);
       expect(scopedSave).toHaveBeenCalledWith(expect.objectContaining({ familyId: 'same-family' }));
       expect(refreshSave).not.toHaveBeenCalled();
       expect(siteSnapshotTransaction).not.toHaveBeenCalled();
@@ -882,15 +928,20 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     it('evicts all history of the oldest active family before a new family is inserted', async () => {
       const router = buildQueryRouter();
       const query = jest.fn((sql: string, params?: unknown[]) => {
-        if (sql.includes('GROUP BY "familyId"')) return Promise.resolve([
-          { familyId: 'old-family' }, { familyId: 'second-family' }, { familyId: 'third-family' },
-        ]);
+        if (sql.includes('GROUP BY "familyId"'))
+          return Promise.resolve([
+            { familyId: 'old-family' },
+            { familyId: 'second-family' },
+            { familyId: 'third-family' },
+          ]);
         return router(sql, params);
       });
       service = await createService({ query, config: { MAX_SESSIONS_PER_USER: 3 } });
       const user = buildUser({});
       await mint(service, user);
-      const terminalWrites = query.mock.calls.filter(([sql]) => String(sql).includes("'Session limit exceeded'"));
+      const terminalWrites = query.mock.calls.filter(([sql]) =>
+        String(sql).includes("'Session limit exceeded'"),
+      );
       expect(terminalWrites).toHaveLength(1);
       expect(terminalWrites[0]?.[0]).not.toContain('"isRevoked" = false');
       expect(terminalWrites[0]?.[1]).toEqual([user.id, 'old-family']);
@@ -900,7 +951,10 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       const now = Date.parse('2026-09-01T12:00:00.500Z');
       jest.useFakeTimers({ now });
       service = await createService();
-      const promise = mint(service, buildUser({ accessTokenInvalidBeforeEpochSeconds: Math.floor(now / 1000) }));
+      const promise = mint(
+        service,
+        buildUser({ accessTokenInvalidBeforeEpochSeconds: Math.floor(now / 1000) }),
+      );
       await jest.advanceTimersByTimeAsync(501);
       await promise;
       expect(capturedPayload().iat).toBe(Math.floor(now / 1000) + 1);
@@ -908,9 +962,16 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
 
     it('does not mint through a context whose transaction has ended', async () => {
       service = await createService();
-      principalForMint = Object.assign(buildUser({}), { credentialVersion: 1, accessTokenInvalidBeforeEpochSeconds: 0, isActive: true });
+      principalForMint = Object.assign(buildUser({}), {
+        credentialVersion: 1,
+        accessTokenInvalidBeforeEpochSeconds: 0,
+        isActive: true,
+      });
       const harness = makeTransactionalDataSource(buildQueryRouter());
-      const context = await LockedAuthContext.lock(harness.manager, snapshotCredentialProof(principalForMint));
+      const context = await LockedAuthContext.lock(
+        harness.manager,
+        snapshotCredentialProof(principalForMint),
+      );
       if (!harness.manager.queryRunner) throw new Error('Missing test query runner');
       jest.replaceProperty(harness.manager.queryRunner, 'isTransactionActive', false);
       await expect(service.generateTokensInContext(context)).rejects.toThrow('active transaction');
@@ -919,26 +980,49 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
 
     it('signs RS256 access and step-up tokens with absolute expiry and retains revocation identity', async () => {
       const { privateKey, publicKey } = generateKeyPairSync('rsa', {
-        modulusLength: 2048, privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+        modulusLength: 2048,
+        privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
         publicKeyEncoding: { type: 'spki', format: 'pem' },
       });
-      const jwt = new JwtService({ privateKey, publicKey, signOptions: {
-        algorithm: 'RS256', issuer: 'aquaculture-platform', audience: 'aquaculture-platform',
-      } });
-      service = await createService({ jwtService: jwt, config: { JWT_PRIVATE_KEY: privateKey, JWT_PUBLIC_KEY: publicKey } });
+      const jwt = new JwtService({
+        privateKey,
+        publicKey,
+        signOptions: {
+          algorithm: 'RS256',
+          issuer: 'aquaculture-platform',
+          audience: 'aquaculture-platform',
+        },
+      });
+      service = await createService({
+        jwtService: jwt,
+        config: { JWT_PRIVATE_KEY: privateKey, JWT_PUBLIC_KEY: publicKey },
+      });
       const user = buildUser({ role: Role.SUPER_ADMIN, tenantId: null });
       const initial = await mint(service, user);
-      const initialPayload = await jwt.verifyAsync<JwtPayload>(initial.accessToken, { algorithms: ['RS256'] });
-      if (!initialPayload.jti || !initialPayload.iat || !initialPayload.exp) throw new Error('Missing signed session identity');
+      const initialPayload = await jwt.verifyAsync<JwtPayload>(initial.accessToken, {
+        algorithms: ['RS256'],
+      });
+      if (!initialPayload.jti || !initialPayload.iat || !initialPayload.exp)
+        throw new Error('Missing signed session identity');
       const harness = makeTransactionalDataSource(buildQueryRouter());
       const context = await LockedAuthContext.lock(harness.manager, snapshotCredentialProof(user));
       const initialInserts = refreshSave.mock.calls.length;
       const elevated = await service.generateStepUpInContext(context, {
-        sub: user.id, role: user.role, tenantId: null,
-        jti: initialPayload.jti, iat: initialPayload.iat, exp: initialPayload.exp,
+        sub: user.id,
+        role: user.role,
+        tenantId: null,
+        jti: initialPayload.jti,
+        iat: initialPayload.iat,
+        exp: initialPayload.exp,
       });
-      const elevatedPayload = await jwt.verifyAsync<JwtPayload>(elevated.accessToken, { algorithms: ['RS256'] });
-      expect(elevatedPayload).toMatchObject({ jti: initialPayload.jti, iat: initialPayload.iat, mfaVerified: true });
+      const elevatedPayload = await jwt.verifyAsync<JwtPayload>(elevated.accessToken, {
+        algorithms: ['RS256'],
+      });
+      expect(elevatedPayload).toMatchObject({
+        jti: initialPayload.jti,
+        iat: initialPayload.iat,
+        mfaVerified: true,
+      });
       expect(elevatedPayload.exp).toBeLessThanOrEqual(initialPayload.exp);
       expect(elevatedPayload.exp).toBeLessThanOrEqual(Math.floor(Date.now() / 1000) + 300);
       expect(elevated.refreshToken).toBe('');
@@ -1184,7 +1268,10 @@ describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TokenService,
-        { provide: TOKEN_BLACKLIST, useValue: { isBlacklisted: jest.fn().mockResolvedValue(false), add: jest.fn() } },
+        {
+          provide: TOKEN_BLACKLIST,
+          useValue: { isBlacklisted: jest.fn().mockResolvedValue(false), add: jest.fn() },
+        },
         {
           provide: getRepositoryToken(User),
           useValue: transactionHarness.userRepository,
@@ -1240,7 +1327,10 @@ describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051
     await mint(service, buildUser({ role: Role.MODULE_USER }));
 
     expect(capturedPayload().assignedSiteIds).toEqual(['site-a', 'site-b']);
-    expect(lockedUserFindOne).toHaveBeenCalledWith({ where: { id: USER }, lock: { mode: 'pessimistic_write' } });
+    expect(lockedUserFindOne).toHaveBeenCalledWith({
+      where: { id: USER },
+      lock: { mode: 'pessimistic_write' },
+    });
     expect(siteQueryBuilder.where).toHaveBeenCalledWith('assignment.userId = :userId', {
       userId: USER,
     });

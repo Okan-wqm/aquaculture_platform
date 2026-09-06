@@ -30,7 +30,14 @@ describe('MFA setup token (ADR-046)', () => {
   const OTHER_USER_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 
   const buildUser = (): User =>
-    Object.assign(new User(), { id: USER_ID, email: 'enrollee@example.com', credentialVersion: 1, role: Role.MODULE_USER, tenantId: 'tenant-id', isActive: true });
+    Object.assign(new User(), {
+      id: USER_ID,
+      email: 'enrollee@example.com',
+      credentialVersion: 1,
+      role: Role.MODULE_USER,
+      tenantId: 'tenant-id',
+      isActive: true,
+    });
 
   let mfaService: MfaService;
   let jwtService: JwtService;
@@ -70,7 +77,10 @@ describe('MFA setup token (ADR-046)', () => {
   describe('mint → consume round trip', () => {
     it('resolves the minting user back out of its own token', () => {
       const token = mfaService.generateMfaSetupToken(buildUser());
-      expect(mfaService.resolveSetupTokenSubject(token)).toEqual({ kind: 'setup', proof: snapshotCredentialProof(buildUser()) });
+      expect(mfaService.resolveSetupTokenSubject(token)).toEqual({
+        kind: 'setup',
+        proof: snapshotCredentialProof(buildUser()),
+      });
     });
 
     it('stamps type=mfa_setup and purpose=mfa_enrollment', () => {
@@ -82,8 +92,13 @@ describe('MFA setup token (ADR-046)', () => {
     });
 
     it('rejects an old signed enrollment token without a credential version', () => {
-      const token = jwtService.sign({ sub: `mfa_setup:${USER_ID}`, type: 'mfa_setup',
-        purpose: 'mfa_enrollment', userId: USER_ID, jti: 'old-setup' });
+      const token = jwtService.sign({
+        sub: `mfa_setup:${USER_ID}`,
+        type: 'mfa_setup',
+        purpose: 'mfa_enrollment',
+        userId: USER_ID,
+        jti: 'old-setup',
+      });
       expect(() => mfaService.resolveSetupTokenSubject(token)).toThrow(ForbiddenException);
     });
 
@@ -135,7 +150,9 @@ describe('MFA setup token (ADR-046)', () => {
         purpose: 'something_else',
         userId: USER_ID,
       });
-      expect(() => mfaService.resolveSetupTokenSubject(wrongPurpose)).toThrow(UnauthorizedException);
+      expect(() => mfaService.resolveSetupTokenSubject(wrongPurpose)).toThrow(
+        UnauthorizedException,
+      );
     });
   });
 
@@ -157,9 +174,12 @@ describe('MFA setup token (ADR-046)', () => {
             useValue: {
               setupMfa,
               verifyMfaSetup,
-              verifyStepUp: jest.fn().mockResolvedValue({ accessToken: 'elevated', refreshToken: '' }),
+              verifyStepUp: jest
+                .fn()
+                .mockResolvedValue({ accessToken: 'elevated', refreshToken: '' }),
               generateMfaSetupToken: (user: User) => mfaService.generateMfaSetupToken(user),
-              resolveSetupTokenSubject: (token: string) => mfaService.resolveSetupTokenSubject(token),
+              resolveSetupTokenSubject: (token: string) =>
+                mfaService.resolveSetupTokenSubject(token),
             },
           },
           {
@@ -187,11 +207,24 @@ describe('MFA setup token (ADR-046)', () => {
     it('uses the AUTHENTICATED identity and IGNORES a supplied setup token', async () => {
       const foreignSetupToken = mfaService.generateMfaSetupToken(buildUser());
 
-      await resolver.setupMfa(contextWith({ sub: OTHER_USER_ID, role: Role.MODULE_USER, tenantId: 'tenant-id', jti: 'session-jti', iat: 1, exp: 4_000_000_000 }), foreignSetupToken);
+      await resolver.setupMfa(
+        contextWith({
+          sub: OTHER_USER_ID,
+          role: Role.MODULE_USER,
+          tenantId: 'tenant-id',
+          jti: 'session-jti',
+          iat: 1,
+          exp: 4_000_000_000,
+        }),
+        foreignSetupToken,
+      );
 
       // The session wins: a setup token can never redirect an authenticated
       // user's enrollment onto another account.
-      expect(setupMfa).toHaveBeenCalledWith({ kind: 'session', session: expect.objectContaining({ sub: OTHER_USER_ID }) });
+      expect(setupMfa).toHaveBeenCalledWith({
+        kind: 'session',
+        session: expect.objectContaining({ sub: OTHER_USER_ID }),
+      });
     });
 
     it('falls back to the setup token when there is no session', async () => {
@@ -199,7 +232,10 @@ describe('MFA setup token (ADR-046)', () => {
 
       await resolver.setupMfa(contextWith(), token);
 
-      expect(setupMfa).toHaveBeenCalledWith({ kind: 'setup', proof: snapshotCredentialProof(buildUser()) });
+      expect(setupMfa).toHaveBeenCalledWith({
+        kind: 'setup',
+        proof: snapshotCredentialProof(buildUser()),
+      });
     });
 
     it('refuses when there is neither a session nor a setup token', async () => {
@@ -212,12 +248,21 @@ describe('MFA setup token (ADR-046)', () => {
 
       await resolver.verifyMfaSetup(contextWith(), { code: '123456', mfaSetupToken: token });
 
-      expect(verifyMfaSetup).toHaveBeenCalledWith({ kind: 'setup', proof: snapshotCredentialProof(buildUser()) }, '123456');
+      expect(verifyMfaSetup).toHaveBeenCalledWith(
+        { kind: 'setup', proof: snapshotCredentialProof(buildUser()) },
+        '123456',
+      );
     });
 
     it('does not mutate the refresh cookie when step-up derives an access token', async () => {
-      const origin: OriginatingAccessSession = { sub: USER_ID, role: Role.MODULE_USER,
-        tenantId: 'tenant-id', jti: 'session-jti', iat: 1, exp: 4_000_000_000 };
+      const origin: OriginatingAccessSession = {
+        sub: USER_ID,
+        role: Role.MODULE_USER,
+        tenantId: 'tenant-id',
+        jti: 'session-jti',
+        iat: 1,
+        exp: 4_000_000_000,
+      };
       const context = contextWith(origin);
       const result = await resolver.mfaStepUp(origin, { code: '123456' }, context);
       expect(result.accessToken).toBe('elevated');

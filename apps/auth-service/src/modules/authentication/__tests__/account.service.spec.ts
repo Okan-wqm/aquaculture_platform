@@ -185,7 +185,9 @@ describe('AccountService', () => {
     });
 
     const stored = await userRepository.findOne();
-    if (!stored) throw new Error('Account missing after password change');
+    if (!stored || typeof stored.password !== 'string') {
+      throw new Error('Stored password missing after password change');
+    }
     expect((await verifyPassword('NewPass1!', stored.password)).matched).toBe(true);
     expect(stored.credentialVersion).toBe(user.credentialVersion + 1);
     expect(userRepository.save).not.toHaveBeenCalled();

@@ -176,7 +176,7 @@ export class WebAuthnService {
     if (!reAuth.matched) {
       await this.logAudit(
         'WEBAUTHN_REGISTRATION_REAUTH_FAILED',
-        userId,
+        user,
         {},
         AuditLogSeverity.WARNING,
       );
@@ -227,7 +227,7 @@ export class WebAuthnService {
       );
       await this.logAudit(
         'WEBAUTHN_REGISTRATION_REJECTED',
-        userId,
+        user,
         { credentialId: input.credentialId },
         AuditLogSeverity.WARNING,
       );
@@ -256,7 +256,7 @@ export class WebAuthnService {
       };
       // INSERT only: unique credential ID and the User lock jointly own admission.
       await context.manager.insert(WebAuthnCredential, credential);
-      await this.logAudit('WEBAUTHN_CREDENTIAL_REGISTERED', userId, {
+      await this.logAudit('WEBAUTHN_CREDENTIAL_REGISTERED', context.user, {
         credentialId: credential.id, deviceName: credential.deviceName,
       }, AuditLogSeverity.INFO, context.manager);
       return { success: true, message: 'Biometric credential registered successfully', credentialId: credential.credentialId };
@@ -387,7 +387,7 @@ export class WebAuthnService {
       );
       await this.logAudit(
         'WEBAUTHN_LOGIN_FAILED',
-        credential.userId,
+        observedUser,
         { credentialId: credential.id, reason: 'Assertion verification failed' },
         AuditLogSeverity.WARNING,
       );
@@ -407,7 +407,7 @@ export class WebAuthnService {
       // Counter-less authenticators legitimately keep both counters at zero.
       // Otherwise only a strictly greater signed counter can advance this row.
       if ((newCounter !== 0 || current.counter !== 0) && newCounter <= current.counter) {
-        await this.logAudit('WEBAUTHN_COUNTER_ROLLBACK', current.userId, {
+        await this.logAudit('WEBAUTHN_COUNTER_ROLLBACK', context.user, {
           credentialId: current.id, storedCounter: current.counter, receivedCounter: newCounter,
         }, AuditLogSeverity.CRITICAL, context.manager);
         return { error: new UnauthorizedException('Authenticator security check failed') };
@@ -420,7 +420,7 @@ export class WebAuthnService {
         lastLoginAt: new Date(), lastLoginIp: ipAddress ?? null, failedLoginAttempts: 0, lockedUntil: null,
       });
       const value = await this.tokenService.generateTokensInContext(context, ipAddress, userAgent, { mfaVerified: true });
-      await this.logAudit('WEBAUTHN_LOGIN_SUCCESS', context.user.id, {
+      await this.logAudit('WEBAUTHN_LOGIN_SUCCESS', context.user, {
         credentialId: current.id, deviceName: current.deviceName, ipAddress,
       }, AuditLogSeverity.INFO, context.manager);
       return { value };
@@ -463,7 +463,7 @@ export class WebAuthnService {
       });
       if (!credential) throw new BadRequestException('Credential not found');
       await context.manager.delete(WebAuthnCredential, { id: credential.id, userId });
-      await this.logAudit('WEBAUTHN_CREDENTIAL_REMOVED', userId, {
+      await this.logAudit('WEBAUTHN_CREDENTIAL_REMOVED', context.user, {
         credentialId: credential.id, deviceName: credential.deviceName,
       }, AuditLogSeverity.INFO, context.manager);
       return { success: true, message: 'Credential removed successfully' };
@@ -558,16 +558,17 @@ export class WebAuthnService {
    */
   private async logAudit(
     action: string,
-    userId: string,
+    user: Pick<User, 'id' | 'tenantId'>,
     details: Record<string, unknown>,
     severity: AuditLogSeverity = AuditLogSeverity.INFO,
     manager?: EntityManager,
   ): Promise<void> {
     await this.auditLogService.log({
-      performedBy: userId,
+      performedBy: user.id,
+      tenantId: user.tenantId ?? undefined,
       action,
       entityType: 'WebAuthnCredential',
-      entityId: userId,
+      entityId: user.id,
       details: {
         ...details,
         timestamp: new Date().toISOString(),

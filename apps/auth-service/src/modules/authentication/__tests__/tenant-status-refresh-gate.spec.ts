@@ -116,8 +116,11 @@ describe('AuthenticationService — tenant-status refresh gate (RBAC-HIGH-007)',
   const mockDataSource = {
     transaction: jest.fn(async (cb: (m: unknown) => Promise<unknown>) => {
       mockManager.queryRunner.isTransactionActive = true;
-      try { return await cb(mockManager); }
-      finally { mockManager.queryRunner.isTransactionActive = false; }
+      try {
+        return await cb(mockManager);
+      } finally {
+        mockManager.queryRunner.isTransactionActive = false;
+      }
     }),
     query: jest.fn(),
   };
@@ -213,8 +216,14 @@ describe('AuthenticationService — tenant-status refresh gate (RBAC-HIGH-007)',
   const presentedToken = `${USER_ID}:${'a'.repeat(128)}`;
 
   function tenantUser(tenantId: string | null): User {
-    return Object.assign(new User(), { id: USER_ID, email: 'user@farm.test', isActive: true, tenantId,
-      credentialVersion: 1, role: tenantId ? Role.MODULE_USER : Role.SUPER_ADMIN });
+    return Object.assign(new User(), {
+      id: USER_ID,
+      email: 'user@farm.test',
+      isActive: true,
+      tenantId,
+      credentialVersion: 1,
+      role: tenantId ? Role.MODULE_USER : Role.SUPER_ADMIN,
+    });
   }
 
   it.each([

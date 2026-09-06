@@ -33,7 +33,9 @@ export async function lockUserForCredentialMutation(
   userId: string,
   tenantId?: string,
 ): Promise<User | null> {
-  const discovered = await manager.withRepository(userRepository).findOne({ where: { id: userId } });
+  const discovered = await manager
+    .withRepository(userRepository)
+    .findOne({ where: { id: userId } });
   if (!discovered || (tenantId !== undefined && discovered.tenantId !== tenantId)) return null;
   const context = await LockedAuthContext.lock(manager, userId);
   if (tenantId !== undefined && context.user.tenantId !== tenantId) return null;
@@ -64,10 +66,7 @@ export async function revokeActiveRefreshTokens(
     .setLock('pessimistic_write')
     .getMany();
 
-  await repository.update(
-    { userId },
-    { isRevoked: true, revokedAt, revokedReason },
-  );
+  await repository.update({ userId }, { isRevoked: true, revokedAt, revokedReason });
   return active;
 }
 

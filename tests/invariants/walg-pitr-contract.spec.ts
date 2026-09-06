@@ -820,7 +820,9 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
     expect(Object.values(environment).join('\n')).not.toMatch(
       /\$\{(?:AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|WALG_S3_ACCESS_KEY_ID|WALG_S3_SECRET_ACCESS_KEY|WALG_LIBSODIUM_KEY(?:_B64)?)(?::[^}]*)?\}/,
     );
-    expect(volumes).toContain('${DEPLOY_CERTS_DIR:-./certs}/wal-g/postgres:/var/lib/postgresql/wal-g-secrets-source:ro');
+    expect(volumes).toContain(
+      '${DEPLOY_CERTS_DIR:-./certs}/wal-g/postgres:/var/lib/postgresql/wal-g-secrets-source:ro',
+    );
     const secretTmpfs = tmpfs.find((mount) => mount.startsWith('/run/aqua-walg-secrets:'));
     expect(secretTmpfs).toBeDefined();
     const tmpfsOptions = secretTmpfs?.split(':').slice(1).join(':').split(',') ?? [];
@@ -853,7 +855,9 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
         '${DEPLOY_CERTS_DIR:-./certs}/wal-g/postgres:/var/lib/postgresql/wal-g-secrets-source:ro',
       ]),
     );
-    expect(volumes).not.toContain('${DEPLOY_CERTS_DIR:-./certs}/postgres:/var/lib/postgresql/ssl:ro');
+    expect(volumes).not.toContain(
+      '${DEPLOY_CERTS_DIR:-./certs}/postgres:/var/lib/postgresql/ssl:ro',
+    );
     expect(entrypoint).toContain('chown 0:0 "${SERVER_KEY_SOURCE}"');
     expect(entrypoint).toContain('chmod 0600 "${SERVER_KEY_SOURCE}"');
     expect(entrypoint).toContain(

@@ -141,8 +141,15 @@ describe('AuthenticationService refresh-token reuse containment', () => {
     containmentClaimed = false;
     transactionCommitted = false;
     boundedScanCount = 0;
-    userRepository.findOne.mockResolvedValue(Object.assign(new User(), { id: USER_ID,
-      tenantId: TENANT_ID, role: Role.MODULE_USER, isActive: true, credentialVersion: 1 }));
+    userRepository.findOne.mockResolvedValue(
+      Object.assign(new User(), {
+        id: USER_ID,
+        tenantId: TENANT_ID,
+        role: Role.MODULE_USER,
+        isActive: true,
+        credentialVersion: 1,
+      }),
+    );
     refreshUpdate.mockImplementation(
       (criteria: Record<string, unknown>): Promise<{ affected: number }> => {
         if ('id' in criteria) {
@@ -172,7 +179,9 @@ describe('AuthenticationService refresh-token reuse containment', () => {
       save: refreshSave,
       count: jest.fn().mockResolvedValue(1),
     };
-    const tenantRepository = { findOne: jest.fn().mockResolvedValue({ id: TENANT_ID, status: 'ACTIVE' }) };
+    const tenantRepository = {
+      findOne: jest.fn().mockResolvedValue({ id: TENANT_ID, status: 'ACTIVE' }),
+    };
     const manager = {
       queryRunner: { isTransactionActive: false },
       withRepository: jest.fn((repository: object) => repository),
@@ -193,7 +202,9 @@ describe('AuthenticationService refresh-token reuse containment', () => {
           const result = await work(manager);
           transactionCommitted = true;
           return result;
-        } finally { manager.queryRunner.isTransactionActive = false; }
+        } finally {
+          manager.queryRunner.isTransactionActive = false;
+        }
       }),
     };
     const config = {
@@ -301,8 +312,13 @@ describe('AuthenticationService refresh-token reuse containment', () => {
     const releaseRotationTokenRead = deferredVoid();
     const logoutUserLockRequested = deferredVoid();
     const releaseLogoutUserLock = deferredVoid();
-    const principal = Object.assign(new User(), { id: USER_ID, tenantId: TENANT_ID,
-      role: Role.MODULE_USER, isActive: true, credentialVersion: 1 });
+    const principal = Object.assign(new User(), {
+      id: USER_ID,
+      tenantId: TENANT_ID,
+      role: Role.MODULE_USER,
+      isActive: true,
+      credentialVersion: 1,
+    });
     const writeOrder: string[] = [];
     let principalLockCount = 0;
 
@@ -404,13 +420,19 @@ describe('AuthenticationService refresh-token reuse containment', () => {
     );
   });
 
-  it.each(['Password reset', 'Session limit exceeded', 'User logged out'])('terminal history %s cannot reopen a family or contain newer sessions', async (revokedReason) => {
-    exactToken = Object.assign(new RefreshToken(), suspectToken, { revokedReason, revokedAt: new Date() });
-    await expect(service.refreshToken(V2_TRANSPORT)).rejects.toThrow(UnauthorizedException);
-    expect(tokenService.generateTokensInContext).not.toHaveBeenCalled();
-    expect(refreshUpdate).not.toHaveBeenCalled();
-    expect(durableUserInvalidation.enqueue).not.toHaveBeenCalled();
-  });
+  it.each(['Password reset', 'Session limit exceeded', 'User logged out'])(
+    'terminal history %s cannot reopen a family or contain newer sessions',
+    async (revokedReason) => {
+      exactToken = Object.assign(new RefreshToken(), suspectToken, {
+        revokedReason,
+        revokedAt: new Date(),
+      });
+      await expect(service.refreshToken(V2_TRANSPORT)).rejects.toThrow(UnauthorizedException);
+      expect(tokenService.generateTokensInContext).not.toHaveBeenCalled();
+      expect(refreshUpdate).not.toHaveBeenCalled();
+      expect(durableUserInvalidation.enqueue).not.toHaveBeenCalled();
+    },
+  );
 
   it('revoked history without a family cannot contain a newer session', async () => {
     exactToken = Object.assign(new RefreshToken(), suspectToken, { familyId: null });
@@ -468,7 +490,10 @@ describe('AuthenticationService refresh-token reuse containment', () => {
 
     expect(refreshSave).toHaveBeenCalledWith(expect.objectContaining({ isRevoked: true }));
     expect(tokenService.generateTokensInContext).toHaveBeenCalledWith(
-      expect.objectContaining({ user: expect.objectContaining({ id: USER_ID }), manager: expect.anything() }),
+      expect.objectContaining({
+        user: expect.objectContaining({ id: USER_ID }),
+        manager: expect.anything(),
+      }),
       expect.any(String),
       expect.any(String),
       expect.objectContaining({

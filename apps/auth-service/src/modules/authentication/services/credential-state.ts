@@ -7,6 +7,7 @@ import { DataSource, EntityManager } from 'typeorm';
 
 import { Tenant } from '../../tenant/entities/tenant.entity';
 import { User } from '../entities/user.entity';
+import type { OriginatingAccessSession } from './token.service';
 
 const credentialProofBrand = Symbol('CredentialProof');
 
@@ -124,4 +125,34 @@ export async function withLockedCredentialPrincipal<T>(
     tenantId: subject.tenantId ?? undefined, bypassRls: false }, () => subject.tenantId
     ? transact()
     : new BypassRlsService().withBypass('auth-service:platform-credential-proof', transact));
+}
+
+/** Session cleanup trusts the verified JWT boundary, then revalidates its identity under locks.
+ * It deliberately permits inactive/locked accounts and inactive tenants to terminate sessions.
+ */
+export async function withLockedAuthenticatedSession<T>(
+  dataSource: DataSource,
+  session: OriginatingAccessSession,
+  operation: (context: LockedAuthContext) => Promise<T>,
+): Promise<T> {
+  if (typeof session.sub !== 'string' || !session.sub ||
+      !Object.values(Role).includes(session.role) ||
+      !(session.tenantId === null || (typeof session.tenantId === 'string' && session.tenantId.length > 0)) ||
+      (session.tenantId === null && session.role !== Role.SUPER_ADMIN) ||
+      typeof session.jti !== 'string' || !session.jti ||
+      !Number.isSafeInteger(session.iat) || session.iat < 1 ||
+      !Number.isSafeInteger(session.exp) || session.exp <= session.iat) {
+    throw new ForbiddenException('Authenticated session identity is unavailable');
+  }
+  const transact = (): Promise<T> => dataSource.transaction(async (manager) => {
+    const context = await LockedAuthContext.lock(manager, session.sub);
+    if (context.user.role !== session.role || (context.user.tenantId ?? null) !== session.tenantId) {
+      throw new ForbiddenException('Authenticated session identity changed');
+    }
+    return operation(context);
+  });
+  return requestContextStorage.run({ ...getRequestContext(), userId: session.sub,
+    tenantId: session.tenantId ?? undefined, bypassRls: false }, () => session.tenantId
+    ? transact()
+    : new BypassRlsService().withBypass('auth-service:platform-session-cleanup', transact));
 }

@@ -60,7 +60,7 @@ import { RefreshToken } from '../entities/refresh-token.entity';
 import { User } from '../entities/user.entity';
 import { WebAuthnCredential } from '../entities/webauthn-credential.entity';
 
-import { LockedAuthContext, snapshotCredentialProof, withLockedCredentialPrincipal } from './credential-state';
+import { LockedAuthContext, snapshotCredentialProof, withLockedCredentialPrincipal, withLockedAuthenticatedSession } from './credential-state';
 import { resolveActionReference } from './action-token-reference';
 import { MfaService } from './mfa.service';
 import { DurableAccessTokenInvalidationService } from './durable-access-token-invalidation.service';
@@ -73,7 +73,7 @@ import {
   settlePostCommitSecurityEffects,
 } from './post-commit-security-effects';
 import { TokenService } from './token.service';
-import type { JwtPayload } from './token.service';
+import type { JwtPayload, OriginatingAccessSession } from './token.service';
 
 // Re-export JwtPayload from its canonical location for backward compatibility
 export type { JwtPayload } from './token.service';
@@ -1087,14 +1087,15 @@ export class AuthenticationService {
    * - Blacklists current access token (if JTI provided)
    * - Revokes all sessions
    */
-  async logout(userId: string, jti?: string, accessTokenExpiry?: Date): Promise<boolean> {
-    const intent = await this.dataSource.transaction(async (manager) => {
-      const user = await this.lockCredentialPrincipal(manager, userId);
+  async logout(origin: OriginatingAccessSession): Promise<boolean> {
+    const { sub: userId, jti } = origin;
+    const accessTokenExpiry = new Date(origin.exp * 1000);
+    const intent = await withLockedAuthenticatedSession(this.dataSource, origin, async ({ manager, user }) => {
       await manager.withRepository(this.refreshTokenRepository).update(
         { userId },
         { isRevoked: true, revokedAt: new Date(), revokedReason: 'User logged out' },
       );
-      if (!jti || !accessTokenExpiry || accessTokenExpiry.getTime() <= Date.now()) {
+      if (accessTokenExpiry.getTime() <= Date.now()) {
         return null;
       }
       const accessIntent = {

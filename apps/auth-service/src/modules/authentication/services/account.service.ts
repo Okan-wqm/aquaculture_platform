@@ -1,5 +1,5 @@
 import { hashPassword } from '@aquaculture/backend-common/auth';
-import { LockedAuthContext, snapshotCredentialProof } from './credential-state';
+import { snapshotCredentialProof, withLockedCredentialPrincipal } from './credential-state';
 import { Role } from '@aquaculture/backend-common/decorators';
 import { SESSION_MANAGER, ISessionManager } from '@aquaculture/backend-common/security';
 import {
@@ -117,9 +117,8 @@ export class AccountService {
       throw new UnauthorizedException('Current password is incorrect');
     }
     const passwordHash = await hashPassword(input.newPassword);
-    const transactionResult = await this.dataSource.transaction(async (manager) => {
-      const context = await LockedAuthContext.lock(manager, proof);
-      const user = context.user;
+    const transactionResult = await withLockedCredentialPrincipal(this.dataSource, proof, async (context) => {
+      const { manager, user } = context;
       const refreshTokenRepository = manager.withRepository(this.refreshTokenRepository);
       await manager.update(User, { id: userId }, {
         password: passwordHash, failedLoginAttempts: 0, lockedUntil: null,

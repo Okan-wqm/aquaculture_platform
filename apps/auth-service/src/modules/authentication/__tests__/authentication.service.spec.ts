@@ -53,7 +53,7 @@ import {
 import { DurableAccessTokenInvalidationService } from '../services/durable-access-token-invalidation.service';
 import { DurableUserTokenInvalidationService } from '../services/durable-user-token-invalidation.service';
 import { MfaService } from '../services/mfa.service';
-import { TokenService } from '../services/token.service';
+import { TokenService, type OriginatingAccessSession } from '../services/token.service';
 import { LockedAuthContext } from '../services/credential-state';
 
 // WHY: bcryptjs publishes a sealed module namespace under the current
@@ -136,6 +136,12 @@ const createMockTenant = (overrides: Partial<Tenant> = {}): Tenant => {
   });
   return tenant;
 };
+
+function createMockAccessSession(overrides: Partial<OriginatingAccessSession> = {}): OriginatingAccessSession {
+  const issuedAt = Math.floor(Date.now() / 1000) - 60;
+  return { sub: 'user-uuid-123', role: Role.MODULE_USER, tenantId: 'tenant-uuid-123',
+    jti: 'jti-123', iat: issuedAt, exp: issuedAt + 900, ...overrides };
+}
 
 // ============================================================================
 // Mock Setup — same structure as password-reset.spec.ts
@@ -980,7 +986,7 @@ describe('AuthenticationService', () => {
       mockUserRepository.findOne.mockResolvedValue(createMockUser());
       mockRefreshTokenRepository.update = jest.fn().mockResolvedValue({ affected: 1 });
 
-      const result = await service.logout('user-uuid-123');
+      const result = await service.logout(createMockAccessSession());
 
       expect(result).toBe(true);
       expect(mockUserRepository.findOne).toHaveBeenCalledWith({
@@ -989,12 +995,13 @@ describe('AuthenticationService', () => {
       });
     });
 
-    it('durably invalidates the access token when a JTI is provided', async () => {
+    it('durably invalidates the verified originating access session', async () => {
       mockUserRepository.findOne.mockResolvedValue(createMockUser());
       mockRefreshTokenRepository.update = jest.fn().mockResolvedValue({ affected: 1 });
-      const accessExpiry = new Date(Date.now() + 900000);
+      const origin = createMockAccessSession();
+      const accessExpiry = new Date(origin.exp * 1000);
 
-      await service.logout('user-uuid-123', 'jti-123', accessExpiry);
+      await service.logout(origin);
 
       expect(mockDurableAccessTokenInvalidation.enqueue).toHaveBeenCalledWith(
         mockTransactionManager,
@@ -1017,7 +1024,7 @@ describe('AuthenticationService', () => {
       );
 
       await expect(
-        service.logout('user-uuid-123', 'jti-123', new Date(Date.now() + 900000)),
+        service.logout(createMockAccessSession()),
       ).rejects.toThrow('outbox unavailable');
 
       expect(mockDurableAccessTokenInvalidation.applyImmediately).not.toHaveBeenCalled();
@@ -1036,7 +1043,7 @@ describe('AuthenticationService', () => {
       );
 
       await expect(
-        service.logout('user-uuid-123', 'jti-123', new Date(Date.now() + 900000)),
+        service.logout(createMockAccessSession()),
       ).resolves.toBe(true);
 
       expect(mockDurableAccessTokenInvalidation.enqueue).toHaveBeenCalledTimes(1);
@@ -1053,6 +1060,28 @@ describe('AuthenticationService', () => {
       expect(String(serializedLog)).not.toContain('user-uuid-123');
       expect(String(serializedLog)).not.toContain('unavailable');
       errorSpy.mockRestore();
+    });
+
+    it('permits an inactive account in a suspended tenant to end its session', async () => {
+      mockUserRepository.findOne.mockResolvedValue(createMockUser({ isActive: false, isLocked: () => true }));
+      mockTenantRepository.findOne.mockResolvedValue(createMockTenant({ status: TenantStatus.SUSPENDED }));
+      await expect(service.logout(createMockAccessSession())).resolves.toBe(true);
+      expect(mockRefreshTokenRepository.update).toHaveBeenCalledWith(
+        { userId: 'user-uuid-123' }, expect.objectContaining({ isRevoked: true }),
+      );
+      expect(mockDurableAccessTokenInvalidation.enqueue).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects malformed session identity before opening a transaction', async () => {
+      await expect(service.logout(createMockAccessSession({ jti: '' }))).rejects.toThrow(ForbiddenException);
+      expect(mockDataSource.transaction).not.toHaveBeenCalled();
+      expect(mockRefreshTokenRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('does not mutate refresh history when the verified role is stale', async () => {
+      await expect(service.logout(createMockAccessSession({ role: Role.TENANT_ADMIN }))).rejects.toThrow(ForbiddenException);
+      expect(mockRefreshTokenRepository.update).not.toHaveBeenCalled();
+      expect(mockDurableAccessTokenInvalidation.enqueue).not.toHaveBeenCalled();
     });
   });
 
@@ -1075,6 +1104,7 @@ describe('AuthenticationService', () => {
       const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
       mockUserRepository.findOne.mockResolvedValue(createMockUser());
       mockRefreshTokenRepository.update.mockResolvedValue({ affected: 3 });
+      mockRefreshTokenRepository.count.mockResolvedValue(3);
       mockDurableUserTokenInvalidation.applyImmediately.mockRejectedValueOnce(
         new TypeError('redis unavailable for user-uuid-123'),
       );

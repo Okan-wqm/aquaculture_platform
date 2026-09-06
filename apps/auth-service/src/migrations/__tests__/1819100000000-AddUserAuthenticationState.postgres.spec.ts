@@ -22,6 +22,7 @@ import { AuditLog } from '../../audit/audit-log.entity';
 import { AuthOutbox } from '../../outbox/auth-outbox.entity';
 import { BestEffortEventPublisher } from '../../outbox/best-effort-event-publisher';
 import { AuthenticationService } from '../../modules/authentication/services/authentication.service';
+import { AccountService } from '../../modules/authentication/services/account.service';
 import { MfaService } from '../../modules/authentication/services/mfa.service';
 import { DurableAccessTokenInvalidationService } from '../../modules/authentication/services/durable-access-token-invalidation.service';
 import { DurableUserTokenInvalidationService } from '../../modules/authentication/services/durable-user-token-invalidation.service';
@@ -197,6 +198,7 @@ describe.each(['fresh', 'populated'] as const)('authentication state: %s databas
 
   async function authenticationStack(hashed: boolean): Promise<{
     authentication: AuthenticationService;
+    account: AccountService;
     tokens: TokenService;
     jwt: JwtService;
     audit: AuditLogService;
@@ -216,7 +218,7 @@ describe.each(['fresh', 'populated'] as const)('authentication state: %s databas
     const repositories = [User, Tenant, RefreshToken, WebAuthnCredential, UserModuleAssignment,
       UserSiteAssignment, Module, MobileUserSettings, ActionToken, Invitation, AuditLog];
     const module = await Test.createTestingModule({ providers: [
-      AuthenticationService, TokenService, AuditLogService, MobileSettingsService, MfaService,
+      AuthenticationService, AccountService, TokenService, AuditLogService, MobileSettingsService, MfaService,
       DurableUserTokenInvalidationService, DurableAccessTokenInvalidationService, BypassRlsService,
       ...repositories.map((entity) => ({ provide: getRepositoryToken(entity), useValue: new Repository<ObjectLiteral>(entity, orm.manager) })),
       { provide: DataSource, useValue: orm }, { provide: ConfigService, useValue: config },
@@ -227,7 +229,7 @@ describe.each(['fresh', 'populated'] as const)('authentication state: %s databas
       // Deliberately stale Redis projection: only the durable row knows about a reset.
       { provide: USER_TOKEN_REVOCATION, useValue: { isTokenValid: jest.fn().mockResolvedValue(true), revokeUserTokens: jest.fn() } },
     ] }).compile();
-    return { authentication: module.get(AuthenticationService), tokens: module.get(TokenService),
+    return { authentication: module.get(AuthenticationService), account: module.get(AccountService), tokens: module.get(TokenService),
       jwt, audit: module.get(AuditLogService), invalidation: module.get(DurableUserTokenInvalidationService),
       mfa: module.get(MfaService) };
   }
@@ -305,6 +307,67 @@ describe.each(['fresh', 'populated'] as const)('authentication state: %s databas
       [user.id, 'PASSWORD_RESET_SUCCESS'])).toHaveLength(1);
     mint.mockRestore();
     immediate.mockRestore();
+  });
+
+  async function verifiedSession(jwt: JwtService, accessToken: string): Promise<OriginatingAccessSession> {
+    const claims = await jwt.verifyAsync<JwtPayload>(accessToken);
+    if (!claims.jti || claims.iat === undefined || claims.exp === undefined) {
+      throw new Error('Verified access token is missing its session identity');
+    }
+    return { sub: claims.sub, role: claims.role, tenantId: claims.tenantId,
+      jti: claims.jti, iat: claims.iat, exp: claims.exp };
+  }
+
+  it.each([Role.TENANT_ADMIN, Role.SUPER_ADMIN])('logs out %s history under authenticated RLS even after account deactivation', async (role) => {
+    const user = await principal(role);
+    const { authentication, jwt } = await authenticationStack(false);
+    const first = await authentication.login({ email: user.email, password });
+    const second = await authentication.refreshToken(first.refreshToken);
+    const session = await verifiedSession(jwt, second.accessToken);
+    await orm.manager.update(User, { id: user.id }, { isActive: false });
+    // No caller tenant/bypass frame: the verified session owns its cleanup scope.
+    expect(await authentication.logout(session)).toBe(true);
+    const history = await migrator.query<Array<{ isRevoked: boolean; revokedReason: string }>>(
+      'SELECT "isRevoked", "revokedReason" FROM auth.refresh_tokens WHERE "userId" = $1', [user.id]);
+    expect(history).toHaveLength(2);
+    expect(history.every((row) => row.isRevoked && row.revokedReason === 'User logged out')).toBe(true);
+    expect(await orm.manager.find(AuthOutbox, { where: { eventType: 'AccessTokenInvalidationRequested' } }))
+      .toEqual(expect.arrayContaining([expect.objectContaining({ payload: expect.objectContaining({ targetJti: session.jti }) })]));
+    await expect(authentication.refreshToken(first.refreshToken)).rejects.toThrow();
+    await expect(authentication.refreshToken(second.refreshToken)).rejects.toThrow();
+    expect(await orm.manager.count(RefreshToken, { where: { userId: user.id } })).toBe(0);
+  });
+
+  it('revalidates platform cleanup identity under the User lock before changing history', async () => {
+    const user = await principal(Role.TENANT_ADMIN);
+    const { authentication, jwt } = await authenticationStack(false);
+    const first = await authentication.login({ email: user.email, password });
+    const session = await verifiedSession(jwt, first.accessToken);
+    await expect(authentication.logout({ ...session, role: Role.SUPER_ADMIN, tenantId: null })).rejects.toThrow();
+    expect(await migrator.query('SELECT id FROM auth.refresh_tokens WHERE "userId" = $1 AND NOT "isRevoked"', [user.id]))
+      .toHaveLength(1);
+  });
+
+  it('platform password change revokes full history and persists cutoff under its authenticated credential proof', async () => {
+    const user = await principal(Role.SUPER_ADMIN);
+    const { authentication, account, jwt } = await authenticationStack(false);
+    const first = await authentication.login({ email: user.email, password });
+    const second = await authentication.refreshToken(first.refreshToken);
+    const claims = await jwt.verifyAsync<JwtPayload>(second.accessToken);
+    await expect(account.changeMyPassword(user.id, { currentPassword: password, newPassword: 'Changed-Platform-91!' }))
+      .resolves.toMatchObject({ success: true });
+    const history = await migrator.query<Array<{ isRevoked: boolean; revokedReason: string }>>(
+      'SELECT "isRevoked", "revokedReason" FROM auth.refresh_tokens WHERE "userId" = $1', [user.id]);
+    expect(history).toHaveLength(2);
+    expect(history.every((row) => row.isRevoked && row.revokedReason === 'Password changed')).toBe(true);
+    const current = await orm.manager.findOneByOrFail(User, { id: user.id });
+    expect(current.accessTokenInvalidBeforeEpochSeconds).toBeGreaterThanOrEqual(claims.iat ?? 0);
+    expect(current.credentialVersion).toBe(user.credentialVersion + 1);
+    expect(await current.validatePassword('Changed-Platform-91!')).toBe(true);
+    await expect(authentication.refreshToken(first.refreshToken)).rejects.toThrow();
+    await expect(authentication.refreshToken(second.refreshToken)).rejects.toThrow();
+    expect(await migrator.query('SELECT id FROM auth.audit_logs WHERE "entityId" = $1 AND action = $2',
+      [user.id, 'PASSWORD_CHANGED'])).toHaveLength(1);
   });
 
   it('persists a public tenant password-reset request with the canonical pre-auth RLS frame', async () => {

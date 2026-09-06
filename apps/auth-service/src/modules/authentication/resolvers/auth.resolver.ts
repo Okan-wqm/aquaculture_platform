@@ -22,6 +22,7 @@ import { RefreshTokenInput } from '../dto/refresh-token.dto';
 import { ForgotPasswordInput, ResetPasswordInput } from '../dto/reset-password.dto';
 import { User } from '../entities/user.entity';
 import { AuthenticationService } from '../services/authentication.service';
+import type { OriginatingAccessSession } from '../services/token.service';
 import {
   REFRESH_TOKEN_COOKIE_NAME,
   buildRefreshTokenCookieOptions,
@@ -262,14 +263,11 @@ export class AuthResolver {
   @SkipTenantGuard()
   @Mutation(() => LogoutResponse)
   async logout(
-    @CurrentUser('sub') userId: string,
-    @CurrentUser('jti') jti: string | undefined,
-    @CurrentUser('exp') exp: number | undefined,
+    @CurrentUser() origin: OriginatingAccessSession,
     @Context() context: GqlContext,
   ): Promise<LogoutResponse> {
-    // SECURITY: Pass jti and exp so the access token can be blacklisted until it expires
-    const accessTokenExpiry = exp ? new Date(exp * 1000) : undefined;
-    const success = await this.authService.logout(userId, jti, accessTokenExpiry);
+    // JwtAuthGuard verified these claims. Preserve their tenant/platform scope for cleanup.
+    const success = await this.authService.logout(origin);
     // SECURITY: Clear refresh token cookie on logout
     this.clearRefreshTokenCookie(context.res);
     return { success, message: success ? 'Logged out successfully' : 'Logout failed' };

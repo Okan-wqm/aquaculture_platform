@@ -36141,6 +36141,24 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-06-shared-ui-test-alias.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-06-tenant-localization-coverage.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-06-walg-run-record-canonicality.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/zcode/2026-09-06-watchdog-report-serialisation.md",
       "prettier_managed": true
     },
@@ -45999,6 +46017,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/shared-schema-canonical.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/shared-ui-test-alias.spec.ts",
       "prettier_managed": true
     },
     {
@@ -57850,6 +57874,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/tenant-admin/src/components/settings/__tests__/LocalizationSettings.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/tenant-admin/src/components/settings/__tests__/SecuritySettings.spec.tsx",
       "prettier_managed": true
     },
@@ -58811,6 +58841,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/federation/federationSharedConfig.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/federation/sharedUiAlias.ts",
       "prettier_managed": true
     },
     {

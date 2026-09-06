@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `d123a98b9ee9a1821a1a604bb402ab894fc58652ad2805d6d93b2ea6753b8d61`
+Registry tip: `d536628653166e60dea79953b6cc311c544542437f49a0f3b2beeb1f6c253821`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -396,9 +396,8 @@ The 2026-06-20 registry close follow-up left no OTHER active CRITICAL in
 ## Resolved Evidence
 
 - `MOB-CRITICAL-021`: registry state is `RESOLVED` with closing commit `ff643ac84`
-  ("Merge branch 'main' into claude/mobile-graphql-contract-0jj9jg" — the trailer that closes the
-  renumbered row; the fix itself is `ffa4c1025` + `3c45bf790`), derived by `finding-registry
-reconcile` once PR #1424 (`411c86835`) made it reachable from `main`.
+  ("Merge branch 'main' into claude/mobile-graphql-contract-0jj9jg"), derived by
+  `finding-registry reconcile` once PR #1424 (`411c86835`) made it reachable from `main`.
   Left the active table from bucket `already-fixed-needs-close`.
 - `INFRA-CRITICAL-149`: registry state is `RESOLVED` with closing commit `381e06271`
   ("fix(db-migrate): stamp a tenant ledger only when the schema can back it"), derived by

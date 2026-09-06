@@ -36087,6 +36087,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-06-tenant-localization-coverage.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/zcode/2026-09-06-watchdog-report-serialisation.md",
       "prettier_managed": true
     },
@@ -57713,6 +57719,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/tenant-admin/src/components/roles/RoleCard.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/tenant-admin/src/components/settings/__tests__/LocalizationSettings.spec.tsx",
       "prettier_managed": true
     },
     {

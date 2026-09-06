@@ -822,6 +822,12 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // same class as command_receipts above).
       'plans',
       'stripe_webhook_events',
+      // ADR-0013 / BILLING-CRITICAL-002: the discount catalogue moved here
+      // from `admin`. discount_codes is a cross-tenant catalogue with no
+      // tenant column; discount_redemptions is tenant-scoped and carries the
+      // canonical billing RLS predicate.
+      'discount_codes',
+      'discount_redemptions',
     ],
   },
   {
@@ -860,7 +866,9 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'tenant_activities',
       'tenant_notes',
       'tenant_billing_info',
-      'discount_redemptions',
+      // discount_redemptions retired 2026-09-05 (ADR-0013 / BILLING-CRITICAL-002):
+      // moved to billing.discount_redemptions with billing.discount_codes —
+      // billing is the sole writer of anything that prices a subscription.
       'custom_plans',
       'message_threads',
       'messages',
@@ -894,7 +902,8 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // registry, so the ADR-012 drift validator + orphan-drop presence checks
       // did not cover them (an unregistered real table is neither protected nor
       // reconciled). All are @Entity(..., { schema: 'admin' }).
-      'discount_codes',
+      // discount_codes retired 2026-09-05 (ADR-0013 / BILLING-CRITICAL-002) —
+      // see billing.discount_codes above.
       'module_pricing',
       'plan_definitions',
       'plan_module_assignments',

@@ -9,6 +9,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseUUIDPipe,
   Post,
   Put,
   Query,
@@ -16,7 +17,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { type BillingAdminCreateInvoiceInput } from '@platform/event-contracts';
+import { type BillingAdminCreateInvoiceInput, type BillingDiscountCodeInput } from '@platform/event-contracts';
 import { Request } from 'express';
 
 import { InvoiceStatus } from '../analytics/entities/external/invoice.entity';
@@ -52,6 +53,17 @@ import {
   ValidateDiscountCodeDto,
   VoidInvoiceDto,
 } from './dto/billing.dto';
+import {
+  BulkCreatedDiscountCodesDto,
+  DiscountApplicationResponseDto,
+  DiscountCodeLookupDto,
+  DiscountCodePageDto,
+  DiscountCodeResponseDto,
+  DiscountRedemptionPageDto,
+  DiscountStatsDto,
+  DiscountValidationResponseDto,
+  GeneratedDiscountCodeDto,
+} from './dto/discount-response.dto';
 import { CustomPlanStatus } from './entities/custom-plan.entity';
 import { BillingCycle, PlanTier } from './entities/plan-definition.entity';
 import { AggregationPeriod, MeterType } from './entities/usage-aggregation-readonly.entity';
@@ -65,7 +77,12 @@ import {
 import { ModulePricingService } from './services/module-pricing.service';
 import { PaymentFilters, PaymentManagementService } from './services/payment-management.service';
 import { PlanDefinitionService } from './services/plan-definition.service';
-import { PricingCalculatorService } from './services/pricing-calculator.service';
+import {
+  PricingCalculation,
+  PricingCalculatorService,
+  PricingComparison,
+  PricingDiscountContext,
+} from './services/pricing-calculator.service';
 import {
   SubscriptionFilters,
   SubscriptionManagementService,
@@ -188,7 +205,7 @@ export class BillingController {
     @Query('includeExpired') includeExpired?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
-  ): Promise<unknown> {
+  ): Promise<DiscountCodePageDto> {
     return this.discountService.findAll({
       isActive: isActive !== undefined ? isActive === 'true' : undefined,
       campaignId,
@@ -199,17 +216,14 @@ export class BillingController {
   }
 
   @Get('discounts/stats')
-  async getDiscountStats(): Promise<unknown> {
+  async getDiscountStats(): Promise<DiscountStatsDto> {
     return this.discountService.getStats();
   }
 
-  @Get('discounts/:id')
-  async getDiscountById(@Param('id') id: string): Promise<unknown> {
-    return this.discountService.findById(id);
-  }
-
   @Get('discounts/code/:code')
-  async getDiscountByCode(@Param('code') code: string): Promise<unknown> {
+  async getDiscountByCode(
+    @Param('code') code: string,
+  ): Promise<DiscountCodeLookupDto> {
     const discount = await this.discountService.findByCode(code);
     if (!discount) {
       return { found: false };
@@ -217,37 +231,68 @@ export class BillingController {
     return { found: true, discount };
   }
 
+  @Get('discounts/:id')
+  async getDiscountById(@Param('id', ParseUUIDPipe) id: string): Promise<DiscountCodeResponseDto> {
+    return this.discountService.findById(id);
+  }
+
+  @Get('discounts/:id/redemptions')
+  async getDiscountRedemptions(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ): Promise<DiscountRedemptionPageDto> {
+    return this.discountService.getRedemptions(id, {
+      page: page ? parseInt(page, 10) : undefined,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    });
+  }
+
   @AuditedOperation({ resource: 'DiscountCode', action: 'CREATE' })
   @RequiresCapability('billing-ops')
   @Post('discounts')
-  async createDiscountCode(@Body() dto: CreateDiscountCodeDto, @Req() req: Request): Promise<unknown> {
-    const userId = getAuthUserId(req);
-    if (!userId) throw new UnauthorizedException('Authentication required to create a discount code');
-    return this.discountService.create({ ...dto, createdBy: userId });
+  async createDiscountCode(
+    @Body() dto: CreateDiscountCodeDto,
+    @Req() req: Request,
+  ): Promise<DiscountCodeResponseDto> {
+    const userId = requireActor(req, 'create a discount code');
+    const { code, ...template } = dto;
+    return this.discountService.create(code, toDiscountInput(template), userId);
   }
 
   @AuditedOperation({ resource: 'DiscountCode', action: 'UPDATE' })
   @RequiresCapability('billing-ops')
   @Put('discounts/:id')
   async updateDiscountCode(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateDiscountCodeDto,
     @Req() req: Request,
-  ): Promise<unknown> {
-    const userId = getAuthUserId(req);
-    if (!userId) throw new UnauthorizedException('Authentication required to update a discount code');
-    return this.discountService.update(id, { ...dto, updatedBy: userId });
+  ): Promise<DiscountCodeResponseDto> {
+    const userId = requireActor(req, 'update a discount code');
+    return this.discountService.update(
+      id,
+      {
+        name: dto.name,
+        description: dto.description,
+        isActive: dto.isActive,
+        validFrom: dto.validFrom,
+        validUntil: dto.validUntil,
+        maxRedemptions: dto.maxRedemptions,
+        maxRedemptionsPerTenant: dto.maxRedemptionsPerTenant,
+        metadata: dto.metadata,
+      },
+      userId,
+    );
   }
 
   @AuditedOperation({ resource: 'DiscountCode', action: 'DEACTIVATE' })
   @RequiresCapability('billing-ops')
   @Post('discounts/:id/deactivate')
   async deactivateDiscountCode(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Req() req: Request,
-  ): Promise<unknown> {
-    const userId = getAuthUserId(req);
-    if (!userId) throw new UnauthorizedException('Authentication required to deactivate a discount code');
+  ): Promise<DiscountCodeResponseDto> {
+    const userId = requireActor(req, 'deactivate a discount code');
     return this.discountService.deactivate(id, userId);
   }
 
@@ -257,8 +302,14 @@ export class BillingController {
   async validateDiscountCode(
     @TenantParam('body', { allow: 'any' }) tenantId: string,
     @Body() dto: ValidateDiscountCodeDto,
-  ): Promise<unknown> {
-    return this.discountService.validateCode(dto.code, tenantId, dto.planId, dto.orderAmount);
+    @Req() req: Request,
+  ): Promise<DiscountValidationResponseDto> {
+    const userId = requireActor(req, 'validate a discount code');
+    return this.discountService.validateCode(dto.code, tenantId, userId, {
+      planId: dto.planId,
+      subscriptionChange: dto.subscriptionChange,
+      orderAmount: dto.orderAmount,
+    });
   }
 
   @AuditedOperation({ resource: 'DiscountCode', action: 'APPLY' })
@@ -268,26 +319,13 @@ export class BillingController {
     @TenantParam('body', { allow: 'any' }) tenantId: string,
     @Body() dto: ApplyDiscountCodeDto,
     @Req() req: Request,
-  ): Promise<unknown> {
-    const userId = getAuthUserId(req);
-    if (!userId) throw new UnauthorizedException('Authentication required to apply a discount code');
-    return this.discountService.applyDiscount(dto.code, tenantId, dto.originalAmount, {
+  ): Promise<DiscountApplicationResponseDto> {
+    const userId = requireActor(req, 'apply a discount code');
+    return this.discountService.applyDiscount(dto.code, tenantId, dto.orderAmount, userId, {
       subscriptionId: dto.subscriptionId,
       invoiceId: dto.invoiceId,
       planId: dto.planId,
-      redeemedBy: userId,
-    });
-  }
-
-  @Get('discounts/:id/redemptions')
-  async getDiscountRedemptions(
-    @Param('id') id: string,
-    @Query('limit') limit?: string,
-    @Query('offset') offset?: string,
-  ): Promise<unknown> {
-    return this.discountService.getRedemptions(id, {
-      limit: limit ? parseInt(limit, 10) : undefined,
-      offset: offset ? parseInt(offset, 10) : undefined,
+      subscriptionChange: dto.subscriptionChange,
     });
   }
 
@@ -296,8 +334,10 @@ export class BillingController {
   @Post('discounts/generate-code')
   async generateUniqueCode(
     @Body() dto: GenerateDiscountCodeDto,
-  ): Promise<unknown> {
-    const code = await this.discountService.generateUniqueCode(dto.prefix, dto.length);
+    @Req() req: Request,
+  ): Promise<GeneratedDiscountCodeDto> {
+    const userId = requireActor(req, 'generate a discount code');
+    const code = await this.discountService.generateUniqueCode(userId, dto.prefix, dto.length);
     return { code };
   }
 
@@ -307,11 +347,14 @@ export class BillingController {
   async bulkCreateDiscountCodes(
     @Body() dto: BulkCreateDiscountCodesDto,
     @Req() req: Request,
-  ): Promise<unknown> {
-    const userId = getAuthUserId(req);
-    if (!userId) throw new UnauthorizedException('Authentication required for bulk discount creation');
-    const safeTemplate = { ...dto.template, createdBy: userId };
-    const codes = await this.discountService.bulkCreate(dto.count, safeTemplate, dto.codePrefix);
+  ): Promise<BulkCreatedDiscountCodesDto> {
+    const userId = requireActor(req, 'bulk-create discount codes');
+    const codes = await this.discountService.bulkCreate(
+      dto.count,
+      toDiscountInput(dto.template),
+      userId,
+      dto.codePrefix,
+    );
     return { success: true, count: codes.length, codes };
   }
 
@@ -436,7 +479,7 @@ export class BillingController {
   async getTenantRedemptions(
     @TenantParam('param', { allow: 'any' }) tenantId: string,
     @Query() pagination?: PaginationQueryDto,
-  ): Promise<unknown> {
+  ): Promise<DiscountRedemptionPageDto> {
     return this.discountService.getTenantRedemptions(tenantId, {
       page: pagination?.page,
       limit: pagination?.limit,
@@ -519,8 +562,15 @@ export class BillingController {
   @AuditedOperation({ resource: 'Pricing', action: 'CALCULATE' })
   @RequiresCapability('billing-ops')
   @Post('pricing/calculate')
-  async calculatePricing(@Body() request: QuoteRequest): Promise<unknown> {
-    return this.pricingCalculator.calculatePricing(request);
+  async calculatePricing(
+    @TenantParam('body', { optional: true, allow: 'any' }) tenantId: string | undefined,
+    @Body() request: QuoteRequest,
+    @Req() req: Request,
+  ): Promise<PricingCalculation> {
+    return this.pricingCalculator.calculatePricing(
+      request,
+      quoteDiscountContext(tenantId, req),
+    );
   }
 
   @AuditedOperation({ resource: 'Billing', action: 'GET_QUICK_ESTIMATE' })
@@ -536,11 +586,14 @@ export class BillingController {
   @RequiresCapability('billing-ops')
   @Post('pricing/compare')
   async comparePricing(
+    @TenantParam('body', { optional: true, allow: 'any' }) tenantId: string | undefined,
     @Body() dto: ComparePricingDto,
-  ): Promise<unknown> {
+    @Req() req: Request,
+  ): Promise<PricingComparison> {
     return this.pricingCalculator.comparePricing(
       dto.config1,
       dto.config2,
+      quoteDiscountContext(tenantId, req),
     );
   }
 
@@ -915,4 +968,73 @@ export class BillingController {
       dateTo ? new Date(dateTo) : undefined,
     );
   }
+}
+
+/**
+ * The actor is the authenticated platform admin, never a value the body
+ * claimed (ADMIN-CRITICAL-008). Every discount write names one, because
+ * billing records it as `created_by` / `redeemed_by`.
+ */
+function requireActor(req: Request, action: string): string {
+  const userId = getAuthUserId(req);
+  if (!userId) throw new UnauthorizedException(`Authentication required to ${action}`);
+  return userId;
+}
+
+/**
+ * The DTO carries the value branch as four optional fields (class-validator
+ * cannot type a discriminated union); the contract carries it as a union. This
+ * is the one place the two meet, and it is exhaustive over `discountType`, so
+ * a new kind is a compile error rather than a code with no value.
+ */
+function toDiscountInput(
+  template: Omit<CreateDiscountCodeDto, 'code'>,
+): BillingDiscountCodeInput {
+  const attributes = {
+    name: template.name,
+    description: template.description,
+    currency: template.currency,
+    appliesTo: template.appliesTo,
+    applicablePlanIds: template.applicablePlanIds,
+    duration: template.duration,
+    durationInMonths: template.durationInMonths,
+    validFrom: template.validFrom,
+    validUntil: template.validUntil,
+    maxRedemptions: template.maxRedemptions,
+    maxRedemptionsPerTenant: template.maxRedemptionsPerTenant,
+    minimumOrderAmount: template.minimumOrderAmount,
+    campaignId: template.campaignId,
+    campaignName: template.campaignName,
+    isReferralCode: template.isReferralCode,
+    referrerId: template.referrerId,
+    metadata: template.metadata,
+  };
+
+  switch (template.discountType) {
+    case 'percentage':
+      return { ...attributes, discountType: 'percentage', percentOff: template.percentOff ?? '' };
+    case 'fixed_amount':
+      return { ...attributes, discountType: 'fixed_amount', amountOff: template.amountOff ?? '' };
+    case 'free_months':
+      return { ...attributes, discountType: 'free_months', freeMonths: template.freeMonths ?? 0 };
+    case 'free_trial_extension':
+      return {
+        ...attributes,
+        discountType: 'free_trial_extension',
+        trialExtensionDays: template.trialExtensionDays ?? 0,
+      };
+  }
+}
+
+/**
+ * A quote carries a discount context only when a tenant was named. The
+ * calculator refuses a `discountCode` without one rather than previewing a
+ * discount against nobody (ADR-0013).
+ */
+function quoteDiscountContext(
+  tenantId: string | undefined,
+  req: Request,
+): PricingDiscountContext | undefined {
+  const actorId = getAuthUserId(req);
+  return tenantId && actorId ? { tenantId, actorId } : undefined;
 }

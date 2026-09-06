@@ -1,551 +1,380 @@
-import { randomInt } from 'crypto';
-import {
-  Injectable,
-  Logger,
-  NotFoundException,
-  BadRequestException,
-  ConflictException,
-} from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThanOrEqual, MoreThanOrEqual, IsNull, Or } from 'typeorm';
-
-import {
-  DiscountCode,
-  DiscountRedemption,
-  DiscountType,
-  DiscountAppliesTo,
-  DiscountDuration,
-} from '../entities/discount-code.entity';
-
-export interface CreateDiscountCodeDto {
-  code: string;
-  name: string;
-  description?: string;
-  discountType: DiscountType;
-  discountValue: number;
-  appliesTo?: DiscountAppliesTo;
-  applicablePlanIds?: string[];
-  duration?: DiscountDuration;
-  durationInMonths?: number;
-  validFrom?: Date;
-  validUntil?: Date;
-  maxRedemptions?: number;
-  maxRedemptionsPerTenant?: number;
-  minimumOrderAmount?: number;
-  campaignId?: string;
-  campaignName?: string;
-  isReferralCode?: boolean;
-  referrerId?: string;
-  metadata?: Record<string, unknown>;
-  createdBy: string;
-}
-
-export interface UpdateDiscountCodeDto {
-  name?: string;
-  description?: string;
-  isActive?: boolean;
-  validFrom?: Date;
-  validUntil?: Date;
-  maxRedemptions?: number;
-  maxRedemptionsPerTenant?: number;
-  metadata?: Record<string, unknown>;
-  updatedBy: string;
-}
-
-export interface ValidateDiscountResult {
-  valid: boolean;
-  discountCode?: DiscountCode;
-  message?: string;
-  discountAmount?: number;
-}
-
-export interface ApplyDiscountResult {
-  success: boolean;
-  originalAmount: number;
-  discountAmount: number;
-  finalAmount: number;
-  discountCode?: DiscountCode;
-  redemptionId?: string;
-  message?: string;
-}
-
-export interface DiscountStats {
-  totalCodes: number;
-  activeCodes: number;
-  expiredCodes: number;
-  totalRedemptions: number;
-  totalDiscountAmount: number;
-  topCodes: Array<{
-    code: string;
-    redemptions: number;
-    totalDiscount: number;
-  }>;
-}
-
 /**
- * Discount Code Service
- * Manages coupon codes and promotional discounts
+ * Discount codes, from the platform-admin side (ADR-0013,
+ * BILLING-CRITICAL-002).
+ *
+ * admin-api owns the operator experience; billing owns the rows. Every read
+ * here is a query against the read-only mapping of `billing.discount_codes` /
+ * `billing.discount_redemptions`, and every write is a
+ * `request.billing.admin.*Discount*` command answered by billing.
+ *
+ * There is no local repository to write through and no second copy of the
+ * eligibility rules: a refusal (`valid: false` with a reason) is billing's
+ * answer, rendered here, so the message an operator reads and the money
+ * actually taken off can no longer disagree.
  */
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import type {
+  BillingAdminApplyDiscountCodeResult,
+  BillingAdminUpdateDiscountCodeInput,
+  BillingAdminValidateDiscountCodeResult,
+  BillingDiscountCodeInput,
+  BillingDiscountCodeSnapshot,
+  BillingDiscountSubscriptionChange,
+} from '@platform/event-contracts';
+import { LessThanOrEqual, Repository } from 'typeorm';
+
+import {
+  DiscountApplicationResponseDto,
+  DiscountCodePageDto,
+  DiscountCodeResponseDto,
+  DiscountRedemptionPageDto,
+  DiscountRedemptionResponseDto,
+  DiscountStatsDto,
+  DiscountValidationResponseDto,
+} from '../dto/discount-response.dto';
+import {
+  DiscountCodeReadOnly,
+  DiscountRedemptionReadOnly,
+} from '../entities/external/discount-code.entity';
+
+import { BillingAdminCommandClientService } from './billing-admin-command-client.service';
+
 @Injectable()
 export class DiscountCodeService {
   private readonly logger = new Logger(DiscountCodeService.name);
-  private readonly defaultCurrency: string;
 
   constructor(
-    @InjectRepository(DiscountCode)
-    private readonly discountCodeRepo: Repository<DiscountCode>,
-    @InjectRepository(DiscountRedemption)
-    private readonly redemptionRepo: Repository<DiscountRedemption>,
-    private readonly configService: ConfigService,
-  ) {
-    this.defaultCurrency = this.configService.get<string>('BILLING_DEFAULT_CURRENCY', 'USD');
-  }
+    @InjectRepository(DiscountCodeReadOnly)
+    private readonly discountCodes: Repository<DiscountCodeReadOnly>,
+    @InjectRepository(DiscountRedemptionReadOnly)
+    private readonly redemptions: Repository<DiscountRedemptionReadOnly>,
+    private readonly billingCommands: BillingAdminCommandClientService,
+  ) {}
 
-  /**
-   * Get all discount codes with optional filters
-   */
+  // ── Reads (billing's rows, read-only) ──────────────────────────────────
+
   async findAll(options?: {
     isActive?: boolean;
     campaignId?: string;
     includeExpired?: boolean;
     page?: number;
     limit?: number;
-  }): Promise<{ data: DiscountCode[]; total: number; page: number; limit: number }> {
-    const page = options?.page || 1;
-    const limit = options?.limit || 50;
-    const query = this.discountCodeRepo.createQueryBuilder('dc');
+  }): Promise<DiscountCodePageDto> {
+    const page = options?.page ?? 1;
+    const limit = options?.limit ?? 50;
+    const query = this.discountCodes.createQueryBuilder('dc');
 
     if (options?.isActive !== undefined) {
       query.andWhere('dc.isActive = :isActive', { isActive: options.isActive });
     }
-
     if (options?.campaignId) {
       query.andWhere('dc.campaignId = :campaignId', { campaignId: options.campaignId });
     }
-
     if (!options?.includeExpired) {
-      const now = new Date();
-      query.andWhere(
-        '(dc.validUntil IS NULL OR dc.validUntil > :now)',
-        { now }
-      );
+      query.andWhere('(dc.validUntil IS NULL OR dc.validUntil > :now)', { now: new Date() });
     }
 
-    query.orderBy('dc.createdAt', 'DESC');
-    query.skip((page - 1) * limit);
-    query.take(limit);
+    const [data, total] = await query
+      .orderBy('dc.createdAt', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
 
-    const [data, total] = await query.getManyAndCount();
-
-    return { data, total, page, limit };
+    return { data: data.map(toCodeResponse), total, page, limit };
   }
 
-  /**
-   * Get discount code by ID
-   */
-  async findById(id: string): Promise<DiscountCode> {
-    const code = await this.discountCodeRepo.findOne({ where: { id } });
-    if (!code) {
-      throw new NotFoundException(`Discount code with ID ${id} not found`);
-    }
-    return code;
+  async findById(id: string): Promise<DiscountCodeResponseDto> {
+    const found = await this.discountCodes.findOne({ where: { id } });
+    if (!found) throw new NotFoundException(`Discount code with ID ${id} not found`);
+    return toCodeResponse(found);
   }
 
-  /**
-   * Get discount code by code string
-   */
-  async findByCode(code: string): Promise<DiscountCode | null> {
-    return this.discountCodeRepo.findOne({
-      where: { code: code.toUpperCase() },
-    });
+  async findByCode(code: string): Promise<DiscountCodeResponseDto | null> {
+    const found = await this.discountCodes.findOne({ where: { code: code.toUpperCase() } });
+    return found ? toCodeResponse(found) : null;
   }
 
-  /**
-   * Create a new discount code
-   */
-  async create(dto: CreateDiscountCodeDto): Promise<DiscountCode> {
-    const normalizedCode = dto.code.toUpperCase().replace(/[^A-Z0-9]/g, '');
-
-    // Check for duplicate
-    const existing = await this.findByCode(normalizedCode);
-    if (existing) {
-      throw new ConflictException(`Discount code ${normalizedCode} already exists`);
-    }
-
-    // Validate discount value
-    if (dto.discountType === DiscountType.PERCENTAGE && dto.discountValue > 100) {
-      throw new BadRequestException('Percentage discount cannot exceed 100%');
-    }
-
-    if (dto.discountValue <= 0) {
-      throw new BadRequestException('Discount value must be positive');
-    }
-
-    const discountCode = this.discountCodeRepo.create({
-      ...dto,
-      code: normalizedCode,
-      appliesTo: dto.appliesTo || DiscountAppliesTo.ALL_PLANS,
-      duration: dto.duration || DiscountDuration.ONCE,
-      isActive: true,
-      currentRedemptions: 0,
-    });
-
-    const saved = await this.discountCodeRepo.save(discountCode);
-    this.logger.log(`Created discount code: ${saved.code}`);
-    return saved;
-  }
-
-  /**
-   * Update a discount code
-   */
-  async update(id: string, dto: UpdateDiscountCodeDto): Promise<DiscountCode> {
-    const discountCode = await this.findById(id);
-
-    Object.assign(discountCode, dto);
-    discountCode.updatedBy = dto.updatedBy;
-
-    const saved = await this.discountCodeRepo.save(discountCode);
-    this.logger.log(`Updated discount code: ${saved.code}`);
-    return saved;
-  }
-
-  /**
-   * Deactivate a discount code
-   */
-  async deactivate(id: string, updatedBy: string): Promise<DiscountCode> {
-    const discountCode = await this.findById(id);
-    discountCode.isActive = false;
-    discountCode.updatedBy = updatedBy;
-
-    const saved = await this.discountCodeRepo.save(discountCode);
-    this.logger.log(`Deactivated discount code: ${saved.code}`);
-    return saved;
-  }
-
-  /**
-   * Validate a discount code for a tenant and order
-   */
-  async validateCode(
-    code: string,
-    tenantId: string,
-    planId?: string,
-    orderAmount?: number,
-  ): Promise<ValidateDiscountResult> {
-    const discountCode = await this.findByCode(code);
-
-    if (!discountCode) {
-      return { valid: false, message: 'Invalid discount code' };
-    }
-
-    // Check if active
-    if (!discountCode.isActive) {
-      return { valid: false, message: 'This discount code is no longer active' };
-    }
-
-    // Check validity period
-    const now = new Date();
-    if (discountCode.validFrom && now < discountCode.validFrom) {
-      return { valid: false, message: 'This discount code is not yet valid' };
-    }
-
-    if (discountCode.validUntil && now > discountCode.validUntil) {
-      return { valid: false, message: 'This discount code has expired' };
-    }
-
-    // Check max redemptions
-    if (
-      discountCode.maxRedemptions !== null &&
-      discountCode.maxRedemptions !== undefined &&
-      discountCode.currentRedemptions >= discountCode.maxRedemptions
-    ) {
-      return { valid: false, message: 'This discount code has reached its maximum usage limit' };
-    }
-
-    // Check per-tenant redemptions
-    if (discountCode.maxRedemptionsPerTenant) {
-      const tenantRedemptions = await this.redemptionRepo.count({
-        where: {
-          discountCodeId: discountCode.id,
-          tenantId,
-        },
-      });
-
-      if (tenantRedemptions >= discountCode.maxRedemptionsPerTenant) {
-        return {
-          valid: false,
-          message: 'You have already used this discount code the maximum number of times',
-        };
-      }
-    }
-
-    // Check plan applicability
-    if (
-      planId &&
-      discountCode.appliesTo === DiscountAppliesTo.SPECIFIC_PLANS &&
-      discountCode.applicablePlanIds &&
-      !discountCode.applicablePlanIds.includes(planId)
-    ) {
-      return { valid: false, message: 'This discount code is not valid for your selected plan' };
-    }
-
-    // Check minimum order amount
-    if (
-      orderAmount !== undefined &&
-      discountCode.minimumOrderAmount &&
-      orderAmount < discountCode.minimumOrderAmount
-    ) {
-      return {
-        valid: false,
-        message: `Minimum order amount of ${discountCode.minimumOrderAmount} required for this discount`,
-      };
-    }
-
-    // Calculate discount amount
-    let discountAmount = 0;
-    if (orderAmount !== undefined) {
-      discountAmount = this.calculateDiscountAmount(discountCode, orderAmount);
-    }
-
-    return {
-      valid: true,
-      discountCode,
-      discountAmount,
-      message: 'Discount code is valid',
-    };
-  }
-
-  /**
-   * Apply a discount code to an order
-   */
-  async applyDiscount(
-    code: string,
-    tenantId: string,
-    originalAmount: number,
-    options: {
-      subscriptionId?: string;
-      invoiceId?: string;
-      planId?: string;
-      redeemedBy?: string;
-      currency?: string;
-    } = {},
-  ): Promise<ApplyDiscountResult> {
-    const validation = await this.validateCode(
-      code,
-      tenantId,
-      options.planId,
-      originalAmount,
-    );
-
-    if (!validation.valid || !validation.discountCode) {
-      return {
-        success: false,
-        originalAmount,
-        discountAmount: 0,
-        finalAmount: originalAmount,
-        message: validation.message,
-      };
-    }
-
-    const discountCode = validation.discountCode;
-    const discountAmount = this.calculateDiscountAmount(discountCode, originalAmount);
-    const finalAmount = Math.max(0, originalAmount - discountAmount);
-
-    // Record redemption
-    const redemption = this.redemptionRepo.create({
-      discountCodeId: discountCode.id,
-      tenantId,
-      subscriptionId: options.subscriptionId,
-      invoiceId: options.invoiceId,
-      discountAmount,
-      currency: options.currency || this.defaultCurrency,
-      redeemedAt: new Date(),
-      redeemedBy: options.redeemedBy,
-    });
-
-    await this.redemptionRepo.save(redemption);
-
-    // Increment redemption count
-    discountCode.currentRedemptions += 1;
-    await this.discountCodeRepo.save(discountCode);
-
-    this.logger.log(
-      `Applied discount ${discountCode.code} for tenant ${tenantId}: $${discountAmount} off`,
-    );
-
-    return {
-      success: true,
-      originalAmount,
-      discountAmount,
-      finalAmount,
-      discountCode,
-      redemptionId: redemption.id,
-      message: `Discount of $${discountAmount.toFixed(2)} applied`,
-    };
-  }
-
-  /**
-   * Get redemption history for a discount code
-   */
   async getRedemptions(
     discountCodeId: string,
-    options?: { limit?: number; offset?: number },
-  ): Promise<{ redemptions: DiscountRedemption[]; total: number }> {
-    const [redemptions, total] = await this.redemptionRepo.findAndCount({
+    options?: { page?: number; limit?: number },
+  ): Promise<DiscountRedemptionPageDto> {
+    const page = options?.page ?? 1;
+    const limit = options?.limit ?? 50;
+    const [data, total] = await this.redemptions.findAndCount({
       where: { discountCodeId },
       order: { redeemedAt: 'DESC' },
-      take: options?.limit || 50,
-      skip: options?.offset || 0,
+      skip: (page - 1) * limit,
+      take: limit,
     });
-
-    return { redemptions, total };
+    return { data: data.map(toRedemptionResponse), total, page, limit };
   }
 
-  /**
-   * Get redemption history for a tenant
-   */
   async getTenantRedemptions(
     tenantId: string,
     options: { page?: number; limit?: number } = {},
-  ): Promise<{ data: DiscountRedemption[]; total: number; page: number; limit: number }> {
-    const { page = 1, limit = 20 } = options;
-
-    const [data, total] = await this.redemptionRepo.findAndCount({
+  ): Promise<DiscountRedemptionPageDto> {
+    const page = options.page ?? 1;
+    const limit = options.limit ?? 20;
+    const [data, total] = await this.redemptions.findAndCount({
       where: { tenantId },
       order: { redeemedAt: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
     });
-
-    return { data, total, page, limit };
+    return { data: data.map(toRedemptionResponse), total, page, limit };
   }
 
-  /**
-   * Get discount statistics
-   */
-  async getStats(): Promise<DiscountStats> {
+  async getStats(): Promise<DiscountStatsDto> {
     const now = new Date();
-
-    const [totalCodes, activeCodes] = await Promise.all([
-      this.discountCodeRepo.count(),
-      this.discountCodeRepo.count({
-        where: {
-          isActive: true,
-        },
-      }),
+    const [totalCodes, activeCodes, expiredCodes] = await Promise.all([
+      this.discountCodes.count(),
+      this.discountCodes.count({ where: { isActive: true } }),
+      this.discountCodes.count({ where: { validUntil: LessThanOrEqual(now) } }),
     ]);
 
-    const expiredCodes = await this.discountCodeRepo.count({
-      where: {
-        validUntil: LessThanOrEqual(now),
-      },
-    });
-
-    // Get total redemptions and discount amount
-    const redemptionStats = await this.redemptionRepo
+    // COUNT and SUM come back as strings from `numeric`/`bigint`; the sum stays
+    // a string all the way to the client so a total of money is never widened
+    // through a double.
+    const totals = await this.redemptions
       .createQueryBuilder('r')
-      .select('COUNT(*)', 'totalRedemptions')
-      .addSelect('COALESCE(SUM(r.discountAmount), 0)', 'totalDiscountAmount')
-      .getRawOne();
+      .select('COUNT(*)::text', 'totalRedemptions')
+      .addSelect('COALESCE(SUM(r.discount_amount), 0)::text', 'totalDiscountAmount')
+      .getRawOne<{ totalRedemptions: string; totalDiscountAmount: string }>();
 
-    // Get top codes
-    const topCodes = await this.redemptionRepo
+    const topCodes = await this.redemptions
       .createQueryBuilder('r')
-      .innerJoin('discount_codes', 'dc', 'dc.id = r.discountCodeId')
+      .innerJoin(DiscountCodeReadOnly, 'dc', 'dc.id = r.discount_code_id')
       .select('dc.code', 'code')
-      .addSelect('COUNT(*)', 'redemptions')
-      .addSelect('COALESCE(SUM(r.discountAmount), 0)', 'totalDiscount')
+      .addSelect('COUNT(*)::text', 'redemptions')
+      .addSelect('COALESCE(SUM(r.discount_amount), 0)::text', 'totalDiscount')
       .groupBy('dc.code')
-      .orderBy('redemptions', 'DESC')
+      .orderBy('COUNT(*)', 'DESC')
       .limit(10)
-      .getRawMany();
+      .getRawMany<{ code: string; redemptions: string; totalDiscount: string }>();
 
     return {
       totalCodes,
       activeCodes,
       expiredCodes,
-      totalRedemptions: parseInt(redemptionStats?.totalRedemptions || '0', 10),
-      totalDiscountAmount: parseFloat(redemptionStats?.totalDiscountAmount || '0'),
-      topCodes: topCodes.map(tc => ({
-        code: tc.code,
-        redemptions: parseInt(tc.redemptions, 10),
-        totalDiscount: parseFloat(tc.totalDiscount),
+      totalRedemptions: Number.parseInt(totals?.totalRedemptions ?? '0', 10),
+      totalDiscountAmount: totals?.totalDiscountAmount ?? '0',
+      topCodes: topCodes.map((row) => ({
+        code: row.code,
+        redemptions: Number.parseInt(row.redemptions, 10),
+        totalDiscount: row.totalDiscount,
       })),
     };
   }
 
-  /**
-   * Generates a unique discount code using cryptographically secure randomness.
-   *
-   * SECURITY (C-12): Discount codes are financial instruments that grant monetary value.
-   * Using Math.random() (a non-cryptographic PRNG) would make codes predictable,
-   * allowing attackers to guess valid codes and claim unauthorized discounts.
-   * crypto.randomInt() uses the OS CSPRNG to ensure each character selection is
-   * uniformly distributed and unpredictable.
-   */
-  async generateUniqueCode(prefix?: string, length = 8): Promise<string> {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let attempts = 0;
-    const maxAttempts = 10;
+  // ── Writes (forwarded to billing) ──────────────────────────────────────
 
-    while (attempts < maxAttempts) {
-      let code = prefix ? `${prefix}_` : '';
-      for (let i = 0; i < length; i++) {
-        code += chars.charAt(randomInt(0, chars.length));
-      }
-
-      const existing = await this.findByCode(code);
-      if (!existing) {
-        return code;
-      }
-      attempts++;
-    }
-
-    throw new Error('Failed to generate unique discount code');
+  async create(
+    code: string,
+    input: BillingDiscountCodeInput,
+    actorId: string,
+  ): Promise<DiscountCodeResponseDto> {
+    return fromSnapshot(await this.billingCommands.createDiscountCode(code, input, actorId));
   }
 
-  /**
-   * Bulk create discount codes for a campaign
-   */
+  async update(
+    discountCodeId: string,
+    input: BillingAdminUpdateDiscountCodeInput,
+    actorId: string,
+  ): Promise<DiscountCodeResponseDto> {
+    return fromSnapshot(
+      await this.billingCommands.updateDiscountCode(discountCodeId, input, actorId),
+    );
+  }
+
+  async deactivate(
+    discountCodeId: string,
+    actorId: string,
+  ): Promise<DiscountCodeResponseDto> {
+    return fromSnapshot(await this.billingCommands.deactivateDiscountCode(discountCodeId, actorId));
+  }
+
+  async generateUniqueCode(actorId: string, prefix?: string, length?: number): Promise<string> {
+    return this.billingCommands.generateDiscountCode(actorId, prefix, length);
+  }
+
   async bulkCreate(
     count: number,
-    template: Omit<CreateDiscountCodeDto, 'code'>,
+    template: BillingDiscountCodeInput,
+    actorId: string,
     codePrefix?: string,
-  ): Promise<DiscountCode[]> {
-    const codes: DiscountCode[] = [];
-
-    for (let i = 0; i < count; i++) {
-      const code = await this.generateUniqueCode(codePrefix);
-      const created = await this.create({ ...template, code });
-      codes.push(created);
-    }
-
-    this.logger.log(`Bulk created ${count} discount codes for campaign ${template.campaignId}`);
-    return codes;
+  ): Promise<DiscountCodeResponseDto[]> {
+    const created = await this.billingCommands.bulkCreateDiscountCodes(
+      count,
+      template,
+      actorId,
+      codePrefix,
+    );
+    return created.map(fromSnapshot);
   }
 
-  /**
-   * Calculate discount amount based on discount type
-   */
-  private calculateDiscountAmount(discountCode: DiscountCode, orderAmount: number): number {
-    switch (discountCode.discountType) {
-      case DiscountType.PERCENTAGE:
-        return (orderAmount * discountCode.discountValue) / 100;
-
-      case DiscountType.FIXED_AMOUNT:
-        return Math.min(discountCode.discountValue, orderAmount);
-
-      case DiscountType.FREE_MONTHS:
-        // This would need context about monthly price
-        // For now, return 0 - handled differently in subscription
-        return 0;
-
-      case DiscountType.FREE_TRIAL_EXTENSION:
-        // This doesn't affect amount directly
-        return 0;
-
-      default:
-        return 0;
-    }
+  async validateCode(
+    code: string,
+    tenantId: string,
+    actorId: string,
+    context: {
+      planId?: string;
+      subscriptionChange?: BillingDiscountSubscriptionChange;
+      orderAmount?: string;
+    } = {},
+  ): Promise<DiscountValidationResponseDto> {
+    const result = await this.billingCommands.validateDiscountCode(
+      code,
+      tenantId,
+      actorId,
+      context,
+    );
+    return {
+      valid: result.valid,
+      reason: result.reason,
+      message: result.message,
+      discountAmount: result.discountAmount,
+      discountCode: result.discountCode ? fromSnapshot(result.discountCode) : undefined,
+    };
   }
+
+  async applyDiscount(
+    code: string,
+    tenantId: string,
+    orderAmount: string,
+    actorId: string,
+    context: {
+      planId?: string;
+      subscriptionChange?: BillingDiscountSubscriptionChange;
+      subscriptionId?: string;
+      invoiceId?: string;
+    } = {},
+  ): Promise<DiscountApplicationResponseDto> {
+    const result = await this.billingCommands.applyDiscountCode(
+      code,
+      tenantId,
+      orderAmount,
+      actorId,
+      context,
+    );
+    this.logger.log(
+      JSON.stringify({
+        event: 'discount.apply.forwarded',
+        tenantId,
+        valid: result.valid ?? false,
+        reason: result.reason ?? null,
+      }),
+    );
+    return {
+      valid: result.valid ?? false,
+      reason: result.reason,
+      originalAmount: result.originalAmount ?? orderAmount,
+      discountAmount: result.discountAmount ?? '0',
+      finalAmount: result.finalAmount ?? orderAmount,
+      grantedFreeMonths: result.grantedFreeMonths,
+      grantedTrialExtensionDays: result.grantedTrialExtensionDays,
+      redemptionId: result.redemptionId,
+      message: result.message,
+    };
+  }
+}
+
+/**
+ * A read of billing's table becomes the same wire shape a write returns.
+ * `Decimal` fields become their exact decimal string — the value the client
+ * would have received anyway through `toJSON`, now stated in the type.
+ */
+function toCodeResponse(row: DiscountCodeReadOnly): DiscountCodeResponseDto {
+  return {
+    id: row.id,
+    code: row.code,
+    name: row.name,
+    description: row.description ?? undefined,
+    discountType: row.discountType,
+    percentOff: row.percentOff?.toString(),
+    amountOff: row.amountOff?.toString(),
+    freeMonths: row.freeMonths ?? undefined,
+    trialExtensionDays: row.trialExtensionDays ?? undefined,
+    currency: row.currency,
+    appliesTo: row.appliesTo,
+    applicablePlanIds: row.applicablePlanIds ?? undefined,
+    duration: row.duration,
+    durationInMonths: row.durationInMonths ?? undefined,
+    isActive: row.isActive,
+    validFrom: row.validFrom ? new Date(row.validFrom).toISOString() : undefined,
+    validUntil: row.validUntil ? new Date(row.validUntil).toISOString() : undefined,
+    maxRedemptions: row.maxRedemptions ?? undefined,
+    currentRedemptions: row.currentRedemptions,
+    maxRedemptionsPerTenant: row.maxRedemptionsPerTenant ?? undefined,
+    minimumOrderAmount: row.minimumOrderAmount?.toString(),
+    campaignId: row.campaignId ?? undefined,
+    campaignName: row.campaignName ?? undefined,
+    stripePromotionCodeId: row.stripePromotionCodeId ?? undefined,
+    stripeCouponId: row.stripeCouponId ?? undefined,
+    isReferralCode: row.isReferralCode,
+    referrerId: row.referrerId ?? undefined,
+    metadata: row.metadata ?? undefined,
+    createdAt: new Date(row.createdAt).toISOString(),
+    updatedAt: new Date(row.updatedAt).toISOString(),
+    createdBy: row.createdBy ?? undefined,
+    updatedBy: row.updatedBy ?? undefined,
+  };
+}
+
+/** billing's command reply, in the same wire shape as a read. */
+function fromSnapshot(snapshot: BillingDiscountCodeSnapshot): DiscountCodeResponseDto {
+  const branch =
+    snapshot.discountType === 'percentage'
+      ? { percentOff: snapshot.percentOff }
+      : snapshot.discountType === 'fixed_amount'
+        ? { amountOff: snapshot.amountOff }
+        : snapshot.discountType === 'free_months'
+          ? { freeMonths: snapshot.freeMonths }
+          : { trialExtensionDays: snapshot.trialExtensionDays };
+
+  return {
+    id: snapshot.id,
+    code: snapshot.code,
+    name: snapshot.name,
+    description: snapshot.description,
+    discountType: snapshot.discountType,
+    ...branch,
+    currency: snapshot.currency,
+    appliesTo: snapshot.appliesTo ?? 'all_plans',
+    applicablePlanIds: snapshot.applicablePlanIds,
+    duration: snapshot.duration ?? 'once',
+    durationInMonths: snapshot.durationInMonths,
+    isActive: snapshot.isActive,
+    validFrom: snapshot.validFrom,
+    validUntil: snapshot.validUntil,
+    maxRedemptions: snapshot.maxRedemptions,
+    currentRedemptions: snapshot.currentRedemptions,
+    maxRedemptionsPerTenant: snapshot.maxRedemptionsPerTenant,
+    minimumOrderAmount: snapshot.minimumOrderAmount,
+    campaignId: snapshot.campaignId,
+    campaignName: snapshot.campaignName,
+    stripePromotionCodeId: snapshot.stripePromotionCodeId ?? undefined,
+    stripeCouponId: snapshot.stripeCouponId ?? undefined,
+    isReferralCode: snapshot.isReferralCode ?? false,
+    referrerId: snapshot.referrerId,
+    metadata: snapshot.metadata,
+    createdAt: snapshot.createdAt,
+    updatedAt: snapshot.updatedAt,
+    createdBy: snapshot.createdBy ?? undefined,
+    updatedBy: snapshot.updatedBy ?? undefined,
+  };
+}
+
+function toRedemptionResponse(row: DiscountRedemptionReadOnly): DiscountRedemptionResponseDto {
+  return {
+    id: row.id,
+    discountCodeId: row.discountCodeId,
+    tenantId: row.tenantId,
+    subscriptionId: row.subscriptionId ?? undefined,
+    invoiceId: row.invoiceId ?? undefined,
+    discountAmount: row.discountAmount.toString(),
+    currency: row.currency,
+    redeemedAt: new Date(row.redeemedAt).toISOString(),
+    redeemedBy: row.redeemedBy ?? undefined,
+  };
 }

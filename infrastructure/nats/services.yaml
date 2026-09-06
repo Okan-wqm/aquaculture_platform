@@ -306,6 +306,16 @@ services:
       - 'request.billing.admin.cancelSubscription'
       - 'request.billing.admin.reactivateSubscription'
       - 'request.billing.admin.extendSubscriptionTrial'
+      # ADR-0013 / BILLING-CRITICAL-002: the discount catalogue lives in
+      # billing; admin-api authors it over these commands and only reads the
+      # rows back.
+      - 'request.billing.admin.createDiscountCode'
+      - 'request.billing.admin.updateDiscountCode'
+      - 'request.billing.admin.deactivateDiscountCode'
+      - 'request.billing.admin.bulkCreateDiscountCodes'
+      - 'request.billing.admin.generateDiscountCode'
+      - 'request.billing.admin.validateDiscountCode'
+      - 'request.billing.admin.applyDiscountCode'
       - 'request.billing.tenant.provisionSubscription'
       - 'request.auth.admin.createUser'
       - 'request.auth.admin.resetUserPassword'

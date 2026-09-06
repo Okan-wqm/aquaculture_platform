@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 
 import { ModulePricing } from '../entities/module-pricing.entity';
 import { PlanTier, BillingCycle } from '../entities/plan-definition.entity';
@@ -82,6 +82,25 @@ export interface QuoteRequest {
 }
 
 /**
+ * Who the quote is for. Required whenever a `discountCode` is quoted, because
+ * every discount rule (per-tenant caps, upgrade / new-subscription
+ * restrictions) is relative to a real tenant, and billing records the actor.
+ */
+export interface PricingDiscountContext {
+  tenantId: string;
+  actorId: string;
+}
+
+/** Two quotes side by side, as `POST /billing/pricing/compare` returns them. */
+export interface PricingComparison {
+  config1: PricingCalculation;
+  config2: PricingCalculation;
+  difference: number;
+  percentDifference: number;
+  recommendation: string;
+}
+
+/**
  * Map metric type to quantity field
  */
 const METRIC_TO_QUANTITY_MAP: Partial<Record<PricingMetricType, keyof ModuleQuantities>> = {
@@ -138,7 +157,10 @@ export class PricingCalculatorService {
   /**
    * Calculate pricing for a set of modules
    */
-  async calculatePricing(request: QuoteRequest): Promise<PricingCalculation> {
+  async calculatePricing(
+    request: QuoteRequest,
+    context?: PricingDiscountContext,
+  ): Promise<PricingCalculation> {
     const { modules, tier, billingCycle, discountCode, taxRate = 0 } = request;
 
     const moduleBreakdowns: ModulePriceBreakdown[] = [];
@@ -183,7 +205,7 @@ export class PricingCalculatorService {
     let discountDescription = '';
 
     if (discountCode) {
-      const discount = await this.applyDiscountCode(discountCode, cycleTotal);
+      const discount = await this.previewDiscountCode(discountCode, cycleTotal, context);
       if (discount) {
         discountAmount = discount.amount;
         discountPercent = discount.percent;
@@ -311,47 +333,58 @@ export class PricingCalculatorService {
   }
 
   /**
-   * Apply discount code and return discount details
+   * What a discount code would take off this quote — as billing answers it.
+   *
+   * The calculator used to re-implement the percentage/fixed arithmetic and
+   * validate against a fabricated tenant id (`'system-quote'`), so a quote
+   * could show a discount the redemption would then refuse, and per-tenant
+   * caps were invisible to it. billing owns both the rules and the amount
+   * (ADR-0013); this only renders the answer. A code quoted without a tenant
+   * is REFUSED rather than previewed against nobody — the caps and the
+   * upgrade / new-subscription restrictions are all tenant-relative.
    */
-  private async applyDiscountCode(
+  private async previewDiscountCode(
     code: string,
     subtotal: number,
+    context?: PricingDiscountContext,
   ): Promise<{ amount: number; percent: number; description: string } | null> {
-    try {
-      // Use validateCode method - pass empty tenantId since we're just checking the code
-      const validation = await this.discountCodeService.validateCode(
-        code,
-        'system-quote',
-        undefined,
-        subtotal,
+    if (!context) {
+      throw new BadRequestException(
+        'A discount code can only be quoted for a tenant — supply tenantId with the quote',
       );
+    }
 
-      if (!validation.valid) {
-        this.logger.warn(`Invalid discount code: ${code} - ${validation.message}`);
-        return null;
-      }
+    const validation = await this.discountCodeService.validateCode(
+      code,
+      context.tenantId,
+      context.actorId,
+      { orderAmount: subtotal.toFixed(4) },
+    );
 
-      const discount = validation.discountCode!;
-      let amount = 0;
-      let percent = 0;
-
-      if (discount.discountType === 'percentage') {
-        percent = discount.discountValue;
-        amount = subtotal * (percent / 100);
-      } else {
-        // Fixed amount
-        amount = Math.min(discount.discountValue, subtotal);
-      }
-
-      return {
-        amount,
-        percent,
-        description: discount.description || `Discount: ${code}`,
-      };
-    } catch (error) {
-      this.logger.error(`Error applying discount code: ${error}`);
+    if (!validation.valid || !validation.discountCode) {
+      this.logger.warn(
+        JSON.stringify({
+          event: 'pricing.discount.refused',
+          reason: validation.reason ?? 'unknown',
+        }),
+      );
       return null;
     }
+
+    const discount = validation.discountCode;
+    const amount = Number(validation.discountAmount ?? '0');
+    const percent =
+      discount.discountType === 'percentage'
+        ? Number(discount.percentOff)
+        : subtotal > 0
+          ? (amount / subtotal) * 100
+          : 0;
+
+    return {
+      amount,
+      percent,
+      description: discount.description || `Discount: ${code}`,
+    };
   }
 
   /**
@@ -386,15 +419,10 @@ export class PricingCalculatorService {
   async comparePricing(
     config1: QuoteRequest,
     config2: QuoteRequest,
-  ): Promise<{
-    config1: PricingCalculation;
-    config2: PricingCalculation;
-    difference: number;
-    percentDifference: number;
-    recommendation: string;
-  }> {
-    const pricing1 = await this.calculatePricing(config1);
-    const pricing2 = await this.calculatePricing(config2);
+    context?: PricingDiscountContext,
+  ): Promise<PricingComparison> {
+    const pricing1 = await this.calculatePricing(config1, context);
+    const pricing2 = await this.calculatePricing(config2, context);
 
     const difference = pricing2.monthlyTotal - pricing1.monthlyTotal;
     const percentDifference =

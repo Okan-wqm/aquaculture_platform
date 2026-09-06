@@ -4,11 +4,20 @@
 
 import { apiFetch, buildQueryString } from '../http-client';
 import type {
+  BulkCreateDiscountCodesDto,
   CreateDiscountCodeDto,
   PlanDefinition,
   PlanTier,
+  DiscountApplication,
   DiscountCode,
+  DiscountCodeLookup,
+  DiscountCodePage,
+  DiscountCodeTemplate,
+  DiscountRedemptionPage,
   DiscountStats,
+  DiscountSubscriptionChange,
+  DiscountValidation,
+  UpdateDiscountCodeDto,
   PaymentOverview,
   RecordPaymentDto,
   RefundPaymentDto,
@@ -60,41 +69,84 @@ export const billingApi = {
     apiFetch<{ users: number; farms: number; sensors: number; storage: number; apiCallsPerDay: number }>(`/billing/plans/defaults/${tier}`),
 
   // Discount Codes
-  getDiscountCodes: (options?: { isActive?: boolean; includeExpired?: boolean }) =>
-    apiFetch<DiscountCode[]>(`/billing/discounts?${buildQueryString(options || {})}`),
+  //
+  // ADR-0013: billing owns the catalogue and admin-api forwards every write.
+  // The paged reads return `{ data, total, page, limit }` — the previous
+  // client typed them as a bare array, so `.map` on the response was always
+  // going to be `undefined` at runtime.
+  getDiscountCodes: (options?: {
+    isActive?: boolean;
+    campaignId?: string;
+    includeExpired?: boolean;
+    page?: number;
+    limit?: number;
+  }) => apiFetch<DiscountCodePage>(`/billing/discounts?${buildQueryString(options || {})}`),
   getDiscountStats: () => apiFetch<DiscountStats>('/billing/discounts/stats'),
   getDiscountById: (id: string) => apiFetch<DiscountCode>(`/billing/discounts/${id}`),
-  getDiscountByCode: (code: string) => apiFetch<{ found: boolean; discount?: DiscountCode }>(`/billing/discounts/code/${code}`),
+  getDiscountByCode: (code: string) =>
+    apiFetch<DiscountCodeLookup>(`/billing/discounts/code/${code}`),
   // The actor is never a body property: the server reads it from the verified
   // principal and REFUSES a body that claims one (ADMIN-CRITICAL-008), and the
   // contract type no longer has the field to strip.
   createDiscountCode: (data: CreateDiscountCodeDto) =>
     apiFetch<DiscountCode>('/billing/discounts', { method: 'POST', body: JSON.stringify(data) }),
-  updateDiscountCode: (id: string, data: Partial<DiscountCode>) =>
-    apiFetch<DiscountCode>(`/billing/discounts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  deactivateDiscountCode: (id: string, _updatedBy?: string) =>
+  // Only the mutable half: a code's value, its code and its campaign are minted
+  // once, and the server refuses a body that tries to change them.
+  updateDiscountCode: (id: string, data: UpdateDiscountCodeDto) =>
+    apiFetch<DiscountCode>(`/billing/discounts/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  deactivateDiscountCode: (id: string) =>
     apiFetch<DiscountCode>(`/billing/discounts/${id}/deactivate`, { method: 'POST' }),
-  validateDiscountCode: (code: string, tenantId: string, planId?: string, orderAmount?: number) =>
-    apiFetch<{ valid: boolean; discountCode?: DiscountCode; discountAmount?: number }>('/billing/discounts/validate', {
+  validateDiscountCode: (
+    code: string,
+    tenantId: string,
+    options?: {
+      planId?: string;
+      subscriptionChange?: DiscountSubscriptionChange;
+      /** Exact decimal string. */
+      orderAmount?: string;
+    },
+  ) =>
+    apiFetch<DiscountValidation>('/billing/discounts/validate', {
       method: 'POST',
-      body: JSON.stringify({ code, tenantId, planId, orderAmount }),
+      body: JSON.stringify({ code, tenantId, ...options }),
     }),
   generateUniqueCode: (prefix?: string, length?: number) =>
-    apiFetch<{ code: string }>('/billing/discounts/generate-code', { method: 'POST', body: JSON.stringify({ prefix, length }) }),
-  applyDiscount: (code: string, tenantId: string, originalAmount: number, options?: { subscriptionId?: string; invoiceId?: string; planId?: string; redeemedBy?: string }) =>
-    apiFetch<{ success: boolean; originalAmount: number; discountAmount: number; finalAmount: number; redemptionId?: string }>('/billing/discounts/apply', {
+    apiFetch<{ code: string }>('/billing/discounts/generate-code', {
       method: 'POST',
-      body: JSON.stringify({ code, tenantId, originalAmount, ...options }),
+      body: JSON.stringify({ prefix, length }),
     }),
-  bulkCreateDiscounts: (count: number, template: Omit<Partial<DiscountCode>, 'code'>, codePrefix?: string) =>
-    apiFetch<{ success: boolean; count: number; codes: DiscountCode[] }>('/billing/discounts/bulk-create', {
+  applyDiscount: (
+    code: string,
+    tenantId: string,
+    /** Exact decimal string — money is never sent as a float. */
+    orderAmount: string,
+    options?: {
+      subscriptionId?: string;
+      invoiceId?: string;
+      planId?: string;
+      subscriptionChange?: DiscountSubscriptionChange;
+    },
+  ) =>
+    apiFetch<DiscountApplication>('/billing/discounts/apply', {
       method: 'POST',
-      body: JSON.stringify({ count, template, codePrefix }),
+      body: JSON.stringify({ code, tenantId, orderAmount, ...options }),
     }),
-  getDiscountRedemptions: (discountId: string) =>
-    apiFetch<Array<{ id: string; tenantId: string; tenantName: string; redeemedAt: string; amount: number }>>(`/billing/discounts/${discountId}/redemptions`),
-  getTenantRedemptions: (tenantId: string) =>
-    apiFetch<Array<{ id: string; discountCode: string; redeemedAt: string; amount: number }>>(`/billing/tenant/${tenantId}/redemptions`),
+  bulkCreateDiscounts: (count: number, template: DiscountCodeTemplate, codePrefix?: string) =>
+    apiFetch<{ success: boolean; count: number; codes: DiscountCode[] }>(
+      '/billing/discounts/bulk-create',
+      { method: 'POST', body: JSON.stringify({ count, template, codePrefix }) },
+    ),
+  getDiscountRedemptions: (discountId: string, options?: { page?: number; limit?: number }) =>
+    apiFetch<DiscountRedemptionPage>(
+      `/billing/discounts/${discountId}/redemptions?${buildQueryString(options || {})}`,
+    ),
+  getTenantRedemptions: (tenantId: string, options?: { page?: number; limit?: number }) =>
+    apiFetch<DiscountRedemptionPage>(
+      `/billing/tenant/${tenantId}/redemptions?${buildQueryString(options || {})}`,
+    ),
 
   // Subscriptions
   getSubscriptions: (filters?: {

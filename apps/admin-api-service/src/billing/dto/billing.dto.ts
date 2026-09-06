@@ -17,14 +17,23 @@ import {
   Min,
   Max,
   ArrayMaxSize,
+  IsIn,
+  Matches,
+  ValidateIf,
   ValidateNested,
+  ValidatorConstraint,
+  registerDecorator,
+  type ValidationArguments,
+  type ValidationOptions,
+  type ValidatorConstraintInterface,
 } from 'class-validator';
+import type {
+  BillingDiscountAppliesTo,
+  BillingDiscountDuration,
+  BillingDiscountSubscriptionChange,
+  BillingDiscountType,
+} from '@platform/event-contracts';
 
-import {
-  DiscountAppliesTo,
-  DiscountDuration,
-  DiscountType,
-} from '../entities/discount-code.entity';
 import { BillingCycle, PlanTier, PlanVisibility } from '../entities/plan-definition.entity';
 import { PricingMetricType } from '../entities/pricing-metric.enum';
 
@@ -240,25 +249,137 @@ export class UpdatePlanDto {
 // Discount codes
 // ============================================================================
 
+/**
+ * An exact decimal string. Money and rates cross the admin boundary as text
+ * for the same reason they do on the NATS wire: '12.50' is the same value on
+ * both sides, 12.5 is not necessarily (ADR-0013).
+ */
+const MONEY_STRING = /^\d{1,13}(\.\d{1,4})?$/;
+const PERCENT_STRING = /^\d{1,3}(\.\d{1,2})?$/;
+
+const DISCOUNT_TYPES: readonly BillingDiscountType[] = [
+  'percentage',
+  'fixed_amount',
+  'free_months',
+  'free_trial_extension',
+];
+const DISCOUNT_APPLIES_TO: readonly BillingDiscountAppliesTo[] = [
+  'all_plans',
+  'specific_plans',
+  'upgrades_only',
+  'new_subscriptions_only',
+];
+const DISCOUNT_DURATIONS: readonly BillingDiscountDuration[] = ['once', 'repeating', 'forever'];
+const SUBSCRIPTION_CHANGES: readonly BillingDiscountSubscriptionChange[] = [
+  'new',
+  'upgrade',
+  'other',
+];
+
+/** Which field carries the value, per kind — the same split billing's CHECK enforces. */
+const VALUE_FIELD_BY_TYPE: Readonly<Record<BillingDiscountType, string>> = {
+  percentage: 'percentOff',
+  fixed_amount: 'amountOff',
+  free_months: 'freeMonths',
+  free_trial_extension: 'trialExtensionDays',
+};
+
+/**
+ * Exactly one value field, and it must be the one the kind names.
+ *
+ * `@ValidateIf` cannot express this per-property: two conditions on one
+ * property are ANDed, so "required for my kind AND forbidden for the others"
+ * has to be asked once, over the whole object.
+ */
+@ValidatorConstraint({ name: 'discountValueBranch', async: false })
+class DiscountValueBranchConstraint implements ValidatorConstraintInterface {
+  validate(_value: unknown, args: ValidationArguments): boolean {
+    const object = args.object as Record<string, unknown>;
+    const kind = object['discountType'];
+    if (typeof kind !== 'string' || !(kind in VALUE_FIELD_BY_TYPE)) return false;
+    const expected = VALUE_FIELD_BY_TYPE[kind as BillingDiscountType];
+    if (object[expected] === undefined || object[expected] === null) return false;
+    return Object.entries(VALUE_FIELD_BY_TYPE)
+      .filter(([type]) => type !== kind)
+      .every(([, field]) => object[field] === undefined || object[field] === null);
+  }
+
+  defaultMessage(args: ValidationArguments): string {
+    const kind = (args.object as Record<string, unknown>)['discountType'];
+    const expected =
+      typeof kind === 'string' && kind in VALUE_FIELD_BY_TYPE
+        ? VALUE_FIELD_BY_TYPE[kind as BillingDiscountType]
+        : null;
+    return expected
+      ? `a ${String(kind)} discount must set ${expected} and no other value field`
+      : `discountType must be one of ${DISCOUNT_TYPES.join(', ')}`;
+  }
+}
+
+function DiscountValueBranch(options?: ValidationOptions): PropertyDecorator {
+  return (object: object, propertyName: string | symbol): void => {
+    registerDecorator({
+      name: 'discountValueBranch',
+      target: object.constructor,
+      propertyName: propertyName as string,
+      options,
+      validator: DiscountValueBranchConstraint,
+    });
+  };
+}
+
 /** Everything a discount code carries except its code — the bulk-create template. */
 export class DiscountCodeTemplateDto {
   @IsString() @MaxLength(255) name!: string;
   @IsOptional() @IsString() @MaxLength(2000) description?: string;
-  @IsEnum(DiscountType) discountType!: DiscountType;
-  @IsNumber() @Min(0) discountValue!: number;
-  @IsOptional() @IsEnum(DiscountAppliesTo) appliesTo?: DiscountAppliesTo;
+
+  @IsIn(DISCOUNT_TYPES)
+  @DiscountValueBranch()
+  discountType!: BillingDiscountType;
+
+  // ── The value, by kind. `billing.discount_codes` holds these same four
+  // columns under one CHECK; the previous single `discountValue` could not be
+  // constrained because 150 was a legal 150% and a legal $150 at once.
+  @ValidateIf((o: DiscountCodeTemplateDto) => o.discountType === 'percentage')
+  @Matches(PERCENT_STRING, { message: 'percentOff must be a decimal string with up to 2 places' })
+  percentOff?: string;
+
+  @ValidateIf((o: DiscountCodeTemplateDto) => o.discountType === 'fixed_amount')
+  @Matches(MONEY_STRING, { message: 'amountOff must be a decimal string with up to 4 places' })
+  amountOff?: string;
+
+  @ValidateIf((o: DiscountCodeTemplateDto) => o.discountType === 'free_months')
+  @IsInt()
+  @Min(1)
+  @Max(120)
+  freeMonths?: number;
+
+  @ValidateIf((o: DiscountCodeTemplateDto) => o.discountType === 'free_trial_extension')
+  @IsInt()
+  @Min(1)
+  @Max(3650)
+  trialExtensionDays?: number;
+
+  /** ISO-4217, upper-case. Denominates amountOff and minimumOrderAmount. */
+  @IsOptional()
+  @Matches(/^[A-Z]{3}$/, { message: 'currency must be an ISO-4217 code' })
+  currency?: string;
+
+  @IsOptional() @IsIn(DISCOUNT_APPLIES_TO) appliesTo?: BillingDiscountAppliesTo;
   @IsOptional()
   @IsArray()
   @IsUUID('4', { each: true })
   @ArrayMaxSize(200)
   applicablePlanIds?: string[];
-  @IsOptional() @IsEnum(DiscountDuration) duration?: DiscountDuration;
+  @IsOptional() @IsIn(DISCOUNT_DURATIONS) duration?: BillingDiscountDuration;
   @IsOptional() @IsInt() @Min(1) @Max(120) durationInMonths?: number;
-  @IsOptional() @Type(() => Date) @IsDate() validFrom?: Date;
-  @IsOptional() @Type(() => Date) @IsDate() validUntil?: Date;
+  @IsOptional() @IsISO8601() validFrom?: string;
+  @IsOptional() @IsISO8601() validUntil?: string;
   @IsOptional() @IsInt() @Min(1) maxRedemptions?: number;
   @IsOptional() @IsInt() @Min(1) maxRedemptionsPerTenant?: number;
-  @IsOptional() @IsNumber() @Min(0) minimumOrderAmount?: number;
+  @IsOptional()
+  @Matches(MONEY_STRING, { message: 'minimumOrderAmount must be a decimal string' })
+  minimumOrderAmount?: string;
   @IsOptional() @IsString() @MaxLength(100) campaignId?: string;
   @IsOptional() @IsString() @MaxLength(255) campaignName?: string;
   @IsOptional() @IsBoolean() isReferralCode?: boolean;
@@ -267,15 +388,27 @@ export class DiscountCodeTemplateDto {
 }
 
 export class CreateDiscountCodeDto extends DiscountCodeTemplateDto {
-  @IsString() @MaxLength(64) code!: string;
+  @Matches(/^[A-Za-z0-9_-]{3,64}$/, {
+    message: 'code must be 3-64 characters of letters, digits, _ or -',
+  })
+  code!: string;
 }
 
+/**
+ * The mutable half. The value branch, the code and the campaign are absent on
+ * purpose: a code already handed to a customer that silently changes what it
+ * is worth is a repudiation risk, so a different offer is a different code.
+ *
+ * Absent is the enforcement, not an omission — `forbidNonWhitelisted: true`
+ * (the global ValidationPipe) refuses a body carrying `discountType`,
+ * `percentOff`, `amountOff` or `code` with 400 rather than ignoring them.
+ */
 export class UpdateDiscountCodeDto {
   @IsOptional() @IsString() @MaxLength(255) name?: string;
   @IsOptional() @IsString() @MaxLength(2000) description?: string;
   @IsOptional() @IsBoolean() isActive?: boolean;
-  @IsOptional() @Type(() => Date) @IsDate() validFrom?: Date;
-  @IsOptional() @Type(() => Date) @IsDate() validUntil?: Date;
+  @IsOptional() @IsISO8601() validFrom?: string;
+  @IsOptional() @IsISO8601() validUntil?: string;
   @IsOptional() @IsInt() @Min(1) maxRedemptions?: number;
   @IsOptional() @IsInt() @Min(1) maxRedemptionsPerTenant?: number;
   @IsOptional() @IsObject() metadata?: Record<string, unknown>;
@@ -304,6 +437,14 @@ export class SetModulePricingDto {
 }
 
 export class QuoteRequest {
+  /**
+   * ADMIN-CRITICAL-009: whitelisted carrier key; the verified id arrives
+   * through @TenantParam('body'). Required only when `discountCode` is set —
+   * a discount is quoted for a tenant or not at all (ADR-0013).
+   */
+  @TenantIdCarrier()
+  readonly tenantId?: undefined;
+
   @IsArray()
   @ArrayMaxSize(100)
   @ValidateNested({ each: true })
@@ -489,10 +630,18 @@ export class ValidateDiscountCodeDto {
   @IsUUID('4')
   planId?: string;
 
+  /**
+   * What the redemption is for. An `upgrades_only` / `new_subscriptions_only`
+   * code cannot be decided without it, and billing refuses one rather than
+   * assuming — the two restrictions used to permit everything.
+   */
   @IsOptional()
-  @IsNumber()
-  @Min(0)
-  orderAmount?: number;
+  @IsIn(SUBSCRIPTION_CHANGES)
+  subscriptionChange?: BillingDiscountSubscriptionChange;
+
+  @IsOptional()
+  @Matches(MONEY_STRING, { message: 'orderAmount must be a decimal string' })
+  orderAmount?: string;
 }
 
 export class ApplyDiscountCodeDto {
@@ -504,9 +653,8 @@ export class ApplyDiscountCodeDto {
   @MaxLength(100)
   code!: string;
 
-  @IsNumber()
-  @Min(0)
-  originalAmount!: number;
+  @Matches(MONEY_STRING, { message: 'orderAmount must be a decimal string' })
+  orderAmount!: string;
 
   @IsOptional()
   @IsUUID('4')
@@ -519,25 +667,32 @@ export class ApplyDiscountCodeDto {
   @IsOptional()
   @IsUUID('4')
   planId?: string;
+
+  /** See ValidateDiscountCodeDto.subscriptionChange. */
+  @IsOptional()
+  @IsIn(SUBSCRIPTION_CHANGES)
+  subscriptionChange?: BillingDiscountSubscriptionChange;
 }
 
 export class GenerateDiscountCodeDto {
   @IsOptional()
-  @IsString()
-  @MaxLength(20)
+  @Matches(/^[A-Za-z0-9_]{1,20}$/, { message: 'prefix must be letters, digits or _' })
   prefix?: string;
 
   @IsOptional()
-  @IsNumber()
+  @IsInt()
   @Min(4)
   @Max(32)
   length?: number;
 }
 
 export class BulkCreateDiscountCodesDto {
-  @IsNumber()
+  // 500 is billing's own ceiling — the codes are minted one at a time so each
+  // gets its own uniqueness check, and a larger batch would hold the command
+  // open past the NATS request timeout.
+  @IsInt()
   @Min(1)
-  @Max(1000)
+  @Max(500)
   count!: number;
 
   @ValidateNested()
@@ -591,6 +746,10 @@ export class QuickEstimateDto {
 }
 
 export class ComparePricingDto {
+  /** ADMIN-CRITICAL-009: whitelisted carrier key; see QuoteRequest.tenantId. */
+  @TenantIdCarrier()
+  readonly tenantId?: undefined;
+
   @ValidateNested()
   @Type(() => QuoteRequest)
   config1!: QuoteRequest;

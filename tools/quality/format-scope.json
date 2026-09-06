@@ -1076,7 +1076,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "7a67b89e7bcccb2c875b0ad419f340b99d9d90fa9f14a97b535037e837ededc6",
+      "content_sha256": "b356ac9fc8d16622660810cea3e7672dad596773e765abf5e8dc9b02b8d20bdd",
       "hash_policy": "sha256",
       "owner": "admin-openapi-generator",
       "path": "apps/admin-api-service/openapi.json",
@@ -1340,13 +1340,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/billing/dto/discount-response.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/billing/entities/custom-plan.entity.ts",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/billing/entities/discount-code.entity.ts",
+      "path": "apps/admin-api-service/src/billing/entities/external/discount-code.entity.ts",
       "prettier_managed": true
     },
     {
@@ -2153,6 +2159,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/migrations/1808800000000-RetireIpAccessRules.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1808900000000-RetireAdminDiscountCatalogue.ts",
       "prettier_managed": true
     },
     {
@@ -6028,6 +6040,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/billing/__tests__/discount-code.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/billing/__tests__/discount-rules.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/billing/__tests__/finalize-invoice.handler.spec.ts",
       "prettier_managed": true
     },
@@ -6232,6 +6256,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/billing/entities/discount-code.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/billing/entities/invoice.entity.ts",
       "prettier_managed": true
     },
@@ -6286,7 +6316,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/billing/handlers/__tests__/billing-discount-nats.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/billing/handlers/billing-admin-nats.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/billing/handlers/billing-discount-nats.handler.ts",
       "prettier_managed": true
     },
     {
@@ -6443,6 +6485,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/billing-service/src/billing/seed/plan-seed.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/billing/services/discount-code.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/billing/services/discount-rules.ts",
       "prettier_managed": true
     },
     {
@@ -6609,6 +6663,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/billing-service/src/database/migrations/1801900000000-AddPlanTierFreeEnumValue.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/database/migrations/1802000000000-CreateDiscountCatalogue.ts",
       "prettier_managed": true
     },
     {
@@ -44273,6 +44333,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/lib/catalog-entity-table.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/lib/dead-contract-scan.ts",
       "prettier_managed": true
     },
@@ -44526,6 +44592,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/pii-events-mandatory-crypto-shred.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/plan-catalog-ssot.spec.ts",
       "prettier_managed": true
     },
     {
@@ -48811,7 +48883,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "4515c8aca6a44b95e9c10ba0f8eae9f8ce71b7cadc50d98f4feb928b60448601",
+      "content_sha256": "f8e2a567fc0786955b6dd25b6b585d1511c79ac5939f7c449a1aaf8879410736",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/generated/admin-api.ts",

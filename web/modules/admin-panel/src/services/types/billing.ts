@@ -51,18 +51,31 @@ export const DiscountType = {
   FREE_MONTHS: 'free_months',
 } as const satisfies Record<string, DiscountType>;
 
-export enum DiscountAppliesTo {
-  ALL_PLANS = 'all_plans',
-  SPECIFIC_PLANS = 'specific_plans',
-  UPGRADES_ONLY = 'upgrades_only',
-  NEW_SUBSCRIPTIONS_ONLY = 'new_subscriptions_only',
-}
+/**
+ * ADR-0013: the same reason `DiscountType` stopped being a TypeScript `enum`.
+ * These were nominal enums whose members were not assignable to the strings
+ * the API exchanges, so the request the panel sent and the type it claimed
+ * could differ without the compiler noticing.
+ */
+export type DiscountAppliesTo = NonNullable<ApiSchema<'CreateDiscountCodeDto'>['appliesTo']>;
+export const DiscountAppliesTo = {
+  ALL_PLANS: 'all_plans',
+  SPECIFIC_PLANS: 'specific_plans',
+  UPGRADES_ONLY: 'upgrades_only',
+  NEW_SUBSCRIPTIONS_ONLY: 'new_subscriptions_only',
+} as const satisfies Record<string, DiscountAppliesTo>;
 
-export enum DiscountDuration {
-  ONCE = 'once',
-  FOREVER = 'forever',
-  REPEATING = 'repeating',
-}
+export type DiscountDuration = NonNullable<ApiSchema<'CreateDiscountCodeDto'>['duration']>;
+export const DiscountDuration = {
+  ONCE: 'once',
+  FOREVER: 'forever',
+  REPEATING: 'repeating',
+} as const satisfies Record<string, DiscountDuration>;
+
+/** What a redemption is for — decides an upgrades-only / new-subscriptions-only code. */
+export type DiscountSubscriptionChange = NonNullable<
+  ApiSchema<'ApplyDiscountCodeDto'>['subscriptionChange']
+>;
 
 export enum PricingMetricType {
   BASE_PRICE = 'base_price',
@@ -155,41 +168,24 @@ export interface PlanDefinition {
 // Discount Types
 // ============================================================================
 
-export interface DiscountCode {
-  id: string;
-  code: string;
-  name: string;
-  description?: string;
-  discountType: DiscountType;
-  discountValue: number;
-  appliesTo: DiscountAppliesTo;
-  duration: DiscountDuration;
-  durationInMonths?: number;
-  isActive: boolean;
-  validFrom?: string;
-  validUntil?: string;
-  maxRedemptions?: number;
-  maxRedemptionsPerTenant?: number;
-  currentRedemptions: number;
-  campaignId?: string;
-  campaignName?: string;
-  createdBy: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface DiscountStats {
-  totalCodes: number;
-  activeCodes: number;
-  expiredCodes: number;
-  totalRedemptions: number;
-  totalDiscountAmount: number;
-  topCodes: Array<{
-    code: string;
-    redemptions: number;
-    totalDiscount: number;
-  }>;
-}
+/**
+ * ADR-0013: billing owns the discount catalogue, and these are its shapes as
+ * the contract declares them. The hand-written version carried a single
+ * `discountValue: number` — a percentage for one code and an amount of money
+ * for the next, which is exactly the ambiguity the backend removed. Each kind
+ * now names its own field, and money is an exact decimal string.
+ */
+export type DiscountCode = ApiSchema<'DiscountCodeResponseDto'>;
+export type DiscountCodePage = ApiSchema<'DiscountCodePageDto'>;
+export type DiscountRedemption = ApiSchema<'DiscountRedemptionResponseDto'>;
+export type DiscountRedemptionPage = ApiSchema<'DiscountRedemptionPageDto'>;
+export type DiscountStats = ApiSchema<'DiscountStatsDto'>;
+export type DiscountValidation = ApiSchema<'DiscountValidationResponseDto'>;
+export type DiscountApplication = ApiSchema<'DiscountApplicationResponseDto'>;
+export type DiscountCodeLookup = ApiSchema<'DiscountCodeLookupDto'>;
+export type UpdateDiscountCodeDto = ApiSchema<'UpdateDiscountCodeDto'>;
+export type BulkCreateDiscountCodesDto = ApiSchema<'BulkCreateDiscountCodesDto'>;
+export type DiscountCodeTemplate = ApiSchema<'DiscountCodeTemplateDto'>;
 
 /** Generated from the backend contract (CONTRACT-CRITICAL-003). */
 export type CreateDiscountCodeDto = ApiSchema<'CreateDiscountCodeDto'>;

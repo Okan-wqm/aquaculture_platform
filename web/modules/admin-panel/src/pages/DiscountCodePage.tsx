@@ -16,6 +16,64 @@ import {
   CreateDiscountCodeDto,
 } from '../services/adminApi';
 
+/**
+ * The form's own draft of a code. ADR-0013 split the single `discountValue`
+ * into one field per kind — a percentage, an exact amount of money, a number
+ * of free months or a number of trial days — so the form keeps the operator's
+ * text and `withValueBranch` turns it into the branch the contract requires.
+ * Money and percentages leave here as exact decimal strings; a float would
+ * make `19.99` arrive as `19.989999999999998`.
+ */
+type DiscountDraft = Partial<Omit<CreateDiscountCodeDto, 'percentOff' | 'amountOff' | 'freeMonths' | 'trialExtensionDays'>>;
+
+const EMPTY_DRAFT: DiscountDraft = {
+  code: '',
+  name: '',
+  description: '',
+  discountType: DiscountType.PERCENTAGE,
+  appliesTo: DiscountAppliesTo.ALL_PLANS,
+  duration: DiscountDuration.ONCE,
+};
+
+/** What the value input means for the selected kind. */
+const VALUE_FIELD_LABEL: Record<DiscountType, string> = {
+  [DiscountType.PERCENTAGE]: 'Percent off (0-100) *',
+  [DiscountType.FIXED_AMOUNT]: 'Amount off *',
+  [DiscountType.FREE_MONTHS]: 'Free months *',
+  [DiscountType.FREE_TRIAL_EXTENSION]: 'Trial extension (days) *',
+};
+
+const VALUE_FIELD_PLACEHOLDER: Record<DiscountType, string> = {
+  [DiscountType.PERCENTAGE]: '10',
+  [DiscountType.FIXED_AMOUNT]: '50.00',
+  [DiscountType.FREE_MONTHS]: '2',
+  [DiscountType.FREE_TRIAL_EXTENSION]: '14',
+};
+
+function withValueBranch(draft: DiscountDraft, value: string): CreateDiscountCodeDto | null {
+  const trimmed = value.trim();
+  if (!draft.code || !draft.name || !draft.discountType || trimmed === '') return null;
+  const base = { ...draft, code: draft.code, name: draft.name };
+  switch (draft.discountType) {
+    case DiscountType.PERCENTAGE:
+      return { ...base, discountType: DiscountType.PERCENTAGE, percentOff: trimmed };
+    case DiscountType.FIXED_AMOUNT:
+      return { ...base, discountType: DiscountType.FIXED_AMOUNT, amountOff: trimmed };
+    case DiscountType.FREE_MONTHS: {
+      const months = Number.parseInt(trimmed, 10);
+      return Number.isFinite(months)
+        ? { ...base, discountType: DiscountType.FREE_MONTHS, freeMonths: months }
+        : null;
+    }
+    case DiscountType.FREE_TRIAL_EXTENSION: {
+      const days = Number.parseInt(trimmed, 10);
+      return Number.isFinite(days)
+        ? { ...base, discountType: DiscountType.FREE_TRIAL_EXTENSION, trialExtensionDays: days }
+        : null;
+    }
+  }
+}
+
 // ============================================================================
 // Discount Code Management Page
 // ============================================================================
@@ -32,15 +90,8 @@ const DiscountCodePage: React.FC = () => {
 
   // Create modal
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [newCode, setNewCode] = useState<Partial<CreateDiscountCodeDto>>({
-    code: '',
-    name: '',
-    description: '',
-    discountType: DiscountType.PERCENTAGE,
-    discountValue: 10,
-    appliesTo: DiscountAppliesTo.ALL_PLANS,
-    duration: DiscountDuration.ONCE,
-  });
+  const [newCode, setNewCode] = useState<DiscountDraft>(EMPTY_DRAFT);
+  const [valueDraft, setValueDraft] = useState('10');
 
   useEffect(() => {
     loadData();
@@ -56,7 +107,7 @@ const DiscountCodePage: React.FC = () => {
         }),
         billingApi.getDiscountStats(),
       ]);
-      setDiscountCodes(Array.isArray(codesResult) ? codesResult : []);
+      setDiscountCodes(codesResult.data);
       setStats(statsResult);
     } catch (err) {
       setError((err as Error).message);
@@ -75,23 +126,17 @@ const DiscountCodePage: React.FC = () => {
   };
 
   const handleCreateCode = async () => {
-    if (!newCode.code || !newCode.name || !newCode.discountValue) {
+    const payload = withValueBranch(newCode, valueDraft);
+    if (!payload) {
       setError('Please fill in all required fields');
       return;
     }
 
     try {
-      await billingApi.createDiscountCode(newCode as CreateDiscountCodeDto);
+      await billingApi.createDiscountCode(payload);
       setShowCreateModal(false);
-      setNewCode({
-        code: '',
-        name: '',
-        description: '',
-        discountType: DiscountType.PERCENTAGE,
-        discountValue: 10,
-        appliesTo: DiscountAppliesTo.ALL_PLANS,
-        duration: DiscountDuration.ONCE,
-          });
+      setNewCode(EMPTY_DRAFT);
+      setValueDraft('10');
       loadData();
     } catch (err) {
       setError((err as Error).message);
@@ -102,7 +147,7 @@ const DiscountCodePage: React.FC = () => {
     if (!confirm('Are you sure you want to deactivate this discount code?')) return;
 
     try {
-      await billingApi.deactivateDiscountCode(id, 'admin');
+      await billingApi.deactivateDiscountCode(id);
       loadData();
     } catch (err) {
       setError((err as Error).message);
@@ -119,18 +164,18 @@ const DiscountCodePage: React.FC = () => {
     return labels[type];
   };
 
+  // Each kind reads its own field, so a percentage can no longer be rendered
+  // as an amount of money (or the reverse) the way one `discountValue` allowed.
   const formatDiscountValue = (code: DiscountCode): string => {
     switch (code.discountType) {
       case DiscountType.PERCENTAGE:
-        return `${code.discountValue}%`;
+        return `${code.percentOff ?? '0'}%`;
       case DiscountType.FIXED_AMOUNT:
-        return `$${code.discountValue}`;
+        return `${code.amountOff ?? '0'} ${code.currency}`;
       case DiscountType.FREE_TRIAL_EXTENSION:
-        return `+${code.discountValue} days`;
+        return `+${code.trialExtensionDays ?? 0} days`;
       case DiscountType.FREE_MONTHS:
-        return `${code.discountValue} months free`;
-      default:
-        return String(code.discountValue);
+        return `${code.freeMonths ?? 0} months free`;
     }
   };
 
@@ -201,7 +246,7 @@ const DiscountCodePage: React.FC = () => {
           <Card className="p-4">
             <div className="text-sm font-medium text-gray-500">Total Discount Given</div>
             <div className="mt-1 text-2xl font-bold text-green-600">
-              ${stats.totalDiscountAmount.toLocaleString()}
+              ${Number(stats.totalDiscountAmount).toLocaleString()}
             </div>
           </Card>
 
@@ -227,7 +272,7 @@ const DiscountCodePage: React.FC = () => {
                 <div>
                   <div className="font-mono text-sm font-medium">{top.code}</div>
                   <div className="text-xs text-gray-500">
-                    {top.redemptions} uses | ${top.totalDiscount.toFixed(0)}
+                    {top.redemptions} uses | ${Number(top.totalDiscount).toFixed(0)}
                   </div>
                 </div>
               </div>
@@ -451,16 +496,18 @@ const DiscountCodePage: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Value *
+                    {VALUE_FIELD_LABEL[newCode.discountType ?? DiscountType.PERCENTAGE]}
                   </label>
+                  {/* Kept as text: an exact decimal string is what the contract
+                      takes, and a number input would round it on the way. */}
                   <Input
-                    type="number"
-                    min={0}
-                    value={newCode.discountValue || ''}
-                    onChange={(e) =>
-                      setNewCode({ ...newCode, discountValue: parseFloat(e.target.value) || 0 })
+                    type="text"
+                    inputMode="decimal"
+                    value={valueDraft}
+                    onChange={(e) => setValueDraft(e.target.value)}
+                    placeholder={
+                      VALUE_FIELD_PLACEHOLDER[newCode.discountType ?? DiscountType.PERCENTAGE]
                     }
-                    placeholder={newCode.discountType === DiscountType.PERCENTAGE ? '10' : '50'}
                   />
                 </div>
               </div>
@@ -597,15 +644,8 @@ const DiscountCodePage: React.FC = () => {
                 variant="outline"
                 onClick={() => {
                   setShowCreateModal(false);
-                  setNewCode({
-                    code: '',
-                    name: '',
-                    description: '',
-                    discountType: DiscountType.PERCENTAGE,
-                    discountValue: 10,
-                    appliesTo: DiscountAppliesTo.ALL_PLANS,
-                    duration: DiscountDuration.ONCE,
-                                  });
+                  setNewCode(EMPTY_DRAFT);
+                  setValueDraft('10');
                 }}
               >
                 Cancel

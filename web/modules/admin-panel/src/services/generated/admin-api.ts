@@ -1533,6 +1533,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/billing/discounts/code/{code}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["BillingController_getDiscountByCode"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/billing/discounts/{id}": {
         parameters: {
             query?: never;
@@ -1549,14 +1565,14 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/billing/discounts/code/{code}": {
+    "/billing/discounts/{id}/redemptions": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get: operations["BillingController_getDiscountByCode"];
+        get: operations["BillingController_getDiscountRedemptions"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1607,22 +1623,6 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["BillingController_applyDiscountCode"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/billing/discounts/{id}/redemptions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["BillingController_getDiscountRedemptions"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -7019,26 +7019,107 @@ export interface components {
             /** Format: uuid */
             newPlanId: string;
         };
-        CreateDiscountCodeDto: {
+        DiscountCodeResponseDto: {
+            id: string;
             code: string;
             name: string;
             description?: string;
             /** @enum {string} */
             discountType: "percentage" | "fixed_amount" | "free_trial_extension" | "free_months";
-            discountValue: number;
+            percentOff?: string;
+            amountOff?: string;
+            freeMonths?: number;
+            trialExtensionDays?: number;
+            currency: string;
+            /** @enum {string} */
+            appliesTo: "all_plans" | "specific_plans" | "upgrades_only" | "new_subscriptions_only";
+            applicablePlanIds?: string[];
+            /** @enum {string} */
+            duration: "once" | "repeating" | "forever";
+            durationInMonths?: number;
+            isActive: boolean;
+            validFrom?: string;
+            validUntil?: string;
+            maxRedemptions?: number;
+            currentRedemptions: number;
+            maxRedemptionsPerTenant?: number;
+            minimumOrderAmount?: string;
+            campaignId?: string;
+            campaignName?: string;
+            stripePromotionCodeId?: string;
+            stripeCouponId?: string;
+            isReferralCode: boolean;
+            referrerId?: string;
+            metadata?: {
+                [key: string]: unknown;
+            };
+            createdAt: string;
+            updatedAt: string;
+            createdBy?: string;
+            updatedBy?: string;
+        };
+        DiscountCodePageDto: {
+            data: components["schemas"]["DiscountCodeResponseDto"][];
+            total: number;
+            page: number;
+            limit: number;
+        };
+        DiscountTopCodeDto: {
+            code: string;
+            redemptions: number;
+            totalDiscount: string;
+        };
+        DiscountStatsDto: {
+            totalCodes: number;
+            activeCodes: number;
+            expiredCodes: number;
+            totalRedemptions: number;
+            totalDiscountAmount: string;
+            topCodes: components["schemas"]["DiscountTopCodeDto"][];
+        };
+        DiscountCodeLookupDto: {
+            found: boolean;
+            discount?: components["schemas"]["DiscountCodeResponseDto"];
+        };
+        DiscountRedemptionResponseDto: {
+            id: string;
+            discountCodeId: string;
+            tenantId: string;
+            subscriptionId?: string;
+            invoiceId?: string;
+            discountAmount: string;
+            currency: string;
+            redeemedAt: string;
+            redeemedBy?: string;
+        };
+        DiscountRedemptionPageDto: {
+            data: components["schemas"]["DiscountRedemptionResponseDto"][];
+            total: number;
+            page: number;
+            limit: number;
+        };
+        CreateDiscountCodeDto: {
+            code: string;
+            name: string;
+            description?: string;
+            /** @enum {string} */
+            discountType: "percentage" | "fixed_amount" | "free_months" | "free_trial_extension";
+            percentOff?: string;
+            amountOff?: string;
+            freeMonths?: number;
+            trialExtensionDays?: number;
+            currency?: string;
             /** @enum {string} */
             appliesTo?: "all_plans" | "specific_plans" | "upgrades_only" | "new_subscriptions_only";
             applicablePlanIds?: string[];
             /** @enum {string} */
             duration?: "once" | "repeating" | "forever";
             durationInMonths?: number;
-            /** Format: date-time */
             validFrom?: string;
-            /** Format: date-time */
             validUntil?: string;
             maxRedemptions?: number;
             maxRedemptionsPerTenant?: number;
-            minimumOrderAmount?: number;
+            minimumOrderAmount?: string;
             campaignId?: string;
             campaignName?: string;
             isReferralCode?: boolean;
@@ -7052,9 +7133,7 @@ export interface components {
             name?: string;
             description?: string;
             isActive?: boolean;
-            /** Format: date-time */
             validFrom?: string;
-            /** Format: date-time */
             validUntil?: string;
             maxRedemptions?: number;
             maxRedemptionsPerTenant?: number;
@@ -7071,7 +7150,17 @@ export interface components {
             code: string;
             /** Format: uuid */
             planId?: string;
-            orderAmount?: number;
+            /** @enum {string} */
+            subscriptionChange?: "new" | "upgrade" | "other";
+            orderAmount?: string;
+        };
+        DiscountValidationResponseDto: {
+            valid: boolean;
+            /** @enum {string} */
+            reason?: "upgrades_only" | "new_subscriptions_only" | "unknown_code" | "inactive" | "not_yet_valid" | "expired" | "redemption_limit_reached" | "tenant_limit_reached" | "plan_not_eligible" | "below_minimum_order";
+            message?: string;
+            discountAmount?: string;
+            discountCode?: components["schemas"]["DiscountCodeResponseDto"];
         };
         ApplyDiscountCodeDto: {
             /**
@@ -7080,37 +7169,56 @@ export interface components {
              */
             tenantId?: string;
             code: string;
-            originalAmount: number;
+            orderAmount: string;
             /** Format: uuid */
             subscriptionId?: string;
             /** Format: uuid */
             invoiceId?: string;
             /** Format: uuid */
             planId?: string;
+            /** @enum {string} */
+            subscriptionChange?: "new" | "upgrade" | "other";
+        };
+        DiscountApplicationResponseDto: {
+            valid: boolean;
+            /** @enum {string} */
+            reason?: "upgrades_only" | "new_subscriptions_only" | "unknown_code" | "inactive" | "not_yet_valid" | "expired" | "redemption_limit_reached" | "tenant_limit_reached" | "plan_not_eligible" | "below_minimum_order";
+            originalAmount: string;
+            discountAmount: string;
+            finalAmount: string;
+            grantedFreeMonths?: number;
+            grantedTrialExtensionDays?: number;
+            redemptionId?: string;
+            message?: string;
         };
         GenerateDiscountCodeDto: {
             prefix?: string;
             length?: number;
         };
+        GeneratedDiscountCodeDto: {
+            code: string;
+        };
         DiscountCodeTemplateDto: {
             name: string;
             description?: string;
             /** @enum {string} */
-            discountType: "percentage" | "fixed_amount" | "free_trial_extension" | "free_months";
-            discountValue: number;
+            discountType: "percentage" | "fixed_amount" | "free_months" | "free_trial_extension";
+            percentOff?: string;
+            amountOff?: string;
+            freeMonths?: number;
+            trialExtensionDays?: number;
+            currency?: string;
             /** @enum {string} */
             appliesTo?: "all_plans" | "specific_plans" | "upgrades_only" | "new_subscriptions_only";
             applicablePlanIds?: string[];
             /** @enum {string} */
             duration?: "once" | "repeating" | "forever";
             durationInMonths?: number;
-            /** Format: date-time */
             validFrom?: string;
-            /** Format: date-time */
             validUntil?: string;
             maxRedemptions?: number;
             maxRedemptionsPerTenant?: number;
-            minimumOrderAmount?: number;
+            minimumOrderAmount?: string;
             campaignId?: string;
             campaignName?: string;
             isReferralCode?: boolean;
@@ -7124,6 +7232,11 @@ export interface components {
             count: number;
             template: components["schemas"]["DiscountCodeTemplateDto"];
             codePrefix?: string;
+        };
+        BulkCreatedDiscountCodesDto: {
+            success: boolean;
+            count: number;
+            codes: components["schemas"]["DiscountCodeResponseDto"][];
         };
         PlanChangeRequest: {
             /**
@@ -7215,6 +7328,11 @@ export interface components {
             quantities: components["schemas"]["ModuleQuantitiesDto"];
         };
         QuoteRequest: {
+            /**
+             * Format: uuid
+             * @description Tenant id. Resolved and verified server-side before the handler runs; the value a handler uses never comes from this key.
+             */
+            tenantId?: string;
             modules: components["schemas"]["ModuleSelectionDto"][];
             /** @enum {string} */
             tier: "free" | "starter" | "professional" | "enterprise" | "custom";
@@ -7230,6 +7348,11 @@ export interface components {
             quantities?: components["schemas"]["ModuleQuantitiesDto"];
         };
         ComparePricingDto: {
+            /**
+             * Format: uuid
+             * @description Tenant id. Resolved and verified server-side before the handler runs; the value a handler uses never comes from this key.
+             */
+            tenantId?: string;
             config1: components["schemas"]["QuoteRequest"];
             config2: components["schemas"]["QuoteRequest"];
         };
@@ -7451,7 +7574,7 @@ export interface components {
             /** @enum {string} */
             defaultFormat: "json" | "csv" | "pdf";
             /** @enum {string} */
-            status: "draft" | "active" | "inactive";
+            status: "draft" | "inactive" | "active";
             /** @enum {string} */
             schedule: "monthly" | "daily" | "weekly" | "manual";
             defaultFilters?: {
@@ -7939,7 +8062,7 @@ export interface components {
             /** Format: date-time */
             terminatedAt?: string | null;
             /** @enum {string|null} */
-            terminationReason?: "security" | "logout" | "expired" | "forced" | null;
+            terminationReason?: "security" | "expired" | "logout" | "forced" | null;
             terminatedBy?: string | null;
             /** Format: date-time */
             createdAt: string;
@@ -8021,7 +8144,7 @@ export interface components {
             /** @enum {string} */
             requestType: "access" | "deletion" | "portability" | "rectification" | "restriction";
             /** @enum {string} */
-            status: "pending" | "completed" | "expired" | "rejected" | "in_progress";
+            status: "expired" | "pending" | "completed" | "rejected" | "in_progress";
             /** @enum {string} */
             complianceFramework: "gdpr" | "ccpa" | "hipaa" | "pci_dss" | "sox" | "iso27001";
             tenantId: string;
@@ -8070,7 +8193,7 @@ export interface components {
         };
         UpdateDataRequestDto: {
             /** @enum {string} */
-            status?: "pending" | "completed" | "expired" | "rejected" | "in_progress";
+            status?: "expired" | "pending" | "completed" | "rejected" | "in_progress";
             assignedTo?: string;
             assignedToName?: string;
             completionNotes?: string;
@@ -11168,7 +11291,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["DiscountCodePageDto"];
                 };
             };
         };
@@ -11191,7 +11314,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["DiscountCodeResponseDto"];
                 };
             };
         };
@@ -11210,7 +11333,28 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["DiscountStatsDto"];
+                };
+            };
+        };
+    };
+    BillingController_getDiscountByCode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiscountCodeLookupDto"];
                 };
             };
         };
@@ -11231,7 +11375,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["DiscountCodeResponseDto"];
                 };
             };
         };
@@ -11256,17 +11400,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["DiscountCodeResponseDto"];
                 };
             };
         };
     };
-    BillingController_getDiscountByCode: {
+    BillingController_getDiscountRedemptions: {
         parameters: {
-            query?: never;
+            query?: {
+                page?: string;
+                limit?: string;
+            };
             header?: never;
             path: {
-                code: string;
+                id: string;
             };
             cookie?: never;
         };
@@ -11277,7 +11424,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["DiscountRedemptionPageDto"];
                 };
             };
         };
@@ -11298,7 +11445,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["DiscountCodeResponseDto"];
                 };
             };
         };
@@ -11321,7 +11468,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["DiscountValidationResponseDto"];
                 };
             };
         };
@@ -11344,31 +11491,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
-                };
-            };
-        };
-    };
-    BillingController_getDiscountRedemptions: {
-        parameters: {
-            query?: {
-                limit?: string;
-                offset?: string;
-            };
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["DiscountApplicationResponseDto"];
                 };
             };
         };
@@ -11391,7 +11514,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["GeneratedDiscountCodeDto"];
                 };
             };
         };
@@ -11414,7 +11537,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["BulkCreatedDiscountCodesDto"];
                 };
             };
         };
@@ -11612,7 +11735,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["DiscountRedemptionPageDto"];
                 };
             };
         };
@@ -12510,7 +12633,7 @@ export interface operations {
             query?: {
                 tenantId?: string;
                 role?: string;
-                status?: "all" | "active" | "inactive";
+                status?: "all" | "inactive" | "active";
                 search?: string;
                 page?: number;
                 limit?: number;
@@ -16327,7 +16450,7 @@ export interface operations {
                 limit?: number;
                 tenantId?: string;
                 requestType?: "access" | "deletion" | "portability" | "rectification" | "restriction";
-                status?: "pending" | "completed" | "expired" | "rejected" | "in_progress";
+                status?: "expired" | "pending" | "completed" | "rejected" | "in_progress";
                 complianceFramework?: "gdpr" | "ccpa" | "hipaa" | "pci_dss" | "sox" | "iso27001";
                 startDate?: string;
                 endDate?: string;

@@ -146,7 +146,10 @@ function loadComposeDocument(relativePath: string): ComposeDocument {
 
 function composeVolumeSource(volume: ComposeVolume): string {
   if (typeof volume === 'string') {
-    return volume.split(':', 1)[0];
+    // A Compose default expression can itself contain a colon. Keep that
+    // expression intact while finding the source/target separator.
+    const source = /^((?:\$\{[^}]*\}|[^:])+):/.exec(volume);
+    return source ? source[1] : volume;
   }
   return volume.source ?? '';
 }
@@ -419,6 +422,9 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
       const identityByApplication = new Map(
         servicesDoc.services.map((service) => [service.application, service.name]),
       );
+      const certificateRoot = composePath === 'docker-compose.droplet.yml'
+        ? '${DEPLOY_CERTS_DIR:-./certs}/nats'
+        : './certs/nats';
 
       for (const [application, service] of Object.entries(compose.services)) {
         const expectedIdentity = identityByApplication.get(application);
@@ -448,13 +454,13 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
 
         const natsSources = (service.volumes ?? [])
           .map(composeVolumeSource)
-          .filter((source) => source.startsWith('./certs/nats'))
+          .filter((source) => source.includes('/nats'))
           .sort();
         expect(natsSources).toEqual(
           [
-            './certs/nats/ca-cert.pem',
-            `./certs/nats/clients/${expectedIdentity}-cert.pem`,
-            `./certs/nats/clients/${expectedIdentity}-key.pem`,
+            `${certificateRoot}/ca-cert.pem`,
+            `${certificateRoot}/clients/${expectedIdentity}-cert.pem`,
+            `${certificateRoot}/clients/${expectedIdentity}-key.pem`,
           ].sort(),
         );
       }

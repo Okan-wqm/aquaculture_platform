@@ -25,7 +25,6 @@ jobs:
       BASE_SHA: ${{ inputs.base_sha }}
       HEAD_SHA: ${{ inputs.head_sha }}
       PR_HEAD_SHA: ${{ inputs.pr_head_sha }}
-      RUNNER_ENVIRONMENT: ${{ runner.environment }}
       NODE_OPTIONS: '--max-old-space-size=6144'
       NX_DAEMON: 'false'
       NX_NO_CLOUD: 'true'
@@ -53,12 +52,20 @@ jobs:
           node e2e/node_modules/@playwright/test/cli.js install --with-deps chromium
           python3 -m pip install PyYAML==6.0.2
       - name: Generate isolated runtime configuration and ephemeral certificates
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: node scripts/ci/hosted-e2e-stack.mjs prepare
       - name: Build the exact candidate service and frontend images
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: node scripts/ci/hosted-e2e-stack.mjs build
       - name: Migrate authoritative schemas and start isolated full stack
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: node scripts/ci/hosted-e2e-stack.mjs up
       - name: Execute real login, MFA, security and mobile browser proof
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: node scripts/ci/hosted-e2e-proof.mjs
       - name: Upload exact candidate images, test counts and proof receipts
         if: always()
@@ -70,4 +77,6 @@ jobs:
           retention-days: 14
       - name: Remove only the isolated runner generation
         if: always()
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: node scripts/ci/hosted-e2e-stack.mjs down

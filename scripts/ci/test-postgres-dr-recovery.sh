@@ -19,6 +19,7 @@ contract_digest=$(sha256sum --binary .github/manifests/postgres-dr-contract.sha2
 source infrastructure/scripts/postgres-dr-recovery.sh
 fixture_root=$(mktemp -d /tmp/aqua-dr-contract.XXXXXXXX)
 fixture_key="aqua-dr-contract-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+fixture_password=$(openssl rand -hex 24)
 source_volume="${fixture_key}-source"
 point_volume="${fixture_key}-point"
 probe_volume="${fixture_key}-probe"
@@ -38,7 +39,7 @@ openssl req -x509 -newkey rsa:2048 -nodes -keyout "${fixture_root}/key.pem" -out
   -days 1 -subj /CN=localhost >/dev/null 2>&1
 chmod 0600 "${fixture_root}/key.pem"
 docker run -d --name "${source_container}" --network none --user root \
-  -e POSTGRES_PASSWORD=hosted-recovery-fixture -e POSTGRES_USER=aquaculture -e POSTGRES_DB=aquaculture \
+  -e POSTGRES_PASSWORD="${fixture_password}" -e POSTGRES_USER=aquaculture -e POSTGRES_DB=aquaculture \
   -e PGDATA=/var/lib/postgresql/data -e POSTGRES_SSL=off -e WALG_ENABLED=off \
   --mount "type=volume,source=${source_volume},target=/var/lib/postgresql/data" \
   --entrypoint /usr/local/bin/postgres-ssl-entrypoint.sh "${image}" postgres >/dev/null
@@ -61,7 +62,7 @@ expected_point=$(dr_cluster_digest "${point_path}")
 dr_copy_cluster "${point_path}" "${probe_path}"
 start_probe() {
   docker run -d --name "${probe_container}" --network none --user root \
-    -e POSTGRES_PASSWORD=hosted-recovery-fixture -e POSTGRES_USER=aquaculture -e POSTGRES_DB=aquaculture \
+    -e POSTGRES_PASSWORD="${fixture_password}" -e POSTGRES_USER=aquaculture -e POSTGRES_DB=aquaculture \
     -e PGDATA=/var/lib/postgresql/data -e POSTGRES_SSL=on -e WALG_ENABLED=off \
     --mount "type=volume,source=${probe_volume},target=/var/lib/postgresql/data" \
     --mount "type=bind,source=${fixture_root}/cert.pem,target=/var/lib/postgresql/ssl/server.crt,readonly" \

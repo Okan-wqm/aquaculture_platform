@@ -16,7 +16,12 @@ import type {
   ModulePriceMetric,
   ModulePriceTierMultiplier,
 } from '../entities/module-price.entity';
-import { cycleAmountFor, priceModule, tierMultiplierOf } from '../services/module-quote';
+import {
+  cycleAmountFor,
+  defaultCommitmentDiscountPercent,
+  priceModule,
+  tierMultiplierOf,
+} from '../services/module-quote';
 
 function metric(
   metricType: ModulePriceMetric['metricType'],
@@ -193,7 +198,12 @@ describe('cycleAmountFor — one rule for the quote and the invoice', () => {
     ['semi_annual' as const, '100', '540', '60'],
     ['annual' as const, '100', '1020', '180'],
   ])('%s: %s/month costs %s for the cycle (%s off)', (cycle, monthly, total, discount) => {
-    const amount = cycleAmountFor(new Decimal(monthly), cycle, 'USD');
+    const amount = cycleAmountFor(
+      new Decimal(monthly),
+      cycle,
+      'USD',
+      defaultCommitmentDiscountPercent(cycle),
+    );
 
     expect(amount.total.toString()).toBe(total);
     expect(amount.discount.toString()).toBe(discount);
@@ -203,19 +213,43 @@ describe('cycleAmountFor — one rule for the quote and the invoice', () => {
   it('rounds the gross and the discount at the currency boundary, not once at the end', () => {
     // 33.33 x 12 = 399.96; 15% of that is 59.994, which is not a payable
     // amount. Both halves appear on the invoice, so both are money.
-    const amount = cycleAmountFor(new Decimal('33.33'), 'annual', 'USD');
+    const amount = cycleAmountFor(new Decimal('33.33'), 'annual', 'USD', new Decimal(15));
 
     expect(amount.gross.toString()).toBe('399.96');
     expect(amount.discount.toString()).toBe('59.99');
     expect(amount.total.toString()).toBe('339.97');
   });
 
-  it('has a commercial term for every cycle the platform can store', () => {
+  it('has a seed default for every cycle the platform can store', () => {
     // Totality against the contract's own list, so adding a cycle to
-    // BILLING_CYCLES without pricing it fails here rather than at the first
-    // invoice — where the missing term would silently bill one month.
+    // BILLING_CYCLES without a default fails here rather than at the first
+    // seeded plan — which would then carry no commitment term at all.
     for (const cycle of BILLING_CYCLES) {
-      expect(() => cycleAmountFor(new Decimal('10'), cycle, 'USD')).not.toThrow();
+      expect(() => defaultCommitmentDiscountPercent(cycle)).not.toThrow();
+      expect(() =>
+        cycleAmountFor(new Decimal('10'), cycle, 'USD', defaultCommitmentDiscountPercent(cycle)),
+      ).not.toThrow();
     }
+  });
+
+  it('refuses a commitment discount outside [0, 100] rather than inverting the price', () => {
+    // A 400% discount used to be storable; the CHECK bounds the column, and
+    // this bounds the arithmetic that reads it.
+    expect(() => cycleAmountFor(new Decimal('10'), 'annual', 'USD', new Decimal(150))).toThrow(
+      RangeError,
+    );
+    expect(() => cycleAmountFor(new Decimal('10'), 'annual', 'USD', new Decimal(-1))).toThrow(
+      RangeError,
+    );
+  });
+
+  it('takes the discount from the CALLER, not from a table of its own', () => {
+    // The whole defect: plan_cycle_prices.discount_percent was a number the
+    // catalogue displayed while a global constant did the billing.
+    const negotiated = cycleAmountFor(new Decimal('100'), 'annual', 'USD', new Decimal(25));
+
+    expect(negotiated.gross.toString()).toBe('1200');
+    expect(negotiated.discount.toString()).toBe('300');
+    expect(negotiated.total.toString()).toBe('900');
   });
 });

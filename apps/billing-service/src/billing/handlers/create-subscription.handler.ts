@@ -10,6 +10,8 @@ import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { CreateSubscriptionCommand } from '../commands/create-subscription.command';
 import { SubscriptionWriterService } from '../services/subscription-writer.service';
+import { cyclePriceOf } from '../services/plan-catalog.service';
+import Decimal from 'decimal.js';
 import { Plan } from '../entities/plan.entity';
 import { Subscription, SubscriptionStatus, BillingCycle, PlanTier } from '../entities/subscription.entity';
 
@@ -77,6 +79,17 @@ export class CreateSubscriptionHandler
       where: { tier: input.planTier, isActive: true },
       order: { sortOrder: 'ASC' },
     });
+    // BILLING-CRITICAL-003: the commitment discount this sale is priced at is
+    // the plan's own term for the cycle, snapshotted onto the subscription so
+    // a later catalogue edit cannot re-price a customer who already signed.
+    // A tier with no catalogue plan at all (only reachable before the seed has
+    // run) commits to nothing rather than inventing a discount.
+    const cyclePrice = plan ? cyclePriceOf(plan, input.billingCycle) : undefined;
+    if (plan && !cyclePrice) {
+      throw new ConflictException(
+        `Plan "${plan.name}" is not priced for billingCycle=${input.billingCycle}`,
+      );
+    }
     const stripe = plan
       ? await this.subscriptionWriter.ensureStripeObjects({
           tenantId,
@@ -131,6 +144,7 @@ export class CreateSubscriptionHandler
             currency: input.pricing.currency || 'USD',
           },
           billingCycle: input.billingCycle,
+          commitmentDiscountPercent: cyclePrice?.discountPercent ?? new Decimal(0),
           limits: {
             maxFarms: input.limits.maxFarms,
             maxPonds: input.limits.maxPonds,

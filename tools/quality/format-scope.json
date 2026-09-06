@@ -6094,6 +6094,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/billing/__tests__/module-pricing-commitment.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/billing/__tests__/module-quote.spec.ts",
       "prettier_managed": true
     },
@@ -6861,6 +6867,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/billing-service/src/database/migrations/1802400000000-BillingCommandReceiptIdentity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/database/migrations/1802500000000-SubscriptionCommitmentDiscount.ts",
       "prettier_managed": true
     },
     {

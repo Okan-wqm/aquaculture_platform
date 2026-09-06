@@ -48,6 +48,9 @@ function buildSubscription(overrides: Partial<Subscription> = {}): Subscription 
     planName: 'Professional',
     status: SubscriptionStatus.TRIAL,
     billingCycle: BillingCycle.MONTHLY,
+    // BILLING-CRITICAL-003: the commitment terms this subscription was SOLD
+    // at. Overridden per test alongside billingCycle.
+    commitmentDiscountPercent: new Decimal(0),
     limits: {
       maxFarms: 10,
       maxPonds: 50,
@@ -531,6 +534,7 @@ describe('BillingSchedulerService', () => {
         status: SubscriptionStatus.ACTIVE,
         currentPeriodEnd: PAST,
         billingCycle: BillingCycle.QUARTERLY,
+        commitmentDiscountPercent: new Decimal(5),
         pricing: { basePrice: 100, currency: 'USD' },
       });
       (subRepo.find as jest.Mock).mockResolvedValue([quarterlySub]);
@@ -549,6 +553,7 @@ describe('BillingSchedulerService', () => {
         status: SubscriptionStatus.ACTIVE,
         currentPeriodEnd: PAST,
         billingCycle: BillingCycle.ANNUAL,
+        commitmentDiscountPercent: new Decimal(15),
         pricing: { basePrice: 100, currency: 'USD' },
       });
       (subRepo.find as jest.Mock).mockResolvedValue([annualSub]);

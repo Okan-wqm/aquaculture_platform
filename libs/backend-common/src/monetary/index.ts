@@ -6,5 +6,5 @@ export type { MoneyJSON } from './money';
 export { getCurrencyScale, isSupportedCurrency, roundToCurrency } from './currency-scale';
 
 // TypeORM decorator & transformer — lossless Decimal ↔ PostgreSQL numeric
-export { MoneyColumn, DecimalValueTransformer } from './decimal-column.decorator';
-export type { MoneyColumnOptions } from './decimal-column.decorator';
+export { MoneyColumn, PercentColumn, DecimalValueTransformer } from './decimal-column.decorator';
+export type { MoneyColumnOptions, PercentColumnOptions } from './decimal-column.decorator';

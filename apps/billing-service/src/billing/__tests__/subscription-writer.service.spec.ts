@@ -10,6 +10,7 @@
  * webhook could ever resolve to them.
  */
 import { StripeApiService } from '@aquaculture/backend-common/billing';
+import Decimal from 'decimal.js';
 import { Test } from '@nestjs/testing';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, EntityManager } from 'typeorm';
@@ -186,6 +187,9 @@ describe('SubscriptionWriterService.createWithin', () => {
     tenantId: TENANT,
     plan: planFor(PlanTier.PROFESSIONAL),
     billingCycle: BillingCycle.MONTHLY,
+    // BILLING-CRITICAL-003: the commitment terms the sale was priced at,
+    // snapshotted from the plan's cycle row.
+    commitmentDiscountPercent: new Decimal(0),
     limits: LIMITS,
     pricing: PRICING,
     startDate: new Date('2026-01-31T00:00:00.000Z'),

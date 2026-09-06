@@ -12,7 +12,7 @@
  * flags and names, and no CHECK a numeric column would give applies to them.
  * Only the money moved out.
  */
-import { MoneyColumn } from '@aquaculture/backend-common/monetary';
+import { MoneyColumn, PercentColumn } from '@aquaculture/backend-common/monetary';
 import Decimal from 'decimal.js';
 import {
   Column,
@@ -28,13 +28,6 @@ import { Plan } from './plan.entity';
 import { BillingCycle } from './subscription.entity';
 
 /** A rate, not money: bounded to [0, 100] by a CHECK the jsonb never had. */
-const PERCENT_TRANSFORMER = {
-  to: (value: Decimal | null | undefined): string | null =>
-    value === null || value === undefined ? null : value.toString(),
-  from: (value: string | null | undefined): Decimal | null =>
-    value === null || value === undefined ? null : new Decimal(value),
-};
-
 @Entity('plan_cycle_prices', { schema: 'billing' })
 @Unique(['planId', 'billingCycle'])
 @Index(['planId'])
@@ -67,14 +60,7 @@ export class PlanCyclePrice {
   perModulePrice!: Decimal;
 
   /** The commitment discount for this cycle, in [0, 100]. */
-  @Column({
-    type: 'numeric',
-    precision: 5,
-    scale: 2,
-    default: 0,
-    name: 'discount_percent',
-    transformer: PERCENT_TRANSFORMER,
-  })
+  @PercentColumn({ name: 'discount_percent', default: 0 })
   discountPercent!: Decimal;
 }
 

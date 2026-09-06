@@ -322,6 +322,8 @@ describe('INVARIANT (BILLING-CRITICAL-003): a cycle is sellable when it is price
   const SEED = 'apps/billing-service/src/billing/seed/plan-seed.service.ts';
   const QUOTE = 'apps/billing-service/src/billing/services/module-quote.ts';
   const SCHEDULER = 'apps/billing-service/src/billing/billing-scheduler.service.ts';
+  const PRICING = 'apps/billing-service/src/billing/services/module-pricing.service.ts';
+  const WRITER = 'apps/billing-service/src/billing/services/subscription-writer.service.ts';
 
   it('never narrows the catalogue lookup by billing cycle again', () => {
     const resolver = code(PROVISIONING);
@@ -330,7 +332,7 @@ describe('INVARIANT (BILLING-CRITICAL-003): a cycle is sellable when it is price
     const body = resolver.slice(start, resolver.indexOf('\n  private ', start + 1));
     // The lookup is by tier; the cycle is checked against the priced rows.
     expect(body).not.toMatch(/where:\s*\{[^}]*\bbillingCycle,/);
-    expect(body).toContain('cyclePrices');
+    expect(body).toContain('cyclePriceOf(plan, billingCycle)');
   });
 
   it('provisions on the cycle the caller asked for, not the plan default', () => {
@@ -357,6 +359,42 @@ describe('INVARIANT (BILLING-CRITICAL-003): a cycle is sellable when it is price
     // Identity is the tier: matching on name made a rename insert a duplicate.
     expect(seed).toMatch(/where:\s*\{\s*tier:/);
     expect(seed).not.toMatch(/where:\s*\{\s*name:/);
+  });
+
+  it('reads the commitment discount from a ROW, never from the platform default', () => {
+    // `plan_cycle_prices.discount_percent` was written by the catalogue UI and
+    // read back into its snapshot while a global constant did the billing —
+    // two numbers claiming to be the same thing, one of them ignored.
+    // `BILLING_CYCLE_DISCOUNT_RATE` is now a SEED default with exactly one
+    // reader; the quote reads the plan's row and the invoice reads the
+    // subscription's snapshot of it.
+    // Nothing outside its own module even names the constant…
+    const rateReaders = listFiles('apps/billing-service/src/**/*.ts')
+      .filter((file) => !file.includes('__tests__') && file !== QUOTE)
+      .filter((file) => code(file).includes('BILLING_CYCLE_DISCOUNT_RATE'));
+    expect(rateReaders).toEqual([]);
+    // …and the seed is the only caller of the accessor that exposes it.
+    const defaultReaders = listFiles('apps/billing-service/src/**/*.ts')
+      .filter((file) => !file.includes('__tests__') && file !== QUOTE)
+      .filter((file) => code(file).includes('defaultCommitmentDiscountPercent'));
+    expect(defaultReaders).toEqual([SEED]);
+
+    // The quote asks the catalogue; the invoice asks the subscription.
+    expect(code(PRICING)).toContain('commitmentDiscountsFor(');
+    expect(code(SCHEDULER)).toContain('sub.commitmentDiscountPercent');
+    // And the writer snapshots it, so the two can never drift apart.
+    expect(code(WRITER)).toContain('commitmentDiscountPercent: args.commitmentDiscountPercent');
+  });
+
+  it('takes the discount as an argument rather than looking it up', () => {
+    // A lookup inside `cycleAmountFor` is exactly how the row came to be
+    // decorative: the function would always have an answer of its own.
+    const quote = code(QUOTE);
+    const signature = quote.slice(
+      quote.indexOf('export function cycleAmountFor'),
+      quote.indexOf('{', quote.indexOf('export function cycleAmountFor')),
+    );
+    expect(signature).toContain('discountPercent: Decimal');
   });
 
   it('has ONE rule for what a cycle costs, used by the quote and the invoice', () => {

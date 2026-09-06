@@ -38,6 +38,7 @@ import {
   OwnsBillingCommandReceipt,
 } from '../interceptors/billing-command-receipt.interceptor';
 import { stableStringify } from '../services/billing-command-receipt.service';
+import { cyclePriceOf } from '../services/plan-catalog.service';
 import { CancelSubscriptionCommand } from '../commands/cancel-subscription.command';
 import { ChangeSubscriptionPlanCommand } from '../commands/change-subscription-plan.command';
 import {
@@ -56,6 +57,7 @@ import { RecordPaymentInput } from '../dto/record-payment.input';
 import { RefundPaymentInput } from '../dto/refund-payment.input';
 import { Invoice } from '../entities/invoice.entity';
 import { Payment, PaymentMethod } from '../entities/payment.entity';
+import { PlanCyclePrice } from '../entities/plan-catalog.entity';
 import { Plan } from '../entities/plan.entity';
 import {
   BillingCycle,
@@ -100,6 +102,12 @@ interface BillingCommandReceiptRow {
   status: 'STARTED' | 'SUCCEEDED' | 'FAILED';
   resultSummary?: Record<string, unknown> | null;
   updatedAt: Date | string;
+}
+
+/** The catalogue plan plus its terms for the cycle being sold. */
+interface ResolvedProvisioningPlan {
+  plan: Plan;
+  cyclePrice: PlanCyclePrice;
 }
 
 interface ActiveSubscriptionRow {
@@ -206,13 +214,10 @@ export class BillingAdminNatsHandler {
         // connection for its whole duration (SSOT-C-12). The keys are
         // deterministic, so the receipt's own replay-on-retry reuses the same
         // Stripe customer and subscription rather than creating a second pair.
-        const provisioningPlan = await this.resolveProvisioningPlan(
-          this.dataSource.manager,
-          command,
-        );
+        const provisioning = await this.resolveProvisioningPlan(this.dataSource.manager, command);
         const stripeRefs = await this.subscriptionWriter.ensureStripeObjects({
           tenantId: command.tenantId,
-          plan: provisioningPlan,
+          plan: provisioning.plan,
           // The requested cycle: it selects `stripe_price_ids[cycle]` and is
           // part of the Stripe idempotency key, so the plan's default cycle
           // would mint the wrong price on any non-default sale.
@@ -230,7 +235,8 @@ export class BillingAdminNatsHandler {
             return this.replayProvisioningResult(manager, command, receipt);
           }
 
-          const plan = await this.resolveProvisioningPlan(manager, command);
+          const resolved = await this.resolveProvisioningPlan(manager, command);
+          const plan = resolved.plan;
           const existing = await this.findActiveSubscription(manager, command.tenantId, true);
           if (existing) {
             await this.assertActiveSubscriptionReplayMatches(manager, command, existing, plan);
@@ -250,7 +256,7 @@ export class BillingAdminNatsHandler {
           const subscription = await this.createProvisioningSubscription(
             manager,
             command,
-            plan,
+            resolved,
             moduleItemsMonthlyTotal,
             stripeRefs,
           );
@@ -598,7 +604,7 @@ export class BillingAdminNatsHandler {
   private async resolveProvisioningPlan(
     manager: EntityManager,
     command: BillingTenantProvisioningCommand,
-  ): Promise<Plan> {
+  ): Promise<ResolvedProvisioningPlan> {
     const tier = this.parsePlanTier(command.tier);
     const billingCycle = this.parseBillingCycle(command.billingCycle);
     if (tier === PlanTier.ENTERPRISE && !command.quoteId && !command.customPlanId) {
@@ -641,7 +647,11 @@ export class BillingAdminNatsHandler {
     if (!plan) {
       throw new NotFoundException(`No active billing catalog plan for tier=${command.tier}`);
     }
-    if (!(plan.cyclePrices ?? []).some((price) => price.billingCycle === billingCycle)) {
+    // The plan's terms for the requested cycle. Its existence is what makes the
+    // cycle sellable, and it carries the commitment discount the sale is
+    // priced at.
+    const cyclePrice = cyclePriceOf(plan, billingCycle);
+    if (!cyclePrice) {
       throw new NotFoundException(
         `Plan "${plan.name}" is not priced for billingCycle=${command.billingCycle}; ` +
           'add a cycle price to the plan before selling it on that cycle',
@@ -656,7 +666,7 @@ export class BillingAdminNatsHandler {
         `Billing catalog version mismatch for tier=${command.tier} billingCycle=${command.billingCycle}`,
       );
     }
-    return plan;
+    return { plan, cyclePrice };
   }
 
   /**
@@ -713,10 +723,11 @@ export class BillingAdminNatsHandler {
   private async createProvisioningSubscription(
     manager: EntityManager,
     command: BillingTenantProvisioningCommand,
-    plan: Plan,
+    provisioning: ResolvedProvisioningPlan,
     moduleItemsMonthlyTotal: number,
     stripe: StripeSubscriptionRefs,
   ): Promise<{ id: string; status: SubscriptionStatus }> {
+    const { plan, cyclePrice } = provisioning;
     if (command.trialDays && command.trialDays > 30) {
       throw new ConflictException('Trial period cannot exceed 30 days');
     }
@@ -728,6 +739,10 @@ export class BillingAdminNatsHandler {
       // the same only because the lookup was over-constrained to the point of
       // refusing three of the four cycles.
       billingCycle: this.parseBillingCycle(command.billingCycle),
+      // The terms this sale is priced at, snapshotted from the plan's row for
+      // the requested cycle. `plan_cycle_prices.discount_percent` used to be a
+      // number the catalogue displayed and nothing billed.
+      commitmentDiscountPercent: cyclePrice.discountPercent,
       limits: plan.limits,
       // basePrice is the recurring monthly charge the invoice scheduler bills
       // off (billing-scheduler.service.ts) — the real sum of the priced module

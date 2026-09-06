@@ -310,6 +310,10 @@ export class BillingSchedulerService {
             basePriceMoney.toDecimal(),
             sub.billingCycle,
             pricingCurrency,
+            // The terms THIS subscription was sold at. Re-reading the plan
+            // here would let an operator editing a plan's annual terms
+            // silently re-price every customer already on it.
+            sub.commitmentDiscountPercent,
           );
           lineItems[0].description = cycleAmount.discount.isZero()
             ? `${sub.planName} - Base subscription (${cycleMonths} months)`

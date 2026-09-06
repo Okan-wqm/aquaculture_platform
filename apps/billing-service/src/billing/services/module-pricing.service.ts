@@ -28,12 +28,8 @@ import {
 } from '../entities/module-price.entity';
 
 import { DEFAULT_MODULE_PRICES } from './default-module-prices';
-import {
-  BILLING_CYCLE_DISCOUNT_RATE,
-  BILLING_CYCLE_MONTHS,
-  cycleAmountFor,
-  priceModule,
-} from './module-quote';
+import { BILLING_CYCLE_MONTHS, cycleAmountFor, priceModule } from './module-quote';
+import { PlanCatalogService } from './plan-catalog.service';
 
 import type { DiscountCodeService } from './discount-code.service';
 
@@ -50,6 +46,9 @@ export class ModulePricingService {
     // a module must never be left with two active sheets or none.
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly discounts: DiscountCodeService,
+    // BILLING-CRITICAL-003: the commitment discount a quote shows must be the
+    // one the sale will snapshot, so both read the plan's own cycle row.
+    private readonly planCatalog: PlanCatalogService,
   ) {}
 
   // ── Reads ──────────────────────────────────────────────────────────────
@@ -321,9 +320,12 @@ export class ModulePricingService {
       negotiatedOffSubtotal.plus(negotiatedFixed),
     );
     const monthlyTotal = subtotal.minus(negotiatedDiscountAmount);
-    // The SAME function the invoice scheduler charges through, so a quoted
-    // annual price and its invoice cannot disagree (BILLING-CRITICAL-003).
-    const cycle = cycleAmountFor(monthlyTotal, command.billingCycle, currency);
+    // The SAME function the invoice scheduler charges through, on the SAME
+    // commitment terms the sale will snapshot, so a quoted annual price and
+    // its invoice cannot disagree (BILLING-CRITICAL-003).
+    const commitments = await this.planCatalog.commitmentDiscountsFor(command.tier);
+    const commitmentPercent = commitments.get(command.billingCycle) ?? new Decimal(0);
+    const cycle = cycleAmountFor(monthlyTotal, command.billingCycle, currency, commitmentPercent);
     const cycleDiscountAmount = cycle.discount;
     let cycleTotal = cycle.total;
 
@@ -358,9 +360,7 @@ export class ModulePricingService {
       subtotal: subtotal.toString(),
       tierDiscount: tierDiscount.toString(),
       cycleDiscountAmount: cycleDiscountAmount.toString(),
-      cycleDiscountPercent: new Decimal(BILLING_CYCLE_DISCOUNT_RATE[command.billingCycle])
-        .times(100)
-        .toString(),
+      cycleDiscountPercent: commitmentPercent.toString(),
       discountCode: command.discountCode,
       discountDescription,
       discountAmount: discountAmount.toString(),
@@ -374,7 +374,12 @@ export class ModulePricingService {
       // not whichever rate the requested cycle happens to carry. Quoted
       // monthly, this used to read 12 x monthly with no discount at all, so
       // the annual figure beside a monthly quote overstated it by 15%.
-      annualTotal: cycleAmountFor(monthlyTotal, 'annual', currency).total.toString(),
+      annualTotal: cycleAmountFor(
+        monthlyTotal,
+        'annual',
+        currency,
+        commitments.get('annual') ?? new Decimal(0),
+      ).total.toString(),
       billingCycle: command.billingCycle,
       billingCycleMultiplier: cycleMonths,
       currency,

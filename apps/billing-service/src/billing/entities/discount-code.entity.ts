@@ -17,7 +17,7 @@
  * (`percent_off <= 100`), makes the currency of an amount explicit, and makes
  * the calculation total.
  */
-import { MoneyColumn } from '@aquaculture/backend-common/monetary';
+import { MoneyColumn, PercentColumn } from '@aquaculture/backend-common/monetary';
 import Decimal from 'decimal.js';
 import {
   Column,
@@ -53,13 +53,6 @@ export enum DiscountDuration {
  * `numeric(5,2)` is the widest column that cannot hold a nonsense rate.
  * `MoneyColumn`'s `numeric(19,4)` would accept 4 000 000 000 000 00.0000%.
  */
-const PERCENT_TRANSFORMER = {
-  to: (value: Decimal | null | undefined): string | null =>
-    value === null || value === undefined ? null : value.toString(),
-  from: (value: string | null | undefined): Decimal | null =>
-    value === null || value === undefined ? null : new Decimal(value),
-};
-
 @Entity('discount_codes', { schema: 'billing' })
 @Index(['code'], { unique: true })
 @Index(['isActive'])
@@ -83,14 +76,7 @@ export class DiscountCode {
   discountType!: DiscountType;
 
   /** `percentage` only. */
-  @Column({
-    type: 'numeric',
-    precision: 5,
-    scale: 2,
-    nullable: true,
-    name: 'percent_off',
-    transformer: PERCENT_TRANSFORMER,
-  })
+  @PercentColumn({ name: 'percent_off', nullable: true })
   percentOff!: Decimal | null;
 
   /** `fixed_amount` only, denominated in `currency`. */

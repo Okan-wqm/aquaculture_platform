@@ -13,7 +13,7 @@
  * amount is `numeric(19,4)` under `CHECK (>= 0)`, `discount_percent` is
  * CHECKed into [0, 100], and the plan cannot be worth less than nothing.
  */
-import { MoneyColumn } from '@aquaculture/backend-common/monetary';
+import { MoneyColumn, PercentColumn } from '@aquaculture/backend-common/monetary';
 import type {
   BillingCustomPlanStatus,
   BillingModuleQuantities,
@@ -37,13 +37,6 @@ import {
 import { BillingCycle, PlanTier } from './subscription.entity';
 
 /** A rate, not money — bounded to [0, 100] by a CHECK the jsonb never had. */
-const PERCENT_TRANSFORMER = {
-  to: (value: Decimal | null | undefined): string | null =>
-    value === null || value === undefined ? null : value.toString(),
-  from: (value: string | null | undefined): Decimal | null =>
-    value === null || value === undefined ? null : new Decimal(value),
-};
-
 /** Counts and flags, so they stay a jsonb blob — there is no money in here. */
 export type CustomPlanQuantities = Omit<BillingModuleQuantities, 'moduleId'>;
 
@@ -89,14 +82,7 @@ export class CustomPlan {
   @MoneyColumn({ name: 'monthly_subtotal', default: 0 })
   monthlySubtotal!: Decimal;
 
-  @Column({
-    type: 'numeric',
-    precision: 5,
-    scale: 2,
-    default: 0,
-    name: 'discount_percent',
-    transformer: PERCENT_TRANSFORMER,
-  })
+  @PercentColumn({ name: 'discount_percent', default: 0 })
   discountPercent!: Decimal;
 
   @MoneyColumn({ name: 'discount_amount', default: 0 })

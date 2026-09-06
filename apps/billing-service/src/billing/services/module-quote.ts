@@ -41,10 +41,16 @@ export const BILLING_CYCLE_MONTHS: Readonly<Record<BillingCycle, number>> = {
 };
 
 /**
- * Discount for committing to a longer cycle, as an exact rate. These are
- * commercial terms, not a computed value, so they are stated once here rather
- * than derived — and stated as strings so the 0.15 never arrives as
- * 0.15000000000000002.
+ * The DEFAULT commitment discount for a longer cycle, as an exact rate.
+ *
+ * BILLING-CRITICAL-003: this is a seed default, not the authority. What a
+ * given plan takes off lives in `billing.plan_cycle_prices.discount_percent`,
+ * and what a given SUBSCRIPTION was sold at is snapshotted on
+ * `billing.subscriptions.commitment_discount_percent` — editing the catalogue
+ * must not silently re-price a customer who already signed. Only
+ * `PlanSeedService` reads this map; everything that charges reads a row.
+ *
+ * Stated as strings so the 0.15 never arrives as 0.15000000000000002.
  */
 export const BILLING_CYCLE_DISCOUNT_RATE: Readonly<Record<BillingCycle, string>> = {
   monthly: '0',
@@ -63,6 +69,13 @@ export const BILLING_CYCLE_DISCOUNT_RATE: Readonly<Record<BillingCycle, string>>
  * an annual tenant was invoiced 15% more than the quote they signed, every
  * year, silently. Both now call this.
  *
+ * The discount is a REQUIRED argument rather than a lookup inside. It is not a
+ * property of the cycle — it is a term of the plan being quoted or of the
+ * subscription being invoiced, and reading it from a global map here is
+ * exactly how `plan_cycle_prices.discount_percent` came to be a number the
+ * catalogue displayed and nothing billed. Callers pass the row's value; only
+ * the seed passes `BILLING_CYCLE_DISCOUNT_RATE`.
+ *
  * Rounding happens at each currency boundary — the gross and the discount are
  * each a real money amount that appears on the invoice, so neither may carry
  * sub-cent residue into the total.
@@ -80,15 +93,30 @@ export function cycleAmountFor(
   monthly: Decimal,
   billingCycle: BillingCycle,
   currency: string,
+  /** The commitment discount as a PERCENTAGE in [0, 100], from the row that owns it. */
+  discountPercent: Decimal,
 ): BillingCycleAmount {
   const months = BILLING_CYCLE_MONTHS[billingCycle];
-  const rate = BILLING_CYCLE_DISCOUNT_RATE[billingCycle];
-  if (months === undefined || rate === undefined) {
+  if (months === undefined) {
     throw new RangeError(`Unknown billing cycle ${String(billingCycle)}`);
   }
+  if (discountPercent.isNegative() || discountPercent.greaterThan(100)) {
+    throw new RangeError(
+      `Commitment discount must be between 0 and 100, got ${discountPercent.toString()}`,
+    );
+  }
   const gross = roundToCurrency(monthly.times(months), currency);
-  const discount = roundToCurrency(gross.times(new Decimal(rate)), currency);
+  const discount = roundToCurrency(gross.times(discountPercent).dividedBy(100), currency);
   return { gross, discount, total: gross.minus(discount) };
+}
+
+/** The seed default for a cycle, as a percentage in [0, 100]. */
+export function defaultCommitmentDiscountPercent(billingCycle: BillingCycle): Decimal {
+  const rate = BILLING_CYCLE_DISCOUNT_RATE[billingCycle];
+  if (rate === undefined) {
+    throw new RangeError(`Unknown billing cycle ${String(billingCycle)}`);
+  }
+  return new Decimal(rate).times(100);
 }
 
 /** The multiplier in force for a tier — absent means full list price. */

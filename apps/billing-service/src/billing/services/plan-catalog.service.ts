@@ -32,7 +32,7 @@ import { DataSource, EntityManager, Repository } from 'typeorm';
 
 import { PlanAddOn, PlanCyclePrice } from '../entities/plan-catalog.entity';
 import { Plan, PlanVisibility } from '../entities/plan.entity';
-import { BillingCycle } from '../entities/subscription.entity';
+import { BillingCycle, PlanTier } from '../entities/subscription.entity';
 
 /**
  * The contract carries a billing cycle as a string literal; the entity column
@@ -54,6 +54,19 @@ function toCycle(wire: ContractBillingCycle): BillingCycle {
   return cycle;
 }
 
+/**
+ * The same boundary in the other direction, exhaustive for the same reason: a
+ * TypeScript string enum member is NOT assignable to the contract's
+ * string-literal union, so a value crossing back out has to be mapped rather
+ * than assumed.
+ */
+const WIRE_VALUE_BY_CYCLE: Readonly<Record<BillingCycle, ContractBillingCycle>> = {
+  [BillingCycle.MONTHLY]: 'monthly',
+  [BillingCycle.QUARTERLY]: 'quarterly',
+  [BillingCycle.SEMI_ANNUAL]: 'semi_annual',
+  [BillingCycle.ANNUAL]: 'annual',
+};
+
 /** The same boundary for visibility, and exhaustive for the same reason. */
 const VISIBILITY_BY_WIRE_VALUE: Readonly<Record<ContractPlanVisibility, PlanVisibility>> = {
   public: PlanVisibility.PUBLIC,
@@ -65,6 +78,18 @@ function toVisibility(wire: ContractPlanVisibility | undefined): PlanVisibility 
   return wire === undefined ? PlanVisibility.PUBLIC : VISIBILITY_BY_WIRE_VALUE[wire];
 }
 
+/**
+ * The plan's terms for one billing cycle.
+ *
+ * A plan is purchasable on a cycle exactly when this row exists — W4b
+ * normalised the per-cycle matrix into `plan_cycle_prices`, and
+ * `plans.billing_cycle` is only the plan's DEFAULT cycle. The row also carries
+ * the commitment discount the sale is priced at (BILLING-CRITICAL-003).
+ */
+export function cyclePriceOf(plan: Plan, billingCycle: BillingCycle): PlanCyclePrice | undefined {
+  return (plan.cyclePrices ?? []).find((price) => price.billingCycle === billingCycle);
+}
+
 @Injectable()
 export class PlanCatalogService {
   private readonly logger = new Logger(PlanCatalogService.name);
@@ -74,6 +99,31 @@ export class PlanCatalogService {
     private readonly plans: Repository<Plan>,
     @InjectDataSource() private readonly dataSource: DataSource,
   ) {}
+
+  /**
+   * The commitment discount a NEW sale on this tier would carry, per cycle
+   * (BILLING-CRITICAL-003).
+   *
+   * The quote and the sale must agree, so both read the plan's own
+   * `plan_cycle_prices.discount_percent` — the platform-wide constant is a
+   * seed default, not the authority. An absent plan yields no commitment
+   * terms, which is consistent: provisioning refuses that tier too.
+   */
+  async commitmentDiscountsFor(
+    tier: PlanTier,
+  ): Promise<ReadonlyMap<ContractBillingCycle, Decimal>> {
+    const plan = await this.plans.findOne({
+      where: { tier, isActive: true, isDeleted: false },
+      order: { version: 'DESC', sortOrder: 'ASC' },
+      relations: { cyclePrices: true },
+    });
+    return new Map(
+      (plan?.cyclePrices ?? []).map((price) => [
+        WIRE_VALUE_BY_CYCLE[price.billingCycle],
+        price.discountPercent,
+      ]),
+    );
+  }
 
   /**
    * The priced children are loaded with the plan, always. `toPlanSnapshot`

@@ -11,6 +11,7 @@
  */
 
 import { ConflictException, InternalServerErrorException } from '@nestjs/common';
+import Decimal from 'decimal.js';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { RedisService } from '@aquaculture/backend-common/redis';
@@ -522,9 +523,16 @@ describe('CreateSubscriptionHandler', () => {
     it('creates a Stripe subscription and persists the real ids when the plan has a Stripe price', async () => {
       mockRepo.findOne.mockResolvedValue(null);
       mockPlanRepo.findOne.mockResolvedValue({
+        name: 'Professional',
         tier: PlanTier.PROFESSIONAL,
         isActive: true,
         stripePriceIds: { monthly: 'price_pro_monthly' },
+        // BILLING-CRITICAL-003: a plan is sellable on a cycle exactly when it
+        // carries the row, and the row's discount is what the sale snapshots.
+        cyclePrices: [
+          { billingCycle: BillingCycle.MONTHLY, discountPercent: new Decimal(0) },
+          { billingCycle: BillingCycle.ANNUAL, discountPercent: new Decimal(15) },
+        ],
       });
 
       await handler.execute(buildCommand());

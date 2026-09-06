@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import Decimal from 'decimal.js';
 import { CommandBus } from '@nestjs/cqrs';
 import { Test } from '@nestjs/testing';
 import { BypassRlsService } from '@aquaculture/backend-common/database';
@@ -55,10 +56,12 @@ describe('BillingAdminNatsHandler.provisionTenantSubscription', () => {
     // W4b normalised the per-cycle matrix into rows; a cycle is purchasable
     // exactly when the plan carries one.
     cyclePrices: [
-      { billingCycle: 'monthly' },
-      { billingCycle: 'quarterly' },
-      { billingCycle: 'semi_annual' },
-      { billingCycle: 'annual' },
+      { billingCycle: 'monthly', discountPercent: new Decimal(0) },
+      { billingCycle: 'quarterly', discountPercent: new Decimal(5) },
+      { billingCycle: 'semi_annual', discountPercent: new Decimal(10) },
+      // Deliberately NOT the platform default: this is the plan's own term,
+      // and the sale must snapshot it rather than a global constant.
+      { billingCycle: 'annual', discountPercent: new Decimal(22) },
     ],
   };
 
@@ -407,6 +410,11 @@ describe('BillingAdminNatsHandler.provisionTenantSubscription', () => {
     // The Stripe price id and idempotency key are per-cycle, so the requested
     // cycle has to reach Stripe too.
     expect(subscriptionWriter.ensureStripeObjects.mock.calls[0][0].billingCycle).toBe('annual');
+    // BILLING-CRITICAL-003: the sale snapshots the PLAN's commitment term, so
+    // a later catalogue edit cannot re-price a customer who already signed.
+    expect(
+      subscriptionWriter.createWithin.mock.calls[0][1].commitmentDiscountPercent.toString(),
+    ).toBe('22');
   });
 
   it('refuses a cycle the plan carries no price for, instead of billing a default', async () => {

@@ -26,6 +26,7 @@ import {
   type SubscriptionCreatedEvent,
 } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
+import Decimal from 'decimal.js';
 import { EntityManager } from 'typeorm';
 
 import { Plan } from '../entities/plan.entity';
@@ -49,6 +50,13 @@ export interface SubscriptionWriteArgs {
   tenantId: string;
   plan: Pick<Plan, 'tier' | 'name' | 'billingCycle' | 'currency'>;
   billingCycle: BillingCycle;
+  /**
+   * The commitment discount this sale is priced at, as a percentage in
+   * [0, 100] — from the plan's `plan_cycle_prices` row for `billingCycle`.
+   * Snapshotted onto the subscription so a later catalogue edit cannot
+   * re-price a customer who already signed (BILLING-CRITICAL-003).
+   */
+  commitmentDiscountPercent: Decimal;
   limits: PlanLimits;
   pricing: PlanPricing;
   startDate: Date;
@@ -138,6 +146,7 @@ export class SubscriptionWriterService {
       tenantId: args.tenantId,
       planTier: args.plan.tier,
       planName: args.plan.name.trim(),
+      commitmentDiscountPercent: args.commitmentDiscountPercent,
       status: trialEndDate ? SubscriptionStatus.TRIAL : SubscriptionStatus.ACTIVE,
       billingCycle: args.billingCycle,
       limits: args.limits,

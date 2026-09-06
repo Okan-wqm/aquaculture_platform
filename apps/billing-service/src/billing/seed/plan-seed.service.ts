@@ -6,7 +6,7 @@ import { Plan } from '../entities/plan.entity';
 import { PlanCyclePrice } from '../entities/plan-catalog.entity';
 import { PlanTier, BillingCycle } from '../entities/subscription.entity';
 import { billingPlanLimitsFor } from '../plan-limits.util';
-import { BILLING_CYCLE_DISCOUNT_RATE, cycleAmountFor } from '../services/module-quote';
+import { cycleAmountFor, defaultCommitmentDiscountPercent } from '../services/module-quote';
 
 /**
  * The default catalogue: ONE `billing.plans` row per tier, priced for EVERY
@@ -158,14 +158,21 @@ interface SeedCyclePrice {
 }
 
 function cyclePricesFor(definition: PlanDefinition): SeedCyclePrice[] {
-  return Object.values(BillingCycle).map((billingCycle) => ({
-    billingCycle,
-    basePrice: cycleAmountFor(definition.monthlyBasePrice, billingCycle, CURRENCY).total,
-    perUserPrice: cycleAmountFor(definition.perUserPrice, billingCycle, CURRENCY).total,
-    perFarmPrice: cycleAmountFor(definition.perFarmPrice, billingCycle, CURRENCY).total,
-    perModulePrice: new Decimal(0),
-    discountPercent: new Decimal(BILLING_CYCLE_DISCOUNT_RATE[billingCycle]).times(100),
-  }));
+  return Object.values(BillingCycle).map((billingCycle) => {
+    // The ONLY reader of the platform default: from here on the plan's own
+    // row is the authority, and a subscription snapshots it at the sale.
+    const discountPercent = defaultCommitmentDiscountPercent(billingCycle);
+    const priced = (monthly: Decimal): Decimal =>
+      cycleAmountFor(monthly, billingCycle, CURRENCY, discountPercent).total;
+    return {
+      billingCycle,
+      basePrice: priced(definition.monthlyBasePrice),
+      perUserPrice: priced(definition.perUserPrice),
+      perFarmPrice: priced(definition.perFarmPrice),
+      perModulePrice: new Decimal(0),
+      discountPercent,
+    };
+  });
 }
 
 const DEFAULT_PLANS: readonly PlanDefinition[] = [

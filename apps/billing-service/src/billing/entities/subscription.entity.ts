@@ -17,6 +17,8 @@ import { ObjectType, Field, HideField, ID, registerEnumType, Float, Int } from '
 // unchanged, and registered as the GraphQL `PlanTier` enum below. Faz D (D8)
 // collapsed six hand-copied tier enums onto that one definition.
 import { BillingPlanTier as PlanTier } from '@platform/event-contracts';
+import { PercentColumn } from '@aquaculture/backend-common/monetary';
+import Decimal from 'decimal.js';
 // forwardRef removed - not needed with string-based lazy loading
 
 export { PlanTier };
@@ -145,6 +147,19 @@ export class Subscription {
   @Field(() => BillingCycle)
   @Column({ type: 'enum', enum: BillingCycle, name: 'billing_cycle' })
   billingCycle!: BillingCycle;
+
+  /**
+   * The longer-cycle commitment discount this subscription was SOLD at, as a
+   * percentage in [0, 100] (BILLING-CRITICAL-003).
+   *
+   * Snapshotted from the plan's `plan_cycle_prices` row at creation, exactly
+   * like `pricing`. The invoice scheduler charges from THIS, never from the
+   * catalogue: re-reading the plan at invoice time would let an operator
+   * editing a plan's annual terms silently re-price every customer already on
+   * it. Monthly is 0 — there is no commitment to discount.
+   */
+  @PercentColumn({ name: 'commitment_discount_percent', default: 0 })
+  commitmentDiscountPercent!: Decimal;
 
   @Field(() => PlanLimits)
   @Column('jsonb')

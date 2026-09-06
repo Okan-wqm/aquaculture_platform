@@ -1,5 +1,5 @@
-import { Column, ColumnOptions } from 'typeorm';
 import Decimal from 'decimal.js';
+import { Column, ColumnOptions } from 'typeorm';
 
 /**
  * TypeORM value transformer that converts between Decimal.js and
@@ -91,6 +91,54 @@ export function MoneyColumn(options?: MoneyColumnOptions): PropertyDecorator {
     type: 'numeric',
     precision: options?.precision ?? 19,
     scale: options?.scale ?? 4,
+    nullable: options?.nullable ?? false,
+    transformer: DECIMAL_TRANSFORMER,
+  };
+
+  if (options?.name) {
+    columnOptions.name = options.name;
+  }
+  if (options?.default !== undefined) {
+    columnOptions.default = options.default;
+  }
+  if (options?.comment) {
+    columnOptions.comment = options.comment;
+  }
+
+  return Column(columnOptions);
+}
+
+/**
+ * Column options for `@PercentColumn()`.
+ */
+export interface PercentColumnOptions {
+  name?: string;
+  nullable?: boolean;
+  default?: number | string;
+  comment?: string;
+}
+
+/**
+ * TypeORM column decorator for a percentage in [0, 100].
+ *
+ * `numeric(5,2)` with the same lossless Decimal transformer money uses — a
+ * percentage multiplies money, so a float here reaches the invoice as surely
+ * as a float in the price would. Three byte-identical private copies of this
+ * transformer had grown inside billing's entities (plan cycle prices, custom
+ * plans, discount codes); the CHECK that bounds the value to [0, 100] belongs
+ * with the table, but the representation belongs here.
+ *
+ * @example
+ * ```typescript
+ * @PercentColumn({ name: 'commitment_discount_percent', default: 0 })
+ * commitmentDiscountPercent!: Decimal;
+ * ```
+ */
+export function PercentColumn(options?: PercentColumnOptions): PropertyDecorator {
+  const columnOptions: ColumnOptions = {
+    type: 'numeric',
+    precision: 5,
+    scale: 2,
     nullable: options?.nullable ?? false,
     transformer: DECIMAL_TRANSFORMER,
   };

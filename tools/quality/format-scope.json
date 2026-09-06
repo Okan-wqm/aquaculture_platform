@@ -36093,6 +36093,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-06-nullable-numeric-zero.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/zcode/2026-09-06-one-rule-two-implementations.md",
       "prettier_managed": true
     },
@@ -45675,6 +45681,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/npm-audit-exception-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/nullable-numeric-zero-preserved.spec.ts",
       "prettier_managed": true
     },
     {

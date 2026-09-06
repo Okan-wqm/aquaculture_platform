@@ -6,6 +6,7 @@
  *
  * @module Batch/Utils
  */
+import { numberOrUndefined } from '@aquaculture/backend-common/database';
 import { Repository, EntityManager, FindOneOptions } from 'typeorm';
 import { Department } from '../../department/entities/department.entity';
 import { Equipment, EquipmentStatus } from '../../equipment/entities/equipment.entity';
@@ -244,9 +245,9 @@ export function adaptTankToEquipment(tank: Tank): Equipment {
     maxBiomass: Number(tank.maxBiomass) || 0,
     maxDensity: Number(tank.maxDensity) || 30,
     dimensions: {
-      diameter: tank.diameter ? Number(tank.diameter) : undefined,
-      length: tank.length ? Number(tank.length) : undefined,
-      width: tank.width ? Number(tank.width) : undefined,
+      diameter: numberOrUndefined(tank.diameter),
+      length: numberOrUndefined(tank.length),
+      width: numberOrUndefined(tank.width),
       depth: Number(tank.depth) || 0,
     },
   } as Record<string, unknown>;

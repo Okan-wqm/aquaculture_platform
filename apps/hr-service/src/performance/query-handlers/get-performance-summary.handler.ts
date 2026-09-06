@@ -1,3 +1,4 @@
+import { numberOrUndefined } from '@aquaculture/backend-common/database';
 import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
@@ -136,7 +137,7 @@ export class GetPerformanceSummaryHandler implements IQueryHandler<GetPerformanc
         periodType: review.periodType,
         periodStart: review.periodStart?.toString(),
         periodEnd: review.periodEnd?.toString(),
-        finalRating: review.finalRating ? Number(review.finalRating) : undefined,
+        finalRating: numberOrUndefined(review.finalRating),
       };
     };
 

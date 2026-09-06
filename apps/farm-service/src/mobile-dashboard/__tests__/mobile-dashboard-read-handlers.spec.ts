@@ -161,7 +161,7 @@ describe('GetStockEventsSummaryHandler (fail-closed tenant boundary)', () => {
     expect(summary).not.toHaveProperty('pendingTransferCount');
   });
 
-  it('maps each stock-event operation to its MobileStockEventType member and drops the rest (FARM-HIGH-317)', async () => {
+  it('maps each stock-event operation to its MobileStockEventType member and drops the rest (FARM-HIGH-319)', async () => {
     const { mockDataSource, mockManager } = createMockDataSource();
     mockManager.count = jest.fn().mockResolvedValue(5);
     const base = { tankName: 'T1', quantity: 3, createdAt: new Date('2026-09-01T00:00:00Z') };

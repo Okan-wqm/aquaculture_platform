@@ -407,11 +407,11 @@ yolunun input tipleri el yazımı aynalar, bu yüzden CRITICAL-001 sınıfı sap
 
 **Severity:** HIGH · **State:** OPEN · **Kaynak:** mobil sentezi (açılış
 ID `PRODUCT-MOBILE-SYNTH-CRITICAL-002`)
-**Kayıt:** registry'de `MOB-HIGH-019` olarak kayıtlı (2026-09-05; bu rapordaki
+**Kayıt:** registry'de `MOB-HIGH-022` olarak kayıtlı (2026-09-05; bu rapordaki
 etiket registry tarafından tahsis edilmemişti, numara tesadüfen örtüştü).
 `CTX-CRITICAL-001` aynı kök nedenin kopyası olarak REFUTED edildi ve
 kaydedilmedi. Sınıfın gerçekleşmiş örneği `PRODUCT-FORM-CRITICAL-001` /
-`PRODUCT-MOBILE-CRITICAL-001` registry'de `MOB-CRITICAL-020` (Faz 3 dalında
+`PRODUCT-MOBILE-CRITICAL-001` registry'de `MOB-CRITICAL-021` (Faz 3 dalında
 `MOB-CRITICAL-018` olarak kaydedilmişti; main aynı sırayı kendi su-kalitesi
 bulgusuna tahsis ettiği için dal main'i alırken yeniden numaralandı).
 **Verification:** CONFIRMED by an independent refute-by-default verifier

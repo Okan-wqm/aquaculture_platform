@@ -23,7 +23,7 @@ export class TodaysDailyOpsCounts {
 
 /**
  * The stock-event vocabulary the mobile Stock Events hub renders. Declared as
- * a GraphQL enum (FARM-HIGH-317) so the wire value set is part of the schema
+ * a GraphQL enum (FARM-HIGH-319) so the wire value set is part of the schema
  * the AquaMobil codegen consumes — a hand-written client union can no longer
  * drift from what the handler emits. TRANSFER_OUT is the only transfer half a
  * tank ever "loses" fish through, so it is the sole source of TRANSFER.

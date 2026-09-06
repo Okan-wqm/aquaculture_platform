@@ -60,6 +60,8 @@ export const en = {
   'feeding.recording': 'Recording...',
   'feeding.recorded': 'Recorded!',
   'feeding.queuedForSync': 'Queued for sync',
+  'feeding.savedToDevice': 'Saved to device',
+  'common.backToHome': 'Back to home',
   'feeding.offlineWillSync': 'Offline - will sync when connected',
   'feeding.errors.amountRequired': 'Amount must be greater than 0',
   'feeding.errors.amountMax': 'Amount cannot exceed 10000 kg',

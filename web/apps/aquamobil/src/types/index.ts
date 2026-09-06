@@ -9,7 +9,7 @@
 // vocabulary stays single-sourced — the old hand-maintained
 // MANAGER/OPERATOR/VIEWER union was phantom (the server never emits it).
 export type { Role } from '../generated/graphql';
-// MOB-HIGH-019: enum vocabularies a page SENDS come from the generated schema
+// MOB-HIGH-022: enum vocabularies a page SENDS come from the generated schema
 // types, never a hand-maintained union — the hand-written MortalityReason once
 // carried three members (AMMONIA, STARVATION, GENETIC) the server does not
 // have, so selecting them produced a coercion error the type system approved.
@@ -32,7 +32,7 @@ import type {
   Role,
   TaskFieldsFragment,
 } from '../generated/graphql';
-// MOB-HIGH-019: read-side enum vocabularies come from the generated schema
+// MOB-HIGH-022: read-side enum vocabularies come from the generated schema
 // types too — a hand-written union cannot drift from what the resolver emits.
 export type {
   AttendanceStatus,
@@ -71,7 +71,7 @@ import type {
 
 // WHY: AccessType determines platform access — PANEL_ONLY users are blocked from
 // the mobile app at login time, before any feature check occurs.
-// MOB-HIGH-019: the vocabulary is the generated AccessType enum, not a mirror.
+// MOB-HIGH-022: the vocabulary is the generated AccessType enum, not a mirror.
 export type { AccessType } from '../generated/graphql';
 
 // Auth types
@@ -158,7 +158,7 @@ export interface AttendanceSummary {
   attendanceRate: number;
 }
 
-// Leave types — derived from the generated read documents (MOB-HIGH-019).
+// Leave types — derived from the generated read documents (MOB-HIGH-022).
 export type LeaveType = LeaveTypesQuery['leaveTypes'][number];
 /**
  * The HR `LeaveBalance` type has no nested `leaveType`; the UI joins
@@ -194,7 +194,7 @@ export interface UploadAndSendMessageOfflinePayload {
 }
 
 // ============================================================================
-// Offline queue contract — derived from the generated GraphQL client (MOB-HIGH-019)
+// Offline queue contract — derived from the generated GraphQL client (MOB-HIGH-022)
 // ============================================================================
 //
 // Every queue-replayed mutation is declared once in pwa/operation-registry.ts
@@ -202,7 +202,7 @@ export interface UploadAndSendMessageOfflinePayload {
 // input type each operation sends. The queued payload type is DERIVED from
 // those inputs — never hand-written — so a field the server removes or makes
 // required becomes a compile error at the page that builds the payload, not a
-// rejected mutation weeks later (the `parameters: {}` class, MOB-CRITICAL-020).
+// rejected mutation weeks later (the `parameters: {}` class, MOB-CRITICAL-021).
 //
 // The command envelope is stamped by the queue at enqueue
 // (offline-queue.ts attachCommandEnvelope), AFTER the page hands its payload
@@ -311,7 +311,7 @@ export interface QueuedOperation {
   lastError?: string;
   /**
    * The server's GraphQL `extensions.code` from the last failed replay
-   * (MOB-CRITICAL-020 class). Retry eligibility is decided on THIS, not on the
+   * (MOB-CRITICAL-021 class). Retry eligibility is decided on THIS, not on the
    * message text; absent for transport errors and for rows written before the
    * code was recorded, which fall back to the message heuristics.
    */
@@ -344,7 +344,7 @@ export interface SelectOption<T = string> {
 }
 
 // Task types — the shared `TaskFields` fragment both task documents select
-// (FARM-HIGH-318 typed the checklist and notes on the wire, so the item
+// (FARM-HIGH-320 typed the checklist and notes on the wire, so the item
 // shapes are schema objects, not client-side normaliser output).
 export type Task = TaskFieldsFragment;
 export type ChecklistItem = Task['checklistItems'][number];
@@ -359,10 +359,10 @@ export interface TaskStats {
   avgCompletionMinutes: number;
 }
 
-// Notification types — derived (MOB-HIGH-019).
+// Notification types — derived (MOB-HIGH-022).
 export type InAppNotification = GetMyNotificationsQuery['myNotifications'][number];
 
-// Storage types — FARM-HIGH-317: the storage vocabularies are GraphQL enums
+// Storage types — FARM-HIGH-319: the storage vocabularies are GraphQL enums
 // on the wire, so the client reads them from the generated schema types
 // instead of re-typing them. A server-side rename now fails `tsc`, not the
 // field worker's screen.

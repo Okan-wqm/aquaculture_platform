@@ -169,7 +169,7 @@ export interface WebAuthnCredentialInfo {
   lastUsedAt: string;
 }
 
-/** Result of a successful biometric login — the generated verifyWebAuthnLogin payload (MOB-HIGH-019). */
+/** Result of a successful biometric login — the generated verifyWebAuthnLogin payload (MOB-HIGH-022). */
 export type BiometricLoginResult = VerifyWebAuthnLoginMutation['verifyWebAuthnLogin'];
 
 /** Authenticated user payload returned by the verifyWebAuthnLogin mutation. */
@@ -282,7 +282,7 @@ export function useWebAuthn(): UseWebAuthnReturn {
    * store / readiness barrier is populated, so it must use its own fetch with the
    * in-scope accessToken to avoid a circular dependency.
    *
-   * S1-CODEGEN / MOB-HIGH-019: `document` is a codegen TypedDocumentNode, so the
+   * S1-CODEGEN / MOB-HIGH-022: `document` is a codegen TypedDocumentNode, so the
    * result AND variable types flow from the document exactly as they do for the
    * shared helper; it is `print()`ed to the wire string.
    */

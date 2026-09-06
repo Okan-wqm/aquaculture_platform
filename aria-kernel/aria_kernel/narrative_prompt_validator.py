@@ -83,8 +83,8 @@ _IMPERATIVE_PREFIX_RE = re.compile(
 # Plan ARIA-V4 §2g — per-agent narrative-token budget. Imperative
 # form ≈15 tokens per rule; narrative ≈180-240. For 20-prohibition
 # agent the math is 300 → ~4K. V4 caps narrative tokens per file
-# tier-aware: Tier-1 ≤1500 (terse imperative); Tier-2 ≤2200
-# (hybrid; headline + narrative body); Tier-3 ≤2500 (full
+# tier-aware: Tier-1 ≤1500 (terse imperative); Tier-2 ≤2800
+# (hybrid; headline + narrative body); Tier-3 ≤3500 (full
 # narrative; most bloat tolerated because every prohibition expands
 # 4-section). The legacy ``TOKEN_BUDGET_PER_FILE`` alias is kept
 # for back-compat with downstream callers; new code MUST use

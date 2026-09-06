@@ -10,7 +10,7 @@
  *   totals, location fill rates, etc. Mobile needs a slimmer payload.
  * - The AquaMobil client types are GENERATED from this schema (graphql-codegen,
  *   S1 gate); every closed vocabulary here is a GraphQL enum so the client
- *   cannot hand-write a union that drifts from the wire (FARM-HIGH-317).
+ *   cannot hand-write a union that drifts from the wire (FARM-HIGH-319).
  * - Tenant isolation is enforced at the resolver level via @CurrentTenant().
  *
  * @see GET_WAREHOUSE_SUMMARY in web/apps/aquamobil/src/graphql/operations.ts

@@ -11,7 +11,7 @@ import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { StockEventsSummary } from '@/types';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
-// MOB-HIGH-019: the aggregate's shape is the generated result of the document
+// MOB-HIGH-022: the aggregate's shape is the generated result of the document
 // that produces it — the hand-written mirror is gone.
 type StockEventsSummaryResponse = GetStockEventsSummaryQuery['stockEventsSummary'];
 

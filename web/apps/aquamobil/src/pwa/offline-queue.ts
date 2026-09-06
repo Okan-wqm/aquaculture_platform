@@ -276,7 +276,7 @@ async function bumpQueueVersion(tenantId: string): Promise<void> {
 export async function queueOperation<K extends OperationType>(
   tenantId: string,
   type: K,
-  // MOB-HIGH-019: the payload is typed BY the operation — the generated input
+  // MOB-HIGH-022: the payload is typed BY the operation — the generated input
   // for that mutation, envelope stripped — so `type` and `payload` can no
   // longer disagree at the call site.
   payload: QueuedPayload<K>,

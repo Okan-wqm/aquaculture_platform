@@ -4584,6 +4584,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/config/__tests__/frontend-url.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/config/frontend-url.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/config/hash-refresh-tokens.spec.ts",
       "prettier_managed": true
     },
@@ -36051,7 +36063,49 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-05-composite-action-pin-scope.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/zcode/2026-09-05-pr1423-ci-repair.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-06-action-link-origin.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-06-fefo-expiry-moment.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-06-mobile-asset-fail-closed.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-06-one-rule-two-implementations.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-06-queued-write-honesty.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-06-watchdog-report-serialisation.md",
       "prettier_managed": true
     },
     {
@@ -44492,6 +44546,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/action-link-origin-deployment-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/active-path-hygiene.spec.ts",
       "prettier_managed": true
     },
@@ -45465,6 +45525,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/mobile-csp-headers.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/mobile-queued-write-honesty.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/mobile-static-asset-fail-closed.spec.ts",
       "prettier_managed": true
     },
     {
@@ -47114,6 +47186,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/gates/migration-sql-lint.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/narrative-prompt-lint.spec.ts",
       "prettier_managed": true
     },
     {

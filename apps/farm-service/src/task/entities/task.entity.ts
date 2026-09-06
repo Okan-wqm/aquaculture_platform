@@ -35,7 +35,7 @@ import {
  * `toggleChecklistItem` flip (which predated `isCompleted`); new writes never
  * emit it. Keeping this interface permissive documents the stored reality;
  * the wire contract is the canonical {@link TaskChecklistItem} below, served
- * through `TaskService.normaliseChecklistItems` on every read (FARM-HIGH-318).
+ * through `TaskService.normaliseChecklistItems` on every read (FARM-HIGH-320).
  */
 export interface StoredTaskChecklistItem {
   /** UUID, assigned by the service on first set / on creation. */
@@ -52,7 +52,7 @@ export interface StoredTaskChecklistItem {
 
 /**
  * CANONICAL checklist item — the shape `TaskService.normaliseChecklistItem`
- * returns and the ONLY shape the GraphQL wire carries (FARM-HIGH-318). It used
+ * returns and the ONLY shape the GraphQL wire carries (FARM-HIGH-320). It used
  * to be served as a `JSON` scalar, which typed the field as an opaque object in
  * every client and left each of them to re-implement the normaliser.
  */
@@ -78,7 +78,7 @@ export class TaskChecklistItem {
 /**
  * A note on a task (`Task.notes`, JSONB). Written exclusively by
  * `TaskService.addNote` — the shape is under that service's control, so the
- * column is served as this object type directly (FARM-HIGH-318).
+ * column is served as this object type directly (FARM-HIGH-320).
  */
 @ObjectType()
 export class TaskNote {

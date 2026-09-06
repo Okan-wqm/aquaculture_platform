@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `826810bab86c90045aa2fb4e853d3ff126322c59b7aecccd6504d9433d33f625`
+Registry tip: `a798a8841cd16e68b49a6f1341470ac67bbbd59a6df9a927e7a57af37932ce50`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -172,16 +172,16 @@ commits. The integration review also raised `SENSOR-CRITICAL-108` as `real-open`
 JetStream stream limits (~7.75 GiB) exceed the droplet's 2 GB file store while the capacity gate
 still passes, so the 60-minute telemetry buffer cannot be created as configured.
 
-Updated 2026-09-05 (mobile GraphQL contract, PR #1424): reconciling the Faz 3 branch's rows onto
-main's chain added three active CRITICALs. `MOB-CRITICAL-020` is the 2026-08-16 audit's
-`PRODUCT-FORM-CRITICAL-001` (registered on the branch as `MOB-CRITICAL-018` before main allocated
-that sequence to its own water-quality finding): the branch closes it architecturally — the queued
-payload type derives from codegen and the last four write pages are queue-first — so it is
-`already-fixed-needs-close` until the post-merge close ceremony records its main-reachable commits.
-`SENSOR-CRITICAL-111` (MQTT reading vs alarm evaluation diverge; registered as
-`SENSOR-CRITICAL-106` on the branch) and `DEPLOY-CRITICAL-017` (a full deploy replaces the
-monitoring stack with a placeholder Alertmanager) are `real-open`, placed in Faz 5 and the go-live
-gate by `docs/reviews/orchestrator/2026-09-05-production-readiness-gaps.md`.
+Updated 2026-09-06 (mobile GraphQL contract, PR #1424): reconciling the Faz 3 branch's rows onto
+main's chain added three active CRITICALs. `MOB-CRITICAL-021` is the 2026-08-16 audit's
+`PRODUCT-FORM-CRITICAL-001` — registered on the branch as `MOB-CRITICAL-018`, renumbered twice as
+main allocated first that sequence and then 020 to other findings. The branch closes it
+architecturally (the queued payload type derives from codegen and the last four write pages are
+queue-first), so it is `already-fixed-needs-close` until the post-merge close ceremony records its
+main-reachable commits. `SENSOR-CRITICAL-111` (MQTT reading vs alarm evaluation diverge) and
+`DEPLOY-CRITICAL-017` (a full deploy replaces the monitoring stack with a placeholder Alertmanager)
+are `real-open`, placed in Faz 5 and the go-live gate by
+`docs/reviews/orchestrator/2026-09-05-production-readiness-gaps.md`.
 
 Updated 2026-09-04 (production-host control-plane slice recovery, PR #1022): carrying the branch's
 finding ledger onto main's chain added twelve active `INFRA-CRITICAL` rows from the 2026-07-19
@@ -245,7 +245,7 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-098`  | OPEN           | 2026-07-19   | security-reviewer          | real-open                 |
 | `INFRA-CRITICAL-100`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
 | `ADMIN-CRITICAL-087`  | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
-| `MOB-CRITICAL-020`    | OPEN           | 2026-09-05   | form-write-auditor         | already-fixed-needs-close |
+| `MOB-CRITICAL-021`    | OPEN           | 2026-09-05   | form-write-auditor         | already-fixed-needs-close |
 | `SENSOR-CRITICAL-111` | OPEN           | 2026-09-05   | sensor-expert              | real-open                 |
 | `DEPLOY-CRITICAL-017` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
 
@@ -314,7 +314,7 @@ Allowed truth buckets:
   the hand-written mirror from `web/apps/aquamobil/src/types/index.ts`, and pins
   the rule with `tests/invariants/aquamobil-input-mirror-parity.spec.ts` (commit
   2f5ef21eb) — a tier-3 backstop for the mirrors that WERE still hand-written.
-  PR #1424 (registered as `MOB-CRITICAL-020`) finished the tier-1 move: every
+  PR #1424 (registered as `MOB-CRITICAL-021`) finished the tier-1 move: every
   input and queued payload now derives from `src/generated/graphql.ts`, so the
   backstop guarded an empty set and its own minimum-coverage assertion failed.
   It is replaced by `tests/invariants/aquamobil-graphql-contract-ssot.spec.ts`,
@@ -396,6 +396,11 @@ The 2026-06-20 registry close follow-up left no OTHER active CRITICAL in
 
 ## Resolved Evidence
 
+- `INFRA-CRITICAL-149`: registry state is `RESOLVED` with closing commit `381e06271`
+  ("fix(db-migrate): stamp a tenant ledger only when the schema can back it"), derived by
+  `finding-registry reconcile` against `origin/main`. Left the active table from
+  bucket `already-fixed-needs-close`.
+
 - `FARM-CRITICAL-240`: registry state is `RESOLVED` with closing commit `b0072bca0`
   ("fix(farm): give physical stock one lock protocol, one FEFO compiler and a refusal"), derived by
   `finding-registry reconcile` once PR #1423 (`bb28fa31a`) made it reachable from `main`.
@@ -464,10 +469,6 @@ The 2026-06-20 registry close follow-up left no OTHER active CRITICAL in
 - `FARM-CRITICAL-245`: registry state is `RESOLVED` with closing commit `663e1d085`
   ("fix(farm): yem düşümünü çok-lotlu FEFO tahsisine çevir, düzeltmeyi ledger'a bağla"), derived by
   `finding-registry reconcile` once PR #1423 (`bb28fa31a`) made it reachable from `main`.
-  Left the active table from bucket `already-fixed-needs-close`.
-- `INFRA-CRITICAL-149`: registry state is `RESOLVED` with closing commit `381e06271`
-  ("fix(db-migrate): stamp a tenant ledger only when the schema can back it"), derived by
-  `finding-registry reconcile` once PR #1427 (`5cf4757b9`) made it reachable from `main`.
   Left the active table from bucket `already-fixed-needs-close`.
 - `FARM-CRITICAL-305`: registry state is `RESOLVED` with closing commit `0e47fae0a`
   ("fix(farm): declare Site.timezone's column type so farm-service metadata can build"), derived by

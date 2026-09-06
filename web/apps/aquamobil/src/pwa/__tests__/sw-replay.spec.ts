@@ -109,7 +109,7 @@ function fakeSw(options: FakeSwOptions = {}): {
  * Typed queue fixtures.
  *
  * `queueOperation` derives its payload type from the generated mutation input
- * (MOB-HIGH-019), so a fixture that stands in for one has to satisfy that same
+ * (MOB-HIGH-022), so a fixture that stands in for one has to satisfy that same
  * type. A cast to a bottom type checks NOTHING and would let this suite go
  * green against a payload the server rejects, which is the exact defect the
  * typed queue closed. The envelope fields are stamped on enqueue, so a caller

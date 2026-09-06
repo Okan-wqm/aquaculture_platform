@@ -38,7 +38,7 @@ import type {
 } from '@/generated/graphql';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 
-/** Incident category — the generated `IncidentMediaType` enum (MOB-HIGH-019). */
+/** Incident category — the generated `IncidentMediaType` enum (MOB-HIGH-022). */
 export type { IncidentMediaType } from '@/generated/graphql';
 
 /**

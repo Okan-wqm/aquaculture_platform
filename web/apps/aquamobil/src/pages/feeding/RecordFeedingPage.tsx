@@ -32,7 +32,7 @@ import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useTodaysDayPlans, type DayPlanMeal, type MealStatus } from '@/hooks/useTodaysDayPlans';
 import { useI18n } from '@/i18n';
 
-// MOB-HIGH-019: the method vocabulary is the generated FeedingMethod enum the
+// MOB-HIGH-022: the method vocabulary is the generated FeedingMethod enum the
 // server coerces on the wire — the old lowercase mirror ('manual') was rejected
 // by the enum input the moment the server typed the field.
 type FeedingMethodOption = Extract<FeedingMethod, 'MANUAL' | 'AUTOMATIC' | 'DEMAND'>;
@@ -192,14 +192,34 @@ export function RecordFeedingPage(): JSX.Element {
 
   // Kayıt her zaman önce kuyruğa gider; ekran gerçek eşitleme durumunu gösterir
   // (Queued → Syncing → Confirmed / Sync Failed), yeşil "kaydedildi" değil.
+  // Dedupe edilen çift dokunuş "Already recorded" ile ayrışır (FE-HIGH-050).
   if (queuedOperationId !== '') {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-amber-50 dark:bg-amber-900/10">
+      <div className="flex flex-col items-center justify-center min-h-screen bg-amber-50 dark:bg-amber-900/10 px-6">
         {wasDuplicate ? (
           <AlreadyRecordedNotice />
         ) : (
-          <QueuedStatusBadge operationId={queuedOperationId} />
+          <>
+            <div className="w-20 h-20 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center mb-4">
+              <Package size={48} className="text-amber-600" />
+            </div>
+            <h2 className="text-xl font-bold text-amber-700 dark:text-amber-300">
+              {t('feeding.savedToDevice')}
+            </h2>
+            <p className="text-amber-600 dark:text-amber-400 text-sm mt-1 text-center">
+              {t('feeding.queuedForSync')}
+            </p>
+            <div className="mt-4">
+              <QueuedStatusBadge operationId={queuedOperationId} />
+            </div>
+          </>
         )}
+        <button
+          onClick={() => navigate('/')}
+          className="mt-6 px-5 py-2.5 rounded-xl bg-amber-600 text-white font-medium touch-feedback"
+        >
+          {t('common.backToHome')}
+        </button>
       </div>
     );
   }

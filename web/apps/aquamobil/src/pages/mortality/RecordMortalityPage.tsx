@@ -20,7 +20,7 @@ import type { MortalityReason, QueuedPayload } from '@/types';
 // WHY: exactly the backend's MortalityReason enum (10 members). `value` is the
 // GENERATED enum union, so a member the server lacks is a compile error here —
 // the hand-written union this page used to import carried AMMONIA, STARVATION
-// and GENETIC, which the server rejects at enum coercion (MOB-HIGH-019).
+// and GENETIC, which the server rejects at enum coercion (MOB-HIGH-022).
 const MORTALITY_REASONS: ReadonlyArray<{ value: MortalityReason; label: string; emoji: string }> = [
   { value: 'DISEASE', label: 'Disease', emoji: '🦠' },
   { value: 'WATER_QUALITY', label: 'Water Quality', emoji: '💧' },

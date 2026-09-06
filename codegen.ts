@@ -44,7 +44,7 @@ const schema = existsSync(composedSupergraph) ? [composedSupergraph] : [legacyFa
 // separately (orphan finding S1-ORPHAN — fix the module fragments to the live
 // schema) rather than silently swallowed. The shared-ui SCHEMA-type block below
 // (no documents) is unaffected and keeps generating.
-// MOB-HIGH-019: every document under src/ is a codegen source — the queued-
+// MOB-HIGH-022: every document under src/ is a codegen source — the queued-
 // operation registry (magic-commented, import-free by design), the colocated
 // page/hook documents, and src/graphql. A document outside this set gets no
 // TypedDocumentNode, and a call without one is exactly the untyped-variables

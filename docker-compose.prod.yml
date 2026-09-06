@@ -224,6 +224,8 @@ services:
     environment:
       SERVICE_NAME: auth-service
       NODE_ENV: production
+      # DEPLOY-HIGH-016: origin of every e-mailed invitation / reset link.
+      FRONTEND_URL: ${FRONTEND_URL:-https://app.suderra.com}
       PORT: 3000
       DATABASE_URL: postgres://auth_service:${AUTH_SERVICE_DB_PASS:?AUTH_SERVICE_DB_PASS is required}@postgres:5432/${POSTGRES_DB:-aquaculture}?sslmode=require
       DB_MIGRATE_AUTHORITATIVE: 'true'

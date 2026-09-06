@@ -33,7 +33,7 @@ import { graphqlRequest } from '@/services/authenticated-fetch';
 import { logger } from '@/utils/logger';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
-// MOB-HIGH-019: the slice, its meals and the meal status are the generated
+// MOB-HIGH-022: the slice, its meals and the meal status are the generated
 // result of the document below — the wire vocabulary is checked by `tsc`, not
 // re-declared by hand.
 export type FeedingDayPlanSlice = FeedingDayPlansQuery['feedingDayPlans'][number];

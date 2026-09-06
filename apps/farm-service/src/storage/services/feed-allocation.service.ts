@@ -221,7 +221,19 @@ export class FeedAllocationService {
       .andWhere('inv.itemType = :itemType', { itemType: StorageItemType.FEED })
       .andWhere('inv.itemId = :itemId', { itemId: params.feedId })
       .andWhere('inv.quantity > 0')
-      .andWhere('(inv.expiryDate IS NULL OR inv.expiryDate > :today)', { today: new Date() })
+      // FARM: the operation's own moment, not the wall clock. `asOf` is what
+      // the neighbouring receivedDate clause already binds, and a deduction
+      // recorded retroactively must see the pool as it stood THEN — reading
+      // `new Date()` here meant a backdated record was judged against now, so
+      // a lot that was valid at feeding time and expired since silently left
+      // the pool. The remaining day-boundary question (this compares a DATE
+      // column against an instant in UTC, while the platform's day semantics
+      // are the site's local day) is tracked, not fixed here: resolving the
+      // zone needs FeedingClockService, and feeding-protocol already imports
+      // storage, so injecting it here would close a module cycle.
+      .andWhere('(inv.expiryDate IS NULL OR inv.expiryDate > :expiryAsOf)', {
+        expiryAsOf: params.asOf,
+      })
       .andWhere('(inv.receivedDate IS NULL OR inv.receivedDate <= :asOf)', { asOf: params.asOf });
     if (params.lotNumber) {
       query.andWhere('inv.lotNumber = :lotNumber', { lotNumber: params.lotNumber });

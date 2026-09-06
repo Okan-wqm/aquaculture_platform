@@ -33,7 +33,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 export function TaskCard({ task, onPress }: TaskCardProps): ReactElement {
   const navigate = useNavigate();
 
-  // FARM-HIGH-318: checklistItems is a typed object list on the wire.
+  // FARM-HIGH-320: checklistItems is a typed object list on the wire.
   const checklistItems = task.checklistItems;
   const completedItems = checklistItems.filter((item) => item.isCompleted);
   const totalItems = checklistItems.length;

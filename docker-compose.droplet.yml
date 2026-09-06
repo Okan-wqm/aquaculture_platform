@@ -834,6 +834,10 @@ services:
       AUTH_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=384'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
+      # DEPLOY-HIGH-016: the origin every invitation / password-reset link in
+      # e-mail points at. auth-service mints those links; without this it fell
+      # back to http://localhost:8080 and shipped dead links to real users.
+      FRONTEND_URL: ${FRONTEND_URL:-https://app.suderra.com}
       DATABASE_HOST: postgres
       # SSL off — Postgres is on the same Docker bridge (no MITM surface).
       DATABASE_SSL: 'false'
@@ -1175,7 +1179,6 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
       SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
       SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
-      FRONTEND_URL: ${FRONTEND_URL:-https://app.suderra.com}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}

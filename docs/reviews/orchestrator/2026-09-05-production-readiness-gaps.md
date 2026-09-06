@@ -24,8 +24,13 @@ Three of the seven were registered on the Faz 3 branch (PR #1424) before `main`
 allocated the same sequence numbers (`SEC-HIGH-056`, `SEC-HIGH-057`,
 `SENSOR-HIGH-106`) to other findings. The allocator treats the sequence as the
 identity, so the rows were re-registered under the right-hand ids when the
-branch took main; the other four (`DEPLOY-HIGH-016`, `PLAT-HIGH-902`,
-`DEPLOY-CRITICAL-017`, `INFRA-HIGH-151`) kept their ids. The Faz 2c branches
+branch took main; `PLAT-HIGH-902`, `DEPLOY-CRITICAL-017` and `INFRA-HIGH-151`
+kept theirs. `DEPLOY-HIGH-016` is NOT re-registered at all: main's #1431 round
+raised and fixed the identical defect under that same id — auth-service minting
+every invitation and password-reset link from the development default — and the
+row is already RESOLVED there (`8fc6fcbdd`). This document's claim 1b therefore
+points at main's row, and PR #1425's overlapping `FRONTEND_URL` work is
+reconciled against it rather than duplicating it. The Faz 2c branches
 (PR #1425, #1426) were cut before the renumbering and cite the left column in
 their `Closes:` trailers; their own merge ceremonies carry the right-hand ids.
 

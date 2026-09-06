@@ -92,7 +92,7 @@ export function useChannelMembers(
     if (!onlineUserIds || onlineUserIds.size === 0) return query.data;
 
     // A member without a federated profile stays profile-less: presence is a
-    // property OF the profile shape, not a substitute for it (MOB-HIGH-019).
+    // property OF the profile shape, not a substitute for it (MOB-HIGH-022).
     return query.data.map((member) => ({
       ...member,
       user: member.user ? { ...member.user, isOnline: onlineUserIds.has(member.userId) } : null,

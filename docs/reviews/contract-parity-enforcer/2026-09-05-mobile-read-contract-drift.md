@@ -3,7 +3,7 @@
 **Cycle:** 2026-09-05-mobile-graphql-contract (Faz 3, K4 view-type reconciliation)
 **Agent:** contract-parity-enforcer
 **Method:** deleting the untyped `graphqlRequest(DocumentNode, Record<string, unknown>)`
-overload in AquaMobil (MOB-HIGH-019) made every hand-written view type compile
+overload in AquaMobil (MOB-HIGH-022) made every hand-written view type compile
 against the generated operation result types. Most mismatches were client-side
 mirrors that had drifted; two were the SERVER not declaring what it stores,
 sends over the socket, or types in its own entity. Those two are registered here
@@ -21,11 +21,16 @@ trailers; the branch's merge ceremony commit carries the right-hand ids.
 | Review id (headings, trailers) | Ledger id (findings.jsonl) |
 | ------------------------------ | -------------------------- |
 | `MSG-HIGH-078`                 | `MSG-HIGH-080`             |
-| `FARM-HIGH-301`                | `FARM-HIGH-318`            |
+| `FARM-HIGH-301`                | `FARM-HIGH-320`            |
+| `FARM-HIGH-318` (1st merge)    | `FARM-HIGH-320`            |
+
+The farm row moved twice: main's #1431/#1443 round allocated sequence 318 to
+`FARM-MEDIUM-318` after the first merge had already renumbered 301 to 318.
 
 - **FARM-HIGH-301** — recorded in `docs/reviews/_registry/finding-id-aliases.yaml` as an alias of
-  `FARM-HIGH-318`. `MSG-HIGH-078` cannot be aliased the same way: main carries a live finding under
+  `FARM-HIGH-320`. `MSG-HIGH-078` cannot be aliased the same way: main carries a live finding under
   that exact id, and an alias may not shadow one.
+- **FARM-HIGH-318** — the first merge commit's trailer; also an alias of `FARM-HIGH-320`.
 
 ## MSG-HIGH-080 — Message.metadata is accepted, stored and pushed over WS, but not readable through GraphQL
 
@@ -59,7 +64,7 @@ entity column and `metadata` in the AquaMobil `MessageFields` fragment; the
 generated `MessageFieldsFragment` now carries it and the client `Message` view
 type is derived from that fragment.
 
-## FARM-HIGH-318 — Task / RecurringTemplate checklist and notes are `JSON` scalars over a typed shape
+## FARM-HIGH-320 — Task / RecurringTemplate checklist and notes are `JSON` scalars over a typed shape
 
 **Severity:** HIGH
 **Layer:** 2

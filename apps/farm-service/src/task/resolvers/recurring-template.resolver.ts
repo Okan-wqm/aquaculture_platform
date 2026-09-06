@@ -216,7 +216,7 @@ export class RecurringTemplateResolver {
   // FIELD RESOLVERS
   // -------------------------------------------------------------------------
 
-  /** Same canonical read path as TaskResolver.checklistItems (FARM-HIGH-318). */
+  /** Same canonical read path as TaskResolver.checklistItems (FARM-HIGH-320). */
   @ResolveField(() => [TaskChecklistItem], { name: 'checklistItems' })
   checklistItems(@Parent() template: RecurringTemplate): TaskChecklistItem[] {
     return TaskService.normaliseChecklistItems(template.checklistItems);

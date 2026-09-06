@@ -1,7 +1,7 @@
 /**
  * AquaMobil GraphQL contract SSoT — the client's write and read shapes come
- * from graphql-codegen, never from a hand-maintained mirror (MOB-HIGH-019,
- * MOB-CRITICAL-020).
+ * from graphql-codegen, never from a hand-maintained mirror (MOB-HIGH-022,
+ * MOB-CRITICAL-021).
  *
  * WHY: the water-quality form failed on every submit for weeks because a
  * hand-written `CreateWaterQualityInput` carried a `parameters` field the
@@ -137,7 +137,7 @@ const NON_GRAPHQL_PAYLOADS_ALLOWED: ReadonlyMap<string, string> = new Map([
 /** A *Payload alias is derived when its RHS reaches the queue contract. */
 const DERIVED_PAYLOAD_RX = /QueuedPayload<|QueuedPayloadByType\[|OperationPayload<|QueueInput</;
 
-describe('AquaMobil GraphQL contract SSoT (MOB-HIGH-019 / MOB-CRITICAL-020)', () => {
+describe('AquaMobil GraphQL contract SSoT (MOB-HIGH-022 / MOB-CRITICAL-021)', () => {
   const decls = declarations();
 
   it('(a) declares no hand-written *Input type under src — inputs are generated', () => {

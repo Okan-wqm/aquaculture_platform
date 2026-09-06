@@ -78,7 +78,7 @@ describe('operation-registry (MOB-MEDIUM-002)', () => {
 
   it('shapes every other operation as { input: payload } verbatim (envelope intact)', () => {
     // A complete generated RecordMortalityInput plus the envelope — the payload
-    // type is derived from the schema (MOB-HIGH-019), so a missing required
+    // type is derived from the schema (MOB-HIGH-022), so a missing required
     // field is a compile error here, not a coercion error on the wire.
     const payload: OperationPayload<'recordMortality'> = {
       batchId: 'b-1',

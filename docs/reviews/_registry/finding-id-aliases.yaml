@@ -228,7 +228,7 @@ aliases:
       sequence as the identity, so the branch's row was re-registered as SENSOR-CRITICAL-110 when the branch
       took main; the merged commits still name the id the review file was written with.
   - alias: FARM-HIGH-301
-    canonical: FARM-HIGH-318
+    canonical: FARM-HIGH-320
     review_file: docs/reviews/contract-parity-enforcer/2026-09-05-mobile-read-contract-drift.md
     commits:
       - '0e5e2ce89'
@@ -236,7 +236,42 @@ aliases:
     reason: >
       Registered as FARM-HIGH-301 on the Faz 3 branch (claude/mobile-graphql-contract-0jj9jg, PR #1424)
       before main allocated sequence 301 of the same domain to FARM-MEDIUM-301. The allocator treats the
-      sequence as the identity, so the branch's row was re-registered as FARM-HIGH-318 when the branch
+      sequence as the identity, so the branch's row was re-registered as FARM-HIGH-320 when the branch
       took main; the merged commit still names the id the review file was written with. FARM-HIGH-301
       itself is not a live ledger id, so the trailer resolves through this alias rather than shadowing
       another finding.
+  - alias: MOB-CRITICAL-020
+    canonical: MOB-CRITICAL-021
+    review_file: docs/reviews/form-write-auditor/2026-08-16-aquamobil-form-write-paths.md
+    commits:
+      - 'ff643ac84'
+    effective_date: '2026-09-06'
+    reason: >
+      Assigned to this row by the Faz 3 branch's FIRST merge of main (ff643ac84, PR #1424), whose
+      Closes: trailer names it. Main's #1431/#1443 round then allocated that sequence in the domain
+      to MOB-HIGH-020, so the row moved again to MOB-CRITICAL-021. The trailer cannot be rewritten (force push
+      is banned), and MOB-CRITICAL-020 is not a live ledger id, so the closure resolves through this alias.
+
+  - alias: FARM-HIGH-317
+    canonical: FARM-HIGH-319
+    review_file: docs/reviews/contract-parity-enforcer/2026-08-16-farm-mobile-contract-parity.md
+    commits:
+      - 'ff643ac84'
+    effective_date: '2026-09-06'
+    reason: >
+      Assigned to this row by the Faz 3 branch's FIRST merge of main (ff643ac84, PR #1424), whose
+      Closes: trailer names it. Main's #1431/#1443 round then allocated that sequence in the domain
+      to FARM-MEDIUM-317, so the row moved again to FARM-HIGH-319. The trailer cannot be rewritten (force push
+      is banned), and FARM-HIGH-317 is not a live ledger id, so the closure resolves through this alias.
+
+  - alias: FARM-HIGH-318
+    canonical: FARM-HIGH-320
+    review_file: docs/reviews/contract-parity-enforcer/2026-09-05-mobile-read-contract-drift.md
+    commits:
+      - 'ff643ac84'
+    effective_date: '2026-09-06'
+    reason: >
+      Assigned to this row by the Faz 3 branch's FIRST merge of main (ff643ac84, PR #1424), whose
+      Closes: trailer names it. Main's #1431/#1443 round then allocated that sequence in the domain
+      to FARM-MEDIUM-318, so the row moved again to FARM-HIGH-320. The trailer cannot be rewritten (force push
+      is banned), and FARM-HIGH-318 is not a live ledger id, so the closure resolves through this alias.

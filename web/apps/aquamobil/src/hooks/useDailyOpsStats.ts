@@ -12,7 +12,7 @@ import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { DailyOpsStats, TaskStats } from '@/types';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
-// MOB-HIGH-019: the counts slice is the generated result of the document
+// MOB-HIGH-022: the counts slice is the generated result of the document
 // below, so the field names are checked against the wire contract.
 type DailyOpsCountsResponse = GetTodaysDailyOpsCountsQuery['todaysDailyOpsCounts'];
 

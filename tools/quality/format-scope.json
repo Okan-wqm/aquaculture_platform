@@ -23995,7 +23995,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/notification-service/src/notification/services/__tests__/email.service.delivery-error.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/notification-service/src/notification/services/__tests__/email.service.regulatory-recipients.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/notification-service/src/notification/services/__tests__/notification-log-dead-letter.sink.spec.ts",
       "prettier_managed": true
     },
     {
@@ -24032,6 +24044,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/notification-service/src/notification/services/notification-dispatcher.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/notification-service/src/notification/services/notification-log-dead-letter.sink.ts",
       "prettier_managed": true
     },
     {
@@ -39738,6 +39756,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/http/__tests__/http-failure-class.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/http/__tests__/signed-http-client.spec.ts",
       "prettier_managed": true
     },
@@ -39751,6 +39775,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/http/gateway-verified-user-assertion.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/http/http-failure-class.ts",
       "prettier_managed": true
     },
     {
@@ -42950,7 +42980,25 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "platform/libs/event-bus/src/interfaces/__tests__/handler-outcome.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "platform/libs/event-bus/src/interfaces/dead-letter-sink.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "platform/libs/event-bus/src/interfaces/event-bus.interface.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "platform/libs/event-bus/src/interfaces/handler-outcome.ts",
       "prettier_managed": true
     },
     {
@@ -42975,6 +43023,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "platform/libs/event-bus/src/nats/__tests__/nats-event-bus.dlq.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "platform/libs/event-bus/src/nats/__tests__/nats-event-bus.outcomes.spec.ts",
       "prettier_managed": true
     },
     {
@@ -43011,6 +43065,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "platform/libs/event-bus/src/nats/event-bus-config.factory.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "platform/libs/event-bus/src/nats/event-bus-delivery-metrics.ts",
       "prettier_managed": true
     },
     {
@@ -45147,6 +45207,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/event-contract-emit-has-interface.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/event-handler-outcome-ssot.spec.ts",
       "prettier_managed": true
     },
     {

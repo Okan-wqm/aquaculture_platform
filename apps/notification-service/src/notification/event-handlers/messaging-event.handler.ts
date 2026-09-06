@@ -1,6 +1,5 @@
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
-import { createBaseEvent } from '@platform/event-contracts';
+import { IEventBus, IEventHandler, HandlerOutcome, outcomeForError } from '@platform/event-bus';
 import type {
   MessagingEvent,
   MessageSentEvent,
@@ -8,7 +7,6 @@ import type {
   BulkThreadsCreatedEvent,
 } from '@platform/event-contracts';
 
-import { DeadLetterQueueService } from '../services/dead-letter-queue.service';
 import { InAppNotificationService } from '../services/in-app.service';
 
 // UUID v4 regex for tenant ID validation
@@ -48,17 +46,6 @@ class Semaphore {
   }
 }
 
-function createRetryEvent(
-  event: MessagingEvent,
-  retryCount: number,
-): MessagingEvent {
-  return {
-    ...event,
-    retryCount,
-    ...createBaseEvent<MessagingEvent>(event.eventType, event.tenantId),
-  } as MessagingEvent;
-}
-
 /**
  * Messaging Event Handler
  * Listens to messaging and announcement events and creates in-app notifications.
@@ -75,15 +62,12 @@ function createRetryEvent(
  * messaging events at MAX_EVENT_CONCURRENCY.
  */
 @Injectable()
-export class MessagingEventHandler
-  implements IEventHandler<MessagingEvent>, OnModuleInit
-{
+export class MessagingEventHandler implements IEventHandler<MessagingEvent>, OnModuleInit {
   private readonly logger = new Logger(MessagingEventHandler.name);
   private readonly semaphore = new Semaphore(MAX_EVENT_CONCURRENCY);
 
   constructor(
     private readonly inAppService: InAppNotificationService,
-    private readonly dlqService: DeadLetterQueueService,
     @Inject('EVENT_BUS')
     private readonly eventBus: IEventBus,
   ) {}
@@ -106,24 +90,21 @@ export class MessagingEventHandler
     return 'MessagingEvent';
   }
 
-  async handle(event: MessagingEvent): Promise<void> {
+  async handle(event: MessagingEvent): Promise<HandlerOutcome> {
     // SECURITY: Validate tenantId format to ensure data isolation
     if (!event.tenantId || !UUID_REGEX.test(event.tenantId)) {
       this.logger.error(
         `Messaging event has invalid or missing tenantId. ` +
-        'Skipping to prevent cross-tenant notification leakage.',
+          'Skipping to prevent cross-tenant notification leakage.',
       );
-      return;
+      return HandlerOutcome.terminate('Messaging event: missing or invalid tenantId');
     }
 
     const eventType = event.eventType;
-    this.logger.log(
-      `Processing ${eventType} for tenant ${event.tenantId.substring(0, 8)}...`,
-    );
+    this.logger.log(`Processing ${eventType} for tenant ${event.tenantId.substring(0, 8)}...`);
 
     // Acquire semaphore slot before processing to enforce backpressure
     await this.semaphore.acquire();
-    let retryEvent: MessagingEvent | null = null;
 
     try {
       switch (eventType) {
@@ -138,37 +119,19 @@ export class MessagingEventHandler
           break;
         default:
           this.logger.warn(`Unknown messaging event type: ${eventType}`);
+          return HandlerOutcome.terminate(`Unknown messaging event type: ${eventType}`);
       }
+      return HandlerOutcome.ack();
     } catch (error) {
       this.logger.error(
         `Error processing ${eventType} event: ${(error as Error).message}`,
         (error as Error).stack,
       );
-
-      // DLQ: Determine whether to retry or dead-letter this event
-      try {
-        const dlqResult = await this.dlqService.handleFailedEvent(
-          { ...event },
-          error,
-        );
-
-        if (dlqResult.retry) {
-          retryEvent = createRetryEvent(event, dlqResult.retryCount);
-          this.logger.warn(
-            `Messaging event ${eventType} scheduled for local retry attempt ${dlqResult.retryCount}`,
-          );
-        }
-      } catch (dlqError) {
-        this.logger.error(
-          `DLQ handling failed for ${eventType}: ${(dlqError as Error).message}`,
-        );
-      }
+      // PLAT-HIGH-902: the bus owns retries and dead-lettering; the local
+      // recursive retry ladder is gone.
+      return outcomeForError(`${eventType} messaging notification`, error);
     } finally {
       this.semaphore.release();
-    }
-
-    if (retryEvent !== null) {
-      await this.handle(retryEvent);
     }
   }
 
@@ -198,16 +161,12 @@ export class MessagingEventHandler
 
     // Skip internal admin notes -- no notification needed
     if (legacyAdminEvent.isInternal) {
-      this.logger.debug(
-        `Skipping notification for internal message ${event.messageId}`,
-      );
+      this.logger.debug(`Skipping notification for internal message ${event.messageId}`);
       return;
     }
 
     if (!event.messageId || !legacyAdminEvent.threadId) {
-      this.logger.error(
-        'MessageSent event missing required messageId or threadId. Skipping.',
-      );
+      this.logger.error('MessageSent event missing required messageId or threadId. Skipping.');
       return;
     }
 
@@ -266,9 +225,7 @@ export class MessagingEventHandler
    */
   private async handleAnnouncementPublished(event: AnnouncementPublishedEvent): Promise<void> {
     if (!event.announcementId) {
-      this.logger.error(
-        'AnnouncementPublished event missing required announcementId. Skipping.',
-      );
+      this.logger.error('AnnouncementPublished event missing required announcementId. Skipping.');
       return;
     }
 
@@ -309,7 +266,7 @@ export class MessagingEventHandler
 
     this.logger.debug(
       `In-app notifications created for AnnouncementPublished: ${event.announcementId} ` +
-      `across ${targetTenantIds.length} tenants`,
+        `across ${targetTenantIds.length} tenants`,
     );
   }
 
@@ -322,9 +279,7 @@ export class MessagingEventHandler
    */
   private async handleBulkThreadsCreated(event: BulkThreadsCreatedEvent): Promise<void> {
     if (!event.bulkOperationId) {
-      this.logger.error(
-        'BulkThreadsCreated event missing required bulkOperationId. Skipping.',
-      );
+      this.logger.error('BulkThreadsCreated event missing required bulkOperationId. Skipping.');
       return;
     }
 
@@ -337,21 +292,15 @@ export class MessagingEventHandler
     // We create a single notification on the originating tenant context.
     // In practice, the resolver/controller consuming bulk threads should handle
     // per-tenant notification dispatch. Here we log the bulk operation.
-    await this.inAppService.createNotification(
-      event.tenantId,
-      event.tenantId,
-      title,
-      body,
-      {
-        type: 'MESSAGE',
-        bulkOperationId: event.bulkOperationId,
-        tenantCount: event.tenantCount,
-      },
-    );
+    await this.inAppService.createNotification(event.tenantId, event.tenantId, title, body, {
+      type: 'MESSAGE',
+      bulkOperationId: event.bulkOperationId,
+      tenantCount: event.tenantCount,
+    });
 
     this.logger.debug(
       `In-app notification created for BulkThreadsCreated: operation ${event.bulkOperationId} ` +
-      `covering ${event.tenantCount} tenants`,
+        `covering ${event.tenantCount} tenants`,
     );
   }
 }

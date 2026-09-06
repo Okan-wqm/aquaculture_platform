@@ -41,7 +41,6 @@ describe('TaskEventHandler push payload (MT-HIGH-050)', () => {
     const handler = new TaskEventHandler(
       { dispatchCommandNotification } as never,
       {} as never,
-      {} as never,
       { findOne: deviceTokenFindOne } as never,
       { subscribeWildcard: jest.fn() } as never,
     );

@@ -1,6 +1,7 @@
 import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { TypeOrmModule, getRepositoryToken } from '@nestjs/typeorm';
+import type { Repository } from 'typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
 import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
@@ -51,7 +52,9 @@ const NotificationMigrationRunnerService = createSchemaVersionGate('notification
 const notificationSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventBusModule, buildEventBusConfig } from '@platform/event-bus';
+import { NotificationLog } from './notification/entities/notification-log.entity';
 import { NotificationModule } from './notification/notification.module';
+import { NotificationLogDeadLetterSink } from './notification/services/notification-log-dead-letter.sink';
 import { NotificationOutboxModule } from './outbox/notification-outbox.module';
 import { HealthModule } from './health/health.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
@@ -198,6 +201,17 @@ const GRAPHQL_MAX_COMPLEXITY = 1000;
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: buildEventBusConfig,
+      // PLAT-HIGH-902: every message the bus terminates in this service lands
+      // as a NotificationLog DEAD_LETTER row (the admin panel / health count
+      // already read those rows). Bound here, inside the global bus module,
+      // so the sink needs no feature-module import that would cycle through
+      // 'EVENT_BUS'.
+      deadLetterSink: {
+        imports: [TypeOrmModule.forFeature([NotificationLog])],
+        inject: [getRepositoryToken(NotificationLog)],
+        useFactory: (repository: Repository<NotificationLog>) =>
+          new NotificationLogDeadLetterSink(repository),
+      },
     }),
     NotificationOutboxModule,
     TenantErasureTargetModule.forService('notification-service'),

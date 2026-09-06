@@ -22,7 +22,7 @@
  */
 import { isValidBcp47Locale, isValidIanaTimeZone } from '@aquaculture/backend-common/utils';
 import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { HandlerOutcome, IEventBus, IEventHandler } from '@platform/event-bus';
 import { requireTenantScope } from '@platform/event-contracts';
 import type { BaseEvent, TenantUpdatedEvent } from '@platform/event-contracts';
 import { DataSource } from 'typeorm';
@@ -56,7 +56,7 @@ export class TenantLocalizationProjectionListener
     return 'TenantUpdated';
   }
 
-  async handle(event: BaseEvent): Promise<void> {
+  async handle(event: BaseEvent): Promise<HandlerOutcome> {
     // PLAT-MEDIUM-910: the tenancy scope is PARSED, not guarded. Skipping on a
     // malformed tenantId acked a poison message — the projection stayed stale
     // and nothing said so. `requireTenantScope` throws instead, so redelivery
@@ -65,23 +65,29 @@ export class TenantLocalizationProjectionListener
 
     const updated = event as TenantUpdatedEvent;
     // Lokalizasyon taşımayan TenantUpdated yayımları (isim/plan değişimi) bu
-    // projeksiyonu ilgilendirmez.
-    if (updated.timezone === undefined) return;
+    // projeksiyonu ilgilendirmez — "uygulanmaz" bir ack'tir, hata değil.
+    if (updated.timezone === undefined) {
+      return HandlerOutcome.ack('TenantUpdated carries no localization');
+    }
 
     if (!isValidIanaTimeZone(updated.timezone)) {
       // Zon çözülemiyorsa yazım REDDEDİLİR: yazsaydık cron `Intl` üzerinde
       // RangeError alır ve tenant'ın tüm yemleme işleri düşerdi. Sessiz UTC
       // ikamesi de yapılmaz — operatör yanlış saatte beslendiğini fark etmez.
-      this.logger.error(
+      // PLAT-HIGH-902: yeniden teslim aynı çözülemez zonu getirir — kalıcı bir
+      // payload kusuru, terminate. Böylece satır dead-letter defterinde görünür;
+      // sessiz bir ack "projeksiyon güncel" derdi.
+      return HandlerOutcome.terminate(
         `TenantUpdated carries an unresolvable IANA timezone for tenant ` +
-          `${tenantId.substring(0, 8)}... — projection row left unchanged.`,
+          `${tenantId.substring(0, 8)}... — projection row left unchanged`,
       );
-      return;
     }
     const locale = isValidBcp47Locale(updated.locale) ? updated.locale : null;
 
     const sourceUpdatedAt = new Date(event.timestamp);
-    if (Number.isNaN(sourceUpdatedAt.getTime())) return;
+    if (Number.isNaN(sourceUpdatedAt.getTime())) {
+      return HandlerOutcome.terminate('TenantUpdated carries an unparseable timestamp');
+    }
 
     try {
       await this.dataSource.query(
@@ -97,6 +103,7 @@ export class TenantLocalizationProjectionListener
             OR farm.tenant_localization."sourceUpdatedAt" < EXCLUDED."sourceUpdatedAt"`,
         [tenantId, updated.timezone, locale, sourceUpdatedAt],
       );
+      return HandlerOutcome.ack();
     } catch (error) {
       this.logger.error(
         `Tenant-localization projection failed for tenant ${tenantId.substring(0, 8)}...: ` +

@@ -15,7 +15,7 @@ import {
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { Interval } from '@nestjs/schedule';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { IEventBus, IEventHandler, HandlerOutcome } from '@platform/event-bus';
 import {
   canTransition,
   createBaseEvent,
@@ -274,10 +274,12 @@ export class TenantErasureProofHandler implements IEventHandler<ErasureProofEven
     return 'TenantErasureProof';
   }
 
-  async handle(event: ErasureProofEvent): Promise<void> {
+  async handle(event: ErasureProofEvent): Promise<HandlerOutcome> {
     const resolved = resolveTenantErasureOutcomeEventType(event.eventType);
     if (!resolved) {
-      throw new BadRequestException(
+      // PLAT-HIGH-902: a legacy/unknown outcome shape can never be recorded —
+      // dead-letter it instead of redelivering it until the budget is spent.
+      return HandlerOutcome.terminate(
         `Unknown or legacy tenant-erasure outcome event type: ${event.eventType}`,
       );
     }
@@ -286,7 +288,7 @@ export class TenantErasureProofHandler implements IEventHandler<ErasureProofEven
         ? (event as TenantErasureBlockedEvent).blockedByService
         : (event as TenantDataErasedEvent | TenantDataErasureFailedEvent).targetService;
     if (claimedService !== resolved.targetService) {
-      throw new BadRequestException(
+      return HandlerOutcome.terminate(
         `Tenant-erasure outcome identity mismatch: eventType ${event.eventType} ` +
           `is bound to ${resolved.targetService}, payload claims ${claimedService}`,
       );
@@ -294,12 +296,13 @@ export class TenantErasureProofHandler implements IEventHandler<ErasureProofEven
 
     if (resolved.outcome === 'erased') {
       await this.recordServiceProof(event as TenantDataErasedEvent);
-      return;
+      return HandlerOutcome.ack();
     }
     await this.recordServiceFailure(
       event as TenantDataErasureFailedEvent | TenantErasureBlockedEvent,
       resolved.outcome,
     );
+    return HandlerOutcome.ack();
   }
 
   @Interval(30_000)

@@ -1,8 +1,13 @@
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
-import { IEventBus, IEventHandler, IEvent } from '@platform/event-bus';
-import { createBaseEvent, EventId } from '@platform/event-contracts';
+import {
+  IEventBus,
+  IEventHandler,
+  IEvent,
+  HandlerOutcome,
+  outcomeForError,
+} from '@platform/event-bus';
+import { EventId } from '@platform/event-contracts';
 import { NotificationDispatcherService } from '../services/notification-dispatcher.service';
-import { DeadLetterQueueService } from '../services/dead-letter-queue.service';
 
 // UUID v4 regex for tenant ID validation
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -103,7 +108,6 @@ export class AlertTriggeredEventHandler
 
   constructor(
     private readonly dispatcher: NotificationDispatcherService,
-    private readonly dlqService: DeadLetterQueueService,
     @Inject('EVENT_BUS')
     private readonly eventBus: IEventBus,
   ) {}
@@ -123,22 +127,20 @@ export class AlertTriggeredEventHandler
     return 'AlertTriggered';
   }
 
-  async handle(event: AlertTriggeredEvent): Promise<void> {
+  async handle(event: AlertTriggeredEvent): Promise<HandlerOutcome> {
     // SECURITY: Validate tenantId format to ensure data isolation
     if (!event.tenantId || !UUID_REGEX.test(event.tenantId)) {
       this.logger.error(
         `Alert ${event.alertId} has invalid or missing tenantId. ` +
-        'Skipping to prevent cross-tenant notification leakage.',
+          'Skipping to prevent cross-tenant notification leakage.',
       );
-      return;
+      return HandlerOutcome.terminate('AlertTriggered: missing or invalid tenantId');
     }
 
     // Validate required fields
     if (!event.alertId || !event.ruleId) {
-      this.logger.error(
-        `Alert event missing required alertId or ruleId. Skipping.`,
-      );
-      return;
+      this.logger.error(`Alert event missing required alertId or ruleId. Skipping.`);
+      return HandlerOutcome.terminate('AlertTriggered: missing alertId or ruleId');
     }
 
     this.logger.log(
@@ -147,21 +149,20 @@ export class AlertTriggeredEventHandler
 
     // Skip if no channels or recipients
     if (!event.channels?.length || !event.recipients?.length) {
-      this.logger.warn(
-        `Alert ${event.alertId} has no channels or recipients configured`,
-      );
-      return;
+      this.logger.warn(`Alert ${event.alertId} has no channels or recipients configured`);
+      return HandlerOutcome.ack();
     }
 
     // Use local copies to avoid mutating the original event
-    const recipients = event.recipients.length > MAX_RECIPIENTS
-      ? event.recipients.slice(0, MAX_RECIPIENTS)
-      : [...event.recipients];
+    const recipients =
+      event.recipients.length > MAX_RECIPIENTS
+        ? event.recipients.slice(0, MAX_RECIPIENTS)
+        : [...event.recipients];
 
     if (event.recipients.length > MAX_RECIPIENTS) {
       this.logger.warn(
         `Alert ${event.alertId} has too many recipients (${event.recipients.length}). ` +
-        `Limiting to first ${MAX_RECIPIENTS}.`,
+          `Limiting to first ${MAX_RECIPIENTS}.`,
       );
     }
 
@@ -200,36 +201,17 @@ export class AlertTriggeredEventHandler
           timestamp: new Date(event.timestamp),
         },
       );
+      return HandlerOutcome.ack();
     } catch (error) {
       this.logger.error(
         `Error dispatching alert notifications: ${(error as Error).message}`,
         (error as Error).stack,
       );
-
-      // DLQ: Determine whether to retry or dead-letter this event
-      try {
-        const dlqResult = await this.dlqService.handleFailedEvent(
-          { ...event },
-          error,
-        );
-
-        if (dlqResult.retry) {
-          // Re-publish with incremented retryCount and a fresh eventId
-          // to bypass NATS deduplication window
-          await this.eventBus.publish({
-            ...event,
-            retryCount: dlqResult.retryCount,
-            ...createBaseEvent('AlertTriggered', event.tenantId, { aggregateId: event.alertId, aggregateType: 'Alert' }),
-          });
-          this.logger.warn(
-            `Alert ${event.alertId} re-published for retry attempt ${dlqResult.retryCount}`,
-          );
-        }
-      } catch (dlqError) {
-        this.logger.error(
-          `DLQ handling failed for alert ${event.alertId}: ${(dlqError as Error).message}`,
-        );
-      }
+      // PLAT-HIGH-902: the bus owns retries and dead-lettering. The hand-rolled
+      // ladder that re-published the event with a fresh eventId (and its own
+      // retryCount) is gone — a transient failure redelivers within the
+      // consumer's budget, a terminal one is dead-lettered with its reason.
+      return outcomeForError(`AlertTriggered ${event.alertId} dispatch`, error);
     } finally {
       this.semaphore.release();
     }

@@ -21,7 +21,7 @@ import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/comm
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { runInTenantTransaction } from '@aquaculture/backend-common/database';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { IEventBus, IEventHandler, HandlerOutcome } from '@platform/event-bus';
 import { validateFinanceEvent } from '@platform/event-contracts';
 import type { FinanceSettingsUpdatedEvent } from '@platform/event-contracts';
 
@@ -63,11 +63,11 @@ export class FinanceSettingsUpdatedConsumer
     return 'FinanceSettingsUpdated';
   }
 
-  async handle(event: FinanceSettingsUpdatedEvent): Promise<void> {
+  async handle(event: FinanceSettingsUpdatedEvent): Promise<HandlerOutcome> {
     const verdict = validateFinanceEvent('FinanceSettingsUpdated', event);
     if (!verdict.valid) {
       this.logger.warn(`Dropping invalid FinanceSettingsUpdated payload: ${verdict.errors}`);
-      return;
+      return HandlerOutcome.terminate(`FinanceSettingsUpdated: ${verdict.errors}`);
     }
 
     const { tenantId, defaultCurrency } = event;
@@ -82,10 +82,7 @@ export class FinanceSettingsUpdatedConsumer
           where: { tenantId },
           lock: { mode: 'pessimistic_write' },
         });
-        if (
-          settings?.currencyProjectedAt &&
-          eventTimestamp <= settings.currencyProjectedAt
-        ) {
+        if (settings?.currencyProjectedAt && eventTimestamp <= settings.currencyProjectedAt) {
           // Stale or out-of-order redelivery — the watermark already
           // reflects a newer (or equal) currency decision.
           return false;
@@ -110,11 +107,12 @@ export class FinanceSettingsUpdatedConsumer
       this.logger.debug(
         `Skipped stale FinanceSettingsUpdated for tenant ${tenantId.slice(0, 8)}… (watermark newer)`,
       );
-      return;
+      return HandlerOutcome.ack();
     }
     this.settingsService.invalidate(tenantId);
     this.logger.log(
       `Projected default currency ${defaultCurrency} for tenant ${tenantId.slice(0, 8)}…`,
     );
+    return HandlerOutcome.ack();
   }
 }

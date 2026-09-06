@@ -21,7 +21,7 @@
  */
 import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { isValidUUID } from '@aquaculture/backend-common/database';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { HandlerOutcome, IEventBus, IEventHandler, outcomeForError } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
 import type {
   FeedingWindowReadinessEvent,
@@ -60,29 +60,29 @@ export class FeedingWindowEventHandler
     return 'MealWindowUpcoming';
   }
 
-  async handle(event: MealWindowUpcomingEvent): Promise<void> {
+  async handle(event: MealWindowUpcomingEvent): Promise<HandlerOutcome> {
     // SECURITY: tenantId becomes a schema name inside runInTenantRead.
     if (!event.tenantId || !isValidUUID(event.tenantId)) {
-      this.logger.error(
-        'MealWindowUpcoming event has missing/invalid tenantId — skipping ' +
-          'to prevent cross-tenant sensor reads.',
+      // PLAT-HIGH-902: redelivery brings the same malformed tenantId back, so
+      // this terminates rather than acking the drop into silence.
+      return HandlerOutcome.terminate(
+        'MealWindowUpcoming has a missing/invalid tenantId — refusing to derive a schema name from it',
       );
-      return;
     }
 
     if (!Array.isArray(event.meals) || event.meals.length === 0) {
-      return;
+      return HandlerOutcome.ack('window carries no meals — nothing to evaluate');
     }
 
     try {
       const verdicts = await this.readinessService.evaluate(event.tenantId, event.meals);
       if (verdicts.length === 0) {
-        return;
+        return HandlerOutcome.ack('no meal breached its readiness threshold');
       }
 
       const bus = this.eventBus;
       if (!bus) {
-        return;
+        return HandlerOutcome.ack('no event bus bound — verdicts cannot be published');
       }
 
       for (const verdict of verdicts) {
@@ -115,13 +115,17 @@ export class FeedingWindowEventHandler
         `Published ${verdicts.length} FeedingWindowReadiness verdict(s) for tenant ` +
           `${event.tenantId.substring(0, 8)}... (window ${event.windowStart}–${event.windowEnd})`,
       );
+      return HandlerOutcome.ack();
     } catch (error) {
       // Reproducible signal — the next 15-minute tick re-evaluates any meal
-      // still inside its lead window (D-B5).
+      // still inside its lead window (D-B5) — so a transient failure is ACKed
+      // WITH ITS REASON rather than dropped silently (PLAT-HIGH-902). An error
+      // redelivery could never fix still terminates into the dead-letter lane.
       this.logger.error(
         `Feeding-window readiness evaluation failed: ${(error as Error).message}`,
         (error as Error).stack,
       );
+      return outcomeForError('FeedingWindowReadiness', error, { reproducible: true });
     }
   }
 }

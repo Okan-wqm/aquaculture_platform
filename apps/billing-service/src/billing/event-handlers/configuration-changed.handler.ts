@@ -1,6 +1,6 @@
 import { DynamicStripeClientProvider } from '@aquaculture/backend-common/billing';
 import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { IEventBus, IEventHandler, HandlerOutcome } from '@platform/event-bus';
 import {
   CONFIG_RUNTIME_SERVICE,
   CONFIG_RUNTIME_SYSTEM_TENANT_ID,
@@ -47,7 +47,7 @@ export class ConfigurationChangedHandler
     return 'ConfigurationChanged';
   }
 
-  async handle(event: ConfigurationChangedEvent): Promise<void> {
+  async handle(event: ConfigurationChangedEvent): Promise<HandlerOutcome> {
     // Only platform billing.* config on the SYSTEM tenant is relevant to the
     // Stripe client. Everything else is ignored (no value is ever read here).
     if (
@@ -56,7 +56,7 @@ export class ConfigurationChangedHandler
       typeof event.key !== 'string' ||
       !event.key.startsWith('billing.')
     ) {
-      return;
+      return HandlerOutcome.ack();
     }
 
     this.logger.log(
@@ -65,6 +65,6 @@ export class ConfigurationChangedHandler
     this.dynamicStripeClientProvider.invalidate();
     // Promise-returning by interface; no async work needed for a synchronous
     // in-memory invalidate. Return resolved so the interface contract holds.
-    return Promise.resolve();
+    return Promise.resolve(HandlerOutcome.ack());
   }
 }

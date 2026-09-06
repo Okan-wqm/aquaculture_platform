@@ -303,13 +303,16 @@ describe('SensorReadingEventHandler', () => {
         new Error('DB connection lost'),
       );
 
-      // The delivery class decides. FARM_SIGNAL_DELIVERY_SEMANTICS classifies
-      // SensorReading as reproducible precisely because rethrowing on the
-      // platform's highest-volume subject would be a redelivery storm, and the
-      // next reading seconds later re-evaluates every threshold rule.
-      await expect(
-        handler.handle(sensorReadingEvent({ eventId: 'evt-9' })),
-      ).resolves.toBeUndefined();
+      // The delivery class decides, and the outcome says so out loud.
+      // FARM_SIGNAL_DELIVERY_SEMANTICS classifies SensorReading as
+      // reproducible — rethrowing on the platform's highest-volume subject
+      // would be a redelivery storm, and the next reading seconds later
+      // re-evaluates every threshold rule — so the failure is ACKNOWLEDGED
+      // WITH ITS REASON rather than retried or silently swallowed
+      // (PLAT-HIGH-902).
+      await expect(handler.handle(sensorReadingEvent({ eventId: 'evt-9' }))).resolves.toEqual(
+        expect.objectContaining({ kind: 'ack', reason: expect.stringContaining('reproducible') }),
+      );
       expect(mockEvaluationService.evaluateSensorReading).toHaveBeenCalledTimes(1);
     });
 
@@ -318,12 +321,12 @@ describe('SensorReadingEventHandler', () => {
 
       mockRun.mockRejectedValueOnce(new Error('AsyncLocalStorage failure'));
 
-      await expect(
-        handler.handle(sensorReadingEvent({ eventId: 'evt-10' })),
-      ).resolves.toBeUndefined();
+      await expect(handler.handle(sensorReadingEvent({ eventId: 'evt-10' }))).resolves.toEqual(
+        expect.objectContaining({ kind: 'ack' }),
+      );
     });
 
-    it('rethrows when the event type IS durable-delivery class', async () => {
+    it('asks for a retry when the event type IS durable-delivery class', async () => {
       const handler = createHandler();
 
       mockEvaluationService.evaluateSensorReading.mockRejectedValueOnce(
@@ -334,9 +337,19 @@ describe('SensorReadingEventHandler', () => {
       // handler must NAK for redelivery rather than ack the loss. Routing a
       // one-shot type through this handler is hypothetical today — the point is
       // that the branch is taken from the classification, not hard-coded.
+      //
+      // PLAT-HIGH-902 states that NAK as a value rather than an exception: the
+      // bus folds `retry` into exactly the nak/backoff this previously got by
+      // throwing, and dead-letters it once the delivery budget is spent —
+      // where the throw was silently dropped by JetStream.
       await expect(
         handler.handle(sensorReadingEvent({ eventId: 'evt-11', eventType: 'MealMissed' })),
-      ).rejects.toThrow('DB connection lost');
+      ).resolves.toEqual(
+        expect.objectContaining({
+          kind: 'retry',
+          reason: expect.stringContaining('DB connection lost'),
+        }),
+      );
     });
   });
 });

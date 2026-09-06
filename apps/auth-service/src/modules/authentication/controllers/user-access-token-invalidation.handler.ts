@@ -4,7 +4,7 @@ import {
   type UserAccessTokenInvalidationRequestedEvent,
 } from '@platform/event-contracts';
 import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { IEventBus, IEventHandler, HandlerOutcome } from '@platform/event-bus';
 
 @Injectable()
 export class UserAccessTokenInvalidationHandler
@@ -29,16 +29,19 @@ export class UserAccessTokenInvalidationHandler
     return 'UserAccessTokenInvalidationRequested';
   }
 
-  async handle(payload: unknown): Promise<void> {
+  async handle(payload: unknown): Promise<HandlerOutcome> {
     if (!isUserAccessTokenInvalidationRequestedEvent(payload)) {
-      // Throwing deliberately NAKs the JetStream delivery. Invalid payloads
-      // and Redis outages must never be ACKed as successful recovery.
-      throw new Error('Invalid UserAccessTokenInvalidationRequested event');
+      // PLAT-HIGH-902: an invalid payload can never become a valid one — on
+      // this unlimited-redelivery consumer a throw was an endless NAK loop.
+      // Dead-letter it; a Redis outage below still throws and retries, so an
+      // outage is never ACKed as a successful recovery.
+      return HandlerOutcome.terminate('Invalid UserAccessTokenInvalidationRequested event');
     }
 
     await this.userTokenRevocation.revokeUserTokens(
       payload.targetUserId,
       new Date(payload.invalidatedAtEpochSeconds * 1000),
     );
+    return HandlerOutcome.ack();
   }
 }

@@ -27,6 +27,19 @@ import {
   type BillingDiscountCodeInput,
   type BillingDiscountCodeSnapshot,
   type BillingDiscountSubscriptionChange,
+  type BillingAdminDeactivateModulePriceCommand,
+  type BillingAdminModulePriceCommandResult,
+  type BillingAdminQuoteModuleSelectionCommand,
+  type BillingAdminQuoteModuleSelectionResult,
+  type BillingAdminSeedModulePricesCommand,
+  type BillingAdminSeedModulePricesResult,
+  type BillingAdminSetModulePriceCommand,
+  type BillingModulePriceInput,
+  type BillingModulePriceSnapshot,
+  type BillingModuleQuote,
+  type BillingModuleQuoteSelection,
+  type BillingPlanTier,
+  type BillingCycle,
   type BillingAdminCreateInvoiceCommand,
   type BillingAdminCreateInvoiceInput,
   type BillingAdminInvoiceCommandResult,
@@ -352,6 +365,74 @@ export class BillingAdminCommandClientService {
     result: BillingAdminDiscountCodeCommandResult,
   ): BillingDiscountCodeSnapshot {
     if (result.success && result.discountCode) return result.discountCode;
+    throw this.mapBillingError(result.errorCode, result.error);
+  }
+
+  // ── Module price sheet + quotes (ADR-0013) ─────────────────────────────
+  //
+  // billing owns `billing.module_prices` AND the arithmetic that turns a
+  // module selection into a price. admin-api authors the sheet through these
+  // commands, reads the rows back through a read-only mapping, and ASKS for
+  // the quote instead of recomputing it.
+
+  async setModulePrice(
+    input: BillingModulePriceInput,
+    actorId: string,
+  ): Promise<BillingModulePriceSnapshot> {
+    const result = await this.sendBillingCommand<
+      BillingAdminSetModulePriceCommand,
+      BillingAdminModulePriceCommandResult
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.SET_MODULE_PRICE, { input, actorId });
+    return this.unwrapModulePrice(result);
+  }
+
+  async deactivateModulePrice(
+    modulePriceId: string,
+    actorId: string,
+  ): Promise<BillingModulePriceSnapshot> {
+    const result = await this.sendBillingCommand<
+      BillingAdminDeactivateModulePriceCommand,
+      BillingAdminModulePriceCommandResult
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.DEACTIVATE_MODULE_PRICE, { modulePriceId, actorId });
+    return this.unwrapModulePrice(result);
+  }
+
+  async seedModulePrices(
+    moduleIds: Array<{ moduleCode: string; moduleId: string }>,
+    actorId: string,
+  ): Promise<number> {
+    const result = await this.sendBillingCommand<
+      BillingAdminSeedModulePricesCommand,
+      BillingAdminSeedModulePricesResult
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.SEED_MODULE_PRICES, { moduleIds, actorId });
+    if (result.success && result.seeded !== undefined) return result.seeded;
+    throw this.mapBillingError(result.errorCode, result.error);
+  }
+
+  async quoteModuleSelection(
+    request: {
+      modules: BillingModuleQuoteSelection[];
+      tier: BillingPlanTier;
+      billingCycle: BillingCycle;
+      tenantId?: string;
+      discountCode?: string;
+      subscriptionChange?: BillingDiscountSubscriptionChange;
+      taxRate?: string;
+    },
+    actorId: string,
+  ): Promise<BillingModuleQuote> {
+    const result = await this.sendBillingCommand<
+      BillingAdminQuoteModuleSelectionCommand,
+      BillingAdminQuoteModuleSelectionResult
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.QUOTE_MODULE_SELECTION, { ...request, actorId });
+    if (result.success && result.quote) return result.quote;
+    throw this.mapBillingError(result.errorCode, result.error);
+  }
+
+  private unwrapModulePrice(
+    result: BillingAdminModulePriceCommandResult,
+  ): BillingModulePriceSnapshot {
+    if (result.success && result.modulePrice) return result.modulePrice;
     throw this.mapBillingError(result.errorCode, result.error);
   }
 

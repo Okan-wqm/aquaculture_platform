@@ -3929,7 +3929,10 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ModulePriceResponseDto"
+                  }
                 }
               }
             }
@@ -3958,7 +3961,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/ModulePriceResponseDto"
                 }
               }
             }
@@ -3979,37 +3982,10 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
-                }
-              }
-            }
-          }
-        },
-        "tags": [
-          "Billing"
-        ]
-      }
-    },
-    "/billing/module-pricing/{moduleId}": {
-      "get": {
-        "operationId": "BillingController_getModulePricing",
-        "parameters": [
-          {
-            "name": "moduleId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ModulePriceResponseDto"
+                  }
                 }
               }
             }
@@ -4111,6 +4087,36 @@
             "content": {
               "application/json": {
                 "schema": {
+                  "$ref": "#/components/schemas/ModulePricePageDto"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Billing"
+        ]
+      }
+    },
+    "/billing/module-pricing/{moduleId}": {
+      "get": {
+        "operationId": "BillingController_getModulePricing",
+        "parameters": [
+          {
+            "name": "moduleId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
                   "type": "object"
                 }
               }
@@ -4151,7 +4157,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/ModulePriceResponseDto"
                 }
               }
             }
@@ -4181,7 +4187,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/ModulePriceResponseDto"
                 }
               }
             }
@@ -4212,7 +4218,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/SeedModulePricesResultDto"
                 }
               }
             }
@@ -4243,7 +4249,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/ModuleQuoteResponseDto"
                 }
               }
             }
@@ -4274,7 +4280,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/QuickEstimateResponseDto"
                 }
               }
             }
@@ -4305,7 +4311,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/ModuleQuoteComparisonDto"
                 }
               }
             }
@@ -18641,10 +18647,10 @@
           "additionalDays"
         ]
       },
-      "PricingMetricDto": {
+      "ModulePriceMetricDto": {
         "type": "object",
         "properties": {
-          "type": {
+          "metricType": {
             "type": "string",
             "enum": [
               "base_price",
@@ -18665,12 +18671,180 @@
             ]
           },
           "price": {
-            "type": "number",
-            "minimum": 0
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "minQuantity": {
+            "type": "number"
+          },
+          "maxQuantity": {
+            "type": "number"
+          },
+          "includedQuantity": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "metricType",
+          "price"
+        ]
+      },
+      "ModulePriceTierMultiplierDto": {
+        "type": "object",
+        "properties": {
+          "tier": {
+            "type": "string",
+            "enum": [
+              "free",
+              "starter",
+              "professional",
+              "enterprise",
+              "custom"
+            ]
+          },
+          "multiplier": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tier",
+          "multiplier"
+        ]
+      },
+      "ModulePriceResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "moduleId": {
+            "type": "string"
+          },
+          "moduleCode": {
+            "type": "string"
           },
           "currency": {
+            "type": "string"
+          },
+          "effectiveFrom": {
+            "type": "string"
+          },
+          "effectiveTo": {
+            "type": "string"
+          },
+          "isActive": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "number"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "metrics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModulePriceMetricDto"
+            }
+          },
+          "tierMultipliers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModulePriceTierMultiplierDto"
+            }
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "updatedBy": {
+            "type": "string"
+          },
+          "moduleName": {
+            "type": "string"
+          },
+          "moduleDescription": {
+            "type": "string"
+          },
+          "moduleIcon": {
+            "type": "string"
+          },
+          "isModuleActive": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "moduleId",
+          "moduleCode",
+          "currency",
+          "effectiveFrom",
+          "isActive",
+          "version",
+          "metrics",
+          "tierMultipliers",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "ModulePricePageDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModulePriceResponseDto"
+            }
+          },
+          "total": {
+            "type": "number"
+          },
+          "page": {
+            "type": "number"
+          },
+          "limit": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "data",
+          "total",
+          "page",
+          "limit"
+        ]
+      },
+      "PricingMetricDto": {
+        "type": "object",
+        "properties": {
+          "metricType": {
             "type": "string",
-            "maxLength": 10
+            "enum": [
+              "base_price",
+              "per_user",
+              "per_farm",
+              "per_pond",
+              "per_sensor",
+              "per_device",
+              "per_gb_storage",
+              "per_gb_transfer",
+              "per_api_call",
+              "per_alert",
+              "per_report",
+              "per_sms",
+              "per_email",
+              "per_integration",
+              "per_workflow"
+            ]
+          },
+          "price": {
+            "type": "string"
           },
           "description": {
             "type": "string",
@@ -18690,33 +18864,27 @@
           }
         },
         "required": [
-          "type",
-          "price",
-          "currency"
+          "metricType",
+          "price"
         ]
       },
       "TierMultipliersDto": {
         "type": "object",
         "properties": {
           "free": {
-            "type": "number",
-            "minimum": 0
+            "type": "string"
           },
           "starter": {
-            "type": "number",
-            "minimum": 0
+            "type": "string"
           },
           "professional": {
-            "type": "number",
-            "minimum": 0
+            "type": "string"
           },
           "enterprise": {
-            "type": "number",
-            "minimum": 0
+            "type": "string"
           },
           "custom": {
-            "type": "number",
-            "minimum": 0
+            "type": "string"
           }
         }
       },
@@ -18729,7 +18897,7 @@
           },
           "moduleCode": {
             "type": "string",
-            "maxLength": 100
+            "maxLength": 50
           },
           "pricingMetrics": {
             "maxItems": 50,
@@ -18743,16 +18911,13 @@
           },
           "currency": {
             "type": "string",
-            "maxLength": 10
+            "pattern": "^[A-Z]{3}$"
           },
           "effectiveFrom": {
-            "format": "date-time",
             "type": "string"
           },
           "effectiveTo": {
-            "format": "date-time",
-            "type": "string",
-            "nullable": true
+            "type": "string"
           },
           "notes": {
             "type": "string",
@@ -18768,14 +18933,6 @@
       "UpdateModulePricingDto": {
         "type": "object",
         "properties": {
-          "moduleId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "moduleCode": {
-            "type": "string",
-            "maxLength": 100
-          },
           "pricingMetrics": {
             "maxItems": 50,
             "type": "array",
@@ -18788,16 +18945,13 @@
           },
           "currency": {
             "type": "string",
-            "maxLength": 10
+            "pattern": "^[A-Z]{3}$"
           },
           "effectiveFrom": {
-            "format": "date-time",
             "type": "string"
           },
           "effectiveTo": {
-            "format": "date-time",
-            "type": "string",
-            "nullable": true
+            "type": "string"
           },
           "notes": {
             "type": "string",
@@ -18808,15 +18962,31 @@
       "SeedModulePricingDto": {
         "type": "object",
         "properties": {
-          "moduleIdMap": {
-            "type": "object",
-            "additionalProperties": {
+          "moduleCodes": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
               "type": "string"
             }
           }
         },
         "required": [
-          "moduleIdMap"
+          "moduleCodes"
+        ]
+      },
+      "SeedModulePricesResultDto": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "seeded": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "success",
+          "seeded"
         ]
       },
       "ModuleQuantitiesDto": {
@@ -18928,15 +19098,226 @@
             "maxLength": 64
           },
           "taxRate": {
-            "type": "number",
-            "minimum": 0,
-            "maximum": 100
+            "type": "string"
           }
         },
         "required": [
           "modules",
           "tier",
           "billingCycle"
+        ]
+      },
+      "ModuleQuoteLineItemDto": {
+        "type": "object",
+        "properties": {
+          "metric": {
+            "type": "string",
+            "enum": [
+              "base_price",
+              "per_user",
+              "per_farm",
+              "per_pond",
+              "per_sensor",
+              "per_device",
+              "per_gb_storage",
+              "per_gb_transfer",
+              "per_api_call",
+              "per_alert",
+              "per_report",
+              "per_sms",
+              "per_email",
+              "per_integration",
+              "per_workflow"
+            ]
+          },
+          "metricLabel": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "number"
+          },
+          "includedQuantity": {
+            "type": "number"
+          },
+          "billableQuantity": {
+            "type": "number"
+          },
+          "listUnitPrice": {
+            "type": "string"
+          },
+          "unitPrice": {
+            "type": "string"
+          },
+          "total": {
+            "type": "string"
+          },
+          "tierMultiplier": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "metric",
+          "metricLabel",
+          "quantity",
+          "includedQuantity",
+          "billableQuantity",
+          "listUnitPrice",
+          "unitPrice",
+          "total",
+          "tierMultiplier"
+        ]
+      },
+      "ModuleQuoteBreakdownDto": {
+        "type": "object",
+        "properties": {
+          "moduleId": {
+            "type": "string"
+          },
+          "moduleCode": {
+            "type": "string"
+          },
+          "moduleName": {
+            "type": "string"
+          },
+          "lineItems": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModuleQuoteLineItemDto"
+            }
+          },
+          "subtotal": {
+            "type": "string"
+          },
+          "tierDiscount": {
+            "type": "string"
+          },
+          "total": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "moduleId",
+          "moduleCode",
+          "moduleName",
+          "lineItems",
+          "subtotal",
+          "tierDiscount",
+          "total"
+        ]
+      },
+      "ModuleQuoteResponseDto": {
+        "type": "object",
+        "properties": {
+          "modules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModuleQuoteBreakdownDto"
+            }
+          },
+          "subtotal": {
+            "type": "string"
+          },
+          "tierDiscount": {
+            "type": "string"
+          },
+          "cycleDiscountAmount": {
+            "type": "string"
+          },
+          "cycleDiscountPercent": {
+            "type": "string"
+          },
+          "discountCode": {
+            "type": "string"
+          },
+          "discountDescription": {
+            "type": "string"
+          },
+          "discountAmount": {
+            "type": "string"
+          },
+          "discountReason": {
+            "type": "string",
+            "enum": [
+              "upgrades_only",
+              "new_subscriptions_only",
+              "unknown_code",
+              "inactive",
+              "not_yet_valid",
+              "expired",
+              "redemption_limit_reached",
+              "tenant_limit_reached",
+              "plan_not_eligible",
+              "below_minimum_order"
+            ]
+          },
+          "tax": {
+            "type": "string"
+          },
+          "taxRate": {
+            "type": "string"
+          },
+          "total": {
+            "type": "string"
+          },
+          "monthlyTotal": {
+            "type": "string"
+          },
+          "annualTotal": {
+            "type": "string"
+          },
+          "billingCycle": {
+            "type": "string",
+            "enum": [
+              "monthly",
+              "quarterly",
+              "semi_annual",
+              "annual"
+            ]
+          },
+          "billingCycleMultiplier": {
+            "type": "number"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "tier": {
+            "type": "string",
+            "enum": [
+              "free",
+              "starter",
+              "professional",
+              "enterprise",
+              "custom"
+            ]
+          },
+          "calculatedAt": {
+            "type": "string"
+          },
+          "unpricedModuleCodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "modules",
+          "subtotal",
+          "tierDiscount",
+          "cycleDiscountAmount",
+          "cycleDiscountPercent",
+          "discountAmount",
+          "tax",
+          "taxRate",
+          "total",
+          "monthlyTotal",
+          "annualTotal",
+          "billingCycle",
+          "billingCycleMultiplier",
+          "currency",
+          "tier",
+          "calculatedAt",
+          "unpricedModuleCodes"
         ]
       },
       "QuickEstimateDto": {
@@ -18968,6 +19349,32 @@
           "tier"
         ]
       },
+      "QuickEstimateResponseDto": {
+        "type": "object",
+        "properties": {
+          "monthlyTotal": {
+            "type": "string"
+          },
+          "annualTotal": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "unpricedModuleCodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "monthlyTotal",
+          "annualTotal",
+          "currency",
+          "unpricedModuleCodes"
+        ]
+      },
       "ComparePricingDto": {
         "type": "object",
         "properties": {
@@ -18986,6 +19393,33 @@
         "required": [
           "config1",
           "config2"
+        ]
+      },
+      "ModuleQuoteComparisonDto": {
+        "type": "object",
+        "properties": {
+          "config1": {
+            "$ref": "#/components/schemas/ModuleQuoteResponseDto"
+          },
+          "config2": {
+            "$ref": "#/components/schemas/ModuleQuoteResponseDto"
+          },
+          "monthlyDifference": {
+            "type": "string"
+          },
+          "percentDifference": {
+            "type": "string"
+          },
+          "recommendation": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "config1",
+          "config2",
+          "monthlyDifference",
+          "percentDifference",
+          "recommendation"
         ]
       },
       "CustomPlanModuleDto": {

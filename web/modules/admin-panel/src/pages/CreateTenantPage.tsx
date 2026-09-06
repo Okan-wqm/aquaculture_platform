@@ -117,51 +117,65 @@ const initialFormData: TenantFormData = {
   maxStorage: -1,
 };
 
-// Helper to check if metric is BASE_PRICE (handles both string and enum)
-const isBasePrice = (metricType: string | PricingMetricType): boolean => {
-  return metricType === 'BASE_PRICE' || metricType === PricingMetricType.BASE_PRICE;
-};
+// A base-price metric is charged once per module and takes no quantity input.
+const isBasePrice = (metricType: string): boolean => metricType === PricingMetricType.BASE_PRICE;
 
-// Single source of truth for metric labels (BUG-018: removed duplicate getMetricLabel)
+/**
+ * ADR-0013: labels and quantity fields for EVERY metric the contract declares.
+ * The previous maps were `Record<PricingMetricType, …>` over a hand-written
+ * enum that omitted `per_gb_transfer` and `per_workflow`, so a sheet pricing
+ * either rendered its raw key and billed no quantity. Exhaustiveness is now
+ * checked against the generated union.
+ */
 const metricLabels: Record<PricingMetricType, string> = {
-  [PricingMetricType.BASE_PRICE]: 'Base Price',
-  [PricingMetricType.PER_USER]: 'Per User',
-  [PricingMetricType.PER_FARM]: 'Per Farm',
-  [PricingMetricType.PER_POND]: 'Per Pond',
-  [PricingMetricType.PER_SENSOR]: 'Per Sensors',
-  [PricingMetricType.PER_DEVICE]: 'Per Device',
-  [PricingMetricType.PER_GB_STORAGE]: 'Per GB Storage',
-  [PricingMetricType.PER_API_CALL]: 'Per API Call',
-  [PricingMetricType.PER_ALERT]: 'Per Alert',
-  [PricingMetricType.PER_REPORT]: 'Per Report',
-  [PricingMetricType.PER_SMS]: 'Per SMS',
-  [PricingMetricType.PER_EMAIL]: 'Per Email',
-  [PricingMetricType.PER_INTEGRATION]: 'Per Integration',
+  base_price: 'Base Price',
+  per_user: 'Per User',
+  per_farm: 'Per Farm',
+  per_pond: 'Per Pond',
+  per_sensor: 'Per Sensors',
+  per_device: 'Per Device',
+  per_gb_storage: 'Per GB Storage',
+  per_gb_transfer: 'Per GB Transfer',
+  per_api_call: 'Per API Call',
+  per_alert: 'Per Alert',
+  per_report: 'Per Report',
+  per_sms: 'Per SMS',
+  per_email: 'Per Email',
+  per_integration: 'Per Integration',
+  per_workflow: 'Per Workflow',
 };
 
-// Single source of truth for metric → quantity field mapping (BUG-018: removed duplicate getQuantityField)
+/** `null` = the metric is metered after the fact, not by a subscribed quantity. */
 const metricToQuantityField: Record<PricingMetricType, keyof ModuleQuantities | null> = {
-  [PricingMetricType.BASE_PRICE]: null,
-  [PricingMetricType.PER_USER]: 'users',
-  [PricingMetricType.PER_FARM]: 'farms',
-  [PricingMetricType.PER_POND]: 'ponds',
-  [PricingMetricType.PER_SENSOR]: 'sensors',
-  [PricingMetricType.PER_DEVICE]: 'devices',
-  [PricingMetricType.PER_GB_STORAGE]: 'storageGb',
-  [PricingMetricType.PER_API_CALL]: 'apiCalls',
-  [PricingMetricType.PER_ALERT]: 'alerts',
-  [PricingMetricType.PER_REPORT]: 'reports',
-  [PricingMetricType.PER_SMS]: null,
-  [PricingMetricType.PER_EMAIL]: null,
-  [PricingMetricType.PER_INTEGRATION]: 'integrations',
+  base_price: null,
+  per_user: 'users',
+  per_farm: 'farms',
+  per_pond: 'ponds',
+  per_sensor: 'sensors',
+  per_device: 'devices',
+  per_gb_storage: 'storageGb',
+  per_gb_transfer: null,
+  per_api_call: 'apiCalls',
+  per_alert: 'alerts',
+  per_report: 'reports',
+  per_sms: null,
+  per_email: null,
+  per_integration: 'integrations',
+  per_workflow: null,
 };
 
-// Derived helpers that use the single source of truth
-const getMetricLabel = (metricType: string | PricingMetricType): string =>
+const getMetricLabel = (metricType: string): string =>
   metricLabels[metricType as PricingMetricType] || metricType;
 
-const getQuantityField = (metricType: string | PricingMetricType): keyof ModuleQuantities | null =>
+const getQuantityField = (metricType: string): keyof ModuleQuantities | null =>
   metricToQuantityField[metricType as PricingMetricType] ?? null;
+
+/** Money arrives as an exact decimal string; format it without widening it twice. */
+const formatMoney = (amount: string | undefined): string =>
+  Number(amount ?? '0').toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 
 const TENANT_CREATE_IDEMPOTENCY_PREFIX = 'admin-panel:tenant-create:idempotency:';
 
@@ -283,7 +297,7 @@ const ModuleConfigCard: React.FC<ModuleConfigCardProps> = ({
   onToggle,
   onQuantityChange,
 }) => {
-  const metrics = pricing?.pricingMetrics || [];
+  const metrics = pricing?.metrics ?? [];
 
   return (
     <Card
@@ -334,15 +348,15 @@ const ModuleConfigCard: React.FC<ModuleConfigCardProps> = ({
       {config.enabled && metrics.length > 0 && (
         <div className="space-y-3 pt-3 border-t border-gray-200">
           {metrics.map((metric) => {
-            const quantityField = getQuantityField(metric.type);
+            const quantityField = getQuantityField(metric.metricType);
 
             // BASE_PRICE doesn't need quantity input
-            if (isBasePrice(metric.type)) {
+            if (isBasePrice(metric.metricType)) {
               return (
-                <div key={metric.type} className="flex items-center justify-between py-1">
-                  <span className="text-sm text-gray-600">{getMetricLabel(metric.type)}</span>
+                <div key={metric.metricType} className="flex items-center justify-between py-1">
+                  <span className="text-sm text-gray-600">{getMetricLabel(metric.metricType)}</span>
                   <span className="text-sm font-semibold text-indigo-600">
-                    ${(metric.price || 0).toFixed(2)}/mo
+                    ${formatMoney(metric.price)}/mo
                   </span>
                 </div>
               );
@@ -353,14 +367,14 @@ const ModuleConfigCard: React.FC<ModuleConfigCardProps> = ({
             const includedQty = metric.includedQuantity ?? 0;
             const minQty = Math.max(metric.minQuantity ?? 0, 0);
             const currentValue = Math.max(config.quantities[quantityField] ?? minQty, minQty);
-            const unitPrice = metric.price || 0;
+            const unitPrice = Number(metric.price ?? '0');
             const extraQty = Math.max(0, currentValue - includedQty);
 
             return (
-              <div key={metric.type} className="space-y-1">
+              <div key={metric.metricType} className="space-y-1">
                 <div className="flex items-center justify-between">
                   <label className="text-sm text-gray-600">
-                    {getMetricLabel(metric.type)}
+                    {getMetricLabel(metric.metricType)}
                     {includedQty > 0 && (
                       <span className="text-xs text-green-600 ml-1">({includedQty} included)</span>
                     )}
@@ -421,6 +435,8 @@ const CreateTenantPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [dataLoading, setDataLoading] = useState(true);
   const [calculatingPrice, setCalculatingPrice] = useState(false);
+  /** Why the server could not price the selection — shown instead of a number. */
+  const [quoteError, setQuoteError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [provisioningOperation, setProvisioningOperation] =
@@ -463,26 +479,19 @@ const CreateTenantPage: React.FC = () => {
             integrations: 0,
           };
 
-          // Parse pricingMetrics if it's a string (JSONB from API sometimes comes as string)
-          let metrics = p.pricingMetrics;
-          if (typeof metrics === 'string') {
-            try {
-              metrics = JSON.parse(metrics);
-            } catch {
-              // metrics remains as-is if parsing fails
-            }
-          }
+          // ADR-0013: the sheet's metrics are rows, typed by the contract —
+          // the JSON.parse fallback existed because they used to arrive as a
+          // jsonb blob the API sometimes handed back as a string.
+          const metrics = p.metrics;
 
-          // Set defaults from includedQuantity in pricing metrics (BUG-020: typed instead of any)
-          if (metrics && Array.isArray(metrics)) {
-            (metrics as Array<{ type: string; includedQuantity?: number; price?: number }>).forEach(
-              (metric) => {
-                const field = getQuantityField(metric.type);
-                if (field && metric.includedQuantity && metric.includedQuantity > 0) {
-                  defaultQuantities[field] = metric.includedQuantity;
-                }
-              },
-            );
+          // Start each quantity at what the sheet already includes.
+          if (metrics.length > 0) {
+            metrics.forEach((metric) => {
+              const field = getQuantityField(metric.metricType);
+              if (field && metric.includedQuantity && metric.includedQuantity > 0) {
+                defaultQuantities[field] = metric.includedQuantity;
+              }
+            });
           }
 
           return {
@@ -523,65 +532,29 @@ const CreateTenantPage: React.FC = () => {
     loadData();
   }, []);
 
-  // NOTE: calculateLocalPrice removed — use the calculatedTotal useMemo below instead (PERF-006: eliminates duplicate computation)
-
-  // Calculate price when modules/quantities change
+  /**
+   * Ask the server what the selection costs.
+   *
+   * ADR-0013: there is one price authority. This used to compute a total in
+   * the browser first — in floats, ignoring the tier multiplier entirely — and
+   * fall back to it silently whenever the API call failed, so the operator was
+   * shown a number the server would not have charged. Now the quote comes from
+   * billing or the page says it could not price the selection.
+   */
   const calculatePrice = useCallback(async () => {
     const enabledModules = formData.moduleConfigs.filter((c) => c.enabled);
     if (enabledModules.length === 0) {
       quoteRequestSeq.current += 1;
       setPriceCalculation(null);
+      setQuoteError(null);
       return;
     }
 
     const requestId = quoteRequestSeq.current + 1;
     quoteRequestSeq.current = requestId;
     setCalculatingPrice(true);
+    setQuoteError(null);
 
-    // Calculate locally first (most reliable) — use the same logic as calculatedTotal useMemo
-    let localTotal = 0;
-    enabledModules.forEach((config) => {
-      const pricing = modulePricings.find((p) => p.moduleId === config.moduleId);
-      if (pricing?.pricingMetrics && Array.isArray(pricing.pricingMetrics)) {
-        pricing.pricingMetrics.forEach(
-          (metric: { type: string; price?: number; includedQuantity?: number }) => {
-            if (isBasePrice(metric.type)) {
-              localTotal += metric.price || 0;
-            } else {
-              const field = getQuantityField(metric.type);
-              if (field) {
-                const qty = config.quantities[field] ?? 0;
-                const included = metric.includedQuantity ?? 0;
-                const billable = Math.max(0, qty - included);
-                localTotal += billable * (metric.price || 0);
-              }
-            }
-          },
-        );
-      }
-    });
-
-    // Set local calculation immediately
-    const localCalculation: PricingCalculation = {
-      subtotal: localTotal,
-      tierDiscount: 0,
-      discount: { amount: 0, percent: 0 },
-      tax: 0,
-      taxRate: 0,
-      total: localTotal,
-      monthlyTotal: localTotal,
-      annualTotal: localTotal * 12,
-      billingCycle: BillingCycle.MONTHLY,
-      billingCycleMultiplier: 1,
-      currency: 'USD',
-      tier: PlanTier.STARTER,
-      calculatedAt: new Date().toISOString(),
-      modules: [],
-    };
-
-    setPriceCalculation(localCalculation);
-
-    // Optionally try API for more accurate calculation (with discounts etc.)
     try {
       const request: QuoteRequest = {
         modules: enabledModules.map((c) => ({
@@ -595,29 +568,20 @@ const CreateTenantPage: React.FC = () => {
       };
 
       const calculation = await billingApi.calculatePricing(request);
-      if (quoteRequestSeq.current !== requestId) {
-        return;
-      }
-
-      // Only use API result if it has valid totals
-      const apiTotal = calculation.monthlyTotal ?? calculation.total ?? calculation.subtotal;
-      if (apiTotal !== undefined && apiTotal >= 0) {
-        const normalizedCalculation = {
-          ...calculation,
-          monthlyTotal: apiTotal,
-          total: apiTotal,
-        };
-        setPriceCalculation(normalizedCalculation);
-      }
+      if (quoteRequestSeq.current !== requestId) return;
+      setPriceCalculation(calculation);
     } catch (err) {
-      // API failed, local calculation already set - that's fine
-      console.debug('API pricing calculation not available, using local calculation');
+      if (quoteRequestSeq.current !== requestId) return;
+      setPriceCalculation(null);
+      setQuoteError(
+        err instanceof Error ? err.message : 'Could not price this selection right now',
+      );
     } finally {
       if (quoteRequestSeq.current === requestId) {
         setCalculatingPrice(false);
       }
     }
-  }, [formData.moduleConfigs, formData.pricingTier, modulePricings]);
+  }, [formData.moduleConfigs, formData.pricingTier]);
 
   // Debounced price calculation
   useEffect(() => {
@@ -909,37 +873,16 @@ const CreateTenantPage: React.FC = () => {
     [formData.moduleConfigs],
   );
 
-  // Calculate total price directly from enabled modules (reliable, no API dependency)
-  const calculatedTotal = useMemo(() => {
-    // FREE is a permanent $0 tier (Billing Revival Faz B): the platform fee and
-    // every module charge are waived, so the wizard must never show a paid amount.
-    // Short-circuit before summing module metrics.
-    if (formData.pricingTier === 'free') return 0;
-
-    let total = 0;
-
-    enabledModules.forEach((config) => {
-      const pricing = modulePricings.find((p) => p.moduleId === config.moduleId);
-
-      if (pricing?.pricingMetrics && Array.isArray(pricing.pricingMetrics)) {
-        pricing.pricingMetrics.forEach((metric) => {
-          if (isBasePrice(metric.type)) {
-            total += metric.price || 0;
-          } else {
-            const field = getQuantityField(metric.type);
-            if (field) {
-              const includedQty = metric.includedQuantity ?? 0;
-              const minQty = Math.max(metric.minQuantity ?? 0, 0);
-              const qty = Math.max(config.quantities[field] ?? minQty, minQty);
-              const billableQty = Math.max(0, qty - includedQty);
-              total += billableQty * (metric.price || 0);
-            }
-          }
-        });
-      }
-    });
-    return total;
-  }, [enabledModules, modulePricings, formData.pricingTier]);
+  /**
+   * The monthly total, as billing quoted it.
+   *
+   * ADR-0013: this was a second in-browser calculation — floats, no tier
+   * multiplier, no cycle discount — and it, not the server's answer, was what
+   * the wizard actually rendered. There is one price authority now; when the
+   * quote is unavailable the summary says so instead of showing a number
+   * nobody would be charged.
+   */
+  const quotedMonthlyTotal = priceCalculation ? priceCalculation.monthlyTotal : null;
 
   if (provisioningOperation && !success) {
     const isFailed = provisioningOperation.status === TenantProvisioningState.FAILED;
@@ -1034,7 +977,7 @@ const CreateTenantPage: React.FC = () => {
             <div className="bg-indigo-50 rounded-lg p-4 mb-6">
               <p className="text-sm text-gray-600">Monthly Price</p>
               <p className="text-3xl font-bold text-indigo-600">
-                ${calculatedTotal.toFixed(2)}
+                ${quotedMonthlyTotal === null ? '—' : formatMoney(quotedMonthlyTotal)}
                 <span className="text-sm font-normal text-gray-500">/mo</span>
               </p>
               <p className="text-xs text-gray-500 mt-1">{enabledModules.length} modules active</p>
@@ -1428,28 +1371,35 @@ const CreateTenantPage: React.FC = () => {
                   </div>
 
                   <div className="border-t border-indigo-200 pt-4">
-                    {/* Always show calculated total - no loading state needed */}
+                    {/* Every figure here is billing's, never recomputed locally. */}
                     <div className="flex justify-between text-sm mb-1">
                       <span className="text-gray-500">Subtotal</span>
-                      <span>${calculatedTotal.toFixed(2)}</span>
+                      <span>
+                        {priceCalculation ? `$${formatMoney(priceCalculation.subtotal)}` : '—'}
+                      </span>
                     </div>
-                    {priceCalculation && (priceCalculation.tierDiscount || 0) > 0 && (
+                    {priceCalculation && Number(priceCalculation.tierDiscount) > 0 && (
                       <div className="flex justify-between text-sm text-green-600 mb-1">
                         <span>Tier Discount</span>
-                        <span>-${priceCalculation.tierDiscount.toFixed(2)}</span>
+                        <span>-${formatMoney(priceCalculation.tierDiscount)}</span>
                       </div>
                     )}
-                    {priceCalculation?.discount && priceCalculation.discount.amount > 0 && (
+                    {priceCalculation && Number(priceCalculation.discountAmount) > 0 && (
                       <div className="flex justify-between text-sm text-green-600 mb-1">
-                        <span>{priceCalculation.discount.description || 'Discount'}</span>
-                        <span>-${priceCalculation.discount.amount.toFixed(2)}</span>
+                        <span>{priceCalculation.discountDescription || 'Discount'}</span>
+                        <span>-${formatMoney(priceCalculation.discountAmount)}</span>
                       </div>
+                    )}
+                    {quoteError !== null && (
+                      <p className="text-sm text-amber-700 mb-1" role="status">
+                        {quoteError}
+                      </p>
                     )}
                     <div className="flex justify-between items-baseline pt-3 border-t border-indigo-200 mt-3">
                       <span className="font-semibold text-gray-900">Monthly Total</span>
                       <div className="text-right">
                         <span className="text-2xl font-bold text-indigo-600">
-                          ${calculatedTotal.toFixed(2)}
+                          ${quotedMonthlyTotal === null ? '—' : formatMoney(quotedMonthlyTotal)}
                         </span>
                         <span className="text-sm text-gray-500">/mo</span>
                       </div>

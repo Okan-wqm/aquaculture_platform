@@ -29,6 +29,7 @@ import {
   type BillingAdminVoidInvoiceCommand,
 } from '@platform/event-contracts';
 import { BypassRlsService } from '@aquaculture/backend-common/database';
+import Decimal from 'decimal.js';
 import { DataSource, EntityManager } from 'typeorm';
 
 import { ChangeSubscriptionPlanCommand } from '../commands/change-subscription-plan.command';
@@ -848,9 +849,11 @@ export class BillingAdminNatsHandler {
       // clamped to 0 — billing is the SSoT and must not depend on the caller
       // having zeroed the item (Billing Revival Faz B).
       const lineItems = isFree ? [] : (item.lineItems ?? []);
-      const subtotal = isFree ? 0 : item.subtotal;
-      const discountAmount = isFree ? 0 : item.discountAmount;
-      const total = isFree ? 0 : item.total;
+      // Exact decimal strings straight into `numeric` columns: Postgres parses
+      // them losslessly, so nothing here widens a price through a double.
+      const subtotal = isFree ? '0' : item.subtotal;
+      const discountAmount = isFree ? '0' : item.discountAmount;
+      const total = isFree ? '0' : item.total;
       await manager.query(
         `INSERT INTO billing.subscription_module_items (
            subscription_id,
@@ -928,11 +931,25 @@ export class BillingAdminNatsHandler {
     }
   }
 
+  /**
+   * Sum the priced items exactly, then widen ONCE.
+   *
+   * The sum lands in `billing.subscriptions.pricing.basePrice`, which is still
+   * a `number` inside a jsonb column — the last money-in-jsonb site on the
+   * subscription, governed by `.claude/allowlists/money-in-jsonb.yaml` until
+   * BILLING-CRITICAL-003 normalises it. Summing in `Decimal` first means the
+   * single rounding happens at that boundary instead of accumulating across
+   * every module line.
+   */
   private sumModuleItemsTotal(
     moduleItems: BillingTenantProvisioningCommand['moduleItems'],
   ): number {
     if (!moduleItems || moduleItems.length === 0) return 0;
-    return moduleItems.reduce((sum, item) => sum + Number(item.total ?? 0), 0);
+    const exact = moduleItems.reduce(
+      (sum, item) => sum.plus(new Decimal(item.total ?? '0')),
+      new Decimal(0),
+    );
+    return exact.toNumber();
   }
 
   private async countSubscriptionModuleItems(

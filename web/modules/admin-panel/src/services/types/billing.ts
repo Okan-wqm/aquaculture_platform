@@ -77,21 +77,30 @@ export type DiscountSubscriptionChange = NonNullable<
   ApiSchema<'ApplyDiscountCodeDto'>['subscriptionChange']
 >;
 
-export enum PricingMetricType {
-  BASE_PRICE = 'base_price',
-  PER_USER = 'per_user',
-  PER_FARM = 'per_farm',
-  PER_POND = 'per_pond',
-  PER_SENSOR = 'per_sensor',
-  PER_DEVICE = 'per_device',
-  PER_GB_STORAGE = 'per_gb_storage',
-  PER_API_CALL = 'per_api_call',
-  PER_ALERT = 'per_alert',
-  PER_REPORT = 'per_report',
-  PER_SMS = 'per_sms',
-  PER_EMAIL = 'per_email',
-  PER_INTEGRATION = 'per_integration',
-}
+/**
+ * ADR-0013: derived from the contract, not re-declared. The hand-written enum
+ * was missing `per_gb_transfer` and `per_workflow` entirely, so a sheet that
+ * priced either rendered its raw key — and being a nominal TypeScript enum its
+ * members were not assignable to the strings the API exchanges.
+ */
+export type PricingMetricType = ApiSchema<'PricingMetricDto'>['metricType'];
+export const PricingMetricType = {
+  BASE_PRICE: 'base_price',
+  PER_USER: 'per_user',
+  PER_FARM: 'per_farm',
+  PER_POND: 'per_pond',
+  PER_SENSOR: 'per_sensor',
+  PER_DEVICE: 'per_device',
+  PER_GB_STORAGE: 'per_gb_storage',
+  PER_GB_TRANSFER: 'per_gb_transfer',
+  PER_API_CALL: 'per_api_call',
+  PER_ALERT: 'per_alert',
+  PER_REPORT: 'per_report',
+  PER_SMS: 'per_sms',
+  PER_EMAIL: 'per_email',
+  PER_INTEGRATION: 'per_integration',
+  PER_WORKFLOW: 'per_workflow',
+} as const satisfies Record<string, PricingMetricType>;
 
 export enum CustomPlanStatus {
   DRAFT = 'draft',
@@ -327,49 +336,25 @@ export type RefundPaymentDto = ApiSchema<'RefundPaymentDto'>;
 // Module Pricing Types
 // ============================================================================
 
-export interface PricingMetric {
-  type: PricingMetricType;
-  price: number;
-  currency: string;
-  description?: string;
-  minQuantity?: number;
-  maxQuantity?: number;
-  includedQuantity?: number;
-}
-
-export interface TierMultipliers {
-  [PlanTier.FREE]?: number;
-  [PlanTier.STARTER]?: number;
-  [PlanTier.PROFESSIONAL]?: number;
-  [PlanTier.ENTERPRISE]?: number;
-  [PlanTier.CUSTOM]?: number;
-}
-
-export interface ModulePricing {
-  id: string;
-  moduleId: string;
-  moduleCode: string;
-  pricingMetrics: PricingMetric[];
-  tierMultipliers: TierMultipliers;
-  currency: string;
-  effectiveFrom: string;
-  effectiveTo: string | null;
-  isActive: boolean;
-  notes: string | null;
-  version: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface ModulePricingWithModule extends ModulePricing {
-  moduleName?: string;
-  moduleDescription?: string;
-  moduleIcon?: string;
-  isModuleActive?: boolean;
-}
-
-/** Generated from the backend contract (CONTRACT-CRITICAL-003). */
+/**
+ * ADR-0013: billing owns the module price sheet, and these are its shapes as
+ * the contract declares them. Every price is an exact decimal STRING; the
+ * hand-written versions used `number`, which is how a sheet a customer is
+ * quoted from and the invoice they receive drift apart.
+ */
+export type PricingMetric = ApiSchema<'ModulePriceMetricDto'>;
+export type TierMultiplier = ApiSchema<'ModulePriceTierMultiplierDto'>;
+export type ModulePricing = ApiSchema<'ModulePriceResponseDto'>;
+export type ModulePricingPage = ApiSchema<'ModulePricePageDto'>;
+/** The sheet joined to its module (name, icon) — the same response shape. */
+export type ModulePricingWithModule = ModulePricing;
 export type SetModulePricingDto = ApiSchema<'SetModulePricingDto'>;
+export type UpdateModulePricingDto = ApiSchema<'UpdateModulePricingDto'>;
+export type SeedModulePricingDto = ApiSchema<'SeedModulePricingDto'>;
+export type SeedModulePricesResult = ApiSchema<'SeedModulePricesResultDto'>;
+
+/** The write-side multiplier block, keyed by tier. */
+export type TierMultipliers = NonNullable<SetModulePricingDto['tierMultipliers']>;
 
 export interface ModuleQuantities {
   users?: number;
@@ -394,56 +379,17 @@ export interface ModuleSelection {
 /** Generated from the backend contract (CONTRACT-CRITICAL-003). */
 export type QuoteRequest = ApiSchema<'QuoteRequest'>;
 
-export interface PricingLineItem {
-  metric: PricingMetricType;
-  metricLabel: string;
-  quantity: number;
-  includedQuantity: number;
-  billableQuantity: number;
-  unitPrice: number;
-  total: number;
-  tierMultiplier: number;
-}
-
-export interface ModulePriceBreakdown {
-  moduleId: string;
-  moduleCode: string;
-  moduleName: string;
-  lineItems: PricingLineItem[];
-  subtotal: number;
-  tierDiscount: number;
-  total: number;
-}
-
-export interface PricingCalculation {
-  modules: ModulePriceBreakdown[];
-  subtotal: number;
-  tierDiscount: number;
-  discount: {
-    code?: string;
-    description?: string;
-    amount: number;
-    percent: number;
-  };
-  tax: number;
-  taxRate: number;
-  total: number;
-  monthlyTotal: number;
-  annualTotal: number;
-  billingCycle: BillingCycle;
-  billingCycleMultiplier: number;
-  currency: string;
-  tier: PlanTier;
-  calculatedAt: string;
-}
-
-export interface PricingComparisonResult {
-  config1: PricingCalculation;
-  config2: PricingCalculation;
-  difference: number;
-  percentDifference: number;
-  recommendation: string;
-}
+/**
+ * ADR-0013: the quote comes from billing, and these are its shapes as the
+ * contract declares them. Every amount is an exact decimal STRING — the
+ * hand-written `number` versions were the reason a quote could render a cent
+ * away from what the invoice would charge.
+ */
+export type PricingLineItem = ApiSchema<'ModuleQuoteLineItemDto'>;
+export type ModulePriceBreakdown = ApiSchema<'ModuleQuoteBreakdownDto'>;
+export type PricingCalculation = ApiSchema<'ModuleQuoteResponseDto'>;
+export type PricingComparisonResult = ApiSchema<'ModuleQuoteComparisonDto'>;
+export type QuickEstimateResult = ApiSchema<'QuickEstimateResponseDto'>;
 
 // ============================================================================
 // Subscription Creation Types

@@ -50,20 +50,26 @@ vi.mock('../../services/adminApi', () => ({
     MONTHLY: 'monthly',
     ANNUAL: 'annual',
   },
+  // The wire values, exactly. This mock used to carry UPPERCASE names the API
+  // never sends, and the page carried a case-normalising lookup to tolerate
+  // them — the workaround and the fixture agreed with each other and with
+  // nothing else. `billing.module_price_metrics` CHECKs these fifteen strings.
   PricingMetricType: {
-    BASE_PRICE: 'BASE_PRICE',
-    PER_USER: 'PER_USER',
-    PER_FARM: 'PER_FARM',
-    PER_POND: 'PER_POND',
-    PER_SENSOR: 'PER_SENSOR',
-    PER_DEVICE: 'PER_DEVICE',
-    PER_GB_STORAGE: 'PER_GB_STORAGE',
-    PER_API_CALL: 'PER_API_CALL',
-    PER_ALERT: 'PER_ALERT',
-    PER_REPORT: 'PER_REPORT',
-    PER_SMS: 'PER_SMS',
-    PER_EMAIL: 'PER_EMAIL',
-    PER_INTEGRATION: 'PER_INTEGRATION',
+    BASE_PRICE: 'base_price',
+    PER_USER: 'per_user',
+    PER_FARM: 'per_farm',
+    PER_POND: 'per_pond',
+    PER_SENSOR: 'per_sensor',
+    PER_DEVICE: 'per_device',
+    PER_GB_STORAGE: 'per_gb_storage',
+    PER_GB_TRANSFER: 'per_gb_transfer',
+    PER_API_CALL: 'per_api_call',
+    PER_ALERT: 'per_alert',
+    PER_REPORT: 'per_report',
+    PER_SMS: 'per_sms',
+    PER_EMAIL: 'per_email',
+    PER_INTEGRATION: 'per_integration',
+    PER_WORKFLOW: 'per_workflow',
   },
 }));
 
@@ -89,39 +95,64 @@ const mockPricings = [
     moduleId: 'module-farm',
     moduleCode: 'FARM_MANAGEMENT',
     moduleName: 'Farm Management',
-    pricingMetrics: [
-      { type: PricingMetricType.BASE_PRICE, price: 100 },
-      { type: PricingMetricType.PER_USER, price: 5, includedQuantity: 2 },
-      { type: PricingMetricType.PER_FARM, price: 20, includedQuantity: 1 },
-      { type: PricingMetricType.PER_POND, price: 10, includedQuantity: 0 },
-      { type: PricingMetricType.PER_SENSOR, price: 2, includedQuantity: 0 },
-      { type: PricingMetricType.PER_DEVICE, price: 3, includedQuantity: 0 },
-      { type: PricingMetricType.PER_GB_STORAGE, price: 1, includedQuantity: 5 },
-      { type: PricingMetricType.PER_API_CALL, price: 0.01, includedQuantity: 0 },
-      { type: PricingMetricType.PER_ALERT, price: 0.5, includedQuantity: 0 },
-      { type: PricingMetricType.PER_REPORT, price: 1, includedQuantity: 0 },
-      { type: PricingMetricType.PER_INTEGRATION, price: 15, includedQuantity: 0 },
+    metrics: [
+      { metricType: PricingMetricType.BASE_PRICE, price: '100' },
+      { metricType: PricingMetricType.PER_USER, price: '5', includedQuantity: 2 },
+      { metricType: PricingMetricType.PER_FARM, price: '20', includedQuantity: 1 },
+      { metricType: PricingMetricType.PER_POND, price: '10', includedQuantity: 0 },
+      { metricType: PricingMetricType.PER_SENSOR, price: '2', includedQuantity: 0 },
+      { metricType: PricingMetricType.PER_DEVICE, price: '3', includedQuantity: 0 },
+      { metricType: PricingMetricType.PER_GB_STORAGE, price: '1', includedQuantity: 5 },
+      { metricType: PricingMetricType.PER_API_CALL, price: '0.01', includedQuantity: 0 },
+      { metricType: PricingMetricType.PER_ALERT, price: '0.5', includedQuantity: 0 },
+      { metricType: PricingMetricType.PER_REPORT, price: '1', includedQuantity: 0 },
+      { metricType: PricingMetricType.PER_INTEGRATION, price: '15', includedQuantity: 0 },
     ],
   },
   {
     moduleId: 'module-hr',
     moduleCode: 'HR',
     moduleName: 'HR',
-    pricingMetrics: [{ type: PricingMetricType.BASE_PRICE, price: 40 }],
+    metrics: [{ metricType: PricingMetricType.BASE_PRICE, price: '40' }],
   },
   {
     moduleId: 'module-sensor',
     moduleCode: 'SENSORS',
     moduleName: 'Sensors',
-    pricingMetrics: [{ type: PricingMetricType.BASE_PRICE, price: 80 }],
+    metrics: [{ metricType: PricingMetricType.BASE_PRICE, price: '80' }],
   },
   {
     moduleId: 'module-dashboard',
     moduleCode: 'DASHBOARD',
     moduleName: 'Dashboard',
-    pricingMetrics: [{ type: PricingMetricType.BASE_PRICE, price: 25 }],
+    metrics: [{ metricType: PricingMetricType.BASE_PRICE, price: '25' }],
   },
 ];
+
+/**
+ * A quote as billing returns it. FREE is a permanent $0 tier and billing
+ * clamps it there — the wizard shows that answer rather than deciding it.
+ */
+const quoteFor = (monthlyTotal: string, tier: string) =>
+  ({
+    modules: [],
+    subtotal: monthlyTotal,
+    tierDiscount: '0',
+    cycleDiscountAmount: '0',
+    cycleDiscountPercent: '0',
+    discountAmount: '0',
+    tax: '0',
+    taxRate: '0',
+    total: monthlyTotal,
+    monthlyTotal,
+    annualTotal: String(Number(monthlyTotal) * 12),
+    billingCycle: BillingCycle.MONTHLY,
+    billingCycleMultiplier: 1,
+    currency: 'USD',
+    tier,
+    calculatedAt: new Date().toISOString(),
+    unpricedModuleCodes: [],
+  }) as never;
 
 const accepted = (state: TenantProvisioningState, overrides = {}) => ({
   status: state,
@@ -159,22 +190,11 @@ describe('CreateTenantPage', () => {
     window.sessionStorage.clear();
     vi.stubGlobal('crypto', { randomUUID: vi.fn(() => 'idem-key-1') });
     vi.mocked(billingApi.getModulePricingWithModules).mockResolvedValue(mockPricings as never);
-    vi.mocked(billingApi.calculatePricing).mockResolvedValue({
-      subtotal: 100,
-      tierDiscount: 0,
-      discount: { amount: 0, percent: 0 },
-      tax: 0,
-      taxRate: 0,
-      total: 100,
-      monthlyTotal: 100,
-      annualTotal: 1200,
-      billingCycle: BillingCycle.MONTHLY,
-      billingCycleMultiplier: 1,
-      currency: 'USD',
-      tier: 'starter',
-      calculatedAt: new Date().toISOString(),
-      modules: [],
-    } as never);
+    // ADR-0013: the quote is billing's answer, in exact decimal strings —
+    // the page renders it and never recomputes a total of its own.
+    vi.mocked(billingApi.calculatePricing).mockImplementation(async (request) =>
+      quoteFor(request.tier === 'free' ? '0' : '100', request.tier),
+    );
     vi.mocked(modulesApi.list).mockResolvedValue({ data: [], total: 0 } as never);
   });
 
@@ -320,11 +340,14 @@ describe('CreateTenantPage', () => {
 
     await user.click(screen.getByRole('button', { name: /enable farm management/i }));
 
-    // Price summary is $0.00 even though a $100-base module is enabled.
+    // The summary shows $0.00 even though a $100-base module is enabled —
+    // and it is BILLING's answer now, awaited, not a browser short-circuit.
     await waitFor(() => {
       expect(screen.getByText('Monthly Total')).toBeTruthy();
     });
-    expect(screen.getAllByText(/\$0\.00/).length).toBeGreaterThan(0);
+    await waitFor(() => {
+      expect(screen.getAllByText(/0\.00/).length).toBeGreaterThan(0);
+    });
 
     // Submit
     await user.click(screen.getByRole('button', { name: /continue/i }));

@@ -316,6 +316,12 @@ services:
       - 'request.billing.admin.generateDiscountCode'
       - 'request.billing.admin.validateDiscountCode'
       - 'request.billing.admin.applyDiscountCode'
+      # ADR-0013: billing owns the module price sheet and the arithmetic over
+      # it; admin-api authors the sheet and ASKS for the quote.
+      - 'request.billing.admin.setModulePrice'
+      - 'request.billing.admin.deactivateModulePrice'
+      - 'request.billing.admin.seedModulePrices'
+      - 'request.billing.admin.quoteModuleSelection'
       - 'request.billing.tenant.provisionSubscription'
       - 'request.auth.admin.createUser'
       - 'request.auth.admin.resetUserPassword'

@@ -100,7 +100,6 @@ const ADMIN_TABLES: TenantErasureTablePolicies = {
   threat_intelligence: { kind: 'excluded', reason: PLATFORM_REFERENCE },
   compliance_reports: { kind: 'excluded', reason: PLATFORM_REFERENCE },
   announcements: { kind: 'excluded', reason: PLATFORM_REFERENCE },
-  module_pricing: { kind: 'excluded', reason: PLATFORM_REFERENCE },
   plan_definitions: { kind: 'excluded', reason: PLATFORM_REFERENCE },
   plan_module_assignments: { kind: 'excluded', reason: PLATFORM_REFERENCE },
   job_queues: { kind: 'excluded', reason: PLATFORM_REFERENCE },
@@ -127,6 +126,11 @@ const BILLING_TABLES: TenantErasureTablePolicies = {
   // itself is a platform-wide catalogue entry with no tenant column.
   discount_codes: { kind: 'excluded', reason: PLATFORM_REFERENCE },
   discount_redemptions: { kind: 'tenant-column', column: 'tenant_id' },
+  // ADR-0013: the module price sheet and its child rows are a platform-wide
+  // catalogue priced per module, not per tenant.
+  module_prices: { kind: 'excluded', reason: PLATFORM_REFERENCE },
+  module_price_metrics: { kind: 'excluded', reason: PLATFORM_REFERENCE },
+  module_price_tier_multipliers: { kind: 'excluded', reason: PLATFORM_REFERENCE },
   stripe_webhook_events: {
     kind: 'excluded',
     reason: 'Stripe webhook idempotency ledger keyed by Stripe event id; carries no tenant column and is the evidence of what Stripe delivered',

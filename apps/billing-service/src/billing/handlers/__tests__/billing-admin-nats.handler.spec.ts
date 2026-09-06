@@ -68,9 +68,9 @@ describe('BillingAdminNatsHandler.provisionTenantSubscription', () => {
         name: 'Farm Management',
         quantities: { moduleId: MODULE_A, farms: 2 },
         lineItems: [{ metric: 'base_price', total: 100 }],
-        subtotal: 100,
-        discountAmount: 0,
-        total: 100,
+        subtotal: '100',
+        discountAmount: '0',
+        total: '100',
       },
       {
         moduleId: MODULE_B,
@@ -78,9 +78,9 @@ describe('BillingAdminNatsHandler.provisionTenantSubscription', () => {
         name: 'Sensors',
         quantities: { moduleId: MODULE_B, sensors: 5 },
         lineItems: [],
-        subtotal: 50,
-        discountAmount: 0,
-        total: 50,
+        subtotal: '50',
+        discountAmount: '0',
+        total: '50',
       },
     ],
     ...overrides,
@@ -197,9 +197,12 @@ describe('BillingAdminNatsHandler.provisionTenantSubscription', () => {
     expect(farmInsert).toBeDefined();
     expect(farmInsert?.params[2]).toBe('FARM');
     expect(farmInsert?.params[3]).toBe('Farm Management');
-    expect(farmInsert?.params[6]).toBe(100); // subtotal — NOT 0
-    expect(farmInsert?.params[7]).toBe(0); // discountAmount
-    expect(farmInsert?.params[8]).toBe(100); // total — NOT 0
+    // ADR-0013: money crosses as an exact decimal string and goes straight
+    // into the `numeric` column — Postgres parses it losslessly, so nothing on
+    // this path widens a price through a double.
+    expect(farmInsert?.params[6]).toBe('100'); // subtotal — NOT 0
+    expect(farmInsert?.params[7]).toBe('0'); // discountAmount
+    expect(farmInsert?.params[8]).toBe('100'); // total — NOT 0
     expect(farmInsert?.params[5]).toBe(JSON.stringify([{ metric: 'base_price', total: 100 }]));
   });
 

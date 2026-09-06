@@ -1057,17 +1057,21 @@ export class TenantProvisioningWorkflowService {
     tenant: Tenant,
     data: CreateTenantDto,
   ): Promise<void> {
-    // ORPHAN-CRITICAL-393 / ORPHAN-HIGH-394: resolve each module's code, name,
-    // and REAL price (admin.module_pricing via PricingCalculatorService) in
-    // admin-api — the schema owner of that data — and pass priced moduleItems in
-    // the command. billing writes the module rows directly from these values, so
-    // it never runs the schema-unqualified `modules` query that failed (no
-    // billing grant on auth.modules) and rolled the whole subscription back, and
-    // never invents $0 module prices.
+    // ORPHAN-CRITICAL-393 / ORPHAN-HIGH-394: resolve each module's code and
+    // name in admin-api — the schema owner of `auth.modules` — and pass priced
+    // moduleItems in the command. billing writes the module rows directly from
+    // these values, so it never runs the schema-unqualified `modules` query
+    // that failed (no billing grant on auth.modules) and rolled the whole
+    // subscription back, and never invents $0 module prices.
+    //
+    // ADR-0013: the PRICES now come from `billing.module_prices` through
+    // `request.billing.admin.quoteModuleSelection` — the service that owns the
+    // sheet does the multiplication, in exact decimals.
     const moduleItems = await this.moduleAssignmentService.resolveProvisioningModuleItems({
       modules: this.buildModuleQuantityInputs(data),
       tier: this.toModulePlanTier(tenant.tier),
       billingCycle: this.toModuleBillingCycle(data.billingCycle),
+      actorId: run.actorUserId,
     });
 
     const result = await this.billingCommandClient.provisionTenantSubscription({
@@ -1137,6 +1141,7 @@ export class TenantProvisioningWorkflowService {
       })),
       tier: this.toModulePlanTier(tenant.tier),
       billingCycle: this.toModuleBillingCycle(billingCycle),
+      actorId,
     });
 
     // Deterministic operation identity so repeated reconciles converge on ONE

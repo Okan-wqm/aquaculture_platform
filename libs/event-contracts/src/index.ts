@@ -11,6 +11,7 @@ export * from './billing/plan-catalog';
 // entitlement `TenantPlan`: no `trial`, plus a negotiated `custom` tier. The
 // billing + admin entities re-export this; the FE literals are pinned to it.
 export * from './billing/billing-plan-tier';
+export * from './billing/pricing-metric';
 export * from './enums/tenant-status.enum';
 // ADR-0016: closed platform-operator capability set, minted into the JWT by auth-service.
 export * from './enums/platform-capability.enum';

@@ -27,7 +27,11 @@ import type {
   InvoiceOverview,
   InvoiceStats,
   ModulePricing,
+  ModulePricingPage,
   ModulePricingWithModule,
+  QuickEstimateResult,
+  SeedModulePricesResult,
+  UpdateModulePricingDto,
   SetModulePricingDto,
   ModuleQuantities,
   QuoteRequest,
@@ -257,29 +261,47 @@ export const billingApi = {
     }),
 
   // Module Pricing
-  getModulePricings: () =>
-    apiFetch<ModulePricing[]>('/billing/module-pricing'),
+  //
+  // ADR-0013: billing owns `billing.module_prices` and admin-api forwards every
+  // write. A price change publishes a NEW effective window rather than editing
+  // one, so an invoice can be read back against the prices that produced it.
+  getModulePricings: () => apiFetch<ModulePricing[]>('/billing/module-pricing'),
   getModulePricingByCode: (moduleCode: string) =>
     apiFetch<ModulePricing | null>(`/billing/module-pricing/code/${moduleCode}`),
   getModulePricingWithModules: () =>
     apiFetch<ModulePricingWithModule[]>('/billing/module-pricing/with-modules'),
+  getModulePricingHistory: (moduleId: string, options?: { page?: number; limit?: number }) =>
+    apiFetch<ModulePricingPage>(
+      `/billing/module-pricing/${moduleId}/history?${buildQueryString(options || {})}`,
+    ),
   setModulePricing: (data: SetModulePricingDto) =>
-    apiFetch<ModulePricing>('/billing/module-pricing', { method: 'POST', body: JSON.stringify(data) }),
-  updateModulePricing: (pricingId: string, data: Partial<SetModulePricingDto>) =>
-    apiFetch<ModulePricing>(`/billing/module-pricing/${pricingId}`, { method: 'PUT', body: JSON.stringify(data) }),
-  deactivateModulePricing: (pricingId: string) =>
-    apiFetch<{ success: boolean }>(`/billing/module-pricing/${pricingId}/deactivate`, { method: 'POST' }),
-  seedModulePricing: (moduleIdMap: Record<string, string>) =>
-    apiFetch<{ success: boolean; seededCount: number }>('/billing/module-pricing/seed', {
+    apiFetch<ModulePricing>('/billing/module-pricing', {
       method: 'POST',
-      body: JSON.stringify({ moduleIdMap }),
+      body: JSON.stringify(data),
+    }),
+  updateModulePricing: (pricingId: string, data: UpdateModulePricingDto) =>
+    apiFetch<ModulePricing>(`/billing/module-pricing/${pricingId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  deactivateModulePricing: (pricingId: string) =>
+    apiFetch<ModulePricing>(`/billing/module-pricing/${pricingId}/deactivate`, { method: 'POST' }),
+  // The code → id mapping is resolved server-side from `auth.modules`; a
+  // client-supplied map could point one module's prices at another module.
+  seedModulePricing: (moduleCodes: string[]) =>
+    apiFetch<SeedModulePricesResult>('/billing/module-pricing/seed', {
+      method: 'POST',
+      body: JSON.stringify({ moduleCodes }),
     }),
 
-  // Pricing Calculator
+  // Quotes — billing does the arithmetic; nothing here recomputes a total.
   calculatePricing: (request: QuoteRequest) =>
-    apiFetch<PricingCalculation>('/billing/pricing/calculate', { method: 'POST', body: JSON.stringify(request) }),
+    apiFetch<PricingCalculation>('/billing/pricing/calculate', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    }),
   getQuickEstimate: (moduleCodes: string[], tier: PlanTier, quantities?: ModuleQuantities) =>
-    apiFetch<{ monthlyTotal: number; annualTotal: number }>('/billing/pricing/quick-estimate', {
+    apiFetch<QuickEstimateResult>('/billing/pricing/quick-estimate', {
       method: 'POST',
       body: JSON.stringify({ moduleCodes, tier, quantities }),
     }),

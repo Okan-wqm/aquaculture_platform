@@ -17,7 +17,13 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { type BillingAdminCreateInvoiceInput, type BillingDiscountCodeInput } from '@platform/event-contracts';
+import {
+  type BillingAdminCreateInvoiceInput,
+  type BillingDiscountCodeInput,
+  type BillingModulePriceInput,
+  type BillingModulePriceTierMultiplierInput,
+} from '@platform/event-contracts';
+import Decimal from 'decimal.js';
 import { Request } from 'express';
 
 import { InvoiceStatus } from '../analytics/entities/external/invoice.entity';
@@ -46,6 +52,7 @@ import {
   RejectCustomPlanDto,
   SeedModulePricingDto,
   SetModulePricingDto,
+  TierMultipliersDto,
   UpdateCustomPlanDto,
   UpdateDiscountCodeDto,
   UpdateModulePricingDto,
@@ -53,6 +60,14 @@ import {
   ValidateDiscountCodeDto,
   VoidInvoiceDto,
 } from './dto/billing.dto';
+import {
+  ModulePricePageDto,
+  ModulePriceResponseDto,
+  ModuleQuoteComparisonDto,
+  ModuleQuoteResponseDto,
+  QuickEstimateResponseDto,
+  SeedModulePricesResultDto,
+} from './dto/module-price-response.dto';
 import {
   BulkCreatedDiscountCodesDto,
   DiscountApplicationResponseDto,
@@ -70,19 +85,13 @@ import { AggregationPeriod, MeterType } from './entities/usage-aggregation-reado
 import { BillingAdminCommandClientService } from './services/billing-admin-command-client.service';
 import { CustomPlanFilter, CustomPlanService } from './services/custom-plan.service';
 import { DiscountCodeService } from './services/discount-code.service';
+import { ModulePricingService } from './services/module-pricing.service';
 import {
   InvoiceFilters,
   InvoiceManagementService,
 } from './services/invoice-management.service';
-import { ModulePricingService } from './services/module-pricing.service';
 import { PaymentFilters, PaymentManagementService } from './services/payment-management.service';
 import { PlanDefinitionService } from './services/plan-definition.service';
-import {
-  PricingCalculation,
-  PricingCalculatorService,
-  PricingComparison,
-  PricingDiscountContext,
-} from './services/pricing-calculator.service';
 import {
   SubscriptionFilters,
   SubscriptionManagementService,
@@ -102,7 +111,6 @@ export class BillingController {
     private readonly discountService: DiscountCodeService,
     private readonly subscriptionService: SubscriptionManagementService,
     private readonly modulePricingService: ModulePricingService,
-    private readonly pricingCalculator: PricingCalculatorService,
     private readonly customPlanService: CustomPlanService,
     private readonly invoiceService: InvoiceManagementService,
     private readonly paymentService: PaymentManagementService,
@@ -491,72 +499,92 @@ export class BillingController {
   // ============================================================================
 
   @Get('module-pricing')
-  async getAllModulePricing(): Promise<unknown> {
+  async getAllModulePricing(): Promise<ModulePriceResponseDto[]> {
     return this.modulePricingService.getAllModulePricings();
   }
 
   @Get('module-pricing/with-modules')
-  async getAllModulePricingWithModules(): Promise<unknown> {
+  async getAllModulePricingWithModules(): Promise<ModulePriceResponseDto[]> {
     return this.modulePricingService.getAllModulePricingsWithModuleInfo();
   }
 
-  @Get('module-pricing/:moduleId')
-  async getModulePricing(@Param('moduleId') moduleId: string): Promise<unknown> {
-    return this.modulePricingService.getModulePricing(moduleId);
-  }
-
   @Get('module-pricing/code/:moduleCode')
-  async getModulePricingByCode(@Param('moduleCode') moduleCode: string): Promise<unknown> {
+  async getModulePricingByCode(
+    @Param('moduleCode') moduleCode: string,
+  ): Promise<ModulePriceResponseDto | null> {
     return this.modulePricingService.getModulePricingByCode(moduleCode);
   }
 
   @Get('module-pricing/:moduleId/history')
   async getModulePricingHistory(
-    @Param('moduleId') moduleId: string,
+    @Param('moduleId', ParseUUIDPipe) moduleId: string,
     @Query() pagination?: PaginationQueryDto,
-  ): Promise<unknown> {
+  ): Promise<ModulePricePageDto> {
     return this.modulePricingService.getPricingHistory(moduleId, {
       page: pagination?.page,
       limit: pagination?.limit,
     });
   }
 
+  @Get('module-pricing/:moduleId')
+  async getModulePricing(
+    @Param('moduleId', ParseUUIDPipe) moduleId: string,
+  ): Promise<ModulePriceResponseDto | null> {
+    return this.modulePricingService.getModulePricing(moduleId);
+  }
+
   @AuditedOperation({ resource: 'ModulePricing', action: 'SET' })
   @RequiresCapability('billing-ops')
   @Post('module-pricing')
-  async setModulePricing(@Body() dto: SetModulePricingDto): Promise<unknown> {
-    return this.modulePricingService.setModulePricing(dto);
+  async setModulePricing(
+    @Body() dto: SetModulePricingDto,
+    @Req() req: Request,
+  ): Promise<ModulePriceResponseDto> {
+    const userId = requireActor(req, 'publish a module price sheet');
+    return this.modulePricingService.setModulePricing(toModulePriceInput(dto), userId);
   }
 
   @AuditedOperation({ resource: 'ModulePricing', action: 'UPDATE' })
   @RequiresCapability('billing-ops')
   @Put('module-pricing/:pricingId')
   async updateModulePricing(
-    @Param('pricingId') pricingId: string,
+    @Param('pricingId', ParseUUIDPipe) pricingId: string,
     @Body() dto: UpdateModulePricingDto,
-  ): Promise<unknown> {
-    return this.modulePricingService.updateModulePricing(pricingId, dto);
+    @Req() req: Request,
+  ): Promise<ModulePriceResponseDto> {
+    const userId = requireActor(req, 'republish a module price sheet');
+    return this.modulePricingService.updateModulePricing(pricingId, dto, userId);
   }
 
   @AuditedOperation({ resource: 'ModulePricing', action: 'DEACTIVATE' })
   @RequiresCapability('billing-ops')
   @Post('module-pricing/:pricingId/deactivate')
-  async deactivateModulePricing(@Param('pricingId') pricingId: string): Promise<unknown> {
-    await this.modulePricingService.deactivatePricing(pricingId);
-    return { success: true };
+  async deactivateModulePricing(
+    @Param('pricingId', ParseUUIDPipe) pricingId: string,
+    @Req() req: Request,
+  ): Promise<ModulePriceResponseDto> {
+    const userId = requireActor(req, 'deactivate a module price sheet');
+    return this.modulePricingService.deactivatePricing(pricingId, userId);
   }
 
   @AuditedOperation({ resource: 'Billing', action: 'SEED_MODULE_PRICING' })
   @RequiresCapability('billing-ops')
   @Post('module-pricing/seed')
-  async seedModulePricing(@Body() dto: SeedModulePricingDto): Promise<unknown> {
-    const map = new Map(Object.entries(dto.moduleIdMap));
-    const count = await this.modulePricingService.seedDefaultPricing(map);
-    return { success: true, seededCount: count };
+  async seedModulePricing(
+    @Body() dto: SeedModulePricingDto,
+    @Req() req: Request,
+  ): Promise<SeedModulePricesResultDto> {
+    const userId = requireActor(req, 'seed module prices');
+    const seeded = await this.modulePricingService.seedDefaultPricing(dto.moduleCodes, userId);
+    return { success: true, seeded };
   }
 
   // ============================================================================
-  // Pricing Calculator / Quotes
+  // Quotes
+  //
+  // ADR-0013: billing owns the price sheet AND the arithmetic over it. These
+  // routes forward to `request.billing.admin.quoteModuleSelection`; admin-api
+  // multiplies nothing.
   // ============================================================================
 
   @AuditedOperation({ resource: 'Pricing', action: 'CALCULATE' })
@@ -566,11 +594,9 @@ export class BillingController {
     @TenantParam('body', { optional: true, allow: 'any' }) tenantId: string | undefined,
     @Body() request: QuoteRequest,
     @Req() req: Request,
-  ): Promise<PricingCalculation> {
-    return this.pricingCalculator.calculatePricing(
-      request,
-      quoteDiscountContext(tenantId, req),
-    );
+  ): Promise<ModuleQuoteResponseDto> {
+    const userId = requireActor(req, 'calculate a quote');
+    return this.modulePricingService.quote(toQuoteRequest(request, tenantId), userId);
   }
 
   @AuditedOperation({ resource: 'Billing', action: 'GET_QUICK_ESTIMATE' })
@@ -578,8 +604,27 @@ export class BillingController {
   @Post('pricing/quick-estimate')
   async getQuickEstimate(
     @Body() dto: QuickEstimateDto,
-  ): Promise<unknown> {
-    return this.pricingCalculator.getQuickEstimate(dto.moduleCodes, dto.tier, dto.quantities);
+    @Req() req: Request,
+  ): Promise<QuickEstimateResponseDto> {
+    const userId = requireActor(req, 'estimate a quote');
+    const quote = await this.modulePricingService.quote(
+      {
+        modules: dto.moduleCodes.map((moduleCode) => ({
+          moduleId: EMPTY_MODULE_ID,
+          moduleCode,
+          quantities: dto.quantities ?? { users: 5 },
+        })),
+        tier: dto.tier,
+        billingCycle: BillingCycle.MONTHLY,
+      },
+      userId,
+    );
+    return {
+      monthlyTotal: quote.monthlyTotal,
+      annualTotal: quote.annualTotal,
+      currency: quote.currency,
+      unpricedModuleCodes: quote.unpricedModuleCodes,
+    };
   }
 
   @AuditedOperation({ resource: 'Pricing', action: 'COMPARE' })
@@ -589,12 +634,13 @@ export class BillingController {
     @TenantParam('body', { optional: true, allow: 'any' }) tenantId: string | undefined,
     @Body() dto: ComparePricingDto,
     @Req() req: Request,
-  ): Promise<PricingComparison> {
-    return this.pricingCalculator.comparePricing(
-      dto.config1,
-      dto.config2,
-      quoteDiscountContext(tenantId, req),
-    );
+  ): Promise<ModuleQuoteComparisonDto> {
+    const userId = requireActor(req, 'compare quotes');
+    const [config1, config2] = await Promise.all([
+      this.modulePricingService.quote(toQuoteRequest(dto.config1, tenantId), userId),
+      this.modulePricingService.quote(toQuoteRequest(dto.config2, tenantId), userId),
+    ]);
+    return compareQuotes(config1, config2);
   }
 
   // ============================================================================
@@ -1026,15 +1072,92 @@ function toDiscountInput(
   }
 }
 
-/**
- * A quote carries a discount context only when a tenant was named. The
- * calculator refuses a `discountCode` without one rather than previewing a
- * discount against nobody (ADR-0013).
- */
-function quoteDiscountContext(
+/** A quick estimate names modules by code only; billing matches on the code. */
+const EMPTY_MODULE_ID = '00000000-0000-4000-8000-000000000000';
+
+/** The DTO's flat sheet becomes the contract's metric and multiplier rows. */
+function toModulePriceInput(
+  dto: SetModulePricingDto,
+): BillingModulePriceInput {
+  return {
+    moduleId: dto.moduleId,
+    moduleCode: dto.moduleCode,
+    currency: dto.currency,
+    effectiveFrom: dto.effectiveFrom,
+    effectiveTo: dto.effectiveTo,
+    notes: dto.notes,
+    metrics: dto.pricingMetrics.map((metric) => ({
+      metricType: metric.metricType,
+      price: metric.price,
+      description: metric.description,
+      minQuantity: metric.minQuantity,
+      maxQuantity: metric.maxQuantity,
+      includedQuantity: metric.includedQuantity,
+    })),
+    tierMultipliers: toTierMultiplierRows(dto.tierMultipliers),
+  };
+}
+
+/** `{ starter: '1', enterprise: '0.7' }` becomes one row per named tier. */
+export function toTierMultiplierRows(
+  multipliers: TierMultipliersDto | undefined,
+): BillingModulePriceTierMultiplierInput[] | undefined {
+  if (!multipliers) return undefined;
+  const rows: BillingModulePriceTierMultiplierInput[] = [];
+  for (const tier of Object.values(PlanTier)) {
+    const multiplier = multipliers[tier as keyof TierMultipliersDto];
+    if (multiplier !== undefined) rows.push({ tier, multiplier });
+  }
+  return rows;
+}
+
+function toQuoteRequest(
+  request: QuoteRequest,
   tenantId: string | undefined,
-  req: Request,
-): PricingDiscountContext | undefined {
-  const actorId = getAuthUserId(req);
-  return tenantId && actorId ? { tenantId, actorId } : undefined;
+): Parameters<ModulePricingService['quote']>[0] {
+  return {
+    modules: request.modules.map((module) => ({
+      moduleId: module.moduleId,
+      moduleCode: module.moduleCode,
+      moduleName: module.moduleName,
+      quantities: module.quantities,
+    })),
+    tier: request.tier,
+    billingCycle: request.billingCycle,
+    tenantId,
+    discountCode: request.discountCode,
+    taxRate: request.taxRate,
+  };
+}
+
+/**
+ * Two quotes, compared exactly. The old comparison subtracted two floats and
+ * divided — the difference between $1,199.99 and $1,200.00 could come out as
+ * 0.010000000000047748 and be rendered as such.
+ */
+function compareQuotes(
+  config1: ModuleQuoteResponseDto,
+  config2: ModuleQuoteResponseDto,
+): ModuleQuoteComparisonDto {
+  const first = new Decimal(config1.monthlyTotal);
+  const second = new Decimal(config2.monthlyTotal);
+  const difference = second.minus(first);
+  const percentDifference = first.isZero()
+    ? new Decimal(0)
+    : difference.dividedBy(first).times(100).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+
+  let recommendation = 'Both options are comparable.';
+  if (difference.isPositive() && !difference.isZero()) {
+    recommendation = `Configuration 2 costs ${difference.toString()} ${config2.currency} more per month (${percentDifference.toString()}% increase).`;
+  } else if (difference.isNegative()) {
+    recommendation = `Configuration 2 saves ${difference.abs().toString()} ${config2.currency} per month (${percentDifference.abs().toString()}% saving).`;
+  }
+
+  return {
+    config1,
+    config2,
+    monthlyDifference: difference.toString(),
+    percentDifference: percentDifference.toString(),
+    recommendation,
+  };
 }

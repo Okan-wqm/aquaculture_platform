@@ -16,11 +16,9 @@ import {
   CustomPlanLineItem,
 } from '../entities/custom-plan.entity';
 import { PlanTier, BillingCycle } from '../entities/plan-definition.entity';
-import { PricingMetricType, PricingMetricLabels } from '../entities/pricing-metric.enum';
 
 import { BillingAdminCommandClientService } from './billing-admin-command-client.service';
 import { ModulePricingService } from './module-pricing.service';
-import { PricingCalculatorService } from './pricing-calculator.service';
 import type { ModuleQuantities } from './subscription-management.service';
 
 /**
@@ -109,7 +107,6 @@ export class CustomPlanService {
     private readonly planRepo: Repository<CustomPlan>,
     @InjectRepository(Tenant)
     private readonly tenantRepo: Repository<Tenant>,
-    private readonly pricingCalculator: PricingCalculatorService,
     private readonly modulePricingService: ModulePricingService,
     private readonly billingCommands: BillingAdminCommandClientService,
   ) {}
@@ -122,6 +119,7 @@ export class CustomPlanService {
     const { modules, monthlySubtotal, monthlyTotal } = await this.calculatePlanPricing(
       dto.modules,
       dto.tier || PlanTier.CUSTOM,
+      dto.createdBy ?? '',
       dto.discountPercent,
       dto.discountAmount,
     );
@@ -240,6 +238,7 @@ export class CustomPlanService {
       const { modules, monthlySubtotal, monthlyTotal } = await this.calculatePlanPricing(
         dto.modules,
         plan.tier,
+        dto.updatedBy ?? plan.createdBy ?? '',
         dto.discountPercent ?? plan.discountPercent,
         dto.discountAmount ?? plan.discountAmount,
       );
@@ -442,9 +441,12 @@ export class CustomPlanService {
         name: module.moduleName,
         quantities: { moduleId: module.moduleId, ...module.quantities },
         lineItems: module.lineItems,
-        subtotal: module.subtotal,
-        discountAmount: share,
-        total: this.round(module.subtotal - share),
+        // ADR-0013: the provisioning contract carries exact decimal strings.
+        // These come back out of the plan's jsonb, so they are stringified at
+        // the point they leave admin rather than travelling as doubles.
+        subtotal: String(module.subtotal),
+        discountAmount: String(share),
+        total: String(this.round(module.subtotal - share)),
       };
     });
   }
@@ -504,7 +506,20 @@ export class CustomPlanService {
   // ============================================
 
   /**
-   * Calculate pricing for plan modules
+   * Price the plan's modules — by asking billing (ADR-0013).
+   *
+   * This was a fourth copy of the module arithmetic: it read the price sheet,
+   * applied the tier multiplier and summed the line items in floats, beside
+   * the same logic in `PricingCalculatorService`, in the browser on
+   * CreateTenantPage, and in billing's own provisioning path. billing owns
+   * the sheet, so billing does the multiplication, and a custom plan is priced
+   * by the same code that will price its invoice.
+   *
+   * The `number` fields below are the plan's `modules` jsonb column, which is
+   * still money-in-jsonb (governed by `.claude/allowlists/money-in-jsonb.yaml`
+   * until `custom_plans` itself moves). Billing's exact decimal strings are
+   * converted once, here, rather than accumulating float error across the
+   * calculation.
    */
   private async calculatePlanPricing(
     moduleInputs: Array<{
@@ -514,6 +529,7 @@ export class CustomPlanService {
       quantities: ModuleQuantities;
     }>,
     tier: PlanTier,
+    actorId: string,
     discountPercent?: number,
     discountAmount?: number,
   ): Promise<{
@@ -521,68 +537,56 @@ export class CustomPlanService {
     monthlySubtotal: number;
     monthlyTotal: number;
   }> {
-    const modules: CustomPlanModule[] = [];
-    let monthlySubtotal = 0;
+    if (moduleInputs.length === 0) {
+      return { modules: [], monthlySubtotal: 0, monthlyTotal: 0 };
+    }
 
-    // Bulk fetch all module pricings in a single query instead of N queries
-    const moduleCodes = moduleInputs.map((input) => input.moduleCode);
-    const pricingMap = await this.modulePricingService.getModulePricingByCodes(moduleCodes);
+    const quote = await this.modulePricingService.quote(
+      {
+        modules: moduleInputs.map((input) => ({
+          moduleId: input.moduleId,
+          moduleCode: input.moduleCode,
+          moduleName: input.moduleName,
+          quantities: input.quantities,
+        })),
+        tier,
+        billingCycle: 'monthly',
+      },
+      actorId,
+    );
 
-    for (const input of moduleInputs) {
-      const pricing = pricingMap.get(input.moduleCode);
+    if (quote.unpricedModuleCodes.length > 0) {
+      // A module the operator put on the plan that carries no price is a
+      // decision they have to make, not a silent omission from the total.
+      this.logger.warn(
+        JSON.stringify({
+          event: 'custom-plan.unpriced-modules',
+          moduleCodes: quote.unpricedModuleCodes,
+        }),
+      );
+    }
 
-      if (!pricing) {
-        this.logger.warn(`No pricing for module: ${input.moduleCode}`);
-        continue;
-      }
-
-      const tierMultiplier = pricing.getTierMultiplier(tier);
-      const lineItems: CustomPlanLineItem[] = [];
-      let moduleSubtotal = 0;
-
-      // Calculate each metric
-      for (const metric of pricing.pricingMetrics) {
-        let quantity = 1;
-
-        if (metric.type !== PricingMetricType.BASE_PRICE) {
-          quantity = this.getQuantityForMetric(input.quantities, metric.type);
-        }
-
-        if (quantity === 0 && metric.type !== PricingMetricType.BASE_PRICE) {
-          continue;
-        }
-
-        const includedQty = metric.includedQuantity ?? 0;
-        const billableQty =
-          metric.type === PricingMetricType.BASE_PRICE
-            ? 1
-            : Math.max(0, quantity - includedQty);
-
-        const total = billableQty * metric.price * tierMultiplier;
-
-        lineItems.push({
-          metric: metric.type,
-          description: PricingMetricLabels[metric.type] || metric.type,
-          quantity,
-          unitPrice: metric.price * tierMultiplier,
-          total,
-        });
-
-        moduleSubtotal += total;
-      }
-
-      modules.push({
+    const byModuleId = new Map(quote.modules.map((breakdown) => [breakdown.moduleId, breakdown]));
+    const modules: CustomPlanModule[] = moduleInputs.map((input) => {
+      const breakdown = byModuleId.get(input.moduleId);
+      const lineItems: CustomPlanLineItem[] = (breakdown?.lineItems ?? []).map((line) => ({
+        metric: line.metric,
+        description: line.metricLabel,
+        quantity: line.quantity,
+        unitPrice: Number(line.unitPrice),
+        total: Number(line.total),
+      }));
+      return {
         moduleId: input.moduleId,
         moduleCode: input.moduleCode,
         moduleName: input.moduleName,
         quantities: input.quantities,
         lineItems,
-        subtotal: moduleSubtotal,
-      });
+        subtotal: Number(breakdown?.subtotal ?? '0'),
+      };
+    });
 
-      monthlySubtotal += moduleSubtotal;
-    }
-
+    const monthlySubtotal = Number(quote.subtotal);
     const monthlyTotal = this.calculateFinalTotal(
       monthlySubtotal,
       discountPercent,
@@ -590,30 +594,6 @@ export class CustomPlanService {
     );
 
     return { modules, monthlySubtotal, monthlyTotal };
-  }
-
-  /**
-   * Get quantity value for a metric type
-   */
-  private getQuantityForMetric(
-    quantities: ModuleQuantities,
-    metric: PricingMetricType,
-  ): number {
-    const map: Partial<Record<PricingMetricType, keyof ModuleQuantities>> = {
-      [PricingMetricType.PER_USER]: 'users',
-      [PricingMetricType.PER_FARM]: 'farms',
-      [PricingMetricType.PER_POND]: 'ponds',
-      [PricingMetricType.PER_SENSOR]: 'sensors',
-      [PricingMetricType.PER_DEVICE]: 'devices',
-      [PricingMetricType.PER_GB_STORAGE]: 'storageGb',
-      [PricingMetricType.PER_API_CALL]: 'apiCalls',
-      [PricingMetricType.PER_ALERT]: 'alerts',
-      [PricingMetricType.PER_REPORT]: 'reports',
-      [PricingMetricType.PER_INTEGRATION]: 'integrations',
-    };
-
-    const field = map[metric];
-    return field ? quantities[field] ?? 0 : 0;
   }
 
   /**

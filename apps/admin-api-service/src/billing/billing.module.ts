@@ -12,7 +12,11 @@ import {
   DiscountCodeReadOnly,
   DiscountRedemptionReadOnly,
 } from './entities/external/discount-code.entity';
-import { ModulePricing } from './entities/module-pricing.entity';
+import {
+  ModulePriceMetricReadOnly,
+  ModulePriceReadOnly,
+  ModulePriceTierMultiplierReadOnly,
+} from './entities/external/module-price.entity';
 import { PlanDefinition } from './entities/plan-definition.entity';
 import { PlanModuleAssignment } from './entities/plan-module-assignment.entity';
 import { UsageAggregationReadOnly } from './entities/usage-aggregation-readonly.entity';
@@ -23,7 +27,6 @@ import { InvoiceManagementService } from './services/invoice-management.service'
 import { ModulePricingService } from './services/module-pricing.service';
 import { PaymentManagementService } from './services/payment-management.service';
 import { PlanDefinitionService } from './services/plan-definition.service';
-import { PricingCalculatorService } from './services/pricing-calculator.service';
 import { SubscriptionAnalyticsService } from './services/subscription-analytics.service';
 import { SubscriptionCoreService } from './services/subscription-core.service';
 import { SubscriptionManagementService } from './services/subscription-management.service';
@@ -44,7 +47,9 @@ import { UsageMeteringManagementService } from './services/usage-metering-manage
       PlanDefinition,
       DiscountCodeReadOnly,
       DiscountRedemptionReadOnly,
-      ModulePricing,
+      ModulePriceReadOnly,
+      ModulePriceMetricReadOnly,
+      ModulePriceTierMultiplierReadOnly,
       PlanModuleAssignment,
       CustomPlan,
       InvoiceReadOnly,
@@ -64,7 +69,6 @@ import { UsageMeteringManagementService } from './services/usage-metering-manage
     // Facade for backward compatibility
     SubscriptionManagementService,
     ModulePricingService,
-    PricingCalculatorService,
     CustomPlanService,
     InvoiceManagementService,
     PaymentManagementService,
@@ -81,7 +85,6 @@ import { UsageMeteringManagementService } from './services/usage-metering-manage
     SubscriptionRenewalService,
     SubscriptionAnalyticsService,
     ModulePricingService,
-    PricingCalculatorService,
     CustomPlanService,
     InvoiceManagementService,
     PaymentManagementService,

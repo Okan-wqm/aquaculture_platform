@@ -1,74 +1,78 @@
 # Hukuk ARIA'sı — Tanım
 
-Durum: TASLAK. `arias/_template/` şablonundan türetilmiştir. Çalışma zamanı otoritesi
-`aria.manifest.json` ve çekirdek kontratlarıdır; bu dosya kapsamı ve sınırı tanımlar.
+Durum: hedef ürün tanımı, 2026-09-06 kullanıcı açıklamasıyla güncellendi. Bu belge
+MVP'nin amacını tanımlar; çalışan yeteneklerin kanıtı
+[YETENEK-KAYDI §C](YETENEK-KAYDI.md#c-güncel-uygulama-sırası-2026-09-06) içindedir.
+Çalışma zamanı otoritesi `aria.manifest.json` ve çekirdek sözleşmeleridir.
 
 ## 1. Bu ARIA nedir
 
-Bir dava dosyası arşivini, kanıta bağlı ve insan-doğrulamalı bir çalışma setine çeviren
-ARIA örneğidir. Çekirdek değişmez; hukuk bilgisi kaslardan gelir.
+Hukuk ARIA'sının birincil amacı, avukatın müvekkilini savunmasına yardımcı olmaktır.
+Davanın belgelerini, olaylarını, tarihlerini, kişilerini ve sorumluluklarını kaynaklarıyla
+düzenler; avukatın sorularını bu çalışma seti ve kullanıcının sağladığı hukuk kuralları
+üzerinden yanıtlamayı hedefler. Şirketler ve kamu kurumları da kendi yetkili dava
+çalışmalarında aynı yöntemden yararlanabilir.
 
-Ayırt edici özellik "belge özetleyen asistan" olması değil, **kanıtsız iddia
-üretememesi**: her kayıt külliyattaki bir dosyaya ve onun içerik hash'ine bağlanır,
-ARIA'nın kendi çıktısı asla kanıt sayılmaz.
+Kalıcı dava hafızası; kaynak bağlarını, önceki çalışmaları, avukat düzeltmelerini ve
+onaylarını oturumlar arasında korumalıdır. Yeni belge veya düzeltme geldiğinde etkilenen
+bilgi ve cevaplar izlenebilir biçimde güncellenmelidir.
 
-## 2. Kapsam
+Kaynağa bağlamak, yorumun doğru olduğunu tek başına kanıtlamaz. Her olgusal ve hukukî
+iddia dayanağını göstermeli; çıkarım, karşı kanıt, belirsizlik ve bilinmeyenler görünür
+olmalıdır. Kaynaklar cevap vermeye yetmiyorsa sistem bunu söylemeli ve sonuç çıkarmaktan
+kaçınmalıdır. ARIA'nın kendi çıktısı bağımsız kanıt sayılmaz.
 
-- Arşivin tam envanteri: her dosyanın bir kaderi vardır (okundu, yalnız metadata,
-  okunamadı, dışlandı). Sessizce atlanan dosya yoktur.
-- İçerik hash'i ve sürüm soy ağacı: hangi belge hangisinin sürümü, hangisi imzalı.
-- Kronoloji: olayın gerçekleştiği tarih ile öğrenildiği tarih ayrı alanlardır.
-- Taraflar: yalnız belge kanıtından, düşük güven skoruyla, birleştirilmeden.
-- İddia-kanıt matrisi: her iddianın destekleyen ve çelişen kaynakları, eksik kanıt listesi.
-- Kapsama raporu: neyin görülmediği, açıkça.
+## 2. MVP'nin sekiz sonucu
 
-## 3. Amaç-dışı
+| # | Avukata gösterilecek sonuç |
+|---|---|
+| M1 | Büyük ve karmaşık veri setinin yapılandırılması |
+| M2 | Olay ve belgelerin kronolojik bağlanması |
+| M3 | Eksik veya tutarsız bilginin tespiti |
+| M4 | Bilginin farklı sürümlerinin karşılaştırılması |
+| M5 | Süreç ve sorumlulukların yeniden kurulması |
+| M6 | Veri bütünlüğü ve usul sorunlarının işaretlenmesi |
+| M7 | Aynı metodolojinin anonimleştirilmiş davalara uygulanması |
+| M8 | Avukat, şirket ve kamu kurumu için destek yüzeyi |
 
-`aria.manifest.json` içindeki `non_goals` ile birebir aynıdır. Özeti: hukukî sonuç yok,
-OCR uydurma yok, otomatik kimlik birleştirme yok, sunulan sürümü ilan etme yok,
-anonimleştirme garantisi yok, usul hukuku uygulaması yok.
+Yaklaşık NOK 5 milyonluk gerçek dava, bu sonuçları sınamak için doğrulama malzemesidir;
+ürünün kendisi değildir. Bir aylık hedef sırası ve gerekli girdiler
+[YOL-HARITASI](YOL-HARITASI.md) içindedir.
 
-## 4. Külliyat
+## 3. Kaynak ve bilgi sınırı
 
-Külliyat türü `document_archive`. Bu, çekirdeğin bugünkü git-şekilli kanıt modeliyle
-doğrudan uyuşmaz: `evidence_trust` bir kanıtı ancak dosyanın sha256'sı git blob'uyla
-eşleşirse `repo_verified` sayar; dava arşivinde git yoktur. Çekirdek boşluğu **G-1**
-kapanana kadar bu ARIA kanıtını adapter'ın kendi sha256 zinciriyle taşır ve bu sınır
-burada yazılıdır, varsayılmaz.
+- Dava bilgisi kullanıcının sağladığı arşivden gelir. Orijinal bayt, içerik hash'i,
+  alım zamanı, belge sürümü ve alıntı konumu birlikte izlenmelidir.
+- Hukukî dayanak yalnız kullanıcının sağladığı mevzuat ve kurallardır. Ürün dış web
+  araması yapmaz; dış hukuk kaynağı bağlayıcısı MVP'nin ön koşulu değildir. Kullanıcı,
+  kullanım kapsamını belirlediği malzemeyi sürümü ve uygulanacağı zaman bilgisiyle sağlar.
+- Olay zamanı, ilgili kişinin öğrenme zamanı ve sisteme alım zamanı ayrı tutulmalıdır;
+  bilinmeyen bir zaman başka bir tarihten varsayılmaz.
+- Okunamayan, dışlanan veya yalnız bir bölümü işlenen kaynaklar ve etkiledikleri
+  cevaplar belirtilmelidir. `coverage.complete`, bütün dosyaların anlaşıldığı veya
+  hukukî analizin tamamlandığı anlamına gelmez.
 
-Dışlanan kök (`Ikke laste opp`) raporlanır, atlanmaz.
+## 4. Bugün çalışan kapsam
 
-## 5. Kaslar
+Mevcut hukuk çalışma zamanı; dava erişimi, belge alımı, imzalı tutanak, yalıtılmış
+envanter koşumu ve mekanik belge/kronoloji/matris/sürüm görünümlerini içerir. Büyük
+karma arşivin tamamı, anlamsal dava analizi, yüklenen kurallarla cevap verme ve kalıcı
+AI dava hafızası için kabul kapıları açıktır. Küçük sentetik korpus ve altyapı testleri
+bu ürün kabulünün yerine geçmez; güncel kanıt ve açık işler §C'de izlenir.
 
-Bir kasın ayrı paket olmayı hak etmesi için üçünü birden taşıması gerekir: kendi fikstür
-korpusu, kendi sürüm ritmi, onu diğeri olmadan kuran bir tüketici.
+Manifestin mevcut `non_goals` ve onay kapıları çalışan derlemenin sınırlarıdır. Bu hedef
+tanımı onları açmaz. Yeni analiz ve hafıza akışları, ilgili uygulama ve kabul çalışmasıyla
+devreye alınmalıdır; mekanik çıktı hukukî hüküm veya doğrulanmış olay olarak sunulmaz.
 
-| Kas | Durum | Neden ayrı |
-|---|---|---|
-| `legal-evidence` | etkin | Kendi korpusu ve testleri var; envanter tek başına değer üretir |
-| `legal-case-analysis` | taslak | Farklı ritim: matris ve kronoloji, envanterden bağımsız gelişir |
-| `legal-foundation` | taslak | Kimlik ve gizlilik duvarı; ikisinin de altına girer |
+## 5. Avukatın kararı ve ölçülebilir kabul
 
-Sonraya bırakılanlar ve gerekçesi:
+`verified` durumu yalnız kaydedilmiş insan doğrulamasıyla oluşur. Taraf birleştirme,
+sunulan sürüm ilanı, karartma ve dışarıya dosyalama gibi kararlar
+`config/approval-policy.json` kapılarına bağlıdır. Avukat, ARIA'nın önerisinin dayanağını
+inceleyip kabul edebilmeli, düzeltebilmeli veya reddedebilmelidir.
 
-- `legal-research` ayrı olacak, çünkü **farklı güven modeli** taşır: dış otoriter kaynak,
-  geçerlilik süresi, atıf doğrulama. Aynı pakete girmesi kanıt disiplinini bulanıklaştırır.
-- `legal-work-product` (dilekçe, memo taslağı) kanıt katmanı oturmadan başlamaz.
-- `legal-office-operations` (zaman, faturalama, trust accounting) bir **kas değildir**;
-  kanıt-çıkarım karakteri olmayan işlemsel iş yazılımıdır. ARIA kası olarak paketlenmesi
-  iki farklı ürünü karıştırır.
-
-## 6. Onay ve insan sınırı
-
-`verified` durumu yalnız insanın kaydettiği bir doğrulamayla oluşur; hiçbir adapter ve
-hiçbir ajan üretemez. Dışarı çıkan her etki (production, redaction, dosyalama) avukat
-onayı ister. Ayrıntı: `config/approval-policy.json`.
-
-## 7. Kabul ölçütleri
-
-- Sentetik fikstür arşivinde adapter iki koşumda bayt-eş sonuç verir.
-- Kapsama `complete: true`, dışlanan kök kayıtlı, okunamayan dosyalar bulgu olarak açık.
-- Konsolda dava görünür: envanter, sürüm grubu, kronoloji, taraflar, boş iddia matrisi.
-- Gerçek dosya kümesiyle çalışma yalnız operatör kontrolünde, tek dava, harici AI kapalı.
-
-Eşik değerleri `aria.manifest.json` içindeki `evaluations.release_thresholds` alanındadır.
+Kabul, avukatın etiketlediği temsilî arşiv ve sorular üzerinde ölçülür: kaynak/alıntı
+doğruluğu, beklenen olay ve sorunları bulma oranı, yanlış uyarılar, belirsiz sorularda
+cevap vermeme, kaynak kapsamı ve oturumlar arası düzeltme sürekliliği raporlanır.
+Girdiler ve başarı eşikleri değerlendirmeden önce kaydedilir. Bulgular avukatça
+incelenir; ölçüm, hatasızlık veya sıfır halüsinasyon garantisi olarak genellenmez.

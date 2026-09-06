@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import fsPromises from 'node:fs/promises';
-import { mkdir, mkdtemp, open, readFile, readdir, writeFile, rm, symlink } from 'node:fs/promises';
+import { mkdir, mkdtemp, open, readFile, readdir, writeFile, rm, stat, symlink } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { IncomingMessage } from 'node:http';
 import { Socket } from 'node:net';
@@ -102,7 +102,10 @@ test('publishes independent signed artifacts and refuses subsequent artifact tam
   await (retained as FileHandle).writeFile('["changed"]');
   await (retained as FileHandle).close();
   assert.equal(await readFile(join(run.dir, 'documents.json'), 'utf8'), '[]');
-  await writeFile(join(run.dir, 'documents.json'), '["changed"]');
+  assert.equal((await stat(join(run.dir, 'documents.json'))).mode & 0o222, 0);
+  // Replace the test-owned fixture through its directory; readonly file permissions stay intact.
+  await rm(join(run.dir, 'documents.json'));
+  await writeFile(join(run.dir, 'documents.json'), '["changed"]', { flag: 'wx', mode: 0o400 });
   await assert.rejects(resolveLegalRun(f.config.toolsDir, 'case-001', f.signer), { code: 'legal_run_invalid' });
 });
 

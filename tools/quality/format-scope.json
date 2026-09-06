@@ -42255,7 +42255,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "28ca222743cd128aeeeaec3cc10c8cd42bb5cfc845e8ee429f674cb7b38b6e56",
+      "content_sha256": "c7032ce1a8416ff81fe43d63513da209ed129c4a0afe1664c4df76abf2a28afe",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/arias/legal/docs/TANIM.md",
@@ -42266,7 +42266,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "dd48c3870f9da118666646da0335ceb3a247c2ec22b8e7f7434a360c499158de",
+      "content_sha256": "27dc7099addcca39325e16e8f1e2b649cde89df83aeeb72959addabc9b710781",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/arias/legal/docs/YETENEK-KAYDI.md",
@@ -42277,7 +42277,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "0f858504572d8809fdf921739cf65f4b64e3d0743f898b8f50506f793b14e0fa",
+      "content_sha256": "37ffb7af0bbc64ea62ba487547f2bc6fa21571d85faf9b39408de8433c36564a",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/arias/legal/docs/YOL-HARITASI.md",
@@ -44961,7 +44961,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "58677b685c800aa98e557fbf5864d7c3223c6890e41ceea5cb9c75de5257a52d",
+      "content_sha256": "47794c605f5dd0e8d033dc4a50f239238108e845b586ddeb57eea02b365a59b8",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/ui/server/src/actions.ts",
@@ -45753,7 +45753,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "4c21bfc707a30af2b9eebe4bb5579e83eb0e1d4d7294876743ebadace1a52579",
+      "content_sha256": "2ab0ff1a1cedfabdf23fadc09d60c034384c7742f829a061f9f08f00d4dcd6f9",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/ui/server/test/legal-runs.test.ts",
@@ -45907,7 +45907,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "d75be2cb25d09cb37664f133fcb9a8a02a3008c5b31cc5df8f7225816d67aa50",
+      "content_sha256": "b1a71929696113c39d9fb0c4b8cf37c01876b02079ff1dfd6432ec87f32ca0b4",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/ui/web/src/api/client.ts",
@@ -46105,7 +46105,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "0f797b9411da9aa546abbce4cb5e1475ef817805cb4872654c5469c9ce4c9a9c",
+      "content_sha256": "3e4298b8c5eb27610c894f2c73da80e074ce5ffca9f66b6c786bdde9dcf929fe",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/ui/web/src/app/router.test.tsx",

@@ -233,6 +233,56 @@ değişikliği, çekirdek değişmez.
 
 ## C. Güncel uygulama sırası (2026-09-06)
 
+### C.1. Bir aylık MVP ile bugünkü ürünün karşılaştırması
+
+Kullanıcının 2026-09-06 açıklaması ürün hedefini belirler: avukatın müvekkili
+savunmasını kolaylaştıran, dava belgelerini/olaylarını düzenleyen, kaynakları ve
+avukat düzeltmelerini kalıcı olarak hatırlayan bir yardımcı. Hukuk kurallarını
+büro yükler; ürün web'den hukuk kaynağı aramaz. Yaklaşık NOK 5 milyonluk dava
+ürünün kendisi değil, yöntemi sınamak için gerçek doğrulama vakasıdır.
+
+**Sonuç: bu MVP henüz uçtan uca çalışmıyor.** Aşağıdaki “kısmi” satırlar çalışan
+kod parçalarını gösterir; kabul testi geçmiş ürün özellikleri anlamına gelmez.
+Bu denetim kaynak koduna ve mevcut test kanıtlarına dayanır; gizli gerçek dava
+üzerinde avukat kabul çalışması yapılmış olduğu iddia edilmez.
+
+| MVP sonucu | Bugünkü kanıt ve sınır | Tamamlanması gereken kabul |
+|---|---|---|
+| 1. Büyük ve karmaşık arşivi yapılandırma | Kısmi: alım, hash, kapsama, çıkarım ve imzalı yayın var. 3.001 kısa TXT ölçek testi doğrudan adapter çağırır; HTTP belge listesi ilk 1.000 kayıtta kesilir. | Temsilî karma arşivi arayüzden alıp tüm kayıtlara erişme; kalıcı işler, yeniden başlatma ve uçtan uca hacim ölçümü. |
+| 2. Olayları ve belgeleri kronolojik bağlama | Kısmi: tarih ve bazı usul ifadeleri çıkarılır. E-posta başlığından sonra gövdenin genel olay çıkarımı atlanır. `learnedAt` sistem alım zamanıdır; tarafın bilgilenme tarihi değildir. | E-posta gövdeleri dahil olayların belgeler arasında birleştirilmesi; olay, tarafın bilgilenmesi ve sisteme alım zamanlarının kaynakla ayrılması. |
+| 3. Eksik veya tutarsız bilgiyi bulma | Dar mekanik kapsam: etiketli tarih/tutar farkları ve belirli açık belge atıflarının bulunamaması. | Anlamsal çelişki ve açık atıfsız bilgi boşlukları; avukat etiketli olumlu, olumsuz ve belirsiz örneklerde ayrı kalite ölçümü. |
+| 4. Bilgi sürümlerini karşılaştırma | Kısmi: dosya adından gruplama, değer farkları ve değişen satır sayıları. Okunamayan çift atlanır; DOCX silinmiş değişiklik metni korunmaz. | Kaynak üzerinde görülebilen metin farkı ve değişiklik geçmişi; karşılaştırılamayan çiftin açık durumu; sürüm ilişkisinin avukat düzeltmesi. |
+| 5. Süreç ve sorumlulukları yeniden kurma | Kısmi: açık rol ifadeleri, gönderici/alıcı ve tarihli adımlar var. Yükümlülük, yerine getirme ve sorumluluk değerlendirmesi yok. | Taraf–rol–yükümlülük–eylem–eksik adım zinciri; çelişen anlatımlar ve belirsiz sorumlu için kaynaklı insan incelemesi. |
+| 6. Veri bütünlüğü ve olası usul sorunları | Bütünlükte imzalı kayıt/yayın var. Süre çıkarımı belge metnine dayanır; yüklenen hukuk kuralını vakaya uygulayan yol yok. | Her olası usul sorunu hem dava kanıtına hem yüklenen kuralın madde/sürüm/geçerlilik kaydına bağlı olmalı; eksik kuralla kesin sonuç üretilmemeli. |
+| 7. Anonimleştirilmiş davada yöntemi yineleme | Aynı adapter ikinci davada çalışabilir; tam avukat çalışma yönteminin anonim ikinci vakada kabulü gösterilmemiştir. | Büro tarafından denetlenmiş anonim ikinci vakada aynı yöntemin çalışması; ilk davanın kişi, olgu ve referanslarının taşınmaması. Otomatik anonimleştirme bu gösterimin şartı değildir. |
+| 8. Avukat, şirket ve kamu için yararlı çalışma ortamı | Dava, belge alımı ve analiz okuma ekranları var. Karar yazma sözleşmesi çalışan karar HTTP/UI akışı değildir. | Kaynağı açma → inceleme → düzeltme/onay → kaynaklı çıktı → yeniden başlatıp devam etme döngüsünün pilot avukat tarafından tamamlanması. |
+
+Kod kanıtları: `packs/legal/adapters/legal-document-inventory.ts` (sürüm ve
+e-posta dalları), `packs/legal/adapters/records/{matrix,fact-index,deadlines}.ts`,
+`packs/legal/adapters/binary/ooxml.ts`, `ui/server/src/readers/legal.ts`,
+`ui/server/src/routes.ts` ve `ui/server/test/legal-worker.test.ts`.
+Kalite korpusu yalnız üç üretilmiş dava ve dört yerleştirilmiş olumlu bulgudur
+(`arias/legal/corpus/corpus.json`); gerçek davanın doğruluk ölçümü değildir.
+
+Kalıcı dosya ve koşum saklamak, dava hafızası döngüsünü tamamlamaz. Etkin
+envanter adapter'ı mekaniktir; LLM çağırmaz. Hukuk analiz paketi taslaktır.
+Mevcut yayın yolu `memory_candidates` alanının biçimini denetler; avukat
+düzeltmelerini kaynaklı soru/cevap belleğine bağlayan tüketici değildir.
+Hukuk kaynağı alımı/arama, gerçek model bağlantısı ve “düzelt → yeniden başlat →
+farklı ifadeyle sor → güncel kaynakla hatırla” kabulü hâlâ açıktır.
+
+“Rüya görmeme” mutlak model hatasızlığı vaadi olarak yazılmaz. Kabulte her
+olgusal/hukuki iddianın geçerli kaynağı açılabilmeli; kaynak yoksa yanıt
+belirsizliği veya bilgi yokluğunu söylemeli; çelişen delil saklanmamalı ve insan
+kararı model çıktısından ayrılmalıdır. Kaynaklı görünen yanlış yorumlar da
+avukat etiketleriyle ayrıca ölçülür.
+
+Eksikler mevcut LEGAL-CRITICAL-006/007/008/010/011 ve LEGAL-HIGH-009 altında
+izlenir. Dört haftalık hedef sıra `YOL-HARITASI.md` girişindedir; üretim
+kabulüyle ve tarihsel faz kapanışlarıyla karıştırılmaz.
+
+### C.2. Teknik fazlar ve doğrulama kaydı
+
 Kullanıcının kod denetimi sonrası güncel planı önceki Faz 0–8 numaralarını
 **değiştirmiştir**. D–F bölümleri tarihsel kanıttır; bugünkü üretim kapanışı değildir.
 Özellikle otomatik tetikleme ve gerçek AI/hafıza R1'in zorunlu parçalarıdır.
@@ -286,7 +336,7 @@ uzlaştırılır; bozuk veriler korunarak işlem durur. LEGAL-CRITICAL-019 envan
 dava kopyası üzerinde çalıştırır, sonuçları servis doğrulayıp imzalı değişmez
 koşuma yayımlar. Yetki/kaynak/politika/kilit değişen iş yayımlanmaz; okuyucular
 aynı koşumu kullanır. Hedefli kanıt: 40 alım, 50 snapshot/işçi, 10 yetki/kilit,
-7 Python CLI testi. Son birleşik `npm run legal:check` kapısı geçti: 235 sunucu,
+7 Python CLI testi. `f30f624b8` için birleşik `npm run legal:check` kapısı geçti: 235 sunucu,
 72 arayüz testi, iki tip denetimi, iki derleme ve adapter/korpus kontrolleri.
 Küçük korpus precision=1.000/recall=1.000 (3 dava, 4 beklenen bulgu); bu ölçüm
 pilot avukatın etiketlediği üretim kabul korpusu değildir. Nx test/lint bu
@@ -296,6 +346,18 @@ değişiklikler için görev bulmadı.
 konteyner süreç testlerinin üçü başarısız oldu. AppArmor/seccomp uyumu ve gerçek
 konteyner kanıtı doğrulanana kadar kurulum kapısı açık kalır. Paylaşılan hosta
 profil yüklenmedi; R1 hazır değildir.
+
+Derleme önizlemesinde ayrıca LEGAL-HIGH-020 (dava kapsamlı avukatın giriş
+kontrolü) ve LEGAL-HIGH-021 (CI bağımlılıkları ve non-root test hazırlığı)
+bulundu. Giriş `/me` üzerinden doğrulanır; tüm 76 arayüz testi geçti. Yayın
+testlerinin 48’i root olmayan kullanıcıyla geçti. Hosted CI `34023689778`
+231/235 sunucu testiyle kaldı. Olağan süreç süre aşımı düzeltmesi, sabitlenmiş
+süreç kimliğiyle yalnız namespace PID 1'i durdurur ve monitörün gerçek kapanışını
+bekler; geniş LEGAL-CRITICAL-016 kabulü açıktır. Bu devamın son birleşik
+`npm run legal:check` kapısı geçti: 235 sunucu, 76 arayüz testi, iki tip denetimi,
+iki derleme ve adapter/korpus kontrolleri. Güncel Docker konsol imajı derlendi;
+root olmayan yerel önizlemede normal avukat girişi, yetkili dava erişimi ve
+belge alımı gösterildi. Bu kanıt uzak CI/kurulum veya gerçek model kabulü değildir.
 
 ---
 

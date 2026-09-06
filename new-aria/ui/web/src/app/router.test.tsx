@@ -1,7 +1,7 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
-import { setToken } from '../api/token-store.ts';
+import { getToken, setToken } from '../api/token-store.ts';
 import { appRoutes } from './router.tsx';
 
 // The shell reads two endpoints: /health for version and actions, /overview for
@@ -18,7 +18,7 @@ function deferredResponse(): DeferredResponse {
 }
 
 function responseFor(url: string, kernelRead: boolean): Response {
-  if (url === '/api/v1/me') return new Response(JSON.stringify({ principal: { id: 'user', displayName: 'User', role: kernelRead ? 'operator' : 'lawyer', cases: '*' }, permissions: { kernel_read: kernelRead } }), { status: 200 });
+  if (url === '/api/v1/me') return new Response(JSON.stringify({ principal: { id: 'user', displayName: 'User', role: kernelRead ? 'operator' : 'lawyer', cases: kernelRead ? '*' : ['preview-002'] }, permissions: { kernel_read: kernelRead } }), { status: 200 });
   if (url === '/api/v1/legal/cases') return new Response(JSON.stringify({ cases: [], total: 0 }), { status: 200 });
   if (url === '/api/v1/health') {
     return new Response(
@@ -34,6 +34,7 @@ function responseFor(url: string, kernelRead: boolean): Response {
     );
   }
   if (url === '/api/v1/overview') {
+    if (!kernelRead) return new Response(JSON.stringify({ error: 'instance_operator_required' }), { status: 403 });
     return new Response(
       JSON.stringify({
         generatedAt: '2026-09-03T00:00:00Z',
@@ -70,6 +71,24 @@ function stubFetch(kernelRead = true, requests: string[] = [], deferred: Readonl
   });
 }
 
+/** Keep the real login/client/header path; only the server response is controlled. */
+function stubLoginFetch(candidate: string, kernelRead: boolean, requests: string[], validation: DeferredResponse): void {
+  let candidatePending = true;
+  vi.stubGlobal('fetch', async (input: RequestInfo | URL, init: RequestInit | undefined): Promise<Response> => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    requests.push(url);
+    if (url === '/api/v1/health') return responseFor(url, kernelRead);
+    if (init === undefined || new Headers(init.headers).get('authorization') !== `Bearer ${candidate}`) {
+      return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 });
+    }
+    if (url === '/api/v1/me' && candidatePending) {
+      candidatePending = false;
+      return validation.promise;
+    }
+    return responseFor(url, kernelRead);
+  });
+}
+
 describe('router auth guard', () => {
   beforeEach(() => {
     stubFetch();
@@ -86,6 +105,50 @@ describe('router auth guard', () => {
     expect(screen.getByLabelText('Operator token')).toBeDefined();
     const state: unknown = router.state.location.state;
     expect(state).toEqual({ from: '/cycles' });
+  });
+
+  it.each([['operator', true], ['scoped lawyer', false]] as const)('signs in a %s only after /me accepts the candidate credential', async (_role, kernelRead) => {
+    const requests: string[] = [];
+    const validation = deferredResponse();
+    const candidate = 'login-fixture-candidate';
+    stubLoginFetch(candidate, kernelRead, requests, validation);
+    const router = createMemoryRouter(appRoutes, { initialEntries: ['/legal/cases'] });
+    render(<RouterProvider router={router} />);
+    fireEvent.change(await screen.findByLabelText('Operator token'), { target: { value: candidate } });
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    await waitFor(() => expect(requests).toContain('/api/v1/me'));
+    expect(getToken()).toBeNull();
+    expect(router.state.location.pathname).toBe('/login');
+    await act(async () => { validation.resolve(responseFor('/api/v1/me', kernelRead)); });
+
+    await waitFor(() => expect(router.state.location.pathname).toBe('/legal/cases'));
+    expect(getToken()).toBe(candidate);
+    expect(screen.getByRole('link', { name: 'Cases' })).toBeDefined();
+    if (!kernelRead) {
+      expect(screen.queryByRole('heading', { name: 'Core' })).toBeNull();
+      expect(requests).not.toContain('/api/v1/overview');
+    }
+  });
+
+  it.each([401, 503])('keeps the candidate out of storage when /me answers %s', async (status) => {
+    const requests: string[] = [];
+    const validation = deferredResponse();
+    const candidate = 'rejected-login-fixture';
+    stubLoginFetch(candidate, false, requests, validation);
+    const router = createMemoryRouter(appRoutes, { initialEntries: ['/legal/cases'] });
+    render(<RouterProvider router={router} />);
+    fireEvent.change(await screen.findByLabelText('Operator token'), { target: { value: candidate } });
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+    await waitFor(() => expect(requests).toContain('/api/v1/me'));
+    await act(async () => {
+      validation.resolve(new Response(JSON.stringify({ error: status === 401 ? 'unauthorized' : 'identity_unavailable' }), { status }));
+    });
+
+    expect(screen.getByRole('alert').textContent).toContain(String(status));
+    expect(router.state.location.pathname).toBe('/login');
+    expect(getToken()).toBeNull();
+    expect(requests).not.toContain('/api/v1/legal/cases');
   });
 
   it.each(['/', '/governance', '/actions', '/beliefs'])('keeps legal principals on the legal surface from %s', async (path) => {

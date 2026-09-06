@@ -56,6 +56,9 @@ jobs:
             new-aria/ui/package-lock.json
       - name: Install monorepo dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund --prefer-offline
+      - name: Install standalone adapter dependencies
+        working-directory: new-aria
+        run: npm install --package-lock=false --ignore-scripts --no-audit --no-fund --prefer-offline
       - name: Install legal console dependencies
         working-directory: new-aria/ui
         run: npm ci --ignore-scripts --no-audit --no-fund --prefer-offline

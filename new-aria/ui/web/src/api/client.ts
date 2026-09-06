@@ -151,12 +151,12 @@ export function getJob(jobId: string, signal?: AbortSignal): Promise<JobResponse
 }
 
 /**
- * Proves a candidate token against a protected endpoint WITHOUT storing it, so
+ * Proves a candidate token against the current identity endpoint WITHOUT storing it, so
  * the login screen only persists tokens the server actually accepted.
  */
-export function validateToken(candidate: string): Promise<OverviewResponse> {
-  return requestJson<OverviewResponse>(
-    ENDPOINTS.overview.path,
+export function validateToken(candidate: string): Promise<WhoAmIResponse> {
+  return requestJson<WhoAmIResponse>(
+    ENDPOINTS.me.path,
     {},
     { fetchImpl: defaultTransport.fetchImpl, tokenProvider: () => candidate },
   );

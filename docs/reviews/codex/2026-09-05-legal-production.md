@@ -225,6 +225,16 @@ servis kendi doğruladığı baytları yayımlar ve yayın öncesinde kilidini d
 Genel kernel/cycle yolları için aynı dönüşüm ve eşzamanlı çoklu süreç kaybı
 kabulü tamamlanmamıştır. Bu bulgu genel yazıcı güvencesi olarak açık kalır.
 
+2026-09-06 hosted CI, olağan süre aşımında da eski süreç grubunu birlikte
+öldürmenin monitör kapanışını namespace temizliğinden önce görünür kılabildiğini
+gösterdi. Düzeltme yalnız namespace PID 1'e sinyal verir; monitör bütün çocuklar
+bitene kadar kilidi tutar ve iş yanıtı gerçek kapanışı bekler. Monitörün `/proc`
+dizin tanıtıcısı süreç başlatılırken sabitlenir; yardımcı bu tanıtıcı üzerinden
+çocuk üyeliğini ve pidfd canlılığını doğrular. Kimlik/yardımcı desteği yoksa
+korumasız grup öldürme veya erken iş tamamlama yoktur. Üç süreç ömrü testi ve
+sunucu tip denetimi geçti; bağımsız inceleme bu dar sınırı onayladı. Bu düzeltme
+servis ve monitörün birlikte kaybına ilişkin açık kabulü kapatmaz.
+
 Konteyner kanıtı: mevcut Docker default profili namespace oluşturmayı reddetti.
 `arias/legal/docker/apparmor.profile` yüklenmeden ayrıştırıldı; seccomp dosyası
 sabit Moby kaynağından türetildi; iki console Compose servisi bu profilleri
@@ -330,3 +340,45 @@ Nx affected test/lint görev bulmadı. Bağımsız snapshot incelemesi, beş dü
 ardından 69/69 testle dar yayın sınırını onayladı. Arayüzdeki profil testi,
 `/me` sonrası `/overview` yanıtını kontrollü React `act` adımlarıyla bekler;
 süre sınırı uzatılmadan görünür değerler ve yetki sırası korunur.
+
+<a id="case-scoped-signin"></a>
+
+## LEGAL-HIGH-020
+
+Dava kapsamlı avukatın arayüze giriş yapamaması.
+
+Durum: IN-PROGRESS. Sahip: Codex. Hedef: 2026-09-06. Faz: 1.
+
+Gerçek derleme önizlemesinde, çevrimiçi yönetim API’siyle oluşturulmuş ve yalnız
+bir davaya atanmış avukat giriş ekranında 403 aldı. `validateToken`, genel
+operator yetkisi gerektiren `/overview` yoluna bağlıydı. Kabul: aday kimlik
+`/me` üzerinden doğrulanır; reddedilen token saklanmaz. Avukat normal girişten
+sonra yalnız yetkili dava gezinmesini görür; genel çekirdek izni genişletilmez.
+
+Kanıt: gerçek form ve istemci yolunda operator/avukat girişi ile bekleyen, 401
+ve 503 yanıtlarında tokenın saklanmaması sınanır. Dört yeni senaryo düzeltmeden
+önce başarısız oldu; düzeltmeden sonra ilgili 23 test ve tüm 76 arayüz testi
+geçti. Web tip denetimi ve üretim derlemesi de geçti.
+Üretim derlemesinin gerçek tarayıcı önizlemesinde avukat normal giriş formunu
+kullandı; `/me` ve yetkili dava listesi 200 döndü, genel `/overview` istenmedi.
+
+<a id="legal-ci-portability"></a>
+
+## LEGAL-HIGH-021
+
+Hukuk CI doğrulamasının bağımlılık ve root kullanıcı varsayımları.
+
+Durum: IN-PROGRESS. Sahip: Codex. Hedef: 2026-09-06. Faz: 0–1.
+
+Hosted koşum `34023689778`, 235 sunucu testinin 231’ini geçti. İki gerçek işçi
+testi `new-aria/node_modules` kurulmadığı için; bir artifact bütünlük testi de
+salt okunur sentetik dosyayı root varsayımıyla değiştirmeye çalıştığı için kaldı.
+Kabul: CI bağımsız paketin gerçek bağımlılıklarını kurar; test kendi sentetik
+artifact hazırlığını root olmayan kullanıcıda yapar ve imza/hash reddi
+iddiasını korur. Dördüncü hata, namespace süre aşımı sonrasında gözlenen yazıcı
+ömrü sınırıdır ve LEGAL-CRITICAL-016 kapsamında ayrıca incelenir. Bu koşum
+imaj/konteyner adımlarına ulaşmadı; LEGAL-CRITICAL-011 açık kalır.
+
+Bağımlılık kurulumu temiz örnek dizinde doğrulandı. Yayın testlerinin 48’i
+uid 65534 ile geçti; readonly dosya modu ve değiştirilmiş artifactın imza/hash
+reddi korunur. Sunucu tip denetimi ve workflow yapısı doğrulandı.

@@ -1,192 +1,67 @@
-# Hukuk ARIA'sı — Rakip Kataloğunun Değerlendirmesi ve Yol Haritası
+# Hukuk ARIA'sı — MVP Yol Haritası
 
-Durum: TASLAK. `docs/TANIM.md` kapsamı, bu belge **sırayı** tanımlar. Girdi: 2026-09-03
-tarihli "ARIA Legal — Rakip Yetenek Araştırması ve Hukuk Kasları Kataloğu" (LAW-01..23).
+Güncelleme: 2026-09-06 kullanıcı açıklaması. [TANIM](TANIM.md) ürün amacını; bu belge
+bir aylık gösterim hedefini ve gerekli girdileri tanımlar. Güncel uygulama durumu,
+Faz 0–8 sırası ve açık kabul kapıları
+[YETENEK-KAYDI §C](YETENEK-KAYDI.md#c-güncel-uygulama-sırası-2026-09-06) içindedir.
 
----
+## 1. Hedef ve başlangıç noktası
 
-## 0. Karar
+Hedef, avukatın müvekkilini savunmasına yardımcı olan, dava bilgisini düzenleyen,
+kaynaklarıyla cevap veren ve avukat düzeltmelerini kalıcı hafızasında koruyan asistandır.
+Yaklaşık NOK 5 milyonluk dava doğrulama malzemesidir; aynı yöntem başka davalara da
+uygulanmalıdır. Ürün yalnız sağlanan dava belgeleri ve hukuk kurallarını kullanır;
+dış web araması yapmaz.
 
-**Katalog iyi bir alan haritası, kötü bir yol haritasıdır.** Alan modeli, kayıt türleri,
-kapılar ve kabul ölçütleri büyük ölçüde doğru ve kullanılabilir. Sıralama ise inşa
-edilebilir bir plan değil, dört ayrı pazarın özellik listelerinin birleşimidir.
+Bugün çalışan mekanik envanter ve imzalı alım/yayın altyapısı bu hedefin başlangıcıdır.
+Anlamsal analiz, sağlanan kurallarla cevap ve kalıcı AI dava hafızası tamamlanmış değildir.
+Aşağıdaki dört hafta bir **hedef sırasıdır**; teslim garantisi veya bütün R1 üretim
+kapılarının kapanacağı beyanı değildir. Takvim, temsilî girdilerin erişilebilirliği ve
+avukat değerlendirmesiyle netleşir; her haftanın sonucu kendi kanıtıyla kabul edilir.
 
-Üç somut sorun:
+## 2. Dört haftalık hedef sırası
 
-1. **Ölçek.** Yirmi üç kas, her biri altı ila dokuz işlev: yaklaşık yüz seksen yetenek.
-   Bu bir ürün planı değil, bir sektör haritasıdır.
-2. **Hiçbir aşama tek başına değer üretmiyor.** Katalogun "Seviye 0"ı (LAW-01, 03, 18, 19,
-   23) tamamlanmadan kullanıcıya hiçbir şey gösterilmiyor; o seviye tek başına aylarca iş.
-   Bir avukatın ödeyeceği ilk sonuç en erken "Seviye 1" sonunda çıkıyor.
-3. **Bizde ne olduğunu saymıyor.** Aşağıdaki ölçüm, katalogun en ağır iki maddesinin
-   ARIA çekirdeğinde zaten var olduğunu gösteriyor. Bunları yeniden yazmak, yapılabilecek
-   en pahalı hata olurdu.
-
-Ayrıca dikkat: rakip yetenekleri üreticilerin kendi sayfalarından türetilmiş. Bunlar bir
-alan haritası için yeterli, bir **farklılaşma** analizi için değildir. Farklılaşma özellik
-listesi karşılaştırmasından değil, avukatın başka yerden alamadığı sonuçtan çıkar.
-
----
-
-## 1. Ölçüm — katalogun Seviye 0'ı bizde ne kadar hazır
-
-2026-09-04, `new-aria/aria-kernel` üzerinde sayıldı.
-
-| Katalog maddesi | Çekirdekteki karşılığı | Durum |
+| Hafta | Hedeflenen sonuç ve gösterim | Gereken girdi ve kabul kanıtı |
 |---|---|---|
-| **LAW-19** güvenlik, audit, AI yönetişimi | `ledger` (hash zinciri), `evidence_validator`, `evidence_trust`, `runtime_profile`, `implementation_safety`, `incident_ledger`, `runner_attestation`, `rollback_bundle`, `budget`, `cost_budget`, `circuit_breaker`, `tool_registry`, `agent_runtime_profile`, `artifact_safety` — 14 modül, ~10.000 satır | **Büyük ölçüde var** |
-| **LAW-23** AI doğruluk laboratuvarı | `judge_fanout`, `judge_calibration`, `independence_check`, `feedback_store`, `goldset`, `fixture_runner`, `agent_eval`, `calibration`, `adapter_calibration`, `burn_in`, `plan_convergence` — 11 modül, ~9.500 satır | **Büyük ölçüde var** |
-| **LAW-03** forensic ingest, chain of custody | Hash-zincirli defter, artifact hash'i, `legal-document-inventory` adapter'ı (envanter, sha256, kapsama) | **Yarısı var**: custodian, collection, evidence receipt eksik |
-| **LAW-18** GDPR, records, legal hold | `enterprise/retention-proofs`, `enterprise/dlp-proofs`, `dlp-scan-snapshots` yüzeyleri | **Kısmi** |
-| **LAW-01** matter sınırı, etik duvar | Matter varlığı yok, ABAC yok, bellek isim-alanı yok | **Yok** |
+| 1 | **M1 — Büyük ve karmaşık veri setini yapılandırma; M6 — veri bütünlüğü kısmı.** Arşivi al, bütün dosyaları erişilebilir kıl, kopya/sürüm adaylarını ve okunamayanları göster. Kuralların kaynak/sürüm kaydını ve dava hafızasının kayıt modelini kur. | Kullanım kapsamı belirlenmiş temsilî arşiv, dosya/biçim/boyut dökümü, dışlamalar, sağlanan hukuk metinleri. Orijinal hash mutabakatı; yükleme → iş → yayın → arayüz boyunca tam sayfalama ve yeniden başlatma deneyi. |
+| 2 | **M2 — belge–olay kronolojisi; M4 — sürüm karşılaştırması; M5 — süreç ve sorumlulukları yeniden kurma.** Tarihleri, olayları, kişileri ve sorumluluk ifadelerini kaynak yerleriyle bağla; değişen içeriği iki sürüm üzerinde göster. Dava hafızasına bu ilişkileri ve avukat düzeltmelerini kaydet. | Avukatın etiketlediği örnek olaylar, zamanların anlamı, bilinen sürüm aileleri ve rol/sorumluluk dayanakları. E-posta gövdeleri dâhil karma biçimlerde kaynak doğruluğu; eksik/yanlış bağlantı raporu; yeni oturumda düzeltmenin korunması. |
+| 3 | **M3 — eksik/tutarsız bilgi; M6 — usul sorunları kısmı.** Sağlanan kuralları kaynak göstererek dava sorularını yanıtla; destek, karşı kanıt, bilgi boşluğu ve olası usul sorunlarını ayır. Yeni belge geldiğinde etkilenen hafıza ve cevapları güncelle. | Kullanıcının sağladığı mevzuat/kural paketinin sürüm ve zaman bilgisi; avukatın beklenen cevapları, karşı örnekleri ve cevapsız kalması gereken soruları. Bulma oranı, yanlış uyarı, atıf doğruluğu ve doğru çekinme ölçümü; hukukî değerlendirme avukat incelemesine gider. |
+| 4 | **M7 — aynı yöntemi anonimleştirilmiş davada uygulama; M8 — avukat desteği ve şirket/kamuya uygulanabilirlik.** İkinci davada aynı akışı çalıştır; pilot avukatın görev tamamlamasını ve yöntemin diğer kurumlara taşınma koşullarını göster; M1–M6'yı uçtan uca yeniden değerlendir. | Büro tarafından kontrol edilmiş anonim ikinci arşiv, ayrı erişim kapsamı ve gerçekçi görev/soru listesi. Yöntem tekrarının, kaynak bağlarının, dava ayrımının ve görev tamamlamanın avukat incelemesiyle raporu; ilk davaya özgü başarı ayrı belirtilir. |
 
-Sonuç: katalogun "önce bunları yapın" dediği beş maddeden ikisi ARIA'nın hâlihazırdaki en
-olgun tarafı. Yol haritası bunları **kullanmak** üzerine kurulmalı, yeniden yazmak üzerine
-değil.
+Kalıcı hafıza ve sağlanan kurallarla kaynaklı cevap verme, bu gösterimin zorunlu
+parçalarıdır. Yalnız belge tabloları ve mekanik çıkarım sonuçlarıyla MVP kabul edilmez.
+M7, otomatik anonimleştirme sistemi kurmayı gerektirmez; denetlenmiş anonim girdiyle
+yöntemin yeniden uygulanması gösterilir. M8, bir ayda üç ayrı pazar ürünü geliştirmek
+anlamına gelmez; avukat pilotunun somut yararı ve diğer kurumlara taşınma sınırları
+ortaya konur.
 
----
+## 3. Ortak kabul yöntemi
 
-## 2. Gerçek kritik yol katalogda yazılan değil
+Gösterimden önce arşivin büyüklüğü ve biçimleri, görevler, beklenen cevaplar ve ölçüm
+eşikleri kaydedilir. Değerlendirme, geliştirme sırasında kullanılan sentetik fikstürlere
+ek olarak avukatın etiketlediği temsilî örnekleri içerir.
 
-Katalog, ön koşulu Plan 032'ye bağlıyor. Ölçtüğümüz engeller başka:
+Her sonuçta kaynak/alıntı doğruluğu, beklenen bilgi ve sorunları bulma oranı, yanlış
+uyarılar, belirsiz sorularda cevap vermeme ve tamamlanamayan kaynak kapsamı raporlanır.
+Avukat düzeltmesinin sonraki oturumda kullanılması ve yeni belgenin önceki cevaba etkisi
+ayrıca sınanır. Küçük korpustaki iyi bir skor gerçek davalara veya hatasızlığa genellenmez.
 
-| Engel | Neden hukuk için bağlayıcı | Kimlik |
-|---|---|---|
-| Kanıt derecelendirmesi git blob'una bağlı | Dava arşivinde git yok; kanıt hiçbir zaman `repo_verified` olamaz | **G-17** |
-| Bellek isim-alanı yok | İkinci bir dava geldiğinde duvar yok; ayrıca çekirdek müvekkil-gizli malzeme taşırsa lisanslanamaz | **G-16** |
-| Ajan hedef listesi kapalı | Hukuk ajanları kernel kuyruğundan dispatch edilemez | **G-3** |
-| İddia türleri kod-alanına sabit | Hukuk bulguları çekirdek bulgu defterine giremez | **G-4** |
-| Kas adapter manifesti keşfedilmiyor | Registry yalnız `tools/aria-adapters/` okur; hukuk adapter'ı hiçbir döngüde koşmaz | **G-14** |
-| Yargı zarfını tüketen yalnız CI executor | Hukuk konteynerinde yargıç zarfı basılır, tüketilmez | **G-15** |
+Orijinal kaynak bütünlüğü, dava erişimi ve kaydedilmiş avukat onayı kapıları korunur.
+Kurulum/izolasyon, kaynak ve türev silme, şifreli yedek/geri dönüş gibi açık R1 kapıları
+§C'deki bulgularla izlenir; MVP gösterimi bunları kendiliğinden kapatmaz.
 
-Kimlikler `docs/product/NEW-ARIA-URUN-TANIMI.md` §3.1 ile aynı numaralandırmadır
-(G-1 orada belge-arşivi kaderlerinin FATES eşlemesi, G-2 adapter runner tsconfig yolu;
-bu tablonun ilk sürümü aynı harfleri başka anlamla kullanıyordu, `docs/YETENEK-KAYDI.md`
-§0.1 ile düzeltildi).
+## 4. Önceki yol haritasının durumu
 
-Plan 032'nin kasları (hook, checkpoint, session continuity, event gateway) faydalı ama
-hukuk ürününün önündeki dört engelden hiçbiri değil. Bu düzeltme, katalogun 5. bölümünün
-yerine geçer.
+2026-09-03 rakip kataloğu (LAW-01…23), 2026-09-04 çekirdek modülü/satır sayımları ve
+önceki S0–S4 sıralaması **tarihsel değerlendirmelerdir**. Modülün varlığı hukuk akışının
+çalıştığını, üretim kalitesini veya rakiplere üstünlüğü kanıtlamaz. Önceki tamamlanma ve
+pazar karşılaştırması ifadeleri güncel durum olarak kullanılmaz; bugünkü kanıt §C'dedir.
 
----
+Önceki S3'teki dış/lisanslı hukuk kaynağı bağlayıcısı ön koşulunun yerini **kullanıcının
+sağladığı kuralları içeriden alma, sürümleme ve kaynak gösterme** akışı alır. Kullanıcı,
+kullanım hakkı ve kapsamı kendisince belirlenmiş malzemeyi sağlar. Ürünün dışarıdan
+mevzuat araması veya kaynak satın alması bu MVP'nin şartı değildir.
 
-## 3. Yol haritası — her aşama tek cümlelik kanıtlanabilir sonuç
-
-Kural: bir aşama, tek başına bir avukata gösterilebilir bir sonuç üretmiyorsa aşama
-değildir. Her aşamanın çıktısı, testi ve gerektirdiği çekirdek boşluğu yazılıdır.
-
-### S0 — "Arşivi bozmadan aldım ve hiçbir şey kaybolmadı"
-
-Teslim: salt-okunur alım, her dosyaya bir kader, sha256, custodian ve toplama kaydı,
-kapsama raporu, imzalı **evidence receipt**.
-Kanıt: orijinal bayt değişimi sıfır; kapsama `complete: true`; aynı arşiv iki kez
-alındığında bayt-eş manifest; dışlanan kök raporlu; okunamayan dosya bulgu.
-Gerektirdiği: **G-1**, **G-14**, **G-5** (adapter döngüde koşar, kaderler eşlenir, dava
-artifact'ları bütünlük zincirine girer).
-Karşılığı: LAW-03 ve LAW-04'ün bir kısmı.
-Neden tek başına değerli: elinde üç bin dosya olan avukat, karşı tarafa ve mahkemeye
-gösterebileceği bir teslim tutanağı alır. Bugünkü adapter bunun yarısını zaten yapıyor.
-
-### S1 — "O tarihte ne biliniyordu?"
-
-Teslim: sürümlü olgu kaydı (`valid_time` / `system_time` ayrı), belge ailesi ve sürüm soy
-ağacı, sayfa/span düzeyinde kaynak, kronoloji görünümü, belirsiz tarih temsili.
-Kanıt: geriye dönük değiştirilmiş belge fikstüründe "o gün bilinen" ile "bugün bilinen"
-doğru ayrılır; her olgu en az bir içerik-hash'li kaynağa bağlı.
-Gerektirdiği: S0.
-Karşılığı: LAW-06, LAW-07, LAW-05'in bir kısmı.
-Neden burası ayrım noktası: olgu-kaynak bağı piyasada var; **bitemporal ayrım** ve
-"o tarihte hangi sürüm geçerliydi" sorusu nadir.
-
-### S2 — "Bu iddianın arkasında ne var, ne çelişiyor, ne eksik — bir de karşı taraf gözüyle"
-
-Teslim: iddia-unsur-olgu-kanıt matrisi, çelişki ve eksik-bilgi motoru, karşıt ajan
-geçişi, avukat doğrulama akışı.
-Kanıt: kontrollü çelişki/boşluk korpusunda ölçülen recall; avukat onayı olmadan hiçbir
-kayıt `verified` olmaz; her uyarı iki taraflı kaynak bağı taşır.
-Gerektirdiği: **G-3**, **G-4**, **G-15**, **G-17**.
-Karşılığı: LAW-08, LAW-09 ve LAW-23'ün uygulanmış hâli.
-Neden ucuz: `judge_fanout`, konsensüs arbiter, HUMAN_REQUIRED yükseltmesi ve kalibrasyon
-normal döngüde koşuyor (`docs/YETENEK-KAYDI.md` A2). Neden ucuz **değil**: zarfı tüketen
-yol yalnız CI executor'dır (G-15), `plan_convergence` ve üç katmanlı bağımsızlık kontrolü
-yalnız `aria autonomy run` altında (kod var, yol yok), ve belge arşivinde her yargıç atfı
-`baseline_unavailable` derecesinde kalır (G-17). Yapılacak iş, hukuk kayıtlarını bu hatta
-bağlamak **ve** hattın hukuk konteynerinde gerçekten dönmesini sağlamak.
-
-### S3 — "Her cümlenin kaynağı var"
-
-Teslim: kronoloji, matris ve memo çıktıları; her olgusal cümle kanıt atfına bağlı;
-kaynaksız cümle üretilemez.
-Kanıt: taslaktaki her iddia için provenance kapsaması; uydurma atıf sıfır.
-Sınır: **hukukî önerme** taslağı ancak lisanslı hukuk kaynağı bağlayıcısı varken açılır.
-O bir mühendislik değil, lisans ve ticaret meselesidir. Bağlayıcı yokken çıktı, külliyattan
-gelen olgusal iddialarla sınırlı kalır ve bu açıkça yazılır.
-Karşılığı: LAW-11, ve yalnız lisans varsa LAW-10.
-
-### S4 — "İkinci dava geldiğinde duvar var"
-
-Teslim: matter ve taraf modeli, etik duvar, çıkar çatışması adayları, saklama ve legal
-hold.
-Kanıt: iki karşıt matter'la kurulan testte arama, indeks, cache, özet, log ve export
-katmanlarının hiçbirinde sızıntı yok.
-Gerektirdiği: **G-16** (isim-alanı, reddeden kapı olarak).
-Karşılığı: LAW-01, LAW-18, LAW-20 ve LAW-02'nin conflict kısmı.
-O güne kadar duvar nedir: **dava kümesi başına ayrı örnek**. Bu bir eksiklik değil,
-bilinçli bir sınır ve `aria.manifest.json` içinde `enforced_by: instance_isolation`
-olarak yazılıdır.
-
----
-
-## 4. Yapmayacaklarımız ve nedeni
-
-| Katalog maddesi | Karar | Gerekçe |
-|---|---|---|
-| LAW-17 zaman, fatura, **trust accounting** | Yapılmaz, entegre edilir | Müvekkil parası düzenlenmiş finansal yazılımdır. Yapay zekâ yeteneği değil; ayrı bir uyum ve sorumluluk işidir. Clio ve Smokeball bunu yıllardır yapıyor. |
-| LAW-14 mahkeme portalına **gönderim** | Yapılmaz | İmza ve gönderim avukatın yetkisidir. Bizim üreteceğimiz şey gönderime hazır paket ve kontrol listesidir; makbuzu avukat geri getirir. |
-| LAW-02 **AML/KYC programı** | Yapılmaz | Kapsam belirleme hukukî bir karardır; yanlış kapsam gereksiz kişisel veri toplamaya yol açar. |
-| LAW-12 e-discovery **ölçeği** | Yapılmaz, entegre edilir | Milyon belgeli production Everlaw ve Relativity'nin işidir. Bizim ölçeğimiz tek dava kümesidir. |
-| LAW-16, LAW-22 büro ve DMS platformu | Aşamanın ihtiyacı kadar bağlayıcı | Clio/iManage yeniden yazılmaz; yalnız o aşamanın gerektirdiği bağlayıcı yazılır. |
-
-Bu liste ürünü zayıflatmaz. Neyi yapmadığını söyleyemeyen bir hukuk ürünü satılamaz.
-
----
-
-## 5. Korunan kısımlar
-
-Katalogun iki bölümü olduğu gibi alınır:
-
-- **Sıfır-tolerans kabul ölçütleri** (10. bölüm): orijinal delil değişimi sıfır, yetkisiz
-  cross-matter erişim sıfır, kaynaksız atıf sıfır, avukat onayı olmadan dış etki sıfır.
-  Bunlar `aria.manifest.json` içindeki `release_thresholds` ile aynı dili konuşur.
-- **Asla otonomlaştırılmayacak kararlar** (8. bölüm): `config/approval-policy.json`
-  içindeki kapıların kaynağıdır ve orada avukat rolüne bağlanmıştır.
-- **Özellik sözleşmesi** (7. bölüm): her LAW maddesi bu sözleşmeyle açılır. Tek ekleme:
-  sözleşme, hangi kasın (`packs/<id>`) ve hangi örneğin (`arias/<id>`) altında yaşayacağını
-  ve hangi `G-*` boşluğuna bağlı olduğunu da beyan eder.
-
----
-
-## 6. Konumlandırma
-
-Katalogun kapanış cümlesi doğru yönü gösteriyor; şu şekilde keskinleştiriyorum:
-
-> Hukuk ARIA'sı, avukatın yerine karar veren bir asistan değil; **kanıtsız tek bir cümle
-> üretemeyen** bir dava çalışma sistemidir. Delili bozmadan alır, neyin ne zaman
-> bilindiğini ayırır, her iddiayı içerik hash'li kaynağa bağlar, kendi bulgusuna karşı
-> argüman arar ve dışarıya çıkan hiçbir etkiyi avukat onayı olmadan üretmez.
-
-Rakiplerin hiçbirinde bu dördü birden yok: içerik-hash'li kanıt zinciri, bitemporal olgu
-ayrımı, karşıt ajan doğrulaması ve yeniden oynatılabilir karar defteri. Üçü ayrı ayrı
-piyasada var; birleşimi ARIA'nın çekirdeğinden geliyor ve o çekirdek bizde zaten çalışıyor.
-
----
-
-## 7. Sıradaki tek adım
-
-**Önce kasın kendi işi, sonra çekirdek:** `docs/YETENEK-KAYDI.md` §C sırası. Kas tarafında
-PDF/DOCX metni adapter'a bağlandı (L-02, 2026-09-04); sırada dava dava yükleme (L-01) ve
-sürüm içerik farkı (L-14). Çekirdek tarafında ilk kapanacak boşluk **G-14** (adapter
-döngüde koşsun), sonra **G-1** ve **G-5**; **G-17** (kanıt derecelendirmesini git
-blob'undan içerik-adreslemeye taşımak) S2'nin ön koşuludur ve kapanana kadar hukuk kası
-kendi hash zincirini taşır — bu, çekirdeğin kanıt yasasının dışında bir yol demektir ve
-burada yazılıdır.
+Büro muhasebesi ve otomatik mahkeme gönderimi sekiz MVP sonucu arasında değildir.
+`aria.manifest.json` ile `config/approval-policy.json` mevcut çalışma zamanı sınırlarını
+belirlemeye devam eder; bu belge manifesti veya onay kapılarını değiştirmez.

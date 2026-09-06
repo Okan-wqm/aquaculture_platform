@@ -10,6 +10,7 @@
 
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { closeSync, constants, openSync } from 'node:fs';
 
 import type { ActionResponse, JobKind, JobResponse, JobState } from '../../shared/api-contract.ts';
 import type { ServerConfig } from './config.ts';
@@ -37,6 +38,72 @@ function appendBounded(current: string, chunk: Buffer, cap: number): string {
   return next.length > cap ? next.slice(next.length - cap) : next;
 }
 
+const TERMINATE_NAMESPACE = `
+import os, select, signal, sys
+monitor = int(sys.argv[1])
+owner = int(sys.argv[2])
+monitor_fd = os.pidfd_open(monitor)
+try:
+    poller = select.poll()
+    poller.register(monitor_fd, select.POLLIN)
+    def monitor_exited():
+        return bool(poller.poll(0))
+    def read_proc(path):
+        descriptor = os.open(path, os.O_RDONLY, dir_fd=3)
+        try:
+            chunks = []
+            while True:
+                chunk = os.read(descriptor, 4096)
+                if not chunk:
+                    return b''.join(chunks).decode('ascii')
+                chunks.append(chunk)
+        finally:
+            os.close(descriptor)
+    if monitor_exited():
+        raise SystemExit(0)
+    status = read_proc('status').splitlines()
+    ppid = next(int(line.split()[1]) for line in status if line.startswith('PPid:'))
+    if ppid != owner or os.readlink('exe', dir_fd=3) != '/usr/bin/unshare':
+        raise SystemExit(2)
+    child_path = f'task/{monitor}/children'
+    while True:
+        if monitor_exited():
+            raise SystemExit(0)
+        children = [int(value) for value in read_proc(child_path).split()]
+        if len(children) == 1:
+            break
+        if len(children) > 1:
+            raise SystemExit(3)
+        if poller.poll(10):
+            raise SystemExit(0)
+    leader = children[0]
+    leader_fd = os.pidfd_open(leader)
+    try:
+        if monitor_exited():
+            raise SystemExit(0)
+        current = [int(value) for value in read_proc(child_path).split()]
+        if leader not in current:
+            raise SystemExit(4)
+        if monitor_exited():
+            raise SystemExit(0)
+        signal.pidfd_send_signal(leader_fd, signal.SIGKILL)
+    finally:
+        os.close(leader_fd)
+finally:
+    os.close(monitor_fd)
+`;
+
+/** Signal namespace PID 1 by pidfd; the unshare monitor keeps the lease until every descendant is gone. */
+function terminateNamespace(monitorPid: number, monitorProcFd: number): void {
+  const terminator = spawn('/usr/bin/python3', ['-I', '-c', TERMINATE_NAMESPACE, String(monitorPid), String(process.pid)], {
+    env: { PYTHONDONTWRITEBYTECODE: '1' },
+    stdio: ['ignore', 'ignore', 'ignore', monitorProcFd],
+  });
+  // A missing pidfd API or unexpected process tree fails closed: unshare stays
+  // alive with the lease and runKernel does not settle before the real close.
+  terminator.on('error', () => undefined);
+}
+
 export function runKernel(config: ServerConfig, argv: ReadonlyArray<string>, timeoutMs: number, lease: InstallationLock): Promise<SpawnOutcome> {
   for (const path of installationStoragePaths(config)) lease.assertOwns(path);
   const lockDescriptors = lease.childFileDescriptors();
@@ -53,6 +120,23 @@ export function runKernel(config: ServerConfig, argv: ReadonlyArray<string>, tim
       stdio: ['ignore', 'pipe', 'pipe', ...lockDescriptors],
       detached: true,
     });
+    // Pin this exact proc entry before the event loop can reap and recycle its
+    // PID. The timeout helper receives a duplicate; this copy lives to close.
+    let monitorProcFd: number | null = null;
+    if (child.pid !== undefined) {
+      try {
+        monitorProcFd = openSync(`/proc/${child.pid}`, constants.O_RDONLY | constants.O_DIRECTORY);
+      } catch {
+        // Without a pinned identity, timeout termination is unsupported. The
+        // monitor continues to hold the lease until its actual close.
+      }
+    }
+    const closeMonitorProcFd = (): void => {
+      if (monitorProcFd === null) return;
+      closeSync(monitorProcFd);
+      monitorProcFd = null;
+    };
+    child.once('close', closeMonitorProcFd);
     if (child.stdout === null || child.stderr === null) {
       child.on('error', rejectOutcome);
       child.kill('SIGKILL');
@@ -64,13 +148,7 @@ export function runKernel(config: ServerConfig, argv: ReadonlyArray<string>, tim
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
-      if (child.pid !== undefined) {
-        try {
-          process.kill(-child.pid, 'SIGKILL');
-        } catch (error) {
-          if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) rejectOutcome(error);
-        }
-      }
+      if (child.pid !== undefined && monitorProcFd !== null) terminateNamespace(child.pid, monitorProcFd);
     }, timeoutMs);
     child.stdout.on('data', (chunk: Buffer) => {
       stdout = appendBounded(stdout, chunk, OUTPUT_CAP_BYTES);

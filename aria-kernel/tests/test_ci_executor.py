@@ -286,6 +286,57 @@ class InvokeCodexCliTests(unittest.TestCase):
         self.assertEqual(envelope["request_id"], "REQ-test-1")
         self.assertEqual(envelope["details"]["verdict"]["model"], "mock")
 
+    def test_cost_refusals_produce_typed_execution_failure_without_spawning(self) -> None:
+        from types import SimpleNamespace
+        from aria_kernel.tool_registry import GovernanceError
+        from dispatch_failure import DispatchFailure
+        for model, expected, budget_error in [
+            ("unpriced-model", "cost_pricing_unknown", None),
+            ("claude-opus-4-7", "cost_reservation_refused", GovernanceError("cost cap exceeded")),
+            ("opus", "cost_reservation_refused", GovernanceError("cost cap exceeded")),
+        ]:
+            with self.subTest(model=model):
+                signals = []
+                profile = SimpleNamespace(model=model, effort="high", external_writes=False)
+                with patch.dict(os.environ, {ci_executor.MOCK_MODE_ENV_VAR: "0", "ARIA_COST_UNKNOWN_ACK": ""}), patch.object(
+                    ci_executor, "_MOCK_MODE_AT_ENTRY", False,
+                ), patch("aria_kernel.agent_runtime_profile.read_agent_runtime_profile", return_value=profile), patch(
+                    "aria_kernel.cost_budget.assert_within_budget", side_effect=budget_error,
+                ), patch.object(ci_executor, "run_with_model_fallback", side_effect=AssertionError("refused cost must not spawn")):
+                    rc = ci_executor.invoke_claude_cli(
+                        request_id="REQ-cost-1", subagent_type="aria-evidence-judge",
+                        prompt_file=self.tmp / "prompt.md", output_path=self.tmp / "out.json",
+                        timeout_seconds=30, role="evidence_judgment", tools_dir=self.tmp / "tools",
+                        record_execution=lambda **signal: signals.append(signal),
+                    )
+                self.assertEqual(rc, 1)
+                self.assertEqual(len(signals), 1)
+                self.assertIsInstance(signals[0]["failure"], DispatchFailure)
+                self.assertEqual(signals[0]["failure"].detail_code, expected)
+                self.assertEqual(signals[0]["failure"].failure_class, "policy_violation")
+
+    def test_canonical_alias_with_budget_runs_without_publishing_final_success(self) -> None:
+        result = ci_executor.ClaudeRunResult(
+            returncode=0, stdout='{"type":"result","result":"done","usage":{"input_tokens":1,"output_tokens":1}}',
+            stderr="", final_message="done", usage={"input_tokens": 1, "output_tokens": 1}, events=(),
+        )
+        signals = []
+        with patch.dict(os.environ, {ci_executor.MOCK_MODE_ENV_VAR: "0", "ARIA_COST_UNKNOWN_ACK": "", "RUNNER_TEMP": str(self.tmp)}), patch.object(
+            ci_executor, "_MOCK_MODE_AT_ENTRY", False,
+        ), patch("aria_kernel.cost_budget.assert_within_budget"), patch.object(
+            ci_executor, "run_with_model_fallback", return_value=result,
+        ):
+            rc = ci_executor.invoke_claude_cli(
+                request_id="REQ-cost-allowed", subagent_type="aria-evidence-judge",
+                prompt_file=self.tmp / "prompt.md", output_path=self.tmp / "out.json",
+                timeout_seconds=30, role="evidence_judgment", tools_dir=self.tmp / "tools",
+                record_execution=lambda **signal: signals.append(signal),
+            )
+        self.assertEqual(rc, 0)
+        self.assertTrue((self.tmp / "out.json").exists())
+        self.assertEqual(signals[-1]["outcome"], "succeeded")
+        self.assertEqual(list(self.tmp.glob("dispatch-result-*.json")), [])
+
     def test_unavailable_when_no_binary_and_no_mock(self) -> None:
         out_path = self.tmp / "response.json"
         prompt_path = self.tmp / "prompt.md"

@@ -16,6 +16,7 @@ from typing import Any
 import sys
 import time
 from pathlib import Path
+from uuid import uuid4
 
 # The single-request engine owns the stage logger and the optional
 # governance-append binding; reuse them so drain rows land in the same
@@ -386,11 +387,14 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
         child_argv = ["python3", str(_POC_DIR / "ci_executor.py"), request_id]
         if target_agent:
             child_argv.append(target_agent)
+        attempt_id = uuid4().hex
         child_output = (
             Path(os.environ.get("RUNNER_TEMP", "/tmp"))
-            / f"aria-drain-output-{request_id}.txt"
+            / f"aria-drain-output-{request_id}-{attempt_id}.txt"
         )
-        child_env = {**os.environ, "GITHUB_OUTPUT": str(child_output)}
+        child_env = {**os.environ, "GITHUB_OUTPUT": str(child_output),
+                     _dispatch_failure.DISPATCH_ATTEMPT_ENV: attempt_id,
+                     "RUNNER_TEMP": str(child_output.parent)}
         cwd = repo_root
         worktree = None
         if worktree_per_request:
@@ -409,11 +413,14 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
             proc: Any = _FinishedChild(subprocess.run(child_argv, env=child_env, cwd=str(cwd)))
         else:
             proc = subprocess.Popen(child_argv, env=child_env, cwd=str(cwd))
-        inflight.append({"request": request, "request_id": request_id, "output": child_output, "proc": proc, "worktree": worktree})
+        inflight.append({"attempt_id": attempt_id, "settled": False, "request": request, "request_id": request_id, "output": child_output, "proc": proc, "worktree": worktree})
 
     def _settle(entry: dict) -> None:
         """Wait for one child and account for it (the pre-032h loop body, verbatim)."""
         nonlocal succeeded, failed
+        if entry["settled"]:
+            raise ValueError("dispatch_attempt_already_settled")
+        entry["settled"] = True
         request = entry["request"]
         request_id = entry["request_id"]
         child_output = entry["output"]
@@ -424,13 +431,18 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
             if entry["worktree"] is not None:
                 _remove_request_worktree(repo_root, entry["worktree"])
         summary: dict | None = None
+        claim_ids: list[str] = []
+        summary_count = 0
         if child_output.exists():
             for line in child_output.read_text(encoding="utf-8").splitlines():
                 if line.startswith("envelope_path="):
                     envelope_paths.append(line.split("=", 1)[1])
                 elif line.startswith("transcript_path="):
                     transcript_paths.append(line.split("=", 1)[1])
+                elif line.startswith("dispatch_claim_id="):
+                    claim_ids.append(line.split("=", 1)[1])
                 elif line.startswith("dispatch_summary_path="):
+                    summary_count += 1
                     summary_path = Path(line.split("=", 1)[1])
                     try:
                         summary = json.loads(summary_path.read_text(encoding="utf-8"))
@@ -440,10 +452,14 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
                         )
             child_output.unlink()
 
-        # ARIA-HIGH-003 — classify the terminal outcome from the child's own
-        # v1 summary (falling back to the exit code when the child died
-        # before writing one) and fold it into the circuit, the persistent
-        # breaker, and the schema-v2 aggregate.
+        # A process exit or an old telemetry artifact cannot establish
+        # acceptance. Only this child's final request/claim/attempt receipt can.
+        if summary_count != 1 or len(claim_ids) != 1 or not _dispatch_failure.validate_final_dispatch_result(
+            summary, request_id=request_id, claim_id=claim_ids[0] if len(claim_ids) == 1 else None,
+            attempt_id=entry["attempt_id"], exit_code=child.returncode,
+        ):
+            summary = {"outcome": "failed", "failure_class": "unknown",
+                       "retryable": False, "failure_detail_code": "final_receipt_invalid"}
         outcome = (summary or {}).get("outcome")
         failure_class = (summary or {}).get("failure_class")
         provider = str((summary or {}).get("provider") or "unknown")
@@ -458,7 +474,7 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
             # A model refusal is not a build failure and never a breaker
             # event: it stays visible as the attempted/succeeded/failed delta.
             pass
-        elif outcome == "succeeded" or (outcome is None and child.returncode == 0):
+        elif outcome == "succeeded":
             succeeded += 1
             bucket["succeeded"] += 1
         else:

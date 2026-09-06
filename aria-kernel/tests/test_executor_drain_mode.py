@@ -77,7 +77,21 @@ def _drain(queue, child_results, env=None, tmp=None):
         exit_code, publishes = child_results[request_id]
         child_output = Path(kwargs["env"]["GITHUB_OUTPUT"])
         if publishes:
+            receipt = {
+                "$schema": "aria/dispatch-result/v2", "schema_version": 2,
+                "request_id": request_id, "claim_id": f"claim-{request_id}",
+                "attempt_id": kwargs["env"]["ARIA_DISPATCH_ATTEMPT_ID"],
+                "phase": "submit", "disposition": "result_accepted" if exit_code == 0 else "released",
+                "outcome": "succeeded" if exit_code == 0 else "failed", "failure_class": None,
+                "failure_detail_code": None,
+                "retryable": False, "process_exit_code": 0, "exit_code": exit_code,
+                "provider": "anthropic", "model": "opus", "role": "evidence_judgment", "target_agent": target or "",
+            }
+            summary_path = out_dir / f"receipt-{request_id}.json"
+            summary_path.write_text(json.dumps(receipt))
             child_output.write_text(
+                f"dispatch_claim_id=claim-{request_id}\n"
+                f"dispatch_summary_path={summary_path}\n"
                 f"envelope_path=outputs/{request_id}.md\n"
                 f"transcript_path=outputs/{request_id}.transcript.jsonl\n",
                 encoding="utf-8",

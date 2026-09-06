@@ -14,6 +14,7 @@ test_claude_runtime_contract.CreditExhaustionDetectionTests.
 """
 from __future__ import annotations
 
+import ast
 import sys
 import unittest
 from pathlib import Path
@@ -347,7 +348,13 @@ class CreditExhaustionReleasesTheClaim(unittest.TestCase):
                 break
             body.append(line)
         arm = "\n".join(body)
-        self.assertIn("_release_claim(", arm)
+        self.assertIn("_release(", arm)
+        # The lifecycle recorder must delegate to the same kernel release
+        # owner; renaming that call cannot turn this into a telemetry-only pin.
+        tree = ast.parse(src)
+        lifecycle = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_run_claimed_attempt")
+        release = next(n for n in lifecycle.body if isinstance(n, ast.FunctionDef) and n.name == "_release")
+        self.assertTrue(any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "_release_claim" for n in ast.walk(release)))
         self.assertIn('reason="claude_spawn_refused"', arm)
 
     def test_the_exception_is_imported_not_shadowed(self) -> None:

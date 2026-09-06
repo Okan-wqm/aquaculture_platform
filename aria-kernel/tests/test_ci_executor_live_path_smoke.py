@@ -127,7 +127,7 @@ class LivePathFetchTests(unittest.TestCase):
             stderr="",
         )
         self.submit_response_ok = MagicMock(
-            returncode=0, stdout="{}", stderr="",
+            returncode=0, stdout=json.dumps({"status": "accepted", "row": {"request_id": self.request_id, "claim_id": self.claim_id}}), stderr="",
         )
         self.release_response_ok = MagicMock(
             returncode=0, stdout="", stderr="",
@@ -143,6 +143,205 @@ class LivePathFetchTests(unittest.TestCase):
         with patch.dict(os.environ, env_patch):
             with patch("ci_executor.subprocess.run", fake_run):
                 return ci_executor.main([self.request_id, "aria-evidence-judge"])
+
+    def test_final_receipt_waits_for_submit_and_classifies_rejection(self) -> None:
+        output = self.tmp / "gha-output"
+        submit_rejected = MagicMock(returncode=1, stdout='{"status":"rejected"}', stderr="")
+        fake_run = _make_fake_run_sequence(self.claim_response, submit_rejected, self.release_response_ok)
+        with patch.dict(os.environ, {"RUNNER_TEMP": str(self.tmp), "GITHUB_OUTPUT": str(output), "ARIA_DISPATCH_ATTEMPT_ID": "attempt-test"}):
+            rc = self._run_main(fake_run)
+        self.assertEqual(rc, 1)
+        summaries = list(self.tmp.glob("dispatch-result-*.json"))
+        self.assertEqual(len(summaries), 1, "main must emit a final receipt even in mock mode")
+        receipt = json.loads(summaries[0].read_text())
+        self.assertEqual(receipt["outcome"], "failed")
+        self.assertEqual(receipt["phase"], "submit")
+        self.assertEqual(receipt["failure_class"], "response_schema_rejected")
+        self.assertEqual(receipt["claim_id"], self.claim_id)
+        self.assertEqual(receipt["attempt_id"], "attempt-test")
+        self.assertEqual(receipt["process_exit_code"], 0)
+        self.assertEqual(receipt["exit_code"], 1)
+
+    def _terminal_run(self, fake_run, **patches):
+        from contextlib import ExitStack
+        output = self.tmp / "gha-output"
+        with ExitStack() as stack:
+            stack.enter_context(patch.dict(os.environ, {"RUNNER_TEMP": str(self.tmp), "GITHUB_OUTPUT": str(output)}))
+            for name, replacement in patches.items():
+                stack.enter_context(patch(name, **replacement))
+            rc = self._run_main(fake_run)
+        receipts = list(self.tmp.glob("dispatch-result-*.json"))
+        self.assertEqual(len(receipts), 1)
+        return rc, json.loads(receipts[0].read_text())
+
+    def test_accepted_submit_records_local_acceptance_after_submit(self) -> None:
+        def fake_run(argv, **kwargs):
+            if "claim" in argv:
+                return self.claim_response
+            self.assertIn("submit-result", argv)
+            self.assertEqual(list(self.tmp.glob("dispatch-result-*.json")), [])
+            return self.submit_response_ok
+        rc, receipt = self._terminal_run(fake_run)
+        self.assertEqual(rc, 0)
+        self.assertEqual(receipt["outcome"], "succeeded")
+        self.assertEqual(receipt["disposition"], "result_accepted")
+        self.assertEqual(receipt["process_exit_code"], 0)
+
+    def test_submit_timeout_is_final_failure_and_releases_claim(self) -> None:
+        import subprocess
+        calls = []
+        def fake_run(argv, **kwargs):
+            calls.append(argv)
+            if "claim" in argv:
+                return self.claim_response
+            if "submit-result" in argv:
+                raise subprocess.TimeoutExpired(argv, 30)
+            self.assertIn("release", argv)
+            return self.release_response_ok
+        rc, receipt = self._terminal_run(fake_run)
+        self.assertEqual(rc, 1)
+        self.assertEqual(receipt["failure_class"], "timeout")
+        self.assertEqual(receipt["phase"], "submit")
+        self.assertEqual(receipt["process_exit_code"], 0)
+        self.assertEqual(receipt["disposition"], "released")
+        self.assertEqual(sum("release" in argv for argv in calls), 1)
+
+    def test_budget_denial_is_refused_and_never_success(self) -> None:
+        fake_run = _make_fake_run_sequence(self.claim_response, self.release_response_ok)
+        rc, receipt = self._terminal_run(fake_run, **{
+            "ci_executor._validate_dispatch_budget": {"side_effect": ci_executor.CostCapExceeded("cost_cap")},
+        })
+        self.assertEqual(rc, 0)
+        self.assertEqual(receipt["outcome"], "refused")
+        self.assertEqual(receipt["failure_detail_code"], "dispatch_budget_refused")
+        self.assertIsNone(receipt["process_exit_code"])
+        self.assertEqual(receipt["disposition"], "released")
+
+    def test_pre_spawn_cancel_is_refused_and_never_success(self) -> None:
+        fake_run = _make_fake_run_sequence(self.claim_response, self.release_response_ok)
+        rc, receipt = self._terminal_run(fake_run, **{
+            "aria_kernel.control.is_cancelled": {"return_value": True},
+            "aria_kernel.control.record_cancel_outcome": {"return_value": None},
+        })
+        self.assertEqual(rc, 0)
+        self.assertEqual(receipt["outcome"], "refused")
+        self.assertEqual(receipt["failure_detail_code"], "operator_cancelled")
+        self.assertIsNone(receipt["process_exit_code"])
+
+    def test_usage_pricing_exception_releases_claim_and_emits_failure(self) -> None:
+        fake_run = _make_fake_run_sequence(self.claim_response, self.release_response_ok)
+        rc, receipt = self._terminal_run(fake_run, **{
+            "ci_executor.invoke_claude_cli": {"side_effect": ci_executor.ClaudeUsageUnavailable("usage_pricing_rejected")},
+        })
+        self.assertEqual(rc, 1)
+        self.assertEqual(receipt["failure_class"], "usage_unavailable")
+        self.assertEqual(receipt["disposition"], "released")
+        self.assertEqual(sum("release" in argv for argv in fake_run.captured), 1)
+
+    def test_accepted_result_after_transport_failure_is_not_released_or_reexecuted(self) -> None:
+        import subprocess
+        calls = []
+        def fake_run(argv, **kwargs):
+            calls.append(argv)
+            if "claim" in argv:
+                return self.claim_response
+            self.assertIn("submit-result", argv)
+            raise subprocess.TimeoutExpired(argv, 30)
+        rc, receipt = self._terminal_run(fake_run, **{
+            "aria_kernel.agent_invocations.accepted_result_for_request": {"return_value": {"status": "accepted", "request_id": self.request_id, "claim_id": self.claim_id}},
+        })
+        self.assertEqual(rc, 1)
+        self.assertEqual(receipt["outcome"], "failed")
+        self.assertEqual(receipt["disposition"], "result_accepted")
+        self.assertFalse(receipt["retryable"])
+        self.assertEqual(sum("submit-result" in argv for argv in calls), 1)
+        self.assertFalse(any("release" in argv for argv in calls))
+
+    def test_submit_transport_error_reconciles_acceptance_before_release(self) -> None:
+        calls = []
+        def fake_run(argv, **kwargs):
+            calls.append(argv)
+            if "claim" in argv:
+                return self.claim_response
+            if "submit-result" in argv:
+                raise OSError("submit transport lost")
+            return self.release_response_ok
+        rc, receipt = self._terminal_run(fake_run, **{
+            "aria_kernel.agent_invocations.accepted_result_for_request": {"return_value": {"status": "accepted", "request_id": self.request_id, "claim_id": self.claim_id}},
+        })
+        self.assertEqual(rc, 1)
+        self.assertEqual(receipt["disposition"], "result_accepted")
+        self.assertFalse(receipt["retryable"])
+        self.assertFalse(any("release" in argv for argv in calls))
+
+    def test_failed_reconciliation_does_not_release_an_uncertain_submission(self) -> None:
+        import subprocess
+        calls = []
+        def fake_run(argv, **kwargs):
+            calls.append(argv)
+            if "claim" in argv:
+                return self.claim_response
+            if "submit-result" in argv:
+                raise subprocess.TimeoutExpired(argv, 30)
+            return self.release_response_ok
+        rc, receipt = self._terminal_run(fake_run, **{
+            "aria_kernel.agent_invocations.accepted_result_for_request": {"side_effect": OSError("ledger unreadable")},
+        })
+        self.assertEqual(rc, 1)
+        self.assertEqual(receipt["disposition"], "unresolved")
+        self.assertFalse(receipt["retryable"])
+        self.assertFalse(any("release" in argv for argv in calls))
+
+    def test_model_refusal_preserves_original_process_signal(self) -> None:
+        result = ci_executor.ClaudeRunResult(returncode=0, stdout="", stderr="", final_message="", usage=None,
+                                           events=(), refusal={"category": "safety"})
+        fake_run = _make_fake_run_sequence(self.claim_response, MagicMock(returncode=0, stdout="{}", stderr=""), self.release_response_ok)
+        rc, receipt = self._terminal_run(fake_run, **{
+            "ci_executor._is_mock_mode": {"return_value": False},
+            "ci_executor._pre_claim_environment_gate": {"return_value": None},
+            "ci_executor._decide_session_and_recovery": {"return_value": ("test-session", False)},
+            "aria_kernel.cost_budget.assert_within_budget": {"return_value": None},
+            "ci_executor.run_with_model_fallback": {"return_value": result},
+        })
+        self.assertEqual(rc, 1)
+        self.assertEqual(receipt["outcome"], "refused")
+        self.assertEqual(receipt["process_exit_code"], 0)
+        self.assertEqual(receipt["failure_detail_code"], "agent_refused")
+        self.assertEqual(receipt["failure_class"], "policy_violation")
+        self.assertEqual(receipt["disposition"], "released")
+
+    def _recovery_terminal(self, release_code):
+        from types import SimpleNamespace
+        fake_run = _make_fake_run_sequence(self.claim_response, MagicMock(returncode=release_code, stdout="{}", stderr=""))
+        return self._terminal_run(fake_run, **{
+            "ci_executor._is_mock_mode": {"return_value": False},
+            "ci_executor._pre_claim_environment_gate": {"return_value": None},
+            "ci_executor.spawn_settings_hash": {"return_value": "sha256:" + "1" * 64},
+            "aria_kernel.recovery.classify_recovery": {"return_value": SimpleNamespace(decision="human_required", reason="uncertain_effect")},
+            "aria_kernel.recovery.gh_remote_reader": {"return_value": None},
+            "ci_executor.invoke_claude_cli": {"side_effect": AssertionError("recovery refusal must never spawn")},
+        })
+
+    def test_recovery_refusal_records_confirmed_release(self) -> None:
+        rc, receipt = self._recovery_terminal(0)
+        self.assertEqual(rc, 0)
+        self.assertEqual(receipt["outcome"], "refused")
+        self.assertEqual(receipt["disposition"], "released")
+
+    def test_recovery_release_failure_cannot_report_refused_green(self) -> None:
+        rc, receipt = self._recovery_terminal(1)
+        self.assertEqual(rc, 1)
+        self.assertEqual(receipt["outcome"], "failed")
+        self.assertEqual(receipt["disposition"], "release_failed")
+
+    def test_release_failure_cannot_turn_budget_refusal_green(self) -> None:
+        fake_run = _make_fake_run_sequence(self.claim_response, MagicMock(returncode=1, stdout="", stderr="release rejected"))
+        rc, receipt = self._terminal_run(fake_run, **{
+            "ci_executor._validate_dispatch_budget": {"side_effect": ci_executor.CostCapExceeded("cost_cap")},
+        })
+        self.assertEqual(rc, 1)
+        self.assertEqual(receipt["outcome"], "failed")
+        self.assertEqual(receipt["disposition"], "release_failed")
 
     def test_live_path_consumes_fused_claim_envelope_and_submits(self) -> None:
         # Plan 026R §B.3 — happy path: claim returns the fused envelope

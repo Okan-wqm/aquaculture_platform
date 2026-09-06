@@ -123,6 +123,34 @@ class DispatchRoute:
     target_agent: str
 
 
+@dataclass
+class DispatchAttempt:
+    request_id: str
+    claim_id: str
+    attempt_id: str
+    route: DispatchRoute
+    outcome: str = "failed"
+    phase: str = "preflight"
+    disposition: str = "unresolved"
+    process_exit_code: int | None = None
+    failure: DispatchFailure | None = None
+    accepted: bool = False
+
+    def record_execution(self, *, outcome: str, failure: DispatchFailure | None, exit_code: int | None) -> None:
+        self.process_exit_code = exit_code
+        self.failure = failure
+        self.phase = failure.phase if failure else "runtime"
+        if outcome == "refused":
+            self.refuse("agent_refused")
+
+    def refuse(self, reason: str) -> None:
+        if self.disposition == "release_failed":
+            self.failure = DispatchFailure("unknown", False, "release_failed", self.phase)
+            return
+        self.outcome = "refused"
+        self.failure = DispatchFailure("policy_violation", False, reason, self.phase)
+
+
 # Exception types are imported lazily-safe above; the mapping is ordered so
 # a future subclass relationship cannot silently shadow a more specific
 # class. Retryability: the perimeter family is terminal for the request
@@ -356,3 +384,93 @@ def emit_dispatch_result_summary(
     if path is not None:
         publish_dispatch_summary_path(path, github_output=github_output)
     return path
+
+
+FINAL_DISPATCH_SCHEMA = "aria/dispatch-result/v2"
+DISPATCH_ATTEMPT_ENV = "ARIA_DISPATCH_ATTEMPT_ID"
+
+
+def emit_final_dispatch_result(
+    *, route: DispatchRoute, request_id: str, claim_id: str, attempt_id: str,
+    outcome: str, failure: DispatchFailure | None, phase: str,
+    disposition: str, process_exit_code: int | None, exit_code: int,
+) -> Path | None:
+    """Publish the immutable, claim-bound receipt owned by the CLI lifecycle.
+
+    Result acceptance is local kernel acceptance only. Publication and bridge
+    progress remain owned by their respective state reducers and gates.
+    """
+    for identity in (claim_id, attempt_id):
+        if not isinstance(identity, str) or not _REQUEST_ID_PATTERN.fullmatch(identity):
+            raise ValueError("dispatch_result_identity_invalid")
+    summary = build_dispatch_result_summary(
+        route=route, request_id=request_id, outcome=outcome,
+        failure=failure, exit_code=exit_code,
+    )
+    summary.update({
+        "$schema": FINAL_DISPATCH_SCHEMA, "schema_version": 2,
+        "claim_id": claim_id, "attempt_id": attempt_id, "phase": phase,
+        "disposition": disposition, "process_exit_code": process_exit_code,
+    })
+    base = os.environ.get("RUNNER_TEMP")
+    if not base:
+        return None
+    from aria_kernel.artifact_safety import scrub_json
+
+    path = Path(base) / f"dispatch-result-{request_id}-{attempt_id}.json"
+    # Exclusive creation makes duplicate finalization visible; an old receipt
+    # is never rewritten into evidence for a later claim or attempt.
+    import json
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("x", encoding="utf-8") as handle:
+        json.dump(scrub_json(summary), handle, sort_keys=True)
+        handle.write("\n")
+    publish_dispatch_summary_path(path)
+    return path
+
+
+def validate_final_dispatch_result(
+    summary: Any, *, request_id: str, claim_id: str | None,
+    attempt_id: str, exit_code: int,
+) -> bool:
+    """Admit only a final receipt for this exact child and claimed identity."""
+    fields = {
+        "$schema", "schema_version", "request_id", "claim_id", "attempt_id",
+        "role", "target_agent", "provider", "model", "outcome", "phase",
+        "failure_class", "retryable", "failure_detail_code", "exit_code",
+        "disposition", "process_exit_code",
+    }
+    if not isinstance(summary, dict) or set(summary) != fields:
+        return False
+    process_exit = summary["process_exit_code"]
+    if process_exit is not None and type(process_exit) is not int:
+        return False
+    detail_code = summary["failure_detail_code"]
+    if detail_code is not None and (not isinstance(detail_code, str) or not _DETAIL_CODE_PATTERN.fullmatch(detail_code)):
+        return False
+    if summary.get("$schema") != FINAL_DISPATCH_SCHEMA or summary.get("schema_version") != 2:
+        return False
+    if summary.get("request_id") != request_id or summary.get("attempt_id") != attempt_id:
+        return False
+    if not isinstance(claim_id, str) or not _REQUEST_ID_PATTERN.fullmatch(claim_id) or summary.get("claim_id") != claim_id:
+        return False
+    if type(summary.get("exit_code")) is not int or summary["exit_code"] != exit_code:
+        return False
+    if summary.get("outcome") not in DISPATCH_OUTCOMES or summary.get("phase") not in DISPATCH_PHASES:
+        return False
+    if summary.get("disposition") not in ("unresolved", "released", "release_failed", "result_accepted"):
+        return False
+    if summary.get("failure_class") is not None and summary["failure_class"] not in DISPATCH_FAILURE_CLASSES:
+        return False
+    if type(summary.get("retryable")) is not bool:
+        return False
+    if not all(isinstance(summary.get(key), str) for key in ("role", "target_agent", "provider", "model")):
+        return False
+    if summary["outcome"] == "refused":
+        return summary["disposition"] == "released"
+    if summary["outcome"] == "succeeded":
+        return (exit_code == 0 and summary["disposition"] == "result_accepted"
+                and summary.get("failure_class") is None
+                and summary["failure_detail_code"] is None and not summary["retryable"]
+                and summary.get("process_exit_code") == 0)
+    return True

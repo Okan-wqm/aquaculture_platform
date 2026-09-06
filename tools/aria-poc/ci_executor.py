@@ -40,7 +40,8 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
+from uuid import uuid4
 
 _THIS_DIR = Path(__file__).resolve().parent
 if str(_THIS_DIR) not in sys.path:
@@ -69,9 +70,11 @@ from claude_runtime import (
     run_with_model_fallback,
 )
 from dispatch_failure import (
+    DispatchAttempt,
     DispatchFailure,
     classify_dispatch_failure,
-    emit_dispatch_result_summary,
+    DispatchRoute,
+    emit_final_dispatch_result,
     resolve_dispatch_route,
 )
 
@@ -1033,6 +1036,7 @@ def _decide_session_and_recovery(
     subagent_type: str,
     request_envelope: dict[str, Any],
     prompt_hash: str,
+    release: Callable[..., bool],
 ) -> tuple[str | None, bool]:
     """Plan 032 Faz 032c — (session_id, resume), or (None, False) after a
     human_required recovery decision released the claim.
@@ -1062,7 +1066,7 @@ def _decide_session_and_recovery(
     )
     if decision.decision == "human_required":
         sys.stderr.write(f"recovery_unresolved_external_effect: {request_id} {decision.reason}\n")
-        _release_claim(
+        release(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id, agent_id=agent_id,
             lease_token=lease_token, reason="recovery_unresolved_external_effect",
         )
@@ -1116,6 +1120,7 @@ def invoke_claude_cli(
     session_id: str | None = None,
     resume: bool = False,
     spawn_control: Any | None = None,
+    record_execution: Callable[..., None] | None = None,
 ) -> int:
     """Call the Claude Code CLI; mock path for tests + CI dry-runs.
 
@@ -1271,42 +1276,19 @@ def invoke_claude_cli(
     # unknown agent → most expensive tier.
     from aria_kernel.agent_runtime_profile import read_agent_runtime_profile
     agent_profile = read_agent_runtime_profile(subagent_type)
-    # ARIA-HIGH-002 — resolve the dispatch route BEFORE the claim is taken:
-    # the trusted request envelope names the agent/role, the frontmatter SSoT
-    # resolves the model, the redirect SSoT resolves the provider, and a
-    # drain can key its circuit on that route without claiming work. The
-    # provider/model fallback policy itself stays owned by claude_runtime.
-    _route_request: dict[str, Any] = {"role": role, "target_agent": subagent_type}
-    if isinstance(request_envelope, dict):
-        _route_request["target_agent"] = str(
-            request_envelope.get("target_agent") or subagent_type,
-        )
-    _dispatch_route = resolve_dispatch_route(
-        request=_route_request,
-        repo_root=Path(__file__).resolve().parents[2],
-    )
-    _summary_emitted = False
+    _execution_recorded = False
 
-    def _emit_dispatch_summary(
+    def _record_execution(
         *, outcome: str, failure: DispatchFailure | None, exit_code: int | None,
     ) -> None:
-        """Exactly one sanitized classified summary per terminal path."""
-        nonlocal _summary_emitted
-        if _summary_emitted:
+        # Process telemetry stays in memory. Preserve the original terminal
+        # signal when a perimeter exception translates it on the way to main.
+        nonlocal _execution_recorded
+        if _execution_recorded:
             return
-        _summary_emitted = True
-        try:
-            emit_dispatch_result_summary(
-                route=_dispatch_route,
-                request_id=request_id,
-                outcome=outcome,
-                failure=failure,
-                exit_code=exit_code,
-            )
-        except (OSError, ValueError) as summary_exc:
-            # The summary is telemetry; a dispatch outcome must never fail
-            # because the telemetry channel did. Name it on stderr instead.
-            sys.stderr.write(f"dispatch_summary_unwritable: {summary_exc}\n")
+        _execution_recorded = True
+        if record_execution is not None:
+            record_execution(outcome=outcome, failure=failure, exit_code=exit_code)
     # Plan 032 Faz 032d — scoped delivery credential for external-write
     # profiles (today: the implementer). Minted here, exported ONLY into this
     # spawn's env, revoked in `finally`. Every other profile gets no GitHub
@@ -1335,7 +1317,7 @@ def invoke_claude_cli(
             )
         except DeliveryCredentialError as exc:
             _stage(f"delivery_credential_refused request_id={request_id} {exc}")
-            _emit_dispatch_summary(outcome="failed", failure=None, exit_code=DELIVERY_CREDENTIAL_EXIT)
+            _record_execution(outcome="failed", failure=None, exit_code=DELIVERY_CREDENTIAL_EXIT)
             return DELIVERY_CREDENTIAL_EXIT
         if delivery_credential is not None:
             spawn_extra_env.update(delivery_credential.env)
@@ -1438,40 +1420,31 @@ def invoke_claude_cli(
         # never zero).
         if tools_dir is not None and _MOCK_MODE_AT_ENTRY is False:
             from aria_kernel.budget import (
-                MODEL_FAMILY_PRICING_USD_PER_MTOK,
-                MODEL_PRICING_USD_PER_MTOK,
+                PRICING_SOURCE_UNKNOWN, alias_pricing_prefix, price_tokens,
             )
             from aria_kernel.cost_budget import assert_within_budget
             from aria_kernel.tool_registry import GovernanceError as _BudgetRefusal
 
+            # The pricing owner resolves aliases and provenance; the executor
+            # must not maintain a second model table or assume a vendor prefix.
             _normalized = (agent_profile.model or "").strip().lower()
-            _rates = None
-            for _known, _r in MODEL_PRICING_USD_PER_MTOK.items():
-                if _normalized == _known or _normalized.startswith(f"{_known}-"):
-                    _rates = _r
-                    break
-            if _rates is None:
-                for _family, _r in MODEL_FAMILY_PRICING_USD_PER_MTOK.items():
-                    if _normalized == _family or _normalized.startswith(f"{_family}-"):
-                        _rates = _r
-                        break
-            if _rates is None and not os.environ.get("ARIA_COST_UNKNOWN_ACK", "").strip():
-                _emit_dispatch_summary(
+            _price = price_tokens(model=_normalized, input_tokens=400_000, output_tokens=64_000)
+            if _price.source == PRICING_SOURCE_UNKNOWN:
+                _price = price_tokens(model=alias_pricing_prefix(_normalized), input_tokens=400_000, output_tokens=64_000)
+            if _price.source == PRICING_SOURCE_UNKNOWN and not os.environ.get("ARIA_COST_UNKNOWN_ACK", "").strip():
+                _record_execution(
                     outcome="failed",
-                    failure="cost_reservation_refused: model pricing unknown and "
-                            "ARIA_COST_UNKNOWN_ACK unset (unknown-cost = deny)",
+                    failure=DispatchFailure("policy_violation", False, "cost_pricing_unknown", "preflight"),
                     exit_code=1,
                 )
                 return 1
-            # Conservative ceiling: 400k in / 64k out tokens for one call.
-            _in_rate, _out_rate = _rates or (0.0, 0.0)
-            _estimate = (400_000 * _in_rate + 64_000 * _out_rate) / 1_000_000
+            _estimate = _price.usd
             try:
                 assert_within_budget(tools_dir, estimated_run_usd=_estimate)
-            except _BudgetRefusal as _refusal:
-                _emit_dispatch_summary(
+            except _BudgetRefusal:
+                _record_execution(
                     outcome="failed",
-                    failure=f"cost_reservation_refused: {_refusal}"[:200],
+                    failure=DispatchFailure("policy_violation", False, "cost_reservation_refused", "preflight"),
                     exit_code=1,
                 )
                 return 1
@@ -1530,7 +1503,7 @@ def invoke_claude_cli(
                     sys.stderr.write(f"human-required record (refusal) failed: {_hr_exc}\n")
             # ARIA-HIGH-002 — a model refusal is not a build failure: the
             # summary says "refused", the escalation path stays as-is.
-            _emit_dispatch_summary(
+            _record_execution(
                 outcome="refused", failure=None, exit_code=completed.returncode,
             )
             raise ClaudeCliUnavailable(
@@ -1549,11 +1522,11 @@ def invoke_claude_cli(
         ProviderRedirectUnavailable,
         subprocess.TimeoutExpired,
     ) as exc:
-        # ARIA-HIGH-002 — every terminal perimeter path writes exactly one
-        # sanitized classified summary before the exception travels on. The
+        # Every terminal perimeter path records its typed process signal
+        # before the exception travels to the final attempt owner. The
         # classification names the ORIGINAL condition; the translation below
         # preserves the existing contract-reference wrapping unchanged.
-        _emit_dispatch_summary(
+        _record_execution(
             outcome="failed",
             failure=classify_dispatch_failure(exception=exc, phase="spawn"),
             exit_code=None,
@@ -1627,7 +1600,7 @@ def invoke_claude_cli(
                 role=role,
                 request_id=request_id,
             )
-    _emit_dispatch_summary(
+    _record_execution(
         outcome="succeeded" if completed.returncode == 0 else "failed",
         failure=classify_dispatch_failure(result=completed, phase="runtime"),
         exit_code=completed.returncode,
@@ -1939,7 +1912,7 @@ def _release_claim(
     agent_id: str,
     lease_token: str,
     reason: str,
-) -> None:
+) -> bool:
     """Release a leased claim with a structured reason code.
 
     Plan 025 §B — extracted from the cost-cap path so every fail-fast
@@ -1997,6 +1970,8 @@ def _release_claim(
             + _redact_lease_in_message(detail, lease_token)
             + ". The request stays CLAIMED and no later run can pick it up.\n"
         )
+
+    return released.returncode == 0
 
 
 def _deserialise_inherited_claim_metadata(
@@ -2208,6 +2183,31 @@ def _pre_claim_environment_gate(*, tools_dir: Path) -> str | None:
     return kind
 
 
+
+def _accept_submitted_result(terminal: DispatchAttempt, submitted: Any) -> bool:
+    if not isinstance(submitted, dict) or submitted.get("status") != "accepted":
+        return False
+    row = submitted.get("row")
+    if not isinstance(row, dict) or row.get("request_id") != terminal.request_id or row.get("claim_id") != terminal.claim_id:
+        return False
+    terminal.accepted = True
+    terminal.outcome = "succeeded"
+    terminal.failure = None
+    # Local result acceptance is not request completion or durable publication.
+    terminal.disposition = "result_accepted"
+    return True
+
+
+def _reconcile_accepted_result(terminal: DispatchAttempt, *, tools_dir: Path) -> bool:
+    from aria_kernel.agent_invocations import accepted_result_for_request
+    row = accepted_result_for_request(request_id=terminal.request_id, role=terminal.route.role, base_dir=tools_dir)
+    if not _accept_submitted_result(terminal, {"status": "accepted", "row": row}):
+        return False
+    terminal.outcome = "failed"
+    terminal.failure = DispatchFailure("unknown", False, "submit_transport_failed_after_acceptance", "submit")
+    return True
+
+
 def main(argv: list[str] | None = None) -> int:
     """Entry point — runs one cycle. Designed to be called by GHA step."""
     args = argv if argv is not None else sys.argv[1:]
@@ -2337,6 +2337,73 @@ def main(argv: list[str] | None = None) -> int:
             sys.stderr.write("claim missing lease_token or claim_id\n")
             return 1
 
+    terminal = DispatchAttempt(
+        request_id=request_id, claim_id=claim_id,
+        attempt_id=os.environ.get("ARIA_DISPATCH_ATTEMPT_ID") or uuid4().hex,
+        route=DispatchRoute("unknown", "unknown", str(claim.get("role") or ""), subagent_type),
+    )
+    exit_code = 1
+    try:
+        terminal.route = resolve_dispatch_route(request={"role": claim.get("role", ""),
+                                                         "target_agent": subagent_type}, repo_root=_REPO_ROOT)
+        output_file = os.environ.get("GITHUB_OUTPUT")
+        if output_file:
+            with open(output_file, "a", encoding="utf-8") as handle:
+                handle.write(f"dispatch_claim_id={claim_id}\n")
+        exit_code = _run_claimed_attempt(
+            terminal=terminal, claim=claim, request_id=request_id,
+            claim_id=claim_id, agent_id=agent_id, lease_token=lease_token,
+            subagent_type=subagent_type, repo=repo, tools_dir=tools_dir,
+        )
+    except Exception as exc:
+        # Runtime exceptions release the claim. Submit transport errors first
+        # reconcile acceptance, because replaying accepted work is unsafe.
+        # Preserve the original classified cause when a perimeter wrapper exists.
+        terminal.failure = classify_dispatch_failure(exception=exc.__cause__ or exc, phase=terminal.phase)
+        sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")
+        can_release = True
+        if terminal.phase == "submit":
+            try:
+                _reconcile_accepted_result(terminal, tools_dir=tools_dir)
+            except Exception as reconciliation_exc:
+                can_release = False
+                terminal.failure = DispatchFailure("unknown", False, "submit_reconciliation_failed", "submit")
+                sys.stderr.write("submit_reconciliation_failed: " + _redact_lease_in_message(str(reconciliation_exc), lease_token) + "\n")
+        if not terminal.accepted and can_release:
+            terminal.disposition = "released" if _release_claim(
+                tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+                agent_id=agent_id, lease_token=lease_token, reason="executor_exception",
+            ) else "release_failed"
+    finally:
+        if terminal.disposition == "release_failed":
+            exit_code = 1
+            terminal.outcome = "failed"
+        if terminal.outcome == "failed" and terminal.failure is None:
+            terminal.failure = DispatchFailure("unknown", False, "executor_failed", terminal.phase)
+        try:
+            emit_final_dispatch_result(
+                route=terminal.route, request_id=request_id, claim_id=claim_id,
+                attempt_id=terminal.attempt_id, outcome=terminal.outcome,
+                failure=terminal.failure, phase=terminal.phase,
+                disposition=terminal.disposition,
+                process_exit_code=terminal.process_exit_code, exit_code=exit_code,
+            )
+        except (OSError, ValueError) as exc:
+            sys.stderr.write(f"dispatch_summary_unwritable: {exc}\n")
+            exit_code = 1
+    return exit_code
+
+
+def _run_claimed_attempt(
+    *, terminal: DispatchAttempt, claim: dict[str, Any], request_id: str,
+    claim_id: str, agent_id: str, lease_token: str, subagent_type: str,
+    repo: Path, tools_dir: Path,
+) -> int:
+    def _release(**kwargs: Any) -> bool:
+        released = _release_claim(**kwargs)
+        terminal.disposition = "released" if released else "release_failed"
+        return released
+
     # Step 2 — read the fused request envelope from the claim response.
     # Plan 026R §B.3 — ``agent claim`` now returns the request envelope
     # (expected_output_path / role / must_satisfy / allowed_scope /
@@ -2361,7 +2428,7 @@ def main(argv: list[str] | None = None) -> int:
     # already landed. One projection, owned by the kernel, ends the class.
     if _fuse_prompt_envelope is None:
         sys.stderr.write("kernel_prompt_renderer_unavailable\n")
-        _release_claim(
+        _release(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
             agent_id=agent_id, lease_token=lease_token,
             reason="kernel_prompt_renderer_unavailable",
@@ -2380,7 +2447,7 @@ def main(argv: list[str] | None = None) -> int:
             f"request_envelope_missing_expected_output_path: "
             f"request_id={request_id}\n"
         )
-        _release_claim(
+        _release(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
             agent_id=agent_id, lease_token=lease_token,
             reason="request_envelope_missing_expected_output_path",
@@ -2390,7 +2457,7 @@ def main(argv: list[str] | None = None) -> int:
         sys.stderr.write(
             f"request_envelope_missing_role: request_id={request_id}\n"
         )
-        _release_claim(
+        _release(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
             agent_id=agent_id, lease_token=lease_token,
             reason="request_envelope_missing_role",
@@ -2417,12 +2484,13 @@ def main(argv: list[str] | None = None) -> int:
         # cycle instead of being started with less time left than its own
         # timeout, which is the case that would have been killed mid-flight
         # by the runner with the lease still held.
-        _release_claim(
+        _release(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
             agent_id=agent_id, lease_token=lease_token,
             reason="dispatch_budget_refused",
         )
-        return 0  # a budget signal, NOT a build failure
+        terminal.refuse("dispatch_budget_refused")
+        return 0
 
     # Plan ARIA-V7 §2g v2 — write the request's suggested_prompt to
     # the canonical prompts/ path BEFORE invoking the CLI. Pre-V7
@@ -2436,7 +2504,7 @@ def main(argv: list[str] | None = None) -> int:
     prompt_file.parent.mkdir(parents=True, exist_ok=True)
     if _render_invocation_prompt is None:
         sys.stderr.write("kernel_prompt_renderer_unavailable\n")
-        _release_claim(
+        _release(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
             agent_id=agent_id, lease_token=lease_token,
             reason="kernel_prompt_renderer_unavailable",
@@ -2450,7 +2518,7 @@ def main(argv: list[str] | None = None) -> int:
             f"expected={request_envelope.get('prompt_hash')!r} "
             f"actual={_computed_prompt_hash!r}\n"
         )
-        _release_claim(
+        _release(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
             agent_id=agent_id, lease_token=lease_token,
             reason="prompt_hash_binding_mismatch",
@@ -2469,9 +2537,11 @@ def main(argv: list[str] | None = None) -> int:
         tools_dir=tools_dir, repo=repo, request_id=request_id, claim_id=claim_id,
         agent_id=agent_id, lease_token=lease_token, subagent_type=subagent_type,
         request_envelope=request_envelope, prompt_hash=_computed_prompt_hash,
+        release=_release,
     )
     if _session_id is None:
-        return 0  # released to HUMAN_REQUIRED by the recovery classifier
+        terminal.refuse("recovery_required")
+        return 0
     # Plan 032 Faz 032e — operator control. A cancel recorded after the claim
     # is honoured BEFORE the spawn (release with the operator fault domain);
     # during the spawn the runtime polls the same ledger and stops the
@@ -2483,17 +2553,19 @@ def main(argv: list[str] | None = None) -> int:
 
     if is_cancelled(request_id, tools_dir):
         record_cancel_outcome(request_id, outcome="before_spawn", base_dir=tools_dir, detail={"claim_id": claim_id})
-        _release_claim(
+        _release(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
             agent_id=agent_id, lease_token=lease_token,
             reason=OPERATOR_CANCELLED_RELEASE_REASON,
         )
+        terminal.refuse("operator_cancelled")
         return 0
     _spawn_control = SpawnControl(
         should_cancel=lambda: is_cancelled(request_id, tools_dir),
         on_event=ProgressWriter(request_id, base_dir=tools_dir, claim_id=claim_id).write,
     )
     _run_started_at = time.monotonic()
+    terminal.phase = "runtime"
     try:
         # Plan 024 v3 §B-8 — pass real lease identity + role from
         # request row into the mock envelope writer. claim_id +
@@ -2524,7 +2596,9 @@ def main(argv: list[str] | None = None) -> int:
             request_envelope=request_envelope,
             tools_dir=tools_dir,
             spawn_control=_spawn_control,
+            record_execution=terminal.record_execution,
         )
+        terminal.process_exit_code = cli_exit
         if cli_exit != 0:
             # Plan 032 Faz 032c — a write-capable spawn that ended non-zero has
             # its LOCAL edits put back from the pre-spawn checkpoint (hand
@@ -2534,6 +2608,8 @@ def main(argv: list[str] | None = None) -> int:
                 why=f"cli_exit_{cli_exit}",
             )
     except ClaudeAuthFailure as exc:
+        if terminal.failure is None:
+            terminal.failure = classify_dispatch_failure(exception=exc, phase="runtime")
         # An expired session is not "the agent ran and failed" — nothing ran.
         # It was released as a generic `claude_cli_exit_1` for five consecutive
         # nights (2026-08-04 → 08) while the whole judgment → consensus →
@@ -2545,13 +2621,15 @@ def main(argv: list[str] | None = None) -> int:
             + _redact_lease_in_message(str(exc), lease_token)
             + ". No agent ran, so no result was submitted.\n"
         )
-        _release_claim(
+        _release(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
             agent_id=agent_id, lease_token=lease_token,
             reason="claude_cli_auth_failure",
         )
         return 1
     except (ClaudeCliUnavailable, ClaudeCreditExhausted) as exc:
+        if terminal.failure is None:
+            terminal.failure = classify_dispatch_failure(exception=exc.__cause__ or exc, phase="runtime")
         sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")
         # ORPHAN-HIGH-489 — ClaudeCreditExhausted belongs here too. I added that
         # raise in ORPHAN-HIGH-475 so a quota notice could not be returned as
@@ -2573,7 +2651,7 @@ def main(argv: list[str] | None = None) -> int:
         # this comment claimed EVERY fail-fast branch in main() releases — a
         # reviewer flagged that as unverified, and it is narrowed here rather
         # than left as a claim nobody checked.)
-        _release_claim(
+        _release(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
             agent_id=agent_id, lease_token=lease_token,
             reason="claude_spawn_refused",
@@ -2604,7 +2682,7 @@ def main(argv: list[str] | None = None) -> int:
             # domain, terminal state, requeue budget untouched.
             record_cancel_outcome(request_id, outcome=_spawn_control.cancel_signal or "sigterm", base_dir=tools_dir,
                                   detail={"claim_id": claim_id, "cli_exit": cli_exit, "events_seen": _spawn_control.events_seen})
-        _release_claim(
+        _release(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
             agent_id=agent_id, lease_token=lease_token,
             reason=(OPERATOR_CANCELLED_RELEASE_REASON if _spawn_control.cancelled else f"claude_cli_exit_{cli_exit}"),
@@ -2683,12 +2761,13 @@ def main(argv: list[str] | None = None) -> int:
             # generic `plan_content_invalid` rejection that pre-V8.13
             # surfaced. The release_claim helper also takes care of
             # lease-token discipline + governance attribution.
-            _release_claim(
+            _release(
                 tools_dir=tools_dir, repo=repo, claim_id=claim_id,
                 agent_id=agent_id, lease_token=lease_token,
                 reason=f"agent_refused:{_reason_class}",
             )
-            return 0  # refusal is a legitimate terminal — not a build failure
+            terminal.refuse("agent_refused")
+            return 0
     if isinstance(_envelope_for_validation, dict):
         # Plan ARIA-V8.4 — auto-fill missing canonical plan_content
         # fields from compatible sources within the envelope before
@@ -2741,7 +2820,7 @@ def main(argv: list[str] | None = None) -> int:
                 _release_reason = "judge_verdict_contract_violation"
             else:
                 _release_reason = f"plan_content_invalid:{','.join(validation_errors)[:160]}"
-            _release_claim(
+            _release(
                 tools_dir=tools_dir, repo=repo, claim_id=claim_id,
                 agent_id=agent_id, lease_token=lease_token,
                 reason=_release_reason,
@@ -2756,9 +2835,11 @@ def main(argv: list[str] | None = None) -> int:
             # and, through the drain's `0 if failed == 0 else 1`, painted a
             # 10-of-11 night RED — the honest-partial-red class ORPHAN-716
             # closed for the meta-watchdog, still open here.
+            terminal.refuse("response_schema_rejected")
             return 0
         _stage("pre_submit_validation_passed")
 
+    terminal.phase = "submit"
     _stage("submit_step_begin claim=" + claim_id)
     # Step 4 — submit through the kernel CLI; lease-token via env var.
     # ORPHAN-HIGH-081 — bounded timeout + survivable claim release on hang.
@@ -2815,13 +2896,16 @@ def main(argv: list[str] | None = None) -> int:
             timeout=SUBMIT_RESULT_TIMEOUT_SECONDS,
         )
     except subprocess.TimeoutExpired as exc:
+        terminal.failure = classify_dispatch_failure(exception=exc, phase="submit")
+        if _reconcile_accepted_result(terminal, tools_dir=tools_dir):
+            return 1
         _stage(f"submit_TIMEOUT after={SUBMIT_RESULT_TIMEOUT_SECONDS}s — releasing claim survivably")
         sys.stderr.write(
             f"submit-result hung past {SUBMIT_RESULT_TIMEOUT_SECONDS}s; "
             f"partial stdout={(exc.stdout or '')[:200]!r} "
             f"partial stderr={_redact_lease_in_message(exc.stderr or '', lease_token)[:200]!r}\n"
         )
-        _release_claim(
+        _release(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
             agent_id=agent_id, lease_token=lease_token,
             reason=f"submit_timeout_{SUBMIT_RESULT_TIMEOUT_SECONDS}s",
@@ -2829,6 +2913,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     _stage(f"submit_step_done rc={submit_proc.returncode}")
     if submit_proc.returncode != 0:
+        terminal.failure = DispatchFailure("response_schema_rejected", False, "submit_rejected", "submit")
+        if _reconcile_accepted_result(terminal, tools_dir=tools_dir):
+            return 1
         # STDOUT as well as stderr, and this is the whole point: the kernel CLI
         # prints a refusal as JSON on STDOUT and returns nonzero, leaving
         # stderr EMPTY. Forwarding only stderr produced a log that said
@@ -2854,13 +2941,24 @@ def main(argv: list[str] | None = None) -> int:
         # its claim forever — the request could never be retried by anyone.
         # Runaway retries are already bounded: DEFAULT_MAX_REQUEUES caps the
         # requeue count and the state then derives HUMAN_REQUIRED.
-        _release_claim(
+        _release(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
             agent_id=agent_id, lease_token=lease_token,
             reason="submit_rejected",
         )
         return 1
+    try:
+        submitted = json.loads(submit_proc.stdout)
+    except (json.JSONDecodeError, TypeError):
+        submitted = None
+    if not _accept_submitted_result(terminal, submitted):
+        terminal.failure = DispatchFailure("response_schema_rejected", False, "submit_receipt_invalid", "submit")
+        if not _reconcile_accepted_result(terminal, tools_dir=tools_dir):
+            _release(tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+                     agent_id=agent_id, lease_token=lease_token, reason="submit_receipt_invalid")
+        return 1
     return 0
+
 
 
 if __name__ == "__main__":

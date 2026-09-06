@@ -105,9 +105,11 @@ class InvokeClaudeCodeSignatureTests(unittest.TestCase):
     def test_i_v31_d3_03_main_callsite_threads_request_envelope_and_tools_dir(self) -> None:
         ci_executor = _load_ci_executor()
         main_src = inspect.getsource(ci_executor.main)
-        self.assertIn("request_envelope=request_envelope", main_src,
+        self.assertIn("_run_claimed_attempt(", main_src)
+        lifecycle_src = inspect.getsource(ci_executor._run_claimed_attempt)
+        self.assertIn("request_envelope=request_envelope", lifecycle_src,
                       "main() does not thread request_envelope to invoke_claude_cli")
-        self.assertIn("tools_dir=tools_dir", main_src,
+        self.assertIn("tools_dir=tools_dir", lifecycle_src,
                       "main() does not thread tools_dir to invoke_claude_cli")
 
 

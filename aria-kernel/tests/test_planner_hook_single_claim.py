@@ -240,7 +240,13 @@ class SingleClaimMainEntryTests(_SingleClaimBase):
 
         def fake_run(argv, *args, **kwargs):
             captured.append(tuple(argv))
-            return MagicMock(returncode=0, stdout="{}", stderr="")
+            self.assertIn("submit-result", argv)
+            return MagicMock(returncode=0, stdout=json.dumps({
+                "status": "accepted", "row": {
+                    "request_id": self.req["request_id"],
+                    "claim_id": argv[argv.index("--claim-id") + 1],
+                },
+            }), stderr="")
 
         with patch.dict(os.environ, env_patch):
             with patch("ci_executor.subprocess.run", fake_run):
@@ -299,7 +305,13 @@ class SingleClaimMainEntryTests(_SingleClaimBase):
                     stdout=json.dumps(claim_payload),
                     stderr="",
                 )
-            return MagicMock(returncode=0, stdout="{}", stderr="")
+            self.assertIn("submit-result", argv)
+            return MagicMock(returncode=0, stdout=json.dumps({
+                "status": "accepted", "row": {
+                    "request_id": self.req["request_id"],
+                    "claim_id": argv[argv.index("--claim-id") + 1],
+                },
+            }), stderr="")
 
         with patch.dict(
             os.environ, env_patch, clear=False,
@@ -336,7 +348,13 @@ class SingleClaimArgvSafetyTests(_SingleClaimBase):
 
         def fake_run(argv, *args, **kwargs):
             captured.append(tuple(argv))
-            return MagicMock(returncode=0, stdout="{}", stderr="")
+            self.assertIn("submit-result", argv)
+            return MagicMock(returncode=0, stdout=json.dumps({
+                "status": "accepted", "row": {
+                    "request_id": self.req["request_id"],
+                    "claim_id": argv[argv.index("--claim-id") + 1],
+                },
+            }), stderr="")
 
         with patch.dict(os.environ, env_patch):
             with patch("ci_executor.subprocess.run", fake_run):

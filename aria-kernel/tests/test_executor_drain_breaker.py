@@ -62,8 +62,11 @@ def _summary(
     exit_code: int | None = None,
 ) -> dict:
     return {
-        "$schema": "aria/dispatch-result/v1",
-        "schema_version": 1,
+        "$schema": "aria/dispatch-result/v2",
+        "schema_version": 2,
+        "phase": "submit",
+        "disposition": "result_accepted" if outcome == "succeeded" else "released",
+        "process_exit_code": 0 if outcome == "succeeded" else exit_code,
         "request_id": request_id,
         "role": role,
         "target_agent": target_agent,
@@ -94,6 +97,8 @@ class _DrainHarness:
         self.governance_rows: list[tuple[str, dict]] = []
         self.breaker_records: list[dict] = []
         self.breaker_state = "ok"
+        self.receipt_mutation = lambda receipt: receipt
+        self.duplicate_receipt = False
         self._tmp = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmp.name)
 
@@ -116,10 +121,15 @@ class _DrainHarness:
         child_output = Path(kwargs["env"]["GITHUB_OUTPUT"])
         rc = self.child_returncodes.get(request_id, 0 if summary and summary["outcome"] == "succeeded" else 1)
         if summary is not None:
+            summary = dict(summary, attempt_id=kwargs["env"].get("ARIA_DISPATCH_ATTEMPT_ID", "attempt-before-fix"),
+                           claim_id=f"claim-{request_id}",
+                           exit_code=summary["exit_code"] if summary["exit_code"] is not None else rc)
+            summary = self.receipt_mutation(summary)
             summary_path = self.tmp / f"dispatch-result-{request_id}.json"
             summary_path.write_text(json.dumps(summary), encoding="utf-8")
             child_output.write_text(
-                f"dispatch_summary_path={summary_path}\n", encoding="utf-8",
+                f"dispatch_claim_id=claim-{request_id}\n"
+                + f"dispatch_summary_path={summary_path}\n" * (2 if self.duplicate_receipt else 1), encoding="utf-8",
             )
         return _FakeProc(returncode=rc)
 
@@ -127,7 +137,7 @@ class _DrainHarness:
         tools_dir = self.tmp / "aria-tools"
         tools_dir.mkdir(parents=True, exist_ok=True)
         gov = self.governance_rows.append
-        with patch.object(
+        with patch.dict(os.environ, {"RUNNER_TEMP": str(self.tmp)}), patch.object(
             ci_executor_drain.subprocess, "run", side_effect=self._fake_run,
         ), patch.object(
             ci_executor_drain, "_record_breaker_failure",
@@ -171,6 +181,60 @@ _SHA_B = "b" * 40
 
 
 class SameRunCircuitTests(unittest.TestCase):
+    def test_process_success_cannot_override_child_submit_failure(self) -> None:
+        h = _DrainHarness(queue=[_row("AIR-1")], summaries={"AIR-1": _summary(request_id="AIR-1", outcome="succeeded")}, child_returncodes={"AIR-1": 1})
+        try:
+            self.assertEqual(h.run_drain(), 1)
+            self.assertEqual(h.payload()["succeeded"], 0)
+        finally:
+            h.close()
+
+    def test_missing_summary_with_zero_exit_is_not_success(self) -> None:
+        h = _DrainHarness(queue=[_row("AIR-1")], summaries={}, child_returncodes={"AIR-1": 0})
+        try:
+            self.assertEqual(h.run_drain(), 1)
+            self.assertEqual(h.payload()["succeeded"], 0)
+        finally:
+            h.close()
+
+    def test_refusal_requires_confirmed_release(self) -> None:
+        for disposition in ("unresolved", "release_failed"):
+            h = _DrainHarness(queue=[_row("AIR-1")], summaries={"AIR-1": _summary(request_id="AIR-1", outcome="refused")})
+            h.receipt_mutation = lambda receipt: {**receipt, "disposition": disposition}
+            try:
+                self.assertEqual(h.run_drain(), 1)
+                self.assertEqual(h.payload()["failed"], 1)
+            finally:
+                h.close()
+
+    def test_malformed_stale_and_duplicate_receipts_are_not_admitted(self) -> None:
+        mutations = [
+            lambda r: [], lambda r: {**r, "$schema": "aria/dispatch-result/v1"},
+            lambda r: {**r, "attempt_id": "old-attempt"},
+            lambda r: {**r, "request_id": "AIR-other"},
+            lambda r: {**r, "claim_id": "old-claim"},
+            lambda r: {**r, "exit_code": 1},
+            lambda r: {**r, "disposition": "released"},
+            lambda r: {k: v for k, v in r.items() if k != "failure_detail_code"},
+            lambda r: {**r, "process_exit_code": False},
+        ]
+        for mutate in mutations:
+            with self.subTest(mutation=mutate):
+                h = _DrainHarness(queue=[_row("AIR-1")], summaries={"AIR-1": _summary(request_id="AIR-1", outcome="succeeded")})
+                h.receipt_mutation = mutate
+                try:
+                    self.assertEqual(h.run_drain(), 1)
+                    self.assertEqual(h.payload()["succeeded"], 0)
+                finally:
+                    h.close()
+        h = _DrainHarness(queue=[_row("AIR-1")], summaries={"AIR-1": _summary(request_id="AIR-1", outcome="succeeded")})
+        h.duplicate_receipt = True
+        try:
+            self.assertEqual(h.run_drain(), 1)
+            self.assertEqual(h.payload()["succeeded"], 0)
+        finally:
+            h.close()
+
     def test_non_retryable_provider_failure_opens_same_run_circuit(self) -> None:
         h = _DrainHarness(
             queue=[_row("AIR-1"), _row("AIR-2")],

@@ -10,6 +10,8 @@ summary, and the dispatch-route contract before any executor is wired.
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 import re
 import subprocess
 import sys
@@ -230,6 +232,20 @@ class SummaryWireShapeTests(unittest.TestCase):
             role="implementation",
             target_agent="aria-implementer",
         )
+
+    def test_final_receipt_is_immutable_and_attempt_bound(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {"RUNNER_TEMP": tmp, "GITHUB_OUTPUT": str(Path(tmp) / "output")}):
+            kwargs = dict(route=self._route(), request_id="AIR-1", claim_id="claim-1", attempt_id="attempt-1",
+                          outcome="succeeded", failure=None, phase="submit", disposition="result_accepted",
+                          process_exit_code=0, exit_code=0)
+            path = dispatch_failure.emit_final_dispatch_result(**kwargs)
+            original = path.read_bytes()
+            receipt = json.loads(original)
+            self.assertTrue(dispatch_failure.validate_final_dispatch_result(receipt, request_id="AIR-1", claim_id="claim-1", attempt_id="attempt-1", exit_code=0))
+            self.assertFalse(dispatch_failure.validate_final_dispatch_result(receipt, request_id="AIR-1", claim_id="claim-1", attempt_id="attempt-2", exit_code=0))
+            with self.assertRaises(FileExistsError):
+                dispatch_failure.emit_final_dispatch_result(**kwargs)
+            self.assertEqual(path.read_bytes(), original)
 
     def test_wire_shape_is_exactly_the_v1_contract(self) -> None:
         summary = build_dispatch_result_summary(

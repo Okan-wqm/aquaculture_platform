@@ -38,9 +38,10 @@
     "INFRA-CRITICAL-098",
     "INFRA-CRITICAL-100",
     "ADMIN-CRITICAL-087",
-    "MOB-CRITICAL-021",
     "SENSOR-CRITICAL-111",
-    "DEPLOY-CRITICAL-017"
+    "DEPLOY-CRITICAL-017",
+    "ORPHAN-CRITICAL-815",
+    "ORPHAN-CRITICAL-820"
   ],
   "agent_roster": [
     "architectural-arbiter",

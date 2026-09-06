@@ -106,11 +106,15 @@
             "sensor-service-gates",
             "sens-api-gateway-rust",
             "sens-enterprise-validation",
-            "hosted-validation"
+            "hosted-validation",
+            "authentication-proof",
+            "postgres-recovery-proof"
           ],
           "required_markers": [
             "Assert required PR checks",
-            "needs.hosted-validation.result"
+            "needs.hosted-validation.result",
+            "needs.authentication-proof.result",
+            "needs.postgres-recovery-proof.result"
           ]
         },
         {
@@ -134,13 +138,17 @@
             "sens-enterprise-validation",
             "sens-enterprise-summary",
             "merge-gate",
-            "hosted-validation"
+            "hosted-validation",
+            "authentication-proof",
+            "postgres-recovery-proof"
           ],
           "required_markers": [
             "name: build-status",
             "if: always()",
             "Affected validation passed",
-            "needs.hosted-validation.result"
+            "needs.hosted-validation.result",
+            "needs.authentication-proof.result",
+            "needs.postgres-recovery-proof.result"
           ]
         }
       ]

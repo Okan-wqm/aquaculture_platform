@@ -63,8 +63,15 @@ function git(args) {
 const args = process.argv.slice(2);
 const base = args[args.indexOf('--base') + 1];
 const head = args[args.indexOf('--head') + 1];
-if (!args.includes('--base') || !args.includes('--head') || !/^[0-9a-f]{40}$/.test(base) || !/^[0-9a-f]{40}$/.test(head)) {
-  process.stderr.write('aria-suite-changed: explicit immutable --base and --head SHAs are required.\n');
+if (
+  !args.includes('--base') ||
+  !args.includes('--head') ||
+  !/^[0-9a-f]{40}$/.test(base) ||
+  !/^[0-9a-f]{40}$/.test(head)
+) {
+  process.stderr.write(
+    'aria-suite-changed: explicit immutable --base and --head SHAs are required.\n',
+  );
   process.exit(1);
 }
 const changed = git(['diff', '--name-only', `${base}...${head}`, '--', ...ARIA_SURFACES]);
@@ -83,7 +90,10 @@ if (selected === null) {
   process.stdout.write(
     `aria-suite-changed: ${files.length} ARIA-surface file(s) changed since ${base}; running the FULL kernel suite${forceFull ? ' (ARIA_SUITE_FULL=1)' : ''}.\n`,
   );
-} else if (selected.size === 0 && files.some((f) => f.startsWith('scripts/ci/') || f === 'package.json')) {
+} else if (
+  selected.size === 0 &&
+  files.some((f) => f.startsWith('scripts/ci/') || f === 'package.json')
+) {
   // GATE SELF-VALIDATION (pinned by aria-doc-runtime-ssot's selector test):
   // a change to the selector or the runner itself runs the runner WITH NO
   // ARGUMENTS — the full suite — because next push is trusting this exact

@@ -245,9 +245,10 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-098`  | OPEN           | 2026-07-19   | security-reviewer          | real-open                 |
 | `INFRA-CRITICAL-100`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
 | `ADMIN-CRITICAL-087`  | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
-| `MOB-CRITICAL-021`    | OPEN           | 2026-09-05   | form-write-auditor         | already-fixed-needs-close |
 | `SENSOR-CRITICAL-111` | OPEN           | 2026-09-05   | sensor-expert              | real-open                 |
 | `DEPLOY-CRITICAL-017` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
+| `ORPHAN-CRITICAL-815` | IN-PROGRESS    | 2026-09-06   | codex / okan               | real-open                 |
+| `ORPHAN-CRITICAL-820` | IN-PROGRESS    | 2026-09-06   | codex / okan               | real-open                 |
 
 ## Mutation Rules
 

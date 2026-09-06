@@ -24,11 +24,13 @@ import { fileURLToPath } from 'node:url';
 const gatesDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(gatesDir, '..', '..');
 
-const specs = ['tools/gates', 'tools/lint-gates'].flatMap((directory) =>
-  readdirSync(join(repoRoot, directory))
-    .filter((entry) => entry.endsWith('.spec.ts'))
-    .map((entry) => `${directory}/${entry}`),
-).sort();
+const specs = ['tools/gates', 'tools/lint-gates']
+  .flatMap((directory) =>
+    readdirSync(join(repoRoot, directory))
+      .filter((entry) => entry.endsWith('.spec.ts'))
+      .map((entry) => `${directory}/${entry}`),
+  )
+  .sort();
 
 if (specs.length === 0) {
   console.error('run-all: no gate specs found — the glob or the directory moved.');
@@ -39,10 +41,14 @@ const failed = [];
 for (const spec of specs) {
   const rel = spec;
   console.log(`--- ${rel}`);
-  const result = spawnSync(process.execPath, ['node_modules/ts-node/dist/bin.js', '--project', 'tools/gates/tsconfig.json', rel], {
-    cwd: repoRoot,
-    stdio: 'inherit',
-  });
+  const result = spawnSync(
+    process.execPath,
+    ['node_modules/ts-node/dist/bin.js', '--project', 'tools/gates/tsconfig.json', rel],
+    {
+      cwd: repoRoot,
+      stdio: 'inherit',
+    },
+  );
   if (result.status !== 0) failed.push(rel);
 }
 

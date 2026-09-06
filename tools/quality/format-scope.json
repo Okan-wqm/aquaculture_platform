@@ -34719,6 +34719,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/codex/2026-09-06-permanent-login-recovery.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/compliance-expert/2026-04-28-core-platform-review.md",
       "prettier_managed": true
     },
@@ -43328,6 +43334,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "scripts/ci/hosted-validation.inventory.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "scripts/ci/hosted-validation.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "scripts/ci/lib/compose-dummy-env.ts",
       "prettier_managed": true
     },
@@ -43353,6 +43371,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "scripts/ci/lint-changed-files.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "scripts/ci/local-hook.mjs",
       "prettier_managed": true
     },
     {

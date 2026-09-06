@@ -37,7 +37,9 @@ const receipt = {
 mkdirSync('artifacts/hosted-validation', { recursive: true });
 let failed = false;
 for (const gate of gates) {
-  const command = gate.command.map((arg) => arg.replaceAll('{base}', base).replaceAll('{head}', head));
+  const command = gate.command.map((arg) =>
+    arg.replaceAll('{base}', base).replaceAll('{head}', head),
+  );
   const started = Date.now();
   process.stdout.write(`::group::${gate.id} (${gate.selection})\n`);
   const result = spawnSync(command[0], command.slice(1), {
@@ -46,8 +48,18 @@ for (const gate of gates) {
   });
   process.stdout.write('::endgroup::\n');
   const success = result.status === 0 && !result.error;
-  receipt.gates.push({ id: gate.id, command, selection: gate.selection, success, exit_code: result.status, elapsed_ms: Date.now() - started });
-  writeFileSync(`artifacts/hosted-validation/${lane}.json`, `${JSON.stringify(receipt, null, 2)}\n`);
+  receipt.gates.push({
+    id: gate.id,
+    command,
+    selection: gate.selection,
+    success,
+    exit_code: result.status,
+    elapsed_ms: Date.now() - started,
+  });
+  writeFileSync(
+    `artifacts/hosted-validation/${lane}.json`,
+    `${JSON.stringify(receipt, null, 2)}\n`,
+  );
   if (!success) failed = true;
 }
 if (failed || receipt.gates.length !== gates.length) process.exit(1);

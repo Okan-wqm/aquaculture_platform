@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
+import { parse } from 'yaml';
 
 const REPO_ROOT = join(__dirname, '..', '..');
 const TPM_ACTION = '.github/actions/install-tpm-build-dependencies/action.yml';
@@ -31,10 +32,19 @@ describe('GitHub Actions TPM dependency SSoT', () => {
     const workflowText = WORKFLOWS.map(read).join('\n');
     const actionRefs = workflowText.match(new RegExp(ACTION_REF, 'g')) ?? [];
 
-    expect(actionRefs).toHaveLength(4);
+    expect(actionRefs).toHaveLength(5);
     expect(workflowText).not.toMatch(/sudo\s+apt-get\s+update/);
     expect(workflowText).not.toMatch(
       /apt-get\s+install\s+-y\s+--no-install-recommends\s+pkg-config\s+libtss2-dev/,
     );
+  });
+
+  it('installs TPM dependencies in the required hosted Rust lane', () => {
+    const workflow = parse(read(WORKFLOWS[0])) as {
+      jobs: Record<string, { steps: Array<{ uses?: string; if?: string }> }>;
+    };
+    const steps = workflow.jobs['hosted-validation'].steps;
+    expect(steps.filter((step) => step.uses === './.github/actions/install-tpm-build-dependencies'))
+      .toEqual([{ uses: './.github/actions/install-tpm-build-dependencies', if: "matrix.lane == 'rust'" }]);
   });
 });

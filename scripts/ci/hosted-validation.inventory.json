@@ -228,6 +228,17 @@
         "{head}"
       ],
       "hosted_owner": "ci-affected.yml:hosted-validation"
+    },
+    {
+      "id": "test-proof-report-contract",
+      "lane": "policy",
+      "selection": "always",
+      "command": [
+        "node",
+        "--test",
+        "scripts/ci/test-proof-report.spec.mjs"
+      ],
+      "hosted_owner": "ci-affected.yml:hosted-validation"
     }
   ]
 }

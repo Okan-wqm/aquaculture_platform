@@ -682,15 +682,19 @@ describe('ARIA live runtime/documentation SSoT', () => {
       );
       writeExecutable(join(probeDir, 'bash'), 'printf \'%s\\n\' "$@" > "$ARIA_BASH_PROBE"');
 
-      execFileSync(process.execPath, ['scripts/ci/aria-suite-changed.mjs', '--base', 'a'.repeat(40), '--head', 'b'.repeat(40)], {
-        cwd: REPO_ROOT,
-        env: {
-          ...process.env,
-          ARIA_BASH_PROBE: bashLog,
-          ARIA_DIFF_PROBE: diffLog,
-          PATH: `${probeDir}:${process.env.PATH ?? ''}`,
+      execFileSync(
+        process.execPath,
+        ['scripts/ci/aria-suite-changed.mjs', '--base', 'a'.repeat(40), '--head', 'b'.repeat(40)],
+        {
+          cwd: REPO_ROOT,
+          env: {
+            ...process.env,
+            ARIA_BASH_PROBE: bashLog,
+            ARIA_DIFF_PROBE: diffLog,
+            PATH: `${probeDir}:${process.env.PATH ?? ''}`,
+          },
         },
-      });
+      );
 
       const diffArgs = readFileSync(diffLog, 'utf8').trim().split('\n');
       expect(diffArgs).toContain(`${'a'.repeat(40)}...${'b'.repeat(40)}`);

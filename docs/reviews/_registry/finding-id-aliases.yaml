@@ -227,3 +227,16 @@ aliases:
       before main allocated sequence 105 of the same domain to SENSOR-HIGH-105. The allocator treats the
       sequence as the identity, so the branch's row was re-registered as SENSOR-CRITICAL-110 when the branch
       took main; the merged commits still name the id the review file was written with.
+  - alias: FARM-HIGH-301
+    canonical: FARM-HIGH-318
+    review_file: docs/reviews/contract-parity-enforcer/2026-09-05-mobile-read-contract-drift.md
+    commits:
+      - '0e5e2ce89'
+    effective_date: '2026-09-06'
+    reason: >
+      Registered as FARM-HIGH-301 on the Faz 3 branch (claude/mobile-graphql-contract-0jj9jg, PR #1424)
+      before main allocated sequence 301 of the same domain to FARM-MEDIUM-301. The allocator treats the
+      sequence as the identity, so the branch's row was re-registered as FARM-HIGH-318 when the branch
+      took main; the merged commit still names the id the review file was written with. FARM-HIGH-301
+      itself is not a live ledger id, so the trailer resolves through this alias rather than shadowing
+      another finding.

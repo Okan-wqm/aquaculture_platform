@@ -23,6 +23,10 @@ trailers; the branch's merge ceremony commit carries the right-hand ids.
 | `MSG-HIGH-078`                 | `MSG-HIGH-080`             |
 | `FARM-HIGH-301`                | `FARM-HIGH-318`            |
 
+- **FARM-HIGH-301** — recorded in `docs/reviews/_registry/finding-id-aliases.yaml` as an alias of
+  `FARM-HIGH-318`. `MSG-HIGH-078` cannot be aliased the same way: main carries a live finding under
+  that exact id, and an alias may not shadow one.
+
 ## MSG-HIGH-080 — Message.metadata is accepted, stored and pushed over WS, but not readable through GraphQL
 
 **Severity:** HIGH

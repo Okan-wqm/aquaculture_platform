@@ -157,8 +157,8 @@ Updated 2026-09-03 (farm + AquaMobil agent audit merge, PR #1243): the
 2026-08-16 audit cycle raised `MOB-CRITICAL-018` (AquaMobil water-quality submit
 sent a `parameters` field the farm-service input no longer declares). The same
 branch fixes it by letting GraphQL codegen own the input type and pins the
-invariant with `tests/invariants/aquamobil-graphql-contract-ssot.spec.ts` (PR
-#1424 replaced the mirror-parity backstop with it — see below), so it is
+invariant with `tests/invariants/aquamobil-graphql-contract-ssot.spec.ts`
+(PR #1424 replaced the mirror-parity backstop with it — see below), so it is
 `already-fixed-needs-close` until the post-merge close ceremony records a
 main-reachable closing commit.
 

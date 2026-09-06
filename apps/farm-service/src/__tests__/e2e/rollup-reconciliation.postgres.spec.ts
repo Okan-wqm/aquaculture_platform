@@ -87,9 +87,15 @@ import { FarmOutbox } from '../../outbox/farm-outbox.entity';
 import { Species } from '../../species/entities/species.entity';
 import { Site } from '../../site/entities/site.entity';
 import { Tank } from '../../tank/entities/tank.entity';
-import { createFarmTenantFixture, createFixtureBatchService } from './helpers/farm-tenant-fixture';
+import {
+  createFarmTenantFixture,
+  createFixtureBatchWriters,
+  FIXTURE_ENTITIES,
+  FIXTURE_TENANT_TABLES,
+} from './helpers/farm-tenant-fixture';
 import {
   createFarmOutboxTable,
+  createFarmStockReadModelTables,
   createTenantSchemaFromSource,
 } from './helpers/tenant-schema-harness';
 
@@ -102,14 +108,7 @@ const ASSIGNMENT_ID = '22222222-2222-4222-8222-222222222222';
 const FEED_ID = '66666666-6666-4666-8666-666666666666';
 
 const TENANT_BUSINESS_TABLES = [
-  'sites',
-  'departments',
-  'tanks',
-  'species',
-  'batches_v2',
-  'batch_documents',
-  'tank_allocations',
-  'tank_batches',
+  ...FIXTURE_TENANT_TABLES,
   'tank_operations',
   'feeding_protocols_v2',
   'feeding_protocol_assignments',
@@ -181,20 +180,14 @@ describe('DAILY rollup reconciliation — real Postgres', () => {
       ...pg.connectionOptions,
       name: `farm-service-rollup-${randomBytes(4).toString('hex')}`,
       entities: [
-        Site,
-        Department,
-        Tank,
-        Species,
-        Batch,
-        BatchDocument,
-        TankAllocation,
-        TankBatch,
+        // The fixture's production writers declare what they need; this suite
+        // adds only what IT needs on top (FARM-HIGH-109).
+        ...FIXTURE_ENTITIES,
         TankOperation,
         FeedingProtocolV2,
         ProtocolAssignment,
         FeedingDayPlan,
         FeedingMeal,
-        FarmOutbox,
       ],
       synchronize: true,
       logging: false,
@@ -202,6 +195,7 @@ describe('DAILY rollup reconciliation — real Postgres', () => {
     });
     await dataSource.initialize();
     await createFarmOutboxTable(dataSource);
+    await createFarmStockReadModelTables(dataSource);
 
     const TenantConnectionBootstrap = createTenantConnectionBootstrap('farm');
     new TenantConnectionBootstrap(dataSource).onModuleInit();
@@ -213,7 +207,7 @@ describe('DAILY rollup reconciliation — real Postgres', () => {
 
     const fixture = await createFarmTenantFixture(
       dataSource,
-      createFixtureBatchService(dataSource),
+      createFixtureBatchWriters(dataSource),
       {
         tenantId: TENANT,
         codePrefix: 'ROLLUP',

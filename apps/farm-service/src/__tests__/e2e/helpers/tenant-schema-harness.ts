@@ -9,6 +9,11 @@
  */
 import { DataSource } from 'typeorm';
 
+import { CreateFarmStockReadModel1800400000000 } from '../../../database/migrations/1800400000000-CreateFarmStockReadModel';
+import { AssertFarmStockBatchSnapshotMetadata1800500000000 } from '../../../database/migrations/1800500000000-AssertFarmStockBatchSnapshotMetadata';
+import { ExtendFarmStockReadModelFanout1800600000000 } from '../../../database/migrations/1800600000000-ExtendFarmStockReadModelFanout';
+import { AddFarmStockBatchSnapshotSpecies1805200000000 } from '../../../database/migrations/1805200000000-AddFarmStockBatchSnapshotSpecies';
+
 export async function createTenantSchemaFromSource(
   dataSource: DataSource,
   schema: string,
@@ -19,6 +24,55 @@ export async function createTenantSchemaFromSource(
     await dataSource.query(
       `CREATE TABLE "${schema}"."${table}" (LIKE "farm"."${table}" INCLUDING ALL)`,
     );
+  }
+}
+
+/**
+ * The farm-stock read model, in the SOURCE schema so it can be cloned per tenant.
+ *
+ * DERIVED, not mirrored: this runs the real migration classes rather than a
+ * hand-copy of their DDL. The read model is shaped by FOUR migrations, not one
+ * — `AddFarmStockBatchSnapshotSpecies` alone adds a `speciesId` column that
+ * `FarmStockProjectionService` writes — so a harness that copies the CREATE
+ * TABLE from the first migration is already wrong the day the second lands.
+ * That is the drift FARM-HIGH-316 names, reproduced here while writing this
+ * helper: the hand-copy failed with `column "speciesId" does not exist`.
+ *
+ * These tables are not TypeORM entities, so `synchronize: true` never creates
+ * them; a suite whose writes go through the real command handlers needs them
+ * because `refreshContainers` is part of the allocate/transfer path.
+ */
+export async function createFarmStockReadModelTables(dataSource: DataSource): Promise<void> {
+  // The migrations' DDL is tenant-relative (unqualified) and one default needs
+  // uuid-ossp, which db-migrate installs before any migration runs.
+  await dataSource.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"');
+  const queryRunner = dataSource.createQueryRunner();
+  // One of these migrations arms RLS, which `assertDbMigrateDdlAuthority`
+  // reserves for the provisioner. Granting it for the duration of the run and
+  // restoring it afterwards is the same scoped grant messaging-service's e2e
+  // setup uses (`apps/messaging-service/test/e2e-setup.ts`) — the harness IS
+  // standing in for db-migrate here, and the guard must stay armed for the
+  // handlers the suite then exercises.
+  const previousAuthority = process.env['DB_MIGRATE_DDL_AUTHORITY'];
+  process.env['DB_MIGRATE_DDL_AUTHORITY'] = '1';
+  try {
+    await queryRunner.connect();
+    await queryRunner.query('SET search_path TO "farm", public');
+    for (const migration of [
+      new CreateFarmStockReadModel1800400000000(),
+      new AssertFarmStockBatchSnapshotMetadata1800500000000(),
+      new ExtendFarmStockReadModelFanout1800600000000(),
+      new AddFarmStockBatchSnapshotSpecies1805200000000(),
+    ]) {
+      await migration.up(queryRunner);
+    }
+  } finally {
+    if (previousAuthority === undefined) {
+      Reflect.deleteProperty(process.env, 'DB_MIGRATE_DDL_AUTHORITY');
+    } else {
+      process.env['DB_MIGRATE_DDL_AUTHORITY'] = previousAuthority;
+    }
+    await queryRunner.release();
   }
 }
 

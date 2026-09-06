@@ -4,7 +4,10 @@
   "title": "NATS Per-Service Identity + ACL Registry",
   "description": "Single source of truth for NATS per-service authentication. Validates infrastructure/nats/services.yaml. Consumed by the CI invariant test nats-invariants.spec.ts.",
   "type": "object",
-  "required": ["version", "services"],
+  "required": [
+    "version",
+    "services"
+  ],
   "additionalProperties": false,
   "properties": {
     "version": {
@@ -24,7 +27,13 @@
   "definitions": {
     "service": {
       "type": "object",
-      "required": ["name", "application", "description", "publish", "subscribe"],
+      "required": [
+        "name",
+        "application",
+        "description",
+        "publish",
+        "subscribe"
+      ],
       "additionalProperties": false,
       "properties": {
         "name": {
@@ -52,7 +61,7 @@
           "items": {
             "$ref": "#/definitions/subject"
           },
-          "description": "Subjects this service is permitted to publish to. Must include $JS.API.> and _INBOX.> for JetStream + request-reply."
+          "description": "Explicit publish subjects. JetStream manager consumers require the exact $JS.API.INFO API; delivered-message replies use bounded responses permissions, never a shared inbox wildcard."
         },
         "subscribe": {
           "type": "array",
@@ -60,7 +69,31 @@
           "items": {
             "$ref": "#/definitions/subject"
           },
-          "description": "Subjects this service is permitted to subscribe to. Must include $JS.API.> and _INBOX.> for JetStream + request-reply."
+          "description": "Explicit subscribe subjects, including only this certificate identity's inbox and separately authorized domain inboxes. No global inbox subscription is permitted."
+        },
+        "responses": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "max",
+            "expires"
+          ],
+          "properties": {
+            "max": {
+              "type": "integer",
+              "enum": [
+                1,
+                2
+              ],
+              "description": "One terminal JetStream ACK or NAK per delivered message; unary Nest RPC responders allow a response plus a separately scheduled disposal frame."
+            },
+            "expires": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*s$",
+              "description": "Finite delivered-reply grant lifetime in seconds. The generator requires exact agreement with libs/backend-common/src/nats/nats-response-policy.json; runtime RPC timeout validation consumes that same policy."
+            }
+          },
+          "description": "Broker-scoped permission to answer only reply subjects of messages actually delivered to this connection. No unsolicited inbox publish or broad $JS.ACK permission."
         }
       }
     },

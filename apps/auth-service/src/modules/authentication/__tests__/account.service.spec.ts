@@ -1,4 +1,5 @@
 import { Role } from '@aquaculture/backend-common/decorators';
+import { verifyPassword } from '@aquaculture/backend-common/auth';
 import { SESSION_MANAGER } from '@aquaculture/backend-common/security';
 import { BadRequestException, Logger, UnauthorizedException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -12,6 +13,7 @@ import { User } from '../entities/user.entity';
 import { AccountService } from '../services/account.service';
 import { DurableUserTokenInvalidationService } from '../services/durable-user-token-invalidation.service';
 import { MfaService } from '../services/mfa.service';
+import { Tenant, TenantStatus } from '../../tenant/entities/tenant.entity';
 
 const createUser = (overrides: Partial<User> = {}): User => {
   const user = new User();
@@ -23,6 +25,8 @@ const createUser = (overrides: Partial<User> = {}): User => {
     role: Role.MODULE_USER,
     tenantId: '11111111-1111-4111-8111-111111111111',
     isActive: true,
+    credentialVersion: 1,
+    accessTokenInvalidBeforeEpochSeconds: 0,
     isEmailVerified: true,
     mfaEnabled: false,
     failedLoginAttempts: 0,
@@ -34,8 +38,9 @@ const createUser = (overrides: Partial<User> = {}): User => {
 };
 
 const userRepository = {
-  findOne: jest.fn(),
+  findOne: jest.fn<Promise<User | null>, [options?: unknown]>(),
   save: jest.fn((user: User) => Promise.resolve(user)),
+  update: jest.fn(),
 };
 
 const refreshTokenRepository = {
@@ -65,13 +70,22 @@ const mfaService = {
 };
 
 const transactionManager = {
+  queryRunner: { isTransactionActive: false },
+  findOne: jest.fn(),
+  update: jest.fn(),
   withRepository: jest.fn((repository: unknown) => repository),
 };
 
 const dataSource = {
   transaction: jest.fn(
-    async <T>(callback: (manager: typeof transactionManager) => Promise<T>): Promise<T> =>
-      callback(transactionManager),
+    async <T>(callback: (manager: typeof transactionManager) => Promise<T>): Promise<T> => {
+      transactionManager.queryRunner.isTransactionActive = true;
+      try {
+        return await callback(transactionManager);
+      } finally {
+        transactionManager.queryRunner.isTransactionActive = false;
+      }
+    },
   ),
 };
 
@@ -83,6 +97,34 @@ describe('AccountService', () => {
     mfaService.isMfaAvailable.mockReturnValue(true);
     mfaService.getMfaUnavailableReason.mockReturnValue(null);
     userRepository.save.mockImplementation((user: User) => Promise.resolve(user));
+    userRepository.findOne.mockResolvedValue(null);
+    userRepository.update.mockImplementation(async (_criteria: unknown, values: Partial<User>) => {
+      const current = await userRepository.findOne();
+      if (!current) throw new Error('Account update has no stored user');
+      const updated = Object.assign(new User(), current, values);
+      if (values.password !== undefined && values.password !== current.password) {
+        updated.credentialVersion = current.credentialVersion + 1;
+      }
+      userRepository.findOne.mockResolvedValue(updated);
+      return { affected: 1 };
+    });
+    transactionManager.findOne.mockImplementation((entity: unknown, options: unknown) => {
+      if (entity === User) return userRepository.findOne(options);
+      if (entity === Tenant)
+        return Promise.resolve(
+          Object.assign(new Tenant(), {
+            id: 'tenant-1',
+            status: TenantStatus.ACTIVE,
+          }),
+        );
+      throw new Error('Unexpected account identity lookup');
+    });
+    transactionManager.update.mockImplementation(
+      (entity: unknown, criteria: unknown, values: Partial<User>) => {
+        if (entity === User) return userRepository.update(criteria, values);
+        throw new Error('Unexpected account mutation');
+      },
+    );
     refreshTokenRepository.update.mockResolvedValue({ affected: 1 });
     durableUserTokenInvalidation.enqueue.mockResolvedValue(undefined);
     durableUserTokenInvalidation.applyImmediately.mockResolvedValue(undefined);
@@ -120,7 +162,14 @@ describe('AccountService', () => {
     expect(result.firstName).toBe('Grace');
     expect(result.lastName).toBe('Hopper');
     expect(result.email).toBe('user@example.com');
-    expect(userRepository.save).toHaveBeenCalledWith(user);
+    expect(userRepository.save).not.toHaveBeenCalled();
+    expect(userRepository.update).toHaveBeenCalledWith(
+      { id: user.id },
+      {
+        firstName: 'Grace',
+        lastName: 'Hopper',
+      },
+    );
   });
 
   it('rejects blank profile names', async () => {
@@ -148,9 +197,15 @@ describe('AccountService', () => {
       newPassword: 'NewPass1!',
     });
 
-    expect(user.password).toBe('NewPass1!');
+    const stored = await userRepository.findOne();
+    if (!stored || typeof stored.password !== 'string') {
+      throw new Error('Stored password missing after password change');
+    }
+    expect((await verifyPassword('NewPass1!', stored.password)).matched).toBe(true);
+    expect(stored.credentialVersion).toBe(user.credentialVersion + 1);
+    expect(userRepository.save).not.toHaveBeenCalled();
     expect(refreshTokenRepository.update).toHaveBeenCalledWith(
-      { userId: 'user-1', isRevoked: false },
+      { userId: 'user-1' },
       expect.objectContaining({ isRevoked: true, revokedReason: 'Password changed' }),
     );
     expect(durableUserTokenInvalidation.enqueue).toHaveBeenCalledWith(

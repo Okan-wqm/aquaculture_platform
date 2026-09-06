@@ -1,3 +1,4 @@
+import { parseNatsRequestTimeout } from '@aquaculture/backend-common/nats';
 import {
   HttpException,
   HttpStatus,
@@ -65,10 +66,11 @@ export class UserProvisioningService {
     @Inject('AUTH_NATS_CLIENT')
     private readonly authNatsClient: ClientProxy,
   ) {
-    const configured = parseInt(process.env['AUTH_NATS_TIMEOUT_MS'] ?? '', 10);
-    this.authNatsTimeoutMs = Number.isFinite(configured) && configured > 0
-      ? configured
-      : DEFAULT_AUTH_NATS_TIMEOUT_MS;
+    this.authNatsTimeoutMs = parseNatsRequestTimeout(
+      process.env['AUTH_NATS_TIMEOUT_MS'],
+      DEFAULT_AUTH_NATS_TIMEOUT_MS,
+      'AUTH_NATS_TIMEOUT_MS',
+    );
   }
 
   /**

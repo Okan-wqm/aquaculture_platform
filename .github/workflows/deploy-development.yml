@@ -100,11 +100,14 @@ jobs:
             cd /var/aqua-saas
             git fetch --force --prune origin
             install -d /var/lib/aqua/deploy
-            git show "${DEPLOY_SHA}:scripts/deploy/deploy-paths.sh" > /var/lib/aqua/deploy/deploy-paths.sh
-            source /var/lib/aqua/deploy/deploy-paths.sh
+            deploy_paths_bootstrap="$(mktemp /tmp/aqua-deploy-paths.XXXXXXXX)"
+            git show "${DEPLOY_SHA}:scripts/deploy/deploy-paths.sh" > "${deploy_paths_bootstrap}"
+            source "${deploy_paths_bootstrap}"
+            rm -- "${deploy_paths_bootstrap}"
+            export DEPLOY_ATTEMPT="${{ github.run_id }}-${{ github.run_attempt }}"
             materialize_deploy_checkout "${DEPLOY_SHA}"
             cd "${DEPLOY_CHECKOUT_DIR}"
-            CAPACITY_GC_MODE=auto bash scripts/deploy/droplet-capacity.sh gate
+            CAPACITY_GC_MODE=off bash scripts/deploy/droplet-capacity.sh gate
 
   deploy:
     needs: capacity-preflight
@@ -199,8 +202,11 @@ jobs:
             cd /var/aqua-saas
             git fetch --force --prune origin
             install -d /var/lib/aqua/deploy
-            git show "${DEPLOY_SHA}:scripts/deploy/deploy-paths.sh" > /var/lib/aqua/deploy/deploy-paths.sh
-            source /var/lib/aqua/deploy/deploy-paths.sh
+            deploy_paths_bootstrap="$(mktemp /tmp/aqua-deploy-paths.XXXXXXXX)"
+            git show "${DEPLOY_SHA}:scripts/deploy/deploy-paths.sh" > "${deploy_paths_bootstrap}"
+            source "${deploy_paths_bootstrap}"
+            rm -- "${deploy_paths_bootstrap}"
+            export DEPLOY_ATTEMPT="${{ github.run_id }}-${{ github.run_attempt }}"
             materialize_deploy_checkout "${DEPLOY_SHA}"
             cd "${DEPLOY_CHECKOUT_DIR}"
             bash scripts/deploy/droplet-up.sh

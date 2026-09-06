@@ -118,7 +118,8 @@ const AcceptInvitationForm: React.FC = () => {
         await publicGraphqlClient.request(
           `mutation AcceptInvitation($input: AcceptInvitationInput!) {
               acceptInvitation(input: $input) {
-                accessToken
+                success
+                loginRequired
               }
             }`,
           {

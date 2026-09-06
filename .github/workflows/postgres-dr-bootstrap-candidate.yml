@@ -337,7 +337,7 @@ jobs:
             --arg workflow "${WORKFLOW_PATH}" \
             --arg image "${IMAGE_REPOSITORY}" \
             '
-              .schema_version == 1 and
+              .schema_version == 2 and
               .finding_ids == ["INFRA-HIGH-073"] and
               .does_not_close_findings == ["INFRA-HIGH-033"] and
               .release.workflow == $workflow and
@@ -387,7 +387,8 @@ jobs:
               .bootstrap.pre_execution_signature_verification_required == true and
               .bootstrap.global_nonblocking_lock_required == true and
               .bootstrap.pinned_host_paths == {
-                deploy_root: "/var/lib/aqua/deploy/checkout",
+                deploy_root: "<release_root>/repository",
+                config_generations_root: "/var/lib/aqua/deploy/config-generations",
                 deploy_env_file: "/var/aqua-saas/.env",
                 state_root: "/var/lib/aqua/deploy/dr-bootstrap",
                 control_plane_lock: "/var/lib/aqua/deploy/control-plane.lock"
@@ -398,13 +399,23 @@ jobs:
               } and
               .bootstrap.state_machine == {
                 helper: "infrastructure/scripts/postgres-dr-bootstrap-state.sh",
+                schema_version: 2,
+                modes: ["healthy_upgrade", "degraded_legacy_recovery"],
+                recovery_helper: "infrastructure/scripts/postgres-dr-recovery.sh",
+                coordinator_helper: "infrastructure/scripts/postgres-dr-coordinator.sh",
+                verified_cold_copy_required: true,
+                baseline: "signed_candidate_walg_disabled_on_isolated_copy",
+                writer_quiescence: "record_and_stop_existing_compose_containers",
                 durable_phases: [
                   "VERIFYING",
                   "PREPARED",
                   "FORWARD_STARTED",
                   "ROLLBACK_STARTED",
                   "ROLLED_BACK",
-                  "COMMITTED"
+                  "COMMITTED",
+                  "RECOVERY_REQUIRED",
+                  "FINALIZING",
+                  "ROLLBACK_FINALIZING"
                 ],
                 exact_prior_recovery_required: true,
                 power_loss_reentry_required: true,
@@ -476,6 +487,15 @@ jobs:
             BUILD_MAIN_SHA=${{ github.sha }}
             POSTGRES_DR_CONTRACT_SHA256=${{ steps.contract.outputs.sha256 }}
 
+      - name: Prove recovery after entrypoint mutations on an isolated cluster
+        env:
+          POSTGRES_DR_TEST_IMAGE: ${{ env.IMAGE_REPOSITORY }}@${{ steps.build.outputs.digest }}
+        run: |
+          sudo --preserve-env=GITHUB_ACTIONS,GITHUB_SHA,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,POSTGRES_DR_TEST_IMAGE \
+            bash scripts/ci/test-postgres-dr-recovery.sh
+          sudo --preserve-env=GITHUB_ACTIONS,GITHUB_SHA,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,POSTGRES_DR_TEST_IMAGE \
+            bash scripts/ci/test-postgres-dr-coordinator.sh
+
       - name: Assemble unsigned candidate
         env:
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
@@ -499,6 +519,8 @@ jobs:
           release-workflow	.github/workflows/postgres-dr-bootstrap-candidate.yml
           provider-console-bootstrap	infrastructure/scripts/provider-console-bootstrap-postgres-walg.sh
           provider-state-machine	infrastructure/scripts/postgres-dr-bootstrap-state.sh
+          provider-recovery-point	infrastructure/scripts/postgres-dr-recovery.sh
+          provider-coordinator	infrastructure/scripts/postgres-dr-coordinator.sh
           production-compose	docker-compose.droplet.yml
           postgres-rollback-compose	infrastructure/deploy/postgres-dr-bootstrap-rollback.override.yml
           postgres-image-policy	.github/manifests/postgres-image.json

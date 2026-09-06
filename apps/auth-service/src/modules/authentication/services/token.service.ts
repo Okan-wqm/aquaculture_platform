@@ -3,18 +3,18 @@ import * as crypto from 'crypto';
 import { getActiveSigningKid } from '@aquaculture/backend-common/auth';
 import { Role } from '@aquaculture/backend-common/decorators';
 import {
-  ISessionManager,
+  ITokenBlacklist,
+  TOKEN_BLACKLIST,
   IUserTokenRevocation,
-  SESSION_MANAGER,
   USER_TOKEN_REVOCATION,
 } from '@aquaculture/backend-common/security';
-import { Injectable, Logger, Optional, Inject, ForbiddenException } from '@nestjs/common';
+import { Injectable, Logger, Inject, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { TenantPlan, PLAN_LEVEL } from '@platform/event-contracts';
 import * as bcrypt from 'bcryptjs';
-import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 
 import { parseHashRefreshTokens } from '../../../config/hash-refresh-tokens';
 import { parseAccessTokenLifetimeSeconds } from '../../../config/jwt-lifetime';
@@ -30,6 +30,11 @@ import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { UserSiteAssignment } from '../entities/user-site-assignment.entity';
 import { User } from '../entities/user.entity';
+import {
+  CredentialProof,
+  LockedAuthContext,
+  withLockedCredentialPrincipal,
+} from './credential-state';
 import { readEffectiveUserSiteAssignments } from './user-site-assignment-reader';
 
 /**
@@ -114,17 +119,21 @@ interface AssignedSiteSnapshot {
   earliestExpiryEpochSeconds?: number;
 }
 
-interface GenerateTokensOptions {
+export interface GenerateTokensOptions {
   mfaVerified?: boolean;
   familyId?: string;
   rememberMe?: boolean;
-  manager?: EntityManager;
   establishSession?: boolean;
 }
 
 interface LockedGenerateTokensOptions extends GenerateTokensOptions {
   manager: EntityManager;
+  originatingSession?: OriginatingAccessSession;
 }
+
+export type OriginatingAccessSession = Required<
+  Pick<JwtPayload, 'sub' | 'role' | 'tenantId' | 'jti' | 'iat' | 'exp'>
+>;
 
 /**
  * Parse a time-duration string (e.g. '15m', '1h', '7d') into seconds.
@@ -152,8 +161,6 @@ export class TokenService {
   private readonly maxSessionsPerUser: number;
 
   constructor(
-    @InjectRepository(User)
-    private readonly userRepository: Repository<User>,
     @InjectRepository(RefreshToken)
     private readonly refreshTokenRepository: Repository<RefreshToken>,
     @InjectRepository(UserModuleAssignment)
@@ -168,7 +175,7 @@ export class TokenService {
     private readonly mobileSettingsService: MobileSettingsService,
     @Inject(USER_TOKEN_REVOCATION)
     private readonly userTokenRevocation: IUserTokenRevocation,
-    @Optional() @Inject(SESSION_MANAGER) private readonly sessionManager?: ISessionManager,
+    @Inject(TOKEN_BLACKLIST) private readonly tokenBlacklist: ITokenBlacklist,
   ) {
     this.refreshTokenExpiryDays = this.configService.get<number>(
       'REFRESH_TOKEN_EXPIRY_DAYS',
@@ -179,10 +186,15 @@ export class TokenService {
       SECURITY_CONSTANTS.DEFAULT_REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS,
     );
     this.hashRefreshTokens = parseHashRefreshTokens(this.configService);
-    this.maxSessionsPerUser = this.configService.get<number>(
-      'MAX_SESSIONS_PER_USER',
-      SECURITY_CONSTANTS.DEFAULT_MAX_SESSIONS_PER_USER,
+    this.maxSessionsPerUser = Number(
+      this.configService.get<number>(
+        'MAX_SESSIONS_PER_USER',
+        SECURITY_CONSTANTS.DEFAULT_MAX_SESSIONS_PER_USER,
+      ),
     );
+    if (!Number.isSafeInteger(this.maxSessionsPerUser) || this.maxSessionsPerUser < 1) {
+      throw new RangeError('MAX_SESSIONS_PER_USER must be a positive integer');
+    }
   }
 
   /**
@@ -192,40 +204,65 @@ export class TokenService {
    * returns a full AuthPayload ready for the client.
    */
   async generateTokens(
-    user: User,
+    proof: CredentialProof,
     ipAddress?: string,
     userAgent?: string,
-    options?: GenerateTokensOptions,
+    options: GenerateTokensOptions = {},
   ): Promise<AuthPayload> {
-    const mintUnderUserFence = async (manager: EntityManager): Promise<AuthPayload> => {
-      // Canonical credential lock order: every RefreshToken INSERT takes the
-      // stable User row first. Snapshot fields are part of the predicate so a
-      // password/role/tenant/deactivation mutation that committed after the
-      // caller authenticated makes this mint fail closed instead of issuing a
-      // token from stale authorization state.
-      const lockedPrincipal = await manager.withRepository(this.userRepository).findOne({
-        select: { id: true },
-        where: {
-          id: user.id,
-          role: user.role,
-          tenantId: user.tenantId ?? IsNull(),
-          isActive: true,
-          ...(user.updatedAt ? { updatedAt: user.updatedAt } : {}),
-        },
-        lock: { mode: 'pessimistic_write' },
-      });
-      if (!lockedPrincipal) {
-        throw new ForbiddenException('User credentials changed during token issuance');
-      }
-      return this.generateTokensUnderUserFence(user, ipAddress, userAgent, {
-        ...options,
-        manager,
-      });
-    };
+    return withLockedCredentialPrincipal(this.dataSource, proof, (context) =>
+      this.generateTokensInContext(context, ipAddress, userAgent, options),
+    );
+  }
 
-    return options?.manager
-      ? mintUnderUserFence(options.manager)
-      : this.dataSource.transaction(mintUnderUserFence);
+  async generateTokensInContext(
+    context: LockedAuthContext,
+    ipAddress?: string,
+    userAgent?: string,
+    options: GenerateTokensOptions = {},
+  ): Promise<AuthPayload> {
+    context.assertSessionAdmission();
+    return this.generateTokensUnderUserFence(context.user, ipAddress, userAgent, {
+      ...options,
+      manager: context.manager,
+    });
+  }
+
+  async generateStepUpInContext(
+    context: LockedAuthContext,
+    origin: OriginatingAccessSession,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<AuthPayload> {
+    await this.assertOriginatingSessionInContext(context, origin);
+    const user = context.user;
+    return this.generateTokensUnderUserFence(user, ipAddress, userAgent, {
+      manager: context.manager,
+      establishSession: false,
+      mfaVerified: true,
+      originatingSession: origin,
+    });
+  }
+
+  async assertOriginatingSessionInContext(
+    context: LockedAuthContext,
+    origin: OriginatingAccessSession,
+  ): Promise<void> {
+    context.assertSessionAdmission();
+    const user = context.user;
+    if (
+      origin.sub !== user.id ||
+      origin.role !== user.role ||
+      origin.tenantId !== (user.tenantId ?? null) ||
+      !origin.jti ||
+      !Number.isSafeInteger(origin.iat) ||
+      !Number.isSafeInteger(origin.exp) ||
+      origin.exp <= Math.floor(Date.now() / 1000) ||
+      origin.iat <= user.accessTokenInvalidBeforeEpochSeconds ||
+      !(await this.userTokenRevocation.isTokenValid(user.id, new Date(origin.iat * 1000))) ||
+      (await this.tokenBlacklist.isBlacklisted(origin.jti))
+    ) {
+      throw new ForbiddenException('Originating session is no longer valid');
+    }
   }
 
   private async generateTokensUnderUserFence(
@@ -248,14 +285,13 @@ export class TokenService {
       );
     }
 
-    const issuedAtEpochSeconds = await this.resolveIssuableEpochSeconds(user.id);
+    const issuedAtEpochSeconds =
+      options.originatingSession?.iat ?? (await this.resolveIssuableEpochSeconds(user));
     const establishSession = options?.establishSession ?? true;
 
-    // Rotation already belongs to an established session. Only fresh login
-    // paths enforce/create a session; otherwise every refresh would consume a
-    // new slot and could evict the very session being rotated.
-    if (this.sessionManager && establishSession) {
-      await this.sessionManager.enforceSessionLimit(user.id, this.maxSessionsPerUser);
+    // The User lock serializes durable refresh-family admission with every revocation.
+    if (establishSession && !options.originatingSession) {
+      await this.enforceRefreshFamilyLimit(options.manager, user.id);
     }
 
     // PERF (PERF-HIGH-003): the refresh-token random bytes are independent of
@@ -265,34 +301,45 @@ export class TokenService {
     // instead of serially after them. When HASH_REFRESH_TOKENS is off the raw
     // value is wrapped in an already-resolved promise so the await below is a
     // no-op — semantics are preserved either way.
-    const refreshTokenId = this.hashRefreshTokens ? crypto.randomUUID() : undefined;
+    const refreshTokenId =
+      this.hashRefreshTokens && !options.originatingSession ? crypto.randomUUID() : undefined;
     const refreshTokenRandom = crypto.randomBytes(64).toString('hex');
     const transportedRefreshSecret = refreshTokenId
       ? `${refreshTokenId.replaceAll('-', '')}${refreshTokenRandom}`
       : refreshTokenRandom;
-    const tokenToStorePromise: Promise<string> = this.hashRefreshTokens
-      ? bcrypt.hash(transportedRefreshSecret, SECURITY_CONSTANTS.BCRYPT_SALT_ROUNDS)
-      : Promise.resolve(transportedRefreshSecret);
+    const tokenToStorePromise: Promise<string> =
+      this.hashRefreshTokens && !options.originatingSession
+        ? bcrypt.hash(transportedRefreshSecret, SECURITY_CONSTANTS.BCRYPT_SALT_ROUNDS)
+        : Promise.resolve(transportedRefreshSecret);
 
     // Hot-path reads run concurrently: the user's module codes, tenant-level
     // resource permissions, the tenant's plan-tier ordinal (the MT-MEDIUM-001
     // JWT claim), the user's assigned site ids (SEC-HIGH-051) and enabled mobile
-    // features (SEC-HIGH-052) are independent, so a single Promise.all keeps
+    // features (SEC-HIGH-052) and refresh hash are independent. Joining every
+    // promise here owns hash failures even when another authorization read fails.
+    // A single Promise.all keeps
     // token mint to one read latency instead of five serial round-trips.
-    const [modules, resourcePermissions, tenantPolicy, assignedSites, mobileFeatures] =
-      await Promise.all([
-        this.getUserModules(user),
-        this.getUserResourcePermissions(user),
-        this.resolveTenantTokenPolicy(effectiveTenantId),
-        this.getUserAssignedSites(user, issuedAtEpochSeconds, options.manager),
-        this.getUserMobileFeatures(user),
-      ]);
+    const [
+      modules,
+      resourcePermissions,
+      tenantPolicy,
+      assignedSites,
+      mobileFeatures,
+      tokenToStore,
+    ] = await Promise.all([
+      this.getUserModules(user, options.manager),
+      this.getUserResourcePermissions(user, options.manager),
+      this.resolveTenantTokenPolicy(effectiveTenantId, options.manager),
+      this.getUserAssignedSites(user, issuedAtEpochSeconds, options.manager),
+      this.getUserMobileFeatures(user, options.manager),
+      tokenToStorePromise,
+    ]);
     const moduleCodes = modules.map((m) => m.code);
     const planLevel = tenantPolicy.planLevel;
     const assignedSiteIds = assignedSites.siteIds;
 
     // Generate JWT ID for token blacklisting
-    const jti = crypto.randomUUID();
+    const jti = options.originatingSession?.jti ?? crypto.randomUUID();
 
     /**
      * SECURITY (H-08): JWT payload contains only non-PII identifiers.
@@ -338,23 +385,39 @@ export class TokenService {
       assignedSites.earliestExpiryEpochSeconds === undefined
         ? configuredExpiresInSeconds
         : assignedSites.earliestExpiryEpochSeconds - issuedAtEpochSeconds;
-    const expiresInSeconds = Math.min(configuredExpiresInSeconds, assignmentExpiresInSeconds);
+    const nowEpochSeconds = Math.floor(Date.now() / 1000);
+    const absoluteExpiry = options.originatingSession
+      ? Math.min(
+          options.originatingSession.exp,
+          nowEpochSeconds + 300,
+          nowEpochSeconds + configuredExpiresInSeconds,
+          assignedSites.earliestExpiryEpochSeconds ?? Number.MAX_SAFE_INTEGER,
+        )
+      : issuedAtEpochSeconds + Math.min(configuredExpiresInSeconds, assignmentExpiresInSeconds);
+    const expiresInSeconds = absoluteExpiry - nowEpochSeconds;
+    if (expiresInSeconds <= 0) throw new ForbiddenException('Access-token validity window elapsed');
+    payload.exp = absoluteExpiry;
 
     const accessToken = await this.jwtService.signAsync(payload, {
       audience: this.configService.get<string>('JWT_AUDIENCE', 'aquaculture-platform'),
       keyid: getActiveSigningKid(this.configService),
-      expiresIn: expiresInSeconds,
     });
+
+    if (options.originatingSession) {
+      return {
+        accessToken,
+        refreshToken: '',
+        user,
+        expiresIn: expiresInSeconds,
+        tokenType: 'Bearer',
+        redirectUrl: this.getRedirectUrl(user, modules),
+      };
+    }
 
     // SECURITY: Prefix refresh token with userId so the lookup can be scoped per-user.
     const refreshTokenValue = this.hashRefreshTokens
       ? `${user.id}:${transportedRefreshSecret}`
       : transportedRefreshSecret;
-
-    // PERF (PERF-HIGH-003): collect the bcrypt result started before the reads.
-    // By now the hash has run concurrently with the module/permission/plan
-    // round-trips, so this await is usually already-settled work.
-    const tokenToStore = await tokenToStorePromise;
 
     // SECURITY (SEC-MEDIUM-003): a fresh login starts a NEW token family; a
     // rotation (refresh) passes the rotated token's familyId so the lineage
@@ -399,21 +462,7 @@ export class TokenService {
       userAgent,
     });
 
-    // PERF (PERF-HIGH-003): the refresh-token row insert and the session
-    // creation are independent writes (the session limit was already enforced
-    // up front), so issue both concurrently and await together rather than
-    // serially. Order does not matter: neither depends on the other's result.
-    const persistPromises: Array<Promise<unknown>> = [refreshTokenRepository.save(refreshToken)];
-    if (this.sessionManager && establishSession) {
-      persistPromises.push(
-        this.sessionManager.createSession(user.id, {
-          ipAddress,
-          userAgent,
-          tenantId: user.tenantId ?? undefined,
-        }),
-      );
-    }
-    await Promise.all(persistPromises);
+    await refreshTokenRepository.save(refreshToken);
 
     // Determine redirect URL based on role
     const redirectUrl = this.getRedirectUrl(user, modules);
@@ -440,13 +489,16 @@ export class TokenService {
    * one second, so a synthetic future iat would be unsafe clock fabrication.
    * Instead, wait for the real next second and re-read the distributed marker.
    */
-  private async resolveIssuableEpochSeconds(userId: string): Promise<number> {
+  private async resolveIssuableEpochSeconds(user: User): Promise<number> {
     const maximumAttempts = 3;
     for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
       const now = Date.now();
       const issuedAtEpochSeconds = Math.floor(now / 1000);
       const issuedAt = new Date(issuedAtEpochSeconds * 1000);
-      if (await this.userTokenRevocation.isTokenValid(userId, issuedAt)) {
+      if (
+        issuedAtEpochSeconds > user.accessTokenInvalidBeforeEpochSeconds &&
+        (await this.userTokenRevocation.isTokenValid(user.id, issuedAt))
+      ) {
         return issuedAtEpochSeconds;
       }
       if (attempt === maximumAttempts - 1) {
@@ -462,11 +514,12 @@ export class TokenService {
 
   async getUserModules(
     user: User,
+    manager: EntityManager = this.dataSource.manager,
   ): Promise<Array<{ code: string; name: string; defaultRoute: string }>> {
     if (user.role === Role.SUPER_ADMIN) {
       // SUPER_ADMIN sees ALL active modules (platform-wide, not tenant-scoped).
       // Previous behavior returned [] which made the sidebar empty.
-      const allModules = await this.dataSource.query<
+      const allModules = await manager.query<
         Array<{ code: string; name: string; defaultRoute: string }>
       >(
         `SELECT code, name, "defaultRoute"
@@ -480,7 +533,7 @@ export class TokenService {
     let modules: Array<{ code: string; name: string; defaultRoute: string }>;
 
     if (user.role === Role.TENANT_ADMIN && user.tenantId) {
-      const tenantModules = await this.dataSource.query<TenantModuleRow[]>(
+      const tenantModules = await manager.query<TenantModuleRow[]>(
         `SELECT m.code, m.name, m."defaultRoute"
          FROM auth.tenant_modules tm
          JOIN auth.modules m ON tm."moduleId" = m.id
@@ -495,7 +548,7 @@ export class TokenService {
         defaultRoute: tm.defaultRoute,
       }));
     } else {
-      const assignments = await this.userModuleAssignmentRepository.find({
+      const assignments = await manager.withRepository(this.userModuleAssignmentRepository).find({
         where: { userId: user.id, isActive: true },
         relations: ['module'],
       });
@@ -572,12 +625,12 @@ export class TokenService {
    * and ONLY when `isMobileEnabled` (a globally-disabled mobile user gets no
    * feature claims, so MobileFeatureGuard denies every gated mutation).
    */
-  private async getUserMobileFeatures(user: User): Promise<string[]> {
+  private async getUserMobileFeatures(user: User, manager: EntityManager): Promise<string[]> {
     if (!user.tenantId) {
       return [];
     }
 
-    const settings = await this.mobileSettingsService.getByUserId(user.id, user.tenantId);
+    const settings = await this.mobileSettingsService.getByUserId(user.id, user.tenantId, manager);
     if (!settings.isMobileEnabled) {
       return [];
     }
@@ -609,11 +662,12 @@ export class TokenService {
    */
   private async resolveTenantTokenPolicy(
     tenantId: string | null,
+    manager: EntityManager,
   ): Promise<{ planLevel?: number; sessionTimeoutMinutes: number | null }> {
     if (!tenantId) {
       return { sessionTimeoutMinutes: null };
     }
-    const rows = await this.dataSource.query<
+    const rows = await manager.query<
       Array<{ plan: string; session_timeout_minutes: number | null }>
     >(`SELECT plan, session_timeout_minutes FROM auth.tenants WHERE id = $1 LIMIT 1`, [tenantId]);
     const row = rows[0];
@@ -643,7 +697,7 @@ export class TokenService {
    * Authorization reads are deliberately authoritative on every mint. A
    * process-local cache would allow a removed grant to survive on one replica.
    */
-  private async getUserResourcePermissions(user: User): Promise<string[]> {
+  private async getUserResourcePermissions(user: User, manager: EntityManager): Promise<string[]> {
     if (user.role === Role.SUPER_ADMIN || user.role === Role.TENANT_ADMIN) {
       return [];
     }
@@ -669,7 +723,7 @@ export class TokenService {
       const rows: Array<{
         resource_permissions: string[] | null;
         permission_overrides: unknown;
-      }> = await this.dataSource.query(
+      }> = await manager.query(
         `
         SELECT trp.resource_permissions, ura.permission_overrides
         FROM "auth"."user_role_assignments" ura
@@ -715,7 +769,7 @@ export class TokenService {
       // write-time authority (CapabilityAuthorityService) blocks NEW
       // non-entitled grants; this closes the already-persisted ones.
       const entitled = await resolveEntitledCapabilities(
-        (sql, params) => this.dataSource.query(sql, params as unknown[]),
+        (sql, params) => manager.query(sql, params as unknown[]),
         user.tenantId,
       );
       permissions = effective.filter((capability) => entitled.has(capability));
@@ -732,6 +786,31 @@ export class TokenService {
     }
 
     return permissions;
+  }
+
+  private async enforceRefreshFamilyLimit(manager: EntityManager, userId: string): Promise<void> {
+    // Active legacy rows acquire a lineage once, before any descendants are inserted.
+    await manager.query(
+      `UPDATE auth.refresh_tokens SET "familyId" = id
+      WHERE "userId" = $1 AND "familyId" IS NULL AND "isRevoked" = false`,
+      [userId],
+    );
+    const families = await manager.query<Array<{ familyId: string }>>(
+      `
+      SELECT "familyId" FROM auth.refresh_tokens
+      WHERE "userId" = $1 AND "isRevoked" = false AND "expiresAt" > CURRENT_TIMESTAMP
+      GROUP BY "familyId" ORDER BY MIN("createdAt"), "familyId"`,
+      [userId],
+    );
+    const overflow = families.length - this.maxSessionsPerUser + 1;
+    for (const family of families.slice(0, Math.max(0, overflow))) {
+      await manager.query(
+        `UPDATE auth.refresh_tokens SET "isRevoked" = true,
+        "revokedAt" = CURRENT_TIMESTAMP, "revokedReason" = 'Session limit exceeded'
+        WHERE "userId" = $1 AND "familyId" = $2`,
+        [userId, family.familyId],
+      );
+    }
   }
 
   private getRedirectUrl(

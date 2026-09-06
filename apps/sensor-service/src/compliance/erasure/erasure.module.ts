@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 
-import { MqttAuthService } from '../../edge-device/mqtt-auth.service';
+import { EdgeDeviceModule } from '../../edge-device/edge-device.module';
 import { ErasedTenantTombstoneService } from './erased-tenant-tombstone.service';
 import { MqttAuthCacheInvalidationHook } from './mqtt-auth-cache-invalidation.hook';
 import { PublishedOutboxPurgeHook } from './published-outbox-purge.hook';
@@ -14,13 +14,11 @@ export { PublishedOutboxPurgeHook } from './published-outbox-purge.hook';
  * invalidation) + the erased-tenant tombstone the ingress gate consults.
  */
 @Module({
+  imports: [EdgeDeviceModule],
   providers: [
     PublishedOutboxPurgeHook,
     MqttAuthCacheInvalidationHook,
     ErasedTenantTombstoneService,
-    // MqttAuthService is provided by EdgeDeviceModule; this module only
-    // needs the class token resolvable for the hook's constructor.
-    MqttAuthService,
   ],
   exports: [PublishedOutboxPurgeHook, MqttAuthCacheInvalidationHook, ErasedTenantTombstoneService],
 })

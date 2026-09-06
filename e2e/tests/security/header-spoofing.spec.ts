@@ -10,7 +10,7 @@ import { test, expect } from '@playwright/test';
 import { v4 as uuidv4 } from 'uuid';
 
 import { GraphQLTestClient } from '../../helpers/graphql-client';
-import { generateTestToken, generateModuleUserToken } from '../../helpers/jwt.helper';
+import { issueTestToken, issueModuleUserToken } from '../../helpers/persisted-actor.fixture';
 
 /** Response types (zero any policy) */
 interface MeResponse {
@@ -51,7 +51,7 @@ test.describe('Header Spoofing Prevention', () => {
 
   test('x-user-payload from external request does not override JWT identity', async () => {
     // Generate a MODULE_USER token with legitimate identity
-    const legitimateToken = generateModuleUserToken({
+    const legitimateToken = await issueModuleUserToken({
       sub: REAL_USER_ID,
       tenantId: REAL_TENANT_ID,
       email: 'legitimate@company.com',
@@ -69,7 +69,7 @@ test.describe('Header Spoofing Prevention', () => {
 
     // Send request with valid JWT + spoofed x-user-payload header
     const response = await client.query<MeResponse>(
-      `query { me { id email } }`,
+      `query { me: currentUser { id email } }`,
       {},
       {
         token: legitimateToken,
@@ -81,25 +81,15 @@ test.describe('Header Spoofing Prevention', () => {
       },
     );
 
-    // The gateway should:
-    // 1. Verify the JWT and extract identity from it
-    // 2. Strip or ignore the x-user-payload header from external requests
-    // 3. Generate x-user-payload from the verified JWT, not from the header
-    //
-    // If the me query returns data, it should reflect the JWT identity
-    if (response.body.data?.me) {
-      // The returned user should be the JWT user, not the spoofed one
-      expect(response.body.data.me.id).not.toBe(SPOOFED_USER_ID);
-    }
-
-    // The response should not contain a 500 error
-    expect(response.status).not.toBe(500);
+    expect(response.status).toBe(200);
+    expect(response.body.errors).toBeUndefined();
+    expect(response.body.data?.me?.id).toBe(REAL_USER_ID);
   });
 
   test('x-tenant-id mismatch with JWT uses JWT value for tenant-scoped queries', async () => {
     // Generate a token for the real tenant
-    const realTenantToken = generateTestToken({
-      sub: REAL_USER_ID,
+    const realTenantToken = await issueTestToken({
+      sub: uuidv4(),
       tenantId: REAL_TENANT_ID,
       email: 'user@real-tenant.com',
       roles: ['TENANT_ADMIN'],
@@ -133,16 +123,16 @@ test.describe('Header Spoofing Prevention', () => {
           e.extensions?.code === 'FORBIDDEN',
       );
       expect(isTenantError).toBe(true);
-    } else if (response.body.data?.myTenant) {
+    } else {
       // If successful, must return data for the JWT's tenant
       // myTenant uses @CurrentUser('tenantId') which comes from JWT
-      expect(response.body.data.myTenant.id).not.toBe(SPOOFED_TENANT_ID);
+      expect(response.body.data?.myTenant?.id).toBe(REAL_TENANT_ID);
     }
   });
 
   test('Forged x-user-id header does not change authenticated user context', async () => {
     // Generate a token with known user ID
-    const token = generateTestToken({
+    const token = await issueTestToken({
       sub: REAL_USER_ID,
       tenantId: REAL_TENANT_ID,
       email: 'real@company.com',
@@ -161,14 +151,8 @@ test.describe('Header Spoofing Prevention', () => {
       },
     );
 
-    // The currentUser query uses @CurrentUser('sub') which reads from JWT
-    // The x-user-id header should be overwritten by the gateway's willSendRequest
-    if (response.body.data?.currentUser) {
-      // If successful, must reflect JWT identity
-      expect(response.body.data.currentUser.id).not.toBe(SPOOFED_USER_ID);
-    }
-
-    // Should not cause server error
-    expect(response.status).not.toBe(500);
+    expect(response.status).toBe(200);
+    expect(response.body.errors).toBeUndefined();
+    expect(response.body.data?.currentUser?.id).toBe(REAL_USER_ID);
   });
 });

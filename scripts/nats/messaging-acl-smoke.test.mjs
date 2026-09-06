@@ -151,6 +151,29 @@ for (const style of ['double', 'single', 'unquoted']) {
   });
 }
 
+test('preserves bounded delivered-response permissions in exact canonical authorization', () => {
+  const source = servicesYaml('double').replace('    publish:',
+    '    responses:\n      max: 2\n      expires: 120s\n    publish:');
+  const services = parseServicesRegistry(source, servicesSchema);
+  const config = natsConf(services);
+  const authorization = parseGeneratedNatsAuthorization(config);
+  assert.deepEqual(services.get('messaging_service').responses, { max: 2, expires: '120s' });
+  assert.deepEqual(authorization.get('messaging_service').responses, { max: 2, expires: '120s' });
+  assert.ok(config.includes('allow_responses: { max: 2, expires: "120s" }'));
+  assert.doesNotThrow(() => assertStaticAcl(services, authorization, config, includedConfigs()));
+  for (const value of ['true', '{ max: -1, expires: "120s" }', '{ max: 2, expires: "1h" }']) {
+    const mutated = config.replace('{ max: 2, expires: "120s" }', value);
+    assert.throws(() => assertStaticAcl(services, parseGeneratedNatsAuthorization(mutated), mutated,
+      includedConfigs()), /responses|canonical output/);
+  }
+});
+
+test('rejects registry response lifetimes that differ from the shared runtime contract', () => {
+  const source = servicesYaml('double').replace('    publish:',
+    '    responses:\n      max: 2\n      expires: 121s\n    publish:');
+  assert.throws(() => parseServicesRegistry(source, servicesSchema), /response policy/);
+});
+
 test('fails closed when the YAML registry has an unexpected ACL shape', () => {
   const malformed = servicesYaml('single').replace(
     `    publish:\n${list(

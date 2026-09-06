@@ -106,6 +106,233 @@ jobs:
           echo "has_changes=$VALIDATION_REQUIRED" >> "$GITHUB_OUTPUT"
           echo "deploy_changes=$DEPLOY_CHANGES" >> "$GITHUB_OUTPUT"
 
+  # These gates used to run in local hooks. They always run, including docs-only PRs.
+  hosted-validation:
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [policy, types, rust, aria]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.detect-changes.outputs.head_sha }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - name: Install hosted validation dependencies
+        run: npm ci --ignore-scripts --no-audit
+      - uses: ./.github/actions/setup-aria-kernel
+        if: matrix.lane == 'aria'
+      - uses: ./.github/actions/setup-rust-workspace
+        if: matrix.lane == 'rust'
+      - uses: ./.github/actions/install-tpm-build-dependencies
+        if: matrix.lane == 'rust'
+      - name: Execute every selected gate and write exact revision receipt
+        env:
+          BASE_SHA: ${{ needs.detect-changes.outputs.base_sha }}
+          HEAD_SHA: ${{ needs.detect-changes.outputs.head_sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: node scripts/ci/hosted-validation.mjs "${{ matrix.lane }}"
+      - name: Upload hosted validation receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hosted-validation-${{ matrix.lane }}-${{ github.run_attempt }}
+          path: artifacts/hosted-validation/
+          if-no-files-found: error
+
+  # Produces reviewable generated-source changes; never writes to the remote branch.
+  source-generation:
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.detect-changes.outputs.head_sha }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - name: Install source generation dependencies on hosted runner
+        run: |
+          npm ci --ignore-scripts --no-audit
+          python3 -m pip install --quiet 'pyyaml==6.0.2'
+      - name: Generate registry mirrors, formatting and ARIA authority patch
+        env:
+          FORMAT_BASE_SHA: ${{ needs.detect-changes.outputs.base_sha }}
+          CANDIDATE_SHA: ${{ needs.detect-changes.outputs.head_sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          python3 scripts/nats/generate-nats-conf.py
+          node node_modules/ts-node/dist/bin.js --project tools/gates/tsconfig.json tools/gates/repin-debt-plan.ts
+          node tools/quality/quality.mjs format-scope generate
+          node tools/quality/quality.mjs format write-changed
+          node node_modules/ts-node/dist/bin.js --project tools/gates/tsconfig.json tools/gates/aria-authority-hash.ts --write
+          node tools/quality/quality.mjs format-scope generate
+          mkdir -p artifacts/source-generation
+          git diff --binary > artifacts/source-generation/candidate.patch
+          python3 - <<'PYTHON'
+          import hashlib, json, os
+          from pathlib import Path
+          patch = Path('artifacts/source-generation/candidate.patch')
+          receipt = {
+              'base_sha': os.environ['FORMAT_BASE_SHA'],
+              'pr_head_sha': os.environ['PR_HEAD_SHA'],
+              'tested_merge_sha': os.environ['CANDIDATE_SHA'],
+              'run_id': os.environ['GITHUB_RUN_ID'],
+              'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'],
+              'patch_sha256': hashlib.sha256(patch.read_bytes()).hexdigest(),
+          }
+          patch.with_name('receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
+          PYTHON
+      - name: Upload generated source patch for review
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: source-generation-${{ github.run_attempt }}
+          path: artifacts/source-generation/
+          if-no-files-found: error
+
+  authentication-proof:
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [auth-unit, auth-postgres, db-migrate, release-invariants, frontend, types, lint, graphql, nats]
+    env:
+      NODE_OPTIONS: '--max-old-space-size=6144'
+      NX_DAEMON: 'false'
+      NX_NO_CLOUD: 'true'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.detect-changes.outputs.head_sha }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - name: Install exact candidate dependencies on hosted runner
+        run: npm ci --ignore-scripts --no-audit
+      - name: Install the production broker proof's YAML reader
+        if: matrix.lane == 'nats' || matrix.lane == 'release-invariants'
+        run: python3 -m pip install --quiet 'pyyaml==6.0.2'
+      - name: Install standalone mobile dependencies and apply its tracked package setup
+        if: matrix.lane == 'frontend' || matrix.lane == 'lint'
+        run: |
+          npm ci --prefix web/apps/aquamobil --workspaces=false --ignore-scripts --no-audit
+          node web/apps/aquamobil/scripts/patch-konsta.cjs
+          node --input-type=module -e 'import { readFileSync } from "node:fs"; const pkg = JSON.parse(readFileSync("web/apps/aquamobil/node_modules/konsta/package.json", "utf8")); if (!pkg.exports || !pkg.exports["."]) throw new Error("Konsta root export was not installed");'
+      - name: Execute mandatory auth, migration and frontend proof
+        env:
+          BASE_SHA: ${{ needs.detect-changes.outputs.base_sha }}
+          HEAD_SHA: ${{ needs.detect-changes.outputs.head_sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: node scripts/ci/authentication-proof.mjs "${{ matrix.lane }}"
+      - name: Upload exact revision test counts and command receipts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: authentication-proof-${{ matrix.lane }}-${{ github.run_attempt }}
+          path: artifacts/authentication-proof/
+          if-no-files-found: error
+      - name: Upload generated GraphQL patch for review
+        if: always() && matrix.lane == 'graphql'
+        run: |
+          mkdir -p artifacts/graphql-generation
+          git diff --binary -- infrastructure/apollo-router/codegen-schema.generated.json web/apps/aquamobil/src/generated web/shared-ui/src/generated > artifacts/graphql-generation/candidate.patch
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always() && matrix.lane == 'graphql'
+        with:
+          name: graphql-generation-${{ github.run_attempt }}
+          path: artifacts/graphql-generation/
+          if-no-files-found: error
+
+  authentication-e2e:
+    needs: detect-changes
+    uses: ./.github/workflows/e2e-tests.yml
+    with:
+      base_sha: ${{ needs.detect-changes.outputs.base_sha }}
+      head_sha: ${{ needs.detect-changes.outputs.head_sha }}
+      pr_head_sha: ${{ github.event.pull_request.head.sha || github.sha }}
+
+  postgres-recovery-proof:
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.detect-changes.outputs.head_sha }}
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - name: Verify candidate PostgreSQL DR build contract
+        id: contract
+        run: |
+          set -euo pipefail
+          sha256sum --strict --check .github/manifests/postgres-dr-contract.sha256
+          printf 'sha256=%s\n' "$(sha256sum --binary .github/manifests/postgres-dr-contract.sha256 | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+      - name: Build and load exact candidate PostgreSQL image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: infrastructure/docker/Dockerfile.postgres-walg
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: aquaculture-platform/postgres-ci:${{ github.sha }}
+          build-args: |
+            BUILD_MAIN_SHA=${{ github.sha }}
+            POSTGRES_DR_CONTRACT_SHA256=${{ steps.contract.outputs.sha256 }}
+      - name: Verify real NATS same-CA leaf rollout before release
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes python3-yaml
+          sudo --preserve-env=GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT bash scripts/ci/test-nats-leaf-rollout.sh
+      - name: Verify real recovery coordinator and first-start TLS mutation failure
+        env:
+          BASE_SHA: ${{ needs.detect-changes.outputs.base_sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          export POSTGRES_DR_TEST_IMAGE="$(docker image inspect --format '{{.Id}}' aquaculture-platform/postgres-ci:${{ github.sha }})"
+          mkdir -p artifacts/postgres-recovery
+          sudo --preserve-env=GITHUB_ACTIONS,GITHUB_SHA,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,POSTGRES_DR_TEST_IMAGE bash scripts/ci/test-postgres-dr-recovery.sh
+          sudo --preserve-env=GITHUB_ACTIONS,GITHUB_SHA,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,POSTGRES_DR_TEST_IMAGE bash scripts/ci/test-postgres-dr-coordinator.sh
+          python3 - <<'PYTHON'
+          import json, os
+          from pathlib import Path
+          coordinator = json.loads(Path('artifacts/postgres-recovery/coordinator-results.json').read_text())
+          expected_scenarios = {'healthy', 'degraded', 'forward-failure', 'rollback-failure', 'before-FINALIZING', 'after-FINALIZING', 'before-ROLLBACK_FINALIZING', 'after-ROLLBACK_FINALIZING', 'phase-publish', 'result-publish', 'override-publish'}
+          expected_coordinates = {'schema_version': 1, 'github_sha': os.environ['GITHUB_SHA'], 'run_id': os.environ['GITHUB_RUN_ID'], 'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'], 'candidate_reference': os.environ['POSTGRES_DR_TEST_IMAGE'], 'candidate_image_id': os.environ['POSTGRES_DR_TEST_IMAGE']}
+          if any(coordinator.get(key) != value for key, value in expected_coordinates.items()):
+              raise SystemExit('Coordinator proof identity does not match this checkout, candidate image and attempt')
+          scenarios = coordinator.get('scenarios', [])
+          if coordinator.get('executed_scenarios', 0) <= 0 or coordinator.get('executed_scenarios') != len(expected_scenarios) or coordinator.get('expected_scenarios') != len(expected_scenarios) or coordinator.get('skipped_scenarios') != 0 or len(scenarios) != len(expected_scenarios):
+              raise SystemExit('Coordinator proof is missing scenarios or contains skips')
+          if {item.get('name') for item in scenarios} != expected_scenarios or any(item.get('passed') is not True or item.get('terminal_phase') not in {'COMMITTED', 'ROLLED_BACK'} for item in scenarios):
+              raise SystemExit('Coordinator proof contains an unsuccessful or unexpected scenario')
+          record = {key.lower(): os.environ[key] for key in ['BASE_SHA', 'PR_HEAD_SHA', 'GITHUB_SHA', 'GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT', 'POSTGRES_DR_TEST_IMAGE']}
+          record.update({'runner_environment': 'github-hosted', 'success': True, 'nats_leaf_rollout': True, 'coordinator': coordinator})
+          Path('artifacts/postgres-recovery/receipt.json').write_text(json.dumps(record, indent=2) + '\n')
+          PYTHON
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: postgres-recovery-${{ github.run_attempt }}
+          path: artifacts/postgres-recovery/
+          if-no-files-found: error
+
   # ---------------------------------------------------------------------------
   # Shared setup: install + cache (reusable via needs + cache restore)
   # ---------------------------------------------------------------------------
@@ -435,6 +662,9 @@ jobs:
             npm cache verify --cache .npm-cache >/dev/null 2>&1 || true
             npm ci --ignore-scripts --no-audit
           fi
+
+      - name: Install the NATS generator regression's YAML reader
+        run: python3 -m pip install --quiet 'pyyaml==6.0.2'
 
       # 2026-05-05: Test targets include Rust crates. Prepare the exact
       # pinned toolchain before Nx starts parallel cargo-backed tasks.
@@ -1846,6 +2076,10 @@ jobs:
 
   merge-gate:
     needs:
+      - authentication-proof
+      - authentication-e2e
+      - postgres-recovery-proof
+      - hosted-validation
       - detect-changes
       - install
       - lint
@@ -1886,6 +2120,18 @@ jobs:
       - name: Assert required PR checks
         run: |
           set -euo pipefail
+          if [ "${{ needs.authentication-e2e.result }}" != "success" ]; then
+            echo "::error::Required isolated authentication E2E proof did not succeed."
+            exit 1
+          fi
+          if [ "${{ needs.authentication-proof.result }}" != "success" ] || [ "${{ needs.postgres-recovery-proof.result }}" != "success" ]; then
+            echo "::error::Required authentication or PostgreSQL recovery proof did not succeed."
+            exit 1
+          fi
+          if [ "${{ needs.hosted-validation.result }}" != "success" ]; then
+            echo "::error::Required hosted validation did not succeed."
+            exit 1
+          fi
           if [ "${{ needs.detect-changes.result }}" != "success" ]; then
             echo "::error::detect-changes did not succeed"
             exit 1
@@ -1919,6 +2165,10 @@ jobs:
   build-status:
     name: build-status
     needs:
+      - authentication-proof
+      - authentication-e2e
+      - postgres-recovery-proof
+      - hosted-validation
       - detect-changes
       - install
       - lint
@@ -1943,6 +2193,18 @@ jobs:
       - name: Assert affected validation status
         run: |
           set -euo pipefail
+          if [ "${{ needs.authentication-e2e.result }}" != "success" ]; then
+            echo "::error::Required isolated authentication E2E proof did not succeed."
+            exit 1
+          fi
+          if [ "${{ needs.authentication-proof.result }}" != "success" ] || [ "${{ needs.postgres-recovery-proof.result }}" != "success" ]; then
+            echo "::error::Required authentication or PostgreSQL recovery proof did not succeed."
+            exit 1
+          fi
+          if [ "${{ needs.hosted-validation.result }}" != "success" ]; then
+            echo "::error::Required hosted validation did not succeed."
+            exit 1
+          fi
           if [ "${{ needs.detect-changes.result }}" != "success" ]; then
             echo "::error::Affected range resolution failed."
             exit 1

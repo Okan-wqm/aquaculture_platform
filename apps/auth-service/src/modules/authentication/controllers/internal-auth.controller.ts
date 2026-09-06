@@ -1,4 +1,6 @@
 import { Public } from '@aquaculture/backend-common/decorators';
+import { BypassRlsService } from '@aquaculture/backend-common/database';
+import { requestContextStorage, getRequestContext } from '@aquaculture/backend-common/logging';
 import type { TenantRequest } from '@aquaculture/backend-common/types';
 import { Controller, ForbiddenException, Get, NotFoundException, Param, Req } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -35,6 +37,7 @@ export class InternalAuthController {
     private readonly actionTokenRepository: Repository<ActionToken>,
     configService: ConfigService,
     private readonly actionTokenResolver: ActionTokenResolver,
+    private readonly bypassRls: BypassRlsService,
   ) {
     // DEPLOY-HIGH-016: resolved once, at boot. Reading it per request meant a
     // misconfigured deployment surfaced as a wrong link in somebody's inbox
@@ -97,13 +100,28 @@ export class InternalAuthController {
     // rows for a tenant-bound caller, NULL-tenant rows (a super admin's
     // reset) for a platform-scoped caller. A token can never be resolved
     // from the wrong side.
-    const actionToken = await this.actionTokenRepository.findOne({
-      where: {
-        id: actionTokenId,
-        tenantId: scope.kind === 'tenant' ? scope.tenantId : IsNull(),
-        status: ActionTokenStatus.ACTIVE,
+    const lookup = (): Promise<ActionToken | null> =>
+      this.actionTokenRepository.findOne({
+        where: {
+          id: actionTokenId,
+          tenantId: scope.kind === 'tenant' ? scope.tenantId : IsNull(),
+          status: ActionTokenStatus.ACTIVE,
+        },
+      });
+    // The HMAC-verified notification scope must reach the connection before
+    // checkout. A NULL-tenant action cannot satisfy tenant RLS without the
+    // explicitly authorized platform frame; the query still binds tenantId.
+    const actionToken = await requestContextStorage.run(
+      {
+        ...getRequestContext(),
+        tenantId: scope.kind === 'tenant' ? scope.tenantId : undefined,
+        bypassRls: false,
       },
-    });
+      () =>
+        scope.kind === 'platform'
+          ? this.bypassRls.withBypass('auth-service:notification-platform-action-url', lookup)
+          : lookup(),
+    );
 
     if (!actionToken || !actionToken.isActive()) {
       throw new NotFoundException('Action token not found');

@@ -1,7 +1,8 @@
 import { Role } from '@aquaculture/backend-common/decorators';
 import { ForbiddenException } from '@nestjs/common';
-import type { EntityManager, FindOptionsWhere, Repository } from 'typeorm';
+import type { EntityManager, Repository } from 'typeorm';
 
+import { LockedAuthContext } from '../../authentication/services/credential-state';
 import { RefreshToken } from '../../authentication/entities/refresh-token.entity';
 import { User } from '../../authentication/entities/user.entity';
 import type { UserTokenInvalidationIntent } from '../../authentication/services/durable-user-token-invalidation.service';
@@ -32,12 +33,13 @@ export async function lockUserForCredentialMutation(
   userId: string,
   tenantId?: string,
 ): Promise<User | null> {
-  const where: FindOptionsWhere<User> =
-    tenantId === undefined ? { id: userId } : { id: userId, tenantId };
-  return manager.withRepository(userRepository).findOne({
-    where,
-    lock: { mode: 'pessimistic_write' },
-  });
+  const discovered = await manager
+    .withRepository(userRepository)
+    .findOne({ where: { id: userId } });
+  if (!discovered || (tenantId !== undefined && discovered.tenantId !== tenantId)) return null;
+  const context = await LockedAuthContext.lock(manager, userId);
+  if (tenantId !== undefined && context.user.tenantId !== tenantId) return null;
+  return context.user;
 }
 
 /**
@@ -55,20 +57,17 @@ export async function revokeActiveRefreshTokens(
   revokedReason: string,
 ): Promise<number> {
   const repository = manager.withRepository(refreshTokenRepository);
+  const active = await repository.count({ where: { userId, isRevoked: false } });
   await repository
     .createQueryBuilder('refreshToken')
     .select('refreshToken.id')
     .where('refreshToken.userId = :userId', { userId })
-    .andWhere('refreshToken.isRevoked = :isRevoked', { isRevoked: false })
     .orderBy('refreshToken.id', 'ASC')
     .setLock('pessimistic_write')
     .getMany();
 
-  const result = await repository.update(
-    { userId, isRevoked: false },
-    { isRevoked: true, revokedAt, revokedReason },
-  );
-  return result.affected ?? 0;
+  await repository.update({ userId }, { isRevoked: true, revokedAt, revokedReason });
+  return active;
 }
 
 export function resolveCredentialInvalidationTenant(user: User): string | null {

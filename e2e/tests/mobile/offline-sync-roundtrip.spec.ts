@@ -68,7 +68,7 @@ test.describe('AquaMobil offline mortality roundtrip', () => {
 
     // Deep-link straight to the mortality form for the seeded tank so the
     // spec exercises the record flow, not tank-list navigation.
-    await page.goto(`/mortality/record/${farm.tankId}`);
+    await page.goto(`/mobile/mortality/record/${farm.tankId}`);
     await expect(page.getByText('Record Mortality').first()).toBeVisible();
     // Tank/batch card resolves from farmStockInventory — wait for it so the
     // payload's batchId is populated before going offline.

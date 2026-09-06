@@ -12,7 +12,6 @@ import { test, expect } from '@playwright/test';
 
 import { TestDatabase } from '../../helpers/db.helper';
 import { GraphQLTestClient } from '../../helpers/graphql-client';
-import { generateTestToken } from '../../helpers/jwt.helper';
 
 import {
   FIXTURE_PASSWORD,
@@ -32,20 +31,11 @@ test.describe('AquaMobil messaging smoke', () => {
     seed = await seedMobileWorker(db);
 
     // Create a GROUP channel AS the field worker (creator becomes a member).
-    const workerToken = generateTestToken({
-      userId: seed.user.id,
-      email: seed.user.email,
-      role: 'MODULE_MANAGER',
-      tenantId: seed.tenant.id,
-    });
+    const workerToken = seed.user.token;
     const client = new GraphQLTestClient(request);
-    const created = await client.query<{ createChannel: { id: string } }>(
-      `mutation CreateChannel($input: CreateChannelInput!) {
+    const created = await client.executeSuccess<{ createChannel: { id: string } }>({ query: `mutation CreateChannel($input: CreateChannelInput!) {
         createChannel(input: $input) { id }
-      }`,
-      { input: { type: 'GROUP', name: 'Mobile E2E Crew' } },
-      { token: workerToken },
-    );
+      }`, variables: { input: { type: 'GROUP', name: 'Mobile E2E Crew' } }, token: workerToken });
     channelId = created.createChannel.id;
   });
 
@@ -56,7 +46,7 @@ test.describe('AquaMobil messaging smoke', () => {
   test('the crew channel lists on mobile and a sent message reaches the server', async ({ page }) => {
     await loginAsFieldWorker(page, seed.user.email, FIXTURE_PASSWORD);
 
-    await page.goto('/messages');
+    await page.goto('/mobile/messages');
     await expect(page.getByText('Mobile E2E Crew')).toBeVisible({ timeout: 15_000 });
     await page.getByText('Mobile E2E Crew').click();
 

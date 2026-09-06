@@ -1,3 +1,4 @@
+import { parseNatsRequestTimeout } from '@aquaculture/backend-common/nats';
 import {
   BadGatewayException,
   BadRequestException,
@@ -37,10 +38,11 @@ export class BillingAdminCommandClientService {
     @Inject('BILLING_NATS_CLIENT')
     private readonly billingNatsClient: ClientProxy,
   ) {
-    const configured = parseInt(process.env['BILLING_NATS_TIMEOUT_MS'] ?? '', 10);
-    this.timeoutMs = Number.isFinite(configured) && configured > 0
-      ? configured
-      : DEFAULT_BILLING_NATS_TIMEOUT_MS;
+    this.timeoutMs = parseNatsRequestTimeout(
+      process.env['BILLING_NATS_TIMEOUT_MS'],
+      DEFAULT_BILLING_NATS_TIMEOUT_MS,
+      'BILLING_NATS_TIMEOUT_MS',
+    );
   }
 
   async createInvoice(

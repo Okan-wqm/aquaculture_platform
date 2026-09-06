@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Run every gate spec in this directory.
+ * Run every gate spec in both tools/gates and tools/lint-gates.
  *
  * WHY A SCRIPT AND NOT A SHELL LOOP IN package.json: an npm script whose first
  * token is `for` is not a resolvable binary, and `repo-hygiene-invariants`
@@ -24,8 +24,12 @@ import { fileURLToPath } from 'node:url';
 const gatesDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(gatesDir, '..', '..');
 
-const specs = readdirSync(gatesDir)
-  .filter((entry) => entry.endsWith('.spec.ts'))
+const specs = ['tools/gates', 'tools/lint-gates']
+  .flatMap((directory) =>
+    readdirSync(join(repoRoot, directory))
+      .filter((entry) => entry.endsWith('.spec.ts'))
+      .map((entry) => `${directory}/${entry}`),
+  )
   .sort();
 
 if (specs.length === 0) {
@@ -35,12 +39,16 @@ if (specs.length === 0) {
 
 const failed = [];
 for (const spec of specs) {
-  const rel = `tools/gates/${spec}`;
+  const rel = spec;
   console.log(`--- ${rel}`);
-  const result = spawnSync('npx', ['ts-node', '--project', 'tools/gates/tsconfig.json', rel], {
-    cwd: repoRoot,
-    stdio: 'inherit',
-  });
+  const result = spawnSync(
+    process.execPath,
+    ['node_modules/ts-node/dist/bin.js', '--project', 'tools/gates/tsconfig.json', rel],
+    {
+      cwd: repoRoot,
+      stdio: 'inherit',
+    },
+  );
   if (result.status !== 0) failed.push(rel);
 }
 

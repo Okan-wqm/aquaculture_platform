@@ -15,7 +15,8 @@ import { test, expect } from '@playwright/test';
 import { v4 as uuidv4 } from 'uuid';
 
 import { GraphQLTestClient } from '../../helpers/graphql-client';
-import { generateTestToken } from '../../helpers/jwt.helper';
+import { issueTestToken } from '../../helpers/persisted-actor.fixture';
+import { FIXTURE_PASSWORD } from '../../helpers/real-auth.fixture';
 
 /** Response types (zero any policy) */
 interface GraphQLAnyResponse {
@@ -65,37 +66,25 @@ test.describe('CSRF Protection', () => {
       }`,
       {
         input: {
-          email: 'test@test.com',
-          password: 'TestP@ss123!',
+          email: 'e2e-tenantadmin@test.aquaculture.io',
+          password: FIXTURE_PASSWORD,
         },
       },
       {},
     );
 
-    // Check if set-cookie header is present and has secure attributes
+    expect(loginResponse.status).toBe(200);
+    expect(loginResponse.body.errors).toBeUndefined();
+    expect(loginResponse.body.data?.login?.accessToken).toBeTruthy();
     const setCookie = loginResponse.headers['set-cookie'];
-
-    if (setCookie) {
-      // httpOnly should be present (prevents JavaScript access)
-      const isHttpOnly = setCookie.toLowerCase().includes('httponly');
-      expect(isHttpOnly).toBe(true);
-
-      // SameSite should be set (CSRF protection)
-      const hasSameSite = setCookie.toLowerCase().includes('samesite');
-      expect(hasSameSite).toBe(true);
-
-      // In production, Secure flag should be present
-      if (process.env['NODE_ENV'] === 'production') {
-        const isSecure = setCookie.toLowerCase().includes('secure');
-        expect(isSecure).toBe(true);
-      }
-    }
-    // If no set-cookie, the login may have failed (wrong credentials)
-    // which is expected in a test environment without real users
+    expect(setCookie).toBeDefined();
+    expect(setCookie.toLowerCase()).toContain('httponly');
+    expect(setCookie.toLowerCase()).toContain('samesite=');
+    expect(setCookie.toLowerCase()).toContain('secure');
   });
 
   test('Security headers are present on GraphQL responses', async () => {
-    const token = generateTestToken({
+    const token = await issueTestToken({
       tenantId: uuidv4(),
       roles: ['MODULE_USER'],
     });
@@ -136,7 +125,7 @@ test.describe('CSRF Protection', () => {
   });
 
   test('GraphQL batched HTTP requests are disabled', async () => {
-    const token = generateTestToken({
+    const token = await issueTestToken({
       tenantId: uuidv4(),
       roles: ['MODULE_USER'],
     });

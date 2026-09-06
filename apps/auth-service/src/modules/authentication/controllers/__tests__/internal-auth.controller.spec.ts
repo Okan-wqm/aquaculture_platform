@@ -1,3 +1,4 @@
+import { BypassRlsService } from '@aquaculture/backend-common/database';
 /**
  * InternalAuthController — the notification-service's window into auth-service
  * (SEC-HIGH-158). The action-token URL endpoint is where the emailed link is
@@ -71,6 +72,13 @@ describe('InternalAuthController', () => {
       controllers: [InternalAuthController],
       providers: [
         ActionTokenResolver,
+        {
+          provide: BypassRlsService,
+          useValue: {
+            withBypass: <T>(_operation: string, callback: () => Promise<T>): Promise<T> =>
+              callback(),
+          },
+        },
         { provide: getRepositoryToken(User), useValue: userRepository },
         { provide: getRepositoryToken(Tenant), useValue: tenantRepository },
         { provide: getRepositoryToken(ActionToken), useValue: actionTokenRepository },

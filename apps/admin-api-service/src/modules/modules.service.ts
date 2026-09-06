@@ -1,3 +1,4 @@
+import { parseNatsRequestTimeout } from '@aquaculture/backend-common/nats';
 import * as crypto from 'crypto';
 
 import {
@@ -152,10 +153,11 @@ export class ModulesService {
     private readonly authNatsClient: ClientProxy,
     private readonly authProvisioningClient: AuthTenantProvisioningClientService,
   ) {
-    const configured = parseInt(process.env['AUTH_NATS_TIMEOUT_MS'] ?? '', 10);
-    this.timeoutMs = Number.isFinite(configured) && configured > 0
-      ? configured
-      : DEFAULT_AUTH_NATS_TIMEOUT_MS;
+    this.timeoutMs = parseNatsRequestTimeout(
+      process.env['AUTH_NATS_TIMEOUT_MS'],
+      DEFAULT_AUTH_NATS_TIMEOUT_MS,
+      'AUTH_NATS_TIMEOUT_MS',
+    );
   }
 
   /**

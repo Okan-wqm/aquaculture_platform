@@ -1,4 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
@@ -55,73 +57,48 @@ describe('deploy isolated SHA-pinned checkout SSOT', () => {
   const workflow = read('.github/workflows/deploy-digitalocean.yml');
   const capacityMaintenance = read('.github/workflows/deploy-capacity-maintenance.yml');
 
-  it('defines the deploy-checkout path constant exactly once, in deploy-paths.sh', () => {
-    // Single source of truth: the literal default path appears only in the SSoT
-    // snippet. Every consumer reads ${DEPLOY_CHECKOUT_DIR}, never a duplicate.
-    const corpus = [paths, dropletUp, verify, workflow];
-    const literalHits = corpus
-      .map((src) => (src.match(/\/var\/lib\/aqua\/deploy\/checkout/g) ?? []).length)
-      .reduce((a, b) => a + b, 0);
-    expect(literalHits).toBe(1);
-    expect(paths).toContain(
-      'export DEPLOY_CHECKOUT_DIR="${DEPLOY_CHECKOUT_DIR:-/var/lib/aqua/deploy/checkout}"',
-    );
-
-    // The checkout dir is a sibling of the existing release-state root; the
-    // deploy already owns /var/lib/aqua/deploy.
-    expect(paths).toContain('/var/lib/aqua/deploy/');
-  });
-
-  it('declares the persistent secrets SSoT (env + certs) and the source repo, all in one place', () => {
-    expect(paths).toContain('export DEPLOY_SOURCE_REPO="${DEPLOY_SOURCE_REPO:-/var/aqua-saas}"');
-    expect(paths).toContain(
-      'export DEPLOY_ENV_FILE="${DEPLOY_ENV_FILE:-${DEPLOY_SOURCE_REPO}/.env}"',
-    );
-    expect(paths).toContain(
-      'export DEPLOY_CERTS_DIR="${DEPLOY_CERTS_DIR:-${DEPLOY_SOURCE_REPO}/certs}"',
-    );
-  });
-
-  it('pins COMPOSE_PROJECT_NAME=aqua-saas (data-loss guard: cwd change must not re-derive volumes)', () => {
-    // Compose derives the project name — and therefore every named volume
-    // (postgres data, NATS JetStream, MinIO, redis) — from the cwd basename by
-    // default. The live droplet's volumes are `aqua-saas_*`; running compose from
-    // the isolated checkout (basename `checkout`) WITHOUT this pin would create
-    // empty `checkout_*` volumes = catastrophic data loss. Pin must live in the
-    // SSoT snippet, exported, so every compose call inherits it.
-    expect(paths).toContain('export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-aqua-saas}"');
-  });
-
-  it('provides an idempotent worktree materializer that pins (detached) without touching the interactive tree', () => {
+  it('publishes a distinct immutable release and private configuration generation per attempt', () => {
     const exec = executableShell(paths);
-    expect(exec).toContain('materialize_deploy_checkout()');
-    // Fetch goes into the SHARED object store of the source repo (refs/objects
-    // only) — it never force-checkouts the interactive working tree's HEAD.
-    expect(exec).toContain('git -C "${src}" fetch --force --prune origin');
-    // Stale-state robustness: prune admin records before add/remove decisions.
-    expect(exec).toContain('git -C "${src}" worktree prune');
-    // Missing dir -> add detached/force; existing healthy -> re-pin detached.
-    expect(exec).toContain('git -C "${src}" worktree add --detach --force "${dir}" "${sha}"');
-    expect(exec).toContain('git -C "${dir}" checkout -f --detach "${sha}"');
-    // Corrupt-dir branch removes + recreates so the deploy always runs clean.
-    expect(exec).toContain('git -C "${src}" worktree remove --force "${dir}"');
-    // Crashed-run lock is cleared so a re-deploy is never wedged.
-    expect(exec).toContain('index.lock');
-    // Persistent secrets are symlinked in (no migration), so cwd-relative
-    // compose mounts + cert generation resolve to the stable location.
-    expect(exec).toContain('ln -sfn "${DEPLOY_ENV_FILE}" "${dir}/.env"');
-    expect(exec).toContain('ln -sfn "${DEPLOY_CERTS_DIR}" "${dir}/certs"');
-    // Pin is asserted before returning success.
-    expect(exec).toContain('failed to pin');
+    expect(exec).toContain('/var/lib/aqua/deploy/releases');
+    expect(exec).toContain('/var/lib/aqua/deploy/config-generations');
+    expect(exec).toContain('${sha}/${attempt}');
+    expect(exec).toContain('git -C "${src}" worktree add --detach "${source_stage}" "${sha}"');
+    expect(exec).not.toContain('checkout -f');
+    expect(exec).not.toContain('worktree remove');
+    expect(exec).not.toContain('ln -sfn');
+    expect(exec).toContain('cp -aL -- "${seed_certs}/." "${configuration_stage}/certs/"');
+    expect(exec).toContain(
+      'cp --preserve=mode,ownership -- "${seed_env}" "${configuration_stage}/.env"',
+    );
+    expect(exec).toContain('export COMPOSE_PROJECT_NAME=aqua-saas');
+  });
+
+  it('admits compatible healthy infrastructure before publishing source or configuration', () => {
+    const exec = executableShell(paths);
+    const materializer = exec.slice(exec.indexOf('materialize_deploy_checkout()'));
+    expect(materializer.indexOf('assert_deploy_infrastructure')).toBeLessThan(
+      materializer.indexOf('worktree add'),
+    );
+    expect(materializer.indexOf('acquire_deploy_control_lock')).toBeLessThan(
+      materializer.indexOf('assert_deploy_infrastructure'),
+    );
+    expect(exec).toContain('image-contract-mismatch');
+    expect(exec).toContain('validate-postgres-dr-state.py');
+    expect(exec).toContain('unresolved-recovery');
+  });
+
+  it('retains the shared host lock in the executor and binds it to its inode', () => {
+    expect(paths).toContain('control-plane.lock');
+    expect(paths).toContain('/proc/${BASHPID}/fd/${DEPLOY_CONTROL_LOCK_FD}');
+    expect(paths).toContain('flock --exclusive --nonblock');
+    expect(paths).toContain('export DEPLOY_CONTROL_LOCK_FD');
   });
 
   it('runs droplet-up.sh from the isolated checkout, never force-checking-out the shared tree', () => {
     const exec = executableShell(dropletUp);
     // Sources the SSoT snippet from the PERSISTENT source repo (the checkout it
     // creates may not exist yet on first deploy).
-    expect(exec).toContain(
-      'source "${DEPLOY_SOURCE_REPO:-/var/aqua-saas}/scripts/deploy/deploy-paths.sh"',
-    );
+    expect(exec).toContain('source "${DEPLOY_SCRIPT_ROOT}/scripts/deploy/deploy-paths.sh"');
     expect(exec).toContain('materialize_deploy_checkout "${DEPLOY_SHA}"');
     expect(exec).toContain('cd "${DEPLOY_CHECKOUT_DIR}"');
 
@@ -143,9 +120,7 @@ describe('deploy isolated SHA-pinned checkout SSOT', () => {
   it('verifies from the isolated checkout so the HEAD == TARGET_SHA guard is a true invariant', () => {
     const exec = executableShell(verify);
     // Piped over SSH via `bash -s` -> source the SSoT from the persistent repo.
-    expect(exec).toContain(
-      'source "${DEPLOY_SOURCE_REPO:-/var/aqua-saas}/scripts/deploy/deploy-paths.sh"',
-    );
+    expect(exec).toContain('source "${DEPLOY_SCRIPT_ROOT}/scripts/deploy/deploy-paths.sh"');
     expect(exec).toContain('cd "${DEPLOY_CHECKOUT_DIR}"');
     expect(exec).not.toMatch(/\bcd\s+\/var\/aqua-saas\b/);
     // The HEAD check remains, now against the deploy-owned worktree.
@@ -167,7 +142,7 @@ describe('deploy isolated SHA-pinned checkout SSOT', () => {
       // working-tree-independent — ORPHAN-211) then sourced from the extracted copy,
       // so a stale /var/aqua-saas checkout can never break the bootstrap.
       expect(exec).toContain('git show "${DEPLOY_SHA}:scripts/deploy/deploy-paths.sh"');
-      expect(exec).toContain('source /var/lib/aqua/deploy/deploy-paths.sh');
+      expect(exec).toContain('source "${deploy_paths_bootstrap}"');
       expect(exec).toContain('materialize_deploy_checkout "${DEPLOY_SHA}"');
       expect(exec).toContain('cd "${DEPLOY_CHECKOUT_DIR}"');
       // The deploy may `cd /var/aqua-saas` ONLY to fetch objects / `git show` a blob
@@ -196,10 +171,23 @@ describe('deploy isolated SHA-pinned checkout SSOT', () => {
 
     expect(block).not.toEqual('');
     expect(exec).toContain('git show "${TARGET_SHA}:scripts/deploy/deploy-paths.sh"');
-    expect(exec).toContain('source /var/lib/aqua/deploy/deploy-paths.sh');
+    expect(exec).toContain('source "${deploy_paths_bootstrap}"');
     expect(exec).toContain('materialize_deploy_checkout "${TARGET_SHA}"');
     expect(exec).toContain('cd "${DEPLOY_CHECKOUT_DIR}"');
     expect(exec).not.toMatch(/git\s+checkout\b/);
+  });
+
+  it('retains both full and selective migration paths while binding rollback to prior config', () => {
+    expect(dropletUp).toContain('run_db_migrate_or_exit "full deploy"');
+    expect(dropletUp).toContain('run_db_migrate_or_exit "selective deploy"');
+    expect(dropletUp).toContain('=== APPLICATION ROLLOUT: ${DEPLOY_SERVICES} ===');
+    expect(dropletUp).toContain('migration_boundary_unknown');
+    expect(dropletUp).toContain('migration_boundary_crossed');
+    expect(dropletUp).toContain('runtime_generation_unproven');
+    expect(dropletUp).toContain('incomplete_runtime_snapshot');
+    expect(dropletUp).toContain(
+      '--env-file "${rollback_config}/.env" -f "${rollback_source}/docker-compose.droplet.yml"',
+    );
   });
 
   it('preserves the rollback + health-gate + public https smoke behavior (untouched by isolation)', () => {
@@ -209,5 +197,141 @@ describe('deploy isolated SHA-pinned checkout SSOT', () => {
     expect(dropletUp).toContain('check-service-health.ts');
     expect(dropletUp).toContain('Public /graphql smoke through nginx');
     expect(dropletUp).toContain('https://${SMOKE_HOST}');
+  });
+});
+
+describe('immutable deploy source publication', () => {
+  function fixture(): { root: string; repository: string; sha: string } {
+    const root = mkdtempSync(join(tmpdir(), 'aqua-release-publication-'));
+    const repository = join(root, 'repository');
+    mkdirSync(repository);
+    for (const args of [
+      ['init'],
+      ['config', 'user.name', 'Release Fixture'],
+      ['config', 'user.email', 'fixture@example.invalid'],
+      ['config', 'commit.gpgsign', 'false'],
+    ]) {
+      const result = spawnSync('git', args, { cwd: repository, encoding: 'utf8' });
+      if (result.status !== 0) throw new Error(result.stderr);
+    }
+    writeFileSync(join(repository, 'app.txt'), 'first release\n');
+    spawnSync('git', ['add', 'app.txt'], { cwd: repository });
+    const commit = spawnSync('git', ['commit', '-m', 'fixture'], {
+      cwd: repository,
+      encoding: 'utf8',
+    });
+    if (commit.status !== 0) throw new Error(commit.stderr);
+    const sha = spawnSync('git', ['rev-parse', 'HEAD'], {
+      cwd: repository,
+      encoding: 'utf8',
+    }).stdout.trim();
+    writeFileSync(join(repository, '.env'), 'FIXTURE_VALUE=first\n', { mode: 0o600 });
+    mkdirSync(join(repository, 'certs'));
+    writeFileSync(join(repository, 'certs', 'fixture.pem'), 'first identity\n');
+    return { root, repository, sha };
+  }
+
+  function publish(
+    root: string,
+    repository: string,
+    sha: string,
+    attempt: string,
+    admit = true,
+    interruptAt: 'none' | 'add' | 'move' = 'none',
+  ): SpawnSyncReturns<string> {
+    return spawnSync(
+      '/bin/bash',
+      [
+        '-c',
+        `
+      set -euo pipefail
+      source "$1"
+      acquire_deploy_control_lock() { :; }
+      assert_deploy_infrastructure() { return ${admit ? 0 : 1}; }
+      git() {
+        if [ "$3" = worktree ] && [ "$4" = '${interruptAt}' ]; then return 95; fi
+        command git "$@"
+      }
+      materialize_deploy_checkout "$2"
+    `,
+        '--',
+        join(REPO_ROOT, 'scripts/deploy/deploy-paths.sh'),
+        sha,
+      ],
+      {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          DEPLOY_SOURCE_REPO: repository,
+          DEPLOY_RELEASES_ROOT: join(root, 'releases'),
+          DEPLOY_CONFIG_ROOT: join(root, 'config'),
+          DEPLOY_ENV_FILE: join(repository, '.env'),
+          DEPLOY_CERTS_DIR: join(repository, 'certs'),
+          DEPLOY_ATTEMPT: attempt,
+        },
+      },
+    );
+  }
+
+  it('keeps old source and credential bytes unchanged when another attempt is published', () => {
+    const value = fixture();
+    try {
+      expect(publish(value.root, value.repository, value.sha, '10-1').status).toBe(0);
+      writeFileSync(join(value.repository, '.env'), 'FIXTURE_VALUE=second\n');
+      writeFileSync(join(value.repository, 'certs', 'fixture.pem'), 'second identity\n');
+      expect(publish(value.root, value.repository, value.sha, '11-1').status).toBe(0);
+      expect(readFileSync(join(value.root, 'releases', value.sha, '10-1', 'app.txt'), 'utf8')).toBe(
+        'first release\n',
+      );
+      expect(readFileSync(join(value.root, 'config', value.sha, '10-1', '.env'), 'utf8')).toBe(
+        'FIXTURE_VALUE=first\n',
+      );
+      expect(
+        readFileSync(join(value.root, 'config', value.sha, '10-1', 'certs', 'fixture.pem'), 'utf8'),
+      ).toBe('first identity\n');
+      expect(
+        readFileSync(join(value.root, 'config', value.sha, '11-1', 'certs', 'fixture.pem'), 'utf8'),
+      ).toBe('second identity\n');
+    } finally {
+      rmSync(value.root, { recursive: true, force: true });
+    }
+  });
+
+  it.each(['add', 'move'] as const)(
+    'reenters an interrupted %s publication without replacing the prepared generation',
+    (boundary) => {
+      const value = fixture();
+      try {
+        expect(
+          publish(value.root, value.repository, value.sha, '10-1', true, boundary).status,
+        ).toBe(95);
+        expect(existsSync(join(value.root, 'releases', value.sha, '10-1'))).toBe(false);
+        writeFileSync(join(value.repository, '.env'), 'FIXTURE_VALUE=changed-after-interruption\n');
+        const resumed = publish(value.root, value.repository, value.sha, '10-1');
+        expect({ status: resumed.status, stderr: resumed.stderr }).toEqual({
+          status: 0,
+          stderr: expect.any(String),
+        });
+        expect(readFileSync(join(value.root, 'config', value.sha, '10-1', '.env'), 'utf8')).toBe(
+          'FIXTURE_VALUE=first\n',
+        );
+        expect(
+          readFileSync(join(value.root, 'releases', value.sha, '10-1', 'app.txt'), 'utf8'),
+        ).toBe('first release\n');
+      } finally {
+        rmSync(value.root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it('publishes no source or private generation when infrastructure admission rejects the candidate', () => {
+    const value = fixture();
+    try {
+      expect(publish(value.root, value.repository, value.sha, '10-1', false).status).not.toBe(0);
+      expect(existsSync(join(value.root, 'releases'))).toBe(false);
+      expect(existsSync(join(value.root, 'config'))).toBe(false);
+    } finally {
+      rmSync(value.root, { recursive: true, force: true });
+    }
   });
 });

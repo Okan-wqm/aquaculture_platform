@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "reserve": {
+    "numerator": 5,
+    "denominator": 4
+  },
+  "streams": {
+    "events": { "max_bytes": 1610612736 },
+    "telemetry": { "max_bytes": 6442450944 },
+    "dlq": { "max_bytes": 268435456 }
+  }
+}

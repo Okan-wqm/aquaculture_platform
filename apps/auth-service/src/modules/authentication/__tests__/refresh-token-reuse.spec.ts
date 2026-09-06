@@ -1,3 +1,4 @@
+import { Role } from '@aquaculture/backend-common/decorators';
 import { BypassRlsService } from '@aquaculture/backend-common/database';
 import {
   SecurityEventService,
@@ -116,7 +117,7 @@ describe('AuthenticationService refresh-token reuse containment', () => {
   const securityEvents = {
     publishSuspiciousActivity: jest.fn().mockResolvedValue(undefined),
   };
-  const tokenService = { generateTokens: jest.fn() };
+  const tokenService = { generateTokensInContext: jest.fn() };
 
   const suspectToken = Object.assign(new RefreshToken(), {
     id: '44444444-4444-4444-8444-444444444444',
@@ -143,6 +144,15 @@ describe('AuthenticationService refresh-token reuse containment', () => {
     containmentClaimed = false;
     transactionCommitted = false;
     boundedScanCount = 0;
+    userRepository.findOne.mockResolvedValue(
+      Object.assign(new User(), {
+        id: USER_ID,
+        tenantId: TENANT_ID,
+        role: Role.MODULE_USER,
+        isActive: true,
+        credentialVersion: 1,
+      }),
+    );
     refreshUpdate.mockImplementation(
       (criteria: Record<string, unknown>): Promise<{ affected: number }> => {
         if ('id' in criteria) {
@@ -170,23 +180,34 @@ describe('AuthenticationService refresh-token reuse containment', () => {
       createQueryBuilder: jest.fn(() => queryBuilder),
       update: refreshUpdate,
       save: refreshSave,
+      count: jest.fn().mockResolvedValue(1),
+    };
+    const tenantRepository = {
+      findOne: jest.fn().mockResolvedValue({ id: TENANT_ID, status: 'ACTIVE' }),
     };
     const manager = {
-      getRepository: jest.fn((entity: unknown) => {
-        if (entity === RefreshToken) return refreshRepository;
-        if (entity === User) return userRepository;
-        if (entity === Tenant) {
-          return { findOne: jest.fn().mockResolvedValue({ status: 'ACTIVE' }) };
+      queryRunner: { isTransactionActive: false },
+      withRepository: jest.fn((repository: object) => repository),
+      findOne: jest.fn((entity: unknown, options: { select?: object }) => {
+        if (entity === Tenant) return tenantRepository.findOne(options);
+        if (entity === User) {
+          if (options.select) return Promise.resolve({ id: USER_ID, tenantId: TENANT_ID });
+          return userRepository.findOne(options);
         }
-        return {};
+        throw new Error('Unexpected identity entity');
       }),
       query: jest.fn(),
     };
     const dataSource = {
       transaction: jest.fn(async (work: (activeManager: typeof manager) => Promise<unknown>) => {
-        const result = await work(manager);
-        transactionCommitted = true;
-        return result;
+        manager.queryRunner.isTransactionActive = true;
+        try {
+          const result = await work(manager);
+          transactionCommitted = true;
+          return result;
+        } finally {
+          manager.queryRunner.isTransactionActive = false;
+        }
       }),
     };
     const config = {
@@ -207,11 +228,11 @@ describe('AuthenticationService refresh-token reuse containment', () => {
         AuthenticationService,
         ActionTokenResolver,
         { provide: getRepositoryToken(User), useValue: userRepository },
-        { provide: getRepositoryToken(RefreshToken), useValue: {} },
+        { provide: getRepositoryToken(RefreshToken), useValue: refreshRepository },
         { provide: getRepositoryToken(Invitation), useValue: {} },
         { provide: getRepositoryToken(ActionToken), useValue: {} },
         { provide: getRepositoryToken(UserModuleAssignment), useValue: {} },
-        { provide: getRepositoryToken(Tenant), useValue: {} },
+        { provide: getRepositoryToken(Tenant), useValue: tenantRepository },
         // ADR-046: the MFA-enrollment gate counts the user's registered
         // WebAuthn credentials, so AuthenticationService injects the repo.
         // Zero credentials keeps these suites on their existing paths.
@@ -295,12 +316,13 @@ describe('AuthenticationService refresh-token reuse containment', () => {
     const releaseRotationTokenRead = deferredVoid();
     const logoutUserLockRequested = deferredVoid();
     const releaseLogoutUserLock = deferredVoid();
-    const principal = {
+    const principal = Object.assign(new User(), {
       id: USER_ID,
       tenantId: TENANT_ID,
-      role: 'MODULE_USER',
+      role: Role.MODULE_USER,
       isActive: true,
-    };
+      credentialVersion: 1,
+    });
     const writeOrder: string[] = [];
     let principalLockCount = 0;
 
@@ -317,7 +339,7 @@ describe('AuthenticationService refresh-token reuse containment', () => {
       logoutUserLockRequested.resolve();
       return releaseLogoutUserLock.promise.then(() => principal);
     });
-    tokenService.generateTokens.mockImplementationOnce(() => {
+    tokenService.generateTokensInContext.mockImplementationOnce(() => {
       writeOrder.push('replacement-persisted');
       return Promise.resolve(payload);
     });
@@ -372,7 +394,7 @@ describe('AuthenticationService refresh-token reuse containment', () => {
       revokedAt: new Date(Date.now() - 1_000),
       revokedReason: 'Token refreshed',
     });
-    tokenService.generateTokens.mockResolvedValue({ accessToken: 'fresh' });
+    tokenService.generateTokensInContext.mockResolvedValue({ accessToken: 'fresh' });
 
     const result = await service.refreshToken(V2_TRANSPORT);
 
@@ -402,10 +424,31 @@ describe('AuthenticationService refresh-token reuse containment', () => {
     );
   });
 
+  it.each(['Password reset', 'Session limit exceeded', 'User logged out'])(
+    'terminal history %s cannot reopen a family or contain newer sessions',
+    async (revokedReason) => {
+      exactToken = Object.assign(new RefreshToken(), suspectToken, {
+        revokedReason,
+        revokedAt: new Date(),
+      });
+      await expect(service.refreshToken(V2_TRANSPORT)).rejects.toThrow(UnauthorizedException);
+      expect(tokenService.generateTokensInContext).not.toHaveBeenCalled();
+      expect(refreshUpdate).not.toHaveBeenCalled();
+      expect(durableUserInvalidation.enqueue).not.toHaveBeenCalled();
+    },
+  );
+
+  it('revoked history without a family cannot contain a newer session', async () => {
+    exactToken = Object.assign(new RefreshToken(), suspectToken, { familyId: null });
+    await expect(service.refreshToken(V2_TRANSPORT)).rejects.toThrow(UnauthorizedException);
+    expect(refreshUpdate).not.toHaveBeenCalled();
+    expect(durableUserInvalidation.enqueue).not.toHaveBeenCalled();
+  });
+
   it('an OLD rotation (outside the window) still contains immediately', async () => {
     // revokedAt 2026-06-10 fixture default — far outside the 60s window
     await expect(service.refreshToken(V2_TRANSPORT)).rejects.toThrow(UnauthorizedException);
-    expect(tokenService.generateTokens).not.toHaveBeenCalled();
+    expect(tokenService.generateTokensInContext).not.toHaveBeenCalled();
   });
 
   it('does not contain an expired revoked token', async () => {
@@ -445,19 +488,21 @@ describe('AuthenticationService refresh-token reuse containment', () => {
       reuseContainedAt: null,
     });
     const payload = { accessToken: 'access' };
-    tokenService.generateTokens.mockResolvedValue(payload);
+    tokenService.generateTokensInContext.mockResolvedValue(payload);
 
     await expect(service.refreshToken(V2_TRANSPORT)).resolves.toBe(payload);
 
     expect(refreshSave).toHaveBeenCalledWith(expect.objectContaining({ isRevoked: true }));
-    expect(tokenService.generateTokens).toHaveBeenCalledWith(
-      expect.objectContaining({ id: USER_ID }),
+    expect(tokenService.generateTokensInContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user: expect.objectContaining({ id: USER_ID }),
+        manager: expect.anything(),
+      }),
       expect.any(String),
       expect.any(String),
       expect.objectContaining({
         familyId: FAMILY_ID,
         establishSession: false,
-        manager: expect.anything(),
       }),
     );
   });

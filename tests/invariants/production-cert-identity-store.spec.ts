@@ -27,11 +27,9 @@ jest.setTimeout(180_000);
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const GENERATOR_PATH = join(REPO_ROOT, 'infrastructure/docker/scripts/generate-internal-certs.sh');
 const COMPOSE_PATH = join(REPO_ROOT, 'docker-compose.droplet.yml');
-// The droplet compose reads TLS material through the relative `./certs` path.
-// `scripts/deploy/deploy-paths.sh` symlinks that name in the deploy checkout
-// onto the persistent DEPLOY_CERTS_DIR, so the compose file itself carries the
-// relative form and the deploy owns the indirection.
-const CERTS_PREFIX = './certs';
+// Production containers bind one concrete immutable config generation; local
+// callers retain the repository-relative default.
+const CERTS_PREFIX = '${DEPLOY_CERTS_DIR:-./certs}';
 
 interface ComposeService {
   readonly environment?: Record<string, string>;
@@ -67,8 +65,9 @@ const EXPECTED_NATS_IDENTITIES: Readonly<Record<string, string>> = {
 function runGenerator(
   certsDirectory: string,
   environment: Readonly<Record<string, string>> = {},
+  arguments_: readonly string[] = [],
 ): SpawnSyncReturns<string> {
-  return spawnSync('/bin/bash', [GENERATOR_PATH], {
+  return spawnSync('/bin/bash', [GENERATOR_PATH, ...arguments_], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
     env: {
@@ -236,6 +235,84 @@ function compose(): ComposeDocument {
 }
 
 describe('production certificate identity store', () => {
+  it('renews leaves without rotating the CA and refuses an invalid or missing trust root', () => {
+    const root = mkdtempSync(join(tmpdir(), 'aqua-cert-leaf-renewal-'));
+    const certs = join(root, 'certs');
+    const caKey = join(certs, 'ca/ca-key.pem');
+    const caCertificate = join(certs, 'ca/ca-cert.pem');
+    const serverCertificate = join(certs, 'redis/redis-cert.pem');
+    const clientCertificate = join(certs, 'nats/clients/auth_service-cert.pem');
+    const renew = (): SpawnSyncReturns<string> => runGenerator(certs, {}, ['--renew-leaves']);
+    mkdirSync(certs, { mode: 0o700 });
+    try {
+      expectFailure(renew(), 'leaf renewal requires an existing validated certificate authority');
+      expect(existsSync(caKey)).toBe(false);
+      expect(existsSync(serverCertificate)).toBe(false);
+      expect(runGenerator(certs).status).toBe(0);
+      const originalCa = readFileSync(caCertificate);
+      const originalKey = readFileSync(caKey);
+      const originalServer = readFileSync(serverCertificate);
+      const originalClient = readFileSync(clientCertificate);
+      const renewed = renew();
+      expect({ status: renewed.status, stderr: renewed.stderr }).toEqual({ status: 0, stderr: '' });
+      expect(readFileSync(caCertificate)).toEqual(originalCa);
+      expect(readFileSync(caKey)).toEqual(originalKey);
+      expect(readFileSync(serverCertificate)).not.toEqual(originalServer);
+      expect(readFileSync(clientCertificate)).not.toEqual(originalClient);
+      runOpenSsl([
+        'verify',
+        '-CAfile',
+        caCertificate,
+        '-verify_hostname',
+        'aqua-redis',
+        serverCertificate,
+      ]);
+      runOpenSsl(['verify', '-CAfile', caCertificate, '-purpose', 'sslclient', clientCertificate]);
+      const clientSubject = spawnSync(
+        'openssl',
+        ['x509', '-in', clientCertificate, '-noout', '-subject', '-nameopt', 'RFC2253'],
+        { encoding: 'utf8' },
+      );
+      expect(clientSubject.stdout.trim()).toBe('subject=CN=auth_service');
+      const serverIdentity = spawnSync(
+        'openssl',
+        [
+          'x509',
+          '-in',
+          serverCertificate,
+          '-noout',
+          '-subject',
+          '-ext',
+          'subjectAltName',
+          '-nameopt',
+          'RFC2253',
+        ],
+        { encoding: 'utf8' },
+      );
+      expect(serverIdentity.stdout).toContain('subject=O=Aquaculture Platform,CN=redis');
+      expect(serverIdentity.stdout).toContain('DNS:redis, DNS:aqua-redis, DNS:localhost');
+
+      const unchangedLeaf = readFileSync(serverCertificate);
+      writeFileSync(caCertificate, 'invalid X.509\n');
+      expectFailure(renew(), 'not a parseable X.509 certificate');
+      expect(readFileSync(serverCertificate)).toEqual(unchangedLeaf);
+      writeFileSync(caCertificate, originalCa);
+      writeFileSync(caKey, 'invalid private key\n');
+      expectFailure(renew(), 'not a parseable private key');
+      expect(readFileSync(serverCertificate)).toEqual(unchangedLeaf);
+      writeFileSync(caKey, originalKey);
+      const alternate = generateAlternateClientIdentity(root, 'auth_service');
+      copyFileSync(alternate.caCertificate, caCertificate);
+      expectFailure(renew(), 'certificate and private key do not match');
+      expect(readFileSync(serverCertificate)).toEqual(unchangedLeaf);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+    const deployment = readFileSync(join(REPO_ROOT, 'scripts/deploy/droplet-up.sh'), 'utf8');
+    expect(deployment).toContain('generate-internal-certs.sh --renew-leaves');
+    expect(deployment).not.toContain('generate-internal-certs.sh --force');
+  });
+
   it('generates real identities idempotently and rejects metadata or cryptographic relabeling', () => {
     const root = mkdtempSync(join(tmpdir(), 'aqua-cert-identity-store-'));
     const certs = join(root, 'certs');

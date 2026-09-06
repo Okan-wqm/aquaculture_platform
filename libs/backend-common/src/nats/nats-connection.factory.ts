@@ -1,3 +1,4 @@
+import { X509Certificate } from 'node:crypto';
 import { readFileSync } from 'fs';
 
 /**
@@ -7,6 +8,37 @@ import { readFileSync } from 'fs';
  * already depends on backend-common, so this avoids a dependency cycle).
  */
 export const DEFAULT_NATS_URL = 'nats://localhost:4222';
+
+function certificateInboxPrefix(certPem: string): string {
+  let subject: unknown;
+  try {
+    subject = new X509Certificate(certPem).toLegacyObject().subject;
+  } catch {
+    // Certificate parsing errors must not expose PEM contents or key material.
+    throw new Error(
+      '[nats-connection.factory] NATS_TLS_CERT must contain a valid X.509 certificate.',
+    );
+  }
+  // services.yaml owns the certificate identities and generated broker ACLs.
+  // verify_and_map authenticates the certificate DN, never a display name.
+  // Use Node's parsed subject so repeated/escaped CNs cannot be misinterpreted
+  // by a hand-written DN parser. The canonical platform DN has exactly one CN.
+  if (
+    typeof subject !== 'object' ||
+    subject === null ||
+    Object.keys(subject).length !== 1 ||
+    !('CN' in subject) ||
+    typeof subject.CN !== 'string' ||
+    !/^[A-Za-z0-9_-]+$/.test(subject.CN)
+  ) {
+    throw new Error(
+      '[nats-connection.factory] NATS_TLS_CERT subject must contain one canonical service CN.',
+    );
+  }
+  // createInbox() adds its own '.' plus unique suffix. A trailing delimiter
+  // here would create an empty subject token rejected by the service ACL.
+  return `_INBOX${subject.CN.toUpperCase().replace(/-/g, '_')}`;
+}
 
 /**
  * SEC-H01 / IP-1 / ADR-015: Centralized NATS connection options factory.
@@ -158,12 +190,10 @@ export function buildNatsConnectionOptions(serviceName?: string): {
   authMode: NatsAuthMode;
   /**
    * SEC-HIGH-098 (2026-08-23 scan №43): scoped reply-inbox prefix.
-   * When a serviceName is given, request-reply replies land on
-   * `_INBOX<service>_...` instead of the platform-wide `_INBOX.>` — a
-   * compromised service cert can no longer subscribe every other
-   * service's reply stream (verifyPassword results, message bodies,
-   * billing admin output). Omitted when no serviceName is known (test
-   * clients), preserving the default shape.
+   * Derived from the mounted mTLS certificate CN, matching services.yaml's
+   * generated broker ACL. serviceName is a display name, never an authority.
+   * The SDK supplies the delimiter and per-connection unique suffix.
+   * Non-mTLS development connections retain the SDK's default inbox.
    */
   inboxPrefix?: string;
 } {
@@ -229,12 +259,6 @@ export function buildNatsConnectionOptions(serviceName?: string): {
     reconnectTimeWait: parseInt(process.env['NATS_RECONNECT_TIME_WAIT_MS'] || '2000', 10),
     authMode,
     ...(serviceName ? { name: serviceName } : {}),
-    // SEC-HIGH-098 (№43): replies return on this service's scoped inbox.
-    // nats-core appends a per-connection unique suffix after the prefix,
-    // so replicas of the same service do NOT cross-talk.
-    ...(serviceName
-      ? { inboxPrefix: `_INBOX${serviceName.toUpperCase().replace(/-/g, '_')}.` }
-      : {}),
   };
 
   // ── Inject auth fields based on chosen mode ───────────────────────────
@@ -286,6 +310,12 @@ export function buildNatsConnectionOptions(serviceName?: string): {
   if (usesTls) {
     const caPath = process.env['NATS_TLS_CA'];
     const insecureAllow = process.env['NATS_TLS_INSECURE_ALLOW'] === 'true';
+
+    if (authMode === 'mtls-cert' && (!caPath || insecureAllow)) {
+      throw new Error(
+        '[nats-connection.factory] mTLS requires NATS_TLS_CA and forbids NATS_TLS_INSECURE_ALLOW=true.',
+      );
+    }
 
     if (caPath) {
       // Load the CA bundle as a PEM string. Failures here are fatal —
@@ -360,6 +390,7 @@ export function buildNatsConnectionOptions(serviceName?: string): {
         }
         options.tls.cert = certPem;
         options.tls.key = keyPem;
+        options.inboxPrefix = certificateInboxPrefix(certPem);
       }
     } else if (!insecureAllow) {
       // No CA and no explicit opt-in to insecure mode — refuse to

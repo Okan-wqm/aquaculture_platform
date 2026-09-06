@@ -1,173 +1,87 @@
 name: E2E Tests
 
-# SEC-CI-021: Minimum token permissions
 permissions:
   contents: read
 
 on:
-  # CD-Production and CD-Staging workflows were deleted in TRACK B
-  # (commit 7317fc13) — they were disabled K8s stubs superseded by
-  # the live deploy-digitalocean.yml + deploy-staging.yml pair. The
-  # stale names are removed so workflow_run registration is clean.
-  workflow_run:
-    workflows: ["Deploy to DigitalOcean"]
-    types: [completed]
-    branches: [main]
-
-  workflow_dispatch:
+  workflow_call:
     inputs:
-      project:
-        description: 'Test project to run'
-        required: false
-        default: 'all'
-        type: choice
-        options:
-          - all
-          - security
-          - workflow
-          - integration
-          - modules
-
-concurrency:
-  group: e2e-${{ github.ref }}
-  cancel-in-progress: true
+      base_sha:
+        required: true
+        type: string
+      head_sha:
+        required: true
+        type: string
+      pr_head_sha:
+        required: true
+        type: string
 
 jobs:
-  e2e:
-    name: E2E Tests on Server
+  isolated-candidate:
+    name: Hosted candidate authentication and mobile E2E
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
-
+    timeout-minutes: 180
+    env:
+      BASE_SHA: ${{ inputs.base_sha }}
+      HEAD_SHA: ${{ inputs.head_sha }}
+      PR_HEAD_SHA: ${{ inputs.pr_head_sha }}
+      NODE_OPTIONS: '--max-old-space-size=6144'
+      NX_DAEMON: 'false'
+      NX_NO_CLOUD: 'true'
+      CI: 'true'
     steps:
-      - name: Run E2E tests on DigitalOcean server via SSH
-        # Pinned to commit SHA: mutable @v1 tag replaced with SHA for supply chain safety.
-        # BEFORE: appleboy/ssh-action@v1 could silently update to a new version on each run.
-        # The rest of the repo (checkout, setup-node) already pins to SHAs — this aligns.
-        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
-        env:
-          PROJECT: ${{ github.event.inputs.project || 'all' }}
-          # JWT_SECRET and DB_PASSWORD injected via env + envs, NOT grepped from .env.
-          # BEFORE: secrets were extracted with grep from the server .env file, risking
-          # exposure in SSH session logs. GitHub Actions secrets are masked automatically.
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          host: ${{ secrets.DROPLET_HOST }}
-          username: ${{ secrets.DROPLET_USER }}
-          key: ${{ secrets.DROPLET_SSH_KEY }}
-          timeout: 600s
-          envs: PROJECT,JWT_SECRET,DB_PASSWORD
-          script: |
-            set -e
-            cd /var/aqua-saas
-
-            echo "=== Installing E2E dependencies ==="
-            cd e2e
-            npm ci --prefer-offline --ignore-scripts 2>/dev/null || npm install --ignore-scripts
-            npx playwright install --with-deps chromium 2>/dev/null || true
-
-            echo "=== Setting environment ==="
-            export GATEWAY_URL=http://localhost:3000
-            # Secrets injected via envs above — no grep needed.
-            export DATABASE_URL=postgresql://aquaculture:${DB_PASSWORD}@localhost:5432/aquaculture
-            export NODE_ENV=test
-            export CI=true
-
-            echo "=== Checking gateway health ==="
-            curl -sf http://localhost:3000/health || echo "Gateway health check failed, continuing..."
-
-            echo "=== Running E2E tests ==="
-            # || true removed: Playwright exit code must propagate to fail this workflow.
-            # BEFORE: test failures returned exit code 0 — workflow always showed green.
-            # set -e on line above is now effective for test commands.
-            if [ "$PROJECT" = "all" ]; then
-              npx playwright test --reporter=list 2>&1
-            else
-              npx playwright test --project="$PROJECT" --reporter=list 2>&1
-            fi
-
-            echo "=== Test run complete ==="
-
-      # ── AquaMobil mobile browser E2E (MOB-HIGH-013) ──────────────────
-      # The mobile Playwright suite (e2e/tests/mobile/**, config
-      # playwright.aquamobil.config.ts) drives the REAL login mutation and
-      # seeds live rows across ai/alert/messaging/farm schemas, so it needs
-      # the full running stack — unlike the water-chemistry smoke, which
-      # mocks GraphQL. This workflow runs post-deploy on main, so the target
-      # is the just-merged build: point the suite at the DEPLOYED AquaMobil
-      # container via nginx (host :80 → aquamobil:80; same-origin /graphql
-      # and /socket.io proxied to gateway-api:3000). No in-CI build needed.
-      #
-      # Separate SSH step (not folded into the suite above) so the mobile
-      # results are a distinct, visible check; `!cancelled()` lets it run
-      # even if the default suite failed — the two suites are independent.
-      - name: Run AquaMobil mobile E2E on server via SSH
-        if: ${{ !cancelled() }}
-        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
-        env:
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          ref: ${{ inputs.head_sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          host: ${{ secrets.DROPLET_HOST }}
-          username: ${{ secrets.DROPLET_USER }}
-          key: ${{ secrets.DROPLET_SSH_KEY }}
-          timeout: 600s
-          envs: JWT_SECRET,DB_PASSWORD
-          script: |
-            set -e
-            cd /var/aqua-saas/e2e
-            npm ci --prefer-offline --ignore-scripts 2>/dev/null || npm install --ignore-scripts
-            npx playwright install --with-deps chromium 2>/dev/null || true
-
-            # AQUAMOBIL_URL / GATEWAY_URL / DATABASE_URL / JWT_SECRET are read by
-            # playwright.aquamobil.config.ts and the mobile seed helpers.
-            export AQUAMOBIL_URL=http://localhost/mobile
-            export GATEWAY_URL=http://localhost:3000
-            export DATABASE_URL=postgresql://aquaculture:${DB_PASSWORD}@localhost:5432/aquaculture
-            export NODE_ENV=test
-            export CI=true
-
-            echo "=== Waiting for deployed AquaMobil + gateway ==="
-            ready=false
-            for _ in $(seq 1 60); do
-              if curl -fsS http://localhost/mobile/ >/dev/null 2>&1 \
-                && curl -fsS http://localhost:3000/health >/dev/null 2>&1; then
-                ready=true
-                break
-              fi
-              sleep 2
-            done
-            if [ "$ready" != "true" ]; then
-              echo "AquaMobil (nginx :80 /mobile/) or gateway (:3000) not reachable"
-              exit 1
-            fi
-
-            echo "=== Running AquaMobil mobile E2E (MOB-HIGH-013) ==="
-            # Exit code propagates (no `|| true`) so a mobile failure fails CI.
-            npm run test:mobile 2>&1
-
-            echo "=== Mobile E2E complete ==="
-
-      - name: Copy test results from server
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            e2e/package-lock.json
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v5.6.0
+        with:
+          python-version: '3.12'
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - name: Install candidate build and browser dependencies on hosted runner
+        run: |
+          npm ci --ignore-scripts --no-audit
+          npm ci --prefix e2e --ignore-scripts --no-audit
+          node e2e/node_modules/@playwright/test/cli.js install --with-deps chromium
+          python3 -m pip install PyYAML==6.0.2
+      - name: Generate isolated runtime configuration and ephemeral certificates
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: node scripts/ci/hosted-e2e-stack.mjs prepare
+      - name: Build the exact candidate service and frontend images
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: node scripts/ci/hosted-e2e-stack.mjs build
+      - name: Migrate authoritative schemas and start isolated full stack
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: node scripts/ci/hosted-e2e-stack.mjs up
+      - name: Execute real login, MFA, security and mobile browser proof
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: node scripts/ci/hosted-e2e-proof.mjs
+      - name: Capture isolated runtime state and redacted service logs
         if: always()
-        # Pinned to commit SHA: mutable @v0.1.7 replaced.
-        uses: appleboy/scp-action@f9e1f36bc4a2230f8c8e2bac88da0aaa5c32d3dc # v0.1.7
-        with:
-          host: ${{ secrets.DROPLET_HOST }}
-          username: ${{ secrets.DROPLET_USER }}
-          key: ${{ secrets.DROPLET_SSH_KEY }}
-          source: "/var/aqua-saas/e2e/playwright-report/*,/var/aqua-saas/e2e/test-results/*"
-          target: "."
-          strip_components: 3
-        # continue-on-error removed: if results can't be copied, that's a real failure.
-        # BEFORE: a broken SCP step silently passed, hiding server-side test infrastructure issues.
-
-      - name: Upload test report
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: node scripts/ci/hosted-e2e-stack.mjs diagnose
+      - name: Upload exact candidate images, test counts and proof receipts
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: e2e-test-report-${{ github.run_number }}
-          path: e2e/playwright-report/
+          name: hosted-authentication-e2e-${{ github.run_attempt }}
+          path: artifacts/hosted-e2e/
+          if-no-files-found: error
           retention-days: 14
-        # Report upload is part of the E2E evidence chain; failures should be visible.
+      - name: Remove only the isolated runner generation
+        if: always()
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: node scripts/ci/hosted-e2e-stack.mjs down

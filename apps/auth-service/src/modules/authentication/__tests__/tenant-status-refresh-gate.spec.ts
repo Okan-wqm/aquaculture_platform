@@ -10,6 +10,7 @@
  * rotation, an ACTIVE tenant refreshes normally, and a platform user
  * (tenantId null) is exempt exactly like login.
  */
+import { Role } from '@aquaculture/backend-common/decorators';
 import { BypassRlsService } from '@aquaculture/backend-common/database';
 import {
   TimingSafeService,
@@ -42,6 +43,7 @@ import { AuthenticationService } from '../services/authentication.service';
 import { DurableAccessTokenInvalidationService } from '../services/durable-access-token-invalidation.service';
 import { DurableUserTokenInvalidationService } from '../services/durable-user-token-invalidation.service';
 import { MfaService } from '../services/mfa.service';
+import { LockedAuthContext } from '../services/credential-state';
 import { TokenService } from '../services/token.service';
 
 // bcryptjs sealed-namespace → spy-able wrappers (same pattern as the sibling specs).
@@ -64,7 +66,10 @@ describe('AuthenticationService — tenant-status refresh gate (RBAC-HIGH-007)',
   const mockUserRepository = { findOne: jest.fn() };
   const mockTenantFindOne = jest.fn();
   const mockTokenService = {
-    generateTokens: jest.fn().mockResolvedValue({ accessToken: 'a', refreshToken: 'r' }),
+    generateTokensInContext: jest.fn(async (context: LockedAuthContext) => {
+      context.assertSessionAdmission();
+      return { accessToken: 'a', refreshToken: 'r' };
+    }),
   };
   const mockTokenSave = jest.fn();
 
@@ -101,17 +106,25 @@ describe('AuthenticationService — tenant-status refresh gate (RBAC-HIGH-007)',
   };
 
   const mockManager = {
-    getRepository: jest.fn((entity: unknown) => {
-      if (entity === RefreshToken) return buildRefreshTokenRepo();
-      if (entity === User) return mockUserRepository;
-      if (entity === Tenant) return { findOne: mockTenantFindOne };
-      return {};
+    queryRunner: { isTransactionActive: false },
+    withRepository: jest.fn((repository: object) => repository),
+    findOne: jest.fn((entity: unknown, options: unknown) => {
+      if (entity === User) return mockUserRepository.findOne(options);
+      if (entity === Tenant) return mockTenantFindOne(options);
+      throw new Error('Unexpected identity entity');
     }),
     query: jest.fn(),
   };
 
   const mockDataSource = {
-    transaction: jest.fn((cb: (m: unknown) => Promise<unknown>) => cb(mockManager)),
+    transaction: jest.fn(async (cb: (m: unknown) => Promise<unknown>) => {
+      mockManager.queryRunner.isTransactionActive = true;
+      try {
+        return await cb(mockManager);
+      } finally {
+        mockManager.queryRunner.isTransactionActive = false;
+      }
+    }),
     query: jest.fn(),
   };
 
@@ -138,7 +151,7 @@ describe('AuthenticationService — tenant-status refresh gate (RBAC-HIGH-007)',
         AuthenticationService,
         ActionTokenResolver,
         { provide: getRepositoryToken(User), useValue: mockUserRepository },
-        { provide: getRepositoryToken(RefreshToken), useValue: { update: jest.fn() } },
+        { provide: getRepositoryToken(RefreshToken), useValue: buildRefreshTokenRepo() },
         { provide: getRepositoryToken(Invitation), useValue: {} },
         { provide: getRepositoryToken(ActionToken), useValue: {} },
         { provide: getRepositoryToken(UserModuleAssignment), useValue: { find: jest.fn() } },
@@ -206,8 +219,15 @@ describe('AuthenticationService — tenant-status refresh gate (RBAC-HIGH-007)',
 
   const presentedToken = `${USER_ID}:${'a'.repeat(128)}`;
 
-  function tenantUser(tenantId: string | null): Record<string, unknown> {
-    return { id: USER_ID, email: 'user@farm.test', isActive: true, tenantId };
+  function tenantUser(tenantId: string | null): User {
+    return Object.assign(new User(), {
+      id: USER_ID,
+      email: 'user@farm.test',
+      isActive: true,
+      tenantId,
+      credentialVersion: 1,
+      role: tenantId ? Role.MODULE_USER : Role.SUPER_ADMIN,
+    });
   }
 
   it.each([
@@ -224,7 +244,7 @@ describe('AuthenticationService — tenant-status refresh gate (RBAC-HIGH-007)',
       await expect(service.refreshToken(presentedToken)).rejects.toThrow(UnauthorizedException);
 
       // The gate fires BEFORE rotation: no new tokens minted.
-      expect(mockTokenService.generateTokens).not.toHaveBeenCalled();
+      expect(mockTokenService.generateTokensInContext).not.toHaveBeenCalled();
     },
   );
 
@@ -235,7 +255,7 @@ describe('AuthenticationService — tenant-status refresh gate (RBAC-HIGH-007)',
     await expect(service.refreshToken(presentedToken)).resolves.toEqual(
       expect.objectContaining({ accessToken: 'a' }),
     );
-    expect(mockTokenService.generateTokens).toHaveBeenCalledTimes(1);
+    expect(mockTokenService.generateTokensInContext).toHaveBeenCalledTimes(1);
   });
 
   it('exempts platform users (tenantId null) exactly like login', async () => {

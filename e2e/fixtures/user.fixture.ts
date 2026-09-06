@@ -1,7 +1,13 @@
 import { randomUUID } from 'crypto';
 
+import { hashPassword } from '../../libs/backend-common/src/auth/password.util';
 import { TestDatabase } from '../helpers/db.helper';
-import { generateTestToken, type TestRole, type TestTokenOptions } from '../helpers/jwt.helper';
+import type { TestRole } from '../helpers/jwt.helper';
+import {
+  assertIsolatedFixtureDatabase,
+  FIXTURE_PASSWORD,
+  loginFixtureUser,
+} from '../helpers/real-auth.fixture';
 
 /**
  * Represents a test user created by the fixture.
@@ -13,7 +19,7 @@ export interface TestUser {
   tenantId: string | null;
   firstName: string;
   lastName: string;
-  /** Pre-generated JWT token for this user */
+  /** RS256 access token obtained through actual login */
   token: string;
 }
 
@@ -30,33 +36,26 @@ export interface CreateTestUserOptions {
   lastName?: string;
   isActive?: boolean;
   isEmailVerified?: boolean;
-  /** Password hash (bcrypt). If not provided, a default hash is used. */
-  passwordHash?: string;
-  /** Additional token options for JWT generation */
-  tokenOptions?: Omit<TestTokenOptions, 'userId' | 'email' | 'role' | 'tenantId'>;
+  /** Password used by the real login fixture. */
+  password?: string;
 }
 
 /**
- * Default bcrypt hash for 'TestPassword123!' with 12 rounds.
- * Pre-computed to avoid bcrypt overhead in tests.
- */
-const DEFAULT_PASSWORD_HASH = '$2a$12$LJ3/RA.gGnqeaJMGMHGsG.7cDBanxHz/xgD6hFr4h8R6epqsVHXW';
-
-/**
- * Create a test user in auth.users and generate a JWT token.
+ * Create a persisted test user and obtain its token through password login.
  *
  * This inserts directly into the database, bypassing the API.
  * The user entity's @BeforeInsert hook is NOT triggered,
- * so the password must already be a bcrypt hash.
+ * so the fixture uses the production password hashing function.
  *
  * @param db - TestDatabase instance
  * @param options - User configuration overrides
- * @returns The created TestUser with a pre-generated token
+ * @returns The created TestUser with a real RS256 login token
  */
 export async function createTestUser(
   db: TestDatabase,
   options?: CreateTestUserOptions,
 ): Promise<TestUser> {
+  assertIsolatedFixtureDatabase();
   const id = options?.id ?? randomUUID();
   const role = options?.role ?? 'TENANT_ADMIN';
   const tenantId =
@@ -70,7 +69,8 @@ export async function createTestUser(
   const lastName = options?.lastName ?? `Test ${id.slice(0, 8)}`;
   const isActive = options?.isActive ?? true;
   const isEmailVerified = options?.isEmailVerified ?? true;
-  const passwordHash = options?.passwordHash ?? DEFAULT_PASSWORD_HASH;
+  const password = options?.password ?? FIXTURE_PASSWORD;
+  const passwordHash = await hashPassword(password);
 
   await db.query(
     `INSERT INTO auth.users (
@@ -78,16 +78,13 @@ export async function createTestUser(
        "firstName", "lastName", "isActive", "isEmailVerified",
        "mfaEnabled", "failedLoginAttempts", "mfaFailedAttempts"
      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, 0, 0)`,
-    [id, email, passwordHash, role, tenantId, firstName, lastName, isActive, isEmailVerified],
+    [id, email, passwordHash, role, tenantId, firstName, lastName, true, isEmailVerified],
   );
 
-  const token = generateTestToken({
-    userId: id,
-    email,
-    role,
-    tenantId,
-    ...options?.tokenOptions,
-  });
+  const token = await loginFixtureUser(email, password);
+  if (!isActive) {
+    await db.query('UPDATE auth.users SET "isActive" = false WHERE id = $1', [id]);
+  }
 
   return {
     id,

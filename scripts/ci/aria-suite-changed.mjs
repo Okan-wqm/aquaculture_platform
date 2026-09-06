@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Run the ARIA kernel suite, but only when this push actually touches an
+ * Run the ARIA kernel suite on the explicit hosted candidate range touching an
  * ARIA surface — and only the tests that surface can break.
  *
  * WHY THIS EXISTS. `npm run aria:test:unit` runs in CI
@@ -13,6 +13,9 @@
  * workflow-preflight contract tests red, because I ran jest and not the kernel
  * suite. CLAUDE.md's "never commit with red tests" was enforced by intention
  * only. ORPHAN-HIGH-510.
+ *
+ * The required hosted-validation job now owns this affected-only selector.
+ * It requires immutable base/head SHAs and never discovers a remote branch.
  *
  * AFFECTED-ONLY (operator decision 2026-08-28): the gate used to answer "did
  * an ARIA surface change?" with yes/no and on yes run ALL 5048+ tests — ~2.5
@@ -57,35 +60,21 @@ function git(args) {
   return execFileSync('git', args, { encoding: 'utf-8' }).trim();
 }
 
-function resolves(ref) {
-  return (
-    spawnSync('git', ['rev-parse', '--verify', '--quiet', ref], { encoding: 'utf-8' }).status === 0
-  );
-}
-
-function baseRef() {
-  // What the remote already has for this branch is the honest "already
-  // verified" point. Falling back to origin/main covers the first push of a
-  // new branch, where everything on it is new.
-  const branch = git(['rev-parse', '--abbrev-ref', 'HEAD']);
-  for (const candidate of [`origin/${branch}`, 'origin/main']) {
-    if (resolves(candidate)) return candidate;
-  }
-  return null;
-}
-
-const base = baseRef();
-if (base === null) {
-  // Loudly, not silently: an unresolvable base means "changed" is undefined,
-  // and blocking an offline push over that would be wrong. Saying so is the
-  // difference between a skipped gate and an invisible one.
+const args = process.argv.slice(2);
+const base = args[args.indexOf('--base') + 1];
+const head = args[args.indexOf('--head') + 1];
+if (
+  !args.includes('--base') ||
+  !args.includes('--head') ||
+  !/^[0-9a-f]{40}$/.test(base) ||
+  !/^[0-9a-f]{40}$/.test(head)
+) {
   process.stderr.write(
-    'aria-suite-changed: no origin ref resolved, ARIA kernel suite SKIPPED (CI still runs it).\n',
+    'aria-suite-changed: explicit immutable --base and --head SHAs are required.\n',
   );
-  process.exit(0);
+  process.exit(1);
 }
-
-const changed = git(['diff', '--name-only', `${base}...HEAD`, '--', ...ARIA_SURFACES]);
+const changed = git(['diff', '--name-only', `${base}...${head}`, '--', ...ARIA_SURFACES]);
 if (changed === '') {
   process.stdout.write(
     `aria-suite-changed: no ARIA surface touched since ${base}; suite skipped.\n`,
@@ -101,7 +90,10 @@ if (selected === null) {
   process.stdout.write(
     `aria-suite-changed: ${files.length} ARIA-surface file(s) changed since ${base}; running the FULL kernel suite${forceFull ? ' (ARIA_SUITE_FULL=1)' : ''}.\n`,
   );
-} else if (selected.size === 0 && files.some((f) => f.startsWith('scripts/ci/'))) {
+} else if (
+  selected.size === 0 &&
+  files.some((f) => f.startsWith('scripts/ci/') || f === 'package.json')
+) {
   // GATE SELF-VALIDATION (pinned by aria-doc-runtime-ssot's selector test):
   // a change to the selector or the runner itself runs the runner WITH NO
   // ARGUMENTS — the full suite — because next push is trusting this exact

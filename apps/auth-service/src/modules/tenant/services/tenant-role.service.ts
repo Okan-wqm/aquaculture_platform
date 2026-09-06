@@ -463,6 +463,11 @@ export class TenantRoleService {
     await queryRunner.startTransaction('SERIALIZABLE');
 
     try {
+      await queryRunner.query('SELECT id FROM auth.tenants WHERE id = $1 FOR UPDATE', [tenantId]);
+      await queryRunner.query(
+        'SELECT id FROM auth.users WHERE "tenantId" = $1 ORDER BY id FOR UPDATE',
+        [tenantId],
+      );
       // Check for duplicate name with FOR UPDATE to prevent race conditions
       // This locks any matching rows and prevents concurrent inserts with same name.
       // Repointed to auth.* (ORPHAN-CRITICAL-100): the dup check is scoped to
@@ -616,6 +621,11 @@ export class TenantRoleService {
     await queryRunner.startTransaction('SERIALIZABLE');
 
     try {
+      await queryRunner.query('SELECT id FROM auth.tenants WHERE id = $1 FOR UPDATE', [tenantId]);
+      await queryRunner.query(
+        'SELECT id FROM auth.users WHERE "tenantId" = $1 ORDER BY id FOR UPDATE',
+        [tenantId],
+      );
       // Lock the role row for update to prevent concurrent modifications.
       // Repointed to auth.* (ORPHAN-CRITICAL-100): the tenantId predicate makes
       // a foreign roleId return 0 rows → NotFoundException (no cross-tenant peek).
@@ -818,6 +828,11 @@ export class TenantRoleService {
     await queryRunner.startTransaction('SERIALIZABLE');
 
     try {
+      await queryRunner.query('SELECT id FROM auth.tenants WHERE id = $1 FOR UPDATE', [tenantId]);
+      await queryRunner.query(
+        'SELECT id FROM auth.users WHERE "tenantId" = $1 ORDER BY id FOR UPDATE',
+        [tenantId],
+      );
       // Lock the role and get accurate user count within transaction.
       // Repointed to auth.* (ORPHAN-CRITICAL-100): outer filter on r."tenantId"
       // and the user_count subquery join on trc."tenantId" both scope to tenant.
@@ -947,6 +962,11 @@ export class TenantRoleService {
     await queryRunner.startTransaction('SERIALIZABLE');
 
     try {
+      await queryRunner.query('SELECT id FROM auth.tenants WHERE id = $1 FOR UPDATE', [tenantId]);
+      await queryRunner.query(
+        'SELECT id FROM auth.users WHERE "tenantId" = $1 ORDER BY id FOR UPDATE',
+        [tenantId],
+      );
       // Lock the tenant's roles (FOR UPDATE OF r serializes concurrent seeds;
       // ORPHAN-CRITICAL-100 tenant filter is load-bearing) and load their id,
       // name, is_system flag AND current stored permissions so the reconcile

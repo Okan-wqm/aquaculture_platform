@@ -865,6 +865,74 @@ describe('production host publisher and common lock runtime', () => {
     }
   });
 
+  it('accepts a real materialized and sealed release in the authoritative retention reader', () => {
+    const fixture = createRuntimeFixture('materialized-release-retention');
+    const repository = join(fixture.root, 'publication-repository');
+    const releases = join(fixture.controlRoot, 'releases');
+    const configuration = join(fixture.controlRoot, 'config-generations');
+    mkdirSync(repository, { mode: 0o700 });
+    git(repository, ['init']);
+    git(repository, ['config', 'user.name', 'Release Fixture']);
+    git(repository, ['config', 'user.email', 'fixture@example.invalid']);
+    git(repository, ['config', 'commit.gpgsign', 'false']);
+    writeFileSync(join(repository, 'fixture.txt'), 'immutable release');
+    git(repository, ['add', 'fixture.txt']);
+    git(repository, ['commit', '-m', 'fixture']);
+    const sha = git(repository, ['rev-parse', 'HEAD']).trim();
+    writeFileSync(join(repository, '.env'), 'FIXTURE_VALUE=private\n', { mode: 0o600 });
+    mkdirSync(join(repository, 'certs'), { mode: 0o700 });
+    writeFileSync(join(repository, 'certs', 'fixture.pem'), 'fixture identity');
+    try {
+      expect(runControl(fixture, ['publish']).status).toBe(0);
+      const published = spawnUtf8(
+        '/bin/bash',
+        [
+          '-c',
+          `
+        set -euo pipefail
+        source "$1"
+        acquire_deploy_control_lock() { :; }
+        assert_deploy_infrastructure() { :; }
+        materialize_deploy_checkout "$2"
+        seal_deploy_configuration
+      `,
+          '--',
+          join(REPO_ROOT, 'scripts/deploy/deploy-paths.sh'),
+          sha,
+        ],
+        {
+          env: {
+            ...runtimeEnv(fixture),
+            DEPLOY_SOURCE_REPO: repository,
+            DEPLOY_RELEASES_ROOT: releases,
+            DEPLOY_CONFIG_ROOT: configuration,
+            DEPLOY_ENV_FILE: join(repository, '.env'),
+            DEPLOY_CERTS_DIR: join(repository, 'certs'),
+            DEPLOY_ATTEMPT: '10-1',
+          },
+        },
+      );
+      expect({ status: published.status, stderr: published.stderr }).toEqual({
+        status: 0,
+        stderr: expect.any(String),
+      });
+      expect(statSync(join(releases, sha, '10-1')).mode & 0o777).toBe(0o555);
+      const retained = runSourcedControl(
+        fixture,
+        'aqua_control_plane_lock_acquire exclusive 1; aqua_control_plane_prune_releases',
+      );
+      expect({ status: retained.status, stderr: retained.stderr }).toEqual({
+        status: 0,
+        stderr: '',
+      });
+      expect(readFileSync(join(releases, sha, '10-1', 'fixture.txt'), 'utf8')).toBe(
+        'immutable release',
+      );
+    } finally {
+      removeFixtureRoot(fixture.root);
+    }
+  });
+
   it('prunes release state to a bounded audit window while preserving every live reference', () => {
     const fixture = createRuntimeFixture('release-retention');
     const retentionRoot = join(fixture.root, 'release-retention-root');
@@ -1396,6 +1464,60 @@ describe('production host publisher and common lock runtime', () => {
         removeFixtureRoot(fixture.root);
       }
     }
+  });
+
+  it('uses the same strict terminal reader for direct deploy and canonical host admission', () => {
+    const fixture = createRuntimeFixture();
+    const stateRoot = join(fixture.controlRoot, 'dr-bootstrap');
+    const entry = join(stateRoot, `${fixture.mainSha}-1-1`);
+    const reader = join(REPO_ROOT, 'scripts/deploy/validate-postgres-dr-state.py');
+    const readDirect = (): SpawnSyncReturns<string> =>
+      spawnUtf8('/usr/bin/python3', [
+        reader,
+        stateRoot,
+        String(statSync(fixture.controlRoot).uid),
+        `sha256:${'3'.repeat(64)}`,
+      ]);
+    try {
+      writeTerminalJournalArtifacts(fixture, 'COMMITTED');
+      expect(readDirect().status).toBe(0);
+      expect(runControl(fixture, ['publish']).status).toBe(0);
+      const files = readdirSync(entry);
+      for (const name of files) {
+        const path = join(entry, name);
+        const original = readFileSync(path);
+        rmSync(path);
+        expect(readDirect().status).not.toBe(0);
+        expect(runControl(fixture, ['publish']).status).not.toBe(0);
+        writeFileSync(path, original, { mode: 0o400 });
+        chmodSync(path, 0o600);
+        expect(readDirect().status).not.toBe(0);
+        expect(runControl(fixture, ['publish']).status).not.toBe(0);
+        chmodSync(path, 0o400);
+        if (name.endsWith('.json') || name.endsWith('.jsonl')) {
+          chmodSync(path, 0o600);
+          writeFileSync(path, '{invalid');
+          chmodSync(path, 0o400);
+          expect(readDirect().status).not.toBe(0);
+          expect(runControl(fixture, ['publish']).status).not.toBe(0);
+          chmodSync(path, 0o600);
+          writeFileSync(path, original);
+          chmodSync(path, 0o400);
+        }
+      }
+      const extra = join(entry, 'unexpected.json');
+      writeFileSync(extra, '{}', { mode: 0o400 });
+      expect(readDirect().status).not.toBe(0);
+      expect(runControl(fixture, ['publish']).status).not.toBe(0);
+      rmSync(extra);
+      expect(readDirect().status).toBe(0);
+    } finally {
+      removeFixtureRoot(fixture.root);
+    }
+    expect(readFileSync(join(REPO_ROOT, 'scripts/deploy/deploy-paths.sh'), 'utf8')).toContain(
+      'scripts/deploy/validate-postgres-dr-state.py',
+    );
+    expect(readFileSync(CONTROL_PLANE, 'utf8')).toContain('/validate-postgres-dr-state.py');
   });
 
   it('fails closed for unresolved, corrupt, incomplete, or foreign DR state', () => {

@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -16,6 +17,7 @@ const POLICY_PATH = '.github/manifests/postgres-dr-bootstrap-policy.json';
 const WORKFLOW_PATH = '.github/workflows/postgres-dr-bootstrap-candidate.yml';
 const PROVIDER_SCRIPT_PATH = 'infrastructure/scripts/provider-console-bootstrap-postgres-walg.sh';
 const STATE_HELPER_PATH = 'infrastructure/scripts/postgres-dr-bootstrap-state.sh';
+const COORDINATOR_PATH = 'infrastructure/scripts/postgres-dr-coordinator.sh';
 const CHECK_SELECTOR_PATH = '.github/scripts/select-effective-required-check.jq';
 const CHECK_FIXTURE_PATH =
   'tests/invariants/fixtures/postgres-dr-bootstrap/check-runs-older-success-newer-failure.json';
@@ -25,7 +27,10 @@ const AUTHORITY_PREDICATE_TYPE =
   'https://github.com/Okan-wqm/aquaculture_platform/attestations/postgres-dr-bootstrap-release-authority/v1';
 
 function read(path: string): string {
-  return readFileSync(join(REPO_ROOT, path), 'utf8');
+  const source = readFileSync(join(REPO_ROOT, path), 'utf8');
+  return path === PROVIDER_SCRIPT_PATH
+    ? `${source}\n${readFileSync(join(REPO_ROOT, COORDINATOR_PATH), 'utf8')}`
+    : source;
 }
 
 function jobBlock(workflow: string, job: string, nextJob?: string): string {
@@ -95,7 +100,7 @@ describe('PostgreSQL DR bootstrap control plane', () => {
 
     expect(policy).toEqual(
       expect.objectContaining({
-        schema_version: 1,
+        schema_version: 2,
         finding_ids: ['INFRA-HIGH-073'],
         does_not_close_findings: ['INFRA-HIGH-033'],
         release: expect.objectContaining({
@@ -142,7 +147,8 @@ describe('PostgreSQL DR bootstrap control plane', () => {
           pre_execution_signature_verification_required: true,
           global_nonblocking_lock_required: true,
           pinned_host_paths: {
-            deploy_root: '/var/lib/aqua/deploy/checkout',
+            deploy_root: '<release_root>/repository',
+            config_generations_root: '/var/lib/aqua/deploy/config-generations',
             deploy_env_file: '/var/aqua-saas/.env',
             state_root: '/var/lib/aqua/deploy/dr-bootstrap',
             control_plane_lock: '/var/lib/aqua/deploy/control-plane.lock',
@@ -153,6 +159,13 @@ describe('PostgreSQL DR bootstrap control plane', () => {
           },
           state_machine: {
             helper: STATE_HELPER_PATH,
+            schema_version: 2,
+            modes: ['healthy_upgrade', 'degraded_legacy_recovery'],
+            recovery_helper: 'infrastructure/scripts/postgres-dr-recovery.sh',
+            coordinator_helper: 'infrastructure/scripts/postgres-dr-coordinator.sh',
+            verified_cold_copy_required: true,
+            baseline: 'signed_candidate_walg_disabled_on_isolated_copy',
+            writer_quiescence: 'record_and_stop_existing_compose_containers',
             durable_phases: [
               'VERIFYING',
               'PREPARED',
@@ -160,6 +173,9 @@ describe('PostgreSQL DR bootstrap control plane', () => {
               'ROLLBACK_STARTED',
               'ROLLED_BACK',
               'COMMITTED',
+              'RECOVERY_REQUIRED',
+              'FINALIZING',
+              'ROLLBACK_FINALIZING',
             ],
             exact_prior_recovery_required: true,
             power_loss_reentry_required: true,
@@ -345,7 +361,7 @@ describe('PostgreSQL DR bootstrap control plane', () => {
     expect(script).toContain('unset COMPOSE_PROJECT_NAME COMPOSE_ENV_FILES');
     expect(script).toContain('export DOCKER_HOST=unix:///var/run/docker.sock');
     expect(script).toContain('export TAG="${EXPECTED_MAIN_SHA}"');
-    expect(script).toContain('DEPLOY_ROOT=/var/lib/aqua/deploy/checkout');
+    expect(script).toContain('DEPLOY_ROOT="${RELEASE_ROOT}/repository"');
     expect(script).toContain('DEPLOY_ENV_FILE=/var/aqua-saas/.env');
     expect(script).toContain('STATE_ROOT=/var/lib/aqua/deploy/dr-bootstrap');
     expect(script).toContain('CONTROL_PLANE_LOCK_PATH=/var/lib/aqua/deploy/control-plane.lock');
@@ -380,7 +396,7 @@ describe('PostgreSQL DR bootstrap control plane', () => {
     expect(script).toContain('STATE_ROOT_ID=$(stat -c');
     expect(script).toContain('require_unchanged_symlink_target()');
     expect(script).toContain(
-      'require_unchanged_symlink_target "${CERTS_LINK_PATH}" "${CERTS_REAL_ROOT}" CERTS_ROOT',
+      'require_unchanged_directory_identity "${CERTS_REAL_ROOT}" "${CERTS_REAL_ROOT_ID}" CERTS_ROOT',
     );
     expect(
       script.match(/require_unchanged_directory_identity "\$\{[^}]+\}"/g)?.length,
@@ -489,43 +505,37 @@ describe('PostgreSQL DR bootstrap control plane', () => {
     }
   });
 
-  it('recovers only the current empty or phase-temp pre-mutation journal', () => {
-    const provider = read(PROVIDER_SCRIPT_PATH);
-    const recoveryProbe = [
-      shellFunction(provider, 'die'),
-      shellFunction(provider, 'recover_pre_mutation_state_directory'),
-      'require_root_owned_nonwritable_file() { :; }',
-      'STATE_DIR="$1"',
-      'CURRENT_STATE_NEEDS_INITIALIZATION=false',
-      'recover_pre_mutation_state_directory "$2"',
-      'test "${CURRENT_STATE_NEEDS_INITIALIZATION}" = true',
-    ].join('\n');
+  it('reconciles an incomplete first phase render and refuses unrelated pre-journal files', () => {
     const root = mkdtempSync(join(tmpdir(), 'aqua-pre-mutation-journal-'));
     const current = join(root, 'current');
-    const different = join(root, 'different');
-    const runRecovery = (recordedDirectory: string) =>
-      spawnSync('bash', ['-c', recoveryProbe, 'pre-mutation-probe', current, recordedDirectory], {
-        cwd: REPO_ROOT,
-        encoding: 'utf8',
-      });
+    const runRecovery = (): ReturnType<typeof spawnSync> =>
+      spawnSync(
+        'bash',
+        [
+          '-c',
+          `
+      set -euo pipefail
+      source "$1"
+      dr_state_reconcile_staging "$2/phase.json" Okan-wqm/aquaculture_platform "$3" 10 1 "$4"
+    `,
+          '--',
+          join(REPO_ROOT, STATE_HELPER_PATH),
+          current,
+          'a'.repeat(40),
+          `sha256:${'b'.repeat(64)}`,
+        ],
+        { encoding: 'utf8' },
+      );
     try {
-      mkdirSync(current);
-      mkdirSync(different);
-      expect(runRecovery(current).status).toBe(0);
-
+      mkdirSync(current, { mode: 0o700 });
+      expect(runRecovery().status).toBe(0);
       const phaseTemp = join(current, '.phase.Ab12Cd34');
-      writeFileSync(phaseTemp, '{"partial":true}\n');
-      expect(runRecovery(current).status).toBe(0);
+      writeFileSync(phaseTemp, '{"partial":', { mode: 0o600 });
+      expect(runRecovery().status).toBe(0);
       expect(existsSync(phaseTemp)).toBe(false);
-
       writeFileSync(join(current, 'unexpected.json'), '{}\n');
-      const unexpected = runRecovery(current);
-      expect(unexpected.status).toBe(2);
-      expect(unexpected.stderr).toContain('unexpected entry');
-
-      const competing = runRecovery(different);
-      expect(competing.status).toBe(2);
-      expect(competing.stderr).toContain('different PostgreSQL DR bootstrap candidate');
+      expect(runRecovery().status).not.toBe(0);
+      expect(existsSync(join(current, 'unexpected.json'))).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -536,7 +546,7 @@ describe('PostgreSQL DR bootstrap control plane', () => {
     const lock = script.indexOf('flock --exclusive --nonblock "${GLOBAL_LOCK_FD}"');
     const observation = script.indexOf('PRIOR_CONTAINER_ID=$(active_postgres_container)');
     const mutation = script.indexOf('PREPARED FORWARD_STARTED');
-    const committed = script.indexOf('FORWARD_STARTED COMMITTED', mutation);
+    const committed = script.indexOf('FINALIZING COMMITTED', mutation);
 
     expect(lock).toBeGreaterThan(0);
     expect(lock).toBeLessThan(observation);
@@ -549,7 +559,7 @@ describe('PostgreSQL DR bootstrap control plane', () => {
     expect(script).toContain(
       'rollback_container_id=$(verify_active_exact_image "${prior_image_id}" false)',
     );
-    expect(script.indexOf('FORWARD_STARTED ROLLBACK_STARTED')).toBeLessThan(
+    expect(script.indexOf('"${STATE_PATH}" "${phase}" ROLLBACK_STARTED')).toBeLessThan(
       script.indexOf('up -d --no-deps --no-build --force-recreate --pull never postgres'),
     );
   });
@@ -600,6 +610,47 @@ describe('PostgreSQL DR bootstrap control plane', () => {
     );
   });
 
+  it('reconciles only safe same-attempt unpublished phase, result and override files beside an existing journal', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'aqua-dr-state-reconcile-'));
+    try {
+      const state = join(directory, 'phase.json');
+      const result = spawnSync(
+        'bash',
+        [
+          '-c',
+          `
+        set -euo pipefail
+        source "$1"
+        chmod 0700 "$2"
+        dr_state_initialize "$2/phase.json" Okan-wqm/aquaculture_platform "$3" 10 1 "$4" 2026-07-18T00:00:00Z
+        cp "$2/phase.json" "$2/.phase.ABCDEFGH"
+        printf '{partial' > "$2/.result.ABCDEFGH"
+        printf 'services:' > "$2/.override.ABCDEFGH"
+        chmod 0600 "$2/.result.ABCDEFGH" "$2/.override.ABCDEFGH"
+        dr_state_reconcile_staging "$2/phase.json" Okan-wqm/aquaculture_platform "$3" 10 1 "$4"
+        dr_state_validate "$2/phase.json" Okan-wqm/aquaculture_platform "$3" 10 1 "$4"
+        printf '%s' "$(dr_state_phase "$2/phase.json")"
+      `,
+          '--',
+          join(REPO_ROOT, STATE_HELPER_PATH),
+          directory,
+          'a'.repeat(40),
+          `sha256:${'b'.repeat(64)}`,
+        ],
+        { encoding: 'utf8' },
+      );
+      expect({ status: result.status, stderr: result.stderr, stdout: result.stdout }).toEqual({
+        status: 0,
+        stderr: '',
+        stdout: 'VERIFYING',
+      });
+      expect(readdirSync(directory)).toEqual(['phase.json']);
+      expect(existsSync(state)).toBe(true);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it('persists monotonic phases across SIGKILL and preserves exact-prior recovery intent', () => {
     const helper = join(REPO_ROOT, STATE_HELPER_PATH);
     const root = mkdtempSync(join(tmpdir(), 'aqua-dr-state-'));
@@ -614,6 +665,9 @@ describe('PostgreSQL DR bootstrap control plane', () => {
       ROLLBACK_STARTED: 'recover-exact-prior',
       ROLLED_BACK: 'require-new-signed-candidate',
       COMMITTED: 'verify-committed',
+      FINALIZING: 'finish-forward',
+      ROLLBACK_FINALIZING: 'finish-rollback',
+      RECOVERY_REQUIRED: 'recover-exact-prior',
     };
     const killedStates = new Map<string, string>();
 
@@ -632,22 +686,32 @@ describe('PostgreSQL DR bootstrap control plane', () => {
               state="$2/phase.json"
               dr_state_initialize "$state" Okan-wqm/aquaculture_platform "$4" 10 1 "$5" 2026-07-18T00:00:00Z
               if [ "$3" != VERIFYING ]; then
+                printf '%s' '{"fixture":"verified-recovery-point"}' > "$2/recovery-point.json"
+                dr_state_bind_recovery "$state" "$2/recovery-point.json"
                 dr_state_transition "$state" VERIFYING PREPARED "$6" "$7" 2026-07-18T00:01:00Z
               fi
               case "$3" in
-                FORWARD_STARTED|ROLLBACK_STARTED|ROLLED_BACK|COMMITTED)
+                FORWARD_STARTED|ROLLBACK_STARTED|ROLLED_BACK|COMMITTED|FINALIZING|ROLLBACK_FINALIZING|RECOVERY_REQUIRED)
                   dr_state_transition "$state" PREPARED FORWARD_STARTED "$6" "$7" 2026-07-18T00:02:00Z
                   ;;
               esac
               case "$3" in
-                ROLLBACK_STARTED|ROLLED_BACK)
+                ROLLBACK_STARTED|ROLLED_BACK|ROLLBACK_FINALIZING)
                   dr_state_transition "$state" FORWARD_STARTED ROLLBACK_STARTED "$6" "$7" 2026-07-18T00:03:00Z
                   ;;
               esac
-              if [ "$3" = ROLLED_BACK ]; then
-                dr_state_transition "$state" ROLLBACK_STARTED ROLLED_BACK "$6" "$7" 2026-07-18T00:04:00Z
-              elif [ "$3" = COMMITTED ]; then
-                dr_state_transition "$state" FORWARD_STARTED COMMITTED "$6" "$7" 2026-07-18T00:04:00Z
+              if [ "$3" = ROLLED_BACK ] || [ "$3" = ROLLBACK_FINALIZING ]; then
+                dr_state_transition "$state" ROLLBACK_STARTED ROLLBACK_FINALIZING "$6" "$7" 2026-07-18T00:04:00Z
+                if [ "$3" = ROLLED_BACK ]; then
+                  dr_state_transition "$state" ROLLBACK_FINALIZING ROLLED_BACK "$6" "$7" 2026-07-18T00:04:00Z
+                fi
+              elif [ "$3" = COMMITTED ] || [ "$3" = FINALIZING ]; then
+                dr_state_transition "$state" FORWARD_STARTED FINALIZING "$6" "$7" 2026-07-18T00:04:00Z
+                if [ "$3" = COMMITTED ]; then
+                  dr_state_transition "$state" FINALIZING COMMITTED "$6" "$7" 2026-07-18T00:04:00Z
+                fi
+              elif [ "$3" = RECOVERY_REQUIRED ]; then
+                dr_state_transition "$state" FORWARD_STARTED RECOVERY_REQUIRED "$6" "$7" 2026-07-18T00:04:00Z
               fi
               case "$3" in
                 FORWARD_STARTED|ROLLBACK_STARTED)
@@ -736,6 +800,9 @@ describe('PostgreSQL DR bootstrap control plane', () => {
                 [ "$2" = "${prior}" ]
               }
               configure_rollback_compose() { :; }
+              restore_postgres_recovery_point() { :; }
+              resume_postgres_recovery_writers() { :; }
+              RUN_KEY=fixture
               docker() {
                 if [ "$1" = image ] && [ "$2" = inspect ] && [ "$3" = "${prior}" ]; then
                   return 0
@@ -764,7 +831,7 @@ describe('PostgreSQL DR bootstrap control plane', () => {
             `,
             'state-recovery-test',
             helper,
-            join(REPO_ROOT, PROVIDER_SCRIPT_PATH),
+            join(REPO_ROOT, COORDINATOR_PATH),
             killedStates.get(phase)!,
             join(root, phase.toLowerCase()),
             prior,
@@ -868,7 +935,7 @@ describe('PostgreSQL DR bootstrap control plane', () => {
     const forwardMutation = script.lastIndexOf(
       'up -d --no-deps --no-build --force-recreate --pull never postgres',
     );
-    const rollbackTransition = script.indexOf('FORWARD_STARTED ROLLBACK_STARTED');
+    const rollbackTransition = script.indexOf('"${STATE_PATH}" "${phase}" ROLLBACK_STARTED');
     const rollbackMutation = script.indexOf(
       'up -d --no-deps --no-build --force-recreate --pull never postgres',
       rollbackTransition,
@@ -882,7 +949,8 @@ describe('PostgreSQL DR bootstrap control plane', () => {
     expect(rollbackTransition).toBeLessThan(rollbackMutation);
     expect(stateHelper).toContain('sync -f "${temporary_path}"');
     expect(stateHelper).toContain('sync -f "${state_dir}"');
-    expect(stateHelper).toContain('FORWARD_STARTED:COMMITTED');
+    expect(stateHelper).toContain('FORWARD_STARTED:FINALIZING');
+    expect(stateHelper).toContain('FINALIZING:COMMITTED');
     expect(stateHelper).not.toContain('FORWARD_HEALTHY');
     expect(script).toContain(
       "die 'A different PostgreSQL DR bootstrap candidate has unresolved state.'",

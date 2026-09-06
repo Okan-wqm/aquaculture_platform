@@ -12,7 +12,7 @@ import { defineConfig } from '@playwright/test';
  * Environment variables:
  *   - GATEWAY_URL:   Gateway GraphQL endpoint (default: http://localhost:4000)
  *   - DATABASE_URL:  PostgreSQL connection string
- *   - JWT_SECRET:    Shared secret for HS256 test tokens
+ *   - HOSTED_E2E_ISOLATED: required for fixture writes
  */
 export default defineConfig({
   testDir: './tests',
@@ -20,7 +20,7 @@ export default defineConfig({
   expect: {
     timeout: 5_000,
   },
-  retries: process.env.CI ? 2 : 0,
+  retries: 0,
   workers: 1,
   reporter: process.env.CI
     ? [['html', { open: 'never' }], ['github']]
@@ -29,6 +29,7 @@ export default defineConfig({
   globalTeardown: './global-teardown.ts',
   use: {
     baseURL: process.env.GATEWAY_URL || 'http://localhost:4000',
+    ignoreHTTPSErrors: process.env.HOSTED_E2E_ISOLATED === 'true',
     extraHTTPHeaders: {
       'Content-Type': 'application/json',
     },

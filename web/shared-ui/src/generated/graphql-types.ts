@@ -4105,6 +4105,11 @@ export type CreatedTenantUserResult = {
   userId: Scalars['ID']['output'];
 };
 
+export type CredentialActionResult = {
+  loginRequired: Scalars['Boolean']['output'];
+  success: Scalars['Boolean']['output'];
+};
+
 export type CrewAssignment = {
   assignedEmployeeIds: Array<Scalars['String']['output']>;
   currentCount: Scalars['Int']['output'];
@@ -9299,7 +9304,7 @@ export type MovementType =
   | 'WASTE';
 
 export type Mutation = {
-  acceptInvitation: AuthPayload;
+  acceptInvitation: CredentialActionResult;
   acknowledgeAlert: AlertHistory;
   acknowledgeAllAlarmsForConnection: Scalars['Int']['output'];
   acknowledgeAnnouncement: AnnouncementAcknowledgment;
@@ -9762,7 +9767,7 @@ export type Mutation = {
   requestIncidentMediaUpload: IncidentMediaUploadResponse;
   requestMediaUpload: MediaUploadResponse;
   resetDeviceForReprovisioning: RegenerateTokenResponse;
-  resetPassword: AuthPayload;
+  resetPassword: CredentialActionResult;
   resetVfdFault: VfdCommandResult;
   resolveAlert: AlertHistory;
   /** Resolve a health event */

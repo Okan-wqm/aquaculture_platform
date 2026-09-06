@@ -38,7 +38,12 @@ export class DurableUserTokenInvalidationService {
   ) {}
 
   async enqueue(manager: EntityManager, intent: UserTokenInvalidationIntent): Promise<void> {
-    // SEC-HIGH-159: scope derived from the principal, routed by kind.
+    // Captured inside the credential transaction; replay must never invent a later cutoff.
+    await manager.query(
+      `UPDATE auth.users SET "accessTokenInvalidBeforeEpochSeconds" =
+      GREATEST("accessTokenInvalidBeforeEpochSeconds", $2) WHERE id = $1`,
+      [intent.userId, userInvalidationEpochFromDate(intent.invalidatedAt)],
+    );
     const scope = tenantScopeOf(intent.tenantId);
     const systemRouted = scope.kind === 'platform';
     const event: UserAccessTokenInvalidationRequestedEvent = {

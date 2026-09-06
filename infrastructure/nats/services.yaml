@@ -3,7 +3,11 @@ services:
 - name: auth_service
   application: auth-service
   description: Authentication — tenant and user lifecycle, JWT issuance, invitations, password reset
+  responses:
+    max: 2
+    expires: 120s
   publish:
+  - $JS.API.INFO
   - events.*.AccessTokenInvalidationRequested
   - events.*.InvitationAccepted
   - events.*.PasswordResetCompleted
@@ -24,7 +28,6 @@ services:
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
   - $JS.API.CONSUMER.>
-  - _INBOX.>
   subscribe:
   - request.auth.user.validateTenantMembership
   - request.auth.>
@@ -36,7 +39,11 @@ services:
 - name: farm_service
   application: farm-service
   description: Farm domain — batches, feedings, water quality, mortality/cull, ponds, equipment, feed inventory
+  responses:
+    max: 2
+    expires: 120s
   publish:
+  - $JS.API.INFO
   - events.*.BatchAllocatedToTank
   - events.*.BatchClosed
   - events.*.BatchCreated
@@ -136,7 +143,6 @@ services:
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
   - $JS.API.CONSUMER.>
-  - _INBOX.>
   subscribe:
   - request.farm.createTask
   - request.farm.getTankRegistry
@@ -154,7 +160,11 @@ services:
 - name: sensor_service
   application: sensor-service
   description: Sensor/edge devices, VFD readings, LoRa, automation, ST Language runtime
+  responses:
+    max: 2
+    expires: 120s
   publish:
+  - $JS.API.INFO
   - events.*.AutomationFBDefinitionsChanged
   - events.*.AutomationProgramDeployed
   - events.*.AutomationProgramSaved
@@ -186,7 +196,6 @@ services:
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
   - $JS.API.CONSUMER.>
-  - _INBOX.>
   subscribe:
   - request.sensor.>
   - telemetry.>
@@ -208,7 +217,6 @@ services:
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
   - $JS.API.CONSUMER.>
-  - _INBOX.>
   subscribe:
   - policy.ingest_backend.>
   - _INBOXSENSOR_INGESTION.>
@@ -219,7 +227,11 @@ services:
 - name: admin_api_service
   application: admin-api-service
   description: Admin API — tenant lifecycle, erasure aggregation, ingest policy and admin RPC
+  responses:
+    max: 1
+    expires: 120s
   publish:
+  - $JS.API.INFO
   - events.*.ModuleRemovedFromTenant
   - events.*.TenantActivated
   - events.*.TenantArchived
@@ -283,7 +295,6 @@ services:
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
   - $JS.API.CONSUMER.>
-  - _INBOX.>
   - request.auth.public.requestPasswordReset
   - request.auth.public.resetPassword
   subscribe:
@@ -311,7 +322,6 @@ services:
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
   - $JS.API.CONSUMER.>
-  - _INBOX.>
   subscribe:
   - events.>
   - st.language.>
@@ -323,7 +333,11 @@ services:
 - name: notification_service
   application: notification-service
   description: Outbound push / email notification commands, delivery tracking
+  responses:
+    max: 2
+    expires: 120s
   publish:
+  - $JS.API.INFO
   - events.*.AlertTriggered
   - events.*.NotificationDelivered
   - events.*.NotificationFailed
@@ -337,7 +351,6 @@ services:
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
   - $JS.API.CONSUMER.>
-  - _INBOX.>
   subscribe:
   - commands.notification.sendEmail
   - commands.notification.sendPush
@@ -349,7 +362,11 @@ services:
 - name: ai_service
   application: ai-service
   description: AI domain — model/tool execution and agent conversations
+  responses:
+    max: 2
+    expires: 120s
   publish:
+  - $JS.API.INFO
   - events.*.AiServiceTenantDataErased
   - events.*.AiServiceTenantDataErasureFailed
   - events.*.AiServiceTenantErasureBlocked
@@ -365,7 +382,6 @@ services:
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
   - $JS.API.CONSUMER.>
-  - _INBOX.>
   subscribe:
   - request.ai.chat
   - request.ai.executeAction
@@ -381,7 +397,11 @@ services:
 - name: billing_service
   application: billing-service
   description: Subscriptions, invoicing, Stripe payment processing
+  responses:
+    max: 2
+    expires: 120s
   publish:
+  - $JS.API.INFO
   - events.*.InvoiceGenerated
   - events.*.PaymentFailed
   - events.*.PaymentReceived
@@ -407,7 +427,6 @@ services:
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
   - $JS.API.CONSUMER.>
-  - _INBOX.>
   subscribe:
   - request.billing.admin.>
   - request.billing.tenant.>
@@ -420,7 +439,11 @@ services:
 - name: alert_engine
   application: alert-engine
   description: Sensor-reading → alert-rule evaluation, alert lifecycle events
+  responses:
+    max: 1
+    expires: 120s
   publish:
+  - $JS.API.INFO
   - events.*.AlertEscalated
   - events.*.AlertResolved
   - events.*.AlertTriggered
@@ -435,7 +458,6 @@ services:
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
   - $JS.API.CONSUMER.>
-  - _INBOX.>
   subscribe:
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
@@ -445,7 +467,11 @@ services:
 - name: hr_service
   application: hr-service
   description: HR domain — employees, leave, attendance, certifications, payroll, scheduling
+  responses:
+    max: 1
+    expires: 120s
   publish:
+  - $JS.API.INFO
   - events.*.CertificationAdded
   - events.*.CertificationExpired
   - events.*.CertificationRevoked
@@ -478,7 +504,6 @@ services:
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
   - $JS.API.CONSUMER.>
-  - _INBOX.>
   subscribe:
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
@@ -488,7 +513,11 @@ services:
 - name: messaging_service
   application: messaging-service
   description: Messaging domain — channels, messages, retention policies, compliance audit
+  responses:
+    max: 2
+    expires: 120s
   publish:
+  - $JS.API.INFO
   - events.*.AnnouncementAcknowledged
   - events.*.AnnouncementExpired
   - events.*.AnnouncementPublished
@@ -534,7 +563,6 @@ services:
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
   - $JS.API.CONSUMER.>
-  - _INBOX.>
   subscribe:
   - request.messaging.verifyMembership
   - request.messaging.getChannelMembers
@@ -561,7 +589,11 @@ services:
 - name: hydroponics_service
   application: hydroponics-service
   description: Hydroponics domain — grow cycles, nutrient dosing, climate control
+  responses:
+    max: 1
+    expires: 120s
   publish:
+  - $JS.API.INFO
   - events.*.HydroponicsServiceTenantDataErased
   - events.*.HydroponicsServiceTenantDataErasureFailed
   - events.*.HydroponicsServiceTenantErasureBlocked
@@ -571,7 +603,6 @@ services:
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
   - $JS.API.CONSUMER.>
-  - _INBOX.>
   subscribe:
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
@@ -581,14 +612,17 @@ services:
 - name: observability_service
   application: observability-service
   description: Observability — migration audit sink, security events sink, Prometheus/OTEL exporter
+  responses:
+    max: 1
+    expires: 120s
   publish:
+  - $JS.API.INFO
   - events.platform.schema-migration.>
   - events.security.events.>
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
   - $JS.API.CONSUMER.>
-  - _INBOX.>
   subscribe:
   - events.platform.schema-migration.>
   - events.security.events.>
@@ -600,7 +634,11 @@ services:
 - name: config_service
   application: config-service
   description: Dynamic per-tenant configuration — GDPR tenant-erasure target (proof publisher); config-runtime read responder
+  responses:
+    max: 2
+    expires: 120s
   publish:
+  - $JS.API.INFO
   - events.*.ConfigServiceTenantDataErased
   - events.*.ConfigServiceTenantDataErasureFailed
   - events.*.ConfigServiceTenantErasureBlocked
@@ -613,7 +651,6 @@ services:
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
   - $JS.API.CONSUMER.>
-  - _INBOX.>
   subscribe:
   - config.runtime.get
   - config.runtime.get_secret
@@ -627,7 +664,11 @@ services:
 - name: event_store_service
   application: event-store-service
   description: Event persistence + projections — GDPR tenant-erasure target (proof publisher)
+  responses:
+    max: 1
+    expires: 120s
   publish:
+  - $JS.API.INFO
   - events.*.EventStoreServiceTenantDataErased
   - events.*.EventStoreServiceTenantDataErasureFailed
   - events.*.EventStoreServiceTenantErasureBlocked
@@ -637,7 +678,6 @@ services:
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
   - $JS.API.CONSUMER.>
-  - _INBOX.>
   subscribe:
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
@@ -647,10 +687,13 @@ services:
 - name: dlq_replayer
   application: dlq-replayer
   description: Operator replay tool — republishes dead-lettered TELEMETRY envelopes under their original identity (domain-root replays are refused; a separate admin flow owns those)
+  responses:
+    max: 1
+    expires: 120s
   publish:
+  - $JS.API.INFO
   - telemetry.>
   - $JS.API.CONSUMER.>
-  - _INBOX.>
   subscribe:
   - dlq.>
   - $JS.API.CONSUMER.>

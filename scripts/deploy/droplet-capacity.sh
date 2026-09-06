@@ -68,14 +68,13 @@ FULL_PROJECTED_RESERVE_GIB="${FULL_PROJECTED_RESERVE_GIB:-20}"
 SELECTIVE_PROJECTED_RESERVE_GIB="${SELECTIVE_PROJECTED_RESERVE_GIB:-10}"
 
 # --- Broker/JetStream capacity floors (100-tenant readiness Task 0) ---
-# NATS file-store floor: sum of DECLARED stream budgets × 1.25 reserve. Today
-# the only stream is AQUACULTURE_EVENTS (1.5GiB, nats-event-bus
-# getStreamConfig), so the floor is 1920MiB. When Task 2 lands
-# AQUACULTURE_TELEMETRY (~6GiB at the locked 2K msg/s envelope), this default
-# AND infrastructure/docker/nats/nats.conf max_file_store MUST be raised in the
-# same commit — this gate exists to catch the half-done version of exactly
-# that change.
-NATS_REQUIRED_FILE_STORE_BYTES="${NATS_REQUIRED_FILE_STORE_BYTES:-2013265920}"
+# The immutable release's runtime policy owns all declared stream allocations
+# and reserve arithmetic. An operator may impose a stricter floor, never lower
+# the admission threshold below what that runtime can ask JetStream to reserve.
+CAPACITY_SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+NATS_REQUIRED_FILE_STORE_BYTES="$(/usr/bin/python3 \
+  "${CAPACITY_SCRIPT_ROOT}/../nats/jetstream_storage_policy.py" \
+  --required-file-store "${NATS_REQUIRED_FILE_STORE_BYTES:-}")"
 NATS_MIN_MEMORY_BYTES="${NATS_MIN_MEMORY_BYTES:-536870912}"
 NATS_MIN_CPUS="${NATS_MIN_CPUS:-1.0}"
 # Measured 60-minute broker queue projection from the Task 0.4 M/E/R artifact.
@@ -100,7 +99,7 @@ Environment:
   CAPACITY_GC_MODE=auto|off
   CAPACITY_DISK_USAGE_MODE=summary|deep|off
   CAPACITY_DU_TIMEOUT_SECONDS=1..120
-  NATS_REQUIRED_FILE_STORE_BYTES=<bytes>  (default 1920MiB = 1.5GiB streams × 1.25)
+  NATS_REQUIRED_FILE_STORE_BYTES=<bytes>  (optional stricter floor; runtime policy is the minimum)
   NATS_MIN_MEMORY_BYTES=<bytes>           (default 512MiB)
   NATS_MIN_CPUS=<cores>                   (default 1.0)
   BROKER_QUEUE_BUDGET_BYTES=<bytes>       (default 0; measured 60-min queue projection)
@@ -876,7 +875,7 @@ broker_capacity_error_lines() {
     if [ -z "${max_file_store}" ]; then
       echo "::error::nats_preflight_unparsed_max_file_store path=${NATS_CONF_PATH}"
     elif [ "${max_file_store}" -lt "${NATS_REQUIRED_FILE_STORE_BYTES}" ]; then
-      echo "::error::nats_file_store_below_required configured_bytes=${max_file_store} required_bytes=${NATS_REQUIRED_FILE_STORE_BYTES} note=raise_with_task2_telemetry_stream"
+      echo "::error::nats_file_store_below_required configured_bytes=${max_file_store} required_bytes=${NATS_REQUIRED_FILE_STORE_BYTES}"
     fi
   fi
 

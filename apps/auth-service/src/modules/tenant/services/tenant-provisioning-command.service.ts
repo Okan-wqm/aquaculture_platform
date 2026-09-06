@@ -1,3 +1,7 @@
+import {
+  DurableUserTokenInvalidationService,
+  UserTokenInvalidationIntent,
+} from '../../authentication/services/durable-user-token-invalidation.service';
 import * as crypto from 'crypto';
 
 import { bindTenantRlsContext } from '@aquaculture/backend-common/database';
@@ -208,6 +212,7 @@ export class TenantProvisioningCommandService {
     // the RBAC-HIGH-001 primitive the gateway already enforces on every request).
     @Inject(USER_TOKEN_REVOCATION)
     private readonly userTokenRevocation: IUserTokenRevocation,
+    private readonly durableUserTokenInvalidation: DurableUserTokenInvalidationService,
     // W5: lokalizasyon değişimi denetim izi, receipt transaction'ında
     // fail-CLOSED yazılır (yazım geri alınırsa denetim satırı da geri alınır).
     private readonly auditLogService: AuditLogService,
@@ -799,7 +804,10 @@ export class TenantProvisioningCommandService {
 
   private async assertTenantExists(tenantId: string, manager?: EntityManager): Promise<Tenant> {
     const tenant = manager
-      ? await manager.findOne(Tenant, { where: { id: tenantId } })
+      ? await manager.findOne(Tenant, {
+          where: { id: tenantId },
+          lock: { mode: 'pessimistic_write' },
+        })
       : await this.tenantRepository.findOne({ where: { id: tenantId } });
     if (!tenant) {
       throw new NotFoundException(`Tenant with ID "${tenantId}" not found`);
@@ -850,8 +858,12 @@ export class TenantProvisioningCommandService {
     }
     // RBAC-HIGH-007: users locked out by THIS live execution (closure, not part
     // of the receipt result — an idempotent replay must not re-blacklist).
-    const lockedOutUserIds: string[] = [];
+    let invalidationIntents: UserTokenInvalidationIntent[] = [];
     const execution = await this.runWithReceipt(commandType, command, 'tenant', async (manager) => {
+      // A serialization retry owns a fresh effect list. A rolled-back attempt
+      // must never invalidate sessions after a later attempt commits.
+      invalidationIntents = [];
+      const lockedOutUserIds: string[] = [];
       const { tenant, transition } = await this.assertTenantTransition(
         manager,
         command,
@@ -933,11 +945,24 @@ export class TenantProvisioningCommandService {
       // over NATS with no request tenant context.
       if (!isLoginAllowed(targetStatus)) {
         const userRows = this.rowsFromQuery<{ id: string }>(
-          await manager.query(`SELECT id FROM "auth"."users" WHERE "tenantId" = $1`, [
-            command.tenantId,
-          ]),
+          await manager.query(
+            `SELECT id FROM "auth"."users" WHERE "tenantId" = $1 ORDER BY id FOR UPDATE`,
+            [command.tenantId],
+          ),
         );
         lockedOutUserIds.push(...userRows.map((row) => row.id));
+        const invalidatedAt = new Date();
+        for (const row of userRows) {
+          const intent: UserTokenInvalidationIntent = {
+            userId: row.id,
+            tenantId: command.tenantId,
+            invalidatedAt,
+            reason: 'logout_all_devices',
+            idempotencyKey: `${command.operationId}:tenant-status:${row.id}`,
+          };
+          await this.durableUserTokenInvalidation.enqueue(manager, intent);
+          invalidationIntents.push(intent);
+        }
         if (lockedOutUserIds.length > 0) {
           await manager.query(`SELECT set_config('app.current_tenant', $1, true)`, [
             command.tenantId,
@@ -945,8 +970,7 @@ export class TenantProvisioningCommandService {
           await manager.query(
             `UPDATE "auth"."refresh_tokens"
                   SET "isRevoked" = true, "revokedAt" = NOW(), "revokedReason" = $2
-                WHERE "userId" = ANY($1::uuid[])
-                  AND "isRevoked" = false`,
+                WHERE "userId" = ANY($1::uuid[])`,
             [lockedOutUserIds, `Tenant ${targetStatus}`],
           );
         }
@@ -967,9 +991,10 @@ export class TenantProvisioningCommandService {
     // deliberately non-fatal per user: the durable guarantee is the in-tx
     // refresh-token revocation above plus the refresh-path tenant gate; access
     // tokens self-expire within their ≤15-minute TTL even if Redis is down.
-    for (const userId of lockedOutUserIds) {
+    for (const intent of execution.replayed ? [] : invalidationIntents) {
+      const userId = intent.userId;
       try {
-        await this.userTokenRevocation.revokeUserTokens(userId);
+        await this.durableUserTokenInvalidation.applyImmediately(intent);
       } catch (err) {
         this.logger.warn(
           `Access-token blacklist failed for userId=${userId} after ${commandType} on tenant ${command.tenantId}: ${(err as Error).message}`,
@@ -1075,61 +1100,62 @@ export class TenantProvisioningCommandService {
       canonicalPayloadHash,
     );
 
-    return this.dataSource.transaction('SERIALIZABLE', async (manager) => {
-      // ORPHAN-CRITICAL-573 — bind the RLS tenant context before the FIRST
-      // statement of the receipt lifecycle.
-      //
-      // `auth.tenant_command_receipts` carries the standard isolation policy:
-      // a row is visible/writable only under `app.bypass_rls=on` or when
-      // `app.current_tenant` equals its `tenantId`. This transaction ran with
-      // NEITHER, so every INSERT here was refused — and because the receipt is
-      // written before any provisioning step executes, EVERY tenant creation
-      // failed at step zero. Production carried two tenants stuck in PENDING
-      // with no schema for months as a result.
-      //
-      // Tenant-SCOPED, not a bypass: the receipt belongs to exactly this
-      // tenant, so the policy is satisfied honestly rather than switched off.
-      // Third argument `true` makes the setting transaction-local, so a pooled
-      // connection cannot carry this tenant into the next caller's query -
-      // the failure mode that makes a bypass here unacceptable.
-      await bindTenantRlsContext(manager, command.tenantId, 'auth');
+    const runAttempt = (): Promise<TenantCommandReceiptExecution<TResult>> =>
+      this.dataSource.transaction('SERIALIZABLE', async (manager) => {
+        // ORPHAN-CRITICAL-573 — bind the RLS tenant context before the FIRST
+        // statement of the receipt lifecycle.
+        //
+        // `auth.tenant_command_receipts` carries the standard isolation policy:
+        // a row is visible/writable only under `app.bypass_rls=on` or when
+        // `app.current_tenant` equals its `tenantId`. This transaction ran with
+        // NEITHER, so every INSERT here was refused — and because the receipt is
+        // written before any provisioning step executes, EVERY tenant creation
+        // failed at step zero. Production carried two tenants stuck in PENDING
+        // with no schema for months as a result.
+        //
+        // Tenant-SCOPED, not a bypass: the receipt belongs to exactly this
+        // tenant, so the policy is satisfied honestly rather than switched off.
+        // Third argument `true` makes the setting transaction-local, so a pooled
+        // connection cannot carry this tenant into the next caller's query -
+        // the failure mode that makes a bypass here unacceptable.
+        await bindTenantRlsContext(manager, command.tenantId, 'auth');
 
-      const receiptRowsRaw: unknown = await manager.query(
-        `SELECT "payloadHash", status, "entityId", "resultSummary"
+        const receiptRowsRaw: unknown = await manager.query(
+          `SELECT "payloadHash", status, "entityId", "resultSummary"
            FROM auth.tenant_command_receipts
           WHERE "operationId" = $1
             AND "tenantId" = $2
             AND "commandType" = $3
             AND "idempotencyKey" = $4
           FOR UPDATE`,
-        [command.operationId, command.tenantId, commandType, receiptIdempotencyKey],
-      );
-      const receiptRows = this.rowsFromQuery<TenantCommandReceiptRow<TResult>>(receiptRowsRaw);
+          [command.operationId, command.tenantId, commandType, receiptIdempotencyKey],
+        );
+        const receiptRows = this.rowsFromQuery<TenantCommandReceiptRow<TResult>>(receiptRowsRaw);
 
-      const existing = receiptRows[0];
-      if (existing) {
-        if (existing.payloadHash !== canonicalPayloadHash) {
-          throw new ConflictException(
-            `${commandType} idempotency key was reused with a different payload`,
-          );
-        }
-        if (existing.status === 'SUCCEEDED') {
-          if (options.replay) {
-            return {
-              result: await options.replay(manager),
-              replayed: true,
-            };
+        const existing = receiptRows[0];
+        if (existing) {
+          if (existing.payloadHash !== canonicalPayloadHash) {
+            throw new ConflictException(
+              `${commandType} idempotency key was reused with a different payload`,
+            );
           }
-          if (existing.resultSummary !== null) {
-            return {
-              result: existing.resultSummary,
-              replayed: true,
-            };
+          if (existing.status === 'SUCCEEDED') {
+            if (options.replay) {
+              return {
+                result: await options.replay(manager),
+                replayed: true,
+              };
+            }
+            if (existing.resultSummary !== null) {
+              return {
+                result: existing.resultSummary,
+                replayed: true,
+              };
+            }
           }
-        }
-      } else {
-        await manager.query(
-          `INSERT INTO auth.tenant_command_receipts (
+        } else {
+          await manager.query(
+            `INSERT INTO auth.tenant_command_receipts (
              id, "operationId", "tenantId", "commandType", "entityType",
              "idempotencyKey", "payloadHash", status, actor, "auditMetadata",
              "createdAt", "updatedAt"
@@ -1138,20 +1164,22 @@ export class TenantProvisioningCommandService {
              $5, $6, 'STARTED', $7::jsonb, $8::jsonb,
              now(), now()
            )`,
-          [
-            command.operationId,
-            command.tenantId,
-            commandType,
-            entityType,
-            receiptIdempotencyKey,
-            canonicalPayloadHash,
-            JSON.stringify(command.actor),
-            JSON.stringify(command.auditMetadata ?? {}),
-          ],
-        );
-      }
+            [
+              command.operationId,
+              command.tenantId,
+              commandType,
+              entityType,
+              receiptIdempotencyKey,
+              canonicalPayloadHash,
+              JSON.stringify(command.actor),
+              JSON.stringify(command.auditMetadata ?? {}),
+            ],
+          );
+        }
 
-      try {
+        // A failed transaction rolls back the receipt with the domain mutation.
+        // Writing FAILED here would also roll back, and an already-aborted SQL
+        // transaction would replace the original error with SQLSTATE 25P02.
         const result = await work(manager);
         const resultHash = this.hashValue(result);
         const resultSummary = options.toSummary
@@ -1159,17 +1187,17 @@ export class TenantProvisioningCommandService {
           : this.toReceiptResultSummary(result);
         await manager.query(
           `UPDATE auth.tenant_command_receipts
-              SET "entityId" = $5,
-                  status = 'SUCCEEDED',
-                  "resultHash" = $6,
-                  "resultSummary" = $7::jsonb,
-                  error = NULL,
-                  "completedAt" = now(),
-                  "updatedAt" = now()
-            WHERE "operationId" = $1
-              AND "tenantId" = $2
-              AND "commandType" = $3
-              AND "idempotencyKey" = $4`,
+            SET "entityId" = $5,
+                status = 'SUCCEEDED',
+                "resultHash" = $6,
+                "resultSummary" = $7::jsonb,
+                error = NULL,
+                "completedAt" = now(),
+                "updatedAt" = now()
+          WHERE "operationId" = $1
+            AND "tenantId" = $2
+            AND "commandType" = $3
+            AND "idempotencyKey" = $4`,
           [
             command.operationId,
             command.tenantId,
@@ -1185,28 +1213,29 @@ export class TenantProvisioningCommandService {
         );
 
         return { result, replayed: false };
+      });
+
+    // PostgreSQL requires the entire SERIALIZABLE transaction to be retried,
+    // including receipt reads and lock acquisition. A rejected transaction
+    // promise has already rolled back; no committed operation is repeated.
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        return await runAttempt();
       } catch (error) {
-        await manager.query(
-          `UPDATE auth.tenant_command_receipts
-              SET status = 'FAILED',
-                  error = $5,
-                  "completedAt" = now(),
-                  "updatedAt" = now()
-            WHERE "operationId" = $1
-              AND "tenantId" = $2
-              AND "commandType" = $3
-              AND "idempotencyKey" = $4`,
-          [
-            command.operationId,
-            command.tenantId,
+        const code =
+          typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+        if ((code !== '40001' && code !== '40P01') || attempt >= 3) throw error;
+        this.logger.warn(
+          JSON.stringify({
+            event: 'tenant_receipt_concurrency_retry',
             commandType,
-            receiptIdempotencyKey,
-            error instanceof Error ? error.message : String(error),
-          ],
+            attempt,
+            sqlState: code,
+          }),
         );
-        throw error;
+        await new Promise<void>((resolve) => setTimeout(resolve, 25 * 2 ** (attempt - 1)));
       }
-    });
+    }
   }
 
   private assertCommandMetadata(commandType: string, command: AuthTenantCommandMetadata): void {

@@ -820,7 +820,9 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
     expect(Object.values(environment).join('\n')).not.toMatch(
       /\$\{(?:AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|WALG_S3_ACCESS_KEY_ID|WALG_S3_SECRET_ACCESS_KEY|WALG_LIBSODIUM_KEY(?:_B64)?)(?::[^}]*)?\}/,
     );
-    expect(volumes).toContain('./certs/wal-g/postgres:/var/lib/postgresql/wal-g-secrets-source:ro');
+    expect(volumes).toContain(
+      '${DEPLOY_CERTS_DIR:-./certs}/wal-g/postgres:/var/lib/postgresql/wal-g-secrets-source:ro',
+    );
     const secretTmpfs = tmpfs.find((mount) => mount.startsWith('/run/aqua-walg-secrets:'));
     expect(secretTmpfs).toBeDefined();
     const tmpfsOptions = secretTmpfs?.split(':').slice(1).join(':').split(',') ?? [];
@@ -847,13 +849,15 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
     expect(entrypoint).toContain('must reside on tmpfs');
     expect(volumes).toEqual(
       expect.arrayContaining([
-        './certs/postgres/postgres-cert.pem:/var/lib/postgresql/ssl/server.crt:ro',
-        './certs/postgres/postgres-key.pem:/var/lib/postgresql/ssl/server.key:rw',
-        './certs/postgres/ca-cert.pem:/var/lib/postgresql/ssl/root.crt:ro',
-        './certs/wal-g/postgres:/var/lib/postgresql/wal-g-secrets-source:ro',
+        '${DEPLOY_CERTS_DIR:-./certs}/postgres/postgres-cert.pem:/var/lib/postgresql/ssl/server.crt:ro',
+        '${DEPLOY_CERTS_DIR:-./certs}/postgres/postgres-key.pem:/var/lib/postgresql/ssl/server.key:rw',
+        '${DEPLOY_CERTS_DIR:-./certs}/postgres/ca-cert.pem:/var/lib/postgresql/ssl/root.crt:ro',
+        '${DEPLOY_CERTS_DIR:-./certs}/wal-g/postgres:/var/lib/postgresql/wal-g-secrets-source:ro',
       ]),
     );
-    expect(volumes).not.toContain('./certs/postgres:/var/lib/postgresql/ssl:ro');
+    expect(volumes).not.toContain(
+      '${DEPLOY_CERTS_DIR:-./certs}/postgres:/var/lib/postgresql/ssl:ro',
+    );
     expect(entrypoint).toContain('chown 0:0 "${SERVER_KEY_SOURCE}"');
     expect(entrypoint).toContain('chmod 0600 "${SERVER_KEY_SOURCE}"');
     expect(entrypoint).toContain(

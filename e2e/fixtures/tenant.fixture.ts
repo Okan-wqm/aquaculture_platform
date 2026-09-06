@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 
 import { TestDatabase } from '../helpers/db.helper';
+import { assertIsolatedFixtureDatabase } from '../helpers/real-auth.fixture';
 
 /**
  * Tenant status enum — mirrors auth-service TenantStatus.
@@ -38,8 +39,6 @@ export interface CreateTestTenantOptions {
   plan?: TestTenantPlan;
   maxUsers?: number;
   contactEmail?: string;
-  /** Whether to create the tenant schema. Defaults to false (schema creation is a service responsibility). */
-  createSchema?: boolean;
 }
 
 /**
@@ -56,6 +55,7 @@ export async function createTestTenant(
   db: TestDatabase,
   options?: CreateTestTenantOptions,
 ): Promise<TestTenant> {
+  assertIsolatedFixtureDatabase();
   const id = options?.id ?? randomUUID();
   const name = options?.name ?? `E2E Test Tenant ${id.slice(0, 8)}`;
   const slug = options?.slug ?? `e2e-test-${id.slice(0, 8)}`;
@@ -68,17 +68,10 @@ export async function createTestTenant(
 
   await db.query(
     `INSERT INTO auth.tenants (
-       id, name, slug, status, plan, "maxUsers", "contactEmail",
-       "userCount", "farmCount", "sensorCount",
-       "isTrialActive", "maxStorage", version
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 0, 0, false, -1, 1)`,
+       id, name, slug, status, plan, "maxUsers", "contactEmail"
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
     [id, name, slug, status, plan, maxUsers, contactEmail],
   );
-
-  // Optionally create the tenant schema
-  if (options?.createSchema) {
-    await db.query(`CREATE SCHEMA IF NOT EXISTS "${schemaName}"`);
-  }
 
   return {
     id,

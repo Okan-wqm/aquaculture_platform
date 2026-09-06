@@ -1,163 +1,172 @@
 #!/usr/bin/env bash
-# =============================================================================
-# scripts/deploy/deploy-paths.sh
-#
-# SSoT for the production deploy's filesystem layout + the routine that
-# materializes the immutable, SHA-pinned source checkout the deploy runs from.
-#
-# WHY THIS EXISTS (root-cause architectural fix):
-#   The deploy used to `cd /var/aqua-saas; git checkout -f "$DEPLOY_SHA"` and run
-#   everything from that directory. But /var/aqua-saas is ALSO the interactive
-#   working tree that engineering/agent sessions check feature branches into.
-#   The deploy's force-checkout fought live sessions, and post-deploy-verify.sh's
-#   `git rev-parse HEAD == TARGET_SHA` guard FALSE-FAILED whenever a session had
-#   drifted HEAD to a feature branch — even though the deployed images + running
-#   app were correct (real incident: expected=<sha> actual=<feature-branch-sha>).
-#
-#   The fix decouples the deployed artifacts from interactive scratch entirely:
-#   the deploy materializes a DEDICATED, deploy-owned git worktree pinned
-#   (detached) to the exact DEPLOY_SHA and runs from there. The interactive
-#   /var/aqua-saas HEAD is NEVER touched by the deploy anymore — `git fetch`
-#   only populates the shared object store; the detached worktree carries the
-#   deploy's own HEAD.
-#
-# SOURCED BY:
-#   - scripts/deploy/droplet-up.sh         (deploy executor on the droplet)
-#   - scripts/deploy/post-deploy-verify.sh (deploy verifier on the droplet)
-#   - .github/workflows/deploy-digitalocean.yml SSH blocks forward/use the
-#     same default DEPLOY_CHECKOUT_DIR before invoking the scripts above.
-#
-# This file MUST be sourced (it `export`s vars + defines functions); it does
-# nothing on its own when executed.
-# =============================================================================
-
-# ──────────────────────────────────────────────────────────────────────────
-# SSoT path constants. Single definition — every consumer sources this file
-# rather than hardcoding a duplicate path.
-#
-#   DEPLOY_SOURCE_REPO  — the persistent interactive checkout that owns the git
-#                         object store + remotes + the gitignored secrets .env.
-#                         The deploy READS from it (fetch + worktree add) but
-#                         NEVER force-checkouts its HEAD.
-#   DEPLOY_CHECKOUT_DIR — the dedicated, deploy-owned, SHA-pinned worktree the
-#                         deploy actually runs from. Sibling of the existing
-#                         DEPLOY_STATE_ROOT (/var/lib/aqua/deploy/releases): the
-#                         deploy already owns /var/lib/aqua/deploy.
-#   DEPLOY_ENV_FILE     — persistent secrets SSoT (gitignored, NOT in the
-#                         SHA-pinned tree). Symlinked into the checkout so
-#                         cwd-relative `docker compose` finds it; no secrets
-#                         migration ever happens.
-#   DEPLOY_CERTS_DIR    — persistent TLS material (gitignored ./certs/: NATS
-#                         mTLS, redis/postgres TLS, JWT RS256 keys). Generated
-#                         once and persisted across deploys by skip-if-exists;
-#                         docker-compose.droplet.yml bind-mounts it via RELATIVE
-#                         `./certs/...` paths (resolved against the compose cwd).
-#                         Symlinked into the checkout so both the cwd-relative
-#                         compose mounts AND generate-internal-certs.sh (which
-#                         derives its output dir from its own BASH_SOURCE under
-#                         the checkout) resolve to the stable persistent dir —
-#                         a recreated checkout never loses or regenerates certs.
-#   COMPOSE_PROJECT_NAME — SAFETY-CRITICAL pin. Compose derives its project name
-#                         (and therefore EVERY named volume/network: postgres
-#                         data, NATS JetStream, MinIO objects, redis) from the
-#                         cwd basename by default. The live droplet's volumes are
-#                         `aqua-saas_*` (project `aqua-saas` = basename of the old
-#                         /var/aqua-saas cwd). Running compose from the isolated
-#                         checkout (basename `checkout`) WITHOUT this pin would
-#                         re-derive empty `checkout_*` volumes = catastrophic data
-#                         loss. Pinned to `aqua-saas` so the isolated-checkout
-#                         deploy reuses the existing volumes/networks/containers.
-# ──────────────────────────────────────────────────────────────────────────
+# Release paths are write-once. Containers never bind the checkout that the
+# next deployment updates. All callers retain the same host lock through exit.
 export DEPLOY_SOURCE_REPO="${DEPLOY_SOURCE_REPO:-/var/aqua-saas}"
-export DEPLOY_CHECKOUT_DIR="${DEPLOY_CHECKOUT_DIR:-/var/lib/aqua/deploy/checkout}"
+export DEPLOY_RELEASES_ROOT="${DEPLOY_RELEASES_ROOT:-/var/lib/aqua/deploy/releases}"
+export DEPLOY_CONFIG_ROOT="${DEPLOY_CONFIG_ROOT:-/var/lib/aqua/deploy/config-generations}"
 export DEPLOY_ENV_FILE="${DEPLOY_ENV_FILE:-${DEPLOY_SOURCE_REPO}/.env}"
 export DEPLOY_CERTS_DIR="${DEPLOY_CERTS_DIR:-${DEPLOY_SOURCE_REPO}/certs}"
-# Pin the compose project to the live droplet's existing identity (was the cwd
-# basename `aqua-saas`) so the cwd change to the isolated checkout cannot
-# re-derive empty volumes. The `:-` keeps an operator/.env override authoritative.
-export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-aqua-saas}"
+export COMPOSE_PROJECT_NAME=aqua-saas
 
-# ──────────────────────────────────────────────────────────────────────────
-# materialize_deploy_checkout <sha>
-#
-# Idempotent, robust routine that produces a dedicated git worktree at
-# $DEPLOY_CHECKOUT_DIR pinned (detached) to <sha>. Safe to re-run on every
-# deploy and resilient to stale/corrupt worktree state.
-#
-# Edge handling:
-#   - `git worktree prune` first clears stale administrative records (e.g. a
-#     prior checkout dir deleted out-of-band) so `worktree add` cannot fail
-#     with "already registered".
-#   - fetch goes into the SHARED object store via DEPLOY_SOURCE_REPO; it does
-#     NOT touch the interactive working tree's HEAD/index.
-#   - if the dir is missing → `worktree add --detach --force`.
-#   - if the dir exists but is not a valid git worktree (corrupt/partial) →
-#     remove it (worktree remove if known, else rm -rf + prune) and recreate.
-#   - if the dir is a healthy worktree → `checkout -f --detach <sha>` re-pins it
-#     (force discards any drift; --detach keeps it off any branch).
-#   - a stale `index.lock` left by a crashed prior run is cleared before
-#     checkout so a re-deploy is never wedged.
-# ──────────────────────────────────────────────────────────────────────────
+deploy_paths_error() {
+  printf '::error::Deploy admission: %s\n' "$1" >&2
+  return 1
+}
+
+acquire_deploy_control_lock() {
+  local control_root=/var/lib/aqua/deploy
+  local lock_path="${control_root}/control-plane.lock"
+  [ ! -L "${control_root}" ] || return 1
+  install -d -m 0700 "${control_root}"
+  [ ! -L "${lock_path}" ] || return 1
+  if [ ! -e "${lock_path}" ]; then
+    (umask 077; set -o noclobber; : > "${lock_path}") 2>/dev/null || return 1
+  fi
+  [ "$(stat -c '%u:%a:%h' "${lock_path}")" = '0:600:1' ] || \
+    deploy_paths_error unsafe-control-lock || return
+  if [ -z "${DEPLOY_CONTROL_LOCK_FD:-}" ] && [ -n "${AQUA_CONTROL_PLANE_LOCK_FD:-}" ]; then
+    DEPLOY_CONTROL_LOCK_FD=${AQUA_CONTROL_PLANE_LOCK_FD}
+  fi
+  if [ -z "${DEPLOY_CONTROL_LOCK_FD:-}" ]; then
+    exec {DEPLOY_CONTROL_LOCK_FD}<>"${lock_path}"
+  fi
+  [[ "${DEPLOY_CONTROL_LOCK_FD}" =~ ^[0-9]+$ ]] || return 1
+  [ "$(stat -Lc '%d:%i' "/proc/${BASHPID}/fd/${DEPLOY_CONTROL_LOCK_FD}")" = \
+    "$(stat -c '%d:%i' "${lock_path}")" ] || return 1
+  flock --exclusive --nonblock "${DEPLOY_CONTROL_LOCK_FD}" || \
+    deploy_paths_error control-plane-busy || return
+  export DEPLOY_CONTROL_LOCK_FD
+}
+
+# A preserved database is admitted only when it is healthy, runs the candidate
+# image contract, and has a successful provider-console recovery receipt. This
+# guard runs before worktree/config publication, capacity GC or app mutation.
+assert_deploy_infrastructure() {
+  local sha=${1:?candidate SHA required}
+  local expected_contract observed image_id running health
+  expected_contract=$(git -C "${DEPLOY_SOURCE_REPO}" show \
+    "${sha}:.github/manifests/postgres-dr-contract.sha256" | sha256sum | awk '{print $1}') || return
+  observed=$(timeout 30 docker inspect --format \
+    '{{.State.Running}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} {{.Image}}' \
+    aqua-postgres) || deploy_paths_error postgres-inspection-failed || return
+  read -r running health image_id <<< "${observed}"
+  [ "${running}" = true ] && [ "${health}" = healthy ] || \
+    deploy_paths_error postgres-not-healthy || return
+  [ "$(timeout 30 docker image inspect --format \
+    '{{index .Config.Labels "io.aquaculture.postgres.dr-contract-sha256"}}' "${image_id}")" = \
+    "${expected_contract}" ] || deploy_paths_error image-contract-mismatch || return
+  # Both entrypoints execute the same strict receipt reader: exact artifact
+  # membership, candidate/result binding, ownership and modes are inseparable.
+  # Read it from this exact commit before any candidate checkout is published.
+  (
+    set -o pipefail
+    git -C "${DEPLOY_SOURCE_REPO}" show "${sha}:scripts/deploy/validate-postgres-dr-state.py" | \
+      /usr/bin/python3 - /var/lib/aqua/deploy/dr-bootstrap 0 "${image_id}"
+  ) || deploy_paths_error unresolved-recovery
+
+}
+
 materialize_deploy_checkout() {
-  local sha="${1:?materialize_deploy_checkout requires a commit SHA}"
-  local src="${DEPLOY_SOURCE_REPO}"
-  local dir="${DEPLOY_CHECKOUT_DIR}"
-
-  echo "=== Materializing deploy checkout (${dir} @ ${sha}) ==="
-
-  # Fetch into the shared object store. --force/--prune mirror the prior
-  # deploy behavior; this updates refs/objects only, NOT the interactive tree.
-  git -C "${src}" fetch --force --prune origin
-
-  # Clear stale worktree admin records before any add/remove decision.
-  git -C "${src}" worktree prune
-
-  mkdir -p "$(dirname "${dir}")"
-
+  local sha=${1:?materialize_deploy_checkout requires a commit SHA}
+  local attempt=${DEPLOY_ATTEMPT:?DEPLOY_ATTEMPT must identify workflow run and attempt}
+  [[ "${sha}" =~ ^[0-9a-f]{40}$ ]] || return 1
+  [[ "${attempt}" =~ ^[1-9][0-9]*-[1-9][0-9]*$ ]] || return 1
+  acquire_deploy_control_lock || return
+  assert_deploy_infrastructure "${sha}" || return
+  local src=${DEPLOY_SOURCE_REPO}
+  local dir="${DEPLOY_RELEASES_ROOT}/${sha}/${attempt}"
+  local configuration="${DEPLOY_CONFIG_ROOT}/${sha}/${attempt}"
+  local seed_env=${DEPLOY_ENV_FILE} seed_certs=${DEPLOY_CERTS_DIR}
+  if [ -f "${DEPLOY_CONFIG_ROOT}/current" ]; then
+    local previous
+    previous=$(cat "${DEPLOY_CONFIG_ROOT}/current") || return
+    [[ "${previous}" =~ ^[0-9a-f]{40}/[1-9][0-9]*-[1-9][0-9]*$ ]] || return 1
+    seed_env="${DEPLOY_CONFIG_ROOT}/${previous}/.env"
+    seed_certs="${DEPLOY_CONFIG_ROOT}/${previous}/certs"
+  fi
+  [ ! -L "${configuration}" ] && [ ! -L "${dir}" ] || return 1
+  if [ ! -e "${configuration}" ]; then
+    [ -f "${seed_env}" ] && [ -d "${seed_certs}" ] || return 1
+    local configuration_stage
+    install -d -m 0700 "${DEPLOY_CONFIG_ROOT}/${sha}"
+    configuration_stage=$(mktemp -d "${DEPLOY_CONFIG_ROOT}/${sha}/.preparing-${attempt}.XXXXXXXX") || return
+    install -d -m 0700 "${configuration_stage}/certs"
+    cp --preserve=mode,ownership -- "${seed_env}" "${configuration_stage}/.env" || return
+    cp -aL -- "${seed_certs}/." "${configuration_stage}/certs/" || return
+    printf '{"schema_version":2,"main_sha":"%s","attempt":"%s"}\n' "${sha}" "${attempt}" > "${configuration_stage}/.generation-identity.json"
+    chmod 0400 "${configuration_stage}/.generation-identity.json"
+    sync -f "${configuration_stage}" || return
+    mv -T -- "${configuration_stage}" "${configuration}" || return
+    sync -f "${DEPLOY_CONFIG_ROOT}/${sha}" || return
+  fi
+  # An interrupted publication can reuse only the complete, same-attempt
+  # generation. Incomplete staging directories remain private and unmounted.
+  jq -e --arg sha "${sha}" --arg attempt "${attempt}" \
+    '.schema_version == 2 and .main_sha == $sha and .attempt == $attempt' \
+    "${configuration}/.generation-identity.json" >/dev/null || return
   if [ ! -e "${dir}" ]; then
-    git -C "${src}" worktree add --detach --force "${dir}" "${sha}"
-  elif git -C "${dir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    # Healthy existing worktree — clear any crashed-run index.lock, then re-pin.
-    rm -f "$(git -C "${dir}" rev-parse --git-path index.lock 2>/dev/null)" 2>/dev/null || true
-    git -C "${dir}" fetch --force --prune origin
-    git -C "${dir}" checkout -f --detach "${sha}"
-  else
-    # Path exists but is not a usable worktree (corrupt/partial). Remove and
-    # recreate so the deploy always runs from a clean SHA-pinned tree.
-    echo "  WARN: ${dir} exists but is not a valid git worktree; recreating."
-    git -C "${src}" worktree remove --force "${dir}" 2>/dev/null || rm -rf "${dir}"
-    git -C "${src}" worktree prune
-    git -C "${src}" worktree add --detach --force "${dir}" "${sha}"
+    local source_stage staging_root="${DEPLOY_RELEASES_ROOT%/*}/publication-staging"
+    install -d -m 0700 "${staging_root}" "${DEPLOY_RELEASES_ROOT}/${sha}"
+    source_stage=$(mktemp -d "${staging_root}/${sha}-${attempt}.XXXXXXXX") || return
+    git -C "${src}" worktree add --detach "${source_stage}" "${sha}" || return
+    ln -s "${configuration}/.env" "${source_stage}/.env" || return
+    ln -s "${configuration}/certs" "${source_stage}/certs" || return
+    printf '{"schema_version":2,"main_sha":"%s","attempt":"%s"}\n' "${sha}" "${attempt}" > "${source_stage}/.release-identity.json"
+    chmod 0400 "${source_stage}/.release-identity.json"
+    if [ -d "${src}/node_modules" ]; then
+      ln -s "${src}/node_modules" "${source_stage}/node_modules" || return
+    fi
+    chmod 0755 "${source_stage}" || return
+    sync -f "${source_stage}" || return
+    git -C "${src}" worktree move "${source_stage}" "${dir}" || return
+    sync -f "${DEPLOY_RELEASES_ROOT}/${sha}" || return
   fi
+  jq -e --arg sha "${sha}" --arg attempt "${attempt}" \
+    '.schema_version == 2 and .main_sha == $sha and .attempt == $attempt' \
+    "${dir}/.release-identity.json" >/dev/null || return
+  # A crash after the atomic directory move may precede Git's backlink update.
+  # Repair only the metadata of this already complete immutable worktree.
+  git -C "${src}" worktree repair "${dir}" || return
+  [ ! -L "${dir}" ] && [ ! -L "${configuration}" ] || return 1
+  [ "$(git -C "${dir}" rev-parse HEAD)" = "${sha}" ] || return 1
+  [ "$(readlink "${dir}/.env")" = "${configuration}/.env" ] || return 1
+  [ "$(readlink "${dir}/certs")" = "${configuration}/certs" ] || return 1
+  [ -z "$(git -C "${dir}" status --porcelain --untracked-files=no)" ] || \
+    deploy_paths_error release-source-modified || return
+  export DEPLOY_CHECKOUT_DIR=${dir}
+  export DEPLOY_ENV_FILE="${configuration}/.env"
+  export DEPLOY_CERTS_DIR="${configuration}/certs"
+}
 
-  # Secrets stay persistent: symlink the gitignored .env + certs/ so
-  # cwd-relative `docker compose` bind-mounts and cert generation resolve to
-  # the stable persistent location. The SHA-pinned tree never carries secrets,
-  # and recreating the checkout never loses TLS material or .env.
-  mkdir -p "${DEPLOY_CERTS_DIR}"
-  ln -sfn "${DEPLOY_ENV_FILE}" "${dir}/.env"
-  ln -sfn "${DEPLOY_CERTS_DIR}" "${dir}/certs"
+promote_deploy_configuration() {
+  local key="${DEPLOY_SHA}/${DEPLOY_ATTEMPT}"
+  local temporary
+  temporary=$(mktemp "${DEPLOY_CONFIG_ROOT}/.current.XXXXXXXX") || return
+  printf '%s\n' "${key}" > "${temporary}"
+  chmod 0400 "${temporary}"
+  sync -f "${temporary}"
+  mv -- "${temporary}" "${DEPLOY_CONFIG_ROOT}/current"
+  sync -f "${DEPLOY_CONFIG_ROOT}"
+}
 
-  # node_modules provisioning (ORPHAN-HIGH-250): the deploy checkout is a bare
-  # SHA-pinned worktree that never runs `npm ci`, but the deploy now executes
-  # third-party-importing TS scripts via Node 22 type-stripping (e.g.
-  # check-service-health.ts → `import js-yaml`). Node resolves node_modules by
-  # walking up from the script's dir, which never reaches the source repo's
-  # tree, so those imports died with ERR_MODULE_NOT_FOUND — the health gate
-  # crashed, reported a false "critical service health check failed", and the
-  # rollback ran the same broken gate (rollback_failed). Symlink the source
-  # repo's already-installed node_modules (gitignored, so the SHA checkout never
-  # carries it) so the deploy scripts resolve their declared deps. Guarded:
-  # absent only on a never-installed droplet, where the scripts can't run anyway.
-  if [ -d "${src}/node_modules" ]; then
-    ln -sfn "${src}/node_modules" "${dir}/node_modules"
-  fi
+# The manifest binds bytes within one private generation. Runtime changes use a
+# new generation; no deployment is allowed to edit an already published one.
+deploy_configuration_is_sealed() {
+  [ -f "${DEPLOY_ENV_FILE%/*}/sealed.sha256" ]
+}
 
-  local head
-  head="$(git -C "${dir}" rev-parse HEAD)"
-  if [ "${head}" != "${sha}" ]; then
-    echo "::error::deploy checkout failed to pin ${dir} to ${sha} (HEAD=${head})." >&2
-    return 1
-  fi
-  echo "  Deploy checkout pinned: ${dir} @ ${head}"
+seal_deploy_configuration() {
+  local generation=${DEPLOY_ENV_FILE%/*}
+  [ ! -e "${generation}/sealed.sha256" ] || return 1
+  (cd "${generation}" && find . -type f ! -name sealed.sha256 -print0 | sort -z | xargs -0 sha256sum) > "${generation}/sealed.sha256"
+  chmod 0400 "${generation}/sealed.sha256" "${DEPLOY_ENV_FILE}"
+  sync -f "${generation}"
+  # Source files are never regenerated or reset once published.
+  find "${DEPLOY_CHECKOUT_DIR}" -type f -exec chmod a-w -- {} +
+  find "${DEPLOY_CHECKOUT_DIR}" -type d -exec chmod 0555 -- {} +
+}
+
+verify_deploy_configuration() {
+  local generation=${DEPLOY_ENV_FILE%/*}
+  (cd "${generation}" && sha256sum --status --check sealed.sha256)
 }

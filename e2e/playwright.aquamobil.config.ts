@@ -16,15 +16,15 @@ import { defineConfig, devices } from '@playwright/test';
  *   - GATEWAY_URL:   gateway origin for server-side seeding/assertions
  *                    (default: http://localhost:4000)
  *   - DATABASE_URL:  Postgres for the tenant/user fixtures
- *   - JWT_SECRET:    HS256 secret for API-side seed tokens (jwt.helper)
+ *   - HOSTED_E2E_ISOLATED: required for persisted fixtures and real login
  */
 export default defineConfig({
   testDir: './tests/mobile',
-  timeout: 60_000,
+  timeout: 180_000,
   expect: {
     timeout: 10_000,
   },
-  retries: process.env.CI ? 1 : 0,
+  retries: 0,
   workers: 1,
   reporter: process.env.CI
     ? [['html', { open: 'never' }], ['github']]
@@ -34,6 +34,8 @@ export default defineConfig({
     baseURL: process.env.AQUAMOBIL_URL ?? 'http://127.0.0.1:8090/mobile',
     // Offline-first flows exercise the service worker; keep it enabled.
     serviceWorkers: 'allow',
+    // The isolated stack uses an ephemeral certificate for its reserved test domain.
+    ignoreHTTPSErrors: process.env.HOSTED_E2E_ISOLATED === 'true',
   },
   projects: [
     {

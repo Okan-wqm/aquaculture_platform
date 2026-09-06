@@ -1,0 +1,329 @@
+{
+  "schema_version": 1,
+  "lanes": [
+    "auth-unit",
+    "auth-postgres",
+    "db-migrate",
+    "release-invariants",
+    "frontend",
+    "types",
+    "lint",
+    "graphql",
+    "nats"
+  ],
+  "checks": [
+    {
+      "id": "auth-unit",
+      "lane": "auth-unit",
+      "command": [
+        "node",
+        "node_modules/jest/bin/jest.js",
+        "--config",
+        "apps/auth-service/jest.config.ts",
+        "--runInBand",
+        "--no-cache",
+        "--json",
+        "--outputFile=artifacts/authentication-proof/auth-unit.json"
+      ],
+      "cwd": ".",
+      "report": "artifacts/authentication-proof/auth-unit.json",
+      "required_files": [
+        "services/token.service.spec.ts",
+        "services/credential-state.spec.ts",
+        "__tests__/action-token-resolver.spec.ts",
+        "__tests__/invitation-links.spec.ts",
+        "controllers/__tests__/internal-auth.controller.spec.ts",
+        "__tests__/authentication.service.spec.ts",
+        "__tests__/mfa.spec.ts",
+        "__tests__/webauthn.service.spec.ts",
+        "__tests__/password-reset.spec.ts",
+        "__tests__/mfa-setup-token.spec.ts",
+        "__tests__/credential-actions.spec.ts"
+      ]
+    },
+    {
+      "id": "auth-postgres",
+      "lane": "auth-postgres",
+      "command": [
+        "node",
+        "node_modules/jest/bin/jest.js",
+        "--config",
+        "apps/auth-service/jest.integration.config.ts",
+        "--runInBand",
+        "--no-cache",
+        "--json",
+        "--outputFile=artifacts/authentication-proof/auth-postgres.json"
+      ],
+      "cwd": ".",
+      "report": "artifacts/authentication-proof/auth-postgres.json",
+      "required_files": ["1819100000000-AddUserAuthenticationState.postgres.spec.ts"]
+    },
+    {
+      "id": "db-migrate",
+      "lane": "db-migrate",
+      "command": [
+        "node",
+        "node_modules/jest/bin/jest.js",
+        "--config",
+        "apps/db-migrate/jest.config.cts",
+        "--runInBand",
+        "--no-cache",
+        "--json",
+        "--outputFile=artifacts/authentication-proof/db-migrate.json"
+      ],
+      "cwd": ".",
+      "report": "artifacts/authentication-proof/db-migrate.json"
+    },
+    {
+      "id": "release-invariants",
+      "lane": "release-invariants",
+      "command": [
+        "node",
+        "node_modules/jest/bin/jest.js",
+        "--config",
+        "tests/invariants/jest.config.ts",
+        "--runInBand",
+        "--no-cache",
+        "--json",
+        "--outputFile=artifacts/authentication-proof/release-invariants.json",
+        "--runTestsByPath",
+        "tests/invariants/postgres-dr-recovery-point.spec.ts",
+        "tests/invariants/postgres-dr-bootstrap-control-plane.spec.ts",
+        "tests/invariants/deploy-isolated-checkout-ssot.spec.ts",
+        "tests/invariants/git-hook-binding.spec.ts",
+        "tests/invariants/e2e-graphql-success-contract.spec.ts",
+        "tests/invariants/deploy-ssot-contract.spec.ts",
+        "tests/invariants/platform-service-catalog-parity.spec.ts",
+        "tests/invariants/nats-storage-policy.spec.ts"
+      ],
+      "cwd": ".",
+      "report": "artifacts/authentication-proof/release-invariants.json",
+      "required_files": [
+        "postgres-dr-recovery-point.spec.ts",
+        "postgres-dr-bootstrap-control-plane.spec.ts",
+        "deploy-isolated-checkout-ssot.spec.ts",
+        "git-hook-binding.spec.ts",
+        "e2e-graphql-success-contract.spec.ts",
+        "deploy-ssot-contract.spec.ts",
+        "platform-service-catalog-parity.spec.ts",
+        "nats-storage-policy.spec.ts"
+      ]
+    },
+    {
+      "id": "shell",
+      "lane": "frontend",
+      "command": [
+        "node",
+        "../../node_modules/vitest/vitest.mjs",
+        "run",
+        "--reporter=json",
+        "--outputFile=../../artifacts/authentication-proof/shell.json"
+      ],
+      "cwd": "web/shell",
+      "report": "artifacts/authentication-proof/shell.json",
+      "required_files": [
+        "web/shell/src/pages/auth/__tests__/LoginForm.spec.tsx",
+        "web/shell/src/pages/auth/__tests__/AuthFormShell.spec.tsx",
+        "web/shell/src/layouts/__tests__/AuthLayout.spec.tsx"
+      ]
+    },
+    {
+      "id": "mobile",
+      "lane": "frontend",
+      "command": [
+        "node",
+        "../../../node_modules/vitest/vitest.mjs",
+        "run",
+        "--reporter=json",
+        "--outputFile=../../../artifacts/authentication-proof/mobile.json"
+      ],
+      "cwd": "web/apps/aquamobil",
+      "report": "artifacts/authentication-proof/mobile.json",
+      "required_files": [
+        "web/apps/aquamobil/src/__tests__/react-runtime.spec.tsx",
+        "web/apps/aquamobil/src/components/__tests__/BarcodeScanButton.spec.tsx",
+        "web/apps/aquamobil/src/hooks/__tests__/useAuth-logout-wipe.spec.tsx",
+        "web/apps/aquamobil/src/hooks/__tests__/useOfflineQueue-sync-auth-lane.spec.tsx",
+        "web/apps/aquamobil/src/services/__tests__/authenticated-fetch-single-flight.spec.ts",
+        "web/apps/aquamobil/src/services/__tests__/auth-ready-barrier-reset.spec.ts"
+      ]
+    },
+    {
+      "id": "auth-app",
+      "lane": "types",
+      "command": [
+        "node",
+        "node_modules/typescript/bin/tsc",
+        "--noEmit",
+        "-p",
+        "apps/auth-service/tsconfig.app.json"
+      ],
+      "cwd": "."
+    },
+    {
+      "id": "auth-spec",
+      "lane": "types",
+      "command": [
+        "node",
+        "node_modules/typescript/bin/tsc",
+        "--noEmit",
+        "-p",
+        "apps/auth-service/tsconfig.spec.json"
+      ],
+      "cwd": "."
+    },
+    {
+      "id": "db-migrate-app",
+      "lane": "types",
+      "command": [
+        "node",
+        "node_modules/typescript/bin/tsc",
+        "--noEmit",
+        "-p",
+        "apps/db-migrate/tsconfig.app.json"
+      ],
+      "cwd": "."
+    },
+    {
+      "id": "db-migrate-spec",
+      "lane": "types",
+      "command": [
+        "node",
+        "node_modules/typescript/bin/tsc",
+        "--noEmit",
+        "-p",
+        "apps/db-migrate/tsconfig.spec.json"
+      ],
+      "cwd": "."
+    },
+    {
+      "id": "strict-lint-project-graph",
+      "lane": "lint",
+      "command": [
+        "node",
+        "tools/toolchain/run.mjs",
+        "nx",
+        "graph",
+        "--file=artifacts/authentication-proof/project-graph.json"
+      ],
+      "cwd": "."
+    },
+    {
+      "id": "strict-auth-migration-frontend-lint",
+      "lane": "lint",
+      "command": [
+        "node",
+        "tools/toolchain/run.mjs",
+        "eslint",
+        "apps/auth-service/**/*.ts",
+        "apps/db-migrate/**/*.ts",
+        "web/shell/src/**/*.{ts,tsx}",
+        "web/apps/aquamobil/src/**/*.{ts,tsx}",
+        "--max-warnings=0"
+      ],
+      "cwd": "."
+    },
+    {
+      "id": "graphql-registry",
+      "lane": "graphql",
+      "command": ["node", "scripts/graphql/validate-registry.mjs"],
+      "cwd": "."
+    },
+    {
+      "id": "graphql-registry-artifacts",
+      "lane": "graphql",
+      "command": ["node", "scripts/graphql/generate-registry-artifacts.mjs"],
+      "cwd": "."
+    },
+    {
+      "id": "graphql-supergraph",
+      "lane": "graphql",
+      "command": ["node", "scripts/apollo-router/build-supergraph.mjs"],
+      "cwd": "."
+    },
+    {
+      "id": "graphql-codegen",
+      "lane": "graphql",
+      "command": ["npm", "run", "codegen"],
+      "cwd": "."
+    },
+    {
+      "id": "graphql-generated-clean",
+      "lane": "graphql",
+      "command": [
+        "git",
+        "diff",
+        "--exit-code",
+        "--",
+        "infrastructure/apollo-router/codegen-schema.generated.json",
+        "web/apps/aquamobil/src/generated",
+        "web/shared-ui/src/generated"
+      ],
+      "cwd": "."
+    },
+    {
+      "id": "nats-client-policy",
+      "lane": "nats",
+      "command": [
+        "node",
+        "node_modules/jest/bin/jest.js",
+        "--config",
+        "libs/backend-common/jest.config.ts",
+        "--runInBand",
+        "--no-cache",
+        "--json",
+        "--outputFile=artifacts/authentication-proof/nats-client-policy.json",
+        "--runTestsByPath",
+        "libs/backend-common/src/nats/__tests__/nats-connection.factory.spec.ts",
+        "libs/backend-common/src/nats/__tests__/nats-v3-client.proxy.spec.ts",
+        "libs/backend-common/src/nats/__tests__/nats-response-policy.spec.ts"
+      ],
+      "cwd": ".",
+      "report": "artifacts/authentication-proof/nats-client-policy.json",
+      "required_files": [
+        "nats-connection.factory.spec.ts",
+        "nats-v3-client.proxy.spec.ts",
+        "nats-response-policy.spec.ts"
+      ]
+    },
+    {
+      "id": "nats-stream-storage-policy",
+      "lane": "nats",
+      "command": [
+        "node",
+        "node_modules/jest/bin/jest.js",
+        "--config",
+        "platform/libs/event-bus/jest.config.ts",
+        "--runInBand",
+        "--no-cache",
+        "--json",
+        "--outputFile=artifacts/authentication-proof/nats-stream-storage-policy.json",
+        "--runTestsByPath",
+        "platform/libs/event-bus/src/nats/__tests__/jetstream-storage-policy.spec.ts"
+      ],
+      "cwd": ".",
+      "report": "artifacts/authentication-proof/nats-stream-storage-policy.json",
+      "required_files": ["jetstream-storage-policy.spec.ts"]
+    },
+    {
+      "id": "nats-canonical-acl-reader",
+      "lane": "nats",
+      "command": ["node", "--test", "scripts/nats/messaging-acl-smoke.test.mjs"],
+      "cwd": "."
+    },
+    {
+      "id": "nats-canonical-acl",
+      "lane": "nats",
+      "command": ["node", "scripts/nats/messaging-acl-smoke.mjs", "--mode", "static"],
+      "cwd": "."
+    },
+    {
+      "id": "nats-production-acl",
+      "lane": "nats",
+      "command": ["bash", "scripts/ci/test-nats-production-acl.sh"],
+      "cwd": ".",
+      "report": "artifacts/authentication-proof/nats-acl.json",
+      "required_files": ["nats-production-acl.integration.spec.ts"]
+    }
+  ]
+}

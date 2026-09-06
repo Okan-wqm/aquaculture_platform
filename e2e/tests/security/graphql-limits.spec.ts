@@ -11,7 +11,7 @@ import { test, expect } from '@playwright/test';
 import { v4 as uuidv4 } from 'uuid';
 
 import { GraphQLTestClient, GraphQLError } from '../../helpers/graphql-client';
-import { generateTestToken } from '../../helpers/jwt.helper';
+import { issueTestToken } from '../../helpers/persisted-actor.fixture';
 
 /** Response types (zero any policy) */
 interface GenericQueryResponse {
@@ -52,7 +52,7 @@ test.describe('GraphQL Security Limits', () => {
   });
 
   test('Query depth > 10 is rejected', async () => {
-    const token = generateTestToken({
+    const token = await issueTestToken({
       tenantId: uuidv4(),
       roles: ['TENANT_ADMIN'],
       role: 'TENANT_ADMIN',
@@ -106,7 +106,7 @@ test.describe('GraphQL Security Limits', () => {
   });
 
   test('Query complexity > 1000 is rejected', async () => {
-    const token = generateTestToken({
+    const token = await issueTestToken({
       tenantId: uuidv4(),
       roles: ['TENANT_ADMIN'],
       role: 'TENANT_ADMIN',

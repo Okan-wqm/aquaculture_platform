@@ -1,6 +1,6 @@
 {
-  "$schema": "aqua/postgres-dr-bootstrap-policy/v1",
-  "schema_version": 1,
+  "$schema": "aqua/postgres-dr-bootstrap-policy/v2",
+  "schema_version": 2,
   "finding_ids": ["INFRA-HIGH-073"],
   "does_not_close_findings": ["INFRA-HIGH-033"],
   "release": {
@@ -54,10 +54,11 @@
     "pre_execution_signature_verification_required": true,
     "global_nonblocking_lock_required": true,
     "pinned_host_paths": {
-      "deploy_root": "/var/lib/aqua/deploy/checkout",
+      "deploy_root": "<release_root>/repository",
       "deploy_env_file": "/var/aqua-saas/.env",
       "state_root": "/var/lib/aqua/deploy/dr-bootstrap",
-      "control_plane_lock": "/var/lib/aqua/deploy/control-plane.lock"
+      "control_plane_lock": "/var/lib/aqua/deploy/control-plane.lock",
+      "config_generations_root": "/var/lib/aqua/deploy/config-generations"
     },
     "shared_control_plane_lock": {
       "mode": "exclusive-nonblocking",
@@ -71,11 +72,21 @@
         "FORWARD_STARTED",
         "ROLLBACK_STARTED",
         "ROLLED_BACK",
-        "COMMITTED"
+        "COMMITTED",
+        "RECOVERY_REQUIRED",
+        "FINALIZING",
+        "ROLLBACK_FINALIZING"
       ],
       "exact_prior_recovery_required": true,
       "power_loss_reentry_required": true,
-      "reentry_after_rollback": "require_new_signed_run_attempt"
+      "reentry_after_rollback": "require_new_signed_run_attempt",
+      "schema_version": 2,
+      "modes": ["healthy_upgrade", "degraded_legacy_recovery"],
+      "recovery_helper": "infrastructure/scripts/postgres-dr-recovery.sh",
+      "coordinator_helper": "infrastructure/scripts/postgres-dr-coordinator.sh",
+      "verified_cold_copy_required": true,
+      "baseline": "signed_candidate_walg_disabled_on_isolated_copy",
+      "writer_quiescence": "record_and_stop_existing_compose_containers"
     },
     "signed_init_directory": "infrastructure/docker/init-scripts",
     "release_root_safe_path_pattern": "^/[A-Za-z0-9._/-]+$",

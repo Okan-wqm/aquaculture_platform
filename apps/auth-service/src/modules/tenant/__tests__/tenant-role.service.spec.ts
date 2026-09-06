@@ -77,6 +77,7 @@ describe('TenantRoleService', () => {
   let mockDataSource: jest.Mocked<Pick<DataSource, 'query' | 'createQueryRunner'>>;
   let mockQueryRunner: ReturnType<typeof createMockQueryRunner>;
   let mockAuditLogService: { log: jest.Mock };
+  let identityLocks: jest.Mock;
   let mockDurableUserTokenInvalidation: {
     enqueue: jest.Mock;
     applyImmediately: jest.Mock;
@@ -84,10 +85,23 @@ describe('TenantRoleService', () => {
 
   beforeEach(async () => {
     mockQueryRunner = createMockQueryRunner();
+    identityLocks = jest.fn().mockResolvedValue([]);
+    const queryRunner = {
+      ...mockQueryRunner,
+      query: (sql: string, parameters?: unknown[]): Promise<unknown> => {
+        if (
+          sql.startsWith('SELECT id FROM auth.tenants ') ||
+          sql.startsWith('SELECT id FROM auth.users ')
+        ) {
+          return identityLocks(sql, parameters);
+        }
+        return mockQueryRunner.query(sql, parameters);
+      },
+    };
 
     mockDataSource = {
       query: jest.fn().mockResolvedValue([]),
-      createQueryRunner: jest.fn().mockReturnValue(mockQueryRunner),
+      createQueryRunner: jest.fn().mockReturnValue(queryRunner),
     };
 
     mockAuditLogService = { log: jest.fn().mockResolvedValue(undefined) };
@@ -305,6 +319,19 @@ describe('TenantRoleService', () => {
 
       expect(result).toHaveLength(5);
       expect(mockQueryRunner.startTransaction).toHaveBeenCalledWith('SERIALIZABLE');
+      expect(identityLocks).toHaveBeenNthCalledWith(
+        1,
+        'SELECT id FROM auth.tenants WHERE id = $1 FOR UPDATE',
+        [TENANT_ID],
+      );
+      expect(identityLocks).toHaveBeenNthCalledWith(
+        2,
+        'SELECT id FROM auth.users WHERE "tenantId" = $1 ORDER BY id FOR UPDATE',
+        [TENANT_ID],
+      );
+      expect(identityLocks.mock.invocationCallOrder[1]).toBeLessThan(
+        mockQueryRunner.query.mock.invocationCallOrder[0]!,
+      );
       expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
       expect(mockQueryRunner.release).toHaveBeenCalled();
     });

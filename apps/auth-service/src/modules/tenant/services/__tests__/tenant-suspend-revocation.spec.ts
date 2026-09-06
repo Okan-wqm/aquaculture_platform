@@ -21,6 +21,7 @@ import {
 import { collaborator, stub } from '@aquaculture/testing';
 
 import { AuditLog } from '../../../../audit/audit-log.entity';
+import { DurableUserTokenInvalidationService } from '../../../authentication/services/durable-user-token-invalidation.service';
 import { AuditLogService } from '../../../../audit/audit-log.service';
 import { TenantProvisioningCommandService } from '../tenant-provisioning-command.service';
 
@@ -60,12 +61,12 @@ function createManager(options: {
 function createService(manager: MockManager): {
   service: TenantProvisioningCommandService;
   outbox: { enqueue: jest.Mock };
-  revocation: { revokeUserTokens: jest.Mock; isTokenValid: jest.Mock };
+  revocation: { enqueue: jest.Mock; applyImmediately: jest.Mock };
 } {
   const outbox = { enqueue: jest.fn().mockResolvedValue(undefined) };
   const revocation = {
-    revokeUserTokens: jest.fn().mockResolvedValue(undefined),
-    isTokenValid: jest.fn().mockResolvedValue(true),
+    enqueue: jest.fn().mockResolvedValue(undefined),
+    applyImmediately: jest.fn().mockResolvedValue(undefined),
   };
   const dataSource = {
     transaction: jest.fn((_isolation: string, cb: (m: MockManager) => Promise<unknown>) =>
@@ -78,7 +79,11 @@ function createService(manager: MockManager): {
     {} as never, // invitationRepository — unused on the lifecycle path
     dataSource as never,
     outbox as never,
-    revocation as never,
+    { revokeUserTokens: jest.fn(), isTokenValid: jest.fn() } as never,
+    collaborator<DurableUserTokenInvalidationService>(
+      revocation,
+      'DurableUserTokenInvalidationService',
+    ),
     // W5: lokalizasyon yazımının fail-CLOSED denetim izi (lifecycle yolunda
     // kullanılmaz). Tipli çift: `AuditLogService.log` imzası değişirse bu
     // satır DERLEME zamanında kırılır, ve lifecycle yolu beklenmedik bir
@@ -147,9 +152,23 @@ describe('TenantProvisioningCommandService — suspend session termination (RBAC
 
     await service.suspendTenant(suspendCommand);
 
-    expect(revocation.revokeUserTokens).toHaveBeenCalledTimes(2);
-    expect(revocation.revokeUserTokens).toHaveBeenCalledWith(USER_A);
-    expect(revocation.revokeUserTokens).toHaveBeenCalledWith(USER_B);
+    expect(revocation.applyImmediately).toHaveBeenCalledTimes(2);
+    const intents = revocation.enqueue.mock.calls.map(([, intent]) => intent);
+    expect(intents).toEqual([
+      expect.objectContaining({
+        userId: USER_A,
+        tenantId: TENANT_ID,
+        invalidatedAt: expect.any(Date),
+      }),
+      expect.objectContaining({
+        userId: USER_B,
+        tenantId: TENANT_ID,
+        invalidatedAt: expect.any(Date),
+      }),
+    ]);
+    expect(intents[0].invalidatedAt).toBe(intents[1].invalidatedAt);
+    expect(revocation.applyImmediately).toHaveBeenNthCalledWith(1, intents[0]);
+    expect(revocation.applyImmediately).toHaveBeenNthCalledWith(2, intents[1]);
   });
 
   it('a Redis blacklist failure is non-fatal: the command still succeeds (durable kill is in-tx)', async () => {
@@ -158,12 +177,12 @@ describe('TenantProvisioningCommandService — suspend session termination (RBAC
       userRows: [{ id: USER_A }, { id: USER_B }],
     });
     const { service, revocation } = createService(manager);
-    revocation.revokeUserTokens.mockRejectedValue(new Error('redis down'));
+    revocation.applyImmediately.mockRejectedValue(new Error('redis down'));
 
     const result = await service.suspendTenant(suspendCommand);
 
     expect(result.status).toBe(TenantStatus.SUSPENDED);
-    expect(revocation.revokeUserTokens).toHaveBeenCalledTimes(2);
+    expect(revocation.applyImmediately).toHaveBeenCalledTimes(2);
   });
 
   it('a tenant with zero users suspends without issuing the bulk revoke', async () => {
@@ -178,7 +197,7 @@ describe('TenantProvisioningCommandService — suspend session termination (RBAC
         String(sql).includes('UPDATE "auth"."refresh_tokens"'),
       ),
     ).toBe(false);
-    expect(revocation.revokeUserTokens).not.toHaveBeenCalled();
+    expect(revocation.applyImmediately).not.toHaveBeenCalled();
   });
 
   it('idempotent re-suspend (already SUSPENDED) revokes nothing again', async () => {
@@ -196,7 +215,7 @@ describe('TenantProvisioningCommandService — suspend session termination (RBAC
         String(sql).includes('SELECT id FROM "auth"."users"'),
       ),
     ).toBe(false);
-    expect(revocation.revokeUserTokens).not.toHaveBeenCalled();
+    expect(revocation.applyImmediately).not.toHaveBeenCalled();
   });
 
   it('ActivateTenant (transition INTO the operational state) revokes nothing', async () => {
@@ -219,6 +238,6 @@ describe('TenantProvisioningCommandService — suspend session termination (RBAC
         String(sql).includes('UPDATE "auth"."refresh_tokens"'),
       ),
     ).toBe(false);
-    expect(revocation.revokeUserTokens).not.toHaveBeenCalled();
+    expect(revocation.applyImmediately).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,7 @@
 import { createTestTenant } from './fixtures/tenant.fixture';
 import { createSuperAdmin, createTenantAdmin } from './fixtures/user.fixture';
 import { TestDatabase } from './helpers/db.helper';
+import { assertIsolatedFixtureDatabase } from './helpers/real-auth.fixture';
 
 /**
  * Global setup for all E2E test suites.
@@ -14,77 +15,27 @@ import { TestDatabase } from './helpers/db.helper';
  * The global-teardown.ts handles cleanup of everything created here.
  */
 export default async function globalSetup(): Promise<void> {
+  assertIsolatedFixtureDatabase();
   const db = new TestDatabase();
 
   try {
     // ── 1. Verify database connectivity ──────────────────────
     const healthy = await db.isHealthy();
     if (!healthy) {
-      throw new Error(
-        'Database is not reachable. Ensure PostgreSQL is running and DATABASE_URL is correct. ' +
-          `Current DATABASE_URL: ${process.env.DATABASE_URL ?? '(not set, using default)'}`,
-      );
+      throw new Error('Isolated E2E database is not reachable');
     }
     console.log('[global-setup] Database connection verified');
 
-    // ── 2. Ensure auth schema exists ─────────────────────────
-    const schemas = await db.listSchemas();
-    if (!schemas.includes('auth')) {
-      // In CI, the auth schema must be created by migrations or service bootstrap.
-      // Create it here only as a fallback for local development.
-      await db.query('CREATE SCHEMA IF NOT EXISTS auth');
-      console.log('[global-setup] Created auth schema (fallback)');
+    // Runtime and fixtures share the authoritative migrated schema; never fabricate tables.
+    for (const table of ['tenants', 'users', 'refresh_tokens']) {
+      if (!(await db.tableExists('auth', table)))
+        throw new Error(`Authoritative auth.${table} migration is missing`);
     }
-
-    // Verify the tenants table exists
-    const tenantsTableExists = await db.tableExists('auth', 'tenants');
-    if (!tenantsTableExists) {
-      // Create minimal tenants table for test isolation
-      await db.query(`
-        CREATE TABLE IF NOT EXISTS auth.tenants (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          name VARCHAR(255) NOT NULL,
-          slug VARCHAR(100) UNIQUE NOT NULL,
-          status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
-          plan VARCHAR(20) NOT NULL DEFAULT 'starter',
-          "maxUsers" INT NOT NULL DEFAULT 5,
-          "maxStorage" INT NOT NULL DEFAULT -1,
-          "contactEmail" VARCHAR(255),
-          "userCount" INT NOT NULL DEFAULT 0,
-          "farmCount" INT NOT NULL DEFAULT 0,
-          "sensorCount" INT NOT NULL DEFAULT 0,
-          "isTrialActive" BOOLEAN NOT NULL DEFAULT false,
-          version INT NOT NULL DEFAULT 1,
-          "createdAt" TIMESTAMP DEFAULT NOW(),
-          "updatedAt" TIMESTAMP DEFAULT NOW()
-        )
-      `);
-      console.log('[global-setup] Created auth.tenants table (fallback)');
-    }
-
-    // Verify the users table exists
-    const usersTableExists = await db.tableExists('auth', 'users');
-    if (!usersTableExists) {
-      await db.query(`
-        CREATE TABLE IF NOT EXISTS auth.users (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          email VARCHAR(255) UNIQUE NOT NULL,
-          password VARCHAR(255),
-          role VARCHAR(50) NOT NULL DEFAULT 'MODULE_USER',
-          "tenantId" UUID,
-          "firstName" VARCHAR(100),
-          "lastName" VARCHAR(100),
-          "isActive" BOOLEAN NOT NULL DEFAULT true,
-          "isEmailVerified" BOOLEAN NOT NULL DEFAULT false,
-          "mfaEnabled" BOOLEAN NOT NULL DEFAULT false,
-          "failedLoginAttempts" INT NOT NULL DEFAULT 0,
-          "mfaFailedAttempts" INT NOT NULL DEFAULT 0,
-          "createdAt" TIMESTAMP DEFAULT NOW(),
-          "updatedAt" TIMESTAMP DEFAULT NOW()
-        )
-      `);
-      console.log('[global-setup] Created auth.users table (fallback)');
-    }
+    const contract = await db.query<{ present: boolean }>(
+      `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='auth' AND table_name='users' AND column_name='credentialVersion') AS present`,
+    );
+    if (!contract.rows[0] || !contract.rows[0].present)
+      throw new Error('Authentication-state migration was not applied');
 
     // ── 3. Create shared test tenant and users ───────────────
     const tenant = await createTestTenant(db, {

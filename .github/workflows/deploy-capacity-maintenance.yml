@@ -109,8 +109,11 @@ jobs:
             # plane. This keeps the source repo ref-only and makes scheduled and
             # manually requested SHAs follow the same path.
             install -d /var/lib/aqua/deploy
-            git show "${TARGET_SHA}:scripts/deploy/deploy-paths.sh" > /var/lib/aqua/deploy/deploy-paths.sh
-            source /var/lib/aqua/deploy/deploy-paths.sh
+            deploy_paths_bootstrap="$(mktemp /tmp/aqua-deploy-paths.XXXXXXXX)"
+            git show "${TARGET_SHA}:scripts/deploy/deploy-paths.sh" > "${deploy_paths_bootstrap}"
+            source "${deploy_paths_bootstrap}"
+            rm -- "${deploy_paths_bootstrap}"
+            export DEPLOY_ATTEMPT="${{ github.run_id }}-${{ github.run_attempt }}"
             materialize_deploy_checkout "${TARGET_SHA}"
             cd "${DEPLOY_CHECKOUT_DIR}"
 

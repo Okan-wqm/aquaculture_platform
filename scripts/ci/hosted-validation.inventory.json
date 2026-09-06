@@ -1,0 +1,214 @@
+{
+  "schema_version": 1,
+  "lanes": ["policy", "types", "rust", "aria"],
+  "gates": [
+    {
+      "id": "dependency-pins",
+      "lane": "policy",
+      "selection": "always",
+      "command": [
+        "node",
+        "node_modules/ts-node/dist/bin.js",
+        "--project",
+        "tools/gates/tsconfig.json",
+        "tools/gates/check-pin.ts"
+      ],
+      "hosted_owner": "ci-affected.yml:hosted-validation"
+    },
+    {
+      "id": "banned-phrases",
+      "lane": "policy",
+      "selection": "always",
+      "command": [
+        "node",
+        "node_modules/ts-node/dist/bin.js",
+        "--project",
+        "tools/gates/tsconfig.json",
+        "tools/gates/banned-phrase.ts",
+        "--mode=range",
+        "{base}",
+        "{head}"
+      ],
+      "hosted_owner": "ci-affected.yml:hosted-validation"
+    },
+    {
+      "id": "banned-constructs",
+      "lane": "policy",
+      "selection": "always",
+      "command": [
+        "node",
+        "node_modules/ts-node/dist/bin.js",
+        "--project",
+        "tools/gates/tsconfig.json",
+        "tools/gates/banned-construct.ts",
+        "--mode=range",
+        "{base}",
+        "{head}"
+      ],
+      "hosted_owner": "ci-affected.yml:hosted-validation"
+    },
+    {
+      "id": "migration-sql",
+      "lane": "policy",
+      "selection": "always",
+      "command": [
+        "node",
+        "node_modules/ts-node/dist/bin.js",
+        "--project",
+        "tools/gates/tsconfig.json",
+        "tools/gates/migration-sql-lint.ts",
+        "--mode=range",
+        "{base}",
+        "{head}"
+      ],
+      "hosted_owner": "ci-affected.yml:hosted-validation"
+    },
+    {
+      "id": "tier-claims",
+      "lane": "policy",
+      "selection": "always",
+      "command": [
+        "node",
+        "node_modules/ts-node/dist/bin.js",
+        "--project",
+        "tools/gates/tsconfig.json",
+        "tools/gates/tier-claim-lint.ts",
+        "--mode=range",
+        "{base}",
+        "{head}"
+      ],
+      "hosted_owner": "ci-affected.yml:hosted-validation"
+    },
+    {
+      "id": "commit-traceability",
+      "lane": "policy",
+      "selection": "always",
+      "command": [
+        "node",
+        "node_modules/ts-node/dist/bin.js",
+        "--project",
+        "tools/gates/tsconfig.json",
+        "tools/gates/commit-msg-validator.ts",
+        "--mode=range",
+        "{base}",
+        "{head}"
+      ],
+      "hosted_owner": "ci-affected.yml:hosted-validation"
+    },
+    {
+      "id": "gate-unit-suites",
+      "lane": "policy",
+      "selection": "always",
+      "command": ["node", "tools/gates/run-all.mjs"],
+      "hosted_owner": "ci-affected.yml:hosted-validation"
+    },
+    {
+      "id": "format-scope",
+      "lane": "policy",
+      "selection": "always",
+      "command": ["node", "tools/quality/quality.mjs", "format-scope", "check"],
+      "hosted_owner": "ci-affected.yml:hosted-validation"
+    },
+    {
+      "id": "format-changed",
+      "lane": "policy",
+      "selection": "always",
+      "command": ["node", "tools/quality/quality.mjs", "format", "check-changed"],
+      "hosted_owner": "ci-affected.yml:hosted-validation"
+    },
+    {
+      "id": "aria-authority-pin",
+      "lane": "policy",
+      "selection": "always",
+      "command": [
+        "node",
+        "node_modules/ts-node/dist/bin.js",
+        "--project",
+        "tools/gates/tsconfig.json",
+        "tools/gates/aria-authority-hash.ts",
+        "--check"
+      ],
+      "hosted_owner": "ci-affected.yml:hosted-validation"
+    },
+    {
+      "id": "required-check-contract",
+      "lane": "policy",
+      "selection": "always",
+      "command": ["npm", "run", "gates:required-status-checks"],
+      "hosted_owner": "ci-affected.yml:hosted-validation"
+    },
+    {
+      "id": "hosted-gate-contract",
+      "lane": "policy",
+      "selection": "always",
+      "command": [
+        "node",
+        "node_modules/jest/bin/jest.js",
+        "--config",
+        "tests/invariants/jest.config.ts",
+        "--runInBand",
+        "--runTestsByPath",
+        "tests/invariants/git-hook-binding.spec.ts"
+      ],
+      "hosted_owner": "ci-affected.yml:hosted-validation"
+    },
+    {
+      "id": "changed-types",
+      "lane": "types",
+      "selection": "always",
+      "command": [
+        "node",
+        "scripts/ci/type-check-changed-files.mjs",
+        "--base",
+        "{base}",
+        "--head",
+        "{head}"
+      ],
+      "hosted_owner": "ci-affected.yml:hosted-validation"
+    },
+    {
+      "id": "gate-types",
+      "lane": "types",
+      "selection": "always",
+      "command": ["npm", "run", "gates:tools-typecheck"],
+      "hosted_owner": "ci-affected.yml:hosted-validation"
+    },
+    {
+      "id": "changed-rust",
+      "lane": "rust",
+      "selection": "rust-diff",
+      "command": [
+        "node",
+        "node_modules/ts-node/dist/bin.js",
+        "--project",
+        "tools/gates/tsconfig.json",
+        "tools/gates/clippy-affected.ts",
+        "--mode=range",
+        "{base}",
+        "{head}"
+      ],
+      "hosted_owner": "ci-affected.yml:hosted-validation"
+    },
+    {
+      "id": "aria-affected",
+      "lane": "aria",
+      "selection": "aria-mechanical-diff",
+      "command": [
+        "node",
+        "scripts/ci/aria-suite-changed.mjs",
+        "--base",
+        "{base}",
+        "--head",
+        "{head}"
+      ],
+      "hosted_owner": "ci-affected.yml:hosted-validation"
+    },
+    {
+      "id": "test-proof-report-contract",
+      "lane": "policy",
+      "selection": "always",
+      "command": ["node", "--test", "scripts/ci/test-proof-report.spec.mjs"],
+      "hosted_owner": "ci-affected.yml:hosted-validation"
+    }
+  ]
+}

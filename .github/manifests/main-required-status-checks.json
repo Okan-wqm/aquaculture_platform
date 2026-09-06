@@ -42,7 +42,11 @@
     ".github/manifests/**",
     "tests/**",
     "package.json",
-    "package-lock.json"
+    "package-lock.json",
+    ".husky/**",
+    "tools/lint-gates/**",
+    "scripts/ci/**",
+    "CLAUDE.md"
   ],
   "sens_specialist_required_path_filters": [
     "sens-api-gateway/**",
@@ -92,9 +96,19 @@
             "build",
             "sensor-service-gates",
             "sens-api-gateway-rust",
-            "sens-enterprise-validation"
+            "sens-enterprise-validation",
+            "hosted-validation",
+            "authentication-proof",
+            "postgres-recovery-proof",
+            "authentication-e2e"
           ],
-          "required_markers": ["Assert required PR checks"]
+          "required_markers": [
+            "Assert required PR checks",
+            "needs.hosted-validation.result",
+            "needs.authentication-proof.result",
+            "needs.postgres-recovery-proof.result",
+            "needs.authentication-e2e.result"
+          ]
         },
         {
           "context": "build-status",
@@ -116,9 +130,21 @@
             "sens-api-gateway-rust",
             "sens-enterprise-validation",
             "sens-enterprise-summary",
-            "merge-gate"
+            "merge-gate",
+            "hosted-validation",
+            "authentication-proof",
+            "postgres-recovery-proof",
+            "authentication-e2e"
           ],
-          "required_markers": ["name: build-status", "if: always()", "Affected validation passed"]
+          "required_markers": [
+            "name: build-status",
+            "if: always()",
+            "Affected validation passed",
+            "needs.hosted-validation.result",
+            "needs.authentication-proof.result",
+            "needs.postgres-recovery-proof.result",
+            "needs.authentication-e2e.result"
+          ]
         }
       ]
     },

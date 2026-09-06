@@ -1,34 +1,28 @@
-/**
- * AquaMobil E2E helpers — seeding + real-UI login (MOB-HIGH-013).
- *
- * Browser flows CANNOT use the HS256 jwt.helper shortcut for the app session:
- * AquaMobil authenticates via the real `login` mutation (RS256 access token in
- * memory + httpOnly refresh cookie), so the only honest way in is the login
- * page itself. The HS256 test tokens are still used for SERVER-SIDE seeding
- * and assertions through the gateway (same convention as the module suites).
- */
+/** AquaMobil fixtures use persisted actors and real RS256 login. */
+
+import { randomUUID } from 'node:crypto';
 
 import type { Page } from '@playwright/test';
 
 import { createTestTenant, type TestTenant } from '../../../fixtures/tenant.fixture';
-import { createTestUser, type TestUser } from '../../../fixtures/user.fixture';
+import { createTestUser, createTenantAdmin, type TestUser } from '../../../fixtures/user.fixture';
 import { TestDatabase } from '../../../helpers/db.helper';
 import { GraphQLTestClient } from '../../../helpers/graphql-client';
-import { generateTestToken } from '../../../helpers/jwt.helper';
+import { FIXTURE_PASSWORD, loginFixtureUser } from '../../../helpers/real-auth.fixture';
 
-/** Password matching user.fixture's DEFAULT_PASSWORD_HASH (bcrypt, 12 rounds). */
-export const FIXTURE_PASSWORD = 'TestPassword123!';
+export { FIXTURE_PASSWORD } from '../../../helpers/real-auth.fixture';
+
 
 export interface MobileWorkerSeed {
   tenant: TestTenant;
   user: TestUser;
-  /** HS256 token for API-side seeding/assertions as this tenant's admin. */
+  /** Access token issued by login for this tenant's persisted admin. */
   adminApiToken: string;
 }
 
 /**
  * Seed a tenant + a mobile field worker (MODULE_MANAGER so harvest-tier flows
- * stay reachable) with the fixture password, plus an HS256 admin token for
+ * stay reachable) with the fixture password, plus a real admin login for
  * API-side seeding in the same tenant.
  */
 export async function seedMobileWorker(db: TestDatabase): Promise<MobileWorkerSeed> {
@@ -37,12 +31,33 @@ export async function seedMobileWorker(db: TestDatabase): Promise<MobileWorkerSe
     role: 'MODULE_MANAGER',
     tenantId: tenant.id,
   });
-  const adminApiToken = generateTestToken({
-    userId: user.id,
-    email: user.email,
-    role: 'TENANT_ADMIN',
-    tenantId: tenant.id,
-  });
+  const admin = await createTenantAdmin(db, tenant.id);
+  const operationId = randomUUID();
+  const job = await db.query<{ id: string }>(
+    'SELECT platform.request_tenant_schema_provisioning($1, $2, $3) AS id',
+    [operationId, tenant.id, tenant.schemaName],
+  );
+  const deadline = Date.now() + 120_000;
+  for (;;) {
+    const result = await db.query<{ status: string }>(
+      'SELECT status FROM platform.tenant_schema_jobs WHERE id = $1', [job.rows[0].id],
+    );
+    const status = result.rows[0].status;
+    if (status === 'COMMITTED') break;
+    if (status === 'FAILED' || status === 'ABORTED' || Date.now() > deadline) {
+      throw new Error(`Authoritative tenant provisioning failed: ${status}`);
+    }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 1_000));
+  }
+  // Persist module assignments before obtaining the session that carries them.
+  await db.query(`INSERT INTO auth.tenant_modules ("tenantId", "moduleId", "assignedBy")
+    SELECT $1, id, $2 FROM auth.modules WHERE "isActive" = true`, [tenant.id, admin.id]);
+  await db.query(`INSERT INTO auth.user_module_assignments
+    ("userId", "moduleId", "tenantId", "assignedBy")
+    SELECT $1, id, $2, $3 FROM auth.modules WHERE "isActive" = true`,
+    [user.id, tenant.id, admin.id]);
+  user.token = await loginFixtureUser(user.email, FIXTURE_PASSWORD);
+  const adminApiToken = await loginFixtureUser(admin.email, FIXTURE_PASSWORD);
   return { tenant, user, adminApiToken };
 }
 
@@ -55,7 +70,7 @@ export async function loginAsFieldWorker(
   email: string,
   password: string = FIXTURE_PASSWORD,
 ): Promise<void> {
-  await page.goto('/login');
+  await page.goto('/mobile/login');
   await page.locator('#login-email').fill(email);
   await page.locator('#login-password').fill(password);
   await page.getByRole('button', { name: 'Sign In' }).click();
@@ -85,28 +100,18 @@ export async function seedFarmTankWithBatch(
   const stamp = Date.now();
   const initialQuantity = 5000;
 
-  const site = await client.query<{ createSite: { id: string } }>(
-    `mutation CreateSite($input: CreateSiteInput!) { createSite(input: $input) { id } }`,
-    { input: { name: `Mobile E2E Site ${stamp}`, code: `MES-${stamp.toString(36).toUpperCase()}` } },
-    { token: adminToken },
-  );
+  const site = await client.executeSuccess<{ createSite: { id: string } }>({ query: `mutation CreateSite($input: CreateSiteInput!) { createSite(input: $input) { id } }`, variables: { input: { name: `Mobile E2E Site ${stamp}`, code: `MES-${stamp.toString(36).toUpperCase()}` } }, token: adminToken });
 
-  const department = await client.query<{ createDepartment: { id: string } }>(
-    `mutation CreateDepartment($input: CreateDepartmentInput!) { createDepartment(input: $input) { id } }`,
-    {
+  const department = await client.executeSuccess<{ createDepartment: { id: string } }>({ query: `mutation CreateDepartment($input: CreateDepartmentInput!) { createDepartment(input: $input) { id } }`, variables: {
       input: {
         siteId: site.createSite.id,
         name: `Mobile E2E Dept ${stamp}`,
         code: `MED-${stamp.toString(36).toUpperCase()}`,
         type: 'production',
       },
-    },
-    { token: adminToken },
-  );
+    }, token: adminToken });
 
-  const tank = await client.query<{ createTank: { id: string; name: string } }>(
-    `mutation CreateTank($input: CreateTankInput!) { createTank(input: $input) { id name } }`,
-    {
+  const tank = await client.executeSuccess<{ createTank: { id: string; name: string } }>({ query: `mutation CreateTank($input: CreateTankInput!) { createTank(input: $input) { id name } }`, variables: {
       input: {
         name: `Mobile E2E Tank ${stamp}`,
         departmentId: department.createDepartment.id,
@@ -118,13 +123,9 @@ export async function seedFarmTankWithBatch(
         maxBiomass: 500.0,
         maxDensity: 30,
       },
-    },
-    { token: adminToken },
-  );
+    }, token: adminToken });
 
-  const species = await client.query<{ createSpecies: { id: string } }>(
-    `mutation CreateSpecies($input: CreateSpeciesInput!) { createSpecies(input: $input) { id } }`,
-    {
+  const species = await client.executeSuccess<{ createSpecies: { id: string } }>({ query: `mutation CreateSpecies($input: CreateSpeciesInput!) { createSpecies(input: $input) { id } }`, variables: {
       input: {
         commonName: `Mobile E2E Seabass ${stamp}`,
         scientificName: `Testus mobilis${stamp.toString(36)}`,
@@ -132,13 +133,9 @@ export async function seedFarmTankWithBatch(
         category: 'FISH',
         waterType: 'SALTWATER',
       },
-    },
-    { token: adminToken },
-  );
+    }, token: adminToken });
 
-  const batch = await client.query<{ createBatch: { id: string } }>(
-    `mutation CreateBatch($input: CreateBatchInput!) { createBatch(input: $input) { id } }`,
-    {
+  const batch = await client.executeSuccess<{ createBatch: { id: string } }>({ query: `mutation CreateBatch($input: CreateBatchInput!) { createBatch(input: $input) { id } }`, variables: {
       input: {
         name: `Mobile E2E Batch ${stamp}`,
         speciesId: species.createSpecies.id,
@@ -147,15 +144,11 @@ export async function seedFarmTankWithBatch(
         initialWeight: { avgWeight: 5.0, totalBiomass: (initialQuantity * 5.0) / 1000 },
         stockedAt: new Date().toISOString().split('T')[0],
       },
-    },
-    { token: adminToken },
-  );
+    }, token: adminToken });
 
-  await client.query(
-    `mutation AllocateToTank($input: AllocateToTankInput!) {
+  await client.executeSuccess({ query: `mutation AllocateToTank($input: AllocateToTankInput!) {
       allocateBatchToTank(input: $input) { id currentQuantity }
-    }`,
-    {
+    }`, variables: {
       input: {
         batchId: batch.createBatch.id,
         tankId: tank.createTank.id,
@@ -163,9 +156,7 @@ export async function seedFarmTankWithBatch(
         avgWeightG: 5.0,
         allocationType: 'INITIAL_STOCKING',
       },
-    },
-    { token: adminToken },
-  );
+    }, token: adminToken });
 
   return {
     siteId: site.createSite.id,
@@ -188,28 +179,16 @@ export async function getBatchCounters(
   adminToken: string,
   batchId: string,
 ): Promise<BatchCounters> {
-  const data = await client.query<{ batch: BatchCounters }>(
-    `query Batch($id: ID!) { batch(id: $id) { currentQuantity totalMortality } }`,
-    { id: batchId },
-    { token: adminToken },
-  );
+  const data = await client.executeSuccess<{ batch: BatchCounters }>({ query: `query Batch($id: ID!) { batch(id: $id) { currentQuantity totalMortality } }`, variables: { id: batchId }, token: adminToken });
   return data.batch;
 }
 
-/**
- * Wait for a tenant-schema table clone to exist, provoking lazy provisioning.
- *
- * Fixture tenants are direct auth.tenants rows — their tenant_<uuid> table
- * clones are created by each service's TenantSchemaSyncService only once a
- * request for that tenant reaches it. Specs that seed tenant tables via direct
- * SQL must first PROVOKE the owning service (any authenticated query) and wait
- * for the clone, or the INSERT races provisioning and fails on a missing table.
- */
+/** Wait for a clone committed by the sole db-migrate provisioner. */
 export async function ensureTenantTable(
   db: TestDatabase,
   schemaName: string,
   table: string,
-  provoke: () => Promise<unknown>,
+  _provoke: () => Promise<unknown>,
   timeoutMs = 60_000,
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -222,7 +201,6 @@ export async function ensureTenantTable(
     if (Date.now() > deadline) {
       throw new Error(`Tenant table ${schemaName}.${table} was never provisioned`);
     }
-    await provoke().catch(() => undefined);
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 1_000));
   }
 }

@@ -46,7 +46,7 @@ test.describe('AquaMobil record forms (online lane)', () => {
     const before = await getBatchCounters(client, seed.adminApiToken, farm.batchId);
 
     await loginAsFieldWorker(page, seed.user.email, FIXTURE_PASSWORD);
-    await page.goto(`/cull/record/${farm.tankId}`);
+    await page.goto(`/mobile/cull/record/${farm.tankId}`);
 
     await expect(page.getByText('Record Cull').first()).toBeVisible();
     await expect(page.getByText('Mobile E2E Tank', { exact: false }).first()).toBeVisible();

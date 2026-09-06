@@ -7,6 +7,7 @@ import { DataSource, Repository } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { User } from '../../authentication/entities/user.entity';
+import { DurableUserTokenInvalidationService } from '../../authentication/services/durable-user-token-invalidation.service';
 import { MobileUserSettings } from '../entities/mobile-user-settings.entity';
 import { Tenant, TenantStatus, TenantPlan } from '../entities/tenant.entity';
 
@@ -38,6 +39,8 @@ const createMockUser = (overrides: Partial<User> = {}): User => {
     role: Role.MODULE_USER,
     tenantId: TENANT_ID,
     isActive: true,
+    credentialVersion: 1,
+    accessTokenInvalidBeforeEpochSeconds: 0,
     isEmailVerified: false,
     failedLoginAttempts: 0,
     lockedUntil: null,
@@ -101,7 +104,7 @@ const createMockRepository = () => ({
   findOne: jest.fn(),
   findAndCount: jest.fn(),
   save: jest.fn(),
-  create: jest.fn((data: any) => ({ ...data })),
+  create: jest.fn(<T>(data: T) => ({ ...data })),
   update: jest.fn(),
   delete: jest.fn(),
 });
@@ -135,10 +138,12 @@ describe('TenantUserManagementService', () => {
   };
   // RBAC-HIGH-001: canonical user-token-revocation mock.
   let mockUserTokenRevocation: { revokeUserTokens: jest.Mock; isTokenValid: jest.Mock };
+  let mockDurableInvalidation: { enqueue: jest.Mock; applyImmediately: jest.Mock };
 
   beforeEach(async () => {
     const mockUserRepo = createMockRepository();
     const mockTenantRepo = createMockRepository();
+    mockTenantRepo.findOne.mockResolvedValue(createMockTenant());
     // WHY: the service auto-provisions/deactivates mobile settings when a
     // user's accessType changes (MOBILE_ONLY/BOTH/PANEL_ONLY), so the
     // constructor now requires the MobileUserSettings repository.
@@ -151,15 +156,21 @@ describe('TenantUserManagementService', () => {
       // manager forwards query to the dataSource query mock (so existing
       // per-test query chains stay valid) and exposes the audit log via the
       // real auditLogService mock.
-      transaction: jest.fn(
-        (cb: (manager: { query: jest.Mock; save: jest.Mock }) => Promise<unknown>) =>
-          cb({
-            query: mockDataSource.query,
-            // deleteTenantUser's soft-delete runs manager.save(user) inside the
-            // transaction (SEC-MEDIUM-002); forward it to a passthrough so the
-            // audit-rollback assertions still hinge on the auditLogService mock.
-            save: jest.fn((entity: unknown) => Promise.resolve(entity)),
+      transaction: jest.fn((cb: (manager: object) => Promise<unknown>) =>
+        cb({
+          queryRunner: { isTransactionActive: true },
+          findOne: jest.fn(async (entity: unknown, options: { where: { id: string } }) => {
+            if (entity === Tenant) return mockTenantRepo.findOne(options);
+            if (entity === User) return createMockUser({ id: options.where.id });
+            throw new Error('Unexpected role identity lookup');
           }),
+          update: jest.fn().mockResolvedValue({ affected: 1 }),
+          query: mockDataSource.query,
+          // deleteTenantUser's soft-delete runs manager.save(user) inside the
+          // transaction (SEC-MEDIUM-002); forward it to a passthrough so the
+          // audit-rollback assertions still hinge on the auditLogService mock.
+          save: jest.fn((entity: unknown) => Promise.resolve(entity)),
+        }),
       ),
     };
 
@@ -216,6 +227,10 @@ describe('TenantUserManagementService', () => {
       revokeUserTokens: jest.fn().mockResolvedValue(undefined),
       isTokenValid: jest.fn().mockResolvedValue(true),
     };
+    mockDurableInvalidation = {
+      enqueue: jest.fn().mockResolvedValue(undefined),
+      applyImmediately: jest.fn().mockResolvedValue(undefined),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -229,6 +244,7 @@ describe('TenantUserManagementService', () => {
         { provide: UserLifecycleService, useValue: mockUserLifecycleService },
         { provide: CapabilityAuthorityService, useValue: mockCapabilityAuthority },
         { provide: USER_TOKEN_REVOCATION, useValue: mockUserTokenRevocation },
+        { provide: DurableUserTokenInvalidationService, useValue: mockDurableInvalidation },
       ],
     }).compile();
 
@@ -551,7 +567,13 @@ describe('TenantUserManagementService', () => {
       );
       // RBAC-HIGH-001: the change revokes the user's live tokens so the new
       // effective set is enforced on the next request (fleet-wide).
-      expect(mockUserTokenRevocation.revokeUserTokens).toHaveBeenCalledWith(USER_ID);
+      expect(mockDurableInvalidation.enqueue).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ userId: USER_ID, invalidatedAt: expect.any(Date) }),
+      );
+      expect(mockDurableInvalidation.applyImmediately).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: USER_ID, invalidatedAt: expect.any(Date) }),
+      );
     });
 
     it('SEC-MEDIUM-002: an audit failure ROLLS BACK the role change (fail-closed)', async () => {
@@ -853,7 +875,11 @@ describe('TenantUserManagementService', () => {
 
       await service.updateTenantUser(TENANT_ID, USER_ID, { firstName: 'Renamed' }, USER_ID);
 
-      expect(userRepository.save).toHaveBeenCalled();
+      expect(userRepository.save).not.toHaveBeenCalled();
+      expect(userRepository.update).toHaveBeenCalledWith(
+        { id: USER_ID, tenantId: TENANT_ID },
+        { firstName: 'Renamed' },
+      );
       expect(mockDataSource.transaction).not.toHaveBeenCalled();
       expect(mockAuditLogService.log).not.toHaveBeenCalled();
     });

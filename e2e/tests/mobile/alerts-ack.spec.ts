@@ -11,7 +11,6 @@ import { test, expect } from '@playwright/test';
 
 import { TestDatabase } from '../../helpers/db.helper';
 import { GraphQLTestClient } from '../../helpers/graphql-client';
-import { generateTestToken } from '../../helpers/jwt.helper';
 
 import {
   FIXTURE_PASSWORD,
@@ -34,19 +33,10 @@ test.describe('AquaMobil alerts acknowledge roundtrip', () => {
 
     // Provoke alert-engine so it provisions this fixture tenant's table
     // clones before the direct SQL seed below (see ensureTenantTable).
-    const workerToken = generateTestToken({
-      userId: seed.user.id,
-      email: seed.user.email,
-      role: 'MODULE_MANAGER',
-      tenantId: seed.tenant.id,
-    });
+    const workerToken = seed.user.token;
     const client = new GraphQLTestClient(request);
     await ensureTenantTable(db, schema, 'alert_history', () =>
-      client.query(
-        `query ProvisionAlerts { alertHistory(page: 1, limit: 1) { id } }`,
-        {},
-        { token: workerToken },
-      ),
+      client.executeSuccess({ query: `query ProvisionAlerts { alertHistory(page: 1, limit: 1) { id } }`, variables: {}, token: workerToken }),
     );
 
     // Seed an unacked CRITICAL alert into the tenant's alert_history clone.
@@ -77,7 +67,7 @@ test.describe('AquaMobil alerts acknowledge roundtrip', () => {
     // The persistent critical banner tops the screen until a human acks.
     await expect(page.getByRole('alert').first()).toBeVisible();
 
-    await page.goto('/alerts');
+    await page.goto('/mobile/alerts');
     await expect(page.getByText('Dissolved oxygen critically low in Tank 3')).toBeVisible();
     await expect(page.getByText('Critical').first()).toBeVisible();
 

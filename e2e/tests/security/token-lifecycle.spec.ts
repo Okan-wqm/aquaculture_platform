@@ -11,6 +11,9 @@
 import { test, expect } from '@playwright/test';
 import { v4 as uuidv4 } from 'uuid';
 
+import { createTestTenant } from '../../fixtures/tenant.fixture';
+import { createTestUser } from '../../fixtures/user.fixture';
+import { TestDatabase } from '../../helpers/db.helper';
 import { GraphQLTestClient, GraphQLError } from '../../helpers/graphql-client';
 import {
   generateExpiredToken,
@@ -18,6 +21,7 @@ import {
   generateTokenWithWrongAudience,
   generateTokenWithWrongSecret,
 } from '../../helpers/jwt.helper';
+import { FIXTURE_PASSWORD, isJsonObject } from '../../helpers/real-auth.fixture';
 
 /** Response types (zero any policy) */
 interface MeResponse {
@@ -50,7 +54,8 @@ function expectUnauthorized(errors: GraphQLError[] | undefined, status: number):
         e.message.includes('token') ||
         e.message.includes('Authorization') ||
         e.extensions?.code === 'UNAUTHENTICATED' ||
-        e.extensions?.code === 'UNAUTHORIZED',
+        e.extensions?.code === 'UNAUTHORIZED' ||
+        e.extensions?.code === 'FORBIDDEN',
     ) ?? false;
 
   expect(
@@ -60,7 +65,7 @@ function expectUnauthorized(errors: GraphQLError[] | undefined, status: number):
 }
 
 /** Simple authenticated query to test token validity */
-const ME_QUERY = `query { me { id email } }`;
+const ME_QUERY = `query { me: currentUser { id email } }`;
 const CURRENT_USER_QUERY = `query { currentUser { id email } }`;
 
 test.describe('Token Security', () => {
@@ -105,7 +110,7 @@ test.describe('Token Security', () => {
     }
   });
 
-  test('Token without jti is handled appropriately', async () => {
+  test('Token without jti is rejected', async () => {
     // In production mode, tokens without jti should be rejected
     // In development mode, they may be allowed but logged
     const noJtiToken = generateTokenWithoutJti({
@@ -119,15 +124,7 @@ test.describe('Token Security', () => {
       { token: noJtiToken },
     );
 
-    // In production, this should be rejected (MISSING_JTI error)
-    // In development, it may pass — either outcome is acceptable for e2e
-    // The important thing is the system doesn't crash
-    if (process.env['NODE_ENV'] === 'production') {
-      expectUnauthorized(response.body.errors, response.status);
-    }
-
-    // Regardless of mode, a 500 error would indicate a bug
-    expect(response.status).not.toBe(500);
+    expectUnauthorized(response.body.errors, response.status);
   });
 
   test('Token with wrong audience is rejected', async () => {
@@ -138,22 +135,79 @@ test.describe('Token Security', () => {
 
     const response = await client.query<MeResponse>(ME_QUERY, {}, { token: wrongAudToken });
 
-    // The AuthGuard validates audience claim
-    // When audience doesn't match configured JWT_AUDIENCE, token should be rejected
-    // Note: In the gateway, audience validation happens in the full verification path
-    // JwtMiddleware may still decode it but AuthGuard will catch the mismatch
-    const hasErrors = response.body.errors && response.body.errors.length > 0;
-    const isRejected = response.status === 401 || response.status === 403;
+    expectUnauthorized(response.body.errors, response.status);
+  });
 
-    if (isRejected || hasErrors) {
-      // Token correctly rejected
-      if (response.body.data) {
-        expect(response.body.data.me).toBeNull();
-      }
+  test('real login and bookkeeping preserve access; deactivation rejects the prior session and new login', async ({
+    request,
+  }) => {
+    const db = new TestDatabase();
+    try {
+      const tenant = await createTestTenant(db);
+      const user = await createTestUser(db, { tenantId: tenant.id });
+      const before = await client.query<CurrentUserResponse>(
+        CURRENT_USER_QUERY,
+        {},
+        { token: user.token },
+      );
+      expect(before.status).toBe(200);
+      expect(before.body.errors).toBeUndefined();
+      expect(before.body.data?.currentUser?.id).toBe(user.id);
+      await db.query(
+        'UPDATE auth.users SET "lastLoginAt" = CURRENT_TIMESTAMP, "failedLoginAttempts" = 0 WHERE id = $1',
+        [user.id],
+      );
+      const bookkeeping = await client.query<CurrentUserResponse>(
+        CURRENT_USER_QUERY,
+        {},
+        { token: user.token },
+      );
+      expect(bookkeeping.body.errors).toBeUndefined();
+      expect(bookkeeping.body.data?.currentUser?.id).toBe(user.id);
+      await db.query('UPDATE auth.users SET "isActive" = false WHERE id = $1', [user.id]);
+      const after = await client.query<CurrentUserResponse>(
+        CURRENT_USER_QUERY,
+        {},
+        { token: user.token },
+      );
+      expectUnauthorized(after.body.errors, after.status);
+      expect(after.body.data?.currentUser).toBeFalsy();
+      const denied = await request.post('/graphql', {
+        data: {
+          query: 'mutation Login($input: LoginInput!) { login(input: $input) { accessToken } }',
+          variables: { input: { email: user.email, password: FIXTURE_PASSWORD } },
+        },
+      });
+      const deniedBody: unknown = await denied.json();
+      if (!isJsonObject(deniedBody)) throw new Error('Login rejection returned invalid JSON');
+      const rawErrors = deniedBody['errors'];
+      if (rawErrors !== undefined && !Array.isArray(rawErrors))
+        throw new Error('Login rejection returned invalid GraphQL errors');
+      const errors: GraphQLError[] | undefined =
+        rawErrors === undefined
+          ? undefined
+          : rawErrors.map((error: unknown): GraphQLError => {
+              if (!isJsonObject(error) || typeof error['message'] !== 'string')
+                throw new Error('Login rejection returned an invalid GraphQL error');
+              const extensions = error['extensions'];
+              if (extensions !== undefined && !isJsonObject(extensions))
+                throw new Error('Login rejection returned invalid GraphQL error extensions');
+              return {
+                message: error['message'],
+                ...(extensions === undefined ? {} : { extensions }),
+              };
+            });
+      const data = deniedBody['data'];
+      if (data !== undefined && data !== null && !isJsonObject(data))
+        throw new Error('Login rejection returned invalid GraphQL data');
+      const login = isJsonObject(data) ? data['login'] : undefined;
+      if (login !== undefined && login !== null && !isJsonObject(login))
+        throw new Error('Login rejection returned an invalid login payload');
+      expectUnauthorized(errors, denied.status());
+      expect(isJsonObject(login) ? login['accessToken'] : undefined).toBeFalsy();
+    } finally {
+      await db.close();
     }
-    // If it passes (audience validation is optional when aud not in JWT config),
-    // at minimum it should not cause a server error
-    expect(response.status).not.toBe(500);
   });
 
   test('Request without authorization header is rejected', async () => {

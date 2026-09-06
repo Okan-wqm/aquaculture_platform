@@ -1,3 +1,5 @@
+import { parseAccessTokenLifetimeSeconds } from './config/jwt-lifetime';
+import { SECURITY_CONSTANTS } from './constants/auth.constants';
 import { join } from 'path';
 
 import {
@@ -56,8 +58,6 @@ import { EventBusModule } from '@platform/event-bus';
 import depthLimit from 'graphql-depth-limit';
 
 import { AuditModule } from './audit/audit.module';
-import { SECURITY_CONSTANTS } from './constants/auth.constants';
-import { parseAccessTokenLifetimeSeconds } from './config/jwt-lifetime';
 import { HealthModule } from './health/health.module';
 import { AuthMetricsModule } from './metrics/metrics.module';
 import { AnnouncementModule } from './modules/announcement/announcement.module';
@@ -244,6 +244,9 @@ const authSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
           );
         }
 
+        parseAccessTokenLifetimeSeconds(
+          configService.get<string>('JWT_EXPIRES_IN', SECURITY_CONSTANTS.DEFAULT_JWT_EXPIRES_IN),
+        );
         return {
           privateKey,
           publicKey,
@@ -252,12 +255,9 @@ const authSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
             // Consumer services verify with the public key; a compromised consumer
             // cannot forge tokens for other services.
             algorithm: 'RS256' as const,
-            expiresIn: parseAccessTokenLifetimeSeconds(
-              configService.get<string>(
-                'JWT_EXPIRES_IN',
-                SECURITY_CONSTANTS.DEFAULT_JWT_EXPIRES_IN,
-              ),
-            ),
+            // Each issuer supplies its own explicit lifetime. Access/step-up tokens carry
+            // absolute exp; MFA challenge/setup issuers pass expiresIn. A module default
+            // would merge into signAsync and conflict with an explicit exp.
             issuer: configService.get('JWT_ISSUER', 'aquaculture-platform'),
             audience: configService.get('JWT_AUDIENCE', 'aquaculture-platform'),
           },

@@ -1,3 +1,7 @@
 b89c623e92ef58a8230cbb1a6a06c9f10fc99549:tools/scripts/database/walg-base-backup.sh:generic-api-key:29
 ef174d18cd97a4fb9cc98798ea45f21497b2384c:tools/backup-ssh-broker/main.rs:generic-api-key:40
 ef174d18cd97a4fb9cc98798ea45f21497b2384c:.github/workflows/verify-backup-ssh-broker.yml:generic-api-key:1389
+# Historical isolated hosted fixture literals, never production credentials.
+# Current fixture generates a fresh password; retain only these exact history matches.
+57ca1a0f3447da1c83b3966593e66b7b20a10b74:scripts/ci/test-postgres-dr-recovery.sh:aquaculture-env-secret-assignment:41
+57ca1a0f3447da1c83b3966593e66b7b20a10b74:scripts/ci/test-postgres-dr-recovery.sh:aquaculture-env-secret-assignment:64

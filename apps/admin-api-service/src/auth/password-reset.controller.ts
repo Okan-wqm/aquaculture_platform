@@ -1,3 +1,4 @@
+import { parseNatsRequestTimeout } from '@aquaculture/backend-common/nats';
 import { ThrottlePasswordReset } from '@aquaculture/backend-common/security';
 import {
   BadGatewayException,
@@ -64,9 +65,11 @@ export class PasswordResetController {
     @Inject('AUTH_NATS_CLIENT')
     private readonly authNatsClient: ClientProxy,
   ) {
-    const configured = parseInt(process.env['AUTH_NATS_TIMEOUT_MS'] ?? '', 10);
-    this.timeoutMs =
-      Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_AUTH_NATS_TIMEOUT_MS;
+    this.timeoutMs = parseNatsRequestTimeout(
+      process.env['AUTH_NATS_TIMEOUT_MS'],
+      DEFAULT_AUTH_NATS_TIMEOUT_MS,
+      'AUTH_NATS_TIMEOUT_MS',
+    );
   }
 
   /**

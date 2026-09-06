@@ -271,4 +271,32 @@ describe('FeedAllocationService.allocateForDeduction', () => {
       lotNumber: 'LOT-X',
     });
   });
+
+  it('son kullanma süzgeci İŞLEMİN anını bağlar, duvar saatini değil', async () => {
+    // Geriye dönük kayıt: `asOf` geçmişte. Süzgeç `new Date()` okurken, o an
+    // geçerli olup ARADA son kullanma tarihi geçmiş lot havuzdan sessizce
+    // düşüyordu — komşu receivedDate koşulu zaten `asOf` bağlıyor.
+    const asOf = new Date('2026-07-01T08:00:00Z');
+    const { service, manager, builders } = makeHarness(
+      [{ id: 'i1', storageLocationId: 'loc-1', lotNumber: 'LOT-A', quantity: 500 }],
+      { 'loc-1': SITE_A },
+    );
+
+    await service.allocateForDeduction(manager, TENANT, {
+      feedId: FEED,
+      quantityKg: 10,
+      asOf,
+      siteId: SITE_A,
+    });
+
+    expect(builders[0]!['andWhere']).toHaveBeenCalledWith(
+      '(inv.expiryDate IS NULL OR inv.expiryDate > :expiryAsOf)',
+      { expiryAsOf: asOf },
+    );
+    // Ve receivedDate ile AYNI anı bağlar — tek işlem, tek an.
+    expect(builders[0]!['andWhere']).toHaveBeenCalledWith(
+      '(inv.receivedDate IS NULL OR inv.receivedDate <= :asOf)',
+      { asOf },
+    );
+  });
 });

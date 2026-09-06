@@ -16,7 +16,6 @@ import {
   ArrowLeft,
   Check,
   Package,
-  CheckCircle,
   AlertCircle,
   Hand,
   Settings,
@@ -26,6 +25,7 @@ import {
 import { useState, useEffect, ChangeEvent, type JSX } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
+import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useTodaysDayPlans, type DayPlanMeal, type MealStatus } from '@/hooks/useTodaysDayPlans';
 import { useI18n } from '@/i18n';
@@ -84,7 +84,11 @@ export function RecordFeedingPage(): JSX.Element {
   const [feedingMethod, setFeedingMethod] = useState<FeedingMethodOption>('manual');
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showSuccess, setShowSuccess] = useState(false);
+  // MOB: a queued record is on the device, not in the database. Holding the
+  // operation id lets QueuedStatusBadge report its REAL state, so a rejection
+  // during sync surfaces as "Sync Failed" instead of disappearing behind a
+  // tick the user already walked away from.
+  const [queuedOperationId, setQueuedOperationId] = useState<string | null>(null);
   const [errors, setErrors] = useState<FormErrors>({});
 
   useEffect(() => {
@@ -128,15 +132,14 @@ export function RecordFeedingPage(): JSX.Element {
     setIsSubmitting(true);
     setErrors({});
     try {
-      await addToQueue('recordMealFeeding', {
+      const { id: opId } = await addToQueue('recordMealFeeding', {
         mealId: selectedMeal.id,
         pourKg: parsedPour,
         finalize,
         feedingMethod,
         notes: notes.trim() || undefined,
       });
-      setShowSuccess(true);
-      setTimeout(() => navigate('/'), 1500);
+      setQueuedOperationId(opId);
     } catch (error) {
       const message = error instanceof Error ? error.message : t('feeding.errors.generic');
       setErrors({ general: message });
@@ -159,9 +162,8 @@ export function RecordFeedingPage(): JSX.Element {
     setIsSubmitting(true);
     setErrors({});
     try {
-      await addToQueue('finalizeMeal', { mealId: selectedMeal.id });
-      setShowSuccess(true);
-      setTimeout(() => navigate('/'), 1500);
+      const { id: opId } = await addToQueue('finalizeMeal', { mealId: selectedMeal.id });
+      setQueuedOperationId(opId);
     } catch (error) {
       const message = error instanceof Error ? error.message : t('feeding.errors.generic');
       setErrors({ general: message });
@@ -177,19 +179,31 @@ export function RecordFeedingPage(): JSX.Element {
     setErrors({});
   };
 
-  if (showSuccess) {
+  // -- Queued screen ---------------------------------------------------------
+  // Every feeding record on this page goes through the offline queue, online or
+  // not. The old screen showed a green tick and navigated home after 1.5s, so a
+  // record the server later REJECTED looked identical to one it accepted.
+  if (queuedOperationId) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-green-50 dark:bg-green-900/10">
-        <div className="w-20 h-20 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mb-4">
-          <CheckCircle size={48} className="text-green-600" />
+      <div className="flex flex-col items-center justify-center min-h-screen bg-amber-50 dark:bg-amber-900/10 px-6">
+        <div className="w-20 h-20 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center mb-4">
+          <Package size={48} className="text-amber-600" />
         </div>
-        <h2 className="text-xl font-bold text-green-700 dark:text-green-300">
-          {t('feeding.recorded')}
+        <h2 className="text-xl font-bold text-amber-700 dark:text-amber-300">
+          {t('feeding.savedToDevice')}
         </h2>
-        {/* Kayıt her zaman önce kuyruğa gider ve arka planda eşitlenir. */}
-        <p className="text-green-600 dark:text-green-400 text-sm mt-1">
+        <p className="text-amber-600 dark:text-amber-400 text-sm mt-1 text-center">
           {t('feeding.queuedForSync')}
         </p>
+        <div className="mt-4">
+          <QueuedStatusBadge operationId={queuedOperationId} />
+        </div>
+        <button
+          onClick={() => navigate('/')}
+          className="mt-6 px-5 py-2.5 rounded-xl bg-amber-600 text-white font-medium touch-feedback"
+        >
+          {t('common.backToHome')}
+        </button>
       </div>
     );
   }

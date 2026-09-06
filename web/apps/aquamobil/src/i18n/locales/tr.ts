@@ -58,6 +58,8 @@ export const tr: Record<MessageKey, string> = {
   'feeding.recording': 'Kaydediliyor...',
   'feeding.recorded': 'Kaydedildi!',
   'feeding.queuedForSync': 'Eşitleme kuyruğuna alındı',
+  'feeding.savedToDevice': 'Cihaza kaydedildi',
+  'common.backToHome': 'Ana sayfaya dön',
   'feeding.offlineWillSync': 'Çevrimdışı - bağlanınca eşitlenecek',
   'feeding.errors.amountRequired': "Miktar 0'dan büyük olmalı",
   'feeding.errors.amountMax': 'Miktar 10000 kg üzerinde olamaz',

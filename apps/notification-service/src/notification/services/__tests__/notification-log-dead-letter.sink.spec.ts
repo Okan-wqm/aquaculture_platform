@@ -1,6 +1,12 @@
+import { collaborator, stubMember } from '@aquaculture/testing';
 import type { DeadLetterRecord } from '@platform/event-bus';
+import type { Repository } from 'typeorm';
 
-import { NotificationChannel, NotificationStatus } from '../../entities/notification-log.entity';
+import {
+  NotificationChannel,
+  NotificationLog,
+  NotificationStatus,
+} from '../../entities/notification-log.entity';
 import { NotificationLogDeadLetterSink } from '../notification-log-dead-letter.sink';
 
 /**
@@ -31,17 +37,40 @@ describe('NotificationLogDeadLetterSink (PLAT-HIGH-902)', () => {
     };
   }
 
-  it('persists a redacted DEAD_LETTER row with hash, replay handle and delivery position', async () => {
-    const repository = {
-      create: jest.fn((row: unknown) => row),
-      save: jest.fn().mockResolvedValue(undefined),
+  /**
+   * `create` and `save` are overload sets on `Repository`, so they go through
+   * `stubMember` — the one place the repo allows that cast — while every other
+   * member stays checked against the real type and an unmodelled call throws
+   * by name instead of reading `undefined`.
+   */
+  function repositoryDouble(): {
+    repository: Repository<NotificationLog>;
+    create: jest.Mock;
+    save: jest.Mock;
+  } {
+    const create = jest.fn((row: unknown) => row);
+    const save = jest.fn().mockResolvedValue(undefined);
+    return {
+      repository: collaborator<Repository<NotificationLog>>(
+        {
+          create: stubMember<Repository<NotificationLog>['create']>(create),
+          save: stubMember<Repository<NotificationLog>['save']>(save),
+        },
+        'Repository<NotificationLog>',
+      ),
+      create,
+      save,
     };
-    const sink = new NotificationLogDeadLetterSink(repository as never);
+  }
+
+  it('persists a redacted DEAD_LETTER row with hash, replay handle and delivery position', async () => {
+    const { repository, create, save } = repositoryDouble();
+    const sink = new NotificationLogDeadLetterSink(repository);
 
     await sink.record(record({ cause: new Error('boom') }));
 
-    expect(repository.save).toHaveBeenCalledTimes(1);
-    const row = repository.create.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(save).toHaveBeenCalledTimes(1);
+    const row = create.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(row).toEqual(
       expect.objectContaining({
         tenantId: TENANT,
@@ -68,11 +97,8 @@ describe('NotificationLogDeadLetterSink (PLAT-HIGH-902)', () => {
   });
 
   it('records a retry-exhausted message with the platform segment as its tenant', async () => {
-    const repository = {
-      create: jest.fn((row: unknown) => row),
-      save: jest.fn().mockResolvedValue(undefined),
-    };
-    const sink = new NotificationLogDeadLetterSink(repository as never);
+    const { repository, create } = repositoryDouble();
+    const sink = new NotificationLogDeadLetterSink(repository);
 
     await sink.record(
       record({
@@ -83,7 +109,7 @@ describe('NotificationLogDeadLetterSink (PLAT-HIGH-902)', () => {
       }),
     );
 
-    const row = repository.create.mock.calls[0]?.[0] as Record<string, unknown>;
+    const row = create.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(row).toEqual(
       expect.objectContaining({
         tenantId: 'system',
